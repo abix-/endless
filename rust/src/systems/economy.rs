@@ -95,7 +95,7 @@ pub fn game_time_system(
 pub fn growth_system(
     time: Res<Time>,
     game_time: Res<GameTime>,
-    mut building_map: ResMut<BuildingEntityMap>,
+    mut building_map: ResMut<EntityMap>,
     farm_occupancy: Res<BuildingOccupancy>,
     upgrades: Res<TownUpgrades>,
     timings: Res<SystemTimings>,
@@ -206,7 +206,7 @@ pub fn starvation_system(
 /// Growing→Ready: spawn marker. Ready→Growing (harvest): despawn marker.
 pub fn farm_visual_system(
     mut commands: Commands,
-    building_map: Res<BuildingEntityMap>,
+    building_map: Res<EntityMap>,
     markers: Query<(Entity, &FarmReadyMarker)>,
     mut prev_ready: Local<HashMap<usize, bool>>,
     timings: Res<SystemTimings>,
@@ -236,14 +236,13 @@ pub fn farm_visual_system(
 /// Only runs when game_time.hour_ticked is true.
 pub fn spawner_respawn_system(
     game_time: Res<GameTime>,
-    npc_map: Res<EntityMap>,
+    mut entity_map: ResMut<EntityMap>,
     mut slots: ResMut<EntitySlots>,
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     world_data: Res<WorldData>,
     mut combat_log: MessageWriter<CombatLogMsg>,
     farm_occupancy: Res<BuildingOccupancy>,
     timings: Res<SystemTimings>,
-    mut building_map: ResMut<BuildingEntityMap>,
     mut dirty_writers: crate::messages::DirtyWriters,
 ) {
     let _t = timings.scope("spawner_respawn");
@@ -252,39 +251,39 @@ pub fn spawner_respawn_system(
     }
 
     // Collect spawner slots to avoid borrow conflict (need &mut for npc_slot/respawn_timer, & for resolve)
-    let spawner_slots: Vec<usize> = building_map.iter_instances()
+    let spawner_slots: Vec<usize> = entity_map.iter_instances()
         .filter(|i| i.respawn_timer > -2.0)
         .map(|i| i.slot)
         .collect();
 
     for bld_slot in spawner_slots {
-        let Some(inst) = building_map.get_instance(bld_slot) else { continue };
+        let Some(inst) = entity_map.get_instance(bld_slot) else { continue };
 
         // Check if linked NPC died
-        if inst.npc_slot >= 0 && !npc_map.0.contains_key(&(inst.npc_slot as usize)) {
+        if inst.npc_slot >= 0 && !entity_map.entities.contains_key(&(inst.npc_slot as usize)) {
             let is_miner_home = inst.kind == BuildingKind::MinerHome;
-            if let Some(inst_mut) = building_map.get_instance_mut(bld_slot) {
+            if let Some(inst_mut) = entity_map.get_instance_mut(bld_slot) {
                 inst_mut.npc_slot = -1;
                 inst_mut.respawn_timer = SPAWNER_RESPAWN_HOURS;
             }
             if is_miner_home { dirty_writers.mining.write(crate::messages::MiningDirtyMsg); }
         }
 
-        let Some(inst) = building_map.get_instance(bld_slot) else { continue };
+        let Some(inst) = entity_map.get_instance(bld_slot) else { continue };
         // Count down respawn timer (>= 0.0 catches newly-built spawners at 0.0)
         if inst.respawn_timer >= 0.0 {
             let new_timer = inst.respawn_timer - 1.0;
-            if let Some(inst_mut) = building_map.get_instance_mut(bld_slot) {
+            if let Some(inst_mut) = entity_map.get_instance_mut(bld_slot) {
                 inst_mut.respawn_timer = new_timer;
             }
             if new_timer <= 0.0 {
                 // Spawn replacement NPC
                 let Some(slot) = slots.alloc() else { continue };
-                let Some(inst) = building_map.get_instance(bld_slot) else { continue };
+                let Some(inst) = entity_map.get_instance(bld_slot) else { continue };
                 let town_data_idx = inst.town_idx as usize;
 
                 let (job, faction, work_x, work_y, starting_post, attack_type, job_name, building_name) =
-                    world::resolve_spawner_npc(inst, &world_data.towns, &building_map, &farm_occupancy);
+                    world::resolve_spawner_npc(inst, &world_data.towns, &entity_map, &farm_occupancy);
 
                 let pos = inst.position;
                 let is_miner_home = inst.kind == BuildingKind::MinerHome;
@@ -296,7 +295,7 @@ pub fn spawner_respawn_system(
                     home_x: pos.x, home_y: pos.y,
                     work_x, work_y, starting_post, attack_type,
                 });
-                if let Some(inst_mut) = building_map.get_instance_mut(bld_slot) {
+                if let Some(inst_mut) = entity_map.get_instance_mut(bld_slot) {
                     inst_mut.npc_slot = slot as i32;
                     inst_mut.respawn_timer = -1.0;
                 }
@@ -311,9 +310,8 @@ pub fn spawner_respawn_system(
 /// Rebuild auto-mining discovery + assignments when mining topology/policy changes.
 pub fn mining_policy_system(
     world_data: Res<WorldData>,
-    mut building_map: ResMut<BuildingEntityMap>,
+    mut entity_map: ResMut<EntityMap>,
     policies: Res<TownPolicies>,
-    npc_map: Res<EntityMap>,
     mut mining: ResMut<MiningPolicy>,
     mut mining_dirty: MessageReader<crate::messages::MiningDirtyMsg>,
     timings: Res<SystemTimings>,
@@ -321,7 +319,7 @@ pub fn mining_policy_system(
     let _t = timings.scope("mining_policy");
     if mining_dirty.read().count() == 0 { return; }
 
-    // Mine discovery: iterate BuildingEntityMap gold mines, keyed by slot
+    // Mine discovery: iterate EntityMap gold mines, keyed by slot
     mining.discovered_mines.resize(world_data.towns.len(), Vec::new());
 
     for town_idx in 0..world_data.towns.len() {
@@ -337,7 +335,7 @@ pub fn mining_policy_system(
         let r2 = radius * radius;
 
         let mut discovered = Vec::new();
-        for inst in building_map.iter_kind(BuildingKind::GoldMine) {
+        for inst in entity_map.iter_kind(BuildingKind::GoldMine) {
             let d = inst.position - town.center;
             if d.length_squared() <= r2 {
                 mining.mine_enabled.entry(inst.slot).or_insert(true);
@@ -357,28 +355,28 @@ pub fn mining_policy_system(
             .collect();
 
         let enabled_positions: Vec<Vec2> = enabled_slots.iter()
-            .filter_map(|&slot| building_map.get_instance(slot).map(|i| i.position))
+            .filter_map(|&slot| entity_map.get_instance(slot).map(|i| i.position))
             .collect();
         let enabled_grid_cells: std::collections::HashSet<(i32,i32)> = enabled_positions.iter()
             .map(|p| ((p.x / TOWN_GRID_SPACING).floor() as i32, (p.y / TOWN_GRID_SPACING).floor() as i32))
             .collect();
 
         // Collect auto-assign miner home slots (O(town's miner homes) instead of O(all spawners))
-        let auto_home_slots: Vec<usize> = building_map
+        let auto_home_slots: Vec<usize> = entity_map
             .iter_kind_for_town(BuildingKind::MinerHome, town_idx as u32)
             .filter(|inst| !inst.manual_mine && inst.npc_slot >= 0
-                && npc_map.0.contains_key(&(inst.npc_slot as usize)))
+                && entity_map.entities.contains_key(&(inst.npc_slot as usize)))
             .map(|inst| inst.slot)
             .collect();
 
         // Clear stale assignments (mine disabled or no longer discovered)
         for &slot in &auto_home_slots {
-            let Some(inst) = building_map.get_instance(slot) else { continue };
+            let Some(inst) = entity_map.get_instance(slot) else { continue };
             if let Some(pos) = inst.assigned_mine {
                 let cell = ((pos.x / TOWN_GRID_SPACING).floor() as i32, (pos.y / TOWN_GRID_SPACING).floor() as i32);
                 let still_enabled = enabled_grid_cells.contains(&cell);
                 if !still_enabled {
-                    if let Some(inst_mut) = building_map.get_instance_mut(slot) {
+                    if let Some(inst_mut) = entity_map.get_instance_mut(slot) {
                         inst_mut.assigned_mine = None;
                     }
                 }
@@ -387,7 +385,7 @@ pub fn mining_policy_system(
 
         if enabled_positions.is_empty() {
             for &slot in &auto_home_slots {
-                if let Some(inst_mut) = building_map.get_instance_mut(slot) {
+                if let Some(inst_mut) = entity_map.get_instance_mut(slot) {
                     inst_mut.assigned_mine = None;
                 }
             }
@@ -397,7 +395,7 @@ pub fn mining_policy_system(
         // Round-robin assign mines to auto homes
         for (i, &slot) in auto_home_slots.iter().enumerate() {
             let mine_pos = enabled_positions[i % enabled_positions.len()];
-            if let Some(inst_mut) = building_map.get_instance_mut(slot) {
+            if let Some(inst_mut) = entity_map.get_instance_mut(slot) {
                 inst_mut.assigned_mine = Some(mine_pos);
             }
         }
@@ -422,7 +420,7 @@ pub fn squad_cleanup_system(
 
     // Phase 1: remove dead members (all squads)
     for squad in squad_state.squads.iter_mut() {
-        squad.members.retain(|&slot| npc_map.0.contains_key(&slot));
+        squad.members.retain(|&slot| npc_map.entities.contains_key(&slot));
     }
 
     // Phase 2: keep Default Squad (index 0) as the live pool of unsquadded player military units.
@@ -511,7 +509,7 @@ pub struct MigrationResources<'w> {
 /// Returns (town_data_idx, grid_idx, faction).
 fn create_ai_town(
     world_data: &mut WorldData,
-    building_map: &BuildingEntityMap,
+    building_map: &EntityMap,
     town_grids: &mut TownGrids,
     res: &mut MigrationResources,
     ai_state: &mut AiPlayerState,
@@ -700,7 +698,7 @@ pub fn endless_system(
     // === ATTACH Migrating component to newly spawned members ===
     if let Some(mg) = &migration_state.active {
         for &slot in &mg.member_slots {
-            if let Some(&entity) = npc_map.0.get(&slot) {
+            if let Some(&entity) = npc_map.entities.get(&slot) {
                 if migrating_query.get(entity).is_err() {
                     if let Ok(mut ec) = commands.get_entity(entity) {
                         ec.insert(Migrating);
@@ -718,7 +716,7 @@ pub fn endless_system(
         let mut sum_y = 0.0f32;
         let mut count = 0u32;
         for &slot in &mg.member_slots {
-            if let Some(&entity) = npc_map.0.get(&slot) {
+            if let Some(&entity) = npc_map.entities.get(&slot) {
                 if let Ok((_, _, pos)) = migrating_query.get(entity) {
                     sum_x += pos.x;
                     sum_y += pos.y;
@@ -754,7 +752,7 @@ pub fn endless_system(
         let member_slots = mg.member_slots.clone();
 
         let (town_data_idx, grid_idx, _faction) = create_ai_town(
-            &mut world_state.world_data, &world_state.building_slots, &mut world_state.town_grids, &mut res, &mut ai_state,
+            &mut world_state.world_data, &world_state.building_data, &mut world_state.town_grids, &mut res, &mut ai_state,
             mg.settle_target, is_raider,
         );
 
@@ -769,9 +767,9 @@ pub fn endless_system(
         upgrades.levels.resize(num_towns, Vec::new());
         upgrades.levels[town_data_idx] = mg.upgrade_levels.clone();
 
-        // Place buildings directly into BuildingEntityMap
+        // Place buildings directly into EntityMap
         if let Some(town_grid) = world_state.town_grids.grids.get_mut(grid_idx) {
-            world::place_buildings(&mut world_state.grid, &world_state.world_data, mg.settle_target, town_data_idx as u32, &config, town_grid, is_raider, &mut world_state.entity_slots, &mut world_state.building_slots);
+            world::place_buildings(&mut world_state.grid, &world_state.world_data, mg.settle_target, town_data_idx as u32, &config, town_grid, is_raider, &mut world_state.entity_slots, &mut world_state.building_data);
         }
         world::stamp_dirt(&mut world_state.grid, &[mg.settle_target]);
 
@@ -782,7 +780,7 @@ pub fn endless_system(
 
         // Settle NPCs: remove Migrating, set Home, update town_idx
         for &slot in &member_slots {
-            if let Some(&entity) = npc_map.0.get(&slot) {
+            if let Some(&entity) = npc_map.entities.get(&slot) {
                 if migrating_query.get(entity).is_ok() {
                     commands.entity(entity).remove::<Migrating>();
                     commands.entity(entity).insert(Home(mg.settle_target));

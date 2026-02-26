@@ -12,10 +12,10 @@ NPC decision-making and state transitions. All run in `Step::Behavior` after com
 Activity is preserved through combat — a Raiding NPC stays `Activity::Raiding` while `CombatState::Fighting`. When combat ends, the NPC resumes its previous activity.
 
 The system uses **SystemParam bundles** for farm and economy parameters:
-- `FarmParams`: `BuildingOccupancy` tracking, `BuildingEntityMap`
+- `FarmParams`: `BuildingOccupancy` tracking, `EntityMap`
 - `EconomyParams`: food storage, food events, population stats
 - `DecisionExtras`: npc logs, combat log, policies, squad state, timings, town upgrades
-- `Res<BuildingEntityMap>`: sole source of truth for all building instance lookups (farms, waypoints, towns, gold mines)
+- `Res<EntityMap>`: sole source of truth for all building instance lookups (farms, waypoints, towns, gold mines)
 
 Priority order (first match wins), with three-tier throttling via `NpcDecisionConfig.interval`:
 
@@ -195,7 +195,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
   - `Patrolling` → check squad rest first (tired squad members → `GoingToRest` targeting home instead of `OnDuty`); otherwise `Activity::OnDuty { ticks_waiting: 0 }`
   - `GoingToRest` → `Activity::Resting` (sleep icon derived by `sync_visual_sprites`)
   - `GoingToHeal` → `Activity::HealingAtFountain { recover_until: policy.recovery_hp }` (healing aura handles HP recovery)
-  - `GoingToWork` → check `BuildingOccupancy`: if farm occupied, redirect to nearest free farm in own town (or idle if none); else check if farm is Ready via `BuildingEntityMap::find_farm_at(pos)` (O(1) spatial lookup) — if so, harvest and immediately enter `Returning { loot: Food }` (carry home without claiming); if not Ready, claim farm via `BuildingOccupancy.claim()` + `AssignedFarm` + `Working`. Note: farmer dynamically picked this farm via priority scan (ready > unoccupied, closest) during work decision — no permanent assignment.
+  - `GoingToWork` → check `BuildingOccupancy`: if farm occupied, redirect to nearest free farm in own town (or idle if none); else check if farm is Ready via `EntityMap::find_farm_at(pos)` (O(1) spatial lookup) — if so, harvest and immediately enter `Returning { loot: Food }` (carry home without claiming); if not Ready, claim farm via `BuildingOccupancy.claim()` + `AssignedFarm` + `Working`. Note: farmer dynamically picked this farm via priority scan (ready > unoccupied, closest) during work decision — no permanent assignment.
   - `Raiding { .. }` → steal if farm ready, else find a different farm (excludes current position, skips tombstoned); if no other farm exists, return home
   - `Mining { mine_pos }` → find mine at position, check gold > 0 and occupancy < `MAX_MINE_OCCUPANCY`, claim occupancy via `BuildingOccupancy`, insert `MiningProgress(0.0)`, set `Activity::MiningAtMine`
   - `Returning { .. }` → if home is valid, redirect to home (may have arrived at wrong place after DC removal); otherwise transition to Idle
@@ -235,7 +235,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - Score Eat/Rest/Work/Wander with personality multipliers and HP modifier
 - Select via weighted random, execute action
 - **Food check**: Eat only scored if town has food in storage
-- **Farmer work branch**: Farmers dynamically scan same-town farms via `BuildingEntityMap::iter_kind_for_town(Farm, town_id)` — O(k) where k = farms in that town. All occupied farms are skipped first, then priority: ready unoccupied > growing unoccupied, closest within each tier. Inserts `WorkPosition` with the chosen farm and sets `GoingToWork`. While en-route (`GoingToWork`), farmers re-check occupancy at Tier 3 cadence — if another farmer claimed the target farm first, the en-route farmer retargets to the nearest free farm (or idles if none). This prevents dogpiling: closest farmer wins, others keep searching.
+- **Farmer work branch**: Farmers dynamically scan same-town farms via `EntityMap::iter_kind_for_town(Farm, town_id)` — O(k) where k = farms in that town. All occupied farms are skipped first, then priority: ready unoccupied > growing unoccupied, closest within each tier. Inserts `WorkPosition` with the chosen farm and sets `GoingToWork`. While en-route (`GoingToWork`), farmers re-check occupancy at Tier 3 cadence — if another farmer claimed the target farm first, the en-route farmer retargets to the nearest free farm (or idles if none). This prevents dogpiling: closest farmer wins, others keep searching.
 - **Miner work branch**: Miners have a separate `Action::Work` → `Job::Miner` branch. If the miner's `MinerHome` has `assigned_mine` set (via building inspector UI), that mine is used directly. Otherwise, finds the nearest unoccupied mine and walks there (`Activity::Mining { mine_pos }`). Completely independent of farmer logic — no `mining_pct` roll. Miners share farmer schedule/flee/off-duty policies.
 - **Decision logging**: Each decision logged to `NpcLogCache`
 
@@ -246,7 +246,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 
 ### arrival_system (Proximity Checks)
 - **Proximity-based delivery** for Returning NPCs: matches `Activity::Returning { .. }`, checks distance to home, delivers food and/or gold within DELIVERY_RADIUS (50px). All NPCs (including farmers) go `Idle` after delivery — the decision system re-evaluates the best target. Gold delivered to `GoldStorage` per town.
-- **Working farmer harvest → carry home** (throttled every 30 frames): re-targets farmers who drifted >20px from their assigned farm; when farm becomes Ready, uses `BuildingEntityMap::find_farm_at_mut(pos)` for O(1) spatial lookup, calls `BuildingInstance::harvest()` (resets farm, returns yield), releases occupancy, removes `AssignedFarm`, enters `Returning { loot: [(Food, yield)] }` targeting home — farmer visibly carries food home for delivery
+- **Working farmer harvest → carry home** (throttled every 30 frames): re-targets farmers who drifted >20px from their assigned farm; when farm becomes Ready, uses `EntityMap::find_farm_at_mut(pos)` for O(1) spatial lookup, calls `BuildingInstance::harvest()` (resets farm, returns yield), releases occupancy, removes `AssignedFarm`, enters `Returning { loot: [(Food, yield)] }` targeting home — farmer visibly carries food home for delivery
 - **Healing drift check** in decision_system: `HealingAtFountain` NPCs pushed >100px from town center by separation physics get re-targeted to fountain (prevents deadlock where NPC is outside healing range but stuck in healing state)
 - **GoingToHeal early arrival** in decision_system: NPCs transition to `HealingAtFountain` as soon as they're within 100px of town center, before reaching the exact pixel
 - Arrival detection (`is_transit()` → `AtDestination`) is handled by `gpu_position_readback` in movement.rs
@@ -288,7 +288,7 @@ Rest is scored when energy < `ENERGY_HUNGRY` (50), Eat only when energy < `ENERG
 
 ## Patrol Cycle
 
-Patrol units (archers, crossbows, and fighters, identified by `Job::is_patrol_unit()`) have a `PatrolRoute` with ordered posts (built from `BuildingEntityMap` at spawn via `build_patrol_route`). The cycle:
+Patrol units (archers, crossbows, and fighters, identified by `Job::is_patrol_unit()`) have a `PatrolRoute` with ordered posts (built from `EntityMap` at spawn via `build_patrol_route`). The cycle:
 
 1. Spawn → walk to post 0 (`Patrolling`)
 2. Arrive → stand at post (`OnDuty`, ticks counting)
@@ -318,7 +318,7 @@ Military unit groups for both player and AI. 10 player-reserved squads + AI squa
 
 **Recruitment**: `squad_cleanup_system` queries alive `SquadUnit` NPCs without `SquadId`. Player squads recruit from player-town units; AI squads recruit from their owner town's units. "Dismiss All" removes `SquadId` from all squad members — units resume normal behavior.
 
-**Death cleanup**: `squad_cleanup_system` (Step::Behavior) removes dead NPC slots from `Squad.members` by checking `NpcEntityMap`.
+**Death cleanup**: `squad_cleanup_system` (Step::Behavior) removes dead NPC slots from `Squad.members` by checking `EntityMap`.
 
 ## Known Issues / Limitations
 

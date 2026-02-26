@@ -32,7 +32,7 @@ pub fn setup(
     mut test: ResMut<TestState>,
     mut game_time: ResMut<crate::resources::GameTime>,
     mut slot_alloc: ResMut<crate::resources::EntitySlots>,
-    mut building_map: ResMut<crate::resources::BuildingEntityMap>,
+    mut building_map: ResMut<crate::resources::EntityMap>,
 ) {
     game_time.time_scale = 0.0;
 
@@ -81,7 +81,7 @@ pub fn tick(
     mut test: ResMut<TestState>,
     time: Res<Time>,
     grid: Res<WorldGrid>,
-    building_map: Res<crate::resources::BuildingEntityMap>,
+    building_map: Res<crate::resources::EntityMap>,
     mut camera_query: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
     mut contexts: EguiContexts,
     windows: Query<&Window>,

@@ -551,7 +551,7 @@ fn extract_camera_state(
 /// Buildings are few (<500), so rebuilding each frame is cheap.
 fn build_building_body_instances(
     gpu_state: Res<crate::gpu::EntityGpuState>,
-    bld_map: Res<crate::resources::BuildingEntityMap>,
+    bld_map: Res<crate::resources::EntityMap>,
     mut instances: ResMut<BuildingBodyInstances>,
 ) {
     instances.0.clear();
@@ -590,11 +590,11 @@ fn build_building_body_instances(
     }
 }
 
-/// Build overlay instances from BuildingEntityMap (farm/mine growth) + BuildingHpRender each frame.
+/// Build overlay instances from EntityMap (farm/mine growth) + BuildingHpRender each frame.
 /// Runs in main world PostUpdate. Future visual features push here instead of adding new resources.
 fn build_overlay_instances(
     mut overlay: ResMut<OverlayInstances>,
-    building_map: Res<crate::resources::BuildingEntityMap>,
+    building_map: Res<crate::resources::EntityMap>,
     building_hp: Res<crate::resources::BuildingHpRender>,
 ) {
     overlay.0.clear();

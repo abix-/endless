@@ -465,7 +465,7 @@ fn quicksave_path() -> Option<std::path::PathBuf> {
 pub fn collect_save_data(
     grid: &WorldGrid,
     world_data: &WorldData,
-    building_slots: &BuildingEntityMap,
+    building_slots: &EntityMap,
     town_grids: &TownGrids,
     game_time: &GameTime,
     food_storage: &FoodStorage,
@@ -494,7 +494,7 @@ pub fn collect_save_data(
         }
     }
 
-    // Building vecs — serialized from BuildingEntityMap instances
+    // Building vecs — serialized from EntityMap instances
     let mut building_data: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
     building_data.insert("towns".to_string(), serde_json::to_value(&world_data.towns).unwrap());
     for def in crate::constants::BUILDING_REGISTRY.iter() {
@@ -521,7 +521,7 @@ pub fn collect_save_data(
             progress: i.growth_progress,
         }).collect();
 
-    // Spawners (serialized from BuildingEntityMap spawner instances)
+    // Spawners (serialized from EntityMap spawner instances)
     let spawners: Vec<SpawnerSave> = building_slots.iter_instances()
         .filter(|i| crate::constants::building_def(i.kind).spawner.is_some())
         .map(|i| SpawnerSave {
@@ -953,7 +953,7 @@ pub fn collect_npc_data(
 
         // Look up extras via entity
         let (work_pos, squad_id, carried_gold, weapon, helmet, armor) =
-            if let Some(&entity) = npc_map.0.get(&idx) {
+            if let Some(&entity) = npc_map.entities.get(&idx) {
                 if let Ok((_idx, wp, sq, cg, wep, hel, arm)) = extras_query.get(entity) {
                     (wp, sq, cg, wep, hel, arm)
                 } else {
@@ -1013,7 +1013,6 @@ pub struct SaveWorldState<'w> {
     pub auto_upgrade: ResMut<'w, AutoUpgrade>,
     pub squad_state: ResMut<'w, SquadState>,
     pub tower_state: ResMut<'w, TowerState>,
-    pub building_slots: ResMut<'w, BuildingEntityMap>,
 }
 
 /// More world state + faction/AI resources.
@@ -1030,7 +1029,6 @@ pub struct SaveFactionState<'w> {
 /// NPC tracking resources for load.
 #[derive(SystemParam)]
 pub struct LoadNpcTracking<'w> {
-    pub npc_map: ResMut<'w, EntityMap>,
     pub pop_stats: ResMut<'w, PopulationStats>,
     pub npc_meta: ResMut<'w, NpcMetaCache>,
     pub npcs_by_town: ResMut<'w, NpcsByTownCache>,
@@ -1052,7 +1050,7 @@ pub struct LoadNpcTracking<'w> {
 /// Produces the same JSON as the old BuildingHpState serde.
 fn collect_building_hp(
     building_query: &Query<(&Building, &EntitySlot, &Health), Without<Dead>>,
-    building_slots: &BuildingEntityMap,
+    building_slots: &EntityMap,
 ) -> std::collections::HashMap<String, Vec<f32>> {
     use std::collections::HashMap;
     let mut slot_hp: HashMap<usize, f32> = HashMap::new();
@@ -1077,7 +1075,7 @@ fn collect_building_hp(
 /// Convert old HP format (save_key → Vec<f32>) to slot-keyed HashMap for spawn_building_entities.
 pub fn convert_building_hp_to_slots(
     old_hp: &std::collections::HashMap<String, Vec<f32>>,
-    building_map: &BuildingEntityMap,
+    building_map: &EntityMap,
     _world_data: &world::WorldData,
 ) -> std::collections::HashMap<usize, f32> {
     let mut result = std::collections::HashMap::new();
@@ -1097,17 +1095,18 @@ pub fn convert_building_hp_to_slots(
     result
 }
 
-/// Load building instances from save data directly into BuildingEntityMap.
+/// Load building instances from save data directly into EntityMap.
 /// Handles backward compat: deserializes PlacedBuilding vecs, skips tombstoned (is_alive check).
 pub fn load_building_instances_from_save(
     save: &SaveData,
     slot_alloc: &mut crate::resources::EntitySlots,
-    building_map: &mut BuildingEntityMap,
+    building_map: &mut EntityMap,
     world_data: &WorldData,
     world_size_px: f32,
 ) {
     use crate::constants::{BUILDING_REGISTRY, FACTION_NEUTRAL};
-    building_map.clear();
+    building_map.clear_buildings();
+    building_map.entities.clear();
     building_map.init_spatial(world_size_px);
 
     // Fountain instances from towns
@@ -1152,13 +1151,13 @@ pub fn load_building_instances_from_save(
         }
     }
 
-    info!("Loaded {} building instances from save", building_map.len());
+    info!("Loaded {} building instances from save", building_map.building_count());
 }
 
-/// Rebuild growth states from BuildingEntityMap instances + save data.
+/// Rebuild growth states from EntityMap instances + save data.
 pub fn restore_growth_from_save(
     save: &SaveData,
-    building_map: &mut BuildingEntityMap,
+    building_map: &mut EntityMap,
 ) {
 
     // Farms — sort by slot to match save order
@@ -1217,7 +1216,7 @@ pub fn save_game_system(
     mut toast: ResMut<SaveToast>,
     ws: SaveWorldState,
     fs: SaveFactionState,
-    npc_map: Res<EntityMap>,
+    entity_map: Res<EntityMap>,
     npc_meta: Res<NpcMetaCache>,
     core_query: Query<NpcCoreQuery, Without<Dead>>,
     extras_query: Query<NpcExtrasQuery, Without<Dead>>,
@@ -1225,10 +1224,10 @@ pub fn save_game_system(
 ) {
     if save_msgs.read().next().is_none() { return; }
 
-    let npcs = collect_npc_data(&core_query, &extras_query, &npc_map, &npc_meta);
-    let building_hp = collect_building_hp(&building_query, &ws.building_slots);
+    let npcs = collect_npc_data(&core_query, &extras_query, &entity_map, &npc_meta);
+    let building_hp = collect_building_hp(&building_query, &entity_map);
     let data = collect_save_data(
-        &ws.grid, &ws.world_data, &ws.building_slots, &ws.town_grids, &ws.game_time,
+        &ws.grid, &ws.world_data, &entity_map, &ws.town_grids, &ws.game_time,
         &ws.food_storage, &ws.gold_storage,
         building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
         &ws.squad_state, &fs.raider_state, &fs.faction_stats,
@@ -1254,7 +1253,7 @@ pub fn autosave_system(
     mut toast: ResMut<SaveToast>,
     ws: SaveWorldState,
     fs: SaveFactionState,
-    npc_map: Res<EntityMap>,
+    entity_map: Res<EntityMap>,
     npc_meta: Res<NpcMetaCache>,
     core_query: Query<NpcCoreQuery, Without<Dead>>,
     extras_query: Query<NpcExtrasQuery, Without<Dead>>,
@@ -1271,10 +1270,10 @@ pub fn autosave_system(
 
     let Some(path) = autosave_path(slot) else { return };
 
-    let npcs = collect_npc_data(&core_query, &extras_query, &npc_map, &npc_meta);
-    let building_hp = collect_building_hp(&building_query, &ws.building_slots);
+    let npcs = collect_npc_data(&core_query, &extras_query, &entity_map, &npc_meta);
+    let building_hp = collect_building_hp(&building_query, &entity_map);
     let data = collect_save_data(
-        &ws.grid, &ws.world_data, &ws.building_slots, &ws.town_grids, &ws.game_time,
+        &ws.grid, &ws.world_data, &entity_map, &ws.town_grids, &ws.game_time,
         &ws.food_storage, &ws.gold_storage,
         building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
         &ws.squad_state, &fs.raider_state, &fs.faction_stats,
@@ -1298,13 +1297,12 @@ pub fn autosave_system(
 pub fn spawn_npcs_from_save(
     save: &SaveData,
     commands: &mut Commands,
-    npc_map: &mut EntityMap,
+    entity_map: &mut EntityMap,
     pop_stats: &mut PopulationStats,
     npc_meta: &mut NpcMetaCache,
     npcs_by_town: &mut NpcsByTownCache,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
     world_data: &WorldData,
-    building_map: &BuildingEntityMap,
     combat_config: &CombatConfig,
     upgrades: &TownUpgrades,
 ) {
@@ -1333,8 +1331,8 @@ pub fn spawn_npcs_from_save(
             npc.job as i32, npc.faction, npc.town_id,
             npc.home, npc.work_position, starting_post, npc.attack_type as i32,
             &overrides,
-            commands, npc_map, pop_stats, npc_meta,
-            npcs_by_town, gpu_updates, world_data, building_map, combat_config, upgrades,
+            commands, entity_map, pop_stats, npc_meta,
+            npcs_by_town, gpu_updates, world_data, combat_config, upgrades,
         );
     }
 }
@@ -1347,11 +1345,12 @@ pub fn restore_world_from_save(
     ws: &mut SaveWorldState,
     fs: &mut SaveFactionState,
     tracking: &mut LoadNpcTracking,
+    entity_map: &mut EntityMap,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
     combat_config: &CombatConfig,
 ) {
     // Reset transient runtime resources.
-    *tracking.npc_map = Default::default();
+    *entity_map = Default::default();
     *tracking.pop_stats = Default::default();
     *tracking.combat_log = Default::default();
     *tracking.gpu_state = Default::default();
@@ -1388,26 +1387,25 @@ pub fn restore_world_from_save(
     load_building_instances_from_save(
         save,
         &mut tracking.slots,
-        &mut ws.building_slots,
+        entity_map,
         &ws.world_data,
         world_size_px,
     );
-    world::update_all_wall_sprites(&ws.grid, &ws.building_slots, gpu_updates);
-    restore_growth_from_save(save, &mut ws.building_slots);
-    let hp_by_slot = convert_building_hp_to_slots(&save.building_hp, &ws.building_slots, &ws.world_data);
-    world::spawn_building_entities(commands, &mut ws.building_slots, gpu_updates, Some(&hp_by_slot));
+    world::update_all_wall_sprites(&ws.grid, entity_map, gpu_updates);
+    restore_growth_from_save(save, entity_map);
+    let hp_by_slot = convert_building_hp_to_slots(&save.building_hp, entity_map, &ws.world_data);
+    world::spawn_building_entities(commands, entity_map, gpu_updates, Some(&hp_by_slot));
 
     // Rebuild NPCs from save payload.
     spawn_npcs_from_save(
         save,
         commands,
-        &mut tracking.npc_map,
+        entity_map,
         &mut tracking.pop_stats,
         &mut tracking.npc_meta,
         &mut tracking.npcs_by_town,
         gpu_updates,
         &ws.world_data,
-        &ws.building_slots,
         combat_config,
         &ws.upgrades,
     );
@@ -1415,7 +1413,7 @@ pub fn restore_world_from_save(
     // Restore migration markers.
     if let Some(mg) = &fs.migration_state.active {
         for &slot in &mg.member_slots {
-            if let Some(&entity) = tracking.npc_map.0.get(&slot) {
+            if let Some(&entity) = entity_map.entities.get(&slot) {
                 commands.entity(entity).insert(Migrating);
             }
         }
@@ -1431,6 +1429,7 @@ pub fn load_game_system(
     mut ws: SaveWorldState,
     mut fs: SaveFactionState,
     mut tracking: LoadNpcTracking,
+    mut entity_map: ResMut<EntityMap>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     combat_config: Res<CombatConfig>,
     npc_query: Query<Entity, With<EntitySlot>>,
@@ -1471,6 +1470,7 @@ pub fn load_game_system(
         &mut ws,
         &mut fs,
         &mut tracking,
+        &mut entity_map,
         &mut gpu_updates,
         &combat_config,
     );

@@ -23,7 +23,7 @@ spawn_npc_system                         spawn_npcs_from_save
                │
                ├─ Spawn ECS entity with base + job-specific components
                │
-               ├─ Update NpcEntityMap, PopulationStats
+               ├─ Update EntityMap, PopulationStats
                │
                ├─ Initialize NpcMetaCache (name, level, trait)
                │
@@ -97,13 +97,13 @@ Deterministic based on slot index (reproducible). Each NPC gets 0-2 traits from 
 
 Deterministic: adjective + job noun. Adjective cycles through a 10-word list, noun cycles through a 5-word job-specific list. Slot index determines both.
 
-**Town index convention**: NPCs and buildings both use direct WorldData town indices. Villager towns are at even indices (0, 2, 4...), raider towns at odd indices (1, 3, 5...). `build_patrol_route()` is `pub(crate)` and uses `BuildingEntityMap::iter_kind_for_town(Waypoint, town_idx)` to filter waypoints directly (no `÷2` conversion).
+**Town index convention**: NPCs and buildings both use direct WorldData town indices. Villager towns are at even indices (0, 2, 4...), raider towns at odd indices (1, 3, 5...). `build_patrol_route()` is `pub(crate)` and uses `EntityMap::iter_kind_for_town(Waypoint, town_idx)` to filter waypoints directly (no `÷2` conversion).
 
 ## Building Spawners
 
-All NPC population is building-driven: each **FarmerHome** supports 1 farmer, each **ArcherHome** supports 1 archer, each **CrossbowHome** supports 1 crossbowman, each **FighterHome** supports 1 fighter, each **MinerHome** supports 1 miner, and each **Tent** supports 1 raider. At game startup, `game_startup_system` builds `SpawnerState` from building instances in `BuildingEntityMap` (iterating spawner building kinds) and spawns 1 NPC per entry via `EntitySlots` + `SpawnNpcMsg`. Menu sliders control how many FarmerHomes/ArcherHomes/MinerHomes/Tents world gen places.
+All NPC population is building-driven: each **FarmerHome** supports 1 farmer, each **ArcherHome** supports 1 archer, each **CrossbowHome** supports 1 crossbowman, each **FighterHome** supports 1 fighter, each **MinerHome** supports 1 miner, and each **Tent** supports 1 raider. At game startup, `game_startup_system` builds `SpawnerState` from building instances in `EntityMap` (iterating spawner building kinds) and spawns 1 NPC per entry via `EntitySlots` + `SpawnNpcMsg`. Menu sliders control how many FarmerHomes/ArcherHomes/MinerHomes/Tents world gen places.
 
-When an NPC dies, `spawner_respawn_system` (hourly, Step::Behavior) detects the death via `NpcEntityMap` lookup, starts a 12-hour respawn timer, and spawns a replacement when it expires. Building spawners at runtime via the build menu pushes new `SpawnerEntry` with `respawn_timer: 0.0` — the system spawns the NPC on the next hourly tick. Raider grids only allow Tent placement; villager grids allow Farm/Waypoint/FarmerHome/ArcherHome/CrossbowHome/FighterHome/MinerHome.
+When an NPC dies, `spawner_respawn_system` (hourly, Step::Behavior) detects the death via `EntityMap` lookup, starts a 12-hour respawn timer, and spawns a replacement when it expires. Building spawners at runtime via the build menu pushes new `SpawnerEntry` with `respawn_timer: 0.0` — the system spawns the NPC on the next hourly tick. Raider grids only allow Tent placement; villager grids allow Farm/Waypoint/FarmerHome/ArcherHome/CrossbowHome/FighterHome/MinerHome.
 
 Destroying a spawner building tombstones the `SpawnerEntry` (position.x = -99999). The linked NPC survives but won't respawn if killed.
 

@@ -352,10 +352,9 @@ struct ClickSelectParams<'w> {
     selected_building: ResMut<'w, SelectedBuilding>,
     squad_state: ResMut<'w, crate::resources::SquadState>,
     build_ctx: Res<'w, crate::resources::BuildMenuContext>,
-    building_slots: ResMut<'w, crate::resources::BuildingEntityMap>,
+    entity_map: ResMut<'w, crate::resources::EntityMap>,
     ui_state: ResMut<'w, crate::resources::UiState>,
     world_data: ResMut<'w, WorldData>,
-    npc_entity_map: Res<'w, crate::resources::EntityMap>,
 }
 
 /// Left click to select nearest NPC within 20px.
@@ -416,7 +415,7 @@ fn click_to_select_system(
             let members: Vec<usize> = click.squad_state.squads[si as usize].members.iter()
                 .copied()
                 .filter(|slot| {
-                    click.npc_entity_map.0.get(slot)
+                    click.entity_map.entities.get(slot)
                         .and_then(|&e| dc_query.get(e).ok())
                         .is_some()
                 })
@@ -450,7 +449,7 @@ fn click_to_select_system(
             if let Some((enemy_slot, enemy_pos)) = best_enemy {
                 // Attack NPC: set ManualTarget + move toward enemy
                 for &slot in &members {
-                    if let Some(&entity) = click.npc_entity_map.0.get(&slot) {
+                    if let Some(&entity) = click.entity_map.entities.get(&slot) {
                         commands.entity(entity).insert(ManualTarget::Npc(enemy_slot));
                         // Wake resting NPCs on move command
                         if let Ok(mut activity) = activity_query.get_mut(entity) {
@@ -466,7 +465,7 @@ fn click_to_select_system(
                 let building_radius = 24.0_f32;
                 let mut best_bdist = building_radius;
                 let mut best_bpos: Option<Vec2> = None;
-                for inst in click.building_slots.iter_instances() {
+                for inst in click.entity_map.iter_instances() {
                     if inst.position.x < -9000.0 { continue; }
                     let px = inst.position.x;
                     let py = inst.position.y;
@@ -489,7 +488,7 @@ fn click_to_select_system(
                     (ManualTarget::Position(world_pos), world_pos)
                 };
                 for &slot in &members {
-                    if let Some(&entity) = click.npc_entity_map.0.get(&slot) {
+                    if let Some(&entity) = click.entity_map.entities.get(&slot) {
                         commands.entity(entity).insert(mt.clone());
                         // Wake resting NPCs on move command
                         if let Ok(mut activity) = activity_query.get_mut(entity) {
@@ -536,12 +535,12 @@ fn click_to_select_system(
     // Mine assignment — snap to nearest gold mine within radius
     if let Some(mh_slot) = click.ui_state.assigning_mine {
         let snap_radius = 60.0;
-        let best = click.building_slots.iter_kind(BuildingKind::GoldMine)
+        let best = click.entity_map.iter_kind(BuildingKind::GoldMine)
             .map(|inst| (inst.position.distance(world_pos), inst.position))
             .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
         if let Some((dist, mine_pos)) = best {
             if dist < snap_radius {
-                if let Some(inst) = click.building_slots.get_instance_mut(mh_slot) {
+                if let Some(inst) = click.entity_map.get_instance_mut(mh_slot) {
                     inst.manual_mine = true;
                     inst.assigned_mine = Some(mine_pos);
                 }
@@ -563,7 +562,7 @@ fn click_to_select_system(
         let px = positions[i * 2];
         let py = positions[i * 2 + 1];
         if px < -9000.0 { continue; }
-        if !click.npc_entity_map.0.contains_key(&i) { continue; }
+        if !click.entity_map.entities.contains_key(&i) { continue; }
 
         let dx = world_pos.x - px;
         let dy = world_pos.y - py;
@@ -582,13 +581,13 @@ fn click_to_select_system(
     dbl_click.last_pos = world_pos;
 
     let (col, row) = grid.world_to_grid(world_pos);
-    let grid_building = click.building_slots.get_at_grid(col as i32, row as i32);
+    let grid_building = click.entity_map.get_at_grid(col as i32, row as i32);
 
     // Find nearest building via the same distance-based hit-test style as NPC selection.
     let building_select_radius = 24.0_f32;
     let mut best_building_dist = building_select_radius;
     let mut best_building: Option<(BuildingKind, Vec2, usize)> = None;
-    for inst in click.building_slots.iter_instances() {
+    for inst in click.entity_map.iter_instances() {
         let kind = inst.kind;
         let px = inst.position.x;
         let py = inst.position.y;
@@ -667,7 +666,7 @@ fn click_to_select_system(
         for squad in click.squad_state.squads.iter() {
             if !squad.is_player() { continue; }
             for &slot in &squad.members {
-                if let Some(&entity) = click.npc_entity_map.0.get(&slot) {
+                if let Some(&entity) = click.entity_map.entities.get(&slot) {
                     commands.entity(entity).remove::<crate::components::DirectControl>();
                 }
             }
@@ -768,7 +767,7 @@ fn box_select_system(
                         // Remove DirectControl from old squad members being replaced
                         for &old_slot in &squad_state.squads[si].members {
                             if !selected_slots.contains(&old_slot) {
-                                if let Some(&entity) = npc_entity_map.0.get(&old_slot) {
+                                if let Some(&entity) = npc_entity_map.entities.get(&old_slot) {
                                     commands.entity(entity).remove::<crate::components::DirectControl>();
                                 }
                             }
@@ -783,7 +782,7 @@ fn box_select_system(
                         squad_state.squads[si].members = selected_slots.clone();
                         // Update SquadId + DirectControl on each selected NPC
                         for &slot in &selected_slots {
-                            if let Some(&entity) = npc_entity_map.0.get(&slot) {
+                            if let Some(&entity) = npc_entity_map.entities.get(&slot) {
                                 commands.entity(entity).insert((
                                     crate::components::SquadId(si as i32),
                                     crate::components::DirectControl,

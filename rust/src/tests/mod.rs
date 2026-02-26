@@ -48,8 +48,7 @@ pub struct CleanupCore<'w> {
     pub faction_stats: ResMut<'w, crate::resources::FactionStats>,
     pub gpu_state: ResMut<'w, crate::resources::GpuReadState>,
     pub game_time: ResMut<'w, crate::resources::GameTime>,
-    pub building_map: ResMut<'w, crate::resources::BuildingEntityMap>,
-    pub npc_map: ResMut<'w, crate::resources::EntityMap>,
+    pub entity_map: ResMut<'w, crate::resources::EntityMap>,
     pub npc_gpu_state: ResMut<'w, crate::gpu::EntityGpuState>,
 }
 
@@ -88,7 +87,7 @@ pub struct TestSetupParams<'w> {
     pub slot_alloc: ResMut<'w, EntitySlots>,
     pub spawn_events: MessageWriter<'w, SpawnNpcMsg>,
     pub world_data: ResMut<'w, world::WorldData>,
-    pub building_slots: ResMut<'w, BuildingEntityMap>,
+    pub building_slots: ResMut<'w, EntityMap>,
     pub food_storage: ResMut<'w, FoodStorage>,
     pub faction_stats: ResMut<'w, FactionStats>,
     pub game_time: ResMut<'w, GameTime>,
@@ -99,7 +98,7 @@ pub struct TestSetupParams<'w> {
 /// Shared test setup params bundle — stays under 16-param limit.
 #[derive(SystemParam)]
 pub struct BuildingInitParams<'w> {
-    pub building_slots: ResMut<'w, BuildingEntityMap>,
+    pub building_slots: ResMut<'w, EntityMap>,
 }
 
 impl TestSetupParams<'_> {
@@ -970,8 +969,8 @@ fn cleanup_test_world(
     }
 
     *core.slot_alloc = Default::default();
-    core.building_map.clear();
-    core.npc_map.0.clear();
+    core.entity_map.clear_buildings();
+    core.entity_map.entities.clear();
     *core.npc_gpu_state = Default::default();
     *core.world_data = Default::default();
     *core.food_storage = Default::default();

@@ -22,7 +22,7 @@ pub fn setup(
     mut slot_alloc: ResMut<EntitySlots>,
     mut spawn_events: MessageWriter<SpawnNpcMsg>,
     mut world_data: ResMut<world::WorldData>,
-    mut building_slots: ResMut<BuildingEntityMap>,
+    mut building_slots: ResMut<EntityMap>,
     mut world_grid: ResMut<world::WorldGrid>,
     mut food_storage: ResMut<FoodStorage>,
     mut faction_stats: ResMut<FactionStats>,

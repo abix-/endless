@@ -92,7 +92,7 @@ pub fn tick(
     game_time: Res<GameTime>,
     mut test: ResMut<TestState>,
     mut damage_writer: MessageWriter<DamageMsg>,
-    bmap: Res<BuildingEntityMap>,
+    bmap: Res<EntityMap>,
     migrating_query: Query<&Faction, With<Migrating>>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };

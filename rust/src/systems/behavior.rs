@@ -19,7 +19,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::*;
 use crate::messages::CombatLogMsg;
-use crate::resources::{GpuReadState, GameTime, NpcLogCache, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings, BuildingEntityMap, MovementIntents, MovementPriority};
+use crate::resources::{GpuReadState, GameTime, NpcLogCache, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings, EntityMap, MovementIntents, MovementPriority};
 use crate::systemparams::EconomyState;
 use crate::systems::economy::*;
 use crate::systems::stats::UPGRADES;
@@ -70,7 +70,7 @@ pub fn arrival_system(
     gpu_state: Res<GpuReadState>,
     game_time: Res<GameTime>,
     mut npc_logs: ResMut<NpcLogCache>,
-    mut building_map: ResMut<BuildingEntityMap>,
+    mut building_map: ResMut<EntityMap>,
     mut occupancy: ResMut<BuildingOccupancy>,
     mut frame_counter: Local<u32>,
     mut combat_log: MessageWriter<CombatLogMsg>,
@@ -268,7 +268,7 @@ pub fn decision_system(
     game_time: Res<GameTime>,
     mut extras: DecisionExtras,
     npc_config: Res<crate::resources::NpcDecisionConfig>,
-    mut building_map: ResMut<BuildingEntityMap>,
+    mut building_map: ResMut<EntityMap>,
 ) {
     let _t = extras.timings.scope("decision");
     let profiling = extras.timings.enabled;
@@ -1166,7 +1166,7 @@ pub fn on_duty_tick_system(
 pub fn rebuild_patrol_routes_system(
     mut commands: Commands,
     _world_data: Res<WorldData>,
-    mut building_map: ResMut<BuildingEntityMap>,
+    mut building_map: ResMut<EntityMap>,
     mut patrols_dirty: MessageReader<crate::messages::PatrolsDirtyMsg>,
     mut patrol_swaps: MessageReader<crate::messages::PatrolSwapMsg>,
     mut guards: Query<(&mut PatrolRoute, &TownId, &Job), Without<Dead>>,

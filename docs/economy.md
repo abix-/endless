@@ -54,7 +54,7 @@ game_time_system (every frame)
 ### growth_system (unified farms + mines)
 - Runs every frame, advances growth based on elapsed game time
 - Skips tombstoned entries (`position.x < -9000`) — destroyed farms/mines don't regrow
-- **BuildingInstance fields**: `growth_ready: bool` (false = growing, true = ready to harvest) and `growth_progress: f32` (0.0-1.0) on each Farm/Mine instance in `BuildingEntityMap`
+- **BuildingInstance fields**: `growth_ready: bool` (false = growing, true = ready to harvest) and `growth_progress: f32` (0.0-1.0) on each Farm/Mine instance in `EntityMap`
 - **Hybrid growth model**:
   - Passive: `FARM_BASE_GROWTH_RATE` (0.08/hour) — ~12 game hours to full growth
   - Tended: `FARM_TENDED_GROWTH_RATE` (0.25/hour) — ~4 game hours with farmer working
@@ -69,9 +69,9 @@ game_time_system (every frame)
 
 ### spawner_respawn_system
 - Runs when `game_time.hour_ticked` is true
-- Iterates all `BuildingInstance` entries in `BuildingEntityMap` where `respawn_timer > -2.0` (spawner-capable buildings). Spawner fields (`npc_slot: i32`, `respawn_timer: f32`) live directly on `BuildingInstance` — no separate SpawnerState resource.
+- Iterates all `BuildingInstance` entries in `EntityMap` where `respawn_timer > -2.0` (spawner-capable buildings). Spawner fields (`npc_slot: i32`, `respawn_timer: f32`) live directly on `BuildingInstance` — no separate SpawnerState resource.
 - Sentinel values: `npc_slot = -1` (no NPC alive), `respawn_timer = -2.0` (non-spawner building), `-1.0` (not respawning), `>= 0.0` (countdown active)
-- If `npc_slot >= 0` and NPC is dead (not in `NpcEntityMap`): starts 12h respawn timer
+- If `npc_slot >= 0` and NPC is dead (not in `EntityMap`): starts 12h respawn timer
 - Timer decrements 1.0 per game hour; on expiry: allocates slot via `SlotAllocator`, emits `SpawnNpcMsg`, logs to `CombatLog`
 - Newly-built spawners start with `respawn_timer: -1.0` — `place_building_instance` sets this for spawner-capable kinds. Initial NPC spawn is handled by `spawn_npcs_from_spawners` which sets `npc_slot` on the instance.
 - Tombstoned entries (position.x < -9000) are skipped (building was destroyed)
@@ -104,7 +104,7 @@ Farms have a growth cycle instead of infinite food:
 
 **Farm harvest** uses `BuildingInstance::harvest()` (single source of truth for Ready → Growing transition):
 - `harvest(&mut self, combat_log, game_time, faction) -> i32` — resets `growth_ready` to false, `growth_progress` to 0.0, returns yield (farm=1 food, mine=MINE_EXTRACT_PER_CYCLE gold), logs to CombatLog. Returns 0 if not ready.
-- All farm harvest callers use `BuildingEntityMap::find_farm_at[_mut](pos)` for O(1) position-based lookup via spatial grid.
+- All farm harvest callers use `EntityMap::find_farm_at[_mut](pos)` for O(1) position-based lookup via spatial grid.
 - All callers enter `Activity::Returning { loot }` and carry yield home — delivery happens via `arrival_system` proximity check. No caller instant-credits storage.
 - Called from 5 sites: arrival_system (working farmer harvest), decision_system (farmer GoingToWork arrival), decision_system (raider steal), decision_system (miner Mining arrival), decision_system (MiningAtMine harvest)
 
@@ -119,9 +119,9 @@ Farms have a growth cycle instead of infinite food:
 - If farm not ready: find a different farm (excludes current position, skips tombstoned); if no other farm found, return home
 - Logs "Stole food → Returning" vs "Farm not ready, seeking another" vs "No other farms, returning"
 
-**Farm destruction**: Building removal from `BuildingEntityMap` handles cleanup. Tombstoned position (x < -9000) causes render pipeline to skip the crop sprite and `growth_system` to skip growth.
+**Farm destruction**: Building removal from `EntityMap` handles cleanup. Tombstoned position (x < -9000) causes render pipeline to skip the crop sprite and `growth_system` to skip growth.
 
-**Visual feedback**: `farm_visual_system` watches `BuildingEntityMap` Farm instances for state transitions and spawns/despawns `FarmReadyMarker` entities (keyed by `farm_slot: usize` — building slot). Uses `Local<HashMap<usize, bool>>` to detect transitions without extra resources. `!ready → ready` spawns a marker; `ready → !ready` (harvest) despawns it.
+**Visual feedback**: `farm_visual_system` watches `EntityMap` Farm instances for state transitions and spawns/despawns `FarmReadyMarker` entities (keyed by `farm_slot: usize` — building slot). Uses `Local<HashMap<usize, bool>>` to detect transitions without extra resources. `!ready → ready` spawns a marker; `ready → !ready` (harvest) despawns it.
 
 ## Starvation
 
@@ -172,14 +172,14 @@ Raiders without a squad assignment wander near their town. Group attacks use squ
 | GameTime | total_seconds, time_scale, paused, hour_ticked | game_time_system |
 | FoodStorage | `Vec<i32>` — food count per town | harvest, steal, forage, respawn |
 | Dirty/resource signals | Message types + resources (see [messages.md](messages.md)) | Message drain + consumer systems |
-| BuildingEntityMap | `BuildingInstance` with `growth_ready` + `growth_progress` fields (farms + mines) | growth_system, harvest/steal |
+| EntityMap | `BuildingInstance` with `growth_ready` + `growth_progress` fields (farms + mines) | growth_system, harvest/steal |
 | GoldStorage | `Vec<i32>` — gold count per town | mining delivery, UI |
 | MineStates | gold, max_gold, positions per mine | mine_regen_system, mining behavior |
 | MinerProgressRender | positions + progress for active miners | sync_miner_progress_render → render world (ExtractResource) |
 | BuildingOccupancy | private map, methods: claim/release/is_occupied/count/clear | decision_system, death_cleanup, game_startup, spawner_respawn |
 | MiningPolicy | discovered_mines per town, mine_enabled per mine | mining_policy_system (dirty-flag gated) |
 | RaiderState | max_pop, respawn_timers, forage_timers | raider_forage_system |
-| BuildingEntityMap | `BuildingInstance` with `npc_slot` + `respawn_timer` fields | spawner_respawn_system, game_startup, place_building_instance |
+| EntityMap | `BuildingInstance` with `npc_slot` + `respawn_timer` fields | spawner_respawn_system, game_startup, place_building_instance |
 | PopulationStats | alive/working/dead per (job, town) | spawn, death, state transitions |
 
 ## Constants
@@ -225,7 +225,7 @@ Both player build menu and AI player use `building_cost()` for affordability che
 
 ### mining_policy_system
 - Gated by `MessageReader<MiningDirtyMsg>` — only runs when mining topology/policy changes (radius slider, mine toggle, miner spawn/death)
-- **Discovery**: scans `BuildingEntityMap.iter_kind(GoldMine)` within `PolicySet.mining_radius` of each faction-0 town center, populates `MiningPolicy.discovered_mines[town_idx]`
+- **Discovery**: scans `EntityMap.iter_kind(GoldMine)` within `PolicySet.mining_radius` of each faction-0 town center, populates `MiningPolicy.discovered_mines[town_idx]`
 - **Distribution**: collects alive auto-assigned miners per town (skips `manual_mine == true` on `BuildingInstance`), round-robin assigns across enabled discovered mines via `BuildingInstance.assigned_mine`
 - **Stale clearing**: if assigned mine falls outside radius or disabled, clears `assigned_mine` on auto-assigned miners
 - **mine_enabled**: keyed by GPU slot (`HashMap<usize, bool>`) instead of sequential index, decoupled from WorldData ordering
@@ -234,7 +234,7 @@ Both player build menu and AI player use `building_cost()` for affordability che
 ### squad_cleanup_system
 - Message-gated via `MessageReader<SquadsDirtyMsg>` — skips entirely when no squad-relevant changes occurred
 - Signal emitted by: `death_system` (any death), `spawn_npc_system` (archer spawn), left_panel UI (assign/dismiss), save load (`emit_all()`)
-- **Phase 1**: retains only members whose slot is still in `NpcEntityMap` (alive)
+- **Phase 1**: retains only members whose slot is still in `EntityMap` (alive)
 - **Phase 2**: keeps Default Squad (index 0) as live pool of unsquadded player archers (inserts `SquadId(0)`)
 - **Phase 3**: if `target_size > 0` and `members.len() > target_size`, dismisses excess (removes `SquadId` + `DirectControl` components, pops from members)
 - **Phase 4**: if `target_size > 0` and `members.len() < target_size`, auto-recruits unsquadded player-faction archers (inserts `SquadId`, pushes to members). Pool is shared across squads — earlier squad indices get priority.

@@ -15,12 +15,13 @@ pub fn setup(
     mut faction_stats: ResMut<FactionStats>,
     mut town_grids: ResMut<world::TownGrids>,
     mut slot_alloc: ResMut<EntitySlots>,
-    mut building_slots: ResMut<BuildingEntityMap>,
+    mut building_slots: ResMut<EntityMap>,
     mut test_state: ResMut<TestState>,
 ) {
     // Generate the world using our config (default: 2 towns)
     town_grids.grids.clear();
-    building_slots.clear();
+    building_slots.clear_buildings();
+    building_slots.entities.clear();
     world::generate_world(&config, &mut world_grid, &mut world_data, &mut town_grids, &mut slot_alloc, &mut building_slots);
 
     // Init supporting resources based on generated world
@@ -35,7 +36,7 @@ pub fn setup(
 pub fn tick(
     world_data: Res<world::WorldData>,
     world_grid: Res<world::WorldGrid>,
-    building_slots: Res<BuildingEntityMap>,
+    building_slots: Res<EntityMap>,
     config: Res<world::WorldGenConfig>,
     time: Res<Time>,
     mut test: ResMut<TestState>,

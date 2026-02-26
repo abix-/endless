@@ -117,13 +117,13 @@ pub struct FactionsParams<'w, 's> {
     ai_state: Res<'w, AiPlayerState>,
     food_storage: Res<'w, FoodStorage>,
     gold_storage: Res<'w, GoldStorage>,
-    building_map_fac: Res<'w, BuildingEntityMap>,
+    building_map_fac: Res<'w, EntityMap>,
     faction_stats: Res<'w, FactionStats>,
     upgrades: Res<'w, TownUpgrades>,
     combat_config: Res<'w, CombatConfig>,
     town_grids: Res<'w, TownGrids>,
     world_grid: Res<'w, WorldGrid>,
-    building_map: Res<'w, BuildingEntityMap>,
+    building_map: Res<'w, EntityMap>,
     gpu_state: Res<'w, GpuReadState>,
     pop_stats: Res<'w, PopulationStats>,
     faction_select: MessageReader<'w, 's, crate::messages::SelectFactionMsg>,
@@ -664,7 +664,7 @@ fn policies_content(
     ui: &mut egui::Ui,
     policies: &mut TownPolicies,
     world_data: &WorldData,
-    building_map: &BuildingEntityMap,
+    building_map: &EntityMap,
     mining_policy: &mut MiningPolicy,
     dirty_writers: &mut crate::messages::DirtyWriters,
     jump_target: &mut Option<Vec2>,
@@ -834,14 +834,14 @@ fn policies_content(
 // ============================================================================
 
 /// Returns swap indices if the user clicked a reorder button.
-fn patrols_content(ui: &mut egui::Ui, world_data: &WorldData, building_map: &BuildingEntityMap, jump_target: &mut Option<Vec2>) -> Option<(usize, usize)> {
+fn patrols_content(ui: &mut egui::Ui, world_data: &WorldData, building_map: &EntityMap, jump_target: &mut Option<Vec2>) -> Option<(usize, usize)> {
     let town_pair_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0) as u32;
 
     if let Some(town) = world_data.towns.get(town_pair_idx as usize) {
         ui.small(format!("Town: {}", town.name));
     }
 
-    // Collect waypoints for this town from BuildingEntityMap, sorted by patrol_order
+    // Collect waypoints for this town from EntityMap, sorted by patrol_order
     // Collect waypoints: (slot, patrol_order, position), sorted by patrol_order
     let mut posts: Vec<(usize, u32, Vec2)> = building_map.iter_kind_for_town(BuildingKind::Waypoint, town_pair_idx)
         .map(|inst| (inst.slot, inst.patrol_order, inst.position))
@@ -1057,7 +1057,7 @@ fn rebuild_factions_cache(
     factions: &FactionsParams,
     squad_state: &SquadState,
     world_data: &WorldData,
-    building_map: &BuildingEntityMap,
+    building_map: &EntityMap,
     policies: &TownPolicies,
     mining_policy: &MiningPolicy,
     cache: &mut FactionsCache,
@@ -1066,7 +1066,7 @@ fn rebuild_factions_cache(
         factions: &FactionsParams,
         squad_state: &SquadState,
         world_data: &WorldData,
-        building_map: &BuildingEntityMap,
+        building_map: &EntityMap,
         policies: &TownPolicies,
         mining_policy: &MiningPolicy,
         cache: &mut FactionsCache,

@@ -89,9 +89,9 @@ Current shared bundles include `DirtyWriters`, `AiDirtyReaders`, and `AiBuildRes
 
 **Stage 16.5: Buildings as ECS Entities** (see [specs/buildings-as-entities.md](specs/buildings-as-entities.md))
 
-*Done when: `BuildingEntityMap` is the sole source of truth for building infrastructure (`WorldData.buildings`, `PlacedBuilding`, tombstone guards are no longer active paths).*
+*Done when: `EntityMap` is the sole source of truth for building infrastructure (`WorldData.buildings`, `PlacedBuilding`, tombstone guards are no longer active paths).*
 
-Phases 1-2, BuildingEntityMap migration, WorldData deletion, GPU building buffers, and unified entity collision complete (see [completed.md](completed.md)).
+Phases 1-2, EntityMap migration, WorldData deletion, GPU building buffers, and unified entity collision complete (see [completed.md](completed.md)).
 
 Remaining:
 - [ ] `WorldGrid.cells[].building` stores `Option<Entity>`
@@ -115,7 +115,7 @@ Remaining:
 - [ ] `harvest()` generalized: Farm credits food to town, Mine credits `MINE_EXTRACT_PER_CYCLE` gold to harvester's town
 - [ ] `growth_system` replaces both `farm_growth_system` and `mine_regen_system` — farms: passive + tended rates (unchanged), mines: tended-only (`MINE_TENDED_GROWTH_RATE` = 0.25/hr, 4 hours to ready)
 - [ ] Miner behavior: walk to mine → claim occupancy → tend (accelerate growth) → harvest when Ready → return with gold. Same pattern as farmer but for gold.
-- [ ] Mine progress bar rendered at mine position (atlas_id=6.0, gold color) via BuildingEntityMap misc instance buffer — not on the miner
+- [ ] Mine progress bar rendered at mine position (atlas_id=6.0, gold color) via EntityMap misc instance buffer — not on the miner
 - [ ] Delete: `MineStates`, `MiningProgress`, `MinerProgressRender`, `sync_miner_progress_render`, `mine_regen_system`, `MINE_MAX_GOLD`, `MINE_REGEN_RATE`, `MINE_WORK_HOURS`
 
 **Stage 20: Combat Depth**

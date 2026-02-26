@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg, CombatLogMsg};
 use crate::resources::{
-    EntityMap, PopulationStats, NpcMetaCache, NpcMeta, BuildingEntityMap,
+    EntityMap, PopulationStats, NpcMetaCache, NpcMeta,
     NpcsByTownCache, FactionStats, GameTime, CombatEventKind, SystemTimings,
 };
 use crate::messages::{DirtyWriters, SquadsDirtyMsg, AiSquadsDirtyMsg, MiningDirtyMsg};
@@ -111,13 +111,12 @@ pub fn materialize_npc(
     attack_type_id: i32,
     overrides: &NpcSpawnOverrides,
     commands: &mut Commands,
-    npc_map: &mut EntityMap,
+    entity_map: &mut EntityMap,
     pop_stats: &mut PopulationStats,
     npc_meta: &mut NpcMetaCache,
     npcs_by_town: &mut NpcsByTownCache,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
     _world_data: &WorldData,
-    building_map: &BuildingEntityMap,
     combat_config: &CombatConfig,
     upgrades: &TownUpgrades,
 ) {
@@ -209,7 +208,7 @@ pub fn materialize_npc(
 
     // Patrol route
     if def.is_patrol_unit && starting_post >= 0 {
-        let patrol_posts = build_patrol_route(building_map, town_idx as u32);
+        let patrol_posts = build_patrol_route(entity_map, town_idx as u32);
         if !patrol_posts.is_empty() {
             ec.insert(PatrolRoute { posts: patrol_posts, current: starting_post as usize });
             // Only set OnDuty for fresh spawns (save restores activity via override)
@@ -228,7 +227,7 @@ pub fn materialize_npc(
     }
 
     // Register in tracking caches
-    npc_map.0.insert(idx, ec.id());
+    entity_map.entities.insert(idx, ec.id());
     pop_inc_alive(pop_stats, job, town_idx);
 
     if idx < npc_meta.0.len() {
@@ -255,7 +254,7 @@ pub fn materialize_npc(
 pub fn spawn_npc_system(
     mut commands: Commands,
     mut events: MessageReader<SpawnNpcMsg>,
-    mut npc_map: ResMut<EntityMap>,
+    mut entity_map: ResMut<EntityMap>,
     mut pop_stats: ResMut<PopulationStats>,
     mut faction_stats: ResMut<FactionStats>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
@@ -268,7 +267,6 @@ pub fn spawn_npc_system(
     upgrades: Res<TownUpgrades>,
     timings: Res<SystemTimings>,
     mut dirty_writers: DirtyWriters,
-    building_map: Res<BuildingEntityMap>,
 ) {
     let _t = timings.scope("spawn_npc");
     for msg in events.read() {
@@ -278,8 +276,8 @@ pub fn spawn_npc_system(
             msg.slot_idx, msg.x, msg.y, msg.job, msg.faction, msg.town_idx,
             [msg.home_x, msg.home_y], work_pos, msg.starting_post, msg.attack_type,
             &NpcSpawnOverrides::default(),
-            &mut commands, &mut npc_map, &mut pop_stats, &mut npc_meta,
-            &mut npcs_by_town, &mut gpu_updates, &world_data, &building_map, &combat_config, &upgrades,
+            &mut commands, &mut entity_map, &mut pop_stats, &mut npc_meta,
+            &mut npcs_by_town, &mut gpu_updates, &world_data, &combat_config, &upgrades,
         );
 
         // Spawn-only bookkeeping (not needed for save-load)
@@ -296,8 +294,8 @@ pub fn spawn_npc_system(
 
 }
 
-/// Build sorted patrol route from BuildingEntityMap for a given town.
-pub(crate) fn build_patrol_route(building_map: &BuildingEntityMap, town_idx: u32) -> Vec<Vec2> {
+/// Build sorted patrol route from EntityMap for a given town.
+pub(crate) fn build_patrol_route(building_map: &EntityMap, town_idx: u32) -> Vec<Vec2> {
     let mut posts: Vec<(u32, Vec2)> = building_map.iter_kind_for_town(BuildingKind::Waypoint, town_idx)
         .map(|inst| (inst.patrol_order, inst.position))
         .collect();

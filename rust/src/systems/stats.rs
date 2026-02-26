@@ -660,7 +660,7 @@ pub fn process_upgrades_system(
 
         let Some(npc_slots) = npcs_by_town.0.get(town_idx) else { continue };
         for &slot in npc_slots {
-            let Some(&entity) = npc_map.0.get(&slot) else { continue };
+            let Some(&entity) = npc_map.entities.get(&slot) else { continue };
             let Ok((npc_idx, job, _town_id, atk_type, personality, mut health, mut cached, mut speed)) = npc_query.get_mut(entity) else { continue };
 
             let npc_level = meta_cache.0[npc_idx.0].level;

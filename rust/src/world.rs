@@ -34,7 +34,7 @@ mod opt_vec2_as_array {
 
 use crate::components::Job;
 use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID_EXTENT, NPC_REGISTRY};
-use crate::resources::{FoodStorage, GoldStorage, FactionStats, RaiderState, BuildingEntityMap, CombatEventKind, GameTime, SystemTimings, EntitySlots};
+use crate::resources::{FoodStorage, GoldStorage, FactionStats, RaiderState, EntityMap, CombatEventKind, GameTime, SystemTimings, EntitySlots};
 use crate::messages::{DirtyWriters, BuildingGridDirtyMsg};
 use crate::messages::{GpuUpdate, GpuUpdateMsg, CombatLogMsg};
 
@@ -104,7 +104,7 @@ impl PlacedBuilding {
 // WORLD RESOURCES
 // ============================================================================
 
-/// Contains all world layout data. Towns only — building instances live in BuildingEntityMap.
+/// Contains all world layout data. Towns only — building instances live in EntityMap.
 #[derive(Resource, Default)]
 pub struct WorldData {
     pub towns: Vec<Town>,
@@ -178,7 +178,7 @@ pub fn in_foreign_build_area(pos: Vec2, own_town_idx: usize, towns: &[Town], tow
 }
 
 /// All empty buildable slots in a town grid (excludes center 0,0).
-pub fn empty_slots(tg: &TownGrid, center: Vec2, grid: &WorldGrid, building_map: &crate::resources::BuildingEntityMap) -> Vec<(i32, i32)> {
+pub fn empty_slots(tg: &TownGrid, center: Vec2, grid: &WorldGrid, building_map: &crate::resources::EntityMap) -> Vec<(i32, i32)> {
     let (min_row, max_row, min_col, max_col) = build_bounds(tg);
     let mut out = Vec::new();
     for r in min_row..=max_row {
@@ -244,7 +244,7 @@ pub(crate) fn place_building(
     world_data: &WorldData,
     food_storage: &mut FoodStorage,
     slot_alloc: &mut crate::resources::EntitySlots,
-    building_slots: &mut BuildingEntityMap,
+    building_slots: &mut EntityMap,
     dirty_writers: &mut DirtyWriters,
     kind: BuildingKind,
     town_data_idx: usize,
@@ -297,7 +297,7 @@ pub(crate) fn place_building(
             Speed(0.0),
             Building { kind },
         )).id();
-        building_slots.set_entity(slot, entity);
+        building_slots.entities.insert(slot, entity);
     }
     push_building_gpu_updates(
         slot, snapped, faction, def.hp,
@@ -316,7 +316,7 @@ pub(crate) fn place_building(
 }
 
 /// Check if a grid cell contains a wall building.
-fn is_wall_at(building_map: &BuildingEntityMap, col: usize, row: usize) -> bool {
+fn is_wall_at(building_map: &EntityMap, col: usize, row: usize) -> bool {
     building_map.get_at_grid(col as i32, row as i32)
         .is_some_and(|inst| inst.kind == BuildingKind::Wall)
 }
@@ -324,7 +324,7 @@ fn is_wall_at(building_map: &BuildingEntityMap, col: usize, row: usize) -> bool 
 /// Compute auto-tile variant offset (0-5) for a wall at grid (col, row).
 /// Atlas layers: 0=E-W, 1=N-S, 2=TL, 3=BL, 4=BR, 5=TR (screen-space corners).
 /// Note: row-1 = south (lower Y), row+1 = north (higher Y) in Bevy's Y-up coords.
-pub fn wall_autotile_variant(building_map: &BuildingEntityMap, col: usize, row: usize) -> u16 {
+pub fn wall_autotile_variant(building_map: &EntityMap, col: usize, row: usize) -> u16 {
     let n = row > 0 && is_wall_at(building_map, col, row - 1);
     let s = is_wall_at(building_map, col, row + 1);
     let e = is_wall_at(building_map, col + 1, row);
@@ -354,7 +354,7 @@ pub fn wall_autotile_variant(building_map: &BuildingEntityMap, col: usize, row: 
 /// Pushes GPU SetSpriteFrame updates for each wall found.
 pub fn update_wall_sprites_around(
     grid: &WorldGrid,
-    building_slots: &BuildingEntityMap,
+    building_slots: &EntityMap,
     col: usize, row: usize,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
 ) {
@@ -380,7 +380,7 @@ pub fn update_wall_sprites_around(
 /// Set auto-tile sprites for all walls in the world. Call after building instances are created.
 pub fn update_all_wall_sprites(
     grid: &WorldGrid,
-    building_slots: &BuildingEntityMap,
+    building_slots: &EntityMap,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
 ) {
     let wall_base = crate::constants::tileset_index(BuildingKind::Wall) as f32;
@@ -399,7 +399,7 @@ pub fn update_all_wall_sprites(
 pub fn resolve_spawner_npc(
     inst: &crate::resources::BuildingInstance,
     towns: &[Town],
-    bmap: &crate::resources::BuildingEntityMap,
+    bmap: &crate::resources::EntityMap,
     occupancy: &BuildingOccupancy,
 ) -> (i32, i32, f32, f32, i32, i32, &'static str, &'static str) {
     use crate::constants::{SpawnBehavior, building_def, npc_def};
@@ -471,7 +471,7 @@ fn push_building_gpu_updates(
 /// Returns the allocated slot, or None if no slots available.
 pub fn place_building_instance(
     slot_alloc: &mut crate::resources::EntitySlots,
-    building_map: &mut BuildingEntityMap,
+    building_map: &mut EntityMap,
     kind: BuildingKind,
     pos: Vec2,
     town_idx: u32,
@@ -487,8 +487,7 @@ pub fn place_building_instance(
     };
     let has_spawner = def.spawner.is_some();
     building_map.add_instance(crate::resources::BuildingInstance {
-        kind, position: pos, town_idx, slot,
-        entity: Entity::PLACEHOLDER, faction,
+        kind, position: pos, town_idx, slot, faction,
         patrol_order, assigned_mine: None, manual_mine: false, wall_level,
         npc_slot: -1,
         respawn_timer: if has_spawner { 0.0 } else { -2.0 },
@@ -500,12 +499,12 @@ pub fn place_building_instance(
 
 
 
-/// Spawn ECS entities for all building instances in BuildingEntityMap.
+/// Spawn ECS entities for all building instances in EntityMap.
 /// Reads instances (which have Entity::PLACEHOLDER), spawns real entities, updates the map.
 /// `loaded_hp`: optional HP overrides keyed by slot.
 pub fn spawn_building_entities(
     commands: &mut Commands,
-    building_map: &mut BuildingEntityMap,
+    building_map: &mut EntityMap,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
     loaded_hp: Option<&std::collections::HashMap<usize, f32>>,
 ) {
@@ -513,7 +512,7 @@ pub fn spawn_building_entities(
     use crate::constants::{building_def, tileset_index};
 
     // Collect slots to iterate (can't mutate map while iterating)
-    let slots: Vec<usize> = building_map.all_slots().collect();
+    let slots: Vec<usize> = building_map.all_building_slots().collect();
     let mut count = 0usize;
     for slot in slots {
         let Some(inst) = building_map.get_instance(slot) else { continue };
@@ -533,7 +532,7 @@ pub fn spawn_building_entities(
             Speed(0.0),
             Building { kind },
         )).id();
-        building_map.set_entity(slot, entity);
+        building_map.entities.insert(slot, entity);
         push_building_gpu_updates(slot, pos, faction, hp, tileset_index(kind), def.is_tower, gpu_updates);
         count += 1;
     }
@@ -544,7 +543,7 @@ pub fn spawn_building_entities(
 fn spawn_npcs_from_spawners(
     slot_alloc: &mut EntitySlots,
     towns: &[Town],
-    building_map: &mut BuildingEntityMap,
+    building_map: &mut EntityMap,
 ) -> Vec<crate::messages::SpawnNpcMsg> {
     let mut claimed = BuildingOccupancy::default();
     let mut msgs = Vec::new();
@@ -611,14 +610,14 @@ pub fn setup_world(
     world_data: &mut WorldData,
     town_grids: &mut TownGrids,
     slot_alloc: &mut EntitySlots,
-    building_slots: &mut BuildingEntityMap,
+    building_slots: &mut EntityMap,
     food_storage: &mut FoodStorage,
     gold_storage: &mut GoldStorage,
     faction_stats: &mut FactionStats,
     raider_state: &mut RaiderState,
 ) -> (Vec<crate::messages::SpawnNpcMsg>, Vec<crate::systems::AiPlayer>) {
     town_grids.grids.clear();
-    building_slots.clear();
+    building_slots.clear_buildings();
     generate_world(config, grid, world_data, town_grids, slot_alloc, building_slots);
     building_slots.init_spatial(grid.width as f32 * grid.cell_size);
 
@@ -641,7 +640,7 @@ pub fn setup_world(
 /// Writes NPC spawn messages and spawns ECS building entities.
 pub fn materialize_generated_world(
     commands: &mut Commands,
-    building_slots: &mut BuildingEntityMap,
+    building_slots: &mut EntityMap,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
     spawn_writer: &mut MessageWriter<crate::messages::SpawnNpcMsg>,
     npc_msgs: Vec<crate::messages::SpawnNpcMsg>,
@@ -701,7 +700,7 @@ pub fn expand_town_build_area(
 pub(crate) fn destroy_building(
     grid: &mut WorldGrid,
     world_data: &WorldData,
-    building_slots: &mut BuildingEntityMap,
+    building_slots: &mut EntityMap,
     combat_log: &mut MessageWriter<CombatLogMsg>,
     game_time: &GameTime,
     row: i32, col: i32,
@@ -745,14 +744,14 @@ pub enum LocationKind {
 }
 
 /// Find nearest location of a given kind (no radius limit, position only).
-pub fn find_nearest_location(from: Vec2, bmap: &crate::resources::BuildingEntityMap, kind: LocationKind) -> Option<Vec2> {
+pub fn find_nearest_location(from: Vec2, bmap: &crate::resources::EntityMap, kind: LocationKind) -> Option<Vec2> {
     find_location_within_radius(from, bmap, kind, f32::MAX).map(|(_, pos)| pos)
 }
 
 /// Find nearest location of a given kind within radius. Returns (index, position).
 pub fn find_location_within_radius(
     from: Vec2,
-    bmap: &crate::resources::BuildingEntityMap,
+    bmap: &crate::resources::EntityMap,
     kind: LocationKind,
     radius: f32,
 ) -> Option<(usize, Vec2)> {
@@ -830,7 +829,7 @@ impl Worksite for PlacedBuilding {
 /// Find nearest unoccupied building of `kind`, optionally filtered by town.
 pub fn find_nearest_free(
     from: Vec2,
-    bmap: &crate::resources::BuildingEntityMap,
+    bmap: &crate::resources::EntityMap,
     kind: BuildingKind,
     occupancy: &BuildingOccupancy,
     town_idx: Option<u32>,
@@ -857,7 +856,7 @@ pub fn find_nearest_free(
 /// Find nearest building of `kind` within radius, filtered by town. Returns (slot, position).
 pub fn find_within_radius(
     from: Vec2,
-    bmap: &crate::resources::BuildingEntityMap,
+    bmap: &crate::resources::EntityMap,
     kind: BuildingKind,
     radius: f32,
     town_idx: u32,
@@ -893,7 +892,7 @@ pub enum BuildingKind { Fountain, Bed, Waypoint, Farm, FarmerHome, ArcherHome, T
 
 /// Rebuild building spatial grid. Only runs when BuildingGridDirtyMsg is received.
 pub fn rebuild_building_grid_system(
-    mut building_map: ResMut<BuildingEntityMap>,
+    mut building_map: ResMut<EntityMap>,
     mut grid_dirty: MessageReader<BuildingGridDirtyMsg>,
     grid: Res<WorldGrid>,
     timings: Res<SystemTimings>,
@@ -1343,7 +1342,7 @@ pub fn generate_world(
     world_data: &mut WorldData,
     town_grids: &mut TownGrids,
     slot_alloc: &mut crate::resources::EntitySlots,
-    building_map: &mut BuildingEntityMap,
+    building_map: &mut EntityMap,
 ) {
     use rand::Rng;
     let mut rng = rand::rng();
@@ -1533,7 +1532,7 @@ pub fn place_buildings(
     town_grid: &mut TownGrid,
     is_raider: bool,
     slot_alloc: &mut crate::resources::EntitySlots,
-    building_map: &mut BuildingEntityMap,
+    building_map: &mut EntityMap,
 ) {
     let mut occupied = HashSet::new();
     let faction = world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);

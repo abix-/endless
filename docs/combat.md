@@ -16,18 +16,18 @@ GPU combat_target_buffer (from compute shader)
    fire projectile or
    point-blank DamageMsg)
         │
-        ├── target not in BuildingEntityMap → NPC target (existing flow)
-        ├── target in BuildingEntityMap → building target (GPU-targeted, real damage projectile)
+        ├── target has no building instance → NPC target (existing flow)
+        ├── target has building instance → building target (GPU-targeted, real damage projectile)
         │
         ├── In range + cooldown ready → fire projectile → GPU projectile system
         └── Out of range → MovementIntents.submit(Combat) → resolve_movement_system
                                                       │
                                                       ▼
 DamageMsg (from process_proj_hits)             GPU movement
-        │  (unified: entity_idx is unified slot, routes via BuildingEntityMap lookup)
+        │  (unified: entity_idx is unified slot, routes via EntityMap.get_instance() presence check)
         ▼
   damage_system
-  ├─ Building (entity_idx in BuildingEntityMap):
+  ├─ Building (entity_idx in EntityMap):
   │   apply to Health, SetHealth, SetDamageFlash
   │   insert LastHitBy (for loot attribution)
   └─ NPC (entity_idx in EntityMap):
@@ -88,17 +88,17 @@ Execution order is **chained** — each system completes before the next starts.
 - **Hold fire**: if NPC's squad has `hold_fire == true` and no `ManualTarget`, target is set to -1 (skip auto-engage). Reads `SquadState` via `SquadId`.
 - Falls back to `GpuReadState.combat_targets` for NPCs without manual target or hold-fire.
 - **Skips** NPCs with `Activity::Returning`, `Activity::GoingToRest`, or `Activity::Resting` (prevents combat while heading home, going to bed, or sleeping)
-- **Unified GPU targeting**: `combat_targets[i]` returns a unified entity slot. Building vs NPC is determined by `BuildingEntityMap` lookup. One code path for all target types.
-- **Building targets** (target in `BuildingEntityMap`):
+- **Unified GPU targeting**: `combat_targets[i]` returns a unified entity slot. Building vs NPC is determined by `entity_map.get_instance()` presence check. One code path for all target types.
+- **Building targets** (target has instance in `EntityMap`):
   - Only **archers**, **crossbows**, and **raiders** attack buildings (farmers/miners/fighters skip)
-  - Validates via `BuildingEntityMap.get_instance(target)` — checks faction (skip same-faction)
+  - Validates via `entity_map.get_instance(target)` — checks faction (skip same-faction)
   - Gets building position from `BuildingInstance.position`
   - In range + cooldown ready: fires projectile with **real damage** (GPU projectile collision handles hit detection against buildings in the unified entity grid)
   - Point-blank: emits `DamageMsg` directly
   - Out of range but within close chase radius (range + 120px): chases building (`SetTarget` to building position)
   - Beyond close chase radius: ignores building (prevents cross-map pursuit of distant enemy buildings)
-- **NPC targets** (target not in `BuildingEntityMap`):
-  - Validates via `EntityMap` lookup, faction check, health check
+- **NPC targets** (target has no building instance):
+  - Validates via `entity_map.entities` lookup, faction check, health check
   - Sets `CombatState::Fighting { origin }` (stores current position)
   - **In range**: submits `MovementIntents` at `Combat` priority to own position (stand ground — stops GPU movement, NPC holds position while shooting). Projectile dodge from GPU shader provides evasion.
   - **In range + cooldown ready**: resets `AttackTimer`, fires projectile or applies point-blank damage
@@ -106,15 +106,15 @@ Execution order is **chained** — each system completes before the next starts.
 
 ### 3. damage_system (health.rs)
 - Drains unified `DamageMsg` events from Bevy MessageReader
-- Routes by `entity_idx`: checks `BuildingEntityMap` first (buildings), then `EntityMap` (NPCs)
-- **Building damage** (entity_idx in `BuildingEntityMap`):
-  - O(1) lookup via `BuildingEntityMap.get_instance(entity_idx)` + `get_entity(entity_idx)`
+- Routes by `entity_idx`: checks `entity_map.get_instance(entity_idx)` — if found, it's a building; otherwise, it's an NPC (both share one `EntityMap`)
+- **Building damage** (entity_idx has instance in `EntityMap`):
+  - O(1) lookup via `entity_map.get_instance(entity_idx)` + `entity_map.entities.get(&entity_idx)`
   - Skips indestructible buildings (GoldMine, Road) and already-dead buildings
   - Subtracts damage, pushes `GpuUpdate::SetHealth` + `GpuUpdate::SetDamageFlash`
   - If HP > 0: sets `BuildingHealState.needs_healing` for healing_system
   - Inserts `LastHitBy(attacker)` on buildings for death_system loot attribution
-- **NPC damage** (entity_idx in `EntityMap`):
-  - O(1) entity lookup via `EntityMap[entity_idx]`
+- **NPC damage** (entity_idx not in building instances):
+  - O(1) entity lookup via `entity_map.entities[&entity_idx]`
   - Subtracts damage: `health.0 = (health.0 - amount).max(0.0)`
   - Pushes `GpuUpdate::SetHealth` + `GpuUpdate::SetDamageFlash` (intensity 1.0)
   - If `attacker >= 0`: inserts `LastHitBy(attacker)` via `get_entity()` guard
@@ -132,12 +132,12 @@ Unified death handler — replaces the old `death_system` + `xp_grant_system` + 
 For each dead entity:
 
 **Building branch** (detected via `Building` component):
-- Looks up instance data (kind, position, town_idx) from `BuildingEntityMap.get_instance(idx)`, copies fields before mutation
+- Looks up instance data (kind, position, town_idx) from `entity_map.get_instance(idx)`, copies fields before mutation
 - Calls `destroy_building()` for grid cleanup (grid cell clear + wall auto-tile + combat log — no entity lifecycle)
 - Emits `mark_building_changed(kind)` dirty signals
 - **Fountain death**: deactivates AI player for that town. In endless mode, queues replacement AI (`PendingAiSpawn`) scaled to player strength.
 - **Building loot**: `BuildingDef::loot_drop()` returns `cost / 2` as food. Uses `LastHitBy` to find attacker, looks up attacker entity via `params.p1()`. Attacker set to `Activity::Returning { loot }`, targets home. DC keep-fighting override skips disengage + home target when `dc_no_return`.
-- `remove_by_slot(idx)` (clears `slot_to_entity` + `instances` + `by_kind`), `Hide + SetHealth(0)`, `EntitySlots.free(idx)`
+- `remove_by_slot(idx)` (clears `entities` + `instances` + `by_kind`), `Hide + SetHealth(0)`, `EntitySlots.free(idx)`
 
 **NPC branch:**
 - **XP grant**: if `LastHitBy` present, looks up killer entity via `params.p1()`. Grants 100 XP, increments `FactionStats.inc_kills()`. Checks for level-up: `level_from_xp(new_xp) > level_from_xp(old_xp)`. On level-up: re-resolves `CachedStats`, updates `Speed`, rescales HP proportionally, sends GPU updates, emits `CombatEventKind::LevelUp`.
@@ -157,8 +157,8 @@ Tower auto-attack using GPU spatial grid targeting. Towers are in the unified en
 - **TowerStats** struct in `constants.rs`: `range`, `damage`, `cooldown`, `proj_speed`, `proj_lifetime`
 - State length auto-syncs with building count each tick
 - **Fountains**: `FOUNTAIN_TOWER` (range=400, damage=15, cooldown=1.5s, proj_speed=350, proj_lifetime=1.5s). Always-on — `attack_enabled` refreshed from `is_alive(town.center)` every tick (all alive town centers shoot). Strong enough to defend spawn area.
-- **GPU-side targeting**: Reads `GpuReadState.combat_targets[bld_slot]` from readback buffer (building slot IS the GPU index — unified namespace, no offset). The GPU found the nearest enemy via the spatial grid (same O(1) grid lookup as NPC targeting). `combat_range` = 400.0 to cover `FOUNTAIN_TOWER.range`. Only NPC targets are valid (towers skip building targets via `BuildingEntityMap` check).
-- Tower loop: for each enabled building, look up building slot via `BuildingEntityMap.iter_kind_for_town(Fountain, town_idx).next()` (debug_assert one per town), read GPU target, emit `ProjGpuUpdateMsg(ProjGpuUpdate::Spawn)` with `shooter: -1`
+- **GPU-side targeting**: Reads `GpuReadState.combat_targets[bld_slot]` from readback buffer (building slot IS the GPU index — unified namespace, no offset). The GPU found the nearest enemy via the spatial grid (same O(1) grid lookup as NPC targeting). `combat_range` = 400.0 to cover `FOUNTAIN_TOWER.range`. Only NPC targets are valid (towers skip building targets via `EntityMap` check).
+- Tower loop: for each enabled building, look up building slot via `EntityMap.iter_kind_for_town(Fountain, town_idx).next()` (debug_assert one per town), read GPU target, emit `ProjGpuUpdateMsg(ProjGpuUpdate::Spawn)` with `shooter: -1`
 - DRY: adding a new tower building kind requires a `TowerStats` const, a `TowerKindState` field in `TowerState`, and a block in `building_tower_system`. Building flags in `world.rs` + extract mapping in `npc_render.rs` handle the GPU side.
 
 

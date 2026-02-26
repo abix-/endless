@@ -6,11 +6,11 @@ All game state lives in Bevy Resources — singleton structs accessible by any s
 
 Defined in: `rust/src/resources.rs`, `rust/src/world.rs`
 
-## NPC Identity
+## Entity Identity
 
 | Resource | Type | Writers | Readers |
 |----------|------|---------|---------|
-| EntityMap | `HashMap<usize, Entity>` | spawn_npc_system, death_system | damage_system (slot → entity lookup for NPCs) |
+| EntityMap | `entities: HashMap<usize, Entity>` + building instance data/indexes/spatial grid | spawn_npc_system, death_system, place_building | damage_system, attack_system, tower_system, economy, UI (unified slot → entity lookup for all entities) |
 | EntitySlots | `SlotPool` wrapper (max=MAX_ENTITIES=200K) | spawn_npc_system (alloc), place_building_instance (alloc), death_system (free) | GPU compute dispatch, UI, tests |
 
 `EntitySlots` wraps a `SlotPool` inner type with LIFO free list. `next` is the high-water mark. Two query methods: `count()` returns high-water mark, `alive()` returns `next - free.len()`. NPCs and buildings share one allocator — each entity's slot IS its GPU buffer index (no offset arithmetic). See [spawn.md](spawn.md).
@@ -48,7 +48,7 @@ Static world data, immutable after initialization.
 | WorldData | towns: `Vec<Town>` | Town center positions, factions, names |
 | BuildingOccupancy | private `HashMap<(i32,i32), i32>` — position → worker count | Building assignment (claim/release/is_occupied/count/clear) |
 | MineStates | `Vec<f32>` gold + `Vec<f32>` max_gold + `Vec<Vec2>` positions | Per-mine gold tracking |
-| BuildingEntityMap | `BuildingInstance` storage + 256px spatial grid + by_kind/by_entity/by_grid_cell indexes | Sole source of truth for all building instance data (no WorldData.buildings, no WorldCell.building); stores `BuildingInstance` (kind, position, town_idx, slot, entity, faction, patrol_order, assigned_mine, manual_mine, wall_level, npc_slot, respawn_timer, growth_ready, growth_progress); methods: `add_instance`/`remove_instance`/`remove_by_slot`/`get_instance[_mut]`/`find_by_position`/`find_farm_at[_mut]`/`find_mine_at[_mut]`/`iter_kind`/`iter_kind_for_town`/`iter_growable[_mut]`/`count_for_town`/`building_counts`/`gold_mine_index`/`for_each_nearby` (spatial)/`iter_instances`/`iter_instances_mut`/`has_building_at` (grid-coord presence check)/`get_at_grid` (grid-coord instance lookup); entity map: `slot_to_entity`/`get_entity`; `slot` is the sole runtime identity (no legacy ordinal index layer) |
+| EntityMap (building data) | `BuildingInstance` storage + 256px spatial grid + by_kind/by_grid_cell indexes (all inside EntityMap) | Sole source of truth for all building instance data (no WorldData.buildings, no WorldCell.building); stores `BuildingInstance` (kind, position, town_idx, slot, faction, patrol_order, assigned_mine, manual_mine, wall_level, npc_slot, respawn_timer, growth_ready, growth_progress); methods: `add_instance`/`remove_instance`/`remove_by_slot`/`get_instance[_mut]`/`find_by_position`/`find_farm_at[_mut]`/`find_mine_at[_mut]`/`iter_kind`/`iter_kind_for_town`/`iter_growable[_mut]`/`count_for_town`/`building_counts`/`gold_mine_index`/`for_each_nearby` (spatial)/`iter_instances`/`iter_instances_mut`/`has_building_at` (grid-coord presence check)/`get_at_grid` (grid-coord instance lookup); entity lookup via `entities.get(&slot)` (unified); `slot` is the sole runtime identity |
 | Dirty signaling | Concern-specific Bevy messages | `BuildingGridDirtyMsg`, `PatrolsDirtyMsg`, `PatrolPerimeterDirtyMsg`, `HealingZonesDirtyMsg`, `SquadsDirtyMsg`, `MiningDirtyMsg`, `AiSquadsDirtyMsg`, `PatrolSwapMsg`; `DirtyWriters<'w>` bundles writers and `emit_all()` covers startup/reset. See [messages.md](messages.md#dirty-signal-messages). |
 | BuildingHealState | `needs_healing: bool` | Persistent flag (not a message): set by `building_damage_system` on hits, cleared by `healing_system` when no damaged buildings remain |
 | TownGrids | `Vec<TownGrid>` — one per town (villager + raider) | Per-town building slot unlock tracking |
@@ -60,20 +60,20 @@ Static world data, immutable after initialization.
 |--------|--------|
 | Town | name, center (Vec2), faction, sprite_type (0=fountain, 1=tent) |
 
-`WorldData` contains only towns. All building instance data lives in `BuildingEntityMap` — there is no `buildings` BTreeMap. `PlacedBuilding` remains in `save.rs` for backward-compatible deserialization of legacy save files.
+`WorldData` contains only towns. All building instance data lives in `EntityMap` (building fields) — there is no `buildings` BTreeMap. `PlacedBuilding` remains in `save.rs` for backward-compatible deserialization of legacy save files.
 
-Spatial queries (`find_nearest_location`, `find_location_within_radius`, `find_nearest_free`, `find_within_radius`, `find_nearest_enemy_building`) all use `BuildingEntityMap.for_each_nearby()` for O(1) cell lookups. Building counts use `BuildingEntityMap.count_for_town()` / `building_counts()`.
+Spatial queries (`find_nearest_location`, `find_location_within_radius`, `find_nearest_free`, `find_within_radius`, `find_nearest_enemy_building`) all use `EntityMap.for_each_nearby()` for O(1) cell lookups. Building counts use `EntityMap.count_for_town()` / `building_counts()`.
 
 ### World Grid
 
-250x250 cell grid covering the entire 8000x8000 world (32px per cell). Each cell has a terrain biome only — building data lives in `BuildingEntityMap`.
+250x250 cell grid covering the entire 8000x8000 world (32px per cell). Each cell has a terrain biome only — building data lives in `EntityMap`.
 
 | Resource | Data | Purpose |
 |----------|------|---------|
 | WorldGrid | `Vec<WorldCell>` (width × height), cell_size | World-wide terrain grid |
 | WorldGenConfig | world dimensions, num_towns, spacing, npc_counts: BTreeMap\<Job, usize\> | Procedural generation parameters |
 
-**WorldCell** fields: `terrain: Biome` (Grass/Forest/Water/Rock/Dirt). Building presence at grid coordinates is queried via `BuildingEntityMap::has_building_at(gc, gr)` / `get_at_grid(gc, gr)`.
+**WorldCell** fields: `terrain: Biome` (Grass/Forest/Water/Rock/Dirt). Building presence at grid coordinates is queried via `EntityMap::has_building_at(gc, gr)` / `get_at_grid(gc, gr)`.
 
 **WorldGrid** helpers: `cell(col, row)`, `cell_mut(col, row)`, `world_to_grid(pos) -> (col, row)`, `grid_to_world(col, row) -> Vec2`.
 
@@ -94,7 +94,7 @@ Per-town slot tracking for the building system. Each town (villager and raider) 
 
 Coordinate helpers: `town_grid_to_world(center, row, col)`, `world_to_town_grid(center, world_pos)`, `build_bounds(grid) -> (min_row, max_row, min_col, max_col)`, `is_slot_buildable(grid, row, col)`, `find_town_slot(world_pos, towns, grids)`.
 
-Building placement: `place_building()` is the single entry point for all runtime building placement (player UI and AI, town-grid and wilderness). Takes `world_pos`, validates cell (exists, empty, not water), rejects foreign territory, deducts food, places on WorldGrid, creates `BuildingInstance` in `BuildingEntityMap`, auto-assigns waypoint `patrol_order`, pushes FarmStates for farms, registers spawner, spawns building entity (with `Building` marker + `Health` + `NpcIndex` + `Faction` + `TownId`), allocates building GPU slot, and marks DirtyFlags. `destroy_building()` shared helper consolidates all destroy side effects: spawner tombstone + combat log + wall auto-tile neighbor update — used by click-destroy, inspector-destroy, and waypoint pruning; callers send lethal DamageMsg for entity death. `is_alive(pos)` checks tombstone status (single source of truth for `pos.x > -9000.0`). `empty_slots(tg, center, grid, building_map)` scans a town grid for buildable cells using `BuildingEntityMap::has_building_at()` for occupancy checks. Fountains and gold mines cannot be destroyed.
+Building placement: `place_building()` is the single entry point for all runtime building placement (player UI and AI, town-grid and wilderness). Takes `world_pos`, validates cell (exists, empty, not water), rejects foreign territory, deducts food, places on WorldGrid, creates `BuildingInstance` in `EntityMap`, auto-assigns waypoint `patrol_order`, pushes FarmStates for farms, registers spawner, spawns building entity (with `Building` marker + `Health` + `NpcIndex` + `Faction` + `TownId`), allocates building GPU slot, and marks DirtyFlags. `destroy_building()` shared helper consolidates all destroy side effects: spawner tombstone + combat log + wall auto-tile neighbor update — used by click-destroy, inspector-destroy, and waypoint pruning; callers send lethal DamageMsg for entity death. `is_alive(pos)` checks tombstone status (single source of truth for `pos.x > -9000.0`). `empty_slots(tg, center, grid, building_map)` scans a town grid for buildable cells using `EntityMap::has_building_at()` for occupancy checks. Fountains and gold mines cannot be destroyed.
 
 Building costs: `building_cost(kind)` in `constants.rs`. Flat costs (no difficulty scaling): Farm=2, FarmerHome=2, MinerHome=4, ArcherHome=4, CrossbowHome=8, Waypoint=1, Tent=3. All properties defined in `BUILDING_REGISTRY`.
 
@@ -147,7 +147,7 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 
 `GpuReadState` is populated by `ReadbackComplete` observers. Positions/combat targets/health are always-on; `factions` is throttled to every 60 frames and `threat_counts` to every 30 frames. Used by combat systems (including `building_tower_system` for CPU-side tower targeting), behavior/AI threat logic, position sync, and test assertions. `entity_count` set by `EntitySlots.count()` (not from readback — buffer is MAX-sized).
 
-`EntityGpuState` holds unified visual and movement data for all entities (NPCs + buildings) on the CPU side. Building slots have default movement fields (targets=[0,0], speeds=0, arrivals=0) — the shader skips movement via `ENTITY_FLAG_BUILDING`. Building rendering reads from this state via `BuildingEntityMap.iter_instances()` to build `BuildingBodyInstances`. Building healing reads positions from this state.
+`EntityGpuState` holds unified visual and movement data for all entities (NPCs + buildings) on the CPU side. Building slots have default movement fields (targets=[0,0], speeds=0, arrivals=0) — the shader skips movement via `ENTITY_FLAG_BUILDING`. Building rendering reads from this state via `EntityMap.iter_instances()` to build `BuildingBodyInstances`. Building healing reads positions from this state.
 
 ## Stats & Upgrades
 
@@ -221,7 +221,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | Resource | Data | Purpose |
 |----------|------|---------|
 | SelectedNpc | `i32` (-1 = none) | Currently selected NPC for inspector panel |
-| SelectedBuilding | `{ col, row, kind, slot, active }` (default inactive) | Currently selected building — kind + GPU slot for direct BuildingEntityMap lookup |
+| SelectedBuilding | `{ col, row, kind, slot, active }` (default inactive) | Currently selected building — kind + GPU slot for direct EntityMap lookup |
 | FollowSelected | `bool` (default false) | When true, camera tracks selected NPC position each frame |
 
 ## Test Framework
@@ -334,7 +334,7 @@ Systems that write intents no longer need `MessageWriter<GpuUpdateMsg>` for move
 
 ## Building HP — Entity Health as Source of Truth
 
-Buildings are ECS entities with `Building` marker component + `Health` component (same as NPCs). There is no separate HP store — entity `Health` is the single source of truth. Lookup chain: `BuildingEntityMap.get_entity(slot)` → entity → `Health`. Buildings are NOT in `EntityMap` — they have their own `BuildingEntityMap` resource for all identity needs (slot ↔ entity ↔ building kind/index). NPCs and buildings share a unified slot allocator (`EntitySlots`, max=MAX_ENTITIES=200K) and a unified CPU-side GPU state (`EntityGpuState`) — each entity's slot IS its GPU buffer index. Save/load serializes building HP as `HashMap<String, Vec<f32>>` (identical JSON format as the old `BuildingHpState`). `sync_building_hp_render` queries building entities to extract damaged building positions + HP fractions for GPU HP bar rendering (reads positions from `EntityGpuState`).
+Buildings are ECS entities with `Building` marker component + `Health` component (same as NPCs). There is no separate HP store — entity `Health` is the single source of truth. Lookup chain: `entity_map.entities.get(&slot)` → entity → `Health`. NPCs and buildings share one `EntityMap` resource — `entities` holds all slot→entity mappings, building instance data (instances, spatial grid, indexes) lives in the same resource. NPCs and buildings share a unified slot allocator (`EntitySlots`, max=MAX_ENTITIES=200K) and a unified CPU-side GPU state (`EntityGpuState`) — each entity's slot IS its GPU buffer index. Save/load serializes building HP as `HashMap<String, Vec<f32>>` (identical JSON format as the old `BuildingHpState`). `sync_building_hp_render` queries building entities to extract damaged building positions + HP fractions for GPU HP bar rendering (reads positions from `EntityGpuState`).
 
 ## Known Issues
 

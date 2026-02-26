@@ -202,6 +202,7 @@ fn game_load_system(
     mut ws: crate::save::SaveWorldState,
     mut fs: crate::save::SaveFactionState,
     mut tracking: crate::save::LoadNpcTracking,
+    mut entity_map: ResMut<EntityMap>,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
     combat_config: Res<crate::systems::stats::CombatConfig>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
@@ -234,6 +235,7 @@ fn game_load_system(
         &mut ws,
         &mut fs,
         &mut tracking,
+        &mut entity_map,
         &mut gpu_updates,
         &combat_config,
     );
@@ -284,13 +286,13 @@ fn game_startup_system(
         &mut world_state.grid, &mut world_state.world_data,
         &mut world_state.town_grids,
         &mut world_state.entity_slots,
-        &mut world_state.building_slots,
+        &mut world_state.building_data,
         &mut food_storage, &mut extra.gold_storage,
         &mut faction_stats, &mut raider_state,
     );
     let total = world::materialize_generated_world(
         &mut commands,
-        &mut world_state.building_slots,
+        &mut world_state.building_data,
         &mut gpu_updates,
         &mut spawn_writer,
         npc_msgs,
@@ -319,7 +321,7 @@ fn game_startup_system(
         if let Some(policy) = extra.policies.policies.get_mut(player.town_data_idx) {
             *policy = player.personality.default_policies();
             if let Some(town) = world_state.world_data.towns.get(player.town_data_idx) {
-                policy.mining_radius = crate::systems::ai_player::initial_mining_radius(&world_state.building_slots, town.center);
+                policy.mining_radius = crate::systems::ai_player::initial_mining_radius(&world_state.building_data, town.center);
             }
         }
         if let Some(town) = world_state.world_data.towns.get(player.town_data_idx) {
@@ -352,7 +354,7 @@ fn tutorial_init_system(
     mut tutorial: ResMut<TutorialState>,
     settings: Res<crate::settings::UserSettings>,
     world_data: Res<world::WorldData>,
-    building_map: Res<BuildingEntityMap>,
+    building_map: Res<EntityMap>,
     camera_query: Query<&Transform, With<crate::render::MainCamera>>,
     game_time: Res<GameTime>,
     time: Res<Time<Real>>,
@@ -708,7 +710,7 @@ fn build_place_click_system(
         if !just_pressed { return; }
         build_ctx.clear_drag();
         let (target_slot, bld_kind) = {
-            let inst = match world_state.building_slots.get_at_grid(gc as i32, gr as i32) {
+            let inst = match world_state.building_data.get_at_grid(gc as i32, gr as i32) {
                 Some(inst) if !matches!(inst.kind, world::BuildingKind::Fountain | world::BuildingKind::GoldMine)
                     && world_state.world_data.towns.get(inst.town_idx as usize).map_or(false, |t| t.faction == 0)
                     => inst,
@@ -850,7 +852,7 @@ fn build_ghost_system(
     world_data: Res<world::WorldData>,
     town_grids: Res<world::TownGrids>,
     food_storage: Res<FoodStorage>,
-    building_slots: Res<BuildingEntityMap>,
+    building_slots: Res<EntityMap>,
     mut ghost_query: Query<(Entity, &mut Transform, &mut Sprite), (With<BuildGhost>, Without<BuildGhostTrail>, Without<crate::render::MainCamera>)>,
     trail_query: Query<Entity, With<BuildGhostTrail>>,
 ) {
@@ -1172,7 +1174,7 @@ fn draw_slot_indicators(
     world_data: Res<world::WorldData>,
     town_grids: Res<world::TownGrids>,
     grid: Res<world::WorldGrid>,
-    building_slots: Res<BuildingEntityMap>,
+    building_slots: Res<EntityMap>,
     build_ctx: Res<BuildMenuContext>,
 ) {
     // Only rebuild when grid state changes or build selection changes
@@ -1241,7 +1243,7 @@ fn process_destroy_system(
         let (col, row) = (msg.0, msg.1);
 
         let (target_slot, bld_kind, town_idx) = {
-            let inst = match world_state.building_slots.get_at_grid(col as i32, row as i32) {
+            let inst = match world_state.building_data.get_at_grid(col as i32, row as i32) {
                 Some(inst) if !matches!(inst.kind, world::BuildingKind::Fountain | world::BuildingKind::GoldMine)
                     && world_state.world_data.towns.get(inst.town_idx as usize).map_or(false, |t| t.faction == 0)
                     => inst,
@@ -1411,7 +1413,8 @@ fn game_cleanup_system(
     *gameplay.selected_building = Default::default();
     *gameplay.follow = Default::default();
     *gameplay.proj_slots = Default::default();
-    world.world_state.building_slots.clear();
+    world.world_state.building_data.clear_buildings();
+    world.world_state.building_data.entities.clear();
 
     info!("Game cleanup complete");
 }

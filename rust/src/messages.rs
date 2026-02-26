@@ -27,7 +27,7 @@ pub struct SpawnNpcMsg {
 
 
 /// Unified damage message for both NPCs and buildings.
-/// entity_idx = unified slot (same as GPU index). Routes to NPC or building via EntityMap/BuildingEntityMap.
+/// entity_idx = unified slot (same as GPU index). Routes to NPC or building via EntityMap.
 #[derive(Message, Clone)]
 pub struct DamageMsg {
     pub entity_idx: usize,

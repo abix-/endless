@@ -243,7 +243,6 @@ pub fn build_app(app: &mut App) {
        .add_message::<DestroyBuildingMsg>()
        .add_message::<SelectFactionMsg>()
        .init_resource::<TowerState>()
-       .init_resource::<resources::BuildingEntityMap>()
        .init_resource::<resources::BuildingHpRender>()
        .init_resource::<SquadState>()
        .insert_resource(HelpCatalog::new())

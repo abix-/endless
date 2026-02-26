@@ -5,7 +5,7 @@
 **Terrain** uses Bevy's built-in `TilemapChunk` (single layer, `AlphaMode2d::Opaque`, z=-1). **Everything else** — buildings, NPCs, equipment, farms, building HP bars, projectiles — uses a custom GPU pipeline via Bevy's RenderCommand pattern in the Transparent2d phase. Explicit sort keys guarantee deterministic layer ordering (`CompareFunction::Always`, no depth testing between passes). Two render paths share one pipeline with a `StorageDrawMode` specialization key:
 
 - **Storage buffer path** (NPCs only): `vertex_npc` shader entry point reads positions/health directly from compute shader's `NpcGpuBuffers` storage buffers (bind group 2). Visual/equipment data uploaded from CPU as flat storage buffers (`NpcVisualBuffers`). Two specialized variants via `#ifdef` shader defs: `MODE_NPC_BODY` (layer 0, non-building only), `MODE_NPC_OVERLAY` (layers 1-6, non-building only).
-- **Instance buffer path** (buildings, building overlays, projectiles): `vertex` shader entry point reads from classic per-instance `InstanceData` vertex attributes (slot 1). Building bodies use `BuildingBodyInstances` built each frame from `EntityGpuState` via `BuildingEntityMap.iter_instances()`.
+- **Instance buffer path** (buildings, building overlays, projectiles): `vertex` shader entry point reads from classic per-instance `InstanceData` vertex attributes (slot 1). Building bodies use `BuildingBodyInstances` built each frame from `EntityGpuState` via `EntityMap.iter_instances()`.
 
 Four textures bound simultaneously (group 0, bindings 0-7) — `atlas_id` selects which to sample (0=character, 1=world, 2=heal/3=sleep/4=arrow/8=boat via extras atlas, 7=building). Bar-only modes: 5=building HP bar (green/yellow/red), 6=mining progress bar (gold). Atlas ID constants defined in `constants.rs` (`ATLAS_CHAR` through `ATLAS_BOAT`).
 
@@ -29,7 +29,7 @@ EntityGpuState        ──Extract<Res<T>>──▶ zero-clone immutable read
 NpcVisualUpload       ──Extract<Res<T>>──▶ zero-clone immutable read
 RenderFrameConfig     ──ExtractResource──▶ RenderFrameConfig (bundles EntityGpuData + ProjGpuData + textures + readback)
 OverlayInstances      ──Extract<Res<T>>──▶ zero-clone → BuildingOverlayBuffers
-BuildingBodyInstances ──Extract<Res<T>>──▶ zero-clone → BuildingBodyRenderBuffers (built from EntityGpuState via BuildingEntityMap)
+BuildingBodyInstances ──Extract<Res<T>>──▶ zero-clone → BuildingBodyRenderBuffers (built from EntityGpuState via EntityMap)
 NpcGpuBuffers         ──(render world)──▶ positions + healths (bind group 2)
 Camera2d entity       ──extract_camera_state──▶ CameraState
 NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
@@ -60,7 +60,7 @@ NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
                                       │
                                       ▼
                     DrawBuildingBodyCommands (buildings, instance path):
-                      BuildingBodyInstances from EntityGpuState via BuildingEntityMap, building atlas
+                      BuildingBodyInstances from EntityGpuState via EntityMap, building atlas
 
                     DrawBuildingOverlayCommands (farms/BHP, instance path):
                       Instance buffer, building HP bars + farm growth + mine progress
@@ -322,7 +322,7 @@ The render pipeline runs in Bevy's render world after extract:
 | Extract | `extract_npc_data` | Zero-clone GPU upload from EntityGpuState: hybrid writes (per-dirty-index for GPU-authoritative positions/arrivals, bulk for CPU-authoritative targets/speeds/factions/healths/flags) + unconditional visual/equip writes via `Extract<Res<T>>` |
 | Extract | `extract_proj_batch` | Despawn stale render world ProjBatch, then clone fresh from main world |
 | Extract | `extract_camera_state` | Build CameraState from Camera2d Transform + Projection + Window |
-| Extract | `extract_building_body_instances` | Zero-clone read of BuildingBodyInstances → BuildingBodyRenderBuffers (building body sprites from EntityGpuState via BuildingEntityMap) |
+| Extract | `extract_building_body_instances` | Zero-clone read of BuildingBodyInstances → BuildingBodyRenderBuffers (building body sprites from EntityGpuState via EntityMap) |
 | Extract | `extract_overlay_instances` | Zero-clone read of OverlayInstances → BuildingOverlayBuffers (farms/BHP/mining) with RawBufferVec reuse |
 | PrepareResources | `prepare_npc_buffers` | Buffer creation + sentinel init (first frame), create bind group 2 |
 | Extract | `extract_proj_data` | Zero-clone GPU upload: per-dirty-index compute writes + projectile instance buffer build from `active_set` via `Extract<Res<T>>` |
@@ -330,7 +330,7 @@ The render pipeline runs in Bevy's render world after extract:
 | PrepareBindGroups | `prepare_npc_camera_bind_group` | Create camera uniform bind group (includes entity_count from RenderFrameConfig.npc) |
 | Queue | `queue_npcs` | Add DrawBuildingBodyCommands (0.2), DrawBuildingOverlayCommands (0.3), DrawNpcBodyCommands (0.5), DrawNpcOverlayCommands (0.6) |
 | Queue | `queue_projs` | Add DrawProjCommands (sort_key=1.0, above NPCs) |
-| Render | `DrawBuildingBodyCommands` | Instance path — building body sprites from `BuildingBodyRenderBuffers` (built from `EntityGpuState` via `BuildingEntityMap`) |
+| Render | `DrawBuildingBodyCommands` | Instance path — building body sprites from `BuildingBodyRenderBuffers` (built from `EntityGpuState` via `EntityMap`) |
 | Render | `DrawBuildingOverlayCommands` | Instance path — farms, building HP bars, mine progress |
 | Render | `DrawNpcBodyCommands` | Storage path, `#ifdef MODE_NPC_BODY` — layer 0, non-building only |
 | Render | `DrawNpcOverlayCommands` | Storage path, `#ifdef MODE_NPC_OVERLAY` — layers 1-6, non-building only |
@@ -352,7 +352,7 @@ type DrawNpcOverlayCommands = (..., DrawStoragePass<false>);   // + MODE_NPC_OVE
 ```rust
 type DrawBuildingBodyCommands = (..., DrawBuildingBody);
 ```
-`DrawBuildingBody::render()` reads `BuildingBodyRenderBuffers` — a `RawBufferVec<InstanceData>` built each frame from `EntityGpuState` (positions, factions, health, sprite indices, flash) by `build_building_body_instances` (PostUpdate). Building slots are obtained by iterating `BuildingEntityMap.iter_instances()` and indexing into the unified `EntityGpuState` arrays.
+`DrawBuildingBody::render()` reads `BuildingBodyRenderBuffers` — a `RawBufferVec<InstanceData>` built each frame from `EntityGpuState` (positions, factions, health, sprite indices, flash) by `build_building_body_instances` (PostUpdate). Building slots are obtained by iterating `EntityMap.iter_instances()` and indexing into the unified `EntityGpuState` arrays.
 
 The shader derives `slot` and `layer` from `instance_index`. Compile-time `#ifdef` gating discards unwanted slots per pass (buildings vs non-buildings). Hidden NPCs (`pos.x < -9000`) and empty equipment slots (`col < 0`) are culled by moving clip_position off-screen.
 

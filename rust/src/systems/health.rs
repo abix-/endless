@@ -6,7 +6,7 @@ use crate::components::*;
 use crate::constants::STARVING_HP_CAP;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, DirtyWriters};
 use crate::messages::CombatLogMsg;
-use crate::resources::{EntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, EntitySlots, GpuReadState, FactionStats, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SystemTimings, HealingZoneCache, BuildingEntityMap, BuildingHealState, EndlessMode, SquadState, FoodStorage, GoldStorage};
+use crate::resources::{EntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, EntitySlots, GpuReadState, FactionStats, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SystemTimings, HealingZoneCache, BuildingHealState, EndlessMode, SquadState, FoodStorage, GoldStorage};
 use crate::systems::stats::{CombatConfig, TownUpgrades, UPGRADES, level_from_xp, resolve_combat_stats};
 use crate::constants::{UpgradeStatKind, ItemKind, building_def, npc_def};
 use crate::systems::economy::*;
@@ -15,7 +15,7 @@ use crate::world::{WorldData, WorldGrid, TownGrids, BuildingOccupancy, BuildingK
 /// Bundled resources for death_system — merged from CleanupResources + WorldState + BuildingDeathExtra.
 #[derive(SystemParam)]
 pub struct DeathResources<'w> {
-    pub npc_map: ResMut<'w, EntityMap>,
+    pub entity_map: ResMut<'w, EntityMap>,
     pub pop_stats: ResMut<'w, PopulationStats>,
     pub faction_stats: ResMut<'w, FactionStats>,
     pub debug: ResMut<'w, HealthDebug>,
@@ -24,7 +24,6 @@ pub struct DeathResources<'w> {
     pub slots: ResMut<'w, EntitySlots>,
     pub farm_occupancy: ResMut<'w, BuildingOccupancy>,
     pub dirty_writers: DirtyWriters<'w>,
-    pub building_slots: ResMut<'w, BuildingEntityMap>,
     pub grid: ResMut<'w, WorldGrid>,
     pub world_data: ResMut<'w, WorldData>,
     pub town_grids: ResMut<'w, TownGrids>,
@@ -37,8 +36,7 @@ pub struct DeathResources<'w> {
 pub fn damage_system(
     mut commands: Commands,
     mut events: MessageReader<DamageMsg>,
-    npc_map: Res<EntityMap>,
-    bmap: Res<BuildingEntityMap>,
+    entity_map: Res<EntityMap>,
     mut query: Query<(&mut Health, &EntitySlot)>,
     mut debug: ResMut<HealthDebug>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
@@ -51,10 +49,10 @@ pub fn damage_system(
         damage_count += 1;
         let idx = event.entity_idx;
 
-        // Try building first (BuildingEntityMap), then NPC (EntityMap)
-        if let Some(entity) = bmap.get_entity(idx) {
+        let Some(&entity) = entity_map.entities.get(&idx) else { continue };
+
+        if let Some(inst) = entity_map.get_instance(idx) {
             // Building damage
-            let Some(inst) = bmap.get_instance(idx) else { continue };
             if matches!(inst.kind, crate::world::BuildingKind::GoldMine | crate::world::BuildingKind::Road) { continue; }
             let Ok((mut health, _npc_idx)) = query.get_mut(entity) else { continue };
             if health.0 <= 0.0 { continue; }
@@ -71,7 +69,7 @@ pub fn damage_system(
                     ec.insert(LastHitBy(event.attacker));
                 }
             }
-        } else if let Some(&entity) = npc_map.0.get(&idx) {
+        } else {
             // NPC damage
             if let Ok((mut health, npc_idx)) = query.get_mut(entity) {
                 health.0 = (health.0 - event.amount).max(0.0);
@@ -94,13 +92,14 @@ pub fn damage_system(
     }
 }
 
-fn hide_npc(idx: usize, npc_map: &mut EntityMap, slots: &mut EntitySlots, gpu: &mut MessageWriter<GpuUpdateMsg>) {
-    npc_map.0.remove(&idx);
+fn hide_npc(idx: usize, entity_map: &mut EntityMap, slots: &mut EntitySlots, gpu: &mut MessageWriter<GpuUpdateMsg>) {
+    entity_map.entities.remove(&idx);
     gpu.write(GpuUpdateMsg(GpuUpdate::Hide { idx }));
     slots.free(idx);
 }
 
-fn hide_building(idx: usize, alloc: &mut EntitySlots, gpu: &mut MessageWriter<GpuUpdateMsg>) {
+fn hide_building(idx: usize, entity_map: &mut EntityMap, alloc: &mut EntitySlots, gpu: &mut MessageWriter<GpuUpdateMsg>) {
+    entity_map.remove_by_slot(idx);
     gpu.write(GpuUpdateMsg(GpuUpdate::Hide { idx }));
     gpu.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: 0.0 }));
     alloc.free(idx);
@@ -170,7 +169,7 @@ pub fn death_system(
             let attacker = last_hit_by.map(|h| h.0).unwrap_or(-1);
 
             // Copy fields out before mutating building_slots
-            if let Some(inst) = res.building_slots.get_instance(idx) {
+            if let Some(inst) = res.entity_map.get_instance(idx) {
                 let kind = inst.kind;
                 let pos = inst.position;
                 let town_idx = inst.town_idx as usize;
@@ -186,7 +185,7 @@ pub fn death_system(
 
                 let _ = crate::world::destroy_building(
                     &mut res.grid, &res.world_data,
-                    &mut res.building_slots, &mut combat_log, &game_time,
+                    &mut res.entity_map, &mut combat_log, &game_time,
                     trow, tcol, center,
                     &format!("{:?} destroyed in {}", kind, town_name),
                     &mut gpu_updates,
@@ -232,7 +231,7 @@ pub fn death_system(
                     };
                     if amount > 0 && attacker >= 0 {
                         let attacker_slot = attacker as usize;
-                        if let Some(&attacker_entity) = res.npc_map.0.get(&attacker_slot) {
+                        if let Some(&attacker_entity) = res.entity_map.entities.get(&attacker_slot) {
                             if let Ok((loot_npc_idx, _job, _town, _atk, _pers, _health, _cached, _speed, loot_faction, mut loot_activity, loot_home, _combat, dc)) = params.p1().get_mut(attacker_entity) {
                                 let dc_keep_fighting = dc.is_some() && squad_state.dc_no_return;
 
@@ -254,8 +253,7 @@ pub fn death_system(
                     }
                 }
             }
-            res.building_slots.remove_by_slot(idx);
-            hide_building(idx, &mut res.slots, &mut gpu_updates);
+            hide_building(idx, &mut res.entity_map, &mut res.slots, &mut gpu_updates);
             continue;
         }
 
@@ -265,7 +263,7 @@ pub fn death_system(
         if let Some(last_hit) = last_hit_by {
             if last_hit.0 >= 0 {
                 let killer_slot = last_hit.0 as usize;
-                if let Some(&killer_entity) = res.npc_map.0.get(&killer_slot) {
+                if let Some(&killer_entity) = res.entity_map.entities.get(&killer_slot) {
                     if let Ok((k_npc_idx, k_job, k_town, k_atk, k_pers, mut k_health, mut k_cached, mut k_speed, k_faction, mut k_activity, k_home, mut k_combat, k_dc)) = params.p1().get_mut(killer_entity) {
                         let k_idx = k_npc_idx.0;
                         res.faction_stats.inc_kills(k_faction.0);
@@ -366,7 +364,8 @@ pub fn death_system(
             }
         }
 
-        hide_npc(idx, &mut res.npc_map, &mut res.slots, &mut gpu_updates);
+        hide_npc(idx, &mut res.entity_map, &mut res.slots, &mut gpu_updates);
+
     }
 
     res.debug.despawned_this_frame = despawn_count;

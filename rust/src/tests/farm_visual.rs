@@ -36,7 +36,7 @@ pub fn setup(mut params: TestSetupParams) {
 
 pub fn tick(
     marker_query: Query<&FarmReadyMarker>,
-    building_map: Res<BuildingEntityMap>,
+    building_map: Res<EntityMap>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {

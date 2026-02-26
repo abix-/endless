@@ -30,7 +30,7 @@ pub fn top_bar_system(
     gold_storage: Res<GoldStorage>,
     world_data: Res<WorldData>,
     mut ui_state: ResMut<UiState>,
-    building_map: Res<BuildingEntityMap>,
+    building_map: Res<EntityMap>,
     catalog: Res<HelpCatalog>,
     time: Res<Time>,
     mut avg_fps: Local<f32>,
@@ -187,7 +187,7 @@ pub struct BuildingInspectorData<'w, 's> {
     gold_storage: ResMut<'w, GoldStorage>,
     combat_config: Res<'w, CombatConfig>,
     town_upgrades: Res<'w, TownUpgrades>,
-    building_map: ResMut<'w, BuildingEntityMap>,
+    building_map: ResMut<'w, EntityMap>,
     building_health: Query<'w, 's, &'static mut Health, With<Building>>,
 }
 
@@ -767,7 +767,7 @@ fn inspector_content(
             let label = if is_dc { "Direct Control: ON" } else { "Direct Control: OFF" };
             let color = if is_dc { egui::Color32::from_rgb(80, 220, 80) } else { egui::Color32::GRAY };
             if ui.button(egui::RichText::new(label).color(color)).clicked() {
-                if let Some(&entity) = npc_entity_map.0.get(&idx) {
+                if let Some(&entity) = npc_entity_map.entities.get(&idx) {
                     if is_dc {
                         commands.entity(entity).remove::<DirectControl>();
                     } else {
@@ -1056,7 +1056,7 @@ fn inspector_content(
 fn selected_building_info(
     selected: &SelectedBuilding,
     grid: &WorldGrid,
-    building_map: &BuildingEntityMap,
+    building_map: &EntityMap,
 ) -> Option<(BuildingKind, u32, Vec2, usize, usize)> {
     if !selected.active { return None; }
 
@@ -1079,7 +1079,7 @@ fn selected_building_info(
 fn mine_assignment_ui(
     ui: &mut egui::Ui,
     _world_data: &mut WorldData,
-    building_map: &mut BuildingEntityMap,
+    building_map: &mut EntityMap,
     mh_slot: usize,
     ref_pos: Vec2,
     dirty_writers: &mut crate::messages::DirtyWriters,
@@ -1256,7 +1256,9 @@ fn building_inspector_content(
 
                 // Show current HP from building entity
                 {
-                    let hp = bld.building_health.get(wall_inst.entity).ok().map(|h| h.0);
+                    let hp = bld.building_map.entities.get(&wall_inst.slot)
+                        .and_then(|&e| bld.building_health.get(e).ok())
+                        .map(|h| h.0);
                     if let Some(hp) = hp {
                         let color = if hp > tier_hp * 0.5 {
                             egui::Color32::from_rgb(80, 200, 80)
@@ -1309,10 +1311,14 @@ fn building_inspector_content(
                         let new_level = (level + 1) as u8;
                         let new_hp = WALL_TIER_HP[level]; // level is 0-indexed for next tier
                         // Dual-write wall_level to WorldData
-                        if let Some(inst) = bld.building_map.find_by_position_mut(world_pos) {
-                            inst.wall_level = new_level;
-                            if let Ok(mut health) = bld.building_health.get_mut(inst.entity) {
-                                health.0 = new_hp;
+                        if let Some(slot) = bld.building_map.slot_at_position(world_pos) {
+                            if let Some(inst) = bld.building_map.get_instance_mut(slot) {
+                                inst.wall_level = new_level;
+                            }
+                            if let Some(&entity) = bld.building_map.entities.get(&slot) {
+                                if let Ok(mut health) = bld.building_health.get_mut(entity) {
+                                    health.0 = new_hp;
+                                }
                             }
                         }
                         dirty_writers.building_grid.write(crate::messages::BuildingGridDirtyMsg);
@@ -1385,7 +1391,7 @@ fn building_inspector_content(
         ui.separator();
         let max_hp = crate::constants::building_def(kind).hp;
         let hp = bld.building_map.find_by_position(world_pos)
-            .and_then(|inst| bld.building_map.get_entity(inst.slot))
+            .and_then(|inst| bld.building_map.entities.get(&inst.slot).copied())
             .and_then(|e| bld.building_health.get(e).ok())
             .map(|h| h.0)
             .unwrap_or(0.0);
@@ -1580,7 +1586,7 @@ pub fn selection_overlay_system(
     selected: Res<SelectedNpc>,
     selected_building: Res<SelectedBuilding>,
     gpu_state: Res<GpuReadState>,
-    building_slots: Res<BuildingEntityMap>,
+    building_slots: Res<EntityMap>,
     grid: Res<WorldGrid>,
     _world_data: Res<WorldData>,
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,

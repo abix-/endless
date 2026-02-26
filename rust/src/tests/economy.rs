@@ -57,7 +57,7 @@ pub fn tick(
     _farmer_query: Query<(), (With<Farmer>, Without<Dead>)>,
     npc_query: Query<(), (With<EntitySlot>, Without<Dead>)>,
     stealer_query: Query<(), (With<Stealer>, Without<Dead>)>,
-    building_map: Res<BuildingEntityMap>,
+    building_map: Res<EntityMap>,
     food_storage: Res<FoodStorage>,
     time: Res<Time>,
     mut test: ResMut<TestState>,

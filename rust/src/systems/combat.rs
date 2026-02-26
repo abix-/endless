@@ -6,7 +6,6 @@ use crate::messages::{DamageMsg, ProjGpuUpdate, ProjGpuUpdateMsg};
 use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TowerState, SystemTimings, GameTime, EntityMap, MovementIntents, MovementPriority};
 use crate::systems::stats::{TownUpgrades, resolve_town_tower_stats};
 use crate::gpu::ProjBufferWrites;
-use crate::resources::BuildingEntityMap;
 use crate::world::{WorldData, BuildingKind, is_alive};
 
 
@@ -50,8 +49,7 @@ pub fn attack_system(
     mut debug: ResMut<CombatDebug>,
     gpu_state: Res<GpuReadState>,
     npc_gpu: Res<crate::gpu::EntityGpuState>,
-    npc_map: Res<EntityMap>,
-    bmap: Res<BuildingEntityMap>,
+    entity_map: Res<EntityMap>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     timings: Res<SystemTimings>,
     squad_state: Res<crate::resources::SquadState>,
@@ -126,9 +124,9 @@ pub fn attack_system(
         // If current movement target is an enemy building, keep it until invalid.
         if target_idx >= 0 {
             let ti = target_idx as usize;
-            if bmap.get_instance(ti).is_some() && i * 2 + 1 < npc_gpu.targets.len() {
+            if entity_map.get_instance(ti).is_some() && i * 2 + 1 < npc_gpu.targets.len() {
                 let current_target = Vec2::new(npc_gpu.targets[i * 2], npc_gpu.targets[i * 2 + 1]);
-                if let Some(curr_inst) = bmap.find_by_position(current_target) {
+                if let Some(curr_inst) = entity_map.find_by_position(current_target) {
                     if curr_inst.faction >= 0 && curr_inst.faction != faction.0 {
                         target_idx = curr_inst.slot as i32;
                     }
@@ -164,8 +162,8 @@ pub fn attack_system(
         let (x, y) = (positions[i * 2], positions[i * 2 + 1]);
         if x < -9000.0 { continue; } // dead/hidden
 
-        // ── Building target (unified slot, checked via BuildingEntityMap) ──
-        if let Some(inst) = bmap.get_instance(ti) {
+        // ── Building target (unified slot, checked via EntityMap) ──
+        if let Some(inst) = entity_map.get_instance(ti) {
             // Only combat jobs attack buildings
             if !matches!(job, Job::Archer | Job::Crossbow | Job::Raider) { continue; }
             // Don't attack same-faction buildings
@@ -222,7 +220,7 @@ pub fn attack_system(
         }
 
         // ── NPC target (not a building) ──
-        let target_entity = npc_map.0.get(&ti);
+        let target_entity = entity_map.entities.get(&ti);
         if target_entity.is_none() {
             if combat_state.is_fighting() { *combat_state = CombatState::None; }
             continue;
@@ -397,7 +395,7 @@ pub fn building_tower_system(
     gpu_state: Res<GpuReadState>,
     world_data: Res<WorldData>,
     upgrades: Res<TownUpgrades>,
-    bmap: Res<BuildingEntityMap>,
+    entity_map: Res<EntityMap>,
     mut tower: ResMut<TowerState>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     mut proj_updates: MessageWriter<ProjGpuUpdateMsg>,
@@ -429,16 +427,16 @@ pub fn building_tower_system(
         let pos = town.center;
         let faction = town.faction;
 
-        // Look up tower building slot via BuildingEntityMap (one Fountain per town)
-        debug_assert!(bmap.iter_kind_for_town(BuildingKind::Fountain, i as u32).count() <= 1,
+        // Look up tower building slot via EntityMap (one Fountain per town)
+        debug_assert!(entity_map.iter_kind_for_town(BuildingKind::Fountain, i as u32).count() <= 1,
             "multiple fountains in town {i}");
-        let bld_slot = bmap.iter_kind_for_town(BuildingKind::Fountain, i as u32)
+        let bld_slot = entity_map.iter_kind_for_town(BuildingKind::Fountain, i as u32)
             .next().map(|inst| inst.slot);
         let Some(bld_slot) = bld_slot else { continue };
 
         // Read GPU combat_targets for this tower's entity index (unified slot)
         let target = gpu_state.combat_targets.get(bld_slot).copied().unwrap_or(-1);
-        if target < 0 || bmap.get_instance(target as usize).is_some() { continue; } // only target NPCs
+        if target < 0 || entity_map.get_instance(target as usize).is_some() { continue; } // only target NPCs
 
         let ti = target as usize;
         let tx = gpu_state.positions.get(ti * 2).copied().unwrap_or(-9999.0);

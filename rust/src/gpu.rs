@@ -874,7 +874,7 @@ fn populate_tile_flags(
     mut config: ResMut<RenderFrameConfig>,
     grid: Res<crate::world::WorldGrid>,
     world_data: Res<crate::world::WorldData>,
-    building_slots: Res<crate::resources::BuildingEntityMap>,
+    building_slots: Res<crate::resources::EntityMap>,
     mut grid_dirty: MessageReader<crate::messages::BuildingGridDirtyMsg>,
 ) {
     // Set grid dimensions every frame (cheap)

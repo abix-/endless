@@ -96,7 +96,7 @@ pub fn tick(
     // Phase 1: Wait for all NPCs to spawn, then modify components
     if test.phase == 1 && !*modified {
         // Check all NPCs exist
-        let found = (0..total).filter(|i| npc_map.0.contains_key(&(first_slot + i))).count();
+        let found = (0..total).filter(|i| npc_map.entities.contains_key(&(first_slot + i))).count();
         if found < total {
             test.phase_name = format!("Spawning {}/{}...", found, total);
             if elapsed > 5.0 {
@@ -122,7 +122,7 @@ pub fn tick(
         for row in 0..NUM_ROWS {
             for col in 0..NUM_COLS {
                 let slot = first_slot + row * NUM_COLS + col;
-                let Some(&entity) = npc_map.0.get(&slot) else { continue };
+                let Some(&entity) = npc_map.entities.get(&slot) else { continue };
 
                 // Stop movement
                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: slot, speed: 0.0 }));
