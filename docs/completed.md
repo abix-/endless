@@ -14,6 +14,8 @@ Completed items moved from roadmap for readability.
 - [x] Stage 16 bugfix: fixed NPC/building selection slot collision in `render.rs` (selection now distinguishes NPC slots from building slots; building hit-tests use `BuildingEntityMap` instances)
 - [x] Stage 16 messages: projectile GPU updates fully message-driven (`ProjGpuUpdateMsg` consumed directly by `populate_proj_buffer_writes`); removed `PROJ_GPU_UPDATE_QUEUE` bridge
 - [x] Stage 20 diagnostics: added `NpcTargetThrashDebug` runtime metric and UI surfacing (Profiler top offenders + selected NPC inspector fields) tracking `TargetChanges/min`, `PingPong/min`, `ReasonFlips/min`, and `TargetWrites/min`
+- [x] Stage 20 diagnostics: target-thrash metric moved to sink-level (`populate_gpu_state`) with 1-second window counters (`SinkTargetChanges/s`, `SinkPingPong/s`, `SinkTargetWrites/s`) to match visible target indicator behavior
+- [x] Stage 20 combat stability: `attack_system` now keeps sticky enemy-building targets and dedupes unchanged combat `SetTarget` writes to reduce cross-town building target flopping
 
 ### Roadmap Migration (Stages 14, 15, 16, 16.5, 18, 22)
 - [x] Stage 14: endless mode (defeated AI towns become leaderless, replacement AI scaled to player strength)

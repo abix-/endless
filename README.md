@@ -46,11 +46,15 @@ Your AI rivals do the same — each with a distinct strategy
 
 Built with [Bevy 0.18](https://bevyengine.org/) ECS + GPU compute shaders (WGSL). 50K NPC capacity via instanced rendering in a single draw call. See [docs/](docs/README.md) for details.
 
+### Debugging Target Flips
+
+- Enable the Profiler tab to view `NPC Target Thrash (sink, 1s window)` for live per-second target-change diagnostics.
+- Selected NPC debug info includes sink metrics (`SinkTargetChanges/s`, `SinkPingPong/s`, `SinkTargetWrites/s`) and raw `SinkPrevTarget -> SinkLastTarget`.
+
 ## Credits
 
 - Engine: [Bevy 0.18](https://bevyengine.org/)
 - Sprites: [Kenney Roguelike RPG Pack](https://kenney.nl/assets/roguelike-rpg-pack)
 - Music: [Not Jam Music Pack](https://not-jam.itch.io/not-jam-music-pack)
-
 
 

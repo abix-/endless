@@ -127,7 +127,7 @@ Remaining:
 - [ ] Target switching (prefer non-fleeing enemies, prioritize low-HP targets)
 - [ ] Squad behavior: add option for squad-assigned archers to ignore patrol responsibilities
 - [ ] When "Ignore Patrol" is enabled, archers with `SquadId` must never enter `OnDuty`/patrol route flow; they only follow squad target (or squad-idle behavior) while still respecting survival rules (combat/flee/rest/heal)
-- [ ] Eliminate guard target oscillation between squad targets and patrol route posts (`OnDuty`/`Patrolling` conflict): enforce squad-target precedence, add no-spam target writes, and verify via `NpcTargetThrashDebug` (`TargetChanges/min`, `PingPong/min`)
+- [ ] Eliminate guard target oscillation between squad targets and patrol route posts (`OnDuty`/`Patrolling` conflict): enforce squad-target precedence, add no-spam target writes, and verify via `NpcTargetThrashDebug` sink counters (`SinkTargetChanges/s`, `SinkPingPong/s`)
 
 **Stage 21: NPC Skills & Proficiency** (see [specs/npc-skills.md](specs/npc-skills.md))
 

@@ -34,7 +34,7 @@ use std::borrow::Cow;
 use crate::components::{NpcIndex, Faction, Job, Healing, Activity, EquippedWeapon, EquippedHelmet, EquippedArmor, Dead};
 use crate::constants::{FOOD_SPRITE, GOLD_SPRITE, ItemKind, MAX_BUILDINGS, MAX_ENTITIES};
 use crate::messages::{GpuUpdate, GpuUpdateMsg, ProjGpuUpdate, ProjGpuUpdateMsg};
-use crate::resources::{GameTime, GpuReadState, ProjHitState, ProjPositionState, SlotAllocator, BuildingSlots, SystemTimings};
+use crate::resources::{GameTime, GpuReadState, ProjHitState, ProjPositionState, SlotAllocator, BuildingSlots, SystemTimings, NpcTargetThrashDebug};
 use crate::systems::stats::{self, TownUpgrades};
 use crate::world::WorldData;
 
@@ -512,12 +512,16 @@ pub fn populate_gpu_state(
     mut events: MessageReader<GpuUpdateMsg>,
     mut npc_state: ResMut<NpcGpuState>,
     mut bld_state: ResMut<BuildingGpuState>,
+    mut target_thrash: ResMut<NpcTargetThrashDebug>,
+    _game_time: Res<GameTime>,
+    real_time: Res<Time<Real>>,
     time: Res<Time>,
     slots: Res<SlotAllocator>,
     bld_slots: Res<BuildingSlots>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("populate_gpu");
+    let sink_window_key = real_time.elapsed_secs_f64().floor() as i64;
     // Reset NPC dirty flags
     npc_state.dirty_positions = false;
     npc_state.dirty_targets = false;
@@ -538,6 +542,9 @@ pub fn populate_gpu_state(
 
     for msg in events.read() {
         let update = &msg.0;
+        if let GpuUpdate::SetTarget { idx, x, y } = update {
+            target_thrash.record_sink(*idx, sink_window_key, *x, *y);
+        }
         // Route to correct state based on variant
         match update {
             GpuUpdate::BldSetPosition { .. } | GpuUpdate::BldSetFaction { .. } |

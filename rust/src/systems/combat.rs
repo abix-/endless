@@ -4,12 +4,23 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::{ItemKind, building_def};
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDeathMsg, ProjGpuUpdate, ProjGpuUpdateMsg, CombatLogMsg};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TowerState, SystemTimings, CombatEventKind, GameTime, NpcEntityMap, NpcMetaCache};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TowerState, SystemTimings, CombatEventKind, GameTime, NpcEntityMap, NpcMetaCache, NpcTargetThrashDebug};
 use crate::systems::stats::{TownUpgrades, resolve_town_tower_stats};
 use crate::systemparams::WorldState;
 use crate::gpu::ProjBufferWrites;
 use crate::resources::BuildingEntityMap;
 use crate::world::{WorldData, BuildingKind, is_alive};
+
+#[inline]
+fn target_changed(targets: &[f32], idx: usize, x: f32, y: f32) -> bool {
+    let i = idx * 2;
+    if i + 1 >= targets.len() {
+        return true;
+    }
+    let dx = targets[i] - x;
+    let dy = targets[i + 1] - y;
+    (dx * dx + dy * dy) > 1.0
+}
 
 /// Bundled params for building destruction side effects (loot, endless respawn).
 #[derive(bevy::ecs::system::SystemParam)]
@@ -62,15 +73,19 @@ pub fn attack_system(
     mut damage_events: MessageWriter<DamageMsg>,
     mut debug: ResMut<CombatDebug>,
     gpu_state: Res<GpuReadState>,
+    npc_gpu: Res<crate::gpu::NpcGpuState>,
     npc_map: Res<NpcEntityMap>,
     bmap: Res<BuildingEntityMap>,
     slots: Res<crate::resources::SlotAllocator>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
+    mut target_thrash: ResMut<NpcTargetThrashDebug>,
+    game_time: Res<GameTime>,
     timings: Res<SystemTimings>,
     squad_state: Res<crate::resources::SquadState>,
     mut commands: Commands,
 ) {
     let _t = timings.scope("attack");
+    let minute_key = game_time.day() * 24 * 60 + game_time.hour() * 60 + game_time.minute();
     let positions = &gpu_state.positions;
     let combat_targets = &gpu_state.combat_targets;
     let npc_count = slots.count();
@@ -101,7 +116,7 @@ pub fn attack_system(
 
         // Manual target override: player-assigned focus-fire takes priority over GPU auto-target.
         // Clear ManualTarget::Npc if the target is dead.
-        let target_idx = if let Some(mt) = manual_target {
+        let mut target_idx = if let Some(mt) = manual_target {
             match mt {
                 ManualTarget::Npc(t) => {
                     let dead = gpu_state.health.get(*t).map_or(true, |&h| h <= 0.0);
@@ -126,6 +141,20 @@ pub fn attack_system(
                 combat_targets.get(i).copied().unwrap_or(-1)
             }
         };
+
+        // Sticky building target: avoid cross-town building flops when GPU alternates nearest building.
+        // If current movement target is an enemy building, keep it until invalid.
+        if target_idx >= 0 {
+            let ti = target_idx as usize;
+            if ti >= npc_count && i * 2 + 1 < npc_gpu.targets.len() {
+                let current_target = Vec2::new(npc_gpu.targets[i * 2], npc_gpu.targets[i * 2 + 1]);
+                if let Some(curr_inst) = bmap.find_by_position(current_target) {
+                    if curr_inst.faction >= 0 && curr_inst.faction != faction.0 {
+                        target_idx = (npc_count + curr_inst.slot) as i32;
+                    }
+                }
+            }
+        }
 
         if attackers == 1 {
             sample_target = target_idx;
@@ -170,7 +199,10 @@ pub fn attack_system(
 
             if dist <= cached.range {
                 // Stand ground while shooting
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: i, x, y }));
+                if target_changed(&npc_gpu.targets, i, x, y) {
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: i, x, y }));
+                    target_thrash.record(i, "combat:hold_building", minute_key, x, y);
+                }
                 in_range_count += 1;
                 if timer.0 <= 0.0 {
                     timer_ready_count += 1;
@@ -203,7 +235,10 @@ pub fn attack_system(
                 }
             } else {
                 // Chase building
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: i, x: inst.position.x, y: inst.position.y }));
+                if target_changed(&npc_gpu.targets, i, inst.position.x, inst.position.y) {
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: i, x: inst.position.x, y: inst.position.y }));
+                    target_thrash.record(i, "combat:chase_building", minute_key, inst.position.x, inst.position.y);
+                }
                 chases += 1;
             }
             continue;
@@ -254,7 +289,10 @@ pub fn attack_system(
 
         if dist <= cached.range {
             // Stand ground while fighting — set target to own position so NPC stops moving
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: i, x, y }));
+            if target_changed(&npc_gpu.targets, i, x, y) {
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: i, x, y }));
+                target_thrash.record(i, "combat:hold_npc", minute_key, x, y);
+            }
 
             in_range_count += 1;
             if in_range_count == 1 {
@@ -294,7 +332,10 @@ pub fn attack_system(
             }
         } else {
             // Out of range - chase target
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: i, x: tx, y: ty }));
+            if target_changed(&npc_gpu.targets, i, tx, ty) {
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: i, x: tx, y: ty }));
+                target_thrash.record(i, "combat:chase_npc", minute_key, tx, ty);
+            }
             chases += 1;
         }
     }

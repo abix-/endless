@@ -891,13 +891,19 @@ fn inspector_content(
 
         ui.label(format!("Pos: {}  Target: {}", pos, target));
         let reason_flips = data.target_thrash.reason_flips_this_minute.get(idx).copied().unwrap_or(0);
-        let target_changes = data.target_thrash.target_changes_this_minute.get(idx).copied().unwrap_or(0);
-        let ping_pong = data.target_thrash.ping_pong_this_minute.get(idx).copied().unwrap_or(0);
-        let writes = data.target_thrash.writes_this_minute.get(idx).copied().unwrap_or(0);
+        let sink_changes = data.target_thrash.sink_target_changes_this_minute.get(idx).copied().unwrap_or(0);
+        let sink_ping_pong = data.target_thrash.sink_ping_pong_this_minute.get(idx).copied().unwrap_or(0);
+        let sink_writes = data.target_thrash.sink_writes_this_minute.get(idx).copied().unwrap_or(0);
         let reason = data.target_thrash.last_reason.get(idx).map(String::as_str).unwrap_or("");
+        let prev_target = data.target_thrash.sink_prev_target.get(idx).copied().unwrap_or((0.0, 0.0));
+        let last_target = data.target_thrash.sink_last_target.get(idx).copied().unwrap_or((0.0, 0.0));
         ui.label(format!(
-            "TargetChanges/min: {}  PingPong/min: {}  ReasonFlips/min: {}  Writes/min: {}  LastReason: {}",
-            target_changes, ping_pong, reason_flips, writes, if reason.is_empty() { "-" } else { reason }
+            "SinkChanges/s: {}  SinkPingPong/s: {}  SinkWrites/s: {}  ReasonFlips/min: {}  LastReason: {}",
+            sink_changes, sink_ping_pong, sink_writes, reason_flips, if reason.is_empty() { "-" } else { reason }
+        ));
+        ui.label(format!(
+            "Sink target prev->last: ({:.1}, {:.1}) -> ({:.1}, {:.1})",
+            prev_target.0, prev_target.1, last_target.0, last_target.1
         ));
 
         if ui.button("Copy Debug Info").clicked() {
@@ -981,13 +987,19 @@ fn inspector_content(
                 state = state_str,
             ));
             let reason_flips = data.target_thrash.reason_flips_this_minute.get(idx).copied().unwrap_or(0);
-            let target_changes = data.target_thrash.target_changes_this_minute.get(idx).copied().unwrap_or(0);
-            let ping_pong = data.target_thrash.ping_pong_this_minute.get(idx).copied().unwrap_or(0);
-            let writes = data.target_thrash.writes_this_minute.get(idx).copied().unwrap_or(0);
+            let sink_changes = data.target_thrash.sink_target_changes_this_minute.get(idx).copied().unwrap_or(0);
+            let sink_ping_pong = data.target_thrash.sink_ping_pong_this_minute.get(idx).copied().unwrap_or(0);
+            let sink_writes = data.target_thrash.sink_writes_this_minute.get(idx).copied().unwrap_or(0);
             let reason = data.target_thrash.last_reason.get(idx).map(String::as_str).unwrap_or("-");
+            let prev_target = data.target_thrash.sink_prev_target.get(idx).copied().unwrap_or((0.0, 0.0));
+            let last_target = data.target_thrash.sink_last_target.get(idx).copied().unwrap_or((0.0, 0.0));
             info.push_str(&format!(
-                "TargetChanges/min: {}  PingPong/min: {}  ReasonFlips/min: {}  TargetWrites/min: {}  LastTargetReason: {}\n",
-                target_changes, ping_pong, reason_flips, writes, reason
+                "SinkTargetChanges/s: {}  SinkPingPong/s: {}  SinkTargetWrites/s: {}  ReasonFlips/min: {}  LastTargetReason: {}\n",
+                sink_changes, sink_ping_pong, sink_writes, reason_flips, reason
+            ));
+            info.push_str(&format!(
+                "SinkPrevTarget: ({:.1}, {:.1})  SinkLastTarget: ({:.1}, {:.1})\n",
+                prev_target.0, prev_target.1, last_target.0, last_target.1
             ));
             if meta.job == 4 {
                 if let Some(hp) = home_pos {

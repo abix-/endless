@@ -2045,22 +2045,22 @@ fn profiler_content(
 
     let top_flips = target_thrash.top_offenders(8);
     let total_changes: u32 = top_flips.iter().map(|(_, changes, _, _, _, _)| *changes as u32).sum();
-    egui::CollapsingHeader::new(egui::RichText::new("NPC Target Thrash (this minute)").strong())
+    egui::CollapsingHeader::new(egui::RichText::new("NPC Target Thrash (sink, 1s window)").strong())
         .default_open(true)
         .show(ui, |ui| {
-            ui.label(format!("Minute key: {}", target_thrash.minute_key));
-            ui.label(format!("Top-8 target-change sum: {}", total_changes));
+            ui.label(format!("Window key: {}", target_thrash.sink_window_key));
+            ui.label(format!("Top-8 sink target-change sum: {}", total_changes));
             if top_flips.is_empty() {
                 ui.label("No target changes yet.");
             } else {
                 if ui.button("Copy Thrash Top 8").clicked() {
                     let body = top_flips.iter()
                         .map(|(idx, changes, ping_pong, reason_flips, writes, reason)| {
-                            format!("#{idx}: target_changes={changes} ping_pong={ping_pong} reason_flips={reason_flips} writes={writes} last={reason}")
+                            format!("#{idx}: sink_target_changes={changes} sink_ping_pong={ping_pong} reason_flips={reason_flips} sink_writes={writes} last={reason}")
                         })
                         .collect::<Vec<_>>()
                         .join("\n");
-                    ui.ctx().copy_text(format!("Minute key: {}\n{}", target_thrash.minute_key, body));
+                    ui.ctx().copy_text(format!("Window key: {}\n{}", target_thrash.sink_window_key, body));
                 }
                 egui::Grid::new("target_thrash_grid").num_columns(6).striped(true).show(ui, |ui| {
                     ui.label(egui::RichText::new("npc").strong());

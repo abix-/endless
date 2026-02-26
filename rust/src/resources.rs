@@ -316,6 +316,7 @@ impl Default for CombatDebug {
 #[derive(Resource, Default)]
 pub struct NpcTargetThrashDebug {
     pub minute_key: i32,
+    pub sink_window_key: i64,
     pub writes_this_minute: Vec<u16>,
     pub reason_flips_this_minute: Vec<u16>,
     pub target_changes_this_minute: Vec<u16>,
@@ -323,9 +324,22 @@ pub struct NpcTargetThrashDebug {
     pub last_reason: Vec<String>,
     pub last_target_q: Vec<(i32, i32)>,
     pub prev_target_q: Vec<(i32, i32)>,
+    pub sink_writes_this_minute: Vec<u16>,
+    pub sink_target_changes_this_minute: Vec<u16>,
+    pub sink_ping_pong_this_minute: Vec<u16>,
+    pub sink_last_target: Vec<(f32, f32)>,
+    pub sink_prev_target: Vec<(f32, f32)>,
+    pub sink_has_target: Vec<bool>,
 }
 
 impl NpcTargetThrashDebug {
+    #[inline]
+    fn target_delta_sq(a: (f32, f32), b: (f32, f32)) -> f32 {
+        let dx = a.0 - b.0;
+        let dy = a.1 - b.1;
+        dx * dx + dy * dy
+    }
+
     pub fn record(&mut self, idx: usize, reason: &'static str, minute_key: i32, x: f32, y: f32) {
         if self.minute_key != minute_key {
             self.minute_key = minute_key;
@@ -333,6 +347,9 @@ impl NpcTargetThrashDebug {
             self.reason_flips_this_minute.fill(0);
             self.target_changes_this_minute.fill(0);
             self.ping_pong_this_minute.fill(0);
+            self.sink_writes_this_minute.fill(0);
+            self.sink_target_changes_this_minute.fill(0);
+            self.sink_ping_pong_this_minute.fill(0);
         }
         self.ensure_len(idx + 1);
         self.writes_this_minute[idx] = self.writes_this_minute[idx].saturating_add(1);
@@ -357,19 +374,47 @@ impl NpcTargetThrashDebug {
         }
     }
 
+    pub fn record_sink(&mut self, idx: usize, window_key: i64, x: f32, y: f32) {
+        if self.sink_window_key != window_key {
+            self.sink_window_key = window_key;
+            self.sink_writes_this_minute.fill(0);
+            self.sink_target_changes_this_minute.fill(0);
+            self.sink_ping_pong_this_minute.fill(0);
+            self.sink_has_target.fill(false);
+        }
+        self.ensure_len(idx + 1);
+        self.sink_writes_this_minute[idx] = self.sink_writes_this_minute[idx].saturating_add(1);
+        let curr = (x, y);
+        if self.sink_has_target[idx] {
+            let last = self.sink_last_target[idx];
+            // Tiny epsilon to avoid float jitter noise while still catching visible flips.
+            if Self::target_delta_sq(last, curr) > 0.01 {
+                self.sink_target_changes_this_minute[idx] = self.sink_target_changes_this_minute[idx].saturating_add(1);
+                let prev = self.sink_prev_target[idx];
+                if Self::target_delta_sq(prev, curr) <= 0.01 {
+                    self.sink_ping_pong_this_minute[idx] = self.sink_ping_pong_this_minute[idx].saturating_add(1);
+                }
+            }
+            self.sink_prev_target[idx] = last;
+        } else {
+            self.sink_has_target[idx] = true;
+        }
+        self.sink_last_target[idx] = curr;
+    }
+
     pub fn top_offenders(&self, top_n: usize) -> Vec<(usize, u16, u16, u16, u16, &str)> {
-        let mut rows: Vec<(usize, u16, u16, u16, u16, &str)> = self.target_changes_this_minute
+        let mut rows: Vec<(usize, u16, u16, u16, u16, &str)> = self.sink_target_changes_this_minute
             .iter()
             .enumerate()
-            .filter_map(|(idx, &target_changes)| {
-                if target_changes == 0 {
+            .filter_map(|(idx, &sink_changes)| {
+                if sink_changes == 0 {
                     return None;
                 }
                 let reason_flips = self.reason_flips_this_minute.get(idx).copied().unwrap_or(0);
-                let ping_pong = self.ping_pong_this_minute.get(idx).copied().unwrap_or(0);
-                let writes = self.writes_this_minute.get(idx).copied().unwrap_or(0);
+                let ping_pong = self.sink_ping_pong_this_minute.get(idx).copied().unwrap_or(0);
+                let writes = self.sink_writes_this_minute.get(idx).copied().unwrap_or(0);
                 let reason = self.last_reason.get(idx).map(|s| s.as_str()).unwrap_or("");
-                Some((idx, target_changes, ping_pong, reason_flips, writes, reason))
+                Some((idx, sink_changes, ping_pong, reason_flips, writes, reason))
             })
             .collect();
         rows.sort_by(|a, b| {
@@ -402,6 +447,24 @@ impl NpcTargetThrashDebug {
         }
         if self.prev_target_q.len() < len {
             self.prev_target_q.resize(len, (0, 0));
+        }
+        if self.sink_writes_this_minute.len() < len {
+            self.sink_writes_this_minute.resize(len, 0);
+        }
+        if self.sink_target_changes_this_minute.len() < len {
+            self.sink_target_changes_this_minute.resize(len, 0);
+        }
+        if self.sink_ping_pong_this_minute.len() < len {
+            self.sink_ping_pong_this_minute.resize(len, 0);
+        }
+        if self.sink_last_target.len() < len {
+            self.sink_last_target.resize(len, (0.0, 0.0));
+        }
+        if self.sink_prev_target.len() < len {
+            self.sink_prev_target.resize(len, (0.0, 0.0));
+        }
+        if self.sink_has_target.len() < len {
+            self.sink_has_target.resize(len, false);
         }
     }
 }

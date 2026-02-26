@@ -164,7 +164,7 @@ All three allocators share a `SlotPool` inner type (LIFO free list, high-water m
 | NpcMetaCache | Name, level, xp, trait, town, job per NPC | spawn_npc_system | UI queries |
 | NpcEnergyCache | Energy level per NPC | energy_system | UI queries |
 | NpcLogCache | Activity log per NPC | behavior systems | UI queries |
-| NpcTargetThrashDebug | Per-minute target write diagnostics (`TargetChanges`, `PingPong`, `ReasonFlips`, `TargetWrites`, last reason) | behavior systems (`set_target_with_reason`) | profiler tab, selected-NPC inspector |
+| NpcTargetThrashDebug | Target write diagnostics (reason-tagged + sink-level 1s window: `SinkTargetChanges/s`, `SinkPingPong/s`, `SinkTargetWrites/s`, `ReasonFlips/min`) | behavior/combat writers + sink recorder in `populate_gpu_state` | profiler tab, selected-NPC inspector |
 | NpcsByTownCache | NPC indices grouped by town | spawn/death systems | UI queries |
 | PopulationStats | Alive/working/dead counts per job+town | spawn/death/state systems | UI queries |
 | KillStats | guard_kills, villager_kills | death_cleanup_system | UI queries |
