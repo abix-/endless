@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use crate::resources::PolicySet;
 
-const SETTINGS_VERSION: u32 = 7;
+const SETTINGS_VERSION: u32 = 8;
 
 /// Persisted user settings. Saved to `Documents\Endless\settings.json`.
 #[derive(Resource, Serialize, Deserialize, Clone)]
@@ -128,6 +128,15 @@ pub struct UserSettings {
     pub endless_mode: bool,
     #[serde(default = "default_endless_strength")]
     pub endless_strength: f32,
+    // Zoom & LOD
+    #[serde(default = "default_zoom_speed")]
+    pub zoom_speed: f32,
+    #[serde(default = "default_zoom_min")]
+    pub zoom_min: f32,
+    #[serde(default = "default_zoom_max")]
+    pub zoom_max: f32,
+    #[serde(default = "default_lod_transition")]
+    pub lod_transition: f32,
 }
 
 fn default_endless_strength() -> f32 { 0.75 }
@@ -146,6 +155,10 @@ fn default_autosave_hours() -> i32 { 12 }
 fn default_music_volume() -> f32 { 0.3 }
 fn default_sfx_volume() -> f32 { 0.5 }
 fn default_music_speed() -> f32 { 1.0 }
+fn default_zoom_speed() -> f32 { 0.1 }
+fn default_zoom_min() -> f32 { 0.02 }
+fn default_zoom_max() -> f32 { 4.0 }
+fn default_lod_transition() -> f32 { 0.5 }
 
 impl Default for UserSettings {
     fn default() -> Self {
@@ -203,6 +216,10 @@ impl Default for UserSettings {
             upgrade_expanded: Vec::new(),
             endless_mode: false,
             endless_strength: 0.75,
+            zoom_speed: 0.1,
+            zoom_min: 0.02,
+            zoom_max: 4.0,
+            lod_transition: 0.5,
         }
     }
 }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-26e
+
+- **zoom & LOD settings** — added user-configurable zoom speed, min/max zoom, and LOD transition point to pause menu settings; LOD threshold moved from hardcoded WGSL constant (`LOD_SIMPLE_ZOOM`) to dynamic `camera.lod_zoom` uniform field populated from `UserSettings.lod_transition` via `CameraState` extraction; zoom speed/min/max replace hardcoded `CAMERA_ZOOM_SPEED`/`CAMERA_MIN_ZOOM`/`CAMERA_MAX_ZOOM` constants in `camera_zoom_system`; settings version bumped to 8
+
 ## 2026-02-26d
 
 - **fix building chase and demolition bugs** — combat: added `close_chase_radius` (range + 120px) to prevent archers/raiders from chasing distant enemy buildings across the map; AI perimeter: waypoint pruning now waits until the new outer ring is fully established before destroying inner waypoints (prevents premature pruning during expansion); waypoint build target uses `max(military_homes, perimeter_ring_size)` to fill ring even when military homes lag; UI building demolition (click-destroy + process_destroy_system): resolve exact building slot by kind+town+grid coords before sending lethal DamageMsg, preventing orphaned sprites from grid-only clearing

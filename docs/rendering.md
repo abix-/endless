@@ -378,10 +378,10 @@ Bevy's Camera2d is the single source of truth — input systems write directly t
 
 **Main world systems** (registered in `RenderPlugin::build`, Update schedule):
 - `camera_pan_system`: WASD at 400px/s, speed scaled by 1/zoom via `ortho_zoom()` helper, writes `Transform` directly
-- `camera_zoom_system`: scroll wheel zoom toward mouse cursor (factor 0.1, range 0.1–4.0), writes `Projection::Orthographic.scale` and `Transform` directly
+- `camera_zoom_system`: scroll wheel zoom toward mouse cursor, writes `Projection::Orthographic.scale` and `Transform` directly. Zoom speed, min, and max are user-configurable via `UserSettings` (defaults: speed=0.1, min=0.02, max=4.0)
 - `click_to_select_system`: left click → screen-to-world via camera `Transform` + `Projection` → find nearest NPC within 20px from GPU_READ_STATE. If no NPC found, checks `WorldGrid` for a building at the clicked cell and sets `SelectedBuilding` (col, row, active). Guarded by `ctx.wants_pointer_input() || ctx.is_pointer_over_area()` to avoid stealing clicks from egui UI panels.
 
-**Render world**: `extract_camera_state` (ExtractSchedule, `npc_render.rs`) reads the camera entity's `Transform`, `Projection`, and `Window` to build a `CameraState` resource in the render world. `prepare_npc_camera_bind_group` writes this to a `CameraUniform` `UniformBuffer` each frame (including `npc_count` from `RenderFrameConfig.npc`, `bldg_layers` from `BUILDING_REGISTRY.len() + WALL_EXTRA_LAYERS`, and `extras_cols` = 4.0), creating a bind group at group 1.
+**Render world**: `extract_camera_state` (ExtractSchedule, `npc_render.rs`) reads the camera entity's `Transform`, `Projection`, `Window`, and `UserSettings` (for `lod_transition`) to build a `CameraState` resource in the render world. `prepare_npc_camera_bind_group` writes this to a `CameraUniform` `UniformBuffer` each frame (including `npc_count` from `RenderFrameConfig.npc`, `bldg_layers` from `BUILDING_REGISTRY.len() + WALL_EXTRA_LAYERS`, `extras_cols` = 4.0, and `lod_zoom` from `CameraState`), creating a bind group at group 1.
 
 **Shader** (`npc_render.wgsl`): reads camera from uniform buffer:
 ```wgsl
@@ -392,6 +392,8 @@ struct Camera {
     viewport: vec2<f32>,
     bldg_layers: f32,   // building atlas layer count (from BUILDING_REGISTRY.len())
     extras_cols: f32,   // extras atlas column count (currently 4.0)
+    lod_zoom: f32,      // LOD transition threshold (from UserSettings.lod_transition)
+    _pad: u32,
 };
 @group(1) @binding(0) var<uniform> camera: Camera;
 

@@ -59,6 +59,8 @@ struct Camera {
     viewport: vec2<f32>,
     bldg_layers: f32,
     extras_cols: f32,
+    lod_zoom: f32,
+    _pad: u32,
 };
 @group(1) @binding(0) var<uniform> camera: Camera;
 
@@ -92,8 +94,6 @@ const WORLD_TEX_H: f32 = 526.0;
 // Degenerate triangle — moves vertex off-screen to discard
 const HIDDEN: vec4<f32> = vec4<f32>(0.0, 0.0, -2.0, 1.0);
 
-// Strategic zoom LOD: below this zoom, replace sprites with flat colored rectangles
-const LOD_SIMPLE_ZOOM: f32 = 0.5;
 
 // Building atlas layer count comes from camera.bldg_layers (= BUILDING_REGISTRY.len())
 
@@ -186,7 +186,7 @@ fn vertex_npc(in: NpcVertexInput) -> VertexOutput {
     if pos.x < -9000.0 { out.clip_position = HIDDEN; return out; }
 
     // Strategic zoom: skip equipment/overlay layers when zoomed out
-    if camera.zoom < LOD_SIMPLE_ZOOM && layer > 0u { out.clip_position = HIDDEN; return out; }
+    if camera.zoom < camera.lod_zoom && layer > 0u { out.clip_position = HIDDEN; return out; }
 
     let vis = npc_visual_buf[slot];
     var sprite_col: f32; var sprite_row: f32;
@@ -260,7 +260,7 @@ fn vertex_npc(in: NpcVertexInput) -> VertexOutput {
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // Strategic zoom: flat colored rectangles when zoomed out far
-    if camera.zoom < LOD_SIMPLE_ZOOM {
+    if camera.zoom < camera.lod_zoom {
         // Buildings: solid faction-colored rectangle
         if is_building_atlas(in.atlas_id) { return vec4<f32>(in.color.rgb, 1.0); }
         // HP bars, overlays, extras: invisible at this zoom

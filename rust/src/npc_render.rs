@@ -201,6 +201,8 @@ pub struct CameraUniform {
     pub viewport: Vec2,
     pub bldg_layers: f32,
     pub extras_cols: f32,
+    pub lod_zoom: f32,
+    pub _pad: u32,
 }
 
 /// Bind group for camera uniform.
@@ -520,6 +522,7 @@ fn extract_camera_state(
     mut commands: Commands,
     query: Extract<Query<(&Transform, &Projection), With<MainCamera>>>,
     windows: Extract<Query<&Window>>,
+    user_settings: Extract<Res<crate::settings::UserSettings>>,
 ) {
     let Ok((transform, projection)) = query.single() else { return };
     let Ok(window) = windows.single() else { return };
@@ -533,6 +536,7 @@ fn extract_camera_state(
         position: transform.translation.truncate(),
         zoom,
         viewport: Vec2::new(window.width(), window.height()),
+        lod_zoom: user_settings.lod_transition,
     });
 }
 
@@ -1092,6 +1096,8 @@ fn prepare_npc_camera_bind_group(
         viewport: camera_state.viewport,
         bldg_layers: (crate::constants::BUILDING_REGISTRY.len() + crate::constants::WALL_EXTRA_LAYERS) as f32,
         extras_cols: 4.0,
+        lod_zoom: camera_state.lod_zoom,
+        _pad: 0,
     };
 
     let mut buffer = UniformBuffer::from(uniform);

@@ -519,6 +519,18 @@ fn pause_menu_system(
                     }
 
                     ui.add_space(4.0);
+                    ui.label("Zoom & LOD:");
+                    ui.add(egui::Slider::new(&mut settings.zoom_speed, 0.02..=0.5)
+                        .text("Zoom Speed"));
+                    ui.add(egui::Slider::new(&mut settings.zoom_min, 0.01..=0.5)
+                        .text("Min Zoom"));
+                    ui.add(egui::Slider::new(&mut settings.zoom_max, 1.0..=10.0)
+                        .text("Max Zoom"));
+                    ui.add(egui::Slider::new(&mut settings.lod_transition, 0.1..=2.0)
+                        .text("LOD Transition"))
+                        .on_hover_text("Below this zoom level, sprites become flat colored rectangles");
+
+                    ui.add_space(4.0);
                     ui.label("Audio:");
                     let prev_music = settings.music_volume;
                     ui.add(egui::Slider::new(&mut settings.music_volume, 0.0..=1.0)

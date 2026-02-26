@@ -72,11 +72,9 @@ pub struct CameraState {
     pub position: Vec2,
     pub zoom: f32,
     pub viewport: Vec2,
+    pub lod_zoom: f32,
 }
 
-const CAMERA_ZOOM_SPEED: f32 = 0.1;
-const CAMERA_MIN_ZOOM: f32 = 0.02;
-const CAMERA_MAX_ZOOM: f32 = 4.0;
 const EDGE_PAN_MARGIN: f32 = 8.0;
 
 // =============================================================================
@@ -281,6 +279,7 @@ fn camera_zoom_system(
     windows: Query<&Window>,
     mut query: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
     mut egui_contexts: bevy_egui::EguiContexts,
+    user_settings: Res<UserSettings>,
 ) {
     // Don't zoom when scrolling over UI panels (combat log, etc.)
     if let Ok(ctx) = egui_contexts.ctx_mut() {
@@ -309,8 +308,8 @@ fn camera_zoom_system(
     let world_pos = position + mouse_offset / zoom;
 
     // Apply zoom
-    let factor = if scroll > 0.0 { 1.0 + CAMERA_ZOOM_SPEED } else { 1.0 - CAMERA_ZOOM_SPEED };
-    let new_zoom = (zoom * factor).clamp(CAMERA_MIN_ZOOM, CAMERA_MAX_ZOOM);
+    let factor = if scroll > 0.0 { 1.0 + user_settings.zoom_speed } else { 1.0 - user_settings.zoom_speed };
+    let new_zoom = (zoom * factor).clamp(user_settings.zoom_min, user_settings.zoom_max);
     ortho.scale = 1.0 / new_zoom;
 
     // Move camera so world_pos stays under mouse
