@@ -135,8 +135,7 @@ struct SquadSnapshot {
     patrol_enabled: bool,
     rest_when_tired: bool,
     target: Option<Vec2>,
-    commander_kind: Option<crate::world::BuildingKind>,
-    commander_index: Option<usize>,
+    commander_slot: Option<usize>,
     commander_cooldown: Option<f32>,
 }
 
@@ -283,7 +282,7 @@ pub fn left_panel_system(
     if let Some((a, b)) = patrol_swap {
         dirty_writers.patrols.write(crate::messages::PatrolsDirtyMsg);
         // PatrolSwapMsg is a separate message type — written directly via the system param below
-        dirty_writers.patrol_swap.write(crate::messages::PatrolSwapMsg { a, b });
+        dirty_writers.patrol_swap.write(crate::messages::PatrolSwapMsg { slot_a: a, slot_b: b });
     }
 
     // Apply camera jump from Factions panel
@@ -841,12 +840,9 @@ fn patrols_content(ui: &mut egui::Ui, world_data: &WorldData, building_map: &Bui
     }
 
     // Collect waypoints for this town from BuildingEntityMap, sorted by patrol_order
+    // Collect waypoints: (slot, patrol_order, position), sorted by patrol_order
     let mut posts: Vec<(usize, u32, Vec2)> = building_map.iter_kind_for_town(BuildingKind::Waypoint, town_pair_idx)
-        .map(|inst| {
-            // Get legacy index for the swap indices (patrol_swap uses WorldData vec indices)
-            let wp_idx = building_map.get_building(inst.slot).map(|(_, idx)| idx).unwrap_or(0);
-            (wp_idx, inst.patrol_order, inst.position)
-        })
+        .map(|inst| (inst.slot, inst.patrol_order, inst.position))
         .collect();
     posts.sort_by_key(|(_, order, _)| *order);
 
@@ -856,7 +852,7 @@ fn patrols_content(ui: &mut egui::Ui, world_data: &WorldData, building_map: &Bui
     let mut swap: Option<(usize, usize)> = None;
 
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        for (list_idx, &(data_idx, order, pos)) in posts.iter().enumerate() {
+        for (list_idx, &(slot, order, pos)) in posts.iter().enumerate() {
             ui.horizontal(|ui| {
                 ui.label(format!("#{}", order));
                 if ui.button(format!("({:.0}, {:.0})", pos.x, pos.y)).on_hover_text("Jump to this post").clicked() {
@@ -865,12 +861,12 @@ fn patrols_content(ui: &mut egui::Ui, world_data: &WorldData, building_map: &Bui
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if list_idx + 1 < posts.len() {
                         if ui.small_button("Down").on_hover_text("Move down").clicked() {
-                            swap = Some((data_idx, posts[list_idx + 1].0));
+                            swap = Some((slot, posts[list_idx + 1].0));
                         }
                     }
                     if list_idx > 0 {
                         if ui.small_button("Up").on_hover_text("Move up").clicked() {
-                            swap = Some((data_idx, posts[list_idx - 1].0));
+                            swap = Some((slot, posts[list_idx - 1].0));
                         }
                     }
                 });
@@ -1245,10 +1241,10 @@ fn rebuild_factions_cache(
                     return None;
                 }
 
-                let (commander_kind, commander_index, commander_cooldown) = ai_player
+                let (commander_slot, commander_cooldown) = ai_player
                     .and_then(|p| p.squad_cmd.get(&si))
-                    .map(|cmd| (cmd.target_kind, Some(cmd.target_index), Some(cmd.cooldown)))
-                    .unwrap_or((None, None, None));
+                    .map(|cmd| (cmd.target_slot, Some(cmd.cooldown)))
+                    .unwrap_or((None, None));
 
                 Some(SquadSnapshot {
                     squad_idx: si,
@@ -1257,8 +1253,7 @@ fn rebuild_factions_cache(
                     patrol_enabled: squad.patrol_enabled,
                     rest_when_tired: squad.rest_when_tired,
                     target: squad.target,
-                    commander_kind,
-                    commander_index,
+                    commander_slot,
                     commander_cooldown,
                 })
             })
@@ -1400,8 +1395,8 @@ fn build_faction_debug_string(snap: &AiSnapshot) -> String {
                 else if i == 0 { "DEF" }
                 else if sq.target_size == 0 { "IDLE" }
                 else { "ATK" };
-            let target = if let Some(kind) = sq.commander_kind {
-                format!("{:?} #{}", kind, sq.commander_index.unwrap_or(0))
+            let target = if let Some(slot) = sq.commander_slot {
+                format!("slot#{}", slot)
             } else if sq.target.is_some() {
                 "Map target".into()
             } else {
@@ -1958,16 +1953,15 @@ fn factions_content(
                             let mut state_bits: Vec<&str> = Vec::new();
                             if squad.patrol_enabled { state_bits.push("PATROL"); }
                             if squad.rest_when_tired { state_bits.push("REST"); }
-                            if squad.commander_kind.is_some() { state_bits.push("LOCK"); }
+                            if squad.commander_slot.is_some() { state_bits.push("LOCK"); }
                             let state = if state_bits.is_empty() {
                                 "-".to_string()
                             } else {
                                 state_bits.join(" ")
                             };
 
-                            let target = if let Some(kind) = squad.commander_kind {
-                                let idx = squad.commander_index.unwrap_or(0);
-                                format!("{:?} #{}", kind, idx)
+                            let target = if let Some(slot) = squad.commander_slot {
+                                format!("slot#{}", slot)
                             } else if squad.target.is_some() {
                                 "Map target".to_string()
                             } else {

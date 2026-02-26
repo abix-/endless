@@ -1057,12 +1057,9 @@ impl BuildingInstance {
 /// Also provides O(1) spatial lookups (absorbs BuildingSpatialGrid).
 #[derive(Resource, Default)]
 pub struct BuildingEntityMap {
-    // Legacy index maps (Phase 1 compat — kept until all consumers migrated)
-    to_slot: HashMap<(crate::world::BuildingKind, usize), usize>,
-    from_slot: HashMap<usize, (crate::world::BuildingKind, usize)>,
     slot_to_entity: HashMap<usize, Entity>,
 
-    // Instance storage (new — primary data store)
+    // Primary data store — slot is the sole runtime identity
     instances: HashMap<usize, BuildingInstance>,          // slot → instance
     by_kind: HashMap<crate::world::BuildingKind, Vec<usize>>, // kind → slot list
     by_entity: HashMap<Entity, usize>,                    // entity → slot
@@ -1075,16 +1072,8 @@ pub struct BuildingEntityMap {
 }
 
 impl BuildingEntityMap {
-    // ── Legacy identity API (kept for Phase 1 compat) ──────────────────
-
-    pub fn insert(&mut self, kind: crate::world::BuildingKind, index: usize, slot: usize) {
-        self.to_slot.insert((kind, index), slot);
-        self.from_slot.insert(slot, (kind, index));
-    }
-
     pub fn set_entity(&mut self, slot: usize, entity: Entity) {
         self.slot_to_entity.insert(slot, entity);
-        // Also update instance + by_entity if instance exists
         if self.instances.contains_key(&slot) {
             self.by_entity.insert(entity, slot);
             if let Some(inst) = self.instances.get_mut(&slot) {
@@ -1093,46 +1082,17 @@ impl BuildingEntityMap {
         }
     }
 
-    pub fn insert_full(&mut self, kind: crate::world::BuildingKind, index: usize, slot: usize, entity: Entity) {
-        self.insert(kind, index, slot);
-        self.set_entity(slot, entity);
-    }
-
-    pub fn remove_by_building(&mut self, kind: crate::world::BuildingKind, index: usize) -> Option<usize> {
-        if let Some(slot) = self.to_slot.remove(&(kind, index)) {
-            self.from_slot.remove(&slot);
-            self.slot_to_entity.remove(&slot);
-            // Also remove from instance storage
-            self.remove_instance(slot);
-            Some(slot)
-        } else {
-            None
-        }
-    }
-
-    pub fn get_slot(&self, kind: crate::world::BuildingKind, index: usize) -> Option<usize> {
-        self.to_slot.get(&(kind, index)).copied()
-    }
-
-    pub fn get_building(&self, slot: usize) -> Option<(crate::world::BuildingKind, usize)> {
-        self.from_slot.get(&slot).copied()
-    }
-
-    pub fn is_building(&self, slot: usize) -> bool {
-        self.from_slot.contains_key(&slot)
-    }
-
     pub fn get_entity(&self, slot: usize) -> Option<Entity> {
         self.slot_to_entity.get(&slot).copied()
     }
 
-    pub fn get_entity_by_building(&self, kind: crate::world::BuildingKind, index: usize) -> Option<Entity> {
-        self.get_slot(kind, index).and_then(|s| self.get_entity(s))
+    /// Remove a building by its slot (sole runtime identity).
+    pub fn remove_by_slot(&mut self, slot: usize) {
+        self.slot_to_entity.remove(&slot);
+        self.remove_instance(slot);
     }
 
     pub fn clear(&mut self) {
-        self.to_slot.clear();
-        self.from_slot.clear();
         self.slot_to_entity.clear();
         self.instances.clear();
         self.by_kind.clear();
@@ -1142,7 +1102,7 @@ impl BuildingEntityMap {
     }
 
     pub fn len(&self) -> usize {
-        self.to_slot.len()
+        self.instances.len()
     }
 
     /// Iterate all instance slot keys.

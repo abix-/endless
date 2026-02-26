@@ -657,7 +657,7 @@ pub fn decision_system(
                     let ti = town_id.0 as usize;
                     if let Some(p) = policies.policies.get(ti) {
                         if p.prioritize_healing && energy.0 > 0.0 && health.0 / max_hp < p.recovery_hp {
-                            if !matches!(*activity, Activity::GoingToHeal) {
+                            if !matches!(*activity, Activity::GoingToHeal | Activity::HealingAtFountain { .. }) {
                                 if let Some(town) = farms.world.towns.get(ti) {
                                     *combat_state = CombatState::None;
                                     *activity = Activity::GoingToHeal;
@@ -683,7 +683,7 @@ pub fn decision_system(
                         }
                         Activity::Patrolling | Activity::Raiding { .. } |
                         Activity::GoingToRest | Activity::Resting |
-                        Activity::GoingToHeal |
+                        Activity::GoingToHeal | Activity::HealingAtFountain { .. } |
                         Activity::Returning { .. } => {
                             // Already heading to target, resting, healing, or carrying loot — no redirect
                         }
@@ -1178,20 +1178,11 @@ pub fn rebuild_patrol_routes_system(
 
     // Apply pending patrol order swap from UI
     if let Some(swap) = patrol_swaps.read().last() {
-        let (a, b) = (swap.a, swap.b);
-        let slot_a = building_map.get_slot(BuildingKind::Waypoint, a);
-        let slot_b = building_map.get_slot(BuildingKind::Waypoint, b);
-        if let (Some(sa), Some(sb)) = (slot_a, slot_b) {
-            let order_a = building_map.get_instance(sa).map(|i| i.patrol_order).unwrap_or(0);
-            let order_b = building_map.get_instance(sb).map(|i| i.patrol_order).unwrap_or(0);
-            // Write to BuildingEntityMap
-            if let Some(inst) = building_map.get_instance_mut(sa) {
-                inst.patrol_order = order_b;
-            }
-            if let Some(inst) = building_map.get_instance_mut(sb) {
-                inst.patrol_order = order_a;
-            }
-        }
+        let (sa, sb) = (swap.slot_a, swap.slot_b);
+        let order_a = building_map.get_instance(sa).map(|i| i.patrol_order).unwrap_or(0);
+        let order_b = building_map.get_instance(sb).map(|i| i.patrol_order).unwrap_or(0);
+        if let Some(inst) = building_map.get_instance_mut(sa) { inst.patrol_order = order_b; }
+        if let Some(inst) = building_map.get_instance_mut(sb) { inst.patrol_order = order_a; }
     }
 
     // Build routes once per town instead of per-archer

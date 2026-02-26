@@ -41,10 +41,9 @@ DamageMsg (from process_proj_hits)             GPU movement
       ├─ Building branch:
       │   ├─ destroy_building (grid clear, wall auto-tile)
       │   ├─ Fountain → deactivate AI, endless respawn queue
-      │   ├─ Kill linked NPC (HideNpc + SetHealth(0))
       │   ├─ Loot to attacker (LastHitBy → Activity::Returning)
       │   ├─ BldHide + BldSetHealth(0), BuildingSlots.free(idx)
-      │   └─ Remove from BuildingEntityMap
+      │   └─ remove_by_slot (slot_to_entity + instances + by_kind)
       └─ NPC branch:
           ├─ XP grant (LastHitBy → 100 XP, level-up, stat re-resolve)
           ├─ NPC kill loot (npc_def loot_drop → Activity::Returning)
@@ -115,7 +114,7 @@ Execution order is **chained** — each system completes before the next starts.
   - If `attacker >= 0`: inserts `LastHitBy(attacker)` via `get_entity()` guard
 - **Building damage** (`entity_idx >= npc_count`):
   - `bld_slot = entity_idx - npc_count`
-  - O(1) lookup via `BuildingEntityMap.get_building(bld_slot)` + `get_entity(bld_slot)`
+  - O(1) lookup via `BuildingEntityMap.get_instance(bld_slot)` + `get_entity(bld_slot)`
   - Skips indestructible buildings (GoldMine, Road) and already-dead buildings
   - Subtracts damage, pushes `GpuUpdate::BldSetHealth` + `GpuUpdate::BldSetDamageFlash`
   - If HP > 0: sets `BuildingHealState.needs_healing` for healing_system
@@ -134,13 +133,12 @@ Unified death handler — replaces the old `death_system` + `xp_grant_system` + 
 For each dead entity:
 
 **Building branch** (detected via `Building` component):
-- Looks up instance data (position, town_idx, npc_slot) from `BuildingEntityMap.get_instance(idx)`
+- Looks up instance data (kind, position, town_idx) from `BuildingEntityMap.get_instance(idx)`, copies fields before mutation
 - Calls `destroy_building()` for grid cleanup (grid cell clear + wall auto-tile + combat log — no entity lifecycle)
 - Emits `mark_building_changed(kind)` dirty signals
 - **Fountain death**: deactivates AI player for that town. In endless mode, queues replacement AI (`PendingAiSpawn`) scaled to player strength.
-- **Linked NPC kill**: if building had `npc_slot >= 0`, hides + kills the linked NPC via GPU updates
 - **Building loot**: `BuildingDef::loot_drop()` returns `cost / 2` as food. Uses `LastHitBy` to find attacker, looks up attacker entity via `params.p1()`. Attacker set to `Activity::Returning { loot }`, targets home. DC keep-fighting override skips disengage + home target when `dc_no_return`.
-- Remove from `BuildingEntityMap`, `BldHide + BldSetHealth(0)`, `BuildingSlots.free(idx)`
+- `remove_by_slot(idx)` (clears `slot_to_entity` + `instances` + `by_kind`), `BldHide + BldSetHealth(0)`, `BuildingSlots.free(idx)`
 
 **NPC branch:**
 - **XP grant**: if `LastHitBy` present, looks up killer entity via `params.p1()`. Grants 100 XP, increments `FactionStats.inc_kills()`. Checks for level-up: `level_from_xp(new_xp) > level_from_xp(old_xp)`. On level-up: re-resolves `CachedStats`, updates `Speed`, rescales HP proportionally, sends GPU updates, emits `CombatEventKind::LevelUp`.
@@ -161,7 +159,7 @@ Tower auto-attack using GPU spatial grid targeting. Towers are in the unified en
 - State length auto-syncs with building count each tick
 - **Fountains**: `FOUNTAIN_TOWER` (range=400, damage=15, cooldown=1.5s, proj_speed=350, proj_lifetime=1.5s). Always-on — `attack_enabled` refreshed from `is_alive(town.center)` every tick (all alive town centers shoot). Strong enough to defend spawn area.
 - **GPU-side targeting**: Reads `GpuReadState.combat_targets[npc_count + bld_slot]` from readback buffer. The GPU found the nearest enemy via the spatial grid (same O(1) grid lookup as NPC targeting). `combat_range` = 400.0 to cover `FOUNTAIN_TOWER.range`. Only targets with `target < npc_count` are valid (towers only shoot NPCs, not other buildings).
-- Tower loop: for each enabled building, look up building slot via `BuildingEntityMap.get_slot(Fountain, town_idx)`, read GPU target, emit `ProjGpuUpdateMsg(ProjGpuUpdate::Spawn)` with `shooter: -1`
+- Tower loop: for each enabled building, look up building slot via `BuildingEntityMap.iter_kind_for_town(Fountain, town_idx).next()` (debug_assert one per town), read GPU target, emit `ProjGpuUpdateMsg(ProjGpuUpdate::Spawn)` with `shooter: -1`
 - DRY: adding a new tower building kind requires a `TowerStats` const, a `TowerKindState` field in `TowerState`, and a block in `building_tower_system`. Building flags in `world.rs` + extract mapping in `npc_render.rs` handle the GPU side.
 
 

@@ -683,7 +683,7 @@ pub fn endless_system(
                 mg.faction = next_faction;
 
                 // Free boat slot
-                res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::HideNpc { idx: boat_slot }));
+                res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::Hide { idx: boat_slot, is_building: false }));
                 world_state.slot_alloc.free(boat_slot);
                 mg.boat_slot = None;
 

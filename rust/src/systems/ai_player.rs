@@ -84,7 +84,6 @@ pub fn perimeter_dirty_drain_system(
 
 /// Alive buildings for a town as `(row, col)` grid slots. Returns an iterator.
 /// Single source of truth for the alive + town ownership + coordinate conversion pipeline.
-const DEFAULT_MINING_RADIUS: f32 = 300.0;
 const MINING_RADIUS_STEP: f32 = 300.0;
 const MAX_MINING_RADIUS: f32 = 5000.0;
 /// Hard ceiling on miners per mine, regardless of personality target.
@@ -97,9 +96,9 @@ pub fn initial_mining_radius(building_map: &BuildingEntityMap, center: Vec2) -> 
         .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     match nearest {
         Some(dist) => ((dist / MINING_RADIUS_STEP).ceil() * MINING_RADIUS_STEP)
-            .max(DEFAULT_MINING_RADIUS)
+            .max(crate::constants::DEFAULT_MINING_RADIUS)
             .min(MAX_MINING_RADIUS),
-        None => DEFAULT_MINING_RADIUS,
+        None => crate::constants::DEFAULT_MINING_RADIUS,
     }
 }
 
@@ -235,11 +234,11 @@ impl AiPersonality {
                 prioritize_healing: false,
                 archer_flee_hp: 0.0,
                 farmer_flee_hp: 0.30,
-                mining_radius: DEFAULT_MINING_RADIUS,
+                mining_radius: crate::constants::DEFAULT_MINING_RADIUS,
                 ..PolicySet::default()
             },
             Self::Balanced => PolicySet {
-                mining_radius: DEFAULT_MINING_RADIUS,
+                mining_radius: crate::constants::DEFAULT_MINING_RADIUS,
                 ..PolicySet::default()
             },
             Self::Economic => PolicySet {
@@ -247,7 +246,7 @@ impl AiPersonality {
                 prioritize_healing: true,
                 archer_flee_hp: 0.25,
                 farmer_flee_hp: 0.50,
-                mining_radius: DEFAULT_MINING_RADIUS,
+                mining_radius: crate::constants::DEFAULT_MINING_RADIUS,
                 ..PolicySet::default()
             },
         }
@@ -656,9 +655,8 @@ pub fn cheapest_gold_upgrade_cost(weights: &[f32], levels: &[u8], gold: i32) -> 
 /// Per-squad AI command state — independent cooldown and target memory.
 #[derive(Clone, Default)]
 pub struct AiSquadCmdState {
-    /// Target building identity (kind + index). Validated alive each cycle.
-    pub target_kind: Option<BuildingKind>,
-    pub target_index: usize,
+    /// Target building slot (sole runtime identity). Validated alive each cycle.
+    pub target_slot: Option<usize>,
     /// Seconds remaining before retarget is allowed.
     pub cooldown: f32,
 }
@@ -1235,7 +1233,7 @@ pub fn ai_decision_system(
         // Desire signals are computed once below and reused by action + upgrade scoring.
         let mining_radius = res.policies.policies.get(tdi)
             .map(|p| p.mining_radius)
-            .unwrap_or(DEFAULT_MINING_RADIUS);
+            .unwrap_or(crate::constants::DEFAULT_MINING_RADIUS);
         let Some(ctx) = TownContext::build(
             tdi, grid_idx, food,
             snapshots.towns.get(&tdi), &res, kind, mining_radius,
@@ -1289,7 +1287,8 @@ pub fn ai_decision_system(
         let total_military_homes = barracks + xbow_homes;
         let faction = res.world.world_data.towns.get(tdi).map(|t| t.faction).unwrap_or(0);
         // Threat signal from GPU spatial grid: fountain's enemy count from readback.
-        let threat = res.world.building_slots.get_slot(BuildingKind::Fountain, tdi)
+        let threat = res.world.building_slots.iter_kind_for_town(BuildingKind::Fountain, tdi as u32)
+            .next().map(|inst| inst.slot)
             .and_then(|slot| gpu_state.threat_counts.get(slot).copied())
             .map(|packed| {
                 let enemies = (packed >> 16) as f32;
@@ -1867,12 +1866,9 @@ fn log_ai(log: &mut MessageWriter<crate::messages::CombatLogMsg>, gt: &GameTime,
 // AI SQUAD COMMANDER
 // ============================================================================
 
-/// Resolve a building's position from BuildingEntityMap by kind + data_idx.
-/// Returns None if index is out of bounds or building is dead.
-fn resolve_building_pos(building_map: &BuildingEntityMap, kind: BuildingKind, index: usize) -> Option<Vec2> {
-    building_map.get_slot(kind, index)
-        .and_then(|s| building_map.get_instance(s))
-        .map(|inst| inst.position)
+/// Resolve a building's position by slot. Returns None if slot has no instance (dead/freed).
+fn resolve_building_pos(building_map: &BuildingEntityMap, slot: usize) -> Option<Vec2> {
+    building_map.get_instance(slot).map(|inst| inst.position)
 }
 
 impl AiPersonality {
@@ -1995,7 +1991,7 @@ fn pick_ai_target_unclaimed(
     faction: i32,
     personality: AiPersonality,
     role: SquadRole,
-    claimed: &HashSet<(BuildingKind, usize)>,
+    claimed: &HashSet<usize>,
 ) -> Option<(BuildingKind, usize, Vec2)> {
     if role != SquadRole::Attack { return None; }
 
@@ -2006,7 +2002,7 @@ fn pick_ai_target_unclaimed(
         building_map.for_each_nearby(center, AI_ATTACK_SEARCH_RADIUS, |inst| {
             if inst.faction == faction || inst.faction < 0 { return; }
             if !allowed_kinds.contains(&inst.kind) { return; }
-            if claimed.contains(&(inst.kind, inst.slot)) { return; }
+            if claimed.contains(&inst.slot) { return; }
             let dx = inst.position.x - center.x;
             let dy = inst.position.y - center.y;
             let d2 = dx * dx + dy * dy;
@@ -2093,8 +2089,7 @@ pub fn ai_squad_commander_system(
                 sq.wave_min_start = personality.wave_min_start(kind);
                 sq.wave_retreat_below_pct = personality.wave_retreat_pct(kind);
                 ai_state.players[pi].squad_cmd.insert(idx, AiSquadCmdState {
-                    target_kind: None,
-                    target_index: 0,
+                    target_slot: None,
                     cooldown: base_cd * jitter,
                 });
             }
@@ -2180,7 +2175,7 @@ pub fn ai_squad_commander_system(
         }
 
         // --- Wave-based retarget for all attack squads ---
-        let mut claimed_targets: HashSet<(BuildingKind, usize)> = HashSet::new();
+        let mut claimed_targets: HashSet<usize> = HashSet::new();
         for &si in &squad_indices {
             let cmd = ai_state.players[pi].squad_cmd.entry(si).or_default();
             if cmd.cooldown > 0.0 { cmd.cooldown -= elapsed; }
@@ -2197,7 +2192,7 @@ pub fn ai_squad_commander_system(
                 }
             };
             if !is_attack {
-                cmd.target_kind = None;
+                cmd.target_slot = None;
                 continue;
             }
 
@@ -2205,8 +2200,8 @@ pub fn ai_squad_commander_system(
 
             if squad.wave_active {
                 // --- Wave end conditions ---
-                let target_alive = cmd.target_kind
-                    .and_then(|k| resolve_building_pos(&building_map, k, cmd.target_index))
+                let target_alive = cmd.target_slot
+                    .and_then(|s| resolve_building_pos(&building_map, s))
                     .is_some();
 
                 let loss_threshold = squad.wave_start_count
@@ -2220,7 +2215,7 @@ pub fn ai_squad_commander_system(
                     squad.wave_active = false;
                     squad.target = None;
                     squad.wave_start_count = 0;
-                    cmd.target_kind = None;
+                    cmd.target_slot = None;
                     cmd.cooldown = personality.retarget_cooldown()
                         + rand::rng().random_range(-RETARGET_JITTER..RETARGET_JITTER);
 
@@ -2243,10 +2238,9 @@ pub fn ai_squad_commander_system(
                     ),
                 };
 
-                if let Some((bk, bi, pos)) = target {
-                    cmd.target_kind = Some(bk);
-                    cmd.target_index = bi;
-                    claimed_targets.insert((bk, bi));
+                if let Some((bk, slot, pos)) = target {
+                    cmd.target_slot = Some(slot);
+                    claimed_targets.insert(slot);
 
                     let squad = squad_state.squads.get_mut(si).unwrap();
                     squad.target = Some(pos);
@@ -2265,3 +2259,4 @@ pub fn ai_squad_commander_system(
         }
     }
 }
+

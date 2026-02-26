@@ -143,7 +143,7 @@ pub fn tick(
 
             if !test.get_flag("damage_sent") {
                 let max_hp = crate::constants::building_def(BuildingKind::Fountain).hp;
-                if let Some(bld_slot) = bmap.get_slot(BuildingKind::Fountain, target) {
+                if let Some(bld_slot) = bmap.iter_kind(BuildingKind::Fountain).nth(target).map(|i| i.slot) {
                     damage_writer.write(DamageMsg {
                         entity_idx: slots.count() + bld_slot,
                         amount: max_hp + 100.0, attacker_faction: 0, attacker: -1,
@@ -322,7 +322,7 @@ pub fn tick(
 
             if !test.get_flag("raider_damage_sent") {
                 let max_hp = crate::constants::building_def(BuildingKind::Fountain).hp;
-                if let Some(bld_slot) = bmap.get_slot(BuildingKind::Fountain, target) {
+                if let Some(bld_slot) = bmap.iter_kind(BuildingKind::Fountain).nth(target).map(|i| i.slot) {
                     damage_writer.write(DamageMsg {
                         entity_idx: slots.count() + bld_slot,
                         amount: max_hp + 100.0, attacker_faction: 0, attacker: -1,

@@ -437,8 +437,11 @@ pub fn building_tower_system(
         let pos = town.center;
         let faction = town.faction;
 
-        // Look up tower building slot via BuildingEntityMap (Fountain is the tower building)
-        let bld_slot = bmap.get_slot(BuildingKind::Fountain, i);
+        // Look up tower building slot via BuildingEntityMap (one Fountain per town)
+        debug_assert!(bmap.iter_kind_for_town(BuildingKind::Fountain, i as u32).count() <= 1,
+            "multiple fountains in town {i}");
+        let bld_slot = bmap.iter_kind_for_town(BuildingKind::Fountain, i as u32)
+            .next().map(|inst| inst.slot);
         let Some(bld_slot) = bld_slot else { continue };
 
         // Read GPU combat_targets for this tower's entity index

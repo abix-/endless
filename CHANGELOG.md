@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-26f
+
+- **fix ghost waypoints: remove legacy building identity** — removed the `(kind, data_idx)` ordinal index layer from `BuildingEntityMap` (`to_slot`/`from_slot` HashMaps and 7 legacy methods); `slot` is now the sole runtime identity for buildings; the old system used `iter_kind().count()` to assign ordinal indices, which collided after mid-sequence deletions (AI pruning inner waypoints), corrupting the lookup maps and orphaning building slots (visible on GPU but absent from click detection → unclickable ghost sprites); migrated all 10 consuming files to use `get_instance(slot)` / `iter_kind_for_town()` / `remove_by_slot()`; added `hide_npc` / `hide_building` helper functions in health.rs; removed "kill linked NPC when building dies" behavior (NPCs now outlive their home building); added debug_assert for fountain uniqueness per town
+
 ## 2026-02-26e
 
 - **zoom & LOD settings** — added user-configurable zoom speed, min/max zoom, and LOD transition point to pause menu settings; LOD threshold moved from hardcoded WGSL constant (`LOD_SIMPLE_ZOOM`) to dynamic `camera.lod_zoom` uniform field populated from `UserSettings.lod_transition` via `CameraState` extraction; zoom speed/min/max replace hardcoded `CAMERA_ZOOM_SPEED`/`CAMERA_MIN_ZOOM`/`CAMERA_MAX_ZOOM` constants in `camera_zoom_system`; settings version bumped to 8

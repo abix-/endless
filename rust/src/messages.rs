@@ -100,11 +100,11 @@ pub struct MiningDirtyMsg;
 #[derive(Message, Clone)]
 pub struct AiSquadsDirtyMsg;
 
-/// Patrol waypoint swap request from UI.
+/// Patrol waypoint swap request from UI (slot-based identity).
 #[derive(Message, Clone)]
 pub struct PatrolSwapMsg {
-    pub a: usize,
-    pub b: usize,
+    pub slot_a: usize,
+    pub slot_b: usize,
 }
 
 /// Convenience bundle: all dirty-flag message writers.
@@ -178,8 +178,8 @@ pub enum GpuUpdate {
     SetTarget { idx: usize, x: f32, y: f32 },
     /// Apply damage delta (GPU subtracts from current health)
     ApplyDamage { idx: usize, amount: f32 },
-    /// Hide NPC visually (position = -9999)
-    HideNpc { idx: usize },
+    /// Hide entity visually (position = -9999). Routes to NPC or building buffer.
+    Hide { idx: usize, is_building: bool },
     /// Set faction (usually at spawn only)
     SetFaction { idx: usize, faction: i32 },
     /// Set health directly (spawn/reset)
@@ -202,7 +202,6 @@ pub enum GpuUpdate {
     BldSetSpriteFrame { idx: usize, col: f32, row: f32, atlas: f32 },
     BldSetFlags { idx: usize, flags: u32 },
     BldSetDamageFlash { idx: usize, intensity: f32 },
-    BldHide { idx: usize },
 }
 
 // ============================================================================

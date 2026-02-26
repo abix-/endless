@@ -1092,8 +1092,11 @@ pub fn convert_building_hp_to_slots(
         let key = if def.kind == world::BuildingKind::Fountain { Some("towns") } else { def.save_key };
         let Some(key) = key else { continue };
         let Some(hps) = old_hp.get(key) else { continue };
+        // by_kind preserves insertion order, which matches save-file ordinal order
+        // (load_building_instances_from_save appends in save-file order)
+        let slots: Vec<usize> = building_map.iter_kind(def.kind).map(|i| i.slot).collect();
         for (i, &hp) in hps.iter().enumerate() {
-            if let Some(slot) = building_map.get_slot(def.kind, i) {
+            if let Some(&slot) = slots.get(i) {
                 result.insert(slot, hp);
             }
         }

@@ -245,7 +245,7 @@ impl NpcGpuState {
                     self.dirty_healths = true;
                 }
             }
-            GpuUpdate::HideNpc { idx } => {
+            GpuUpdate::Hide { idx, is_building: false } => {
                 let i = *idx * 2;
                 if i + 1 < self.positions.len() {
                     self.positions[i] = -9999.0;
@@ -278,7 +278,7 @@ impl NpcGpuState {
             GpuUpdate::BldSetPosition { .. } | GpuUpdate::BldSetFaction { .. } |
             GpuUpdate::BldSetHealth { .. } | GpuUpdate::BldSetSpriteFrame { .. } |
             GpuUpdate::BldSetFlags { .. } | GpuUpdate::BldSetDamageFlash { .. } |
-            GpuUpdate::BldHide { .. } => {}
+            GpuUpdate::Hide { is_building: true, .. } => {}
         }
     }
 }
@@ -367,7 +367,7 @@ impl BuildingGpuState {
                     self.flash_values[*idx] = *intensity;
                 }
             }
-            GpuUpdate::BldHide { idx } => {
+            GpuUpdate::Hide { idx, is_building: true } => {
                 let i = *idx * 2;
                 if i + 1 < self.positions.len() {
                     self.positions[i] = -9999.0;
@@ -550,7 +550,7 @@ pub fn populate_gpu_state(
             GpuUpdate::BldSetPosition { .. } | GpuUpdate::BldSetFaction { .. } |
             GpuUpdate::BldSetHealth { .. } | GpuUpdate::BldSetSpriteFrame { .. } |
             GpuUpdate::BldSetFlags { .. } | GpuUpdate::BldSetDamageFlash { .. } |
-            GpuUpdate::BldHide { .. } => {
+            GpuUpdate::Hide { is_building: true, .. } => {
                 bld_state.apply(update);
             }
             _ => {

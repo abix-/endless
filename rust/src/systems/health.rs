@@ -56,8 +56,8 @@ pub fn damage_system(
         if event.entity_idx >= npc_count {
             // Building damage
             let bld_slot = event.entity_idx - npc_count;
-            let Some((kind, _data_idx)) = bmap.get_building(bld_slot) else { continue };
-            if matches!(kind, crate::world::BuildingKind::GoldMine | crate::world::BuildingKind::Road) { continue; }
+            let Some(inst) = bmap.get_instance(bld_slot) else { continue };
+            if matches!(inst.kind, crate::world::BuildingKind::GoldMine | crate::world::BuildingKind::Road) { continue; }
             let Some(entity) = bmap.get_entity(bld_slot) else { continue };
             let Ok((mut health, _npc_idx)) = query.get_mut(entity) else { continue };
             if health.0 <= 0.0 { continue; }
@@ -98,6 +98,18 @@ pub fn damage_system(
     for (health, npc_idx) in query.iter().take(10) {
         debug.health_samples.push((npc_idx.0, health.0));
     }
+}
+
+fn hide_npc(idx: usize, npc_map: &mut NpcEntityMap, slots: &mut SlotAllocator, gpu: &mut MessageWriter<GpuUpdateMsg>) {
+    npc_map.0.remove(&idx);
+    gpu.write(GpuUpdateMsg(GpuUpdate::Hide { idx, is_building: false }));
+    slots.free(idx);
+}
+
+fn hide_building(idx: usize, alloc: &mut BuildingSlots, gpu: &mut MessageWriter<GpuUpdateMsg>) {
+    gpu.write(GpuUpdateMsg(GpuUpdate::Hide { idx, is_building: true }));
+    gpu.write(GpuUpdateMsg(GpuUpdate::BldSetHealth { idx, health: 0.0 }));
+    alloc.free(idx);
 }
 
 /// Unified death system: mark dead, XP grant, building destruction, NPC cleanup, despawn.
@@ -163,104 +175,93 @@ pub fn death_system(
         if building.is_some() {
             let attacker = last_hit_by.map(|h| h.0).unwrap_or(-1);
 
-            if let Some((kind, data_idx)) = res.building_slots.get_building(idx) {
-                // Get instance data before destruction
-                if let Some(inst) = res.building_slots.get_instance(idx) {
-                    let pos = inst.position;
-                    let town_idx = inst.town_idx as usize;
-                    let npc_slot = inst.npc_slot;
+            // Copy fields out before mutating building_slots
+            if let Some(inst) = res.building_slots.get_instance(idx) {
+                let kind = inst.kind;
+                let pos = inst.position;
+                let town_idx = inst.town_idx as usize;
 
-                    let town_name = res.world_data.towns.get(town_idx)
-                        .map(|t| t.name.clone()).unwrap_or_default();
-                    let center = res.world_data.towns.get(town_idx)
-                        .map(|t| t.center).unwrap_or_default();
-                    let (trow, tcol) = crate::world::world_to_town_grid(center, pos);
-                    let defender_faction = res.world_data.towns.get(town_idx).map(|t| t.faction).unwrap_or(0);
+                let town_name = res.world_data.towns.get(town_idx)
+                    .map(|t| t.name.clone()).unwrap_or_default();
+                let center = res.world_data.towns.get(town_idx)
+                    .map(|t| t.center).unwrap_or_default();
+                let (trow, tcol) = crate::world::world_to_town_grid(center, pos);
+                let defender_faction = res.world_data.towns.get(town_idx).map(|t| t.faction).unwrap_or(0);
 
-                    combat_log.write(CombatLogMsg { kind: CombatEventKind::BuildingDamage, faction: defender_faction, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{:?} destroyed in {}", kind, town_name), location: None });
+                combat_log.write(CombatLogMsg { kind: CombatEventKind::BuildingDamage, faction: defender_faction, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{:?} destroyed in {}", kind, town_name), location: None });
 
-                    let _ = crate::world::destroy_building(
-                        &mut res.grid, &res.world_data,
-                        &mut res.building_slots, &mut combat_log, &game_time,
-                        trow, tcol, center,
-                        &format!("{:?} destroyed in {}", kind, town_name),
-                        &mut gpu_updates,
-                    );
-                    res.dirty_writers.mark_building_changed(kind);
+                let _ = crate::world::destroy_building(
+                    &mut res.grid, &res.world_data,
+                    &mut res.building_slots, &mut combat_log, &game_time,
+                    trow, tcol, center,
+                    &format!("{:?} destroyed in {}", kind, town_name),
+                    &mut gpu_updates,
+                );
+                res.dirty_writers.mark_building_changed(kind);
 
-                    // Fountain destroyed → deactivate AI player
-                    if matches!(kind, BuildingKind::Fountain) {
-                        if let Some(player) = res.ai_state.players.iter_mut().find(|p| p.town_data_idx == town_idx) {
-                            player.active = false;
-                        }
-                        combat_log.write(CombatLogMsg { kind: CombatEventKind::Raid, faction: defender_faction, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{} has been defeated!", town_name), location: None });
-                        info!("{} (town_idx={}) defeated — AI deactivated", town_name, town_idx);
-
-                        // Endless mode: queue replacement AI scaled to player strength
-                        if res.endless.enabled {
-                            let is_raider = res.world_data.towns.get(town_idx)
-                                .map(|t| t.sprite_type == 1).unwrap_or(true);
-                            let player_town = res.world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
-                            let player_levels = upgrades.town_levels(player_town);
-                            let frac = res.endless.strength_fraction;
-                            let scaled_levels: Vec<u8> = player_levels.iter()
-                                .map(|&lv| (lv as f32 * frac).round() as u8)
-                                .collect();
-                            let starting_food = (food_storage.food.get(player_town).copied().unwrap_or(0) as f32 * frac) as i32;
-                            let starting_gold = (gold_storage.gold.get(player_town).copied().unwrap_or(0) as f32 * frac) as i32;
-                            res.endless.pending_spawns.push(crate::resources::PendingAiSpawn {
-                                delay_remaining: crate::constants::ENDLESS_RESPAWN_DELAY_HOURS,
-                                is_raider,
-                                upgrade_levels: scaled_levels,
-                                starting_food,
-                                starting_gold,
-                            });
-                            info!("Endless mode: queued replacement AI (is_raider={}, delay={}h, strength={:.0}%)",
-                                is_raider, crate::constants::ENDLESS_RESPAWN_DELAY_HOURS, frac * 100.0);
-                        }
+                // Fountain destroyed → deactivate AI player
+                if matches!(kind, BuildingKind::Fountain) {
+                    if let Some(player) = res.ai_state.players.iter_mut().find(|p| p.town_data_idx == town_idx) {
+                        player.active = false;
                     }
+                    combat_log.write(CombatLogMsg { kind: CombatEventKind::Raid, faction: defender_faction, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{} has been defeated!", town_name), location: None });
+                    info!("{} (town_idx={}) defeated — AI deactivated", town_name, town_idx);
 
-                    // Kill linked NPC if alive
-                    if npc_slot >= 0 {
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::HideNpc { idx: npc_slot as usize }));
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: npc_slot as usize, health: 0.0 }));
+                    // Endless mode: queue replacement AI scaled to player strength
+                    if res.endless.enabled {
+                        let is_raider = res.world_data.towns.get(town_idx)
+                            .map(|t| t.sprite_type == 1).unwrap_or(true);
+                        let player_town = res.world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
+                        let player_levels = upgrades.town_levels(player_town);
+                        let frac = res.endless.strength_fraction;
+                        let scaled_levels: Vec<u8> = player_levels.iter()
+                            .map(|&lv| (lv as f32 * frac).round() as u8)
+                            .collect();
+                        let starting_food = (food_storage.food.get(player_town).copied().unwrap_or(0) as f32 * frac) as i32;
+                        let starting_gold = (gold_storage.gold.get(player_town).copied().unwrap_or(0) as f32 * frac) as i32;
+                        res.endless.pending_spawns.push(crate::resources::PendingAiSpawn {
+                            delay_remaining: crate::constants::ENDLESS_RESPAWN_DELAY_HOURS,
+                            is_raider,
+                            upgrade_levels: scaled_levels,
+                            starting_food,
+                            starting_gold,
+                        });
+                        info!("Endless mode: queued replacement AI (is_raider={}, delay={}h, strength={:.0}%)",
+                            is_raider, crate::constants::ENDLESS_RESPAWN_DELAY_HOURS, frac * 100.0);
                     }
+                }
 
-                    // Loot: attacker picks up building loot and returns home
-                    if let Some(drop) = building_def(kind).loot_drop() {
-                        let amount = if drop.min == drop.max { drop.min } else {
-                            drop.min + ((data_idx as i32) % (drop.max - drop.min + 1))
-                        };
-                        if amount > 0 && attacker >= 0 {
-                            let attacker_slot = attacker as usize;
-                            if let Some(&attacker_entity) = res.npc_map.0.get(&attacker_slot) {
-                                if let Ok((loot_npc_idx, _job, _town, _atk, _pers, _health, _cached, _speed, loot_faction, mut loot_activity, loot_home, _combat, dc)) = params.p1().get_mut(attacker_entity) {
-                                    let dc_keep_fighting = dc.is_some() && squad_state.dc_no_return;
+                // Loot: attacker picks up building loot and returns home
+                if let Some(drop) = building_def(kind).loot_drop() {
+                    let amount = if drop.min == drop.max { drop.min } else {
+                        drop.min + ((idx as i32) % (drop.max - drop.min + 1))
+                    };
+                    if amount > 0 && attacker >= 0 {
+                        let attacker_slot = attacker as usize;
+                        if let Some(&attacker_entity) = res.npc_map.0.get(&attacker_slot) {
+                            if let Ok((loot_npc_idx, _job, _town, _atk, _pers, _health, _cached, _speed, loot_faction, mut loot_activity, loot_home, _combat, dc)) = params.p1().get_mut(attacker_entity) {
+                                let dc_keep_fighting = dc.is_some() && squad_state.dc_no_return;
 
-                                    if matches!(&*loot_activity, Activity::Returning { .. }) {
-                                        loot_activity.add_loot(drop.item, amount);
-                                    } else {
-                                        *loot_activity = Activity::Returning { loot: vec![(drop.item, amount)] };
-                                    }
-                                    if !dc_keep_fighting {
-                                        intents.submit(attacker_entity, Vec2::new(loot_home.0.x, loot_home.0.y), crate::resources::MovementPriority::Survival, "loot:return");
-                                    }
-
-                                    let item_name = match drop.item { ItemKind::Food => "food", ItemKind::Gold => "gold" };
-                                    let killer_name = &npc_meta.0[loot_npc_idx.0].name;
-                                    let killer_job = crate::job_name(npc_meta.0[loot_npc_idx.0].job);
-                                    combat_log.write(CombatLogMsg { kind: CombatEventKind::Loot, faction: loot_faction.0, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{} '{}' looted {} {} from {:?}", killer_job, killer_name, amount, item_name, kind), location: None });
+                                if matches!(&*loot_activity, Activity::Returning { .. }) {
+                                    loot_activity.add_loot(drop.item, amount);
+                                } else {
+                                    *loot_activity = Activity::Returning { loot: vec![(drop.item, amount)] };
                                 }
+                                if !dc_keep_fighting {
+                                    intents.submit(attacker_entity, Vec2::new(loot_home.0.x, loot_home.0.y), crate::resources::MovementPriority::Survival, "loot:return");
+                                }
+
+                                let item_name = match drop.item { ItemKind::Food => "food", ItemKind::Gold => "gold" };
+                                let killer_name = &npc_meta.0[loot_npc_idx.0].name;
+                                let killer_job = crate::job_name(npc_meta.0[loot_npc_idx.0].job);
+                                combat_log.write(CombatLogMsg { kind: CombatEventKind::Loot, faction: loot_faction.0, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{} '{}' looted {} {} from {:?}", killer_job, killer_name, amount, item_name, kind), location: None });
                             }
                         }
                     }
                 }
-
-                res.building_slots.remove_by_building(kind, data_idx);
             }
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::BldHide { idx }));
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::BldSetHealth { idx, health: 0.0 }));
-            res.building_alloc.free(idx);
+            res.building_slots.remove_by_slot(idx);
+            hide_building(idx, &mut res.building_alloc, &mut gpu_updates);
             continue;
         }
 
@@ -371,9 +372,7 @@ pub fn death_system(
             }
         }
 
-        res.npc_map.0.remove(&idx);
-        gpu_updates.write(GpuUpdateMsg(GpuUpdate::HideNpc { idx }));
-        res.slots.free(idx);
+        hide_npc(idx, &mut res.npc_map, &mut res.slots, &mut gpu_updates);
     }
 
     res.debug.despawned_this_frame = despawn_count;

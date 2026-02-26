@@ -491,8 +491,6 @@ pub fn place_building_instance(
         warn!("No building slots available for {:?}", kind);
         return None;
     };
-    let data_idx = building_map.iter_kind(kind).count();
-    building_map.insert(kind, data_idx, slot);
     let has_spawner = def.spawner.is_some();
     building_map.add_instance(crate::resources::BuildingInstance {
         kind, position: pos, town_idx, slot,
