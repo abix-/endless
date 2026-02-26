@@ -32,7 +32,10 @@ use bevy::{
 use std::borrow::Cow;
 
 use crate::components::{NpcIndex, Faction, Job, Healing, Activity, EquippedWeapon, EquippedHelmet, EquippedArmor, Dead};
-use crate::constants::{FOOD_SPRITE, GOLD_SPRITE, ItemKind, MAX_BUILDINGS, MAX_ENTITIES};
+use crate::constants::{
+    FOOD_SPRITE, GOLD_SPRITE, ItemKind, MAX_BUILDINGS, MAX_ENTITIES, MAX_NPC_COUNT,
+    MAX_PROJECTILES as MAX_PROJECTILE_COUNT, PROJECTILE_HIT_HALF_LENGTH, PROJECTILE_HIT_HALF_WIDTH,
+};
 use crate::messages::{GpuUpdate, GpuUpdateMsg, ProjGpuUpdate, ProjGpuUpdateMsg};
 use crate::resources::{GameTime, GpuReadState, ProjHitState, ProjPositionState, SlotAllocator, BuildingSlots, SystemTimings, NpcTargetThrashDebug};
 use crate::systems::stats::{self, TownUpgrades};
@@ -45,14 +48,10 @@ use crate::world::WorldData;
 const SHADER_ASSET_PATH: &str = "shaders/npc_compute.wgsl";
 const PROJ_SHADER_ASSET_PATH: &str = "shaders/projectile_compute.wgsl";
 const WORKGROUP_SIZE: u32 = 64;
-const MAX_NPCS: u32 = 100000;
-const MAX_PROJECTILES: u32 = 50_000;
 /// 256×256 cells × 128px = 32,768px — covers max 1000×1000 world (32,000px).
 const GRID_WIDTH: u32 = 256;
 const GRID_HEIGHT: u32 = 256;
 const MAX_PER_CELL: u32 = 48;
-const HIT_HALF_LENGTH: f32 = 12.0;
-const HIT_HALF_WIDTH: f32 = 4.0;
 
 // =============================================================================
 // RESOURCES (Main World)
@@ -170,7 +169,7 @@ pub struct NpcVisualUpload {
 
 impl Default for NpcGpuState {
     fn default() -> Self {
-        let max = MAX_NPCS as usize;
+        let max = MAX_NPC_COUNT;
         Self {
             positions: vec![-9999.0; max * 2],
             targets: vec![0.0; max * 2],
@@ -604,8 +603,8 @@ impl Default for ProjGpuData {
             proj_count: 0,
             npc_count: 0,
             delta: 0.016,
-            hit_half_length: HIT_HALF_LENGTH,
-            hit_half_width: HIT_HALF_WIDTH,
+            hit_half_length: PROJECTILE_HIT_HALF_LENGTH,
+            hit_half_width: PROJECTILE_HIT_HALF_WIDTH,
             grid_width: GRID_WIDTH,
             grid_height: GRID_HEIGHT,
             cell_size: 128.0,
@@ -638,7 +637,7 @@ pub struct ProjBufferWrites {
 
 impl Default for ProjBufferWrites {
     fn default() -> Self {
-        let max = MAX_PROJECTILES as usize;
+        let max = MAX_PROJECTILE_COUNT;
         Self {
             positions: vec![0.0; max * 2],
             velocities: vec![0.0; max * 2],
@@ -760,7 +759,7 @@ fn setup_readback_buffers(
 ) {
     // Create readback target buffers (COPY_DST for compute→copy, COPY_SRC for Readback to map)
     let npc_pos_buf = {
-        let init_pos: Vec<f32> = vec![-9999.0; MAX_NPCS as usize * 2];
+        let init_pos: Vec<f32> = vec![-9999.0; MAX_NPC_COUNT * 2];
         let mut buf = ShaderStorageBuffer::new(bytemuck::cast_slice(&init_pos), RenderAssetUsages::RENDER_WORLD);
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
         buffers.add(buf)
@@ -772,29 +771,29 @@ fn setup_readback_buffers(
         buffers.add(buf)
     };
     let npc_faction_buf = {
-        let init_factions: Vec<i32> = vec![-1; MAX_NPCS as usize];
+        let init_factions: Vec<i32> = vec![-1; MAX_NPC_COUNT];
         let mut buf = ShaderStorageBuffer::new(bytemuck::cast_slice(&init_factions), RenderAssetUsages::RENDER_WORLD);
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
         buffers.add(buf)
     };
     let npc_health_buf = {
-        let mut buf = ShaderStorageBuffer::new(&vec![0u8; MAX_NPCS as usize * 4], RenderAssetUsages::RENDER_WORLD);
+        let mut buf = ShaderStorageBuffer::new(&vec![0u8; MAX_NPC_COUNT * 4], RenderAssetUsages::RENDER_WORLD);
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
         buffers.add(buf)
     };
     let threat_count_buf = {
-        let mut buf = ShaderStorageBuffer::new(&vec![0u8; MAX_NPCS as usize * 4], RenderAssetUsages::RENDER_WORLD);
+        let mut buf = ShaderStorageBuffer::new(&vec![0u8; MAX_NPC_COUNT * 4], RenderAssetUsages::RENDER_WORLD);
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
         buffers.add(buf)
     };
     let proj_hit_buf = {
-        let init_hits: Vec<[i32; 2]> = vec![[-1, 0]; MAX_PROJECTILES as usize];
+        let init_hits: Vec<[i32; 2]> = vec![[-1, 0]; MAX_PROJECTILE_COUNT];
         let mut buf = ShaderStorageBuffer::new(bytemuck::cast_slice(&init_hits), RenderAssetUsages::RENDER_WORLD);
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
         buffers.add(buf)
     };
     let proj_pos_buf = {
-        let mut buf = ShaderStorageBuffer::new(&vec![0u8; MAX_PROJECTILES as usize * 8], RenderAssetUsages::RENDER_WORLD);
+        let mut buf = ShaderStorageBuffer::new(&vec![0u8; MAX_PROJECTILE_COUNT * 8], RenderAssetUsages::RENDER_WORLD);
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
         buffers.add(buf)
     };
@@ -1608,7 +1607,7 @@ fn init_proj_compute_pipeline(
     asset_server: Res<AssetServer>,
     pipeline_cache: Res<PipelineCache>,
 ) {
-    let max = MAX_PROJECTILES as usize;
+    let max = MAX_PROJECTILE_COUNT;
     let grid_cells = (GRID_WIDTH * GRID_HEIGHT) as usize;
     let grid_data_size = grid_cells * MAX_PER_CELL as usize;
 

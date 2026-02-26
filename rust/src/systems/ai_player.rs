@@ -625,6 +625,25 @@ fn desire_state(
     DesireState { food_desire, military_desire, gold_desire: 0.0, economy_desire: 0.0 }
 }
 
+/// Shared food/military desire calculator for UI/debug surfaces.
+/// Keeps diagnostics aligned with live AI logic.
+pub fn debug_food_military_desire(
+    personality: AiPersonality,
+    food: i32,
+    reserve: i32,
+    houses: usize,
+    barracks: usize,
+    waypoints: usize,
+    threat: f32,
+    civilians: usize,
+    military: usize,
+) -> (f32, f32) {
+    let d = desire_state(
+        personality, food, reserve, houses, barracks, waypoints, threat, civilians, military,
+    );
+    (d.food_desire, d.military_desire)
+}
+
 fn is_military_upgrade(idx: usize) -> bool {
     let cat = UPGRADES.nodes[idx].category;
     cat == "Archer" || cat == "Fighter" || cat == "Crossbow"

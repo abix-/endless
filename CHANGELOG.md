@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-26g
+
+- **DRY gpu constants + shared AI desire in factions UI** — gpu.rs: replaced local `MAX_NPCS`/`MAX_PROJECTILES`/`HIT_HALF_LENGTH`/`HIT_HALF_WIDTH` with shared constants from `constants.rs` (`MAX_NPC_COUNT`, `MAX_PROJECTILES`, `PROJECTILE_HIT_HALF_LENGTH`/`WIDTH`); ai_player.rs: added `debug_food_military_desire` public wrapper exposing `desire_state` for UI/debug; left_panel.rs: factions tab food/military desire bars now call the shared AI logic instead of an inline reimplementation, added `GpuReadState`/`PopulationStats` to `FactionsParams` for threat + population lookups
+
 ## 2026-02-26f
 
 - **fix ghost waypoints: remove legacy building identity** — removed the `(kind, data_idx)` ordinal index layer from `BuildingEntityMap` (`to_slot`/`from_slot` HashMaps and 7 legacy methods); `slot` is now the sole runtime identity for buildings; the old system used `iter_kind().count()` to assign ordinal indices, which collided after mid-sequence deletions (AI pruning inner waypoints), corrupting the lookup maps and orphaning building slots (visible on GPU but absent from click detection → unclickable ghost sprites); migrated all 10 consuming files to use `get_instance(slot)` / `iter_kind_for_town()` / `remove_by_slot()`; added `hide_npc` / `hide_building` helper functions in health.rs; removed "kill linked NPC when building dies" behavior (NPCs now outlive their home building); added debug_assert for fountain uniqueness per town

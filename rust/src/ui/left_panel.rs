@@ -12,7 +12,7 @@ use crate::settings::{self, UserSettings};
 use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeMsg, UPGRADES, upgrade_count, upgrade_unlocked, upgrade_available, missing_prereqs, format_upgrade_cost, upgrade_effect_summary, branch_total, resolve_town_tower_stats};
 use crate::constants::UpgradeStatKind;
 use crate::systems::{AiPlayerState, AiKind};
-use crate::systems::ai_player::{AiPersonality, cheapest_gold_upgrade_cost};
+use crate::systems::ai_player::{AiPersonality, cheapest_gold_upgrade_cost, debug_food_military_desire};
 use crate::world::{WorldData, WorldGrid, TownGrids, BuildingKind, is_alive};
 
 // ============================================================================
@@ -124,6 +124,8 @@ pub struct FactionsParams<'w, 's> {
     town_grids: Res<'w, TownGrids>,
     world_grid: Res<'w, WorldGrid>,
     building_map: Res<'w, BuildingEntityMap>,
+    gpu_state: Res<'w, GpuReadState>,
+    pop_stats: Res<'w, PopulationStats>,
     faction_select: MessageReader<'w, 's, crate::messages::SelectFactionMsg>,
 }
 
@@ -1140,41 +1142,47 @@ fn rebuild_factions_cache(
         let waypoints = buildings.get(&BuildingKind::Waypoint).copied().unwrap_or(0);
 
         let (food_desire, military_desire, food_desire_tip, military_desire_tip) = if let Some(p) = personality {
-            let food_desire = if reserve_food > 0 {
-                (1.0 - (food - reserve_food) as f32 / reserve_food as f32).clamp(0.0, 1.0)
-            } else if food < 5 {
-                0.8
-            } else if food < 10 {
-                0.4
-            } else {
-                0.0
+            let threat = building_map.iter_kind_for_town(BuildingKind::Fountain, tdi as u32)
+                .next().map(|inst| inst.slot)
+                .and_then(|slot| factions.gpu_state.threat_counts.get(slot).copied())
+                .map(|packed| {
+                    let enemies = (packed >> 16) as f32;
+                    (enemies / 10.0).min(1.0)
+                })
+                .unwrap_or(0.0);
+            let town_key = tdi as i32;
+            let pop_alive = |job: Job| {
+                factions
+                    .pop_stats
+                    .0
+                    .get(&(job as i32, town_key))
+                    .map(|ps| ps.alive)
+                    .unwrap_or(0)
+                    .max(0) as usize
             };
+            let civilians = pop_alive(Job::Farmer) + pop_alive(Job::Miner);
+            let military = pop_alive(Job::Archer) + pop_alive(Job::Fighter) + pop_alive(Job::Crossbow);
+            let (food_desire, military_desire) = debug_food_military_desire(
+                p,
+                food,
+                reserve_food,
+                civilian_homes,
+                military_homes,
+                waypoints,
+                threat,
+                civilians,
+                military,
+            );
 
-            let food_tip = if reserve_food > 0 {
-                format!(
-                    "Food desire = clamp(1 - (food - reserve) / reserve, 0..1)\nfood = {food}, reserve = {reserve_food}\n=> {:.0}%",
-                    food_desire * 100.0
-                )
-            } else {
-                format!(
-                    "Reserve <= 0 fallback:\nfood < 5 => 80%, food < 10 => 40%, else 0%\nfood = {food}\n=> {:.0}%",
-                    food_desire * 100.0
-                )
-            };
-
-            let barracks_target = p.archer_home_target(civilian_homes).max(1);
-            let barracks_gap = barracks_target.saturating_sub(military_homes) as f32 / barracks_target as f32;
-            let waypoint_gap = if military_homes > 0 {
-                military_homes.saturating_sub(waypoints) as f32 / military_homes as f32
-            } else {
-                0.0
-            };
-            let military_desire = (barracks_gap * 0.75 + waypoint_gap * 0.25).clamp(0.0, 1.0);
+            let food_tip = format!(
+                "Food desire (shared AI path)\nfood={food}, reserve={reserve_food}, civilians={civilians}, military={military}\n=> {:.0}%",
+                food_desire * 100.0
+            );
             let military_tip = format!(
-                "Military desire = clamp(barracks_gap*0.75 + waypoint_gap*0.25, 0..1)\n\
-                 barracks_target = max(1, archer_home_target(civilian_homes)) = {barracks_target}\n\
-                 civilian_homes = {civilian_homes} (farmer={farmer_homes} + miner={miner_homes}), military_homes = {military_homes}, waypoints = {waypoints}\n\
-                 barracks_gap = {barracks_gap:.2}, waypoint_gap = {waypoint_gap:.2}\n\
+                "Military desire (shared AI path)\n\
+                 includes waypoint cap, threat, and population-ratio correction\n\
+                 civilian_homes={civilian_homes} (farmer={farmer_homes} + miner={miner_homes}), military_homes={military_homes}, waypoints={waypoints}\n\
+                 threat={threat:.2}, civilians={civilians}, military={military}\n\
                  => {:.0}%",
                 military_desire * 100.0,
             );
