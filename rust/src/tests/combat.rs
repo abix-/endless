@@ -10,7 +10,7 @@ use crate::world;
 use super::TestState;
 
 pub fn setup(
-    mut slot_alloc: ResMut<SlotAllocator>,
+    mut slot_alloc: ResMut<EntitySlots>,
     mut spawn_events: MessageWriter<SpawnNpcMsg>,
     mut world_data: ResMut<world::WorldData>,
     mut food_storage: ResMut<FoodStorage>,
@@ -60,11 +60,11 @@ pub fn setup(
 }
 
 pub fn tick(
-    npc_query: Query<(), (With<NpcIndex>, Without<Dead>)>,
+    npc_query: Query<(), (With<EntitySlot>, Without<Dead>)>,
     combat_state_query: Query<&CombatState, Without<Dead>>,
     combat_debug: Res<CombatDebug>,
     health_debug: Res<HealthDebug>,
-    slot_alloc: Res<SlotAllocator>,
+    slot_alloc: Res<EntitySlots>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {

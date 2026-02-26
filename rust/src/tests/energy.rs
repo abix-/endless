@@ -27,7 +27,7 @@ pub fn setup(mut params: TestSetupParams) {
 }
 
 pub fn tick(
-    mut query: Query<(&mut Energy, &NpcIndex), (With<Farmer>, Without<Dead>)>,
+    mut query: Query<(&mut Energy, &EntitySlot), (With<Farmer>, Without<Dead>)>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {

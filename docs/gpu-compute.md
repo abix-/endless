@@ -10,12 +10,10 @@ GPU compute uses Bevy's render graph with wgpu/WGSL. The compute shader `shaders
 Main World (ECS)                       Render World (GPU)
 │                                      │
 │  ExtractResourcePlugin (1 clone/frame):
-├─ RenderFrameConfig ───────────────▶ ExtractResource (bundles NpcGpuData + ProjGpuData + NpcSpriteTexture + ReadbackHandles + tile_flags)
+├─ RenderFrameConfig ───────────────▶ ExtractResource (bundles EntityGpuData + ProjGpuData + NpcSpriteTexture + ReadbackHandles + tile_flags)
 │
 │  Extract<Res<T>> (zero-clone immutable reads):
-├─ NpcGpuState ──────────────────────▶ extract_npc_data (per-buffer dirty flags → GPU writes)
-├─ BuildingGpuState ─────────────────▶ extract_npc_data (building pos/faction/health/flags appended at npc_count offset)
-├─ BuildingSlots ────────────────────▶ extract_npc_data (building count for offset calculation)
+├─ EntityGpuState ───────────────────▶ extract_npc_data (per-buffer dirty flags → GPU writes, unified NPC+building state)
 ├─ NpcVisualUpload ──────────────────▶ extract_npc_data (visual + equip arrays → GPU writes)
 ├─ ProjBufferWrites ─────────────────▶ extract_proj_data (per-dirty-index compute writes)
 ├─ ProjPositionState ────────────────▶ extract_proj_data (projectile instance buffer)
@@ -67,24 +65,20 @@ Main World (ECS)                       Render World (GPU)
 
 ```
 ECS → GPU (upload):
-  GpuUpdateMsg → populate_gpu_state → NpcGpuState (NPC variants, per-buffer dirty flags)
-                         → BuildingGpuState (Bld* variants, CPU-side building visual state)
+  GpuUpdateMsg → populate_gpu_state → EntityGpuState (unified NPC+building state, per-buffer dirty flags)
   ProjGpuUpdateMsg → populate_proj_buffer_writes
     → ProjBufferWrites (spawn/deactivate dirty sets for extract_proj_data)
 
   build_visual_upload (PostUpdate, chained after populate_gpu_state):
-    Single O(N) pass: ECS query + NpcGpuState → NpcVisualUpload
+    Single O(N) pass: ECS query + EntityGpuState → NpcVisualUpload
     Packs visual_data [f32;8] + equip_data [f32;24] per NPC in GPU-ready format
     Both arrays reset to -1.0 sentinel each frame; phantom slots (waypoints) have no ECS entity and stay hidden
 
   extract_npc_data (ExtractSchedule, zero-clone):
-    Extract<Res<NpcGpuState>> → hybrid writes to EntityGpuBuffers [0..npc_count]:
+    Extract<Res<EntityGpuState>> → hybrid writes to EntityGpuBuffers [0..entity_count]:
       GPU-authoritative (positions/arrivals): per-dirty-index write_buffer (~10-50 calls/frame)
       CPU-authoritative (targets/speeds/factions/healths/flags): 1 bulk write_buffer per dirty buffer
-    Extract<Res<BuildingGpuState>> → writes to EntityGpuBuffers [npc_count..entity_count]:
-      positions: per-dirty-index writes at byte offset (npc_count + idx) * 8
-      factions/healths: bulk writes at byte offset npc_count * 4
-      entity_flags: ENTITY_FLAG_BUILDING for all, + ENTITY_FLAG_COMBAT for towers
+      Buildings and NPCs share the same slot namespace — no offset arithmetic
     Extract<Res<NpcVisualUpload>> → bulk write_buffer to NpcVisualBuffers
 
 GPU → ECS (readback, Bevy async Readback):
@@ -101,7 +95,7 @@ GPU → ECS (readback, Bevy async Readback):
     → gpu_position_readback: GpuReadState → ECS Position components
       + arrival detection: if HasTarget && dist(pos, goal) < ARRIVAL_THRESHOLD → AtDestination
   Data is 1 frame old (~1.6px drift at 100px/s). ARRIVAL_THRESHOLD=8px >> drift.
-  npc_count not set from readback (buffer is MAX-sized) — comes from SlotAllocator.count().
+  entity_count not set from readback (buffer is MAX-sized) — comes from EntitySlots.count().
 
 GPU → Render:
   Vertex shader reads positions/health directly from NpcGpuBuffers storage buffers (bind group 2).
@@ -110,11 +104,11 @@ GPU → Render:
     → DrawMiscCommands: farms/BHP via InstanceData
 ```
 
-Note: `sprite_indices` and `flash_values` live in `NpcGpuState`. Colors and equipment are derived from ECS components by `build_visual_upload` each frame, which packs them into `NpcVisualUpload` (visual_data + equip_data). These are uploaded to NPC visual/equipment storage buffers (`NpcVisualBuffers`) for the render shader — not to compute shader buffers. Positions and health for rendering come directly from compute output (`NpcGpuBuffers.positions`, `.healths`) via storage buffer binding, not via readback. `NpcGpuState` and `NpcVisualUpload` are read during Extract via `Extract<Res<T>>` — zero-clone immutable access, no ExtractResourcePlugin.
+Note: `sprite_indices` and `flash_values` live in `EntityGpuState`. Colors and equipment are derived from ECS components by `build_visual_upload` each frame, which packs them into `NpcVisualUpload` (visual_data + equip_data). These are uploaded to NPC visual/equipment storage buffers (`NpcVisualBuffers`) for the render shader — not to compute shader buffers. Positions and health for rendering come directly from compute output (`NpcGpuBuffers.positions`, `.healths`) via storage buffer binding, not via readback. `EntityGpuState` and `NpcVisualUpload` are read during Extract via `Extract<Res<T>>` — zero-clone immutable access, no ExtractResourcePlugin.
 
 ## NPC Compute Shader (npc_compute.wgsl)
 
-Workgroup size: 64 threads. 3 dispatches per frame with different `mode` uniform values. Mode 0 dispatches `ceil(grid_cells / 64)` workgroups. Modes 1 and 2 dispatch `ceil(entity_count / 64)` workgroups where `entity_count = npc_count + building_count`.
+Workgroup size: 64 threads. 3 dispatches per frame with different `mode` uniform values. Mode 0 dispatches `ceil(grid_cells / 64)` workgroups. Modes 1 and 2 dispatch `ceil(entity_count / 64)` workgroups where `entity_count = EntitySlots.count()` (unified high-water mark for NPCs + buildings).
 
 ### Mode 0: Clear Grid
 One thread per grid cell. Atomically clears `grid_counts[cell]` to 0. Early exit if `i >= grid_cells`.
@@ -148,34 +142,34 @@ Four phases per NPC thread (speed > 0):
 
 **Movement with lateral steering**: Moves toward goal at full speed (no backoff persistence penalty). When avoidance pushes against the goal direction (alignment < -0.3), the NPC steers laterally (perpendicular to goal, in the direction avoidance is pushing) at 60% speed instead of slowing down. This routes NPCs around obstacles rather than jamming them. Backoff increments +1 when blocked, decrements -3 when clear, cap at 30.
 
-**Combat targeting + threat assessment**: Scan radius depends on tier — `combat_range` (400px, 9×9 cells) for combatants and towers, `threat_radius` (200px, 7×7 cells) for non-combatants. For each entity in neighboring cells, checks: alive (health > 0), not self. **Buildings are valid targets** — NPCs and towers can target enemy buildings via the unified spatial grid. CPU-side `attack_system` filters by job (only archers/crossbows/raiders attack buildings). Towers only target NPCs (`target < npc_count` check in `building_tower_system`). Faction -1 (neutral) is treated as same-faction — never targeted, never counted as enemy. Combat targeting tracks nearest enemy by squared distance → `combat_targets[i]` (-1 if none or non-combatant). For towers, CPU reads `combat_targets[npc_count + bld_slot]` via readback to fire projectiles. Threat assessment counts enemies and allies within `threat_radius`, packs both into a single u32 → `threat_counts[i]` as `(enemies << 16) | allies`. CPU decision_system unpacks these for flee threshold calculations.
+**Combat targeting + threat assessment**: Scan radius depends on tier — `combat_range` (400px, 9×9 cells) for combatants and towers, `threat_radius` (200px, 7×7 cells) for non-combatants. For each entity in neighboring cells, checks: alive (health > 0), not self. **Buildings are valid targets** — NPCs and towers can target enemy buildings via the unified spatial grid. CPU-side `attack_system` filters by job (only archers/crossbows/raiders attack buildings). Towers only target NPCs (checked via `BuildingEntityMap` — tower targets that are buildings are skipped). Faction -1 (neutral) is treated as same-faction — never targeted, never counted as enemy. Combat targeting tracks nearest enemy by squared distance → `combat_targets[i]` (-1 if none or non-combatant). For towers, CPU reads `combat_targets[bld_slot]` via readback to fire projectiles (building slots are in the unified namespace — no offset). Threat assessment counts enemies and allies within `threat_radius`, packs both into a single u32 → `threat_counts[i]` as `(enemies << 16) | allies`. CPU decision_system unpacks these for flee threshold calculations.
 
 ## GPU Buffers
 
 ### Compute Buffers (gpu.rs EntityGpuBuffers)
 
-Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write`, sized to `MAX_ENTITIES` (= MAX_NPC_COUNT + MAX_BUILDINGS = 200K). Layout: `[0..npc_count]` = NPCs, `[npc_count..entity_count]` = buildings. GPU→CPU readback uses Bevy's async `Readback` + `ReadbackComplete` pattern via `ShaderStorageBuffer` assets (no manual staging buffers).
+Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write`, sized to `MAX_ENTITIES` (= MAX_NPC_COUNT + MAX_BUILDINGS = 200K). NPCs and buildings share a unified slot namespace via `EntitySlots` — each entity's slot IS its GPU buffer index. No offset arithmetic. GPU→CPU readback uses Bevy's async `Readback` + `ReadbackComplete` pattern via `ShaderStorageBuffer` assets (no manual staging buffers).
 
 | Binding | Name | Type | Per-NPC Size | Uploaded From | Purpose |
 |---------|------|------|-------------|---------------|---------|
-| 0 | positions | vec2\<f32\> | 8B | NpcGpuState.positions | Current XY, read/written by shader. Init: -9999 sentinel (hidden). GPU-authoritative: per-index writes only. |
-| 1 | goals | vec2\<f32\> | 8B | NpcGpuState.targets | Movement target |
-| 2 | speeds | f32 | 4B | NpcGpuState.speeds | Movement speed |
+| 0 | positions | vec2\<f32\> | 8B | EntityGpuState.positions | Current XY, read/written by shader. Init: -9999 sentinel (hidden). GPU-authoritative: per-index writes only. |
+| 1 | goals | vec2\<f32\> | 8B | EntityGpuState.targets | Movement target |
+| 2 | speeds | f32 | 4B | EntityGpuState.speeds | Movement speed |
 | 3 | grid_counts | atomic\<i32\>[] | — | Not uploaded | NPCs per grid cell (atomically written by mode 0+1) |
 | 4 | grid_data | i32[] | — | Not uploaded | NPC indices per cell (written by mode 1) |
-| 5 | arrivals | i32 | 4B | NpcGpuState.arrivals | Settled flag (0=moving, 1=arrived), reset on SetTarget |
+| 5 | arrivals | i32 | 4B | EntityGpuState.arrivals | Settled flag (0=moving, 1=arrived), reset on SetTarget |
 | 6 | backoff | i32 | 4B | Not uploaded | TCP-style collision backoff counter (read/written by mode 2) |
-| 7 | factions | i32 | 4B | NpcGpuState.factions | -1=Neutral (unspawned/world buildings), 0=Player, 1+=AI. Init: -1. Neutral treated as same-faction in combat targeting + projectile collision. COPY_SRC for readback. |
-| 8 | healths | f32 | 4B | NpcGpuState.healths | Current HP (COPY_SRC for readback) |
+| 7 | factions | i32 | 4B | EntityGpuState.factions | -1=Neutral (unspawned/world buildings), 0=Player, 1+=AI. Init: -1. Neutral treated as same-faction in combat targeting + projectile collision. COPY_SRC for readback. |
+| 8 | healths | f32 | 4B | EntityGpuState.healths | Current HP (COPY_SRC for readback) |
 | 9 | combat_targets | i32 | 4B | Not uploaded | Nearest enemy index or -1 (written by shader, init -1) |
-| 10 | params | Params (uniform) | — | RenderFrameConfig.npc (NpcGpuData, ShaderType) | Count, delta (0 when paused), grid config, thresholds |
+| 10 | params | Params (uniform) | — | RenderFrameConfig.npc (EntityGpuData, ShaderType) | Count, delta (0 when paused), grid config, thresholds |
 | 11 | proj_grid_counts | i32[] | — | ProjGpuBuffers.grid_counts (read) | Projectile spatial grid cell counts |
 | 12 | proj_grid_data | i32[] | — | ProjGpuBuffers.grid_data (read) | Projectile indices per cell |
 | 13 | proj_positions | vec2\<f32\>[] | — | ProjGpuBuffers.positions (read) | Projectile positions for dodge |
 | 14 | proj_velocities | vec2\<f32\>[] | — | ProjGpuBuffers.velocities (read) | Projectile velocities for approach check |
 | 15 | proj_factions | i32[] | — | ProjGpuBuffers.factions (read) | Projectile factions for friendly fire skip |
 | 16 | threat_counts | u32 | 4B | Not uploaded | Packed threat assessment: (enemies << 16 \| allies) per NPC |
-| 17 | entity_flags | u32 | 4B | NpcGpuState.npc_flags (NPCs) / BuildingGpuState.flags mapped (buildings) | Bit 0 (ENTITY_FLAG_COMBAT): combat targeting scan enabled. Bit 1 (ENTITY_FLAG_BUILDING): is a building (skip movement/separation). NPCs: archers/raiders/fighters = 1, farmers/miners = 0. Buildings: non-tower = 2, tower (fountain) = 3 (bits 0+1). |
+| 17 | entity_flags | u32 | 4B | EntityGpuState.entity_flags | Bit 0 (ENTITY_FLAG_COMBAT): combat targeting scan enabled. Bit 1 (ENTITY_FLAG_BUILDING): is a building (skip movement/separation). NPCs: archers/raiders/fighters = 1, farmers/miners = 0. Buildings: non-tower = 2, tower (fountain) = 3 (bits 0+1). Set at spawn/placement time via SetFlags. |
 | 18 | tile_flags | u32[] | 4B/cell | RenderFrameConfig.tile_flags | Per-world-grid-cell bitfield (1024×1024 max). Terrain bits 0-4 (Grass=1, Forest=2, Water=4, Rock=8, Dirt=16), building bits 5+ (Road=32, Wall=64). Bits 8-11 encode wall owner faction (4 bits, 16 factions). Populated by `populate_tile_flags` system from WorldGrid biome + buildings + WorldData (for wall faction lookup). |
 
 ### NPC Visual Storage Buffers (npc_render.rs)
@@ -195,11 +189,11 @@ Uploaded per frame by `extract_npc_data` (ExtractSchedule) to `NpcVisualBuffers`
 **Equipment buffer** (`[f32; 24]` per slot = 6 layers × `[col, row, atlas, _pad]`, 96B/NPC):
 Built by `build_visual_upload` from ECS components (EquippedArmor, EquippedHelmet, EquippedWeapon, Activity, Healing). `col < 0` = unequipped.
 
-## Uniform Params (RenderFrameConfig.npc / NpcGpuData)
+## Uniform Params (RenderFrameConfig.npc / EntityGpuData)
 
 | Field | Default | Purpose |
 |-------|---------|---------|
-| count | 0 | NPC slot high-water mark (set from SlotAllocator.count() each frame) |
+| count | 0 | Entity slot high-water mark (set from EntitySlots.count() each frame) |
 | separation_radius | 20.0 | Minimum distance NPCs try to maintain |
 | separation_strength | 100.0 | Repulsion force multiplier |
 | delta | 0.016 | Frame delta time |
@@ -216,7 +210,7 @@ Built by `build_visual_upload` from ECS components (EquippedArmor, EquippedHelme
 | tile_grid_width | 0 | World grid columns (for tile_flags lookup) |
 | tile_grid_height | 0 | World grid rows (for tile_flags lookup) |
 | tile_cell_size | 0.0 | World grid cell size in pixels (for tile_flags lookup) |
-| entity_count | 0 | Total entities: npc_count + building_count (set each frame from SlotAllocator + BuildingSlots) |
+| entity_count | 0 | Total entities (set each frame from EntitySlots.count() — single unified high-water mark) |
 
 ## Spatial Grid
 

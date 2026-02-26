@@ -60,9 +60,9 @@ pub struct DecisionExtras<'w> {
 /// All state transitions are handled by decision_system.
 pub fn arrival_system(
     // Query for Returning NPCs (proximity-based delivery) — Without<AssignedFarm> for disjointness
-    mut returning_query: Query<(Entity, &NpcIndex, &TownId, &Home, &Faction, &Job, Option<&WorkPosition>, &mut Activity), (Without<Dead>, Without<AssignedFarm>)>,
+    mut returning_query: Query<(Entity, &EntitySlot, &TownId, &Home, &Faction, &Job, Option<&WorkPosition>, &mut Activity), (Without<Dead>, Without<AssignedFarm>)>,
     // Query for Working farmers with AssignedFarm (for drift check + harvest)
-    mut working_farmers: Query<(Entity, &NpcIndex, &AssignedFarm, &TownId, &Home, &Job, &mut Activity), Without<Dead>>,
+    mut working_farmers: Query<(Entity, &EntitySlot, &AssignedFarm, &TownId, &Home, &Job, &mut Activity), Without<Dead>>,
     mut commands: Commands,
     mut intents: ResMut<MovementIntents>,
     mut economy: EconomyState,
@@ -248,7 +248,7 @@ pub fn decision_system(
     mut commands: Commands,
     // Main query: core NPC data (SquadId is Optional — only on squad-assigned guards)
     mut query: Query<
-        (Entity, &NpcIndex, &Job, &mut Energy, &Health, &Home, &Personality, &TownId, &Faction,
+        (Entity, &EntitySlot, &Job, &mut Energy, &Health, &Home, &Personality, &TownId, &Faction,
          &mut Activity, &mut CombatState, Option<&AtDestination>, Option<&SquadId>, Option<&ManualTarget>,
          Option<&DirectControl>),
         Without<Dead>

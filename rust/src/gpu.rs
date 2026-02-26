@@ -5,8 +5,8 @@
 //!
 //! Data flow (zero-clone architecture):
 //! - Main world: Systems write GpuUpdateMsg
-//! - PostUpdate: populate_gpu_state reads messages -> NpcGpuState
-//! - PostUpdate: build_visual_upload packs ECS + NpcGpuState → NpcVisualUpload
+//! - PostUpdate: populate_gpu_state reads messages -> EntityGpuState
+//! - PostUpdate: build_visual_upload packs ECS + EntityGpuState → NpcVisualUpload
 //! - Extract: extract_npc_data reads both via Extract<Res<T>> (immutable, zero clone)
 //!   → writes compute data per-dirty-index to EntityGpuBuffers
 //!   → writes visual/equip data in bulk to NpcVisualBuffers
@@ -31,13 +31,13 @@ use bevy::{
 };
 use std::borrow::Cow;
 
-use crate::components::{NpcIndex, Faction, Job, Healing, Activity, EquippedWeapon, EquippedHelmet, EquippedArmor, Dead};
+use crate::components::{EntitySlot, Faction, Job, Healing, Activity, EquippedWeapon, EquippedHelmet, EquippedArmor, Dead};
 use crate::constants::{
-    FOOD_SPRITE, GOLD_SPRITE, ItemKind, MAX_BUILDINGS, MAX_ENTITIES, MAX_NPC_COUNT,
+    FOOD_SPRITE, GOLD_SPRITE, ItemKind, MAX_ENTITIES, MAX_NPC_COUNT,
     MAX_PROJECTILES as MAX_PROJECTILE_COUNT, PROJECTILE_HIT_HALF_LENGTH, PROJECTILE_HIT_HALF_WIDTH,
 };
 use crate::messages::{GpuUpdate, GpuUpdateMsg, ProjGpuUpdate, ProjGpuUpdateMsg};
-use crate::resources::{GameTime, GpuReadState, ProjHitState, ProjPositionState, SlotAllocator, BuildingSlots, SystemTimings, NpcTargetThrashDebug};
+use crate::resources::{GameTime, GpuReadState, ProjHitState, ProjPositionState, EntitySlots, SystemTimings, NpcTargetThrashDebug};
 use crate::systems::stats::{self, TownUpgrades};
 use crate::world::WorldData;
 
@@ -59,7 +59,7 @@ const MAX_PER_CELL: u32 = 48;
 
 /// NPC compute uniform buffer fields. Owned by RenderFrameConfig.
 #[derive(Clone, ShaderType)]
-pub struct NpcGpuData {
+pub struct EntityGpuData {
     pub count: u32,
     pub separation_radius: f32,
     pub separation_strength: f32,
@@ -80,7 +80,7 @@ pub struct NpcGpuData {
     pub entity_count: u32,
 }
 
-impl Default for NpcGpuData {
+impl Default for EntityGpuData {
     fn default() -> Self {
         Self {
             count: 0,
@@ -109,18 +109,19 @@ impl Default for NpcGpuData {
 /// Replaces 4 separate ExtractResourcePlugin registrations with 1.
 #[derive(Resource, Clone, ExtractResource, Default)]
 pub struct RenderFrameConfig {
-    pub npc: NpcGpuData,
+    pub npc: EntityGpuData,
     pub proj: ProjGpuData,
     pub textures: NpcSpriteTexture,
     pub readback: ReadbackHandles,
     pub tile_flags: Vec<u32>,
 }
 
-/// All persistent per-NPC GPU data: compute fields + visual state + dirty tracking.
-/// Read via `Extract<Res<NpcGpuState>>` in Extract phase (zero clone, immutable reference).
+/// All persistent per-entity GPU data: compute fields + visual state + dirty tracking.
+/// Unified buffer: NPCs and buildings share the same arrays at their slot index.
+/// Read via `Extract<Res<EntityGpuState>>` in Extract phase (zero clone, immutable reference).
 /// NOT Clone/ExtractResource — never cloned to render world.
 #[derive(Resource)]
-pub struct NpcGpuState {
+pub struct EntityGpuState {
     // --- Compute fields (written by game systems via GpuUpdateMsg) ---
     /// Position buffer: [x0, y0, x1, y1, ...] flattened
     pub positions: Vec<f32>,
@@ -140,7 +141,7 @@ pub struct NpcGpuState {
     /// Damage flash intensity: 0.0-1.0 per NPC (decays at 5.0/s)
     pub flash_values: Vec<f32>,
     // --- Flags (bit 0: combat scan enabled) ---
-    pub npc_flags: Vec<u32>,
+    pub entity_flags: Vec<u32>,
     // --- Per-buffer dirty flags (compute only — visual is rebuilt each frame) ---
     pub dirty_positions: bool,
     pub dirty_targets: bool,
@@ -163,13 +164,13 @@ pub struct NpcVisualUpload {
     pub visual_data: Vec<f32>,
     /// [col, row, atlas, pad] × 6 layers per NPC — matches EquipSlot in npc_render.wgsl
     pub equip_data: Vec<f32>,
-    /// Number of NPCs packed
-    pub npc_count: usize,
+    /// Number of entities packed
+    pub entity_count: usize,
 }
 
-impl Default for NpcGpuState {
+impl Default for EntityGpuState {
     fn default() -> Self {
-        let max = MAX_NPC_COUNT;
+        let max = MAX_ENTITIES;
         Self {
             positions: vec![-9999.0; max * 2],
             targets: vec![0.0; max * 2],
@@ -179,7 +180,7 @@ impl Default for NpcGpuState {
             arrivals: vec![0; max],
             sprite_indices: vec![0.0; max * 4],
             flash_values: vec![0.0; max],
-            npc_flags: vec![0; max],
+            entity_flags: vec![0; max],
             dirty_positions: false,
             dirty_targets: false,
             dirty_speeds: false,
@@ -193,7 +194,7 @@ impl Default for NpcGpuState {
     }
 }
 
-impl NpcGpuState {
+impl EntityGpuState {
     /// Apply a GPU update to the state.
     pub fn apply(&mut self, update: &GpuUpdate) {
         match update {
@@ -244,7 +245,7 @@ impl NpcGpuState {
                     self.dirty_healths = true;
                 }
             }
-            GpuUpdate::Hide { idx, is_building: false } => {
+            GpuUpdate::Hide { idx } => {
                 let i = *idx * 2;
                 if i + 1 < self.positions.len() {
                     self.positions[i] = -9999.0;
@@ -268,148 +269,47 @@ impl NpcGpuState {
                 }
             }
             GpuUpdate::SetFlags { idx, flags } => {
-                if *idx < self.npc_flags.len() {
-                    self.npc_flags[*idx] = *flags;
+                if *idx < self.entity_flags.len() {
+                    self.entity_flags[*idx] = *flags;
                     self.dirty_flags = true;
                 }
             }
-            // Building variants — handled by BuildingGpuState
-            GpuUpdate::BldSetPosition { .. } | GpuUpdate::BldSetFaction { .. } |
-            GpuUpdate::BldSetHealth { .. } | GpuUpdate::BldSetSpriteFrame { .. } |
-            GpuUpdate::BldSetFlags { .. } | GpuUpdate::BldSetDamageFlash { .. } |
-            GpuUpdate::Hide { is_building: true, .. } => {}
         }
     }
 }
 
-// =============================================================================
-// BUILDING GPU STATE (mirrors NpcGpuState but no movement/targeting buffers)
-// =============================================================================
-
-/// Persistent per-building GPU data. Buildings don't move or target, so no
-/// targets/speeds/arrivals/backoff. Same dirty-tracking pattern as NpcGpuState.
-#[derive(Resource)]
-pub struct BuildingGpuState {
-    pub positions: Vec<f32>,      // [x, y] per building, stride 2
-    pub factions: Vec<i32>,       // one per building
-    pub healths: Vec<f32>,        // one per building
-    pub sprite_indices: Vec<f32>, // [col, row, atlas, 0] per building, stride 4
-    pub flash_values: Vec<f32>,   // damage flash, one per building
-    pub flags: Vec<u32>,          // bit flags, one per building
-    // Dirty tracking
-    pub dirty_positions: bool,
-    pub dirty_factions: bool,
-    pub dirty_healths: bool,
-    pub dirty_flags: bool,
-    pub position_dirty_indices: Vec<usize>,
-}
-
-impl Default for BuildingGpuState {
-    fn default() -> Self {
-        let max = MAX_BUILDINGS;
-        Self {
-            positions: vec![-9999.0; max * 2],
-            factions: vec![-1; max],
-            healths: vec![0.0; max],
-            sprite_indices: vec![0.0; max * 4],
-            flash_values: vec![0.0; max],
-            flags: vec![0; max],
-            dirty_positions: false,
-            dirty_factions: false,
-            dirty_healths: false,
-            dirty_flags: false,
-            position_dirty_indices: Vec::new(),
-        }
-    }
-}
-
-impl BuildingGpuState {
-    pub fn apply(&mut self, update: &GpuUpdate) {
-        match update {
-            GpuUpdate::BldSetPosition { idx, x, y } => {
-                let i = *idx * 2;
-                if i + 1 < self.positions.len() {
-                    self.positions[i] = *x;
-                    self.positions[i + 1] = *y;
-                    self.dirty_positions = true;
-                    self.position_dirty_indices.push(*idx);
-                }
-            }
-            GpuUpdate::BldSetFaction { idx, faction } => {
-                if *idx < self.factions.len() {
-                    self.factions[*idx] = *faction;
-                    self.dirty_factions = true;
-                }
-            }
-            GpuUpdate::BldSetHealth { idx, health } => {
-                if *idx < self.healths.len() {
-                    self.healths[*idx] = *health;
-                    self.dirty_healths = true;
-                }
-            }
-            GpuUpdate::BldSetSpriteFrame { idx, col, row, atlas } => {
-                let i = *idx * 4;
-                if i + 3 < self.sprite_indices.len() {
-                    self.sprite_indices[i] = *col;
-                    self.sprite_indices[i + 1] = *row;
-                    self.sprite_indices[i + 2] = *atlas;
-                }
-            }
-            GpuUpdate::BldSetFlags { idx, flags } => {
-                if *idx < self.flags.len() {
-                    self.flags[*idx] = *flags;
-                    self.dirty_flags = true;
-                }
-            }
-            GpuUpdate::BldSetDamageFlash { idx, intensity } => {
-                if *idx < self.flash_values.len() {
-                    self.flash_values[*idx] = *intensity;
-                }
-            }
-            GpuUpdate::Hide { idx, is_building: true } => {
-                let i = *idx * 2;
-                if i + 1 < self.positions.len() {
-                    self.positions[i] = -9999.0;
-                    self.positions[i + 1] = -9999.0;
-                    self.dirty_positions = true;
-                    self.position_dirty_indices.push(*idx);
-                }
-            }
-            _ => {} // NPC variants — not for us
-        }
-    }
-}
+// BuildingGpuState removed — buildings use EntityGpuState at their unified slot index.
 
 /// Pack NPC visual + equipment data into GPU-ready arrays for direct upload.
 /// Replaces sync_visual_sprites + prepare_npc_buffers visual repack.
 /// Runs in PostUpdate after populate_gpu_state (chained).
 pub fn build_visual_upload(
-    gpu_state: Res<NpcGpuState>,
+    gpu_state: Res<EntityGpuState>,
     config: Res<RenderFrameConfig>,
     mut upload: ResMut<NpcVisualUpload>,
     all_npcs: Query<(
-        &NpcIndex, &Faction, &Job, &Activity,
+        &EntitySlot, &Faction, &Job, &Activity,
         Option<&Healing>,
         Option<&EquippedWeapon>, Option<&EquippedHelmet>, Option<&EquippedArmor>,
     ), Without<Dead>>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("build_visual_upload");
-    let npc_count = config.npc.count as usize;
-    upload.npc_count = npc_count;
+    let entity_count = config.npc.count as usize;
+    upload.entity_count = entity_count;
 
     // Resize (reuses allocation if already large enough), fill with sentinels
-    upload.visual_data.resize(npc_count * 8, -1.0);
-    upload.equip_data.resize(npc_count * 24, -1.0);
+    upload.visual_data.resize(entity_count * 8, -1.0);
+    upload.equip_data.resize(entity_count * 24, -1.0);
 
     // Reset to -1.0 sentinels (phantom slots like waypoints have no ECS entity,
     // so the all_npcs loop below never overwrites them — shader hides when col < 0)
-    upload.visual_data[..npc_count * 8].fill(-1.0);
-    upload.equip_data[..npc_count * 24].fill(-1.0);
+    upload.visual_data[..entity_count * 8].fill(-1.0);
+    upload.equip_data[..entity_count * 24].fill(-1.0);
 
     for (npc_idx, faction, job, activity, healing, weapon, helmet, armor) in all_npcs.iter() {
         let idx = npc_idx.0;
-        if idx >= npc_count { continue; }
+        if idx * 8 + 7 >= upload.visual_data.len() { continue; }
 
         // --- Visual data: [sprite_col, sprite_row, atlas, flash, r, g, b, a] ---
         let base = idx * 8;
@@ -488,7 +388,7 @@ pub fn build_visual_upload(
     }
 
     // Building slots: no ECS entity, sprite data from SetSpriteFrame in sprite_indices
-    for idx in 0..npc_count {
+    for idx in 0..entity_count {
         let base = idx * 8;
         if upload.visual_data[base] >= 0.0 { continue; } // already written by NPC loop
         let si = idx * 4;
@@ -505,23 +405,21 @@ pub fn build_visual_upload(
     }
 }
 
-/// Drain GpuUpdateMsg messages and apply updates to NpcGpuState + BuildingGpuState.
+/// Drain GpuUpdateMsg messages and apply updates to EntityGpuState (unified entity state).
 /// Runs in main world each frame before extraction.
 pub fn populate_gpu_state(
     mut events: MessageReader<GpuUpdateMsg>,
-    mut npc_state: ResMut<NpcGpuState>,
-    mut bld_state: ResMut<BuildingGpuState>,
+    mut npc_state: ResMut<EntityGpuState>,
     mut target_thrash: ResMut<NpcTargetThrashDebug>,
     _game_time: Res<GameTime>,
     real_time: Res<Time<Real>>,
     time: Res<Time>,
-    slots: Res<SlotAllocator>,
-    bld_slots: Res<BuildingSlots>,
+    slots: Res<EntitySlots>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("populate_gpu");
     let sink_window_key = real_time.elapsed_secs_f64().floor() as i64;
-    // Reset NPC dirty flags
+    // Reset dirty flags
     npc_state.dirty_positions = false;
     npc_state.dirty_targets = false;
     npc_state.dirty_speeds = false;
@@ -532,45 +430,19 @@ pub fn populate_gpu_state(
     npc_state.position_dirty_indices.clear();
     npc_state.arrival_dirty_indices.clear();
 
-    // Reset building dirty flags
-    bld_state.dirty_positions = false;
-    bld_state.dirty_factions = false;
-    bld_state.dirty_healths = false;
-    bld_state.dirty_flags = false;
-    bld_state.position_dirty_indices.clear();
-
     for msg in events.read() {
         let update = &msg.0;
         if let GpuUpdate::SetTarget { idx, x, y } = update {
             target_thrash.record_sink(*idx, sink_window_key, *x, *y);
         }
-        // Route to correct state based on variant
-        match update {
-            GpuUpdate::BldSetPosition { .. } | GpuUpdate::BldSetFaction { .. } |
-            GpuUpdate::BldSetHealth { .. } | GpuUpdate::BldSetSpriteFrame { .. } |
-            GpuUpdate::BldSetFlags { .. } | GpuUpdate::BldSetDamageFlash { .. } |
-            GpuUpdate::Hide { is_building: true, .. } => {
-                bld_state.apply(update);
-            }
-            _ => {
-                npc_state.apply(update);
-            }
-        }
+        npc_state.apply(update);
     }
 
-    // Decay NPC damage flash values (1.0 → 0.0 in ~0.2s)
+    // Decay damage flash values (1.0 → 0.0 in ~0.2s)
     let dt = time.delta_secs();
     const FLASH_DECAY_RATE: f32 = 5.0;
     let active = slots.count().min(npc_state.flash_values.len());
     for flash in npc_state.flash_values[..active].iter_mut() {
-        if *flash > 0.0 {
-            *flash = (*flash - dt * FLASH_DECAY_RATE).max(0.0);
-        }
-    }
-
-    // Decay building damage flash values
-    let bld_active = bld_slots.count().min(bld_state.flash_values.len());
-    for flash in bld_state.flash_values[..bld_active].iter_mut() {
         if *flash > 0.0 {
             *flash = (*flash - dt * FLASH_DECAY_RATE).max(0.0);
         }
@@ -585,7 +457,7 @@ pub fn populate_gpu_state(
 #[derive(Clone, ShaderType)]
 pub struct ProjGpuData {
     pub proj_count: u32,
-    pub npc_count: u32,
+    pub _npc_count: u32,  // unused by shader, kept for struct alignment
     pub delta: f32,
     pub hit_half_length: f32,
     pub hit_half_width: f32,
@@ -601,7 +473,7 @@ impl Default for ProjGpuData {
     fn default() -> Self {
         Self {
             proj_count: 0,
-            npc_count: 0,
+            _npc_count: 0,
             delta: 0.016,
             hit_half_length: PROJECTILE_HIT_HALF_LENGTH,
             hit_half_width: PROJECTILE_HIT_HALF_WIDTH,
@@ -816,15 +688,13 @@ fn sync_readback_ranges(
     mut commands: Commands,
     config: Res<RenderFrameConfig>,
     mut rb_state: ResMut<ReadbackState>,
-    slots: Res<SlotAllocator>,
-    building_slots: Res<BuildingSlots>,
+    slots: Res<EntitySlots>,
     proj_alloc: Res<crate::resources::ProjSlotAllocator>,
 ) {
-    let npc_count = slots.count();
-    let entity_count = npc_count + building_slots.count();
+    let entity_count = slots.count();
     let proj_count = proj_alloc.next;
 
-    let new_npc = readback_bucket(npc_count);
+    let new_npc = readback_bucket(entity_count);
     let new_entity = readback_bucket(entity_count);
     let new_proj = readback_bucket(proj_count);
 
@@ -929,8 +799,7 @@ impl Plugin for GpuComputePlugin {
     fn build(&self, app: &mut App) {
         // Initialize resources in main world
         app.init_resource::<RenderFrameConfig>()
-            .init_resource::<NpcGpuState>()
-            .init_resource::<BuildingGpuState>()
+            .init_resource::<EntityGpuState>()
             .init_resource::<NpcVisualUpload>()
             .init_resource::<ProjBufferWrites>()
             .init_resource::<ReadbackState>()
@@ -942,7 +811,7 @@ impl Plugin for GpuComputePlugin {
         app.add_systems(Startup, setup_readback_buffers);
 
         // Extract resources to render world
-        // NpcGpuState + NpcVisualUpload + ProjBufferWrites + ProjPositionState use Extract<Res<T>> (zero-clone)
+        // EntityGpuState + NpcVisualUpload + ProjBufferWrites + ProjPositionState use Extract<Res<T>> (zero-clone)
         app.add_plugins(ExtractResourcePlugin::<RenderFrameConfig>::default());
 
         // Set up render world systems
@@ -981,8 +850,7 @@ struct ProjectileComputeLabel;
 /// Update GPU data from ECS each frame.
 fn update_gpu_data(
     mut config: ResMut<RenderFrameConfig>,
-    slots: Res<SlotAllocator>,
-    building_slots: Res<BuildingSlots>,
+    slots: Res<EntitySlots>,
     time: Res<Time>,
     game_time: Res<GameTime>,
     upgrades: Res<TownUpgrades>,
@@ -992,7 +860,7 @@ fn update_gpu_data(
     let _t = timings.scope("update_gpu_data");
     let dt = game_time.delta(&time);
     config.npc.count = slots.count() as u32;
-    config.npc.entity_count = (slots.count() + building_slots.count()) as u32;
+    config.npc.entity_count = slots.count() as u32;
     config.npc.delta = dt;
 
     let player_town_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
@@ -1257,7 +1125,7 @@ fn init_npc_compute_pipeline(
                 // 9: combat_targets
                 storage_buffer::<Vec<i32>>(false),
                 // 10: params (uniform)
-                uniform_buffer::<NpcGpuData>(false),
+                uniform_buffer::<EntityGpuData>(false),
                 // 11-12: projectile spatial grid (read only from NPC perspective)
                 storage_buffer_read_only::<Vec<i32>>(false),  // proj_grid_counts
                 storage_buffer_read_only::<Vec<i32>>(false),  // proj_grid_data
@@ -1590,8 +1458,7 @@ impl render_graph::Node for NpcComputeNode {
 /// Update projectile GPU data from ECS each frame.
 fn update_proj_gpu_data(
     mut config: ResMut<RenderFrameConfig>,
-    slots: Res<SlotAllocator>,
-    building_slots: Res<BuildingSlots>,
+    slots: Res<EntitySlots>,
     proj_alloc: Res<crate::resources::ProjSlotAllocator>,
     time: Res<Time>,
     game_time: Res<GameTime>,
@@ -1600,8 +1467,8 @@ fn update_proj_gpu_data(
     let _t = timings.scope("update_proj_gpu");
     let dt = game_time.delta(&time);
     config.proj.proj_count = proj_alloc.next as u32;
-    config.proj.npc_count = slots.count() as u32;
-    config.proj.entity_count = (slots.count() + building_slots.count()) as u32;
+    config.proj._npc_count = slots.count() as u32;
+    config.proj.entity_count = slots.count() as u32;
     config.proj.delta = dt;
 }
 

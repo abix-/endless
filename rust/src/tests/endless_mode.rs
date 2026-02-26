@@ -32,7 +32,7 @@ pub(super) fn setup(
     mut gold_storage: ResMut<GoldStorage>,
     mut faction_stats: ResMut<FactionStats>,
     mut town_grids: ResMut<world::TownGrids>,
-    mut slot_alloc: ResMut<SlotAllocator>,
+    mut slot_alloc: ResMut<EntitySlots>,
     mut bld: BuildingInitParams,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
@@ -52,7 +52,7 @@ pub(super) fn setup(
         &config,
         &mut world_grid, &mut world_data,
         &mut town_grids,
-        &mut slot_alloc, &mut bld.building_alloc,
+        &mut slot_alloc,
         &mut bld.building_slots,
         &mut food_storage, &mut gold_storage,
         &mut faction_stats, &mut state.raider_state,
@@ -92,7 +92,6 @@ pub fn tick(
     game_time: Res<GameTime>,
     mut test: ResMut<TestState>,
     mut damage_writer: MessageWriter<DamageMsg>,
-    slots: Res<SlotAllocator>,
     bmap: Res<BuildingEntityMap>,
     migrating_query: Query<&Faction, With<Migrating>>,
 ) {
@@ -145,7 +144,7 @@ pub fn tick(
                 let max_hp = crate::constants::building_def(BuildingKind::Fountain).hp;
                 if let Some(bld_slot) = bmap.iter_kind(BuildingKind::Fountain).nth(target).map(|i| i.slot) {
                     damage_writer.write(DamageMsg {
-                        entity_idx: slots.count() + bld_slot,
+                        entity_idx: bld_slot,
                         amount: max_hp + 100.0, attacker_faction: 0, attacker: -1,
                     });
                 }
@@ -324,7 +323,7 @@ pub fn tick(
                 let max_hp = crate::constants::building_def(BuildingKind::Fountain).hp;
                 if let Some(bld_slot) = bmap.iter_kind(BuildingKind::Fountain).nth(target).map(|i| i.slot) {
                     damage_writer.write(DamageMsg {
-                        entity_idx: slots.count() + bld_slot,
+                        entity_idx: bld_slot,
                         amount: max_hp + 100.0, attacker_faction: 0, attacker: -1,
                     });
                 }

@@ -19,8 +19,7 @@ const TARGET_X: f32 = 555.0;
 const TARGET_Y: f32 = 320.0;
 
 pub fn setup(
-    mut slot_alloc: ResMut<SlotAllocator>,
-    mut building_alloc: ResMut<BuildingSlots>,
+    mut slot_alloc: ResMut<EntitySlots>,
     mut spawn_events: MessageWriter<SpawnNpcMsg>,
     mut world_data: ResMut<world::WorldData>,
     mut building_slots: ResMut<BuildingEntityMap>,
@@ -54,7 +53,7 @@ pub fn setup(
     // Friendly vertical farm wall in projectile lane.
     for y in FARM_WALL_Y {
         let pos = Vec2::new(FARM_WALL_X, y);
-        world::place_building_instance(&mut building_alloc, &mut building_slots, world::BuildingKind::Farm, pos, 0, 0, 0, 0);
+        world::place_building_instance(&mut slot_alloc, &mut building_slots, world::BuildingKind::Farm, pos, 0, 0, 0, 0);
 
         // Building instance registered via place_building_instance above
     }
@@ -109,7 +108,7 @@ pub fn setup(
 }
 
 pub fn tick(
-    npc_query: Query<(), (With<NpcIndex>, Without<Dead>)>,
+    npc_query: Query<(), (With<EntitySlot>, Without<Dead>)>,
     combat_debug: Res<CombatDebug>,
     health_debug: Res<HealthDebug>,
     proj_alloc: Res<ProjSlotAllocator>,

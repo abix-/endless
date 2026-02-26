@@ -21,9 +21,9 @@ pub fn setup(mut params: TestSetupParams) {
 }
 
 pub fn tick(
-    mut npc_query: Query<(Entity, &NpcIndex, &Job, &mut Health), Without<Dead>>,
-    all_npc_query: Query<(), With<NpcIndex>>,
-    mut slot_alloc: ResMut<SlotAllocator>,
+    mut npc_query: Query<(Entity, &EntitySlot, &Job, &mut Health), Without<Dead>>,
+    all_npc_query: Query<(), With<EntitySlot>>,
+    mut slot_alloc: ResMut<EntitySlots>,
     mut spawn_events: MessageWriter<crate::messages::SpawnNpcMsg>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
@@ -67,7 +67,7 @@ pub fn tick(
                 }
             }
         }
-        // Phase 3: Slot freed in SlotAllocator
+        // Phase 3: Slot freed in EntitySlots
         3 => {
             let free_count = slot_alloc.free.len();
             test.phase_name = format!("free_slots={}", free_count);

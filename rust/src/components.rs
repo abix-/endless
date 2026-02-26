@@ -7,10 +7,10 @@ use crate::constants::ItemKind;
 // CORE COMPONENTS
 // ============================================================================
 
-/// Links a Bevy entity to its index in the GPU buffers.
-/// When spawning an NPC, we create an entity with NpcIndex(n) where n is the buffer slot.
+/// Links a Bevy entity to its unified slot in the GPU entity buffers.
+/// Both NPCs and buildings get an EntitySlot(n) where n = GPU buffer index.
 #[derive(Component, Clone, Copy)]
-pub struct NpcIndex(pub usize);
+pub struct EntitySlot(pub usize);
 
 /// NPC position in world coordinates. Bevy owns this, syncs to GPU for physics.
 /// Phase 11: Replaces GPU-owned positions with Bevy-owned + GPU accelerated.
@@ -397,7 +397,7 @@ pub struct SquadId(pub i32);
 
 /// Marker: entity is a building (not a walking NPC).
 /// Buildings are NPC-like entities with Speed(0.0) on the building atlas.
-/// They share GPU slots, NpcEntityMap registration, and the death pipeline with NPCs.
+/// They share GPU slots, EntityMap registration, and the death pipeline with NPCs.
 #[derive(Component, Clone, Copy)]
 pub struct Building {
     pub kind: crate::world::BuildingKind,

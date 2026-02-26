@@ -17,7 +17,7 @@ pub fn setup(mut params: TestSetupParams) {
 }
 
 pub fn tick(
-    mut health_query: Query<(&mut Health, &CachedStats, &NpcIndex), (With<Farmer>, Without<Dead>)>,
+    mut health_query: Query<(&mut Health, &CachedStats, &EntitySlot), (With<Farmer>, Without<Dead>)>,
     healing_query: Query<(), (With<Healing>, With<Farmer>, Without<Dead>)>,
     time: Res<Time>,
     mut test: ResMut<TestState>,

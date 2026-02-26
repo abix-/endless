@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg, CombatLogMsg};
 use crate::resources::{
-    NpcEntityMap, PopulationStats, NpcMetaCache, NpcMeta, BuildingEntityMap,
+    EntityMap, PopulationStats, NpcMetaCache, NpcMeta, BuildingEntityMap,
     NpcsByTownCache, FactionStats, GameTime, CombatEventKind, SystemTimings,
 };
 use crate::messages::{DirtyWriters, SquadsDirtyMsg, AiSquadsDirtyMsg, MiningDirtyMsg};
@@ -111,7 +111,7 @@ pub fn materialize_npc(
     attack_type_id: i32,
     overrides: &NpcSpawnOverrides,
     commands: &mut Commands,
-    npc_map: &mut NpcEntityMap,
+    npc_map: &mut EntityMap,
     pop_stats: &mut PopulationStats,
     npc_meta: &mut NpcMetaCache,
     npcs_by_town: &mut NpcsByTownCache,
@@ -161,7 +161,7 @@ pub fn materialize_npc(
         .unwrap_or(-1);
 
     let mut ec = commands.spawn((
-        NpcIndex(idx),
+        EntitySlot(idx),
         Position::new(x, y),
         job,
         TownId(town_idx),
@@ -255,7 +255,7 @@ pub fn materialize_npc(
 pub fn spawn_npc_system(
     mut commands: Commands,
     mut events: MessageReader<SpawnNpcMsg>,
-    mut npc_map: ResMut<NpcEntityMap>,
+    mut npc_map: ResMut<EntityMap>,
     mut pop_stats: ResMut<PopulationStats>,
     mut faction_stats: ResMut<FactionStats>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,

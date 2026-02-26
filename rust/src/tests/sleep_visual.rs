@@ -31,7 +31,7 @@ pub fn setup(mut params: TestSetupParams) {
 
 pub fn tick(
     farmer_query: Query<(), (With<Farmer>, Without<Dead>)>,
-    npc_activity_query: Query<(&NpcIndex, &Activity), (With<Farmer>, Without<Dead>)>,
+    npc_activity_query: Query<(&EntitySlot, &Activity), (With<Farmer>, Without<Dead>)>,
     mut energy_query: Query<&mut Energy, (With<Farmer>, Without<Dead>)>,
     upload: Res<NpcVisualUpload>,
     time: Res<Time>,

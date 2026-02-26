@@ -283,7 +283,7 @@ fn game_startup_system(
         &config,
         &mut world_state.grid, &mut world_state.world_data,
         &mut world_state.town_grids,
-        &mut world_state.slot_alloc, &mut world_state.building_alloc,
+        &mut world_state.entity_slots,
         &mut world_state.building_slots,
         &mut food_storage, &mut extra.gold_storage,
         &mut faction_stats, &mut raider_state,
@@ -718,9 +718,8 @@ fn build_place_click_system(
         };
 
         // Send lethal damage so death_system handles despawn (single Dead writer)
-        let npc_count = world_state.slot_alloc.count();
         damage_writer.write(crate::messages::DamageMsg {
-            entity_idx: npc_count + target_slot,
+            entity_idx: target_slot,
             amount: f32::MAX,
             attacker: -1,
             attacker_faction: 0,
@@ -1261,9 +1260,8 @@ fn process_destroy_system(
         let (trow, tcol) = world::world_to_town_grid(center, world_pos);
 
         // Send lethal damage so death_system handles despawn (single Dead writer)
-        let npc_count = world_state.slot_alloc.count();
         damage_writer.write(crate::messages::DamageMsg {
-            entity_idx: npc_count + target_slot,
+            entity_idx: target_slot,
             amount: f32::MAX,
             attacker: -1,
             attacker_faction: 0,
@@ -1293,8 +1291,7 @@ struct CleanupWorld<'w> {
     faction_stats: ResMut<'w, FactionStats>,
     gpu_state: ResMut<'w, GpuReadState>,
     render_config: ResMut<'w, crate::gpu::RenderFrameConfig>,
-    npc_gpu_state: ResMut<'w, crate::gpu::NpcGpuState>,
-    bld_gpu_state: ResMut<'w, crate::gpu::BuildingGpuState>,
+    npc_gpu_state: ResMut<'w, crate::gpu::EntityGpuState>,
     npc_visual_upload: ResMut<'w, crate::gpu::NpcVisualUpload>,
     proj_buffer_writes: ResMut<'w, crate::gpu::ProjBufferWrites>,
     game_time: ResMut<'w, GameTime>,
@@ -1310,7 +1307,7 @@ struct CleanupDebug<'w> {
     health_debug: ResMut<'w, HealthDebug>,
     kill_stats: ResMut<'w, KillStats>,
     raider_state: ResMut<'w, RaiderState>,
-    npc_entity_map: ResMut<'w, NpcEntityMap>,
+    npc_entity_map: ResMut<'w, EntityMap>,
     pop_stats: ResMut<'w, PopulationStats>,
 }
 
@@ -1333,7 +1330,7 @@ struct CleanupGameplay<'w> {
 /// Clean up world when leaving Playing state.
 fn game_cleanup_system(
     mut commands: Commands,
-    npc_query: Query<Entity, With<NpcIndex>>,
+    npc_query: Query<Entity, With<EntitySlot>>,
     marker_query: Query<Entity, With<FarmReadyMarker>>,
     indicator_query: Query<Entity, With<SlotIndicator>>,
     ghost_query: Query<Entity, With<BuildGhost>>,
@@ -1365,7 +1362,7 @@ fn game_cleanup_system(
     }
 
     // Reset world resources
-    world.world_state.slot_alloc.reset();
+    world.world_state.entity_slots.reset();
     *world.world_state.world_data = Default::default();
     *world.food_storage = Default::default();
     *world.faction_stats = Default::default();
@@ -1381,7 +1378,7 @@ fn game_cleanup_system(
     world.render_config.npc = Default::default();
     world.render_config.proj = Default::default();
     *world.npc_gpu_state = Default::default();
-    *world.bld_gpu_state = Default::default();
+    // NPC GPU state reset is handled via npc_gpu_state above
     *world.npc_visual_upload = Default::default();
     *world.proj_buffer_writes = Default::default();
 

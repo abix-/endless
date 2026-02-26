@@ -8,7 +8,7 @@ use bevy_egui::{EguiContexts, egui};
 
 use crate::constants::{building_def, npc_def, ItemKind, ResourceKind, WALL_TIER_HP, WALL_TIER_NAMES, WALL_UPGRADE_COSTS};
 use crate::components::*;
-use crate::gpu::NpcGpuState;
+use crate::gpu::EntityGpuState;
 use crate::render::MainCamera;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
@@ -155,7 +155,7 @@ pub fn top_bar_system(
 #[derive(SystemParam)]
 pub struct NpcStateQuery<'w, 's> {
     states: Query<'w, 's, (
-        &'static NpcIndex,
+        &'static EntitySlot,
         &'static Personality,
         &'static Home,
         &'static Faction,
@@ -198,7 +198,7 @@ pub struct BottomPanelUiState<'w, 's> {
     ui_state: ResMut<'w, UiState>,
     mining_policy: ResMut<'w, MiningPolicy>,
     dirty_writers: crate::messages::DirtyWriters<'w>,
-    npc_entity_map: Res<'w, NpcEntityMap>,
+    npc_entity_map: Res<'w, EntityMap>,
     squad_state: ResMut<'w, SquadState>,
     commands: Commands<'w, 's>,
 }
@@ -249,15 +249,15 @@ pub fn bottom_panel_system(
     mut meta_cache: ResMut<NpcMetaCache>,
     mut bld_data: BuildingInspectorData,
     mut world_data: ResMut<WorldData>,
-    health_query: Query<(&NpcIndex, &Health, &CachedStats, &Energy), (Without<Dead>, Without<Building>)>,
+    health_query: Query<(&EntitySlot, &Health, &CachedStats, &Energy), (Without<Dead>, Without<Building>)>,
     equip_query: Query<(
-        &NpcIndex, Option<&EquippedWeapon>, Option<&EquippedHelmet>, Option<&EquippedArmor>,
+        &EntitySlot, Option<&EquippedWeapon>, Option<&EquippedHelmet>, Option<&EquippedArmor>,
         Option<&Starving>, Option<&SquadId>, Option<&CarriedGold>, &BaseAttackType, &Speed,
         Option<&DirectControl>,
     ), Without<Dead>>,
     npc_states: NpcStateQuery,
     gpu_state: Res<GpuReadState>,
-    buffer_writes: Res<NpcGpuState>,
+    buffer_writes: Res<EntityGpuState>,
     mut follow: ResMut<FollowSelected>,
     settings: Res<UserSettings>,
     catalog: Res<HelpCatalog>,
@@ -548,9 +548,9 @@ pub fn combat_log_system(
 /// DirectControl group summary — shown when DC units exist but no single NPC selected.
 fn dc_group_inspector(
     ui: &mut egui::Ui,
-    health_query: &Query<(&NpcIndex, &Health, &CachedStats, &Energy), (Without<Dead>, Without<Building>)>,
+    health_query: &Query<(&EntitySlot, &Health, &CachedStats, &Energy), (Without<Dead>, Without<Building>)>,
     equip_query: &Query<(
-        &NpcIndex, Option<&EquippedWeapon>, Option<&EquippedHelmet>, Option<&EquippedArmor>,
+        &EntitySlot, Option<&EquippedWeapon>, Option<&EquippedHelmet>, Option<&EquippedArmor>,
         Option<&Starving>, Option<&SquadId>, Option<&CarriedGold>, &BaseAttackType, &Speed,
         Option<&DirectControl>,
     ), Without<Dead>>,
@@ -603,15 +603,15 @@ fn inspector_content(
     rename_state: &mut InspectorRenameState,
     bld_data: &mut BuildingInspectorData,
     world_data: &mut WorldData,
-    health_query: &Query<(&NpcIndex, &Health, &CachedStats, &Energy), (Without<Dead>, Without<Building>)>,
+    health_query: &Query<(&EntitySlot, &Health, &CachedStats, &Energy), (Without<Dead>, Without<Building>)>,
     equip_query: &Query<(
-        &NpcIndex, Option<&EquippedWeapon>, Option<&EquippedHelmet>, Option<&EquippedArmor>,
+        &EntitySlot, Option<&EquippedWeapon>, Option<&EquippedHelmet>, Option<&EquippedArmor>,
         Option<&Starving>, Option<&SquadId>, Option<&CarriedGold>, &BaseAttackType, &Speed,
         Option<&DirectControl>,
     ), Without<Dead>>,
     npc_states: &NpcStateQuery,
     gpu_state: &GpuReadState,
-    buffer_writes: &NpcGpuState,
+    buffer_writes: &EntityGpuState,
     follow: &mut FollowSelected,
     settings: &UserSettings,
     catalog: &HelpCatalog,
@@ -620,7 +620,7 @@ fn inspector_content(
     mining_policy: &mut MiningPolicy,
     dirty_writers: &mut crate::messages::DirtyWriters,
     show_npc: bool,
-    npc_entity_map: &NpcEntityMap,
+    npc_entity_map: &EntityMap,
     squad_state: &mut SquadState,
     commands: &mut Commands,
     faction_select: &mut MessageWriter<crate::messages::SelectFactionMsg>,
@@ -1585,7 +1585,7 @@ pub fn selection_overlay_system(
     _world_data: Res<WorldData>,
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
     windows: Query<&Window>,
-    dc_query: Query<&NpcIndex, With<DirectControl>>,
+    dc_query: Query<&EntitySlot, With<DirectControl>>,
 ) -> Result {
     let dc_slots: Vec<usize> = dc_query.iter().map(|ni| ni.0).collect();
     let has_dc_sel = !dc_slots.is_empty();
@@ -1698,7 +1698,7 @@ pub fn target_overlay_system(
     mut contexts: EguiContexts,
     selected: Res<SelectedNpc>,
     gpu_state: Res<GpuReadState>,
-    buffer_writes: Res<NpcGpuState>,
+    buffer_writes: Res<EntityGpuState>,
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
     windows: Query<&Window>,
 ) -> Result {
@@ -1835,14 +1835,13 @@ pub fn squad_overlay_system(
 
     // Crosshair on DirectControl attack targets
     let positions = &gpu_state.positions;
-    let npc_count = positions.len() / 2;
     let xh_color = egui::Color32::from_rgba_unmultiplied(80, 220, 80, 200);
     // Collect unique target positions to avoid drawing multiple crosshairs on same spot
     let mut drawn_targets: Vec<egui::Pos2> = Vec::new();
     for mt in dc_targets.iter() {
         let world_pos = match mt {
             ManualTarget::Npc(slot) => {
-                if *slot >= npc_count { continue; }
+                if *slot * 2 + 1 >= positions.len() { continue; }
                 let px = positions[*slot * 2];
                 let py = positions[*slot * 2 + 1];
                 if px < -9000.0 { continue; }

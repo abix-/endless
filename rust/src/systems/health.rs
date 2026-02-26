@@ -6,7 +6,7 @@ use crate::components::*;
 use crate::constants::STARVING_HP_CAP;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, DirtyWriters};
 use crate::messages::CombatLogMsg;
-use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, BuildingSlots, GpuReadState, FactionStats, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SystemTimings, HealingZoneCache, BuildingEntityMap, BuildingHealState, EndlessMode, SquadState, FoodStorage, GoldStorage};
+use crate::resources::{EntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, EntitySlots, GpuReadState, FactionStats, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SystemTimings, HealingZoneCache, BuildingEntityMap, BuildingHealState, EndlessMode, SquadState, FoodStorage, GoldStorage};
 use crate::systems::stats::{CombatConfig, TownUpgrades, UPGRADES, level_from_xp, resolve_combat_stats};
 use crate::constants::{UpgradeStatKind, ItemKind, building_def, npc_def};
 use crate::systems::economy::*;
@@ -15,14 +15,13 @@ use crate::world::{WorldData, WorldGrid, TownGrids, BuildingOccupancy, BuildingK
 /// Bundled resources for death_system — merged from CleanupResources + WorldState + BuildingDeathExtra.
 #[derive(SystemParam)]
 pub struct DeathResources<'w> {
-    pub npc_map: ResMut<'w, NpcEntityMap>,
+    pub npc_map: ResMut<'w, EntityMap>,
     pub pop_stats: ResMut<'w, PopulationStats>,
     pub faction_stats: ResMut<'w, FactionStats>,
     pub debug: ResMut<'w, HealthDebug>,
     pub kill_stats: ResMut<'w, KillStats>,
     pub npcs_by_town: ResMut<'w, NpcsByTownCache>,
-    pub slots: ResMut<'w, SlotAllocator>,
-    pub building_alloc: ResMut<'w, BuildingSlots>,
+    pub slots: ResMut<'w, EntitySlots>,
     pub farm_occupancy: ResMut<'w, BuildingOccupancy>,
     pub dirty_writers: DirtyWriters<'w>,
     pub building_slots: ResMut<'w, BuildingEntityMap>,
@@ -34,58 +33,53 @@ pub struct DeathResources<'w> {
 }
 
 /// Unified damage system: applies damage to both NPCs and buildings.
-/// entity_idx < npc_count → NPC (via NpcEntityMap), >= npc_count → building (via BuildingEntityMap).
+/// entity_idx = unified slot (same as GPU index, no offset arithmetic).
 pub fn damage_system(
     mut commands: Commands,
     mut events: MessageReader<DamageMsg>,
-    npc_map: Res<NpcEntityMap>,
+    npc_map: Res<EntityMap>,
     bmap: Res<BuildingEntityMap>,
-    slots: Res<SlotAllocator>,
-    mut query: Query<(&mut Health, &NpcIndex)>,
+    mut query: Query<(&mut Health, &EntitySlot)>,
     mut debug: ResMut<HealthDebug>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut heal_state: ResMut<BuildingHealState>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("damage");
-    let npc_count = slots.count();
     let mut damage_count = 0;
     for event in events.read() {
         damage_count += 1;
+        let idx = event.entity_idx;
 
-        if event.entity_idx >= npc_count {
+        // Try building first (BuildingEntityMap), then NPC (EntityMap)
+        if let Some(entity) = bmap.get_entity(idx) {
             // Building damage
-            let bld_slot = event.entity_idx - npc_count;
-            let Some(inst) = bmap.get_instance(bld_slot) else { continue };
+            let Some(inst) = bmap.get_instance(idx) else { continue };
             if matches!(inst.kind, crate::world::BuildingKind::GoldMine | crate::world::BuildingKind::Road) { continue; }
-            let Some(entity) = bmap.get_entity(bld_slot) else { continue };
             let Ok((mut health, _npc_idx)) = query.get_mut(entity) else { continue };
             if health.0 <= 0.0 { continue; }
 
             health.0 = (health.0 - event.amount).max(0.0);
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::BldSetHealth { idx: bld_slot, health: health.0 }));
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::BldSetDamageFlash { idx: bld_slot, intensity: 1.0 }));
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: health.0 }));
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetDamageFlash { idx, intensity: 1.0 }));
 
             if health.0 > 0.0 {
                 heal_state.needs_healing = true;
             }
-            // Tag with attacker for death_system loot/combat log attribution
             if event.attacker >= 0 {
                 if let Ok(mut ec) = commands.get_entity(entity) {
                     ec.insert(LastHitBy(event.attacker));
                 }
             }
-        } else {
+        } else if let Some(&entity) = npc_map.0.get(&idx) {
             // NPC damage
-            if let Some(&entity) = npc_map.0.get(&event.entity_idx) {
-                if let Ok((mut health, npc_idx)) = query.get_mut(entity) {
-                    health.0 = (health.0 - event.amount).max(0.0);
-                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: npc_idx.0, health: health.0 }));
-                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetDamageFlash { idx: npc_idx.0, intensity: 1.0 }));
-                    if event.attacker >= 0 {
-                        if let Ok(mut ec) = commands.get_entity(entity) {
-                            ec.insert(LastHitBy(event.attacker));
-                        }
+            if let Ok((mut health, npc_idx)) = query.get_mut(entity) {
+                health.0 = (health.0 - event.amount).max(0.0);
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: npc_idx.0, health: health.0 }));
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetDamageFlash { idx: npc_idx.0, intensity: 1.0 }));
+                if event.attacker >= 0 {
+                    if let Ok(mut ec) = commands.get_entity(entity) {
+                        ec.insert(LastHitBy(event.attacker));
                     }
                 }
             }
@@ -100,15 +94,15 @@ pub fn damage_system(
     }
 }
 
-fn hide_npc(idx: usize, npc_map: &mut NpcEntityMap, slots: &mut SlotAllocator, gpu: &mut MessageWriter<GpuUpdateMsg>) {
+fn hide_npc(idx: usize, npc_map: &mut EntityMap, slots: &mut EntitySlots, gpu: &mut MessageWriter<GpuUpdateMsg>) {
     npc_map.0.remove(&idx);
-    gpu.write(GpuUpdateMsg(GpuUpdate::Hide { idx, is_building: false }));
+    gpu.write(GpuUpdateMsg(GpuUpdate::Hide { idx }));
     slots.free(idx);
 }
 
-fn hide_building(idx: usize, alloc: &mut BuildingSlots, gpu: &mut MessageWriter<GpuUpdateMsg>) {
-    gpu.write(GpuUpdateMsg(GpuUpdate::Hide { idx, is_building: true }));
-    gpu.write(GpuUpdateMsg(GpuUpdate::BldSetHealth { idx, health: 0.0 }));
+fn hide_building(idx: usize, alloc: &mut EntitySlots, gpu: &mut MessageWriter<GpuUpdateMsg>) {
+    gpu.write(GpuUpdateMsg(GpuUpdate::Hide { idx }));
+    gpu.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: 0.0 }));
     alloc.free(idx);
 }
 
@@ -119,13 +113,13 @@ pub fn death_system(
     mut commands: Commands,
     mut params: ParamSet<(
         // p0: mark-dead check (reads Health)
-        Query<(Entity, &Health, &NpcIndex), Without<Dead>>,
+        Query<(Entity, &Health, &EntitySlot), Without<Dead>>,
         // p1: killer/loot entity access (writes Health for level-up HP rescaling)
-        Query<(&NpcIndex, &Job, &TownId, &BaseAttackType, &Personality,
+        Query<(&EntitySlot, &Job, &TownId, &BaseAttackType, &Personality,
             &mut Health, &mut CachedStats, &mut Speed, &Faction, &mut Activity,
             &Home, &mut CombatState, Option<&DirectControl>), Without<Dead>>,
     )>,
-    dead_query: Query<(Entity, &NpcIndex, &Faction, &TownId,
+    dead_query: Query<(Entity, &EntitySlot, &Faction, &TownId,
         Option<&Job>, Option<&Activity>, Option<&AssignedFarm>,
         Option<&WorkPosition>, Option<&Building>, Option<&LastHitBy>), With<Dead>>,
     mut res: DeathResources,
@@ -261,7 +255,7 @@ pub fn death_system(
                 }
             }
             res.building_slots.remove_by_slot(idx);
-            hide_building(idx, &mut res.building_alloc, &mut gpu_updates);
+            hide_building(idx, &mut res.slots, &mut gpu_updates);
             continue;
         }
 
@@ -419,10 +413,10 @@ pub fn update_healing_zone_cache(
 /// Starving NPCs are capped at 50% HP.
 pub fn healing_system(
     mut commands: Commands,
-    mut query: Query<(Entity, &NpcIndex, &mut Health, &CachedStats, &Faction, &TownId, Option<&Healing>, Option<&Starving>), (Without<Dead>, Without<Building>)>,
-    mut building_query: Query<(&NpcIndex, &mut Health, &Faction, &Building), Without<Dead>>,
+    mut query: Query<(Entity, &EntitySlot, &mut Health, &CachedStats, &Faction, &TownId, Option<&Healing>, Option<&Starving>), (Without<Dead>, Without<Building>)>,
+    mut building_query: Query<(&EntitySlot, &mut Health, &Faction, &Building), Without<Dead>>,
     gpu_state: Res<GpuReadState>,
-    bld_gpu_state: Res<crate::gpu::BuildingGpuState>,
+    entity_gpu_state: Res<crate::gpu::EntityGpuState>,
     cache: Res<HealingZoneCache>,
     time: Res<Time>,
     game_time: Res<GameTime>,
@@ -506,7 +500,7 @@ pub fn healing_system(
 
     // Heal damaged buildings in same-faction fountain range (entity-driven).
     if heal_state.needs_healing {
-        let bld_positions = &bld_gpu_state.positions;
+        let bld_positions = &entity_gpu_state.positions;
         let mut any_damaged = false;
         for (npc_idx, mut health, faction, building) in building_query.iter_mut() {
             let max_hp = crate::constants::building_def(building.kind).hp;
@@ -529,7 +523,7 @@ pub fn healing_system(
             }
             if zone_heal_rate <= 0.0 { continue; }
             health.0 = (health.0 + zone_heal_rate * dt).min(max_hp);
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::BldSetHealth { idx, health: health.0 }));
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: health.0 }));
         }
         if !any_damaged { heal_state.needs_healing = false; }
     }

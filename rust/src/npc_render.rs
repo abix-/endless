@@ -42,9 +42,8 @@ use bevy::{
 };
 use bytemuck::{Pod, Zeroable};
 
-use crate::constants::{MAX_NPC_COUNT, ENTITY_FLAG_BUILDING, ENTITY_FLAG_COMBAT};
-use crate::gpu::{NpcGpuState, BuildingGpuState, EntityGpuBuffers, NpcVisualUpload, ProjBufferWrites, ProjGpuBuffers, RenderFrameConfig};
-use crate::resources::BuildingSlots;
+use crate::constants::MAX_NPC_COUNT;
+use crate::gpu::{EntityGpuState, EntityGpuBuffers, NpcVisualUpload, ProjBufferWrites, ProjGpuBuffers, RenderFrameConfig};
 use crate::render::{CameraState, MainCamera};
 
 // =============================================================================
@@ -192,12 +191,12 @@ pub struct NpcTextureBindGroup {
 }
 
 /// Camera uniform data uploaded to GPU each frame.
-/// Field order matches WGSL Camera struct layout (npc_count fills alignment padding).
+/// Field order matches WGSL Camera struct layout (entity_count fills alignment padding).
 #[derive(Clone, ShaderType)]
 pub struct CameraUniform {
     pub camera_pos: Vec2,
     pub zoom: f32,
-    pub npc_count: u32,
+    pub entity_count: u32,
     pub viewport: Vec2,
     pub bldg_layers: f32,
     pub extras_cols: f32,
@@ -236,8 +235,8 @@ impl<P: PhaseItem, const BODY_ONLY: bool> RenderCommand<P> for DrawStoragePass<B
         let (npc_buffers, visual_buffers, config) = params;
         let npc_buffers = npc_buffers.into_inner();
         let visual_buffers = visual_buffers.into_inner();
-        let npc_count = config.into_inner().npc.count;
-        if npc_count == 0 { return RenderCommandResult::Skip; }
+        let entity_count = config.into_inner().npc.count;
+        if entity_count == 0 { return RenderCommandResult::Skip; }
 
         let Some(ref bind_group) = visual_buffers.bind_group else {
             return RenderCommandResult::Skip;
@@ -248,10 +247,10 @@ impl<P: PhaseItem, const BODY_ONLY: bool> RenderCommand<P> for DrawStoragePass<B
         pass.set_index_buffer(npc_buffers.index_buffer.slice(..), IndexFormat::Uint16);
 
         if BODY_ONLY {
-            pass.draw_indexed(0..6, 0, 0..npc_count);
+            pass.draw_indexed(0..6, 0, 0..entity_count);
         } else {
             for layer in 1..LAYER_COUNT as u32 {
-                pass.draw_indexed(0..6, 0, (layer * npc_count)..((layer + 1) * npc_count));
+                pass.draw_indexed(0..6, 0, (layer * entity_count)..((layer + 1) * entity_count));
             }
         }
 
@@ -548,29 +547,29 @@ fn extract_camera_state(
 // OVERLAY INSTANCES (main world → render world, zero-clone)
 // =============================================================================
 
-/// Build building body instances from BuildingGpuState for instance-buffer rendering.
+/// Build building body instances from EntityGpuState for instance-buffer rendering.
 /// Buildings are few (<500), so rebuilding each frame is cheap.
 fn build_building_body_instances(
-    bld_state: Res<crate::gpu::BuildingGpuState>,
-    bld_slots: Res<crate::resources::BuildingSlots>,
+    gpu_state: Res<crate::gpu::EntityGpuState>,
+    bld_map: Res<crate::resources::BuildingEntityMap>,
     mut instances: ResMut<BuildingBodyInstances>,
 ) {
     instances.0.clear();
-    let count = bld_slots.count();
-    for idx in 0..count {
+    for inst in bld_map.iter_instances() {
+        let idx = inst.slot;
         let i2 = idx * 2;
-        let x = bld_state.positions.get(i2).copied().unwrap_or(-9999.0);
-        let y = bld_state.positions.get(i2 + 1).copied().unwrap_or(-9999.0);
+        let x = gpu_state.positions.get(i2).copied().unwrap_or(-9999.0);
+        let y = gpu_state.positions.get(i2 + 1).copied().unwrap_or(-9999.0);
         if x < -9000.0 { continue; } // hidden/dead
 
-        let col = bld_state.sprite_indices.get(idx * 4).copied().unwrap_or(-1.0);
+        let col = gpu_state.sprite_indices.get(idx * 4).copied().unwrap_or(-1.0);
         if col < 0.0 { continue; } // no sprite assigned
 
-        let row = bld_state.sprite_indices.get(idx * 4 + 1).copied().unwrap_or(0.0);
-        let atlas = bld_state.sprite_indices.get(idx * 4 + 2).copied().unwrap_or(1.0);
-        let flash = bld_state.flash_values.get(idx).copied().unwrap_or(0.0);
-        let faction = bld_state.factions.get(idx).copied().unwrap_or(0);
-        let health = bld_state.healths.get(idx).copied().unwrap_or(0.0);
+        let row = gpu_state.sprite_indices.get(idx * 4 + 1).copied().unwrap_or(0.0);
+        let atlas = gpu_state.sprite_indices.get(idx * 4 + 2).copied().unwrap_or(1.0);
+        let flash = gpu_state.flash_values.get(idx).copied().unwrap_or(0.0);
+        let faction = gpu_state.factions.get(idx).copied().unwrap_or(0);
+        let health = gpu_state.healths.get(idx).copied().unwrap_or(0.0);
 
         let (r, g, b, a) = if faction == 0 {
             (1.0, 1.0, 1.0, 1.0)
@@ -744,9 +743,7 @@ fn write_dirty_i32(queue: &RenderQueue, buf: &Buffer, data: &[i32], indices: &[u
 
 /// Zero-clone NPC extract: reads main world via Extract<Res<T>>, writes directly to GPU.
 fn extract_npc_data(
-    gpu_state: Extract<Res<NpcGpuState>>,
-    bld_state: Extract<Res<BuildingGpuState>>,
-    bld_slots: Extract<Res<BuildingSlots>>,
+    gpu_state: Extract<Res<EntityGpuState>>,
     config: Extract<Res<RenderFrameConfig>>,
     visual_upload: Extract<Res<NpcVisualUpload>>,
     gpu_buffers: Option<Res<EntityGpuBuffers>>,
@@ -769,49 +766,16 @@ fn extract_npc_data(
         if gpu_state.dirty_speeds    { write_bulk(&render_queue, &gpu_bufs.speeds, &gpu_state.speeds, n); }
         if gpu_state.dirty_factions  { write_bulk(&render_queue, &gpu_bufs.factions, &gpu_state.factions, n); }
         if gpu_state.dirty_healths   { write_bulk(&render_queue, &gpu_bufs.healths, &gpu_state.healths, n); }
-        if gpu_state.dirty_flags     { write_bulk(&render_queue, &gpu_bufs.entity_flags, &gpu_state.npc_flags, n); }
+        if gpu_state.dirty_flags     { write_bulk(&render_queue, &gpu_bufs.entity_flags, &gpu_state.entity_flags, n); }
         // Road flags: upload when present (rebuilt when roads change)
         if !config.tile_flags.is_empty() {
             render_queue.write_buffer(&gpu_bufs.tile_flags, 0, bytemuck::cast_slice(&config.tile_flags));
-        }
-
-        // --- Append building data at offset npc_count into entity buffers ---
-        let bc = bld_slots.count();
-        let bld = &*bld_state;
-        if bld.dirty_positions {
-            for &idx in &bld.position_dirty_indices {
-                if idx * 2 + 1 < bld.positions.len() {
-                    let dst_byte = ((n + idx) * 2 * 4) as u64;
-                    render_queue.write_buffer(&gpu_bufs.positions, dst_byte,
-                        bytemuck::cast_slice(&bld.positions[idx * 2..idx * 2 + 2]));
-                }
-            }
-        }
-        if bld.dirty_factions && bc > 0 {
-            render_queue.write_buffer(&gpu_bufs.factions, (n * 4) as u64,
-                bytemuck::cast_slice(&bld.factions[..bc]));
-        }
-        if bld.dirty_healths && bc > 0 {
-            render_queue.write_buffer(&gpu_bufs.healths, (n * 4) as u64,
-                bytemuck::cast_slice(&bld.healths[..bc]));
-        }
-        // Map building flags to entity_flags: all buildings get ENTITY_FLAG_BUILDING,
-        // towers (flag bit 0 set in building flags) also get ENTITY_FLAG_COMBAT
-        if (bld.dirty_flags || bld.dirty_positions) && bc > 0 {
-            let bld_entity_flags: Vec<u32> = bld.flags[..bc].iter()
-                .map(|&f| {
-                    let mut ef = ENTITY_FLAG_BUILDING;
-                    if f & 1 != 0 { ef |= ENTITY_FLAG_COMBAT; }
-                    ef
-                }).collect();
-            render_queue.write_buffer(&gpu_bufs.entity_flags, (n * 4) as u64,
-                bytemuck::cast_slice(&bld_entity_flags));
         }
     }
 
     // Visual data: bulk write_buffer
     if let Some(vis_bufs) = visual_buffers {
-        if visual_upload.npc_count > 0 {
+        if visual_upload.entity_count > 0 {
             render_queue.write_buffer(&vis_bufs.visual, 0, bytemuck::cast_slice(&visual_upload.visual_data));
             render_queue.write_buffer(&vis_bufs.equip, 0, bytemuck::cast_slice(&visual_upload.equip_data));
         }
@@ -1092,7 +1056,7 @@ fn prepare_npc_camera_bind_group(
     let uniform = CameraUniform {
         camera_pos: camera_state.position,
         zoom: camera_state.zoom,
-        npc_count: config.map(|c| c.npc.count).unwrap_or(0),
+        entity_count: config.map(|c| c.npc.count).unwrap_or(0),
         viewport: camera_state.viewport,
         bldg_layers: (crate::constants::BUILDING_REGISTRY.len() + crate::constants::WALL_EXTRA_LAYERS) as f32,
         extras_cols: 4.0,

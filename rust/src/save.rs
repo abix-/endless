@@ -717,7 +717,7 @@ pub fn apply_save(
     migration_state: &mut MigrationState,
     endless: &mut EndlessMode,
     npcs_by_town: &mut NpcsByTownCache,
-    slots: &mut SlotAllocator,
+    slots: &mut EntitySlots,
 ) {
     info!("Applying save version {}", save.version);
 
@@ -924,23 +924,23 @@ pub struct SaveToast {
 
 // Core query: 12 elements (under 16)
 type NpcCoreQuery = (
-    &'static NpcIndex, &'static Position, &'static Job, &'static Faction, &'static TownId,
+    &'static EntitySlot, &'static Position, &'static Job, &'static Faction, &'static TownId,
     &'static Health, &'static Activity, &'static CombatState, &'static Personality,
     &'static BaseAttackType, &'static Home, Option<&'static Energy>,
 );
 
 // Extras query: 7 elements
 type NpcExtrasQuery = (
-    &'static NpcIndex,
+    &'static EntitySlot,
     Option<&'static WorkPosition>, Option<&'static SquadId>, Option<&'static CarriedGold>,
     Option<&'static EquippedWeapon>, Option<&'static EquippedHelmet>, Option<&'static EquippedArmor>,
 );
 
-/// Collect NPC save data from two ECS queries (core + extras) joined by NpcEntityMap.
+/// Collect NPC save data from two ECS queries (core + extras) joined by EntityMap.
 pub fn collect_npc_data(
     core_query: &Query<NpcCoreQuery, Without<Dead>>,
     extras_query: &Query<NpcExtrasQuery, Without<Dead>>,
-    npc_map: &NpcEntityMap,
+    npc_map: &EntityMap,
     npc_meta: &NpcMetaCache,
 ) -> Vec<NpcSaveData> {
     let mut npcs = Vec::new();
@@ -1030,19 +1030,18 @@ pub struct SaveFactionState<'w> {
 /// NPC tracking resources for load.
 #[derive(SystemParam)]
 pub struct LoadNpcTracking<'w> {
-    pub npc_map: ResMut<'w, NpcEntityMap>,
+    pub npc_map: ResMut<'w, EntityMap>,
     pub pop_stats: ResMut<'w, PopulationStats>,
     pub npc_meta: ResMut<'w, NpcMetaCache>,
     pub npcs_by_town: ResMut<'w, NpcsByTownCache>,
-    pub slots: ResMut<'w, SlotAllocator>,
-    pub building_alloc: ResMut<'w, crate::resources::BuildingSlots>,
+    pub slots: ResMut<'w, EntitySlots>,
     pub combat_log: ResMut<'w, CombatLog>,
     pub gpu_state: ResMut<'w, GpuReadState>,
     pub dirty_writers: crate::messages::DirtyWriters<'w>,
     pub tilemap_spawned: ResMut<'w, crate::render::TilemapSpawned>,
     pub building_hp_render: ResMut<'w, BuildingHpRender>,
     pub healing_cache: ResMut<'w, HealingZoneCache>,
-    pub bld_gpu_state: ResMut<'w, crate::gpu::BuildingGpuState>,
+    pub npc_gpu_state: ResMut<'w, crate::gpu::EntityGpuState>,
 }
 
 // ============================================================================
@@ -1052,7 +1051,7 @@ pub struct LoadNpcTracking<'w> {
 /// Build building HP hashmap from entity queries for save format.
 /// Produces the same JSON as the old BuildingHpState serde.
 fn collect_building_hp(
-    building_query: &Query<(&Building, &NpcIndex, &Health), Without<Dead>>,
+    building_query: &Query<(&Building, &EntitySlot, &Health), Without<Dead>>,
     building_slots: &BuildingEntityMap,
 ) -> std::collections::HashMap<String, Vec<f32>> {
     use std::collections::HashMap;
@@ -1102,7 +1101,7 @@ pub fn convert_building_hp_to_slots(
 /// Handles backward compat: deserializes PlacedBuilding vecs, skips tombstoned (is_alive check).
 pub fn load_building_instances_from_save(
     save: &SaveData,
-    slot_alloc: &mut crate::resources::BuildingSlots,
+    slot_alloc: &mut crate::resources::EntitySlots,
     building_map: &mut BuildingEntityMap,
     world_data: &WorldData,
     world_size_px: f32,
@@ -1218,11 +1217,11 @@ pub fn save_game_system(
     mut toast: ResMut<SaveToast>,
     ws: SaveWorldState,
     fs: SaveFactionState,
-    npc_map: Res<NpcEntityMap>,
+    npc_map: Res<EntityMap>,
     npc_meta: Res<NpcMetaCache>,
     core_query: Query<NpcCoreQuery, Without<Dead>>,
     extras_query: Query<NpcExtrasQuery, Without<Dead>>,
-    building_query: Query<(&Building, &NpcIndex, &Health), Without<Dead>>,
+    building_query: Query<(&Building, &EntitySlot, &Health), Without<Dead>>,
 ) {
     if save_msgs.read().next().is_none() { return; }
 
@@ -1255,11 +1254,11 @@ pub fn autosave_system(
     mut toast: ResMut<SaveToast>,
     ws: SaveWorldState,
     fs: SaveFactionState,
-    npc_map: Res<NpcEntityMap>,
+    npc_map: Res<EntityMap>,
     npc_meta: Res<NpcMetaCache>,
     core_query: Query<NpcCoreQuery, Without<Dead>>,
     extras_query: Query<NpcExtrasQuery, Without<Dead>>,
-    building_query: Query<(&Building, &NpcIndex, &Health), Without<Dead>>,
+    building_query: Query<(&Building, &EntitySlot, &Health), Without<Dead>>,
 ) {
     if request.autosave_hours <= 0 || !ws.game_time.hour_ticked { return; }
 
@@ -1299,7 +1298,7 @@ pub fn autosave_system(
 pub fn spawn_npcs_from_save(
     save: &SaveData,
     commands: &mut Commands,
-    npc_map: &mut NpcEntityMap,
+    npc_map: &mut EntityMap,
     pop_stats: &mut PopulationStats,
     npc_meta: &mut NpcMetaCache,
     npcs_by_town: &mut NpcsByTownCache,
@@ -1357,8 +1356,7 @@ pub fn restore_world_from_save(
     *tracking.combat_log = Default::default();
     *tracking.gpu_state = Default::default();
     *tracking.building_hp_render = Default::default();
-    *tracking.building_alloc = Default::default();
-    *tracking.bld_gpu_state = Default::default();
+    *tracking.npc_gpu_state = Default::default();
     tracking.dirty_writers.emit_all();
     tracking.tilemap_spawned.0 = false;
 
@@ -1389,7 +1387,7 @@ pub fn restore_world_from_save(
     let world_size_px = ws.grid.width as f32 * ws.grid.cell_size;
     load_building_instances_from_save(
         save,
-        &mut tracking.building_alloc,
+        &mut tracking.slots,
         &mut ws.building_slots,
         &ws.world_data,
         world_size_px,
@@ -1435,7 +1433,7 @@ pub fn load_game_system(
     mut tracking: LoadNpcTracking,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     combat_config: Res<CombatConfig>,
-    npc_query: Query<Entity, With<NpcIndex>>,
+    npc_query: Query<Entity, With<EntitySlot>>,
     marker_query: Query<Entity, With<FarmReadyMarker>>,
 ) {
     if load_msgs.read().next().is_none() { return; }

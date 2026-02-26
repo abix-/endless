@@ -29,7 +29,7 @@ Each piece of NPC data has exactly one authoritative owner. Readers on the other
 | Factions | CPU | CPU → GPU | Set at spawn, never changes (0=Villager, 1+=Raider towns) |
 | Speeds | CPU | CPU → GPU | Set at spawn, modified by starvation_system |
 | **CPU-Only** (never sent to GPU) ||||
-| NpcIndex | CPU | Internal | Links Bevy entity to GPU slot index |
+| EntitySlot | CPU | Internal | Links Bevy entity to GPU slot index (unified namespace for NPCs + buildings) |
 | Job | CPU | Internal | Archer, Farmer, Raider, Fighter, Miner — determines behavior |
 | Energy | CPU | Internal | Drives tired/rest decisions (drain/recover rates) |
 | State markers | CPU | Internal | Dead, InCombat, Patrolling, OnDuty, Resting, Raiding, etc. |
@@ -40,7 +40,7 @@ Each piece of NPC data has exactly one authoritative owner. Readers on the other
 | Home | CPU | Internal | Rest location (spawner building) |
 | WorkPosition | CPU | Internal | Farm location for farmers |
 | **Render-Only** (uploaded to NPC visual/equip storage buffers, never in compute shader) ||||
-| Sprite indices | NpcGpuState | CPU → NpcVisualUpload → NpcVisualBuffers | Atlas col/row per NPC; packed into visual storage buffer [f32;8] by build_visual_upload |
+| Sprite indices | EntityGpuState | CPU → NpcVisualUpload → NpcVisualBuffers | Atlas col/row per NPC; packed into visual storage buffer [f32;8] by build_visual_upload |
 | Colors | ECS → NpcVisualUpload | CPU → NpcVisualBuffers | RGBA tint from Faction/Job; packed into visual storage buffer [f32;8] by build_visual_upload |
 | Equipment sprites | ECS → NpcVisualUpload | CPU → NpcVisualBuffers | Per-layer col/row (armor/helmet/weapon/item/status/healing); -1.0 sentinel = unequipped/inactive. Derived by `build_visual_upload` from ECS components each frame. |
 
@@ -96,11 +96,11 @@ Startup/load paths are centralized to prevent drift:
 
 ## GPU Update Messages
 
-`GpuUpdateMsg`: systems emit via `MessageWriter<GpuUpdateMsg>`. `populate_gpu_state` (PostUpdate) reads messages directly and routes updates: NPC variants go to `NpcGpuState` flat arrays with per-buffer dirty flags (7 bools: `dirty_positions`, `dirty_targets`, `dirty_speeds`, `dirty_factions`, `dirty_healths`, `dirty_arrivals`, `dirty_flags`); `Bld*` variants go to `BuildingGpuState` (positions, factions, healths, sprite_indices, flash_values, flags + dirty tracking). GPU-authoritative buffers (positions/arrivals) also track per-index dirty lists for sparse writes.
+`GpuUpdateMsg`: systems emit via `MessageWriter<GpuUpdateMsg>`. `populate_gpu_state` (PostUpdate) reads messages directly and applies updates to `EntityGpuState` flat arrays with per-buffer dirty flags (7 bools: `dirty_positions`, `dirty_targets`, `dirty_speeds`, `dirty_factions`, `dirty_healths`, `dirty_arrivals`, `dirty_flags`). All entity types (NPCs and buildings) share the same state — no `Bld*` routing. GPU-authoritative buffers (positions/arrivals) also track per-index dirty lists for sparse writes.
 
 `ProjGpuUpdateMsg`: systems emit via `MessageWriter<ProjGpuUpdateMsg>` (attack/tower/hit processing). `populate_proj_buffer_writes` (PostUpdate) reads these messages directly and applies updates to `ProjBufferWrites` (spawn/deactivate dirty index sets). No static projectile queue remains.
 
-`build_visual_upload` (chained after `populate_gpu_state`) packs ECS visual data into `NpcVisualUpload`. Both `NpcGpuState` and `NpcVisualUpload` are read by `extract_npc_data` during Extract via `Extract<Res<T>>` (zero-clone) and written directly to GPU buffers.
+`build_visual_upload` (chained after `populate_gpu_state`) packs ECS visual data into `NpcVisualUpload`. Both `EntityGpuState` and `NpcVisualUpload` are read by `extract_npc_data` during Extract via `Extract<Res<T>>` (zero-clone) and written directly to GPU buffers.
 
 | Variant | Fields | Producer Systems |
 |---------|--------|------------------|
@@ -113,16 +113,10 @@ Startup/load paths are centralized to prevent drift:
 | HideNpc | idx | death_system |
 | SetSpriteFrame | idx, col, row, atlas | spawn_npc_system (atlas: 0.0=character, 1.0=world) |
 | SetDamageFlash | idx, intensity | damage_system (1.0 on hit, decays at 5.0/s in populate_gpu_state) |
-| SetFlags | idx, flags | spawn_npc_system, building slot allocation (bit 0: combat scan enabled) |
-| BldSetPosition | idx, x, y | place_building_instance (building GPU state) |
-| BldSetFaction | idx, faction | place_building_instance |
-| BldSetHealth | idx, health | place_building_instance, damage_system, healing_system |
-| BldSetSpriteFrame | idx, col, row, atlas | place_building_instance |
-| BldSetFlags | idx, flags | place_building_instance |
-| BldSetDamageFlash | idx, intensity | damage_system (1.0 on hit, decays at 5.0/s in populate_gpu_state) |
-| BldHide | idx | death_system (building branch) |
+| SetFlags | idx, flags | spawn_npc_system, building slot allocation (bit 0: combat scan enabled, bit 1: building) |
+| Hide | idx | death_system (NPC and building branches) |
 
-`Bld*` variants are routed to `BuildingGpuState` by `populate_gpu_state`. NPC variants are routed to `NpcGpuState`.
+All variants are routed to `EntityGpuState` by `populate_gpu_state`. NPCs and buildings share the same unified slot namespace — building placement uses SetPosition/SetFaction/SetHealth/SetSpriteFrame/SetFlags with the building's unified slot.
 
 Visual state is derived from ECS components each frame by `build_visual_upload` (see [gpu-compute.md](gpu-compute.md)); visual updates flow through upload packing instead of per-field visual message variants.
 
@@ -136,11 +130,11 @@ GPU readback data is written directly to Bevy resources by `ReadbackComplete` ob
 
 ## GPU Read State
 
-`GpuReadState` (Bevy Resource, main-world only — no Clone, no extraction) holds GPU output for gameplay systems. Populated asynchronously by `ReadbackComplete` observers when Bevy's Readback system completes the GPU→CPU transfer. Not extracted to render world — nothing in render world reads it. `npc_count` set by `SlotAllocator.count()` (not from readback — buffer is MAX-sized).
+`GpuReadState` (Bevy Resource, main-world only — no Clone, no extraction) holds GPU output for gameplay systems. Populated asynchronously by `ReadbackComplete` observers when Bevy's Readback system completes the GPU→CPU transfer. Not extracted to render world — nothing in render world reads it. `entity_count` set by `EntitySlots.count()` (not from readback — buffer is MAX-sized).
 
 | Field | Type | Source | Consumers |
 |-------|------|--------|-----------|
-| npc_count | usize | SlotAllocator.count() | gpu_position_readback |
+| entity_count | usize | EntitySlots.count() | gpu_position_readback |
 | positions | Vec\<f32\> | ReadbackComplete (npc_positions buffer) | attack_system, healing_system, click_to_select_system |
 | combat_targets | Vec\<i32\> | ReadbackComplete (combat_targets buffer) | attack_system (target selection) |
 | health | Vec\<f32\> | ReadbackComplete (npc_health buffer) | (available for queries) |
@@ -149,11 +143,9 @@ GPU readback data is written directly to Bevy resources by `ReadbackComplete` ob
 
 ## Slot Management
 
-All three allocators share a `SlotPool` inner type (LIFO free list, high-water mark tracking) with type-safe Bevy Resource wrappers:
+Two allocators share a `SlotPool` inner type (LIFO free list, high-water mark tracking) with type-safe Bevy Resource wrappers:
 
-`SlotAllocator` (NPC slots, max=100K) wraps `SlotPool`. Allocated in `spawn_npc_system`, recycled in `death_system`.
-
-`BuildingSlots` (building slots, max=5K) wraps `SlotPool`. Allocated in `place_building_instance`, recycled in `death_system` (building branch). Separate from NPC slots to prevent slot collisions.
+`EntitySlots` (NPC + building slots, max=MAX_ENTITIES=200K) wraps `SlotPool`. NPCs and buildings share one namespace — each entity's slot IS its GPU buffer index. Allocated in `spawn_npc_system` (NPCs) and `place_building_instance` (buildings), recycled in `death_system` (both branches).
 
 `ProjSlotAllocator` (projectile slots, max=50K) manages projectile slot indices. Allocated in `attack_system`, recycled in `process_proj_hits`.
 

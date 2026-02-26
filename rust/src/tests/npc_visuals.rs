@@ -9,7 +9,7 @@ use crate::components::*;
 use crate::constants::*;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::render::MainCamera;
-use crate::resources::NpcEntityMap;
+use crate::resources::EntityMap;
 
 use super::{TestState, TestSetupParams};
 
@@ -74,7 +74,7 @@ pub fn setup(mut params: TestSetupParams) {
 
 pub fn tick(
     mut commands: Commands,
-    npc_map: Res<NpcEntityMap>,
+    npc_map: Res<EntityMap>,
     mut test: ResMut<TestState>,
     time: Res<Time>,
     mut modified: Local<bool>,

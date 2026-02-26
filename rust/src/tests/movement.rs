@@ -28,11 +28,11 @@ pub fn setup(mut params: TestSetupParams) {
 }
 
 pub fn tick(
-    activity_query: Query<&Activity, (With<NpcIndex>, Without<Dead>)>,
-    at_dest_query: Query<(), (With<AtDestination>, With<NpcIndex>, Without<Dead>)>,
+    activity_query: Query<&Activity, (With<EntitySlot>, Without<Dead>)>,
+    at_dest_query: Query<(), (With<AtDestination>, With<EntitySlot>, Without<Dead>)>,
     mut energy_query: Query<&mut Energy, (With<Farmer>, Without<Dead>)>,
     gpu_state: Res<GpuReadState>,
-    slots: Res<SlotAllocator>,
+    slots: Res<EntitySlots>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {

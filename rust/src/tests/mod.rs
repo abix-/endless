@@ -31,7 +31,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use std::collections::HashMap;
 
-use crate::components::{NpcIndex, FarmReadyMarker};
+use crate::components::{EntitySlot, FarmReadyMarker};
 use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
 use crate::world;
@@ -42,16 +42,15 @@ use crate::world;
 
 #[derive(SystemParam)]
 pub struct CleanupCore<'w> {
-    pub slot_alloc: ResMut<'w, crate::resources::SlotAllocator>,
-    pub building_alloc: ResMut<'w, crate::resources::BuildingSlots>,
+    pub slot_alloc: ResMut<'w, crate::resources::EntitySlots>,
     pub world_data: ResMut<'w, crate::world::WorldData>,
     pub food_storage: ResMut<'w, crate::resources::FoodStorage>,
     pub faction_stats: ResMut<'w, crate::resources::FactionStats>,
     pub gpu_state: ResMut<'w, crate::resources::GpuReadState>,
     pub game_time: ResMut<'w, crate::resources::GameTime>,
     pub building_map: ResMut<'w, crate::resources::BuildingEntityMap>,
-    pub npc_map: ResMut<'w, crate::resources::NpcEntityMap>,
-    pub bld_gpu_state: ResMut<'w, crate::gpu::BuildingGpuState>,
+    pub npc_map: ResMut<'w, crate::resources::EntityMap>,
+    pub npc_gpu_state: ResMut<'w, crate::gpu::EntityGpuState>,
 }
 
 #[derive(SystemParam)]
@@ -86,8 +85,7 @@ pub struct CleanupEndless<'w> {
 
 #[derive(SystemParam)]
 pub struct TestSetupParams<'w> {
-    pub slot_alloc: ResMut<'w, SlotAllocator>,
-    pub building_alloc: ResMut<'w, BuildingSlots>,
+    pub slot_alloc: ResMut<'w, EntitySlots>,
     pub spawn_events: MessageWriter<'w, SpawnNpcMsg>,
     pub world_data: ResMut<'w, world::WorldData>,
     pub building_slots: ResMut<'w, BuildingEntityMap>,
@@ -101,7 +99,6 @@ pub struct TestSetupParams<'w> {
 /// Shared test setup params bundle — stays under 16-param limit.
 #[derive(SystemParam)]
 pub struct BuildingInitParams<'w> {
-    pub building_alloc: ResMut<'w, BuildingSlots>,
     pub building_slots: ResMut<'w, BuildingEntityMap>,
 }
 
@@ -131,13 +128,13 @@ impl TestSetupParams<'_> {
     /// Add a building instance at the given position for a town.
     pub fn add_building(&mut self, kind: world::BuildingKind, x: f32, y: f32, town_idx: u32) {
         let faction = self.world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
-        world::place_building_instance(&mut self.building_alloc, &mut self.building_slots, kind, Vec2::new(x, y), town_idx, faction, 0, 0);
+        world::place_building_instance(&mut self.slot_alloc, &mut self.building_slots, kind, Vec2::new(x, y), town_idx, faction, 0, 0);
     }
 
     /// Add a waypoint with patrol_order at the given position for a town.
     pub fn add_waypoint(&mut self, x: f32, y: f32, town_idx: u32, patrol_order: u32) {
         let faction = self.world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
-        world::place_building_instance(&mut self.building_alloc, &mut self.building_slots, world::BuildingKind::Waypoint, Vec2::new(x, y), town_idx, faction, patrol_order, 0);
+        world::place_building_instance(&mut self.slot_alloc, &mut self.building_slots, world::BuildingKind::Waypoint, Vec2::new(x, y), town_idx, faction, patrol_order, 0);
     }
 
     /// Init food_storage + faction_stats for N towns.
@@ -957,7 +954,7 @@ pub fn auto_start_next_test(
 /// Despawn all NPC entities and reset resources when leaving a test.
 fn cleanup_test_world(
     mut commands: Commands,
-    entity_query: Query<Entity, Or<(With<NpcIndex>, With<FarmReadyMarker>)>>,
+    entity_query: Query<Entity, Or<(With<EntitySlot>, With<FarmReadyMarker>)>>,
     tilemap_query: Query<Entity, With<crate::render::TerrainChunk>>,
     mut core: CleanupCore,
     mut extra: CleanupExtra,
@@ -973,10 +970,9 @@ fn cleanup_test_world(
     }
 
     *core.slot_alloc = Default::default();
-    *core.building_alloc = Default::default();
     core.building_map.clear();
     core.npc_map.0.clear();
-    *core.bld_gpu_state = Default::default();
+    *core.npc_gpu_state = Default::default();
     *core.world_data = Default::default();
     *core.food_storage = Default::default();
     *core.faction_stats = Default::default();

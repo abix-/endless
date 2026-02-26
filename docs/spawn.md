@@ -2,7 +2,7 @@
 
 ## Overview
 
-NPCs are created through `SpawnNpcMsg` messages processed by `spawn_npc_system`. Slot allocation uses Bevy's `SlotAllocator` resource, which reuses dead NPC indices before allocating new ones. Job determines the component template at spawn time. All GPU writes go through `GpuUpdateMsg` messages — see [messages.md](messages.md).
+NPCs are created through `SpawnNpcMsg` messages processed by `spawn_npc_system`. Slot allocation uses Bevy's `EntitySlots` resource (unified for NPCs + buildings), which reuses dead entity indices before allocating new ones. Job determines the component template at spawn time. All GPU writes go through `GpuUpdateMsg` messages — see [messages.md](messages.md).
 
 The core spawn logic lives in `materialize_npc()` — a shared helper used by both fresh spawns and save-load. This ensures a single source of truth for entity creation, GPU init, and tracking cache registration.
 
@@ -34,7 +34,7 @@ Fresh spawns pass `NpcSpawnOverrides::default()` (all None — uses generated va
 
 ## Slot Allocation
 
-Both `SlotAllocator` (NPCs, max=100K) and `BuildingSlots` (buildings, max=5K) wrap a shared `SlotPool` inner type (defined in `resources.rs`):
+`EntitySlots` (NPCs + buildings, max=MAX_ENTITIES=200K) wraps a `SlotPool` inner type (defined in `resources.rs`):
 
 ```rust
 pub struct SlotPool {
@@ -44,12 +44,13 @@ pub struct SlotPool {
 }
 ```
 
-`alloc()` pops from the free list first, falls back to incrementing `next` (capped at `max`). `free()` pushes onto the free list. LIFO reuse — most recently freed slot is allocated first. `SlotAllocator` and `BuildingSlots` both implement `Deref`/`DerefMut` to `SlotPool`.
+`alloc()` pops from the free list first, falls back to incrementing `next` (capped at `max`). `free()` pushes onto the free list. LIFO reuse — most recently freed slot is allocated first. `EntitySlots` implements `Deref`/`DerefMut` to `SlotPool`.
 
 NPC slots: allocated in `spawn_npc_system`, recycled in `death_system`.
 Building slots: allocated in `place_building_instance`, recycled in `death_system` (building branch).
+Both share the same `EntitySlots` — each entity's slot IS its GPU buffer index (no offset arithmetic).
 
-GPU dispatch count comes from `SlotAllocator.count()` (the high-water mark `next`). Dead NPC slots within this range are hidden via sentinel position (-9999) and culled by the renderer.
+GPU dispatch count comes from `EntitySlots.count()` (the high-water mark `next`). Dead entity slots within this range are hidden via sentinel position (-9999) and culled by the renderer.
 
 ## Spawn Parameters
 
@@ -57,7 +58,7 @@ GPU dispatch count comes from `SlotAllocator.count()` (the high-water mark `next
 
 | Field | Type | Notes |
 |-------|------|-------|
-| slot_idx | usize | Pre-allocated via SlotAllocator |
+| slot_idx | usize | Pre-allocated via EntitySlots |
 | x, y | f32 | Spawn position |
 | job | i32 | 0=Farmer, 1=Archer, 2=Raider, 3=Fighter, 4=Miner, 5=Crossbow |
 | faction | i32 | 0=Player, 1+=AI settlements |
@@ -69,7 +70,7 @@ GPU dispatch count comes from `SlotAllocator.count()` (the high-water mark `next
 
 ## materialize_npc
 
-Base components (all NPCs): `NpcIndex`, `Position`, `Job`, `TownId`, `Speed(resolved)`, `Health(resolved max_health)`, `CachedStats` (from `resolve_combat_stats()`), `BaseAttackType`, `Faction`, `Home`, `Personality`, `Activity::default()`, `CombatState::default()`
+Base components (all NPCs): `EntitySlot`, `Position`, `Job`, `TownId`, `Speed(resolved)`, `Health(resolved max_health)`, `CachedStats` (from `resolve_combat_stats()`), `BaseAttackType`, `Faction`, `Home`, `Personality`, `Activity::default()`, `CombatState::default()`
 
 Stats are resolved from `CombatConfig` resource via `resolve_combat_stats(job, attack_type, town_idx, level, personality, &config, &upgrades)`. The resolver applies job base stats × upgrade multipliers × trait multipliers × level multipliers. See `systems/stats.rs`. New NPCs spawn at level 0 (`level_from_xp(0) == 0`).
 
@@ -100,7 +101,7 @@ Deterministic: adjective + job noun. Adjective cycles through a 10-word list, no
 
 ## Building Spawners
 
-All NPC population is building-driven: each **FarmerHome** supports 1 farmer, each **ArcherHome** supports 1 archer, each **CrossbowHome** supports 1 crossbowman, each **FighterHome** supports 1 fighter, each **MinerHome** supports 1 miner, and each **Tent** supports 1 raider. At game startup, `game_startup_system` builds `SpawnerState` from building instances in `BuildingEntityMap` (iterating spawner building kinds) and spawns 1 NPC per entry via `SlotAllocator` + `SpawnNpcMsg`. Menu sliders control how many FarmerHomes/ArcherHomes/MinerHomes/Tents world gen places.
+All NPC population is building-driven: each **FarmerHome** supports 1 farmer, each **ArcherHome** supports 1 archer, each **CrossbowHome** supports 1 crossbowman, each **FighterHome** supports 1 fighter, each **MinerHome** supports 1 miner, and each **Tent** supports 1 raider. At game startup, `game_startup_system` builds `SpawnerState` from building instances in `BuildingEntityMap` (iterating spawner building kinds) and spawns 1 NPC per entry via `EntitySlots` + `SpawnNpcMsg`. Menu sliders control how many FarmerHomes/ArcherHomes/MinerHomes/Tents world gen places.
 
 When an NPC dies, `spawner_respawn_system` (hourly, Step::Behavior) detects the death via `NpcEntityMap` lookup, starts a 12-hour respawn timer, and spawns a replacement when it expires. Building spawners at runtime via the build menu pushes new `SpawnerEntry` with `respawn_timer: 0.0` — the system spawns the NPC on the next hourly tick. Raider grids only allow Tent placement; villager grids allow Farm/Waypoint/FarmerHome/ArcherHome/CrossbowHome/FighterHome/MinerHome.
 

@@ -10,11 +10,10 @@ Defined in: `rust/src/resources.rs`, `rust/src/world.rs`
 
 | Resource | Type | Writers | Readers |
 |----------|------|---------|---------|
-| NpcEntityMap | `HashMap<usize, Entity>` | spawn_npc_system, death_system | damage_system (slot → entity lookup) |
-| SlotAllocator | `SlotPool` wrapper (max=100K) | spawn_npc_system (alloc), death_system (free) | GPU compute dispatch, UI, tests |
-| BuildingSlots | `SlotPool` wrapper (max=5K) | place_building_instance (alloc), death_system (free) | Building GPU state, rendering |
+| EntityMap | `HashMap<usize, Entity>` | spawn_npc_system, death_system | damage_system (slot → entity lookup for NPCs) |
+| EntitySlots | `SlotPool` wrapper (max=MAX_ENTITIES=200K) | spawn_npc_system (alloc), place_building_instance (alloc), death_system (free) | GPU compute dispatch, UI, tests |
 
-Both `SlotAllocator` and `BuildingSlots` wrap a shared `SlotPool` inner type with LIFO free list. `next` is the high-water mark. Two query methods: `count()` returns high-water mark, `alive()` returns `next - free.len()`. Separate allocators prevent slot collisions between NPCs and buildings. See [spawn.md](spawn.md).
+`EntitySlots` wraps a `SlotPool` inner type with LIFO free list. `next` is the high-water mark. Two query methods: `count()` returns high-water mark, `alive()` returns `next - free.len()`. NPCs and buildings share one allocator — each entity's slot IS its GPU buffer index (no offset arithmetic). See [spawn.md](spawn.md).
 
 ## NPC UI Caches
 
@@ -141,14 +140,14 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 
 | Resource | Data | Status |
 |----------|------|--------|
-| GpuReadState | positions, combat_targets, health, factions, threat_counts, npc_count | Populated via GPU readback observers (mixed cadence; see below) |
-| BuildingGpuState | positions, factions, healths, sprite_indices, flash_values, flags + dirty tracking | CPU-side GPU state for buildings; populated by `Bld*` GpuUpdate variants; read by building rendering + healing system |
+| GpuReadState | positions, combat_targets, health, factions, threat_counts, entity_count | Populated via GPU readback observers (mixed cadence; see below) |
+| EntityGpuState | positions, factions, healths, entity_flags, sprite_indices, flash_values, targets, speeds, arrivals + dirty tracking | Unified CPU-side GPU state for all entities (NPCs + buildings); populated by GpuUpdate variants; read by rendering + healing system |
 | NpcSpriteTexture | handle (char atlas), world_handle (world atlas), extras_handle (extras atlas), building_handle (building atlas) | Shared with instanced renderer for texture bind group |
 | ProjSlotAllocator | next, free list, max (50,000) | Active — allocates projectile slots |
 
-`GpuReadState` is populated by `ReadbackComplete` observers. Positions/combat targets/health are always-on; `factions` is throttled to every 60 frames and `threat_counts` to every 30 frames. Used by combat systems (including `building_tower_system` for CPU-side tower targeting), behavior/AI threat logic, position sync, and test assertions.
+`GpuReadState` is populated by `ReadbackComplete` observers. Positions/combat targets/health are always-on; `factions` is throttled to every 60 frames and `threat_counts` to every 30 frames. Used by combat systems (including `building_tower_system` for CPU-side tower targeting), behavior/AI threat logic, position sync, and test assertions. `entity_count` set by `EntitySlots.count()` (not from readback — buffer is MAX-sized).
 
-`BuildingGpuState` holds building visual data on the CPU side — not uploaded to GPU compute. Building rendering reads from this state to build `BuildingBodyInstances` (instance buffer path). Building healing reads positions from this state.
+`EntityGpuState` holds unified visual and movement data for all entities (NPCs + buildings) on the CPU side. Building slots have default movement fields (targets=[0,0], speeds=0, arrivals=0) — the shader skips movement via `ENTITY_FLAG_BUILDING`. Building rendering reads from this state via `BuildingEntityMap.iter_instances()` to build `BuildingBodyInstances`. Building healing reads positions from this state.
 
 ## Stats & Upgrades
 
@@ -335,7 +334,7 @@ Systems that write intents no longer need `MessageWriter<GpuUpdateMsg>` for move
 
 ## Building HP — Entity Health as Source of Truth
 
-Buildings are ECS entities with `Building` marker component + `Health` component (same as NPCs). There is no separate HP store — entity `Health` is the single source of truth. Lookup chain: `BuildingEntityMap.get_entity_by_building(kind, idx)` → entity → `Health`. Buildings are NOT in `NpcEntityMap` — they have their own `BuildingEntityMap` resource for all identity needs (slot ↔ entity ↔ building kind/index). Buildings use a separate slot allocator (`BuildingSlots`, max=5K) from NPCs (`SlotAllocator`, max=100K), and a separate CPU-side GPU state (`BuildingGpuState`) for rendering. Save/load serializes building HP as `HashMap<String, Vec<f32>>` (identical JSON format as the old `BuildingHpState`). `sync_building_hp_render` queries building entities to extract damaged building positions + HP fractions for GPU HP bar rendering (reads positions from `BuildingGpuState`).
+Buildings are ECS entities with `Building` marker component + `Health` component (same as NPCs). There is no separate HP store — entity `Health` is the single source of truth. Lookup chain: `BuildingEntityMap.get_entity(slot)` → entity → `Health`. Buildings are NOT in `EntityMap` — they have their own `BuildingEntityMap` resource for all identity needs (slot ↔ entity ↔ building kind/index). NPCs and buildings share a unified slot allocator (`EntitySlots`, max=MAX_ENTITIES=200K) and a unified CPU-side GPU state (`EntityGpuState`) — each entity's slot IS its GPU buffer index. Save/load serializes building HP as `HashMap<String, Vec<f32>>` (identical JSON format as the old `BuildingHpState`). `sync_building_hp_render` queries building entities to extract damaged building positions + HP fractions for GPU HP bar rendering (reads positions from `EntityGpuState`).
 
 ## Known Issues
 

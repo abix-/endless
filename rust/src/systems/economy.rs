@@ -174,7 +174,7 @@ pub fn raider_forage_system(
 pub fn starvation_system(
     mut commands: Commands,
     game_time: Res<GameTime>,
-    query: Query<(Entity, &NpcIndex, &Energy, &CachedStats, Option<&Starving>), Without<Dead>>,
+    query: Query<(Entity, &EntitySlot, &Energy, &CachedStats, Option<&Starving>), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     timings: Res<SystemTimings>,
 ) {
@@ -232,12 +232,12 @@ pub fn farm_visual_system(
 // ============================================================================
 
 /// Detects dead NPCs linked to House/Barracks/Tent buildings, counts down respawn timers,
-/// and spawns replacements via SlotAllocator + SpawnNpcMsg.
+/// and spawns replacements via EntitySlots + SpawnNpcMsg.
 /// Only runs when game_time.hour_ticked is true.
 pub fn spawner_respawn_system(
     game_time: Res<GameTime>,
-    npc_map: Res<NpcEntityMap>,
-    mut slots: ResMut<SlotAllocator>,
+    npc_map: Res<EntityMap>,
+    mut slots: ResMut<EntitySlots>,
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     world_data: Res<WorldData>,
     mut combat_log: MessageWriter<CombatLogMsg>,
@@ -313,7 +313,7 @@ pub fn mining_policy_system(
     world_data: Res<WorldData>,
     mut building_map: ResMut<BuildingEntityMap>,
     policies: Res<TownPolicies>,
-    npc_map: Res<NpcEntityMap>,
+    npc_map: Res<EntityMap>,
     mut mining: ResMut<MiningPolicy>,
     mut mining_dirty: MessageReader<crate::messages::MiningDirtyMsg>,
     timings: Res<SystemTimings>,
@@ -409,10 +409,10 @@ pub fn mining_policy_system(
 pub fn squad_cleanup_system(
     mut commands: Commands,
     mut squad_state: ResMut<SquadState>,
-    npc_map: Res<NpcEntityMap>,
-    available_units: Query<(Entity, &NpcIndex, &TownId), (With<SquadUnit>, Without<Dead>, Without<SquadId>)>,
+    npc_map: Res<EntityMap>,
+    available_units: Query<(Entity, &EntitySlot, &TownId), (With<SquadUnit>, Without<Dead>, Without<SquadId>)>,
     world_data: Res<WorldData>,
-    squad_units: Query<(Entity, &NpcIndex, &SquadId), (With<SquadUnit>, Without<Dead>)>,
+    squad_units: Query<(Entity, &EntitySlot, &SquadId), (With<SquadUnit>, Without<Dead>)>,
     timings: Res<SystemTimings>,
     mut squads_dirty: MessageReader<crate::messages::SquadsDirtyMsg>,
 ) {
@@ -621,10 +621,10 @@ pub fn endless_system(
     mut tilemap_spawned: ResMut<crate::render::TilemapSpawned>,
     game_time: Res<GameTime>,
     time: Res<Time>,
-    npc_map: Res<NpcEntityMap>,
+    npc_map: Res<EntityMap>,
     config: Res<world::WorldGenConfig>,
     mut res: MigrationResources,
-    migrating_query: Query<(Entity, &NpcIndex, &Position), With<Migrating>>,
+    migrating_query: Query<(Entity, &EntitySlot, &Position), With<Migrating>>,
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     timings: Res<SystemTimings>,
 ) {
@@ -668,7 +668,7 @@ pub fn endless_system(
                 let mut rng = rand::rng();
 
                 for _ in 0..group_size {
-                    let Some(slot) = world_state.slot_alloc.alloc() else { break };
+                    let Some(slot) = world_state.entity_slots.alloc() else { break };
                     let jx = mg.boat_pos.x + rng.random_range(-30.0..30.0);
                     let jy = mg.boat_pos.y + rng.random_range(-30.0..30.0);
                     let job = if mg.is_raider { 2 } else { 1 };
@@ -683,8 +683,8 @@ pub fn endless_system(
                 mg.faction = next_faction;
 
                 // Free boat slot
-                res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::Hide { idx: boat_slot, is_building: false }));
-                world_state.slot_alloc.free(boat_slot);
+                res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::Hide { idx: boat_slot }));
+                world_state.entity_slots.free(boat_slot);
                 mg.boat_slot = None;
 
                 let kind_str = if mg.is_raider { "Raiders" } else { "Settlers" };
@@ -771,7 +771,7 @@ pub fn endless_system(
 
         // Place buildings directly into BuildingEntityMap
         if let Some(town_grid) = world_state.town_grids.grids.get_mut(grid_idx) {
-            world::place_buildings(&mut world_state.grid, &world_state.world_data, mg.settle_target, town_data_idx as u32, &config, town_grid, is_raider, &mut world_state.building_alloc, &mut world_state.building_slots);
+            world::place_buildings(&mut world_state.grid, &world_state.world_data, mg.settle_target, town_data_idx as u32, &config, town_grid, is_raider, &mut world_state.entity_slots, &mut world_state.building_slots);
         }
         world::stamp_dirt(&mut world_state.grid, &[mg.settle_target]);
 
@@ -834,7 +834,7 @@ pub fn endless_system(
     };
 
     // Allocate boat GPU slot
-    let boat_slot = world_state.slot_alloc.alloc();
+    let boat_slot = world_state.entity_slots.alloc();
     if let Some(bs) = boat_slot {
         res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition { idx: bs, x: spawn_x, y: spawn_y }));
         res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx: bs, col: 0.0, row: 0.0, atlas: ATLAS_BOAT }));

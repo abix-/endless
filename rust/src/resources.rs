@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
-use crate::constants::MAX_NPC_COUNT;
+use crate::constants::{MAX_NPC_COUNT, MAX_ENTITIES};
 
 /// Per-system profiling (Factorio-style). RAII guard pattern: `let _t = timings.scope("name");`
 /// Uses Res<SystemTimings> (not ResMut) with internal Mutex so parallel systems don't serialize.
@@ -95,10 +95,10 @@ impl Default for NpcDecisionConfig {
     fn default() -> Self { Self { interval: 2.0 } }
 }
 
-/// O(1) lookup from NPC slot index to Bevy Entity.
-/// Populated on spawn, used by damage_system for fast entity lookup.
+/// O(1) lookup from entity slot index to Bevy Entity.
+/// Populated on NPC spawn and building placement, used by damage_system for fast entity lookup.
 #[derive(Resource, Default)]
-pub struct NpcEntityMap(pub HashMap<usize, Entity>);
+pub struct EntityMap(pub HashMap<usize, Entity>);
 
 /// Population counts per (job_id, clan_id).
 #[derive(Default, Clone)]
@@ -622,37 +622,21 @@ impl SlotPool {
     pub fn reset(&mut self) { self.next = 0; self.free.clear(); }
 }
 
-/// NPC slot allocator. Manages slot indices 0..MAX_NPC_COUNT with free list for reuse.
+/// Unified entity slot allocator. NPCs and buildings share the same slot namespace.
+/// Slot = GPU index (no offset arithmetic). Manages 0..MAX_ENTITIES with free list.
 #[derive(Resource)]
-pub struct SlotAllocator(pub SlotPool);
+pub struct EntitySlots(pub SlotPool);
 
-impl Default for SlotAllocator {
-    fn default() -> Self { Self(SlotPool::new(MAX_NPC_COUNT)) }
+impl Default for EntitySlots {
+    fn default() -> Self { Self(SlotPool::new(MAX_ENTITIES)) }
 }
 
-impl std::ops::Deref for SlotAllocator {
+impl std::ops::Deref for EntitySlots {
     type Target = SlotPool;
     fn deref(&self) -> &SlotPool { &self.0 }
 }
 
-impl std::ops::DerefMut for SlotAllocator {
-    fn deref_mut(&mut self) -> &mut SlotPool { &mut self.0 }
-}
-
-/// Building slot allocator. Manages slot indices 0..MAX_BUILDINGS with free list for reuse.
-#[derive(Resource)]
-pub struct BuildingSlots(pub SlotPool);
-
-impl Default for BuildingSlots {
-    fn default() -> Self { Self(SlotPool::new(crate::constants::MAX_BUILDINGS)) }
-}
-
-impl std::ops::Deref for BuildingSlots {
-    type Target = SlotPool;
-    fn deref(&self) -> &SlotPool { &self.0 }
-}
-
-impl std::ops::DerefMut for BuildingSlots {
+impl std::ops::DerefMut for EntitySlots {
     fn deref_mut(&mut self) -> &mut SlotPool { &mut self.0 }
 }
 

@@ -16,7 +16,7 @@ use rand::Rng;
 use crate::constants::*;
 use crate::resources::*;
 use crate::systemparams::WorldState;
-use crate::components::{Dead, Job, NpcIndex, SquadUnit, TownId};
+use crate::components::{Dead, Job, EntitySlot, SquadUnit, TownId};
 use crate::world::{self, BuildingKind, WorldData, WorldGrid};
 use crate::systems::stats::{TownUpgrades, upgrade_node, upgrade_available, upgrade_unlocked, upgrade_cost, expansion_cost, UPGRADES};
 use crate::constants::UpgradeStatKind;
@@ -1018,8 +1018,6 @@ fn sync_town_perimeter_waypoints(
     let Some(tg) = world.town_grids.grids.iter().find(|g| g.town_data_idx == town_data_idx) else { return 0; };
     let center = town.center;
     let ti = town_data_idx as u32;
-    let npc_count = world.slot_alloc.count();
-
     let ideal_slots = personality.waypoint_ring_slots(tg);
     if ideal_slots.is_empty() { return 0; }
     let ideal: HashSet<(i32, i32)> = ideal_slots.iter().copied().collect();
@@ -1053,7 +1051,7 @@ fn sync_town_perimeter_waypoints(
 
         // Send lethal damage so death_system handles despawn (single Dead writer)
         damage_writer.write(crate::messages::DamageMsg {
-            entity_idx: npc_count + target_slot,
+            entity_idx: target_slot,
             amount: f32::MAX,
             attacker: -1,
             attacker_faction: 0,
@@ -2058,7 +2056,7 @@ pub fn ai_squad_commander_system(
     mut squad_state: ResMut<SquadState>,
     world_data: Res<WorldData>,
     building_map: Res<BuildingEntityMap>,
-    military: Query<(&TownId, &NpcIndex), (With<SquadUnit>, Without<Dead>)>,
+    military: Query<(&TownId, &EntitySlot), (With<SquadUnit>, Without<Dead>)>,
     mut combat_log: MessageWriter<crate::messages::CombatLogMsg>,
     game_time: Res<GameTime>,
     mut ai_squads_dirty: MessageReader<crate::messages::AiSquadsDirtyMsg>,

@@ -120,7 +120,7 @@ pub fn setup(
 /// Tick: phased assertions with time gates.
 pub fn tick(
     time: Res<Time>,
-    slots: Res<SlotAllocator>,
+    slots: Res<EntitySlots>,
     gpu_state: Res<GpuReadState>,
     combat_debug: Res<CombatDebug>,
     health_debug: Res<HealthDebug>,

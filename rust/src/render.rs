@@ -9,7 +9,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileData};
 
 use crate::gpu::RenderFrameConfig;
-use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab, SystemTimings, NpcEntityMap};
+use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab, SystemTimings, EntityMap};
 use crate::components::{ManualTarget, Activity};
 use crate::messages::{SelectFactionMsg, TerrainDirtyMsg};
 use crate::settings::UserSettings;
@@ -355,7 +355,7 @@ struct ClickSelectParams<'w> {
     building_slots: ResMut<'w, crate::resources::BuildingEntityMap>,
     ui_state: ResMut<'w, crate::resources::UiState>,
     world_data: ResMut<'w, WorldData>,
-    npc_entity_map: Res<'w, crate::resources::NpcEntityMap>,
+    npc_entity_map: Res<'w, crate::resources::EntityMap>,
 }
 
 /// Left click to select nearest NPC within 20px.
@@ -690,7 +690,7 @@ fn box_select_system(
     build_ctx: Res<crate::resources::BuildMenuContext>,
     gpu_state: Res<crate::resources::GpuReadState>,
     mut egui_contexts: bevy_egui::EguiContexts,
-    npc_entity_map: Res<NpcEntityMap>,
+    npc_entity_map: Res<EntityMap>,
     meta_cache: Res<crate::resources::NpcMetaCache>,
     mut selected_npc: ResMut<SelectedNpc>,
     mut selected_building: ResMut<crate::resources::SelectedBuilding>,

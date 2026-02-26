@@ -27,7 +27,7 @@ pub struct SpawnNpcMsg {
 
 
 /// Unified damage message for both NPCs and buildings.
-/// entity_idx < npc_count → NPC, entity_idx >= npc_count → building (bld_slot = entity_idx - npc_count).
+/// entity_idx = unified slot (same as GPU index). Routes to NPC or building via EntityMap/BuildingEntityMap.
 #[derive(Message, Clone)]
 pub struct DamageMsg {
     pub entity_idx: usize,
@@ -178,8 +178,8 @@ pub enum GpuUpdate {
     SetTarget { idx: usize, x: f32, y: f32 },
     /// Apply damage delta (GPU subtracts from current health)
     ApplyDamage { idx: usize, amount: f32 },
-    /// Hide entity visually (position = -9999). Routes to NPC or building buffer.
-    Hide { idx: usize, is_building: bool },
+    /// Hide entity visually (position = -9999)
+    Hide { idx: usize },
     /// Set faction (usually at spawn only)
     SetFaction { idx: usize, faction: i32 },
     /// Set health directly (spawn/reset)
@@ -192,16 +192,8 @@ pub enum GpuUpdate {
     SetSpriteFrame { idx: usize, col: f32, row: f32, atlas: f32 },
     /// Set damage flash intensity (1.0 = full white, decays to 0.0)
     SetDamageFlash { idx: usize, intensity: f32 },
-    /// Set NPC flags (bit 0: combat scan enabled)
+    /// Set entity flags (bit 0: combat scan enabled, bit 1: building)
     SetFlags { idx: usize, flags: u32 },
-
-    // -- Building variants (same data, routed to building GPU buffers) --
-    BldSetPosition { idx: usize, x: f32, y: f32 },
-    BldSetFaction { idx: usize, faction: i32 },
-    BldSetHealth { idx: usize, health: f32 },
-    BldSetSpriteFrame { idx: usize, col: f32, row: f32, atlas: f32 },
-    BldSetFlags { idx: usize, flags: u32 },
-    BldSetDamageFlash { idx: usize, intensity: f32 },
 }
 
 // ============================================================================

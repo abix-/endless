@@ -74,7 +74,7 @@ pub struct RosterParams<'w, 's> {
     selected: ResMut<'w, SelectedNpc>,
     meta_cache: ResMut<'w, NpcMetaCache>,
     health_query: Query<'w, 's, (
-        &'static NpcIndex,
+        &'static EntitySlot,
         &'static Health,
         &'static CachedStats,
         &'static Personality,
@@ -105,7 +105,7 @@ pub struct SquadParams<'w, 's> {
     squad_state: ResMut<'w, SquadState>,
     gpu_state: Res<'w, GpuReadState>,
     // Query: military units with SquadId (for dismiss/recruit)
-    squad_guards: Query<'w, 's, (Entity, &'static NpcIndex, &'static SquadId, &'static Job), (With<SquadUnit>, Without<Dead>)>,
+    squad_guards: Query<'w, 's, (Entity, &'static EntitySlot, &'static SquadId, &'static Job), (With<SquadUnit>, Without<Dead>)>,
 }
 
 // ============================================================================

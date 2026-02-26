@@ -22,9 +22,9 @@ pub fn setup(mut params: TestSetupParams) {
 }
 
 pub fn tick(
-    mut health_query: Query<(&mut Health, &NpcIndex), (With<Farmer>, Without<Dead>)>,
-    healing_query: Query<&NpcIndex, (With<Healing>, Without<Dead>)>,
-    not_healing_query: Query<&NpcIndex, (With<Farmer>, Without<Healing>, Without<Dead>)>,
+    mut health_query: Query<(&mut Health, &EntitySlot), (With<Farmer>, Without<Dead>)>,
+    healing_query: Query<&EntitySlot, (With<Healing>, Without<Dead>)>,
+    not_healing_query: Query<&EntitySlot, (With<Farmer>, Without<Healing>, Without<Dead>)>,
     upload: Res<NpcVisualUpload>,
     time: Res<Time>,
     mut test: ResMut<TestState>,

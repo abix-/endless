@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use crate::components::*;
 use crate::constants::ARRIVAL_THRESHOLD;
-use crate::gpu::NpcGpuState;
+use crate::gpu::EntityGpuState;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::resources::{GameTime, GpuReadState, MovementIntents, NpcTargetThrashDebug, SystemTimings};
 
@@ -13,9 +13,9 @@ use crate::resources::{GameTime, GpuReadState, MovementIntents, NpcTargetThrashD
 /// of their goal, add AtDestination marker for decision_system to handle.
 pub fn gpu_position_readback(
     mut commands: Commands,
-    mut query: Query<(Entity, &NpcIndex, &mut Position, &Activity, Option<&AtDestination>)>,
+    mut query: Query<(Entity, &EntitySlot, &mut Position, &Activity, Option<&AtDestination>)>,
     gpu_state: Res<GpuReadState>,
-    buffer_writes: Res<NpcGpuState>,
+    buffer_writes: Res<EntityGpuState>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("gpu_position_readback");
@@ -70,8 +70,8 @@ pub fn gpu_position_readback(
 /// Runs after all intent-producing systems (decision, combat, health, render).
 pub fn resolve_movement_system(
     mut intents: ResMut<MovementIntents>,
-    npc_query: Query<&NpcIndex>,
-    npc_gpu: Res<NpcGpuState>,
+    npc_query: Query<&EntitySlot>,
+    npc_gpu: Res<EntityGpuState>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut target_thrash: ResMut<NpcTargetThrashDebug>,
     game_time: Res<GameTime>,

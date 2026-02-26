@@ -34,7 +34,7 @@ mod opt_vec2_as_array {
 
 use crate::components::Job;
 use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID_EXTENT, NPC_REGISTRY};
-use crate::resources::{FoodStorage, GoldStorage, FactionStats, RaiderState, BuildingEntityMap, CombatEventKind, GameTime, SystemTimings, SlotAllocator};
+use crate::resources::{FoodStorage, GoldStorage, FactionStats, RaiderState, BuildingEntityMap, CombatEventKind, GameTime, SystemTimings, EntitySlots};
 use crate::messages::{DirtyWriters, BuildingGridDirtyMsg};
 use crate::messages::{GpuUpdate, GpuUpdateMsg, CombatLogMsg};
 
@@ -243,7 +243,7 @@ pub(crate) fn place_building(
     grid: &mut WorldGrid,
     world_data: &WorldData,
     food_storage: &mut FoodStorage,
-    slot_alloc: &mut crate::resources::BuildingSlots,
+    slot_alloc: &mut crate::resources::EntitySlots,
     building_slots: &mut BuildingEntityMap,
     dirty_writers: &mut DirtyWriters,
     kind: BuildingKind,
@@ -289,7 +289,7 @@ pub(crate) fn place_building(
     {
         use crate::components::*;
         let entity = commands.spawn((
-            NpcIndex(slot),
+            EntitySlot(slot),
             Position::new(snapped.x, snapped.y),
             Health(def.hp),
             Faction(faction),
@@ -456,12 +456,12 @@ fn push_building_gpu_updates(
     tower: bool,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
 ) {
-    let flags = if tower { 3u32 } else { 0u32 };
-    gpu_updates.write(GpuUpdateMsg(GpuUpdate::BldSetPosition { idx: slot, x: pos.x, y: pos.y }));
-    gpu_updates.write(GpuUpdateMsg(GpuUpdate::BldSetFaction { idx: slot, faction }));
-    gpu_updates.write(GpuUpdateMsg(GpuUpdate::BldSetHealth { idx: slot, health: max_hp }));
-    gpu_updates.write(GpuUpdateMsg(GpuUpdate::BldSetFlags { idx: slot, flags }));
-    gpu_updates.write(GpuUpdateMsg(GpuUpdate::BldSetSpriteFrame {
+    let flags = if tower { crate::constants::ENTITY_FLAG_BUILDING | crate::constants::ENTITY_FLAG_COMBAT } else { crate::constants::ENTITY_FLAG_BUILDING };
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition { idx: slot, x: pos.x, y: pos.y }));
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFaction { idx: slot, faction }));
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: max_hp }));
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFlags { idx: slot, flags }));
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
         idx: slot, col: tileset_idx as f32, row: 0.0,
         atlas: crate::constants::ATLAS_BUILDING,
     }));
@@ -470,7 +470,7 @@ fn push_building_gpu_updates(
 /// Allocate GPU slot + create BuildingInstance + register spawner in one call.
 /// Returns the allocated slot, or None if no slots available.
 pub fn place_building_instance(
-    slot_alloc: &mut crate::resources::BuildingSlots,
+    slot_alloc: &mut crate::resources::EntitySlots,
     building_map: &mut BuildingEntityMap,
     kind: BuildingKind,
     pos: Vec2,
@@ -525,7 +525,7 @@ pub fn spawn_building_entities(
         let town_idx = inst.town_idx;
         let kind = inst.kind;
         let entity = commands.spawn((
-            NpcIndex(slot),
+            EntitySlot(slot),
             Position::new(pos.x, pos.y),
             Health(hp),
             Faction(faction),
@@ -542,7 +542,7 @@ pub fn spawn_building_entities(
 
 /// Spawn one NPC per building spawner. Returns messages for the caller to write.
 fn spawn_npcs_from_spawners(
-    slot_alloc: &mut SlotAllocator,
+    slot_alloc: &mut EntitySlots,
     towns: &[Town],
     building_map: &mut BuildingEntityMap,
 ) -> Vec<crate::messages::SpawnNpcMsg> {
@@ -610,8 +610,7 @@ pub fn setup_world(
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
     town_grids: &mut TownGrids,
-    slot_alloc: &mut SlotAllocator,
-    building_alloc: &mut crate::resources::BuildingSlots,
+    slot_alloc: &mut EntitySlots,
     building_slots: &mut BuildingEntityMap,
     food_storage: &mut FoodStorage,
     gold_storage: &mut GoldStorage,
@@ -620,7 +619,7 @@ pub fn setup_world(
 ) -> (Vec<crate::messages::SpawnNpcMsg>, Vec<crate::systems::AiPlayer>) {
     town_grids.grids.clear();
     building_slots.clear();
-    generate_world(config, grid, world_data, town_grids, building_alloc, building_slots);
+    generate_world(config, grid, world_data, town_grids, slot_alloc, building_slots);
     building_slots.init_spatial(grid.width as f32 * grid.cell_size);
 
     let n = world_data.towns.len();
@@ -1343,7 +1342,7 @@ pub fn generate_world(
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
     town_grids: &mut TownGrids,
-    slot_alloc: &mut crate::resources::BuildingSlots,
+    slot_alloc: &mut crate::resources::EntitySlots,
     building_map: &mut BuildingEntityMap,
 ) {
     use rand::Rng;
@@ -1533,7 +1532,7 @@ pub fn place_buildings(
     config: &WorldGenConfig,
     town_grid: &mut TownGrid,
     is_raider: bool,
-    slot_alloc: &mut crate::resources::BuildingSlots,
+    slot_alloc: &mut crate::resources::EntitySlots,
     building_map: &mut BuildingEntityMap,
 ) {
     let mut occupied = HashSet::new();

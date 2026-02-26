@@ -55,7 +55,7 @@ struct VertexOutput {
 struct Camera {
     pos: vec2<f32>,
     zoom: f32,
-    npc_count: u32,
+    entity_count: u32,
     viewport: vec2<f32>,
     bldg_layers: f32,
     extras_cols: f32,
@@ -178,8 +178,8 @@ fn vertex(in: VertexInput) -> VertexOutput {
 fn vertex_npc(in: NpcVertexInput) -> VertexOutput {
     var out: VertexOutput;
 
-    let slot = in.instance_index % camera.npc_count;
-    let layer = in.instance_index / camera.npc_count;
+    let slot = in.instance_index % camera.entity_count;
+    let layer = in.instance_index / camera.entity_count;
     let pos = npc_positions[slot];
 
     // Hidden NPC (tombstoned position)

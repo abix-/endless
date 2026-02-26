@@ -5,10 +5,10 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 use bevy::prelude::*;
-use crate::components::{Job, BaseAttackType, CachedStats, Personality, Dead, Health, Speed, NpcIndex, TownId};
+use crate::components::{Job, BaseAttackType, CachedStats, Personality, Dead, Health, Speed, EntitySlot, TownId};
 use crate::constants::{FOUNTAIN_TOWER, TowerStats, NPC_REGISTRY, npc_def, AttackTypeStats, UpgradeStatKind, UpgradeStatDef, ResourceKind, EffectDisplay, TOWN_UPGRADES};
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
-use crate::resources::{NpcEntityMap, NpcMetaCache, NpcsByTownCache, SystemTimings};
+use crate::resources::{EntityMap, NpcMetaCache, NpcsByTownCache, SystemTimings};
 use crate::systemparams::{EconomyState, WorldState};
 
 // ============================================================================
@@ -605,10 +605,10 @@ pub fn process_upgrades_system(
     mut upgrades: ResMut<TownUpgrades>,
     mut economy: EconomyState,
     npcs_by_town: Res<NpcsByTownCache>,
-    npc_map: Res<NpcEntityMap>,
+    npc_map: Res<EntityMap>,
     config: Res<CombatConfig>,
     meta_cache: Res<NpcMetaCache>,
-    mut npc_query: Query<(&NpcIndex, &Job, &TownId, &BaseAttackType, &Personality, &mut Health, &mut CachedStats, &mut Speed), Without<Dead>>,
+    mut npc_query: Query<(&EntitySlot, &Job, &TownId, &BaseAttackType, &Personality, &mut Health, &mut CachedStats, &mut Speed), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut world_state: WorldState,
     timings: Res<SystemTimings>,

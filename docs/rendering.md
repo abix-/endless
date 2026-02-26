@@ -5,7 +5,7 @@
 **Terrain** uses Bevy's built-in `TilemapChunk` (single layer, `AlphaMode2d::Opaque`, z=-1). **Everything else** — buildings, NPCs, equipment, farms, building HP bars, projectiles — uses a custom GPU pipeline via Bevy's RenderCommand pattern in the Transparent2d phase. Explicit sort keys guarantee deterministic layer ordering (`CompareFunction::Always`, no depth testing between passes). Two render paths share one pipeline with a `StorageDrawMode` specialization key:
 
 - **Storage buffer path** (NPCs only): `vertex_npc` shader entry point reads positions/health directly from compute shader's `NpcGpuBuffers` storage buffers (bind group 2). Visual/equipment data uploaded from CPU as flat storage buffers (`NpcVisualBuffers`). Two specialized variants via `#ifdef` shader defs: `MODE_NPC_BODY` (layer 0, non-building only), `MODE_NPC_OVERLAY` (layers 1-6, non-building only).
-- **Instance buffer path** (buildings, building overlays, projectiles): `vertex` shader entry point reads from classic per-instance `InstanceData` vertex attributes (slot 1). Building bodies use `BuildingBodyInstances` built each frame from `BuildingGpuState`.
+- **Instance buffer path** (buildings, building overlays, projectiles): `vertex` shader entry point reads from classic per-instance `InstanceData` vertex attributes (slot 1). Building bodies use `BuildingBodyInstances` built each frame from `EntityGpuState` via `BuildingEntityMap.iter_instances()`.
 
 Four textures bound simultaneously (group 0, bindings 0-7) — `atlas_id` selects which to sample (0=character, 1=world, 2=heal/3=sleep/4=arrow/8=boat via extras atlas, 7=building). Bar-only modes: 5=building HP bar (green/yellow/red), 6=mining progress bar (gold). Atlas ID constants defined in `constants.rs` (`ATLAS_CHAR` through `ATLAS_BOAT`).
 
@@ -25,18 +25,18 @@ Bevy's built-in sprite renderer creates one entity per sprite. At 16K NPCs, that
 ```
 Main World                        Render World
 ───────────                       ────────────
-NpcGpuState           ──Extract<Res<T>>──▶ zero-clone immutable read
+EntityGpuState        ──Extract<Res<T>>──▶ zero-clone immutable read
 NpcVisualUpload       ──Extract<Res<T>>──▶ zero-clone immutable read
-RenderFrameConfig     ──ExtractResource──▶ RenderFrameConfig (bundles NpcGpuData + ProjGpuData + textures + readback)
+RenderFrameConfig     ──ExtractResource──▶ RenderFrameConfig (bundles EntityGpuData + ProjGpuData + textures + readback)
 OverlayInstances      ──Extract<Res<T>>──▶ zero-clone → BuildingOverlayBuffers
-BuildingGpuState      ──Extract<Res<T>>──▶ zero-clone → BuildingBodyInstances → BuildingBodyRenderBuffers
+BuildingBodyInstances ──Extract<Res<T>>──▶ zero-clone → BuildingBodyRenderBuffers (built from EntityGpuState via BuildingEntityMap)
 NpcGpuBuffers         ──(render world)──▶ positions + healths (bind group 2)
 Camera2d entity       ──extract_camera_state──▶ CameraState
 NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
                                       │
                                       ▼
                                extract_npc_data (ExtractSchedule)
-                               (hybrid writes: per-dirty-index for GPU-authoritative,
+                               (hybrid writes from EntityGpuState: per-dirty-index for GPU-authoritative,
                                 bulk write_buffer for CPU-authoritative + visual/equip)
                                       │
                                       ▼
@@ -49,7 +49,7 @@ NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
                             (4 textures: char + world + extras + building;
                              building/extras atlas falls back to char_image until loaded)
                             prepare_npc_camera_bind_group
-                            (CameraUniform with npc_count)
+                            (CameraUniform with entity_count)
                                       │
                                       ▼
                                   queue_npcs
@@ -60,7 +60,7 @@ NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
                                       │
                                       ▼
                     DrawBuildingBodyCommands (buildings, instance path):
-                      BuildingBodyInstances from BuildingGpuState, building atlas
+                      BuildingBodyInstances from EntityGpuState via BuildingEntityMap, building atlas
 
                     DrawBuildingOverlayCommands (farms/BHP, instance path):
                       Instance buffer, building HP bars + farm growth + mine progress
@@ -104,14 +104,14 @@ NPC rendering uses GPU storage buffers instead of per-instance vertex attributes
 | 2 | `npc_visual_buf` | `NpcVisualBuffers.visual` (CPU upload) | 32B ([f32;8]) |
 | 3 | `npc_equip` | `NpcVisualBuffers.equip` (CPU upload) | 96B (6×[f32;4]) |
 
-**Visual buffer layout** (`[f32; 8]` per slot): `[sprite_col, sprite_row, body_atlas, flash, r, g, b, a]`. Built by `build_visual_upload` from `NpcGpuState.sprite_indices`, `.flash_values`, and ECS Faction/Job components. Reset to `-1.0` sentinel each frame — phantom slots stay hidden via `sprite_col < 0`. Building slots (no ECS entity) are filled by a fallback loop that reads `sprite_indices` directly (col, row, atlas from `SetSpriteFrame` messages).
+**Visual buffer layout** (`[f32; 8]` per slot): `[sprite_col, sprite_row, body_atlas, flash, r, g, b, a]`. Built by `build_visual_upload` from `EntityGpuState.sprite_indices`, `.flash_values`, and ECS Faction/Job components. Reset to `-1.0` sentinel each frame — phantom slots stay hidden via `sprite_col < 0`. Building slots (no ECS entity) are filled by a fallback loop that reads `sprite_indices` directly (col, row, atlas from `SetSpriteFrame` messages).
 
 **Equipment buffer layout** (`[f32; 24]` per slot = 6 layers × `[col, row, atlas, _pad]`): Built by `build_visual_upload` from ECS components (EquippedArmor, EquippedHelmet, EquippedWeapon, Activity, Healing). Reset to `-1.0` sentinel each frame — `col < 0` means unequipped/inactive.
 
-**Instance offset encoding:** 7 `draw_indexed` calls, each with `npc_count` instances. Shader derives:
+**Instance offset encoding:** 7 `draw_indexed` calls, each with `entity_count` instances. Shader derives:
 ```wgsl
-let slot = in.instance_index % camera.npc_count;
-let layer = in.instance_index / camera.npc_count;
+let slot = in.instance_index % camera.entity_count;
+let layer = in.instance_index / camera.entity_count;
 ```
 
 **Layer 0 (body):** reads `npc_visual_buf[slot]` for sprite/color/flash, `npc_healths[slot] / 100.0` for health bar. Hidden: `pos.x < -9000.0` or `sprite_col < 0`.
@@ -310,7 +310,7 @@ if in.flash > 0.0 {
 }
 ```
 
-Flash intensity starts at 1.0 (full white) on damage hit and decays to 0.0 over ~0.2s (rate 5.0/s). Decay happens on CPU in `populate_gpu_state` via `flash_values` in `NpcGpuState`. The `mix()` function interpolates between the tinted sprite color and pure white.
+Flash intensity starts at 1.0 (full white) on damage hit and decays to 0.0 over ~0.2s (rate 5.0/s). Decay happens on CPU in `populate_gpu_state` via `flash_values` in `EntityGpuState`. The `mix()` function interpolates between the tinted sprite color and pure white.
 
 ## Render World Phases
 
@@ -319,18 +319,18 @@ The render pipeline runs in Bevy's render world after extract:
 | Phase | System | Purpose |
 |-------|--------|---------|
 | Extract | `extract_npc_batch` | Despawn stale render world NpcBatch, then clone fresh from main world |
-| Extract | `extract_npc_data` | Zero-clone GPU upload: hybrid writes (per-dirty-index for GPU-authoritative positions/arrivals, bulk for CPU-authoritative targets/speeds/factions/healths/flags) + unconditional visual/equip writes via `Extract<Res<T>>` |
+| Extract | `extract_npc_data` | Zero-clone GPU upload from EntityGpuState: hybrid writes (per-dirty-index for GPU-authoritative positions/arrivals, bulk for CPU-authoritative targets/speeds/factions/healths/flags) + unconditional visual/equip writes via `Extract<Res<T>>` |
 | Extract | `extract_proj_batch` | Despawn stale render world ProjBatch, then clone fresh from main world |
 | Extract | `extract_camera_state` | Build CameraState from Camera2d Transform + Projection + Window |
-| Extract | `extract_building_body_instances` | Zero-clone read of BuildingBodyInstances → BuildingBodyRenderBuffers (building body sprites from BuildingGpuState) |
+| Extract | `extract_building_body_instances` | Zero-clone read of BuildingBodyInstances → BuildingBodyRenderBuffers (building body sprites from EntityGpuState via BuildingEntityMap) |
 | Extract | `extract_overlay_instances` | Zero-clone read of OverlayInstances → BuildingOverlayBuffers (farms/BHP/mining) with RawBufferVec reuse |
 | PrepareResources | `prepare_npc_buffers` | Buffer creation + sentinel init (first frame), create bind group 2 |
 | Extract | `extract_proj_data` | Zero-clone GPU upload: per-dirty-index compute writes + projectile instance buffer build from `active_set` via `Extract<Res<T>>` |
 | PrepareBindGroups | `prepare_npc_texture_bind_group` | Create texture bind group from RenderFrameConfig.textures (4 textures: char + world + extras + building; building/extras fall back to char_image until atlas loads) |
-| PrepareBindGroups | `prepare_npc_camera_bind_group` | Create camera uniform bind group (includes npc_count from RenderFrameConfig.npc) |
+| PrepareBindGroups | `prepare_npc_camera_bind_group` | Create camera uniform bind group (includes entity_count from RenderFrameConfig.npc) |
 | Queue | `queue_npcs` | Add DrawBuildingBodyCommands (0.2), DrawBuildingOverlayCommands (0.3), DrawNpcBodyCommands (0.5), DrawNpcOverlayCommands (0.6) |
 | Queue | `queue_projs` | Add DrawProjCommands (sort_key=1.0, above NPCs) |
-| Render | `DrawBuildingBodyCommands` | Instance path — building body sprites from `BuildingBodyRenderBuffers` (built from `BuildingGpuState`) |
+| Render | `DrawBuildingBodyCommands` | Instance path — building body sprites from `BuildingBodyRenderBuffers` (built from `EntityGpuState` via `BuildingEntityMap`) |
 | Render | `DrawBuildingOverlayCommands` | Instance path — farms, building HP bars, mine progress |
 | Render | `DrawNpcBodyCommands` | Storage path, `#ifdef MODE_NPC_BODY` — layer 0, non-building only |
 | Render | `DrawNpcOverlayCommands` | Storage path, `#ifdef MODE_NPC_OVERLAY` — layers 1-6, non-building only |
@@ -352,7 +352,7 @@ type DrawNpcOverlayCommands = (..., DrawStoragePass<false>);   // + MODE_NPC_OVE
 ```rust
 type DrawBuildingBodyCommands = (..., DrawBuildingBody);
 ```
-`DrawBuildingBody::render()` reads `BuildingBodyRenderBuffers` — a `RawBufferVec<InstanceData>` built each frame from `BuildingGpuState` (positions, factions, health, sprite indices, flash) by `build_building_body_instances` (PostUpdate). Buildings use separate GPU state (`BuildingGpuState`) from NPCs, with their own slot allocator (`BuildingSlots`, max=5K).
+`DrawBuildingBody::render()` reads `BuildingBodyRenderBuffers` — a `RawBufferVec<InstanceData>` built each frame from `EntityGpuState` (positions, factions, health, sprite indices, flash) by `build_building_body_instances` (PostUpdate). Building slots are obtained by iterating `BuildingEntityMap.iter_instances()` and indexing into the unified `EntityGpuState` arrays.
 
 The shader derives `slot` and `layer` from `instance_index`. Compile-time `#ifdef` gating discards unwanted slots per pass (buildings vs non-buildings). Hidden NPCs (`pos.x < -9000`) and empty equipment slots (`col < 0`) are culled by moving clip_position off-screen.
 
@@ -381,14 +381,14 @@ Bevy's Camera2d is the single source of truth — input systems write directly t
 - `camera_zoom_system`: scroll wheel zoom toward mouse cursor, writes `Projection::Orthographic.scale` and `Transform` directly. Zoom speed, min, and max are user-configurable via `UserSettings` (defaults: speed=0.1, min=0.02, max=4.0)
 - `click_to_select_system`: left click → screen-to-world via camera `Transform` + `Projection` → find nearest NPC within 20px from GPU_READ_STATE. If no NPC found, checks `WorldGrid` for a building at the clicked cell and sets `SelectedBuilding` (col, row, active). Guarded by `ctx.wants_pointer_input() || ctx.is_pointer_over_area()` to avoid stealing clicks from egui UI panels.
 
-**Render world**: `extract_camera_state` (ExtractSchedule, `npc_render.rs`) reads the camera entity's `Transform`, `Projection`, `Window`, and `UserSettings` (for `lod_transition`) to build a `CameraState` resource in the render world. `prepare_npc_camera_bind_group` writes this to a `CameraUniform` `UniformBuffer` each frame (including `npc_count` from `RenderFrameConfig.npc`, `bldg_layers` from `BUILDING_REGISTRY.len() + WALL_EXTRA_LAYERS`, `extras_cols` = 4.0, and `lod_zoom` from `CameraState`), creating a bind group at group 1.
+**Render world**: `extract_camera_state` (ExtractSchedule, `npc_render.rs`) reads the camera entity's `Transform`, `Projection`, `Window`, and `UserSettings` (for `lod_transition`) to build a `CameraState` resource in the render world. `prepare_npc_camera_bind_group` writes this to a `CameraUniform` `UniformBuffer` each frame (including `entity_count` from `RenderFrameConfig.npc`, `bldg_layers` from `BUILDING_REGISTRY.len() + WALL_EXTRA_LAYERS`, `extras_cols` = 4.0, and `lod_zoom` from `CameraState`), creating a bind group at group 1.
 
 **Shader** (`npc_render.wgsl`): reads camera from uniform buffer:
 ```wgsl
 struct Camera {
     pos: vec2<f32>,
     zoom: f32,
-    npc_count: u32,     // used by vertex_npc for instance offset decoding
+    entity_count: u32,  // used by vertex_npc for instance offset decoding
     viewport: vec2<f32>,
     bldg_layers: f32,   // building atlas layer count (from BUILDING_REGISTRY.len())
     extras_cols: f32,   // extras atlas column count (currently 4.0)

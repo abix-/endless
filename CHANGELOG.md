@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-26i
+
+- **unified entity slot namespace** — NPCs and buildings now share one slot allocator (`EntitySlots`, max=MAX_ENTITIES=200K) and one CPU-side GPU state (`EntityGpuState`); each entity's slot IS its GPU buffer index — no offset arithmetic (`npc_count + bld_slot`) anywhere; removed `BuildingSlots` resource, `BuildingGpuState` struct, and 6 `Bld*` GpuUpdate variants (BldSetPosition/Faction/Health/SpriteFrame/Flags/DamageFlash); renamed `SlotAllocator` → `EntitySlots`, `NpcEntityMap` → `EntityMap`, `NpcIndex` → `EntitySlot`, `NpcGpuState` → `EntityGpuState`, `NpcGpuData` → `EntityGpuData`, `camera.npc_count` → `camera.entity_count`; damage routing uses `BuildingEntityMap` lookup then `EntityMap` lookup (replaces `entity_idx >= npc_count` branch); building entity_flags (`ENTITY_FLAG_BUILDING` ± `ENTITY_FLAG_COMBAT`) set at spawn time via unified `SetFlags`; building body instances built via `BuildingEntityMap.iter_instances()` indexing into `EntityGpuState`; tower readback uses slot directly (`combat_targets[bld_slot]`); ~40 files modified across systems, rendering, UI, save/load, and tests
+
 ## 2026-02-26h
 
 - **remove WorldCell.building, route through BuildingEntityMap** — removed `building: Option<GridBuilding>` field from `WorldCell` and the `GridBuilding` type alias; `BuildingEntityMap` is now the sole source of truth for building presence at grid coordinates via new `has_building_at(gc, gr)` and `get_at_grid(gc, gr)` methods; migrated ~20 call sites across world.rs, render.rs, ui/mod.rs, game_hud.rs, gpu.rs, ai_player.rs, left_panel.rs, save.rs, and 4 test files; `populate_tile_flags` split into terrain pass (grid iteration) + building pass (BuildingEntityMap iteration — more efficient); `empty_slots`/`is_wall_at`/`wall_autotile_variant` signatures updated to take `&BuildingEntityMap`; save format unchanged (buildings array built from BuildingEntityMap on save, terrain-only grid on load)

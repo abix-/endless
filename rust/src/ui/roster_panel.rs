@@ -36,7 +36,7 @@ pub fn roster_panel_system(
     ui_state: Res<UiState>,
     mut selected: ResMut<SelectedNpc>,
     meta_cache: Res<NpcMetaCache>,
-    health_query: Query<(&NpcIndex, &Health, &CachedStats, &Activity, &CombatState), Without<Dead>>,
+    health_query: Query<(&EntitySlot, &Health, &CachedStats, &Activity, &CombatState), Without<Dead>>,
     mut state: Local<RosterState>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     gpu_state: Res<GpuReadState>,
