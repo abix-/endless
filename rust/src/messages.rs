@@ -79,6 +79,10 @@ pub struct CombatLogMsg {
 #[derive(Message, Clone)]
 pub struct BuildingGridDirtyMsg;
 
+/// Terrain tilemap refresh needed (terrain biome changed).
+#[derive(Message, Clone)]
+pub struct TerrainDirtyMsg;
+
 /// Patrol routes need rebuild.
 #[derive(Message, Clone)]
 pub struct PatrolsDirtyMsg;
@@ -115,6 +119,7 @@ pub struct PatrolSwapMsg {
 #[derive(bevy::ecs::system::SystemParam)]
 pub struct DirtyWriters<'w> {
     pub building_grid: MessageWriter<'w, BuildingGridDirtyMsg>,
+    pub terrain: MessageWriter<'w, TerrainDirtyMsg>,
     pub patrols: MessageWriter<'w, PatrolsDirtyMsg>,
     pub patrol_perimeter: MessageWriter<'w, PatrolPerimeterDirtyMsg>,
     pub healing_zones: MessageWriter<'w, HealingZonesDirtyMsg>,
@@ -149,6 +154,7 @@ impl DirtyWriters<'_> {
     /// Emit all dirty messages (used on startup / game reset to trigger initial rebuilds).
     pub fn emit_all(&mut self) {
         self.building_grid.write(BuildingGridDirtyMsg);
+        self.terrain.write(TerrainDirtyMsg);
         self.patrols.write(PatrolsDirtyMsg);
         self.patrol_perimeter.write(PatrolPerimeterDirtyMsg);
         self.healing_zones.write(HealingZonesDirtyMsg);
@@ -295,4 +301,5 @@ pub const STATE_RECOVERING: i32 = 9;
 pub const STATE_FLEEING: i32 = 10;
 pub const STATE_GOING_TO_REST: i32 = 11;
 pub const STATE_GOING_TO_WORK: i32 = 12;
+
 

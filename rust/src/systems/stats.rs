@@ -650,6 +650,7 @@ pub fn process_upgrades_system(
                     &mut world_state.town_grids,
                     grid_idx,
                 );
+                world_state.dirty_writers.terrain.write(crate::messages::TerrainDirtyMsg);
             }
             continue;
         }
@@ -796,3 +797,4 @@ pub fn xp_grant_system(
         }
     }
 }
+
