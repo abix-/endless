@@ -61,9 +61,9 @@ GPU extract optimization and GPU-native NPC rendering complete (see [completed.m
 Linear scan elimination complete (see [completed.md](completed.md)).
 
 Chunked tilemap (see [specs/chunked-tilemap.md](specs/chunked-tilemap.md)):
-- [ ] Split single 250x250 TilemapChunk per layer into 32x32 tile chunks
-- [ ] Bevy frustum-culls off-screen chunk entities - only visible chunks generate draw commands
-- [ ] `sync_building_tilemap` updates only chunks whose grid region changed, not all 62K+ tiles
+- [x] Split single 250x250 TilemapChunk per layer into 32x32 tile chunks
+- [x] Bevy frustum-culls off-screen chunk entities - only visible chunks generate draw commands
+- [ ] `sync_terrain_tilemap` updates only chunks whose grid region changed, not all chunks on every terrain dirty signal
 
 Entity sleeping:
 - [ ] Entity sleeping (Factorio-style: NPCs outside camera radius sleep)
@@ -291,6 +291,8 @@ Sound (bevy_audio) should be woven into stages as they're built - not deferred t
 - [ ] Add regression tests that enforce no behavior drift between player and AI build flows, startup and respawn flows, and both destroy entry points
 
 ### UI & UX
+- [x] Factions tab shows current policy snapshot for the selected faction (read-only intel view)
+- [x] Selected-NPC target overlay line now renders in test scenes (`AppState::Running`) as well as normal gameplay
 - [ ] Persist left panel UI state (active tab + expanded/collapsed sections) in `UserSettings`
 - [ ] Add `show_active_radius` debug toggle in Bevy UI
 - [ ] Upgrade tab town snapshot: show `farmers/archers/farms/next spawn` summary

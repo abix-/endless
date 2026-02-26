@@ -141,6 +141,7 @@ struct SquadSnapshot {
 
 #[derive(Clone)]
 struct AiSnapshot {
+    town_data_idx: usize,
     faction: i32,
     town_name: String,
     kind_name: &'static str,
@@ -1263,6 +1264,7 @@ fn rebuild_factions_cache(
             .collect();
 
         cache.snapshots.push(AiSnapshot {
+            town_data_idx: tdi,
             faction,
             town_name,
             kind_name,
@@ -1624,6 +1626,74 @@ fn factions_content(
             ui.label(format!("Reserve Food: {}", snap.reserve_food));
             ui.label(format!("Mines in Radius: {}", snap.mines_in_radius));
             ui.label(format!("Discovered: {}  Enabled: {}", snap.mines_discovered, snap.mines_enabled));
+        });
+
+    // -- Policies --
+    egui::CollapsingHeader::new("Policies")
+        .default_open(false)
+        .show(ui, |ui| {
+            if let Some(policy) = policies.policies.get(snap.town_data_idx) {
+                let schedule_label = |s: WorkSchedule| SCHEDULE_OPTIONS[s as usize];
+                let off_duty_label = |o: OffDutyBehavior| OFF_DUTY_OPTIONS[o as usize];
+                egui::Grid::new(format!("intel_policies_grid_{}", snap.faction))
+                    .num_columns(2)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.label("Eat Food");
+                        ui.label(if policy.eat_food { "Yes" } else { "No" });
+                        ui.end_row();
+
+                        ui.label("Prioritize Healing");
+                        ui.label(if policy.prioritize_healing { "Yes" } else { "No" });
+                        ui.end_row();
+
+                        ui.label("Recovery HP");
+                        ui.label(format!("{:.0}%", policy.recovery_hp * 100.0));
+                        ui.end_row();
+
+                        ui.label("Archer Aggressive");
+                        ui.label(if policy.archer_aggressive { "Yes" } else { "No" });
+                        ui.end_row();
+
+                        ui.label("Archer Leash");
+                        ui.label(if policy.archer_leash { "Yes" } else { "No" });
+                        ui.end_row();
+
+                        ui.label("Archer Flee HP");
+                        ui.label(format!("{:.0}%", policy.archer_flee_hp * 100.0));
+                        ui.end_row();
+
+                        ui.label("Archer Schedule");
+                        ui.label(schedule_label(policy.archer_schedule));
+                        ui.end_row();
+
+                        ui.label("Archer Off-duty");
+                        ui.label(off_duty_label(policy.archer_off_duty));
+                        ui.end_row();
+
+                        ui.label("Farmer Fight Back");
+                        ui.label(if policy.farmer_fight_back { "Yes" } else { "No" });
+                        ui.end_row();
+
+                        ui.label("Farmer Flee HP");
+                        ui.label(format!("{:.0}%", policy.farmer_flee_hp * 100.0));
+                        ui.end_row();
+
+                        ui.label("Farmer Schedule");
+                        ui.label(schedule_label(policy.farmer_schedule));
+                        ui.end_row();
+
+                        ui.label("Farmer Off-duty");
+                        ui.label(off_duty_label(policy.farmer_off_duty));
+                        ui.end_row();
+
+                        ui.label("Mining Radius");
+                        ui.label(format!("{:.0}px", policy.mining_radius));
+                        ui.end_row();
+                    });
+            } else {
+                ui.label("No policy data for this faction.");
+            }
         });
 
     // -- Military --

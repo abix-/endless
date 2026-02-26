@@ -93,6 +93,7 @@ pub fn register_ui(app: &mut App) {
     app.add_systems(EguiPrimaryContextPass, (
         game_hud::bottom_panel_system,
         game_hud::selection_overlay_system,
+        game_hud::target_overlay_system,
         pause_menu_system,
     ).run_if(in_state(AppState::Running)));
 
