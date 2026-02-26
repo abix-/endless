@@ -4,6 +4,7 @@
 //! Phase 2: auto-passes, scene runs indefinitely for observation.
 
 use bevy::prelude::*;
+use bevy::ecs::system::SystemParam;
 use bevy_egui::{EguiContexts, egui};
 
 use crate::resources::*;
@@ -12,7 +13,18 @@ use crate::world::{self, WorldGenStyle};
 
 use super::{TestState, BuildingInitParams};
 
-pub fn setup(
+#[derive(SystemParam)]
+pub(super) struct AiBuildingSetupState<'w> {
+    endless: ResMut<'w, EndlessMode>,
+    ai_state: ResMut<'w, AiPlayerState>,
+    ai_config: ResMut<'w, AiPlayerConfig>,
+    raider_state: ResMut<'w, RaiderState>,
+    test_state: ResMut<'w, TestState>,
+    game_time: ResMut<'w, GameTime>,
+}
+
+pub(super) fn setup(
+    mut commands: Commands,
     mut world_data: ResMut<world::WorldData>,
     mut world_grid: ResMut<world::WorldGrid>,
     mut config: ResMut<world::WorldGenConfig>,
@@ -22,20 +34,16 @@ pub fn setup(
     mut town_grids: ResMut<world::TownGrids>,
     mut slot_alloc: ResMut<SlotAllocator>,
     mut bld: BuildingInitParams,
+    mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
     mut spawn_writer: MessageWriter<crate::messages::SpawnNpcMsg>,
-    mut endless: ResMut<EndlessMode>,
-    mut ai_state: ResMut<AiPlayerState>,
-    mut ai_config: ResMut<AiPlayerConfig>,
-    mut raider_state: ResMut<RaiderState>,
-    mut test_state: ResMut<TestState>,
-    mut game_time: ResMut<GameTime>,
+    mut state: AiBuildingSetupState,
 ) {
     config.gen_style = WorldGenStyle::Continents;
     config.num_towns = 0;
     config.ai_towns = 1;
     config.raider_towns = 0;
-    config.world_width = 3000.0;
-    config.world_height = 3000.0;
+    config.world_width = 10000.0;
+    config.world_height = 10000.0;
     config.world_margin = 300.0;
     config.min_town_distance = 500.0;
 
@@ -46,23 +54,29 @@ pub fn setup(
         &mut slot_alloc, &mut bld.building_alloc,
         &mut bld.building_slots,
         &mut food_storage, &mut gold_storage,
-        &mut faction_stats, &mut raider_state,
+        &mut faction_stats, &mut state.raider_state,
     );
-    for msg in npc_msgs { spawn_writer.write(msg); }
-    ai_state.players = ai_players;
+    world::materialize_generated_world(
+        &mut commands,
+        &mut bld.building_slots,
+        &mut gpu_updates,
+        &mut spawn_writer,
+        npc_msgs,
+    );
+    state.ai_state.players = ai_players;
 
     // Give AI town massive resources
-    for player in &ai_state.players {
+    for player in &state.ai_state.players {
         let ti = player.town_data_idx;
         if let Some(f) = food_storage.food.get_mut(ti) { *f = 100_000; }
         if let Some(g) = gold_storage.gold.get_mut(ti) { *g = 100_000; }
     }
 
-    ai_config.decision_interval = 1.0;
-    endless.enabled = true;
-    game_time.time_scale = 1.0;
+    state.ai_config.decision_interval = 1.0;
+    state.endless.enabled = true;
+    state.game_time.time_scale = 1.0;
 
-    test_state.phase_name = "Pick personality...".into();
+    state.test_state.phase_name = "Pick personality...".into();
     info!("ai-building: setup — {} towns, 1 AI, 100K food+gold, 1s interval",
         world_data.towns.len());
 }

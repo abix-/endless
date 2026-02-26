@@ -286,6 +286,7 @@ Sound (bevy_audio) should be woven into stages as they're built - not deferred t
 - [ ] No active roadmap bugs listed right now.
 
 ### DRY & Single Source of Truth
+- [x] Centralize world lifecycle startup/load flows to shared helpers (`world::materialize_generated_world`, `save::restore_world_from_save`) so game startup, menu load, in-game load, and AI world-setup tests cannot drift
 - [ ] Replace hardcoded town indices in HUD with faction/town lookup helpers
 - [ ] Add regression tests that enforce no behavior drift between player and AI build flows, startup and respawn flows, and both destroy entry points
 

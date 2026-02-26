@@ -227,47 +227,16 @@ fn game_load_system(
         .and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
     info!("Loading save from menu: {} NPCs, {} towns", save.npcs.len(), town_count);
 
-    // Apply save data to all game resources
-    crate::save::apply_save(
+    crate::save::restore_world_from_save(
         &save,
-        &mut ws.grid, &mut ws.world_data, &mut ws.town_grids, &mut ws.game_time,
-        &mut ws.food_storage, &mut ws.gold_storage,
-        &mut ws.upgrades, &mut ws.policies,
-        &mut ws.auto_upgrade, &mut ws.squad_state, &mut fs.raider_state,
-        &mut fs.faction_stats, &mut fs.kill_stats, &mut fs.ai_state,
-        &mut fs.migration_state, &mut fs.endless,
-        &mut tracking.npcs_by_town, &mut tracking.slots,
+        &mut commands,
+        &mut ws,
+        &mut fs,
+        &mut tracking,
+        &mut gpu_updates,
+        &combat_config,
     );
-
-    let world_size_px = ws.grid.width as f32 * ws.grid.cell_size;
-    tracking.dirty_writers.emit_all();
-    *tracking.building_alloc = Default::default();
-    *tracking.bld_gpu_state = Default::default();
     *mining_policy = MiningPolicy::default();
-
-    // Load building instances from save → BuildingEntityMap
-    crate::save::load_building_instances_from_save(&save, &mut tracking.building_alloc, &mut ws.building_slots, &ws.world_data, world_size_px);
-    world::update_all_wall_sprites(&ws.grid, &ws.building_slots, &mut gpu_updates);
-    crate::save::restore_growth_from_save(&save, &mut ws.building_slots);
-    let hp_by_slot = crate::save::convert_building_hp_to_slots(&save.building_hp, &ws.building_slots, &ws.world_data);
-    world::spawn_building_entities(&mut commands, &mut ws.building_slots, &mut gpu_updates, Some(&hp_by_slot));
-
-    // Spawn NPC entities from save data
-    crate::save::spawn_npcs_from_save(
-        &save, &mut commands,
-        &mut tracking.npc_map, &mut tracking.pop_stats, &mut tracking.npc_meta,
-        &mut tracking.npcs_by_town, &mut gpu_updates,
-        &ws.world_data, &ws.building_slots, &combat_config, &ws.upgrades,
-    );
-
-    // Re-attach Migrating component to migration group members
-    if let Some(mg) = &fs.migration_state.active {
-        for &slot in &mg.member_slots {
-            if let Some(&entity) = tracking.npc_map.0.get(&slot) {
-                commands.entity(entity).insert(crate::components::Migrating);
-            }
-        }
-    }
 
     // Center camera on first town
     if let Some(first_town) = ws.world_data.towns.first() {
@@ -318,12 +287,13 @@ fn game_startup_system(
         &mut food_storage, &mut extra.gold_storage,
         &mut faction_stats, &mut raider_state,
     );
-    let total = npc_msgs.len();
-    for msg in npc_msgs { spawn_writer.write(msg); }
-
-    // Spawn building entities (ECS entities for all alive buildings)
-    world::spawn_building_entities(&mut commands, &mut world_state.building_slots, &mut gpu_updates, None);
-
+    let total = world::materialize_generated_world(
+        &mut commands,
+        &mut world_state.building_slots,
+        &mut gpu_updates,
+        &mut spawn_writer,
+        npc_msgs,
+    );
     // Game-specific post-setup: settings, policies, combat log
     *extra.mining_policy = MiningPolicy::default();
     let num_towns = world_state.world_data.towns.len();

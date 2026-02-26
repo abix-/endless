@@ -1343,6 +1343,90 @@ pub fn spawn_npcs_from_save(
     }
 }
 
+/// Shared save-restore pipeline used by both menu load and in-game F9 load.
+/// Assumes caller already read `save` and (for in-game load) despawned old entities.
+pub fn restore_world_from_save(
+    save: &SaveData,
+    commands: &mut Commands,
+    ws: &mut SaveWorldState,
+    fs: &mut SaveFactionState,
+    tracking: &mut LoadNpcTracking,
+    gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
+    combat_config: &CombatConfig,
+) {
+    // Reset transient runtime resources.
+    *tracking.npc_map = Default::default();
+    *tracking.pop_stats = Default::default();
+    *tracking.combat_log = Default::default();
+    *tracking.gpu_state = Default::default();
+    *tracking.building_hp_render = Default::default();
+    *tracking.building_alloc = Default::default();
+    *tracking.bld_gpu_state = Default::default();
+    tracking.dirty_writers.emit_all();
+    tracking.tilemap_spawned.0 = false;
+
+    // Apply save snapshot to world resources.
+    apply_save(
+        save,
+        &mut ws.grid,
+        &mut ws.world_data,
+        &mut ws.town_grids,
+        &mut ws.game_time,
+        &mut ws.food_storage,
+        &mut ws.gold_storage,
+        &mut ws.upgrades,
+        &mut ws.policies,
+        &mut ws.auto_upgrade,
+        &mut ws.squad_state,
+        &mut fs.raider_state,
+        &mut fs.faction_stats,
+        &mut fs.kill_stats,
+        &mut fs.ai_state,
+        &mut fs.migration_state,
+        &mut fs.endless,
+        &mut tracking.npcs_by_town,
+        &mut tracking.slots,
+    );
+
+    // Rebuild buildings from save payload.
+    let world_size_px = ws.grid.width as f32 * ws.grid.cell_size;
+    load_building_instances_from_save(
+        save,
+        &mut tracking.building_alloc,
+        &mut ws.building_slots,
+        &ws.world_data,
+        world_size_px,
+    );
+    world::update_all_wall_sprites(&ws.grid, &ws.building_slots, gpu_updates);
+    restore_growth_from_save(save, &mut ws.building_slots);
+    let hp_by_slot = convert_building_hp_to_slots(&save.building_hp, &ws.building_slots, &ws.world_data);
+    world::spawn_building_entities(commands, &mut ws.building_slots, gpu_updates, Some(&hp_by_slot));
+
+    // Rebuild NPCs from save payload.
+    spawn_npcs_from_save(
+        save,
+        commands,
+        &mut tracking.npc_map,
+        &mut tracking.pop_stats,
+        &mut tracking.npc_meta,
+        &mut tracking.npcs_by_town,
+        gpu_updates,
+        &ws.world_data,
+        &ws.building_slots,
+        combat_config,
+        &ws.upgrades,
+    );
+
+    // Restore migration markers.
+    if let Some(mg) = &fs.migration_state.active {
+        for &slot in &mg.member_slots {
+            if let Some(&entity) = tracking.npc_map.0.get(&slot) {
+                commands.entity(entity).insert(Migrating);
+            }
+        }
+    }
+}
+
 /// Execute load when requested. Despawns all NPCs and rebuilds from save.
 pub fn load_game_system(
     mut commands: Commands,
@@ -1386,57 +1470,16 @@ pub fn load_game_system(
         commands.entity(entity).despawn();
     }
 
-    // 2. Reset transient resources
-    *tracking.npc_map = Default::default();
-    *tracking.pop_stats = Default::default();
-    *tracking.combat_log = Default::default();
-    *tracking.gpu_state = Default::default();
-    *tracking.building_hp_render = Default::default();
-    *tracking.building_alloc = Default::default();
-    *tracking.bld_gpu_state = Default::default();
-    tracking.dirty_writers.emit_all();
-    tracking.tilemap_spawned.0 = false; // Force tilemap rebuild with new terrain
-
-    // 3. Apply save data to all game resources
-    apply_save(
+    restore_world_from_save(
         &save,
-        &mut ws.grid, &mut ws.world_data, &mut ws.town_grids, &mut ws.game_time,
-        &mut ws.food_storage, &mut ws.gold_storage,
-        &mut ws.upgrades, &mut ws.policies,
-        &mut ws.auto_upgrade, &mut ws.squad_state, &mut fs.raider_state,
-        &mut fs.faction_stats, &mut fs.kill_stats, &mut fs.ai_state,
-        &mut fs.migration_state, &mut fs.endless,
-        &mut tracking.npcs_by_town, &mut tracking.slots,
+        &mut commands,
+        &mut ws,
+        &mut fs,
+        &mut tracking,
+        &mut gpu_updates,
+        &combat_config,
     );
 
-    // 4. Load building instances from save data → BuildingEntityMap
-    let world_size_px = ws.grid.width as f32 * ws.grid.cell_size;
-    load_building_instances_from_save(&save, &mut tracking.building_alloc, &mut ws.building_slots, &ws.world_data, world_size_px);
-    world::update_all_wall_sprites(&ws.grid, &ws.building_slots, &mut gpu_updates);
-
-    // 4b. Restore growth state from save data onto BuildingInstances
-    restore_growth_from_save(&save, &mut ws.building_slots);
-
-    // 4c. Convert old HP format, spawn building entities
-    let hp_by_slot = convert_building_hp_to_slots(&save.building_hp, &ws.building_slots, &ws.world_data);
-    world::spawn_building_entities(&mut commands, &mut ws.building_slots, &mut gpu_updates, Some(&hp_by_slot));
-
-    // 5. Spawn NPC entities from save data
-    spawn_npcs_from_save(
-        &save, &mut commands,
-        &mut tracking.npc_map, &mut tracking.pop_stats, &mut tracking.npc_meta,
-        &mut tracking.npcs_by_town, &mut gpu_updates,
-        &ws.world_data, &ws.building_slots, &combat_config, &ws.upgrades,
-    );
-
-    // 6. Re-attach Migrating component to migration group members
-    if let Some(mg) = &fs.migration_state.active {
-        for &slot in &mg.member_slots {
-            if let Some(&entity) = tracking.npc_map.0.get(&slot) {
-                commands.entity(entity).insert(Migrating);
-            }
-        }
-    }
 
     toast.message = format!("Game Loaded ({} NPCs)", save.npcs.len());
     toast.timer = 2.0;

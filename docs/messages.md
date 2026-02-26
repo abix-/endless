@@ -88,6 +88,13 @@ Both can drain the same message type because each `MessageReader` has an indepen
 
 Replaces direct `ResMut<CombatLog>` writes from 18+ systems. Writers emit `CombatLogMsg` via `MessageWriter` (non-exclusive — all writers can run in parallel). `drain_combat_log` system (Step::Drain) collects messages into the `CombatLog` resource for UI display.
 
+
+## Lifecycle Helpers
+
+Startup/load paths are centralized to prevent drift:
+- `world::materialize_generated_world`: shared generated-world bootstrap (writes `SpawnNpcMsg` and spawns building ECS entities).
+- `save::restore_world_from_save`: shared save-restore pipeline used by both menu load and in-game quickload.
+
 ## GPU Update Messages
 
 `GpuUpdateMsg`: systems emit via `MessageWriter<GpuUpdateMsg>`. `populate_gpu_state` (PostUpdate) reads messages directly and routes updates: NPC variants go to `NpcGpuState` flat arrays with per-buffer dirty flags (7 bools: `dirty_positions`, `dirty_targets`, `dirty_speeds`, `dirty_factions`, `dirty_healths`, `dirty_arrivals`, `dirty_flags`); `Bld*` variants go to `BuildingGpuState` (positions, factions, healths, sprite_indices, flash_values, flags + dirty tracking). GPU-authoritative buffers (positions/arrivals) also track per-index dirty lists for sparse writes.

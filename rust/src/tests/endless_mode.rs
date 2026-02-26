@@ -5,6 +5,7 @@
 //! Phases 1-8: Builder AI town. Phases 9-16: Raider AI town (1 game-hour gap).
 
 use bevy::prelude::*;
+use bevy::ecs::system::SystemParam;
 use crate::components::{Faction, Migrating};
 use crate::messages::{DamageMsg, SpawnNpcMsg};
 use crate::resources::*;
@@ -13,7 +14,17 @@ use crate::world::{self, BuildingKind, WorldGenStyle};
 
 use super::{TestState, BuildingInitParams};
 
-pub fn setup(
+#[derive(SystemParam)]
+pub(super) struct EndlessModeSetupState<'w> {
+    endless: ResMut<'w, EndlessMode>,
+    ai_state: ResMut<'w, AiPlayerState>,
+    raider_state: ResMut<'w, RaiderState>,
+    test_state: ResMut<'w, TestState>,
+    game_time: ResMut<'w, GameTime>,
+}
+
+pub(super) fn setup(
+    mut commands: Commands,
     mut world_data: ResMut<world::WorldData>,
     mut world_grid: ResMut<world::WorldGrid>,
     mut config: ResMut<world::WorldGenConfig>,
@@ -23,12 +34,9 @@ pub fn setup(
     mut town_grids: ResMut<world::TownGrids>,
     mut slot_alloc: ResMut<SlotAllocator>,
     mut bld: BuildingInitParams,
+    mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
-    mut endless: ResMut<EndlessMode>,
-    mut ai_state: ResMut<AiPlayerState>,
-    mut raider_state: ResMut<RaiderState>,
-    mut test_state: ResMut<TestState>,
-    mut game_time: ResMut<GameTime>,
+    mut state: EndlessModeSetupState,
 ) {
     config.gen_style = WorldGenStyle::Continents;
     config.num_towns = 1;
@@ -47,23 +55,29 @@ pub fn setup(
         &mut slot_alloc, &mut bld.building_alloc,
         &mut bld.building_slots,
         &mut food_storage, &mut gold_storage,
-        &mut faction_stats, &mut raider_state,
+        &mut faction_stats, &mut state.raider_state,
     );
-    for msg in npc_msgs { spawn_writer.write(msg); }
-    ai_state.players = ai_players;
+    world::materialize_generated_world(
+        &mut commands,
+        &mut bld.building_slots,
+        &mut gpu_updates,
+        &mut spawn_writer,
+        npc_msgs,
+    );
+    state.ai_state.players = ai_players;
 
     let total_towns = world_data.towns.len();
 
-    endless.enabled = true;
-    endless.strength_fraction = 0.75;
-    endless.pending_spawns.clear();
+    state.endless.enabled = true;
+    state.endless.strength_fraction = 0.75;
+    state.endless.pending_spawns.clear();
 
-    game_time.time_scale = 1.0;
+    state.game_time.time_scale = 1.0;
 
-    test_state.counters.insert("initial_towns".into(), total_towns as u32);
-    test_state.counters.insert("initial_fountain_hp".into(), total_towns as u32);
+    state.test_state.counters.insert("initial_towns".into(), total_towns as u32);
+    state.test_state.counters.insert("initial_fountain_hp".into(), total_towns as u32);
 
-    test_state.phase_name = "Checking AI towns...".into();
+    state.test_state.phase_name = "Checking AI towns...".into();
     info!("endless-mode: setup — {} towns, 6000x6000 world, endless enabled", total_towns);
 }
 

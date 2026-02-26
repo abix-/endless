@@ -646,6 +646,23 @@ pub fn setup_world(
     (npc_msgs, ai_players)
 }
 
+/// Shared startup materialization for generated worlds.
+/// Writes NPC spawn messages and spawns ECS building entities.
+pub fn materialize_generated_world(
+    commands: &mut Commands,
+    building_slots: &mut BuildingEntityMap,
+    gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
+    spawn_writer: &mut MessageWriter<crate::messages::SpawnNpcMsg>,
+    npc_msgs: Vec<crate::messages::SpawnNpcMsg>,
+) -> usize {
+    let total = npc_msgs.len();
+    for msg in npc_msgs {
+        spawn_writer.write(msg);
+    }
+    spawn_building_entities(commands, building_slots, gpu_updates, None);
+    total
+}
+
 /// Place a waypoint at an arbitrary world position (not tied to town grid).
 /// Place a wilderness building (world-grid snapping, not town-grid).
 /// Used for Waypoint, Road, and AI territorial expansion.
@@ -711,7 +728,9 @@ pub(crate) fn destroy_building(
 
     // Mark building entity as Dead (death_cleanup_system handles despawn + GPU hide + slot free)
     if let Some(inst) = building_slots.find_by_position(snapped) {
-        if let Ok(mut ec) = commands.get_entity(inst.entity) {
+        // During load/rebuild windows some instances can still carry PLACEHOLDER.
+        // Never enqueue commands against placeholder entities.
+        if inst.entity != Entity::PLACEHOLDER && let Ok(mut ec) = commands.get_entity(inst.entity) {
             ec.insert(crate::components::Dead);
         }
     }
