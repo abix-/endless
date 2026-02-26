@@ -179,6 +179,11 @@ pub fn attack_system(
             let dy = inst.position.y - y;
             let dist = (dx * dx + dy * dy).sqrt();
 
+            // Building engagement gate:
+            // - In-range => attack as normal.
+            // - Out-of-range but very close => allow short chase to close distance.
+            // - Far away => ignore to prevent cross-map building pursuit (archer "wander to enemy farm" bug).
+            let close_chase_radius = cached.range + 120.0;
             if dist <= cached.range {
                 // Stand ground while shooting
                 intents.submit(entity, Vec2::new(x, y), MovementPriority::Combat, "combat:hold_building");
@@ -212,8 +217,8 @@ pub fn attack_system(
                     attacks += 1;
                     timer.0 = cached.cooldown;
                 }
-            } else {
-                // Chase building
+            } else if dist <= close_chase_radius {
+                // Short chase only; prevents unbounded cross-map pulls on distant enemy buildings.
                 intents.submit(entity, inst.position, MovementPriority::Combat, "combat:chase_building");
                 chases += 1;
             }

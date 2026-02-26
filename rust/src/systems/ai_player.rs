@@ -995,19 +995,31 @@ fn sync_town_perimeter_waypoints(
     town_data_idx: usize,
     personality: AiPersonality,
 ) -> usize {
-    // Prune waypoints not in the personality's ideal outer ring.
-    // When the town area expands, the ring shifts outward and inner waypoints are destroyed.
+    // Keep exactly one perimeter ring, but only prune inner/old waypoints
+    // after the new outer ring is fully established.
     let Some(town) = world.world_data.towns.get(town_data_idx) else { return 0; };
     let Some(tg) = world.town_grids.grids.iter().find(|g| g.town_data_idx == town_data_idx) else { return 0; };
     let center = town.center;
     let ti = town_data_idx as u32;
     let npc_count = world.slot_alloc.count();
 
-    let ideal: HashSet<(i32, i32)> = personality.waypoint_ring_slots(tg).into_iter().collect();
+    let ideal_slots = personality.waypoint_ring_slots(tg);
+    if ideal_slots.is_empty() { return 0; }
+    let ideal: HashSet<(i32, i32)> = ideal_slots.iter().copied().collect();
+
+    // Gather current waypoint slots once; used for both completeness check and pruning.
+    let existing: HashSet<(i32, i32)> = world.building_slots.iter_kind_for_town(BuildingKind::Waypoint, ti)
+        .map(|b| world::world_to_town_grid(center, b.position))
+        .collect();
+
+    // Do not prune any inner ring yet if the current outer ring is incomplete.
+    let outer_complete = ideal.iter().all(|slot| existing.contains(slot));
+    if !outer_complete {
+        return 0;
+    }
 
     let mut prune_slots: Vec<(i32, i32)> = Vec::new();
-    for b in world.building_slots.iter_kind_for_town(BuildingKind::Waypoint, ti) {
-        let slot = world::world_to_town_grid(center, b.position);
+    for &slot in &existing {
         if !ideal.contains(&slot) {
             prune_slots.push(slot);
         }
@@ -1015,16 +1027,20 @@ fn sync_town_perimeter_waypoints(
 
     let mut removed = 0usize;
     for (row, col) in prune_slots {
+        // Resolve the exact waypoint slot from town-grid coords.
+        // If we cannot map slot->entity, do not clear the grid cell; that avoids orphaned sprites.
+        let target_slot = world.building_slots.iter_kind_for_town(BuildingKind::Waypoint, ti)
+            .find(|b| world::world_to_town_grid(center, b.position) == (row, col))
+            .map(|b| b.slot);
+        let Some(target_slot) = target_slot else { continue; };
+
         // Send lethal damage so death_system handles despawn (single Dead writer)
-        let pos = world::town_grid_to_world(center, row, col);
-        if let Some(inst) = world.building_slots.find_by_position(pos) {
-            damage_writer.write(crate::messages::DamageMsg {
-                entity_idx: npc_count + inst.slot,
-                amount: f32::MAX,
-                attacker: -1,
-                attacker_faction: 0,
-            });
-        }
+        damage_writer.write(crate::messages::DamageMsg {
+            entity_idx: npc_count + target_slot,
+            amount: f32::MAX,
+            attacker: -1,
+            attacker_faction: 0,
+        });
         if world.destroy_building(
             combat_log, game_time,
             row, col, center, "waypoint pruned (not on outer ring)",
@@ -1387,8 +1403,12 @@ pub fn ai_decision_system(
                     }
                 }
 
-                if ctx.food >= building_cost(BuildingKind::Waypoint) && waypoints < total_military_homes {
-                    let gp_need = desires.military_desire * (total_military_homes - waypoints) as f32;
+                let perimeter_target = snapshots.towns.get(&tdi)
+                    .map(|s| s.waypoint_ring.len())
+                    .unwrap_or(total_military_homes);
+                let waypoint_target = total_military_homes.max(perimeter_target);
+                if ctx.food >= building_cost(BuildingKind::Waypoint) && waypoints < waypoint_target {
+                    let gp_need = desires.military_desire * (waypoint_target - waypoints) as f32;
                     build_scores.push((AiAction::BuildWaypoint, gw * gp_need));
                 }
 

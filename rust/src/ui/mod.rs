@@ -704,18 +704,28 @@ fn build_place_click_system(
             .unwrap_or(false);
         if !is_destructible { return; }
         let bld_kind = cell_building.map(|(k, _)| k);
+        let bld_town_idx = cell_building.map(|(_, ti)| ti as u32);
+
+        // Resolve exact slot first; if lookup fails, abort instead of clearing grid only.
+        let target_slot = match (bld_kind, bld_town_idx) {
+            (Some(kind), Some(ti)) => world_state.building_slots.iter_kind_for_town(kind, ti)
+                .find(|inst| {
+                    let (igc, igr) = world_state.grid.world_to_grid(inst.position);
+                    igc == gc && igr == gr
+                })
+                .map(|inst| inst.slot),
+            _ => None,
+        };
+        let Some(target_slot) = target_slot else { return; };
 
         // Send lethal damage so death_system handles despawn (single Dead writer)
-        let snapped = world_state.grid.grid_to_world(gc, gr);
-        if let Some(inst) = world_state.building_slots.find_by_position(snapped) {
-            let npc_count = world_state.slot_alloc.count();
-            damage_writer.write(crate::messages::DamageMsg {
-                entity_idx: npc_count + inst.slot,
-                amount: f32::MAX,
-                attacker: -1,
-                attacker_faction: 0,
-            });
-        }
+        let npc_count = world_state.slot_alloc.count();
+        damage_writer.write(crate::messages::DamageMsg {
+            entity_idx: npc_count + target_slot,
+            amount: f32::MAX,
+            attacker: -1,
+            attacker_faction: 0,
+        });
         let _ = world_state.destroy_building(
             &mut combat_log, &game_time,
             row, col, center,
@@ -1246,6 +1256,7 @@ fn process_destroy_system(
             .unwrap_or(false);
         if !is_destructible { continue; }
         let bld_kind = cell_building.map(|(k, _)| k);
+        let bld_town_idx = cell_building.map(|(_, ti)| ti as u32);
 
         // Find which town this building belongs to, derive town center
         let town_idx = cell_building
@@ -1261,16 +1272,26 @@ fn process_destroy_system(
         let world_pos = world_state.grid.grid_to_world(col, row);
         let (trow, tcol) = world::world_to_town_grid(center, world_pos);
 
+        // Resolve exact slot first; if lookup fails, abort instead of clearing grid only.
+        let target_slot = match (bld_kind, bld_town_idx) {
+            (Some(kind), Some(ti)) => world_state.building_slots.iter_kind_for_town(kind, ti)
+                .find(|inst| {
+                    let (igc, igr) = world_state.grid.world_to_grid(inst.position);
+                    igc == col && igr == row
+                })
+                .map(|inst| inst.slot),
+            _ => None,
+        };
+        let Some(target_slot) = target_slot else { continue; };
+
         // Send lethal damage so death_system handles despawn (single Dead writer)
-        if let Some(inst) = world_state.building_slots.find_by_position(world_pos) {
-            let npc_count = world_state.slot_alloc.count();
-            damage_writer.write(crate::messages::DamageMsg {
-                entity_idx: npc_count + inst.slot,
-                amount: f32::MAX,
-                attacker: -1,
-                attacker_faction: 0,
-            });
-        }
+        let npc_count = world_state.slot_alloc.count();
+        damage_writer.write(crate::messages::DamageMsg {
+            entity_idx: npc_count + target_slot,
+            amount: f32::MAX,
+            attacker: -1,
+            attacker_faction: 0,
+        });
 
         if world_state.destroy_building(
             &mut combat_log, &game_time,

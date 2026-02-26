@@ -190,7 +190,7 @@ Each eligible action gets a score = `base_weight × need_multiplier`. All scores
 
 **Roads:** `road_weight × road_need` where `road_need = min(road_candidates, economy_buildings - roads/2)`. Pre-checks actual candidate availability via `count_road_candidates()` — if no road-pattern slots are available near economy buildings, roads aren't scored at all. Scored when `road_weight > 0` and food ≥ 4× road cost. Places roads in personality-specific grid patterns (see Personalities table) near economy buildings (farms, farmer homes, miner homes) within Chebyshev distance ≤ 2, scored by adjacency count. Batch places multiple roads per action (batch size per personality). **Aggressive attack corridors**: cardinal axis roads extend to 2× the build radius as offensive attack routes — cells outside town bounds skip the economy-adjacency requirement, scored at priority 1 (built after inner utility roads).
 
-**Waypoints:** `military_desire × gap` where gap = total military homes − waypoints. Scored when waypoints < total military homes. Waypoints are placed on the personality's outer ring pattern (block corners on build area perimeter).
+**Waypoints:** `military_desire × gap` where gap = waypoint_target − waypoints. Waypoint target = `max(total_military_homes, perimeter_ring_size)` — ensures enough waypoints to fill the personality's outer ring even when military homes haven't caught up. Scored when waypoints < target. Waypoints are placed on the personality's outer ring pattern (block corners on build area perimeter).
 
 ### Raider AI
 
@@ -274,8 +274,9 @@ Search radius: 5000px from town center. Cooldown includes ±2s jitter. Initial c
 
 `sync_patrol_perimeter_system` (flag-gated via `PerimeterSyncDirty` resource, set by `perimeter_dirty_drain_system`):
 1. Compute personality's ideal outer ring via `waypoint_ring_slots(tg)` (block corners on build area perimeter)
-2. Prune waypoints not in the ideal ring (sends lethal `DamageMsg` + `destroy_building` grid cleanup) — when town area expands, the ring shifts outward and inner waypoints are destroyed
-3. Recalculate clockwise patrol order (angle-based sort around town center)
+2. Check ring completeness — only prune inner/old waypoints after the new outer ring is fully established (all ideal slots occupied). This prevents premature pruning during expansion when the outer ring is partially built.
+3. Prune waypoints not in the ideal ring (resolves exact building slot by town-grid coords, sends lethal `DamageMsg`) — when town area expands, the ring shifts outward and inner waypoints are destroyed after the new ring fills in
+4. Recalculate clockwise patrol order (angle-based sort around town center)
 
 ## Migration (Dynamic Raider Towns)
 

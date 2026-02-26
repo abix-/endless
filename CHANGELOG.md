@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-26d
+
+- **fix building chase and demolition bugs** — combat: added `close_chase_radius` (range + 120px) to prevent archers/raiders from chasing distant enemy buildings across the map; AI perimeter: waypoint pruning now waits until the new outer ring is fully established before destroying inner waypoints (prevents premature pruning during expansion); waypoint build target uses `max(military_homes, perimeter_ring_size)` to fill ring even when military homes lag; UI building demolition (click-destroy + process_destroy_system): resolve exact building slot by kind+town+grid coords before sending lethal DamageMsg, preventing orphaned sprites from grid-only clearing
+
 ## 2026-02-26c
 
 - **fix dead entity crash: single Dead writer** — removed `insert(Dead)` from `destroy_building()` (was second writer of `Dead`, racing with `death_system` Phase 1); `destroy_building()` is now purely grid cleanup (cell clear + wall auto-tile + combat log); all destroy paths (UI click-destroy, inspector-destroy, AI waypoint prune) now send lethal `DamageMsg(f32::MAX)` through the normal damage pipeline instead; `death_system` Phase 1 is the single writer of `Dead` (HP ≤ 0 → insert Dead); fixes crash where `death_system` Phase 2 queued `despawn()` then called `destroy_building()` which queued `insert(Dead)` on the same entity → generation mismatch on flush

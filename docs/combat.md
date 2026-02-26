@@ -96,7 +96,8 @@ Execution order is **chained** — each system completes before the next starts.
   - Gets building position from `BuildingInstance.position`
   - In range + cooldown ready: fires projectile with **real damage** (GPU projectile collision handles hit detection against buildings in the unified entity grid)
   - Point-blank: emits `DamageMsg` directly
-  - Out of range: chases building (`SetTarget` to building position)
+  - Out of range but within close chase radius (range + 120px): chases building (`SetTarget` to building position)
+  - Beyond close chase radius: ignores building (prevents cross-map pursuit of distant enemy buildings)
 - **NPC targets** (`target < npc_count`):
   - Validates via `NpcEntityMap` lookup, faction check, health check (same as before)
   - Sets `CombatState::Fighting { origin }` (stores current position)
