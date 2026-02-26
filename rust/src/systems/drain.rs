@@ -21,14 +21,3 @@ pub fn drain_combat_log(mut msgs: MessageReader<CombatLogMsg>, mut log: ResMut<C
         log.push_at(msg.kind, msg.faction, msg.day, msg.hour, msg.minute, msg.message.clone(), msg.location);
     }
 }
-
-/// Collect GPU update events from all systems into the static queue.
-/// Runs at end of Behavior phase - single lock point for all GPU writes.
-pub fn collect_gpu_updates(mut events: MessageReader<GpuUpdateMsg>, timings: Res<SystemTimings>) {
-    let _t = timings.scope("collect_gpu_updates");
-    if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-        for msg in events.read() {
-            queue.push(msg.0.clone());
-        }
-    }
-}

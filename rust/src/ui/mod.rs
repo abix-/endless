@@ -247,10 +247,10 @@ fn game_load_system(
 
     // Load building instances from save → BuildingEntityMap
     crate::save::load_building_instances_from_save(&save, &mut tracking.building_alloc, &mut ws.building_slots, &ws.world_data, world_size_px);
-    world::update_all_wall_sprites(&ws.grid, &ws.building_slots);
+    world::update_all_wall_sprites(&ws.grid, &ws.building_slots, &mut gpu_updates);
     crate::save::restore_growth_from_save(&save, &mut ws.building_slots);
     let hp_by_slot = crate::save::convert_building_hp_to_slots(&save.building_hp, &ws.building_slots, &ws.world_data);
-    world::spawn_building_entities(&mut commands, &mut ws.building_slots, Some(&hp_by_slot));
+    world::spawn_building_entities(&mut commands, &mut ws.building_slots, &mut gpu_updates, Some(&hp_by_slot));
 
     // Spawn NPC entities from save data
     crate::save::spawn_npcs_from_save(
@@ -296,6 +296,7 @@ fn game_startup_system(
     mut game_time: ResMut<GameTime>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     mut extra: StartupExtra,
+    mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
 ) {
     // If game_load_system already populated the world, skip world gen.
     // The flag was cleared by game_load_system, but we can detect load happened
@@ -321,7 +322,7 @@ fn game_startup_system(
     for msg in npc_msgs { spawn_writer.write(msg); }
 
     // Spawn building entities (ECS entities for all alive buildings)
-    world::spawn_building_entities(&mut commands, &mut world_state.building_slots, None);
+    world::spawn_building_entities(&mut commands, &mut world_state.building_slots, &mut gpu_updates, None);
 
     // Game-specific post-setup: settings, policies, combat log
     *extra.mining_policy = MiningPolicy::default();
@@ -687,6 +688,7 @@ fn build_place_click_system(
     mut world_state: WorldState,
     mut food_storage: ResMut<FoodStorage>,
     mut combat_log: MessageWriter<crate::messages::CombatLogMsg>,
+    mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
     game_time: Res<GameTime>,
     _difficulty: Res<Difficulty>,
 ) {
@@ -735,6 +737,7 @@ fn build_place_click_system(
             &mut combat_log, &game_time,
             row, col, center,
             &format!("Destroyed building at ({},{}) in {}", row, col, town_name),
+            &mut gpu_updates,
             &mut commands,
         );
         if let Some(bk) = bld_kind {
@@ -751,7 +754,7 @@ fn build_place_click_system(
         build_ctx.clear_drag();
         let cost = crate::constants::building_cost(kind);
         if world_state.place_building(
-            &mut food_storage, kind, town_data_idx, world_pos, cost, &mut commands,
+            &mut food_storage, kind, town_data_idx, world_pos, cost, &mut gpu_updates, &mut commands,
         ).is_ok() {
             let label = crate::constants::building_def(kind).label;
             combat_log.write(crate::messages::CombatLogMsg { kind: CombatEventKind::Harvest, faction: 0, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("Built {} in {}", label.to_lowercase(), town_name), location: None });
@@ -777,7 +780,7 @@ fn build_place_click_system(
         for (sr, sc) in slots_on_line(start, end) {
             let cell_pos = world_state.grid.grid_to_world(sc as usize, sr as usize);
             if world_state.place_building(
-                &mut food_storage, kind, town_data_idx, cell_pos, cost, &mut commands,
+                &mut food_storage, kind, town_data_idx, cell_pos, cost, &mut gpu_updates, &mut commands,
             ).is_ok() { placed += 1; }
         }
         if placed > 0 {
@@ -803,7 +806,7 @@ fn build_place_click_system(
         let cost = crate::constants::building_cost(kind);
 
         world_state.place_building(
-            &mut food_storage, kind, town_data_idx, pos, cost, &mut commands,
+            &mut food_storage, kind, town_data_idx, pos, cost, &mut gpu_updates, &mut commands,
         ).is_ok()
     };
 
@@ -1244,6 +1247,7 @@ fn process_destroy_system(
     mut request: MessageReader<crate::messages::DestroyBuildingMsg>,
     mut world_state: WorldState,
     mut combat_log: MessageWriter<crate::messages::CombatLogMsg>,
+    mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
     game_time: Res<GameTime>,
     mut selected_building: ResMut<SelectedBuilding>,
 ) {
@@ -1279,6 +1283,7 @@ fn process_destroy_system(
             &mut combat_log, &game_time,
             trow, tcol, center,
             &format!("Destroyed building in {}", town_name),
+            &mut gpu_updates,
             &mut commands,
         ).is_ok() {
             selected_building.active = false;
@@ -1426,4 +1431,3 @@ fn game_cleanup_system(
 
     info!("Game cleanup complete");
 }
-

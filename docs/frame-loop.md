@@ -25,7 +25,7 @@ MAIN WORLD — Bevy Update Schedule (game systems gated on AppState::Running)
 ├─ Step::Combat (chained)
 │     cooldown_system → attack_system → damage_system →
 │     death_system → xp_grant_system → death_cleanup_system →
-│     waypoint_attack_system
+│     building_tower_system
 │
 ├─ Step::Behavior
 │     rebuild_building_grid_system (before decision_system, spawner_respawn_system),
@@ -34,14 +34,11 @@ MAIN WORLD — Bevy Update Schedule (game systems gated on AppState::Running)
 │     raider_forage_system, raider_respawn_system, starvation_system,
 │     decision_system, farm_visual_system, process_upgrades_system
 │
-├─ collect_gpu_updates (after Step::Behavior)
-│     GpuUpdateMsg events → GPU_UPDATE_QUEUE (single mutex lock)
-│
 ├─ bevy_timer_end
 │
 ├─ PostUpdate (chained)
 │     populate_gpu_state
-│       GPU_UPDATE_QUEUE → NpcGpuState (per-field dirty indices + flash decay)
+│       GpuUpdateMsg → NpcGpuState (per-field dirty indices + flash decay)
 │     build_visual_upload
 │       ECS query + NpcGpuState → NpcVisualUpload (GPU-ready packed visual + equip)
 │     build_overlay_instances
@@ -96,11 +93,12 @@ RENDER WORLD — parallel with next frame's main world
 
 ```
 ECS → GPU:
-  GpuUpdateMsg → collect_gpu_updates → GPU_UPDATE_QUEUE
-    → populate_gpu_state → NpcGpuState (per-field dirty indices)
+  GpuUpdateMsg → populate_gpu_state → NpcGpuState (per-field dirty indices)
     → build_visual_upload → NpcVisualUpload (GPU-ready packed arrays)
     → extract_npc_data (Extract<Res<T>>, zero-clone) → write_buffer to GPU
     → NpcComputeNode: dispatch + copy positions → ReadbackHandles assets
+  ProjGpuUpdateMsg → populate_proj_buffer_writes (PostUpdate) → ProjBufferWrites
+    → extract_proj_data (Extract<Res<T>>, zero-clone) → write_buffer to GPU
 
 GPU → ECS:
   Bevy Readback async-reads ShaderStorageBuffer assets
@@ -115,11 +113,11 @@ GPU → Render:
 
 | Direction | Mechanism | Examples |
 |-----------|-----------|---------|
-| Systems → GPU | MessageWriter\<GpuUpdateMsg\> → collect → populate → extract → upload | SetPosition, SetTarget, SetSpriteFrame |
+| Systems → GPU | MessageWriter\<GpuUpdateMsg\> → populate → extract → upload | SetPosition, SetTarget, SetSpriteFrame |
 | GPU → ECS | Bevy Readback → ReadbackComplete → GpuReadState → Position components | Positions after compute |
 | Static queues → Bevy | Mutex queues drained in Step::Drain | GAME_CONFIG_STAGING |
 
-Systems use MessageWriter for GPU updates so they can run in parallel. The single `collect_gpu_updates` call at frame end does one mutex lock to batch everything.
+Systems use MessageWriter for GPU updates so they can run in parallel. `populate_gpu_state` consumes messages directly in PostUpdate.
 
 ## Slot Allocation
 
@@ -130,7 +128,7 @@ Systems use MessageWriter for GPU updates so they can run in parallel. The singl
 Pipelined rendering: the render world processes frame N while the main world computes frame N+1. The extract barrier is the sync point.
 
 - **One-frame render latency**: GPU renders positions from the previous main world frame.
-- **Spawn visibility**: SpawnNpcMsg → spawn_npc_system → GpuUpdateMsg → collect → populate → extract → GPU. Visible on the next rendered frame.
+- **Spawn visibility**: SpawnNpcMsg → spawn_npc_system → GpuUpdateMsg → populate → extract → GPU. Visible on the next rendered frame.
 
 ## App States
 

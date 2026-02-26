@@ -4,7 +4,7 @@
 
 Communication between Bevy systems and GPU compute uses two patterns:
 - **Bevy Messages** (`#[derive(Message)]`) for high-frequency system-to-system communication
-- **Static Mutex queues** for boundaries where Bevy's scheduler can't reach (GPU buffer sync, arrival detection)
+- **Static Mutex queues** for boundaries where Bevy's scheduler can't reach (mainly GPU NPC/building sync and external staging)
 
 All message types and statics are defined in `rust/src/messages.rs`. Bevy resources are in `rust/src/resources.rs`.
 
@@ -53,7 +53,7 @@ Each piece of NPC data has exactly one authoritative owner. Readers on the other
 | SpawnNpcMsg | slot_idx, x, y, job, faction, town_idx, home_x/y, work_x/y, starting_post, attack_type | MessageWriter → MessageReader |
 | DamageMsg | entity_idx (usize), amount (f32), attacker (i32, -1=tower/unknown), attacker_faction (i32) | process_proj_hits / attack_system → damage_system |
 | BuildingDeathMsg | kind (BuildingKind), index (usize), bld_slot (usize), attacker (i32), attacker_faction (i32) | damage_system → building_death_system |
-| GpuUpdateMsg | GpuUpdate enum (see below) | MessageWriter → collect_gpu_updates |
+| GpuUpdateMsg | GpuUpdate enum (see below) | MessageWriter → populate_gpu_state |
 | CombatLogMsg | kind, faction, day, hour, minute, message, location | 18+ writers → drain_combat_log |
 | ReassignMsg | npc_index, new_job | Defined but unused (placeholder for future role reassignment) |
 
@@ -64,6 +64,7 @@ Individual message types replace the old `DirtyFlags` resource. Each signal is i
 | Message | Trigger | Consumer |
 |---------|---------|----------|
 | BuildingGridDirtyMsg | Building placed/destroyed | rebuild_building_grid_system, populate_tile_flags |
+| TerrainDirtyMsg | Terrain biome changed (expansion/load/reset) | sync_terrain_tilemap |
 | PatrolsDirtyMsg | Waypoint built/destroyed/reordered | rebuild_patrol_routes_system |
 | PatrolPerimeterDirtyMsg | Building changed (waypoints, homes) | sync_patrol_perimeter_system |
 | HealingZonesDirtyMsg | Level-up (heal stats changed) | update_healing_zone_cache |
@@ -86,7 +87,11 @@ Replaces direct `ResMut<CombatLog>` writes from 18+ systems. Writers emit `Comba
 
 ## GPU Update Messages
 
-Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector system `collect_gpu_updates` runs after Step::Behavior and drains all messages into `GPU_UPDATE_QUEUE` with a single Mutex lock. Then `populate_gpu_state` (PostUpdate) drains the queue and routes updates: NPC variants go to `NpcGpuState` flat arrays with per-buffer dirty flags (7 bools: `dirty_positions`, `dirty_targets`, `dirty_speeds`, `dirty_factions`, `dirty_healths`, `dirty_arrivals`, `dirty_flags`); `Bld*` variants go to `BuildingGpuState` (positions, factions, healths, sprite_indices, flash_values, flags + dirty tracking). GPU-authoritative buffers (positions/arrivals) also track per-index dirty lists for sparse writes. `build_visual_upload` (chained after) packs ECS visual data into `NpcVisualUpload`. Both are read by `extract_npc_data` during Extract via `Extract<Res<T>>` (zero-clone) and written directly to GPU buffers.
+`GpuUpdateMsg`: systems emit via `MessageWriter<GpuUpdateMsg>`. `populate_gpu_state` (PostUpdate) reads messages directly and routes updates: NPC variants go to `NpcGpuState` flat arrays with per-buffer dirty flags (7 bools: `dirty_positions`, `dirty_targets`, `dirty_speeds`, `dirty_factions`, `dirty_healths`, `dirty_arrivals`, `dirty_flags`); `Bld*` variants go to `BuildingGpuState` (positions, factions, healths, sprite_indices, flash_values, flags + dirty tracking). GPU-authoritative buffers (positions/arrivals) also track per-index dirty lists for sparse writes.
+
+`ProjGpuUpdateMsg`: systems emit via `MessageWriter<ProjGpuUpdateMsg>` (attack/tower/hit processing). `populate_proj_buffer_writes` (PostUpdate) reads these messages directly and applies updates to `ProjBufferWrites` (spawn/deactivate dirty index sets). No static projectile queue remains.
+
+`build_visual_upload` (chained after `populate_gpu_state`) packs ECS visual data into `NpcVisualUpload`. Both `NpcGpuState` and `NpcVisualUpload` are read by `extract_npc_data` during Extract via `Extract<Res<T>>` (zero-clone) and written directly to GPU buffers.
 
 | Variant | Fields | Producer Systems |
 |---------|--------|------------------|
@@ -108,7 +113,7 @@ Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector sys
 | BldSetDamageFlash | idx, intensity | damage_system (1.0 on hit, decays at 5.0/s in populate_gpu_state) |
 | BldHide | idx | death_cleanup_system (building branch) |
 
-`Bld*` variants are routed to `BuildingGpuState` by `populate_gpu_state`. NPC variants are routed to `NpcGpuState`. Both share the same message queue (`GpuUpdateMsg`).
+`Bld*` variants are routed to `BuildingGpuState` by `populate_gpu_state`. NPC variants are routed to `NpcGpuState`.
 
 **Removed (replaced by `build_visual_upload`):** SetColor, SetHealing, SetSleeping, SetEquipSprite — visual state is now derived from ECS components each frame by `build_visual_upload` (see [gpu-compute.md](gpu-compute.md)).
 
@@ -116,10 +121,7 @@ Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector sys
 
 | Static | Type | Writer | Reader |
 |--------|------|--------|--------|
-| GPU_UPDATE_QUEUE | `Mutex<Vec<GpuUpdate>>` | collect_gpu_updates | populate_gpu_state |
 | GAME_CONFIG_STAGING | `Mutex<Option<GameConfig>>` | external config | drain_game_config |
-| PROJ_GPU_UPDATE_QUEUE | `Mutex<Vec<ProjGpuUpdate>>` | attack_system, waypoint_attack_system | populate_proj_buffer_writes |
-| FREE_PROJ_SLOTS | `Mutex<Vec<usize>>` | (unused) | (unused) |
 
 GPU readback statics (`GPU_READ_STATE`, `PROJ_HIT_STATE`, `PROJ_POSITION_STATE`) deleted — replaced by Bevy `ReadbackComplete` observers writing directly to Bevy resources.
 

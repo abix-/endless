@@ -4,8 +4,8 @@
 //! Three-phase dispatch per frame: clear grid → insert NPCs → main logic.
 //!
 //! Data flow (zero-clone architecture):
-//! - Main world: Systems write GpuUpdateMsg → GPU_UPDATE_QUEUE
-//! - PostUpdate: populate_gpu_state drains queue → NpcGpuState
+//! - Main world: Systems write GpuUpdateMsg
+//! - PostUpdate: populate_gpu_state reads messages -> NpcGpuState
 //! - PostUpdate: build_visual_upload packs ECS + NpcGpuState → NpcVisualUpload
 //! - Extract: extract_npc_data reads both via Extract<Res<T>> (immutable, zero clone)
 //!   → writes compute data per-dirty-index to EntityGpuBuffers
@@ -33,7 +33,7 @@ use std::borrow::Cow;
 
 use crate::components::{NpcIndex, Faction, Job, Healing, Activity, EquippedWeapon, EquippedHelmet, EquippedArmor, Dead};
 use crate::constants::{FOOD_SPRITE, GOLD_SPRITE, ItemKind, MAX_BUILDINGS, MAX_ENTITIES};
-use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, ProjGpuUpdate, ProjGpuUpdateMsg};
+use crate::messages::{GpuUpdate, GpuUpdateMsg, ProjGpuUpdate, ProjGpuUpdateMsg};
 use crate::resources::{GameTime, GpuReadState, ProjHitState, ProjPositionState, SlotAllocator, BuildingSlots, SystemTimings};
 use crate::systems::stats::{self, TownUpgrades};
 use crate::world::WorldData;
@@ -122,7 +122,7 @@ pub struct RenderFrameConfig {
 /// NOT Clone/ExtractResource — never cloned to render world.
 #[derive(Resource)]
 pub struct NpcGpuState {
-    // --- Compute fields (written by game systems via GPU_UPDATE_QUEUE) ---
+    // --- Compute fields (written by game systems via GpuUpdateMsg) ---
     /// Position buffer: [x0, y0, x1, y1, ...] flattened
     pub positions: Vec<f32>,
     /// Target buffer: [x0, y0, x1, y1, ...] flattened
@@ -506,9 +506,10 @@ pub fn build_visual_upload(
     }
 }
 
-/// Drain GPU_UPDATE_QUEUE and apply updates to NpcGpuState + BuildingGpuState.
+/// Drain GpuUpdateMsg messages and apply updates to NpcGpuState + BuildingGpuState.
 /// Runs in main world each frame before extraction.
 pub fn populate_gpu_state(
+    mut events: MessageReader<GpuUpdateMsg>,
     mut npc_state: ResMut<NpcGpuState>,
     mut bld_state: ResMut<BuildingGpuState>,
     time: Res<Time>,
@@ -535,19 +536,18 @@ pub fn populate_gpu_state(
     bld_state.dirty_flags = false;
     bld_state.position_dirty_indices.clear();
 
-    if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-        for update in queue.drain(..) {
-            // Route to correct state based on variant
-            match &update {
-                GpuUpdate::BldSetPosition { .. } | GpuUpdate::BldSetFaction { .. } |
-                GpuUpdate::BldSetHealth { .. } | GpuUpdate::BldSetSpriteFrame { .. } |
-                GpuUpdate::BldSetFlags { .. } | GpuUpdate::BldSetDamageFlash { .. } |
-                GpuUpdate::BldHide { .. } => {
-                    bld_state.apply(&update);
-                }
-                _ => {
-                    npc_state.apply(&update);
-                }
+    for msg in events.read() {
+        let update = &msg.0;
+        // Route to correct state based on variant
+        match update {
+            GpuUpdate::BldSetPosition { .. } | GpuUpdate::BldSetFaction { .. } |
+            GpuUpdate::BldSetHealth { .. } | GpuUpdate::BldSetSpriteFrame { .. } |
+            GpuUpdate::BldSetFlags { .. } | GpuUpdate::BldSetDamageFlash { .. } |
+            GpuUpdate::BldHide { .. } => {
+                bld_state.apply(update);
+            }
+            _ => {
+                npc_state.apply(update);
             }
         }
     }

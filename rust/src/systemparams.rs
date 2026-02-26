@@ -3,6 +3,7 @@
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
+use crate::messages::GpuUpdateMsg;
 use crate::resources::*;
 use crate::messages::DirtyWriters;
 
@@ -27,13 +28,14 @@ impl WorldState<'_> {
         town_data_idx: usize,
         world_pos: Vec2,
         cost: i32,
+        gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
         commands: &mut Commands,
     ) -> Result<(), &'static str> {
         crate::world::place_building(
             &mut self.grid, &self.world_data,
             food_storage, &mut self.building_alloc, &mut self.building_slots,
             &mut self.dirty_writers, kind, town_data_idx, world_pos, cost,
-            &self.town_grids, commands,
+            &self.town_grids, gpu_updates, commands,
         )
     }
 
@@ -44,12 +46,13 @@ impl WorldState<'_> {
         row: i32, col: i32,
         town_center: Vec2,
         reason: &str,
+        gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
         commands: &mut Commands,
     ) -> Result<(), &'static str> {
         crate::world::destroy_building(
             &mut self.grid, &self.world_data,
             &mut self.building_slots, combat_log, game_time,
-            row, col, town_center, reason, commands,
+            row, col, town_center, reason, gpu_updates, commands,
         )
     }
 }

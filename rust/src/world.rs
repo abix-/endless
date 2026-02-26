@@ -36,7 +36,7 @@ use crate::components::Job;
 use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID_EXTENT, NPC_REGISTRY};
 use crate::resources::{FoodStorage, GoldStorage, FactionStats, RaiderState, BuildingEntityMap, CombatEventKind, GameTime, SystemTimings, SlotAllocator};
 use crate::messages::{DirtyWriters, BuildingGridDirtyMsg};
-use crate::messages::{GPU_UPDATE_QUEUE, GpuUpdate, CombatLogMsg};
+use crate::messages::{GpuUpdate, GpuUpdateMsg, CombatLogMsg};
 
 /// True if a position has not been tombstoned (i.e. the entity still exists).
 /// Tombstoned entities have position.x = -99999.0; this checks > -9000.0.
@@ -251,6 +251,7 @@ pub(crate) fn place_building(
     world_pos: Vec2,
     cost: i32,
     town_grids: &TownGrids,
+    gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
     commands: &mut Commands,
 ) -> Result<(), &'static str> {
     let (gc, gr) = grid.world_to_grid(world_pos);
@@ -303,10 +304,14 @@ pub(crate) fn place_building(
         )).id();
         building_slots.set_entity(slot, entity);
     }
+    push_building_gpu_updates(
+        slot, snapped, faction, def.hp,
+        crate::constants::tileset_index(kind), def.is_tower, gpu_updates,
+    );
 
     // Wall auto-tile: update sprites for new wall + neighbors
     if kind == BuildingKind::Wall {
-        update_wall_sprites_around(grid, building_slots, gc, gr);
+        update_wall_sprites_around(grid, building_slots, gc, gr, gpu_updates);
     }
 
     // Signal rebuild systems via messages
@@ -357,6 +362,7 @@ pub fn update_wall_sprites_around(
     grid: &WorldGrid,
     building_slots: &BuildingEntityMap,
     col: usize, row: usize,
+    gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
 ) {
     let wall_base = crate::constants::tileset_index(BuildingKind::Wall) as f32;
     let offsets: [(i32, i32); 5] = [(0, 0), (0, -1), (0, 1), (1, 0), (-1, 0)];
@@ -369,12 +375,10 @@ pub fn update_wall_sprites_around(
         let variant = wall_autotile_variant(grid, c, r);
         let pos = grid.grid_to_world(c, r);
         if let Some(inst) = building_slots.find_by_position(pos) {
-            if let Ok(mut queue) = crate::messages::GPU_UPDATE_QUEUE.lock() {
-                queue.push(GpuUpdate::SetSpriteFrame {
-                    idx: inst.slot, col: wall_base + variant as f32, row: 0.0,
-                    atlas: crate::constants::ATLAS_BUILDING,
-                });
-            }
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
+                idx: inst.slot, col: wall_base + variant as f32, row: 0.0,
+                atlas: crate::constants::ATLAS_BUILDING,
+            }));
         }
     }
 }
@@ -383,17 +387,16 @@ pub fn update_wall_sprites_around(
 pub fn update_all_wall_sprites(
     grid: &WorldGrid,
     building_slots: &BuildingEntityMap,
+    gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
 ) {
     let wall_base = crate::constants::tileset_index(BuildingKind::Wall) as f32;
     for inst in building_slots.iter_kind(BuildingKind::Wall) {
         let (gc, gr) = grid.world_to_grid(inst.position);
         let variant = wall_autotile_variant(grid, gc, gr);
-        if let Ok(mut queue) = crate::messages::GPU_UPDATE_QUEUE.lock() {
-            queue.push(GpuUpdate::SetSpriteFrame {
-                idx: inst.slot, col: wall_base + variant as f32, row: 0.0,
-                atlas: crate::constants::ATLAS_BUILDING,
-            });
-        }
+        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
+            idx: inst.slot, col: wall_base + variant as f32, row: 0.0,
+            atlas: crate::constants::ATLAS_BUILDING,
+        }));
     }
 }
 
@@ -450,18 +453,24 @@ pub fn resolve_spawner_npc(
 
 
 /// Push GPU updates for a building slot (position, faction, health, sprite).
-fn push_building_gpu_updates(slot: usize, pos: Vec2, faction: i32, max_hp: f32, tileset_idx: u16, tower: bool) {
+fn push_building_gpu_updates(
+    slot: usize,
+    pos: Vec2,
+    faction: i32,
+    max_hp: f32,
+    tileset_idx: u16,
+    tower: bool,
+    gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
+) {
     let flags = if tower { 3u32 } else { 0u32 };
-    if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-        queue.push(GpuUpdate::BldSetPosition { idx: slot, x: pos.x, y: pos.y });
-        queue.push(GpuUpdate::BldSetFaction { idx: slot, faction });
-        queue.push(GpuUpdate::BldSetHealth { idx: slot, health: max_hp });
-        queue.push(GpuUpdate::BldSetFlags { idx: slot, flags });
-        queue.push(GpuUpdate::BldSetSpriteFrame {
-            idx: slot, col: tileset_idx as f32, row: 0.0,
-            atlas: crate::constants::ATLAS_BUILDING,
-        });
-    }
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::BldSetPosition { idx: slot, x: pos.x, y: pos.y }));
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::BldSetFaction { idx: slot, faction }));
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::BldSetHealth { idx: slot, health: max_hp }));
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::BldSetFlags { idx: slot, flags }));
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::BldSetSpriteFrame {
+        idx: slot, col: tileset_idx as f32, row: 0.0,
+        atlas: crate::constants::ATLAS_BUILDING,
+    }));
 }
 
 /// Allocate GPU slot + create BuildingInstance + register spawner in one call.
@@ -476,7 +485,7 @@ pub fn place_building_instance(
     patrol_order: u32,
     wall_level: u8,
 ) -> Option<usize> {
-    use crate::constants::{building_def, tileset_index};
+    use crate::constants::building_def;
     let def = building_def(kind);
     let Some(slot) = slot_alloc.alloc() else {
         warn!("No building slots available for {:?}", kind);
@@ -484,8 +493,7 @@ pub fn place_building_instance(
     };
     let data_idx = building_map.iter_kind(kind).count();
     building_map.insert(kind, data_idx, slot);
-    push_building_gpu_updates(slot, pos, faction, def.hp, tileset_index(kind), def.is_tower);
-    let has_spawner = crate::constants::building_def(kind).spawner.is_some();
+    let has_spawner = def.spawner.is_some();
     building_map.add_instance(crate::resources::BuildingInstance {
         kind, position: pos, town_idx, slot,
         entity: Entity::PLACEHOLDER, faction,
@@ -506,10 +514,11 @@ pub fn place_building_instance(
 pub fn spawn_building_entities(
     commands: &mut Commands,
     building_map: &mut BuildingEntityMap,
+    gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
     loaded_hp: Option<&std::collections::HashMap<usize, f32>>,
 ) {
     use crate::components::*;
-    use crate::constants::building_def;
+    use crate::constants::{building_def, tileset_index};
 
     // Collect slots to iterate (can't mutate map while iterating)
     let slots: Vec<usize> = building_map.all_slots().collect();
@@ -533,6 +542,7 @@ pub fn spawn_building_entities(
             Building { kind },
         )).id();
         building_map.set_entity(slot, entity);
+        push_building_gpu_updates(slot, pos, faction, hp, tileset_index(kind), def.is_tower, gpu_updates);
         count += 1;
     }
     info!("Spawned {} building entities", count);
@@ -688,6 +698,7 @@ pub(crate) fn destroy_building(
     row: i32, col: i32,
     town_center: Vec2,
     reason: &str,
+    gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
     commands: &mut Commands,
 ) -> Result<(), &'static str> {
     let world_pos = town_grid_to_world(town_center, row, col);
@@ -712,7 +723,7 @@ pub(crate) fn destroy_building(
 
     // Wall auto-tile: update neighbor sprites after wall removed
     if kind == BuildingKind::Wall {
-        update_wall_sprites_around(grid, building_slots, gc, gr);
+        update_wall_sprites_around(grid, building_slots, gc, gr, gpu_updates);
     }
 
     // Combat log — derive faction from building's town_idx

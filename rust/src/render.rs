@@ -691,7 +691,6 @@ fn box_select_system(
     camera_query: Query<(&Transform, &Projection), With<MainCamera>>,
     mut squad_state: ResMut<crate::resources::SquadState>,
     build_ctx: Res<crate::resources::BuildMenuContext>,
-    building_slots: Res<crate::resources::BuildingEntityMap>,
     gpu_state: Res<crate::resources::GpuReadState>,
     mut egui_contexts: bevy_egui::EguiContexts,
     npc_entity_map: Res<NpcEntityMap>,

@@ -8,8 +8,8 @@ GPU-accelerated projectiles with WGSL compute shader for movement and spatial gr
 
 ```
 attack_system fires projectile
-    → ProjGpuUpdate::Spawn pushed to PROJ_GPU_UPDATE_QUEUE
-    → populate_proj_buffer_writes drains to ProjBufferWrites
+    → ProjGpuUpdateMsg(ProjGpuUpdate::Spawn) emitted
+    → populate_proj_buffer_writes reads messages to update ProjBufferWrites
     → extract_proj_data (Extract<Res<T>>, zero-clone) writes dirty slots to GPU
     → ProjectileComputeNode dispatches projectile_compute.wgsl (3 modes)
         ├─ Mode 0: Clear projectile spatial grid
@@ -29,8 +29,8 @@ Projectile compute runs after NPC compute because it reads the NPC spatial grid 
 
 Projectiles originate from Bevy's `attack_system`. The flow:
 
-1. `attack_system` pushes `ProjGpuUpdate::Spawn` to `PROJ_GPU_UPDATE_QUEUE`
-2. `populate_proj_buffer_writes` (PostUpdate) drains queue into `ProjBufferWrites` flat arrays
+1. `attack_system` emits `ProjGpuUpdateMsg(ProjGpuUpdate::Spawn)`
+2. `populate_proj_buffer_writes` (PostUpdate) reads `ProjGpuUpdateMsg` and applies updates to `ProjBufferWrites` flat arrays
 3. `extract_proj_data` (ExtractSchedule) reads `ProjBufferWrites` via `Extract<Res<T>>` (zero-clone), writes dirty slots to GPU, builds projectile instance buffer
 4. `ProjectileComputeNode` dispatches shader
 
@@ -69,10 +69,10 @@ for slot in 0..min(proj_alloc.next, hit_state.len()):
     if hit.x >= 0 and hit.y == 0 (collision):
         push DamageMsg { entity_idx: hit.x, amount: damage, attacker: shooter, attacker_faction }
         recycle slot via ProjSlotAllocator
-        send ProjGpuUpdate::Deactivate to GPU
+        emit ProjGpuUpdateMsg(ProjGpuUpdate::Deactivate)
     if hit.x == -2 (expired sentinel):
         recycle slot via ProjSlotAllocator
-        send ProjGpuUpdate::Deactivate to GPU
+        emit ProjGpuUpdateMsg(ProjGpuUpdate::Deactivate)
 ```
 
 Entity buffer layout: `[0..npc_count]` = NPCs, `[npc_count..entity_count]` = buildings. The GPU collision scans the unified entity spatial grid, so projectiles hit both NPCs and buildings automatically via faction check (no friendly fire on same-faction buildings). `damage_system` routes by `entity_idx`: `< npc_count` → NPC damage, `>= npc_count` → building damage.
@@ -128,7 +128,7 @@ Entity buffer layout: `[0..npc_count]` = NPCs, `[npc_count..entity_count]` = bui
 ## Slot Lifecycle
 
 ```
-PROJ_GPU_UPDATE_QUEUE → ProjBufferWrites → GPU ──▶ ACTIVE
+ProjGpuUpdateMsg → ProjBufferWrites → GPU ──▶ ACTIVE
                          ▲                            │
                          │                    hit or expire
                          │                            │

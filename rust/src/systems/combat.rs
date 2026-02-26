@@ -500,6 +500,7 @@ pub fn building_death_system(
             &mut combat_log, &game_time,
             trow, tcol, center,
             &format!("{:?} destroyed in {}", msg.kind, town_name),
+            &mut gpu_updates,
             &mut commands,
         );
         world.dirty_writers.mark_building_changed(msg.kind);

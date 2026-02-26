@@ -67,9 +67,10 @@ Main World (ECS)                       Render World (GPU)
 
 ```
 ECS → GPU (upload):
-  GpuUpdateMsg → collect_gpu_updates → GPU_UPDATE_QUEUE
-    → populate_gpu_state → NpcGpuState (NPC variants, per-buffer dirty flags)
+  GpuUpdateMsg → populate_gpu_state → NpcGpuState (NPC variants, per-buffer dirty flags)
                          → BuildingGpuState (Bld* variants, CPU-side building visual state)
+  ProjGpuUpdateMsg → populate_proj_buffer_writes
+    → ProjBufferWrites (spawn/deactivate dirty sets for extract_proj_data)
 
   build_visual_upload (PostUpdate, chained after populate_gpu_state):
     Single O(N) pass: ECS query + NpcGpuState → NpcVisualUpload

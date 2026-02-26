@@ -1406,14 +1406,14 @@ pub fn load_game_system(
     // 4. Load building instances from save data → BuildingEntityMap
     let world_size_px = ws.grid.width as f32 * ws.grid.cell_size;
     load_building_instances_from_save(&save, &mut tracking.building_alloc, &mut ws.building_slots, &ws.world_data, world_size_px);
-    world::update_all_wall_sprites(&ws.grid, &ws.building_slots);
+    world::update_all_wall_sprites(&ws.grid, &ws.building_slots, &mut gpu_updates);
 
     // 4b. Restore growth state from save data onto BuildingInstances
     restore_growth_from_save(&save, &mut ws.building_slots);
 
     // 4c. Convert old HP format, spawn building entities
     let hp_by_slot = convert_building_hp_to_slots(&save.building_hp, &ws.building_slots, &ws.world_data);
-    world::spawn_building_entities(&mut commands, &mut ws.building_slots, Some(&hp_by_slot));
+    world::spawn_building_entities(&mut commands, &mut ws.building_slots, &mut gpu_updates, Some(&hp_by_slot));
 
     // 5. Spawn NPC entities from save data
     spawn_npcs_from_save(

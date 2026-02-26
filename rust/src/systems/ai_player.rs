@@ -34,6 +34,7 @@ pub struct AiBuildRes<'w, 's> {
     world: WorldState<'w>,
     food_storage: ResMut<'w, FoodStorage>,
     upgrade_queue: MessageWriter<'w, crate::systems::stats::UpgradeMsg>,
+    gpu_updates: MessageWriter<'w, crate::messages::GpuUpdateMsg>,
     policies: ResMut<'w, TownPolicies>,
     commands: Commands<'w, 's>,
 }
@@ -988,6 +989,7 @@ fn find_waypoint_slot(
 fn sync_town_perimeter_waypoints(
     world: &mut WorldState,
     combat_log: &mut MessageWriter<crate::messages::CombatLogMsg>,
+    gpu_updates: &mut MessageWriter<crate::messages::GpuUpdateMsg>,
     game_time: &GameTime,
     town_data_idx: usize,
     personality: AiPersonality,
@@ -1015,6 +1017,7 @@ fn sync_town_perimeter_waypoints(
         if world.destroy_building(
             combat_log, game_time,
             row, col, center, "waypoint pruned (not on outer ring)",
+            gpu_updates,
             commands,
         ).is_ok() {
             removed += 1;
@@ -1032,6 +1035,7 @@ pub fn sync_patrol_perimeter_system(
     mut world: WorldState,
     ai_state: Res<AiPlayerState>,
     mut combat_log: MessageWriter<crate::messages::CombatLogMsg>,
+    mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
     game_time: Res<GameTime>,
     timings: Res<SystemTimings>,
     mut perimeter_dirty: ResMut<PerimeterSyncDirty>,
@@ -1049,7 +1053,7 @@ pub fn sync_patrol_perimeter_system(
     let mut removed_total = 0usize;
     for (town_idx, personality) in town_personalities {
         removed_total += sync_town_perimeter_waypoints(
-            &mut world, &mut combat_log, &game_time,
+            &mut world, &mut combat_log, &mut gpu_updates, &game_time,
             town_idx, personality, &mut commands,
         );
     }
@@ -1551,7 +1555,7 @@ fn try_build_at_slot(
 ) -> Option<String> {
     let pos = world::town_grid_to_world(center, row, col);
     res.world.place_building(
-        &mut res.food_storage, kind, tdi, pos, cost, &mut res.commands,
+        &mut res.food_storage, kind, tdi, pos, cost, &mut res.gpu_updates, &mut res.commands,
     ).ok().map(|_| format!("built {label}"))
 }
 
@@ -1736,7 +1740,7 @@ fn try_build_road_grid(
 
         let pos = world::town_grid_to_world(center, r, c);
         if res.world.place_building(
-            &mut res.food_storage, BuildingKind::Road, ctx.tdi, pos, cost, &mut res.commands,
+            &mut res.food_storage, BuildingKind::Road, ctx.tdi, pos, cost, &mut res.gpu_updates, &mut res.commands,
         ).is_ok() {
             placed += 1;
         }
@@ -1804,7 +1808,7 @@ fn execute_action(
             let (row, col) = find_waypoint_slot(tg, ctx.center, &res.world.grid, &res.world.building_slots, ctx.ti, personality, cached_ring)?;
             let pos = world::town_grid_to_world(ctx.center, row, col);
             if res.world.place_building(
-                &mut res.food_storage, world::BuildingKind::Waypoint, ctx.tdi, pos, cost, &mut res.commands,
+                &mut res.food_storage, world::BuildingKind::Waypoint, ctx.tdi, pos, cost, &mut res.gpu_updates, &mut res.commands,
             ).is_ok() {
                 recalc_waypoint_patrol_order_clockwise(&mut res.world.world_data, &mut res.world.building_slots, ctx.ti);
                 Some("built waypoint".into())
@@ -2231,4 +2235,3 @@ pub fn ai_squad_commander_system(
         }
     }
 }
-

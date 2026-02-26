@@ -119,7 +119,7 @@ Frame execution order ───────────────────�
 | [behavior.md](behavior.md) | Decision system, utility AI, state machine, energy, patrol, flee/leash | 7/10 |
 | [ai-player.md](ai-player.md) | AI decision loop, hunger system, building scoring, slot placement, squad commander, migration | 8/10 |
 | [economy.md](economy.md) | Farm growth, food theft, starvation, raider foraging, spawner respawn (BuildingInstance fields), dynamic raider town migration (spawn→boat→disembark→walk→settle) | 8/10 |
-| [messages.md](messages.md) | Static queues, GpuUpdateMsg messages, GPU_READ_STATE | 7/10 |
+| [messages.md](messages.md) | Message flow, GpuUpdateMsg, GAME_CONFIG_STAGING, readback resources | 7/10 |
 | [resources.md](resources.md) | Bevy resources, game state ownership, UI caches, world data | 7/10 |
 | [projectiles.md](projectiles.md) | GPU projectile compute, hit detection, instanced rendering, slot allocation | 7/10 |
 | [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
@@ -177,7 +177,7 @@ rust/
   src/systems/
     spawn.rs            # Spawn system (MessageReader<SpawnNpcMsg>), materialize_npc() shared helper (single source of truth for fresh spawn + save-load, takes BuildingEntityMap for patrol routes), NpcSpawnOverrides, build_patrol_route(BuildingEntityMap)
     stats.rs            # CombatConfig (jobs + attacks + crossbow_attack base), TownUpgrades (Vec<Vec<u8>>), UpgradeQueue, dynamic UpgradeRegistry via LazyLock (UpgradeNode/UpgradeBranch with section grouping, built from NPC_REGISTRY upgrade_stats + TOWN_UPGRADES at init), UPGRADES static, resolve_combat_stats() (uses npc_def.upgrade_category + UPGRADES.stat_mult), xp_grant_system (multi-drop loot: picks from loot_drop slice via xp%len), process_upgrades_system, auto_upgrade_system, upgrade helpers (upgrade_unlocked/upgrade_available/deduct_upgrade_cost/format_upgrade_cost/missing_prereqs/upgrade_effect_summary/branch_total/expansion_cost)
-    drain.rs            # Queue drain systems (drain_combat_log collects CombatLogMsg → CombatLog), collect_gpu_updates
+    drain.rs            # Queue drain systems (drain_combat_log collects CombatLogMsg → CombatLog)
     movement.rs         # GPU position readback, arrival detection
     combat.rs           # Attack cooldown, GPU-unified targeting (NPC + building targets), process_proj_hits (unified DamageMsg), building_tower_system (fountain towers via GPU combat_targets readback), building_death_system (loot, AI deactivation, endless respawn via BuildingDeathMsg)
     health.rs           # Unified damage_system (NPC + building damage, BldSetDamageFlash), death, cleanup, healing

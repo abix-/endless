@@ -340,7 +340,6 @@ pub fn build_app(app: &mut App) {
        .add_systems(Update, sync_patrol_perimeter_system.before(rebuild_patrol_routes_system).in_set(Step::Behavior))
        .add_systems(Update, ai_squad_commander_system.after(ai_decision_system).before(decision_system).in_set(Step::Behavior))
        .add_systems(Update, sync_building_hp_render.in_set(Step::Behavior))
-       .add_systems(Update, collect_gpu_updates.after(Step::Behavior).run_if(game_active.clone()))
        // Debug settings sync + tick logging
        .add_systems(Update, (sync_debug_settings, debug_tick_system).run_if(game_active.clone()))
        // Save/Load — F5/F9 input + save + load + toast
