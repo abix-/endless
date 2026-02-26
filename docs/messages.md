@@ -74,6 +74,12 @@ Individual message types replace the old `DirtyFlags` resource. Each signal is i
 
 `DirtyWriters` provides `mark_building_changed(kind)` helper that emits the right combo of signals for build/destroy events, and `emit_all()` for startup/reset to trigger first-frame rebuilds.
 
+**Drain pattern for Reader/Writer conflicts:** When a system needs both `MessageReader<T>` (requires `Res<Messages<T>>`) and `MessageWriter<T>` (requires `ResMut<Messages<T>>`) for the same message type — e.g., because it reads dirty signals AND writes them via `DirtyWriters` in `WorldState` — Bevy's scheduler panics (B0002). The fix: split the read into a tiny drain system that runs `.before()` the main system, writing to an intermediate `Resource` flag. Two drain systems exist:
+- `ai_dirty_drain_system` → `AiSnapshotDirty` (drains BuildingGridDirtyMsg + MiningDirtyMsg + PatrolPerimeterDirtyMsg for `ai_decision_system`)
+- `perimeter_dirty_drain_system` → `PerimeterSyncDirty` (drains PatrolPerimeterDirtyMsg for `sync_patrol_perimeter_system`)
+
+Both can drain the same message type because each `MessageReader` has an independent cursor.
+
 ### CombatLogMsg
 
 Replaces direct `ResMut<CombatLog>` writes from 18+ systems. Writers emit `CombatLogMsg` via `MessageWriter` (non-exclusive — all writers can run in parallel). `drain_combat_log` system (Step::Drain) collects messages into the `CombatLog` resource for UI display.

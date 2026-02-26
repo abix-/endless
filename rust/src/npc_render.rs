@@ -37,7 +37,7 @@ use bevy::{
         sync_world::MainEntity,
         texture::GpuImage,
         view::ExtractedView,
-        Extract, Render, RenderApp, RenderSystems,
+        Extract, Render, RenderApp, RenderStartup, RenderSystems,
     },
 };
 use bytemuck::{Pod, Zeroable};
@@ -468,6 +468,7 @@ impl Plugin for NpcRenderPlugin {
             .add_render_command::<Transparent2d, DrawNpcOverlayCommands>()
             .add_render_command::<Transparent2d, DrawProjCommands>()
             .init_resource::<SpecializedRenderPipelines<NpcPipeline>>()
+            .add_systems(RenderStartup, init_npc_render_pipeline)
             .add_systems(
                 ExtractSchedule,
                 (extract_npc_batch, extract_proj_batch, extract_camera_state, extract_npc_data, extract_proj_data, extract_overlay_instances, extract_building_body_instances),
@@ -484,12 +485,6 @@ impl Plugin for NpcRenderPlugin {
             );
     }
 
-    fn finish(&self, app: &mut App) {
-        let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
-            return;
-        };
-        render_app.init_resource::<NpcPipeline>();
-    }
 }
 
 /// Spawn the single NPC batch entity (represents all NPC layers for rendering).
@@ -1380,56 +1375,55 @@ impl SpecializedRenderPipeline for NpcPipeline {
     }
 }
 
-impl FromWorld for NpcPipeline {
-    fn from_world(world: &mut World) -> Self {
-        let asset_server = world.resource::<AssetServer>();
-
-        // 4 texture+sampler pairs: char, world, building, extras
-        let texture_bind_group_layout = BindGroupLayoutDescriptor::new(
-            "npc_texture_bind_group_layout",
-            &BindGroupLayoutEntries::sequential(
-                ShaderStages::FRAGMENT,
-                (
-                    texture_2d(TextureSampleType::Float { filterable: true }),
-                    sampler(SamplerBindingType::Filtering),
-                    texture_2d(TextureSampleType::Float { filterable: true }),
-                    sampler(SamplerBindingType::Filtering),
-                    texture_2d(TextureSampleType::Float { filterable: true }),
-                    sampler(SamplerBindingType::Filtering),
-                    texture_2d(TextureSampleType::Float { filterable: true }),
-                    sampler(SamplerBindingType::Filtering),
-                ),
+fn init_npc_render_pipeline(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+) {
+    // 4 texture+sampler pairs: char, world, building, extras
+    let texture_bind_group_layout = BindGroupLayoutDescriptor::new(
+        "npc_texture_bind_group_layout",
+        &BindGroupLayoutEntries::sequential(
+            ShaderStages::FRAGMENT,
+            (
+                texture_2d(TextureSampleType::Float { filterable: true }),
+                sampler(SamplerBindingType::Filtering),
+                texture_2d(TextureSampleType::Float { filterable: true }),
+                sampler(SamplerBindingType::Filtering),
+                texture_2d(TextureSampleType::Float { filterable: true }),
+                sampler(SamplerBindingType::Filtering),
+                texture_2d(TextureSampleType::Float { filterable: true }),
+                sampler(SamplerBindingType::Filtering),
             ),
-        );
+        ),
+    );
 
-        let camera_bind_group_layout = BindGroupLayoutDescriptor::new(
-            "npc_camera_bind_group_layout",
-            &BindGroupLayoutEntries::sequential(
-                ShaderStages::VERTEX_FRAGMENT,
-                (uniform_buffer::<CameraUniform>(false),),
+    let camera_bind_group_layout = BindGroupLayoutDescriptor::new(
+        "npc_camera_bind_group_layout",
+        &BindGroupLayoutEntries::sequential(
+            ShaderStages::VERTEX_FRAGMENT,
+            (uniform_buffer::<CameraUniform>(false),),
+        ),
+    );
+
+    let npc_data_bind_group_layout = BindGroupLayoutDescriptor::new(
+        "npc_data_bind_group_layout",
+        &BindGroupLayoutEntries::sequential(
+            ShaderStages::VERTEX,
+            (
+                storage_buffer_read_only::<Vec<[f32; 2]>>(false),
+                storage_buffer_read_only::<Vec<f32>>(false),
+                storage_buffer_read_only::<Vec<[f32; 8]>>(false),
+                storage_buffer_read_only::<Vec<[f32; 4]>>(false),
             ),
-        );
+        ),
+    );
 
-        let npc_data_bind_group_layout = BindGroupLayoutDescriptor::new(
-            "npc_data_bind_group_layout",
-            &BindGroupLayoutEntries::sequential(
-                ShaderStages::VERTEX,
-                (
-                    storage_buffer_read_only::<Vec<[f32; 2]>>(false),
-                    storage_buffer_read_only::<Vec<f32>>(false),
-                    storage_buffer_read_only::<Vec<[f32; 8]>>(false),
-                    storage_buffer_read_only::<Vec<[f32; 4]>>(false),
-                ),
-            ),
-        );
-
-        NpcPipeline {
-            shader: asset_server.load("shaders/npc_render.wgsl"),
-            texture_bind_group_layout,
-            camera_bind_group_layout,
-            npc_data_bind_group_layout,
-        }
-    }
+    commands.insert_resource(NpcPipeline {
+        shader: asset_server.load("shaders/npc_render.wgsl"),
+        texture_bind_group_layout,
+        camera_bind_group_layout,
+        npc_data_bind_group_layout,
+    });
 }
 
 // =============================================================================

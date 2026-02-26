@@ -38,12 +38,47 @@ pub struct AiBuildRes<'w, 's> {
     commands: Commands<'w, 's>,
 }
 
-/// Bundled dirty-flag message readers for ai_decision_system (keeps under 16-param limit).
+/// Bundled dirty-flag message readers for ai_dirty_drain_system.
+/// Separate from ai_decision_system to avoid MessageReader/MessageWriter conflict
+/// (ai_decision_system writes via DirtyWriters in WorldState).
 #[derive(SystemParam)]
 pub struct AiDirtyReaders<'w, 's> {
     pub grid: MessageReader<'w, 's, crate::messages::BuildingGridDirtyMsg>,
     pub mining: MessageReader<'w, 's, crate::messages::MiningDirtyMsg>,
     pub perimeter: MessageReader<'w, 's, crate::messages::PatrolPerimeterDirtyMsg>,
+}
+
+/// Intermediate resource: set by ai_dirty_drain_system, consumed by ai_decision_system.
+#[derive(Resource, Default)]
+pub struct AiSnapshotDirty(pub bool);
+
+/// Intermediate resource: set by perimeter_dirty_drain_system, consumed by sync_patrol_perimeter_system.
+#[derive(Resource, Default)]
+pub struct PerimeterSyncDirty(pub bool);
+
+/// Drain dirty messages into AiSnapshotDirty. Runs before ai_decision_system
+/// so that the decision system can use DirtyWriters without conflicting.
+pub fn ai_dirty_drain_system(
+    mut dirty: ResMut<AiSnapshotDirty>,
+    mut readers: AiDirtyReaders,
+) {
+    if readers.grid.read().count() > 0
+        || readers.mining.read().count() > 0
+        || readers.perimeter.read().count() > 0
+    {
+        dirty.0 = true;
+    }
+}
+
+/// Drain PatrolPerimeterDirtyMsg for sync_patrol_perimeter_system (which also
+/// has DirtyWriters via WorldState, causing a Reader/Writer conflict).
+pub fn perimeter_dirty_drain_system(
+    mut dirty: ResMut<PerimeterSyncDirty>,
+    mut reader: MessageReader<crate::messages::PatrolPerimeterDirtyMsg>,
+) {
+    if reader.read().count() > 0 {
+        dirty.0 = true;
+    }
 }
 
 /// Alive buildings for a town as `(row, col)` grid slots. Returns an iterator.
@@ -999,11 +1034,12 @@ pub fn sync_patrol_perimeter_system(
     mut combat_log: MessageWriter<crate::messages::CombatLogMsg>,
     game_time: Res<GameTime>,
     timings: Res<SystemTimings>,
-    mut perimeter_dirty: MessageReader<crate::messages::PatrolPerimeterDirtyMsg>,
+    mut perimeter_dirty: ResMut<PerimeterSyncDirty>,
 ) {
-    // Message-gated system: only runs when perimeter-affecting state changed.
+    // Flag-gated system: only runs when perimeter_dirty_drain_system detected dirty messages.
     let _t = timings.scope("sync_patrol_perimeter");
-    if perimeter_dirty.read().count() == 0 { return; }
+    if !perimeter_dirty.0 { return; }
+    perimeter_dirty.0 = false;
 
     let town_personalities: Vec<(usize, AiPersonality)> = ai_state.players.iter()
         .filter(|p| p.active)
@@ -1122,7 +1158,7 @@ pub fn ai_decision_system(
     mut snapshots: Local<AiTownSnapshotCache>,
     timings: Res<SystemTimings>,
     settings: Res<crate::settings::UserSettings>,
-    mut dirty_readers: AiDirtyReaders,
+    mut snapshot_dirty: ResMut<AiSnapshotDirty>,
 ) {
     // System timing gate:
     // runs every `decision_interval`, not every frame.
@@ -1131,8 +1167,9 @@ pub fn ai_decision_system(
     if *timer < config.decision_interval { return; }
     *timer = 0.0;
 
-    let snapshot_dirty = dirty_readers.grid.read().count() > 0 || dirty_readers.mining.read().count() > 0 || dirty_readers.perimeter.read().count() > 0;
-    if snapshot_dirty {
+    let dirty = snapshot_dirty.0;
+    snapshot_dirty.0 = false;
+    if dirty {
         snapshots.towns.clear();
         // Recompute spawner counts per town from BuildingEntityMap
         snapshots.spawner_counts.clear();

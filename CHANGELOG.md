@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-25e
+
+- **fix white screen: dirty message Reader/Writer conflicts** — `ai_decision_system` and `sync_patrol_perimeter_system` both had `MessageReader<T>` + `MessageWriter<T>` (via `DirtyWriters` in `WorldState`) for the same message types, causing Bevy B0002 schedule panic; added drain system pattern: `ai_dirty_drain_system` → `AiSnapshotDirty` resource (3 message types), `perimeter_dirty_drain_system` → `PerimeterSyncDirty` resource (1 message type); each drain runs `.before()` its consumer system; also migrated `NpcPipeline` from `FromWorld`/`finish()` to `RenderStartup` system (Bevy 0.18 pattern)
+
 ## 2026-02-25d
 
 - **bevy messages: replace DirtyFlags + CombatLog contention** — decomposed `DirtyFlags` resource (9 bools, 25+ competing systems) into 8 individual Bevy Message types (`BuildingGridDirtyMsg`, `PatrolsDirtyMsg`, `PatrolPerimeterDirtyMsg`, `HealingZonesDirtyMsg`, `SquadsDirtyMsg`, `MiningDirtyMsg`, `AiSquadsDirtyMsg`, `PatrolSwapMsg`); added `DirtyWriters<'w>` SystemParam bundle with `mark_building_changed(kind)` helper and `emit_all()` for startup/reset; converted `CombatLog` from direct `ResMut` writes (18 systems contending) to `CombatLogMsg` message pattern with `drain_combat_log` collector system; added `BuildingHealState` resource for persistent healing flag; added `AiDirtyReaders<'w, 's>` SystemParam bundle for AI system; removed dead code: `FoodEvents` (zero readers), `ResetFlag` (never set), `reset_bevy_system`; 18 files modified across messages, resources, systems, UI, and save/load

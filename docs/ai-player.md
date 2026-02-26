@@ -77,7 +77,7 @@ Runs every **5 seconds** (`DEFAULT_AI_INTERVAL`). Each tick, every active AI pla
 
 ```
 1. Skip if inactive (migration not settled yet)
-2. Build/refresh town snapshot (cached; cleared when `BuildingGridDirtyMsg`, `MiningDirtyMsg`, or `PatrolPerimeterDirtyMsg` received via `AiDirtyReaders` bundle). Snapshot includes cached waypoint ring slots and building positions as HashSets.
+2. Build/refresh town snapshot (cached; cleared when `AiSnapshotDirty` flag is set by `ai_dirty_drain_system`). Snapshot includes cached waypoint ring slots and building positions as HashSets.
 3. Count food and spawners (spawner counts cached in AiTownSnapshotCache, recomputed only when snapshot is dirty)
 4. Build TownContext (center, food, has_slots, slot_fullness, MineAnalysis for Builders)
 5. DETERMINISTIC MINER BOOTSTRAP: if mine_shafts < min_miner_homes and mines exist:
@@ -272,7 +272,7 @@ Search radius: 5000px from town center. Cooldown includes ±2s jitter. Initial c
 
 ## Perimeter Maintenance
 
-`sync_patrol_perimeter_system` (message-gated on `MessageReader<PatrolPerimeterDirtyMsg>`):
+`sync_patrol_perimeter_system` (flag-gated via `PerimeterSyncDirty` resource, set by `perimeter_dirty_drain_system`):
 1. Compute personality's ideal outer ring via `waypoint_ring_slots(tg)` (block corners on build area perimeter)
 2. Prune waypoints not in the ideal ring (uses full `destroy_building` teardown) — when town area expands, the ring shifts outward and inner waypoints are destroyed
 3. Recalculate clockwise patrol order (angle-based sort around town center)

@@ -256,6 +256,8 @@ pub fn build_app(app: &mut App) {
        .init_resource::<EndlessMode>()
        .init_resource::<AiPlayerState>()
        .init_resource::<AiPlayerConfig>()
+       .init_resource::<systems::ai_player::AiSnapshotDirty>()
+       .init_resource::<systems::ai_player::PerimeterSyncDirty>()
        .init_resource::<resources::NpcDecisionConfig>()
        .init_resource::<systems::stats::CombatConfig>()
        .init_resource::<systems::stats::TownUpgrades>()
@@ -325,10 +327,12 @@ pub fn build_app(app: &mut App) {
            farm_visual_system,
            auto_upgrade_system,
            process_upgrades_system.after(auto_upgrade_system),
+           systems::ai_player::ai_dirty_drain_system.before(ai_decision_system),
            ai_decision_system,
            endless_system,
            (rebuild_patrol_routes_system, squad_cleanup_system),
        ).in_set(Step::Behavior))
+       .add_systems(Update, systems::ai_player::perimeter_dirty_drain_system.before(sync_patrol_perimeter_system).in_set(Step::Behavior))
        .add_systems(Update, sync_patrol_perimeter_system.before(rebuild_patrol_routes_system).in_set(Step::Behavior))
        .add_systems(Update, ai_squad_commander_system.after(ai_decision_system).before(decision_system).in_set(Step::Behavior))
        .add_systems(Update, building_damage_system.in_set(Step::Behavior))
