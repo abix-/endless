@@ -10,6 +10,7 @@ Completed items moved from roadmap for readability.
 - [x] Stage 16: CombatLog → CombatLogMsg message pattern (18 writers freed from ResMut contention, drain_combat_log collector)
 - [x] Stage 16: dead code removal (FoodEvents, ResetFlag, reset_bevy_system — zero readers/never set)
 - [x] Stage 16: drain systems for MessageReader/Writer conflicts (ai_dirty_drain_system, perimeter_dirty_drain_system)
+- [x] Stage 16 perf: terrain tilemap sync now message-driven (`TerrainDirtyMsg`) instead of `WorldGrid::is_changed()`; prevents full 1000x1000 terrain rewrites on non-terrain grid updates
 
 ### Roadmap Migration (Stages 14, 15, 16, 16.5, 18, 22)
 - [x] Stage 14: endless mode (defeated AI towns become leaderless, replacement AI scaled to player strength)
@@ -405,3 +406,4 @@ Completed items moved from roadmap for readability.
 ### Intentional Removals
 - [x] Sprite atlas browser tool — intentional removal (Godot dev tool, not needed in Bevy)
 - [x] World-space town labels — intentional removal (Godot scenes, not ported)
+
