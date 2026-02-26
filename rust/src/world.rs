@@ -178,7 +178,7 @@ pub fn in_foreign_build_area(pos: Vec2, own_town_idx: usize, towns: &[Town], tow
 }
 
 /// All empty buildable slots in a town grid (excludes center 0,0).
-pub fn empty_slots(tg: &TownGrid, center: Vec2, grid: &WorldGrid, building_map: &crate::resources::EntityMap) -> Vec<(i32, i32)> {
+pub fn empty_slots(tg: &TownGrid, center: Vec2, grid: &WorldGrid, entity_map: &crate::resources::EntityMap) -> Vec<(i32, i32)> {
     let (min_row, max_row, min_col, max_col) = build_bounds(tg);
     let mut out = Vec::new();
     for r in min_row..=max_row {
@@ -186,7 +186,7 @@ pub fn empty_slots(tg: &TownGrid, center: Vec2, grid: &WorldGrid, building_map: 
             if r == 0 && c == 0 { continue; }
             let pos = town_grid_to_world(center, r, c);
             let (gc, gr) = grid.world_to_grid(pos);
-            if grid.cell(gc, gr).is_some() && !building_map.has_building_at(gc as _, gr as _) {
+            if grid.cell(gc, gr).is_some() && !entity_map.has_building_at(gc as _, gr as _) {
                 out.push((r, c));
             }
         }
@@ -244,7 +244,7 @@ pub(crate) fn place_building(
     world_data: &WorldData,
     food_storage: &mut FoodStorage,
     slot_alloc: &mut crate::resources::EntitySlots,
-    building_slots: &mut EntityMap,
+    entity_map: &mut EntityMap,
     dirty_writers: &mut DirtyWriters,
     kind: BuildingKind,
     town_data_idx: usize,
@@ -260,7 +260,7 @@ pub(crate) fn place_building(
 
     // Validate: cell exists, empty, not water
     let cell = grid.cell(gc, gr).ok_or("cell out of bounds")?;
-    if building_slots.has_building_at(gc as i32, gr as i32) { return Err("cell already has a building"); }
+    if entity_map.has_building_at(gc as i32, gr as i32) { return Err("cell already has a building"); }
     if cell.terrain == Biome::Water { return Err("cannot build on water"); }
 
     // Reject placement inside another faction's build area
@@ -278,10 +278,10 @@ pub(crate) fn place_building(
 
     // Allocate GPU slot + create instance + register spawner
     let patrol_order = if kind == BuildingKind::Waypoint {
-        building_slots.count_for_town(BuildingKind::Waypoint, town_idx) as u32
+        entity_map.count_for_town(BuildingKind::Waypoint, town_idx) as u32
     } else { 0 };
     let wall_level = if kind == BuildingKind::Wall { 1 } else { 0 };
-    let Some(slot) = place_building_instance(slot_alloc, building_slots, kind, snapped, town_idx, faction, patrol_order, wall_level) else {
+    let Some(slot) = place_building_instance(slot_alloc, entity_map, kind, snapped, town_idx, faction, patrol_order, wall_level) else {
         return Err("no GPU slots available");
     };
 
@@ -297,7 +297,7 @@ pub(crate) fn place_building(
             Speed(0.0),
             Building { kind },
         )).id();
-        building_slots.entities.insert(slot, entity);
+        entity_map.entities.insert(slot, entity);
     }
     push_building_gpu_updates(
         slot, snapped, faction, def.hp,
@@ -306,7 +306,7 @@ pub(crate) fn place_building(
 
     // Wall auto-tile: update sprites for new wall + neighbors
     if kind == BuildingKind::Wall {
-        update_wall_sprites_around(grid, building_slots, gc, gr, gpu_updates);
+        update_wall_sprites_around(grid, entity_map, gc, gr, gpu_updates);
     }
 
     // Signal rebuild systems via messages
@@ -316,19 +316,19 @@ pub(crate) fn place_building(
 }
 
 /// Check if a grid cell contains a wall building.
-fn is_wall_at(building_map: &EntityMap, col: usize, row: usize) -> bool {
-    building_map.get_at_grid(col as i32, row as i32)
+fn is_wall_at(entity_map: &EntityMap, col: usize, row: usize) -> bool {
+    entity_map.get_at_grid(col as i32, row as i32)
         .is_some_and(|inst| inst.kind == BuildingKind::Wall)
 }
 
 /// Compute auto-tile variant offset (0-5) for a wall at grid (col, row).
 /// Atlas layers: 0=E-W, 1=N-S, 2=TL, 3=BL, 4=BR, 5=TR (screen-space corners).
 /// Note: row-1 = south (lower Y), row+1 = north (higher Y) in Bevy's Y-up coords.
-pub fn wall_autotile_variant(building_map: &EntityMap, col: usize, row: usize) -> u16 {
-    let n = row > 0 && is_wall_at(building_map, col, row - 1);
-    let s = is_wall_at(building_map, col, row + 1);
-    let e = is_wall_at(building_map, col + 1, row);
-    let w = col > 0 && is_wall_at(building_map, col - 1, row);
+pub fn wall_autotile_variant(entity_map: &EntityMap, col: usize, row: usize) -> u16 {
+    let n = row > 0 && is_wall_at(entity_map, col, row - 1);
+    let s = is_wall_at(entity_map, col, row + 1);
+    let e = is_wall_at(entity_map, col + 1, row);
+    let w = col > 0 && is_wall_at(entity_map, col - 1, row);
     use crate::constants::*;
     match (n, s, e, w) {
         (false, false, true, true)  => WALL_EW,
@@ -354,7 +354,7 @@ pub fn wall_autotile_variant(building_map: &EntityMap, col: usize, row: usize) -
 /// Pushes GPU SetSpriteFrame updates for each wall found.
 pub fn update_wall_sprites_around(
     grid: &WorldGrid,
-    building_slots: &EntityMap,
+    entity_map: &EntityMap,
     col: usize, row: usize,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
 ) {
@@ -365,10 +365,10 @@ pub fn update_wall_sprites_around(
         let r = row as i32 + dr;
         if c < 0 || r < 0 { continue; }
         let (c, r) = (c as usize, r as usize);
-        if !is_wall_at(building_slots, c, r) { continue; }
-        let variant = wall_autotile_variant(building_slots, c, r);
+        if !is_wall_at(entity_map, c, r) { continue; }
+        let variant = wall_autotile_variant(entity_map, c, r);
         let pos = grid.grid_to_world(c, r);
-        if let Some(inst) = building_slots.find_by_position(pos) {
+        if let Some(inst) = entity_map.find_by_position(pos) {
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
                 idx: inst.slot, col: wall_base + variant as f32, row: 0.0,
                 atlas: crate::constants::ATLAS_BUILDING,
@@ -380,13 +380,13 @@ pub fn update_wall_sprites_around(
 /// Set auto-tile sprites for all walls in the world. Call after building instances are created.
 pub fn update_all_wall_sprites(
     grid: &WorldGrid,
-    building_slots: &EntityMap,
+    entity_map: &EntityMap,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
 ) {
     let wall_base = crate::constants::tileset_index(BuildingKind::Wall) as f32;
-    for inst in building_slots.iter_kind(BuildingKind::Wall) {
+    for inst in entity_map.iter_kind(BuildingKind::Wall) {
         let (gc, gr) = grid.world_to_grid(inst.position);
-        let variant = wall_autotile_variant(building_slots, gc, gr);
+        let variant = wall_autotile_variant(entity_map, gc, gr);
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
             idx: inst.slot, col: wall_base + variant as f32, row: 0.0,
             atlas: crate::constants::ATLAS_BUILDING,
@@ -399,7 +399,7 @@ pub fn update_all_wall_sprites(
 pub fn resolve_spawner_npc(
     inst: &crate::resources::BuildingInstance,
     towns: &[Town],
-    bmap: &crate::resources::EntityMap,
+    entity_map: &crate::resources::EntityMap,
     occupancy: &BuildingOccupancy,
 ) -> (i32, i32, f32, f32, i32, i32, &'static str, &'static str) {
     use crate::constants::{SpawnBehavior, building_def, npc_def};
@@ -419,13 +419,13 @@ pub fn resolve_spawner_npc(
     match spawner.behavior {
         SpawnBehavior::FindNearestFarm => {
             let farm = find_nearest_free(
-                inst.position, bmap, BuildingKind::Farm, occupancy, Some(inst.town_idx),
+                inst.position, entity_map, BuildingKind::Farm, occupancy, Some(inst.town_idx),
             ).unwrap_or(inst.position);
             (spawner.job, town_faction, farm.x, farm.y, -1, spawner.attack_type, npc_label, def.label)
         }
         SpawnBehavior::FindNearestWaypoint => {
             let post_idx = find_location_within_radius(
-                inst.position, bmap, LocationKind::Waypoint, f32::MAX,
+                inst.position, entity_map, LocationKind::Waypoint, f32::MAX,
             ).map(|(idx, _)| idx as i32).unwrap_or(-1);
             (spawner.job, town_faction, -1.0, -1.0, post_idx, spawner.attack_type, npc_label, def.label)
         }
@@ -437,7 +437,7 @@ pub fn resolve_spawner_npc(
         SpawnBehavior::Miner => {
             let mine = inst.assigned_mine.unwrap_or_else(|| {
                 find_nearest_free(
-                    inst.position, bmap, BuildingKind::GoldMine, occupancy, None,
+                    inst.position, entity_map, BuildingKind::GoldMine, occupancy, None,
                 ).unwrap_or(inst.position)
             });
             (spawner.job, town_faction, mine.x, mine.y, -1, spawner.attack_type, npc_label, def.label)
@@ -471,7 +471,7 @@ fn push_building_gpu_updates(
 /// Returns the allocated slot, or None if no slots available.
 pub fn place_building_instance(
     slot_alloc: &mut crate::resources::EntitySlots,
-    building_map: &mut EntityMap,
+    entity_map: &mut EntityMap,
     kind: BuildingKind,
     pos: Vec2,
     town_idx: u32,
@@ -486,7 +486,7 @@ pub fn place_building_instance(
         return None;
     };
     let has_spawner = def.spawner.is_some();
-    building_map.add_instance(crate::resources::BuildingInstance {
+    entity_map.add_instance(crate::resources::BuildingInstance {
         kind, position: pos, town_idx, slot, faction,
         patrol_order, assigned_mine: None, manual_mine: false, wall_level,
         npc_slot: -1,
@@ -504,7 +504,7 @@ pub fn place_building_instance(
 /// `loaded_hp`: optional HP overrides keyed by slot.
 pub fn spawn_building_entities(
     commands: &mut Commands,
-    building_map: &mut EntityMap,
+    entity_map: &mut EntityMap,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
     loaded_hp: Option<&std::collections::HashMap<usize, f32>>,
 ) {
@@ -512,10 +512,10 @@ pub fn spawn_building_entities(
     use crate::constants::{building_def, tileset_index};
 
     // Collect slots to iterate (can't mutate map while iterating)
-    let slots: Vec<usize> = building_map.all_building_slots().collect();
+    let slots: Vec<usize> = entity_map.all_entity_slots().collect();
     let mut count = 0usize;
     for slot in slots {
-        let Some(inst) = building_map.get_instance(slot) else { continue };
+        let Some(inst) = entity_map.get_instance(slot) else { continue };
         let def = building_def(inst.kind);
         let hp = loaded_hp.and_then(|m| m.get(&slot).copied()).unwrap_or(def.hp);
         if hp <= 0.0 { continue; }
@@ -532,7 +532,7 @@ pub fn spawn_building_entities(
             Speed(0.0),
             Building { kind },
         )).id();
-        building_map.entities.insert(slot, entity);
+        entity_map.entities.insert(slot, entity);
         push_building_gpu_updates(slot, pos, faction, hp, tileset_index(kind), def.is_tower, gpu_updates);
         count += 1;
     }
@@ -543,20 +543,20 @@ pub fn spawn_building_entities(
 fn spawn_npcs_from_spawners(
     slot_alloc: &mut EntitySlots,
     towns: &[Town],
-    building_map: &mut EntityMap,
+    entity_map: &mut EntityMap,
 ) -> Vec<crate::messages::SpawnNpcMsg> {
     let mut claimed = BuildingOccupancy::default();
     let mut msgs = Vec::new();
-    // Collect spawner slots first (need immutable bmap for resolve_spawner_npc, then mutate)
-    let spawner_slots: Vec<usize> = building_map.iter_instances()
+    // Collect spawner slots first (need immutable entity_map for resolve_spawner_npc, then mutate)
+    let spawner_slots: Vec<usize> = entity_map.iter_instances()
         .filter(|i| crate::constants::building_def(i.kind).spawner.is_some())
         .map(|i| i.slot)
         .collect();
     for bld_slot in spawner_slots {
         let Some(slot) = slot_alloc.alloc() else { break };
-        let Some(inst) = building_map.get_instance(bld_slot) else { continue };
+        let Some(inst) = entity_map.get_instance(bld_slot) else { continue };
         let (job, faction, work_x, work_y, starting_post, attack_type, _, _) =
-            resolve_spawner_npc(inst, towns, building_map, &claimed);
+            resolve_spawner_npc(inst, towns, entity_map, &claimed);
         let pos = inst.position;
         let town_idx = inst.town_idx as i32;
         if work_x > 0.0 { claimed.claim(Vec2::new(work_x, work_y)); }
@@ -567,7 +567,7 @@ fn spawn_npcs_from_spawners(
             home_x: pos.x, home_y: pos.y,
             work_x, work_y, starting_post, attack_type,
         });
-        if let Some(inst_mut) = building_map.get_instance_mut(bld_slot) {
+        if let Some(inst_mut) = entity_map.get_instance_mut(bld_slot) {
             inst_mut.npc_slot = slot as i32;
         }
     }
@@ -610,16 +610,16 @@ pub fn setup_world(
     world_data: &mut WorldData,
     town_grids: &mut TownGrids,
     slot_alloc: &mut EntitySlots,
-    building_slots: &mut EntityMap,
+    entity_map: &mut EntityMap,
     food_storage: &mut FoodStorage,
     gold_storage: &mut GoldStorage,
     faction_stats: &mut FactionStats,
     raider_state: &mut RaiderState,
 ) -> (Vec<crate::messages::SpawnNpcMsg>, Vec<crate::systems::AiPlayer>) {
     town_grids.grids.clear();
-    building_slots.clear_buildings();
-    generate_world(config, grid, world_data, town_grids, slot_alloc, building_slots);
-    building_slots.init_spatial(grid.width as f32 * grid.cell_size);
+    entity_map.clear_buildings();
+    generate_world(config, grid, world_data, town_grids, slot_alloc, entity_map);
+    entity_map.init_spatial(grid.width as f32 * grid.cell_size);
 
     let n = world_data.towns.len();
     food_storage.init(n);
@@ -629,7 +629,7 @@ pub fn setup_world(
 
     let npc_msgs = spawn_npcs_from_spawners(
         slot_alloc,
-        &world_data.towns, building_slots,
+        &world_data.towns, entity_map,
     );
     let ai_players = create_ai_players(world_data, town_grids);
 
@@ -640,7 +640,7 @@ pub fn setup_world(
 /// Writes NPC spawn messages and spawns ECS building entities.
 pub fn materialize_generated_world(
     commands: &mut Commands,
-    building_slots: &mut EntityMap,
+    entity_map: &mut EntityMap,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
     spawn_writer: &mut MessageWriter<crate::messages::SpawnNpcMsg>,
     npc_msgs: Vec<crate::messages::SpawnNpcMsg>,
@@ -649,7 +649,7 @@ pub fn materialize_generated_world(
     for msg in npc_msgs {
         spawn_writer.write(msg);
     }
-    spawn_building_entities(commands, building_slots, gpu_updates, None);
+    spawn_building_entities(commands, entity_map, gpu_updates, None);
     total
 }
 
@@ -700,7 +700,7 @@ pub fn expand_town_build_area(
 pub(crate) fn destroy_building(
     grid: &mut WorldGrid,
     world_data: &WorldData,
-    building_slots: &mut EntityMap,
+    entity_map: &mut EntityMap,
     combat_log: &mut MessageWriter<CombatLogMsg>,
     game_time: &GameTime,
     row: i32, col: i32,
@@ -711,14 +711,14 @@ pub(crate) fn destroy_building(
     let world_pos = town_grid_to_world(town_center, row, col);
     let (gc, gr) = grid.world_to_grid(world_pos);
 
-    let inst = building_slots.get_at_grid(gc as i32, gr as i32)
+    let inst = entity_map.get_at_grid(gc as i32, gr as i32)
         .ok_or("no building")?;
     let kind = inst.kind;
     let bld_town_idx = inst.town_idx;
 
     // Wall auto-tile: update neighbor sprites after wall removed
     if kind == BuildingKind::Wall {
-        update_wall_sprites_around(grid, building_slots, gc, gr, gpu_updates);
+        update_wall_sprites_around(grid, entity_map, gc, gr, gpu_updates);
     }
 
     // Combat log — derive faction from building's town_idx
@@ -744,14 +744,14 @@ pub enum LocationKind {
 }
 
 /// Find nearest location of a given kind (no radius limit, position only).
-pub fn find_nearest_location(from: Vec2, bmap: &crate::resources::EntityMap, kind: LocationKind) -> Option<Vec2> {
-    find_location_within_radius(from, bmap, kind, f32::MAX).map(|(_, pos)| pos)
+pub fn find_nearest_location(from: Vec2, entity_map: &crate::resources::EntityMap, kind: LocationKind) -> Option<Vec2> {
+    find_location_within_radius(from, entity_map, kind, f32::MAX).map(|(_, pos)| pos)
 }
 
 /// Find nearest location of a given kind within radius. Returns (index, position).
 pub fn find_location_within_radius(
     from: Vec2,
-    bmap: &crate::resources::EntityMap,
+    entity_map: &crate::resources::EntityMap,
     kind: LocationKind,
     radius: f32,
 ) -> Option<(usize, Vec2)> {
@@ -765,7 +765,7 @@ pub fn find_location_within_radius(
     let r2 = radius * radius;
     let mut best_d2 = f32::MAX;
     let mut result: Option<(usize, Vec2)> = None;
-    bmap.for_each_nearby(from, radius, |inst| {
+    entity_map.for_each_nearby(from, radius, |inst| {
         let matches = if is_town {
             inst.kind == BuildingKind::Fountain
         } else {
@@ -827,36 +827,45 @@ impl Worksite for PlacedBuilding {
 }
 
 /// Find nearest unoccupied building of `kind`, optionally filtered by town.
+/// Uses expanding-radius spatial search: starts at 2 cells, doubles until found or exhausted.
 pub fn find_nearest_free(
     from: Vec2,
-    bmap: &crate::resources::EntityMap,
+    entity_map: &crate::resources::EntityMap,
     kind: BuildingKind,
     occupancy: &BuildingOccupancy,
     town_idx: Option<u32>,
 ) -> Option<Vec2> {
+    let cell_size = entity_map.spatial_cell_size().max(256.0);
+    let max_radius = cell_size * 128.0; // upper bound ~32k px
+    let mut radius = cell_size * 2.0;
     let mut best_d2 = f32::MAX;
     let mut result: Option<Vec2> = None;
-    bmap.for_each_nearby(from, f32::MAX, |inst| {
-        if inst.kind != kind { return; }
-        if let Some(tid) = town_idx {
-            if inst.town_idx != tid { return; }
-        }
-        if occupancy.is_occupied(inst.position) { return; }
-        let dx = inst.position.x - from.x;
-        let dy = inst.position.y - from.y;
-        let d2 = dx * dx + dy * dy;
-        if d2 < best_d2 {
-            best_d2 = d2;
-            result = Some(inst.position);
-        }
-    });
+    loop {
+        entity_map.for_each_nearby(from, radius, |inst| {
+            if inst.kind != kind { return; }
+            if let Some(tid) = town_idx {
+                if inst.town_idx != tid { return; }
+            }
+            if occupancy.is_occupied(inst.position) { return; }
+            let dx = inst.position.x - from.x;
+            let dy = inst.position.y - from.y;
+            let d2 = dx * dx + dy * dy;
+            if d2 < best_d2 {
+                best_d2 = d2;
+                result = Some(inst.position);
+            }
+        });
+        // Found one within this ring, or searched the whole world
+        if result.is_some() || radius >= max_radius { break; }
+        radius *= 2.0;
+    }
     result
 }
 
 /// Find nearest building of `kind` within radius, filtered by town. Returns (slot, position).
 pub fn find_within_radius(
     from: Vec2,
-    bmap: &crate::resources::EntityMap,
+    entity_map: &crate::resources::EntityMap,
     kind: BuildingKind,
     radius: f32,
     town_idx: u32,
@@ -864,7 +873,7 @@ pub fn find_within_radius(
     let r2 = radius * radius;
     let mut best_d2 = f32::MAX;
     let mut result: Option<(usize, Vec2)> = None;
-    bmap.for_each_nearby(from, radius, |inst| {
+    entity_map.for_each_nearby(from, radius, |inst| {
         if inst.kind != kind || inst.town_idx != town_idx { return; }
         let dx = inst.position.x - from.x;
         let dy = inst.position.y - from.y;
@@ -892,7 +901,7 @@ pub enum BuildingKind { Fountain, Bed, Waypoint, Farm, FarmerHome, ArcherHome, T
 
 /// Rebuild building spatial grid. Only runs when BuildingGridDirtyMsg is received.
 pub fn rebuild_building_grid_system(
-    mut building_map: ResMut<EntityMap>,
+    mut entity_map: ResMut<EntityMap>,
     mut grid_dirty: MessageReader<BuildingGridDirtyMsg>,
     grid: Res<WorldGrid>,
     timings: Res<SystemTimings>,
@@ -900,8 +909,8 @@ pub fn rebuild_building_grid_system(
     let _t = timings.scope("rebuild_grid");
     if grid.width == 0 || grid_dirty.read().count() == 0 { return; }
     let world_size_px = grid.width as f32 * grid.cell_size;
-    building_map.init_spatial(world_size_px);
-    building_map.rebuild_spatial();
+    entity_map.init_spatial(world_size_px);
+    entity_map.rebuild_spatial();
 }
 
 // ============================================================================
@@ -1342,7 +1351,7 @@ pub fn generate_world(
     world_data: &mut WorldData,
     town_grids: &mut TownGrids,
     slot_alloc: &mut crate::resources::EntitySlots,
-    building_map: &mut EntityMap,
+    entity_map: &mut EntityMap,
 ) {
     use rand::Rng;
     let mut rng = rand::rng();
@@ -1410,7 +1419,7 @@ pub fn generate_world(
         let town_idx = town_data_idx as u32;
         town_grids.grids.push(TownGrid::new_base(town_data_idx));
         let gi = town_grids.grids.len() - 1;
-        place_buildings(grid, world_data, center, town_idx, config,&mut town_grids.grids[gi], false, slot_alloc, building_map);
+        place_buildings(grid, world_data, center, town_idx, config,&mut town_grids.grids[gi], false, slot_alloc, entity_map);
     }
 
     // Step 3: Place AI town centers (Builder AI, each gets unique faction)
@@ -1443,7 +1452,7 @@ pub fn generate_world(
         let town_idx = town_data_idx as u32;
         town_grids.grids.push(TownGrid::new_base(town_data_idx));
         let gi = town_grids.grids.len() - 1;
-        place_buildings(grid, world_data, center, town_idx, config,&mut town_grids.grids[gi], false, slot_alloc, building_map);
+        place_buildings(grid, world_data, center, town_idx, config,&mut town_grids.grids[gi], false, slot_alloc, entity_map);
     }
 
     // Step 4: Place raider town centers (Raider AI, each gets unique faction)
@@ -1474,7 +1483,7 @@ pub fn generate_world(
         let town_idx = town_data_idx as u32;
         town_grids.grids.push(TownGrid::new_base(town_data_idx));
         let gi = town_grids.grids.len() - 1;
-        place_buildings(grid, world_data, center, town_idx, config,&mut town_grids.grids[gi], true, slot_alloc, building_map);
+        place_buildings(grid, world_data, center, town_idx, config,&mut town_grids.grids[gi], true, slot_alloc, entity_map);
     }
 
     // Step 5: Generate terrain
@@ -1509,9 +1518,9 @@ pub fn generate_world(
         }
         // Snap to grid and place
         let (gc, gr) = grid.world_to_grid(pos);
-        if building_map.has_building_at(gc as i32, gr as i32) { continue; }
+        if entity_map.has_building_at(gc as i32, gr as i32) { continue; }
         let snapped = grid.grid_to_world(gc, gr);
-        place_building_instance(slot_alloc, building_map, BuildingKind::GoldMine, snapped, 0, crate::constants::FACTION_NEUTRAL, 0, 0);
+        place_building_instance(slot_alloc, entity_map, BuildingKind::GoldMine, snapped, 0, crate::constants::FACTION_NEUTRAL, 0, 0);
         mine_positions.push(snapped);
     }
 
@@ -1532,7 +1541,7 @@ pub fn place_buildings(
     town_grid: &mut TownGrid,
     is_raider: bool,
     slot_alloc: &mut crate::resources::EntitySlots,
-    building_map: &mut EntityMap,
+    entity_map: &mut EntityMap,
 ) {
     let mut occupied = HashSet::new();
     let faction = world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
@@ -1549,7 +1558,7 @@ pub fn place_buildings(
     // Center building at (0, 0) — Fountain
     let center_kind = BuildingKind::Fountain;
     place(0, 0, center_kind, town_idx, &mut occupied);
-    place_building_instance(slot_alloc, building_map, center_kind, center, town_idx, faction, 0, 0);
+    place_building_instance(slot_alloc, entity_map, center_kind, center, town_idx, faction, 0, 0);
 
     // Count NPC homes needed (raider units for raider towns, village units for builder towns)
     let homes: usize = NPC_REGISTRY.iter()
@@ -1564,7 +1573,7 @@ pub fn place_buildings(
     for _ in 0..farms_count {
         let Some((row, col)) = slot_iter.next() else { break };
         let pos = place(row, col, BuildingKind::Farm, town_idx, &mut occupied);
-        place_building_instance(slot_alloc, building_map, BuildingKind::Farm, pos, town_idx, faction, 0, 0);
+        place_building_instance(slot_alloc, entity_map, BuildingKind::Farm, pos, town_idx, faction, 0, 0);
     }
 
     // NPC homes from registry (filtered by is_raider_unit matching is_raider)
@@ -1573,7 +1582,7 @@ pub fn place_buildings(
         for _ in 0..count {
             let Some((row, col)) = slot_iter.next() else { break };
             let pos = place(row, col, def.home_building, town_idx, &mut occupied);
-            place_building_instance(slot_alloc, building_map, def.home_building, pos, town_idx, faction, 0, 0);
+            place_building_instance(slot_alloc, entity_map, def.home_building, pos, town_idx, faction, 0, 0);
         }
     }
 
@@ -1591,7 +1600,7 @@ pub fn place_buildings(
         ];
         for (order, (row, col)) in corners.into_iter().enumerate() {
             let post_pos = place(row, col, BuildingKind::Waypoint, town_idx, &mut occupied);
-            place_building_instance(slot_alloc, building_map, BuildingKind::Waypoint, post_pos, town_idx, faction, order as u32, 0);
+            place_building_instance(slot_alloc, entity_map, BuildingKind::Waypoint, post_pos, town_idx, faction, order as u32, 0);
         }
     }
 

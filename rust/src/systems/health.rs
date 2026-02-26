@@ -168,7 +168,7 @@ pub fn death_system(
         if building.is_some() {
             let attacker = last_hit_by.map(|h| h.0).unwrap_or(-1);
 
-            // Copy fields out before mutating building_slots
+            // Copy fields out before mutating entity_map
             if let Some(inst) = res.entity_map.get_instance(idx) {
                 let kind = inst.kind;
                 let pos = inst.position;

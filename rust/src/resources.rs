@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
-use crate::constants::{MAX_NPC_COUNT, MAX_ENTITIES};
+use crate::constants::{MAX_NPC_COUNT, MAX_ENTITIES, MAX_PROJECTILES};
 
 /// Per-system profiling (Factorio-style). RAII guard pattern: `let _t = timings.scope("name");`
 /// Uses Res<SystemTimings> (not ResMut) with internal Mutex so parallel systems don't serialize.
@@ -106,6 +106,7 @@ pub struct EntityMap {
     // Building-specific data
     instances: HashMap<usize, BuildingInstance>,
     by_kind: HashMap<crate::world::BuildingKind, Vec<usize>>,
+    by_kind_town: HashMap<(crate::world::BuildingKind, u32), Vec<usize>>,
     by_grid_cell: HashMap<(i32, i32), usize>,
 
     // Spatial grid
@@ -127,6 +128,7 @@ impl EntityMap {
     pub fn clear_buildings(&mut self) {
         self.instances.clear();
         self.by_kind.clear();
+        self.by_kind_town.clear();
         self.by_grid_cell.clear();
         self.spatial_cells.iter_mut().for_each(|c| c.clear());
     }
@@ -136,8 +138,8 @@ impl EntityMap {
         self.instances.len()
     }
 
-    /// Iterate all building instance slot keys.
-    pub fn all_building_slots(&self) -> impl Iterator<Item = usize> + '_ {
+    /// Iterate all entity instance slot keys.
+    pub fn all_entity_slots(&self) -> impl Iterator<Item = usize> + '_ {
         self.instances.keys().copied()
     }
 
@@ -151,12 +153,16 @@ impl EntityMap {
             if let Some(slots) = self.by_kind.get_mut(&old.kind) {
                 slots.retain(|&s| s != slot);
             }
+            if let Some(slots) = self.by_kind_town.get_mut(&(old.kind, old.town_idx)) {
+                slots.retain(|&s| s != slot);
+            }
             let old_gc = (old.position.x / 32.0).floor() as i32;
             let old_gr = (old.position.y / 32.0).floor() as i32;
             self.by_grid_cell.remove(&(old_gc, old_gr));
             self.spatial_remove(slot, old.position);
         }
         self.by_kind.entry(kind).or_default().push(slot);
+        self.by_kind_town.entry((kind, inst.town_idx)).or_default().push(slot);
         let gc = (inst.position.x / 32.0).floor() as i32;
         let gr = (inst.position.y / 32.0).floor() as i32;
         self.by_grid_cell.insert((gc, gr), slot);
@@ -168,6 +174,9 @@ impl EntityMap {
     fn remove_instance(&mut self, slot: usize) -> Option<BuildingInstance> {
         if let Some(inst) = self.instances.remove(&slot) {
             if let Some(slots) = self.by_kind.get_mut(&inst.kind) {
+                slots.retain(|&s| s != slot);
+            }
+            if let Some(slots) = self.by_kind_town.get_mut(&(inst.kind, inst.town_idx)) {
                 slots.retain(|&s| s != slot);
             }
             let gc = (inst.position.x / 32.0).floor() as i32;
@@ -203,7 +212,9 @@ impl EntityMap {
     }
 
     pub fn iter_kind_for_town(&self, kind: crate::world::BuildingKind, town_idx: u32) -> impl Iterator<Item = &BuildingInstance> {
-        self.iter_kind(kind).filter(move |i| i.town_idx == town_idx)
+        let slots = self.by_kind_town.get(&(kind, town_idx));
+        let instances = &self.instances;
+        slots.into_iter().flat_map(|v| v.iter()).filter_map(move |&s| instances.get(&s))
     }
 
     pub fn count_for_town(&self, kind: crate::world::BuildingKind, town_idx: u32) -> usize {
@@ -309,6 +320,8 @@ impl EntityMap {
             self.spatial_cells[idx].retain(|&s| s != slot);
         }
     }
+
+    pub fn spatial_cell_size(&self) -> f32 { self.spatial_cell_size }
 
     pub fn for_each_nearby(&self, pos: Vec2, radius: f32, mut f: impl FnMut(&BuildingInstance)) {
         if self.spatial_width == 0 { return; }
@@ -870,26 +883,21 @@ impl std::ops::DerefMut for EntitySlots {
     fn deref_mut(&mut self) -> &mut SlotPool { &mut self.0 }
 }
 
-/// Projectile slot allocator. Replaces FREE_PROJ_SLOTS static.
+/// Projectile slot allocator. Wraps SlotPool like EntitySlots.
 #[derive(Resource)]
-pub struct ProjSlotAllocator {
-    pub next: usize,
-    pub free: Vec<usize>,
-    pub max: usize,
-}
+pub struct ProjSlotAllocator(pub SlotPool);
 
 impl Default for ProjSlotAllocator {
-    fn default() -> Self { Self { next: 0, free: Vec::new(), max: 50_000 } }
+    fn default() -> Self { Self(SlotPool::new(MAX_PROJECTILES)) }
 }
 
-impl ProjSlotAllocator {
-    pub fn alloc(&mut self) -> Option<usize> {
-        self.free.pop().or_else(|| {
-            if self.next < self.max { let i = self.next; self.next += 1; Some(i) } else { None }
-        })
-    }
-    pub fn free(&mut self, slot: usize) { self.free.push(slot); }
-    pub fn reset(&mut self) { self.next = 0; self.free.clear(); }
+impl std::ops::Deref for ProjSlotAllocator {
+    type Target = SlotPool;
+    fn deref(&self) -> &SlotPool { &self.0 }
+}
+
+impl std::ops::DerefMut for ProjSlotAllocator {
+    fn deref_mut(&mut self) -> &mut SlotPool { &mut self.0 }
 }
 
 

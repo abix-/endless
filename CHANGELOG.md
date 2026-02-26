@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-26k
+
+- **rename all_building_slots → all_entity_slots** — method on `EntityMap` renamed for consistency with unified entity terminology; updated call site in world.rs and stale comment in health.rs
+
 ## 2026-02-26j
 
 - **absorb BuildingEntityMap into EntityMap** — merged `BuildingEntityMap` entirely into `EntityMap`; one resource now holds both `entities: HashMap<usize, Entity>` (all NPC + building slot→entity) and all building instance data (instances, by_kind, by_grid_cell indexes, 256px spatial grid); removed `BuildingInstance.entity` field (entity lookup via `entities.get(&slot)`); removed `slot_to_entity`/`by_entity` maps (redundant with `entities`); renamed methods: `clear()` → `clear_buildings()`, `len()` → `building_count()`, `all_slots()` → `all_building_slots()`, `set_entity()` → `entities.insert()`, `get_entity()` → `entities.get().copied()`; merged dual `Res<EntityMap>` + `Res<BuildingEntityMap>` params into single `Res<EntityMap>` in ~15 systems (combat, economy, spawn, health, save, render, tests); updated `WorldState` SystemParam field `building_slots` → `building_data`; updated `DeathResources` to single `entity_map: ResMut<EntityMap>`; `hide_building` now calls `remove_by_slot` (removes entities + instance data); ~29 files modified
