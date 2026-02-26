@@ -26,22 +26,25 @@ pub struct SpawnNpcMsg {
 }
 
 
+/// Unified damage message for both NPCs and buildings.
+/// entity_idx < npc_count → NPC, entity_idx >= npc_count → building (bld_slot = entity_idx - npc_count).
 #[derive(Message, Clone)]
 pub struct DamageMsg {
-    pub npc_index: usize,
+    pub entity_idx: usize,
     pub amount: f32,
-    pub attacker: i32,  // NPC slot index of last attacker (-1 = no attacker, e.g. waypoint)
+    pub attacker: i32,          // NPC slot of attacker (-1 = tower/unknown)
+    pub attacker_faction: i32,  // for combat log attribution
 }
 
-/// Damage applied to a building by a projectile or direct attack.
+/// Building death event: emitted by damage_system when building HP reaches 0.
+/// Consumed by building_death_system for loot, AI deactivation, endless respawn.
 #[derive(Message, Clone)]
-pub struct BuildingDamageMsg {
+pub struct BuildingDeathMsg {
     pub kind: crate::world::BuildingKind,
-    pub index: usize,
-    pub amount: f32,
-    pub attacker_faction: i32,
-    /// NPC slot of the attacker (-1 = tower/unknown).
+    pub index: usize,           // building data index (within kind)
+    pub bld_slot: usize,        // building GPU slot
     pub attacker: i32,
+    pub attacker_faction: i32,
 }
 
 /// Reassign an NPC to a different job (Farmer <-> Guard).
@@ -50,6 +53,10 @@ pub struct ReassignMsg {
     pub npc_index: usize,
     pub new_job: i32, // 0=Farmer, 1=Archer
 }
+
+/// Request to destroy a building at a world grid cell. Writer: UI inspector/build menu. Reader: process_destroy_system.
+#[derive(Message, Clone)]
+pub struct DestroyBuildingMsg(pub usize, pub usize); // (grid_col, grid_row)
 
 /// Combat log entry emitted by any system. Drained into CombatLog resource by drain_combat_log.
 #[derive(Message, Clone)]
@@ -204,6 +211,7 @@ pub enum GpuUpdate {
     BldSetHealth { idx: usize, health: f32 },
     BldSetSpriteFrame { idx: usize, col: f32, row: f32, atlas: f32 },
     BldSetFlags { idx: usize, flags: u32 },
+    BldSetDamageFlash { idx: usize, intensity: f32 },
     BldHide { idx: usize },
 }
 

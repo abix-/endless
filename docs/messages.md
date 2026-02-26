@@ -51,8 +51,8 @@ Each piece of NPC data has exactly one authoritative owner. Readers on the other
 | Message | Fields | Pattern |
 |---------|--------|---------|
 | SpawnNpcMsg | slot_idx, x, y, job, faction, town_idx, home_x/y, work_x/y, starting_post, attack_type | MessageWriter → MessageReader |
-| DamageMsg | npc_index, amount, attacker (i32, -1=no attacker) | MessageWriter → MessageReader |
-| BuildingDamageMsg | kind (BuildingKind), index (usize), amount (f32), attacker_faction (i32) | attack_system → building_damage_system |
+| DamageMsg | entity_idx (usize), amount (f32), attacker (i32, -1=tower/unknown), attacker_faction (i32) | process_proj_hits / attack_system → damage_system |
+| BuildingDeathMsg | kind (BuildingKind), index (usize), bld_slot (usize), attacker (i32), attacker_faction (i32) | damage_system → building_death_system |
 | GpuUpdateMsg | GpuUpdate enum (see below) | MessageWriter → collect_gpu_updates |
 | CombatLogMsg | kind, faction, day, hour, minute, message, location | 18+ writers → drain_combat_log |
 | ReassignMsg | npc_index, new_job | Defined but unused (placeholder for future role reassignment) |
@@ -102,9 +102,10 @@ Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector sys
 | SetFlags | idx, flags | spawn_npc_system, building slot allocation (bit 0: combat scan enabled) |
 | BldSetPosition | idx, x, y | place_building_instance (building GPU state) |
 | BldSetFaction | idx, faction | place_building_instance |
-| BldSetHealth | idx, health | place_building_instance, building_damage_system, healing_system |
+| BldSetHealth | idx, health | place_building_instance, damage_system, healing_system |
 | BldSetSpriteFrame | idx, col, row, atlas | place_building_instance |
 | BldSetFlags | idx, flags | place_building_instance |
+| BldSetDamageFlash | idx, intensity | damage_system (1.0 on hit, decays at 5.0/s in populate_gpu_state) |
 | BldHide | idx | death_cleanup_system (building branch) |
 
 `Bld*` variants are routed to `BuildingGpuState` by `populate_gpu_state`. NPC variants are routed to `NpcGpuState`. Both share the same message queue (`GpuUpdateMsg`).

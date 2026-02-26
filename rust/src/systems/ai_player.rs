@@ -18,7 +18,7 @@ use crate::resources::*;
 use crate::systemparams::WorldState;
 use crate::components::{Dead, Job, NpcIndex, SquadUnit, TownId};
 use crate::world::{self, BuildingKind, WorldData, WorldGrid};
-use crate::systems::stats::{UpgradeQueue, TownUpgrades, upgrade_node, upgrade_available, upgrade_unlocked, upgrade_cost, expansion_cost, UPGRADES};
+use crate::systems::stats::{TownUpgrades, upgrade_node, upgrade_available, upgrade_unlocked, upgrade_cost, expansion_cost, UPGRADES};
 use crate::constants::UpgradeStatKind;
 
 // Rust orientation notes for readers coming from PowerShell:
@@ -33,7 +33,7 @@ use crate::constants::UpgradeStatKind;
 pub struct AiBuildRes<'w, 's> {
     world: WorldState<'w>,
     food_storage: ResMut<'w, FoodStorage>,
-    upgrade_queue: ResMut<'w, UpgradeQueue>,
+    upgrade_queue: MessageWriter<'w, crate::systems::stats::UpgradeMsg>,
     policies: ResMut<'w, TownPolicies>,
     commands: Commands<'w, 's>,
 }
@@ -1816,7 +1816,7 @@ fn execute_action(
             try_build_road_grid(ctx, res, personality.road_batch_size(), personality)
         }
         AiAction::Upgrade(idx) => {
-            res.upgrade_queue.0.push((ctx.tdi, idx));
+            res.upgrade_queue.write(crate::systems::stats::UpgradeMsg { town_idx: ctx.tdi, upgrade_idx: idx });
             let name = upgrade_node(idx).label;
             Some(format!("upgraded {name}"))
         }

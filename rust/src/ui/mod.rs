@@ -17,7 +17,7 @@ use crate::components::*;
 use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
 use crate::systemparams::WorldState;
-use crate::systems::{AiPlayerState, TownUpgrades, UpgradeQueue};
+use crate::systems::{AiPlayerState, TownUpgrades};
 use crate::world::{self, BuildingKind, WorldGenConfig};
 
 /// Render a small "?" button (frameless) that shows help text on hover.
@@ -1241,48 +1241,50 @@ fn draw_slot_indicators(
 /// Process destroy requests from the building inspector.
 fn process_destroy_system(
     mut commands: Commands,
-    mut request: ResMut<DestroyRequest>,
+    mut request: MessageReader<crate::messages::DestroyBuildingMsg>,
     mut world_state: WorldState,
     mut combat_log: MessageWriter<crate::messages::CombatLogMsg>,
     game_time: Res<GameTime>,
     mut selected_building: ResMut<SelectedBuilding>,
 ) {
-    let Some((col, row)) = request.0.take() else { return };
+    for msg in request.read() {
+        let (col, row) = (msg.0, msg.1);
 
-    let cell = world_state.grid.cell(col, row);
-    let cell_building = cell.and_then(|c| c.building);
-    let is_destructible = cell_building
-        .map(|(k, ti)| {
-            !matches!(k, world::BuildingKind::Fountain | world::BuildingKind::GoldMine)
-            && world_state.world_data.towns.get(ti as usize).map_or(false, |t| t.faction == 0)
-        })
-        .unwrap_or(false);
-    if !is_destructible { return; }
-    let bld_kind = cell_building.map(|(k, _)| k);
+        let cell = world_state.grid.cell(col, row);
+        let cell_building = cell.and_then(|c| c.building);
+        let is_destructible = cell_building
+            .map(|(k, ti)| {
+                !matches!(k, world::BuildingKind::Fountain | world::BuildingKind::GoldMine)
+                && world_state.world_data.towns.get(ti as usize).map_or(false, |t| t.faction == 0)
+            })
+            .unwrap_or(false);
+        if !is_destructible { continue; }
+        let bld_kind = cell_building.map(|(k, _)| k);
 
-    // Find which town this building belongs to, derive town center
-    let town_idx = cell_building
-        .map(|(_, ti)| ti as usize)
-        .unwrap_or(0);
-    let center = world_state.world_data.towns.get(town_idx)
-        .map(|t| t.center)
-        .unwrap_or_default();
-    let town_name = world_state.world_data.towns.get(town_idx)
-        .map(|t| t.name.clone())
-        .unwrap_or_default();
+        // Find which town this building belongs to, derive town center
+        let town_idx = cell_building
+            .map(|(_, ti)| ti as usize)
+            .unwrap_or(0);
+        let center = world_state.world_data.towns.get(town_idx)
+            .map(|t| t.center)
+            .unwrap_or_default();
+        let town_name = world_state.world_data.towns.get(town_idx)
+            .map(|t| t.name.clone())
+            .unwrap_or_default();
 
-    let world_pos = world_state.grid.grid_to_world(col, row);
-    let (trow, tcol) = world::world_to_town_grid(center, world_pos);
+        let world_pos = world_state.grid.grid_to_world(col, row);
+        let (trow, tcol) = world::world_to_town_grid(center, world_pos);
 
-    if world_state.destroy_building(
-        &mut combat_log, &game_time,
-        trow, tcol, center,
-        &format!("Destroyed building in {}", town_name),
-        &mut commands,
-    ).is_ok() {
-        selected_building.active = false;
-        if let Some(bk) = bld_kind {
-            world_state.dirty_writers.mark_building_changed(bk);
+        if world_state.destroy_building(
+            &mut combat_log, &game_time,
+            trow, tcol, center,
+            &format!("Destroyed building in {}", town_name),
+            &mut commands,
+        ).is_ok() {
+            selected_building.active = false;
+            if let Some(bk) = bld_kind {
+                world_state.dirty_writers.mark_building_changed(bk);
+            }
         }
     }
 }
@@ -1323,7 +1325,6 @@ struct CleanupDebug<'w> {
 #[derive(SystemParam)]
 struct CleanupGameplay<'w> {
     upgrades: ResMut<'w, TownUpgrades>,
-    upgrade_queue: ResMut<'w, UpgradeQueue>,
     policies: ResMut<'w, TownPolicies>,
     auto_upgrade: ResMut<'w, AutoUpgrade>,
     npc_logs: ResMut<'w, NpcLogCache>,
@@ -1410,7 +1411,6 @@ fn game_cleanup_system(
 
     // Reset gameplay resources missed by original cleanup
     *gameplay.upgrades = Default::default();
-    *gameplay.upgrade_queue = Default::default();
     *gameplay.policies = Default::default();
     *gameplay.auto_upgrade = Default::default();
     *gameplay.npc_logs = Default::default();

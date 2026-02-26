@@ -3,13 +3,13 @@
 use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::{ItemKind, building_def};
-use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE, CombatLogMsg};
+use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDeathMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE, CombatLogMsg};
 use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TowerState, SystemTimings, CombatEventKind, GameTime, NpcEntityMap, NpcMetaCache};
 use crate::systems::stats::{TownUpgrades, resolve_town_tower_stats};
 use crate::systemparams::WorldState;
 use crate::gpu::ProjBufferWrites;
 use crate::resources::BuildingEntityMap;
-use crate::world::{self, WorldData, BuildingKind, is_alive};
+use crate::world::{WorldData, BuildingKind, is_alive};
 
 /// Bundled params for building destruction side effects (loot, endless respawn).
 #[derive(bevy::ecs::system::SystemParam)]
@@ -59,11 +59,11 @@ pub fn attack_system(
     mut query: Query<(Entity, &NpcIndex, &CachedStats, &mut AttackTimer, &Faction, &mut CombatState, &Activity, &Job, Option<&ManualTarget>, Option<&SquadId>), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut damage_events: MessageWriter<DamageMsg>,
-    mut building_damage_events: MessageWriter<BuildingDamageMsg>,
     mut debug: ResMut<CombatDebug>,
     gpu_state: Res<GpuReadState>,
     npc_map: Res<NpcEntityMap>,
     bmap: Res<BuildingEntityMap>,
+    slots: Res<crate::resources::SlotAllocator>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     timings: Res<SystemTimings>,
     squad_state: Res<crate::resources::SquadState>,
@@ -72,6 +72,7 @@ pub fn attack_system(
     let _t = timings.scope("attack");
     let positions = &gpu_state.positions;
     let combat_targets = &gpu_state.combat_targets;
+    let npc_count = slots.count();
 
     let mut attackers = 0usize;
     let mut targets_found = 0usize;
@@ -129,33 +130,50 @@ pub fn attack_system(
             sample_target = target_idx;
         }
 
-        // No NPC combat target — try opportunistic building attack
+        // No target from GPU
         if target_idx < 0 {
             if combat_state.is_fighting() {
                 *combat_state = CombatState::None;
             }
-            // Only ranged NPCs (archers/raiders) attack buildings
-            let job_id = match job {
-                Job::Archer | Job::Crossbow => 1,
-                Job::Raider => 2,
-                _ => { continue; }
-            };
-            if i * 2 + 1 >= positions.len() { continue; }
-            let (x, y) = (positions[i * 2], positions[i * 2 + 1]);
-            if x < -9000.0 { continue; } // dead/hidden
+            continue;
+        }
 
-            if let Some((bkind, bidx, bpos)) = world::find_nearest_enemy_building(
-                Vec2::new(x, y), &bmap, faction.0, job_id, cached.range,
-            ) {
-                // In range and cooldown ready — fire at building
+        let ti = target_idx as usize;
+        targets_found += 1;
+
+        // Self-targeting guard
+        if ti == i {
+            if combat_state.is_fighting() { *combat_state = CombatState::None; }
+            continue;
+        }
+
+        if i * 2 + 1 >= positions.len() {
+            bounds_failures += 1;
+            continue;
+        }
+        let (x, y) = (positions[i * 2], positions[i * 2 + 1]);
+        if x < -9000.0 { continue; } // dead/hidden
+
+        // ── Building target (entity_idx >= npc_count) ──
+        if ti >= npc_count {
+            let bld_slot = ti - npc_count;
+            // Only combat jobs attack buildings
+            if !matches!(job, Job::Archer | Job::Crossbow | Job::Raider) { continue; }
+            let Some(inst) = bmap.get_instance(bld_slot) else { continue };
+            // Don't attack same-faction buildings
+            if inst.faction == faction.0 { continue; }
+
+            let dx = inst.position.x - x;
+            let dy = inst.position.y - y;
+            let dist = (dx * dx + dy * dy).sqrt();
+
+            if dist <= cached.range {
+                // Stand ground while shooting
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: i, x, y }));
+                in_range_count += 1;
                 if timer.0 <= 0.0 {
-                    let dx = bpos.x - x;
-                    let dy = bpos.y - y;
-                    let dist = (dx * dx + dy * dy).sqrt();
+                    timer_ready_count += 1;
                     if dist > 1.0 {
-                        // Stand ground while shooting building
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: i, x, y }));
-                        // Spawn visual projectile (no GPU collision with buildings)
                         if let Some(proj_slot) = proj_alloc.alloc() {
                             let dir_x = dx / dist;
                             let dir_y = dy / dist;
@@ -165,38 +183,34 @@ pub fn attack_system(
                                     x, y,
                                     vx: dir_x * cached.projectile_speed,
                                     vy: dir_y * cached.projectile_speed,
-                                    damage: 0.0, // visual only — damage applied directly below
+                                    damage: cached.damage,
                                     faction: faction.0,
                                     shooter: i as i32,
                                     lifetime: cached.projectile_lifetime,
                                 });
                             }
                         }
-                        // Apply building damage directly (buildings not in NPC GPU buffer)
-                        building_damage_events.write(BuildingDamageMsg {
-                            kind: bkind,
-                            index: bidx,
+                    } else {
+                        // Point blank — direct damage
+                        damage_events.write(DamageMsg {
+                            entity_idx: ti,
                             amount: cached.damage,
-                            attacker_faction: faction.0,
                             attacker: i as i32,
+                            attacker_faction: faction.0,
                         });
-                        timer.0 = cached.cooldown;
-                        attacks += 1;
                     }
+                    attacks += 1;
+                    timer.0 = cached.cooldown;
                 }
+            } else {
+                // Chase building
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: i, x: inst.position.x, y: inst.position.y }));
+                chases += 1;
             }
             continue;
         }
 
-        targets_found += 1;
-
-        let ti = target_idx as usize;
-
-        // Validate GPU target: must be a real live enemy NPC (not building, self, or stale)
-        if ti == i {
-            if combat_state.is_fighting() { *combat_state = CombatState::None; }
-            continue;
-        }
+        // ── NPC target (entity_idx < npc_count) ──
         let target_entity = npc_map.0.get(&ti);
         if target_entity.is_none() {
             if combat_state.is_fighting() { *combat_state = CombatState::None; }
@@ -212,12 +226,10 @@ pub fn attack_system(
             continue;
         }
 
-        if i * 2 + 1 >= positions.len() || ti * 2 + 1 >= positions.len() {
+        if ti * 2 + 1 >= positions.len() {
             bounds_failures += 1;
             continue;
         }
-
-        let (x, y) = (positions[i * 2], positions[i * 2 + 1]);
 
         if !combat_state.is_fighting() {
             *combat_state = CombatState::Fighting { origin: Vec2::new(x, y) };
@@ -273,9 +285,10 @@ pub fn attack_system(
                 } else {
                     // Point blank — apply damage directly (no projectile needed)
                     damage_events.write(DamageMsg {
-                        npc_index: target_idx as usize,
+                        entity_idx: ti,
                         amount: cached.damage,
                         attacker: i as i32,
+                        attacker_faction: faction.0,
                     });
                 }
 
@@ -314,21 +327,17 @@ pub fn attack_system(
     );
 }
 
-/// Process GPU projectile hits: convert to DamageMsg or BuildingDamageMsg events and recycle slots.
+/// Process GPU projectile hits: convert to unified DamageMsg events and recycle slots.
 /// Entity buffer layout: [0..npc_count] = NPCs, [npc_count..entity_count] = buildings.
-/// hit_idx >= npc_count means building hit, routed via BuildingEntityMap.
+/// damage_system routes by entity_idx to NPC or building path.
 pub fn process_proj_hits(
     mut damage_events: MessageWriter<DamageMsg>,
-    mut building_damage_events: MessageWriter<BuildingDamageMsg>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     proj_writes: Res<ProjBufferWrites>,
     mut hit_state: ResMut<ProjHitState>,
-    slots: Res<crate::resources::SlotAllocator>,
-    bmap: Res<BuildingEntityMap>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("process_proj_hits");
-    let npc_count = slots.count();
     let max_slot = proj_alloc.next.min(hit_state.0.len());
     for (slot, hit) in hit_state.0[..max_slot].iter().enumerate() {
         if slot < proj_writes.active.len() && proj_writes.active[slot] == 0 {
@@ -351,26 +360,13 @@ pub fn process_proj_hits(
                 } else {
                     -1
                 };
-                let idx = hit_idx as usize;
-                if idx >= npc_count {
-                    // Building hit: entity index = npc_count + bld_slot
-                    let bld_slot = idx - npc_count;
-                    if let Some((kind, data_idx)) = bmap.get_building(bld_slot) {
-                        let attacker_faction = proj_writes.factions.get(slot).copied().unwrap_or(-1);
-                        building_damage_events.write(BuildingDamageMsg {
-                            kind, index: data_idx, amount: damage,
-                            attacker_faction,
-                            attacker: shooter,
-                        });
-                    }
-                } else {
-                    // NPC hit
-                    damage_events.write(DamageMsg {
-                        npc_index: idx,
-                        amount: damage,
-                        attacker: shooter,
-                    });
-                }
+                let attacker_faction = proj_writes.factions.get(slot).copied().unwrap_or(-1);
+                damage_events.write(DamageMsg {
+                    entity_idx: hit_idx as usize,
+                    amount: damage,
+                    attacker: shooter,
+                    attacker_faction,
+                });
             }
 
             proj_alloc.free(slot);
@@ -474,69 +470,38 @@ pub fn building_tower_system(
     }
 }
 
-/// Process building damage messages: decrement HP, destroy when HP reaches 0.
-/// On destruction, grants loot (half building cost as food) to the attacker NPC.
-pub fn building_damage_system(
+/// Process building death events: loot, AI deactivation, endless respawn, linked NPC kill.
+/// HP decrement and GPU health sync are handled by damage_system — this only runs on death.
+pub fn building_death_system(
     mut commands: Commands,
-    mut damage_reader: MessageReader<BuildingDamageMsg>,
+    mut death_reader: MessageReader<BuildingDeathMsg>,
     mut world: WorldState,
     mut combat_log: MessageWriter<CombatLogMsg>,
     game_time: Res<GameTime>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     timings: Res<SystemTimings>,
     npc_map: Res<NpcEntityMap>,
-    mut building_health: Query<&mut Health, With<Building>>,
     mut loot_query: Query<(&NpcIndex, &mut Activity, &Home, &Faction, Option<&DirectControl>), Without<Dead>>,
     mut extra: BuildingDeathExtra,
-    mut heal_state: ResMut<crate::resources::BuildingHealState>,
 ) {
-    let _t = timings.scope("building_damage");
-    for msg in damage_reader.read() {
-        if matches!(msg.kind, BuildingKind::GoldMine | BuildingKind::Road) { continue; } // mines + roads are indestructible
-
-        // Look up building entity via BuildingEntityMap
-        let Some(entity) = world.building_slots.get_entity_by_building(msg.kind, msg.index) else { continue };
-        let Ok(mut health) = building_health.get_mut(entity) else { continue };
-        if health.0 <= 0.0 { continue; } // already dead
-
-        health.0 = (health.0 - msg.amount).max(0.0);
-        let new_hp = health.0;
-        let max_hp = crate::constants::building_def(msg.kind).hp;
-
-        // Look up position and town for logging (via BuildingEntityMap instance)
-        let Some(slot) = world.building_slots.get_slot(msg.kind, msg.index) else { continue };
-        let Some(inst) = world.building_slots.get_instance(slot) else { continue };
+    let _t = timings.scope("building_death");
+    for msg in death_reader.read() {
+        let Some(inst) = world.building_slots.get_instance(msg.bld_slot) else { continue };
         let pos = inst.position;
         let town_idx = inst.town_idx as usize;
 
-        // Mark damaged so healing_system knows to run
-        if new_hp > 0.0 { heal_state.needs_healing = true; }
-
         let town_name = world.world_data.towns.get(town_idx)
             .map(|t| t.name.clone()).unwrap_or_default();
-        let attacker_name = world.world_data.towns.get(msg.attacker_faction as usize)
-            .map(|t| t.name.as_str()).unwrap_or("?");
 
-        // Log every damage hit to combat log
-        let defender_faction = world.world_data.towns.get(town_idx).map(|t| t.faction).unwrap_or(0);
-        combat_log.write(CombatLogMsg { kind: CombatEventKind::BuildingDamage, faction: defender_faction, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{:?} in {} hit by {} for {:.0} ({:.0}/{:.0} HP)", msg.kind, town_name, attacker_name, msg.amount, new_hp, max_hp), location: None });
+        // Capture linked NPC slot before destruction
+        let npc_slot = inst.npc_slot;
 
-        // GPU sync (damage flash + health bar) — building buffer
-        if let Some(slot) = world.building_slots.get_slot(msg.kind, msg.index) {
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::BldSetHealth { idx: slot, health: new_hp }));
-        }
-
-        if new_hp > 0.0 { continue; } // still alive
-
-        // Building destroyed
         let center = world.world_data.towns.get(town_idx)
             .map(|t| t.center).unwrap_or_default();
-        let (trow, tcol) = world::world_to_town_grid(center, pos);
+        let (trow, tcol) = crate::world::world_to_town_grid(center, pos);
 
-        // Capture linked NPC slot from BuildingInstance (O(1) lookup)
-        let npc_slot = world.building_slots.find_by_position(pos)
-            .map(|i| i.npc_slot)
-            .unwrap_or(-1);
+        let defender_faction = world.world_data.towns.get(town_idx).map(|t| t.faction).unwrap_or(0);
+        combat_log.write(CombatLogMsg { kind: CombatEventKind::BuildingDamage, faction: defender_faction, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{:?} destroyed in {}", msg.kind, town_name), location: None });
 
         let _ = world.destroy_building(
             &mut combat_log, &game_time,
@@ -546,7 +511,7 @@ pub fn building_damage_system(
         );
         world.dirty_writers.mark_building_changed(msg.kind);
 
-        // Town center destroyed — deactivate AI player (town becomes leaderless)
+        // Town center destroyed — deactivate AI player
         if matches!(msg.kind, BuildingKind::Fountain) {
             if let Some(player) = extra.ai_state.players.iter_mut().find(|p| p.town_data_idx == town_idx) {
                 player.active = false;
@@ -578,7 +543,7 @@ pub fn building_damage_system(
             }
         }
 
-        // Kill the linked NPC if alive
+        // Kill linked NPC if alive
         if npc_slot >= 0 {
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::HideNpc { idx: npc_slot as usize }));
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: npc_slot as usize, health: 0.0 }));

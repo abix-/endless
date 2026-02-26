@@ -92,6 +92,9 @@ const WORLD_TEX_H: f32 = 526.0;
 // Degenerate triangle — moves vertex off-screen to discard
 const HIDDEN: vec4<f32> = vec4<f32>(0.0, 0.0, -2.0, 1.0);
 
+// Strategic zoom LOD: below this zoom, replace sprites with flat colored rectangles
+const LOD_SIMPLE_ZOOM: f32 = 0.5;
+
 // Building atlas layer count comes from camera.bldg_layers (= BUILDING_REGISTRY.len())
 
 // Atlas ID 7 = building (source of truth: constants.rs)
@@ -182,6 +185,9 @@ fn vertex_npc(in: NpcVertexInput) -> VertexOutput {
     // Hidden NPC (tombstoned position)
     if pos.x < -9000.0 { out.clip_position = HIDDEN; return out; }
 
+    // Strategic zoom: skip equipment/overlay layers when zoomed out
+    if camera.zoom < LOD_SIMPLE_ZOOM && layer > 0u { out.clip_position = HIDDEN; return out; }
+
     let vis = npc_visual_buf[slot];
     var sprite_col: f32; var sprite_row: f32;
     var atlas_id: f32; var flash: f32;
@@ -253,6 +259,16 @@ fn vertex_npc(in: NpcVertexInput) -> VertexOutput {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Strategic zoom: flat colored rectangles when zoomed out far
+    if camera.zoom < LOD_SIMPLE_ZOOM {
+        // Buildings: solid faction-colored rectangle
+        if is_building_atlas(in.atlas_id) { return vec4<f32>(in.color.rgb, 1.0); }
+        // HP bars, overlays, extras: invisible at this zoom
+        if in.atlas_id >= 1.5 { discard; }
+        // NPCs: solid faction-colored rectangle (no texture sampling)
+        return vec4<f32>(in.color.rgb, 1.0);
+    }
+
     // Building sprite (atlas_id 7) — must come before bar branches to avoid discard
     if is_building_atlas(in.atlas_id) {
         // Snap V to texel center to prevent cross-layer bleeding after interpolation

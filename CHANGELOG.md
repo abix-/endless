@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-25f
+
+- **unified damage pipeline** — consolidated `DamageMsg` (NPC-only) + `BuildingDamageMsg` into one `DamageMsg` with `entity_idx` routing (`< npc_count` → NPC, `>= npc_count` → building); `damage_system` handles both NPC and building damage with `BldSetDamageFlash` for building hit feedback; removed GPU building-skip in `npc_compute.wgsl` combat targeting — GPU spatial grid now returns building targets directly, eliminating CPU brute-force `find_nearest_enemy_building()` scan; `attack_system` handles building targets from GPU readback (job filter: only archers/crossbows/raiders); building projectiles carry real damage (no more visual-only `damage: 0.0` hack); `process_proj_hits` writes one unified `DamageMsg` for all hits; split `building_damage_system` → `building_death_system` (death-only: loot, AI deactivation, endless respawn) moved from `Step::Behavior` to `Step::Combat` chain; deleted `find_nearest_enemy_building` and `find_nearest_enemy_building_filtered` from world.rs; updated endless_mode tests to use unified `DamageMsg` with computed `entity_idx`
+
 ## 2026-02-25e
 
 - **fix white screen: dirty message Reader/Writer conflicts** — `ai_decision_system` and `sync_patrol_perimeter_system` both had `MessageReader<T>` + `MessageWriter<T>` (via `DirtyWriters` in `WorldState`) for the same message types, causing Bevy B0002 schedule panic; added drain system pattern: `ai_dirty_drain_system` → `AiSnapshotDirty` resource (3 message types), `perimeter_dirty_drain_system` → `PerimeterSyncDirty` resource (1 message type); each drain runs `.before()` its consumer system; also migrated `NpcPipeline` from `FromWorld`/`finish()` to `RenderStartup` system (Bevy 0.18 pattern)

@@ -75,7 +75,7 @@ pub struct CameraState {
 }
 
 const CAMERA_ZOOM_SPEED: f32 = 0.1;
-const CAMERA_MIN_ZOOM: f32 = 0.1;
+const CAMERA_MIN_ZOOM: f32 = 0.02;
 const CAMERA_MAX_ZOOM: f32 = 4.0;
 const EDGE_PAN_MARGIN: f32 = 8.0;
 

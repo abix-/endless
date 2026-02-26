@@ -9,7 +9,7 @@ use crate::constants::{BUILDING_REGISTRY, DisplayCategory, FOUNTAIN_TOWER, npc_d
 use crate::components::*;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
-use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeQueue, UPGRADES, upgrade_count, upgrade_unlocked, upgrade_available, missing_prereqs, format_upgrade_cost, upgrade_effect_summary, branch_total, resolve_town_tower_stats};
+use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeMsg, UPGRADES, upgrade_count, upgrade_unlocked, upgrade_available, missing_prereqs, format_upgrade_cost, upgrade_effect_summary, branch_total, resolve_town_tower_stats};
 use crate::constants::UpgradeStatKind;
 use crate::systems::{AiPlayerState, AiKind};
 use crate::systems::ai_player::{AiPersonality, cheapest_gold_upgrade_cost};
@@ -91,7 +91,7 @@ pub struct UpgradeParams<'w> {
     gold_storage: Res<'w, GoldStorage>,
     faction_stats: Res<'w, FactionStats>,
     upgrades: Res<'w, TownUpgrades>,
-    queue: ResMut<'w, UpgradeQueue>,
+    queue: MessageWriter<'w, UpgradeMsg>,
     auto: ResMut<'w, AutoUpgrade>,
 }
 
@@ -626,7 +626,7 @@ fn upgrade_content(ui: &mut egui::Ui, upgrade: &mut UpgradeParams, world_data: &
                                     response.on_hover_text(upg.tooltip)
                                 };
                                 if response.clicked() {
-                                    upgrade.queue.0.push((town_idx, i));
+                                    upgrade.queue.write(UpgradeMsg { town_idx, upgrade_idx: i });
                                 }
 
                                 ui.label(format!("Lv{}", lv_i));

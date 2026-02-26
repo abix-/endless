@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy::ecs::system::SystemParam;
 use crate::components::*;
 use crate::constants::STARVING_HP_CAP;
-use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg};
+use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDeathMsg};
 use crate::messages::CombatLogMsg;
 use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, BuildingSlots, GpuReadState, FactionStats, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SystemTimings, HealingZoneCache, BuildingEntityMap, BuildingHealState};
 use crate::systems::stats::{CombatConfig, TownUpgrades, UPGRADES};
@@ -28,31 +28,61 @@ pub struct CleanupResources<'w> {
     pub building_slots: ResMut<'w, BuildingEntityMap>,
 }
 
-/// Apply queued damage to Health component and sync to GPU.
-/// Uses NpcEntityMap for O(1) entity lookup instead of O(n) iteration.
+/// Unified damage system: applies damage to both NPCs and buildings.
+/// entity_idx < npc_count → NPC (via NpcEntityMap), >= npc_count → building (via BuildingEntityMap).
 pub fn damage_system(
     mut commands: Commands,
     mut events: MessageReader<DamageMsg>,
     npc_map: Res<NpcEntityMap>,
+    bmap: Res<BuildingEntityMap>,
+    slots: Res<SlotAllocator>,
     mut query: Query<(&mut Health, &NpcIndex)>,
     mut debug: ResMut<HealthDebug>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    mut building_death_events: MessageWriter<BuildingDeathMsg>,
+    mut heal_state: ResMut<BuildingHealState>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("damage");
+    let npc_count = slots.count();
     let mut damage_count = 0;
     for event in events.read() {
         damage_count += 1;
-        // O(1) lookup via NpcEntityMap
-        if let Some(&entity) = npc_map.0.get(&event.npc_index) {
-            if let Ok((mut health, npc_idx)) = query.get_mut(entity) {
-                health.0 = (health.0 - event.amount).max(0.0);
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: npc_idx.0, health: health.0 }));
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetDamageFlash { idx: npc_idx.0, intensity: 1.0 }));
-                // Track last attacker for XP-on-kill
-                if event.attacker >= 0 {
-                    if let Ok(mut ec) = commands.get_entity(entity) {
-                        ec.insert(LastHitBy(event.attacker));
+
+        if event.entity_idx >= npc_count {
+            // Building damage
+            let bld_slot = event.entity_idx - npc_count;
+            let Some((kind, data_idx)) = bmap.get_building(bld_slot) else { continue };
+            if matches!(kind, crate::world::BuildingKind::GoldMine | crate::world::BuildingKind::Road) { continue; }
+            let Some(entity) = bmap.get_entity(bld_slot) else { continue };
+            let Ok((mut health, _npc_idx)) = query.get_mut(entity) else { continue };
+            if health.0 <= 0.0 { continue; }
+
+            health.0 = (health.0 - event.amount).max(0.0);
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::BldSetHealth { idx: bld_slot, health: health.0 }));
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::BldSetDamageFlash { idx: bld_slot, intensity: 1.0 }));
+
+            if health.0 > 0.0 {
+                heal_state.needs_healing = true;
+            } else {
+                // Building destroyed — emit death event for downstream handling
+                building_death_events.write(BuildingDeathMsg {
+                    kind, index: data_idx, bld_slot,
+                    attacker: event.attacker,
+                    attacker_faction: event.attacker_faction,
+                });
+            }
+        } else {
+            // NPC damage
+            if let Some(&entity) = npc_map.0.get(&event.entity_idx) {
+                if let Ok((mut health, npc_idx)) = query.get_mut(entity) {
+                    health.0 = (health.0 - event.amount).max(0.0);
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: npc_idx.0, health: health.0 }));
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetDamageFlash { idx: npc_idx.0, intensity: 1.0 }));
+                    if event.attacker >= 0 {
+                        if let Ok(mut ec) = commands.get_entity(entity) {
+                            ec.insert(LastHitBy(event.attacker));
+                        }
                     }
                 }
             }

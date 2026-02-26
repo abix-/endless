@@ -6,7 +6,7 @@
 
 use bevy::prelude::*;
 use crate::components::{Faction, Migrating};
-use crate::messages::{BuildingDamageMsg, SpawnNpcMsg};
+use crate::messages::{DamageMsg, SpawnNpcMsg};
 use crate::resources::*;
 use crate::systems::{AiPlayerState, AiKind};
 use crate::world::{self, BuildingKind, WorldGenStyle};
@@ -77,7 +77,9 @@ pub fn tick(
     time: Res<Time>,
     game_time: Res<GameTime>,
     mut test: ResMut<TestState>,
-    mut damage_writer: MessageWriter<BuildingDamageMsg>,
+    mut damage_writer: MessageWriter<DamageMsg>,
+    slots: Res<SlotAllocator>,
+    bmap: Res<BuildingEntityMap>,
     migrating_query: Query<&Faction, With<Migrating>>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
@@ -127,10 +129,12 @@ pub fn tick(
 
             if !test.get_flag("damage_sent") {
                 let max_hp = crate::constants::building_def(BuildingKind::Fountain).hp;
-                damage_writer.write(BuildingDamageMsg {
-                    kind: BuildingKind::Fountain, index: target,
-                    amount: max_hp + 100.0, attacker_faction: 0, attacker: -1,
-                });
+                if let Some(bld_slot) = bmap.get_slot(BuildingKind::Fountain, target) {
+                    damage_writer.write(DamageMsg {
+                        entity_idx: slots.count() + bld_slot,
+                        amount: max_hp + 100.0, attacker_faction: 0, attacker: -1,
+                    });
+                }
                 test.set_flag("damage_sent", true);
             } else if hp <= 0.0 {
                 let ai_active = ai_state.players.iter()
@@ -304,10 +308,12 @@ pub fn tick(
 
             if !test.get_flag("raider_damage_sent") {
                 let max_hp = crate::constants::building_def(BuildingKind::Fountain).hp;
-                damage_writer.write(BuildingDamageMsg {
-                    kind: BuildingKind::Fountain, index: target,
-                    amount: max_hp + 100.0, attacker_faction: 0, attacker: -1,
-                });
+                if let Some(bld_slot) = bmap.get_slot(BuildingKind::Fountain, target) {
+                    damage_writer.write(DamageMsg {
+                        entity_idx: slots.count() + bld_slot,
+                        amount: max_hp + 100.0, attacker_faction: 0, attacker: -1,
+                    });
+                }
                 test.set_flag("raider_damage_sent", true);
             } else if hp <= 0.0 {
                 let ai_active = ai_state.players.iter()

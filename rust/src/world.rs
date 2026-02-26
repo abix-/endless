@@ -678,7 +678,7 @@ pub fn expand_town_build_area(
 
 
 /// Consolidated building destruction: grid clear + growth tombstone + HP zero + combat log.
-/// Used by click-destroy, inspector-destroy, and building_damage_system (HP→0).
+/// Used by click-destroy, inspector-destroy, and building_death_system (HP→0).
 pub(crate) fn destroy_building(
     grid: &mut WorldGrid,
     world_data: &WorldData,
@@ -772,64 +772,6 @@ pub fn find_location_within_radius(
         if d2 <= r2 && d2 < best_d2 {
             best_d2 = d2;
             result = Some((inst.slot, inst.position));
-        }
-    });
-    result
-}
-
-/// Find the nearest enemy building within radius that the NPC wants to attack.
-/// Raiders: only ArcherHome, Waypoint. Archers/others: any enemy building.
-/// Returns (kind, index, position) of nearest enemy building.
-pub fn find_nearest_enemy_building(
-    from: Vec2, bmap: &crate::resources::BuildingEntityMap, npc_faction: i32, npc_job: i32, radius: f32,
-) -> Option<(BuildingKind, usize, Vec2)> {
-    let r2 = radius * radius;
-    let mut best_d2 = f32::MAX;
-    let mut result: Option<(BuildingKind, usize, Vec2)> = None;
-    let is_raider = npc_job == 2;
-    bmap.for_each_nearby(from, radius, |inst| {
-        if inst.faction == npc_faction { return; } // same faction
-        if inst.faction < 0 { return; } // no faction (gold mines)
-        // Skip non-targetable building types (enemy fountains ARE targetable)
-        match inst.kind {
-            BuildingKind::GoldMine | BuildingKind::Bed => return,
-            BuildingKind::Fountain if inst.faction == 0 => return, // protect player fountain
-            _ => {}
-        }
-        // Raiders only target military buildings + walls (breach defenses)
-        if is_raider && !matches!(inst.kind, BuildingKind::ArcherHome | BuildingKind::CrossbowHome | BuildingKind::Waypoint | BuildingKind::Wall) {
-            return;
-        }
-        let dx = inst.position.x - from.x;
-        let dy = inst.position.y - from.y;
-        let d2 = dx * dx + dy * dy;
-        if d2 <= r2 && d2 < best_d2 {
-            best_d2 = d2;
-            result = Some((inst.kind, inst.slot, inst.position));
-        }
-    });
-    result
-}
-
-/// Find the nearest enemy building within radius, filtered to specific building kinds.
-/// Returns (kind, index, position) of nearest matching enemy building.
-pub fn find_nearest_enemy_building_filtered(
-    from: Vec2, bmap: &crate::resources::BuildingEntityMap, npc_faction: i32, radius: f32,
-    allowed_kinds: &[BuildingKind],
-) -> Option<(BuildingKind, usize, Vec2)> {
-    let r2 = radius * radius;
-    let mut best_d2 = f32::MAX;
-    let mut result: Option<(BuildingKind, usize, Vec2)> = None;
-    bmap.for_each_nearby(from, radius, |inst| {
-        if inst.faction == npc_faction { return; }
-        if inst.faction < 0 { return; }
-        if !allowed_kinds.contains(&inst.kind) { return; }
-        let dx = inst.position.x - from.x;
-        let dy = inst.position.y - from.y;
-        let d2 = dx * dx + dy * dy;
-        if d2 <= r2 && d2 < best_d2 {
-            best_d2 = d2;
-            result = Some((inst.kind, inst.slot, inst.position));
         }
     });
     result

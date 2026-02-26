@@ -192,7 +192,7 @@ pub struct BuildingInspectorData<'w, 's> {
 
 #[derive(SystemParam)]
 pub struct BottomPanelUiState<'w, 's> {
-    destroy_request: ResMut<'w, DestroyRequest>,
+    destroy_request: MessageWriter<'w, crate::messages::DestroyBuildingMsg>,
     ui_state: ResMut<'w, UiState>,
     mining_policy: ResMut<'w, MiningPolicy>,
     dirty_writers: crate::messages::DirtyWriters<'w>,
@@ -336,7 +336,7 @@ pub fn bottom_panel_system(
                         ui.separator();
                         if ui.button(egui::RichText::new("Destroy").color(egui::Color32::from_rgb(220, 80, 80))).clicked() {
                             if let Some((_, _, _, col, row)) = selected_info {
-                                panel_state.destroy_request.0 = Some((col, row));
+                                panel_state.destroy_request.write(crate::messages::DestroyBuildingMsg(col, row));
                             }
                         }
                     }

@@ -61,18 +61,13 @@ For each active projectile:
 
 ## Hit Processing
 
-`ReadbackComplete` observers write hit results and positions directly to `Res<ProjHitState>` and `Res<ProjPositionState>` (Bevy async readback, no manual staging). `process_proj_hits` routes hits to NPCs or buildings:
+`ReadbackComplete` observers write hit results and positions directly to `Res<ProjHitState>` and `Res<ProjPositionState>` (Bevy async readback, no manual staging). `process_proj_hits` emits unified `DamageMsg` for all hits:
 
 ```
 for slot in 0..min(proj_alloc.next, hit_state.len()):
     skip if proj_writes.active[slot] == 0 (inactive, stale in readback)
     if hit.x >= 0 and hit.y == 0 (collision):
-        if hit.x >= npc_count:
-            bld_slot = hit.x - npc_count
-            look up (kind, data_idx) via BuildingEntityMap.get_building(bld_slot)
-            push BuildingDamageMsg { kind, index, amount, attacker_faction, attacker }
-        else:
-            push DamageMsg { npc_index: hit.x, amount: damage }
+        push DamageMsg { entity_idx: hit.x, amount: damage, attacker: shooter, attacker_faction }
         recycle slot via ProjSlotAllocator
         send ProjGpuUpdate::Deactivate to GPU
     if hit.x == -2 (expired sentinel):
@@ -80,7 +75,7 @@ for slot in 0..min(proj_alloc.next, hit_state.len()):
         send ProjGpuUpdate::Deactivate to GPU
 ```
 
-Entity buffer layout: `[0..npc_count]` = NPCs, `[npc_count..entity_count]` = buildings. The GPU collision scans the unified entity spatial grid, so projectiles hit both NPCs and buildings automatically via faction check (no friendly fire on same-faction buildings).
+Entity buffer layout: `[0..npc_count]` = NPCs, `[npc_count..entity_count]` = buildings. The GPU collision scans the unified entity spatial grid, so projectiles hit both NPCs and buildings automatically via faction check (no friendly fire on same-faction buildings). `damage_system` routes by `entity_idx`: `< npc_count` → NPC damage, `>= npc_count` → building damage.
 
 ## GPU Buffers
 

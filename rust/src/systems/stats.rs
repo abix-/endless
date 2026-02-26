@@ -396,9 +396,13 @@ impl Default for TownUpgrades {
     }
 }
 
-/// Queue of upgrade purchase requests from UI. Drained by process_upgrades_system.
-#[derive(Resource, Default)]
-pub struct UpgradeQueue(pub Vec<(usize, usize)>); // (town_idx, upgrade_index)
+/// Upgrade purchase request message. Replaces the old UpgradeQueue resource.
+/// Writers: UI left_panel, auto_upgrade_system, ai_player. Reader: process_upgrades_system.
+#[derive(Message, Clone)]
+pub struct UpgradeMsg {
+    pub town_idx: usize,
+    pub upgrade_idx: usize,
+}
 
 // ============================================================================
 // HELPERS
@@ -595,9 +599,9 @@ pub fn resolve_combat_stats(
 // PROCESS UPGRADES SYSTEM
 // ============================================================================
 
-/// Drains UpgradeQueue, applies upgrades, re-resolves affected NPC stats.
+/// Drains UpgradeMsg messages, applies upgrades, re-resolves affected NPC stats.
 pub fn process_upgrades_system(
-    mut queue: ResMut<UpgradeQueue>,
+    mut queue: MessageReader<UpgradeMsg>,
     mut upgrades: ResMut<TownUpgrades>,
     mut economy: EconomyState,
     npcs_by_town: Res<NpcsByTownCache>,
@@ -611,7 +615,8 @@ pub fn process_upgrades_system(
 ) {
     let _t = timings.scope("process_upgrades");
     let count = upgrade_count();
-    for (town_idx, upgrade_idx) in queue.0.drain(..) {
+    for msg in queue.read() {
+        let (town_idx, upgrade_idx) = (msg.town_idx, msg.upgrade_idx);
         if upgrade_idx >= count { continue; }
         if town_idx >= upgrades.levels.len() { continue; }
         // Ensure upgrade vec is long enough
@@ -684,7 +689,7 @@ pub fn auto_upgrade_system(
     upgrades: Res<TownUpgrades>,
     food_storage: Res<crate::resources::FoodStorage>,
     gold_storage: Res<crate::resources::GoldStorage>,
-    mut queue: ResMut<UpgradeQueue>,
+    mut queue: MessageWriter<UpgradeMsg>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("auto_upgrade");
@@ -698,7 +703,7 @@ pub fn auto_upgrade_system(
         for i in 0..count.min(flags.len()) {
             if !flags[i] { continue; }
             if upgrade_available(&levels, i, food, gold) {
-                queue.0.push((town_idx, i));
+                queue.write(UpgradeMsg { town_idx, upgrade_idx: i });
             }
         }
     }

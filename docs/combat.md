@@ -2,32 +2,36 @@
 
 ## Overview
 
-Ten Bevy systems handle the complete combat loop: cooldown management, GPU-targeted attacks (with building fallback), damage application, death detection, XP-on-kill grant, cleanup with slot recycling, waypoint slot sync, building tower auto-attack (fountains), and building damage processing. Nine run chained in `Step::Combat`; `building_damage_system` runs in `Step::Behavior`.
+Ten Bevy systems handle the complete combat loop: cooldown management, GPU-targeted attacks (NPC and building targets), unified damage application (NPCs + buildings), death detection, XP-on-kill grant, building death processing (loot, AI deactivation, endless respawn), cleanup with slot recycling, waypoint slot sync, and building tower auto-attack (fountains). All ten run chained in `Step::Combat`.
 
 ## Data Flow
 
 ```
 GPU combat_target_buffer (from compute shader)
-        │
+        │  (returns NPC index OR building index)
         ▼
   attack_system
   (range check,
    cooldown check,
    fire projectile or
-   point-blank damage)
+   point-blank DamageMsg)
+        │
+        ├── target < npc_count → NPC target (existing flow)
+        ├── target >= npc_count → building target (GPU-targeted, real damage projectile)
         │
         ├── In range + cooldown ready → fire projectile → GPU projectile system
-        │
         └── Out of range → SetTarget (chase) → GPU_UPDATE_QUEUE
                                                       │
                                                       ▼
 DamageMsg (from process_proj_hits)             GPU movement
-        │
+        │  (unified: entity_idx routes NPC vs building)
         ▼
   damage_system
-  (apply to Health,
-   sync GPU health,
-   insert LastHitBy)
+  ├─ NPC (entity_idx < npc_count):
+  │   apply to Health, sync GPU, insert LastHitBy, SetDamageFlash
+  └─ Building (entity_idx >= npc_count):
+      apply to Health, BldSetHealth, BldSetDamageFlash
+      if HP=0 → emit BuildingDeathMsg
         │
         ▼
   death_system
@@ -38,6 +42,11 @@ DamageMsg (from process_proj_hits)             GPU movement
   (Dead + LastHitBy →
    grant 100 XP to killer,
    level-up → re-resolve stats)
+        │
+        ▼
+  building_death_system
+  (BuildingDeathMsg → loot, AI deactivation,
+   endless respawn, linked NPC kill)
         │
         ▼
   death_cleanup_system
@@ -52,11 +61,6 @@ DamageMsg (from process_proj_hits)             GPU movement
       ├─ BldHide + BldSetHealth(0) → BuildingGpuState
       ├─ Remove from BuildingEntityMap
       └─ BuildingSlots.free(idx)
-        │
-        ▼
-  sync_waypoint_slots
-  (alloc/free NPC slots,
-   dirty-flag gated)
         │
         ▼
   building_tower_system
@@ -94,30 +98,36 @@ Execution order is **chained** — each system completes before the next starts.
 - **Hold fire**: if NPC's squad has `hold_fire == true` and no `ManualTarget`, target is set to -1 (skip auto-engage). Reads `SquadState` via `SquadId`.
 - Falls back to `GpuReadState.combat_targets` for NPCs without manual target or hold-fire.
 - **Skips** NPCs with `Activity::Returning`, `Activity::GoingToRest`, or `Activity::Resting` (prevents combat while heading home, going to bed, or sleeping)
-- **Validates GPU target** before engaging — rejects self-targets (`ti == i`), non-NPC slots (`NpcEntityMap` lookup — buildings are not in `NpcEntityMap` so building targets naturally rejected), same-faction or neutral targets (`GpuReadState.factions`), and dead targets (`GpuReadState.health <= 0`). Invalid targets clear `CombatState` and skip.
-- If target is valid (not -1), passes validation, and in bounds:
+- **Unified GPU targeting**: `combat_targets[i]` can return NPC indices (`< npc_count`) or building indices (`>= npc_count`). One code path for all target types.
+- **Building targets** (`target >= npc_count`):
+  - Only **archers**, **crossbows**, and **raiders** attack buildings (farmers/miners/fighters skip)
+  - Validates via `BuildingEntityMap.get_instance(bld_slot)` — checks faction (skip same-faction)
+  - Gets building position from `BuildingInstance.position`
+  - In range + cooldown ready: fires projectile with **real damage** (GPU projectile collision handles hit detection against buildings in the unified entity grid)
+  - Point-blank: emits `DamageMsg` directly
+  - Out of range: chases building (`SetTarget` to building position)
+- **NPC targets** (`target < npc_count`):
+  - Validates via `NpcEntityMap` lookup, faction check, health check (same as before)
   - Sets `CombatState::Fighting { origin }` (stores current position)
   - **In range**: sets `SetTarget` to own position (stand ground — stops GPU movement, NPC holds position while shooting). Projectile dodge from GPU shader provides evasion.
   - **In range + cooldown ready**: resets `AttackTimer`, fires projectile or applies point-blank damage
   - **Out of range**: pushes `GpuUpdate::SetTarget` to chase
-- If no NPC target: sets `CombatState::None`, then checks for opportunistic building attack:
-  - Only **archers**, **crossbows**, and **raiders** attempt building attacks (farmers/miners/fighters skip)
-  - Queries `BuildingSpatialGrid` via `find_nearest_enemy_building()` for enemy buildings within `CachedStats.range`
-  - Non-targetable buildings skipped: Fountain, GoldMine, Bed
-  - **Raiders**: only target ArcherHome, CrossbowHome, Waypoint, Wall (breach defenses; leave FarmerHome/MinerHome alone for farm raiding)
-  - **Archers/Crossbows**: target any enemy building type (except non-targetable)
-  - "Enemy" = building faction != NPC faction (uses `BuildingRef.faction` field)
-  - If found and cooldown ready: stand ground (SetTarget to own pos), fire projectile toward building position, reset cooldown
-  - Building damage is applied directly: `attack_system` emits `BuildingDamageMsg` immediately on cooldown-ready building attack. Projectile spawned with `damage: 0.0` (visual only — buildings are not in the NPC GPU buffer so no GPU collision possible).
-  - NPCs don't chase buildings — pure attack of opportunity when nearby with nothing better to do
 
 ### 3. damage_system (health.rs)
-- Drains `DamageMsg` events from Bevy MessageReader
-- O(1) entity lookup via `NpcEntityMap[npc_index]`
-- Subtracts damage: `health.0 = (health.0 - amount).max(0.0)`
-- Pushes `GpuUpdate::SetHealth` to sync GPU health buffer
-- Pushes `GpuUpdate::SetDamageFlash` (intensity 1.0) for visual hit feedback
-- If `DamageMsg.attacker >= 0`: inserts `LastHitBy(attacker)` on target entity via `get_entity()` guard (overwrites previous, skips despawned entities)
+- Drains unified `DamageMsg` events from Bevy MessageReader
+- Routes by `entity_idx`: `< npc_count` → NPC, `>= npc_count` → building
+- **NPC damage** (`entity_idx < npc_count`):
+  - O(1) entity lookup via `NpcEntityMap[entity_idx]`
+  - Subtracts damage: `health.0 = (health.0 - amount).max(0.0)`
+  - Pushes `GpuUpdate::SetHealth` + `GpuUpdate::SetDamageFlash` (intensity 1.0)
+  - If `attacker >= 0`: inserts `LastHitBy(attacker)` via `get_entity()` guard
+- **Building damage** (`entity_idx >= npc_count`):
+  - `bld_slot = entity_idx - npc_count`
+  - O(1) lookup via `BuildingEntityMap.get_building(bld_slot)` + `get_entity(bld_slot)`
+  - Skips indestructible buildings (GoldMine, Road) and already-dead buildings
+  - Subtracts damage, pushes `GpuUpdate::BldSetHealth` + `GpuUpdate::BldSetDamageFlash`
+  - If HP > 0: sets `BuildingHealState.needs_healing` for healing_system
+  - If HP <= 0: emits `BuildingDeathMsg` (kind, data_idx, bld_slot, attacker, attacker_faction)
 
 ### 4. death_system (health.rs)
 - Queries all NPCs with Health but `Without<Dead>`
@@ -133,7 +143,18 @@ Execution order is **chained** — each system completes before the next starts.
 - **Loot on kill**: reads `npc_def(dead_job).loot_drop` (slice of LootDrop entries with item/min/max), picks one deterministically via `xp % len`, then deterministic spread via `min + (xp % range)`. Military NPCs (archers, crossbows, fighters, raiders) drop food or gold; farmers drop food; miners drop gold. Sets killer to `Activity::Returning { loot }`, clears `CombatState::None` (immediate disengage — loot delivery is highest priority), targets home. Accumulates into existing Returning loot if already carrying. **DC keep-fighting**: if killer has `DirectControl` and `SquadState.dc_no_return` is true, loot is accumulated but combat is NOT disengaged and GPU target is NOT set to home — NPC keeps fighting with loot piling up.
 - XP formula: `level = floor(sqrt(xp / 100))`, level multiplier = `1.0 + level * 0.01`
 
-### 6. death_cleanup_system (health.rs)
+### 6. building_death_system (combat.rs)
+- Reads `BuildingDeathMsg` events (emitted by `damage_system` when building HP reaches 0)
+- HP decrement and GPU health sync already handled by `damage_system` — this only runs on death
+- Uses `BuildingDeathExtra` SystemParam bundle (NpcMetaCache, SquadState, AiPlayerState, EndlessMode, TownUpgrades, FoodStorage, GoldStorage)
+- Looks up position/town via `BuildingEntityMap.get_instance(bld_slot)`
+- Calls `destroy_building()` shared helper (grid clear + mark building entity Dead + combat log)
+- Emits `mark_building_changed(kind)` dirty signals
+- **Fountain death**: deactivates AI player for that town. In endless mode, queues replacement AI (`PendingAiSpawn`) scaled to player strength.
+- **Linked NPC kill**: if building had `npc_slot >= 0`, hides + kills the linked NPC via GPU updates
+- **Building loot**: `BuildingDef::loot_drop()` returns `cost / 2` as food. Attacker set to `Activity::Returning { loot }`, targets home. DC keep-fighting override skips disengage + home target when `dc_no_return`.
+
+### 7. death_cleanup_system (health.rs)
 - Queries all entities `With<Dead>`
 - For each dead entity:
   1. `commands.entity(entity).despawn()` — remove from Bevy ECS
@@ -155,15 +176,6 @@ Execution order is **chained** — each system completes before the next starts.
   3. `BuildingSlots.free(idx)` — recycle building slot
   4. Skip all NPC-specific logic (population stats, faction stats, etc.)
 
-### 7. sync_waypoint_slots (combat.rs)
-
-- Gated by `MessageReader<BuildingGridDirtyMsg>` — skips entirely when no waypoints built/destroyed/loaded
-- Scans `BuildingEntityMap.iter_kind(Waypoint)` for slot mismatches:
-  - **Alive post, no slot** (`position.x > -9000 && npc_slot == None`): allocates `SlotAllocator` index, emits GPU updates (SetPosition, SetTarget, SetSpeed=0, SetHealth=999, SetSpriteFrame col=-1). Sprite col=-1 makes the slot invisible to NPC renderer. SetTarget=position causes GPU to immediately mark settled.
-  - **Tombstoned post, has slot** (`position.x < -9000 && npc_slot == Some`): emits `HideNpc`, frees slot
-- Faction set in a second pass (borrow split: `iter_mut` on waypoints prevents reading towns simultaneously)
-- Runs once per dirty signal, then waits for next message
-
 ### 8. building_tower_system (combat.rs)
 
 Tower auto-attack using GPU spatial grid targeting. Towers are in the unified entity buffer (at index `npc_count + bld_slot`) with `ENTITY_FLAG_BUILDING | ENTITY_FLAG_COMBAT`. The GPU compute shader MODE 2 runs the same combat targeting scan for towers as for NPC combatants — finding the nearest enemy NPC via the spatial grid.
@@ -176,20 +188,6 @@ Tower auto-attack using GPU spatial grid targeting. Towers are in the unified en
 - Tower loop: for each enabled building, look up building slot via `BuildingEntityMap.get_slot(Fountain, town_idx)`, read GPU target, fire `ProjGpuUpdate::Spawn` with `shooter: -1`
 - DRY: adding a new tower building kind requires a `TowerStats` const, a `TowerKindState` field in `TowerState`, and a block in `building_tower_system`. Building flags in `world.rs` + extract mapping in `npc_render.rs` handle the GPU side.
 
-### 9. building_damage_system (combat.rs, Step::Behavior)
-- Uses `BuildingDeathExtra` SystemParam bundle (NpcMetaCache, SquadState, AiPlayerState, EndlessMode, TownUpgrades, FoodStorage, GoldStorage) to stay within Bevy's 16-parameter limit
-- Reads `BuildingDamageMsg` events via `MessageReader`
-- Decrements entity `Health` component on the building entity (looked up via `BuildingEntityMap.get_entity_by_building(kind, idx)` → entity)
-- Looks up position/town via `BuildingEntityMap::get_instance(slot)` (position + town_idx from `BuildingInstance`)
-- Sets `BuildingHealState.needs_healing` when a building survives damage (hp > 0)
-- Syncs HP to GPU: writes `GpuUpdate::BldSetHealth` with new HP (routed to `BuildingGpuState`)
-- Skips already-dead buildings (HP <= 0) and indestructible buildings (GoldMine, Road)
-- When HP reaches 0:
-  1. Captures linked NPC slot from `SpawnerState` by position match **before** destroy (tombstoning changes position)
-  2. Calls `destroy_building()` shared helper (grid clear + combat log + mark building entity Dead via `get_entity()` guard)
-  4. Kills linked NPC via `GpuUpdate::HideNpc` + `SetHealth(0.0)`
-  5. **Building loot**: `BuildingDef::loot_drop()` method returns `cost / 2` as food (None if cost 0). Attacker set to `Activity::Returning { loot }`, targets home. Accumulates into existing loot. DC keep-fighting override same as xp_grant_system (skip disengage + skip home target when `dc_no_return`).
-- Profiled under `"building_damage"` scope
 
 ## Slot Recycling
 
@@ -223,12 +221,13 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 | CPU → GPU | Hide dead | `GpuUpdate::HideNpc` resets position, target, arrival, health |
 | CPU → GPU | Stand ground | `GpuUpdate::SetTarget` to own position when in attack range (stops movement, allows proj dodge) |
 | CPU → GPU | Chase target | `GpuUpdate::SetTarget` when out of attack range |
-| CPU → GPU | Fire projectile | `ProjGpuUpdate::Spawn` via `PROJ_GPU_UPDATE_QUEUE` (attack_system + building_tower_system + building attack fallback) |
+| CPU → GPU | Fire projectile | `ProjGpuUpdate::Spawn` via `PROJ_GPU_UPDATE_QUEUE` (attack_system + building_tower_system) |
 | CPU → GPU | Guard post slots | `sync_waypoint_slots` allocates NPC slots for waypoints, sets position/faction/speed=0/health=999/sprite=-1 |
-| CPU → GPU | Building HP sync | `building_damage_system` writes entity `Health` + `GpuUpdate::BldSetHealth` to sync building HP in `BuildingGpuState` |
+| CPU → GPU | Building HP sync | `damage_system` writes entity `Health` + `GpuUpdate::BldSetHealth` to sync building HP in `BuildingGpuState` |
+| CPU → GPU | Building damage flash | `damage_system` writes `GpuUpdate::BldSetDamageFlash` (intensity 1.0, decays at 5.0/s) |
 | GPU → CPU | Tower targeting | `building_tower_system` reads `GpuReadState.combat_targets[npc_count + bld_slot]` — GPU spatial grid targeting (same as NPC targeting) |
-| GPU → CPU | Projectile building hits | `process_proj_hits`: `hit_idx >= npc_count` → `BuildingDamageMsg` via `BuildingEntityMap.get_building(bld_slot)` |
-| CPU | Building attack fallback | `attack_system` emits `BuildingDamageMsg` directly on building attack; projectile is visual-only (`damage: 0.0`) |
+| GPU → CPU | Projectile hits | `process_proj_hits`: unified `DamageMsg` for all hits (entity_idx routes NPC vs building in damage_system) |
+| GPU → CPU | Building targeting | `attack_system` reads `combat_targets[i]` — GPU returns building indices (`>= npc_count`) when buildings are nearest enemy |
 
 ## Debug
 

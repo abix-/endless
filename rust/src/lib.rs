@@ -27,7 +27,7 @@ pub mod world;
 use bevy::prelude::*;
 
 use messages::{
-    SpawnNpcMsg, DamageMsg, BuildingDamageMsg, GpuUpdateMsg, CombatLogMsg,
+    SpawnNpcMsg, DamageMsg, BuildingDeathMsg, GpuUpdateMsg, CombatLogMsg, DestroyBuildingMsg,
     BuildingGridDirtyMsg, PatrolsDirtyMsg, PatrolPerimeterDirtyMsg,
     HealingZonesDirtyMsg, SquadsDirtyMsg, MiningDirtyMsg, AiSquadsDirtyMsg, PatrolSwapMsg,
 };
@@ -40,7 +40,7 @@ use resources::{
     FoodStorage, GoldStorage, FactionStats, RaiderState, SystemTimings,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
     TowerState, FollowSelected, TownPolicies, SelectedBuilding,
-    AutoUpgrade, SquadState, HelpCatalog, DestroyRequest,
+    AutoUpgrade, SquadState, HelpCatalog,
     Difficulty, HealingZoneCache, GameAudio, PlaySfxMsg, TutorialState, MiningPolicy,
     BuildingHealState,
 };
@@ -197,7 +197,7 @@ pub fn build_app(app: &mut App) {
        // Events
        .add_message::<SpawnNpcMsg>()
        .add_message::<DamageMsg>()
-       .add_message::<BuildingDamageMsg>()
+       .add_message::<BuildingDeathMsg>()
        .add_message::<GpuUpdateMsg>()
        .add_message::<CombatLogMsg>()
        .add_message::<BuildingGridDirtyMsg>()
@@ -245,7 +245,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<CombatLog>()
        .init_resource::<world::TownGrids>()
        .init_resource::<BuildMenuContext>()
-       .init_resource::<DestroyRequest>()
+       .add_message::<DestroyBuildingMsg>()
        .init_resource::<TowerState>()
        .init_resource::<resources::BuildingEntityMap>()
        .init_resource::<resources::BuildingHpRender>()
@@ -261,7 +261,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<resources::NpcDecisionConfig>()
        .init_resource::<systems::stats::CombatConfig>()
        .init_resource::<systems::stats::TownUpgrades>()
-       .init_resource::<systems::stats::UpgradeQueue>()
+       .add_message::<systems::stats::UpgradeMsg>()
        .init_resource::<AutoUpgrade>()
        .init_resource::<TownPolicies>()
        .init_resource::<MiningPolicy>()
@@ -306,6 +306,7 @@ pub fn build_app(app: &mut App) {
            damage_system,
            death_system,
            xp_grant_system,
+           building_death_system,
            death_cleanup_system,
            building_tower_system,
        ).chain().in_set(Step::Combat))
@@ -335,8 +336,7 @@ pub fn build_app(app: &mut App) {
        .add_systems(Update, systems::ai_player::perimeter_dirty_drain_system.before(sync_patrol_perimeter_system).in_set(Step::Behavior))
        .add_systems(Update, sync_patrol_perimeter_system.before(rebuild_patrol_routes_system).in_set(Step::Behavior))
        .add_systems(Update, ai_squad_commander_system.after(ai_decision_system).before(decision_system).in_set(Step::Behavior))
-       .add_systems(Update, building_damage_system.in_set(Step::Behavior))
-       .add_systems(Update, sync_building_hp_render.after(building_damage_system).in_set(Step::Behavior))
+       .add_systems(Update, sync_building_hp_render.in_set(Step::Behavior))
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior).run_if(game_active.clone()))
        // Debug settings sync + tick logging
        .add_systems(Update, (sync_debug_settings, debug_tick_system).run_if(game_active.clone()))

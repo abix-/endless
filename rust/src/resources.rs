@@ -715,10 +715,6 @@ impl BuildMenuContext {
     }
 }
 
-/// Request to destroy a building at a specific world grid cell. Set by inspector, processed by system.
-#[derive(Resource, Default)]
-pub struct DestroyRequest(pub Option<(usize, usize)>); // (grid_col, grid_row)
-
 // ============================================================================
 // COMBAT LOG
 // ============================================================================

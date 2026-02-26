@@ -500,7 +500,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
                 let other_hp = healths[other3];
                 if (other_hp <= 0.0) { continue; }
-                if ((entity_flags[other3] & ENTITY_BUILDING) != 0u) { continue; }  // skip buildings as targets
 
                 let other_pos3 = positions[other3];
                 let diff3 = pos - other_pos3;

@@ -277,7 +277,8 @@ impl NpcGpuState {
             // Building variants — handled by BuildingGpuState
             GpuUpdate::BldSetPosition { .. } | GpuUpdate::BldSetFaction { .. } |
             GpuUpdate::BldSetHealth { .. } | GpuUpdate::BldSetSpriteFrame { .. } |
-            GpuUpdate::BldSetFlags { .. } | GpuUpdate::BldHide { .. } => {}
+            GpuUpdate::BldSetFlags { .. } | GpuUpdate::BldSetDamageFlash { .. } |
+            GpuUpdate::BldHide { .. } => {}
         }
     }
 }
@@ -359,6 +360,11 @@ impl BuildingGpuState {
                 if *idx < self.flags.len() {
                     self.flags[*idx] = *flags;
                     self.dirty_flags = true;
+                }
+            }
+            GpuUpdate::BldSetDamageFlash { idx, intensity } => {
+                if *idx < self.flash_values.len() {
+                    self.flash_values[*idx] = *intensity;
                 }
             }
             GpuUpdate::BldHide { idx } => {
@@ -535,7 +541,8 @@ pub fn populate_gpu_state(
             match &update {
                 GpuUpdate::BldSetPosition { .. } | GpuUpdate::BldSetFaction { .. } |
                 GpuUpdate::BldSetHealth { .. } | GpuUpdate::BldSetSpriteFrame { .. } |
-                GpuUpdate::BldSetFlags { .. } | GpuUpdate::BldHide { .. } => {
+                GpuUpdate::BldSetFlags { .. } | GpuUpdate::BldSetDamageFlash { .. } |
+                GpuUpdate::BldHide { .. } => {
                     bld_state.apply(&update);
                 }
                 _ => {
@@ -714,9 +721,31 @@ pub struct ReadbackHandles {
     pub proj_positions: Handle<ShaderStorageBuffer>,
 }
 
-/// Create ShaderStorageBuffer readback targets and spawn Readback entities with observers.
+/// Round up to next power-of-2 (min 1024) for readback buffer_range sizing.
+fn readback_bucket(count: usize) -> usize {
+    count.max(1024).next_power_of_two()
+}
+
+/// Main-world-only state for dynamic readback entity management.
+/// NOT extracted to render world — buckets and entity tracking stay on the CPU side.
+#[derive(Resource, Default)]
+pub struct ReadbackState {
+    pub npc_bucket: usize,
+    pub entity_bucket: usize,
+    pub proj_bucket: usize,
+    /// Always-on readback entities (positions, combat_targets, health, proj_hits, proj_positions).
+    /// Only respawned on bucket change.
+    pub always_entities: Vec<Entity>,
+    /// Throttled readback entities (factions, threat_counts). Despawned 2 frames after spawn
+    /// to allow async readback to complete (GPU copy frame N, CPU read frame N+1).
+    pub throttled_entities: Vec<(Entity, u32)>,  // (entity, frames_alive)
+    pub faction_frame_counter: u32,
+    pub threat_frame_counter: u32,
+}
+
+/// Create ShaderStorageBuffer readback targets (MAX-sized for compute copy destination).
+/// Readback entities are spawned dynamically by `sync_readback_ranges`.
 fn setup_readback_buffers(
-    mut commands: Commands,
     mut buffers: ResMut<Assets<ShaderStorageBuffer>>,
     mut config: ResMut<RenderFrameConfig>,
 ) {
@@ -728,15 +757,12 @@ fn setup_readback_buffers(
         buffers.add(buf)
     };
     let combat_target_buf = {
-        // Initialize with -1 per slot so zeroed memory isn't misread as "target NPC 0"
-        // Entity-sized: includes tower building slots for GPU combat targeting
         let init_targets: Vec<i32> = vec![-1; MAX_ENTITIES];
         let mut buf = ShaderStorageBuffer::new(bytemuck::cast_slice(&init_targets), RenderAssetUsages::RENDER_WORLD);
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
         buffers.add(buf)
     };
     let npc_faction_buf = {
-        // Initialize with -1 so unspawned slots aren't misread as faction 0 (player)
         let init_factions: Vec<i32> = vec![-1; MAX_NPCS as usize];
         let mut buf = ShaderStorageBuffer::new(bytemuck::cast_slice(&init_factions), RenderAssetUsages::RENDER_WORLD);
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
@@ -753,7 +779,6 @@ fn setup_readback_buffers(
         buffers.add(buf)
     };
     let proj_hit_buf = {
-        // Initialize with [-1, 0] per slot so zeroed memory isn't misread as "hit NPC 0"
         let init_hits: Vec<[i32; 2]> = vec![[-1, 0]; MAX_PROJECTILES as usize];
         let mut buf = ShaderStorageBuffer::new(bytemuck::cast_slice(&init_hits), RenderAssetUsages::RENDER_WORLD);
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
@@ -766,58 +791,121 @@ fn setup_readback_buffers(
     };
 
     config.readback = ReadbackHandles {
-        npc_positions: npc_pos_buf.clone(),
-        combat_targets: combat_target_buf.clone(),
-        npc_factions: npc_faction_buf.clone(),
-        npc_health: npc_health_buf.clone(),
-        threat_counts: threat_count_buf.clone(),
-        proj_hits: proj_hit_buf.clone(),
-        proj_positions: proj_pos_buf.clone(),
+        npc_positions: npc_pos_buf,
+        combat_targets: combat_target_buf,
+        npc_factions: npc_faction_buf,
+        npc_health: npc_health_buf,
+        threat_counts: threat_count_buf,
+        proj_hits: proj_hit_buf,
+        proj_positions: proj_pos_buf,
     };
+}
 
-    // Spawn Readback entities — Bevy async-reads each frame, triggers ReadbackComplete
-    commands.spawn(Readback::buffer(npc_pos_buf))
-        .observe(|event: On<ReadbackComplete>, mut state: ResMut<GpuReadState>| {
-            let data: Vec<f32> = event.to_shader_type();
-            // Don't overwrite npc_count — buffer is MAX-sized, actual count comes from SlotAllocator
-            state.positions = data;
-        });
+/// Dynamically spawn/despawn Readback entities with buffer_range sized to current counts.
+/// Quantized to power-of-2 buckets to avoid per-frame respawn churn.
+/// Factions read every 60 frames, threat_counts every 30 frames (stale-tolerant).
+fn sync_readback_ranges(
+    mut commands: Commands,
+    config: Res<RenderFrameConfig>,
+    mut rb_state: ResMut<ReadbackState>,
+    slots: Res<SlotAllocator>,
+    building_slots: Res<BuildingSlots>,
+    proj_alloc: Res<crate::resources::ProjSlotAllocator>,
+) {
+    let npc_count = slots.count();
+    let entity_count = npc_count + building_slots.count();
+    let proj_count = proj_alloc.next;
 
-    commands.spawn(Readback::buffer(combat_target_buf))
-        .observe(|event: On<ReadbackComplete>, mut state: ResMut<GpuReadState>| {
-            let data: Vec<i32> = event.to_shader_type();
-            state.combat_targets = data;
-        });
+    let new_npc = readback_bucket(npc_count);
+    let new_entity = readback_bucket(entity_count);
+    let new_proj = readback_bucket(proj_count);
 
-    commands.spawn(Readback::buffer(npc_faction_buf))
-        .observe(|event: On<ReadbackComplete>, mut state: ResMut<GpuReadState>| {
-            let data: Vec<i32> = event.to_shader_type();
-            state.factions = data;
-        });
+    let bucket_changed = new_npc != rb_state.npc_bucket
+        || new_entity != rb_state.entity_bucket
+        || new_proj != rb_state.proj_bucket;
 
-    commands.spawn(Readback::buffer(npc_health_buf))
-        .observe(|event: On<ReadbackComplete>, mut state: ResMut<GpuReadState>| {
-            let data: Vec<f32> = event.to_shader_type();
-            state.health = data;
-        });
+    rb_state.faction_frame_counter += 1;
+    rb_state.threat_frame_counter += 1;
+    let faction_due = rb_state.faction_frame_counter >= 60;
+    let threat_due = rb_state.threat_frame_counter >= 30;
 
-    commands.spawn(Readback::buffer(threat_count_buf))
-        .observe(|event: On<ReadbackComplete>, mut state: ResMut<GpuReadState>| {
-            let data: Vec<u32> = event.to_shader_type();
-            state.threat_counts = data;
-        });
+    let sz = |count: usize, elem: usize| -> u64 { (count * elem) as u64 };
+    let rb = &config.readback;
 
-    commands.spawn(Readback::buffer(proj_hit_buf))
-        .observe(|event: On<ReadbackComplete>, mut state: ResMut<ProjHitState>| {
-            let data: Vec<[i32; 2]> = event.to_shader_type();
-            state.0 = data;
-        });
+    // Always-on readbacks: only respawn when bucket changes or first frame
+    if bucket_changed || rb_state.always_entities.is_empty() {
+        for entity in rb_state.always_entities.drain(..) {
+            if let Ok(mut cmds) = commands.get_entity(entity) { cmds.despawn(); }
+        }
+        // Throttled entities also have stale bucket sizes — clear them too
+        for (entity, _) in rb_state.throttled_entities.drain(..) {
+            if let Ok(mut cmds) = commands.get_entity(entity) { cmds.despawn(); }
+        }
 
-    commands.spawn(Readback::buffer(proj_pos_buf))
-        .observe(|event: On<ReadbackComplete>, mut state: ResMut<ProjPositionState>| {
-            let data: Vec<f32> = event.to_shader_type();
-            state.0 = data;
-        });
+        rb_state.always_entities.push(commands.spawn(
+            Readback::buffer_range(rb.npc_positions.clone(), 0, sz(new_npc, 8))
+        ).observe(|e: On<ReadbackComplete>, mut s: ResMut<GpuReadState>| {
+            s.positions = e.to_shader_type();
+        }).id());
+
+        rb_state.always_entities.push(commands.spawn(
+            Readback::buffer_range(rb.combat_targets.clone(), 0, sz(new_entity, 4))
+        ).observe(|e: On<ReadbackComplete>, mut s: ResMut<GpuReadState>| {
+            s.combat_targets = e.to_shader_type();
+        }).id());
+
+        rb_state.always_entities.push(commands.spawn(
+            Readback::buffer_range(rb.npc_health.clone(), 0, sz(new_npc, 4))
+        ).observe(|e: On<ReadbackComplete>, mut s: ResMut<GpuReadState>| {
+            s.health = e.to_shader_type();
+        }).id());
+
+        rb_state.always_entities.push(commands.spawn(
+            Readback::buffer_range(rb.proj_hits.clone(), 0, sz(new_proj, 8))
+        ).observe(|e: On<ReadbackComplete>, mut s: ResMut<ProjHitState>| {
+            s.0 = e.to_shader_type();
+        }).id());
+
+        rb_state.always_entities.push(commands.spawn(
+            Readback::buffer_range(rb.proj_positions.clone(), 0, sz(new_proj, 8))
+        ).observe(|e: On<ReadbackComplete>, mut s: ResMut<ProjPositionState>| {
+            s.0 = e.to_shader_type();
+        }).id());
+
+        rb_state.npc_bucket = new_npc;
+        rb_state.entity_bucket = new_entity;
+        rb_state.proj_bucket = new_proj;
+    }
+
+    // Throttled readbacks: despawn after 2 frames (GPU copies frame N, CPU reads frame N+1).
+    // Without despawn, Readback entities read every frame — defeating throttling.
+    rb_state.throttled_entities.retain_mut(|(entity, age)| {
+        *age += 1;
+        if *age >= 3 {
+            if let Ok(mut cmds) = commands.get_entity(*entity) { cmds.despawn(); }
+            false
+        } else {
+            true
+        }
+    });
+
+    if faction_due || (bucket_changed && rb_state.faction_frame_counter > 0) {
+        rb_state.throttled_entities.push((commands.spawn(
+            Readback::buffer_range(rb.npc_factions.clone(), 0, sz(new_npc, 4))
+        ).observe(|e: On<ReadbackComplete>, mut s: ResMut<GpuReadState>| {
+            s.factions = e.to_shader_type();
+        }).id(), 0));
+        rb_state.faction_frame_counter = 0;
+    }
+
+    if threat_due || (bucket_changed && rb_state.threat_frame_counter > 0) {
+        rb_state.throttled_entities.push((commands.spawn(
+            Readback::buffer_range(rb.threat_counts.clone(), 0, sz(new_npc, 4))
+        ).observe(|e: On<ReadbackComplete>, mut s: ResMut<GpuReadState>| {
+            s.threat_counts = e.to_shader_type();
+        }).id(), 0));
+        rb_state.threat_frame_counter = 0;
+    }
 }
 
 // =============================================================================
@@ -837,11 +925,12 @@ impl Plugin for GpuComputePlugin {
             .init_resource::<BuildingGpuState>()
             .init_resource::<NpcVisualUpload>()
             .init_resource::<ProjBufferWrites>()
-            .add_systems(Update, (update_gpu_data, update_proj_gpu_data, populate_tile_flags))
+            .init_resource::<ReadbackState>()
+            .add_systems(Update, (update_gpu_data, update_proj_gpu_data, populate_tile_flags, sync_readback_ranges))
             .add_systems(PostUpdate, (populate_gpu_state, build_visual_upload).chain())
             .add_systems(PostUpdate, populate_proj_buffer_writes);
 
-        // Async readback: create ShaderStorageBuffer assets + Readback entities
+        // Async readback: create ShaderStorageBuffer assets (Readback entities spawned by sync_readback_ranges)
         app.add_systems(Startup, setup_readback_buffers);
 
         // Extract resources to render world

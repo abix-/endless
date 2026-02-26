@@ -147,7 +147,7 @@ Four phases per NPC thread (speed > 0):
 
 **Movement with lateral steering**: Moves toward goal at full speed (no backoff persistence penalty). When avoidance pushes against the goal direction (alignment < -0.3), the NPC steers laterally (perpendicular to goal, in the direction avoidance is pushing) at 60% speed instead of slowing down. This routes NPCs around obstacles rather than jamming them. Backoff increments +1 when blocked, decrements -3 when clear, cap at 30.
 
-**Combat targeting + threat assessment**: Scan radius depends on tier — `combat_range` (400px, 9×9 cells) for combatants and towers, `threat_radius` (200px, 7×7 cells) for non-combatants. For each entity in neighboring cells, checks: alive (health > 0), not self. **Skips entities with `ENTITY_BUILDING` flag** (buildings can be shot by projectiles but are not valid targets for NPC/tower combat targeting — prevents towers shooting buildings). Faction -1 (neutral) is treated as same-faction — never targeted, never counted as enemy. Combat targeting tracks nearest enemy by squared distance → `combat_targets[i]` (-1 if none or non-combatant). For towers, CPU reads `combat_targets[npc_count + bld_slot]` via readback to fire projectiles. Threat assessment counts enemies and allies within `threat_radius`, packs both into a single u32 → `threat_counts[i]` as `(enemies << 16) | allies`. CPU decision_system unpacks these for flee threshold calculations.
+**Combat targeting + threat assessment**: Scan radius depends on tier — `combat_range` (400px, 9×9 cells) for combatants and towers, `threat_radius` (200px, 7×7 cells) for non-combatants. For each entity in neighboring cells, checks: alive (health > 0), not self. **Buildings are valid targets** — NPCs and towers can target enemy buildings via the unified spatial grid. CPU-side `attack_system` filters by job (only archers/crossbows/raiders attack buildings). Towers only target NPCs (`target < npc_count` check in `building_tower_system`). Faction -1 (neutral) is treated as same-faction — never targeted, never counted as enemy. Combat targeting tracks nearest enemy by squared distance → `combat_targets[i]` (-1 if none or non-combatant). For towers, CPU reads `combat_targets[npc_count + bld_slot]` via readback to fire projectiles. Threat assessment counts enemies and allies within `threat_radius`, packs both into a single u32 → `threat_counts[i]` as `(enemies << 16) | allies`. CPU decision_system unpacks these for flee threshold calculations.
 
 ## GPU Buffers
 
@@ -227,7 +227,7 @@ Built on GPU each frame via 3-mode dispatch with atomic operations:
 - **Total cells**: 65,536
 - **Memory**: grid_counts = 256KB, grid_data = 12MB
 
-All entities (NPCs + buildings) are binned by `floor(pos / cell_size)`. Mode 0 clears all cell counts, mode 1 inserts all entities via `atomicAdd`, mode 2 uses 3x3 neighborhood for separation/dodge forces and `combat_range / cell_size + 1` radius for combat targeting. Buildings are in the grid so projectile collision can find them; combat targeting skips entities with `ENTITY_BUILDING` flag.
+All entities (NPCs + buildings) are binned by `floor(pos / cell_size)`. Mode 0 clears all cell counts, mode 1 inserts all entities via `atomicAdd`, mode 2 uses 3x3 neighborhood for separation/dodge forces and `combat_range / cell_size + 1` radius for combat targeting. Buildings are in the grid for both projectile collision and combat targeting — GPU returns the nearest enemy entity (NPC or building) and CPU-side attack_system filters by job.
 
 ## NPC Rendering
 
