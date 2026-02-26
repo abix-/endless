@@ -377,29 +377,6 @@ impl NpcLogCache {
     }
 }
 
-// ============================================================================
-// FOOD EVENT RESOURCES
-// ============================================================================
-
-/// A raider delivered stolen food to their town.
-#[derive(Clone, Debug)]
-pub struct FoodDelivered {
-    pub town_idx: u32,
-}
-
-/// An NPC consumed food at their home location.
-#[derive(Clone, Debug)]
-pub struct FoodConsumed {
-    pub location_idx: u32,
-    pub is_raider: bool,
-}
-
-/// Food events (deliveries and consumption). Polled and drained by GDScript.
-#[derive(Resource, Default)]
-pub struct FoodEvents {
-    pub delivered: Vec<FoodDelivered>,
-    pub consumed: Vec<FoodConsumed>,
-}
 
 // ============================================================================
 // PHASE 11.7: RESOURCES REPLACING STATICS
@@ -489,9 +466,6 @@ impl ProjSlotAllocator {
     pub fn reset(&mut self) { self.next = 0; self.free.clear(); }
 }
 
-/// Reset flag. Replaces RESET_BEVY static.
-#[derive(Resource, Default)]
-pub struct ResetFlag(pub bool);
 
 /// GPU readback state. Populated by ReadbackComplete observers, read by main-world Bevy systems.
 #[derive(Resource)]
@@ -852,29 +826,23 @@ pub struct BuildingInstance {
 
 impl BuildingInstance {
     /// Harvest a Ready farm/mine. Resets to Growing, returns yield (farm=1 food, mine=MINE_EXTRACT_PER_CYCLE gold). Returns 0 if not Ready.
-    pub fn harvest(&mut self, combat_log: &mut CombatLog, game_time: &GameTime, faction: i32) -> i32 {
+    pub fn harvest(&mut self) -> i32 {
         if !self.growth_ready { return 0; }
         self.growth_ready = false;
         self.growth_progress = 0.0;
         match self.kind {
-            crate::world::BuildingKind::Farm => {
-                combat_log.push(
-                    CombatEventKind::Harvest, faction,
-                    game_time.day(), game_time.hour(), game_time.minute(),
-                    format!("Farm harvested at ({:.0},{:.0})", self.position.x, self.position.y),
-                );
-                1
-            }
-            crate::world::BuildingKind::GoldMine => {
-                let gold = crate::constants::MINE_EXTRACT_PER_CYCLE;
-                combat_log.push(
-                    CombatEventKind::Harvest, faction,
-                    game_time.day(), game_time.hour(), game_time.minute(),
-                    format!("Mine harvested ({} gold)", gold),
-                );
-                gold
-            }
+            crate::world::BuildingKind::Farm => 1,
+            crate::world::BuildingKind::GoldMine => crate::constants::MINE_EXTRACT_PER_CYCLE,
             _ => 0,
+        }
+    }
+
+    /// Log message for a harvest event.
+    pub fn harvest_log_msg(&self, yield_amount: i32) -> String {
+        match self.kind {
+            crate::world::BuildingKind::Farm => format!("Farm harvested at ({:.0},{:.0})", self.position.x, self.position.y),
+            crate::world::BuildingKind::GoldMine => format!("Mine harvested ({} gold)", yield_amount),
+            _ => String::new(),
         }
     }
 }
@@ -1637,54 +1605,18 @@ pub struct HealingZone {
     pub heal_rate: f32,
 }
 
-/// Faction-indexed healing zone cache. Rebuilt when DirtyFlags::healing_zones is set.
+/// Faction-indexed healing zone cache. Rebuilt when HealingZonesDirtyMsg is received.
 #[derive(Resource, Default)]
 pub struct HealingZoneCache {
     pub by_faction: Vec<Vec<HealingZone>>,
 }
 
-/// Centralized dirty flags for gated rebuild systems.
-/// Default all `true` so first frame always rebuilds.
-#[derive(Resource)]
-pub struct DirtyFlags {
-    pub building_grid: bool,
-    pub patrols: bool,
-    pub patrol_perimeter: bool,
-    pub healing_zones: bool,
-    pub squads: bool,
-    pub mining: bool,
-    /// AI squad commander wake-up: set on military spawn/death/building changes.
-    pub ai_squads: bool,
-    /// Set when buildings take damage; cleared when no damaged buildings remain.
-    pub buildings_need_healing: bool,
-    /// Pending patrol order swap from UI (waypoint indices).
-    /// Set by left_panel, consumed by rebuild_patrol_routes_system.
-    pub patrol_swap: Option<(usize, usize)>,
-}
-impl DirtyFlags {
-    /// Mark all relevant dirty flags after a building is destroyed or built.
-    pub fn mark_building_changed(&mut self, kind: crate::world::BuildingKind) {
-        self.building_grid = true;
-        self.ai_squads = true;
-        if kind == crate::world::BuildingKind::Waypoint {
-            self.patrols = true;
-            self.patrol_perimeter = true;
-        }
-        if matches!(kind,
-            crate::world::BuildingKind::Farm
-            | crate::world::BuildingKind::FarmerHome
-            | crate::world::BuildingKind::ArcherHome
-            | crate::world::BuildingKind::MinerHome
-        ) {
-            self.patrol_perimeter = true;
-        }
-        if kind == crate::world::BuildingKind::MinerHome {
-            self.mining = true;
-        }
-    }
-}
-impl Default for DirtyFlags {
-    fn default() -> Self { Self { building_grid: true, patrols: true, patrol_perimeter: true, healing_zones: true, squads: true, mining: true, ai_squads: true, buildings_need_healing: false, patrol_swap: None } }
+/// Tracks whether any buildings are damaged and need fountain healing.
+/// Separate resource because this is persistent state (stays true while damage exists),
+/// unlike the one-shot dirty signals which are now Bevy Messages.
+#[derive(Resource, Default)]
+pub struct BuildingHealState {
+    pub needs_healing: bool,
 }
 
 // ============================================================================

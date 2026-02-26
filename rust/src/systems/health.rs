@@ -5,7 +5,8 @@ use bevy::ecs::system::SystemParam;
 use crate::components::*;
 use crate::constants::STARVING_HP_CAP;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg};
-use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, BuildingSlots, GpuReadState, FactionStats, CombatLog, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SystemTimings, HealingZoneCache, DirtyFlags, BuildingEntityMap};
+use crate::messages::CombatLogMsg;
+use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, BuildingSlots, GpuReadState, FactionStats, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SystemTimings, HealingZoneCache, BuildingEntityMap, BuildingHealState};
 use crate::systems::stats::{CombatConfig, TownUpgrades, UPGRADES};
 use crate::constants::UpgradeStatKind;
 use crate::systems::economy::*;
@@ -23,7 +24,7 @@ pub struct CleanupResources<'w> {
     pub slots: ResMut<'w, SlotAllocator>,
     pub building_alloc: ResMut<'w, BuildingSlots>,
     pub farm_occupancy: ResMut<'w, BuildingOccupancy>,
-    pub dirty: ResMut<'w, DirtyFlags>,
+    pub dirty_writers: crate::messages::DirtyWriters<'w>,
     pub building_slots: ResMut<'w, BuildingEntityMap>,
 }
 
@@ -93,7 +94,7 @@ pub fn death_cleanup_system(
     query: Query<(Entity, &NpcIndex, &Faction, &TownId, Option<&Job>, Option<&Activity>, Option<&AssignedFarm>, Option<&WorkPosition>, Option<&Building>), With<Dead>>,
     mut res: CleanupResources,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
-    mut combat_log: ResMut<CombatLog>,
+    mut combat_log: MessageWriter<CombatLogMsg>,
     game_time: Res<GameTime>,
     meta_cache: Res<NpcMetaCache>,
     mut selected: ResMut<SelectedNpc>,
@@ -102,8 +103,8 @@ pub fn death_cleanup_system(
     let _t = timings.scope("death_cleanup");
     let mut despawn_count = 0;
     if !query.is_empty() {
-        res.dirty.squads = true;
-        res.dirty.ai_squads = true;
+        res.dirty_writers.squads.write(crate::messages::SquadsDirtyMsg);
+        res.dirty_writers.ai_squads.write(crate::messages::AiSquadsDirtyMsg);
     }
     for (entity, npc_idx, faction, town_id, job, activity, assigned_farm, work_position, building) in query.iter() {
         let idx = npc_idx.0;
@@ -145,7 +146,7 @@ pub fn death_cleanup_system(
         }
 
         if job == Job::Miner {
-            res.dirty.mining = true;
+            res.dirty_writers.mining.write(crate::messages::MiningDirtyMsg);
         }
 
         // Track kill statistics for UI (faction 0 = player/villager, 1+ = raiders)
@@ -163,7 +164,7 @@ pub fn death_cleanup_system(
         } else {
             format!("{} '{}' Lv.{} died", job_str, meta.name, meta.level)
         };
-        combat_log.push(CombatEventKind::Kill, faction.0, game_time.day(), game_time.hour(), game_time.minute(), msg);
+        combat_log.write(CombatLogMsg { kind: CombatEventKind::Kill, faction: faction.0, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: msg, location: None });
 
         // Track per-faction stats (alive/dead)
         res.faction_stats.dec_alive(faction.0);
@@ -193,14 +194,14 @@ pub fn death_cleanup_system(
 /// Rebuild healing zone cache when dirty (upgrade purchased, town changed, save loaded).
 pub fn update_healing_zone_cache(
     mut cache: ResMut<HealingZoneCache>,
-    mut dirty: ResMut<DirtyFlags>,
+    mut healing_dirty: MessageReader<crate::messages::HealingZonesDirtyMsg>,
     world_data: Res<WorldData>,
     combat_config: Res<CombatConfig>,
     upgrades: Res<TownUpgrades>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("healing_zones");
-    if !dirty.healing_zones { return; }
+    if healing_dirty.read().count() == 0 { return; }
 
     let max_faction = world_data.towns.iter().map(|t| t.faction).max().unwrap_or(0);
     let faction_count = (max_faction + 1).max(0) as usize;
@@ -222,7 +223,6 @@ pub fn update_healing_zone_cache(
         });
     }
 
-    dirty.healing_zones = false;
     #[cfg(debug_assertions)]
     info!("Healing zone cache rebuilt: {} factions", cache.by_faction.len());
 }
@@ -241,7 +241,7 @@ pub fn healing_system(
     game_time: Res<GameTime>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut debug: ResMut<HealthDebug>,
-    mut dirty: ResMut<DirtyFlags>,
+    mut heal_state: ResMut<BuildingHealState>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("healing");
@@ -318,7 +318,7 @@ pub fn healing_system(
     }
 
     // Heal damaged buildings in same-faction fountain range (entity-driven).
-    if dirty.buildings_need_healing {
+    if heal_state.needs_healing {
         let bld_positions = &bld_gpu_state.positions;
         let mut any_damaged = false;
         for (npc_idx, mut health, faction, building) in building_query.iter_mut() {
@@ -344,7 +344,7 @@ pub fn healing_system(
             health.0 = (health.0 + zone_heal_rate * dt).min(max_hp);
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::BldSetHealth { idx, health: health.0 }));
         }
-        if !any_damaged { dirty.buildings_need_healing = false; }
+        if !any_damaged { heal_state.needs_healing = false; }
     }
 
     // Update debug stats

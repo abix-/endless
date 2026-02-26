@@ -19,7 +19,8 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
-use crate::resources::{FoodDelivered, GpuReadState, GameTime, NpcLogCache, CombatLog, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings, DirtyFlags, BuildingEntityMap};
+use crate::messages::CombatLogMsg;
+use crate::resources::{GpuReadState, GameTime, NpcLogCache, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings, BuildingEntityMap};
 use crate::systemparams::EconomyState;
 use crate::systems::economy::*;
 use crate::systems::stats::UPGRADES;
@@ -43,7 +44,7 @@ pub struct FarmParams<'w> {
 #[derive(SystemParam)]
 pub struct DecisionExtras<'w> {
     pub npc_logs: ResMut<'w, NpcLogCache>,
-    pub combat_log: ResMut<'w, CombatLog>,
+    pub combat_log: MessageWriter<'w, CombatLogMsg>,
     pub policies: Res<'w, TownPolicies>,
     pub squad_state: Res<'w, SquadState>,
     pub timings: Res<'w, SystemTimings>,
@@ -73,7 +74,7 @@ pub fn arrival_system(
     mut building_map: ResMut<BuildingEntityMap>,
     mut occupancy: ResMut<BuildingOccupancy>,
     mut frame_counter: Local<u32>,
-    mut combat_log: ResMut<CombatLog>,
+    mut combat_log: MessageWriter<CombatLogMsg>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("arrival");
@@ -108,7 +109,6 @@ pub fn arrival_system(
                         if town_idx < economy.food_storage.food.len() {
                             economy.food_storage.food[town_idx] += amount;
                         }
-                        economy.food_events.delivered.push(FoodDelivered { town_idx: town.0 as u32 });
                         npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
                             format!("Delivered {} food", amount));
                     }
@@ -151,8 +151,9 @@ pub fn arrival_system(
         // Harvest check: if farm became Ready while working, harvest and carry home
         if let Some(inst) = building_map.find_farm_at_mut(farm_pos) {
             let fac = world_data.towns.get(town.0 as usize).map(|t| t.faction).unwrap_or(0);
-            let food = inst.harvest(&mut combat_log, &game_time, fac);
+            let food = inst.harvest();
             if food > 0 {
+                combat_log.write(CombatLogMsg { kind: CombatEventKind::Harvest, faction: fac, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: inst.harvest_log_msg(food), location: None });
                 occupancy.release(farm_pos);
                 pop_dec_working(&mut economy.pop_stats, *job, town.0);
                 commands.entity(entity).remove::<AssignedFarm>();
@@ -365,8 +366,9 @@ pub fn decision_system(
                                 }
                             } else if let Some(inst) = building_map.find_farm_at_mut(farm_pos) {
                                 // Check if farm is ready — harvest and carry home immediately
-                                let food = inst.harvest(combat_log, &game_time, faction.0);
+                                let food = inst.harvest();
                                 if food > 0 {
+                                    combat_log.write(CombatLogMsg { kind: CombatEventKind::Harvest, faction: faction.0, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: inst.harvest_log_msg(food), location: None });
                                     *activity = Activity::Returning { loot: vec![(ItemKind::Food, food)] };
                                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested -> Carrying home");
@@ -405,7 +407,11 @@ pub fn decision_system(
                             .and_then(|(_, fp)| building_map.find_farm_at(fp).filter(|i| i.growth_ready).map(|_| fp));
 
                         if let Some(fp) = ready_farm_pos {
-                            let food = building_map.find_farm_at_mut(fp).map(|i| i.harvest(combat_log, &game_time, faction.0)).unwrap_or(0);
+                            let food = building_map.find_farm_at_mut(fp).map(|i| {
+                                let f = i.harvest();
+                                if f > 0 { combat_log.write(CombatLogMsg { kind: CombatEventKind::Harvest, faction: faction.0, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: i.harvest_log_msg(f), location: None }); }
+                                f
+                            }).unwrap_or(0);
 
                             *activity = Activity::Returning { loot: vec![(ItemKind::Food, food.max(1))] };
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
@@ -439,7 +445,8 @@ pub fn decision_system(
                             // Mine ready — harvest immediately
                             let town_levels = extras.town_upgrades.town_levels(town_id.0 as usize);
                             let yield_mult = UPGRADES.stat_mult(&town_levels, "Miner", UpgradeStatKind::Yield);
-                            let base_gold = inst.harvest(combat_log, &game_time, faction.0);
+                            let base_gold = inst.harvest();
+                            if base_gold > 0 { combat_log.write(CombatLogMsg { kind: CombatEventKind::Harvest, faction: faction.0, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: inst.harvest_log_msg(base_gold), location: None }); }
                             let gold_amount = ((base_gold as f32) * yield_mult).round() as i32;
                             *activity = Activity::Returning { loot: vec![(ItemKind::Gold, gold_amount)] };
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
@@ -819,7 +826,8 @@ pub fn decision_system(
                         // Mine ready — harvest gold and return home
                         let town_levels = extras.town_upgrades.town_levels(town_id.0 as usize);
                         let yield_mult = UPGRADES.stat_mult(&town_levels, "Miner", UpgradeStatKind::Yield);
-                        let base_gold = inst.harvest(combat_log, &game_time, faction.0);
+                        let base_gold = inst.harvest();
+                        if base_gold > 0 { combat_log.write(CombatLogMsg { kind: CombatEventKind::Harvest, faction: faction.0, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: inst.harvest_log_msg(base_gold), location: None }); }
                         let gold_amount = ((base_gold as f32) * yield_mult).round() as i32;
                         farms.occupancy.release(mine_pos);
                         commands.entity(entity).remove::<WorkPosition>();
@@ -1152,17 +1160,18 @@ pub fn rebuild_patrol_routes_system(
     mut commands: Commands,
     _world_data: Res<WorldData>,
     mut building_map: ResMut<BuildingEntityMap>,
-    mut dirty: ResMut<DirtyFlags>,
+    mut patrols_dirty: MessageReader<crate::messages::PatrolsDirtyMsg>,
+    mut patrol_swaps: MessageReader<crate::messages::PatrolSwapMsg>,
     mut guards: Query<(&mut PatrolRoute, &TownId, &Job), Without<Dead>>,
     missing_route: Query<(Entity, &TownId, &Job), (Without<Dead>, Without<PatrolRoute>)>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("rebuild_patrol_routes");
-    if !dirty.patrols { return; }
-    dirty.patrols = false;
+    if patrols_dirty.read().count() == 0 { return; }
 
     // Apply pending patrol order swap from UI
-    if let Some((a, b)) = dirty.patrol_swap.take() {
+    if let Some(swap) = patrol_swaps.read().last() {
+        let (a, b) = (swap.a, swap.b);
         let slot_a = building_map.get_slot(BuildingKind::Waypoint, a);
         let slot_b = building_map.get_slot(BuildingKind::Waypoint, b);
         if let (Some(sa), Some(sb)) = (slot_a, slot_b) {

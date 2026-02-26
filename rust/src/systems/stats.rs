@@ -7,8 +7,8 @@ use std::sync::LazyLock;
 use bevy::prelude::*;
 use crate::components::{Job, BaseAttackType, CachedStats, CombatState, Personality, Dead, LastHitBy, Health, Speed, NpcIndex, TownId, Faction, Activity, Home, DirectControl};
 use crate::constants::{FOUNTAIN_TOWER, TowerStats, NPC_REGISTRY, npc_def, AttackTypeStats, UpgradeStatKind, UpgradeStatDef, ResourceKind, EffectDisplay, TOWN_UPGRADES, ItemKind};
-use crate::messages::{GpuUpdate, GpuUpdateMsg};
-use crate::resources::{NpcEntityMap, NpcMetaCache, NpcsByTownCache, FactionStats, CombatLog, CombatEventKind, GameTime, SystemTimings};
+use crate::messages::{GpuUpdate, GpuUpdateMsg, CombatLogMsg};
+use crate::resources::{NpcEntityMap, NpcMetaCache, NpcsByTownCache, FactionStats, CombatEventKind, GameTime, SystemTimings};
 use crate::systemparams::{EconomyState, WorldState};
 
 // ============================================================================
@@ -634,7 +634,7 @@ pub fn process_upgrades_system(
 
         // Invalidate healing zone cache on radius/rate upgrades
         if node.invalidates_healing {
-            world_state.dirty.healing_zones = true;
+            world_state.dirty_writers.healing_zones.write(crate::messages::HealingZonesDirtyMsg);
         }
 
         if node.triggers_expansion {
@@ -717,7 +717,7 @@ pub fn xp_grant_system(
     mut faction_stats: ResMut<FactionStats>,
     config: Res<CombatConfig>,
     upgrades: Res<TownUpgrades>,
-    mut combat_log: ResMut<CombatLog>,
+    mut combat_log: MessageWriter<CombatLogMsg>,
     game_time: Res<GameTime>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     timings: Res<SystemTimings>,
@@ -758,9 +758,7 @@ pub fn xp_grant_system(
             // Combat log
             let name = &meta.name;
             let job_str = crate::job_name(meta.job);
-            combat_log.push(CombatEventKind::LevelUp, killer_faction.0,
-                game_time.day(), game_time.hour(), game_time.minute(),
-                format!("{} '{}' reached Lv.{}", job_str, name, new_level));
+            combat_log.write(CombatLogMsg { kind: CombatEventKind::LevelUp, faction: killer_faction.0, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{} '{}' reached Lv.{}", job_str, name, new_level), location: None });
         }
 
         // Loot: killer picks up loot from dead NPC and carries it home
@@ -789,9 +787,7 @@ pub fn xp_grant_system(
             let item_name = match drop.item { ItemKind::Food => "food", ItemKind::Gold => "gold" };
             let killer_name = &npc_meta.0[idx].name;
             let killer_job = crate::job_name(npc_meta.0[idx].job);
-            combat_log.push(CombatEventKind::Loot, killer_faction.0,
-                game_time.day(), game_time.hour(), game_time.minute(),
-                format!("{} '{}' looted {} {}", killer_job, killer_name, amount, item_name));
+            combat_log.write(CombatLogMsg { kind: CombatEventKind::Loot, faction: killer_faction.0, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{} '{}' looted {} {}", killer_job, killer_name, amount, item_name), location: None });
         }
     }
 }

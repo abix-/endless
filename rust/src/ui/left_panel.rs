@@ -205,7 +205,7 @@ pub fn left_panel_system(
     mut settings: ResMut<UserSettings>,
     catalog: Res<HelpCatalog>,
     mut prev_tab: Local<LeftPanelTab>,
-    mut dirty: ResMut<DirtyFlags>,
+    mut dirty_writers: crate::messages::DirtyWriters,
 ) -> Result {
     let _t = profiler.timings.scope("ui_left_panel");
     if !ui_state.left_panel_open {
@@ -263,19 +263,20 @@ pub fn left_panel_system(
             match ui_state.left_panel_tab {
                 LeftPanelTab::Roster => roster_content(ui, &mut roster, &mut roster_state, debug_all),
                 LeftPanelTab::Upgrades => upgrade_content(ui, &mut upgrade, &world_data, &mut settings),
-                LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data, &factions.building_map, &mut profiler.mining_policy, &mut dirty, &mut jump_target),
+                LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data, &factions.building_map, &mut profiler.mining_policy, &mut dirty_writers, &mut jump_target),
                 LeftPanelTab::Patrols => { patrol_swap = patrols_content(ui, &world_data, &factions.building_map, &mut jump_target); },
-                LeftPanelTab::Squads => squads_content(ui, &mut squad, &roster.meta_cache, &world_data, &mut commands, &mut dirty),
+                LeftPanelTab::Squads => squads_content(ui, &mut squad, &roster.meta_cache, &world_data, &mut commands, &mut dirty_writers),
                 LeftPanelTab::Factions => factions_content(ui, &factions, &squad.squad_state, &world_data, &policies, &profiler.mining_policy, &mut factions_cache, &mut jump_target, &mut ui_state, &mut copy_text),
                 LeftPanelTab::Profiler => profiler_content(ui, &profiler.timings, &mut profiler.migration, &mut settings),
                 LeftPanelTab::Help => help_content(ui),
             }
         });
 
-    // Queue patrol swap — applied in rebuild_patrol_routes_system which has ResMut<WorldData>
+    // Queue patrol swap — applied in rebuild_patrol_routes_system which reads PatrolSwapMsg
     if let Some((a, b)) = patrol_swap {
-        dirty.patrol_swap = Some((a, b));
-        dirty.patrols = true;
+        dirty_writers.patrols.write(crate::messages::PatrolsDirtyMsg);
+        // PatrolSwapMsg is a separate message type — written directly via the system param below
+        dirty_writers.patrol_swap.write(crate::messages::PatrolSwapMsg { a, b });
     }
 
     // Apply camera jump from Factions panel
@@ -657,7 +658,7 @@ fn policies_content(
     world_data: &WorldData,
     building_map: &BuildingEntityMap,
     mining_policy: &mut MiningPolicy,
-    dirty: &mut DirtyFlags,
+    dirty_writers: &mut crate::messages::DirtyWriters,
     jump_target: &mut Option<Vec2>,
 ) {
     let town_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
@@ -769,7 +770,7 @@ fn policies_content(
         .suffix(" px");
     if ui.add(slider).changed() {
         policy.mining_radius = mining_radius;
-        dirty.mining = true;
+        dirty_writers.mining.write(crate::messages::MiningDirtyMsg);
     }
 
     if mining_policy.discovered_mines.len() <= town_idx {
@@ -809,7 +810,7 @@ fn policies_content(
             ui.horizontal(|ui| {
                 if ui.checkbox(&mut enabled, "").changed() {
                     mining_policy.mine_enabled.insert(slot, enabled);
-                    dirty.mining = true;
+                    dirty_writers.mining.write(crate::messages::MiningDirtyMsg);
                 }
                 if ui.button(mine_name).on_hover_text("Jump to mine").clicked() {
                     *jump_target = Some(mine_inst.position);
@@ -877,7 +878,7 @@ fn patrols_content(ui: &mut egui::Ui, world_data: &WorldData, building_map: &Bui
 // SQUADS CONTENT
 // ============================================================================
 
-fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMetaCache, _world_data: &WorldData, commands: &mut Commands, dirty: &mut DirtyFlags) {
+fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMetaCache, _world_data: &WorldData, commands: &mut Commands, dirty_writers: &mut crate::messages::DirtyWriters) {
     let selected = squad.squad_state.selected;
 
     // Squad list (player-owned only — AI squads are hidden from UI)
@@ -989,7 +990,7 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
                         let selected_len = squad.squad_state.squads[si].members.len();
                         let selected_target = squad.squad_state.squads[si].target_size;
                         squad.squad_state.squads[si].target_size = selected_target.max(selected_len);
-                        dirty.squads = true;
+                        dirty_writers.squads.write(crate::messages::SquadsDirtyMsg);
                     }
                 }
             });
@@ -1007,7 +1008,7 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
             }
             squad.squad_state.squads[si].members.clear();
             squad.squad_state.squads[si].target_size = 0;
-            dirty.squads = true;
+            dirty_writers.squads.write(crate::messages::SquadsDirtyMsg);
         }
     }
 

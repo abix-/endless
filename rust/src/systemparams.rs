@@ -4,6 +4,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::resources::*;
+use crate::messages::DirtyWriters;
 
 /// Mutable world resources commonly edited together by gameplay systems.
 #[derive(SystemParam)]
@@ -12,7 +13,7 @@ pub struct WorldState<'w> {
     pub world_data: ResMut<'w, crate::world::WorldData>,
     pub town_grids: ResMut<'w, crate::world::TownGrids>,
     pub building_occupancy: ResMut<'w, crate::world::BuildingOccupancy>,
-    pub dirty: ResMut<'w, DirtyFlags>,
+    pub dirty_writers: DirtyWriters<'w>,
     pub slot_alloc: ResMut<'w, SlotAllocator>,
     pub building_alloc: ResMut<'w, BuildingSlots>,
     pub building_slots: ResMut<'w, BuildingEntityMap>,
@@ -31,14 +32,14 @@ impl WorldState<'_> {
         crate::world::place_building(
             &mut self.grid, &self.world_data,
             food_storage, &mut self.building_alloc, &mut self.building_slots,
-            &mut self.dirty, kind, town_data_idx, world_pos, cost,
+            &mut self.dirty_writers, kind, town_data_idx, world_pos, cost,
             &self.town_grids, commands,
         )
     }
 
     pub fn destroy_building(
         &mut self,
-        combat_log: &mut CombatLog,
+        combat_log: &mut MessageWriter<crate::messages::CombatLogMsg>,
         game_time: &GameTime,
         row: i32, col: i32,
         town_center: Vec2,
@@ -58,6 +59,5 @@ impl WorldState<'_> {
 pub struct EconomyState<'w> {
     pub food_storage: ResMut<'w, FoodStorage>,
     pub gold_storage: ResMut<'w, GoldStorage>,
-    pub food_events: ResMut<'w, FoodEvents>,
     pub pop_stats: ResMut<'w, PopulationStats>,
 }

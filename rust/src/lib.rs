@@ -26,18 +26,23 @@ pub mod world;
 
 use bevy::prelude::*;
 
-use messages::{SpawnNpcMsg, DamageMsg, BuildingDamageMsg, GpuUpdateMsg};
+use messages::{
+    SpawnNpcMsg, DamageMsg, BuildingDamageMsg, GpuUpdateMsg, CombatLogMsg,
+    BuildingGridDirtyMsg, PatrolsDirtyMsg, PatrolPerimeterDirtyMsg,
+    HealingZonesDirtyMsg, SquadsDirtyMsg, MiningDirtyMsg, AiSquadsDirtyMsg, PatrolSwapMsg,
+};
 use resources::{
     MigrationState, EndlessMode,
     NpcEntityMap, PopulationStats, GameConfig, GameTime,
     HealthDebug, CombatDebug, KillStats, SelectedNpc,
-    NpcMetaCache, NpcsByTownCache, NpcLogCache, FoodEvents,
-    ResetFlag, GpuReadState, SlotAllocator, BuildingSlots, ProjSlotAllocator,
+    NpcMetaCache, NpcsByTownCache, NpcLogCache,
+    GpuReadState, SlotAllocator, BuildingSlots, ProjSlotAllocator,
     FoodStorage, GoldStorage, FactionStats, RaiderState, SystemTimings,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
     TowerState, FollowSelected, TownPolicies, SelectedBuilding,
     AutoUpgrade, SquadState, HelpCatalog, DestroyRequest,
-    DirtyFlags, Difficulty, HealingZoneCache, GameAudio, PlaySfxMsg, TutorialState, MiningPolicy,
+    Difficulty, HealingZoneCache, GameAudio, PlaySfxMsg, TutorialState, MiningPolicy,
+    BuildingHealState,
 };
 use systems::{AiPlayerConfig, AiPlayerState};
 use systems::*;
@@ -194,6 +199,15 @@ pub fn build_app(app: &mut App) {
        .add_message::<DamageMsg>()
        .add_message::<BuildingDamageMsg>()
        .add_message::<GpuUpdateMsg>()
+       .add_message::<CombatLogMsg>()
+       .add_message::<BuildingGridDirtyMsg>()
+       .add_message::<PatrolsDirtyMsg>()
+       .add_message::<PatrolPerimeterDirtyMsg>()
+       .add_message::<HealingZonesDirtyMsg>()
+       .add_message::<SquadsDirtyMsg>()
+       .add_message::<MiningDirtyMsg>()
+       .add_message::<AiSquadsDirtyMsg>()
+       .add_message::<PatrolSwapMsg>()
        // Resources
        .init_resource::<Difficulty>()
        .init_resource::<NpcEntityMap>()
@@ -211,9 +225,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<NpcMetaCache>()
        .init_resource::<NpcsByTownCache>()
        .init_resource::<NpcLogCache>()
-       .init_resource::<FoodEvents>()
        .init_resource::<DebugFlags>()
-       .init_resource::<ResetFlag>()
        .init_resource::<GpuReadState>()
        .init_resource::<ProjHitState>()
        .init_resource::<ProjPositionState>()
@@ -224,7 +236,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<GoldStorage>()
        .init_resource::<FactionStats>()
        .init_resource::<RaiderState>()
-       .init_resource::<DirtyFlags>()
+       .init_resource::<BuildingHealState>()
        .init_resource::<HealingZoneCache>()
        .init_resource::<SystemTimings>()
        .init_resource::<world::WorldGrid>()
@@ -276,8 +288,8 @@ pub fn build_app(app: &mut App) {
        .add_systems(Update, ApplyDeferred.after(Step::Spawn).before(Step::Combat).run_if(game_active.clone()))
        // Drain
        .add_systems(Update, (
-           reset_bevy_system,
            drain_game_config,
+           drain_combat_log,
        ).in_set(Step::Drain))
        // GPU→ECS position readback
        .add_systems(Update, gpu_position_readback.after(Step::Drain).before(Step::Spawn).run_if(game_active.clone()))

@@ -46,7 +46,7 @@ Each piece of NPC data has exactly one authoritative owner. Readers on the other
 
 ## Bevy Messages
 
-Three message types used for intra-ECS communication:
+### Core Messages
 
 | Message | Fields | Pattern |
 |---------|--------|---------|
@@ -54,7 +54,29 @@ Three message types used for intra-ECS communication:
 | DamageMsg | npc_index, amount, attacker (i32, -1=no attacker) | MessageWriter → MessageReader |
 | BuildingDamageMsg | kind (BuildingKind), index (usize), amount (f32), attacker_faction (i32) | attack_system → building_damage_system |
 | GpuUpdateMsg | GpuUpdate enum (see below) | MessageWriter → collect_gpu_updates |
+| CombatLogMsg | kind, faction, day, hour, minute, message, location | 18+ writers → drain_combat_log |
 | ReassignMsg | npc_index, new_job | Defined but unused (placeholder for future role reassignment) |
+
+### Dirty Signal Messages
+
+Individual message types replace the old `DirtyFlags` resource. Each signal is independent — systems that care about mining don't block systems that care about squads. `DirtyWriters<'w>` SystemParam bundles all writers for convenience.
+
+| Message | Trigger | Consumer |
+|---------|---------|----------|
+| BuildingGridDirtyMsg | Building placed/destroyed | rebuild_building_grid_system, populate_tile_flags |
+| PatrolsDirtyMsg | Waypoint built/destroyed/reordered | rebuild_patrol_routes_system |
+| PatrolPerimeterDirtyMsg | Building changed (waypoints, homes) | sync_patrol_perimeter_system |
+| HealingZonesDirtyMsg | Level-up (heal stats changed) | update_healing_zone_cache |
+| SquadsDirtyMsg | NPC death/spawn, UI assign/dismiss | squad_cleanup_system |
+| MiningDirtyMsg | Miner home built/destroyed, mining policy change | mining_policy_system |
+| AiSquadsDirtyMsg | Military spawn/death, building changes | ai_squad_commander_system |
+| PatrolSwapMsg | UI patrol reorder (a, b indices) | rebuild_patrol_routes_system |
+
+`DirtyWriters` provides `mark_building_changed(kind)` helper that emits the right combo of signals for build/destroy events, and `emit_all()` for startup/reset to trigger first-frame rebuilds.
+
+### CombatLogMsg
+
+Replaces direct `ResMut<CombatLog>` writes from 18+ systems. Writers emit `CombatLogMsg` via `MessageWriter` (non-exclusive — all writers can run in parallel). `drain_combat_log` system (Step::Drain) collects messages into the `CombatLog` resource for UI display.
 
 ## GPU Update Messages
 

@@ -96,10 +96,6 @@ Deterministic based on slot index (reproducible). Each NPC gets 0-2 traits from 
 
 Deterministic: adjective + job noun. Adjective cycles through a 10-word list, noun cycles through a 5-word job-specific list. Slot index determines both.
 
-### reset_bevy_system
-
-Checks `ResetFlag`. If set, clears `NpcEntityMap`, `PopulationStats`, and resets `SlotAllocator`.
-
 **Town index convention**: NPCs and buildings both use direct WorldData town indices. Villager towns are at even indices (0, 2, 4...), raider towns at odd indices (1, 3, 5...). `build_patrol_route()` is `pub(crate)` and uses `BuildingEntityMap::iter_kind_for_town(Waypoint, town_idx)` to filter waypoints directly (no `÷2` conversion).
 
 ## Building Spawners

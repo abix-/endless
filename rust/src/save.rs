@@ -1038,7 +1038,7 @@ pub struct LoadNpcTracking<'w> {
     pub building_alloc: ResMut<'w, crate::resources::BuildingSlots>,
     pub combat_log: ResMut<'w, CombatLog>,
     pub gpu_state: ResMut<'w, GpuReadState>,
-    pub dirty: ResMut<'w, DirtyFlags>,
+    pub dirty_writers: crate::messages::DirtyWriters<'w>,
     pub tilemap_spawned: ResMut<'w, crate::render::TilemapSpawned>,
     pub building_hp_render: ResMut<'w, BuildingHpRender>,
     pub healing_cache: ResMut<'w, HealingZoneCache>,
@@ -1388,7 +1388,7 @@ pub fn load_game_system(
     *tracking.building_hp_render = Default::default();
     *tracking.building_alloc = Default::default();
     *tracking.bld_gpu_state = Default::default();
-    *tracking.dirty = DirtyFlags::default();
+    tracking.dirty_writers.emit_all();
     tracking.tilemap_spawned.0 = false; // Force tilemap rebuild with new terrain
 
     // 3. Apply save data to all game resources

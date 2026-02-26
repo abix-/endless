@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-25d
+
+- **bevy messages: replace DirtyFlags + CombatLog contention** — decomposed `DirtyFlags` resource (9 bools, 25+ competing systems) into 8 individual Bevy Message types (`BuildingGridDirtyMsg`, `PatrolsDirtyMsg`, `PatrolPerimeterDirtyMsg`, `HealingZonesDirtyMsg`, `SquadsDirtyMsg`, `MiningDirtyMsg`, `AiSquadsDirtyMsg`, `PatrolSwapMsg`); added `DirtyWriters<'w>` SystemParam bundle with `mark_building_changed(kind)` helper and `emit_all()` for startup/reset; converted `CombatLog` from direct `ResMut` writes (18 systems contending) to `CombatLogMsg` message pattern with `drain_combat_log` collector system; added `BuildingHealState` resource for persistent healing flag; added `AiDirtyReaders<'w, 's>` SystemParam bundle for AI system; removed dead code: `FoodEvents` (zero readers), `ResetFlag` (never set), `reset_bevy_system`; 18 files modified across messages, resources, systems, UI, and save/load
+
 ## 2026-02-25c
 
 - **fix entity-not-spawned crash on insert(Dead)** — replaced `commands.entity()` with `commands.get_entity()` (returns `Result`) at 3 sites: `death_system` Dead insertion, `damage_system` LastHitBy insertion, `destroy_building` Dead insertion; prevents crash when cross-set commands (Combat→Behavior) despawn an entity before deferred commands apply

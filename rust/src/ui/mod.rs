@@ -186,7 +186,7 @@ struct StartupExtra<'w> {
     policies: ResMut<'w, TownPolicies>,
     npcs_by_town: ResMut<'w, NpcsByTownCache>,
     ai_state: ResMut<'w, AiPlayerState>,
-    combat_log: ResMut<'w, CombatLog>,
+    combat_log: MessageWriter<'w, crate::messages::CombatLogMsg>,
     gold_storage: ResMut<'w, GoldStorage>,
     auto_upgrade: ResMut<'w, AutoUpgrade>,
     mining_policy: ResMut<'w, MiningPolicy>,
@@ -240,7 +240,7 @@ fn game_load_system(
     );
 
     let world_size_px = ws.grid.width as f32 * ws.grid.cell_size;
-    *tracking.dirty = DirtyFlags::default();
+    tracking.dirty_writers.emit_all();
     *tracking.building_alloc = Default::default();
     *tracking.bld_gpu_state = Default::default();
     *mining_policy = MiningPolicy::default();
@@ -351,8 +351,7 @@ fn game_startup_system(
             }
         }
         if let Some(town) = world_state.world_data.towns.get(player.town_data_idx) {
-            extra.combat_log.push(CombatEventKind::Ai, -1, 1, 6, 0,
-                format!("{} [{}] joined the game", town.name, player.personality.name()));
+            extra.combat_log.write(crate::messages::CombatLogMsg { kind: CombatEventKind::Ai, faction: -1, day: 1, hour: 6, minute: 0, message: format!("{} [{}] joined the game", town.name, player.personality.name()), location: None });
         }
     }
     extra.ai_state.players = ai_players;
@@ -365,7 +364,7 @@ fn game_startup_system(
         }
     }
 
-    *world_state.dirty = DirtyFlags::default();
+    world_state.dirty_writers.emit_all();
 
     info!("Game startup complete: {} NPCs spawned across {} towns",
         total, config.num_towns);
@@ -687,7 +686,7 @@ fn build_place_click_system(
     mut build_ctx: ResMut<BuildMenuContext>,
     mut world_state: WorldState,
     mut food_storage: ResMut<FoodStorage>,
-    mut combat_log: ResMut<CombatLog>,
+    mut combat_log: MessageWriter<crate::messages::CombatLogMsg>,
     game_time: Res<GameTime>,
     _difficulty: Res<Difficulty>,
 ) {
@@ -739,7 +738,7 @@ fn build_place_click_system(
             &mut commands,
         );
         if let Some(bk) = bld_kind {
-            world_state.dirty.mark_building_changed(bk);
+            world_state.dirty_writers.mark_building_changed(bk);
         }
         return;
     }
@@ -755,11 +754,7 @@ fn build_place_click_system(
             &mut food_storage, kind, town_data_idx, world_pos, cost, &mut commands,
         ).is_ok() {
             let label = crate::constants::building_def(kind).label;
-            combat_log.push(
-                CombatEventKind::Harvest, 0,
-                game_time.day(), game_time.hour(), game_time.minute(),
-                format!("Built {} in {}", label.to_lowercase(), town_name),
-            );
+            combat_log.write(crate::messages::CombatLogMsg { kind: CombatEventKind::Harvest, faction: 0, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("Built {} in {}", label.to_lowercase(), town_name), location: None });
         }
         return;
     }
@@ -792,8 +787,7 @@ fn build_place_click_system(
             } else {
                 format!("Built {} {}s in {}", placed, label.to_lowercase(), town_name)
             };
-            combat_log.push(CombatEventKind::Harvest, 0,
-                game_time.day(), game_time.hour(), game_time.minute(), msg);
+            combat_log.write(crate::messages::CombatLogMsg { kind: CombatEventKind::Harvest, faction: 0, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: msg, location: None });
         }
         return;
     }
@@ -836,17 +830,9 @@ fn build_place_click_system(
 
     if placed == 1 {
         let (pr, pc) = first_placed.unwrap_or((row, col));
-        combat_log.push(
-            CombatEventKind::Harvest, 0,
-            game_time.day(), game_time.hour(), game_time.minute(),
-            format!("Built {} at ({},{}) in {}", label, pr, pc, town_name),
-        );
+        combat_log.write(crate::messages::CombatLogMsg { kind: CombatEventKind::Harvest, faction: 0, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("Built {} at ({},{}) in {}", label, pr, pc, town_name), location: None });
     } else {
-        combat_log.push(
-            CombatEventKind::Harvest, 0,
-            game_time.day(), game_time.hour(), game_time.minute(),
-            format!("Built {} {}s in {} (drag line)", placed, label, town_name),
-        );
+        combat_log.write(crate::messages::CombatLogMsg { kind: CombatEventKind::Harvest, faction: 0, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("Built {} {}s in {} (drag line)", placed, label, town_name), location: None });
     }
 }
 
@@ -1257,7 +1243,7 @@ fn process_destroy_system(
     mut commands: Commands,
     mut request: ResMut<DestroyRequest>,
     mut world_state: WorldState,
-    mut combat_log: ResMut<CombatLog>,
+    mut combat_log: MessageWriter<crate::messages::CombatLogMsg>,
     game_time: Res<GameTime>,
     mut selected_building: ResMut<SelectedBuilding>,
 ) {
@@ -1296,7 +1282,7 @@ fn process_destroy_system(
     ).is_ok() {
         selected_building.active = false;
         if let Some(bk) = bld_kind {
-            world_state.dirty.mark_building_changed(bk);
+            world_state.dirty_writers.mark_building_changed(bk);
         }
     }
 }
@@ -1348,7 +1334,6 @@ struct CleanupGameplay<'w> {
     selected_npc: ResMut<'w, SelectedNpc>,
     selected_building: ResMut<'w, SelectedBuilding>,
     follow: ResMut<'w, FollowSelected>,
-    food_events: ResMut<'w, FoodEvents>,
     proj_slots: ResMut<'w, ProjSlotAllocator>,
 }
 
@@ -1420,7 +1405,7 @@ fn game_cleanup_system(
     *combat_log = Default::default();
     *ui_state = Default::default();
     *squad_state = Default::default();
-    *world.world_state.dirty = DirtyFlags::default();
+    world.world_state.dirty_writers.emit_all();
     healing_cache.by_faction.clear();
 
     // Reset gameplay resources missed by original cleanup
@@ -1436,7 +1421,6 @@ fn game_cleanup_system(
     *gameplay.selected_npc = Default::default();
     *gameplay.selected_building = Default::default();
     *gameplay.follow = Default::default();
-    *gameplay.food_events = Default::default();
     *gameplay.proj_slots = Default::default();
     world.world_state.building_slots.clear();
 

@@ -36,7 +36,7 @@ game_time_system (every frame)
     │   └─ Per AI settlement: build → unlock slots → buy upgrades (food-gated, personality-driven)
     │   └─ Uses AiBuildRes SystemParam bundle (8 mutable resources) to stay under Bevy's 16-param limit
     │
-    └─ squad_cleanup_system (dirty-flag gated: DirtyFlags.squads)
+    └─ squad_cleanup_system (message-gated: MessageReader<SquadsDirtyMsg>)
         └─ Phase 1: remove dead slots from Squad.members
         └─ Phase 2: keep Default Squad (0) as live pool of unsquadded player archers
         └─ Phase 3: dismiss excess if members > target_size (remove SquadId)
@@ -171,7 +171,7 @@ Raiders without a squad assignment wander near their town. The old `RaidQueue` g
 |----------|---------|------------|
 | GameTime | total_seconds, time_scale, paused, hour_ticked | game_time_system |
 | FoodStorage | `Vec<i32>` — food count per town | harvest, steal, forage, respawn |
-| FoodEvents | delivered/consumed event logs | arrival_system, decision_system |
+| ~~FoodEvents~~ | *(removed — dead code)* | — |
 | BuildingEntityMap | `BuildingInstance` with `growth_ready` + `growth_progress` fields (farms + mines) | growth_system, harvest/steal |
 | GoldStorage | `Vec<i32>` — gold count per town | mining delivery, UI |
 | MineStates | gold, max_gold, positions per mine | mine_regen_system, mining behavior |
@@ -224,7 +224,7 @@ Both player build menu and AI player use `building_cost()` for affordability che
 - Uses `MineStates` resource — parallel Vecs of gold, max_gold, and positions per mine
 
 ### mining_policy_system
-- Gated by `DirtyFlags.mining` — only runs when mining topology/policy changes (radius slider, mine toggle, miner spawn/death)
+- Gated by `MessageReader<MiningDirtyMsg>` — only runs when mining topology/policy changes (radius slider, mine toggle, miner spawn/death)
 - **Discovery**: scans `BuildingEntityMap.iter_kind(GoldMine)` within `PolicySet.mining_radius` of each faction-0 town center, populates `MiningPolicy.discovered_mines[town_idx]`
 - **Distribution**: collects alive auto-assigned miners per town (skips `manual_mine == true` on `BuildingInstance`), round-robin assigns across enabled discovered mines via `BuildingInstance.assigned_mine`
 - **Stale clearing**: if assigned mine falls outside radius or disabled, clears `assigned_mine` on auto-assigned miners
@@ -232,8 +232,8 @@ Both player build menu and AI player use `building_cost()` for affordability che
 - `MAX_MINE_OCCUPANCY` in `constants.rs` limits concurrent miners per mine; behavior system (`decision_system`) skips full mines
 
 ### squad_cleanup_system
-- Dirty-flag gated via `DirtyFlags.squads` — skips entirely when no squad-relevant changes occurred
-- Flag set by: `death_cleanup_system` (any death), `spawn_npc_system` (archer spawn), left_panel UI (assign/dismiss), save load (`DirtyFlags::default()`)
+- Message-gated via `MessageReader<SquadsDirtyMsg>` — skips entirely when no squad-relevant changes occurred
+- Signal emitted by: `death_cleanup_system` (any death), `spawn_npc_system` (archer spawn), left_panel UI (assign/dismiss), save load (`emit_all()`)
 - **Phase 1**: retains only members whose slot is still in `NpcEntityMap` (alive)
 - **Phase 2**: keeps Default Squad (index 0) as live pool of unsquadded player archers (inserts `SquadId(0)`)
 - **Phase 3**: if `target_size > 0` and `members.len() > target_size`, dismisses excess (removes `SquadId` + `DirectControl` components, pops from members)

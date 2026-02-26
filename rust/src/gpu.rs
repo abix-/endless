@@ -909,7 +909,7 @@ fn populate_tile_flags(
     mut config: ResMut<RenderFrameConfig>,
     grid: Res<crate::world::WorldGrid>,
     world_data: Res<crate::world::WorldData>,
-    dirty: Res<crate::DirtyFlags>,
+    mut grid_dirty: MessageReader<crate::messages::BuildingGridDirtyMsg>,
 ) {
     // Set grid dimensions every frame (cheap)
     config.npc.tile_grid_width = grid.width as u32;
@@ -917,7 +917,7 @@ fn populate_tile_flags(
     config.npc.tile_cell_size = grid.cell_size;
 
     // Only rebuild flags vec when buildings changed
-    if !dirty.building_grid && !config.tile_flags.is_empty() {
+    if grid_dirty.read().count() == 0 && !config.tile_flags.is_empty() {
         return;
     }
     let total = grid.width * grid.height;

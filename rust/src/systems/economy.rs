@@ -12,7 +12,7 @@ use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, RAIDER_FO
     RAIDER_SETTLE_RADIUS, MIGRATION_BASE_SIZE, BOAT_SPEED, ATLAS_BOAT, ENDLESS_RESPAWN_DELAY_HOURS,
 };
 use crate::world::{self, WorldData, BuildingKind, BuildingOccupancy, TownGrids, Biome};
-use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
+use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg, CombatLogMsg};
 use crate::systems::stats::{TownUpgrades, UPGRADES};
 use crate::constants::UpgradeStatKind;
 use crate::systems::ai_player::{AiPlayer, AiPlayerState, AiKind, AiPersonality};
@@ -240,11 +240,11 @@ pub fn spawner_respawn_system(
     mut slots: ResMut<SlotAllocator>,
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     world_data: Res<WorldData>,
-    mut combat_log: ResMut<CombatLog>,
+    mut combat_log: MessageWriter<CombatLogMsg>,
     farm_occupancy: Res<BuildingOccupancy>,
     timings: Res<SystemTimings>,
     mut building_map: ResMut<BuildingEntityMap>,
-    mut dirty: ResMut<DirtyFlags>,
+    mut dirty_writers: crate::messages::DirtyWriters,
 ) {
     let _t = timings.scope("spawner_respawn");
     if !game_time.hour_ticked {
@@ -267,7 +267,7 @@ pub fn spawner_respawn_system(
                 inst_mut.npc_slot = -1;
                 inst_mut.respawn_timer = SPAWNER_RESPAWN_HOURS;
             }
-            if is_miner_home { dirty.mining = true; }
+            if is_miner_home { dirty_writers.mining.write(crate::messages::MiningDirtyMsg); }
         }
 
         let Some(inst) = building_map.get_instance(bld_slot) else { continue };
@@ -300,13 +300,9 @@ pub fn spawner_respawn_system(
                     inst_mut.npc_slot = slot as i32;
                     inst_mut.respawn_timer = -1.0;
                 }
-                if is_miner_home { dirty.mining = true; }
+                if is_miner_home { dirty_writers.mining.write(crate::messages::MiningDirtyMsg); }
 
-                combat_log.push(
-                    CombatEventKind::Spawn, faction,
-                    game_time.day(), game_time.hour(), game_time.minute(),
-                    format!("{} respawned from {}", job_name, building_name),
-                );
+                combat_log.write(CombatLogMsg { kind: CombatEventKind::Spawn, faction, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{} respawned from {}", job_name, building_name), location: None });
             }
         }
     }
@@ -319,12 +315,11 @@ pub fn mining_policy_system(
     policies: Res<TownPolicies>,
     npc_map: Res<NpcEntityMap>,
     mut mining: ResMut<MiningPolicy>,
-    mut dirty: ResMut<DirtyFlags>,
+    mut mining_dirty: MessageReader<crate::messages::MiningDirtyMsg>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("mining_policy");
-    if !dirty.mining { return; }
-    dirty.mining = false;
+    if mining_dirty.read().count() == 0 { return; }
 
     // Mine discovery: iterate BuildingEntityMap gold mines, keyed by slot
     mining.discovered_mines.resize(world_data.towns.len(), Vec::new());
@@ -419,11 +414,10 @@ pub fn squad_cleanup_system(
     world_data: Res<WorldData>,
     squad_units: Query<(Entity, &NpcIndex, &SquadId), (With<SquadUnit>, Without<Dead>)>,
     timings: Res<SystemTimings>,
-    mut dirty: ResMut<DirtyFlags>,
+    mut squads_dirty: MessageReader<crate::messages::SquadsDirtyMsg>,
 ) {
     let _t = timings.scope("squad_cleanup");
-    if !dirty.squads { return; }
-    dirty.squads = false;
+    if squads_dirty.read().count() == 0 { return; }
     let player_town = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0) as i32;
 
     // Phase 1: remove dead members (all squads)
@@ -623,7 +617,7 @@ pub fn endless_system(
     mut world_state: WorldState,
     mut ai_state: ResMut<AiPlayerState>,
     mut upgrades: ResMut<TownUpgrades>,
-    mut combat_log: ResMut<CombatLog>,
+    mut combat_log: MessageWriter<CombatLogMsg>,
     mut tilemap_spawned: ResMut<crate::render::TilemapSpawned>,
     game_time: Res<GameTime>,
     time: Res<Time>,
@@ -694,8 +688,7 @@ pub fn endless_system(
                 mg.boat_slot = None;
 
                 let kind_str = if mg.is_raider { "Raiders" } else { "Settlers" };
-                combat_log.push_at(CombatEventKind::Raid, -1, game_time.day(), game_time.hour(), game_time.minute(),
-                    format!("{} have landed!", kind_str), Some(mg.boat_pos));
+                combat_log.write(CombatLogMsg { kind: CombatEventKind::Raid, faction: -1, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{} have landed!", kind_str), location: Some(mg.boat_pos) });
                 info!("Migration disembarked at ({:.0}, {:.0}), faction {}", mg.boat_pos.x, mg.boat_pos.y, next_faction);
             }
 
@@ -738,8 +731,7 @@ pub fn endless_system(
                 // All members dead — migration wiped out, queue replacement
                 let is_raider = mg.is_raider;
                 let kind_str = if is_raider { "raider band" } else { "rival faction" };
-                combat_log.push(CombatEventKind::Raid, -1, game_time.day(), game_time.hour(), game_time.minute(),
-                    format!("The migrating {} was wiped out!", kind_str));
+                combat_log.write(CombatLogMsg { kind: CombatEventKind::Raid, faction: -1, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("The migrating {} was wiped out!", kind_str), location: None });
                 endless.pending_spawns.push(PendingAiSpawn {
                     delay_remaining: ENDLESS_RESPAWN_DELAY_HOURS,
                     is_raider,
@@ -798,12 +790,11 @@ pub fn endless_system(
             }
         }
 
-        world_state.dirty.building_grid = true;
+        world_state.dirty_writers.building_grid.write(crate::messages::BuildingGridDirtyMsg);
         tilemap_spawned.0 = false;
 
         let kind_str = if is_raider { "raider band" } else { "rival faction" };
-        combat_log.push_at(CombatEventKind::Raid, -1, game_time.day(), game_time.hour(), game_time.minute(),
-            format!("A {} has settled nearby!", kind_str), Some(mg.settle_target));
+        combat_log.write(CombatLogMsg { kind: CombatEventKind::Raid, faction: -1, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("A {} has settled nearby!", kind_str), location: Some(mg.settle_target) });
         info!("Migration settled at ({:.0}, {:.0}), town_data_idx={}", mg.settle_target.x, mg.settle_target.y, town_data_idx);
         migration_state.active = None;
         return;
@@ -868,7 +859,6 @@ pub fn endless_system(
     });
 
     let kind_str = if spawn.is_raider { "raider band" } else { "rival faction" };
-    combat_log.push_at(CombatEventKind::Raid, -1, game_time.day(), game_time.hour(), game_time.minute(),
-        format!("A {} approaches from the {}!", kind_str, direction), Some(Vec2::new(spawn_x, spawn_y)));
+    combat_log.write(CombatLogMsg { kind: CombatEventKind::Raid, faction: -1, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("A {} approaches from the {}!", kind_str, direction), location: Some(Vec2::new(spawn_x, spawn_y)) });
     info!("Endless: boat spawned from {} edge", direction);
 }

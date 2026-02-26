@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 
 use crate::messages::*;
-use crate::resources::{self, ResetFlag, SystemTimings};
+use crate::resources::{SystemTimings, CombatLog};
 
 /// Drain game config staging into Bevy Resource (one-shot).
 pub fn drain_game_config(mut config: ResMut<crate::resources::GameConfig>, timings: Res<SystemTimings>) {
@@ -12,6 +12,13 @@ pub fn drain_game_config(mut config: ResMut<crate::resources::GameConfig>, timin
         if let Some(new_config) = staging.take() {
             *config = new_config;
         }
+    }
+}
+
+/// Drain CombatLogMsg messages into the CombatLog resource for UI display.
+pub fn drain_combat_log(mut msgs: MessageReader<CombatLogMsg>, mut log: ResMut<CombatLog>) {
+    for msg in msgs.read() {
+        log.push_at(msg.kind, msg.faction, msg.day, msg.hour, msg.minute, msg.message.clone(), msg.location);
     }
 }
 
@@ -26,21 +33,3 @@ pub fn collect_gpu_updates(mut events: MessageReader<GpuUpdateMsg>, timings: Res
     }
 }
 
-/// Reset Bevy resources when reset flag is set.
-pub fn reset_bevy_system(
-    mut reset_flag: ResMut<ResetFlag>,
-    mut npc_map: ResMut<resources::NpcEntityMap>,
-    mut pop_stats: ResMut<resources::PopulationStats>,
-    mut slot_alloc: ResMut<resources::SlotAllocator>,
-    timings: Res<SystemTimings>,
-) {
-    let _t = timings.scope("reset_bevy");
-    if !reset_flag.0 {
-        return;
-    }
-    reset_flag.0 = false;
-
-    npc_map.0.clear();
-    pop_stats.0.clear();
-    slot_alloc.reset();
-}

@@ -3,11 +3,12 @@
 use bevy::prelude::*;
 
 use crate::components::*;
-use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
+use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg, CombatLogMsg};
 use crate::resources::{
     NpcEntityMap, PopulationStats, NpcMetaCache, NpcMeta, BuildingEntityMap,
-    NpcsByTownCache, FactionStats, GameTime, CombatLog, CombatEventKind, SystemTimings, DirtyFlags,
+    NpcsByTownCache, FactionStats, GameTime, CombatEventKind, SystemTimings,
 };
+use crate::messages::{DirtyWriters, SquadsDirtyMsg, AiSquadsDirtyMsg, MiningDirtyMsg};
 use crate::systems::stats::{CombatConfig, TownUpgrades, resolve_combat_stats};
 use crate::systems::economy::*;
 use crate::world::{WorldData, BuildingKind};
@@ -257,11 +258,11 @@ pub fn spawn_npc_system(
     game_time: Res<GameTime>,
     mut npc_meta: ResMut<NpcMetaCache>,
     mut npcs_by_town: ResMut<NpcsByTownCache>,
-    mut combat_log: ResMut<CombatLog>,
+    mut combat_log: MessageWriter<CombatLogMsg>,
     combat_config: Res<CombatConfig>,
     upgrades: Res<TownUpgrades>,
     timings: Res<SystemTimings>,
-    mut dirty: ResMut<DirtyFlags>,
+    mut dirty_writers: DirtyWriters,
     building_map: Res<BuildingEntityMap>,
 ) {
     let _t = timings.scope("spawn_npc");
@@ -279,14 +280,12 @@ pub fn spawn_npc_system(
         // Spawn-only bookkeeping (not needed for save-load)
         let job = Job::from_i32(msg.job);
         faction_stats.inc_alive(msg.faction);
-        if job == Job::Miner { dirty.mining = true; }
-        if crate::constants::npc_def(job).is_military { dirty.squads = true; dirty.ai_squads = true; }
+        if job == Job::Miner { dirty_writers.mining.write(MiningDirtyMsg); }
+        if crate::constants::npc_def(job).is_military { dirty_writers.squads.write(SquadsDirtyMsg); dirty_writers.ai_squads.write(AiSquadsDirtyMsg); }
 
         if game_time.total_hours() > 0 {
             let job_str = crate::job_name(msg.job);
-            combat_log.push(CombatEventKind::Spawn, msg.faction,
-                game_time.day(), game_time.hour(), game_time.minute(),
-                format!("{} #{} spawned", job_str, msg.slot_idx));
+            combat_log.write(CombatLogMsg { kind: CombatEventKind::Spawn, faction: msg.faction, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{} #{} spawned", job_str, msg.slot_idx), location: None });
         }
     }
 

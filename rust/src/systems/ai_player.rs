@@ -38,6 +38,14 @@ pub struct AiBuildRes<'w, 's> {
     commands: Commands<'w, 's>,
 }
 
+/// Bundled dirty-flag message readers for ai_decision_system (keeps under 16-param limit).
+#[derive(SystemParam)]
+pub struct AiDirtyReaders<'w, 's> {
+    pub grid: MessageReader<'w, 's, crate::messages::BuildingGridDirtyMsg>,
+    pub mining: MessageReader<'w, 's, crate::messages::MiningDirtyMsg>,
+    pub perimeter: MessageReader<'w, 's, crate::messages::PatrolPerimeterDirtyMsg>,
+}
+
 /// Alive buildings for a town as `(row, col)` grid slots. Returns an iterator.
 /// Single source of truth for the alive + town ownership + coordinate conversion pipeline.
 const DEFAULT_MINING_RADIUS: f32 = 300.0;
@@ -944,7 +952,7 @@ fn find_waypoint_slot(
 
 fn sync_town_perimeter_waypoints(
     world: &mut WorldState,
-    combat_log: &mut CombatLog,
+    combat_log: &mut MessageWriter<crate::messages::CombatLogMsg>,
     game_time: &GameTime,
     town_data_idx: usize,
     personality: AiPersonality,
@@ -988,14 +996,14 @@ pub fn sync_patrol_perimeter_system(
     mut commands: Commands,
     mut world: WorldState,
     ai_state: Res<AiPlayerState>,
-    mut combat_log: ResMut<CombatLog>,
+    mut combat_log: MessageWriter<crate::messages::CombatLogMsg>,
     game_time: Res<GameTime>,
     timings: Res<SystemTimings>,
+    mut perimeter_dirty: MessageReader<crate::messages::PatrolPerimeterDirtyMsg>,
 ) {
-    // Dirty-flag system: only runs when perimeter-affecting state changed.
+    // Message-gated system: only runs when perimeter-affecting state changed.
     let _t = timings.scope("sync_patrol_perimeter");
-    if !world.dirty.patrol_perimeter { return; }
-    world.dirty.patrol_perimeter = false;
+    if perimeter_dirty.read().count() == 0 { return; }
 
     let town_personalities: Vec<(usize, AiPersonality)> = ai_state.players.iter()
         .filter(|p| p.active)
@@ -1011,8 +1019,8 @@ pub fn sync_patrol_perimeter_system(
     }
 
     if removed_total > 0 {
-        world.dirty.patrols = true;
-        world.dirty.building_grid = true;
+        world.dirty_writers.patrols.write(crate::messages::PatrolsDirtyMsg);
+        world.dirty_writers.building_grid.write(crate::messages::BuildingGridDirtyMsg);
     }
 }
 
@@ -1105,7 +1113,7 @@ pub fn ai_decision_system(
     mut res: AiBuildRes,
     upgrades: Res<TownUpgrades>,
     gold_storage: Res<GoldStorage>,
-    mut combat_log: ResMut<CombatLog>,
+    mut combat_log: MessageWriter<crate::messages::CombatLogMsg>,
     game_time: Res<GameTime>,
     difficulty: Res<Difficulty>,
     gpu_state: Res<GpuReadState>,
@@ -1114,6 +1122,7 @@ pub fn ai_decision_system(
     mut snapshots: Local<AiTownSnapshotCache>,
     timings: Res<SystemTimings>,
     settings: Res<crate::settings::UserSettings>,
+    mut dirty_readers: AiDirtyReaders,
 ) {
     // System timing gate:
     // runs every `decision_interval`, not every frame.
@@ -1122,7 +1131,7 @@ pub fn ai_decision_system(
     if *timer < config.decision_interval { return; }
     *timer = 0.0;
 
-    let snapshot_dirty = res.world.dirty.building_grid || res.world.dirty.mining || res.world.dirty.patrol_perimeter;
+    let snapshot_dirty = dirty_readers.grid.read().count() > 0 || dirty_readers.mining.read().count() > 0 || dirty_readers.perimeter.read().count() > 0;
     if snapshot_dirty {
         snapshots.towns.clear();
         // Recompute spawner counts per town from BuildingEntityMap
@@ -1748,7 +1757,7 @@ fn execute_action(
                 return None;
             }
             policy.mining_radius = new;
-            res.world.dirty.mining = true;
+            res.world.dirty_writers.mining.write(crate::messages::MiningDirtyMsg);
             Some(format!("expanded mining radius to {:.0}px", new))
         }
         AiAction::BuildWaypoint => {
@@ -1778,10 +1787,9 @@ fn execute_action(
 }
 
 
-fn log_ai(log: &mut CombatLog, gt: &GameTime, faction: i32, town: &str, personality: &str, what: &str) {
+fn log_ai(log: &mut MessageWriter<crate::messages::CombatLogMsg>, gt: &GameTime, faction: i32, town: &str, personality: &str, what: &str) {
     // Centralized AI log format so all decisions read consistently in the combat log.
-    log.push(CombatEventKind::Ai, faction, gt.day(), gt.hour(), gt.minute(),
-        format!("{} [{}] {}", town, personality, what));
+    log.write(crate::messages::CombatLogMsg { kind: CombatEventKind::Ai, faction, day: gt.day(), hour: gt.hour(), minute: gt.minute(), message: format!("{} [{}] {}", town, personality, what), location: None });
 }
 
 // ============================================================================
@@ -1964,9 +1972,10 @@ pub fn ai_squad_commander_system(
     world_data: Res<WorldData>,
     building_map: Res<BuildingEntityMap>,
     military: Query<(&TownId, &NpcIndex), (With<SquadUnit>, Without<Dead>)>,
-    mut combat_log: ResMut<CombatLog>,
+    mut combat_log: MessageWriter<crate::messages::CombatLogMsg>,
     game_time: Res<GameTime>,
-    mut dirty: ResMut<DirtyFlags>,
+    mut ai_squads_dirty: MessageReader<crate::messages::AiSquadsDirtyMsg>,
+    mut squads_dirty_w: MessageWriter<crate::messages::SquadsDirtyMsg>,
     timings: Res<SystemTimings>,
     mut timer: Local<f32>,
 ) {
@@ -1974,8 +1983,8 @@ pub fn ai_squad_commander_system(
     let _t = timings.scope("ai_squad_commander");
     let dt = game_time.delta(&time);
     *timer += dt;
-    if !dirty.ai_squads && *timer < AI_SQUAD_HEARTBEAT { return; }
-    dirty.ai_squads = false;
+    let has_signal = ai_squads_dirty.read().count() > 0;
+    if !has_signal && *timer < AI_SQUAD_HEARTBEAT { return; }
     let elapsed = *timer;
     *timer = 0.0;
 
@@ -2036,7 +2045,7 @@ pub fn ai_squad_commander_system(
                         let new_size = unit_count;
                         if squad.target_size != new_size {
                             squad.target_size = new_size;
-                            dirty.squads = true;
+                            squads_dirty_w.write(crate::messages::SquadsDirtyMsg);
                         }
                         squad.patrol_enabled = false;
                         squad.rest_when_tired = false;
@@ -2081,7 +2090,7 @@ pub fn ai_squad_commander_system(
                     if let Some(squad) = squad_state.squads.get_mut(si) {
                         if squad.target_size != new_target_size {
                             squad.target_size = new_target_size;
-                            dirty.squads = true;
+                            squads_dirty_w.write(crate::messages::SquadsDirtyMsg);
                         }
                         let should_patrol = role == SquadRole::Reserve;
                         if squad.patrol_enabled != should_patrol {
@@ -2146,8 +2155,7 @@ pub fn ai_squad_commander_system(
 
                     let town_name = &town.name;
                     let pname = personality.name();
-                    combat_log.push(CombatEventKind::Raid, faction, game_time.day(), game_time.hour(), game_time.minute(),
-                        format!("{} [{}] wave ended ({}), {} remaining", town_name, pname, reason, member_count));
+                    combat_log.write(crate::messages::CombatLogMsg { kind: CombatEventKind::Raid, faction, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{} [{}] wave ended ({}), {} remaining", town_name, pname, reason, member_count), location: None });
                 }
             } else {
                 // --- Gathering phase: wait for wave_min_start ---
@@ -2180,9 +2188,7 @@ pub fn ai_squad_commander_system(
                         AiKind::Raider => "raiders",
                         AiKind::Builder => "units",
                     };
-                    combat_log.push_at(CombatEventKind::Raid, faction, game_time.day(), game_time.hour(), game_time.minute(),
-                        format!("{} [{}] wave started: {} {} -> {}", town_name, pname, member_count, unit_label, crate::constants::building_def(bk).label),
-                        Some(pos));
+                    combat_log.write(crate::messages::CombatLogMsg { kind: CombatEventKind::Raid, faction, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{} [{}] wave started: {} {} -> {}", town_name, pname, member_count, unit_label, crate::constants::building_def(bk).label), location: Some(pos) });
                 }
             }
         }

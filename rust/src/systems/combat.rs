@@ -3,8 +3,8 @@
 use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::{ItemKind, building_def};
-use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TowerState, SystemTimings, CombatLog, CombatEventKind, GameTime, NpcEntityMap, NpcMetaCache};
+use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE, CombatLogMsg};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TowerState, SystemTimings, CombatEventKind, GameTime, NpcEntityMap, NpcMetaCache};
 use crate::systems::stats::{TownUpgrades, resolve_town_tower_stats};
 use crate::systemparams::WorldState;
 use crate::gpu::ProjBufferWrites;
@@ -448,6 +448,8 @@ pub fn building_tower_system(
         let dy = ty - pos.y;
         let dist = (dx * dx + dy * dy).sqrt();
 
+        if dist > stats.range { continue; } // out of range
+
         if dist > 1.0 {
             if let Some(proj_slot) = proj_alloc.alloc() {
                 let dir_x = dx / dist;
@@ -478,7 +480,7 @@ pub fn building_damage_system(
     mut commands: Commands,
     mut damage_reader: MessageReader<BuildingDamageMsg>,
     mut world: WorldState,
-    mut combat_log: ResMut<CombatLog>,
+    mut combat_log: MessageWriter<CombatLogMsg>,
     game_time: Res<GameTime>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     timings: Res<SystemTimings>,
@@ -486,6 +488,7 @@ pub fn building_damage_system(
     mut building_health: Query<&mut Health, With<Building>>,
     mut loot_query: Query<(&NpcIndex, &mut Activity, &Home, &Faction, Option<&DirectControl>), Without<Dead>>,
     mut extra: BuildingDeathExtra,
+    mut heal_state: ResMut<crate::resources::BuildingHealState>,
 ) {
     let _t = timings.scope("building_damage");
     for msg in damage_reader.read() {
@@ -506,8 +509,8 @@ pub fn building_damage_system(
         let pos = inst.position;
         let town_idx = inst.town_idx as usize;
 
-        // Mark dirty so healing_system knows to run
-        if new_hp > 0.0 { world.dirty.buildings_need_healing = true; }
+        // Mark damaged so healing_system knows to run
+        if new_hp > 0.0 { heal_state.needs_healing = true; }
 
         let town_name = world.world_data.towns.get(town_idx)
             .map(|t| t.name.clone()).unwrap_or_default();
@@ -516,9 +519,7 @@ pub fn building_damage_system(
 
         // Log every damage hit to combat log
         let defender_faction = world.world_data.towns.get(town_idx).map(|t| t.faction).unwrap_or(0);
-        combat_log.push(CombatEventKind::BuildingDamage, defender_faction,
-            game_time.day(), game_time.hour(), game_time.minute(),
-            format!("{:?} in {} hit by {} for {:.0} ({:.0}/{:.0} HP)", msg.kind, town_name, attacker_name, msg.amount, new_hp, max_hp));
+        combat_log.write(CombatLogMsg { kind: CombatEventKind::BuildingDamage, faction: defender_faction, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{:?} in {} hit by {} for {:.0} ({:.0}/{:.0} HP)", msg.kind, town_name, attacker_name, msg.amount, new_hp, max_hp), location: None });
 
         // GPU sync (damage flash + health bar) — building buffer
         if let Some(slot) = world.building_slots.get_slot(msg.kind, msg.index) {
@@ -543,16 +544,14 @@ pub fn building_damage_system(
             &format!("{:?} destroyed in {}", msg.kind, town_name),
             &mut commands,
         );
-        world.dirty.mark_building_changed(msg.kind);
+        world.dirty_writers.mark_building_changed(msg.kind);
 
         // Town center destroyed — deactivate AI player (town becomes leaderless)
         if matches!(msg.kind, BuildingKind::Fountain) {
             if let Some(player) = extra.ai_state.players.iter_mut().find(|p| p.town_data_idx == town_idx) {
                 player.active = false;
             }
-            combat_log.push(CombatEventKind::Raid, defender_faction,
-                game_time.day(), game_time.hour(), game_time.minute(),
-                format!("{} has been defeated!", town_name));
+            combat_log.write(CombatLogMsg { kind: CombatEventKind::Raid, faction: defender_faction, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{} has been defeated!", town_name), location: None });
             info!("{} (town_idx={}) defeated — AI deactivated", town_name, town_idx);
 
             // Endless mode: queue replacement AI scaled to player strength
@@ -608,9 +607,7 @@ pub fn building_damage_system(
                         let item_name = match drop.item { ItemKind::Food => "food", ItemKind::Gold => "gold" };
                         let killer_name = &extra.npc_meta.0[npc_idx.0].name;
                         let killer_job = crate::job_name(extra.npc_meta.0[npc_idx.0].job);
-                        combat_log.push(CombatEventKind::Loot, faction.0,
-                            game_time.day(), game_time.hour(), game_time.minute(),
-                            format!("{} '{}' looted {} {} from {:?}", killer_job, killer_name, amount, item_name, msg.kind));
+                        combat_log.write(CombatLogMsg { kind: CombatEventKind::Loot, faction: faction.0, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{} '{}' looted {} {} from {:?}", killer_job, killer_name, amount, item_name, msg.kind), location: None });
                     }
                 }
             }

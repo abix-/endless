@@ -50,7 +50,8 @@ Static world data, immutable after initialization.
 | BuildingOccupancy | private `HashMap<(i32,i32), i32>` — position → worker count | Building assignment (claim/release/is_occupied/count/clear) |
 | MineStates | `Vec<f32>` gold + `Vec<f32>` max_gold + `Vec<Vec2>` positions | Per-mine gold tracking |
 | BuildingEntityMap | `BuildingInstance` storage + 256px spatial grid + by_kind/by_entity/by_grid_cell indexes | Sole source of truth for all building instance data (no WorldData.buildings); stores `BuildingInstance` (kind, position, town_idx, slot, entity, faction, patrol_order, assigned_mine, manual_mine, wall_level, npc_slot, respawn_timer, growth_ready, growth_progress); methods: `add_instance`/`remove_instance`/`get_instance[_mut]`/`find_by_position`/`find_farm_at[_mut]`/`find_mine_at[_mut]`/`iter_kind`/`iter_kind_for_town`/`iter_growable[_mut]`/`count_for_town`/`building_counts`/`gold_mine_index`/`for_each_nearby` (spatial)/`iter_instances`/`iter_instances_mut`; GPU slot maps: `insert`/`get_slot`/`get_building`/`get_entity`/`get_entity_by_building` |
-| DirtyFlags | `building_grid`, `patrols`, `patrol_perimeter`, `healing_zones`, `waypoint_slots`, `squads`, `mining`, `buildings_need_healing` (all bool), `patrol_swap: Option<(usize, usize)>` | Centralized dirty flags for gated rebuild systems; all default `true` so first frame rebuilds (except `buildings_need_healing` = false); `buildings_need_healing` set by `building_damage_system` on hits, cleared by `healing_system` when no damaged buildings remain; `waypoint_slots` triggers NPC slot alloc/free in `sync_waypoint_slots`; `squads` gates `squad_cleanup_system` (set by death/spawn/UI); `mining` gates `mining_policy_system`; `patrol_perimeter` gates `sync_patrol_perimeter_system`; `patrol_swap` queues patrol order swap from UI; `mark_building_changed(kind)` helper sets the right combo of flags for build/destroy events |
+| ~~DirtyFlags~~ | *(removed — replaced by individual Bevy Messages)* | Dirty signals now use `MessageWriter`/`MessageReader` per concern: `BuildingGridDirtyMsg`, `PatrolsDirtyMsg`, `PatrolPerimeterDirtyMsg`, `HealingZonesDirtyMsg`, `SquadsDirtyMsg`, `MiningDirtyMsg`, `AiSquadsDirtyMsg`, `PatrolSwapMsg`. `DirtyWriters<'w>` SystemParam bundles all writers. `emit_all()` replaces default-true bools for startup/reset. See [messages.md](messages.md#dirty-signal-messages). |
+| BuildingHealState | `needs_healing: bool` | Persistent flag (not a message): set by `building_damage_system` on hits, cleared by `healing_system` when no damaged buildings remain |
 | TownGrids | `Vec<TownGrid>` — one per town (villager + raider) | Per-town building slot unlock tracking |
 | GameAudio | `music_volume: f32`, `sfx_volume: f32`, `music_speed: f32`, `tracks: Vec<Handle<AudioSource>>`, `last_track: Option<usize>`, `loop_current: bool`, `play_next: Option<usize>` | Runtime audio state; tracks loaded at Startup, jukebox picks random no-repeat track; `loop_current` repeats same track on finish; `play_next` set by UI for explicit track selection; volume + speed synced from UserSettings |
 
@@ -105,7 +106,7 @@ Building costs: `building_cost(kind)` in `constants.rs`. Flat costs (no difficul
 | FoodStorage | `Vec<i32>` — food count per town | economy systems (arrival, eating) | economy systems, UI |
 | GoldStorage | `Vec<i32>` — gold count per town | mining delivery (arrival_system) | UI (top bar) |
 | MiningPolicy | `discovered_mines: Vec<Vec<usize>>`, `mine_enabled: HashMap<usize, bool>` (keyed by GPU slot) | mining_policy_system | UI (policies tab, mine inspector) |
-| FoodEvents | delivered: `Vec<FoodDelivered>`, consumed: `Vec<FoodConsumed>` | behavior systems | UI (poll and drain) |
+| ~~FoodEvents~~ | *(removed — dead code, zero readers)* | — | — |
 
 `FoodStorage.init(count)` initializes per-town counters. Villager towns and raider towns share the same indexing.
 
@@ -240,7 +241,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | Resource | Data | Writers | Readers |
 |----------|------|---------|---------|
 | UiState | build_menu_open, pause_menu_open, left_panel_open, left_panel_tab (LeftPanelTab enum), pending_faction_select (Option\<i32\>) | ui_toggle_system (keyboard), top_bar (buttons), left_panel tabs, pause_menu, click_to_select_system (fountain double-click) | All panel systems |
-| CombatLog | `entries: VecDeque<CombatLogEntry>` (max 200) + `priority_entries: VecDeque<CombatLogEntry>` (max 200, Raid/Ai events) | death_cleanup, spawn_npc, decision_system, arrival_system, build_menu_system | combat_log_system (via `iter_all()`), building inspector |
+| CombatLog | `entries: VecDeque<CombatLogEntry>` (max 200) + `priority_entries: VecDeque<CombatLogEntry>` (max 200, Raid/Ai events) | `drain_combat_log` system (collects `CombatLogMsg` messages from 18+ writer systems) | combat_log_system (via `iter_all()`), building inspector |
 | BuildMenuContext | town_data_idx, selected_build (`Option<BuildingKind>`), destroy_mode (bool), hover_world_pos, ghost_sprites (`HashMap<BuildingKind, Handle<Image>>`) | build_menu_system (init_sprite_cache populates ghost_sprites), build_ghost_system | build_place_click_system, draw_slot_indicators |
 | DestroyRequest | `Option<(usize, usize)>` (grid_col, grid_row) | bottom_panel_system (inspector destroy button) | process_destroy_system |
 | UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | left_panel upgrades (UI), auto_upgrade_system | process_upgrades_system |
@@ -318,7 +319,7 @@ Both unlock slots when full (sets terrain to Dirt) and buy upgrades with surplus
 
 | Resource | Data | Purpose |
 |----------|------|---------|
-| ResetFlag | `bool` | When true, `reset_bevy_system` clears all state |
+| ~~ResetFlag~~ | *(removed — dead code, never set to true)* | — |
 | DeltaTime | `f32` | Frame delta in seconds |
 | BuildingHpRender | `{ positions: Vec<Vec2>, health_pcts: Vec<f32> }` | Damaged building positions + HP fractions; extracted to render world for GPU instanced HP bars (atlas_id=5.0 bar-only mode) |
 

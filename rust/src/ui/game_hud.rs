@@ -195,7 +195,7 @@ pub struct BottomPanelUiState<'w, 's> {
     destroy_request: ResMut<'w, DestroyRequest>,
     ui_state: ResMut<'w, UiState>,
     mining_policy: ResMut<'w, MiningPolicy>,
-    dirty: ResMut<'w, DirtyFlags>,
+    dirty_writers: crate::messages::DirtyWriters<'w>,
     npc_entity_map: Res<'w, NpcEntityMap>,
     squad_state: ResMut<'w, SquadState>,
     commands: Commands<'w, 's>,
@@ -318,7 +318,7 @@ pub fn bottom_panel_system(
                 inspector_content(
                     ui, &data, &mut meta_cache, &mut inspector_state.rename, &mut bld_data, &mut world_data, &health_query,
                     &equip_query, &npc_states, &gpu_state, &buffer_writes, &mut follow, &settings, &catalog, &mut copy_text,
-                    &mut panel_state.ui_state, &mut panel_state.mining_policy, &mut panel_state.dirty, show_npc,
+                    &mut panel_state.ui_state, &mut panel_state.mining_policy, &mut panel_state.dirty_writers, show_npc,
                     &panel_state.npc_entity_map, &mut panel_state.squad_state, &mut panel_state.commands, dc_count,
                 );
                 // Destroy button for selected player-owned buildings (not fountains/mines)
@@ -616,7 +616,7 @@ fn inspector_content(
     copy_text: &mut Option<String>,
     ui_state: &mut UiState,
     mining_policy: &mut MiningPolicy,
-    dirty: &mut DirtyFlags,
+    dirty_writers: &mut crate::messages::DirtyWriters,
     show_npc: bool,
     npc_entity_map: &NpcEntityMap,
     squad_state: &mut SquadState,
@@ -627,7 +627,7 @@ fn inspector_content(
         rename_state.slot = -1;
         rename_state.text.clear();
         if bld_data.selected_building.active {
-            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, npc_states, gpu_state);
+            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty_writers, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, npc_states, gpu_state);
             return;
         }
         if dc_count > 0 {
@@ -643,7 +643,7 @@ fn inspector_content(
         rename_state.slot = -1;
         rename_state.text.clear();
         if bld_data.selected_building.active {
-            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, npc_states, gpu_state);
+            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty_writers, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, npc_states, gpu_state);
             return;
         }
         if dc_count > 0 {
@@ -659,7 +659,7 @@ fn inspector_content(
         rename_state.slot = -1;
         rename_state.text.clear();
         if bld_data.selected_building.active {
-            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, npc_states, gpu_state);
+            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty_writers, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, npc_states, gpu_state);
         } else {
             ui.label("Click an NPC or building to inspect");
         }
@@ -845,7 +845,7 @@ fn inspector_content(
                 .map(|i| i.slot);
             if let Some(mh_slot) = mh_slot {
                 ui.separator();
-                mine_assignment_ui(ui, world_data, &mut bld_data.building_map, mh_slot, hp, dirty, ui_state);
+                mine_assignment_ui(ui, world_data, &mut bld_data.building_map, mh_slot, hp, dirty_writers, ui_state);
                 // Show mine productivity when actively mining
                 if is_mining_at_mine {
                     let mine_pos = bld_data.building_map.get_instance(mh_slot).and_then(|i| i.assigned_mine);
@@ -1050,7 +1050,7 @@ fn mine_assignment_ui(
     building_map: &mut BuildingEntityMap,
     mh_slot: usize,
     ref_pos: Vec2,
-    dirty: &mut DirtyFlags,
+    dirty_writers: &mut crate::messages::DirtyWriters,
     ui_state: &mut UiState,
 ) {
     let (assigned, manual) = building_map.get_instance(mh_slot)
@@ -1070,7 +1070,7 @@ fn mine_assignment_ui(
     ui.horizontal(|ui| {
         if ui.button("Set Mine").clicked() {
             if let Some(inst) = building_map.get_instance_mut(mh_slot) { inst.manual_mine = true; }
-            dirty.mining = true;
+            dirty_writers.mining.write(crate::messages::MiningDirtyMsg);
             ui_state.assigning_mine = Some(mh_slot);
         }
         if assigned.is_some() || manual {
@@ -1079,7 +1079,7 @@ fn mine_assignment_ui(
                     inst.manual_mine = false;
                     inst.assigned_mine = None;
                 }
-                dirty.mining = true;
+                dirty_writers.mining.write(crate::messages::MiningDirtyMsg);
             }
         }
     });
@@ -1091,7 +1091,7 @@ fn building_inspector_content(
     bld: &mut BuildingInspectorData,
     world_data: &mut WorldData,
     mining_policy: &mut MiningPolicy,
-    dirty: &mut DirtyFlags,
+    dirty_writers: &mut crate::messages::DirtyWriters,
     meta_cache: &NpcMetaCache,
     ui_state: &mut UiState,
     copy_text: &mut Option<String>,
@@ -1186,7 +1186,7 @@ fn building_inspector_content(
                 let label = if enabled { "Auto-mining: ON" } else { "Auto-mining: OFF" };
                 if ui.button(label).clicked() {
                     mining_policy.mine_enabled.insert(mine_inst.slot, !enabled);
-                    dirty.mining = true;
+                    dirty_writers.mining.write(crate::messages::MiningDirtyMsg);
                 }
             }
             if let Some(inst) = bld.building_map.find_mine_at(world_pos) {
@@ -1282,7 +1282,7 @@ fn building_inspector_content(
                                 health.0 = new_hp;
                             }
                         }
-                        dirty.building_grid = true;
+                        dirty_writers.building_grid.write(crate::messages::BuildingGridDirtyMsg);
                     }
                 } else {
                     ui.colored_label(egui::Color32::from_rgb(200, 180, 40), "Max tier reached");
@@ -1340,7 +1340,7 @@ fn building_inspector_content(
                         .filter(|i| i.kind == BuildingKind::MinerHome)
                         .map(|i| i.slot);
                     if let Some(mh_slot) = mh_slot {
-                        mine_assignment_ui(ui, world_data, &mut bld.building_map, mh_slot, world_pos, dirty, ui_state);
+                        mine_assignment_ui(ui, world_data, &mut bld.building_map, mh_slot, world_pos, dirty_writers, ui_state);
                     }
                 }
             }

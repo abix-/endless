@@ -157,12 +157,12 @@ Execution order is **chained** — each system completes before the next starts.
 
 ### 7. sync_waypoint_slots (combat.rs)
 
-- Gated by `DirtyFlags.waypoint_slots` — skips entirely when no waypoints built/destroyed/loaded
+- Gated by `MessageReader<BuildingGridDirtyMsg>` — skips entirely when no waypoints built/destroyed/loaded
 - Scans `BuildingEntityMap.iter_kind(Waypoint)` for slot mismatches:
   - **Alive post, no slot** (`position.x > -9000 && npc_slot == None`): allocates `SlotAllocator` index, emits GPU updates (SetPosition, SetTarget, SetSpeed=0, SetHealth=999, SetSpriteFrame col=-1). Sprite col=-1 makes the slot invisible to NPC renderer. SetTarget=position causes GPU to immediately mark settled.
   - **Tombstoned post, has slot** (`position.x < -9000 && npc_slot == Some`): emits `HideNpc`, frees slot
 - Faction set in a second pass (borrow split: `iter_mut` on waypoints prevents reading towns simultaneously)
-- Clears `dirty.waypoint_slots` after sync
+- Runs once per dirty signal, then waits for next message
 
 ### 8. building_tower_system (combat.rs)
 
@@ -181,7 +181,7 @@ Tower auto-attack using GPU spatial grid targeting. Towers are in the unified en
 - Reads `BuildingDamageMsg` events via `MessageReader`
 - Decrements entity `Health` component on the building entity (looked up via `BuildingEntityMap.get_entity_by_building(kind, idx)` → entity)
 - Looks up position/town via `BuildingEntityMap::get_instance(slot)` (position + town_idx from `BuildingInstance`)
-- Sets `DirtyFlags.buildings_need_healing` when a building survives damage (hp > 0)
+- Sets `BuildingHealState.needs_healing` when a building survives damage (hp > 0)
 - Syncs HP to GPU: writes `GpuUpdate::BldSetHealth` with new HP (routed to `BuildingGpuState`)
 - Skips already-dead buildings (HP <= 0) and indestructible buildings (GoldMine, Road)
 - When HP reaches 0:

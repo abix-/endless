@@ -34,8 +34,9 @@ mod opt_vec2_as_array {
 
 use crate::components::Job;
 use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID_EXTENT, NPC_REGISTRY};
-use crate::resources::{FoodStorage, GoldStorage, FactionStats, RaiderState, BuildingEntityMap, CombatLog, CombatEventKind, GameTime, DirtyFlags, SystemTimings, SlotAllocator};
-use crate::messages::{GPU_UPDATE_QUEUE, GpuUpdate};
+use crate::resources::{FoodStorage, GoldStorage, FactionStats, RaiderState, BuildingEntityMap, CombatEventKind, GameTime, SystemTimings, SlotAllocator};
+use crate::messages::{DirtyWriters, BuildingGridDirtyMsg};
+use crate::messages::{GPU_UPDATE_QUEUE, GpuUpdate, CombatLogMsg};
 
 /// True if a position has not been tombstoned (i.e. the entity still exists).
 /// Tombstoned entities have position.x = -99999.0; this checks > -9000.0.
@@ -244,7 +245,7 @@ pub(crate) fn place_building(
     food_storage: &mut FoodStorage,
     slot_alloc: &mut crate::resources::BuildingSlots,
     building_slots: &mut BuildingEntityMap,
-    dirty: &mut DirtyFlags,
+    dirty_writers: &mut DirtyWriters,
     kind: BuildingKind,
     town_data_idx: usize,
     world_pos: Vec2,
@@ -308,8 +309,8 @@ pub(crate) fn place_building(
         update_wall_sprites_around(grid, building_slots, gc, gr);
     }
 
-    // Dirty flags
-    dirty.mark_building_changed(kind);
+    // Signal rebuild systems via messages
+    dirty_writers.mark_building_changed(kind);
 
     Ok(())
 }
@@ -682,7 +683,7 @@ pub(crate) fn destroy_building(
     grid: &mut WorldGrid,
     world_data: &WorldData,
     building_slots: &mut BuildingEntityMap,
-    combat_log: &mut CombatLog,
+    combat_log: &mut MessageWriter<CombatLogMsg>,
     game_time: &GameTime,
     row: i32, col: i32,
     town_center: Vec2,
@@ -717,11 +718,11 @@ pub(crate) fn destroy_building(
     // Combat log — derive faction from building's town_idx
     let bld_town = bld_town_idx as usize;
     let faction = world_data.towns.get(bld_town).map(|t| t.faction).unwrap_or(0);
-    combat_log.push(
-        CombatEventKind::Harvest, faction,
-        game_time.day(), game_time.hour(), game_time.minute(),
-        reason.to_string(),
-    );
+    combat_log.write(CombatLogMsg {
+        kind: CombatEventKind::Harvest, faction,
+        day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(),
+        message: reason.to_string(), location: None,
+    });
 
     Ok(())
 }
@@ -941,16 +942,15 @@ pub fn find_by_pos<W: Worksite>(sites: &[W], pos: Vec2) -> Option<usize> {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum BuildingKind { Fountain, Bed, Waypoint, Farm, FarmerHome, ArcherHome, Tent, GoldMine, MinerHome, CrossbowHome, FighterHome, Road, Wall }
 
-/// Rebuild building spatial grid. Only runs when DirtyFlags::building_grid is set.
+/// Rebuild building spatial grid. Only runs when BuildingGridDirtyMsg is received.
 pub fn rebuild_building_grid_system(
     mut building_map: ResMut<BuildingEntityMap>,
-    mut dirty: ResMut<DirtyFlags>,
+    mut grid_dirty: MessageReader<BuildingGridDirtyMsg>,
     grid: Res<WorldGrid>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("rebuild_grid");
-    if grid.width == 0 || !dirty.building_grid { return; }
-    dirty.building_grid = false;
+    if grid.width == 0 || grid_dirty.read().count() == 0 { return; }
     let world_size_px = grid.width as f32 * grid.cell_size;
     building_map.init_spatial(world_size_px);
     building_map.rebuild_spatial();

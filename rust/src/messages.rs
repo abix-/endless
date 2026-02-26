@@ -51,6 +51,105 @@ pub struct ReassignMsg {
     pub new_job: i32, // 0=Farmer, 1=Archer
 }
 
+/// Combat log entry emitted by any system. Drained into CombatLog resource by drain_combat_log.
+#[derive(Message, Clone)]
+pub struct CombatLogMsg {
+    pub kind: crate::resources::CombatEventKind,
+    pub faction: i32,
+    pub day: i32,
+    pub hour: i32,
+    pub minute: i32,
+    pub message: String,
+    pub location: Option<bevy::math::Vec2>,
+}
+
+
+// ============================================================================
+// DIRTY-FLAG MESSAGES (replace DirtyFlags resource)
+// ============================================================================
+
+/// Spatial grid rebuild needed (building placed/destroyed).
+#[derive(Message, Clone)]
+pub struct BuildingGridDirtyMsg;
+
+/// Patrol routes need rebuild.
+#[derive(Message, Clone)]
+pub struct PatrolsDirtyMsg;
+
+/// AI should resync perimeter waypoints.
+#[derive(Message, Clone)]
+pub struct PatrolPerimeterDirtyMsg;
+
+/// Healing zone cache needs rebuild.
+#[derive(Message, Clone)]
+pub struct HealingZonesDirtyMsg;
+
+/// Squad assignments need rebuild.
+#[derive(Message, Clone)]
+pub struct SquadsDirtyMsg;
+
+/// Mining policy / assignment needs rebuild.
+#[derive(Message, Clone)]
+pub struct MiningDirtyMsg;
+
+/// AI squad commander should wake up.
+#[derive(Message, Clone)]
+pub struct AiSquadsDirtyMsg;
+
+/// Patrol waypoint swap request from UI.
+#[derive(Message, Clone)]
+pub struct PatrolSwapMsg {
+    pub a: usize,
+    pub b: usize,
+}
+
+/// Convenience bundle: all dirty-flag message writers.
+/// Systems that signal changes take this instead of `ResMut<DirtyFlags>`.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct DirtyWriters<'w> {
+    pub building_grid: MessageWriter<'w, BuildingGridDirtyMsg>,
+    pub patrols: MessageWriter<'w, PatrolsDirtyMsg>,
+    pub patrol_perimeter: MessageWriter<'w, PatrolPerimeterDirtyMsg>,
+    pub healing_zones: MessageWriter<'w, HealingZonesDirtyMsg>,
+    pub squads: MessageWriter<'w, SquadsDirtyMsg>,
+    pub mining: MessageWriter<'w, MiningDirtyMsg>,
+    pub ai_squads: MessageWriter<'w, AiSquadsDirtyMsg>,
+    pub patrol_swap: MessageWriter<'w, PatrolSwapMsg>,
+}
+
+impl DirtyWriters<'_> {
+    /// Emit messages equivalent to the old `DirtyFlags::mark_building_changed`.
+    pub fn mark_building_changed(&mut self, kind: crate::world::BuildingKind) {
+        self.building_grid.write(BuildingGridDirtyMsg);
+        self.ai_squads.write(AiSquadsDirtyMsg);
+        if kind == crate::world::BuildingKind::Waypoint {
+            self.patrols.write(PatrolsDirtyMsg);
+            self.patrol_perimeter.write(PatrolPerimeterDirtyMsg);
+        }
+        if matches!(kind,
+            crate::world::BuildingKind::Farm
+            | crate::world::BuildingKind::FarmerHome
+            | crate::world::BuildingKind::ArcherHome
+            | crate::world::BuildingKind::MinerHome
+        ) {
+            self.patrol_perimeter.write(PatrolPerimeterDirtyMsg);
+        }
+        if kind == crate::world::BuildingKind::MinerHome {
+            self.mining.write(MiningDirtyMsg);
+        }
+    }
+
+    /// Emit all dirty messages (used on startup / game reset to trigger initial rebuilds).
+    pub fn emit_all(&mut self) {
+        self.building_grid.write(BuildingGridDirtyMsg);
+        self.patrols.write(PatrolsDirtyMsg);
+        self.patrol_perimeter.write(PatrolPerimeterDirtyMsg);
+        self.healing_zones.write(HealingZonesDirtyMsg);
+        self.squads.write(SquadsDirtyMsg);
+        self.mining.write(MiningDirtyMsg);
+        self.ai_squads.write(AiSquadsDirtyMsg);
+    }
+}
 
 // ============================================================================
 // GPU DISPATCH COUNT

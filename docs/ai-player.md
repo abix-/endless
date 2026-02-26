@@ -77,7 +77,7 @@ Runs every **5 seconds** (`DEFAULT_AI_INTERVAL`). Each tick, every active AI pla
 
 ```
 1. Skip if inactive (migration not settled yet)
-2. Build/refresh town snapshot (cached; cleared when building_grid, mining, or patrol_perimeter dirty). Snapshot includes cached waypoint ring slots and building positions as HashSets.
+2. Build/refresh town snapshot (cached; cleared when `BuildingGridDirtyMsg`, `MiningDirtyMsg`, or `PatrolPerimeterDirtyMsg` received via `AiDirtyReaders` bundle). Snapshot includes cached waypoint ring slots and building positions as HashSets.
 3. Count food and spawners (spawner counts cached in AiTownSnapshotCache, recomputed only when snapshot is dirty)
 4. Build TownContext (center, food, has_slots, slot_fullness, MineAnalysis for Builders)
 5. DETERMINISTIC MINER BOOTSTRAP: if mine_shafts < min_miner_homes and mines exist:
@@ -237,7 +237,7 @@ The TownArea upgrade has special rules beyond normal upgrade scoring:
 
 ## Squad Commander
 
-`ai_squad_commander_system` uses dirty+heartbeat gating: wakes immediately when `dirty.ai_squads` is set (military spawn/death, building changes) or on a 2-second heartbeat fallback. Skips entirely when neither condition fires — near-zero cost most frames. Both Builder and Raider AIs use squads. Squad counts and splits are personality-driven (see Personalities section). All military unit types (`SquadUnit` component: archers, crossbows, fighters, raiders) participate.
+`ai_squad_commander_system` uses message+heartbeat gating: wakes immediately when `MessageReader<AiSquadsDirtyMsg>` has messages (military spawn/death, building changes) or on a 2-second heartbeat fallback. Skips entirely when neither condition fires — near-zero cost most frames. Both Builder and Raider AIs use squads. Squad counts and splits are personality-driven (see Personalities section). All military unit types (`SquadUnit` component: archers, crossbows, fighters, raiders) participate.
 
 ### Squad Roles (Builder AIs)
 
@@ -272,7 +272,7 @@ Search radius: 5000px from town center. Cooldown includes ±2s jitter. Initial c
 
 ## Perimeter Maintenance
 
-`sync_patrol_perimeter_system` (dirty-flag-gated on `patrol_perimeter`):
+`sync_patrol_perimeter_system` (message-gated on `MessageReader<PatrolPerimeterDirtyMsg>`):
 1. Compute personality's ideal outer ring via `waypoint_ring_slots(tg)` (block corners on build area perimeter)
 2. Prune waypoints not in the ideal ring (uses full `destroy_building` teardown) — when town area expands, the ring shifts outward and inner waypoints are destroyed
 3. Recalculate clockwise patrol order (angle-based sort around town center)
