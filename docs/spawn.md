@@ -46,8 +46,8 @@ pub struct SlotPool {
 
 `alloc()` pops from the free list first, falls back to incrementing `next` (capped at `max`). `free()` pushes onto the free list. LIFO reuse — most recently freed slot is allocated first. `SlotAllocator` and `BuildingSlots` both implement `Deref`/`DerefMut` to `SlotPool`.
 
-NPC slots: allocated in `spawn_npc_system`, recycled in `death_cleanup_system`.
-Building slots: allocated in `place_building_instance`, recycled in `death_cleanup_system` (building branch).
+NPC slots: allocated in `spawn_npc_system`, recycled in `death_system`.
+Building slots: allocated in `place_building_instance`, recycled in `death_system` (building branch).
 
 GPU dispatch count comes from `SlotAllocator.count()` (the high-water mark `next`). Dead NPC slots within this range are hidden via sentinel position (-9999) and culled by the renderer.
 

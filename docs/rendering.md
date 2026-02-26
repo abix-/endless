@@ -17,7 +17,7 @@ Bevy's built-in sprite renderer creates one entity per sprite. At 16K NPCs, that
 
 - **1 entity per batch** (NpcBatch, ProjBatch) instead of 16,384 entities
 - **GPU compute data stays on GPU** — vertex shader reads positions/health directly from compute output via storage buffers (bind group 2), no readback needed for rendering
-- **Flat storage buffer uploads** — visual [f32;8] + equip [f32;24] per slot, two `write_buffer` calls per frame (~3.84MB at 30K NPCs vs 10.9MB old instance buffer rebuild)
+- **Flat storage buffer uploads** — visual [f32;8] + equip [f32;24] per slot, two `write_buffer` calls per frame (~3.84MB at 30K NPCs)
 - **Multi-layer drawing** — body + up to 6 overlay layers (4 equipment + 2 visual indicators), each a separate `draw_indexed` call within one RenderCommand
 
 ## Data Flow

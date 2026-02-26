@@ -61,7 +61,7 @@ fn sync_building_tilemap(
 
 Cleanup (`ui/mod.rs:500`): already queries `Entity, With<TilemapChunk>` and despawns all — works unchanged with multiple chunks.
 
-`spawn_chunk` helper: can be removed or inlined — no longer needed as a separate function since the loop body handles everything.
+`spawn_chunk` helper: can be inlined; the loop body already covers the full behavior.
 
 **Tileset handles:** `build_tileset()` returns a `Handle<Image>`. Clone it for each chunk — Bevy ref-counts texture assets, so all chunks share the same GPU texture.
 

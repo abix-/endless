@@ -2,7 +2,7 @@
 
 ## Problem
 
-**Solved (Part 1):** `prepare_npc_buffers` used to rebuild all 7 layer instance buffers from scratch every frame — iterating every NPC on CPU, packing `InstanceData` structs, uploading to GPU. Now the vertex shader reads positions/health directly from compute shader's storage buffers. CPU only uploads flat visual/equipment arrays via two `write_buffer` calls.
+**Part 1 state:** `prepare_npc_buffers` uses GPU-native NPC rendering: the vertex shader reads positions/health directly from compute storage buffers, and CPU uploads only flat visual/equipment arrays via two `write_buffer` calls.
 
 **Remaining (Part 2):** GPU→CPU readback of factions, threat_counts, positions (for gameplay systems) still runs every frame at full buffer size. Can be throttled and range-sized.
 
@@ -100,7 +100,7 @@ Not NPCs — no compute buffer slots. Small CPU-built `NpcMiscBuffers` with `Raw
 
 ### 1e. CPU-side `prepare_npc_buffers`
 
-V1 (current): full-buffer upload each frame. Builds flat `visual_data` and `equip_data` arrays in one pass over `npc_count`, two `write_buffer` calls. Still 2.8× less bandwidth than old instance buffer path (3.84MB vs 10.9MB at 30K NPCs) and 7× fewer CPU iterations (30K vs 210K).
+V1 (current): full-buffer upload each frame. Builds flat `visual_data` and `equip_data` arrays in one pass over `npc_count`, two `write_buffer` calls. Bandwidth is ~3.84MB/frame at 30K NPCs.
 
 V2 (future): dirty-write per changed slot. Compare to previous frame's data, only `write_buffer` at changed offsets.
 

@@ -9,6 +9,7 @@ Target: 20,000+ NPCs @ 60fps with pure Bevy ECS + WGSL compute + GPU instanced r
 3. **Completed checkboxes are accomplishments.** Never delete them. When a stage is done, move its `[x]` items to [completed.md](completed.md).
 4. **"Done when" sentences don't change** unless the game design changes.
 5. **New features** go in the appropriate future stage.
+6. **Describe current state, not history.** Use present-tense behavior in docs; put historical wording and change chronology in [completed.md](completed.md) or `CHANGELOG.md`.
 
 ## Completed
 
@@ -70,7 +71,7 @@ Entity sleeping:
 
 GPU readback optimization:
 - [ ] Throttle readback: factions every 60 frames, threat_counts every 30 frames, `buffer_range()` sized to `npc_count`
-- [ ] Pre-allocate `GpuReadState` vecs and `copy_from_slice` instead of per-frame `Vec` allocation (GpuReadState extraction already deleted)
+- [ ] Pre-allocate `GpuReadState` vecs and `copy_from_slice` instead of per-frame `Vec` allocation
 
 Every-frame review backlog:
 - [ ] `decision_system`: reduce per-frame allocation/log pressure in hot paths (avoid unconditional `format!`/log string churn for high-N NPC loops; gate expensive logs behind debug/selection or lower-frequency sampling).
@@ -81,14 +82,14 @@ Every-frame review backlog:
 - [ ] Remove linear HP lookup in inspector rendering (`bottom_panel_system`) by using direct selected-NPC lookup/cached handle.
 
 SystemParam bundle consolidation:
-Completed bundle work moved to [completed.md](completed.md)). DirtyWriters, AiDirtyReaders, AiBuildRes bundles added as part of message conversion.
+Current shared bundles include `DirtyWriters`, `AiDirtyReaders`, and `AiBuildRes`; remaining consolidation work is listed below.
 - [ ] Create `GameLog` bundle: `{ combat_log: MessageWriter<CombatLogMsg>, game_time: Res<GameTime>, timings: Res<SystemTimings> }` and migrate systems still carrying this triple directly.
 - [ ] Move/replace remaining ad-hoc bundles in `systems/behavior.rs` (keep only bundles with genuine local-only value; shared bundles live in `resources.rs`).
 - [ ] Keep bundles flat (no nested `SystemParam` bundles inside other bundles) unless required to break Bevy param-count limits.
 
 **Stage 16.5: Buildings as ECS Entities** (see [specs/buildings-as-entities.md](specs/buildings-as-entities.md))
 
-*Done when: all redundant building infrastructure (`WorldData.buildings`, `PlacedBuilding`, tombstone guards) is deleted and `BuildingEntityMap` is the sole source of truth.*
+*Done when: `BuildingEntityMap` is the sole source of truth for building infrastructure (`WorldData.buildings`, `PlacedBuilding`, tombstone guards are no longer active paths).*
 
 Phases 1-2, BuildingEntityMap migration, WorldData deletion, GPU building buffers, and unified entity collision complete (see [completed.md](completed.md)).
 
@@ -305,7 +306,7 @@ Sound (bevy_audio) should be woven into stages as they're built - not deferred t
 
 ## Specs
 
-Implementation guides for upcoming stages. Once built, spec content rolls into regular docs and the spec file is deleted.
+Implementation guides for upcoming stages. After delivery, spec content rolls into regular docs and the standalone spec file is retired.
 
 | Spec | Stage | File |
 |---|---|---|

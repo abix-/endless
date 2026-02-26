@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-26a
+
+- **unified death_system** — collapsed 4 separate systems (`death_system`, `xp_grant_system`, `building_death_system`, `death_cleanup_system`) into one `death_system` with two phases per frame: Phase 1 marks dead (`Without<Dead>` where health <= 0, deferred), Phase 2 processes dead (`With<Dead>` from previous frame — XP grant + level-up + building destruction + loot attribution + NPC cleanup + despawn); uses `ParamSet` to resolve query conflict between mark-dead and killer/loot access; `DeathResources` SystemParam (16 fields) merges `CleanupResources` + `WorldState` unique fields + `BuildingDeathExtra`; `LastHitBy` inserted on buildings by `damage_system` (eliminates `BuildingDeathMsg`); combat chain reduced from 8 to 6 systems; deleted `BuildingDeathMsg`, `BuildingDeathExtra`, `CleanupResources`
+
 ## 2026-02-25f
 
 - **unified damage pipeline** — consolidated `DamageMsg` (NPC-only) + `BuildingDamageMsg` into one `DamageMsg` with `entity_idx` routing (`< npc_count` → NPC, `>= npc_count` → building); `damage_system` handles both NPC and building damage with `BldSetDamageFlash` for building hit feedback; removed GPU building-skip in `npc_compute.wgsl` combat targeting — GPU spatial grid now returns building targets directly, eliminating CPU brute-force `find_nearest_enemy_building()` scan; `attack_system` handles building targets from GPU readback (job filter: only archers/crossbows/raiders); building projectiles carry real damage (no more visual-only `damage: 0.0` hack); `process_proj_hits` writes one unified `DamageMsg` for all hits; split `building_damage_system` → `building_death_system` (death-only: loot, AI deactivation, endless respawn) moved from `Step::Behavior` to `Step::Combat` chain; deleted `find_nearest_enemy_building` and `find_nearest_enemy_building_filtered` from world.rs; updated endless_mode tests to use unified `DamageMsg` with computed `entity_idx`

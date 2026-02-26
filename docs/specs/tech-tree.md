@@ -1,10 +1,10 @@
 # Tech Tree Upgrade Graph (v1)
 
-Stage 20. Implementation spec for remaining chunks (3-4). Chunks 1-2 are complete.
+Stage 20 implementation spec for chunks 3-4.
 
-## Completed
+## Current Baseline
 
-Chunks 1-2 implemented: prereqs, multi-resource costs, 16 per-NPC-type nodes, registry-driven UI. See [completed.md](../completed.md) "Tech Tree (Chunks 1-2)" section.
+Tech-tree baseline includes prereqs, multi-resource costs, 16 per-NPC-type nodes, and registry-driven UI. See [completed.md](../completed.md) "Tech Tree (Chunks 1-2)" section for delivery history.
 
 ## Remaining: Chunk 3 — Energy Nodes
 

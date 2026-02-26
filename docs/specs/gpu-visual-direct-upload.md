@@ -86,7 +86,7 @@ Extract:
 
 Render:
   write_npc_buffers() → DELETED (moved to extract_npc_compute)
-  prepare_npc_buffers() → visual repack deleted, keeps: buffer creation, bind group, misc buffers
+  prepare_npc_buffers() → visual repack is absent; function scope is buffer creation, bind group, and misc buffers
 ```
 
 Note: NpcComputeWrites stays as a main world Resource (game_hud and movement.rs
@@ -418,7 +418,7 @@ Add `use crate::gpu::{NpcComputeWrites, NpcGpuBuffers};` to npc_render.rs import
 1. **Delete `write_npc_buffers`** (gpu.rs:1080) entirely — logic moved to `extract_npc_compute` above.
 2. **Delete `ExtractResourcePlugin::<NpcBufferWrites>::default()`** (gpu.rs:679) — no ExtractResource needed for NPC data.
 3. **Remove the render-world system registration** for `write_npc_buffers` in `GpuComputePlugin::build`.
-4. **Remove `#[derive(Clone, ExtractResource)]`** from `NpcComputeWrites` — replaced by `#[derive(Resource)]` only.
+4. `NpcComputeWrites` uses `#[derive(Resource)]` only (no `Clone`/`ExtractResource` derive).
 
 ### Step 9: Update plugin init (gpu.rs:655-663)
 

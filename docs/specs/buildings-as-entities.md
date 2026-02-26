@@ -12,11 +12,11 @@ Buildings share the same GPU pipeline as NPCs (same `SlotAllocator`, same GPU up
 
 ## What Gets Deleted Eventually
 
-- `WorldData.buildings: BTreeMap<BuildingKind, Vec<PlacedBuilding>>` -- replaced by ECS queries
-- ~~`BuildingHpState`~~ -- **DONE (Phase 2)**: deleted, replaced by entity `Health` component
-- `BuildingSlotMap` -- replaced by `BuildingEntityMap` (buildings get their own entity map, separate from `NpcEntityMap`)
+- Building identity and queries live in ECS resources/components (`BuildingEntityMap` + entity components)
+- Building HP is entity `Health`
+- Building identity map is `BuildingEntityMap` (separate from `NpcEntityMap`)
 - `BuildingSpatialGrid` -- rebuilt from entity queries or WorldGrid
-- `BUILDING_REGISTRY` fn pointers: `len`, `pos_town`, `tombstone`, `find_index` (~~`hps`, `hps_mut`~~ deleted in Phase 2)
+- `BUILDING_REGISTRY` static definition fields only (no dynamic world-access fn pointers)
 - `PlacedBuilding` struct
 - All `is_alive()` / tombstone guards
 - `building_damage_system` -- merged into NPC damage pipeline
@@ -115,7 +115,7 @@ if let Some(&entity) = npc_map.0.get(&(npc_idx as usize)) {
 - `WorldData.buildings` -- still written to (dual-write)
 - `BuildingHpState` -- still maintained (Phase 2 removes it)
 - `BuildingSpatialGrid` -- still rebuilt from WorldData (Phase 3 removes it)
-- `BuildingSlotMap` -- still maintained alongside `NpcEntityMap` (removed when all consumers migrated)
+- `BuildingEntityMap` owns building identity and slot/entity mappings
 - All AI/economy/behavior systems -- they read WorldData, unchanged
 - Save format -- unchanged
 
@@ -130,9 +130,9 @@ if let Some(&entity) = npc_map.0.get(&(npc_idx as usize)) {
 
 ## Separation Decision (post Phase 2)
 
-Phases 3-7 (merge all building infrastructure into NPC infrastructure) were **abandoned**. Buildings and NPCs share ECS entity lifecycle and GPU slot allocation, but they are fundamentally different entity types. Merging them further (e.g., combining `NpcEntityMap` + `BuildingSlotMap` into one map) made systems confusing — every NPC system needed `Without<Building>` guards and `building_query.contains()` checks.
+The design keeps buildings and NPCs as distinct entity types. They share ECS lifecycle and GPU slot allocation patterns, but identity infrastructure stays separate to keep system queries clear and focused.
 
-Instead, `BuildingSlotMap` was replaced by `BuildingEntityMap` — a single resource for all building identity: `(kind, idx) ↔ slot ↔ Entity`. Buildings are NOT in `NpcEntityMap`. This gives buildings their own identity infrastructure while still sharing ECS components (`Health`, `Faction`, `TownId`, `NpcIndex`) and the death pipeline (`death_system` → `death_cleanup_system`).
+`BuildingEntityMap` is the single resource for building identity: `(kind, idx) ↔ slot ↔ Entity`. Buildings are not in `NpcEntityMap`. This keeps building identity local while still sharing ECS components (`Health`, `Faction`, `TownId`, `NpcIndex`) and the death pipeline (`death_system` → `death_cleanup_system`).
 
 Remaining WorldData infrastructure (`buildings: BTreeMap`, `PlacedBuilding`, `BuildingSpatialGrid`, tombstone pattern) stays as-is — it works and removing it would be high risk for low benefit.
 

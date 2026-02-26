@@ -23,9 +23,8 @@ MAIN WORLD — Bevy Update Schedule (game systems gated on AppState::Running)
 ├─ ApplyDeferred (flush entity commands before combat)
 │
 ├─ Step::Combat (chained)
-│     cooldown_system → attack_system → damage_system →
-│     death_system → xp_grant_system → death_cleanup_system →
-│     building_tower_system
+│     process_proj_hits → cooldown_system → attack_system →
+│     damage_system → death_system → building_tower_system
 │
 ├─ Step::Behavior
 │     rebuild_building_grid_system (before decision_system, spawner_respawn_system),
@@ -121,7 +120,7 @@ Systems use MessageWriter for GPU updates so they can run in parallel. `populate
 
 ## Slot Allocation
 
-`SlotAllocator` manages NPC indices with a free list for reuse. Slots are allocated in `spawn_npc_system` and recycled in `death_cleanup_system`. `NpcCount` tracks active NPCs. `NpcGpuData.npc_count` (extracted to render world) controls compute dispatch size and instance count.
+`SlotAllocator` manages NPC indices with a free list for reuse. Slots are allocated in `spawn_npc_system` and recycled in `death_system`. `NpcCount` tracks active NPCs. `NpcGpuData.npc_count` (extracted to render world) controls compute dispatch size and instance count.
 
 ## Timing
 

@@ -705,7 +705,7 @@ pub fn expand_town_build_area(
 
 
 /// Consolidated building destruction: grid clear + growth tombstone + HP zero + combat log.
-/// Used by click-destroy, inspector-destroy, and building_death_system (HP→0).
+/// Used by click-destroy, inspector-destroy, and death_system (HP→0).
 pub(crate) fn destroy_building(
     grid: &mut WorldGrid,
     world_data: &WorldData,
@@ -726,7 +726,7 @@ pub(crate) fn destroy_building(
         .and_then(|c| c.building)
         .ok_or("no building")?;
 
-    // Mark building entity as Dead (death_cleanup_system handles despawn + GPU hide + slot free)
+    // Mark building entity as Dead (death_system handles despawn + GPU hide + slot free)
     if let Some(inst) = building_slots.find_by_position(snapped) {
         // During load/rebuild windows some instances can still carry PLACEHOLDER.
         // Never enqueue commands against placeholder entities.

@@ -10,9 +10,9 @@ Defined in: `rust/src/resources.rs`, `rust/src/world.rs`
 
 | Resource | Type | Writers | Readers |
 |----------|------|---------|---------|
-| NpcEntityMap | `HashMap<usize, Entity>` | spawn_npc_system, death_cleanup_system | damage_system (slot → entity lookup) |
-| SlotAllocator | `SlotPool` wrapper (max=100K) | spawn_npc_system (alloc), death_cleanup_system (free) | GPU compute dispatch, UI, tests |
-| BuildingSlots | `SlotPool` wrapper (max=5K) | place_building_instance (alloc), death_cleanup_system (free) | Building GPU state, rendering |
+| NpcEntityMap | `HashMap<usize, Entity>` | spawn_npc_system, death_system | damage_system (slot → entity lookup) |
+| SlotAllocator | `SlotPool` wrapper (max=100K) | spawn_npc_system (alloc), death_system (free) | GPU compute dispatch, UI, tests |
+| BuildingSlots | `SlotPool` wrapper (max=5K) | place_building_instance (alloc), death_system (free) | Building GPU state, rendering |
 
 Both `SlotAllocator` and `BuildingSlots` wrap a shared `SlotPool` inner type with LIFO free list. `next` is the high-water mark. Two query methods: `count()` returns high-water mark, `alive()` returns `next - free.len()`. Separate allocators prevent slot collisions between NPCs and buildings. See [spawn.md](spawn.md).
 
@@ -22,7 +22,7 @@ Pre-computed per-NPC data for UI queries, indexed by slot.
 
 | Resource | Per-NPC Data | Writers | Readers |
 |----------|-------------|---------|---------|
-| NpcMetaCache | name, level, xp, town_id, job | spawn_npc_system, xp_grant_system, inspector rename | UI queries |
+| NpcMetaCache | name, level, xp, town_id, job | spawn_npc_system, death_system (XP grant), inspector rename | UI queries |
 | NpcLogCache | `VecDeque<NpcLogEntry>` (100 cap, circular, lazy init) | behavior/decision systems | UI queries |
 | NpcsByTownCache | `Vec<Vec<usize>>` — NPC slots grouped by town | spawn/death systems | UI queries |
 
@@ -35,8 +35,8 @@ NPC state is derived at query time via `derive_npc_state()` which checks ECS com
 | Resource | Data | Writers | Readers |
 |----------|------|---------|---------|
 | PopulationStats | `HashMap<(job, town), PopStats>` — alive, working, dead | spawn/death/state systems | UI |
-| KillStats | archer_kills, villager_kills | death_cleanup_system | UI |
-| FactionStats | `Vec<FactionStat>` — alive, dead, kills per faction | spawn/death/xp_grant systems | UI |
+| KillStats | archer_kills, villager_kills | death_system | UI |
+| FactionStats | `Vec<FactionStat>` — alive, dead, kills per faction | spawn/death systems | UI |
 
 `FactionStats` — one entry per settlement (player towns + AI towns + raider towns). Methods: `inc_alive()`, `dec_alive()`, `inc_dead()`, `inc_kills()`.
 
@@ -50,7 +50,7 @@ Static world data, immutable after initialization.
 | BuildingOccupancy | private `HashMap<(i32,i32), i32>` — position → worker count | Building assignment (claim/release/is_occupied/count/clear) |
 | MineStates | `Vec<f32>` gold + `Vec<f32>` max_gold + `Vec<Vec2>` positions | Per-mine gold tracking |
 | BuildingEntityMap | `BuildingInstance` storage + 256px spatial grid + by_kind/by_entity/by_grid_cell indexes | Sole source of truth for all building instance data (no WorldData.buildings); stores `BuildingInstance` (kind, position, town_idx, slot, entity, faction, patrol_order, assigned_mine, manual_mine, wall_level, npc_slot, respawn_timer, growth_ready, growth_progress); methods: `add_instance`/`remove_instance`/`get_instance[_mut]`/`find_by_position`/`find_farm_at[_mut]`/`find_mine_at[_mut]`/`iter_kind`/`iter_kind_for_town`/`iter_growable[_mut]`/`count_for_town`/`building_counts`/`gold_mine_index`/`for_each_nearby` (spatial)/`iter_instances`/`iter_instances_mut`; GPU slot maps: `insert`/`get_slot`/`get_building`/`get_entity`/`get_entity_by_building` |
-| ~~DirtyFlags~~ | *(removed — replaced by individual Bevy Messages)* | Dirty signals now use `MessageWriter`/`MessageReader` per concern: `BuildingGridDirtyMsg`, `PatrolsDirtyMsg`, `PatrolPerimeterDirtyMsg`, `HealingZonesDirtyMsg`, `SquadsDirtyMsg`, `MiningDirtyMsg`, `AiSquadsDirtyMsg`, `PatrolSwapMsg`. `DirtyWriters<'w>` SystemParam bundles all writers. `emit_all()` replaces default-true bools for startup/reset. See [messages.md](messages.md#dirty-signal-messages). |
+| Dirty signaling | Concern-specific Bevy messages | `BuildingGridDirtyMsg`, `PatrolsDirtyMsg`, `PatrolPerimeterDirtyMsg`, `HealingZonesDirtyMsg`, `SquadsDirtyMsg`, `MiningDirtyMsg`, `AiSquadsDirtyMsg`, `PatrolSwapMsg`; `DirtyWriters<'w>` bundles writers and `emit_all()` covers startup/reset. See [messages.md](messages.md#dirty-signal-messages). |
 | BuildingHealState | `needs_healing: bool` | Persistent flag (not a message): set by `building_damage_system` on hits, cleared by `healing_system` when no damaged buildings remain |
 | TownGrids | `Vec<TownGrid>` — one per town (villager + raider) | Per-town building slot unlock tracking |
 | GameAudio | `music_volume: f32`, `sfx_volume: f32`, `music_speed: f32`, `tracks: Vec<Handle<AudioSource>>`, `last_track: Option<usize>`, `loop_current: bool`, `play_next: Option<usize>` | Runtime audio state; tracks loaded at Startup, jukebox picks random no-repeat track; `loop_current` repeats same track on finish; `play_next` set by UI for explicit track selection; volume + speed synced from UserSettings |
@@ -61,7 +61,7 @@ Static world data, immutable after initialization.
 |--------|--------|
 | Town | name, center (Vec2), faction, sprite_type (0=fountain, 1=tent) |
 
-`WorldData` contains only towns. All building instance data lives in `BuildingEntityMap` — there is no `buildings` BTreeMap. `PlacedBuilding` struct survives only in `save.rs` for backward-compatible deserialization of old save files.
+`WorldData` contains only towns. All building instance data lives in `BuildingEntityMap` — there is no `buildings` BTreeMap. `PlacedBuilding` remains in `save.rs` for backward-compatible deserialization of legacy save files.
 
 Spatial queries (`find_nearest_location`, `find_location_within_radius`, `find_nearest_free`, `find_within_radius`, `find_nearest_enemy_building`) all use `BuildingEntityMap.for_each_nearby()` for O(1) cell lookups. Building counts use `BuildingEntityMap.count_for_town()` / `building_counts()`.
 
@@ -74,7 +74,7 @@ Spatial queries (`find_nearest_location`, `find_location_within_radius`, `find_n
 | WorldGrid | `Vec<WorldCell>` (width × height), cell_size | World-wide terrain + building grid |
 | WorldGenConfig | world dimensions, num_towns, spacing, npc_counts: BTreeMap\<Job, usize\> | Procedural generation parameters |
 
-**WorldCell** fields: `terrain: Biome` (Grass/Forest/Water/Rock/Dirt), `building: Option<GridBuilding>` where `GridBuilding = (BuildingKind, u32)` (kind + town_idx). Save-compatible via `LegacyBuilding` deserialization in save.rs that converts old enum format to tuples.
+**WorldCell** fields: `terrain: Biome` (Grass/Forest/Water/Rock/Dirt), `building: Option<GridBuilding>` where `GridBuilding = (BuildingKind, u32)` (kind + town_idx). Save-compatible via `LegacyBuilding` deserialization in save.rs that converts the legacy enum format to tuples.
 
 **WorldGrid** helpers: `cell(col, row)`, `cell_mut(col, row)`, `world_to_grid(pos) -> (col, row)`, `grid_to_world(col, row) -> Vec2`.
 
@@ -106,7 +106,7 @@ Building costs: `building_cost(kind)` in `constants.rs`. Flat costs (no difficul
 | FoodStorage | `Vec<i32>` — food count per town | economy systems (arrival, eating) | economy systems, UI |
 | GoldStorage | `Vec<i32>` — gold count per town | mining delivery (arrival_system) | UI (top bar) |
 | MiningPolicy | `discovered_mines: Vec<Vec<usize>>`, `mine_enabled: HashMap<usize, bool>` (keyed by GPU slot) | mining_policy_system | UI (policies tab, mine inspector) |
-| ~~FoodEvents~~ | *(removed — dead code, zero readers)* | — | — |
+| Food flow signals | `FoodStorage` + system-local logic | economy systems | economy systems, UI |
 
 `FoodStorage.init(count)` initializes per-town counters. Villager towns and raider towns share the same indexing.
 
@@ -305,7 +305,7 @@ Both unlock slots when full (sets terrain to Dirt) and buy upgrades with surplus
 
 `MigrationGroup` fields: `town_data_idx` (index into WorldData.towns for the raider town-to-be), `grid_idx` (TownGrids index), `member_slots: Vec<usize>` (NPC slot indices of migrating raiders), `boat_slot: Option<usize>` (NPC GPU slot for boat entity), `boat_pos: Vec2` (current boat position), `settle_target: Vec2` (destination chosen by `pick_settle_site`), `faction: i32`.
 
-`Migrating` component: marker on NPC entities that are part of an active migration group. Attached by `migration_attach_system`, removed by `migration_settle_system` on settlement. Persisted in save via `MigrationSave.member_slots` and re-attached on load.
+`Migrating` component: marker on NPC entities that are part of an active migration group. Attached by `migration_attach_system`, cleared by `migration_settle_system` on settlement. Persisted in save via `MigrationSave.member_slots` and re-attached on load.
 
 ## Debug Resources
 
@@ -319,7 +319,7 @@ Both unlock slots when full (sets terrain to Dirt) and buy upgrades with surplus
 
 | Resource | Data | Purpose |
 |----------|------|---------|
-| ~~ResetFlag~~ | *(removed — dead code, never set to true)* | — |
+| Startup/reset sync | `emit_all()` + init systems | Startup/load consistency for dirty-driven systems |
 | DeltaTime | `f32` | Frame delta in seconds |
 | BuildingHpRender | `{ positions: Vec<Vec2>, health_pcts: Vec<f32> }` | Damaged building positions + HP fractions; extracted to render world for GPU instanced HP bars (atlas_id=5.0 bar-only mode) |
 

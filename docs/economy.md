@@ -81,7 +81,7 @@ game_time_system (every frame)
 - Runs when `game_time.hour_ticked` is true
 - NPCs with `energy <= 0` get `Starving` marker
 - Starving NPCs: speed set to `CachedStats.speed * STARVING_SPEED_MULT` (0.5) via `GpuUpdate::SetSpeed`
-- When energy rises above 0 (eating or resting): `Starving` removed, speed restored to `CachedStats.speed`
+- When energy rises above 0 (eating or resting): `Starving` is cleared, speed restored to `CachedStats.speed`
 
 ## Farm Growth
 
@@ -140,7 +140,7 @@ energy <= 0?
 └────┬───────┘
      │ energy > 0 (eating or resting)
      ▼
-Starving marker removed
+Starving marker cleared
 Speed restored to CachedStats.speed
 ```
 
@@ -160,7 +160,7 @@ The HP cap is enforced by `healing_system` — starving NPCs can't heal above 50
 
 Raiders use the AI squad commander's wave-based attack cycle (see [ai-player.md](ai-player.md#wave-based-attack-cycle)). Each raider town gets one squad containing all raiders. The `ai_squad_commander_system` picks the nearest enemy farm as target, gathers raiders until `wave_min_start` (RAID_GROUP_SIZE) are ready, then dispatches the wave. Wave ends when the target is destroyed or losses exceed `wave_retreat_below_pct` (30%).
 
-Raiders without a squad assignment wander near their town. The old `RaidQueue` group-formation system has been replaced by squad-driven waves.
+Raiders without a squad assignment wander near their town. Group attacks use squad-driven waves.
 
 **Constants:**
 - `RAID_GROUP_SIZE`: 3 (minimum raiders to start a wave)
@@ -171,7 +171,7 @@ Raiders without a squad assignment wander near their town. The old `RaidQueue` g
 |----------|---------|------------|
 | GameTime | total_seconds, time_scale, paused, hour_ticked | game_time_system |
 | FoodStorage | `Vec<i32>` — food count per town | harvest, steal, forage, respawn |
-| ~~FoodEvents~~ | *(removed — dead code)* | — |
+| Dirty/resource signals | Message types + resources (see [messages.md](messages.md)) | Message drain + consumer systems |
 | BuildingEntityMap | `BuildingInstance` with `growth_ready` + `growth_progress` fields (farms + mines) | growth_system, harvest/steal |
 | GoldStorage | `Vec<i32>` — gold count per town | mining delivery, UI |
 | MineStates | gold, max_gold, positions per mine | mine_regen_system, mining behavior |
@@ -233,7 +233,7 @@ Both player build menu and AI player use `building_cost()` for affordability che
 
 ### squad_cleanup_system
 - Message-gated via `MessageReader<SquadsDirtyMsg>` — skips entirely when no squad-relevant changes occurred
-- Signal emitted by: `death_cleanup_system` (any death), `spawn_npc_system` (archer spawn), left_panel UI (assign/dismiss), save load (`emit_all()`)
+- Signal emitted by: `death_system` (any death), `spawn_npc_system` (archer spawn), left_panel UI (assign/dismiss), save load (`emit_all()`)
 - **Phase 1**: retains only members whose slot is still in `NpcEntityMap` (alive)
 - **Phase 2**: keeps Default Squad (index 0) as live pool of unsquadded player archers (inserts `SquadId(0)`)
 - **Phase 3**: if `target_size > 0` and `members.len() > target_size`, dismisses excess (removes `SquadId` + `DirectControl` components, pops from members)

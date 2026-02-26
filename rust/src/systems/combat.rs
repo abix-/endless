@@ -2,11 +2,9 @@
 
 use bevy::prelude::*;
 use crate::components::*;
-use crate::constants::{ItemKind, building_def};
-use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDeathMsg, ProjGpuUpdate, ProjGpuUpdateMsg, CombatLogMsg};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TowerState, SystemTimings, CombatEventKind, GameTime, NpcEntityMap, NpcMetaCache, NpcTargetThrashDebug};
+use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, ProjGpuUpdate, ProjGpuUpdateMsg};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TowerState, SystemTimings, GameTime, NpcEntityMap, NpcTargetThrashDebug};
 use crate::systems::stats::{TownUpgrades, resolve_town_tower_stats};
-use crate::systemparams::WorldState;
 use crate::gpu::ProjBufferWrites;
 use crate::resources::BuildingEntityMap;
 use crate::world::{WorldData, BuildingKind, is_alive};
@@ -22,17 +20,6 @@ fn target_changed(targets: &[f32], idx: usize, x: f32, y: f32) -> bool {
     (dx * dx + dy * dy) > 1.0
 }
 
-/// Bundled params for building destruction side effects (loot, endless respawn).
-#[derive(bevy::ecs::system::SystemParam)]
-pub struct BuildingDeathExtra<'w> {
-    npc_meta: Res<'w, NpcMetaCache>,
-    squad_state: Res<'w, crate::resources::SquadState>,
-    ai_state: ResMut<'w, crate::systems::AiPlayerState>,
-    endless: ResMut<'w, crate::resources::EndlessMode>,
-    upgrades: Res<'w, crate::systems::stats::TownUpgrades>,
-    food_storage: Res<'w, crate::resources::FoodStorage>,
-    gold_storage: Res<'w, crate::resources::GoldStorage>,
-}
 
 /// Decrement attack cooldown timers each frame.
 pub fn cooldown_system(
@@ -106,8 +93,17 @@ pub fn attack_system(
         attackers += 1;
         let i = npc_idx.0;
 
-        // Don't re-engage NPCs heading home (fled combat, delivering food, or resting)
-        if matches!(activity, Activity::Returning { .. } | Activity::GoingToRest | Activity::Resting) {
+        // Don't auto-engage while NPC is in survival/transit states.
+        // Healing states are intentionally excluded from combat retargeting to prevent
+        // fountain <-> enemy target oscillation.
+        if matches!(
+            activity,
+            Activity::Returning { .. }
+                | Activity::GoingToRest
+                | Activity::Resting
+                | Activity::GoingToHeal
+                | Activity::HealingAtFountain { .. }
+        ) {
             if combat_state.is_fighting() {
                 *combat_state = CombatState::None;
             }
@@ -500,117 +496,6 @@ pub fn building_tower_system(
         }
         if i < tower.town.timers.len() {
             tower.town.timers[i] = stats.cooldown;
-        }
-    }
-}
-
-/// Process building death events: loot, AI deactivation, endless respawn, linked NPC kill.
-/// HP decrement and GPU health sync are handled by damage_system — this only runs on death.
-pub fn building_death_system(
-    mut commands: Commands,
-    mut death_reader: MessageReader<BuildingDeathMsg>,
-    mut world: WorldState,
-    mut combat_log: MessageWriter<CombatLogMsg>,
-    game_time: Res<GameTime>,
-    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
-    timings: Res<SystemTimings>,
-    npc_map: Res<NpcEntityMap>,
-    mut loot_query: Query<(&NpcIndex, &mut Activity, &Home, &Faction, Option<&DirectControl>), Without<Dead>>,
-    mut extra: BuildingDeathExtra,
-) {
-    let _t = timings.scope("building_death");
-    for msg in death_reader.read() {
-        let Some(inst) = world.building_slots.get_instance(msg.bld_slot) else { continue };
-        let pos = inst.position;
-        let town_idx = inst.town_idx as usize;
-
-        let town_name = world.world_data.towns.get(town_idx)
-            .map(|t| t.name.clone()).unwrap_or_default();
-
-        // Capture linked NPC slot before destruction
-        let npc_slot = inst.npc_slot;
-
-        let center = world.world_data.towns.get(town_idx)
-            .map(|t| t.center).unwrap_or_default();
-        let (trow, tcol) = crate::world::world_to_town_grid(center, pos);
-
-        let defender_faction = world.world_data.towns.get(town_idx).map(|t| t.faction).unwrap_or(0);
-        combat_log.write(CombatLogMsg { kind: CombatEventKind::BuildingDamage, faction: defender_faction, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{:?} destroyed in {}", msg.kind, town_name), location: None });
-
-        let _ = world.destroy_building(
-            &mut combat_log, &game_time,
-            trow, tcol, center,
-            &format!("{:?} destroyed in {}", msg.kind, town_name),
-            &mut gpu_updates,
-            &mut commands,
-        );
-        world.dirty_writers.mark_building_changed(msg.kind);
-
-        // Town center destroyed — deactivate AI player
-        if matches!(msg.kind, BuildingKind::Fountain) {
-            if let Some(player) = extra.ai_state.players.iter_mut().find(|p| p.town_data_idx == town_idx) {
-                player.active = false;
-            }
-            combat_log.write(CombatLogMsg { kind: CombatEventKind::Raid, faction: defender_faction, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{} has been defeated!", town_name), location: None });
-            info!("{} (town_idx={}) defeated — AI deactivated", town_name, town_idx);
-
-            // Endless mode: queue replacement AI scaled to player strength
-            if extra.endless.enabled {
-                let is_raider = world.world_data.towns.get(town_idx)
-                    .map(|t| t.sprite_type == 1).unwrap_or(true);
-                let player_town = world.world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
-                let player_levels = extra.upgrades.town_levels(player_town);
-                let frac = extra.endless.strength_fraction;
-                let scaled_levels: Vec<u8> = player_levels.iter()
-                    .map(|&lv| (lv as f32 * frac).round() as u8)
-                    .collect();
-                let starting_food = (extra.food_storage.food.get(player_town).copied().unwrap_or(0) as f32 * frac) as i32;
-                let starting_gold = (extra.gold_storage.gold.get(player_town).copied().unwrap_or(0) as f32 * frac) as i32;
-                extra.endless.pending_spawns.push(crate::resources::PendingAiSpawn {
-                    delay_remaining: crate::constants::ENDLESS_RESPAWN_DELAY_HOURS,
-                    is_raider,
-                    upgrade_levels: scaled_levels,
-                    starting_food,
-                    starting_gold,
-                });
-                info!("Endless mode: queued replacement AI (is_raider={}, delay={}h, strength={:.0}%)",
-                    is_raider, crate::constants::ENDLESS_RESPAWN_DELAY_HOURS, frac * 100.0);
-            }
-        }
-
-        // Kill linked NPC if alive
-        if npc_slot >= 0 {
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::HideNpc { idx: npc_slot as usize }));
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: npc_slot as usize, health: 0.0 }));
-        }
-
-        // Loot: attacker picks up building loot and returns home
-        if let Some(drop) = building_def(msg.kind).loot_drop() {
-            let amount = if drop.min == drop.max { drop.min } else {
-                drop.min + ((msg.index as i32) % (drop.max - drop.min + 1))
-            };
-            if amount > 0 && msg.attacker >= 0 {
-                let attacker_slot = msg.attacker as usize;
-                if let Some(&attacker_entity) = npc_map.0.get(&attacker_slot) {
-                    if let Ok((npc_idx, mut activity, home, faction, dc)) = loot_query.get_mut(attacker_entity) {
-                        let dc_keep_fighting = dc.is_some() && extra.squad_state.dc_no_return;
-
-                        if matches!(&*activity, Activity::Returning { .. }) {
-                            activity.add_loot(drop.item, amount);
-                        } else {
-                            *activity = Activity::Returning { loot: vec![(drop.item, amount)] };
-                        }
-                        if !dc_keep_fighting {
-                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: npc_idx.0, x: home.0.x, y: home.0.y }));
-                        }
-
-                        let item_name = match drop.item { ItemKind::Food => "food", ItemKind::Gold => "gold" };
-                        let killer_name = &extra.npc_meta.0[npc_idx.0].name;
-                        let killer_job = crate::job_name(extra.npc_meta.0[npc_idx.0].job);
-                        combat_log.write(CombatLogMsg { kind: CombatEventKind::Loot, faction: faction.0, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{} '{}' looted {} {} from {:?}", killer_job, killer_name, amount, item_name, msg.kind), location: None });
-                    }
-                }
-            }
         }
     }
 }

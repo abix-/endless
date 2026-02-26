@@ -19,7 +19,7 @@ The system uses **SystemParam bundles** for farm and economy parameters:
 
 Priority order (first match wins), with three-tier throttling via `NpcDecisionConfig.interval`:
 
-**DirectControl skip** (before all priorities): NPCs with a `DirectControl` component skip the entire decision system — no autonomous behavior whatsoever. `AtDestination` is removed if present to prevent stale arrival flags. DC NPCs may accumulate loot in `Activity::Returning` while fighting (via `dc_no_return` toggle) — the Returning activity is inert while DC is active. When a DC right-click move/attack command is issued (`click_to_select_system` in render.rs), resting NPCs (`GoingToRest`/`Resting`) are woken to `Idle` so they respond to the command instead of sliding while asleep.
+**DirectControl skip** (before all priorities): NPCs with a `DirectControl` component skip the entire decision system — no autonomous behavior whatsoever. The system clears `AtDestination` if present to prevent stale arrival flags. DC NPCs may accumulate loot in `Activity::Returning` while fighting (via `dc_no_return` toggle) — the Returning activity is inert while DC is active. When a DC right-click move/attack command is issued (`click_to_select_system` in render.rs), resting NPCs (`GoingToRest`/`Resting`) are woken to `Idle` so they respond to the command instead of sliding while asleep.
 
 **Tier 1 — every frame:**
 0. AtDestination → Handle arrival transitions (transient one-frame flag, can't miss)
@@ -170,7 +170,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 | MaxHealth | `f32` | NPC's maximum health (for healing cap) |
 | Home | `{ x, y }` | NPC's spawner building position — rest destination |
 | WorkPosition | `{ x, y }` | Farmer's field / miner's mine position |
-| MiningProgress | `f32` | Mining work progress 0.0–1.0, inserted when miner starts at mine, removed on extraction or interruption |
+| MiningProgress | `f32` | Mining work progress 0.0–1.0, inserted when miner starts at mine, cleared on extraction or interruption |
 | PatrolRoute | `{ posts: Vec<Vec2>, current: usize }` | Patrol unit's ordered patrol posts (archers, crossbows, fighters) |
 | AtDestination | marker | NPC arrived at destination (transient frame flag from gpu_position_readback) |
 | Stealer | marker | NPC steals from farms (enables steal systems) |
@@ -314,7 +314,7 @@ Military unit groups for both player and AI. 10 player-reserved squads + AI squa
 
 **All survival behavior preserved**: Squad members still flee (policy-driven), rest when tired, heal at fountain when wounded, fight enemies they encounter, and leash back. The squad override only affects the *work decision*, not combat or energy priorities. Loot delivery takes priority over squad orders — NPCs with `Activity::Returning` carrying loot are not redirected until they deliver.
 
-**Raider behavior**: Raiders are squad-driven — if assigned to a squad with a target, the squad sync block redirects them. Raiders without a squad wander near their town. The old `RaidQueue` (group formation + dispatch to farms) has been replaced by AI squad commander wave-based attacks.
+**Raider behavior**: Raiders are squad-driven — if assigned to a squad with a target, the squad sync block redirects them. Raiders without a squad wander near their town. Raider attacks run through the AI squad commander wave cycle.
 
 **Recruitment**: `squad_cleanup_system` queries alive `SquadUnit` NPCs without `SquadId`. Player squads recruit from player-town units; AI squads recruit from their owner town's units. "Dismiss All" removes `SquadId` from all squad members — units resume normal behavior.
 

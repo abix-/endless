@@ -95,7 +95,7 @@ Each tick can produce up to **two** actions: one building and one upgrade. Phase
 
 ### Retry Loop (Phase 1)
 
-When the picked building action fails to execute (e.g., no valid road candidates, waypoint cell blocked), the AI removes that action variant from the score pool using `std::mem::discriminant` and re-picks from remaining candidates. This prevents wasted ticks — previously a dominant action like Roads (score 48) could fail silently every tick for hours while lower-scored actions (Farm=11, MinerHome=9) never got a chance.
+When the picked building action fails to execute (e.g., no valid road candidates, waypoint cell blocked), the AI removes that action variant from the score pool using `std::mem::discriminant` and re-picks from remaining candidates. This keeps ticks productive by immediately trying the next-best viable action.
 
 ### Debug Logging
 
@@ -108,7 +108,7 @@ Before the food reserve gate, the AI checks if `mine_shafts < min_miner_homes` (
 1. **Build gate**: If mines exist and `food >= 4` (miner home cost), build a miner home immediately — bypassing both the food reserve gate and weighted random scoring.
 2. **Hoard gate**: If mines exist but `food < 4`, skip the entire tick — no other buildings are built, allowing food to accumulate until the build gate can fire.
 
-This guarantees early mining infrastructure regardless of food pressure or competing building scores. Without the hoard gate, cheaper buildings (farms=2, houses=2) drain food before it reaches 4, and all slots fill with zero miner homes. After `min_miner_homes` are built, normal scored building resumes.
+This guarantees early mining infrastructure regardless of food pressure or competing building scores. The hoard gate reserves food for miner-home bootstrap, then normal scored building resumes after `min_miner_homes` are reached.
 
 ### Food Reserve Gate
 

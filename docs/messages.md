@@ -52,7 +52,6 @@ Each piece of NPC data has exactly one authoritative owner. Readers on the other
 |---------|--------|---------|
 | SpawnNpcMsg | slot_idx, x, y, job, faction, town_idx, home_x/y, work_x/y, starting_post, attack_type | MessageWriter → MessageReader |
 | DamageMsg | entity_idx (usize), amount (f32), attacker (i32, -1=tower/unknown), attacker_faction (i32) | process_proj_hits / attack_system → damage_system |
-| BuildingDeathMsg | kind (BuildingKind), index (usize), bld_slot (usize), attacker (i32), attacker_faction (i32) | damage_system → building_death_system |
 | GpuUpdateMsg | GpuUpdate enum (see below) | MessageWriter → populate_gpu_state |
 | CombatLogMsg | kind, faction, day, hour, minute, message, location | 18+ writers → drain_combat_log |
 | SaveGameMsg | none | save_load_input_system → save_game_system |
@@ -111,7 +110,7 @@ Startup/load paths are centralized to prevent drift:
 | SetPosition | idx, x, y | spawn_npc_system |
 | SetSpeed | idx, speed | spawn_npc_system |
 | ApplyDamage | idx, amount | damage_system |
-| HideNpc | idx | death_cleanup_system |
+| HideNpc | idx | death_system |
 | SetSpriteFrame | idx, col, row, atlas | spawn_npc_system (atlas: 0.0=character, 1.0=world) |
 | SetDamageFlash | idx, intensity | damage_system (1.0 on hit, decays at 5.0/s in populate_gpu_state) |
 | SetFlags | idx, flags | spawn_npc_system, building slot allocation (bit 0: combat scan enabled) |
@@ -121,11 +120,11 @@ Startup/load paths are centralized to prevent drift:
 | BldSetSpriteFrame | idx, col, row, atlas | place_building_instance |
 | BldSetFlags | idx, flags | place_building_instance |
 | BldSetDamageFlash | idx, intensity | damage_system (1.0 on hit, decays at 5.0/s in populate_gpu_state) |
-| BldHide | idx | death_cleanup_system (building branch) |
+| BldHide | idx | death_system (building branch) |
 
 `Bld*` variants are routed to `BuildingGpuState` by `populate_gpu_state`. NPC variants are routed to `NpcGpuState`.
 
-**Removed (replaced by `build_visual_upload`):** SetColor, SetHealing, SetSleeping, SetEquipSprite — visual state is now derived from ECS components each frame by `build_visual_upload` (see [gpu-compute.md](gpu-compute.md)).
+Visual state is derived from ECS components each frame by `build_visual_upload` (see [gpu-compute.md](gpu-compute.md)); visual updates flow through upload packing instead of per-field visual message variants.
 
 ## Static Queues
 
@@ -133,7 +132,7 @@ Startup/load paths are centralized to prevent drift:
 |--------|------|--------|--------|
 | GAME_CONFIG_STAGING | `Mutex<Option<GameConfig>>` | external config | drain_game_config |
 
-GPU readback statics (`GPU_READ_STATE`, `PROJ_HIT_STATE`, `PROJ_POSITION_STATE`) deleted — replaced by Bevy `ReadbackComplete` observers writing directly to Bevy resources.
+GPU readback data is written directly to Bevy resources by `ReadbackComplete` observers.
 
 ## GPU Read State
 
@@ -151,9 +150,9 @@ GPU readback statics (`GPU_READ_STATE`, `PROJ_HIT_STATE`, `PROJ_POSITION_STATE`)
 
 All three allocators share a `SlotPool` inner type (LIFO free list, high-water mark tracking) with type-safe Bevy Resource wrappers:
 
-`SlotAllocator` (NPC slots, max=100K) wraps `SlotPool`. Allocated in `spawn_npc_system`, recycled in `death_cleanup_system`.
+`SlotAllocator` (NPC slots, max=100K) wraps `SlotPool`. Allocated in `spawn_npc_system`, recycled in `death_system`.
 
-`BuildingSlots` (building slots, max=5K) wraps `SlotPool`. Allocated in `place_building_instance`, recycled in `death_cleanup_system` (building branch). Separate from NPC slots to prevent slot collisions.
+`BuildingSlots` (building slots, max=5K) wraps `SlotPool`. Allocated in `place_building_instance`, recycled in `death_system` (building branch). Separate from NPC slots to prevent slot collisions.
 
 `ProjSlotAllocator` (projectile slots, max=50K) manages projectile slot indices. Allocated in `attack_system`, recycled in `process_proj_hits`.
 
@@ -167,7 +166,7 @@ All three allocators share a `SlotPool` inner type (LIFO free list, high-water m
 | NpcTargetThrashDebug | Target write diagnostics (reason-tagged + sink-level 1s window: `SinkTargetChanges/s`, `SinkPingPong/s`, `SinkTargetWrites/s`, `ReasonFlips/min`) | behavior/combat writers + sink recorder in `populate_gpu_state` | profiler tab, selected-NPC inspector |
 | NpcsByTownCache | NPC indices grouped by town | spawn/death systems | UI queries |
 | PopulationStats | Alive/working/dead counts per job+town | spawn/death/state systems | UI queries |
-| KillStats | guard_kills, villager_kills | death_cleanup_system | UI queries |
+| KillStats | guard_kills, villager_kills | death_system | UI queries |
 | SelectedNpc | Currently selected NPC index | (external input) | UI queries |
 | FoodStorage | Per-town food counts | economy systems | economy systems |
 | FoodEvents | Delivered/consumed food event logs | behavior systems | UI queries |

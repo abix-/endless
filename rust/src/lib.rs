@@ -27,7 +27,7 @@ pub mod world;
 use bevy::prelude::*;
 
 use messages::{
-    SpawnNpcMsg, DamageMsg, BuildingDeathMsg, GpuUpdateMsg, CombatLogMsg, DestroyBuildingMsg,
+    SpawnNpcMsg, DamageMsg, GpuUpdateMsg, CombatLogMsg, DestroyBuildingMsg,
     SelectFactionMsg,
     ProjGpuUpdateMsg,
     BuildingGridDirtyMsg, TerrainDirtyMsg, PatrolsDirtyMsg, PatrolPerimeterDirtyMsg,
@@ -199,7 +199,6 @@ pub fn build_app(app: &mut App) {
        // Events
        .add_message::<SpawnNpcMsg>()
        .add_message::<DamageMsg>()
-       .add_message::<BuildingDeathMsg>()
        .add_message::<GpuUpdateMsg>()
        .add_message::<ProjGpuUpdateMsg>()
        .add_message::<CombatLogMsg>()
@@ -313,9 +312,6 @@ pub fn build_app(app: &mut App) {
            attack_system,
            damage_system,
            death_system,
-           xp_grant_system,
-           building_death_system,
-           death_cleanup_system,
            building_tower_system,
        ).chain().in_set(Step::Combat))
        // Behavior

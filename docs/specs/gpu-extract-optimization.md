@@ -2,7 +2,7 @@
 
 Stage 15. Implementation spec for reducing ExtractResource clone cost.
 
-Steps 1-6 (completed) replaced hand-rolled staging buffers with Bevy's async `Readback` + `ReadbackComplete` pattern — see [gpu-compute.md](../gpu-compute.md) and [messages.md](../messages.md). What remains is reducing the ExtractResource clone cost.
+Current baseline uses Bevy's async `Readback` + `ReadbackComplete` pattern (see [gpu-compute.md](../gpu-compute.md) and [messages.md](../messages.md)); remaining scope is reducing ExtractResource clone cost.
 
 **Problem: ExtractResource clone (18ms)**
 

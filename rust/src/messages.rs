@@ -36,17 +36,6 @@ pub struct DamageMsg {
     pub attacker_faction: i32,  // for combat log attribution
 }
 
-/// Building death event: emitted by damage_system when building HP reaches 0.
-/// Consumed by building_death_system for loot, AI deactivation, endless respawn.
-#[derive(Message, Clone)]
-pub struct BuildingDeathMsg {
-    pub kind: crate::world::BuildingKind,
-    pub index: usize,           // building data index (within kind)
-    pub bld_slot: usize,        // building GPU slot
-    pub attacker: i32,
-    pub attacker_faction: i32,
-}
-
 /// Reassign an NPC to a different job (Farmer <-> Guard).
 #[derive(Message, Clone)]
 pub struct ReassignMsg {
