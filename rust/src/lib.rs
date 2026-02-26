@@ -44,7 +44,7 @@ use resources::{
     TowerState, FollowSelected, TownPolicies, SelectedBuilding,
     AutoUpgrade, SquadState, HelpCatalog,
     Difficulty, HealingZoneCache, GameAudio, PlaySfxMsg, TutorialState, MiningPolicy,
-    BuildingHealState,
+    BuildingHealState, NpcTargetThrashDebug,
 };
 use systems::{AiPlayerConfig, AiPlayerState};
 use systems::*;
@@ -224,6 +224,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<world::BuildingOccupancy>()
        .init_resource::<HealthDebug>()
        .init_resource::<CombatDebug>()
+       .init_resource::<NpcTargetThrashDebug>()
        .init_resource::<KillStats>()
        .init_resource::<SelectedNpc>()
        .init_resource::<SelectedBuilding>()

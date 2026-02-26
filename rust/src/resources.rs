@@ -311,6 +311,101 @@ impl Default for CombatDebug {
     }
 }
 
+/// Runtime metric for target intent thrashing.
+/// Tracks per-NPC SetTarget reason flips within the current game minute.
+#[derive(Resource, Default)]
+pub struct NpcTargetThrashDebug {
+    pub minute_key: i32,
+    pub writes_this_minute: Vec<u16>,
+    pub reason_flips_this_minute: Vec<u16>,
+    pub target_changes_this_minute: Vec<u16>,
+    pub ping_pong_this_minute: Vec<u16>,
+    pub last_reason: Vec<String>,
+    pub last_target_q: Vec<(i32, i32)>,
+    pub prev_target_q: Vec<(i32, i32)>,
+}
+
+impl NpcTargetThrashDebug {
+    pub fn record(&mut self, idx: usize, reason: &'static str, minute_key: i32, x: f32, y: f32) {
+        if self.minute_key != minute_key {
+            self.minute_key = minute_key;
+            self.writes_this_minute.fill(0);
+            self.reason_flips_this_minute.fill(0);
+            self.target_changes_this_minute.fill(0);
+            self.ping_pong_this_minute.fill(0);
+        }
+        self.ensure_len(idx + 1);
+        self.writes_this_minute[idx] = self.writes_this_minute[idx].saturating_add(1);
+
+        let q = (x.round() as i32, y.round() as i32);
+        let last_q = self.last_target_q[idx];
+        if last_q != (0, 0) && last_q != q {
+            self.target_changes_this_minute[idx] = self.target_changes_this_minute[idx].saturating_add(1);
+            if self.prev_target_q[idx] == q {
+                self.ping_pong_this_minute[idx] = self.ping_pong_this_minute[idx].saturating_add(1);
+            }
+        }
+        self.prev_target_q[idx] = last_q;
+        self.last_target_q[idx] = q;
+
+        if self.last_reason[idx] != reason {
+            if !self.last_reason[idx].is_empty() {
+                self.reason_flips_this_minute[idx] = self.reason_flips_this_minute[idx].saturating_add(1);
+            }
+            self.last_reason[idx].clear();
+            self.last_reason[idx].push_str(reason);
+        }
+    }
+
+    pub fn top_offenders(&self, top_n: usize) -> Vec<(usize, u16, u16, u16, u16, &str)> {
+        let mut rows: Vec<(usize, u16, u16, u16, u16, &str)> = self.target_changes_this_minute
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, &target_changes)| {
+                if target_changes == 0 {
+                    return None;
+                }
+                let reason_flips = self.reason_flips_this_minute.get(idx).copied().unwrap_or(0);
+                let ping_pong = self.ping_pong_this_minute.get(idx).copied().unwrap_or(0);
+                let writes = self.writes_this_minute.get(idx).copied().unwrap_or(0);
+                let reason = self.last_reason.get(idx).map(|s| s.as_str()).unwrap_or("");
+                Some((idx, target_changes, ping_pong, reason_flips, writes, reason))
+            })
+            .collect();
+        rows.sort_by(|a, b| {
+            b.1.cmp(&a.1)
+                .then_with(|| b.2.cmp(&a.2))
+                .then_with(|| b.4.cmp(&a.4))
+        });
+        rows.truncate(top_n);
+        rows
+    }
+
+    fn ensure_len(&mut self, len: usize) {
+        if self.writes_this_minute.len() < len {
+            self.writes_this_minute.resize(len, 0);
+        }
+        if self.reason_flips_this_minute.len() < len {
+            self.reason_flips_this_minute.resize(len, 0);
+        }
+        if self.target_changes_this_minute.len() < len {
+            self.target_changes_this_minute.resize(len, 0);
+        }
+        if self.ping_pong_this_minute.len() < len {
+            self.ping_pong_this_minute.resize(len, 0);
+        }
+        if self.last_reason.len() < len {
+            self.last_reason.resize_with(len, String::new);
+        }
+        if self.last_target_q.len() < len {
+            self.last_target_q.resize(len, (0, 0));
+        }
+        if self.prev_target_q.len() < len {
+            self.prev_target_q.resize(len, (0, 0));
+        }
+    }
+}
+
 // ============================================================================
 // UI CACHE RESOURCES
 // ============================================================================

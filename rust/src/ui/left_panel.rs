@@ -24,6 +24,7 @@ pub struct ProfilerParams<'w> {
     timings: Res<'w, SystemTimings>,
     migration: ResMut<'w, MigrationState>,
     mining_policy: ResMut<'w, MiningPolicy>,
+    target_thrash: Res<'w, NpcTargetThrashDebug>,
 }
 
 // ============================================================================
@@ -273,7 +274,7 @@ pub fn left_panel_system(
                 LeftPanelTab::Patrols => { patrol_swap = patrols_content(ui, &world_data, &factions.building_map, &mut jump_target); },
                 LeftPanelTab::Squads => squads_content(ui, &mut squad, &roster.meta_cache, &world_data, &mut commands, &mut dirty_writers),
                 LeftPanelTab::Factions => factions_content(ui, &factions, &squad.squad_state, &world_data, &policies, &profiler.mining_policy, &mut factions_cache, &mut jump_target, &mut ui_state, &mut copy_text, requested_faction),
-                LeftPanelTab::Profiler => profiler_content(ui, &profiler.timings, &mut profiler.migration, &mut settings),
+                LeftPanelTab::Profiler => profiler_content(ui, &profiler.timings, &profiler.target_thrash, &mut profiler.migration, &mut settings),
                 LeftPanelTab::Help => help_content(ui),
             }
         });
@@ -2012,6 +2013,7 @@ fn factions_content(
 fn profiler_content(
     ui: &mut egui::Ui,
     timings: &SystemTimings,
+    target_thrash: &NpcTargetThrashDebug,
     migration: &mut MigrationState,
     user_settings: &mut UserSettings,
 ) {
@@ -2037,6 +2039,47 @@ fn profiler_content(
             if has_active {
                 let count = migration.active.as_ref().map(|g| g.member_slots.len()).unwrap_or(0);
                 ui.label(format!("Migration active: {} raiders", count));
+            }
+        });
+    ui.separator();
+
+    let top_flips = target_thrash.top_offenders(8);
+    let total_changes: u32 = top_flips.iter().map(|(_, changes, _, _, _, _)| *changes as u32).sum();
+    egui::CollapsingHeader::new(egui::RichText::new("NPC Target Thrash (this minute)").strong())
+        .default_open(true)
+        .show(ui, |ui| {
+            ui.label(format!("Minute key: {}", target_thrash.minute_key));
+            ui.label(format!("Top-8 target-change sum: {}", total_changes));
+            if top_flips.is_empty() {
+                ui.label("No target changes yet.");
+            } else {
+                if ui.button("Copy Thrash Top 8").clicked() {
+                    let body = top_flips.iter()
+                        .map(|(idx, changes, ping_pong, reason_flips, writes, reason)| {
+                            format!("#{idx}: target_changes={changes} ping_pong={ping_pong} reason_flips={reason_flips} writes={writes} last={reason}")
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    ui.ctx().copy_text(format!("Minute key: {}\n{}", target_thrash.minute_key, body));
+                }
+                egui::Grid::new("target_thrash_grid").num_columns(6).striped(true).show(ui, |ui| {
+                    ui.label(egui::RichText::new("npc").strong());
+                    ui.label(egui::RichText::new("target changes").strong());
+                    ui.label(egui::RichText::new("ping-pong").strong());
+                    ui.label(egui::RichText::new("reason flips").strong());
+                    ui.label(egui::RichText::new("writes").strong());
+                    ui.label(egui::RichText::new("last reason").strong());
+                    ui.end_row();
+                    for (idx, changes, ping_pong, reason_flips, writes, reason) in &top_flips {
+                        ui.label(format!("#{idx}"));
+                        ui.label(format!("{changes}"));
+                        ui.label(format!("{ping_pong}"));
+                        ui.label(format!("{reason_flips}"));
+                        ui.label(format!("{writes}"));
+                        ui.label(*reason);
+                        ui.end_row();
+                    }
+                });
             }
         });
     ui.separator();

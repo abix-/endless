@@ -13,6 +13,7 @@ Completed items moved from roadmap for readability.
 - [x] Stage 16 perf: terrain tilemap sync now message-driven (`TerrainDirtyMsg`) instead of `WorldGrid::is_changed()`; prevents full 1000x1000 terrain rewrites on non-terrain grid updates
 - [x] Stage 16 bugfix: fixed NPC/building selection slot collision in `render.rs` (selection now distinguishes NPC slots from building slots; building hit-tests use `BuildingEntityMap` instances)
 - [x] Stage 16 messages: projectile GPU updates fully message-driven (`ProjGpuUpdateMsg` consumed directly by `populate_proj_buffer_writes`); removed `PROJ_GPU_UPDATE_QUEUE` bridge
+- [x] Stage 20 diagnostics: added `NpcTargetThrashDebug` runtime metric and UI surfacing (Profiler top offenders + selected NPC inspector fields) tracking `TargetChanges/min`, `PingPong/min`, `ReasonFlips/min`, and `TargetWrites/min`
 
 ### Roadmap Migration (Stages 14, 15, 16, 16.5, 18, 22)
 - [x] Stage 14: endless mode (defeated AI towns become leaderless, replacement AI scaled to player strength)

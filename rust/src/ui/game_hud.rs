@@ -174,6 +174,7 @@ pub struct BottomPanelData<'w> {
     npc_logs: Res<'w, NpcLogCache>,
     selected: Res<'w, SelectedNpc>,
     combat_log: Res<'w, CombatLog>,
+    target_thrash: Res<'w, NpcTargetThrashDebug>,
 }
 
 /// Bundled resources for building inspector.
@@ -889,6 +890,15 @@ fn inspector_content(
         };
 
         ui.label(format!("Pos: {}  Target: {}", pos, target));
+        let reason_flips = data.target_thrash.reason_flips_this_minute.get(idx).copied().unwrap_or(0);
+        let target_changes = data.target_thrash.target_changes_this_minute.get(idx).copied().unwrap_or(0);
+        let ping_pong = data.target_thrash.ping_pong_this_minute.get(idx).copied().unwrap_or(0);
+        let writes = data.target_thrash.writes_this_minute.get(idx).copied().unwrap_or(0);
+        let reason = data.target_thrash.last_reason.get(idx).map(String::as_str).unwrap_or("");
+        ui.label(format!(
+            "TargetChanges/min: {}  PingPong/min: {}  ReasonFlips/min: {}  Writes/min: {}  LastReason: {}",
+            target_changes, ping_pong, reason_flips, writes, if reason.is_empty() { "-" } else { reason }
+        ));
 
         if ui.button("Copy Debug Info").clicked() {
             let xp_next = (meta.level + 1) * (meta.level + 1) * 100;
@@ -969,6 +979,15 @@ fn inspector_content(
                 home = home_str,
                 faction = faction_str,
                 state = state_str,
+            ));
+            let reason_flips = data.target_thrash.reason_flips_this_minute.get(idx).copied().unwrap_or(0);
+            let target_changes = data.target_thrash.target_changes_this_minute.get(idx).copied().unwrap_or(0);
+            let ping_pong = data.target_thrash.ping_pong_this_minute.get(idx).copied().unwrap_or(0);
+            let writes = data.target_thrash.writes_this_minute.get(idx).copied().unwrap_or(0);
+            let reason = data.target_thrash.last_reason.get(idx).map(String::as_str).unwrap_or("-");
+            info.push_str(&format!(
+                "TargetChanges/min: {}  PingPong/min: {}  ReasonFlips/min: {}  TargetWrites/min: {}  LastTargetReason: {}\n",
+                target_changes, ping_pong, reason_flips, writes, reason
             ));
             if meta.job == 4 {
                 if let Some(hp) = home_pos {
