@@ -431,7 +431,6 @@ fn click_to_select_system(
             let mut best_dist = select_radius;
             let mut best_enemy: Option<(usize, Vec2)> = None;
             for i in 0..npc_count {
-                if click.building_slots.is_building(i) { continue; }
                 if i * 2 + 1 >= positions.len() { continue; }
                 let px = positions[i * 2];
                 let py = positions[i * 2 + 1];
@@ -468,14 +467,13 @@ fn click_to_select_system(
                 let building_radius = 24.0_f32;
                 let mut best_bdist = building_radius;
                 let mut best_bpos: Option<Vec2> = None;
-                for i in 0..npc_count {
-                    let Some((_kind, _bidx)) = click.building_slots.get_building(i) else { continue };
-                    if i * 2 + 1 >= positions.len() { continue; }
-                    let px = positions[i * 2];
-                    let py = positions[i * 2 + 1];
-                    if px < -9000.0 { continue; }
-                    let faction = factions.get(i).copied().unwrap_or(0);
+                for inst in click.building_slots.iter_instances() {
+                    if inst.position.x < -9000.0 { continue; }
+                    let px = inst.position.x;
+                    let py = inst.position.y;
+                    let faction = inst.faction;
                     if faction == 0 { continue; }
+                    if px < -9000.0 { continue; }
                     let dx = world_pos.x - px;
                     let dy = world_pos.y - py;
                     let dist = (dx * dx + dy * dy).sqrt();
@@ -568,7 +566,6 @@ fn click_to_select_system(
         let px = positions[i * 2];
         let py = positions[i * 2 + 1];
         if px < -9000.0 { continue; }
-        if click.building_slots.is_building(i) { continue; }
         if !click.npc_entity_map.0.contains_key(&i) { continue; }
 
         let dx = world_pos.x - px;
@@ -594,10 +591,10 @@ fn click_to_select_system(
     let building_select_radius = 24.0_f32;
     let mut best_building_dist = building_select_radius;
     let mut best_building: Option<(BuildingKind, Vec2, usize)> = None;
-    for i in 0..npc_count {
-        let Some((kind, _)) = click.building_slots.get_building(i) else { continue };
-        let px = positions[i * 2];
-        let py = positions[i * 2 + 1];
+    for inst in click.building_slots.iter_instances() {
+        let kind = inst.kind;
+        let px = inst.position.x;
+        let py = inst.position.y;
         if px < -9000.0 { continue; }
 
         let dx = world_pos.x - px;
@@ -605,7 +602,7 @@ fn click_to_select_system(
         let dist = (dx * dx + dy * dy).sqrt();
         if dist < best_building_dist {
             best_building_dist = dist;
-            best_building = Some((kind, Vec2::new(px, py), i));
+            best_building = Some((kind, Vec2::new(px, py), inst.slot));
         }
     }
     // Fallback to clicked cell building when available.
@@ -752,7 +749,6 @@ fn box_select_system(
 
                 let mut selected_slots: Vec<usize> = Vec::new();
                 for i in 0..npc_count {
-                    if building_slots.is_building(i) { continue; }
                     if i * 2 + 1 >= positions.len() { continue; }
                     let px = positions[i * 2];
                     let py = positions[i * 2 + 1];
