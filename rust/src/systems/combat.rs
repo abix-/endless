@@ -2,23 +2,12 @@
 
 use bevy::prelude::*;
 use crate::components::*;
-use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, ProjGpuUpdate, ProjGpuUpdateMsg};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TowerState, SystemTimings, GameTime, NpcEntityMap, NpcTargetThrashDebug};
+use crate::messages::{DamageMsg, ProjGpuUpdate, ProjGpuUpdateMsg};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TowerState, SystemTimings, GameTime, NpcEntityMap, MovementIntents, MovementPriority};
 use crate::systems::stats::{TownUpgrades, resolve_town_tower_stats};
 use crate::gpu::ProjBufferWrites;
 use crate::resources::BuildingEntityMap;
 use crate::world::{WorldData, BuildingKind, is_alive};
-
-#[inline]
-fn target_changed(targets: &[f32], idx: usize, x: f32, y: f32) -> bool {
-    let i = idx * 2;
-    if i + 1 >= targets.len() {
-        return true;
-    }
-    let dx = targets[i] - x;
-    let dy = targets[i + 1] - y;
-    (dx * dx + dy * dy) > 1.0
-}
 
 
 /// Decrement attack cooldown timers each frame.
@@ -55,7 +44,7 @@ pub fn cooldown_system(
 /// GPU finds nearest enemy, Bevy checks range and applies damage.
 pub fn attack_system(
     mut query: Query<(Entity, &NpcIndex, &CachedStats, &mut AttackTimer, &Faction, &mut CombatState, &Activity, &Job, Option<&ManualTarget>, Option<&SquadId>), Without<Dead>>,
-    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    mut intents: ResMut<MovementIntents>,
     mut proj_updates: MessageWriter<ProjGpuUpdateMsg>,
     mut damage_events: MessageWriter<DamageMsg>,
     mut debug: ResMut<CombatDebug>,
@@ -65,14 +54,11 @@ pub fn attack_system(
     bmap: Res<BuildingEntityMap>,
     slots: Res<crate::resources::SlotAllocator>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
-    mut target_thrash: ResMut<NpcTargetThrashDebug>,
-    game_time: Res<GameTime>,
     timings: Res<SystemTimings>,
     squad_state: Res<crate::resources::SquadState>,
     mut commands: Commands,
 ) {
     let _t = timings.scope("attack");
-    let minute_key = game_time.day() * 24 * 60 + game_time.hour() * 60 + game_time.minute();
     let positions = &gpu_state.positions;
     let combat_targets = &gpu_state.combat_targets;
     let npc_count = slots.count();
@@ -195,10 +181,7 @@ pub fn attack_system(
 
             if dist <= cached.range {
                 // Stand ground while shooting
-                if target_changed(&npc_gpu.targets, i, x, y) {
-                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: i, x, y }));
-                    target_thrash.record(i, "combat:hold_building", minute_key, x, y);
-                }
+                intents.submit(entity, Vec2::new(x, y), MovementPriority::Combat, "combat:hold_building");
                 in_range_count += 1;
                 if timer.0 <= 0.0 {
                     timer_ready_count += 1;
@@ -231,10 +214,7 @@ pub fn attack_system(
                 }
             } else {
                 // Chase building
-                if target_changed(&npc_gpu.targets, i, inst.position.x, inst.position.y) {
-                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: i, x: inst.position.x, y: inst.position.y }));
-                    target_thrash.record(i, "combat:chase_building", minute_key, inst.position.x, inst.position.y);
-                }
+                intents.submit(entity, inst.position, MovementPriority::Combat, "combat:chase_building");
                 chases += 1;
             }
             continue;
@@ -285,10 +265,7 @@ pub fn attack_system(
 
         if dist <= cached.range {
             // Stand ground while fighting — set target to own position so NPC stops moving
-            if target_changed(&npc_gpu.targets, i, x, y) {
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: i, x, y }));
-                target_thrash.record(i, "combat:hold_npc", minute_key, x, y);
-            }
+            intents.submit(entity, Vec2::new(x, y), MovementPriority::Combat, "combat:hold_npc");
 
             in_range_count += 1;
             if in_range_count == 1 {
@@ -328,10 +305,7 @@ pub fn attack_system(
             }
         } else {
             // Out of range - chase target
-            if target_changed(&npc_gpu.targets, i, tx, ty) {
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: i, x: tx, y: ty }));
-                target_thrash.record(i, "combat:chase_npc", minute_key, tx, ty);
-            }
+            intents.submit(entity, Vec2::new(tx, ty), MovementPriority::Combat, "combat:chase_npc");
             chases += 1;
         }
     }

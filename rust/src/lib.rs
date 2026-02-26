@@ -44,7 +44,7 @@ use resources::{
     TowerState, FollowSelected, TownPolicies, SelectedBuilding,
     AutoUpgrade, SquadState, HelpCatalog,
     Difficulty, HealingZoneCache, GameAudio, PlaySfxMsg, TutorialState, MiningPolicy,
-    BuildingHealState, NpcTargetThrashDebug,
+    BuildingHealState, NpcTargetThrashDebug, MovementIntents,
 };
 use systems::{AiPlayerConfig, AiPlayerState};
 use systems::*;
@@ -224,6 +224,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<HealthDebug>()
        .init_resource::<CombatDebug>()
        .init_resource::<NpcTargetThrashDebug>()
+       .init_resource::<MovementIntents>()
        .init_resource::<KillStats>()
        .init_resource::<SelectedNpc>()
        .init_resource::<SelectedBuilding>()
@@ -341,6 +342,8 @@ pub fn build_app(app: &mut App) {
        .add_systems(Update, sync_patrol_perimeter_system.before(rebuild_patrol_routes_system).in_set(Step::Behavior))
        .add_systems(Update, ai_squad_commander_system.after(ai_decision_system).before(decision_system).in_set(Step::Behavior))
        .add_systems(Update, sync_building_hp_render.in_set(Step::Behavior))
+       // Movement intent resolution — single owner of SetTarget, runs after all intent producers
+       .add_systems(Update, resolve_movement_system.after(Step::Behavior).run_if(game_active.clone()))
        // Debug settings sync + tick logging
        .add_systems(Update, (sync_debug_settings, debug_tick_system).run_if(game_active.clone()))
        // Save/Load — F5/F9 input + save + load + toast

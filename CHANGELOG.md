@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-26b
+
+- **movement intent system** — centralized NPC movement targeting through `MovementIntents` resource (`HashMap<Entity, MovementIntent>` with `MovementPriority` arbitration); `resolve_movement_system` (after Step::Behavior) is the sole emitter of `GpuUpdate::SetTarget` and sole recorder of `NpcTargetThrashDebug`; migrated 4 systems: `decision_system` (~35 sites → `submit_intent` helper with priority mapping), `attack_system` (4 sites → Combat priority), `death_system` (2 sites → Survival priority for loot return), `click_to_select_system` (2 sites → DirectControl priority); priority ladder: Wander < JobRoute < Squad < Combat < Survival < ManualTarget < DirectControl; change detection skips writes within 1px of current GPU target; one-time init targets (spawn, boat) still write SetTarget directly; eliminates last-writer-wins race between combat chase and behavior flee
+
 ## 2026-02-26a
 
 - **unified death_system** — collapsed 4 separate systems (`death_system`, `xp_grant_system`, `building_death_system`, `death_cleanup_system`) into one `death_system` with two phases per frame: Phase 1 marks dead (`Without<Dead>` where health <= 0, deferred), Phase 2 processes dead (`With<Dead>` from previous frame — XP grant + level-up + building destruction + loot attribution + NPC cleanup + despawn); uses `ParamSet` to resolve query conflict between mark-dead and killer/loot access; `DeathResources` SystemParam (16 fields) merges `CleanupResources` + `WorldState` unique fields + `BuildingDeathExtra`; `LastHitBy` inserted on buildings by `damage_system` (eliminates `BuildingDeathMsg`); combat chain reduced from 8 to 6 systems; deleted `BuildingDeathMsg`, `BuildingDeathExtra`, `CleanupResources`

@@ -1,11 +1,12 @@
-//! Movement systems - Target tracking, arrival detection, position sync
+//! Movement systems - Target tracking, arrival detection, intent resolution
 
 use bevy::prelude::*;
 
 use crate::components::*;
 use crate::constants::ARRIVAL_THRESHOLD;
 use crate::gpu::NpcGpuState;
-use crate::resources::{GpuReadState, SystemTimings};
+use crate::messages::{GpuUpdate, GpuUpdateMsg};
+use crate::resources::{GameTime, GpuReadState, MovementIntents, NpcTargetThrashDebug, SystemTimings};
 
 /// Read positions from GPU and update Bevy Position components.
 /// Also detects arrivals: if NPC is in a transit Activity and within ARRIVAL_THRESHOLD
@@ -61,5 +62,40 @@ pub fn gpu_position_readback(
                 }
             }
         }
+    }
+}
+
+/// Resolve movement intents: pick the highest-priority intent per NPC,
+/// emit exactly one SetTarget when the target actually changed.
+/// Runs after all intent-producing systems (decision, combat, health, render).
+pub fn resolve_movement_system(
+    mut intents: ResMut<MovementIntents>,
+    npc_query: Query<&NpcIndex>,
+    npc_gpu: Res<NpcGpuState>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    mut target_thrash: ResMut<NpcTargetThrashDebug>,
+    game_time: Res<GameTime>,
+    timings: Res<SystemTimings>,
+) {
+    let _t = timings.scope("resolve_movement");
+    let targets = &npc_gpu.targets;
+    let minute_key = game_time.day() * 24 * 60 + game_time.hour() * 60 + game_time.minute();
+
+    for (entity, intent) in intents.drain() {
+        let Ok(npc_idx) = npc_query.get(entity) else { continue };
+        let idx = npc_idx.0;
+
+        // Skip if target unchanged (same check as combat's target_changed)
+        let i = idx * 2;
+        if i + 1 < targets.len() {
+            let dx = targets[i] - intent.target.x;
+            let dy = targets[i + 1] - intent.target.y;
+            if dx * dx + dy * dy <= 1.0 { continue; }
+        }
+
+        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+            idx, x: intent.target.x, y: intent.target.y,
+        }));
+        target_thrash.record(idx, intent.source, minute_key, intent.target.x, intent.target.y);
     }
 }

@@ -128,6 +128,7 @@ pub fn death_system(
     food_storage: Res<FoodStorage>,
     gold_storage: Res<GoldStorage>,
     config: Res<CombatConfig>,
+    mut intents: ResMut<crate::resources::MovementIntents>,
 ) {
     let _t = timings.scope("death");
 
@@ -242,7 +243,7 @@ pub fn death_system(
                                         *loot_activity = Activity::Returning { loot: vec![(drop.item, amount)] };
                                     }
                                     if !dc_keep_fighting {
-                                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: loot_npc_idx.0, x: loot_home.0.x, y: loot_home.0.y }));
+                                        intents.submit(attacker_entity, Vec2::new(loot_home.0.x, loot_home.0.y), crate::resources::MovementPriority::Survival, "loot:return");
                                     }
 
                                     let item_name = match drop.item { ItemKind::Food => "food", ItemKind::Gold => "gold" };
@@ -313,7 +314,7 @@ pub fn death_system(
                                 *k_activity = Activity::Returning { loot: vec![(drop.item, amount)] };
                             }
                             if !dc_keep_fighting {
-                                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: k_idx, x: k_home.0.x, y: k_home.0.y }));
+                                intents.submit(killer_entity, Vec2::new(k_home.0.x, k_home.0.y), crate::resources::MovementPriority::Survival, "loot:return");
                             }
 
                             let item_name = match drop.item { ItemKind::Food => "food", ItemKind::Gold => "gold" };

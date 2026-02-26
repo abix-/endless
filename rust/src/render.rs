@@ -11,7 +11,7 @@ use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileD
 use crate::gpu::RenderFrameConfig;
 use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab, SystemTimings, NpcEntityMap};
 use crate::components::{ManualTarget, Activity};
-use crate::messages::{GpuUpdate, GpuUpdateMsg, SelectFactionMsg, TerrainDirtyMsg};
+use crate::messages::{SelectFactionMsg, TerrainDirtyMsg};
 use crate::settings::UserSettings;
 use crate::world::{WorldData, WorldGrid, BuildingKind, build_tileset, build_building_atlas, build_extras_atlas, TERRAIN_TILES, building_tiles};
 
@@ -374,7 +374,7 @@ fn click_to_select_system(
     mut commands: Commands,
     dc_query: Query<(), With<crate::components::DirectControl>>,
     mut activity_query: Query<&mut Activity, With<crate::components::DirectControl>>,
-    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    mut intents: ResMut<crate::resources::MovementIntents>,
     mut faction_select: MessageWriter<SelectFactionMsg>,
 ) {
     let _t = timings.scope("click_select");
@@ -458,10 +458,8 @@ fn click_to_select_system(
                                 *activity = Activity::Idle;
                             }
                         }
+                        intents.submit(entity, enemy_pos, crate::resources::MovementPriority::DirectControl, "dc:attack");
                     }
-                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-                        idx: slot, x: enemy_pos.x, y: enemy_pos.y,
-                    }));
                 }
             } else {
                 // Hit-test enemy building (nearest within 24px)
@@ -499,10 +497,8 @@ fn click_to_select_system(
                                 *activity = Activity::Idle;
                             }
                         }
+                        intents.submit(entity, target_pos, crate::resources::MovementPriority::DirectControl, "dc:move");
                     }
-                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-                        idx: slot, x: target_pos.x, y: target_pos.y,
-                    }));
                 }
             }
             return;

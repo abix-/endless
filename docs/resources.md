@@ -307,6 +307,16 @@ Both unlock slots when full (sets terrain to Dirt) and buy upgrades with surplus
 
 `Migrating` component: marker on NPC entities that are part of an active migration group. Attached by `migration_attach_system`, cleared by `migration_settle_system` on settlement. Persisted in save via `MigrationSave.member_slots` and re-attached on load.
 
+## Movement Intent Resolution
+
+| Resource | Data | Writers | Readers |
+|----------|------|---------|---------|
+| MovementIntents | `HashMap<Entity, MovementIntent>` — sparse per-NPC intent slots, highest priority wins | decision_system, attack_system, death_system, click_to_select_system | resolve_movement_system (drains → single `SetTarget` per NPC) |
+
+`MovementPriority` enum: `Wander(0) < JobRoute(1) < Squad(2) < Combat(3) < Survival(4) < ManualTarget(5) < DirectControl(6)`. Multiple `submit()` calls per NPC per frame keep the highest priority. Cleared every frame by `resolve_movement_system` via `drain()`. The resolver is the sole emitter of `GpuUpdate::SetTarget` and the sole recorder of `NpcTargetThrashDebug`. Change detection skips writes when the new target is within 1px of the current GPU target.
+
+Systems that write intents no longer need `MessageWriter<GpuUpdateMsg>` for movement — they call `intents.submit(entity, target, priority, source)`. One-time init targets (spawn, boat migration) still write `SetTarget` directly.
+
 ## Debug Resources
 
 | Resource | Key Fields | Updated By |

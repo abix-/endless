@@ -20,7 +20,7 @@ GPU combat_target_buffer (from compute shader)
         ├── target >= npc_count → building target (GPU-targeted, real damage projectile)
         │
         ├── In range + cooldown ready → fire projectile → GPU projectile system
-        └── Out of range → SetTarget (chase) → GpuUpdateMsg
+        └── Out of range → MovementIntents.submit(Combat) → resolve_movement_system
                                                       │
                                                       ▼
 DamageMsg (from process_proj_hits)             GPU movement
@@ -100,9 +100,9 @@ Execution order is **chained** — each system completes before the next starts.
 - **NPC targets** (`target < npc_count`):
   - Validates via `NpcEntityMap` lookup, faction check, health check (same as before)
   - Sets `CombatState::Fighting { origin }` (stores current position)
-  - **In range**: sets `SetTarget` to own position (stand ground — stops GPU movement, NPC holds position while shooting). Projectile dodge from GPU shader provides evasion.
+  - **In range**: submits `MovementIntents` at `Combat` priority to own position (stand ground — stops GPU movement, NPC holds position while shooting). Projectile dodge from GPU shader provides evasion.
   - **In range + cooldown ready**: resets `AttackTimer`, fires projectile or applies point-blank damage
-  - **Out of range**: pushes `GpuUpdate::SetTarget` to chase
+  - **Out of range**: submits `MovementIntents` at `Combat` priority to chase target
 
 ### 3. damage_system (health.rs)
 - Drains unified `DamageMsg` events from Bevy MessageReader
@@ -194,8 +194,8 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 | GPU → CPU | Projectile hits | `ProjHitState` — populated via Bevy `ReadbackComplete` observer, includes expired sentinel (-2) |
 | CPU → GPU | Health sync | `GpuUpdate::SetHealth` after damage |
 | CPU → GPU | Hide dead | `GpuUpdate::HideNpc` resets position, target, arrival, health |
-| CPU → GPU | Stand ground | `GpuUpdate::SetTarget` to own position when in attack range (stops movement, allows proj dodge) |
-| CPU → GPU | Chase target | `GpuUpdate::SetTarget` when out of attack range |
+| CPU → GPU | Stand ground | `MovementIntents.submit(Combat)` to own position when in attack range → `resolve_movement_system` emits `SetTarget` (stops movement, allows proj dodge) |
+| CPU → GPU | Chase target | `MovementIntents.submit(Combat)` when out of attack range → `resolve_movement_system` emits `SetTarget` |
 | CPU → GPU | Fire projectile | `ProjGpuUpdateMsg(ProjGpuUpdate::Spawn)` (attack_system + building_tower_system) |
 | CPU → GPU | Guard post slots | `sync_waypoint_slots` allocates NPC slots for waypoints, sets position/faction/speed=0/health=999/sprite=-1 |
 | CPU → GPU | Building HP sync | `damage_system` writes entity `Health` + `GpuUpdate::BldSetHealth` to sync building HP in `BuildingGpuState` |

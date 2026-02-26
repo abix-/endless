@@ -12,7 +12,7 @@ MAIN WORLD — Bevy Update Schedule (game systems gated on AppState::Running)
 ├─ bevy_timer_start
 │
 ├─ Step::Drain
-│     reset_bevy_system, drain_game_config
+│     drain_game_config, drain_combat_log
 │
 ├─ gpu_position_readback (after Drain, before Spawn)
 │     GpuReadState → ECS Position components
@@ -32,6 +32,9 @@ MAIN WORLD — Bevy Update Schedule (game systems gated on AppState::Running)
 │     on_duty_tick_system, game_time_system, farm_growth_system,
 │     raider_forage_system, raider_respawn_system, starvation_system,
 │     decision_system, farm_visual_system, process_upgrades_system
+│
+├─ resolve_movement_system (after Step::Behavior)
+│     MovementIntents → single GpuUpdate::SetTarget per NPC (priority arbitration)
 │
 ├─ bevy_timer_end
 │

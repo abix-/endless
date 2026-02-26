@@ -25,7 +25,7 @@ Each piece of NPC data has exactly one authoritative owner. Readers on the other
 | Arrivals | CPU | Internal | `HasTarget` + `gpu_position_readback` distance check → `AtDestination` |
 | **CPU-Authoritative** (written by ECS systems, uploaded to GPU next frame) ||||
 | Health | CPU | CPU → GPU | damage_system/healing_system write; uploaded for GPU targeting threshold |
-| Targets/Goals | CPU | CPU → GPU | decision_system/attack_system set destination; GPU interpolates movement |
+| Targets/Goals | CPU | CPU → GPU | Systems submit to MovementIntents; resolve_movement_system emits SetTarget; GPU interpolates movement |
 | Factions | CPU | CPU → GPU | Set at spawn, never changes (0=Villager, 1+=Raider towns) |
 | Speeds | CPU | CPU → GPU | Set at spawn, modified by starvation_system |
 | **CPU-Only** (never sent to GPU) ||||
@@ -104,7 +104,7 @@ Startup/load paths are centralized to prevent drift:
 
 | Variant | Fields | Producer Systems |
 |---------|--------|------------------|
-| SetTarget | idx, x, y | attack_system, decision_system |
+| SetTarget | idx, x, y | resolve_movement_system (sole emitter) |
 | SetHealth | idx, health | spawn_npc_system, damage_system |
 | SetFaction | idx, faction | spawn_npc_system |
 | SetPosition | idx, x, y | spawn_npc_system |
@@ -143,8 +143,9 @@ GPU readback data is written directly to Bevy resources by `ReadbackComplete` ob
 | npc_count | usize | SlotAllocator.count() | gpu_position_readback |
 | positions | Vec\<f32\> | ReadbackComplete (npc_positions buffer) | attack_system, healing_system, click_to_select_system |
 | combat_targets | Vec\<i32\> | ReadbackComplete (combat_targets buffer) | attack_system (target selection) |
-| health | Vec\<f32\> | CPU cache | (available for queries) |
-| factions | Vec\<i32\> | CPU cache | (available for queries) |
+| health | Vec\<f32\> | ReadbackComplete (npc_health buffer) | (available for queries) |
+| factions | Vec\<i32\> | ReadbackComplete (npc_factions buffer, throttled) | (available for queries) |
+| threat_counts | Vec\<u32\> | ReadbackComplete (threat_counts buffer, throttled) | behavior_system (flee threshold calculations), AI threat checks |
 
 ## Slot Management
 
@@ -161,15 +162,13 @@ All three allocators share a `SlotPool` inner type (LIFO free list, high-water m
 | Resource | Purpose | Writer | Reader |
 |----------|---------|--------|--------|
 | NpcMetaCache | Name, level, xp, trait, town, job per NPC | spawn_npc_system | UI queries |
-| NpcEnergyCache | Energy level per NPC | energy_system | UI queries |
 | NpcLogCache | Activity log per NPC | behavior systems | UI queries |
-| NpcTargetThrashDebug | Target write diagnostics (reason-tagged + sink-level 1s window: `SinkTargetChanges/s`, `SinkPingPong/s`, `SinkTargetWrites/s`, `ReasonFlips/min`) | behavior/combat writers + sink recorder in `populate_gpu_state` | profiler tab, selected-NPC inspector |
+| NpcTargetThrashDebug | Target write diagnostics (reason-tagged + sink-level 1s window: `SinkTargetChanges/s`, `SinkPingPong/s`, `SinkTargetWrites/s`, `ReasonFlips/min`) | resolve_movement_system (sole recorder, via MovementIntents) | profiler tab, selected-NPC inspector |
 | NpcsByTownCache | NPC indices grouped by town | spawn/death systems | UI queries |
 | PopulationStats | Alive/working/dead counts per job+town | spawn/death/state systems | UI queries |
-| KillStats | guard_kills, villager_kills | death_system | UI queries |
+| KillStats | archer_kills, villager_kills | death_system | UI queries |
 | SelectedNpc | Currently selected NPC index | (external input) | UI queries |
 | FoodStorage | Per-town food counts | economy systems | economy systems |
-| FoodEvents | Delivered/consumed food event logs | behavior systems | UI queries |
 | GameConfig | World size, NPC counts, thresholds | drain_game_config (from staging) | spawn, economy |
 | GameTime | Total hours, day/night, time scale, paused | game_time_system | behavior, economy |
 

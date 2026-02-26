@@ -470,6 +470,60 @@ impl NpcTargetThrashDebug {
 }
 
 // ============================================================================
+// MOVEMENT INTENT — Single-owner arbitration for NPC SetTarget
+// ============================================================================
+
+/// Priority ladder for movement intent resolution.
+/// Higher value wins. Derive Ord so `max()` picks the winner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MovementPriority {
+    Wander = 0,
+    JobRoute = 1,
+    Squad = 2,
+    Combat = 3,
+    Survival = 4,
+    ManualTarget = 5,
+    DirectControl = 6,
+}
+
+/// A single movement intent submitted by a gameplay system.
+#[derive(Clone, Debug)]
+pub struct MovementIntent {
+    pub target: Vec2,
+    pub priority: MovementPriority,
+    pub source: &'static str,
+}
+
+/// Per-NPC intent map. Keyed by Entity, cleared every frame.
+/// Sparse — only NPCs whose target changes get an entry.
+#[derive(Resource, Default)]
+pub struct MovementIntents {
+    intents: HashMap<Entity, MovementIntent>,
+}
+
+impl MovementIntents {
+    /// Submit a movement intent. Keeps the highest-priority intent per entity.
+    #[inline]
+    pub fn submit(&mut self, entity: Entity, target: Vec2, priority: MovementPriority, source: &'static str) {
+        match self.intents.entry(entity) {
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                if priority > e.get().priority {
+                    *e.get_mut() = MovementIntent { target, priority, source };
+                }
+            }
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert(MovementIntent { target, priority, source });
+            }
+        }
+    }
+
+    /// Drain all intents for resolution. Clears the map but keeps allocation.
+    pub fn drain(&mut self) -> std::collections::hash_map::Drain<'_, Entity, MovementIntent> {
+        self.intents.drain()
+    }
+}
+
+// ============================================================================
 // UI CACHE RESOURCES
 // ============================================================================
 
