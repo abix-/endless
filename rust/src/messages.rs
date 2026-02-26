@@ -244,7 +244,9 @@ pub enum ProjGpuUpdate {
     Deactivate { idx: usize },
 }
 
-pub static PROJ_GPU_UPDATE_QUEUE: Mutex<Vec<ProjGpuUpdate>> = Mutex::new(Vec::new());
+/// Projectile GPU update message for event-driven architecture.
+#[derive(Message, Clone)]
+pub struct ProjGpuUpdateMsg(pub ProjGpuUpdate);
 
 // GPU→CPU readback now uses Bevy's async Readback + ReadbackComplete observers.
 // Static Mutexes (GPU_READ_STATE, PROJ_HIT_STATE, PROJ_POSITION_STATE) deleted.

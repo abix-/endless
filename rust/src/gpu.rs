@@ -33,7 +33,7 @@ use std::borrow::Cow;
 
 use crate::components::{NpcIndex, Faction, Job, Healing, Activity, EquippedWeapon, EquippedHelmet, EquippedArmor, Dead};
 use crate::constants::{FOOD_SPRITE, GOLD_SPRITE, ItemKind, MAX_BUILDINGS, MAX_ENTITIES};
-use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
+use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, ProjGpuUpdate, ProjGpuUpdateMsg};
 use crate::resources::{GameTime, GpuReadState, ProjHitState, ProjPositionState, SlotAllocator, BuildingSlots, SystemTimings};
 use crate::systems::stats::{self, TownUpgrades};
 use crate::world::WorldData;
@@ -691,16 +691,18 @@ impl ProjBufferWrites {
     }
 }
 
-/// Drain PROJ_GPU_UPDATE_QUEUE and apply updates to ProjBufferWrites.
-pub fn populate_proj_buffer_writes(mut writes: ResMut<ProjBufferWrites>, timings: Res<SystemTimings>) {
+/// Apply projectile GPU updates from Bevy messages to ProjBufferWrites.
+pub fn populate_proj_buffer_writes(
+    mut events: MessageReader<ProjGpuUpdateMsg>,
+    mut writes: ResMut<ProjBufferWrites>,
+    timings: Res<SystemTimings>,
+) {
     let _t = timings.scope("populate_proj");
     writes.dirty = false;
     writes.spawn_dirty_indices.clear();
     writes.deactivate_dirty_indices.clear();
-    if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
-        for update in queue.drain(..) {
-            writes.apply(&update);
-        }
+    for msg in events.read() {
+        writes.apply(&msg.0);
     }
 }
 

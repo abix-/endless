@@ -32,4 +32,3 @@ pub fn collect_gpu_updates(mut events: MessageReader<GpuUpdateMsg>, timings: Res
         }
     }
 }
-

@@ -28,6 +28,7 @@ use bevy::prelude::*;
 
 use messages::{
     SpawnNpcMsg, DamageMsg, BuildingDeathMsg, GpuUpdateMsg, CombatLogMsg, DestroyBuildingMsg,
+    ProjGpuUpdateMsg,
     BuildingGridDirtyMsg, TerrainDirtyMsg, PatrolsDirtyMsg, PatrolPerimeterDirtyMsg,
     HealingZonesDirtyMsg, SquadsDirtyMsg, MiningDirtyMsg, AiSquadsDirtyMsg, PatrolSwapMsg,
 };
@@ -199,6 +200,7 @@ pub fn build_app(app: &mut App) {
        .add_message::<DamageMsg>()
        .add_message::<BuildingDeathMsg>()
        .add_message::<GpuUpdateMsg>()
+       .add_message::<ProjGpuUpdateMsg>()
        .add_message::<CombatLogMsg>()
        .add_message::<BuildingGridDirtyMsg>()
        .add_message::<TerrainDirtyMsg>()

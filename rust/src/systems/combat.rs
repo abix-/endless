@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::{ItemKind, building_def};
-use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDeathMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE, CombatLogMsg};
+use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDeathMsg, ProjGpuUpdate, ProjGpuUpdateMsg, CombatLogMsg};
 use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TowerState, SystemTimings, CombatEventKind, GameTime, NpcEntityMap, NpcMetaCache};
 use crate::systems::stats::{TownUpgrades, resolve_town_tower_stats};
 use crate::systemparams::WorldState;
@@ -58,6 +58,7 @@ pub fn cooldown_system(
 pub fn attack_system(
     mut query: Query<(Entity, &NpcIndex, &CachedStats, &mut AttackTimer, &Faction, &mut CombatState, &Activity, &Job, Option<&ManualTarget>, Option<&SquadId>), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    mut proj_updates: MessageWriter<ProjGpuUpdateMsg>,
     mut damage_events: MessageWriter<DamageMsg>,
     mut debug: ResMut<CombatDebug>,
     gpu_state: Res<GpuReadState>,
@@ -177,18 +178,16 @@ pub fn attack_system(
                         if let Some(proj_slot) = proj_alloc.alloc() {
                             let dir_x = dx / dist;
                             let dir_y = dy / dist;
-                            if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
-                                queue.push(ProjGpuUpdate::Spawn {
-                                    idx: proj_slot,
-                                    x, y,
-                                    vx: dir_x * cached.projectile_speed,
-                                    vy: dir_y * cached.projectile_speed,
-                                    damage: cached.damage,
-                                    faction: faction.0,
-                                    shooter: i as i32,
-                                    lifetime: cached.projectile_lifetime,
-                                });
-                            }
+                            proj_updates.write(ProjGpuUpdateMsg(ProjGpuUpdate::Spawn {
+                                idx: proj_slot,
+                                x, y,
+                                vx: dir_x * cached.projectile_speed,
+                                vy: dir_y * cached.projectile_speed,
+                                damage: cached.damage,
+                                faction: faction.0,
+                                shooter: i as i32,
+                                lifetime: cached.projectile_lifetime,
+                            }));
                         }
                     } else {
                         // Point blank — direct damage
@@ -269,18 +268,16 @@ pub fn attack_system(
                     if let Some(proj_slot) = proj_alloc.alloc() {
                         let dir_x = dx / dist;
                         let dir_y = dy / dist;
-                        if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
-                            queue.push(ProjGpuUpdate::Spawn {
-                                idx: proj_slot,
-                                x, y,
-                                vx: dir_x * cached.projectile_speed,
-                                vy: dir_y * cached.projectile_speed,
-                                damage: cached.damage,
-                                faction: faction.0,
-                                shooter: i as i32,
-                                lifetime: cached.projectile_lifetime,
-                            });
-                        }
+                        proj_updates.write(ProjGpuUpdateMsg(ProjGpuUpdate::Spawn {
+                            idx: proj_slot,
+                            x, y,
+                            vx: dir_x * cached.projectile_speed,
+                            vy: dir_y * cached.projectile_speed,
+                            damage: cached.damage,
+                            faction: faction.0,
+                            shooter: i as i32,
+                            lifetime: cached.projectile_lifetime,
+                        }));
                     }
                 } else {
                     // Point blank — apply damage directly (no projectile needed)
@@ -332,6 +329,7 @@ pub fn attack_system(
 /// damage_system routes by entity_idx to NPC or building path.
 pub fn process_proj_hits(
     mut damage_events: MessageWriter<DamageMsg>,
+    mut proj_updates: MessageWriter<ProjGpuUpdateMsg>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     proj_writes: Res<ProjBufferWrites>,
     mut hit_state: ResMut<ProjHitState>,
@@ -370,14 +368,10 @@ pub fn process_proj_hits(
             }
 
             proj_alloc.free(slot);
-            if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
-                queue.push(ProjGpuUpdate::Deactivate { idx: slot });
-            }
+            proj_updates.write(ProjGpuUpdateMsg(ProjGpuUpdate::Deactivate { idx: slot }));
         } else if hit_idx == -2 {
             proj_alloc.free(slot);
-            if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
-                queue.push(ProjGpuUpdate::Deactivate { idx: slot });
-            }
+            proj_updates.write(ProjGpuUpdateMsg(ProjGpuUpdate::Deactivate { idx: slot }));
         }
     }
     hit_state.0.clear();
@@ -396,6 +390,7 @@ pub fn building_tower_system(
     bmap: Res<BuildingEntityMap>,
     mut tower: ResMut<TowerState>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
+    mut proj_updates: MessageWriter<ProjGpuUpdateMsg>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("building_tower");
@@ -450,18 +445,16 @@ pub fn building_tower_system(
             if let Some(proj_slot) = proj_alloc.alloc() {
                 let dir_x = dx / dist;
                 let dir_y = dy / dist;
-                if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
-                    queue.push(ProjGpuUpdate::Spawn {
-                        idx: proj_slot,
-                        x: pos.x, y: pos.y,
-                        vx: dir_x * stats.proj_speed,
-                        vy: dir_y * stats.proj_speed,
-                        damage: stats.damage,
-                        faction,
-                        shooter: -1,
-                        lifetime: stats.proj_lifetime,
-                    });
-                }
+                proj_updates.write(ProjGpuUpdateMsg(ProjGpuUpdate::Spawn {
+                    idx: proj_slot,
+                    x: pos.x, y: pos.y,
+                    vx: dir_x * stats.proj_speed,
+                    vy: dir_y * stats.proj_speed,
+                    damage: stats.damage,
+                    faction,
+                    shooter: -1,
+                    lifetime: stats.proj_lifetime,
+                }));
             }
         }
         if i < tower.town.timers.len() {
