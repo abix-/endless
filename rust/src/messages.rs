@@ -58,6 +58,10 @@ pub struct ReassignMsg {
 #[derive(Message, Clone)]
 pub struct DestroyBuildingMsg(pub usize, pub usize); // (grid_col, grid_row)
 
+/// Request to focus the Factions panel on a faction id.
+#[derive(Message, Clone)]
+pub struct SelectFactionMsg(pub i32);
+
 /// Combat log entry emitted by any system. Drained into CombatLog resource by drain_combat_log.
 #[derive(Message, Clone)]
 pub struct CombatLogMsg {

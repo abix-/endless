@@ -28,6 +28,7 @@ use bevy::prelude::*;
 
 use messages::{
     SpawnNpcMsg, DamageMsg, BuildingDeathMsg, GpuUpdateMsg, CombatLogMsg, DestroyBuildingMsg,
+    SelectFactionMsg,
     ProjGpuUpdateMsg,
     BuildingGridDirtyMsg, TerrainDirtyMsg, PatrolsDirtyMsg, PatrolPerimeterDirtyMsg,
     HealingZonesDirtyMsg, SquadsDirtyMsg, MiningDirtyMsg, AiSquadsDirtyMsg, PatrolSwapMsg,
@@ -211,6 +212,8 @@ pub fn build_app(app: &mut App) {
        .add_message::<MiningDirtyMsg>()
        .add_message::<AiSquadsDirtyMsg>()
        .add_message::<PatrolSwapMsg>()
+       .add_message::<save::SaveGameMsg>()
+       .add_message::<save::LoadGameMsg>()
        // Resources
        .init_resource::<Difficulty>()
        .init_resource::<NpcEntityMap>()
@@ -249,6 +252,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<world::TownGrids>()
        .init_resource::<BuildMenuContext>()
        .add_message::<DestroyBuildingMsg>()
+       .add_message::<SelectFactionMsg>()
        .init_resource::<TowerState>()
        .init_resource::<resources::BuildingEntityMap>()
        .init_resource::<resources::BuildingHpRender>()

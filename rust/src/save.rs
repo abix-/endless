@@ -889,11 +889,17 @@ pub fn apply_save(
 // SAVE/LOAD TRIGGER RESOURCE
 // ============================================================================
 
+/// Request an immediate save (quicksave or configured path).
+#[derive(Message, Clone, Copy)]
+pub struct SaveGameMsg;
+
+/// Request an immediate load (quicksave or configured path).
+#[derive(Message, Clone, Copy)]
+pub struct LoadGameMsg;
+
 /// Trigger resource for save/load operations.
 #[derive(Resource, Default)]
 pub struct SaveLoadRequest {
-    pub save_requested: bool,
-    pub load_requested: bool,
     /// Set by main menu "Load Game" — tells game_startup_system to load instead of world gen.
     pub load_on_enter: bool,
     /// When set, load from this path instead of quicksave.
@@ -1195,22 +1201,23 @@ pub fn restore_growth_from_save(
 // BEVY SYSTEMS
 // ============================================================================
 
-/// F5 = save, F9 = load. Sets flags on SaveLoadRequest.
+/// F5 = save, F9 = load. Emits save/load messages.
 pub fn save_load_input_system(
     keys: Res<ButtonInput<KeyCode>>,
-    mut request: ResMut<SaveLoadRequest>,
+    mut save_msgs: MessageWriter<SaveGameMsg>,
+    mut load_msgs: MessageWriter<LoadGameMsg>,
 ) {
     if keys.just_pressed(KeyCode::F5) {
-        request.save_requested = true;
+        save_msgs.write(SaveGameMsg);
     }
     if keys.just_pressed(KeyCode::F9) {
-        request.load_requested = true;
+        load_msgs.write(LoadGameMsg);
     }
 }
 
 /// Execute save when requested.
 pub fn save_game_system(
-    mut request: ResMut<SaveLoadRequest>,
+    mut save_msgs: MessageReader<SaveGameMsg>,
     mut toast: ResMut<SaveToast>,
     ws: SaveWorldState,
     fs: SaveFactionState,
@@ -1220,8 +1227,7 @@ pub fn save_game_system(
     extras_query: Query<NpcExtrasQuery, Without<Dead>>,
     building_query: Query<(&Building, &NpcIndex, &Health), Without<Dead>>,
 ) {
-    if !request.save_requested { return; }
-    request.save_requested = false;
+    if save_msgs.read().next().is_none() { return; }
 
     let npcs = collect_npc_data(&core_query, &extras_query, &npc_map, &npc_meta);
     let building_hp = collect_building_hp(&building_query, &ws.building_slots);
@@ -1340,6 +1346,7 @@ pub fn spawn_npcs_from_save(
 /// Execute load when requested. Despawns all NPCs and rebuilds from save.
 pub fn load_game_system(
     mut commands: Commands,
+    mut load_msgs: MessageReader<LoadGameMsg>,
     mut request: ResMut<SaveLoadRequest>,
     mut toast: ResMut<SaveToast>,
     mut ws: SaveWorldState,
@@ -1350,8 +1357,7 @@ pub fn load_game_system(
     npc_query: Query<Entity, With<NpcIndex>>,
     marker_query: Query<Entity, With<FarmReadyMarker>>,
 ) {
-    if !request.load_requested { return; }
-    request.load_requested = false;
+    if load_msgs.read().next().is_none() { return; }
 
     // Read save file (from explicit path or quicksave)
     let save = match if let Some(path) = request.load_path.take() {

@@ -55,6 +55,9 @@ Each piece of NPC data has exactly one authoritative owner. Readers on the other
 | BuildingDeathMsg | kind (BuildingKind), index (usize), bld_slot (usize), attacker (i32), attacker_faction (i32) | damage_system → building_death_system |
 | GpuUpdateMsg | GpuUpdate enum (see below) | MessageWriter → populate_gpu_state |
 | CombatLogMsg | kind, faction, day, hour, minute, message, location | 18+ writers → drain_combat_log |
+| SaveGameMsg | none | save_load_input_system → save_game_system |
+| LoadGameMsg | none | save_load_input_system → load_game_system |
+| SelectFactionMsg | faction (i32) | click_to_select_system/game_hud → left_panel_system |
 | ReassignMsg | npc_index, new_job | Defined but unused (placeholder for future role reassignment) |
 
 ### Dirty Signal Messages

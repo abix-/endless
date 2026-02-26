@@ -112,7 +112,7 @@ pub struct SquadParams<'w, 's> {
 // ============================================================================
 
 #[derive(SystemParam)]
-pub struct FactionsParams<'w> {
+pub struct FactionsParams<'w, 's> {
     ai_state: Res<'w, AiPlayerState>,
     food_storage: Res<'w, FoodStorage>,
     gold_storage: Res<'w, GoldStorage>,
@@ -123,6 +123,7 @@ pub struct FactionsParams<'w> {
     town_grids: Res<'w, TownGrids>,
     world_grid: Res<'w, WorldGrid>,
     building_map: Res<'w, BuildingEntityMap>,
+    faction_select: MessageReader<'w, 's, crate::messages::SelectFactionMsg>,
 }
 
 #[derive(Clone)]
@@ -197,7 +198,7 @@ pub fn left_panel_system(
     mut roster: RosterParams,
     mut upgrade: UpgradeParams,
     mut squad: SquadParams,
-    factions: FactionsParams,
+    mut factions: FactionsParams,
     mut profiler: ProfilerParams,
     mut commands: Commands,
     mut roster_state: Local<RosterState>,
@@ -248,6 +249,10 @@ pub fn left_panel_system(
     let mut jump_target: Option<Vec2> = None;
     let mut patrol_swap: Option<(usize, usize)> = None;
     let mut copy_text: Option<String> = None;
+    let mut requested_faction: Option<i32> = None;
+    for msg in factions.faction_select.read() {
+        requested_faction = Some(msg.0);
+    }
     egui::Window::new(tab_name)
         .open(&mut open)
         .resizable(false)
@@ -266,7 +271,7 @@ pub fn left_panel_system(
                 LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data, &factions.building_map, &mut profiler.mining_policy, &mut dirty_writers, &mut jump_target),
                 LeftPanelTab::Patrols => { patrol_swap = patrols_content(ui, &world_data, &factions.building_map, &mut jump_target); },
                 LeftPanelTab::Squads => squads_content(ui, &mut squad, &roster.meta_cache, &world_data, &mut commands, &mut dirty_writers),
-                LeftPanelTab::Factions => factions_content(ui, &factions, &squad.squad_state, &world_data, &policies, &profiler.mining_policy, &mut factions_cache, &mut jump_target, &mut ui_state, &mut copy_text),
+                LeftPanelTab::Factions => factions_content(ui, &factions, &squad.squad_state, &world_data, &policies, &profiler.mining_policy, &mut factions_cache, &mut jump_target, &mut ui_state, &mut copy_text, requested_faction),
                 LeftPanelTab::Profiler => profiler_content(ui, &profiler.timings, &mut profiler.migration, &mut settings),
                 LeftPanelTab::Help => help_content(ui),
             }
@@ -1471,6 +1476,7 @@ fn factions_content(
     jump_target: &mut Option<Vec2>,
     ui_state: &mut UiState,
     copy_text: &mut Option<String>,
+    requested_faction: Option<i32>,
 ) {
     // Rebuild cache every 30 frames
     cache.frame_counter += 1;
@@ -1483,8 +1489,8 @@ fn factions_content(
         return;
     }
 
-    // Consume pending faction selection from double-click
-    if let Some(faction) = ui_state.pending_faction_select.take() {
+    // Consume requested faction selection from click/double-click messages.
+    if let Some(faction) = requested_faction {
         if let Some(idx) = cache.snapshots.iter().position(|s| s.faction == faction) {
             cache.selected_idx = idx;
         }

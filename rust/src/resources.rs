@@ -628,8 +628,6 @@ pub struct UiState {
     pub combat_log_visible: bool,
     /// MinerHome building data index — next click assigns a gold mine.
     pub assigning_mine: Option<usize>,
-    /// Double-click on fountain sets this to the faction number; Factions tab consumes it.
-    pub pending_faction_select: Option<i32>,
     /// Currently selected faction in the Factions tab (for world overlays).
     pub factions_overlay_faction: Option<i32>,
     /// Preferred inspector tab after latest click when both NPC and building are selected.
@@ -647,7 +645,6 @@ impl Default for UiState {
             left_panel_tab: LeftPanelTab::default(),
             combat_log_visible: true,
             assigning_mine: None,
-            pending_faction_select: None,
             factions_overlay_faction: None,
             inspector_prefer_npc: true,
             inspector_click_seq: 0,

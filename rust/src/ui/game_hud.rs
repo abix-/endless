@@ -193,6 +193,7 @@ pub struct BuildingInspectorData<'w, 's> {
 #[derive(SystemParam)]
 pub struct BottomPanelUiState<'w, 's> {
     destroy_request: MessageWriter<'w, crate::messages::DestroyBuildingMsg>,
+    faction_select: MessageWriter<'w, crate::messages::SelectFactionMsg>,
     ui_state: ResMut<'w, UiState>,
     mining_policy: ResMut<'w, MiningPolicy>,
     dirty_writers: crate::messages::DirtyWriters<'w>,
@@ -319,7 +320,7 @@ pub fn bottom_panel_system(
                     ui, &data, &mut meta_cache, &mut inspector_state.rename, &mut bld_data, &mut world_data, &health_query,
                     &equip_query, &npc_states, &gpu_state, &buffer_writes, &mut follow, &settings, &catalog, &mut copy_text,
                     &mut panel_state.ui_state, &mut panel_state.mining_policy, &mut panel_state.dirty_writers, show_npc,
-                    &panel_state.npc_entity_map, &mut panel_state.squad_state, &mut panel_state.commands, dc_count,
+                    &panel_state.npc_entity_map, &mut panel_state.squad_state, &mut panel_state.commands, &mut panel_state.faction_select, dc_count,
                 );
                 // Destroy button for selected player-owned buildings (not fountains/mines)
                 let show_building = has_building && (!has_npc || !show_npc);
@@ -621,13 +622,14 @@ fn inspector_content(
     npc_entity_map: &NpcEntityMap,
     squad_state: &mut SquadState,
     commands: &mut Commands,
+    faction_select: &mut MessageWriter<crate::messages::SelectFactionMsg>,
     dc_count: usize,
 ) {
     if !show_npc {
         rename_state.slot = -1;
         rename_state.text.clear();
         if bld_data.selected_building.active {
-            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty_writers, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, npc_states, gpu_state);
+            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty_writers, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, npc_states, gpu_state, faction_select);
             return;
         }
         if dc_count > 0 {
@@ -643,7 +645,7 @@ fn inspector_content(
         rename_state.slot = -1;
         rename_state.text.clear();
         if bld_data.selected_building.active {
-            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty_writers, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, npc_states, gpu_state);
+            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty_writers, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, npc_states, gpu_state, faction_select);
             return;
         }
         if dc_count > 0 {
@@ -659,7 +661,7 @@ fn inspector_content(
         rename_state.slot = -1;
         rename_state.text.clear();
         if bld_data.selected_building.active {
-            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty_writers, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, npc_states, gpu_state);
+            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty_writers, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, npc_states, gpu_state, faction_select);
         } else {
             ui.label("Click an NPC or building to inspect");
         }
@@ -829,7 +831,7 @@ fn inspector_content(
             if ui.link(format!("Faction: {}", faction_str)).clicked() {
                 ui_state.left_panel_open = true;
                 ui_state.left_panel_tab = LeftPanelTab::Factions;
-                ui_state.pending_faction_select = Some(fid);
+                faction_select.write(crate::messages::SelectFactionMsg(fid));
             }
         } else {
             ui.label(format!("Faction: {}", faction_str));
@@ -1100,6 +1102,7 @@ fn building_inspector_content(
     combat_log: &CombatLog,
     npc_states: &NpcStateQuery,
     gpu_state: &GpuReadState,
+    faction_select: &mut MessageWriter<crate::messages::SelectFactionMsg>,
 ) {
     let Some((kind, bld_town_idx, world_pos, col, row)) =
         selected_building_info(&bld.selected_building, &bld.grid, &bld.building_map)
@@ -1117,7 +1120,7 @@ fn building_inspector_content(
         if ui.link(format!("Faction: {}", town.faction)).clicked() {
             ui_state.left_panel_open = true;
             ui_state.left_panel_tab = LeftPanelTab::Factions;
-            ui_state.pending_faction_select = Some(town.faction);
+            faction_select.write(crate::messages::SelectFactionMsg(town.faction));
         }
     } else if kind == BuildingKind::GoldMine {
         ui.label("Faction: Unowned");

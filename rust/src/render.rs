@@ -11,7 +11,7 @@ use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileD
 use crate::gpu::RenderFrameConfig;
 use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab, SystemTimings, NpcEntityMap};
 use crate::components::{ManualTarget, Activity};
-use crate::messages::{GpuUpdate, GpuUpdateMsg, TerrainDirtyMsg};
+use crate::messages::{GpuUpdate, GpuUpdateMsg, SelectFactionMsg, TerrainDirtyMsg};
 use crate::settings::UserSettings;
 use crate::world::{WorldData, WorldGrid, BuildingKind, build_tileset, build_building_atlas, build_extras_atlas, TERRAIN_TILES, building_tiles};
 
@@ -375,6 +375,7 @@ fn click_to_select_system(
     dc_query: Query<(), With<crate::components::DirectControl>>,
     mut activity_query: Query<&mut Activity, With<crate::components::DirectControl>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    mut faction_select: MessageWriter<SelectFactionMsg>,
 ) {
     let _t = timings.scope("click_select");
     // Right-click: squad target placement, DirectControl micro, or cancel mine assignment
@@ -636,7 +637,7 @@ fn click_to_select_system(
                 if let Some(town) = click.world_data.towns.get(*town_idx as usize) {
                     click.ui_state.left_panel_open = true;
                     click.ui_state.left_panel_tab = LeftPanelTab::Factions;
-                    click.ui_state.pending_faction_select = Some(town.faction);
+                    faction_select.write(SelectFactionMsg(town.faction));
                 }
             }
         }
