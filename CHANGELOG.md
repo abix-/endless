@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-26c
+
+- **fix dead entity crash: single Dead writer** — removed `insert(Dead)` from `destroy_building()` (was second writer of `Dead`, racing with `death_system` Phase 1); `destroy_building()` is now purely grid cleanup (cell clear + wall auto-tile + combat log); all destroy paths (UI click-destroy, inspector-destroy, AI waypoint prune) now send lethal `DamageMsg(f32::MAX)` through the normal damage pipeline instead; `death_system` Phase 1 is the single writer of `Dead` (HP ≤ 0 → insert Dead); fixes crash where `death_system` Phase 2 queued `despawn()` then called `destroy_building()` which queued `insert(Dead)` on the same entity → generation mismatch on flush
+- **docs: chunked tilemap, upgrade registry, GpuReadState** — updated rendering.md (chunked tilemap description), resources.md (dynamic upgrade registry, GpuReadState mixed-cadence readback, UpgradeMsg pattern), combat.md (single Dead writer flow), ai-player.md (waypoint prune DamageMsg), README.md (destroy_building description)
+
 ## 2026-02-26b
 
 - **movement intent system** — centralized NPC movement targeting through `MovementIntents` resource (`HashMap<Entity, MovementIntent>` with `MovementPriority` arbitration); `resolve_movement_system` (after Step::Behavior) is the sole emitter of `GpuUpdate::SetTarget` and sole recorder of `NpcTargetThrashDebug`; migrated 4 systems: `decision_system` (~35 sites → `submit_intent` helper with priority mapping), `attack_system` (4 sites → Combat priority), `death_system` (2 sites → Survival priority for loot return), `click_to_select_system` (2 sites → DirectControl priority); priority ladder: Wander < JobRoute < Squad < Combat < Survival < ManualTarget < DirectControl; change detection skips writes within 1px of current GPU target; one-time init targets (spawn, boat) still write SetTarget directly; eliminates last-writer-wins race between combat chase and behavior flee

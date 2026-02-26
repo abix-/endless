@@ -47,12 +47,11 @@ impl WorldState<'_> {
         town_center: Vec2,
         reason: &str,
         gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
-        commands: &mut Commands,
     ) -> Result<(), &'static str> {
         crate::world::destroy_building(
             &mut self.grid, &self.world_data,
             &mut self.building_slots, combat_log, game_time,
-            row, col, town_center, reason, gpu_updates, commands,
+            row, col, town_center, reason, gpu_updates,
         )
     }
 }

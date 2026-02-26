@@ -184,7 +184,7 @@ pub fn death_system(
                         &mut res.building_slots, &mut combat_log, &game_time,
                         trow, tcol, center,
                         &format!("{:?} destroyed in {}", kind, town_name),
-                        &mut gpu_updates, &mut commands,
+                        &mut gpu_updates,
                     );
                     res.dirty_writers.mark_building_changed(kind);
 

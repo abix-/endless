@@ -990,10 +990,10 @@ fn sync_town_perimeter_waypoints(
     world: &mut WorldState,
     combat_log: &mut MessageWriter<crate::messages::CombatLogMsg>,
     gpu_updates: &mut MessageWriter<crate::messages::GpuUpdateMsg>,
+    damage_writer: &mut MessageWriter<crate::messages::DamageMsg>,
     game_time: &GameTime,
     town_data_idx: usize,
     personality: AiPersonality,
-    commands: &mut Commands,
 ) -> usize {
     // Prune waypoints not in the personality's ideal outer ring.
     // When the town area expands, the ring shifts outward and inner waypoints are destroyed.
@@ -1001,6 +1001,7 @@ fn sync_town_perimeter_waypoints(
     let Some(tg) = world.town_grids.grids.iter().find(|g| g.town_data_idx == town_data_idx) else { return 0; };
     let center = town.center;
     let ti = town_data_idx as u32;
+    let npc_count = world.slot_alloc.count();
 
     let ideal: HashSet<(i32, i32)> = personality.waypoint_ring_slots(tg).into_iter().collect();
 
@@ -1014,11 +1015,20 @@ fn sync_town_perimeter_waypoints(
 
     let mut removed = 0usize;
     for (row, col) in prune_slots {
+        // Send lethal damage so death_system handles despawn (single Dead writer)
+        let pos = world::town_grid_to_world(center, row, col);
+        if let Some(inst) = world.building_slots.find_by_position(pos) {
+            damage_writer.write(crate::messages::DamageMsg {
+                entity_idx: npc_count + inst.slot,
+                amount: f32::MAX,
+                attacker: -1,
+                attacker_faction: 0,
+            });
+        }
         if world.destroy_building(
             combat_log, game_time,
             row, col, center, "waypoint pruned (not on outer ring)",
             gpu_updates,
-            commands,
         ).is_ok() {
             removed += 1;
         }
@@ -1031,11 +1041,11 @@ fn sync_town_perimeter_waypoints(
 
 /// Dirty-flag-gated maintenance: keep in-town patrol waypoints on the building-driven perimeter.
 pub fn sync_patrol_perimeter_system(
-    mut commands: Commands,
     mut world: WorldState,
     ai_state: Res<AiPlayerState>,
     mut combat_log: MessageWriter<crate::messages::CombatLogMsg>,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
+    mut damage_writer: MessageWriter<crate::messages::DamageMsg>,
     game_time: Res<GameTime>,
     timings: Res<SystemTimings>,
     mut perimeter_dirty: ResMut<PerimeterSyncDirty>,
@@ -1053,8 +1063,8 @@ pub fn sync_patrol_perimeter_system(
     let mut removed_total = 0usize;
     for (town_idx, personality) in town_personalities {
         removed_total += sync_town_perimeter_waypoints(
-            &mut world, &mut combat_log, &mut gpu_updates, &game_time,
-            town_idx, personality, &mut commands,
+            &mut world, &mut combat_log, &mut gpu_updates, &mut damage_writer, &game_time,
+            town_idx, personality,
         );
     }
 

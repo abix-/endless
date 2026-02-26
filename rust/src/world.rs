@@ -705,7 +705,8 @@ pub fn expand_town_build_area(
 
 
 /// Consolidated building destruction: grid clear + growth tombstone + HP zero + combat log.
-/// Used by click-destroy, inspector-destroy, and death_system (HP→0).
+/// Grid cleanup for building removal: clears grid cell, updates wall auto-tile, logs combat event.
+/// Does NOT mark the entity as Dead — callers send DamageMsg for that (single Dead writer: death_system).
 pub(crate) fn destroy_building(
     grid: &mut WorldGrid,
     world_data: &WorldData,
@@ -716,24 +717,13 @@ pub(crate) fn destroy_building(
     town_center: Vec2,
     reason: &str,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
-    commands: &mut Commands,
 ) -> Result<(), &'static str> {
     let world_pos = town_grid_to_world(town_center, row, col);
     let (gc, gr) = grid.world_to_grid(world_pos);
-    let snapped = grid.grid_to_world(gc, gr);
 
     let (kind, bld_town_idx) = grid.cell(gc, gr)
         .and_then(|c| c.building)
         .ok_or("no building")?;
-
-    // Mark building entity as Dead (death_system handles despawn + GPU hide + slot free)
-    if let Some(inst) = building_slots.find_by_position(snapped) {
-        // During load/rebuild windows some instances can still carry PLACEHOLDER.
-        // Never enqueue commands against placeholder entities.
-        if inst.entity != Entity::PLACEHOLDER && let Ok(mut ec) = commands.get_entity(inst.entity) {
-            ec.insert(crate::components::Dead);
-        }
-    }
 
     // Clear grid cell
     if let Some(cell) = grid.cell_mut(gc, gr) {

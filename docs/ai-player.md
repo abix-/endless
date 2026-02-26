@@ -274,7 +274,7 @@ Search radius: 5000px from town center. Cooldown includes ±2s jitter. Initial c
 
 `sync_patrol_perimeter_system` (flag-gated via `PerimeterSyncDirty` resource, set by `perimeter_dirty_drain_system`):
 1. Compute personality's ideal outer ring via `waypoint_ring_slots(tg)` (block corners on build area perimeter)
-2. Prune waypoints not in the ideal ring (uses full `destroy_building` teardown) — when town area expands, the ring shifts outward and inner waypoints are destroyed
+2. Prune waypoints not in the ideal ring (sends lethal `DamageMsg` + `destroy_building` grid cleanup) — when town area expands, the ring shifts outward and inner waypoints are destroyed
 3. Recalculate clockwise patrol order (angle-based sort around town center)
 
 ## Migration (Dynamic Raider Towns)

@@ -447,7 +447,7 @@ Current equipment assignments:
 
 ## World Tilemap (Terrain Only)
 
-Terrain is rendered via Bevy's built-in `TilemapChunk` — a single layer entity on the grid (default 250×250, up to 1000×1000). A single quad mesh with a fragment shader does per-pixel tile lookup from a `texture_2d_array` tileset. Currently one chunk — a future optimization (see roadmap: Chunked Tilemap spec) will split into 32×32 chunks for off-screen culling.
+Terrain is rendered via Bevy's built-in `TilemapChunk` as a chunked layer over the grid (default 250×250, up to 1000×1000). The renderer splits terrain into `CHUNK_SIZE=32` tile chunks for frustum culling, each with its own `TilemapChunk` entity and tile data region. A fragment shader does per-pixel tile lookup from a `texture_2d_array` tileset.
 
 | Layer | Z | Alpha | Content | Tileset |
 |-------|---|-------|---------|---------|

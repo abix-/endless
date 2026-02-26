@@ -141,12 +141,12 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 
 | Resource | Data | Status |
 |----------|------|--------|
-| GpuReadState | positions, combat_targets, health, factions, npc_count | Populated via staging buffer readback each frame |
+| GpuReadState | positions, combat_targets, health, factions, threat_counts, npc_count | Populated via GPU readback observers (mixed cadence; see below) |
 | BuildingGpuState | positions, factions, healths, sprite_indices, flash_values, flags + dirty tracking | CPU-side GPU state for buildings; populated by `Bld*` GpuUpdate variants; read by building rendering + healing system |
 | NpcSpriteTexture | handle (char atlas), world_handle (world atlas), extras_handle (extras atlas), building_handle (building atlas) | Shared with instanced renderer for texture bind group |
 | ProjSlotAllocator | next, free list, max (50,000) | Active — allocates projectile slots |
 
-`GpuReadState` is populated each frame by staging buffer readback. Used by combat systems (including `fire_towers` for CPU-side tower targeting), position sync, and test assertions.
+`GpuReadState` is populated by `ReadbackComplete` observers. Positions/combat targets/health are always-on; `factions` is throttled to every 60 frames and `threat_counts` to every 30 frames. Used by combat systems (including `building_tower_system` for CPU-side tower targeting), behavior/AI threat logic, position sync, and test assertions.
 
 `BuildingGpuState` holds building visual data on the CPU side — not uploaded to GPU compute. Building rendering reads from this state to build `BuildingBodyInstances` (instance buffer path). Building healing reads positions from this state.
 
@@ -155,19 +155,19 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 | Resource | Data | Defined In | Purpose |
 |----------|------|------------|---------|
 | CombatConfig | `HashMap<Job, JobStats>` + `HashMap<BaseAttackType, AttackTypeStats>` + heal_rate + heal_radius | `systems/stats.rs` | All NPC base stats — resolved via `resolve_combat_stats()` |
-| TownUpgrades | `Vec<[u8; 16]>` per town | `systems/stats.rs` | Per-town upgrade levels, indexed by `UpgradeType` enum. `town_levels(idx)` accessor. |
-| UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | `systems/stats.rs` | Pending upgrade purchases from UI, drained by `process_upgrades_system` |
-| AutoUpgrade | `Vec<[bool; 16]>` per town | `resources.rs` | Per-upgrade auto-buy flags; `auto_upgrade_system` queues affordable upgrades each game hour; persisted per-player-town in `UserSettings.auto_upgrades` |
+| TownUpgrades | `Vec<Vec<u8>>` per town (dynamic width = `upgrade_count()`) | `systems/stats.rs` | Per-town upgrade levels, indexed by dynamic registry layout |
+| UpgradeMsg | Message `{ town_idx, upgrade_idx }` | `systems/stats.rs` | Upgrade purchase request from UI/auto/AI, consumed by `process_upgrades_system` |
+| AutoUpgrade | `Vec<Vec<bool>>` per town (dynamic width = `upgrade_count()`) | `resources.rs` | Per-upgrade auto-buy flags; `auto_upgrade_system` emits `UpgradeMsg` each game hour for affordable enabled upgrades |
 
 `CombatConfig::default()` initializes from hardcoded values (archer/raider damage=15, fighter damage=22.5, speeds=100, max_health=100, melee range=50/proj_speed=200, ranged range=100/proj_speed=100, heal_rate=5, heal_radius=150). Per-job `attack_override` in `NPC_REGISTRY` can override attack type defaults. `resolve_combat_stats()` combines job base × upgrade mult × trait mult × level mult → `CachedStats` component.
 
-`UPGRADE_REGISTRY` is the single source of truth for all upgrade metadata — an `[UpgradeNode; 16]` const array in `stats.rs`. Each `UpgradeNode` has: `label`, `short`, `tooltip`, `category`, `cost: &[(ResourceKind, i32)]` (multi-resource), `prereqs: &[(UpgradePrereq)]`. `ResourceKind { Food, Gold }` is extensible for future resource types. `UpgradePrereq { upgrade: usize, min_level: u8 }` defines dependency edges forming a tech tree.
+`UPGRADES` is the single source of truth for upgrade metadata — a global `LazyLock<UpgradeRegistry>` built from `NPC_REGISTRY` + `TOWN_UPGRADES` at startup. `UpgradeRegistry` contains dynamic `nodes`, UI `branches`, and an `(category, stat_kind) -> index` map. `UpgradeNode` includes: `label`, `short`, `tooltip`, `category`, `stat_kind`, `pct`, `cost`, `display`, `prereqs: Vec<(usize, u8)>`, and flags (`is_combat_stat`, `invalidates_healing`, `triggers_expansion`, `custom_cost`).
 
-`TownUpgrades` is indexed by town, each entry is a fixed-size array of 16 upgrade levels (`UpgradeType` enum — Military: MilitaryHp, MilitaryAttack, MilitaryRange, AttackSpeed, MilitaryMoveSpeed, AlertRadius, Dodge; Farmer: FarmYield, FarmerHp, FarmerMoveSpeed; Miner: MinerHp, MinerMoveSpeed, GoldYield; Town: HealingRate, FountainRadius, TownArea). Shared helpers gate all purchase paths: `upgrade_unlocked(levels, idx)` checks prereqs, `upgrade_available(levels, idx, food, gold)` checks prereqs + multi-resource affordability, `deduct_upgrade_cost(idx, level, &mut food, &mut gold)` deducts from correct storages. `UpgradeQueue` decouples the UI from stat re-resolution — `left_panel.rs` pushes `(town, upgrade)` tuples, `process_upgrades_system` validates via `upgrade_available()`, deducts via `deduct_upgrade_cost()`, increments level, and re-resolves `CachedStats` for affected NPCs. `auto_upgrade_system` runs once per game hour, queuing auto-enabled upgrades that pass `upgrade_available()`. AI upgrade scoring in `ai_decision_system` also gates on `upgrade_available()`.
+`TownUpgrades` stores dynamic per-town level vectors sized to `upgrade_count()`, and save/load uses decode helpers that pad older saves when new upgrades are added. Shared helpers gate all purchase paths: `upgrade_unlocked(levels, idx)` (prereqs), `upgrade_available(levels, idx, food, gold)` (prereqs + affordability), `deduct_upgrade_cost(...)`, `missing_prereqs(...)`, and `format_upgrade_cost(...)`. `UpgradeMsg` decouples writers from processing: UI, auto-upgrade, and AI emit messages; `process_upgrades_system` validates, deducts, increments, and re-resolves affected stats.
 
-`UPGRADE_RENDER_ORDER` defines the UI tree layout — `&[(&str, &[(usize, u8)])]` where each entry is a branch label with ordered `(upgrade_index, depth)` pairs. Depth controls indentation in the upgrade panel. `branch_total()` sums levels per category. `upgrade_effect_summary()` returns `(now_text, next_text)` for UI display (handles multiplicative, reciprocal, unlock, flat, and discrete types).
+UI tree layout is driven by `UPGRADES.branches` (generated during registry build), not a hardcoded render-order array. `branch_total()` sums category levels, and `upgrade_effect_summary()` formats current/next effects (percentage, cooldown reduction, unlock, flat, discrete).
 
-**Upgrade percentages** (`UPGRADE_PCT` array in `systems/stats.rs`):
+**Current default upgrade layout** (as built from current registries):
 
 | Index | Upgrade | Category | % per level | Type |
 |-------|---------|----------|-------------|------|
@@ -244,8 +244,8 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | CombatLog | `entries: VecDeque<CombatLogEntry>` (max 200) + `priority_entries: VecDeque<CombatLogEntry>` (max 200, Raid/Ai events) | `drain_combat_log` system (collects `CombatLogMsg` messages from 18+ writer systems) | combat_log_system (via `iter_all()`), building inspector |
 | BuildMenuContext | town_data_idx, selected_build (`Option<BuildingKind>`), destroy_mode (bool), hover_world_pos, ghost_sprites (`HashMap<BuildingKind, Handle<Image>>`) | build_menu_system (init_sprite_cache populates ghost_sprites), build_ghost_system | build_place_click_system, draw_slot_indicators |
 | DestroyRequest | `Option<(usize, usize)>` (grid_col, grid_row) | bottom_panel_system (inspector destroy button) | process_destroy_system |
-| UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | left_panel upgrades (UI), auto_upgrade_system | process_upgrades_system |
-| TurretState | `waypoint: TurretKindState`, `town: TurretKindState` — each has `timers: Vec<f32>`, `attack_enabled: Vec<bool>` | building_turret_system (auto-sync + refresh) | building_turret_system |
+| UpgradeMsg | Message `{ town_idx, upgrade_idx }` | left_panel upgrades (UI), auto_upgrade_system, ai_player | process_upgrades_system |
+| TowerState | `town: TowerKindState` where `TowerKindState = { timers: Vec<f32>, attack_enabled: Vec<bool> }` | building_tower_system (cooldown + fire) | building_tower_system |
 | UserSettings | world_size, towns, farmers, archers, raiders, ai_towns, raider_towns, ai_interval, npc_interval, scroll_speed, ui_scale (f32, default 1.2), difficulty (Difficulty, default Normal), log_kills/spawns/raids/harvests/levelups/npc_activity/ai, debug_coordinates/all_npcs, policy (PolicySet), upgrade_expanded (Vec\<String\> — expanded branch labels) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close), upgrade_content (save on expand/collapse) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system, apply_ui_scale. **Loaded from disk at app startup** via `insert_resource(load_settings())` in `build_app()` — persists across app restarts without waiting for UI init. |
 
 `UiState` tracks which panels are open. All default to false. `LeftPanelTab` enum: Roster (default), Upgrades, Policies, Patrols, Squads, Factions, Help. `toggle_left_tab()` method: if panel shows that tab → close, otherwise open to that tab. Faction pre-select now uses `SelectFactionMsg`: produced by fountain double-click and inspector faction links, consumed in `left_panel_system`/`factions_content` via `MessageReader<SelectFactionMsg>`.

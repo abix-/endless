@@ -660,6 +660,7 @@ fn build_place_click_system(
     mut food_storage: ResMut<FoodStorage>,
     mut combat_log: MessageWriter<crate::messages::CombatLogMsg>,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
+    mut damage_writer: MessageWriter<crate::messages::DamageMsg>,
     game_time: Res<GameTime>,
     _difficulty: Res<Difficulty>,
 ) {
@@ -704,12 +705,22 @@ fn build_place_click_system(
         if !is_destructible { return; }
         let bld_kind = cell_building.map(|(k, _)| k);
 
+        // Send lethal damage so death_system handles despawn (single Dead writer)
+        let snapped = world_state.grid.grid_to_world(gc, gr);
+        if let Some(inst) = world_state.building_slots.find_by_position(snapped) {
+            let npc_count = world_state.slot_alloc.count();
+            damage_writer.write(crate::messages::DamageMsg {
+                entity_idx: npc_count + inst.slot,
+                amount: f32::MAX,
+                attacker: -1,
+                attacker_faction: 0,
+            });
+        }
         let _ = world_state.destroy_building(
             &mut combat_log, &game_time,
             row, col, center,
             &format!("Destroyed building at ({},{}) in {}", row, col, town_name),
             &mut gpu_updates,
-            &mut commands,
         );
         if let Some(bk) = bld_kind {
             world_state.dirty_writers.mark_building_changed(bk);
@@ -1214,11 +1225,11 @@ fn draw_slot_indicators(
 
 /// Process destroy requests from the building inspector.
 fn process_destroy_system(
-    mut commands: Commands,
     mut request: MessageReader<crate::messages::DestroyBuildingMsg>,
     mut world_state: WorldState,
     mut combat_log: MessageWriter<crate::messages::CombatLogMsg>,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
+    mut damage_writer: MessageWriter<crate::messages::DamageMsg>,
     game_time: Res<GameTime>,
     mut selected_building: ResMut<SelectedBuilding>,
 ) {
@@ -1250,12 +1261,22 @@ fn process_destroy_system(
         let world_pos = world_state.grid.grid_to_world(col, row);
         let (trow, tcol) = world::world_to_town_grid(center, world_pos);
 
+        // Send lethal damage so death_system handles despawn (single Dead writer)
+        if let Some(inst) = world_state.building_slots.find_by_position(world_pos) {
+            let npc_count = world_state.slot_alloc.count();
+            damage_writer.write(crate::messages::DamageMsg {
+                entity_idx: npc_count + inst.slot,
+                amount: f32::MAX,
+                attacker: -1,
+                attacker_faction: 0,
+            });
+        }
+
         if world_state.destroy_building(
             &mut combat_log, &game_time,
             trow, tcol, center,
             &format!("Destroyed building in {}", town_name),
             &mut gpu_updates,
-            &mut commands,
         ).is_ok() {
             selected_building.active = false;
             if let Some(bk) = bld_kind {

@@ -35,7 +35,7 @@ DamageMsg (from process_proj_hits)             GPU movement
         │
         ▼
   death_system (health.rs) — unified, two phases per frame
-  ├─ Phase 1: mark dead (deferred — takes effect next frame)
+  ├─ Phase 1: mark dead — SINGLE writer of Dead component
   │   Query Without<Dead> where health <= 0 → insert Dead
   └─ Phase 2: process dead (With<Dead> from previous frame)
       ├─ Building branch:
@@ -134,7 +134,7 @@ For each dead entity:
 
 **Building branch** (detected via `Building` component):
 - Looks up instance data (position, town_idx, npc_slot) from `BuildingEntityMap.get_instance(idx)`
-- Calls `destroy_building()` shared helper (grid clear + wall auto-tile + combat log)
+- Calls `destroy_building()` for grid cleanup (grid cell clear + wall auto-tile + combat log — no entity lifecycle)
 - Emits `mark_building_changed(kind)` dirty signals
 - **Fountain death**: deactivates AI player for that town. In endless mode, queues replacement AI (`PendingAiSpawn`) scaled to player strength.
 - **Linked NPC kill**: if building had `npc_slot >= 0`, hides + kills the linked NPC via GPU updates
@@ -221,4 +221,4 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 - **No generational indices**: Stale references to recycled slots would silently alias. Currently safe due to chained execution, but would break if damage messages span frames.
 - **No friendly fire**: Faction check prevents same-faction damage. No way to enable it selectively.
 - **CombatState::Fighting blocks behavior decisions**: While fighting, decision_system skips the NPC. However, Activity is preserved through combat — when combat ends (`CombatState::None`), the NPC resumes its previous activity.
-- **KillStats naming inverted**: `guard_kills` tracks raiders killed (by guards), `villager_kills` tracks villagers killed (by raiders). The names describe the victim, not the killer.
+- **KillStats naming can be misread**: `archer_kills` tracks raiders killed by guards/defenders, while `villager_kills` tracks villagers killed by raiders.
