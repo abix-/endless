@@ -9,7 +9,7 @@ use crate::components::*;
 use crate::resources::*;
 use crate::systemparams::{EconomyState, WorldState};
 use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, RAIDER_FORAGE_RATE, STARVING_SPEED_MULT, SPAWNER_RESPAWN_HOURS,
-    RAIDER_SETTLE_RADIUS, MIGRATION_BASE_SIZE, BOAT_SPEED, ATLAS_BOAT, ENDLESS_RESPAWN_DELAY_HOURS,
+    RAIDER_SETTLE_RADIUS, MIGRATION_BASE_SIZE, BOAT_SPEED, ATLAS_BOAT, ENDLESS_RESPAWN_DELAY_HOURS, TOWN_GRID_SPACING,
 };
 use crate::world::{self, WorldData, BuildingKind, BuildingOccupancy, TownGrids, Biome};
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg, CombatLogMsg};
@@ -360,7 +360,7 @@ pub fn mining_policy_system(
             .filter_map(|&slot| building_map.get_instance(slot).map(|i| i.position))
             .collect();
         let enabled_grid_cells: std::collections::HashSet<(i32,i32)> = enabled_positions.iter()
-            .map(|p| ((p.x / 32.0).floor() as i32, (p.y / 32.0).floor() as i32))
+            .map(|p| ((p.x / TOWN_GRID_SPACING).floor() as i32, (p.y / TOWN_GRID_SPACING).floor() as i32))
             .collect();
 
         // Collect auto-assign miner home slots (O(town's miner homes) instead of O(all spawners))
@@ -375,7 +375,7 @@ pub fn mining_policy_system(
         for &slot in &auto_home_slots {
             let Some(inst) = building_map.get_instance(slot) else { continue };
             if let Some(pos) = inst.assigned_mine {
-                let cell = ((pos.x / 32.0).floor() as i32, (pos.y / 32.0).floor() as i32);
+                let cell = ((pos.x / TOWN_GRID_SPACING).floor() as i32, (pos.y / TOWN_GRID_SPACING).floor() as i32);
                 let still_enabled = enabled_grid_cells.contains(&cell);
                 if !still_enabled {
                     if let Some(inst_mut) = building_map.get_instance_mut(slot) {

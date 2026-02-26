@@ -719,10 +719,10 @@ pub struct AiPlayerState {
 /// Find best empty slot closest to town center (for economy buildings).
 /// Excludes road and waypoint pattern slots for the given personality.
 fn find_inner_slot(
-    tg: &world::TownGrid, center: Vec2, grid: &WorldGrid, personality: AiPersonality,
+    tg: &world::TownGrid, center: Vec2, grid: &WorldGrid, building_map: &BuildingEntityMap, personality: AiPersonality,
 ) -> Option<(i32, i32)> {
     let wp_slots: HashSet<(i32, i32)> = personality.waypoint_ring_slots(tg).into_iter().collect();
-    world::empty_slots(tg, center, grid).into_iter()
+    world::empty_slots(tg, center, grid, building_map).into_iter()
         .filter(|&(r, c)| !personality.is_road_slot(r, c) && !wp_slots.contains(&(r, c)))
         .min_by_key(|&(r, c)| r * r + c * c)
 }
@@ -748,7 +748,7 @@ fn build_town_snapshot(
     // Compute waypoint ring once and cache — reused for slot filtering and find_waypoint_slot
     let waypoint_ring = personality.waypoint_ring_slots(tg);
     let wp_slots: HashSet<(i32, i32)> = waypoint_ring.iter().copied().collect();
-    let empty_slots = world::empty_slots(tg, center, grid).into_iter()
+    let empty_slots = world::empty_slots(tg, center, grid, building_map).into_iter()
         .filter(|&(r, c)| !personality.is_road_slot(r, c) && !wp_slots.contains(&(r, c)))
         .collect();
 
@@ -999,7 +999,7 @@ fn find_waypoint_slot(
         .find(|&(r, c)| {
             let pos = world::town_grid_to_world(center, r, c);
             let (gc, gr) = grid.world_to_grid(pos);
-            grid.cell(gc, gr).map(|cl| cl.building.is_none()) == Some(true)
+            !building_map.has_building_at(gc as i32, gr as i32)
         })
 }
 
@@ -1163,7 +1163,7 @@ impl TownContext {
         let ti = tdi as u32;
         let empty_count = snapshot.map(|s| s.empty_slots.len())
             .or_else(|| res.world.town_grids.grids.get(grid_idx)
-                .map(|tg| world::empty_slots(tg, center, &res.world.grid).len()))
+                .map(|tg| world::empty_slots(tg, center, &res.world.grid, &res.world.building_slots).len()))
             .unwrap_or(0);
         let slot_fullness = res.world.town_grids.grids.get(grid_idx)
             .map(|tg| {
@@ -1612,6 +1612,7 @@ fn pick_slot_from_snapshot_or_inner(
     tg: &world::TownGrid,
     center: Vec2,
     grid: &WorldGrid,
+    building_map: &BuildingEntityMap,
     score: fn(&AiTownSnapshot, (i32, i32)) -> i32,
     personality: AiPersonality,
 ) -> Option<(i32, i32)> {
@@ -1622,7 +1623,7 @@ fn pick_slot_from_snapshot_or_inner(
             return Some(slot);
         }
     }
-    find_inner_slot(tg, center, grid, personality)
+    find_inner_slot(tg, center, grid, building_map, personality)
 }
 
 fn try_build_inner(
@@ -1632,7 +1633,7 @@ fn try_build_inner(
 ) -> Option<String> {
     // Build using deterministic center-nearest slot.
     let tg = res.world.town_grids.grids.get(grid_idx)?;
-    let (row, col) = find_inner_slot(tg, center, &res.world.grid, personality)?;
+    let (row, col) = find_inner_slot(tg, center, &res.world.grid, &res.world.building_slots, personality)?;
     try_build_at_slot(kind, cost, label, tdi, center, res, row, col)
 }
 
@@ -1645,7 +1646,7 @@ fn try_build_scored(
 ) -> Option<String> {
     // Build using snapshot-aware scoring with inner-slot fallback.
     let tg = res.world.town_grids.grids.get(grid_idx)?;
-    let (row, col) = pick_slot_from_snapshot_or_inner(snapshot, tg, center, &res.world.grid, score_fn, personality)?;
+    let (row, col) = pick_slot_from_snapshot_or_inner(snapshot, tg, center, &res.world.grid, &res.world.building_slots, score_fn, personality)?;
     try_build_at_slot(kind, building_cost(kind), label, tdi, center, res, row, col)
 }
 
@@ -1658,9 +1659,9 @@ fn try_build_miner_home(
     let tg = res.world.town_grids.grids.get(ctx.grid_idx)?;
     let slot = if let Some(snap) = snapshot {
         pick_best_empty_slot(snap, |s| miner_toward_mine_score(&mines.all_positions, ctx.center, s))
-            .or_else(|| find_inner_slot(tg, ctx.center, &res.world.grid, personality))
+            .or_else(|| find_inner_slot(tg, ctx.center, &res.world.grid, &res.world.building_slots, personality))
     } else {
-        find_inner_slot(tg, ctx.center, &res.world.grid, personality)
+        find_inner_slot(tg, ctx.center, &res.world.grid, &res.world.building_slots, personality)
     }?;
     try_build_at_slot(
         BuildingKind::MinerHome,
@@ -1698,7 +1699,7 @@ fn count_road_candidates(
             if road_slots.contains(&(r, c)) { continue; }
             let pos = world::town_grid_to_world(center, r, c);
             let (gc, gr) = grid.world_to_grid(pos);
-            if grid.cell(gc, gr).map_or(true, |cell| cell.building.is_some()) { continue; }
+            if building_map.has_building_at(gc as i32, gr as i32) { continue; }
             let in_bounds = r >= min_r && r <= max_r && c >= min_c && c <= max_c;
             let adj = econ_slots.iter().any(|&(er, ec)| {
                 (er - r).abs() <= 2 && (ec - c).abs() <= 2
@@ -1752,7 +1753,7 @@ fn try_build_road_grid(
             // Skip cells occupied by non-road buildings
             let pos = world::town_grid_to_world(center, r, c);
             let (gc, gr) = res.world.grid.world_to_grid(pos);
-            if res.world.grid.cell(gc, gr).map_or(true, |cell| cell.building.is_some()) { continue; }
+            if res.world.building_slots.has_building_at(gc as i32, gr as i32) { continue; }
             // Score by adjacency to economy buildings (distance 2 covers the 4-cell pattern gap)
             let in_bounds = r >= min_r && r <= max_r && c >= min_c && c <= max_c;
             let adj = econ_slots.iter().filter(|&&(er, ec)| {

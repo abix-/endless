@@ -1006,6 +1006,7 @@ fn populate_tile_flags(
     mut config: ResMut<RenderFrameConfig>,
     grid: Res<crate::world::WorldGrid>,
     world_data: Res<crate::world::WorldData>,
+    building_slots: Res<crate::resources::BuildingEntityMap>,
     mut grid_dirty: MessageReader<crate::messages::BuildingGridDirtyMsg>,
 ) {
     // Set grid dimensions every frame (cheap)
@@ -1020,11 +1021,11 @@ fn populate_tile_flags(
     let total = grid.width * grid.height;
     if total == 0 { return; }
     let mut flags = vec![0u32; total];
+    // Terrain pass
     for row in 0..grid.height {
         for col in 0..grid.width {
             if let Some(cell) = grid.cell(col, row) {
                 let idx = row * grid.width + col;
-                // Base terrain bits
                 flags[idx] = match cell.terrain {
                     crate::world::Biome::Grass => crate::constants::TILE_GRASS,
                     crate::world::Biome::Forest => crate::constants::TILE_FOREST,
@@ -1032,20 +1033,23 @@ fn populate_tile_flags(
                     crate::world::Biome::Rock => crate::constants::TILE_ROCK,
                     crate::world::Biome::Dirt => crate::constants::TILE_DIRT,
                 };
-                // Building bits OR'd on top
-                if let Some((kind, town_idx)) = cell.building {
-                    if kind == crate::world::BuildingKind::Road {
-                        flags[idx] |= crate::constants::TILE_ROAD;
-                    }
-                    if kind == crate::world::BuildingKind::Wall {
-                        let faction = world_data.towns.get(town_idx as usize)
-                            .map(|t| t.faction as u32)
-                            .unwrap_or(0);
-                        flags[idx] |= crate::constants::TILE_WALL
-                            | ((faction & crate::constants::WALL_FACTION_MASK) << crate::constants::WALL_FACTION_SHIFT);
-                    }
-                }
             }
+        }
+    }
+    // Building pass — iterate instances instead of all grid cells
+    for inst in building_slots.iter_instances() {
+        let (gc, gr) = grid.world_to_grid(inst.position);
+        let idx = gr * grid.width + gc;
+        if idx >= total { continue; }
+        if inst.kind == crate::world::BuildingKind::Road {
+            flags[idx] |= crate::constants::TILE_ROAD;
+        }
+        if inst.kind == crate::world::BuildingKind::Wall {
+            let faction = world_data.towns.get(inst.town_idx as usize)
+                .map(|t| t.faction as u32)
+                .unwrap_or(0);
+            flags[idx] |= crate::constants::TILE_WALL
+                | ((faction & crate::constants::WALL_FACTION_MASK) << crate::constants::WALL_FACTION_SHIFT);
         }
     }
     config.tile_flags = flags;

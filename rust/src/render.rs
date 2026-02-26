@@ -32,6 +32,7 @@ pub const WORLD_CELL: f32 = 17.0;
 pub const WORLD_SPRITE_SIZE: f32 = 16.0;
 pub const WORLD_SHEET_COLS: u32 = 57;
 pub const WORLD_SHEET_ROWS: u32 = 31;
+pub const WORLD_SHEET_SIZE: (f32, f32) = (968.0, 526.0);
 
 // =============================================================================
 // RESOURCES
@@ -581,7 +582,7 @@ fn click_to_select_system(
     dbl_click.last_pos = world_pos;
 
     let (col, row) = grid.world_to_grid(world_pos);
-    let building = grid.cell(col, row).and_then(|c| c.building.as_ref());
+    let grid_building = click.building_slots.get_at_grid(col as i32, row as i32);
 
     // Find nearest building via the same distance-based hit-test style as NPC selection.
     let building_select_radius = 24.0_f32;
@@ -602,15 +603,13 @@ fn click_to_select_system(
         }
     }
     // Fallback to clicked cell building when available.
-    if let Some(b) = building {
+    if let Some(inst) = grid_building {
         let bpos = grid.grid_to_world(col, row);
         let dx = world_pos.x - bpos.x;
         let dy = world_pos.y - bpos.y;
         let dist = (dx * dx + dy * dy).sqrt();
         if dist < best_building_dist {
-            if let Some(inst) = click.building_slots.find_by_position(bpos) {
-                best_building = Some((b.0, bpos, inst.slot));
-            }
+            best_building = Some((inst.kind, bpos, inst.slot));
         }
     }
 
@@ -628,11 +627,13 @@ fn click_to_select_system(
 
         // Double-click fountain -> open Factions tab for that faction.
         if is_double {
-            if let Some((crate::world::BuildingKind::Fountain, town_idx)) = building {
-                if let Some(town) = click.world_data.towns.get(*town_idx as usize) {
-                    click.ui_state.left_panel_open = true;
-                    click.ui_state.left_panel_tab = LeftPanelTab::Factions;
-                    faction_select.write(SelectFactionMsg(town.faction));
+            if let Some(inst) = grid_building {
+                if inst.kind == crate::world::BuildingKind::Fountain {
+                    if let Some(town) = click.world_data.towns.get(inst.town_idx as usize) {
+                        click.ui_state.left_panel_open = true;
+                        click.ui_state.left_panel_tab = LeftPanelTab::Factions;
+                        faction_select.write(SelectFactionMsg(town.faction));
+                    }
                 }
             }
         }
@@ -942,5 +943,4 @@ fn sync_terrain_visibility(
         }
     }
 }
-
 

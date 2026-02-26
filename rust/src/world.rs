@@ -49,9 +49,9 @@ pub fn is_alive(pos: Vec2) -> bool { pos.x > -9000.0 }
 // ============================================================================
 
 /// Sprite sheet constants
-pub const CELL: f32 = 17.0;  // 16px sprite + 1px margin
-pub const SPRITE_SIZE: f32 = 16.0;
-pub const SHEET_SIZE: (f32, f32) = (968.0, 526.0);
+pub const CELL: f32 = crate::render::WORLD_CELL;  // 16px sprite + 1px margin
+pub const SPRITE_SIZE: f32 = crate::render::WORLD_SPRITE_SIZE;
+pub const SHEET_SIZE: (f32, f32) = crate::render::WORLD_SHEET_SIZE;
 
 
 // ============================================================================
@@ -178,7 +178,7 @@ pub fn in_foreign_build_area(pos: Vec2, own_town_idx: usize, towns: &[Town], tow
 }
 
 /// All empty buildable slots in a town grid (excludes center 0,0).
-pub fn empty_slots(tg: &TownGrid, center: Vec2, grid: &WorldGrid) -> Vec<(i32, i32)> {
+pub fn empty_slots(tg: &TownGrid, center: Vec2, grid: &WorldGrid, building_map: &crate::resources::BuildingEntityMap) -> Vec<(i32, i32)> {
     let (min_row, max_row, min_col, max_col) = build_bounds(tg);
     let mut out = Vec::new();
     for r in min_row..=max_row {
@@ -186,7 +186,7 @@ pub fn empty_slots(tg: &TownGrid, center: Vec2, grid: &WorldGrid) -> Vec<(i32, i
             if r == 0 && c == 0 { continue; }
             let pos = town_grid_to_world(center, r, c);
             let (gc, gr) = grid.world_to_grid(pos);
-            if grid.cell(gc, gr).map(|cl| cl.building.is_none()) == Some(true) {
+            if grid.cell(gc, gr).is_some() && !building_map.has_building_at(gc as _, gr as _) {
                 out.push((r, c));
             }
         }
@@ -260,7 +260,7 @@ pub(crate) fn place_building(
 
     // Validate: cell exists, empty, not water
     let cell = grid.cell(gc, gr).ok_or("cell out of bounds")?;
-    if cell.building.is_some() { return Err("cell already has a building"); }
+    if building_slots.has_building_at(gc as i32, gr as i32) { return Err("cell already has a building"); }
     if cell.terrain == Biome::Water { return Err("cannot build on water"); }
 
     // Reject placement inside another faction's build area
@@ -272,11 +272,6 @@ pub(crate) fn place_building(
     let food = food_storage.food.get_mut(town_data_idx).ok_or("invalid town")?;
     if *food < cost { return Err("not enough food"); }
     *food -= cost;
-
-    // Place on grid
-    if let Some(cell) = grid.cell_mut(gc, gr) {
-        cell.building = Some((kind, town_idx));
-    }
 
     let def = crate::constants::building_def(kind);
     let faction = world_data.towns.get(town_data_idx).map(|t| t.faction).unwrap_or(0);
@@ -321,20 +316,19 @@ pub(crate) fn place_building(
 }
 
 /// Check if a grid cell contains a wall building.
-fn is_wall_at(grid: &WorldGrid, col: usize, row: usize) -> bool {
-    grid.cell(col, row)
-        .and_then(|c| c.building)
-        .is_some_and(|(k, _)| k == BuildingKind::Wall)
+fn is_wall_at(building_map: &BuildingEntityMap, col: usize, row: usize) -> bool {
+    building_map.get_at_grid(col as i32, row as i32)
+        .is_some_and(|inst| inst.kind == BuildingKind::Wall)
 }
 
 /// Compute auto-tile variant offset (0-5) for a wall at grid (col, row).
 /// Atlas layers: 0=E-W, 1=N-S, 2=TL, 3=BL, 4=BR, 5=TR (screen-space corners).
 /// Note: row-1 = south (lower Y), row+1 = north (higher Y) in Bevy's Y-up coords.
-pub fn wall_autotile_variant(grid: &WorldGrid, col: usize, row: usize) -> u16 {
-    let n = row > 0 && is_wall_at(grid, col, row - 1);
-    let s = is_wall_at(grid, col, row + 1);
-    let e = is_wall_at(grid, col + 1, row);
-    let w = col > 0 && is_wall_at(grid, col - 1, row);
+pub fn wall_autotile_variant(building_map: &BuildingEntityMap, col: usize, row: usize) -> u16 {
+    let n = row > 0 && is_wall_at(building_map, col, row - 1);
+    let s = is_wall_at(building_map, col, row + 1);
+    let e = is_wall_at(building_map, col + 1, row);
+    let w = col > 0 && is_wall_at(building_map, col - 1, row);
     use crate::constants::*;
     match (n, s, e, w) {
         (false, false, true, true)  => WALL_EW,
@@ -371,8 +365,8 @@ pub fn update_wall_sprites_around(
         let r = row as i32 + dr;
         if c < 0 || r < 0 { continue; }
         let (c, r) = (c as usize, r as usize);
-        if !is_wall_at(grid, c, r) { continue; }
-        let variant = wall_autotile_variant(grid, c, r);
+        if !is_wall_at(building_slots, c, r) { continue; }
+        let variant = wall_autotile_variant(building_slots, c, r);
         let pos = grid.grid_to_world(c, r);
         if let Some(inst) = building_slots.find_by_position(pos) {
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
@@ -392,7 +386,7 @@ pub fn update_all_wall_sprites(
     let wall_base = crate::constants::tileset_index(BuildingKind::Wall) as f32;
     for inst in building_slots.iter_kind(BuildingKind::Wall) {
         let (gc, gr) = grid.world_to_grid(inst.position);
-        let variant = wall_autotile_variant(grid, gc, gr);
+        let variant = wall_autotile_variant(building_slots, gc, gr);
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
             idx: inst.slot, col: wall_base + variant as f32, row: 0.0,
             atlas: crate::constants::ATLAS_BUILDING,
@@ -719,14 +713,10 @@ pub(crate) fn destroy_building(
     let world_pos = town_grid_to_world(town_center, row, col);
     let (gc, gr) = grid.world_to_grid(world_pos);
 
-    let (kind, bld_town_idx) = grid.cell(gc, gr)
-        .and_then(|c| c.building)
+    let inst = building_slots.get_at_grid(gc as i32, gr as i32)
         .ok_or("no building")?;
-
-    // Clear grid cell
-    if let Some(cell) = grid.cell_mut(gc, gr) {
-        cell.building = None;
-    }
+    let kind = inst.kind;
+    let bld_town_idx = inst.town_idx;
 
     // Wall auto-tile: update neighbor sprites after wall removed
     if kind == BuildingKind::Wall {
@@ -1223,14 +1213,10 @@ pub fn build_extras_atlas(sprites: &[Image], images: &mut Assets<Image>) -> Hand
     ))
 }
 
-/// Grid cell building = (kind, town_idx). Replaces the old Building enum.
-pub type GridBuilding = (BuildingKind, u32);
-
 /// A single cell in the world grid.
 #[derive(Clone, Debug, Default)]
 pub struct WorldCell {
     pub terrain: Biome,
-    pub building: Option<GridBuilding>,
 }
 
 /// World-wide grid covering the entire map. Each cell has terrain + optional building.
@@ -1247,7 +1233,7 @@ impl Default for WorldGrid {
         Self {
             width: 0,
             height: 0,
-            cell_size: 32.0,
+            cell_size: TOWN_GRID_SPACING,
             cells: Vec::new(),
         }
     }
@@ -1525,13 +1511,8 @@ pub fn generate_world(
         }
         // Snap to grid and place
         let (gc, gr) = grid.world_to_grid(pos);
-        if let Some(cell) = grid.cell(gc, gr) {
-            if cell.building.is_some() { continue; }
-        }
+        if building_map.has_building_at(gc as i32, gr as i32) { continue; }
         let snapped = grid.grid_to_world(gc, gr);
-        if let Some(cell) = grid.cell_mut(gc, gr) {
-            cell.building = Some((BuildingKind::GoldMine, 0));
-        }
         place_building_instance(slot_alloc, building_map, BuildingKind::GoldMine, snapped, 0, crate::constants::FACTION_NEUTRAL, 0, 0);
         mine_positions.push(snapped);
     }
@@ -1559,15 +1540,10 @@ pub fn place_buildings(
     let faction = world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
 
     // Helper: place building at town grid (row, col), return snapped world position
-    let mut place = |row: i32, col: i32, kind: BuildingKind, ti: u32, occ: &mut HashSet<(i32, i32)>| -> Vec2 {
+    let place = |row: i32, col: i32, _kind: BuildingKind, _ti: u32, occ: &mut HashSet<(i32, i32)>| -> Vec2 {
         let world_pos = town_grid_to_world(center, row, col);
         let (gc, gr) = grid.world_to_grid(world_pos);
         let snapped_pos = grid.grid_to_world(gc, gr);
-        if let Some(cell) = grid.cell_mut(gc, gr) {
-            if cell.building.is_none() {
-                cell.building = Some((kind, ti));
-            }
-        }
         occ.insert((row, col));
         snapped_pos
     };

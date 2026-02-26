@@ -46,7 +46,7 @@ enum LegacyBuilding {
 }
 
 impl LegacyBuilding {
-    fn to_grid_building(self) -> world::GridBuilding {
+    fn to_grid_building(self) -> (world::BuildingKind, u32) {
         use world::BuildingKind::*;
         match self {
             Self::Fountain { town_idx } => (Fountain, town_idx),
@@ -69,13 +69,13 @@ impl LegacyBuilding {
 /// Deserialize grid buildings: accepts both new tuple format and legacy enum format.
 fn deserialize_grid_buildings<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
-) -> Result<Vec<Option<world::GridBuilding>>, D::Error> {
+) -> Result<Vec<Option<(world::BuildingKind, u32)>>, D::Error> {
     // Try new format first (Vec<Option<(BuildingKind, u32)>>), fall back to legacy
     let raw: Vec<Option<serde_json::Value>> = Deserialize::deserialize(deserializer)?;
     Ok(raw.into_iter().map(|opt| {
         opt.and_then(|v| {
             // Try new tuple format: [kind, town_idx]
-            if let Ok(tuple) = serde_json::from_value::<world::GridBuilding>(v.clone()) {
+            if let Ok(tuple) = serde_json::from_value::<(world::BuildingKind, u32)>(v.clone()) {
                 return Some(tuple);
             }
             // Fall back to legacy enum format: {"Farm": {"town_idx": 0}}
@@ -104,7 +104,7 @@ pub struct SaveData {
     pub grid_cell_size: f32,
     pub terrain: Vec<u8>,                     // Biome as u8
     #[serde(deserialize_with = "deserialize_grid_buildings")]
-    pub buildings: Vec<Option<world::GridBuilding>>,  // parallel to terrain
+    pub buildings: Vec<Option<(world::BuildingKind, u32)>>,  // parallel to terrain
 
     // Town grids (area_level + town_data_idx)
     pub town_grids: Vec<TownGridSave>,
@@ -395,13 +395,8 @@ pub struct PersonalitySave {
 impl PersonalitySave {
     fn from_personality(p: &Personality) -> Self {
         let map_trait = |t: &TraitInstance| -> TraitSave {
-            let kind = match t.kind {
-                TraitKind::Brave => 0,
-                TraitKind::Tough => 1,
-                TraitKind::Swift => 2,
-                TraitKind::Focused => 3,
-            };
-            TraitSave { kind, magnitude: t.magnitude }
+            let kind = t.kind.to_id();
+            TraitSave { kind: kind as u8, magnitude: t.magnitude }
         };
         Self {
             trait1: p.trait1.as_ref().map(map_trait),
@@ -411,12 +406,7 @@ impl PersonalitySave {
 
     fn to_personality(&self) -> Personality {
         let map_trait = |t: &TraitSave| -> TraitInstance {
-            let kind = match t.kind {
-                0 => TraitKind::Brave,
-                1 => TraitKind::Tough,
-                2 => TraitKind::Swift,
-                _ => TraitKind::Focused,
-            };
+            let kind = TraitKind::from_id(t.kind as i32).unwrap_or(TraitKind::Focused);
             TraitInstance { kind, magnitude: t.magnitude }
         };
         Personality {
@@ -495,9 +485,14 @@ pub fn collect_save_data(
 ) -> SaveData {
     // Terrain + buildings
     let terrain: Vec<u8> = grid.cells.iter().map(|c| biome_to_u8(c.terrain)).collect();
-    let buildings: Vec<Option<world::GridBuilding>> = grid.cells.iter()
-        .map(|c| c.building)
-        .collect();
+    let mut buildings: Vec<Option<(world::BuildingKind, u32)>> = vec![None; grid.cells.len()];
+    for inst in building_slots.iter_instances() {
+        let (gc, gr) = grid.world_to_grid(inst.position);
+        let idx = gr * grid.width + gc;
+        if idx < buildings.len() {
+            buildings[idx] = Some((inst.kind, inst.town_idx));
+        }
+    }
 
     // Building vecs — serialized from BuildingEntityMap instances
     let mut building_data: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
@@ -730,10 +725,9 @@ pub fn apply_save(
     grid.width = save.grid_width;
     grid.height = save.grid_height;
     grid.cell_size = save.grid_cell_size;
-    grid.cells = save.terrain.iter().zip(save.buildings.iter())
-        .map(|(&t, b)| WorldCell {
+    grid.cells = save.terrain.iter()
+        .map(|&t| WorldCell {
             terrain: u8_to_biome(t),
-            building: *b,
         }).collect();
 
     // Towns

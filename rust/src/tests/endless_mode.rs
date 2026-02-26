@@ -83,7 +83,7 @@ pub(super) fn setup(
 
 pub fn tick(
     world_data: Res<world::WorldData>,
-    world_grid: Res<world::WorldGrid>,
+    _world_grid: Res<world::WorldGrid>,
     building_query: Query<(&crate::components::Building, &crate::components::Health, &crate::components::TownId), Without<crate::components::Dead>>,
     endless: Res<EndlessMode>,
     ai_state: Res<AiPlayerState>,
@@ -267,8 +267,8 @@ pub fn tick(
             let new_town_idx = test.count("migration_town_idx") as usize;
 
             let has_new_fountain = current_fountains > initial_fountains;
-            let new_town_buildings: usize = world_grid.cells.iter()
-                .filter(|c| c.building.map(|(_, ti)| ti as usize == new_town_idx).unwrap_or(false))
+            let new_town_buildings: usize = bmap.iter_instances()
+                .filter(|inst| inst.town_idx as usize == new_town_idx)
                 .count();
             let ai_active = ai_state.players.iter()
                 .find(|p| p.town_data_idx == new_town_idx).map(|p| p.active).unwrap_or(false);
@@ -446,8 +446,8 @@ pub fn tick(
             let new_town_idx = test.count("raider_migration_town_idx") as usize;
 
             let has_new_fountain = current_fountains > initial_fountains;
-            let new_town_buildings: usize = world_grid.cells.iter()
-                .filter(|c| c.building.map(|(_, ti)| ti as usize == new_town_idx).unwrap_or(false))
+            let new_town_buildings: usize = bmap.iter_instances()
+                .filter(|inst| inst.town_idx as usize == new_town_idx)
                 .count();
             let ai_active = ai_state.players.iter()
                 .find(|p| p.town_data_idx == new_town_idx).map(|p| p.active).unwrap_or(false);

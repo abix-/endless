@@ -91,19 +91,7 @@ pub fn job_name(job: i32) -> &'static str {
 
 /// Get trait name from trait ID.
 pub fn trait_name(trait_id: i32) -> &'static str {
-    match trait_id {
-        0 => "",
-        1 => "Brave",
-        2 => "Coward",
-        3 => "Efficient",
-        4 => "Hardy",
-        5 => "Lazy",
-        6 => "Strong",
-        7 => "Swift",
-        8 => "Sharpshot",
-        9 => "Berserker",
-        _ => "",
-    }
+    components::TraitKind::from_id(trait_id).map(|t| t.name()).unwrap_or("")
 }
 
 // ============================================================================
@@ -362,4 +350,3 @@ pub fn build_app(app: &mut App) {
     // UI (main menu, game startup, in-game HUD)
     ui::register_ui(app);
 }
-

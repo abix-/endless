@@ -56,10 +56,7 @@ pub fn setup(
         let pos = Vec2::new(FARM_WALL_X, y);
         world::place_building_instance(&mut building_alloc, &mut building_slots, world::BuildingKind::Farm, pos, 0, 0, 0, 0);
 
-        let (gc, gr) = world_grid.world_to_grid(pos);
-        if let Some(cell) = world_grid.cell_mut(gc, gr) {
-            cell.building = Some((world::BuildingKind::Farm, 0));
-        }
+        // Building instance registered via place_building_instance above
     }
 
     // Shooter (faction 0, ranged).

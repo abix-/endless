@@ -707,28 +707,15 @@ fn build_place_click_system(
     if build_ctx.destroy_mode {
         if !just_pressed { return; }
         build_ctx.clear_drag();
-        let cell_building = world_state.grid.cell(gc, gr).and_then(|c| c.building);
-        let is_destructible = cell_building
-            .map(|(k, ti)| {
-                !matches!(k, world::BuildingKind::Fountain | world::BuildingKind::GoldMine)
-                && world_state.world_data.towns.get(ti as usize).map_or(false, |t| t.faction == 0)
-            })
-            .unwrap_or(false);
-        if !is_destructible { return; }
-        let bld_kind = cell_building.map(|(k, _)| k);
-        let bld_town_idx = cell_building.map(|(_, ti)| ti as u32);
-
-        // Resolve exact slot first; if lookup fails, abort instead of clearing grid only.
-        let target_slot = match (bld_kind, bld_town_idx) {
-            (Some(kind), Some(ti)) => world_state.building_slots.iter_kind_for_town(kind, ti)
-                .find(|inst| {
-                    let (igc, igr) = world_state.grid.world_to_grid(inst.position);
-                    igc == gc && igr == gr
-                })
-                .map(|inst| inst.slot),
-            _ => None,
+        let (target_slot, bld_kind) = {
+            let inst = match world_state.building_slots.get_at_grid(gc as i32, gr as i32) {
+                Some(inst) if !matches!(inst.kind, world::BuildingKind::Fountain | world::BuildingKind::GoldMine)
+                    && world_state.world_data.towns.get(inst.town_idx as usize).map_or(false, |t| t.faction == 0)
+                    => inst,
+                _ => return,
+            };
+            (inst.slot, inst.kind)
         };
-        let Some(target_slot) = target_slot else { return; };
 
         // Send lethal damage so death_system handles despawn (single Dead writer)
         let npc_count = world_state.slot_alloc.count();
@@ -744,9 +731,7 @@ fn build_place_click_system(
             &format!("Destroyed building at ({},{}) in {}", row, col, town_name),
             &mut gpu_updates,
         );
-        if let Some(bk) = bld_kind {
-            world_state.dirty_writers.mark_building_changed(bk);
-        }
+        world_state.dirty_writers.mark_building_changed(bld_kind);
         return;
     }
 
@@ -866,6 +851,7 @@ fn build_ghost_system(
     world_data: Res<world::WorldData>,
     town_grids: Res<world::TownGrids>,
     food_storage: Res<FoodStorage>,
+    building_slots: Res<BuildingEntityMap>,
     mut ghost_query: Query<(Entity, &mut Transform, &mut Sprite), (With<BuildGhost>, Without<BuildGhostTrail>, Without<crate::render::MainCamera>)>,
     trail_query: Query<Entity, With<BuildGhostTrail>>,
 ) {
@@ -916,11 +902,10 @@ fn build_ghost_system(
         let slot_pos = world::town_grid_to_world(center, row, col);
         build_ctx.hover_world_pos = slot_pos;
         let (gc, gr) = grid.world_to_grid(slot_pos);
-        let cell = grid.cell(gc, gr);
-        let has_building = cell.map(|c| c.building.is_some()).unwrap_or(false);
-        let is_fountain = cell
-            .and_then(|c| c.building)
-            .map(|(k, _)| matches!(k, world::BuildingKind::Fountain | world::BuildingKind::GoldMine))
+        let grid_inst = building_slots.get_at_grid(gc as i32, gr as i32);
+        let has_building = grid_inst.is_some();
+        let is_fountain = grid_inst
+            .map(|inst| matches!(inst.kind, world::BuildingKind::Fountain | world::BuildingKind::GoldMine))
             .unwrap_or(false);
         let valid = has_building && !is_fountain;
         build_ctx.show_cursor_hint = true;
@@ -971,7 +956,7 @@ fn build_ghost_system(
             let cell_world = grid.grid_to_world(sc as usize, sr as usize);
             let (cgc, cgr) = grid.world_to_grid(cell_world);
             let cell = grid.cell(cgc, cgr);
-            let empty = cell.map(|c| c.building.is_none()).unwrap_or(false);
+            let empty = !building_slots.has_building_at(cgc as i32, cgr as i32);
             let not_water = cell.map(|c| c.terrain != world::Biome::Water).unwrap_or(false);
             let valid = empty && not_water && budget >= cost;
             if valid { budget -= cost; }
@@ -1023,7 +1008,7 @@ fn build_ghost_system(
         let snapped = grid.grid_to_world(gc, gr);
         build_ctx.hover_world_pos = snapped;
         let cell = grid.cell(gc, gr);
-        let empty = cell.map(|c| c.building.is_none()).unwrap_or(false);
+        let empty = !building_slots.has_building_at(gc as i32, gr as i32);
         let not_water = cell.map(|c| c.terrain != world::Biome::Water).unwrap_or(false);
         let valid = empty && not_water;
         build_ctx.show_cursor_hint = !valid;
@@ -1065,8 +1050,7 @@ fn build_ghost_system(
 
     // Determine validity
     let (gc, gr) = grid.world_to_grid(slot_pos);
-    let cell = grid.cell(gc, gr);
-    let has_building = cell.map(|c| c.building.is_some()).unwrap_or(false);
+    let has_building = building_slots.has_building_at(gc as i32, gr as i32);
     let town_grid = town_grids.grids.iter().find(|tg| tg.town_data_idx == town_data_idx);
     let in_bounds = town_grid
         .map(|tg| world::is_slot_buildable(tg, row, col))
@@ -1094,7 +1078,7 @@ fn build_ghost_system(
 
             let slot_world = world::town_grid_to_world(center, slot_row, slot_col);
             let (sgc, sgr) = grid.world_to_grid(slot_world);
-            let slot_empty = grid.cell(sgc, sgr).map(|c| c.building.is_none()).unwrap_or(false);
+            let slot_empty = !building_slots.has_building_at(sgc as i32, sgr as i32);
             let can_pay = budget >= cost;
             let slot_valid = slot_empty && can_pay;
             if slot_valid {
@@ -1189,6 +1173,7 @@ fn draw_slot_indicators(
     world_data: Res<world::WorldData>,
     town_grids: Res<world::TownGrids>,
     grid: Res<world::WorldGrid>,
+    building_slots: Res<BuildingEntityMap>,
     build_ctx: Res<BuildMenuContext>,
 ) {
     // Only rebuild when grid state changes or build selection changes
@@ -1223,9 +1208,7 @@ fn draw_slot_indicators(
             let (gc, gr) = grid.world_to_grid(raw_pos);
             let slot_pos = grid.grid_to_world(gc, gr);
 
-            let has_building = grid.cell(gc, gr)
-                .map(|c| c.building.is_some())
-                .unwrap_or(false);
+            let has_building = building_slots.has_building_at(gc as i32, gr as i32);
 
             if !has_building {
                 // Horizontal bar
@@ -1258,22 +1241,15 @@ fn process_destroy_system(
     for msg in request.read() {
         let (col, row) = (msg.0, msg.1);
 
-        let cell = world_state.grid.cell(col, row);
-        let cell_building = cell.and_then(|c| c.building);
-        let is_destructible = cell_building
-            .map(|(k, ti)| {
-                !matches!(k, world::BuildingKind::Fountain | world::BuildingKind::GoldMine)
-                && world_state.world_data.towns.get(ti as usize).map_or(false, |t| t.faction == 0)
-            })
-            .unwrap_or(false);
-        if !is_destructible { continue; }
-        let bld_kind = cell_building.map(|(k, _)| k);
-        let bld_town_idx = cell_building.map(|(_, ti)| ti as u32);
-
-        // Find which town this building belongs to, derive town center
-        let town_idx = cell_building
-            .map(|(_, ti)| ti as usize)
-            .unwrap_or(0);
+        let (target_slot, bld_kind, town_idx) = {
+            let inst = match world_state.building_slots.get_at_grid(col as i32, row as i32) {
+                Some(inst) if !matches!(inst.kind, world::BuildingKind::Fountain | world::BuildingKind::GoldMine)
+                    && world_state.world_data.towns.get(inst.town_idx as usize).map_or(false, |t| t.faction == 0)
+                    => inst,
+                _ => continue,
+            };
+            (inst.slot, inst.kind, inst.town_idx as usize)
+        };
         let center = world_state.world_data.towns.get(town_idx)
             .map(|t| t.center)
             .unwrap_or_default();
@@ -1283,18 +1259,6 @@ fn process_destroy_system(
 
         let world_pos = world_state.grid.grid_to_world(col, row);
         let (trow, tcol) = world::world_to_town_grid(center, world_pos);
-
-        // Resolve exact slot first; if lookup fails, abort instead of clearing grid only.
-        let target_slot = match (bld_kind, bld_town_idx) {
-            (Some(kind), Some(ti)) => world_state.building_slots.iter_kind_for_town(kind, ti)
-                .find(|inst| {
-                    let (igc, igr) = world_state.grid.world_to_grid(inst.position);
-                    igc == col && igr == row
-                })
-                .map(|inst| inst.slot),
-            _ => None,
-        };
-        let Some(target_slot) = target_slot else { continue; };
 
         // Send lethal damage so death_system handles despawn (single Dead writer)
         let npc_count = world_state.slot_alloc.count();
@@ -1312,9 +1276,7 @@ fn process_destroy_system(
             &mut gpu_updates,
         ).is_ok() {
             selected_building.active = false;
-            if let Some(bk) = bld_kind {
-                world_state.dirty_writers.mark_building_changed(bk);
-            }
+            world_state.dirty_writers.mark_building_changed(bld_kind);
         }
     }
 }

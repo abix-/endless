@@ -1259,6 +1259,16 @@ impl BuildingEntityMap {
         self.by_grid_cell.get(&(gc, gr)).copied()
     }
 
+    /// Check if a building exists at grid coords.
+    pub fn has_building_at(&self, gc: i32, gr: i32) -> bool {
+        self.by_grid_cell.contains_key(&(gc, gr))
+    }
+
+    /// Get instance at grid coords.
+    pub fn get_at_grid(&self, gc: i32, gr: i32) -> Option<&BuildingInstance> {
+        self.by_grid_cell.get(&(gc, gr)).and_then(|&s| self.instances.get(&s))
+    }
+
     // ── Spatial grid (absorbs BuildingSpatialGrid) ─────────────────────
 
     /// Initialize spatial grid dimensions.

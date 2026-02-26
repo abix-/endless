@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-26h
+
+- **remove WorldCell.building, route through BuildingEntityMap** — removed `building: Option<GridBuilding>` field from `WorldCell` and the `GridBuilding` type alias; `BuildingEntityMap` is now the sole source of truth for building presence at grid coordinates via new `has_building_at(gc, gr)` and `get_at_grid(gc, gr)` methods; migrated ~20 call sites across world.rs, render.rs, ui/mod.rs, game_hud.rs, gpu.rs, ai_player.rs, left_panel.rs, save.rs, and 4 test files; `populate_tile_flags` split into terrain pass (grid iteration) + building pass (BuildingEntityMap iteration — more efficient); `empty_slots`/`is_wall_at`/`wall_autotile_variant` signatures updated to take `&BuildingEntityMap`; save format unchanged (buildings array built from BuildingEntityMap on save, terrain-only grid on load)
+- **fix squad sync healing state oscillation** — wounded squad units with `prioritize_healing` could oscillate between `GoingToHeal` and `HealingAtFountain` because the healing guard only checked `GoingToHeal` and the squad redirect exemption list was missing `HealingAtFountain`; added `Activity::HealingAtFountain { .. }` to both pattern matches in behavior.rs squad sync block
+- **fix pre-existing compile errors** — save.rs TraitSave kind field type mismatch (u8 vs i32, added casts); spawn.rs personality borrow-after-move (extracted trait_id_cache before move into commands.spawn)
+
 ## 2026-02-26g
 
 - **DRY gpu constants + shared AI desire in factions UI** — gpu.rs: replaced local `MAX_NPCS`/`MAX_PROJECTILES`/`HIT_HALF_LENGTH`/`HIT_HALF_WIDTH` with shared constants from `constants.rs` (`MAX_NPC_COUNT`, `MAX_PROJECTILES`, `PROJECTILE_HIT_HALF_LENGTH`/`WIDTH`); ai_player.rs: added `debug_food_military_desire` public wrapper exposing `desire_state` for UI/debug; left_panel.rs: factions tab food/military desire bars now call the shared AI logic instead of an inline reimplementation, added `GpuReadState`/`PopulationStats` to `FactionsParams` for threat + population lookups

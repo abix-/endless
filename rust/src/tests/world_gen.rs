@@ -35,6 +35,7 @@ pub fn setup(
 pub fn tick(
     world_data: Res<world::WorldData>,
     world_grid: Res<world::WorldGrid>,
+    building_slots: Res<BuildingEntityMap>,
     config: Res<world::WorldGenConfig>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
@@ -101,16 +102,14 @@ pub fn tick(
             let mut farms = vec![0u32; num_vill];
             let mut posts = vec![0u32; num_vill];
 
-            for cell in &world_grid.cells {
-                if let Some((kind, town_idx)) = cell.building {
-                    let ti = town_idx as usize;
-                    if ti < num_vill {
-                        match kind {
-                            world::BuildingKind::Fountain => { fountains[ti] += 1; }
-                            world::BuildingKind::Farm => { farms[ti] += 1; }
-                            world::BuildingKind::Waypoint => { posts[ti] += 1; }
-                            _ => {}
-                        }
+            for inst in building_slots.iter_instances() {
+                let ti = inst.town_idx as usize;
+                if ti < num_vill {
+                    match inst.kind {
+                        world::BuildingKind::Fountain => { fountains[ti] += 1; }
+                        world::BuildingKind::Farm => { farms[ti] += 1; }
+                        world::BuildingKind::Waypoint => { posts[ti] += 1; }
+                        _ => {}
                     }
                 }
             }
@@ -164,9 +163,7 @@ pub fn tick(
                 .collect();
 
             let expected = config.num_towns;
-            let raider_centers = world_grid.cells.iter()
-                .filter(|c| matches!(c.building, Some((world::BuildingKind::Fountain, _))))
-                .count();
+            let raider_centers = building_slots.iter_kind(world::BuildingKind::Fountain).count();
 
             test.phase_name = format!("raider_towns={} centers_on_grid={}", raider_towns.len(), raider_centers);
 

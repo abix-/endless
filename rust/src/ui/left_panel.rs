@@ -1222,7 +1222,7 @@ fn rebuild_factions_cache(
             let (empty, total, fullness) = factions.town_grids.grids.iter()
                 .find(|tg| tg.town_data_idx == tdi)
                 .map(|tg| {
-                    let empty = crate::world::empty_slots(tg, center, &factions.world_grid).len();
+                    let empty = crate::world::empty_slots(tg, center, &factions.world_grid, &factions.building_map).len();
                     let (min_r, max_r, min_c, max_c) = crate::world::build_bounds(tg);
                     let total = ((max_r - min_r + 1) * (max_c - min_c + 1) - 1) as f32;
                     (empty, total, 1.0 - empty as f32 / total.max(1.0))

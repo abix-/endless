@@ -1069,10 +1069,9 @@ fn selected_building_info(
 
     let col = selected.col;
     let row = selected.row;
-    let cell = grid.cell(col, row)?;
-    let (kind, town_idx) = cell.building?;
+    let inst = building_map.get_at_grid(col as i32, row as i32)?;
     let pos = grid.grid_to_world(col, row);
-    Some((kind, town_idx, pos, col, row))
+    Some((inst.kind, inst.town_idx, pos, col, row))
 }
 
 /// Mine assignment UI: show assigned mine, "Set Mine" / "Clear" buttons.
@@ -1668,7 +1667,7 @@ pub fn selection_overlay_system(
         }).or_else(|| {
             let col = selected_building.col;
             let row = selected_building.row;
-            if grid.cell(col, row).and_then(|c| c.building.as_ref()).is_some() {
+            if building_slots.has_building_at(col as i32, row as i32) {
                 Some(grid.grid_to_world(col, row))
             } else {
                 None

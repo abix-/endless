@@ -155,6 +155,11 @@ pub fn materialize_npc(
     let activity = overrides.activity.clone().unwrap_or_default();
     let combat_state = overrides.combat_state.clone().unwrap_or_default();
 
+    let trait_id_cache = personality.trait1.as_ref()
+        .or(personality.trait2.as_ref())
+        .map(|t| t.kind.to_id())
+        .unwrap_or(-1);
+
     let mut ec = commands.spawn((
         NpcIndex(idx),
         Position::new(x, y),
@@ -231,7 +236,7 @@ pub fn materialize_npc(
             name: overrides.name.clone().unwrap_or_else(|| generate_name(job, idx)),
             level,
             xp: overrides.xp.unwrap_or(0),
-            trait_id: (idx % 5) as i32,
+            trait_id: trait_id_cache,
             town_id: town_idx,
             job: job_id,
         };

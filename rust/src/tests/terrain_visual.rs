@@ -31,6 +31,8 @@ pub fn setup(
     mut grid: ResMut<WorldGrid>,
     mut test: ResMut<TestState>,
     mut game_time: ResMut<crate::resources::GameTime>,
+    mut building_alloc: ResMut<crate::resources::BuildingSlots>,
+    mut building_map: ResMut<crate::resources::BuildingEntityMap>,
 ) {
     game_time.time_scale = 0.0;
 
@@ -38,7 +40,7 @@ pub fn setup(
     grid.width = GRID_COLS;
     grid.height = GRID_ROWS;
     grid.cell_size = 32.0;
-    grid.cells = vec![WorldCell { terrain: Biome::Dirt, building: None }; GRID_COLS * GRID_ROWS];
+    grid.cells = vec![WorldCell { terrain: Biome::Dirt }; GRID_COLS * GRID_ROWS];
 
     // Row 3: terrain showcase — each column gets a distinct biome
     for col in 0..GRID_COLS {
@@ -64,9 +66,9 @@ pub fn setup(
         (BuildingKind::ArcherHome, 0),
         (BuildingKind::Tent, 0),
     ];
-    for (col, &building) in buildings.iter().enumerate() {
-        let idx = BUILDING_ROW * GRID_COLS + col;
-        grid.cells[idx].building = Some(building);
+    for (col, &(kind, town_idx)) in buildings.iter().enumerate() {
+        let pos = grid.grid_to_world(col, BUILDING_ROW);
+        world::place_building_instance(&mut building_alloc, &mut building_map, kind, pos, town_idx, 0, 0, 0);
     }
 
     test.phase_name = "Waiting for tilemap...".into();
@@ -79,6 +81,7 @@ pub fn tick(
     mut test: ResMut<TestState>,
     time: Res<Time>,
     grid: Res<WorldGrid>,
+    building_map: Res<crate::resources::BuildingEntityMap>,
     mut camera_query: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
     mut contexts: EguiContexts,
     windows: Query<&Window>,
@@ -208,9 +211,9 @@ pub fn tick(
 
     // Atlas coordinate labels above each building tile
     for col in 0..BUILDING_LABELS.len() {
-        let idx = BUILDING_ROW * GRID_COLS + col;
-        if let Some(ref building) = grid.cells[idx].building {
-            let tile_idx = crate::constants::tileset_index(building.0);
+        let pos = grid.grid_to_world(col, BUILDING_ROW);
+        if let Some(inst) = building_map.find_by_position(pos) {
+            let tile_idx = crate::constants::tileset_index(inst.kind);
             let btiles = world::building_tiles();
             let label = match btiles[tile_idx as usize] {
                 crate::constants::TileSpec::Single(c, r) => format!("({},{})", c, r),

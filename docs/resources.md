@@ -49,7 +49,7 @@ Static world data, immutable after initialization.
 | WorldData | towns: `Vec<Town>` | Town center positions, factions, names |
 | BuildingOccupancy | private `HashMap<(i32,i32), i32>` — position → worker count | Building assignment (claim/release/is_occupied/count/clear) |
 | MineStates | `Vec<f32>` gold + `Vec<f32>` max_gold + `Vec<Vec2>` positions | Per-mine gold tracking |
-| BuildingEntityMap | `BuildingInstance` storage + 256px spatial grid + by_kind/by_entity/by_grid_cell indexes | Sole source of truth for all building instance data (no WorldData.buildings); stores `BuildingInstance` (kind, position, town_idx, slot, entity, faction, patrol_order, assigned_mine, manual_mine, wall_level, npc_slot, respawn_timer, growth_ready, growth_progress); methods: `add_instance`/`remove_instance`/`remove_by_slot`/`get_instance[_mut]`/`find_by_position`/`find_farm_at[_mut]`/`find_mine_at[_mut]`/`iter_kind`/`iter_kind_for_town`/`iter_growable[_mut]`/`count_for_town`/`building_counts`/`gold_mine_index`/`for_each_nearby` (spatial)/`iter_instances`/`iter_instances_mut`; entity map: `slot_to_entity`/`get_entity`; `slot` is the sole runtime identity (no legacy ordinal index layer) |
+| BuildingEntityMap | `BuildingInstance` storage + 256px spatial grid + by_kind/by_entity/by_grid_cell indexes | Sole source of truth for all building instance data (no WorldData.buildings, no WorldCell.building); stores `BuildingInstance` (kind, position, town_idx, slot, entity, faction, patrol_order, assigned_mine, manual_mine, wall_level, npc_slot, respawn_timer, growth_ready, growth_progress); methods: `add_instance`/`remove_instance`/`remove_by_slot`/`get_instance[_mut]`/`find_by_position`/`find_farm_at[_mut]`/`find_mine_at[_mut]`/`iter_kind`/`iter_kind_for_town`/`iter_growable[_mut]`/`count_for_town`/`building_counts`/`gold_mine_index`/`for_each_nearby` (spatial)/`iter_instances`/`iter_instances_mut`/`has_building_at` (grid-coord presence check)/`get_at_grid` (grid-coord instance lookup); entity map: `slot_to_entity`/`get_entity`; `slot` is the sole runtime identity (no legacy ordinal index layer) |
 | Dirty signaling | Concern-specific Bevy messages | `BuildingGridDirtyMsg`, `PatrolsDirtyMsg`, `PatrolPerimeterDirtyMsg`, `HealingZonesDirtyMsg`, `SquadsDirtyMsg`, `MiningDirtyMsg`, `AiSquadsDirtyMsg`, `PatrolSwapMsg`; `DirtyWriters<'w>` bundles writers and `emit_all()` covers startup/reset. See [messages.md](messages.md#dirty-signal-messages). |
 | BuildingHealState | `needs_healing: bool` | Persistent flag (not a message): set by `building_damage_system` on hits, cleared by `healing_system` when no damaged buildings remain |
 | TownGrids | `Vec<TownGrid>` — one per town (villager + raider) | Per-town building slot unlock tracking |
@@ -67,14 +67,14 @@ Spatial queries (`find_nearest_location`, `find_location_within_radius`, `find_n
 
 ### World Grid
 
-250x250 cell grid covering the entire 8000x8000 world (32px per cell). Each cell has a terrain biome and optional building.
+250x250 cell grid covering the entire 8000x8000 world (32px per cell). Each cell has a terrain biome only — building data lives in `BuildingEntityMap`.
 
 | Resource | Data | Purpose |
 |----------|------|---------|
-| WorldGrid | `Vec<WorldCell>` (width × height), cell_size | World-wide terrain + building grid |
+| WorldGrid | `Vec<WorldCell>` (width × height), cell_size | World-wide terrain grid |
 | WorldGenConfig | world dimensions, num_towns, spacing, npc_counts: BTreeMap\<Job, usize\> | Procedural generation parameters |
 
-**WorldCell** fields: `terrain: Biome` (Grass/Forest/Water/Rock/Dirt), `building: Option<GridBuilding>` where `GridBuilding = (BuildingKind, u32)` (kind + town_idx). Save-compatible via `LegacyBuilding` deserialization in save.rs that converts the legacy enum format to tuples.
+**WorldCell** fields: `terrain: Biome` (Grass/Forest/Water/Rock/Dirt). Building presence at grid coordinates is queried via `BuildingEntityMap::has_building_at(gc, gr)` / `get_at_grid(gc, gr)`.
 
 **WorldGrid** helpers: `cell(col, row)`, `cell_mut(col, row)`, `world_to_grid(pos) -> (col, row)`, `grid_to_world(col, row) -> Vec2`.
 
@@ -95,7 +95,7 @@ Per-town slot tracking for the building system. Each town (villager and raider) 
 
 Coordinate helpers: `town_grid_to_world(center, row, col)`, `world_to_town_grid(center, world_pos)`, `build_bounds(grid) -> (min_row, max_row, min_col, max_col)`, `is_slot_buildable(grid, row, col)`, `find_town_slot(world_pos, towns, grids)`.
 
-Building placement: `place_building()` is the single entry point for all runtime building placement (player UI and AI, town-grid and wilderness). Takes `world_pos`, validates cell (exists, empty, not water), rejects foreign territory, deducts food, places on WorldGrid, creates `BuildingInstance` in `BuildingEntityMap`, auto-assigns waypoint `patrol_order`, pushes FarmStates for farms, registers spawner, spawns building entity (with `Building` marker + `Health` + `NpcIndex` + `Faction` + `TownId`), allocates building GPU slot, and marks DirtyFlags. `destroy_building()` shared helper consolidates all destroy side effects: grid cell clear + spawner tombstone + insert `Dead` on building entity + combat log — used by click-destroy, inspector-destroy, `building_damage_system` (HP→0), and waypoint pruning. `is_alive(pos)` checks tombstone status (single source of truth for `pos.x > -9000.0`). `empty_slots(tg, center, grid)` scans a town grid for buildable cells. Fountains and gold mines cannot be destroyed.
+Building placement: `place_building()` is the single entry point for all runtime building placement (player UI and AI, town-grid and wilderness). Takes `world_pos`, validates cell (exists, empty, not water), rejects foreign territory, deducts food, places on WorldGrid, creates `BuildingInstance` in `BuildingEntityMap`, auto-assigns waypoint `patrol_order`, pushes FarmStates for farms, registers spawner, spawns building entity (with `Building` marker + `Health` + `NpcIndex` + `Faction` + `TownId`), allocates building GPU slot, and marks DirtyFlags. `destroy_building()` shared helper consolidates all destroy side effects: spawner tombstone + combat log + wall auto-tile neighbor update — used by click-destroy, inspector-destroy, and waypoint pruning; callers send lethal DamageMsg for entity death. `is_alive(pos)` checks tombstone status (single source of truth for `pos.x > -9000.0`). `empty_slots(tg, center, grid, building_map)` scans a town grid for buildable cells using `BuildingEntityMap::has_building_at()` for occupancy checks. Fountains and gold mines cannot be destroyed.
 
 Building costs: `building_cost(kind)` in `constants.rs`. Flat costs (no difficulty scaling): Farm=2, FarmerHome=2, MinerHome=4, ArcherHome=4, CrossbowHome=8, Waypoint=1, Tent=3. All properties defined in `BUILDING_REGISTRY`.
 

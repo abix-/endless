@@ -450,6 +450,25 @@ pub enum TraitKind {
 }
 
 impl TraitKind {
+    pub fn from_id(id: i32) -> Option<Self> {
+        match id {
+            0 => Some(TraitKind::Brave),
+            1 => Some(TraitKind::Tough),
+            2 => Some(TraitKind::Swift),
+            3 => Some(TraitKind::Focused),
+            _ => None,
+        }
+    }
+
+    pub fn to_id(self) -> i32 {
+        match self {
+            TraitKind::Brave => 0,
+            TraitKind::Tough => 1,
+            TraitKind::Swift => 2,
+            TraitKind::Focused => 3,
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             TraitKind::Brave => "Brave",
