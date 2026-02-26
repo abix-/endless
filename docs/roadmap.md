@@ -76,28 +76,21 @@ Every-frame review backlog:
 - [ ] `decision_system`: reduce per-frame allocation/log pressure in hot paths (avoid unconditional `format!`/log string churn for high-N NPC loops; gate expensive logs behind debug/selection or lower-frequency sampling).
 - [ ] `damage_system` debug stats: gate `query.iter().count()` and sample collection behind debug flag to avoid unconditional extra iteration each frame.
 - [ ] `sync_building_hp_render`: rebuild only when `BuildingHpState`/`WorldData` changes (or via dirty flag), not every frame.
-- [ ] DirtyFlags regression tests (state transitions + load): add automated coverage for cleanup/enter behavior.
-  - Add tests (likely in `tests/vertical_slice.rs` or dedicated `tests/dirty_flags.rs`) that exercise:
-    1. `OnExit(AppState::Playing)` cleanup resets `DirtyFlags` and clears `HealingZoneCache`.
-    2. `OnEnter(AppState::Playing)` startup path sets `dirty.healing_zones = true`.
-    3. Menu-load and in-game load both set `dirty.healing_zones = true` and clear `dirty.patrol_swap`.
-    4. `update_healing_zone_cache` rebuilds then clears `dirty.healing_zones`.
-  - Done when tests fail on current bug states and pass after fixes, guarding against regressions.
+- [ ] Message signal regression tests: verify `emit_all()` fires on startup/load and drain systems consume correctly.
 - [ ] Narrow `on_duty_tick_system` workset so only on-duty archers are iterated each frame.
 - [ ] Remove linear HP lookup in inspector rendering (`bottom_panel_system`) by using direct selected-NPC lookup/cached handle.
 
 SystemParam bundle consolidation:
-Completed bundle work moved to [completed.md](completed.md).
-- [ ] Create `GameLog` bundle in `resources.rs`: `{ combat_log: ResMut<CombatLog>, game_time: Res<GameTime>, timings: Res<SystemTimings> }` and migrate systems still carrying this triple directly.
+Completed bundle work moved to [completed.md](completed.md)). DirtyWriters, AiDirtyReaders, AiBuildRes bundles added as part of message conversion.
+- [ ] Create `GameLog` bundle: `{ combat_log: MessageWriter<CombatLogMsg>, game_time: Res<GameTime>, timings: Res<SystemTimings> }` and migrate systems still carrying this triple directly.
 - [ ] Move/replace remaining ad-hoc bundles in `systems/behavior.rs` (keep only bundles with genuine local-only value; shared bundles live in `resources.rs`).
 - [ ] Keep bundles flat (no nested `SystemParam` bundles inside other bundles) unless required to break Bevy param-count limits.
-- [ ] Re-baseline and document actual parameter-count reductions after refactor, then verify with `cargo check`.
 
 **Stage 16.5: Buildings as ECS Entities** (see [specs/buildings-as-entities.md](specs/buildings-as-entities.md))
 
 *Done when: all redundant building infrastructure (`WorldData.buildings`, `PlacedBuilding`, tombstone guards) is deleted and `BuildingEntityMap` is the sole source of truth.*
 
-Phases 1-2, BuildingEntityMap migration, and WorldData deletion complete (see [completed.md](completed.md)).
+Phases 1-2, BuildingEntityMap migration, WorldData deletion, GPU building buffers, and unified entity collision complete (see [completed.md](completed.md)).
 
 Remaining:
 - [ ] `WorldGrid.cells[].building` stores `Option<Entity>`

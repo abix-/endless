@@ -2,6 +2,15 @@
 
 Completed items moved from roadmap for readability.
 
+### Roadmap Migration (Stages 16, 16.5 — GPU buildings, messages)
+- [x] Stage 16.5: separate NPC and building GPU buffers (SlotPool extraction, BuildingSlots, BuildingGpuState, instance-buffer building rendering)
+- [x] Stage 16.5: unified entity collision (buildings in GPU spatial grid, projectiles hit buildings, towers target via GPU readback)
+- [x] Stage 16.5: unified damage pipeline (one DamageMsg for NPCs and buildings, GPU building targeting, building damage flash)
+- [x] Stage 16: DirtyFlags → Bevy Messages (8 individual message types, DirtyWriters SystemParam, emit_all() startup)
+- [x] Stage 16: CombatLog → CombatLogMsg message pattern (18 writers freed from ResMut contention, drain_combat_log collector)
+- [x] Stage 16: dead code removal (FoodEvents, ResetFlag, reset_bevy_system — zero readers/never set)
+- [x] Stage 16: drain systems for MessageReader/Writer conflicts (ai_dirty_drain_system, perimeter_dirty_drain_system)
+
 ### Roadmap Migration (Stages 14, 15, 16, 16.5, 18, 22)
 - [x] Stage 14: endless mode (defeated AI towns become leaderless, replacement AI scaled to player strength)
 - [x] Stage 14: destructible enemy town centers (AI deactivated on destruction, NPCs/buildings persist)
