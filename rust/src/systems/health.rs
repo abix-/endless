@@ -50,7 +50,9 @@ pub fn damage_system(
                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetDamageFlash { idx: npc_idx.0, intensity: 1.0 }));
                 // Track last attacker for XP-on-kill
                 if event.attacker >= 0 {
-                    commands.entity(entity).insert(LastHitBy(event.attacker));
+                    if let Ok(mut ec) = commands.get_entity(entity) {
+                        ec.insert(LastHitBy(event.attacker));
+                    }
                 }
             }
         }
@@ -75,8 +77,10 @@ pub fn death_system(
     let mut death_count = 0;
     for (entity, health, _npc_idx) in query.iter() {
         if health.0 <= 0.0 {
-            commands.entity(entity).insert(Dead);
-            death_count += 1;
+            if let Ok(mut ec) = commands.get_entity(entity) {
+                ec.insert(Dead);
+                death_count += 1;
+            }
         }
     }
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-25c
+
+- **fix entity-not-spawned crash on insert(Dead)** — replaced `commands.entity()` with `commands.get_entity()` (returns `Result`) at 3 sites: `death_system` Dead insertion, `damage_system` LastHitBy insertion, `destroy_building` Dead insertion; prevents crash when cross-set commands (Combat→Behavior) despawn an entity before deferred commands apply
+
 ## 2026-02-25b
 
 - **unified entity collision + GPU tower targeting** — merged buildings into NPC GPU buffers as unified `EntityGpuBuffers` (renamed from `NpcGpuBuffers`, sized to `MAX_ENTITIES`=200K); buildings appended at offset `npc_count` in `extract_npc_data`; added `entity_flags` bitmask (`ENTITY_FLAG_COMBAT`=bit 0, `ENTITY_FLAG_BUILDING`=bit 1) replacing fragile `speed==0` heuristic; `npc_compute.wgsl` MODE 1+2 dispatch `entity_count` threads — buildings without combat early-return, towers (building+combat) skip movement but run GPU spatial grid targeting; `projectile_compute.wgsl` renamed `npc_*` → `entity_*` bindings, collision now hits both NPCs and buildings via unified grid; `process_proj_hits` routes `hit_idx >= npc_count` to `BuildingDamageMsg` via `BuildingEntityMap`; `building_tower_system` reads GPU `combat_targets` readback instead of CPU O(n) scan; deleted `fire_towers` function; `combat_range` increased from 300→400 to cover `FOUNTAIN_TOWER.range`; save/load/cleanup reset `BuildingGpuState` + `BuildingSlots`

@@ -699,7 +699,9 @@ pub(crate) fn destroy_building(
 
     // Mark building entity as Dead (death_cleanup_system handles despawn + GPU hide + slot free)
     if let Some(inst) = building_slots.find_by_position(snapped) {
-        commands.entity(inst.entity).insert(crate::components::Dead);
+        if let Ok(mut ec) = commands.get_entity(inst.entity) {
+            ec.insert(crate::components::Dead);
+        }
     }
 
     // Clear grid cell

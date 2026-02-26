@@ -117,11 +117,11 @@ Execution order is **chained** — each system completes before the next starts.
 - Subtracts damage: `health.0 = (health.0 - amount).max(0.0)`
 - Pushes `GpuUpdate::SetHealth` to sync GPU health buffer
 - Pushes `GpuUpdate::SetDamageFlash` (intensity 1.0) for visual hit feedback
-- If `DamageMsg.attacker >= 0`: inserts `LastHitBy(attacker)` on target entity (overwrites previous)
+- If `DamageMsg.attacker >= 0`: inserts `LastHitBy(attacker)` on target entity via `get_entity()` guard (overwrites previous, skips despawned entities)
 
 ### 4. death_system (health.rs)
 - Queries all NPCs with Health but `Without<Dead>`
-- If `health.0 <= 0.0`: insert `Dead` marker component
+- If `health.0 <= 0.0`: insert `Dead` marker component via `get_entity()` guard (skips entities despawned by cross-set commands)
 
 ### 5. xp_grant_system (stats.rs)
 - Queries entities `With<Dead>` that have `Option<&LastHitBy>`
@@ -186,8 +186,7 @@ Tower auto-attack using GPU spatial grid targeting. Towers are in the unified en
 - Skips already-dead buildings (HP <= 0) and indestructible buildings (GoldMine, Road)
 - When HP reaches 0:
   1. Captures linked NPC slot from `SpawnerState` by position match **before** destroy (tombstoning changes position)
-  2. Calls `destroy_building()` shared helper (grid clear + spawner tombstone + combat log + mark building entity Dead)
-  3. Inserts `Dead` on building entity (reuses death_cleanup_system pipeline)
+  2. Calls `destroy_building()` shared helper (grid clear + combat log + mark building entity Dead via `get_entity()` guard)
   4. Kills linked NPC via `GpuUpdate::HideNpc` + `SetHealth(0.0)`
   5. **Building loot**: `BuildingDef::loot_drop()` method returns `cost / 2` as food (None if cost 0). Attacker set to `Activity::Returning { loot }`, targets home. Accumulates into existing loot. DC keep-fighting override same as xp_grant_system (skip disengage + skip home target when `dc_no_return`).
 - Profiled under `"building_damage"` scope
