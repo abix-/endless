@@ -71,6 +71,7 @@ pub fn arrival_system(
     mut frame_counter: Local<u32>,
     mut combat_log: MessageWriter<CombatLogMsg>,
     timings: Res<SystemTimings>,
+    mut activity_q: Query<&mut Activity>,
 ) {
     let _t = timings.scope("arrival");
     let positions = &gpu_state.positions;
@@ -81,14 +82,14 @@ pub fn arrival_system(
     // 1. Proximity-based delivery for all Returning NPCs
     // ========================================================================
     let returning_slots: Vec<usize> = entity_map.iter_npcs()
-        .filter(|n| !n.dead && matches!(n.activity, Activity::Returning { .. }))
+        .filter(|n| !n.dead && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Returning { .. })))
         .map(|n| n.slot)
         .collect();
 
     for slot in returning_slots {
         let Some(npc) = entity_map.get_npc(slot) else { continue };
-        let loot = match &npc.activity {
-            Activity::Returning { loot } => loot.clone(),
+        let loot = match activity_q.get(npc.entity).ok().as_deref() {
+            Some(Activity::Returning { loot }) => loot.clone(),
             _ => continue,
         };
         let idx = npc.slot;
@@ -121,8 +122,10 @@ pub fn arrival_system(
                     }
                 }
             }
-            if let Some(npc) = entity_map.get_npc_mut(slot) {
-                npc.activity = Activity::Idle;
+            if let Some(npc) = entity_map.get_npc(slot) {
+                if let Ok(mut act) = activity_q.get_mut(npc.entity) {
+                    *act = Activity::Idle;
+                }
             }
         }
     }
@@ -135,7 +138,7 @@ pub fn arrival_system(
 
     let farmer_slots: Vec<(usize, usize, Entity)> = entity_map.iter_npcs()
         .filter(|n| !n.dead
-            && matches!(n.activity, Activity::Working)
+            && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Working))
             && n.assigned_farm.is_some()
             && (n.slot as u32) % 30 == frame_slot)
         .map(|n| (n.slot, n.assigned_farm.unwrap(), n.entity))
@@ -168,7 +171,9 @@ pub fn arrival_system(
             pop_dec_working(&mut economy.pop_stats, job, town_idx);
             if let Some(npc) = entity_map.get_npc_mut(slot) {
                 npc.assigned_farm = None;
-                npc.activity = Activity::Returning { loot: vec![(ItemKind::Food, food)] };
+            }
+            if let Ok(mut act) = activity_q.get_mut(entity) {
+                *act = Activity::Returning { loot: vec![(ItemKind::Food, food)] };
             }
             // NpcInstance.assigned_farm already cleared above
             submit_intent(&mut intents, entity, home.x, home.y, MovementPriority::JobRoute, "arrival:harvest_return");
@@ -268,6 +273,14 @@ pub fn decision_system(
     mut extras: DecisionExtras,
     npc_config: Res<crate::resources::NpcDecisionConfig>,
     mut entity_map: ResMut<EntityMap>,
+    mut npc_flags_q: Query<&mut NpcFlags>,
+    squad_id_q: Query<&SquadId>,
+    manual_target_q: Query<&ManualTarget>,
+    mut activity_q: Query<&mut Activity>,
+    mut energy_q: Query<&mut Energy>,
+    mut combat_state_q: Query<&mut CombatState>,
+    health_q: Query<&Health, Without<Building>>,
+    cached_stats_q: Query<&CachedStats>,
 ) {
     let _t = extras.timings.scope("decision");
     let profiling = extras.timings.enabled;
@@ -313,19 +326,19 @@ pub fn decision_system(
         let entity = npc_ref.entity;
         let idx = npc_ref.slot;
         let job = npc_ref.job;
-        let mut energy = npc_ref.energy;
-        let health = npc_ref.health;
+        let mut energy = energy_q.get(entity).map(|e| e.0).unwrap_or(100.0);
+        let health = health_q.get(entity).map(|h| h.0).unwrap_or(100.0);
         let home = npc_ref.home;
         let personality = npc_ref.personality.clone();
         let town_idx_i32 = npc_ref.town_idx;
         let faction_i32 = npc_ref.faction;
-        let mut activity = npc_ref.activity.clone();
-        let mut combat_state = npc_ref.combat_state.clone();
-        let mut at_destination = npc_ref.at_destination;
-        let squad_id = npc_ref.squad_id;
-        let manual_target = npc_ref.manual_target.clone();
-        let direct_control = npc_ref.direct_control;
-        let max_hp = npc_ref.cached_stats.max_health;
+        let mut activity = activity_q.get(entity).map(|a| a.clone()).unwrap_or_default();
+        let mut combat_state = combat_state_q.get(entity).map(|cs| cs.clone()).unwrap_or_default();
+        let mut at_destination = npc_flags_q.get(entity).map(|f| f.at_destination).unwrap_or(false);
+        let squad_id = squad_id_q.get(entity).ok().map(|s| s.0);
+        let manual_target = manual_target_q.get(entity).ok().cloned();
+        let direct_control = npc_flags_q.get(entity).map(|f| f.direct_control).unwrap_or(false);
+        let max_hp = cached_stats_q.get(entity).map(|s| s.max_health).unwrap_or(100.0);
         let leash_range_val = npc_ref.leash_range;
         let mut work_position = npc_ref.work_position;
         let mut assigned_farm = npc_ref.assigned_farm;
@@ -1193,12 +1206,20 @@ pub fn decision_system(
         if let Some(s) = _ps_idle { t_idle += s.elapsed(); n_idle += 1; }
         } // end 'decide block
 
-        // Write-back modified NPC state
+        // Write-back modified NPC state: ECS components + NpcInstance fields
+        if let Ok(mut act) = activity_q.get_mut(entity) {
+            *act = activity;
+        }
+        if let Ok(mut flags) = npc_flags_q.get_mut(entity) {
+            flags.at_destination = at_destination;
+        }
+        if let Ok(mut en) = energy_q.get_mut(entity) {
+            en.0 = energy;
+        }
+        if let Ok(mut cs) = combat_state_q.get_mut(entity) {
+            *cs = combat_state;
+        }
         if let Some(npc) = entity_map.get_npc_mut(slot) {
-            npc.activity = activity;
-            npc.energy = energy;
-            npc.combat_state = combat_state;
-            npc.at_destination = at_destination;
             npc.assigned_farm = assigned_farm;
             npc.work_position = work_position;
             if let Some(route) = npc.patrol_route.as_mut() {
@@ -1228,15 +1249,19 @@ pub fn decision_system(
 /// Increment OnDuty tick counters (runs every frame for guards at posts).
 /// Separated from decision_system because we need mutable Activity access.
 pub fn on_duty_tick_system(
-    mut entity_map: ResMut<EntityMap>,
+    entity_map: Res<EntityMap>,
+    mut activity_q: Query<&mut Activity>,
+    combat_state_q: Query<&CombatState>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("on_duty_tick");
-    for npc in entity_map.iter_npcs_mut() {
+    for npc in entity_map.iter_npcs() {
         if npc.dead { continue; }
-        if npc.combat_state.is_fighting() { continue; }
-        if let Activity::OnDuty { ticks_waiting } = &mut npc.activity {
-            *ticks_waiting += 1;
+        if combat_state_q.get(npc.entity).is_ok_and(|cs| cs.is_fighting()) { continue; }
+        if let Ok(mut act) = activity_q.get_mut(npc.entity) {
+            if let Activity::OnDuty { ticks_waiting } = act.as_mut() {
+                *ticks_waiting += 1;
+            }
         }
     }
 }

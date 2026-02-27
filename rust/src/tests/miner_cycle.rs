@@ -42,24 +42,27 @@ pub fn setup(
 }
 
 pub fn tick(
-    mut entity_map: ResMut<EntityMap>,
+    entity_map: Res<EntityMap>,
     gold_storage: Res<GoldStorage>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
+    activity_q: Query<&Activity>,
+    mut energy_q: Query<&mut Energy>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
     let miner_count = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner).count();
     if !test.require_entity(miner_count, elapsed, "miner") { return; }
 
-    let energy = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Miner).map(|n| n.energy).unwrap_or(100.0);
+    let energy = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Miner)
+        .and_then(|n| energy_q.get(n.entity).ok()).map(|e| e.0).unwrap_or(100.0);
     let gold = gold_storage.gold.first().copied().unwrap_or(0);
 
-    let mining = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner && matches!(n.activity, Activity::Mining { .. })).count();
-    let mining_at_mine = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner && matches!(n.activity, Activity::MiningAtMine)).count();
-    let returning = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner && matches!(n.activity, Activity::Returning { .. })).count();
-    let idle = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner && matches!(n.activity, Activity::Idle)).count();
-    let going_rest = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner && matches!(n.activity, Activity::GoingToRest)).count();
-    let resting = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner && matches!(n.activity, Activity::Resting)).count();
+    let mining = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Mining { .. }))).count();
+    let mining_at_mine = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::MiningAtMine))).count();
+    let returning = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Returning { .. }))).count();
+    let idle = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Idle))).count();
+    let going_rest = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::GoingToRest))).count();
+    let resting = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Resting))).count();
 
     match test.phase {
         // Phase 1: Miner starts heading to mine
@@ -95,8 +98,9 @@ pub fn tick(
             if gold > 0 {
                 test.pass_phase(elapsed, format!("Delivered {} gold", gold));
                 // Now set energy low so tired→rest happens within test window
-                let slots: Vec<usize> = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner).map(|n| n.slot).collect();
-                for slot in slots { if let Some(npc) = entity_map.get_npc_mut(slot) { npc.energy = 35.0; } }
+                for npc in entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner) {
+                    if let Ok(mut en) = energy_q.get_mut(npc.entity) { en.0 = 35.0; }
+                }
             } else if elapsed > 20.0 {
                 test.fail_phase(elapsed, format!("gold=0 returning={}", returning));
             }

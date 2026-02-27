@@ -31,9 +31,11 @@ pub fn setup(mut params: TestSetupParams) {
 }
 
 pub fn tick(
-    mut entity_map: ResMut<EntityMap>,
+    entity_map: Res<EntityMap>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
+    activity_q: Query<&Activity>,
+    mut energy_q: Query<&mut Energy>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
     let farmer_count = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer).count();
@@ -41,16 +43,18 @@ pub fn tick(
 
     // Start energy near tired threshold so drain→rest→wake fits in 30s
     if !test.get_flag("energy_set") {
-        let slots: Vec<usize> = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer).map(|n| n.slot).collect();
-        for slot in slots { if let Some(npc) = entity_map.get_npc_mut(slot) { npc.energy = 35.0; } }
+        for npc in entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer) {
+            if let Ok(mut en) = energy_q.get_mut(npc.entity) { en.0 = 35.0; }
+        }
         test.set_flag("energy_set", true);
     }
 
-    let energy = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer).map(|n| n.energy).unwrap_or(100.0);
-    let going_work = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer && matches!(n.activity, Activity::GoingToWork)).count();
-    let working = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer && matches!(n.activity, Activity::Working)).count();
-    let going_rest = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer && matches!(n.activity, Activity::GoingToRest)).count();
-    let resting = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer && matches!(n.activity, Activity::Resting)).count();
+    let energy = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer)
+        .and_then(|n| energy_q.get(n.entity).ok()).map(|e| e.0).unwrap_or(100.0);
+    let going_work = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::GoingToWork))).count();
+    let working = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Working))).count();
+    let going_rest = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::GoingToRest))).count();
+    let resting = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Resting))).count();
 
     match test.phase {
         // Phase 1: Farmer spawns with GoingToWork

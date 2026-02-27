@@ -38,9 +38,12 @@ pub fn setup(mut params: TestSetupParams) {
 }
 
 pub fn tick(
-    mut entity_map: ResMut<EntityMap>,
+    entity_map: Res<EntityMap>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
+    activity_q: Query<&Activity>,
+    _npc_flags_q: Query<&NpcFlags>,
+    mut energy_q: Query<&mut Energy>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
     let archer_count = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Archer).count();
@@ -48,16 +51,18 @@ pub fn tick(
 
     // Start energy near tired threshold so rest triggers within 30s
     if !test.get_flag("energy_set") {
-        let slots: Vec<usize> = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Archer).map(|n| n.slot).collect();
-        for slot in slots { if let Some(npc) = entity_map.get_npc_mut(slot) { npc.energy = 40.0; } }
+        for npc in entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Archer) {
+            if let Ok(mut en) = energy_q.get_mut(npc.entity) { en.0 = 40.0; }
+        }
         test.set_flag("energy_set", true);
     }
 
-    let energy = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Archer).map(|n| n.energy).unwrap_or(100.0);
-    let on_duty = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Archer && matches!(n.activity, Activity::OnDuty { .. })).count();
-    let patrolling = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Archer && matches!(n.activity, Activity::Patrolling)).count();
-    let resting = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Archer && matches!(n.activity, Activity::Resting)).count();
-    let going_rest = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Archer && matches!(n.activity, Activity::GoingToRest)).count();
+    let energy = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Archer)
+        .and_then(|n| energy_q.get(n.entity).ok()).map(|e| e.0).unwrap_or(100.0);
+    let on_duty = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Archer && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::OnDuty { .. }))).count();
+    let patrolling = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Archer && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Patrolling))).count();
+    let resting = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Archer && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Resting))).count();
+    let going_rest = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Archer && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::GoingToRest))).count();
 
     match test.phase {
         // Phase 1: Archer starts OnDuty at post 0
@@ -76,7 +81,7 @@ pub fn tick(
                 test.pass_phase(elapsed, format!("Patrolling (energy={:.0})", energy));
             } else if elapsed > 15.0 {
                 let ticks = entity_map.iter_npcs().find_map(|n| {
-                    if let Activity::OnDuty { ticks_waiting } = n.activity { Some(ticks_waiting) } else { None }
+                    activity_q.get(n.entity).ok().and_then(|a| if let Activity::OnDuty { ticks_waiting } = *a { Some(ticks_waiting) } else { None })
                 }).unwrap_or(0);
                 test.fail_phase(elapsed, format!("patrolling=0 ticks={}", ticks));
             }

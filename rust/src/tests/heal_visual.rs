@@ -23,29 +23,32 @@ pub fn setup(mut params: TestSetupParams) {
 }
 
 pub fn tick(
-    mut entity_map: ResMut<EntityMap>,
+    entity_map: Res<EntityMap>,
     upload: Res<NpcVisualUpload>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
+    mut health_q: Query<&mut Health, Without<Building>>,
+    npc_flags_q: Query<&NpcFlags>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
-    let Some(farmer_slot) = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer).map(|n| n.slot) else {
+    let Some(farmer) = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer) else {
         if !test.require_entity(0, elapsed, "farmer") { return; }
         return;
     };
+    let farmer_entity = farmer.entity;
 
-    let hp = entity_map.get_npc(farmer_slot).map(|n| n.health).unwrap_or(0.0);
+    let hp = health_q.get(farmer_entity).map(|h| h.0).unwrap_or(0.0);
 
     match test.phase {
         // Phase 1: Damage NPC, wait for Healing marker
         1 => {
             if !test.get_flag("damaged") {
-                if let Some(npc) = entity_map.get_npc_mut(farmer_slot) { npc.health = 50.0; }
+                if let Ok(mut h) = health_q.get_mut(farmer_entity) { h.0 = 50.0; }
                 test.set_flag("damaged", true);
                 test.phase_name = "Damaged to 50 HP, waiting for Healing...".into();
             } else {
-                let healing = entity_map.iter_npcs().filter(|n| !n.dead && n.healing).count();
+                let healing = entity_map.iter_npcs().filter(|n| !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| f.healing)).count();
                 test.phase_name = format!("hp={:.0} healing={}", hp, healing);
                 if healing > 0 {
                     test.pass_phase(elapsed, format!("Healing marker (hp={:.0})", hp));
@@ -56,7 +59,7 @@ pub fn tick(
         }
         // Phase 2: Healing NPC → equip layer 5 should show halo (col>=0, atlas=2.0)
         2 => {
-            let healing_idx = entity_map.iter_npcs().find(|n| !n.dead && n.healing).map(|n| n.slot);
+            let healing_idx = entity_map.iter_npcs().find(|n| !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| f.healing)).map(|n| n.slot);
             test.phase_name = format!("hp={:.0} healing_idx={:?}", hp, healing_idx);
 
             if let Some(idx) = healing_idx {
@@ -74,7 +77,7 @@ pub fn tick(
         }
         // Phase 3: NPC healed to full → Healing removed → equip layer 5 cleared
         3 => {
-            let not_healing_idx = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer && !n.healing).map(|n| n.slot);
+            let not_healing_idx = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer && !npc_flags_q.get(n.entity).is_ok_and(|f| f.healing)).map(|n| n.slot);
             test.phase_name = format!("hp={:.0} not_healing={}", hp, not_healing_idx.is_some());
 
             if let Some(idx) = not_healing_idx {

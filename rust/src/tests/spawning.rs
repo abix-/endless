@@ -21,12 +21,13 @@ pub fn setup(mut params: TestSetupParams) {
 }
 
 pub fn tick(
-    mut entity_map: ResMut<EntityMap>,
+    entity_map: Res<EntityMap>,
     all_npc_query: Query<(), With<EntitySlot>>,
     mut slot_alloc: ResMut<EntitySlots>,
     mut spawn_events: MessageWriter<crate::messages::SpawnNpcMsg>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
+    mut health_q: Query<&mut Health, Without<Building>>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
@@ -56,7 +57,8 @@ pub fn tick(
                 if let Some(slot) = first_slot {
                     test.set_flag("killed", true);
                     test.counters.insert("killed_slot".into(), slot as u32);
-                    if let Some(npc) = entity_map.get_npc_mut(slot) { npc.health = 0.0; }
+                    let npc = entity_map.get_npc(slot).unwrap();
+                    if let Ok(mut h) = health_q.get_mut(npc.entity) { h.0 = 0.0; }
                     test.phase_name = format!("Killed slot {}, waiting for despawn...", slot);
                 }
             } else {

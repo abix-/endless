@@ -59,6 +59,7 @@ pub fn tick(
     food_storage: Res<FoodStorage>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
+    activity_q: Query<&Activity>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
     let alive = entity_map.iter_npcs().filter(|n| !n.dead && n.is_stealer).count();
@@ -68,9 +69,9 @@ pub fn tick(
     let mut returning = 0;
     let mut carrying = 0;
     for npc in entity_map.iter_npcs().filter(|n| !n.dead && n.is_stealer) {
-        match &npc.activity {
-            Activity::Raiding { .. } => raiding += 1,
-            Activity::Returning { loot } => {
+        match activity_q.get(npc.entity).ok().as_deref() {
+            Some(Activity::Raiding { .. }) => raiding += 1,
+            Some(Activity::Returning { loot }) => {
                 returning += 1;
                 if loot.iter().any(|(k, a)| *k == ItemKind::Food && *a > 0) { carrying += 1; }
             }

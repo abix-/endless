@@ -610,6 +610,10 @@ pub fn process_upgrades_system(
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut world_state: WorldState,
     timings: Res<SystemTimings>,
+    mut cached_stats_q: Query<&mut crate::components::CachedStats>,
+    mut speed_q: Query<&mut crate::components::Speed>,
+    mut health_q: Query<&mut crate::components::Health, Without<crate::components::Building>>,
+    attack_type_q: Query<&crate::components::BaseAttackType>,
 ) {
     let _t = timings.scope("process_upgrades");
     let count = upgrade_count();
@@ -659,21 +663,28 @@ pub fn process_upgrades_system(
         let Some(npc_slots) = npcs_by_town.0.get(town_idx) else { continue };
         let slots: Vec<usize> = npc_slots.clone();
         for slot in slots {
-            let Some(npc) = world_state.entity_map.get_npc_mut(slot) else { continue };
+            let Some(npc) = world_state.entity_map.get_npc(slot) else { continue };
+            let entity = npc.entity;
 
             let npc_level = meta_cache.0[slot].level;
-            let old_max = npc.cached_stats.max_health;
+            let old_max = cached_stats_q.get(entity).map(|s| s.max_health).unwrap_or(100.0);
             let pers = npc.personality.clone();
-            npc.cached_stats = resolve_combat_stats(npc.job, npc.attack_type, town_idx as i32, npc_level, &pers, &config, &upgrades);
-            npc.speed = npc.cached_stats.speed;
+            let atk_type = attack_type_q.get(entity).copied().unwrap_or(crate::components::BaseAttackType::Melee);
+            let new_cached = resolve_combat_stats(npc.job, atk_type, town_idx as i32, npc_level, &pers, &config, &upgrades);
+            let new_speed = new_cached.speed;
+            let new_max = new_cached.max_health;
+            if let Ok(mut cs) = cached_stats_q.get_mut(entity) { *cs = new_cached; }
+            if let Ok(mut spd) = speed_q.get_mut(entity) { spd.0 = new_speed; }
 
             // Rescale HP proportionally
-            if old_max > 0.0 && (npc.cached_stats.max_health - old_max).abs() > 0.01 {
-                npc.health = npc.health * npc.cached_stats.max_health / old_max;
+            if old_max > 0.0 && (new_max - old_max).abs() > 0.01 {
+                if let Ok(mut hp) = health_q.get_mut(entity) {
+                    hp.0 = hp.0 * new_max / old_max;
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: hp.0 }));
+                }
             }
 
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: slot, speed: npc.speed }));
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: npc.health }));
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: slot, speed: new_speed }));
         }
     }
 }

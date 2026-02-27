@@ -126,6 +126,8 @@ pub fn tick(
     health_debug: Res<HealthDebug>,
     entity_map: Res<EntityMap>,
     mut test: ResMut<TestState>,
+    activity_q: Query<&Activity>,
+    npc_flags_q: Query<&NpcFlags>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
@@ -162,21 +164,21 @@ pub fn tick(
         }
         // Phase 3: Farmers arrive and start working
         3 => {
-            let working = entity_map.iter_npcs().filter(|n| !n.dead && matches!(n.activity, Activity::Working)).count();
-            let going_to_work = entity_map.iter_npcs().filter(|n| !n.dead && matches!(n.activity, Activity::GoingToWork)).count();
+            let working = entity_map.iter_npcs().filter(|n| !n.dead && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Working))).count();
+            let going_to_work = entity_map.iter_npcs().filter(|n| !n.dead && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::GoingToWork))).count();
             test.phase_name = format!("working={} going_to_work={}", working, going_to_work);
             if working >= 3 {
                 test.pass_phase(elapsed, format!("working={}", working));
             } else if elapsed > 8.0 {
-                let at_dest = entity_map.iter_npcs().filter(|n| !n.dead && n.at_destination).count();
-                let transit = entity_map.iter_npcs().filter(|n| !n.dead && n.activity.is_transit()).count();
+                let at_dest = entity_map.iter_npcs().filter(|n| !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| f.at_destination)).count();
+                let transit = entity_map.iter_npcs().filter(|n| !n.dead && activity_q.get(n.entity).is_ok_and(|a| a.is_transit())).count();
                 test.fail_phase(elapsed, format!(
                     "working={} going_to_work={} at_dest={} transit={}", working, going_to_work, at_dest, transit));
             }
         }
         // Phase 4: Raiders dispatched
         4 => {
-            let raiding = entity_map.iter_npcs().filter(|n| !n.dead && matches!(n.activity, Activity::Raiding { .. })).count();
+            let raiding = entity_map.iter_npcs().filter(|n| !n.dead && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Raiding { .. }))).count();
             test.phase_name = format!("raiding={}/3", raiding);
             if raiding >= 3 {
                 test.pass_phase(elapsed, format!("raiding={}", raiding));

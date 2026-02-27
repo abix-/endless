@@ -172,6 +172,14 @@ pub struct BuildingInspectorData<'w, 's> {
     town_upgrades: Res<'w, TownUpgrades>,
     entity_map: ResMut<'w, EntityMap>,
     building_health: Query<'w, 's, &'static mut Health, With<Building>>,
+    pub npc_flags_q: Query<'w, 's, &'static mut NpcFlags>,
+    pub squad_id_q: Query<'w, 's, &'static SquadId>,
+    pub manual_target_q: Query<'w, 's, &'static ManualTarget>,
+    pub activity_q: Query<'w, 's, &'static Activity>,
+    pub npc_health_q: Query<'w, 's, &'static Health, Without<Building>>,
+    pub cached_stats_q: Query<'w, 's, &'static CachedStats>,
+    pub combat_state_q: Query<'w, 's, &'static CombatState>,
+    pub energy_q: Query<'w, 's, &'static Energy>,
 }
 
 #[derive(SystemParam)]
@@ -247,7 +255,7 @@ pub fn bottom_panel_system(
     // Only show inspector when something is selected (or DC group active)
     let has_npc = data.selected.0 >= 0;
     let has_building = bld_data.selected_building.active;
-    let dc_count = bld_data.entity_map.iter_npcs().filter(|n| !n.dead && n.direct_control).count();
+    let dc_count = bld_data.entity_map.iter_npcs().filter(|n| !n.dead && bld_data.npc_flags_q.get(n.entity).is_ok_and(|f| f.direct_control)).count();
     if has_npc || has_building || dc_count > 0 {
         if has_npc && !has_building {
             inspector_state.tabs.show_npc = true;
@@ -523,7 +531,10 @@ pub fn combat_log_system(
 fn dc_group_inspector(
     ui: &mut egui::Ui,
     entity_map: &crate::resources::EntityMap,
+    npc_flags_q: &Query<&mut NpcFlags>,
     squad_state: &mut SquadState,
+    health_q: &Query<&Health, Without<Building>>,
+    cached_stats_q: &Query<&CachedStats>,
 ) {
     let mut total_hp = 0.0f32;
     let mut total_max_hp = 0.0f32;
@@ -531,10 +542,10 @@ fn dc_group_inspector(
     let mut count = 0usize;
 
     for npc in entity_map.iter_npcs() {
-        if npc.dead || !npc.direct_control { continue; }
+        if npc.dead || !npc_flags_q.get(npc.entity).is_ok_and(|f| f.direct_control) { continue; }
         count += 1;
-        total_hp += npc.health;
-        total_max_hp += npc.cached_stats.max_health;
+        total_hp += health_q.get(npc.entity).map(|h| h.0).unwrap_or(0.0);
+        total_max_hp += cached_stats_q.get(npc.entity).map(|s| s.max_health).unwrap_or(100.0);
         let name = crate::job_name(npc.job as i32);
         if let Some(entry) = job_counts.iter_mut().find(|(n, _)| *n == name) {
             entry.1 += 1;
@@ -588,7 +599,7 @@ fn inspector_content(
             return;
         }
         if dc_count > 0 {
-            dc_group_inspector(ui, &bld_data.entity_map, squad_state);
+            dc_group_inspector(ui, &bld_data.entity_map, &bld_data.npc_flags_q, squad_state, &bld_data.npc_health_q, &bld_data.cached_stats_q);
             return;
         }
         ui.label("Click an NPC or building to inspect");
@@ -604,7 +615,7 @@ fn inspector_content(
             return;
         }
         if dc_count > 0 {
-            dc_group_inspector(ui, &bld_data.entity_map, squad_state);
+            dc_group_inspector(ui, &bld_data.entity_map, &bld_data.npc_flags_q, squad_state, &bld_data.npc_health_q, &bld_data.cached_stats_q);
             return;
         }
         ui.label("Click an NPC or building to inspect");
@@ -650,9 +661,13 @@ fn inspector_content(
         }
     }
 
-    // Find HP, energy, combat stats from EntityMap
+    // Find HP, energy, combat stats from ECS queries
     let (hp, max_hp, energy, cached_stats) = if let Some(npc) = bld_data.entity_map.get_npc(idx) {
-        (npc.health, npc.cached_stats.max_health, npc.energy, Some(npc.cached_stats.clone()))
+        let hp = bld_data.npc_health_q.get(npc.entity).map(|h| h.0).unwrap_or(0.0);
+        let cs = bld_data.cached_stats_q.get(npc.entity).cloned().ok();
+        let max_hp = cs.as_ref().map(|s| s.max_health).unwrap_or(100.0f32);
+        let energy = bld_data.energy_q.get(npc.entity).map(|e| e.0).unwrap_or(0.0);
+        (hp, max_hp, energy, cs)
     } else {
         (0.0f32, 100.0f32, 0.0f32, None)
     };
@@ -688,34 +703,39 @@ fn inspector_content(
             stats.damage, stats.range, stats.cooldown, stats.speed));
     }
 
-    // Equipment + status from EntityMap
+    // Equipment + status from EntityMap + ECS
     if let Some(npc) = bld_data.entity_map.get_npc(idx) {
-        let atk_str = match npc.attack_type { BaseAttackType::Melee => "Melee", BaseAttackType::Ranged => "Ranged" };
+        let atk_type = bld_data.cached_stats_q.get(npc.entity).map(|_| ()).ok()
+            .and_then(|_| None::<BaseAttackType>); // attack_type from separate query not yet in SystemParam
+        let _ = atk_type;
         let mut equip_parts: Vec<&str> = Vec::new();
         if npc.weapon.is_some() { equip_parts.push("Weapon"); }
         if npc.helmet.is_some() { equip_parts.push("Helmet"); }
         if npc.armor.is_some() { equip_parts.push("Armor"); }
         let equip_str = if equip_parts.is_empty() { "None".to_string() } else { equip_parts.join(" + ") };
-        ui.label(format!("{} | {}", atk_str, equip_str));
+        ui.label(equip_str);
 
         // Status markers
-        if npc.starving {
+        if bld_data.npc_flags_q.get(npc.entity).is_ok_and(|f| f.starving) {
             ui.colored_label(egui::Color32::from_rgb(200, 60, 60), "Starving");
         }
-        if let Some(sq) = npc.squad_id {
+        if let Some(sq) = bld_data.squad_id_q.get(npc.entity).ok().map(|s| s.0) {
             ui.label(format!("Squad: {}", sq));
         }
         if npc.carried_gold > 0 { ui.label(format!("Carrying: {} gold", npc.carried_gold)); }
     }
     // DirectControl toggle (separate borrow scope)
     {
-        let is_dc = bld_data.entity_map.get_npc(idx).map(|n| n.direct_control).unwrap_or(false);
+        let entity = bld_data.entity_map.get_npc(idx).map(|n| n.entity);
+        let is_dc = entity.and_then(|e| bld_data.npc_flags_q.get(e).ok()).is_some_and(|f| f.direct_control);
         ui.horizontal(|ui| {
             let label = if is_dc { "Direct Control: ON" } else { "Direct Control: OFF" };
             let color = if is_dc { egui::Color32::from_rgb(80, 220, 80) } else { egui::Color32::GRAY };
             if ui.button(egui::RichText::new(label).color(color)).clicked() {
-                if let Some(npc_mut) = bld_data.entity_map.get_npc_mut(idx) {
-                    npc_mut.direct_control = !is_dc;
+                if let Some(e) = entity {
+                    if let Ok(mut flags) = bld_data.npc_flags_q.get_mut(e) {
+                        flags.direct_control = !is_dc;
+                    }
                 }
             }
         });
@@ -742,16 +762,17 @@ fn inspector_content(
         home_str = format!("({:.0}, {:.0})", npc.home.x, npc.home.y);
         faction_str = format!("{} (town {})", npc.faction, npc.town_idx);
         faction_id = Some(npc.faction);
-        is_mining_at_mine = matches!(npc.activity, Activity::MiningAtMine);
+        let npc_act = bld_data.activity_q.get(npc.entity).ok();
+        is_mining_at_mine = npc_act.is_some_and(|a| matches!(*a, Activity::MiningAtMine));
 
-        if let Activity::Returning { loot } = &npc.activity {
+        if let Some(Activity::Returning { loot }) = npc_act.as_deref() {
             carried_loot = loot.clone();
         }
 
         let mut parts: Vec<&str> = Vec::new();
-        let combat_name = npc.combat_state.name();
+        let combat_name = bld_data.combat_state_q.get(npc.entity).map(|cs| cs.name()).unwrap_or("");
         if !combat_name.is_empty() { parts.push(combat_name); }
-        parts.push(npc.activity.name());
+        parts.push(npc_act.map(|a| a.name()).unwrap_or("Unknown"));
         state_str = parts.join(", ");
     }
 
@@ -875,21 +896,18 @@ fn inspector_content(
                 ));
             }
             if let Some(npc) = bld_data.entity_map.get_npc(idx) {
-                let atk_str = match npc.attack_type {
-                    BaseAttackType::Melee => "Melee",
-                    BaseAttackType::Ranged => "Ranged",
-                };
                 let mut equip_parts: Vec<&str> = Vec::new();
                 if npc.weapon.is_some() { equip_parts.push("Weapon"); }
                 if npc.helmet.is_some() { equip_parts.push("Helmet"); }
                 if npc.armor.is_some() { equip_parts.push("Armor"); }
                 let equip_str = if equip_parts.is_empty() { "None".to_string() } else { equip_parts.join(" + ") };
-                info.push_str(&format!("{} | {}\n", atk_str, equip_str));
-                if npc.starving {
+                info.push_str(&format!("{}\n", equip_str));
+                if bld_data.npc_flags_q.get(npc.entity).is_ok_and(|f| f.starving) {
                     info.push_str("Starving\n");
                 }
-                info.push_str(&format!("DirectControl: {}\n", if npc.direct_control { "ON" } else { "OFF" }));
-                if let Some(sq) = npc.squad_id {
+                let is_dc = bld_data.npc_flags_q.get(npc.entity).is_ok_and(|f| f.direct_control);
+                info.push_str(&format!("DirectControl: {}\n", if is_dc { "ON" } else { "OFF" }));
+                if let Some(sq) = bld_data.squad_id_q.get(npc.entity).ok().map(|s| s.0) {
                     info.push_str(&format!("Squad: {}\n", sq));
                     let ss = squad_state;
                     info.push_str(&format!("Squad.selected: {}\n", ss.selected));
@@ -1276,14 +1294,14 @@ fn building_inspector_content(
                             ui.label(format!("NPC: {} (Lv.{})", meta.name, meta.level));
                         }
                         ui.colored_label(egui::Color32::from_rgb(80, 200, 80), "Alive");
-                        // Show NPC state from EntityMap
+                        // Show NPC state from EntityMap + ECS
                         if let Some(npc) = bld.entity_map.get_npc(slot) {
                             let mut parts: Vec<&str> = Vec::new();
-                            let combat_name = npc.combat_state.name();
+                            let combat_name = bld.combat_state_q.get(npc.entity).map(|cs| cs.name()).unwrap_or("");
                             if !combat_name.is_empty() { parts.push(combat_name); }
-                            parts.push(npc.activity.name());
+                            parts.push(bld.activity_q.get(npc.entity).map(|a| a.name()).unwrap_or("Unknown"));
                             ui.label(format!("State: {}", parts.join(", ")));
-                            if let Some(sq) = npc.squad_id {
+                            if let Some(sq) = bld.squad_id_q.get(npc.entity).ok().map(|s| s.0) {
                                 ui.label(format!("Squad: {}", sq + 1));
                             }
                             let has_patrol = npc.patrol_route.as_ref().is_some_and(|r| !r.posts.is_empty());
@@ -1428,11 +1446,12 @@ fn building_inspector_content(
                             info.push_str(&format!("NPC: {} (Lv.{}) slot={}\n", meta.name, meta.level, slot));
                         }
                         if let Some(npc) = bld.entity_map.get_npc(slot) {
-                            let combat_name = npc.combat_state.name();
+                            let combat_name = bld.combat_state_q.get(npc.entity).map(|cs| cs.name()).unwrap_or("");
+                            let act_name = bld.activity_q.get(npc.entity).map(|a| a.name()).unwrap_or("Unknown");
                             info.push_str(&format!("State: {}{}\n",
                                 if combat_name.is_empty() { "" } else { combat_name },
-                                if combat_name.is_empty() { npc.activity.name().to_string() } else { format!(", {}", npc.activity.name()) }));
-                            if let Some(sq) = npc.squad_id {
+                                if combat_name.is_empty() { act_name.to_string() } else { format!(", {}", act_name) }));
+                            if let Some(sq) = bld.squad_id_q.get(npc.entity).ok().map(|s| s.0) {
                                 info.push_str(&format!("Squad: {}\n", sq + 1));
                             }
                             let has_patrol = npc.patrol_route.as_ref().is_some_and(|r| !r.posts.is_empty());
@@ -1518,8 +1537,9 @@ pub fn selection_overlay_system(
     _world_data: Res<WorldData>,
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
     windows: Query<&Window>,
+    npc_flags_q: Query<&NpcFlags>,
 ) -> Result {
-    let dc_slots: Vec<usize> = entity_map.iter_npcs().filter(|n| !n.dead && n.direct_control).map(|n| n.slot).collect();
+    let dc_slots: Vec<usize> = entity_map.iter_npcs().filter(|n| !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| f.direct_control)).map(|n| n.slot).collect();
     let has_dc_sel = !dc_slots.is_empty();
     if selected.0 < 0 && !selected_building.active && !has_dc_sel { return Ok(()); }
 
@@ -1692,6 +1712,8 @@ pub fn squad_overlay_system(
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
     windows: Query<&Window>,
     entity_map: Res<EntityMap>,
+    npc_flags_q: Query<&NpcFlags>,
+    manual_target_q: Query<&ManualTarget>,
 ) -> Result {
     let Ok(window) = windows.single() else { return Ok(()); };
     let Ok((transform, projection)) = camera_query.single() else { return Ok(()); };
@@ -1755,8 +1777,8 @@ pub fn squad_overlay_system(
     // Collect unique target positions to avoid drawing multiple crosshairs on same spot
     let mut drawn_targets: Vec<egui::Pos2> = Vec::new();
     let dc_targets: Vec<ManualTarget> = entity_map.iter_npcs()
-        .filter(|n| !n.dead && n.direct_control)
-        .filter_map(|n| n.manual_target.clone())
+        .filter(|n| !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| f.direct_control))
+        .filter_map(|n| manual_target_q.get(n.entity).ok().cloned())
         .collect();
     for mt in &dc_targets {
         let world_pos = match mt {

@@ -66,11 +66,12 @@ pub fn tick(
     slot_alloc: Res<EntitySlots>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
+    combat_state_q: Query<&crate::components::CombatState>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
     let alive = entity_map.iter_npcs().filter(|n| !n.dead).count();
-    let in_combat = entity_map.iter_npcs().filter(|n| !n.dead && n.combat_state.is_fighting()).count();
+    let in_combat = entity_map.iter_npcs().filter(|n| !n.dead && combat_state_q.get(n.entity).is_ok_and(|cs| cs.is_fighting())).count();
 
     match test.phase {
         // Phase 1: GPU targeting finds enemy

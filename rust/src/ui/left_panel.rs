@@ -76,6 +76,10 @@ pub struct RosterParams<'w, 's> {
     entity_map: Res<'w, EntityMap>,
     camera_query: Query<'w, 's, &'static mut Transform, With<crate::render::MainCamera>>,
     gpu_state: Res<'w, GpuReadState>,
+    activity_q: Query<'w, 's, &'static Activity>,
+    health_q: Query<'w, 's, &'static Health, Without<Building>>,
+    cached_stats_q: Query<'w, 's, &'static CachedStats>,
+    combat_state_q: Query<'w, 's, &'static CombatState>,
 }
 
 #[derive(SystemParam)]
@@ -333,18 +337,18 @@ fn roster_content(
             if state.job_filter >= 0 && meta.job != state.job_filter {
                 continue;
             }
-            let state_str = if npc.combat_state.is_fighting() {
-                npc.combat_state.name().to_string()
+            let state_str = if roster.combat_state_q.get(npc.entity).is_ok_and(|cs| cs.is_fighting()) {
+                roster.combat_state_q.get(npc.entity).map(|cs| cs.name().to_string()).unwrap_or_default()
             } else {
-                npc.activity.name().to_string()
+                roster.activity_q.get(npc.entity).map(|a| a.name().to_string()).unwrap_or_else(|_| "Unknown".to_string())
             };
             rows.push(RosterRow {
                 slot: idx,
                 name: meta.name.clone(),
                 job: meta.job,
                 level: meta.level,
-                hp: npc.health,
-                max_hp: npc.cached_stats.max_health,
+                hp: roster.health_q.get(npc.entity).map(|h| h.0).unwrap_or(0.0),
+                max_hp: roster.cached_stats_q.get(npc.entity).map(|s| s.max_health).unwrap_or(100.0),
                 state: state_str,
                 trait_name: npc.personality.trait_summary(),
             });

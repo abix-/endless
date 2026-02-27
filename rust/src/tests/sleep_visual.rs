@@ -31,21 +31,26 @@ pub fn setup(mut params: TestSetupParams) {
 }
 
 pub fn tick(
-    mut entity_map: ResMut<EntityMap>,
+    entity_map: Res<EntityMap>,
     upload: Res<NpcVisualUpload>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
+    activity_q: Query<&Activity>,
+    mut energy_q: Query<&mut Energy>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
     let farmer_count = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer).count();
     if !test.require_entity(farmer_count, elapsed, "farmer") { return; }
 
-    let energy = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer).map(|n| n.energy).unwrap_or(100.0);
+    let energy = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer)
+        .and_then(|n| energy_q.get(n.entity).ok()).map(|e| e.0).unwrap_or(100.0);
 
     // Start energy near tired threshold so rest triggers within 30s
     if !test.get_flag("energy_set") {
-        for npc in entity_map.iter_npcs_mut() {
-            if !npc.dead && npc.job == Job::Farmer { npc.energy = 35.0; }
+        for npc in entity_map.iter_npcs() {
+            if !npc.dead && npc.job == Job::Farmer {
+                if let Ok(mut en) = energy_q.get_mut(npc.entity) { en.0 = 35.0; }
+            }
         }
         test.set_flag("energy_set", true);
     }
@@ -62,7 +67,7 @@ pub fn tick(
         }
         // Phase 2: Farmer rests → equip layer 4 should show sleep icon (atlas=3.0)
         2 => {
-            let resting = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer && matches!(n.activity, Activity::Resting)).map(|n| n.slot);
+            let resting = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Resting))).map(|n| n.slot);
             test.phase_name = format!("e={:.0} resting={}", energy, resting.is_some());
 
             if let Some(idx) = resting {
@@ -80,7 +85,7 @@ pub fn tick(
         }
         // Phase 3: Farmer wakes → equip layer 4 should be cleared (-1)
         3 => {
-            let awake = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer && !matches!(n.activity, Activity::Resting)).map(|n| n.slot);
+            let awake = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer && !activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Resting))).map(|n| n.slot);
             test.phase_name = format!("e={:.0} awake={}", energy, awake.is_some());
 
             if let Some(idx) = awake {

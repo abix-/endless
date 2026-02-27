@@ -8,13 +8,13 @@ use crate::gpu::EntityGpuState;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::resources::{GameTime, GpuReadState, MovementIntents, NpcTargetThrashDebug, SystemTimings};
 
-/// Read positions from GPU and update Bevy Position + EntityMap NpcInstance.
-/// Also detects arrivals: if NPC is in a transit Activity and within ARRIVAL_THRESHOLD
-/// of their goal, add AtDestination marker for decision_system to handle.
+/// Read positions from GPU readback buffer → ECS Position + arrival detection.
+/// GPU is movement authority; ECS Position is read-model synced here.
+/// Query-first: iterates ECS archetypes, not HashMap.
 pub fn gpu_position_readback(
     gpu_state: Res<GpuReadState>,
     buffer_writes: Res<EntityGpuState>,
-    mut entity_map: ResMut<crate::resources::EntityMap>,
+    mut npc_q: Query<(&EntitySlot, &mut Position, &Activity, &mut NpcFlags)>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("gpu_position_readback");
@@ -22,12 +22,8 @@ pub fn gpu_position_readback(
     let targets = &buffer_writes.targets;
     let threshold_sq = ARRIVAL_THRESHOLD * ARRIVAL_THRESHOLD;
 
-    let slots: Vec<usize> = entity_map.iter_npcs()
-        .filter(|n| !n.dead)
-        .map(|n| n.slot)
-        .collect();
-
-    for i in slots {
+    for (es, mut pos, activity, mut flags) in npc_q.iter_mut() {
+        let i = es.0;
         if i * 2 + 1 >= positions.len() { continue; }
 
         let gpu_x = positions[i * 2];
@@ -35,18 +31,18 @@ pub fn gpu_position_readback(
 
         if gpu_x < -9000.0 { continue; }
 
-        let Some(npc) = entity_map.get_npc_mut(i) else { continue };
-        npc.position = Vec2::new(gpu_x, gpu_y);
+        pos.x = gpu_x;
+        pos.y = gpu_y;
 
         // CPU-side arrival detection
-        if npc.activity.is_transit() && !npc.at_destination {
+        if activity.is_transit() && !flags.at_destination {
             if i * 2 + 1 < targets.len() {
                 let goal_x = targets[i * 2];
                 let goal_y = targets[i * 2 + 1];
                 let dx = gpu_x - goal_x;
                 let dy = gpu_y - goal_y;
                 if dx * dx + dy * dy <= threshold_sq {
-                    npc.at_destination = true;
+                    flags.at_destination = true;
                 }
             }
         }

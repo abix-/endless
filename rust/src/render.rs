@@ -10,7 +10,7 @@ use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileD
 
 use crate::gpu::RenderFrameConfig;
 use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab, SystemTimings, EntityMap};
-use crate::components::{ManualTarget, Activity};
+use crate::components::{ManualTarget, Activity, NpcFlags, SquadId, Position};
 use crate::messages::{SelectFactionMsg, TerrainDirtyMsg};
 use crate::settings::UserSettings;
 use crate::world::{WorldData, WorldGrid, BuildingKind, build_tileset, build_building_atlas, build_extras_atlas, TERRAIN_TILES, building_tiles};
@@ -372,6 +372,9 @@ fn click_to_select_system(
     timings: Res<SystemTimings>,
     mut intents: ResMut<crate::resources::MovementIntents>,
     mut faction_select: MessageWriter<SelectFactionMsg>,
+    mut commands: Commands,
+    mut npc_flags_q: Query<&mut NpcFlags>,
+    mut activity_q: Query<&mut Activity>,
 ) {
     let _t = timings.scope("click_select");
     // Right-click: squad target placement, DirectControl micro, or cancel mine assignment
@@ -412,7 +415,9 @@ fn click_to_select_system(
             let members: Vec<usize> = click.squad_state.squads[si as usize].members.iter()
                 .copied()
                 .filter(|&slot| {
-                    click.entity_map.get_npc(slot).is_some_and(|n| n.direct_control)
+                    click.entity_map.entities.get(&slot)
+                        .and_then(|&e| npc_flags_q.get(e).ok())
+                        .is_some_and(|f| f.direct_control)  // NpcFlags query read
                 })
                 .collect();
             if members.is_empty() { return; }
@@ -444,13 +449,15 @@ fn click_to_select_system(
             if let Some((enemy_slot, enemy_pos)) = best_enemy {
                 // Attack NPC: set ManualTarget + move toward enemy
                 for &slot in &members {
-                    if let Some(npc) = click.entity_map.get_npc_mut(slot) {
-                        npc.manual_target = Some(ManualTarget::Npc(enemy_slot));
-                        // Wake resting NPCs on move command
-                        if matches!(npc.activity, Activity::GoingToRest | Activity::Resting) {
-                            npc.activity = Activity::Idle;
-                        }
+                    if let Some(npc) = click.entity_map.get_npc(slot) {
                         let entity = npc.entity;
+                        commands.entity(entity).insert(ManualTarget::Npc(enemy_slot));
+                        // Wake resting NPCs on move command
+                        if let Ok(mut act) = activity_q.get_mut(entity) {
+                            if matches!(*act, Activity::GoingToRest | Activity::Resting) {
+                                *act = Activity::Idle;
+                            }
+                        }
                         intents.submit(entity, enemy_pos, crate::resources::MovementPriority::DirectControl, "dc:attack");
                     }
                 }
@@ -482,12 +489,14 @@ fn click_to_select_system(
                     (ManualTarget::Position(world_pos), world_pos)
                 };
                 for &slot in &members {
-                    if let Some(npc) = click.entity_map.get_npc_mut(slot) {
-                        npc.manual_target = Some(mt.clone());
-                        if matches!(npc.activity, Activity::GoingToRest | Activity::Resting) {
-                            npc.activity = Activity::Idle;
-                        }
+                    if let Some(npc) = click.entity_map.get_npc(slot) {
                         let entity = npc.entity;
+                        commands.entity(entity).insert(mt.clone());
+                        if let Ok(mut act) = activity_q.get_mut(entity) {
+                            if matches!(*act, Activity::GoingToRest | Activity::Resting) {
+                                *act = Activity::Idle;
+                            }
+                        }
                         intents.submit(entity, target_pos, crate::resources::MovementPriority::DirectControl, "dc:move");
                     }
                 }
@@ -638,8 +647,10 @@ fn click_to_select_system(
         for squad in click.squad_state.squads.iter() {
             if !squad.is_player() { continue; }
             for &slot in &squad.members {
-                if let Some(npc) = click.entity_map.get_npc_mut(slot) {
-                    npc.direct_control = false;
+                if let Some(&entity) = click.entity_map.entities.get(&slot) {
+                    if let Ok(mut flags) = npc_flags_q.get_mut(entity) {
+                        flags.direct_control = false;
+                    }
                 }
             }
         }
@@ -660,9 +671,12 @@ fn box_select_system(
     mut squad_state: ResMut<crate::resources::SquadState>,
     build_ctx: Res<crate::resources::BuildMenuContext>,
     mut egui_contexts: bevy_egui::EguiContexts,
-    mut entity_map: ResMut<EntityMap>,
+    entity_map: Res<EntityMap>,
     mut selected_npc: ResMut<SelectedNpc>,
     mut selected_building: ResMut<crate::resources::SelectedBuilding>,
+    mut commands: Commands,
+    mut npc_flags_q: Query<&mut NpcFlags>,
+    position_q: Query<&Position>,
 ) {
     // Don't box-select while building or placing squad targets
     if build_ctx.selected_build.is_some() || squad_state.placing_target { return; }
@@ -712,10 +726,9 @@ fn box_select_system(
                     if npc.dead { continue; }
                     if npc.faction != 0 { continue; } // only player NPCs
                     if !npc.is_military { continue; }
-                    let px = npc.position.x;
-                    let py = npc.position.y;
-                    if px < -9000.0 { continue; }
-                    if px >= min_x && px <= max_x && py >= min_y && py <= max_y {
+                    let Some(pos) = position_q.get(npc.entity).ok() else { continue };
+                    if pos.x < -9000.0 { continue; }
+                    if pos.x >= min_x && pos.x <= max_x && pos.y >= min_y && pos.y <= max_y {
                         selected_slots.push(npc.slot);
                     }
                 }
@@ -728,8 +741,10 @@ fn box_select_system(
                         // Remove DirectControl from old squad members being replaced
                         for &old_slot in &squad_state.squads[si].members {
                             if !selected_set.contains(&old_slot) {
-                                if let Some(npc) = entity_map.get_npc_mut(old_slot) {
-                                    npc.direct_control = false;
+                                if let Some(&entity) = entity_map.entities.get(&old_slot) {
+                                    if let Ok(mut flags) = npc_flags_q.get_mut(entity) {
+                                        flags.direct_control = false;
+                                    }
                                 }
                             }
                         }
@@ -743,9 +758,11 @@ fn box_select_system(
                         squad_state.squads[si].members = selected_slots.clone();
                         // Update SquadId + DirectControl on each selected NPC
                         for &slot in &selected_slots {
-                            if let Some(npc) = entity_map.get_npc_mut(slot) {
-                                npc.squad_id = Some(si as i32);
-                                npc.direct_control = true;
+                            if let Some(&entity) = entity_map.entities.get(&slot) {
+                                commands.entity(entity).insert(SquadId(si as i32));
+                                if let Ok(mut flags) = npc_flags_q.get_mut(entity) {
+                                    flags.direct_control = true;
+                                }
                             }
                         }
                         squad_state.selected = si as i32;

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-27b
+
+- **ECS migration slice C: combat + health + energy → ECS components** — moved 10 NPC fields from NpcInstance to ECS components: Health, Energy, Speed, CombatState, CachedStats, BaseAttackType, AttackTimer, LastHitBy as `#[derive(Component)]`; healing/starving booleans moved to NpcFlags; query-first rewrites for healing_system, cooldown_system, energy_system, starvation_system, attack_system; added AttackQueries SystemParam bundle to keep attack_system under 16-param limit; updated spawn.rs to insert all new components; updated save.rs, gpu.rs, stats.rs, behavior.rs, economy.rs, all UI panels, and 10 test files; NpcInstance now holds only identity/home/equipment/patrol/flags (Slice D target)
+
 ## 2026-02-27a
 
 - **single-ownership cutover: remove all NPC dual-writes** — NPC ECS entities now spawn with only `EntitySlot`; all NPC runtime state lives exclusively in `NpcInstance` (stored in `EntityMap.npcs`); removed all `commands.entity().insert/remove` dual-writes for NPC markers across render.rs, behavior.rs, economy.rs, health.rs, save.rs, game_hud.rs, left_panel.rs (~20 sites); deleted 12 NPC marker structs (Archer/Farmer/Miner/Crossbow/SquadUnit/Stealer/DirectControl/AtDestination/Healing/Starving/Migrating/SquadId); stripped `#[derive(Component)]` from ~20 NPC data types; rewrote `gpu_position_readback` from ECS query to EntityMap-only; migrated 5 test files from ECS queries to EntityMap reads (archer_patrol, farmer_cycle, miner_cycle, raider_cycle, vertical_slice); removed unused `Commands` params from 8 systems; added HashSet for O(1) membership in box_select_system; added debug assertions in EntityMap insert_npc/remove_npc; buildings retain full ECS components (EntitySlot, Position, Health, Faction, TownId, Building)

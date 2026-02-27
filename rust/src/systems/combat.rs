@@ -8,14 +8,25 @@ use crate::systems::stats::{TownUpgrades, resolve_town_tower_stats};
 use crate::gpu::ProjBufferWrites;
 use crate::world::{WorldData, BuildingKind, is_alive};
 
+/// ECS queries for attack_system (bundled to stay under 16-param limit).
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct AttackQueries<'w, 's> {
+    pub manual_target_q: Query<'w, 's, &'static ManualTarget>,
+    pub squad_id_q: Query<'w, 's, &'static SquadId>,
+    pub activity_q: Query<'w, 's, &'static Activity>,
+    pub cached_stats_q: Query<'w, 's, &'static CachedStats>,
+    pub combat_state_q: Query<'w, 's, &'static mut CombatState>,
+    pub timer_q: Query<'w, 's, &'static mut AttackTimer>,
+}
 
 /// Decrement attack cooldown timers each frame.
 pub fn cooldown_system(
     time: Res<Time>,
     game_time: Res<GameTime>,
-    mut entity_map: ResMut<EntityMap>,
+    entity_map: Res<EntityMap>,
     mut debug: ResMut<CombatDebug>,
     timings: Res<SystemTimings>,
+    mut timer_q: Query<(&EntitySlot, &mut AttackTimer)>,
 ) {
     let _t = timings.scope("cooldown");
     let dt = game_time.delta(&time);
@@ -23,15 +34,16 @@ pub fn cooldown_system(
     let mut first_timer_before = -99.0f32;
     let mut timer_count = 0usize;
 
-    for npc in entity_map.iter_npcs_mut() {
+    for (es, mut timer) in timer_q.iter_mut() {
+        let Some(npc) = entity_map.get_npc(es.0) else { continue };
         if npc.dead { continue; }
         if timer_count == 0 {
-            first_timer_before = npc.attack_timer;
+            first_timer_before = timer.0;
         }
         timer_count += 1;
 
-        if npc.attack_timer > 0.0 {
-            npc.attack_timer = (npc.attack_timer - dt).max(0.0);
+        if timer.0 > 0.0 {
+            timer.0 = (timer.0 - dt).max(0.0);
         }
     }
 
@@ -49,10 +61,12 @@ pub fn attack_system(
     mut debug: ResMut<CombatDebug>,
     gpu_state: Res<GpuReadState>,
     npc_gpu: Res<crate::gpu::EntityGpuState>,
-    mut entity_map: ResMut<EntityMap>,
+    entity_map: Res<EntityMap>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     timings: Res<SystemTimings>,
     squad_state: Res<crate::resources::SquadState>,
+    mut commands: Commands,
+    mut aq: AttackQueries,
 ) {
     let _t = timings.scope("attack");
     let positions = &gpu_state.positions;
@@ -70,7 +84,7 @@ pub fn attack_system(
     let mut timer_ready_count = 0usize;
     let mut sample_timer = -1.0f32;
 
-    // Collect NPC slots to avoid borrow conflict (need &mut npc + &building from same EntityMap)
+    // Collect NPC slots to avoid borrow conflict (need &building from same EntityMap)
     let npc_slots: Vec<usize> = entity_map.iter_npcs()
         .filter(|n| !n.dead)
         .map(|n| n.slot)
@@ -80,15 +94,18 @@ pub fn attack_system(
         // Read NPC data (immutable borrow scope)
         let (entity, i, cached_range, cached_damage, cached_cooldown, cached_proj_speed, cached_proj_lifetime, faction_id, job, activity_skip, manual_target_clone, squad_id_val, is_fighting) = {
             let npc = entity_map.get_npc(slot).unwrap();
-            let activity_skip = matches!(
-                npc.activity,
+            let activity_skip = aq.activity_q.get(npc.entity).is_ok_and(|a| matches!(
+                *a,
                 Activity::Returning { .. } | Activity::GoingToRest | Activity::Resting
                     | Activity::GoingToHeal | Activity::HealingAtFountain { .. }
-            );
-            (npc.entity, npc.slot, npc.cached_stats.range, npc.cached_stats.damage,
-             npc.cached_stats.cooldown, npc.cached_stats.projectile_speed,
-             npc.cached_stats.projectile_lifetime, npc.faction, npc.job,
-             activity_skip, npc.manual_target.clone(), npc.squad_id, npc.combat_state.is_fighting())
+            ));
+            let stats = aq.cached_stats_q.get(npc.entity).unwrap();
+            let is_fighting = aq.combat_state_q.get(npc.entity).is_ok_and(|cs| cs.is_fighting());
+            (npc.entity, npc.slot, stats.range, stats.damage,
+             stats.cooldown, stats.projectile_speed,
+             stats.projectile_lifetime, npc.faction, npc.job,
+             activity_skip, aq.manual_target_q.get(npc.entity).ok().cloned(),
+             aq.squad_id_q.get(npc.entity).ok().map(|s| s.0), is_fighting)
         };
 
         attackers += 1;
@@ -96,7 +113,7 @@ pub fn attack_system(
         // Don't auto-engage while NPC is in survival/transit states.
         if activity_skip {
             if is_fighting {
-                entity_map.get_npc_mut(slot).unwrap().combat_state = CombatState::None;
+                if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) { *cs = CombatState::None; }
             }
             continue;
         }
@@ -107,7 +124,7 @@ pub fn attack_system(
                 ManualTarget::Npc(t) => {
                     let dead = gpu_state.health.get(*t).map_or(true, |&h| h <= 0.0);
                     if dead {
-                        entity_map.get_npc_mut(slot).unwrap().manual_target = None;
+                        commands.entity(entity).remove::<ManualTarget>();
                         combat_targets.get(i).copied().unwrap_or(-1)
                     } else {
                         *t as i32
@@ -139,7 +156,7 @@ pub fn attack_system(
         if attackers == 1 { sample_target = target_idx; }
 
         if target_idx < 0 {
-            if is_fighting { entity_map.get_npc_mut(slot).unwrap().combat_state = CombatState::None; }
+            if is_fighting { if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) { *cs = CombatState::None; } }
             continue;
         }
 
@@ -147,7 +164,7 @@ pub fn attack_system(
         targets_found += 1;
 
         if ti == i {
-            if is_fighting { entity_map.get_npc_mut(slot).unwrap().combat_state = CombatState::None; }
+            if is_fighting { if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) { *cs = CombatState::None; } }
             continue;
         }
 
@@ -169,7 +186,7 @@ pub fn attack_system(
             if dist <= cached_range {
                 intents.submit(entity, Vec2::new(x, y), MovementPriority::Combat, "combat:hold_building");
                 in_range_count += 1;
-                let timer = entity_map.get_npc(slot).unwrap().attack_timer;
+                let timer = aq.timer_q.get(entity).map(|t| t.0).unwrap_or(0.0);
                 if timer <= 0.0 {
                     timer_ready_count += 1;
                     if dist > 1.0 {
@@ -190,7 +207,7 @@ pub fn attack_system(
                         });
                     }
                     attacks += 1;
-                    entity_map.get_npc_mut(slot).unwrap().attack_timer = cached_cooldown;
+                    if let Ok(mut t) = aq.timer_q.get_mut(entity) { t.0 = cached_cooldown; }
                 }
             } else if dist <= close_chase_radius {
                 intents.submit(entity, inst_pos, MovementPriority::Combat, "combat:chase_building");
@@ -201,28 +218,28 @@ pub fn attack_system(
 
         // ── NPC target ──
         if entity_map.get_npc(ti).is_none() {
-            if is_fighting { entity_map.get_npc_mut(slot).unwrap().combat_state = CombatState::None; }
+            if is_fighting { if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) { *cs = CombatState::None; } }
             continue;
         }
         let target_faction = gpu_state.factions.get(ti).copied().unwrap_or(-1);
         if target_faction < 0 || target_faction == faction_id {
-            if is_fighting { entity_map.get_npc_mut(slot).unwrap().combat_state = CombatState::None; }
+            if is_fighting { if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) { *cs = CombatState::None; } }
             continue;
         }
         if gpu_state.health.get(ti).copied().unwrap_or(0.0) <= 0.0 {
-            if is_fighting { entity_map.get_npc_mut(slot).unwrap().combat_state = CombatState::None; }
+            if is_fighting { if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) { *cs = CombatState::None; } }
             continue;
         }
         if ti * 2 + 1 >= positions.len() { bounds_failures += 1; continue; }
 
         if !is_fighting {
-            entity_map.get_npc_mut(slot).unwrap().combat_state = CombatState::Fighting { origin: Vec2::new(x, y) };
+            if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) { *cs = CombatState::Fighting { origin: Vec2::new(x, y) }; }
             in_combat_added += 1;
         }
         let (tx, ty) = (positions[ti * 2], positions[ti * 2 + 1]);
 
         if tx < -9000.0 {
-            entity_map.get_npc_mut(slot).unwrap().combat_state = CombatState::None;
+            if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) { *cs = CombatState::None; }
             continue;
         }
 
@@ -235,7 +252,7 @@ pub fn attack_system(
         if dist <= cached_range {
             intents.submit(entity, Vec2::new(x, y), MovementPriority::Combat, "combat:hold_npc");
             in_range_count += 1;
-            let timer = entity_map.get_npc(slot).unwrap().attack_timer;
+            let timer = aq.timer_q.get(entity).map(|t| t.0).unwrap_or(0.0);
             if in_range_count == 1 { sample_timer = timer; }
             if timer <= 0.0 {
                 timer_ready_count += 1;
@@ -257,7 +274,7 @@ pub fn attack_system(
                     });
                 }
                 attacks += 1;
-                entity_map.get_npc_mut(slot).unwrap().attack_timer = cached_cooldown;
+                if let Ok(mut t) = aq.timer_q.get_mut(entity) { t.0 = cached_cooldown; }
             }
         } else {
             intents.submit(entity, Vec2::new(tx, ty), MovementPriority::Combat, "combat:chase_npc");

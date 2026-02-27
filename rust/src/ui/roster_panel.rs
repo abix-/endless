@@ -40,6 +40,10 @@ pub fn roster_panel_system(
     mut state: Local<RosterState>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     gpu_state: Res<GpuReadState>,
+    activity_q: Query<&Activity>,
+    health_q: Query<&Health, Without<Building>>,
+    cached_stats_q: Query<&CachedStats>,
+    combat_state_q: Query<&CombatState>,
 ) -> Result {
     if !ui_state.roster_open {
         return Ok(());
@@ -61,10 +65,10 @@ pub fn roster_panel_system(
                 continue;
             }
 
-            let state_str = if npc.combat_state.is_fighting() {
-                npc.combat_state.name().to_string()
+            let state_str = if combat_state_q.get(npc.entity).is_ok_and(|cs| cs.is_fighting()) {
+                combat_state_q.get(npc.entity).map(|cs| cs.name().to_string()).unwrap_or_default()
             } else {
-                npc.activity.name().to_string()
+                activity_q.get(npc.entity).map(|a| a.name().to_string()).unwrap_or_else(|_| "Unknown".to_string())
             };
 
             rows.push(RosterRow {
@@ -72,8 +76,8 @@ pub fn roster_panel_system(
                 name: meta.name.clone(),
                 job: meta.job,
                 level: meta.level,
-                hp: npc.health,
-                max_hp: npc.cached_stats.max_health,
+                hp: health_q.get(npc.entity).map(|h| h.0).unwrap_or(0.0),
+                max_hp: cached_stats_q.get(npc.entity).map(|s| s.max_health).unwrap_or(100.0),
                 state: state_str,
                 trait_name: crate::trait_name(meta.trait_id).to_string(),
             });

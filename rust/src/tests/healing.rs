@@ -18,26 +18,30 @@ pub fn setup(mut params: TestSetupParams) {
 }
 
 pub fn tick(
-    mut entity_map: ResMut<EntityMap>,
+    entity_map: Res<EntityMap>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
+    mut health_q: Query<&mut Health, Without<Building>>,
+    cached_stats_q: Query<&CachedStats>,
+    npc_flags_q: Query<&NpcFlags>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
-    let Some(farmer_slot) = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer).map(|n| n.slot) else {
+    let Some(farmer) = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer) else {
         if !test.require_entity(0, elapsed, "farmer") { return; }
         return;
     };
+    let farmer_entity = farmer.entity;
 
-    let healing = entity_map.iter_npcs().filter(|n| !n.dead && n.healing && n.job == Job::Farmer).count();
-    let hp = entity_map.get_npc(farmer_slot).map(|n| n.health).unwrap_or(0.0);
-    let max_hp = entity_map.get_npc(farmer_slot).map(|n| n.cached_stats.max_health).unwrap_or(100.0);
+    let healing = entity_map.iter_npcs().filter(|n| !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| f.healing) && n.job == Job::Farmer).count();
+    let hp = health_q.get(farmer_entity).map(|h| h.0).unwrap_or(0.0);
+    let max_hp = cached_stats_q.get(farmer_entity).map(|s| s.max_health).unwrap_or(100.0);
 
     match test.phase {
         // Phase 1: Set NPC to 50 HP, wait for Healing marker
         1 => {
             if !test.get_flag("damaged") {
-                if let Some(npc) = entity_map.get_npc_mut(farmer_slot) { npc.health = 50.0; }
+                if let Ok(mut h) = health_q.get_mut(farmer_entity) { h.0 = 50.0; }
                 test.set_flag("damaged", true);
                 test.phase_name = "Damaged to 50 HP, waiting for Healing...".into();
             } else {

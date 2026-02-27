@@ -28,23 +28,25 @@ pub fn setup(mut params: TestSetupParams) {
 }
 
 pub fn tick(
-    mut entity_map: ResMut<EntityMap>,
+    entity_map: Res<EntityMap>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
+    mut energy_q: Query<&mut Energy>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
     let farmer_count = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer).count();
     if !test.require_entity(farmer_count, elapsed, "farmer") { return; }
-    let Some(farmer_slot) = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer).map(|n| n.slot) else { return; };
+    let Some(farmer) = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer) else { return; };
+    let farmer_entity = farmer.entity;
 
     // Start energy near threshold so drain completes within 30s at time_scale=1
     if !test.get_flag("energy_set") {
-        if let Some(npc) = entity_map.get_npc_mut(farmer_slot) { npc.energy = 55.0; }
+        if let Ok(mut en) = energy_q.get_mut(farmer_entity) { en.0 = 55.0; }
         test.set_flag("energy_set", true);
     }
 
-    let e = entity_map.get_npc(farmer_slot).map(|n| n.energy).unwrap_or(0.0);
+    let e = energy_q.get(farmer_entity).map(|en| en.0).unwrap_or(0.0);
 
     match test.phase {
         // Phase 1: Energy exists and is draining

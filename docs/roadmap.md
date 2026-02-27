@@ -83,52 +83,25 @@ Every-frame review backlog:
 - [ ] Perf anti-pattern remediation pass (UI + systems): remove repeated query scans in hot paths, pre-index slot/entity lookups once per frame/tick, replace nested `Vec::contains` membership checks with `HashSet`, and avoid per-item linear dedupe scans in overlays.
 - [ ] Add perf guardrails for hot paths: microbenchmarks for inspector/squad/AI helper paths and CI thresholds that fail on material regressions.
 
-NpcInstance in EntityMap — hard cutover (plan: `~/.claude/plans/enumerated-orbiting-leaf.md`):
+ECS source-of-truth migration (plan: `~/.claude/plans/prancy-sauteeing-badger.md`):
 
-`NpcInstance` is a 40+ field struct in `EntityMap.npcs: HashMap<usize, NpcInstance>` holding all NPC runtime state. NPC Bevy entities keep only `EntitySlot`. Systems read/write NpcInstance directly instead of ECS queries. Dual-write ECS markers (via `commands.entity().insert/remove`) kept temporarily for un-migrated consumers; strip once all consumers are migrated.
+ECS owns all NPC gameplay state. EntityMap is index-only (slot↔Entity, grid, kind/town/spatial).
+No dual-writes. Hot loops use query-first + indexed lookup.
+GPU is movement authority; ECS Position is read-model synced in `gpu_position_readback`.
 
-Done:
-- [x] `NpcInstance` struct + EntityMap NPC API (`insert_npc`, `remove_npc`, `get_npc[_mut]`, `iter_npcs[_mut]`, `npcs_for_town`, `npc_count`, `clear_npcs`, `npc_by_town` index)
-- [x] `systems/spawn.rs`: `materialize_npc` builds NpcInstance, spawns entity with just `EntitySlot`
-- [x] `systems/health.rs`: damage/death/healing use EntityMap for NPCs, ECS for buildings
-- [x] `systems/energy.rs`: iterate `entity_map.iter_npcs_mut()`, read/write `npc.energy`
-- [x] `systems/combat.rs`: cooldown + attack via EntityMap; building tower system unchanged
-- [x] `systems/movement.rs`: `gpu_position_readback` updates `npc.position`/`npc.at_destination`; resolve_movement uses slot-keyed intents
-- [x] `systems/stats.rs`: `process_upgrades_system` iterates NPCs, re-resolves `npc.cached_stats`
-- [x] `systems/economy.rs`: `endless_system` (migration), `starvation_system`, `squad_cleanup_system` all via EntityMap
-- [x] `systems/behavior.rs`: ALL 4 systems (`decision_system`, `arrival_system`, `on_duty_tick_system`, `rebuild_patrol_routes_system`). `decision_system` uses clone-local pattern with `'decide:` labeled block for write-back.
-- [x] `systems/ai_player.rs`: military count via `entity_map.iter_npcs()`
-- [x] `gpu.rs`: `build_visual_upload` iterates `entity_map.iter_npcs()`
-- [x] `render.rs`: `click_to_select_system` + `box_select_system` use EntityMap for DC/activity/manual_target
-- [x] `save.rs`: save iterates `entity_map.iter_npcs()` → NpcSaveData; load calls `materialize_npc`
-- [x] `ui/game_hud.rs`: `bottom_panel_system` (removed `health_query`/`equip_query`/`NpcStateQuery` params), `inspector_content`, `dc_group_inspector`, `building_inspector_content`, `selection_overlay_system`, `squad_overlay_system` — all read from EntityMap
-- [x] `ui/left_panel.rs`: `RosterParams.entity_map` replaces `health_query`; `SquadParams.entity_map` replaces `squad_guards` query
-- [x] `ui/roster_panel.rs`: `entity_map` replaces `health_query`
-
-Test files migrated (ECS queries → EntityMap reads):
-- [x] `tests/economy.rs`: stealer/npc counts via `entity_map.iter_npcs()`
-- [x] `tests/combat.rs`: alive/in_combat counts via EntityMap
-- [x] `tests/projectiles.rs`: alive count via EntityMap
-- [x] `tests/friendly_fire_buildings.rs`: alive count via EntityMap
-- [x] `tests/energy.rs`: farmer energy read/write via `entity_map.get_npc[_mut]`
-- [x] `tests/movement.rs`: activity/at_destination/energy via EntityMap
-- [x] `tests/endless_mode.rs`: migrating NPCs via `entity_map.iter_npcs().filter(|n| n.migrating)`
-- [x] `tests/heal_visual.rs`: health write + healing flag via EntityMap
-- [x] `tests/sleep_visual.rs`: activity/energy via EntityMap
-- [x] `tests/spawning.rs`: alive/job/health via EntityMap
-- [x] `tests/healing.rs`: health write + healing flag via EntityMap
-
-Remaining (NOT YET COMPILED — edits written but `cargo check` not yet run):
-- [ ] Run `cargo check` and fix all compilation errors from the above edits
-- [ ] Strip `#[derive(Component)]` from NPC-only types: `Activity`, `CombatState`, `Energy`, `Health` (NPC-only), `Home`, `Speed`, `Faction` (NPC-only), `TownId` (NPC-only), `Job`, `PatrolRoute`, `WorkPosition`, `AssignedFarm`, `SquadId`, `AttackTimer`, `LeashRange`, `Stealer`, `SquadUnit`, `Archer`, `Farmer`, `Miner`, `Crossbow`, `Dead`, `AtDestination`, `Healing`, `Starving`, `DirectControl`, `Migrating`, `CarriedGold`, `EquippedWeapon`, `EquippedHelmet`, `EquippedArmor`, `FleeThreshold`, `WoundedThreshold`, `Personality`, `CachedStats`, `BaseAttackType`. Keep as plain structs/enums for NpcInstance fields.
-- [ ] Remove NPC component inserts from `materialize_npc` in `systems/spawn.rs` (currently dual-writes all components for un-migrated systems — all consumers now migrated)
-- [ ] Remove ECS dual-writes from migrated systems (every `commands.entity(npc.entity).insert(...)` / `.remove::<...>()` for NPC markers)
-- [ ] Delete `NpcStateQuery` struct from `ui/game_hud.rs` (already unused, struct definition remains)
-- [ ] Rekey `MovementIntents` from `Entity` to `usize` (slot) — currently still Entity-keyed
-- [ ] Run full test suite (`cargo test`) and verify all pass
-- [ ] Run game at 5K+ NPCs, verify identical behavior
-- [ ] Save/load round-trip verification
-- [ ] Perf validation: compare decision_system timing before/after
+- [x] Slice A: DirectControl + ManualTarget + Squad flags → ECS
+  - `NpcFlags` component (direct_control + 4 other booleans), `SquadId` component, `ManualTarget` component
+  - Files: components.rs, resources.rs, spawn.rs, render.rs, behavior.rs, combat.rs, save.rs, health.rs, economy.rs, ui/game_hud.rs
+- [x] Slice B: Activity + Movement + Arrival + Position → ECS
+  - `Activity` as ECS component, `Position` as ECS read-model (GPU movement authority), `NpcFlags.at_destination`
+  - Query-first `gpu_position_readback`: iterates ECS archetypes, not HashMap
+  - Files: components.rs, resources.rs, spawn.rs, movement.rs, behavior.rs, combat.rs, energy.rs, health.rs, economy.rs, render.rs, gpu.rs, save.rs, ui/game_hud.rs, ui/left_panel.rs, ui/roster_panel.rs, + 6 test files
+- [x] Slice C: Combat + Health + Death → ECS
+  - Health, Energy, Speed, CombatState, CachedStats, BaseAttackType, AttackTimer, LastHitBy → ECS components
+  - NpcFlags.healing/starving replaces NpcInstance booleans
+  - Query-first: healing_system, cooldown_system, energy_system, starvation_system, attack_system (with AttackQueries SystemParam bundle)
+  - Files: components.rs, resources.rs, spawn.rs, combat.rs, health.rs, energy.rs, behavior.rs, economy.rs, stats.rs, gpu.rs, save.rs, ui/game_hud.rs, ui/left_panel.rs, ui/roster_panel.rs, + 10 test files
+- [ ] Slice D: Economy + AI + Save/Load + GPU + UI → ECS, delete NpcInstance
 
 Scale remediation plan (7k NPC + 7k buildings):
 - [ ] [Critical] Replace global worksite scans in `decision_system` with indexed nearest lookup (per-kind/per-town candidate sets + bounded/ring spatial search), because current `iter_kind*` and `f32::MAX` nearest queries scale poorly at high building counts.

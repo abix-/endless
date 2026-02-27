@@ -80,7 +80,7 @@ impl Job {
 }
 
 /// Movement speed in pixels per second.
-#[derive(Clone, Copy)]
+#[derive(Component, Clone, Copy)]
 pub struct Speed(pub f32);
 
 impl Default for Speed {
@@ -102,6 +102,7 @@ pub struct TownId(pub i32);
 // ============================================================================
 
 /// NPC energy level (0-100). Drains while active, recovers while resting.
+#[derive(Component, Clone, Copy)]
 pub struct Energy(pub f32);
 
 impl Default for Energy {
@@ -141,7 +142,7 @@ pub struct CarriedGold(pub i32);
 /// What the NPC is *doing*. Mutually exclusive — an NPC is in exactly one activity.
 /// Transit variants (Patrolling, GoingToWork, GoingToRest, GoingToHeal, Wandering, Raiding, Returning)
 /// mean the NPC is moving toward a destination; use `is_transit()` to check.
-#[derive(Default, Clone, Debug, PartialEq)]
+#[derive(Component, Default, Clone, Debug, PartialEq)]
 pub enum Activity {
     #[default]
     Idle,
@@ -204,7 +205,7 @@ impl Activity {
 
 /// Whether the NPC is in combat. Orthogonal to Activity — a Raiding NPC can be Fighting.
 /// Activity is preserved through combat so the NPC resumes what it was doing when combat ends.
-#[derive(Default, Clone, Debug, PartialEq)]
+#[derive(Component, Default, Clone, Debug, PartialEq)]
 pub enum CombatState {
     #[default]
     None,
@@ -227,7 +228,7 @@ impl CombatState {
 }
 
 /// Player-forced target for DirectControl NPCs.
-#[derive(Clone)]
+#[derive(Component, Clone)]
 pub enum ManualTarget {
     /// Attack a specific NPC (slot index).
     Npc(usize),
@@ -237,7 +238,20 @@ pub enum ManualTarget {
     Position(Vec2),
 }
 
-// DirectControl, AtDestination markers removed — flags live in NpcInstance.
+/// High-churn NPC boolean flags bundled into one component to avoid archetype moves.
+/// Toggled at runtime by various systems. Query-friendly: `Query<&mut NpcFlags>`.
+#[derive(Component, Default, Clone)]
+pub struct NpcFlags {
+    pub healing: bool,
+    pub starving: bool,
+    pub direct_control: bool,
+    pub migrating: bool,
+    pub at_destination: bool,
+}
+
+/// Squad assignment for military NPCs. Optional component — only present when recruited.
+#[derive(Component, Clone, Copy)]
+pub struct SquadId(pub i32);
 
 /// Farmer's assigned farm slot for occupancy tracking.
 pub struct AssignedFarm(pub usize);
@@ -262,7 +276,7 @@ impl Default for Health {
 
 /// Whether this NPC uses melee or ranged attacks.
 /// Used as key into CombatConfig.attacks and stored on entity for re-resolution.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum BaseAttackType {
     Melee,
     Ranged,
@@ -270,7 +284,7 @@ pub enum BaseAttackType {
 
 /// Cached resolved combat stats. Populated on spawn from resolve_combat_stats().
 /// Re-resolved on upgrade purchase or level-up (Stage 9+).
-#[derive(Clone, Debug)]
+#[derive(Component, Clone, Debug)]
 pub struct CachedStats {
     pub damage: f32,
     pub range: f32,
@@ -303,7 +317,7 @@ impl Faction {
 
 
 /// Cooldown timer for attacks. When > 0, NPC can't attack.
-#[derive(Default)]
+#[derive(Component, Default, Clone, Copy)]
 pub struct AttackTimer(pub f32);
 
 // ============================================================================

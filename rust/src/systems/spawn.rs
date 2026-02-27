@@ -196,32 +196,42 @@ pub fn materialize_npc(
         (h[0], h[1])
     });
 
-    // Spawn ECS entity — only EntitySlot needed (all NPC state lives in NpcInstance)
-    let entity = commands.spawn(EntitySlot(idx)).id();
+    // Spawn ECS entity with components (Slice A: NpcFlags/SquadId, Slice B: Activity/Position, Slice C: Combat/Health/Energy)
+    let energy_val = if def.has_energy { overrides.energy.unwrap_or(100.0) } else { 0.0 };
+    let mut ecmds = commands.spawn((
+        EntitySlot(idx),
+        NpcFlags::default(),
+        activity.clone(),
+        Position { x, y },
+        Health(health),
+        Energy(energy_val),
+        Speed(cached.speed),
+        combat_state.clone(),
+        cached.clone(),
+        attack_type,
+        AttackTimer(0.0),
+    ));
+    if let Some(sq) = overrides.squad_id {
+        ecmds.insert(SquadId(sq));
+    }
+    let entity = ecmds.id();
 
-    // Build NpcInstance — canonical source of truth for all NPC state
+    // Build NpcInstance — remaining NPC state (migrating to ECS in Slice D)
     let npc = crate::resources::NpcInstance {
         slot: idx,
         entity,
         job,
         faction: faction_id,
         town_idx,
-        position: Vec2::new(x, y),
+        // position: on ECS Position component (Slice B)
         home: Vec2::new(home[0], home[1]),
-        health,
-        energy: if def.has_energy { overrides.energy.unwrap_or(100.0) } else { 0.0 },
-        speed: cached.speed,
-        activity,
-        combat_state,
+        // health/energy/speed/combat_state/cached_stats/attack_type/attack_timer: on ECS components (Slice C)
+        // activity: on ECS Activity component (Slice B)
         personality,
-        cached_stats: cached,
-        attack_type,
-        attack_timer: 0.0,
         weapon,
         helmet,
         armor: overrides.armor.map(|a| (a[0], a[1])),
         patrol_route,
-        squad_id: overrides.squad_id,
         work_position: work_slot,
         assigned_farm: None,
         carried_gold: overrides.carried_gold.unwrap_or(0),
@@ -231,13 +241,10 @@ pub fn materialize_npc(
         is_patrol_unit: def.is_patrol_unit,
         has_energy: def.has_energy,
         dead: false,
-        healing: false,
-        starving: false,
-        direct_control: false,
+        // healing/starving: on NpcFlags (Slice C)
         migrating: false,
-        at_destination: false,
-        manual_target: None,
-        last_hit_by: -1,
+        // at_destination: on NpcFlags.at_destination (Slice B)
+        // last_hit_by: on ECS LastHitBy component (Slice C)
     };
     entity_map.insert_npc(npc);
     pop_inc_alive(pop_stats, job, town_idx);

@@ -1423,24 +1423,24 @@ pub struct NpcInstance {
     pub job: crate::components::Job,
     pub faction: i32,
     pub town_idx: i32,
-    pub position: Vec2,
+    // position: moved to ECS Position component (Slice B) — GPU is movement authority; ECS Position is read-model synced in gpu_position_readback
     pub home: Vec2,
-    pub health: f32,
-    pub energy: f32,
-    pub speed: f32,
-    pub activity: crate::components::Activity,
-    pub combat_state: crate::components::CombatState,
+    // health: moved to ECS Health component (Slice C)
+    // energy: moved to ECS Energy component (Slice C)
+    // speed: moved to ECS Speed component (Slice C)
+    // activity: moved to ECS Activity component (Slice B)
+    // combat_state: moved to ECS CombatState component (Slice C)
     pub personality: crate::components::Personality,
-    pub cached_stats: crate::components::CachedStats,
-    pub attack_type: crate::components::BaseAttackType,
-    pub attack_timer: f32,
+    // cached_stats: moved to ECS CachedStats component (Slice C)
+    // attack_type: moved to ECS BaseAttackType component (Slice C)
+    // attack_timer: moved to ECS AttackTimer component (Slice C)
     // Equipment
     pub weapon: Option<(f32, f32)>,
     pub helmet: Option<(f32, f32)>,
     pub armor: Option<(f32, f32)>,
     // Assignment
     pub patrol_route: Option<crate::components::PatrolRoute>,
-    pub squad_id: Option<i32>,
+    // squad_id: moved to ECS SquadId component (Slice A)
     pub work_position: Option<usize>,
     pub assigned_farm: Option<usize>,
     pub carried_gold: i32,
@@ -1451,13 +1451,13 @@ pub struct NpcInstance {
     pub is_patrol_unit: bool,
     pub has_energy: bool,
     pub dead: bool,
-    pub healing: bool,
-    pub starving: bool,
-    pub direct_control: bool,
+    // healing: moved to NpcFlags.healing (Slice C)
+    // starving: moved to NpcFlags.starving (Slice C)
+    // direct_control: moved to ECS NpcFlags.direct_control (Slice A)
     pub migrating: bool,
-    pub at_destination: bool,
-    pub manual_target: Option<crate::components::ManualTarget>,
-    pub last_hit_by: i32,
+    // at_destination: moved to ECS NpcFlags.at_destination (Slice B)
+    // manual_target: moved to ECS ManualTarget component (Slice A)
+    // last_hit_by: moved to ECS LastHitBy component (Slice C)
 }
 
 /// Building HP render data. Read by build_overlay_instances for rendering.

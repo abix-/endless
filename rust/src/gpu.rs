@@ -302,6 +302,8 @@ pub fn build_visual_upload(
     mut upload: ResMut<NpcVisualUpload>,
     entity_map: Res<crate::resources::EntityMap>,
     timings: Res<SystemTimings>,
+    activity_q: Query<&crate::components::Activity>,
+    npc_flags_q: Query<&crate::components::NpcFlags>,
 ) {
     let _t = timings.scope("build_visual_upload");
     let entity_count = config.npc.count as usize;
@@ -362,7 +364,8 @@ pub fn build_visual_upload(
         upload.equip_data[eq + 11] = 0.0;
 
         // Layer 3: Item (carried loot — gold takes display priority)
-        let (ic, ir, ia) = if let Activity::Returning { loot } = &npc.activity {
+        let npc_activity = activity_q.get(npc.entity).ok();
+        let (ic, ir, ia) = if let Some(Activity::Returning { loot }) = npc_activity.as_deref() {
             if loot.iter().any(|(k, a)| *k == ItemKind::Gold && *a > 0) {
                 (GOLD_SPRITE.0, GOLD_SPRITE.1, 1.0)
             } else if loot.iter().any(|(k, a)| *k == ItemKind::Food && *a > 0) {
@@ -379,7 +382,7 @@ pub fn build_visual_upload(
         upload.equip_data[eq + 15] = 0.0;
 
         // Layer 4: Status (sleep icon)
-        let (sc, sr, sa) = if matches!(npc.activity, Activity::Resting) {
+        let (sc, sr, sa) = if npc_activity.is_some_and(|a| matches!(*a, Activity::Resting)) {
             (0.0, 0.0, 3.0)
         } else {
             (-1.0, 0.0, 0.0)
@@ -390,7 +393,8 @@ pub fn build_visual_upload(
         upload.equip_data[eq + 19] = 0.0;
 
         // Layer 5: Healing (heal halo)
-        let (hlc, hla) = if npc.healing { (0.0, 2.0) } else { (-1.0, 0.0) };
+        let is_healing = npc_flags_q.get(npc.entity).is_ok_and(|f| f.healing);
+        let (hlc, hla) = if is_healing { (0.0, 2.0) } else { (-1.0, 0.0) };
         upload.equip_data[eq + 20] = hlc;
         upload.equip_data[eq + 21] = 0.0;
         upload.equip_data[eq + 22] = hla;
