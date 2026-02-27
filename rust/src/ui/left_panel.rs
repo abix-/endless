@@ -117,13 +117,12 @@ pub struct FactionsParams<'w, 's> {
     ai_state: Res<'w, AiPlayerState>,
     food_storage: Res<'w, FoodStorage>,
     gold_storage: Res<'w, GoldStorage>,
-    building_map_fac: Res<'w, EntityMap>,
     faction_stats: Res<'w, FactionStats>,
     upgrades: Res<'w, TownUpgrades>,
     combat_config: Res<'w, CombatConfig>,
     town_grids: Res<'w, TownGrids>,
     world_grid: Res<'w, WorldGrid>,
-    building_map: Res<'w, EntityMap>,
+    entity_map: Res<'w, EntityMap>,
     gpu_state: Res<'w, GpuReadState>,
     pop_stats: Res<'w, PopulationStats>,
     faction_select: MessageReader<'w, 's, crate::messages::SelectFactionMsg>,
@@ -271,8 +270,8 @@ pub fn left_panel_system(
             match ui_state.left_panel_tab {
                 LeftPanelTab::Roster => roster_content(ui, &mut roster, &mut roster_state, debug_all),
                 LeftPanelTab::Upgrades => upgrade_content(ui, &mut upgrade, &world_data, &mut settings),
-                LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data, &factions.building_map, &mut profiler.mining_policy, &mut dirty_writers, &mut jump_target),
-                LeftPanelTab::Patrols => { patrol_swap = patrols_content(ui, &world_data, &factions.building_map, &mut jump_target); },
+                LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data, &factions.entity_map, &mut profiler.mining_policy, &mut dirty_writers, &mut jump_target),
+                LeftPanelTab::Patrols => { patrol_swap = patrols_content(ui, &world_data, &factions.entity_map, &mut jump_target); },
                 LeftPanelTab::Squads => squads_content(ui, &mut squad, &roster.meta_cache, &world_data, &mut commands, &mut dirty_writers),
                 LeftPanelTab::Factions => factions_content(ui, &factions, &squad.squad_state, &world_data, &policies, &profiler.mining_policy, &mut factions_cache, &mut jump_target, &mut ui_state, &mut copy_text, requested_faction),
                 LeftPanelTab::Profiler => profiler_content(ui, &profiler.timings, &profiler.target_thrash, &mut profiler.migration, &mut settings),
@@ -664,7 +663,7 @@ fn policies_content(
     ui: &mut egui::Ui,
     policies: &mut TownPolicies,
     world_data: &WorldData,
-    building_map: &EntityMap,
+    entity_map: &EntityMap,
     mining_policy: &mut MiningPolicy,
     dirty_writers: &mut crate::messages::DirtyWriters,
     jump_target: &mut Option<Vec2>,
@@ -795,10 +794,10 @@ fn policies_content(
 
     // Count auto-assigned miners per mine (keyed by mine slot)
     let mut assigned_per_mine: HashMap<usize, usize> = HashMap::new();
-    for inst in building_map.iter_kind_for_town(BuildingKind::MinerHome, town_idx as u32) {
+    for inst in entity_map.iter_kind_for_town(BuildingKind::MinerHome, town_idx as u32) {
         if inst.manual_mine { continue; }
         let Some(mine_pos) = inst.assigned_mine else { continue; };
-        if let Some(mine_inst) = building_map.find_by_position(mine_pos) {
+        if let Some(mine_inst) = entity_map.find_by_position(mine_pos) {
             *assigned_per_mine.entry(mine_inst.slot).or_default() += 1;
         }
     }
@@ -810,7 +809,7 @@ fn policies_content(
         ui.small("No discovered mines in radius.");
     } else {
         for (display_idx, &slot) in discovered.iter().enumerate() {
-            let Some(mine_inst) = building_map.get_instance(slot) else { continue };
+            let Some(mine_inst) = entity_map.get_instance(slot) else { continue };
             let dist = mine_inst.position.distance(world_data.towns[town_idx].center);
             let mut enabled = *mining_policy.mine_enabled.get(&slot).unwrap_or(&true);
             let mine_name = crate::ui::gold_mine_name(display_idx);
@@ -834,7 +833,7 @@ fn policies_content(
 // ============================================================================
 
 /// Returns swap indices if the user clicked a reorder button.
-fn patrols_content(ui: &mut egui::Ui, world_data: &WorldData, building_map: &EntityMap, jump_target: &mut Option<Vec2>) -> Option<(usize, usize)> {
+fn patrols_content(ui: &mut egui::Ui, world_data: &WorldData, entity_map: &EntityMap, jump_target: &mut Option<Vec2>) -> Option<(usize, usize)> {
     let town_pair_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0) as u32;
 
     if let Some(town) = world_data.towns.get(town_pair_idx as usize) {
@@ -843,7 +842,7 @@ fn patrols_content(ui: &mut egui::Ui, world_data: &WorldData, building_map: &Ent
 
     // Collect waypoints for this town from EntityMap, sorted by patrol_order
     // Collect waypoints: (slot, patrol_order, position), sorted by patrol_order
-    let mut posts: Vec<(usize, u32, Vec2)> = building_map.iter_kind_for_town(BuildingKind::Waypoint, town_pair_idx)
+    let mut posts: Vec<(usize, u32, Vec2)> = entity_map.iter_kind_for_town(BuildingKind::Waypoint, town_pair_idx)
         .map(|inst| (inst.slot, inst.patrol_order, inst.position))
         .collect();
     posts.sort_by_key(|(_, order, _)| *order);
@@ -1057,7 +1056,7 @@ fn rebuild_factions_cache(
     factions: &FactionsParams,
     squad_state: &SquadState,
     world_data: &WorldData,
-    building_map: &EntityMap,
+    entity_map: &EntityMap,
     policies: &TownPolicies,
     mining_policy: &MiningPolicy,
     cache: &mut FactionsCache,
@@ -1066,7 +1065,7 @@ fn rebuild_factions_cache(
         factions: &FactionsParams,
         squad_state: &SquadState,
         world_data: &WorldData,
-        building_map: &EntityMap,
+        entity_map: &EntityMap,
         policies: &TownPolicies,
         mining_policy: &MiningPolicy,
         cache: &mut FactionsCache,
@@ -1083,12 +1082,12 @@ fn rebuild_factions_cache(
             .map(|t| t.center).unwrap_or_default();
         let faction = world_data.towns.get(tdi).map(|t| t.faction).unwrap_or(0);
 
-        let buildings = building_map.building_counts(ti);
+        let buildings = entity_map.building_counts(ti);
 
         let npcs: std::collections::HashMap<BuildingKind, usize> = crate::constants::BUILDING_REGISTRY.iter()
             .filter(|def| def.spawner.is_some())
             .map(|def| {
-                let count = factions.building_map_fac.iter_kind_for_town(def.kind, tdi as u32)
+                let count = factions.entity_map.iter_kind_for_town(def.kind, tdi as u32)
                     .filter(|i| i.npc_slot >= 0 && is_alive(i.position)).count();
                 (def.kind, count)
             })
@@ -1115,7 +1114,7 @@ fn rebuild_factions_cache(
 
         let policy = policies.policies.get(tdi);
         let mining_radius = policy.map(|p| p.mining_radius).unwrap_or(crate::constants::DEFAULT_MINING_RADIUS);
-        let mines_in_radius = building_map.iter_kind(BuildingKind::GoldMine)
+        let mines_in_radius = entity_map.iter_kind(BuildingKind::GoldMine)
             .filter(|inst| (inst.position - center).length_squared() <= mining_radius * mining_radius)
             .count();
         let discovered = mining_policy.discovered_mines.get(tdi);
@@ -1125,7 +1124,7 @@ fn rebuild_factions_cache(
                 .filter(|&&slot| *mining_policy.mine_enabled.get(&slot).unwrap_or(&true))
                 .count()
         }).unwrap_or(0);
-        let spawner_count = factions.building_map_fac.iter_instances()
+        let spawner_count = factions.entity_map.iter_instances()
             .filter(|i| is_alive(i.position) && i.town_idx == tdi as u32
                 && crate::constants::building_def(i.kind).spawner.is_some())
             .count() as i32;
@@ -1142,7 +1141,7 @@ fn rebuild_factions_cache(
         let waypoints = buildings.get(&BuildingKind::Waypoint).copied().unwrap_or(0);
 
         let (food_desire, military_desire, food_desire_tip, military_desire_tip) = if let Some(p) = personality {
-            let threat = building_map.iter_kind_for_town(BuildingKind::Fountain, tdi as u32)
+            let threat = entity_map.iter_kind_for_town(BuildingKind::Fountain, tdi as u32)
                 .next().map(|inst| inst.slot)
                 .and_then(|slot| factions.gpu_state.threat_counts.get(slot).copied())
                 .map(|packed| {
@@ -1222,7 +1221,7 @@ fn rebuild_factions_cache(
             let (empty, total, fullness) = factions.town_grids.grids.iter()
                 .find(|tg| tg.town_data_idx == tdi)
                 .map(|tg| {
-                    let empty = crate::world::empty_slots(tg, center, &factions.world_grid, &factions.building_map).len();
+                    let empty = crate::world::empty_slots(tg, center, &factions.world_grid, &factions.entity_map).len();
                     let (min_r, max_r, min_c, max_c) = crate::world::build_bounds(tg);
                     let total = ((max_r - min_r + 1) * (max_c - min_c + 1) - 1) as f32;
                     (empty, total, 1.0 - empty as f32 / total.max(1.0))
@@ -1305,7 +1304,7 @@ fn rebuild_factions_cache(
 
     // Include player faction (faction 0) in Factions view.
     if let Some(player_tdi) = world_data.towns.iter().position(|t| t.faction == 0) {
-        push_snapshot(factions, squad_state, world_data, building_map, policies, mining_policy, cache, player_tdi, "Player", "Human", None, Vec::new());
+        push_snapshot(factions, squad_state, world_data, entity_map, policies, mining_policy, cache, player_tdi, "Player", "Human", None, Vec::new());
     }
 
     for player in factions.ai_state.players.iter() {
@@ -1321,7 +1320,7 @@ fn rebuild_factions_cache(
             factions,
             squad_state,
             world_data,
-            building_map,
+            entity_map,
             policies,
             mining_policy,
             cache,
@@ -1487,7 +1486,7 @@ fn factions_content(
     // Rebuild cache every 30 frames
     cache.frame_counter += 1;
     if cache.frame_counter % 30 == 1 || cache.snapshots.is_empty() {
-        rebuild_factions_cache(factions, squad_state, world_data, &factions.building_map, policies, mining_policy, cache);
+        rebuild_factions_cache(factions, squad_state, world_data, &factions.entity_map, policies, mining_policy, cache);
     }
 
     if cache.snapshots.is_empty() {

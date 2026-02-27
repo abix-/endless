@@ -81,6 +81,13 @@ Every-frame review backlog:
 - [ ] Narrow `on_duty_tick_system` workset so only on-duty archers are iterated each frame.
 - [ ] Remove linear HP lookup in inspector rendering (`bottom_panel_system`) by using direct selected-NPC lookup/cached handle.
 
+Scale remediation plan (7k NPC + 7k buildings):
+- [ ] [Critical] Replace global worksite scans in `decision_system` with indexed nearest lookup (per-kind/per-town candidate sets + bounded/ring spatial search), because current `iter_kind*` and `f32::MAX` nearest queries scale poorly at high building counts.
+- [ ] [Critical] Move worksite occupancy hot-path from position-hash lookups to slot-indexed occupancy counters, because repeated hash lookups in high-N decision loops add avoidable CPU cost.
+- [ ] [High] Add decision-frame budgeting (max non-combat decisions per frame + adaptive interval by population), because fixed bucketing still allows expensive spikes at large NPC counts.
+- [ ] [High] Gate `NpcLogCache` writes and `format!` churn behind debug/selection/sampling policy, because per-NPC string work in hot loops scales with population.
+- [ ] [High] Extend decision sub-profiling to cover squad sync, transit gates, and worksite selection scan counts, because current sub-timers under-report where frame time is spent.
+- [ ] [Medium] Add cache-friendly vectors for hot building iteration paths (keep HashMaps as authority, vectors for tight loops), because data locality and branch predictability matter at 10k+ entities.
 SystemParam bundle consolidation:
 Current shared bundles include `DirtyWriters`, `AiDirtyReaders`, and `AiBuildRes`; remaining consolidation work is listed below.
 - [ ] Create `GameLog` bundle: `{ combat_log: MessageWriter<CombatLogMsg>, game_time: Res<GameTime>, timings: Res<SystemTimings> }` and migrate systems still carrying this triple directly.
@@ -334,3 +341,6 @@ Implementation guides for upcoming stages. After delivery, spec content rolls in
 - [Bevy Render Graph](https://docs.rs/bevy/latest/bevy/render/render_graph/) - compute + render pipeline
 - [Factorio FFF #251](https://www.factorio.com/blog/post/fff-251) - sprite batching, per-layer draw queues
 - [Factorio FFF #421](https://www.factorio.com/blog/post/fff-421) - entity update optimization, lazy activation
+
+
+

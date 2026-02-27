@@ -15,14 +15,14 @@ pub fn setup(
     mut faction_stats: ResMut<FactionStats>,
     mut town_grids: ResMut<world::TownGrids>,
     mut slot_alloc: ResMut<EntitySlots>,
-    mut building_slots: ResMut<EntityMap>,
+    mut entity_map: ResMut<EntityMap>,
     mut test_state: ResMut<TestState>,
 ) {
     // Generate the world using our config (default: 2 towns)
     town_grids.grids.clear();
-    building_slots.clear_buildings();
-    building_slots.entities.clear();
-    world::generate_world(&config, &mut world_grid, &mut world_data, &mut town_grids, &mut slot_alloc, &mut building_slots);
+    entity_map.clear_buildings();
+    entity_map.entities.clear();
+    world::generate_world(&config, &mut world_grid, &mut world_data, &mut town_grids, &mut slot_alloc, &mut entity_map);
 
     // Init supporting resources based on generated world
     let total_towns = world_data.towns.len();
@@ -36,7 +36,7 @@ pub fn setup(
 pub fn tick(
     world_data: Res<world::WorldData>,
     world_grid: Res<world::WorldGrid>,
-    building_slots: Res<EntityMap>,
+    entity_map: Res<EntityMap>,
     config: Res<world::WorldGenConfig>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
@@ -103,7 +103,7 @@ pub fn tick(
             let mut farms = vec![0u32; num_vill];
             let mut posts = vec![0u32; num_vill];
 
-            for inst in building_slots.iter_instances() {
+            for inst in entity_map.iter_instances() {
                 let ti = inst.town_idx as usize;
                 if ti < num_vill {
                     match inst.kind {
@@ -164,7 +164,7 @@ pub fn tick(
                 .collect();
 
             let expected = config.num_towns;
-            let raider_centers = building_slots.iter_kind(world::BuildingKind::Fountain).count();
+            let raider_centers = entity_map.iter_kind(world::BuildingKind::Fountain).count();
 
             test.phase_name = format!("raider_towns={} centers_on_grid={}", raider_towns.len(), raider_centers);
 

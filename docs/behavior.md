@@ -12,7 +12,7 @@ NPC decision-making and state transitions. All run in `Step::Behavior` after com
 Activity is preserved through combat — a Raiding NPC stays `Activity::Raiding` while `CombatState::Fighting`. When combat ends, the NPC resumes its previous activity.
 
 The system uses **SystemParam bundles** for farm and economy parameters:
-- `FarmParams`: `BuildingOccupancy` tracking, `EntityMap`
+- `FarmParams`: `EntityMap` (occupancy tracked via `BuildingInstance.occupants` field)
 - `EconomyParams`: food storage, food events, population stats
 - `DecisionExtras`: npc logs, combat log, policies, squad state, timings, town upgrades
 - `Res<EntityMap>`: sole source of truth for all building instance lookups (farms, waypoints, towns, gold mines)
@@ -164,12 +164,12 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 | TownId | `i32` | Town identifier — every NPC belongs to one |
 | Energy | `f32` | 0-100, drains while active, recovers while resting |
 | Personality | `{ trait1, trait2 }` | 0-2 traits with magnitude affecting stats and decisions |
-| AssignedFarm | `Vec2` | Farm position farmer is working at (for occupancy tracking) |
+| AssignedFarm | `usize` | Farm building slot farmer is working at (for occupancy tracking) |
 | Starving | marker | NPC energy at zero (50% HP cap, 50% speed) |
 | Healing | marker | NPC is inside healing aura (visual feedback) |
 | MaxHealth | `f32` | NPC's maximum health (for healing cap) |
 | Home | `{ x, y }` | NPC's spawner building position — rest destination |
-| WorkPosition | `{ x, y }` | Farmer's field / miner's mine position |
+| WorkPosition | `usize` | Farmer's field / miner's mine building slot |
 | MiningProgress | `f32` | Mining work progress 0.0–1.0, inserted when miner starts at mine, cleared on extraction or interruption |
 | PatrolRoute | `{ posts: Vec<Vec2>, current: usize }` | Patrol unit's ordered patrol posts (archers, crossbows, fighters) |
 | AtDestination | marker | NPC arrived at destination (transient frame flag from gpu_position_readback) |
@@ -195,9 +195,9 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
   - `Patrolling` → check squad rest first (tired squad members → `GoingToRest` targeting home instead of `OnDuty`); otherwise `Activity::OnDuty { ticks_waiting: 0 }`
   - `GoingToRest` → `Activity::Resting` (sleep icon derived by `sync_visual_sprites`)
   - `GoingToHeal` → `Activity::HealingAtFountain { recover_until: policy.recovery_hp }` (healing aura handles HP recovery)
-  - `GoingToWork` → check `BuildingOccupancy`: if farm occupied, redirect to nearest free farm in own town (or idle if none); else check if farm is Ready via `EntityMap::find_farm_at(pos)` (O(1) spatial lookup) — if so, harvest and immediately enter `Returning { loot: Food }` (carry home without claiming); if not Ready, claim farm via `BuildingOccupancy.claim()` + `AssignedFarm` + `Working`. Note: farmer dynamically picked this farm via priority scan (ready > unoccupied, closest) during work decision — no permanent assignment.
+  - `GoingToWork` → check occupancy via `BuildingInstance.occupants`: if farm occupied, redirect to nearest free farm in own town (or idle if none); else check if farm is Ready via `EntityMap::find_farm_at(pos)` (O(1) spatial lookup) — if so, harvest and immediately enter `Returning { loot: Food }` (carry home without claiming); if not Ready, claim farm via `entity_map.claim(slot)` + `AssignedFarm(slot)` + `Working`. Note: farmer dynamically picked this farm via priority scan (ready > unoccupied, closest) during work decision — no permanent assignment.
   - `Raiding { .. }` → steal if farm ready, else find a different farm (excludes current position, skips tombstoned); if no other farm exists, return home
-  - `Mining { mine_pos }` → find mine at position, check gold > 0 and occupancy < `MAX_MINE_OCCUPANCY`, claim occupancy via `BuildingOccupancy`, insert `MiningProgress(0.0)`, set `Activity::MiningAtMine`
+  - `Mining { mine_pos }` → find mine at position, check gold > 0 and occupancy < `MAX_MINE_OCCUPANCY`, claim occupancy via `entity_map.claim(slot)`, insert `MiningProgress(0.0)`, set `Activity::MiningAtMine`
   - `Returning { .. }` → if home is valid, redirect to home (may have arrived at wrong place after DC removal); otherwise transition to Idle
   - `Wandering` → `Activity::Idle` (wander targets are offset from home position, not current position, preventing unbounded drift)
 - Removes `AtDestination` after handling
@@ -218,7 +218,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - If `Activity::Resting` + energy >= `ENERGY_WAKE_THRESHOLD` (90%): set `Activity::Idle`, proceed to scoring
 
 **Priority 5: Working/Mining progress**
-- If `Activity::Working` + energy < `ENERGY_TIRED_THRESHOLD` (30%): set `Activity::Idle`, release `AssignedFarm`.
+- If `Activity::Working` + energy < `ENERGY_TIRED_THRESHOLD` (30%): set `Activity::Idle`, release occupancy via `entity_map.release(slot)`, remove `AssignedFarm`.
 - If `Activity::MiningAtMine`: tick `MiningProgress` by `delta_hours / MINE_WORK_HOURS` (4h cycle). When progress >= 1.0 OR energy < tired threshold: extract gold scaled by progress fraction × `MINE_EXTRACT_PER_CYCLE` × GoldYield upgrade, release occupancy, remove `MiningProgress` + `WorkPosition`, set `Activity::Returning { loot: [(Gold, extracted)] }`. Gold progress bar rendered overhead via `MinerProgressRender` (atlas_id=6.0, gold color).
 
 **Priority 6: Patrol**
@@ -235,7 +235,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - Score Eat/Rest/Work/Wander with personality multipliers and HP modifier
 - Select via weighted random, execute action
 - **Food check**: Eat only scored if town has food in storage
-- **Farmer work branch**: Farmers dynamically scan same-town farms via `EntityMap::iter_kind_for_town(Farm, town_id)` — O(k) where k = farms in that town. All occupied farms are skipped first, then priority: ready unoccupied > growing unoccupied, closest within each tier. Inserts `WorkPosition` with the chosen farm and sets `GoingToWork`. While en-route (`GoingToWork`), farmers re-check occupancy at Tier 3 cadence — if another farmer claimed the target farm first, the en-route farmer retargets to the nearest free farm (or idles if none). This prevents dogpiling: closest farmer wins, others keep searching.
+- **Farmer work branch**: Farmers dynamically scan same-town farms via `EntityMap::iter_kind_for_town(Farm, town_id)` — O(k) where k = farms in that town. Occupancy checked via `inst.occupants >= 1` (slot-indexed, no hashing). Priority: ready unoccupied > growing unoccupied, closest within each tier. `find_nearest_free` returns `(slot, position)` — inserts `WorkPosition(slot)` and sets `GoingToWork`. While en-route (`GoingToWork`), farmers re-check occupancy at Tier 3 cadence — if another farmer claimed the target farm first, the en-route farmer retargets to the nearest free farm (or idles if none). This prevents dogpiling: closest farmer wins, others keep searching.
 - **Miner work branch**: Miners have a separate `Action::Work` → `Job::Miner` branch. If the miner's `MinerHome` has `assigned_mine` set (via building inspector UI), that mine is used directly. Otherwise, finds the nearest unoccupied mine and walks there (`Activity::Mining { mine_pos }`). Completely independent of farmer logic — no `mining_pct` roll. Miners share farmer schedule/flee/off-duty policies.
 - **Decision logging**: Each decision logged to `NpcLogCache`
 
@@ -319,6 +319,30 @@ Military unit groups for both player and AI. 10 player-reserved squads + AI squa
 **Recruitment**: `squad_cleanup_system` queries alive `SquadUnit` NPCs without `SquadId`. Player squads recruit from player-town units; AI squads recruit from their owner town's units. "Dismiss All" removes `SquadId` from all squad members — units resume normal behavior.
 
 **Death cleanup**: `squad_cleanup_system` (Step::Behavior) removes dead NPC slots from `Squad.members` by checking `EntityMap`.
+
+## Profiling
+
+`decision_system` has sub-timers recorded via `SystemTimings.record()` for performance analysis:
+
+| Timer | What it measures |
+|-------|-----------------|
+| `decision/arrival` | Priority 0 arrival transitions |
+| `decision/combat` | Priority 1-3 combat decisions |
+| `decision/idle` | Priority 7 idle scoring (utility AI) |
+| `decision/squad` | Squad rest gate + squad sync + squad target redirect |
+| `decision/work` | Priority 5 Working/MiningAtMine + farmer retarget + OnDuty checks |
+
+| Counter | What it counts |
+|---------|---------------|
+| `decision/n_arrival` | NPCs entering arrival path |
+| `decision/n_combat` | NPCs entering combat path |
+| `decision/n_idle` | NPCs entering idle scoring |
+| `decision/n_squad` | NPCs entering squad sync path |
+| `decision/n_work` | NPCs entering work/mining/onduty check |
+| `decision/n_transit_skip` | NPCs skipped by transit gate |
+| `decision/n_total` | Total NPCs processed per frame |
+
+All timers use `Instant::now()` guarded by the `profiling` flag (only measured when profiler enabled in settings).
 
 ## Known Issues / Limitations
 

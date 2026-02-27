@@ -39,7 +39,7 @@ fn step_complete(
     tutorial: &TutorialState,
     ui_state: &UiState,
     world_data: &WorldData,
-    building_map: &EntityMap,
+    entity_map: &EntityMap,
     food_storage: &FoodStorage,
     camera_pos: Vec2,
     selected_npc: &SelectedNpc,
@@ -49,19 +49,19 @@ fn step_complete(
     match step {
         1 => (camera_pos - tutorial.camera_start).length() > 50.0,
         2 => ui_state.build_menu_open,
-        3 => building_map.count_for_town(BuildingKind::Farm, pt as u32) > tutorial.initial_farms,
-        4 => building_map.count_for_town(BuildingKind::FarmerHome, pt as u32) > tutorial.initial_farmer_homes,
+        3 => entity_map.count_for_town(BuildingKind::Farm, pt as u32) > tutorial.initial_farms,
+        4 => entity_map.count_for_town(BuildingKind::FarmerHome, pt as u32) > tutorial.initial_farmer_homes,
         5 => false, // info-only — user clicks Next
         6 => selected_npc.0 >= 0,
         7 => follow.0,
         8 => pt < food_storage.food.len() && food_storage.food[pt] > 0,
         9 => false, // info-only — user clicks Next
-        10 => building_map.count_for_town(BuildingKind::Waypoint, pt as u32) > tutorial.initial_waypoints,
-        11 => building_map.count_for_town(BuildingKind::ArcherHome, pt as u32) > tutorial.initial_archer_homes,
+        10 => entity_map.count_for_town(BuildingKind::Waypoint, pt as u32) > tutorial.initial_waypoints,
+        11 => entity_map.count_for_town(BuildingKind::ArcherHome, pt as u32) > tutorial.initial_archer_homes,
         12 => ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Upgrades,
         13 => false, // info-only — user clicks Next
         14 => false, // info-only — user clicks Next
-        15 => building_map.count_for_town(BuildingKind::MinerHome, pt as u32) > tutorial.initial_miner_homes,
+        15 => entity_map.count_for_town(BuildingKind::MinerHome, pt as u32) > tutorial.initial_miner_homes,
         16 => ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Policies,
         17 => ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Patrols,
         18 => ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Squads,
@@ -79,7 +79,7 @@ pub fn tutorial_ui_system(
     mut settings: ResMut<UserSettings>,
     ui_state: Res<UiState>,
     world_data: Res<WorldData>,
-    building_map: Res<EntityMap>,
+    entity_map: Res<EntityMap>,
     food_storage: Res<FoodStorage>,
     camera_query: Query<&Transform, With<MainCamera>>,
     selected_npc: Res<SelectedNpc>,
@@ -102,7 +102,7 @@ pub fn tutorial_ui_system(
     let camera_pos = camera_query.single().map(|t| Vec2::new(t.translation.x, t.translation.y)).unwrap_or(Vec2::ZERO);
 
     // Check completion
-    if step_complete(tutorial.step, &tutorial, &ui_state, &world_data, &building_map, &food_storage, camera_pos, &selected_npc, &follow) {
+    if step_complete(tutorial.step, &tutorial, &ui_state, &world_data, &entity_map, &food_storage, camera_pos, &selected_npc, &follow) {
         tutorial.step += 1;
         if tutorial.step > STEP_COUNT {
             tutorial.step = 255;

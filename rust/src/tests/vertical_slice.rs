@@ -30,7 +30,7 @@ pub fn setup(
     // 5 farms near town 0
     for &(fx, fy) in &FARMS {
         params.add_building(world::BuildingKind::Farm, fx, fy, 0);
-        if let Some(inst) = params.building_slots.find_farm_at_mut(Vec2::new(fx, fy)) {
+        if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(fx, fy)) {
             inst.growth_ready = true;
             inst.growth_progress = 1.0;
         }
@@ -74,7 +74,7 @@ pub fn setup(
             starting_post: -1,
             attack_type: 0,
         });
-        if let Some(inst) = params.building_slots.find_by_position_mut(Vec2::new(300.0 + (i as f32 * 50.0), 450.0)) {
+        if let Some(inst) = params.entity_map.find_by_position_mut(Vec2::new(300.0 + (i as f32 * 50.0), 450.0)) {
             inst.npc_slot = slot as i32;
         }
     }
@@ -91,7 +91,7 @@ pub fn setup(
             starting_post: i,
             attack_type: 0,
         });
-        if let Some(inst) = params.building_slots.find_by_position_mut(Vec2::new(400.0, 400.0)) {
+        if let Some(inst) = params.entity_map.find_by_position_mut(Vec2::new(400.0, 400.0)) {
             inst.npc_slot = slot as i32;
         }
     }
@@ -108,7 +108,7 @@ pub fn setup(
             starting_post: -1,
             attack_type: 0,
         });
-        if let Some(inst) = params.building_slots.find_by_position_mut(Vec2::new(380.0 + (i as f32 * 10.0), 100.0)) {
+        if let Some(inst) = params.entity_map.find_by_position_mut(Vec2::new(380.0 + (i as f32 * 10.0), 100.0)) {
             inst.npc_slot = slot as i32;
         }
     }

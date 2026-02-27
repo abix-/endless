@@ -11,7 +11,7 @@ pub fn setup(mut params: TestSetupParams) {
     params.add_town("FarmVisTown");
     params.add_building(crate::world::BuildingKind::Farm, 400.0, 350.0, 0);
     // Set progress near ready so transition happens within 30s
-    if let Some(inst) = params.building_slots.find_farm_at_mut(Vec2::new(400.0, 350.0)) {
+    if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(400.0, 350.0)) {
         inst.growth_progress = 0.95;
     }
     params.add_bed(400.0, 450.0);
@@ -36,13 +36,13 @@ pub fn setup(mut params: TestSetupParams) {
 
 pub fn tick(
     marker_query: Query<&FarmReadyMarker>,
-    building_map: Res<EntityMap>,
+    entity_map: Res<EntityMap>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
-    let farm_inst = building_map.iter_kind(crate::world::BuildingKind::Farm).next();
+    let farm_inst = entity_map.iter_kind(crate::world::BuildingKind::Farm).next();
     let farm_ready = farm_inst.map(|i| i.growth_ready);
     let farm_progress = farm_inst.map(|i| i.growth_progress).unwrap_or(0.0);
     let marker_count = marker_query.iter().count();

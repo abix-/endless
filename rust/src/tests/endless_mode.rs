@@ -53,13 +53,13 @@ pub(super) fn setup(
         &mut world_grid, &mut world_data,
         &mut town_grids,
         &mut slot_alloc,
-        &mut bld.building_slots,
+        &mut bld.entity_map,
         &mut food_storage, &mut gold_storage,
         &mut faction_stats, &mut state.raider_state,
     );
     world::materialize_generated_world(
         &mut commands,
-        &mut bld.building_slots,
+        &mut bld.entity_map,
         &mut gpu_updates,
         &mut spawn_writer,
         npc_msgs,
@@ -92,7 +92,7 @@ pub fn tick(
     game_time: Res<GameTime>,
     mut test: ResMut<TestState>,
     mut damage_writer: MessageWriter<DamageMsg>,
-    bmap: Res<EntityMap>,
+    entity_map: Res<EntityMap>,
     migrating_query: Query<&Faction, With<Migrating>>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
@@ -142,7 +142,7 @@ pub fn tick(
 
             if !test.get_flag("damage_sent") {
                 let max_hp = crate::constants::building_def(BuildingKind::Fountain).hp;
-                if let Some(bld_slot) = bmap.iter_kind(BuildingKind::Fountain).nth(target).map(|i| i.slot) {
+                if let Some(bld_slot) = entity_map.iter_kind(BuildingKind::Fountain).nth(target).map(|i| i.slot) {
                     damage_writer.write(DamageMsg {
                         entity_idx: bld_slot,
                         amount: max_hp + 100.0, attacker_faction: 0, attacker: -1,
@@ -266,7 +266,7 @@ pub fn tick(
             let new_town_idx = test.count("migration_town_idx") as usize;
 
             let has_new_fountain = current_fountains > initial_fountains;
-            let new_town_buildings: usize = bmap.iter_instances()
+            let new_town_buildings: usize = entity_map.iter_instances()
                 .filter(|inst| inst.town_idx as usize == new_town_idx)
                 .count();
             let ai_active = ai_state.players.iter()
@@ -321,7 +321,7 @@ pub fn tick(
 
             if !test.get_flag("raider_damage_sent") {
                 let max_hp = crate::constants::building_def(BuildingKind::Fountain).hp;
-                if let Some(bld_slot) = bmap.iter_kind(BuildingKind::Fountain).nth(target).map(|i| i.slot) {
+                if let Some(bld_slot) = entity_map.iter_kind(BuildingKind::Fountain).nth(target).map(|i| i.slot) {
                     damage_writer.write(DamageMsg {
                         entity_idx: bld_slot,
                         amount: max_hp + 100.0, attacker_faction: 0, attacker: -1,
@@ -445,7 +445,7 @@ pub fn tick(
             let new_town_idx = test.count("raider_migration_town_idx") as usize;
 
             let has_new_fountain = current_fountains > initial_fountains;
-            let new_town_buildings: usize = bmap.iter_instances()
+            let new_town_buildings: usize = entity_map.iter_instances()
                 .filter(|inst| inst.town_idx as usize == new_town_idx)
                 .count();
             let ai_active = ai_state.players.iter()

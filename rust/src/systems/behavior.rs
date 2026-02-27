@@ -19,12 +19,13 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::*;
 use crate::messages::CombatLogMsg;
-use crate::resources::{GpuReadState, GameTime, NpcLogCache, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings, EntityMap, MovementIntents, MovementPriority};
+use crate::resources::{GpuReadState, GameTime, NpcLogCache, SelectedNpc, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings, EntityMap, MovementIntents, MovementPriority};
+use crate::settings::UserSettings;
 use crate::systemparams::EconomyState;
 use crate::systems::economy::*;
 use crate::systems::stats::UPGRADES;
 use crate::constants::UpgradeStatKind;
-use crate::world::{WorldData, LocationKind, find_nearest_free, find_location_within_radius, find_within_radius, BuildingOccupancy, BuildingKind};
+use crate::world::{WorldData, LocationKind, find_nearest_free, find_location_within_radius, find_within_radius, BuildingKind};
 
 // ============================================================================
 // SYSTEM PARAM BUNDLES - Logical groupings for scalability
@@ -35,7 +36,6 @@ use bevy::ecs::system::SystemParam;
 /// Farm-related resources
 #[derive(SystemParam)]
 pub struct FarmParams<'w> {
-    pub occupancy: ResMut<'w, BuildingOccupancy>,
     pub world: Res<'w, WorldData>,
 }
 
@@ -48,6 +48,8 @@ pub struct DecisionExtras<'w> {
     pub squad_state: Res<'w, SquadState>,
     pub timings: Res<'w, SystemTimings>,
     pub town_upgrades: Res<'w, crate::systems::stats::TownUpgrades>,
+    pub selected_npc: Res<'w, SelectedNpc>,
+    pub settings: Res<'w, UserSettings>,
 }
 
 /// Arrival system: proximity checks for returning NPCs and working farmers.
@@ -70,8 +72,7 @@ pub fn arrival_system(
     gpu_state: Res<GpuReadState>,
     game_time: Res<GameTime>,
     mut npc_logs: ResMut<NpcLogCache>,
-    mut building_map: ResMut<EntityMap>,
-    mut occupancy: ResMut<BuildingOccupancy>,
+    mut entity_map: ResMut<EntityMap>,
     mut frame_counter: Local<u32>,
     mut combat_log: MessageWriter<CombatLogMsg>,
     timings: Res<SystemTimings>,
@@ -135,7 +136,8 @@ pub fn arrival_system(
         if !matches!(*activity, Activity::Working) { continue; }
         if (npc_idx.0 as u32) % 30 != frame_slot { continue; }
 
-        let farm_pos = assigned.0;
+        let farm_slot = assigned.0;
+        let Some(farm_pos) = entity_map.get_instance(farm_slot).map(|i| i.position) else { continue };
         let idx = npc_idx.0;
         if idx * 2 + 1 >= positions.len() { continue; }
         let current = Vec2::new(positions[idx * 2], positions[idx * 2 + 1]);
@@ -146,12 +148,12 @@ pub fn arrival_system(
         }
 
         // Harvest check: if farm became Ready while working, harvest and carry home
-        if let Some(inst) = building_map.find_farm_at_mut(farm_pos) {
+        if let Some(inst) = entity_map.get_instance_mut(farm_slot) {
             let fac = world_data.towns.get(town.0 as usize).map(|t| t.faction).unwrap_or(0);
             let food = inst.harvest();
             if food > 0 {
                 combat_log.write(CombatLogMsg { kind: CombatEventKind::Harvest, faction: fac, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: inst.harvest_log_msg(food), location: None });
-                occupancy.release(farm_pos);
+                entity_map.release(farm_slot);
                 pop_dec_working(&mut economy.pop_stats, *job, town.0);
                 commands.entity(entity).remove::<AssignedFarm>();
                 *activity = Activity::Returning { loot: vec![(ItemKind::Food, food)] };
@@ -261,17 +263,22 @@ pub fn decision_system(
     assigned_query: Query<&AssignedFarm>,
     mut patrol_query: Query<&mut PatrolRoute>,
     // Resources
-    mut farms: FarmParams,
+    farms: FarmParams,
     mut economy: EconomyState,
     mut intents: ResMut<MovementIntents>,
     gpu_state: Res<GpuReadState>,
     game_time: Res<GameTime>,
     mut extras: DecisionExtras,
     npc_config: Res<crate::resources::NpcDecisionConfig>,
-    mut building_map: ResMut<EntityMap>,
+    mut entity_map: ResMut<EntityMap>,
 ) {
     let _t = extras.timings.scope("decision");
     let profiling = extras.timings.enabled;
+
+    // Sync NPC log filter state from settings + selected NPC
+    extras.npc_logs.mode = extras.settings.npc_log_mode;
+    extras.npc_logs.update_selected(extras.selected_npc.0);
+
     let npc_logs = &mut extras.npc_logs;
     let combat_log = &mut extras.combat_log;
     let policies = &extras.policies;
@@ -289,15 +296,22 @@ pub fn decision_system(
     let mut t_arrival = std::time::Duration::ZERO;
     let mut t_combat = std::time::Duration::ZERO;
     let mut t_idle = std::time::Duration::ZERO;
+    let mut t_squad = std::time::Duration::ZERO;
+    let mut t_work = std::time::Duration::ZERO;
     let mut n_arrival: u32 = 0;
     let mut n_combat: u32 = 0;
     let mut n_idle: u32 = 0;
+    let mut n_squad: u32 = 0;
+    let mut n_work: u32 = 0;
+    let mut n_transit_skip: u32 = 0;
+    let mut n_total: u32 = 0;
 
     for (entity, npc_idx, job, mut energy, health, home, personality, town_id, faction,
          mut activity, mut combat_state, at_destination, squad_id, manual_target,
          direct_control) in query.iter_mut()
     {
         let idx = npc_idx.0;
+        npc_logs.set_slot_faction(idx, faction.to_i32());
         let max_hp = stats_query.get(entity).map(|s| s.max_health).unwrap_or(100.0);
 
         // ====================================================================
@@ -309,6 +323,7 @@ pub fn decision_system(
             }
             continue;
         }
+        n_total += 1;
 
         // ====================================================================
         // Priority 0: AtDestination -> Handle arrival transition
@@ -349,8 +364,9 @@ pub fn decision_system(
                     // Farmers: find farm at WorkPosition and start working
                     if *job == Job::Farmer {
                         let search_pos = work_query.get(entity)
-                            .map(|wp| wp.0)
-                            .unwrap_or_else(|_| {
+                            .ok()
+                            .and_then(|wp| entity_map.get_instance(wp.0).map(|i| i.position))
+                            .unwrap_or_else(|| {
                                 if idx * 2 + 1 < positions.len() {
                                     Vec2::new(positions[idx * 2], positions[idx * 2 + 1])
                                 } else {
@@ -358,21 +374,21 @@ pub fn decision_system(
                                 }
                             });
 
-                        if let Some((_bldg_idx, farm_pos)) = find_within_radius(search_pos, &building_map, BuildingKind::Farm, FARM_ARRIVAL_RADIUS, town_id.0 as u32) {
-                            let occupied = farms.occupancy.is_occupied(farm_pos);
+                        if let Some((farm_slot, farm_pos)) = find_within_radius(search_pos, &entity_map, BuildingKind::Farm, FARM_ARRIVAL_RADIUS, town_id.0 as u32) {
+                            let occupied = entity_map.is_occupied(farm_slot);
 
                             if occupied {
                                 // Farm already has a farmer — find a free one in own town
-                                if let Some(free_pos) = find_nearest_free(search_pos, &building_map, BuildingKind::Farm, &farms.occupancy, Some(town_id.0 as u32)) {
+                                if let Some((free_slot, free_pos)) = find_nearest_free(search_pos, &entity_map, BuildingKind::Farm, Some(town_id.0 as u32)) {
                                     *activity = Activity::GoingToWork;
-                                    commands.entity(entity).insert(WorkPosition(free_pos));
+                                    commands.entity(entity).insert(WorkPosition(free_slot));
                                     submit_intent(&mut intents, entity, free_pos.x, free_pos.y, MovementPriority::JobRoute, "arrival:farm_retarget");
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm occupied, going to free farm");
                                 } else {
                                     *activity = Activity::Idle;
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "All farms occupied -> Idle");
                                 }
-                            } else if let Some(inst) = building_map.find_farm_at_mut(farm_pos) {
+                            } else if let Some(inst) = entity_map.get_instance_mut(farm_slot) {
                                 // Check if farm is ready — harvest and carry home immediately
                                 let food = inst.harvest();
                                 if food > 0 {
@@ -382,9 +398,9 @@ pub fn decision_system(
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested -> Carrying home");
                                 } else {
                                     // Farm not ready — claim and tend
-                                    farms.occupancy.claim(farm_pos);
+                                    entity_map.claim(farm_slot);
                                     *activity = Activity::Working;
-                                    commands.entity(entity).insert(AssignedFarm(farm_pos));
+                                    commands.entity(entity).insert(AssignedFarm(farm_slot));
                                     pop_inc_working(&mut economy.pop_stats, *job, town_id.0);
                                     submit_intent(&mut intents, entity, farm_pos.x, farm_pos.y, MovementPriority::JobRoute, "arrival:farm_work");
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "-> Working (tending)");
@@ -411,11 +427,11 @@ pub fn decision_system(
                     if idx * 2 + 1 < positions.len() {
                         let pos = Vec2::new(positions[idx * 2], positions[idx * 2 + 1]);
 
-                        let ready_farm_pos = find_location_within_radius(pos, &building_map, LocationKind::Farm, FARM_ARRIVAL_RADIUS)
-                            .and_then(|(_, fp)| building_map.find_farm_at(fp).filter(|i| i.growth_ready).map(|_| fp));
+                        let ready_farm_pos = find_location_within_radius(pos, &entity_map, LocationKind::Farm, FARM_ARRIVAL_RADIUS)
+                            .and_then(|(_, fp)| entity_map.find_farm_at(fp).filter(|i| i.growth_ready).map(|_| fp));
 
                         if let Some(fp) = ready_farm_pos {
-                            let food = building_map.find_farm_at_mut(fp).map(|i| {
+                            let food = entity_map.find_farm_at_mut(fp).map(|i| {
                                 let f = i.harvest();
                                 if f > 0 { combat_log.write(CombatLogMsg { kind: CombatEventKind::Harvest, faction: faction.0, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: i.harvest_log_msg(f), location: None }); }
                                 f
@@ -425,17 +441,22 @@ pub fn decision_system(
                             submit_intent(&mut intents, entity, home.0.x, home.0.y, MovementPriority::JobRoute, "arrival:raid_return");
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Stole food -> Returning");
                         } else {
-                            // Farm not ready - find a different farm (exclude current one)
-                            let other_farm = building_map.iter_kind(BuildingKind::Farm)
-                                .filter(|f| f.position.distance(pos) > FARM_ARRIVAL_RADIUS)
-                                .min_by(|a, b| {
-                                    a.position.distance_squared(pos)
-                                        .partial_cmp(&b.position.distance_squared(pos))
-                                        .unwrap_or(std::cmp::Ordering::Equal)
-                                });
-                            if let Some(farm) = other_farm {
-                                *activity = Activity::Raiding { target: farm.position };
-                                submit_intent(&mut intents, entity, farm.position.x, farm.position.y, MovementPriority::JobRoute, "arrival:raid_retarget");
+                            // Farm not ready - find a different farm nearby (exclude current one)
+                            let raid_search_radius = entity_map.spatial_cell_size().max(256.0) * 8.0;
+                            let mut best_d2 = f32::MAX;
+                            let mut other_farm_pos: Option<Vec2> = None;
+                            entity_map.for_each_nearby(pos, raid_search_radius, |f| {
+                                if f.kind != BuildingKind::Farm { return; }
+                                if f.position.distance(pos) <= FARM_ARRIVAL_RADIUS { return; }
+                                let d2 = f.position.distance_squared(pos);
+                                if d2 < best_d2 {
+                                    best_d2 = d2;
+                                    other_farm_pos = Some(f.position);
+                                }
+                            });
+                            if let Some(farm_pos) = other_farm_pos {
+                                *activity = Activity::Raiding { target: farm_pos };
+                                submit_intent(&mut intents, entity, farm_pos.x, farm_pos.y, MovementPriority::JobRoute, "arrival:raid_retarget");
                                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm not ready, seeking another");
                             } else {
                                 *activity = Activity::Returning { loot: vec![] };
@@ -448,7 +469,8 @@ pub fn decision_system(
                 Activity::Mining { mine_pos } => {
                     let mine_pos = *mine_pos;
                     // Arrived at gold mine — check BuildingInstance for harvest or tend
-                    if let Some(inst) = building_map.find_mine_at_mut(mine_pos) {
+                    let mine_slot = entity_map.slot_at_position(mine_pos);
+                    if let Some(inst) = entity_map.find_mine_at_mut(mine_pos) {
                         if inst.growth_ready {
                             // Mine ready — harvest immediately
                             let town_levels = extras.town_upgrades.town_levels(town_id.0 as usize);
@@ -460,11 +482,11 @@ pub fn decision_system(
                             submit_intent(&mut intents, entity, home.0.x, home.0.y, MovementPriority::JobRoute, "arrival:mine_harvest_return");
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
                                 format!("Harvested {} gold -> Returning", gold_amount));
-                        } else {
+                        } else if let Some(ms) = mine_slot {
                             // Mine still growing — claim occupancy and tend it
-                            farms.occupancy.claim(mine_pos);
+                            entity_map.claim(ms);
                             *activity = Activity::MiningAtMine;
-                            commands.entity(entity).insert(WorkPosition(mine_pos));
+                            commands.entity(entity).insert(WorkPosition(ms));
                             pop_inc_working(&mut economy.pop_stats, *job, town_id.0);
                             submit_intent(&mut intents, entity, mine_pos.x, mine_pos.y, MovementPriority::JobRoute, "idle:work_mine");
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "-> MiningAtMine (tending)");
@@ -561,7 +583,7 @@ pub fn decision_system(
                     // Clean up work state if fleeing mid-mine
                     if matches!(*activity, Activity::MiningAtMine) {
                         if let Ok(wp) = work_query.get(entity) {
-                            farms.occupancy.release(wp.0);
+                            entity_map.release(wp.0);
                         }
                         commands.entity(entity).remove::<WorkPosition>();
                     }
@@ -606,7 +628,7 @@ pub fn decision_system(
                         if (dx * dx + dy * dy).sqrt() > leash_dist {
                             if matches!(*activity, Activity::MiningAtMine) {
                                 if let Ok(wp) = work_query.get(entity) {
-                                    farms.occupancy.release(wp.0);
+                                    entity_map.release(wp.0);
                                 }
                                 commands.entity(entity).remove::<WorkPosition>();
                             }
@@ -634,6 +656,7 @@ pub fn decision_system(
         // (before transit skip) so squad members react by next decision tick.
         // Covers all squad-assigned units: archers, crossbow, raiders, fighters.
         // ====================================================================
+        let _ps_sq = if profiling && squad_id.is_some() { Some(std::time::Instant::now()) } else { None };
         if let Some(sid) = squad_id {
             // Manual micro override: player-assigned attack target takes priority.
             // Don't redirect the NPC — combat system handles ManualTarget directly.
@@ -704,16 +727,18 @@ pub fn decision_system(
                 }
             }
         }
+        if let Some(s) = _ps_sq { t_squad += s.elapsed(); n_squad += 1; }
 
         // ====================================================================
         // Farmer en-route retarget: if target farm became occupied, find another
         // ====================================================================
         if *job == Job::Farmer && matches!(*activity, Activity::GoingToWork) && (idx + frame) % think_buckets == 0 {
             if let Ok(wp) = work_query.get(entity) {
-                if farms.occupancy.is_occupied(wp.0) {
-                    if let Some(free) = find_nearest_free(wp.0, &building_map, BuildingKind::Farm, &farms.occupancy, Some(town_id.0 as u32)) {
-                        commands.entity(entity).insert(WorkPosition(free));
-                        submit_intent(&mut intents, entity, free.x, free.y, MovementPriority::JobRoute, "farm:retarget_free");
+                if entity_map.is_occupied(wp.0) {
+                    let wp_pos = entity_map.get_instance(wp.0).map(|i| i.position).unwrap_or_default();
+                    if let Some((free_slot, free_pos)) = find_nearest_free(wp_pos, &entity_map, BuildingKind::Farm, Some(town_id.0 as u32)) {
+                        commands.entity(entity).insert(WorkPosition(free_slot));
+                        submit_intent(&mut intents, entity, free_pos.x, free_pos.y, MovementPriority::JobRoute, "farm:retarget_free");
                         npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm taken, retargeting");
                     } else {
                         *activity = Activity::Idle;
@@ -744,6 +769,7 @@ pub fn decision_system(
                     }
                 }
             }
+            n_transit_skip += 1;
             continue;
         }
 
@@ -793,6 +819,7 @@ pub fn decision_system(
         // ====================================================================
         // Priority 5: Working/Mining + tired?
         // ====================================================================
+        let _ps_wk = if profiling { Some(std::time::Instant::now()) } else { None };
         if matches!(*activity, Activity::Working) {
             let should_stop = if energy.0 < ENERGY_TIRED_THRESHOLD {
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Tired -> Stopped");
@@ -802,26 +829,29 @@ pub fn decision_system(
             };
             if should_stop {
                 if let Ok(assigned) = assigned_query.get(entity) {
-                    farms.occupancy.release(assigned.0);
+                    entity_map.release(assigned.0);
                     commands.entity(entity).remove::<AssignedFarm>();
                 }
                 *activity = Activity::Idle;
             }
+            if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
             continue;
         }
 
         if matches!(*activity, Activity::MiningAtMine) {
             // Proximity check — if pushed away from mine, abort and re-walk
             if let Ok(wp) = work_query.get(entity) {
-                let mine_pos = wp.0;
+                let mine_slot = wp.0;
+                let mine_pos = entity_map.get_instance(mine_slot).map(|i| i.position).unwrap_or_default();
                 if idx * 2 + 1 < positions.len() {
                     let current = Vec2::new(positions[idx * 2], positions[idx * 2 + 1]);
                     if current.distance(mine_pos) > MINE_WORK_RADIUS {
-                        farms.occupancy.release(mine_pos);
+                        entity_map.release(mine_slot);
                         commands.entity(entity).remove::<WorkPosition>();
                         *activity = Activity::Mining { mine_pos };
                         submit_intent(&mut intents, entity, mine_pos.x, mine_pos.y, MovementPriority::JobRoute, "mining:push_return");
                         npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Pushed from mine -> returning");
+                        if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
                         continue;
                     }
                 }
@@ -829,16 +859,16 @@ pub fn decision_system(
             // Check if mine is Ready to harvest
             let mut harvested = false;
             if let Ok(wp) = work_query.get(entity) {
-                let mine_pos = wp.0;
-                if let Some(inst) = building_map.find_mine_at_mut(mine_pos) {
-                    if inst.growth_ready {
+                let mine_slot = wp.0;
+                if let Some(inst) = entity_map.get_instance_mut(mine_slot) {
+                    if inst.kind == BuildingKind::GoldMine && inst.growth_ready {
                         // Mine ready — harvest gold and return home
                         let town_levels = extras.town_upgrades.town_levels(town_id.0 as usize);
                         let yield_mult = UPGRADES.stat_mult(&town_levels, "Miner", UpgradeStatKind::Yield);
                         let base_gold = inst.harvest();
                         if base_gold > 0 { combat_log.write(CombatLogMsg { kind: CombatEventKind::Harvest, faction: faction.0, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: inst.harvest_log_msg(base_gold), location: None }); }
                         let gold_amount = ((base_gold as f32) * yield_mult).round() as i32;
-                        farms.occupancy.release(mine_pos);
+                        entity_map.release(mine_slot);
                         commands.entity(entity).remove::<WorkPosition>();
                         *activity = Activity::Returning { loot: vec![(ItemKind::Gold, gold_amount)] };
                         submit_intent(&mut intents, entity, home.0.x, home.0.y, MovementPriority::JobRoute, "mining:harvest_return");
@@ -849,13 +879,14 @@ pub fn decision_system(
                 }
                 if !harvested && energy.0 < ENERGY_TIRED_THRESHOLD {
                     // Tired — release occupancy and go rest
-                    farms.occupancy.release(mine_pos);
+                    entity_map.release(mine_slot);
                     commands.entity(entity).remove::<WorkPosition>();
                     *activity = Activity::Idle;
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Mining -> Tired -> Idle");
                 }
             }
             // Still tending (mine growing via occupancy in growth_system)
+            if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
             continue;
         }
 
@@ -887,6 +918,7 @@ pub fn decision_system(
                         npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "-> Patrolling");
                     }
                 }
+                if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
                 continue;
             }
         }
@@ -1021,25 +1053,25 @@ pub fn decision_system(
                         let current_pos = if idx * 2 + 1 < positions.len() {
                             Vec2::new(positions[idx * 2], positions[idx * 2 + 1])
                         } else { home.0 };
-                        let mut best: Option<(i32, f32, Vec2)> = None; // (priority, dist, pos)
-                        for inst in building_map.iter_kind_for_town(BuildingKind::Farm, town_id.0 as u32) {
-                            if farms.occupancy.is_occupied(inst.position) { continue; }
+                        let mut best: Option<(i32, f32, usize, Vec2)> = None; // (priority, dist, slot, pos)
+                        for inst in entity_map.iter_kind_for_town(BuildingKind::Farm, town_id.0 as u32) {
+                            if inst.occupants >= 1 { continue; }
                             let ready = inst.growth_ready;
                             let priority = if ready { 0 } else { 1 };
                             let dist = current_pos.distance(inst.position);
                             if best.is_none() || (priority, dist as i32) < (best.unwrap().0, best.unwrap().1 as i32) {
-                                best = Some((priority, dist, inst.position));
+                                best = Some((priority, dist, inst.slot, inst.position));
                             }
                         }
-                        if let Some((_, _, farm_pos)) = best {
+                        if let Some((_, _, farm_slot, farm_pos)) = best {
                             *activity = Activity::GoingToWork;
-                            commands.entity(entity).insert(WorkPosition(farm_pos));
+                            commands.entity(entity).insert(WorkPosition(farm_slot));
                             submit_intent(&mut intents, entity, farm_pos.x, farm_pos.y, MovementPriority::JobRoute, "idle:work_farm");
                         }
                     }
                     Job::Miner => {
                         // Check for manually assigned mine (via miner home UI)
-                        let assigned = building_map.find_by_position(home.0)
+                        let assigned = entity_map.find_by_position(home.0)
                             .filter(|inst| inst.kind == BuildingKind::MinerHome)
                             .and_then(|inst| inst.assigned_mine);
 
@@ -1053,15 +1085,27 @@ pub fn decision_system(
                             } else {
                                 home.0
                             };
-                            // Priority: ready > unoccupied > least-occupied
+                            // Priority: ready > unoccupied > least-occupied (town-scoped, global fallback)
                             let mut best_mine: Option<(i32, i32, f32, Vec2)> = None; // (priority, occupants, dist, pos)
-                            for inst in building_map.iter_kind(BuildingKind::GoldMine) {
-                                let occupant_count = farms.occupancy.count(inst.position);
+                            for inst in entity_map.iter_kind_for_town(BuildingKind::GoldMine, town_id.0 as u32) {
+                                let occupant_count = inst.occupants as i32;
                                 let ready = inst.growth_ready;
                                 let priority = if ready { 0 } else if occupant_count == 0 { 1 } else { 2 };
                                 let dist = current_pos.distance(inst.position);
                                 if best_mine.is_none() || (priority, occupant_count, dist as i32) < (best_mine.unwrap().0, best_mine.unwrap().1, best_mine.unwrap().2 as i32) {
                                     best_mine = Some((priority, occupant_count, dist, inst.position));
+                                }
+                            }
+                            // Global fallback if no mines in own town
+                            if best_mine.is_none() {
+                                for inst in entity_map.iter_kind(BuildingKind::GoldMine) {
+                                    let occupant_count = inst.occupants as i32;
+                                    let ready = inst.growth_ready;
+                                    let priority = if ready { 0 } else if occupant_count == 0 { 1 } else { 2 };
+                                    let dist = current_pos.distance(inst.position);
+                                    if best_mine.is_none() || (priority, occupant_count, dist as i32) < (best_mine.unwrap().0, best_mine.unwrap().1, best_mine.unwrap().2 as i32) {
+                                        best_mine = Some((priority, occupant_count, dist, inst.position));
+                                    }
                                 }
                             }
                             best_mine.map(|(_, _, _, pos)| pos)
@@ -1141,9 +1185,15 @@ pub fn decision_system(
         t.record("decision/arrival", t_arrival.as_secs_f32() * 1000.0);
         t.record("decision/combat", t_combat.as_secs_f32() * 1000.0);
         t.record("decision/idle", t_idle.as_secs_f32() * 1000.0);
+        t.record("decision/squad", t_squad.as_secs_f32() * 1000.0);
+        t.record("decision/work", t_work.as_secs_f32() * 1000.0);
         t.record("decision/n_arrival", n_arrival as f32);
         t.record("decision/n_combat", n_combat as f32);
         t.record("decision/n_idle", n_idle as f32);
+        t.record("decision/n_squad", n_squad as f32);
+        t.record("decision/n_work", n_work as f32);
+        t.record("decision/n_transit_skip", n_transit_skip as f32);
+        t.record("decision/n_total", n_total as f32);
     }
 }
 
@@ -1166,7 +1216,7 @@ pub fn on_duty_tick_system(
 pub fn rebuild_patrol_routes_system(
     mut commands: Commands,
     _world_data: Res<WorldData>,
-    mut building_map: ResMut<EntityMap>,
+    mut entity_map: ResMut<EntityMap>,
     mut patrols_dirty: MessageReader<crate::messages::PatrolsDirtyMsg>,
     mut patrol_swaps: MessageReader<crate::messages::PatrolSwapMsg>,
     mut guards: Query<(&mut PatrolRoute, &TownId, &Job), Without<Dead>>,
@@ -1179,10 +1229,10 @@ pub fn rebuild_patrol_routes_system(
     // Apply pending patrol order swap from UI
     if let Some(swap) = patrol_swaps.read().last() {
         let (sa, sb) = (swap.slot_a, swap.slot_b);
-        let order_a = building_map.get_instance(sa).map(|i| i.patrol_order).unwrap_or(0);
-        let order_b = building_map.get_instance(sb).map(|i| i.patrol_order).unwrap_or(0);
-        if let Some(inst) = building_map.get_instance_mut(sa) { inst.patrol_order = order_b; }
-        if let Some(inst) = building_map.get_instance_mut(sb) { inst.patrol_order = order_a; }
+        let order_a = entity_map.get_instance(sa).map(|i| i.patrol_order).unwrap_or(0);
+        let order_b = entity_map.get_instance(sb).map(|i| i.patrol_order).unwrap_or(0);
+        if let Some(inst) = entity_map.get_instance_mut(sa) { inst.patrol_order = order_b; }
+        if let Some(inst) = entity_map.get_instance_mut(sb) { inst.patrol_order = order_a; }
     }
 
     // Build routes once per town instead of per-archer
@@ -1191,7 +1241,7 @@ pub fn rebuild_patrol_routes_system(
         if !job.is_patrol_unit() { continue; }
         let tid = town_id.0 as u32;
         town_routes.entry(tid).or_insert_with(|| {
-            crate::systems::spawn::build_patrol_route(&building_map, tid)
+            crate::systems::spawn::build_patrol_route(&entity_map, tid)
         });
     }
 
@@ -1208,7 +1258,7 @@ pub fn rebuild_patrol_routes_system(
         if !job.is_patrol_unit() { continue; }
         let tid = town_id.0 as u32;
         let posts = town_routes.entry(tid).or_insert_with(|| {
-            crate::systems::spawn::build_patrol_route(&building_map, tid)
+            crate::systems::spawn::build_patrol_route(&entity_map, tid)
         });
         if !posts.is_empty() {
             commands.entity(entity).insert(PatrolRoute { posts: posts.clone(), current: 0 });

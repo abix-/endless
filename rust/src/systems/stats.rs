@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use crate::components::{Job, BaseAttackType, CachedStats, Personality, Dead, Health, Speed, EntitySlot, TownId};
 use crate::constants::{FOUNTAIN_TOWER, TowerStats, NPC_REGISTRY, npc_def, AttackTypeStats, UpgradeStatKind, UpgradeStatDef, ResourceKind, EffectDisplay, TOWN_UPGRADES};
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
-use crate::resources::{EntityMap, NpcMetaCache, NpcsByTownCache, SystemTimings};
+use crate::resources::{NpcMetaCache, NpcsByTownCache, SystemTimings};
 use crate::systemparams::{EconomyState, WorldState};
 
 // ============================================================================
@@ -605,7 +605,6 @@ pub fn process_upgrades_system(
     mut upgrades: ResMut<TownUpgrades>,
     mut economy: EconomyState,
     npcs_by_town: Res<NpcsByTownCache>,
-    npc_map: Res<EntityMap>,
     config: Res<CombatConfig>,
     meta_cache: Res<NpcMetaCache>,
     mut npc_query: Query<(&EntitySlot, &Job, &TownId, &BaseAttackType, &Personality, &mut Health, &mut CachedStats, &mut Speed), Without<Dead>>,
@@ -660,7 +659,7 @@ pub fn process_upgrades_system(
 
         let Some(npc_slots) = npcs_by_town.0.get(town_idx) else { continue };
         for &slot in npc_slots {
-            let Some(&entity) = npc_map.entities.get(&slot) else { continue };
+            let Some(&entity) = world_state.entity_map.entities.get(&slot) else { continue };
             let Ok((npc_idx, job, _town_id, atk_type, personality, mut health, mut cached, mut speed)) = npc_query.get_mut(entity) else { continue };
 
             let npc_level = meta_cache.0[npc_idx.0].level;

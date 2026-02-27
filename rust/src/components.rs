@@ -151,9 +151,9 @@ pub struct PatrolRoute {
     pub current: usize,
 }
 
-/// Work position for farmers (or any NPC that works at a location).
+/// Work position for miners. Stores the building slot for occupancy tracking.
 #[derive(Component)]
-pub struct WorkPosition(pub Vec2);
+pub struct WorkPosition(pub usize);
 
 /// Gold being carried by a miner returning home.
 #[derive(Component)]
@@ -269,11 +269,10 @@ pub enum ManualTarget {
 #[derive(Component)]
 pub struct DirectControl;
 
-/// Farmer's assigned farm position for occupancy tracking.
+/// Farmer's assigned farm slot for occupancy tracking.
 /// Added when entering Working at a farm, removed when leaving.
-/// Stores position (not index) so buildings can be deleted without breaking refs.
 #[derive(Component)]
-pub struct AssignedFarm(pub Vec2);
+pub struct AssignedFarm(pub usize);
 
 /// NPC has arrived at destination and needs transition handling.
 /// Set by gpu_position_readback when within ARRIVAL_THRESHOLD; cleared by decision_system.

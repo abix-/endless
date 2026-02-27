@@ -149,6 +149,7 @@ pub fn materialize_npc(
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx, col: sprite_col, row: sprite_row, atlas: 0.0 }));
     let combat_flags = if job.is_military() { 1u32 } else { 0u32 };
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFlags { idx, flags: combat_flags }));
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHalfSize { idx, half_w: crate::constants::NPC_HITBOX_HALF[0], half_h: crate::constants::NPC_HITBOX_HALF[1] }));
 
     // Entity with base components
     let activity = overrides.activity.clone().unwrap_or_default();
@@ -220,9 +221,11 @@ pub fn materialize_npc(
 
     // Work position
     if let Some(wp) = work_pos {
-        ec.insert(WorkPosition(Vec2::new(wp[0], wp[1])));
-        if overrides.activity.is_none() {
-            ec.insert(Activity::GoingToWork);
+        if let Some(slot) = entity_map.slot_at_position(Vec2::new(wp[0], wp[1])) {
+            ec.insert(WorkPosition(slot));
+            if overrides.activity.is_none() {
+                ec.insert(Activity::GoingToWork);
+            }
         }
     }
 
@@ -295,8 +298,8 @@ pub fn spawn_npc_system(
 }
 
 /// Build sorted patrol route from EntityMap for a given town.
-pub(crate) fn build_patrol_route(building_map: &EntityMap, town_idx: u32) -> Vec<Vec2> {
-    let mut posts: Vec<(u32, Vec2)> = building_map.iter_kind_for_town(BuildingKind::Waypoint, town_idx)
+pub(crate) fn build_patrol_route(entity_map: &EntityMap, town_idx: u32) -> Vec<Vec2> {
+    let mut posts: Vec<(u32, Vec2)> = entity_map.iter_kind_for_town(BuildingKind::Waypoint, town_idx)
         .map(|inst| (inst.patrol_order, inst.position))
         .collect();
     posts.sort_by_key(|(order, _)| *order);

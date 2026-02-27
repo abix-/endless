@@ -11,7 +11,7 @@ use crate::systemparams::{EconomyState, WorldState};
 use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, RAIDER_FORAGE_RATE, STARVING_SPEED_MULT, SPAWNER_RESPAWN_HOURS,
     RAIDER_SETTLE_RADIUS, MIGRATION_BASE_SIZE, BOAT_SPEED, ATLAS_BOAT, ENDLESS_RESPAWN_DELAY_HOURS, TOWN_GRID_SPACING,
 };
-use crate::world::{self, WorldData, BuildingKind, BuildingOccupancy, TownGrids, Biome};
+use crate::world::{self, WorldData, BuildingKind, TownGrids, Biome};
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg, CombatLogMsg};
 use crate::systems::stats::{TownUpgrades, UPGRADES};
 use crate::constants::UpgradeStatKind;
@@ -95,8 +95,7 @@ pub fn game_time_system(
 pub fn growth_system(
     time: Res<Time>,
     game_time: Res<GameTime>,
-    mut building_map: ResMut<EntityMap>,
-    farm_occupancy: Res<BuildingOccupancy>,
+    mut entity_map: ResMut<EntityMap>,
     upgrades: Res<TownUpgrades>,
     timings: Res<SystemTimings>,
 ) {
@@ -105,14 +104,14 @@ pub fn growth_system(
 
     let hours_elapsed = game_time.delta(&time) / game_time.seconds_per_hour;
 
-    for inst in building_map.iter_instances_mut() {
+    for inst in entity_map.iter_instances_mut() {
         let is_farm = inst.kind == BuildingKind::Farm;
         let is_mine = inst.kind == BuildingKind::GoldMine;
         if !is_farm && !is_mine { continue; }
         if inst.position.x < -9000.0 { continue; }
         if inst.growth_ready { continue; }
 
-        let is_tended = farm_occupancy.is_occupied(inst.position);
+        let is_tended = inst.occupants >= 1;
 
         let growth_rate = if is_farm {
             let base_rate = if is_tended { FARM_TENDED_GROWTH_RATE } else { FARM_BASE_GROWTH_RATE };
@@ -120,7 +119,7 @@ pub fn growth_system(
             let town_levels = upgrades.town_levels(town);
             base_rate * UPGRADES.stat_mult(&town_levels, "Farmer", UpgradeStatKind::Yield)
         } else {
-            let worker_count = farm_occupancy.count(inst.position);
+            let worker_count = inst.occupants as i32;
             if worker_count > 0 {
                 crate::constants::MINE_TENDED_GROWTH_RATE * crate::constants::mine_productivity_mult(worker_count)
             } else {
@@ -206,13 +205,13 @@ pub fn starvation_system(
 /// Growing→Ready: spawn marker. Ready→Growing (harvest): despawn marker.
 pub fn farm_visual_system(
     mut commands: Commands,
-    building_map: Res<EntityMap>,
+    entity_map: Res<EntityMap>,
     markers: Query<(Entity, &FarmReadyMarker)>,
     mut prev_ready: Local<HashMap<usize, bool>>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("farm_visual");
-    for inst in building_map.iter_kind(BuildingKind::Farm) {
+    for inst in entity_map.iter_kind(BuildingKind::Farm) {
         let was_ready = prev_ready.get(&inst.slot).copied().unwrap_or(false);
         if inst.growth_ready && !was_ready {
             commands.spawn(FarmReadyMarker { farm_slot: inst.slot });
@@ -241,7 +240,6 @@ pub fn spawner_respawn_system(
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     world_data: Res<WorldData>,
     mut combat_log: MessageWriter<CombatLogMsg>,
-    farm_occupancy: Res<BuildingOccupancy>,
     timings: Res<SystemTimings>,
     mut dirty_writers: crate::messages::DirtyWriters,
 ) {
@@ -282,11 +280,12 @@ pub fn spawner_respawn_system(
                 let Some(inst) = entity_map.get_instance(bld_slot) else { continue };
                 let town_data_idx = inst.town_idx as usize;
 
-                let (job, faction, work_x, work_y, starting_post, attack_type, job_name, building_name) =
-                    world::resolve_spawner_npc(inst, &world_data.towns, &entity_map, &farm_occupancy);
+                let (job, faction, work_x, work_y, starting_post, attack_type, job_name, building_name, work_slot) =
+                    world::resolve_spawner_npc(inst, &world_data.towns, &entity_map);
 
                 let pos = inst.position;
                 let is_miner_home = inst.kind == BuildingKind::MinerHome;
+                if let Some(ws) = work_slot { entity_map.claim(ws); }
 
                 spawn_writer.write(SpawnNpcMsg {
                     slot_idx: slot,
@@ -407,7 +406,7 @@ pub fn mining_policy_system(
 pub fn squad_cleanup_system(
     mut commands: Commands,
     mut squad_state: ResMut<SquadState>,
-    npc_map: Res<EntityMap>,
+    entity_map: Res<EntityMap>,
     available_units: Query<(Entity, &EntitySlot, &TownId), (With<SquadUnit>, Without<Dead>, Without<SquadId>)>,
     world_data: Res<WorldData>,
     squad_units: Query<(Entity, &EntitySlot, &SquadId), (With<SquadUnit>, Without<Dead>)>,
@@ -420,7 +419,7 @@ pub fn squad_cleanup_system(
 
     // Phase 1: remove dead members (all squads)
     for squad in squad_state.squads.iter_mut() {
-        squad.members.retain(|&slot| npc_map.entities.contains_key(&slot));
+        squad.members.retain(|&slot| entity_map.entities.contains_key(&slot));
     }
 
     // Phase 2: keep Default Squad (index 0) as the live pool of unsquadded player military units.
@@ -509,7 +508,7 @@ pub struct MigrationResources<'w> {
 /// Returns (town_data_idx, grid_idx, faction).
 fn create_ai_town(
     world_data: &mut WorldData,
-    building_map: &EntityMap,
+    entity_map: &EntityMap,
     town_grids: &mut TownGrids,
     res: &mut MigrationResources,
     ai_state: &mut AiPlayerState,
@@ -549,7 +548,7 @@ fn create_ai_town(
     let personality = personalities[rng.random_range(0..personalities.len())];
     if let Some(policy) = res.policies.policies.get_mut(town_data_idx) {
         *policy = personality.default_policies();
-        policy.mining_radius = super::ai_player::initial_mining_radius(building_map, center);
+        policy.mining_radius = super::ai_player::initial_mining_radius(entity_map, center);
     }
     ai_state.players.push(AiPlayer {
         town_data_idx,
@@ -619,7 +618,6 @@ pub fn endless_system(
     mut tilemap_spawned: ResMut<crate::render::TilemapSpawned>,
     game_time: Res<GameTime>,
     time: Res<Time>,
-    npc_map: Res<EntityMap>,
     config: Res<world::WorldGenConfig>,
     mut res: MigrationResources,
     migrating_query: Query<(Entity, &EntitySlot, &Position), With<Migrating>>,
@@ -698,7 +696,7 @@ pub fn endless_system(
     // === ATTACH Migrating component to newly spawned members ===
     if let Some(mg) = &migration_state.active {
         for &slot in &mg.member_slots {
-            if let Some(&entity) = npc_map.entities.get(&slot) {
+            if let Some(&entity) = world_state.entity_map.entities.get(&slot) {
                 if migrating_query.get(entity).is_err() {
                     if let Ok(mut ec) = commands.get_entity(entity) {
                         ec.insert(Migrating);
@@ -716,7 +714,7 @@ pub fn endless_system(
         let mut sum_y = 0.0f32;
         let mut count = 0u32;
         for &slot in &mg.member_slots {
-            if let Some(&entity) = npc_map.entities.get(&slot) {
+            if let Some(&entity) = world_state.entity_map.entities.get(&slot) {
                 if let Ok((_, _, pos)) = migrating_query.get(entity) {
                     sum_x += pos.x;
                     sum_y += pos.y;
@@ -752,7 +750,7 @@ pub fn endless_system(
         let member_slots = mg.member_slots.clone();
 
         let (town_data_idx, grid_idx, _faction) = create_ai_town(
-            &mut world_state.world_data, &world_state.building_data, &mut world_state.town_grids, &mut res, &mut ai_state,
+            &mut world_state.world_data, &world_state.entity_map, &mut world_state.town_grids, &mut res, &mut ai_state,
             mg.settle_target, is_raider,
         );
 
@@ -769,7 +767,7 @@ pub fn endless_system(
 
         // Place buildings directly into EntityMap
         if let Some(town_grid) = world_state.town_grids.grids.get_mut(grid_idx) {
-            world::place_buildings(&mut world_state.grid, &world_state.world_data, mg.settle_target, town_data_idx as u32, &config, town_grid, is_raider, &mut world_state.entity_slots, &mut world_state.building_data);
+            world::place_buildings(&mut world_state.grid, &world_state.world_data, mg.settle_target, town_data_idx as u32, &config, town_grid, is_raider, &mut world_state.entity_slots, &mut world_state.entity_map);
         }
         world::stamp_dirt(&mut world_state.grid, &[mg.settle_target]);
 
@@ -780,7 +778,7 @@ pub fn endless_system(
 
         // Settle NPCs: remove Migrating, set Home, update town_idx
         for &slot in &member_slots {
-            if let Some(&entity) = npc_map.entities.get(&slot) {
+            if let Some(&entity) = world_state.entity_map.entities.get(&slot) {
                 if migrating_query.get(entity).is_ok() {
                     commands.entity(entity).remove::<Migrating>();
                     commands.entity(entity).insert(Home(mg.settle_target));

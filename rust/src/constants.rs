@@ -450,6 +450,11 @@ pub const MAX_PROJECTILES: usize = 50000;
 pub const PROJECTILE_HIT_HALF_LENGTH: f32 = 12.0; // along travel direction
 pub const PROJECTILE_HIT_HALF_WIDTH: f32 = 4.0;   // perpendicular to travel
 
+/// Per-entity hitbox half-sizes (added to projectile hitbox via Minkowski sum).
+/// NPC body is ~16x16 centered in 32x32 tile; buildings fill the full 32x32 tile.
+pub const NPC_HITBOX_HALF: [f32; 2] = [8.0, 8.0];
+pub const BUILDING_HITBOX_HALF: [f32; 2] = [16.0, 16.0];
+
 /// Floats per projectile instance in MultiMesh buffer.
 pub const PROJ_FLOATS_PER_INSTANCE: usize = 12;
 

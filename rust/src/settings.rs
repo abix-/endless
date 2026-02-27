@@ -6,7 +6,22 @@ use std::path::PathBuf;
 
 use crate::resources::PolicySet;
 
-const SETTINGS_VERSION: u32 = 8;
+const SETTINGS_VERSION: u32 = 9;
+
+/// Controls which NPCs have their activity logged in `NpcLogCache`.
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug)]
+pub enum NpcLogMode {
+    /// Log for all NPCs. High memory with large populations.
+    All,
+    /// Log only for the player's faction.
+    Faction,
+    /// Log only for the currently selected NPC. Best performance.
+    SelectedOnly,
+}
+
+impl Default for NpcLogMode {
+    fn default() -> Self { Self::SelectedOnly }
+}
 
 /// Persisted user settings. Saved to `Documents\Endless\settings.json`.
 #[derive(Resource, Serialize, Deserialize, Clone)]
@@ -137,6 +152,9 @@ pub struct UserSettings {
     pub zoom_max: f32,
     #[serde(default = "default_lod_transition")]
     pub lod_transition: f32,
+    /// Which NPCs get activity-logged (perf: fewer = less allocation in hot loop).
+    #[serde(default)]
+    pub npc_log_mode: NpcLogMode,
 }
 
 fn default_endless_strength() -> f32 { 0.75 }
@@ -220,6 +238,7 @@ impl Default for UserSettings {
             zoom_min: 0.02,
             zoom_max: 4.0,
             lod_transition: 0.5,
+            npc_log_mode: NpcLogMode::default(),
         }
     }
 }

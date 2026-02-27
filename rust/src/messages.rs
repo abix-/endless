@@ -194,6 +194,8 @@ pub enum GpuUpdate {
     SetDamageFlash { idx: usize, intensity: f32 },
     /// Set entity flags (bit 0: combat scan enabled, bit 1: building)
     SetFlags { idx: usize, flags: u32 },
+    /// Set entity hitbox half-size for projectile collision (Minkowski sum with arrow hitbox)
+    SetHalfSize { idx: usize, half_w: f32, half_h: f32 },
 }
 
 // ============================================================================

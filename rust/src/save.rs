@@ -465,7 +465,7 @@ fn quicksave_path() -> Option<std::path::PathBuf> {
 pub fn collect_save_data(
     grid: &WorldGrid,
     world_data: &WorldData,
-    building_slots: &EntityMap,
+    entity_map: &EntityMap,
     town_grids: &TownGrids,
     game_time: &GameTime,
     food_storage: &FoodStorage,
@@ -486,7 +486,7 @@ pub fn collect_save_data(
     // Terrain + buildings
     let terrain: Vec<u8> = grid.cells.iter().map(|c| biome_to_u8(c.terrain)).collect();
     let mut buildings: Vec<Option<(world::BuildingKind, u32)>> = vec![None; grid.cells.len()];
-    for inst in building_slots.iter_instances() {
+    for inst in entity_map.iter_instances() {
         let (gc, gr) = grid.world_to_grid(inst.position);
         let idx = gr * grid.width + gc;
         if idx < buildings.len() {
@@ -499,7 +499,7 @@ pub fn collect_save_data(
     building_data.insert("towns".to_string(), serde_json::to_value(&world_data.towns).unwrap());
     for def in crate::constants::BUILDING_REGISTRY.iter() {
         let Some(key) = def.save_key else { continue };
-        let mut insts: Vec<_> = building_slots.iter_kind(def.kind).collect();
+        let mut insts: Vec<_> = entity_map.iter_kind(def.kind).collect();
         insts.sort_by_key(|i| i.slot);
         let placed: Vec<world::PlacedBuilding> = insts.iter().map(|inst| world::PlacedBuilding {
             position: inst.position, town_idx: inst.town_idx,
@@ -515,14 +515,14 @@ pub fn collect_save_data(
     }).collect();
 
     // Farm growth (serialized from BuildingInstance growth fields)
-    let farm_growth: Vec<FarmGrowthSave> = building_slots.iter_kind(crate::world::BuildingKind::Farm)
+    let farm_growth: Vec<FarmGrowthSave> = entity_map.iter_kind(crate::world::BuildingKind::Farm)
         .map(|i| FarmGrowthSave {
             state: if i.growth_ready { 1 } else { 0 },
             progress: i.growth_progress,
         }).collect();
 
     // Spawners (serialized from EntityMap spawner instances)
-    let spawners: Vec<SpawnerSave> = building_slots.iter_instances()
+    let spawners: Vec<SpawnerSave> = entity_map.iter_instances()
         .filter(|i| crate::constants::building_def(i.kind).spawner.is_some())
         .map(|i| SpawnerSave {
             building_kind: crate::constants::tileset_index(i.kind) as i32,
@@ -590,7 +590,7 @@ pub fn collect_save_data(
         food: food_storage.food.clone(),
         gold: gold_storage.gold.clone(),
         farm_growth,
-        mine_growth: building_slots.iter_kind(crate::world::BuildingKind::GoldMine)
+        mine_growth: entity_map.iter_kind(crate::world::BuildingKind::GoldMine)
             .map(|i| FarmGrowthSave {
                 state: if i.growth_ready { 1 } else { 0 },
                 progress: i.growth_progress,
@@ -940,7 +940,7 @@ type NpcExtrasQuery = (
 pub fn collect_npc_data(
     core_query: &Query<NpcCoreQuery, Without<Dead>>,
     extras_query: &Query<NpcExtrasQuery, Without<Dead>>,
-    npc_map: &EntityMap,
+    entity_map: &EntityMap,
     npc_meta: &NpcMetaCache,
 ) -> Vec<NpcSaveData> {
     let mut npcs = Vec::new();
@@ -953,7 +953,7 @@ pub fn collect_npc_data(
 
         // Look up extras via entity
         let (work_pos, squad_id, carried_gold, weapon, helmet, armor) =
-            if let Some(&entity) = npc_map.entities.get(&idx) {
+            if let Some(&entity) = entity_map.entities.get(&idx) {
                 if let Ok((_idx, wp, sq, cg, wep, hel, arm)) = extras_query.get(entity) {
                     (wp, sq, cg, wep, hel, arm)
                 } else {
@@ -982,7 +982,7 @@ pub fn collect_npc_data(
             xp: meta.xp,
             attack_type: match *attack_type { BaseAttackType::Melee => 0, BaseAttackType::Ranged => 1 },
             home: v2(home.0),
-            work_position: work_pos.map(|w| v2(w.0)),
+            work_position: work_pos.and_then(|w| entity_map.get_instance(w.0).map(|i| v2(i.position))),
             squad_id: squad_id.map(|s| s.0),
             carried_gold: carried_gold.map(|g| g.0),
             weapon: weapon.map(|w| [w.0, w.1]),
@@ -1050,7 +1050,7 @@ pub struct LoadNpcTracking<'w> {
 /// Produces the same JSON as the old BuildingHpState serde.
 fn collect_building_hp(
     building_query: &Query<(&Building, &EntitySlot, &Health), Without<Dead>>,
-    building_slots: &EntityMap,
+    entity_map: &EntityMap,
 ) -> std::collections::HashMap<String, Vec<f32>> {
     use std::collections::HashMap;
     let mut slot_hp: HashMap<usize, f32> = HashMap::new();
@@ -1062,7 +1062,7 @@ fn collect_building_hp(
         let key = if def.kind == world::BuildingKind::Fountain { "towns" } else {
             match def.save_key { Some(k) => k, None => continue }
         };
-        let mut insts: Vec<_> = building_slots.iter_kind(def.kind).collect();
+        let mut insts: Vec<_> = entity_map.iter_kind(def.kind).collect();
         insts.sort_by_key(|i| i.slot);
         let hps: Vec<f32> = insts.iter().map(|inst| {
             slot_hp.get(&inst.slot).copied().unwrap_or(0.0)
@@ -1075,7 +1075,7 @@ fn collect_building_hp(
 /// Convert old HP format (save_key → Vec<f32>) to slot-keyed HashMap for spawn_building_entities.
 pub fn convert_building_hp_to_slots(
     old_hp: &std::collections::HashMap<String, Vec<f32>>,
-    building_map: &EntityMap,
+    entity_map: &EntityMap,
     _world_data: &world::WorldData,
 ) -> std::collections::HashMap<usize, f32> {
     let mut result = std::collections::HashMap::new();
@@ -1085,7 +1085,7 @@ pub fn convert_building_hp_to_slots(
         let Some(hps) = old_hp.get(key) else { continue };
         // by_kind preserves insertion order, which matches save-file ordinal order
         // (load_building_instances_from_save appends in save-file order)
-        let slots: Vec<usize> = building_map.iter_kind(def.kind).map(|i| i.slot).collect();
+        let slots: Vec<usize> = entity_map.iter_kind(def.kind).map(|i| i.slot).collect();
         for (i, &hp) in hps.iter().enumerate() {
             if let Some(&slot) = slots.get(i) {
                 result.insert(slot, hp);
@@ -1100,20 +1100,20 @@ pub fn convert_building_hp_to_slots(
 pub fn load_building_instances_from_save(
     save: &SaveData,
     slot_alloc: &mut crate::resources::EntitySlots,
-    building_map: &mut EntityMap,
+    entity_map: &mut EntityMap,
     world_data: &WorldData,
     world_size_px: f32,
 ) {
     use crate::constants::{BUILDING_REGISTRY, FACTION_NEUTRAL};
-    building_map.clear_buildings();
-    building_map.entities.clear();
-    building_map.init_spatial(world_size_px);
+    entity_map.clear_buildings();
+    entity_map.entities.clear();
+    entity_map.init_spatial(world_size_px);
 
     // Fountain instances from towns
     for (i, town) in world_data.towns.iter().enumerate() {
         if !world::is_alive(town.center) { continue; }
         world::place_building_instance(
-            slot_alloc, building_map,
+            slot_alloc, entity_map,
             world::BuildingKind::Fountain, town.center, i as u32, town.faction, 0, 0,
         );
     }
@@ -1128,13 +1128,13 @@ pub fn load_building_instances_from_save(
             let faction = if def.kind == world::BuildingKind::GoldMine { FACTION_NEUTRAL }
                 else { world_data.towns.get(b.town_idx as usize).map(|t| t.faction).unwrap_or(0) };
             world::place_building_instance(
-                slot_alloc, building_map,
+                slot_alloc, entity_map,
                 def.kind, b.position, b.town_idx, faction,
                 b.patrol_order, b.wall_level,
             );
             // Restore miner home fields
             if def.kind == world::BuildingKind::MinerHome {
-                if let Some(inst) = building_map.find_by_position_mut(b.position) {
+                if let Some(inst) = entity_map.find_by_position_mut(b.position) {
                     inst.assigned_mine = b.assigned_mine;
                     inst.manual_mine = b.manual_mine;
                 }
@@ -1145,23 +1145,23 @@ pub fn load_building_instances_from_save(
     // Restore spawner state (npc_slot, respawn_timer) from save data
     for s in &save.spawners {
         let pos = to_vec2(s.position);
-        if let Some(inst) = building_map.find_by_position_mut(pos) {
+        if let Some(inst) = entity_map.find_by_position_mut(pos) {
             inst.npc_slot = s.npc_slot;
             inst.respawn_timer = s.respawn_timer;
         }
     }
 
-    info!("Loaded {} building instances from save", building_map.building_count());
+    info!("Loaded {} building instances from save", entity_map.building_count());
 }
 
 /// Rebuild growth states from EntityMap instances + save data.
 pub fn restore_growth_from_save(
     save: &SaveData,
-    building_map: &mut EntityMap,
+    entity_map: &mut EntityMap,
 ) {
 
     // Farms — sort by slot to match save order
-    let mut farm_slots: Vec<usize> = building_map.iter_kind(world::BuildingKind::Farm)
+    let mut farm_slots: Vec<usize> = entity_map.iter_kind(world::BuildingKind::Farm)
         .map(|i| i.slot).collect();
     farm_slots.sort();
     let farm_growth = if save.version < 2 {
@@ -1170,7 +1170,7 @@ pub fn restore_growth_from_save(
         &save.farm_growth[..]
     };
     for (i, &slot) in farm_slots.iter().enumerate() {
-        if let Some(inst) = building_map.get_instance_mut(slot) {
+        if let Some(inst) = entity_map.get_instance_mut(slot) {
             if let Some(fg) = farm_growth.get(i) {
                 inst.growth_ready = fg.state == 1;
                 inst.growth_progress = fg.progress;
@@ -1179,11 +1179,11 @@ pub fn restore_growth_from_save(
     }
 
     // Mines — sort by slot to match save order
-    let mut mine_slots: Vec<usize> = building_map.iter_kind(world::BuildingKind::GoldMine)
+    let mut mine_slots: Vec<usize> = entity_map.iter_kind(world::BuildingKind::GoldMine)
         .map(|i| i.slot).collect();
     mine_slots.sort();
     for (i, &slot) in mine_slots.iter().enumerate() {
-        if let Some(inst) = building_map.get_instance_mut(slot) {
+        if let Some(inst) = entity_map.get_instance_mut(slot) {
             if let Some(mg) = save.mine_growth.get(i) {
                 inst.growth_ready = mg.state == 1;
                 inst.growth_progress = mg.progress;

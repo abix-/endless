@@ -689,7 +689,7 @@ fn box_select_system(
     build_ctx: Res<crate::resources::BuildMenuContext>,
     gpu_state: Res<crate::resources::GpuReadState>,
     mut egui_contexts: bevy_egui::EguiContexts,
-    npc_entity_map: Res<EntityMap>,
+    entity_map: Res<EntityMap>,
     meta_cache: Res<crate::resources::NpcMetaCache>,
     mut selected_npc: ResMut<SelectedNpc>,
     mut selected_building: ResMut<crate::resources::SelectedBuilding>,
@@ -767,7 +767,7 @@ fn box_select_system(
                         // Remove DirectControl from old squad members being replaced
                         for &old_slot in &squad_state.squads[si].members {
                             if !selected_slots.contains(&old_slot) {
-                                if let Some(&entity) = npc_entity_map.entities.get(&old_slot) {
+                                if let Some(&entity) = entity_map.entities.get(&old_slot) {
                                     commands.entity(entity).remove::<crate::components::DirectControl>();
                                 }
                             }
@@ -782,7 +782,7 @@ fn box_select_system(
                         squad_state.squads[si].members = selected_slots.clone();
                         // Update SquadId + DirectControl on each selected NPC
                         for &slot in &selected_slots {
-                            if let Some(&entity) = npc_entity_map.entities.get(&slot) {
+                            if let Some(&entity) = entity_map.entities.get(&slot) {
                                 commands.entity(entity).insert((
                                     crate::components::SquadId(si as i32),
                                     crate::components::DirectControl,

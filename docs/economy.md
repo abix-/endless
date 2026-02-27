@@ -59,7 +59,7 @@ game_time_system (every frame)
   - Passive: `FARM_BASE_GROWTH_RATE` (0.08/hour) — ~12 game hours to full growth
   - Tended: `FARM_TENDED_GROWTH_RATE` (0.25/hour) — ~4 game hours with farmer working
 - Farm transitions to `Ready` when progress >= 1.0
-- Checks `BuildingOccupancy.is_occupied()` to determine if a farmer is tending
+- Checks `inst.occupants >= 1` (slot-indexed on `BuildingInstance`) to determine if a farmer is tending
 - **FarmYield upgrade**: growth rate multiplied by `1.0 + level * 0.15` per-town (reads `TownUpgrades` via `inst.town_idx`)
 
 ### raider_forage_system
@@ -176,7 +176,7 @@ Raiders without a squad assignment wander near their town. Group attacks use squ
 | GoldStorage | `Vec<i32>` — gold count per town | mining delivery, UI |
 | MineStates | gold, max_gold, positions per mine | mine_regen_system, mining behavior |
 | MinerProgressRender | positions + progress for active miners | sync_miner_progress_render → render world (ExtractResource) |
-| BuildingOccupancy | private map, methods: claim/release/is_occupied/count/clear | decision_system, death_cleanup, game_startup, spawner_respawn |
+| EntityMap (occupancy) | `BuildingInstance.occupants: i16` per building — slot-indexed claim/release/is_occupied/occupant_count methods on EntityMap | decision_system, death_cleanup, game_startup, spawner_respawn |
 | MiningPolicy | discovered_mines per town, mine_enabled per mine | mining_policy_system (dirty-flag gated) |
 | RaiderState | max_pop, respawn_timers, forage_timers | raider_forage_system |
 | EntityMap | `BuildingInstance` with `npc_slot` + `respawn_timer` fields | spawner_respawn_system, game_startup, place_building_instance |
@@ -219,7 +219,7 @@ Both player build menu and AI player use `building_cost()` for affordability che
 
 ### mine_regen_system
 - Runs every frame, advances mine gold based on elapsed game time
-- Only regenerates when mine has no occupant (`BuildingOccupancy.is_occupied()` returns false)
+- Only regenerates when mine has no occupant (`inst.occupants == 0` via slot-indexed `BuildingInstance`)
 - Rate: `MINE_REGEN_RATE` (2.0 gold/hour), capped at `MINE_MAX_GOLD` (200.0) per mine
 - Uses `MineStates` resource — parallel Vecs of gold, max_gold, and positions per mine
 

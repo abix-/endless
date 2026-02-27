@@ -5,7 +5,7 @@
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use serde::{Serialize, Deserialize};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 
 /// Serialize Vec2 as [f32; 2] for save file backwards compat.
 pub mod vec2_as_array {
@@ -396,12 +396,12 @@ pub fn update_all_wall_sprites(
 
 /// Resolve SpawnNpcMsg fields from a spawner entry's building_kind.
 /// Uses BUILDING_REGISTRY SpawnBehavior so new buildings with existing behaviors need no changes.
+/// Returns (job, faction, work_x, work_y, starting_post, attack_type, npc_label, bld_label, work_slot).
 pub fn resolve_spawner_npc(
     inst: &crate::resources::BuildingInstance,
     towns: &[Town],
     entity_map: &crate::resources::EntityMap,
-    occupancy: &BuildingOccupancy,
-) -> (i32, i32, f32, f32, i32, i32, &'static str, &'static str) {
+) -> (i32, i32, f32, f32, i32, i32, &'static str, &'static str, Option<usize>) {
     use crate::constants::{SpawnBehavior, building_def, npc_def};
     use crate::components::Job;
 
@@ -411,36 +411,39 @@ pub fn resolve_spawner_npc(
     let def = building_def(inst.kind);
     let Some(ref spawner) = def.spawner else {
         let raider_faction = towns.get(inst.town_idx as usize).map(|t| t.faction).unwrap_or(1);
-        return (2, raider_faction, -1.0, -1.0, -1, 0, "Raider", "Unknown");
+        return (2, raider_faction, -1.0, -1.0, -1, 0, "Raider", "Unknown", None);
     };
 
     let npc_label = npc_def(Job::from_i32(spawner.job)).label;
 
     match spawner.behavior {
         SpawnBehavior::FindNearestFarm => {
-            let farm = find_nearest_free(
-                inst.position, entity_map, BuildingKind::Farm, occupancy, Some(inst.town_idx),
-            ).unwrap_or(inst.position);
-            (spawner.job, town_faction, farm.x, farm.y, -1, spawner.attack_type, npc_label, def.label)
+            let found = find_nearest_free(
+                inst.position, entity_map, BuildingKind::Farm, Some(inst.town_idx),
+            );
+            let (work_slot, farm) = found.map(|(s, p)| (Some(s), p)).unwrap_or((None, inst.position));
+            (spawner.job, town_faction, farm.x, farm.y, -1, spawner.attack_type, npc_label, def.label, work_slot)
         }
         SpawnBehavior::FindNearestWaypoint => {
             let post_idx = find_location_within_radius(
                 inst.position, entity_map, LocationKind::Waypoint, f32::MAX,
             ).map(|(idx, _)| idx as i32).unwrap_or(-1);
-            (spawner.job, town_faction, -1.0, -1.0, post_idx, spawner.attack_type, npc_label, def.label)
+            (spawner.job, town_faction, -1.0, -1.0, post_idx, spawner.attack_type, npc_label, def.label, None)
         }
         SpawnBehavior::Raider => {
             let raider_faction = towns.get(inst.town_idx as usize)
                 .map(|t| t.faction).unwrap_or(1);
-            (spawner.job, raider_faction, -1.0, -1.0, -1, spawner.attack_type, npc_label, def.label)
+            (spawner.job, raider_faction, -1.0, -1.0, -1, spawner.attack_type, npc_label, def.label, None)
         }
         SpawnBehavior::Miner => {
-            let mine = inst.assigned_mine.unwrap_or_else(|| {
+            let (work_slot, mine) = if let Some(pos) = inst.assigned_mine {
+                (entity_map.slot_at_position(pos), pos)
+            } else {
                 find_nearest_free(
-                    inst.position, entity_map, BuildingKind::GoldMine, occupancy, None,
-                ).unwrap_or(inst.position)
-            });
-            (spawner.job, town_faction, mine.x, mine.y, -1, spawner.attack_type, npc_label, def.label)
+                    inst.position, entity_map, BuildingKind::GoldMine, None,
+                ).map(|(s, p)| (Some(s), p)).unwrap_or((None, inst.position))
+            };
+            (spawner.job, town_faction, mine.x, mine.y, -1, spawner.attack_type, npc_label, def.label, work_slot)
         }
     }
 }
@@ -461,6 +464,7 @@ fn push_building_gpu_updates(
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFaction { idx: slot, faction }));
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: max_hp }));
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFlags { idx: slot, flags }));
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHalfSize { idx: slot, half_w: crate::constants::BUILDING_HITBOX_HALF[0], half_h: crate::constants::BUILDING_HITBOX_HALF[1] }));
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
         idx: slot, col: tileset_idx as f32, row: 0.0,
         atlas: crate::constants::ATLAS_BUILDING,
@@ -493,6 +497,7 @@ pub fn place_building_instance(
         respawn_timer: if has_spawner { 0.0 } else { -2.0 },
         growth_ready: false,
         growth_progress: 0.0,
+        occupants: 0,
     });
     Some(slot)
 }
@@ -545,7 +550,6 @@ fn spawn_npcs_from_spawners(
     towns: &[Town],
     entity_map: &mut EntityMap,
 ) -> Vec<crate::messages::SpawnNpcMsg> {
-    let mut claimed = BuildingOccupancy::default();
     let mut msgs = Vec::new();
     // Collect spawner slots first (need immutable entity_map for resolve_spawner_npc, then mutate)
     let spawner_slots: Vec<usize> = entity_map.iter_instances()
@@ -555,11 +559,11 @@ fn spawn_npcs_from_spawners(
     for bld_slot in spawner_slots {
         let Some(slot) = slot_alloc.alloc() else { break };
         let Some(inst) = entity_map.get_instance(bld_slot) else { continue };
-        let (job, faction, work_x, work_y, starting_post, attack_type, _, _) =
-            resolve_spawner_npc(inst, towns, entity_map, &claimed);
+        let (job, faction, work_x, work_y, starting_post, attack_type, _, _, work_slot) =
+            resolve_spawner_npc(inst, towns, entity_map);
         let pos = inst.position;
         let town_idx = inst.town_idx as i32;
-        if work_x > 0.0 { claimed.claim(Vec2::new(work_x, work_y)); }
+        if let Some(ws) = work_slot { entity_map.claim(ws); }
         msgs.push(crate::messages::SpawnNpcMsg {
             slot_idx: slot,
             x: pos.x, y: pos.y,
@@ -783,36 +787,10 @@ pub fn find_location_within_radius(
     result
 }
 
-/// Convert Vec2 to integer key for HashMap lookup.
+/// Convert Vec2 to integer key for position-based lookup.
 /// Uses rounded coordinates so slight position differences still match.
 pub fn pos_to_key(pos: Vec2) -> (i32, i32) {
     (pos.x.round() as i32, pos.y.round() as i32)
-}
-
-/// Tracks how many NPCs are working at each building. Key = position, Value = count.
-/// Private field — all access goes through methods to prevent double-increment bugs.
-#[derive(Resource, Default)]
-pub struct BuildingOccupancy {
-    occupants: HashMap<(i32, i32), i32>,
-}
-
-impl BuildingOccupancy {
-    pub fn claim(&mut self, pos: Vec2) {
-        *self.occupants.entry(pos_to_key(pos)).or_insert(0) += 1;
-    }
-    pub fn release(&mut self, pos: Vec2) {
-        let key = pos_to_key(pos);
-        if let Some(count) = self.occupants.get_mut(&key) {
-            *count = count.saturating_sub(1);
-        }
-    }
-    pub fn is_occupied(&self, pos: Vec2) -> bool {
-        self.occupants.get(&pos_to_key(pos)).copied().unwrap_or(0) >= 1
-    }
-    pub fn count(&self, pos: Vec2) -> i32 {
-        self.occupants.get(&pos_to_key(pos)).copied().unwrap_or(0)
-    }
-    pub fn clear(&mut self) { self.occupants.clear(); }
 }
 
 /// Any building with a position and town affiliation. Used by generic find functions.
@@ -828,31 +806,31 @@ impl Worksite for PlacedBuilding {
 
 /// Find nearest unoccupied building of `kind`, optionally filtered by town.
 /// Uses expanding-radius spatial search: starts at 2 cells, doubles until found or exhausted.
+/// Returns (slot, position).
 pub fn find_nearest_free(
     from: Vec2,
     entity_map: &crate::resources::EntityMap,
     kind: BuildingKind,
-    occupancy: &BuildingOccupancy,
     town_idx: Option<u32>,
-) -> Option<Vec2> {
+) -> Option<(usize, Vec2)> {
     let cell_size = entity_map.spatial_cell_size().max(256.0);
     let max_radius = cell_size * 128.0; // upper bound ~32k px
     let mut radius = cell_size * 2.0;
     let mut best_d2 = f32::MAX;
-    let mut result: Option<Vec2> = None;
+    let mut result: Option<(usize, Vec2)> = None;
     loop {
         entity_map.for_each_nearby(from, radius, |inst| {
             if inst.kind != kind { return; }
             if let Some(tid) = town_idx {
                 if inst.town_idx != tid { return; }
             }
-            if occupancy.is_occupied(inst.position) { return; }
+            if inst.occupants >= 1 { return; }
             let dx = inst.position.x - from.x;
             let dy = inst.position.y - from.y;
             let d2 = dx * dx + dy * dy;
             if d2 < best_d2 {
                 best_d2 = d2;
-                result = Some(inst.position);
+                result = Some((inst.slot, inst.position));
             }
         });
         // Found one within this ring, or searched the whole world

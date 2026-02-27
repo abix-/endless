@@ -90,8 +90,8 @@ const MAX_MINING_RADIUS: f32 = 5000.0;
 const MAX_MINERS_PER_MINE: usize = 5;
 
 /// Initial mining radius: reaches at least the nearest gold mine, rounded up to step grid.
-pub fn initial_mining_radius(building_map: &EntityMap, center: Vec2) -> f32 {
-    let nearest = building_map.iter_kind(BuildingKind::GoldMine)
+pub fn initial_mining_radius(entity_map: &EntityMap, center: Vec2) -> f32 {
+    let nearest = entity_map.iter_kind(BuildingKind::GoldMine)
         .map(|m| (m.position - center).length())
         .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     match nearest {
@@ -104,7 +104,7 @@ pub fn initial_mining_radius(building_map: &EntityMap, center: Vec2) -> f32 {
 
 fn recalc_waypoint_patrol_order_clockwise(
     world_data: &mut WorldData,
-    building_map: &mut EntityMap,
+    entity_map: &mut EntityMap,
     town_idx: u32,
 ) {
     // Rebuild patrol order from geometry, not history:
@@ -113,7 +113,7 @@ fn recalc_waypoint_patrol_order_clockwise(
     let Some(center) = world_data.towns.get(town_idx as usize).map(|t| t.center) else { return; };
 
     // Collect (slot, position) for living waypoints of this town
-    let mut entries: Vec<(usize, Vec2)> = building_map.iter_kind_for_town(BuildingKind::Waypoint, town_idx)
+    let mut entries: Vec<(usize, Vec2)> = entity_map.iter_kind_for_town(BuildingKind::Waypoint, town_idx)
         .map(|b| (b.slot, b.position))
         .collect();
 
@@ -130,7 +130,7 @@ fn recalc_waypoint_patrol_order_clockwise(
     });
 
     for (order, &(slot, _)) in entries.iter().enumerate() {
-        if let Some(inst) = building_map.get_instance_mut(slot) {
+        if let Some(inst) = entity_map.get_instance_mut(slot) {
             inst.patrol_order = order as u32;
         }
     }
@@ -719,17 +719,17 @@ pub struct AiPlayerState {
 /// Find best empty slot closest to town center (for economy buildings).
 /// Excludes road and waypoint pattern slots for the given personality.
 fn find_inner_slot(
-    tg: &world::TownGrid, center: Vec2, grid: &WorldGrid, building_map: &EntityMap, personality: AiPersonality,
+    tg: &world::TownGrid, center: Vec2, grid: &WorldGrid, entity_map: &EntityMap, personality: AiPersonality,
 ) -> Option<(i32, i32)> {
     let wp_slots: HashSet<(i32, i32)> = personality.waypoint_ring_slots(tg).into_iter().collect();
-    world::empty_slots(tg, center, grid, building_map).into_iter()
+    world::empty_slots(tg, center, grid, entity_map).into_iter()
         .filter(|&(r, c)| !personality.is_road_slot(r, c) && !wp_slots.contains(&(r, c)))
         .min_by_key(|&(r, c)| r * r + c * c)
 }
 
 fn build_town_snapshot(
     world_data: &WorldData,
-    building_map: &EntityMap,
+    entity_map: &EntityMap,
     grid: &WorldGrid,
     tg: &world::TownGrid,
     town_data_idx: usize,
@@ -741,14 +741,14 @@ fn build_town_snapshot(
     let center = town.center;
     let ti = town_data_idx as u32;
 
-    let farms = building_map.iter_kind_for_town(BuildingKind::Farm, ti).map(|b| world::world_to_town_grid(center, b.position)).collect();
-    let farmer_homes = building_map.iter_kind_for_town(BuildingKind::FarmerHome, ti).map(|b| world::world_to_town_grid(center, b.position)).collect();
-    let archer_homes = building_map.iter_kind_for_town(BuildingKind::ArcherHome, ti).map(|b| world::world_to_town_grid(center, b.position)).collect();
-    let crossbow_homes = building_map.iter_kind_for_town(BuildingKind::CrossbowHome, ti).map(|b| world::world_to_town_grid(center, b.position)).collect();
+    let farms = entity_map.iter_kind_for_town(BuildingKind::Farm, ti).map(|b| world::world_to_town_grid(center, b.position)).collect();
+    let farmer_homes = entity_map.iter_kind_for_town(BuildingKind::FarmerHome, ti).map(|b| world::world_to_town_grid(center, b.position)).collect();
+    let archer_homes = entity_map.iter_kind_for_town(BuildingKind::ArcherHome, ti).map(|b| world::world_to_town_grid(center, b.position)).collect();
+    let crossbow_homes = entity_map.iter_kind_for_town(BuildingKind::CrossbowHome, ti).map(|b| world::world_to_town_grid(center, b.position)).collect();
     // Compute waypoint ring once and cache — reused for slot filtering and find_waypoint_slot
     let waypoint_ring = personality.waypoint_ring_slots(tg);
     let wp_slots: HashSet<(i32, i32)> = waypoint_ring.iter().copied().collect();
-    let empty_slots = world::empty_slots(tg, center, grid, building_map).into_iter()
+    let empty_slots = world::empty_slots(tg, center, grid, entity_map).into_iter()
         .filter(|&(r, c)| !personality.is_road_slot(r, c) && !wp_slots.contains(&(r, c)))
         .collect();
 
@@ -980,7 +980,7 @@ fn miner_toward_mine_score(mine_positions: &[Vec2], center: Vec2, slot: (i32, i3
 /// Uses cached ring from snapshot if available, otherwise computes fresh.
 fn find_waypoint_slot(
     tg: &world::TownGrid, center: Vec2, grid: &WorldGrid,
-    building_map: &EntityMap, ti: u32, personality: AiPersonality,
+    entity_map: &EntityMap, ti: u32, personality: AiPersonality,
     cached_ring: Option<&[(i32, i32)]>,
 ) -> Option<(i32, i32)> {
     let computed;
@@ -988,7 +988,7 @@ fn find_waypoint_slot(
         Some(ring) => ring,
         None => { computed = personality.waypoint_ring_slots(tg); &computed }
     };
-    let existing: HashSet<(i32, i32)> = building_map.iter_kind_for_town(BuildingKind::Waypoint, ti)
+    let existing: HashSet<(i32, i32)> = entity_map.iter_kind_for_town(BuildingKind::Waypoint, ti)
         .map(|b| world::world_to_town_grid(center, b.position))
         .collect();
 
@@ -999,7 +999,7 @@ fn find_waypoint_slot(
         .find(|&(r, c)| {
             let pos = world::town_grid_to_world(center, r, c);
             let (gc, gr) = grid.world_to_grid(pos);
-            !building_map.has_building_at(gc as i32, gr as i32)
+            !entity_map.has_building_at(gc as i32, gr as i32)
         })
 }
 
@@ -1023,7 +1023,7 @@ fn sync_town_perimeter_waypoints(
     let ideal: HashSet<(i32, i32)> = ideal_slots.iter().copied().collect();
 
     // Gather current waypoint slots once; used for both completeness check and pruning.
-    let existing: HashSet<(i32, i32)> = world.building_data.iter_kind_for_town(BuildingKind::Waypoint, ti)
+    let existing: HashSet<(i32, i32)> = world.entity_map.iter_kind_for_town(BuildingKind::Waypoint, ti)
         .map(|b| world::world_to_town_grid(center, b.position))
         .collect();
 
@@ -1044,7 +1044,7 @@ fn sync_town_perimeter_waypoints(
     for (row, col) in prune_slots {
         // Resolve the exact waypoint slot from town-grid coords.
         // If we cannot map slot->entity, do not clear the grid cell; that avoids orphaned sprites.
-        let target_slot = world.building_data.iter_kind_for_town(BuildingKind::Waypoint, ti)
+        let target_slot = world.entity_map.iter_kind_for_town(BuildingKind::Waypoint, ti)
             .find(|b| world::world_to_town_grid(center, b.position) == (row, col))
             .map(|b| b.slot);
         let Some(target_slot) = target_slot else { continue; };
@@ -1065,7 +1065,7 @@ fn sync_town_perimeter_waypoints(
         }
     }
     if removed > 0 {
-        recalc_waypoint_patrol_order_clockwise(&mut world.world_data, &mut world.building_data, ti);
+        recalc_waypoint_patrol_order_clockwise(&mut world.world_data, &mut world.entity_map, ti);
     }
     removed
 }
@@ -1117,14 +1117,14 @@ struct MineAnalysis {
     all_positions: Vec<Vec2>,
 }
 
-fn analyze_mines(building_map: &EntityMap, center: Vec2, mining_radius: f32) -> MineAnalysis {
+fn analyze_mines(entity_map: &EntityMap, center: Vec2, mining_radius: f32) -> MineAnalysis {
     // Single-pass analysis over alive gold mines.
     let radius_sq = mining_radius * mining_radius;
     let mut in_radius = 0usize;
     let mut outside_radius = 0usize;
     let mut all_positions = Vec::new();
 
-    for m in building_map.iter_kind(BuildingKind::GoldMine) {
+    for m in entity_map.iter_kind(BuildingKind::GoldMine) {
         all_positions.push(m.position);
         if (m.position - center).length_squared() <= radius_sq {
             in_radius += 1;
@@ -1161,7 +1161,7 @@ impl TownContext {
         let ti = tdi as u32;
         let empty_count = snapshot.map(|s| s.empty_slots.len())
             .or_else(|| res.world.town_grids.grids.get(grid_idx)
-                .map(|tg| world::empty_slots(tg, center, &res.world.grid, &res.world.building_data).len()))
+                .map(|tg| world::empty_slots(tg, center, &res.world.grid, &res.world.entity_map).len()))
             .unwrap_or(0);
         let slot_fullness = res.world.town_grids.grids.get(grid_idx)
             .map(|tg| {
@@ -1174,7 +1174,7 @@ impl TownContext {
             .unwrap_or(0.0);
         let mines = match kind {
             // Builder AIs use mine analysis for scoring/execution.
-            AiKind::Builder => Some(analyze_mines(&res.world.building_data, center, mining_radius)),
+            AiKind::Builder => Some(analyze_mines(&res.world.entity_map, center, mining_radius)),
             // Raider AIs don't use mining logic.
             AiKind::Raider => None,
         };
@@ -1218,7 +1218,7 @@ pub fn ai_decision_system(
         snapshots.towns.clear();
         // Recompute spawner counts per town from EntityMap
         snapshots.spawner_counts.clear();
-        for inst in res.world.building_data.iter_instances() {
+        for inst in res.world.entity_map.iter_instances() {
             if crate::constants::building_def(inst.kind).spawner.is_some() {
                 *snapshots.spawner_counts.entry(inst.town_idx as usize).or_default() += 1;
             }
@@ -1238,7 +1238,7 @@ pub fn ai_decision_system(
         let _ = player; // end immutable borrow — mutable access needed later
         if !snapshots.towns.contains_key(&tdi) {
             if let Some(tg) = res.world.town_grids.grids.get(grid_idx) {
-                if let Some(snap) = build_town_snapshot(&res.world.world_data, &res.world.building_data, &res.world.grid, tg, tdi, personality) {
+                if let Some(snap) = build_town_snapshot(&res.world.world_data, &res.world.entity_map, &res.world.grid, tg, tdi, personality) {
                     snapshots.towns.insert(tdi, snap);
                 }
             }
@@ -1260,7 +1260,7 @@ pub fn ai_decision_system(
         let pname = personality.name();
 
         // Pre-compute mine_shafts before bc closure to allow mutable borrow for bootstrap.
-        let mine_shafts = res.world.building_data.count_for_town(BuildingKind::MinerHome, ctx.ti);
+        let mine_shafts = res.world.entity_map.count_for_town(BuildingKind::MinerHome, ctx.ti);
 
         // Deterministic miner bootstrap: bypasses food reserve gate.
         // Ensures min miner homes are built before the town can starve its gold economy.
@@ -1295,7 +1295,7 @@ pub fn ai_decision_system(
         // Food reserve rule: if town is at/below reserve, skip spending this tick.
         if food <= reserve { continue; }
 
-        let bc = |k: BuildingKind| res.world.building_data.count_for_town(k, ctx.ti);
+        let bc = |k: BuildingKind| res.world.entity_map.count_for_town(k, ctx.ti);
         let farms = bc(BuildingKind::Farm);
         let houses = bc(BuildingKind::FarmerHome);
         let barracks = bc(BuildingKind::ArcherHome);
@@ -1304,7 +1304,7 @@ pub fn ai_decision_system(
         let total_military_homes = barracks + xbow_homes;
         let faction = res.world.world_data.towns.get(tdi).map(|t| t.faction).unwrap_or(0);
         // Threat signal from GPU spatial grid: fountain's enemy count from readback.
-        let threat = res.world.building_data.iter_kind_for_town(BuildingKind::Fountain, tdi as u32)
+        let threat = res.world.entity_map.iter_kind_for_town(BuildingKind::Fountain, tdi as u32)
             .next().map(|inst| inst.slot)
             .and_then(|slot| gpu_state.threat_counts.get(slot).copied())
             .map(|packed| {
@@ -1432,7 +1432,7 @@ pub fn ai_decision_system(
                 let rw = personality.road_weight();
                 if rw > 0.0 && ctx.food >= building_cost(BuildingKind::Road) * 4 {
                     let road_candidates = count_road_candidates(
-                        &res.world.building_data, &res.world.town_grids, &res.world.grid,
+                        &res.world.entity_map, &res.world.town_grids, &res.world.grid,
                         ctx.ti, ctx.center, ctx.grid_idx, personality,
                     );
                     if road_candidates > 0 {
@@ -1610,7 +1610,7 @@ fn pick_slot_from_snapshot_or_inner(
     tg: &world::TownGrid,
     center: Vec2,
     grid: &WorldGrid,
-    building_map: &EntityMap,
+    entity_map: &EntityMap,
     score: fn(&AiTownSnapshot, (i32, i32)) -> i32,
     personality: AiPersonality,
 ) -> Option<(i32, i32)> {
@@ -1621,7 +1621,7 @@ fn pick_slot_from_snapshot_or_inner(
             return Some(slot);
         }
     }
-    find_inner_slot(tg, center, grid, building_map, personality)
+    find_inner_slot(tg, center, grid, entity_map, personality)
 }
 
 fn try_build_inner(
@@ -1631,7 +1631,7 @@ fn try_build_inner(
 ) -> Option<String> {
     // Build using deterministic center-nearest slot.
     let tg = res.world.town_grids.grids.get(grid_idx)?;
-    let (row, col) = find_inner_slot(tg, center, &res.world.grid, &res.world.building_data, personality)?;
+    let (row, col) = find_inner_slot(tg, center, &res.world.grid, &res.world.entity_map, personality)?;
     try_build_at_slot(kind, cost, label, tdi, center, res, row, col)
 }
 
@@ -1644,7 +1644,7 @@ fn try_build_scored(
 ) -> Option<String> {
     // Build using snapshot-aware scoring with inner-slot fallback.
     let tg = res.world.town_grids.grids.get(grid_idx)?;
-    let (row, col) = pick_slot_from_snapshot_or_inner(snapshot, tg, center, &res.world.grid, &res.world.building_data, score_fn, personality)?;
+    let (row, col) = pick_slot_from_snapshot_or_inner(snapshot, tg, center, &res.world.grid, &res.world.entity_map, score_fn, personality)?;
     try_build_at_slot(kind, building_cost(kind), label, tdi, center, res, row, col)
 }
 
@@ -1657,9 +1657,9 @@ fn try_build_miner_home(
     let tg = res.world.town_grids.grids.get(ctx.grid_idx)?;
     let slot = if let Some(snap) = snapshot {
         pick_best_empty_slot(snap, |s| miner_toward_mine_score(&mines.all_positions, ctx.center, s))
-            .or_else(|| find_inner_slot(tg, ctx.center, &res.world.grid, &res.world.building_data, personality))
+            .or_else(|| find_inner_slot(tg, ctx.center, &res.world.grid, &res.world.entity_map, personality))
     } else {
-        find_inner_slot(tg, ctx.center, &res.world.grid, &res.world.building_data, personality)
+        find_inner_slot(tg, ctx.center, &res.world.grid, &res.world.entity_map, personality)
     }?;
     try_build_at_slot(
         BuildingKind::MinerHome,
@@ -1671,16 +1671,16 @@ fn try_build_miner_home(
 /// Count available road candidate slots (road-pattern slots near economy buildings, minus existing roads).
 /// Used to gate road scoring so roads aren't scored when no candidates exist.
 fn count_road_candidates(
-    building_map: &EntityMap, town_grids: &world::TownGrids, grid: &world::WorldGrid,
+    entity_map: &EntityMap, town_grids: &world::TownGrids, grid: &world::WorldGrid,
     ti: u32, center: Vec2, grid_idx: usize, personality: AiPersonality,
 ) -> usize {
-    let econ_slots: Vec<(i32, i32)> = building_map.iter_kind_for_town(BuildingKind::Farm, ti)
-        .chain(building_map.iter_kind_for_town(BuildingKind::FarmerHome, ti))
-        .chain(building_map.iter_kind_for_town(BuildingKind::MinerHome, ti))
+    let econ_slots: Vec<(i32, i32)> = entity_map.iter_kind_for_town(BuildingKind::Farm, ti)
+        .chain(entity_map.iter_kind_for_town(BuildingKind::FarmerHome, ti))
+        .chain(entity_map.iter_kind_for_town(BuildingKind::MinerHome, ti))
         .map(|b| world::world_to_town_grid(center, b.position))
         .collect();
     if econ_slots.is_empty() { return 0; }
-    let road_slots: HashSet<(i32, i32)> = building_map.iter_kind_for_town(BuildingKind::Road, ti)
+    let road_slots: HashSet<(i32, i32)> = entity_map.iter_kind_for_town(BuildingKind::Road, ti)
         .map(|b| world::world_to_town_grid(center, b.position)).collect();
     let (min_r, max_r, min_c, max_c) = town_grids.grids.get(grid_idx)
         .map(|g| world::build_bounds(g)).unwrap_or((-4, 3, -4, 3));
@@ -1697,7 +1697,7 @@ fn count_road_candidates(
             if road_slots.contains(&(r, c)) { continue; }
             let pos = world::town_grid_to_world(center, r, c);
             let (gc, gr) = grid.world_to_grid(pos);
-            if building_map.has_building_at(gc as i32, gr as i32) { continue; }
+            if entity_map.has_building_at(gc as i32, gr as i32) { continue; }
             let in_bounds = r >= min_r && r <= max_r && c >= min_c && c <= max_c;
             let adj = econ_slots.iter().any(|&(er, ec)| {
                 (er - r).abs() <= 2 && (ec - c).abs() <= 2
@@ -1720,18 +1720,18 @@ fn try_build_road_grid(
     let cost = building_cost(BuildingKind::Road);
     let ti = ctx.ti;
     let center = ctx.center;
-    let bmap = &res.world.building_data;
+    let entity_map = &res.world.entity_map;
 
     // Collect economy building positions as town grid coords
-    let econ_slots: Vec<(i32, i32)> = bmap.iter_kind_for_town(BuildingKind::Farm, ti)
-        .chain(bmap.iter_kind_for_town(BuildingKind::FarmerHome, ti))
-        .chain(bmap.iter_kind_for_town(BuildingKind::MinerHome, ti))
+    let econ_slots: Vec<(i32, i32)> = entity_map.iter_kind_for_town(BuildingKind::Farm, ti)
+        .chain(entity_map.iter_kind_for_town(BuildingKind::FarmerHome, ti))
+        .chain(entity_map.iter_kind_for_town(BuildingKind::MinerHome, ti))
         .map(|b| world::world_to_town_grid(center, b.position))
         .collect();
     if econ_slots.is_empty() { return None; }
 
     // Collect existing road positions for quick lookup
-    let road_slots: HashSet<(i32, i32)> = bmap.iter_kind_for_town(BuildingKind::Road, ti)
+    let road_slots: HashSet<(i32, i32)> = entity_map.iter_kind_for_town(BuildingKind::Road, ti)
         .map(|b| world::world_to_town_grid(center, b.position)).collect();
 
     // Generate candidate road cells on personality-specific pattern near economy buildings
@@ -1751,7 +1751,7 @@ fn try_build_road_grid(
             // Skip cells occupied by non-road buildings
             let pos = world::town_grid_to_world(center, r, c);
             let (gc, gr) = res.world.grid.world_to_grid(pos);
-            if res.world.building_data.has_building_at(gc as i32, gr as i32) { continue; }
+            if res.world.entity_map.has_building_at(gc as i32, gr as i32) { continue; }
             // Score by adjacency to economy buildings (distance 2 covers the 4-cell pattern gap)
             let in_bounds = r >= min_r && r <= max_r && c >= min_c && c <= max_c;
             let adj = econ_slots.iter().filter(|&&(er, ec)| {
@@ -1852,12 +1852,12 @@ fn execute_action(
             let cost = building_cost(BuildingKind::Waypoint);
             let tg = res.world.town_grids.grids.get(ctx.grid_idx)?;
             let cached_ring = snapshot.map(|s| s.waypoint_ring.as_slice());
-            let (row, col) = find_waypoint_slot(tg, ctx.center, &res.world.grid, &res.world.building_data, ctx.ti, personality, cached_ring)?;
+            let (row, col) = find_waypoint_slot(tg, ctx.center, &res.world.grid, &res.world.entity_map, ctx.ti, personality, cached_ring)?;
             let pos = world::town_grid_to_world(ctx.center, row, col);
             if res.world.place_building(
                 &mut res.food_storage, world::BuildingKind::Waypoint, ctx.tdi, pos, cost, &mut res.gpu_updates, &mut res.commands,
             ).is_ok() {
-                recalc_waypoint_patrol_order_clockwise(&mut res.world.world_data, &mut res.world.building_data, ctx.ti);
+                recalc_waypoint_patrol_order_clockwise(&mut res.world.world_data, &mut res.world.entity_map, ctx.ti);
                 Some("built waypoint".into())
             } else {
                 None
@@ -1885,8 +1885,8 @@ fn log_ai(log: &mut MessageWriter<crate::messages::CombatLogMsg>, gt: &GameTime,
 // ============================================================================
 
 /// Resolve a building's position by slot. Returns None if slot has no instance (dead/freed).
-fn resolve_building_pos(building_map: &EntityMap, slot: usize) -> Option<Vec2> {
-    building_map.get_instance(slot).map(|inst| inst.position)
+fn resolve_building_pos(entity_map: &EntityMap, slot: usize) -> Option<Vec2> {
+    entity_map.get_instance(slot).map(|inst| inst.position)
 }
 
 impl AiPersonality {
@@ -1982,14 +1982,14 @@ impl AiPersonality {
 
 /// Pick nearest enemy farm as raider squad target.
 fn pick_raider_farm_target(
-    building_map: &EntityMap,
+    entity_map: &EntityMap,
     center: Vec2,
     faction: i32,
 ) -> Option<(BuildingKind, usize, Vec2)> {
     let mut best_d2 = f32::MAX;
     let mut result: Option<(BuildingKind, usize, Vec2)> = None;
     let r2 = AI_ATTACK_SEARCH_RADIUS * AI_ATTACK_SEARCH_RADIUS;
-    building_map.for_each_nearby(center, AI_ATTACK_SEARCH_RADIUS, |inst| {
+    entity_map.for_each_nearby(center, AI_ATTACK_SEARCH_RADIUS, |inst| {
         if inst.faction == faction || inst.faction < 0 { return; }
         if inst.kind != BuildingKind::Farm { return; }
         let dx = inst.position.x - center.x;
@@ -2004,7 +2004,7 @@ fn pick_raider_farm_target(
 }
 
 fn pick_ai_target_unclaimed(
-    building_map: &EntityMap,
+    entity_map: &EntityMap,
     center: Vec2,
     faction: i32,
     personality: AiPersonality,
@@ -2017,7 +2017,7 @@ fn pick_ai_target_unclaimed(
         let mut best_d2 = f32::MAX;
         let mut result: Option<(BuildingKind, usize, Vec2)> = None;
         let r2 = AI_ATTACK_SEARCH_RADIUS * AI_ATTACK_SEARCH_RADIUS;
-        building_map.for_each_nearby(center, AI_ATTACK_SEARCH_RADIUS, |inst| {
+        entity_map.for_each_nearby(center, AI_ATTACK_SEARCH_RADIUS, |inst| {
             if inst.faction == faction || inst.faction < 0 { return; }
             if !allowed_kinds.contains(&inst.kind) { return; }
             if claimed.contains(&inst.slot) { return; }
@@ -2055,7 +2055,7 @@ pub fn ai_squad_commander_system(
     mut ai_state: ResMut<AiPlayerState>,
     mut squad_state: ResMut<SquadState>,
     world_data: Res<WorldData>,
-    building_map: Res<EntityMap>,
+    entity_map: Res<EntityMap>,
     military: Query<(&TownId, &EntitySlot), (With<SquadUnit>, Without<Dead>)>,
     mut combat_log: MessageWriter<crate::messages::CombatLogMsg>,
     game_time: Res<GameTime>,
@@ -2219,7 +2219,7 @@ pub fn ai_squad_commander_system(
             if squad.wave_active {
                 // --- Wave end conditions ---
                 let target_alive = cmd.target_slot
-                    .and_then(|s| resolve_building_pos(&building_map, s))
+                    .and_then(|s| resolve_building_pos(&entity_map, s))
                     .is_some();
 
                 let loss_threshold = squad.wave_start_count
@@ -2250,9 +2250,9 @@ pub fn ai_squad_commander_system(
 
                 // Pick target based on AI kind
                 let target = match kind {
-                    AiKind::Raider => pick_raider_farm_target(&building_map, center, faction),
+                    AiKind::Raider => pick_raider_farm_target(&entity_map, center, faction),
                     AiKind::Builder => pick_ai_target_unclaimed(
-                        &building_map, center, faction, personality, SquadRole::Attack, &claimed_targets,
+                        &entity_map, center, faction, personality, SquadRole::Attack, &claimed_targets,
                     ),
                 };
 

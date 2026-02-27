@@ -208,7 +208,6 @@ pub fn build_app(app: &mut App) {
        .init_resource::<GameConfig>()
        .init_resource::<GameTime>()
        .init_resource::<world::WorldData>()
-       .init_resource::<world::BuildingOccupancy>()
        .init_resource::<HealthDebug>()
        .init_resource::<CombatDebug>()
        .init_resource::<NpcTargetThrashDebug>()

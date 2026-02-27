@@ -142,6 +142,8 @@ pub struct EntityGpuState {
     pub flash_values: Vec<f32>,
     // --- Flags (bit 0: combat scan enabled) ---
     pub entity_flags: Vec<u32>,
+    /// Hitbox half-sizes: [half_w, half_h] per entity (interleaved, stride 2)
+    pub half_sizes: Vec<f32>,
     // --- Per-buffer dirty flags (compute only — visual is rebuilt each frame) ---
     pub dirty_positions: bool,
     pub dirty_targets: bool,
@@ -150,6 +152,7 @@ pub struct EntityGpuState {
     pub dirty_healths: bool,
     pub dirty_arrivals: bool,
     pub dirty_flags: bool,
+    pub dirty_half_sizes: bool,
     // --- Per-index tracking for GPU-authoritative buffers (positions + arrivals) ---
     // GPU compute writes these every frame; CPU only touches them on spawn/teleport/hide/retarget.
     pub position_dirty_indices: Vec<usize>,
@@ -181,6 +184,7 @@ impl Default for EntityGpuState {
             sprite_indices: vec![0.0; max * 4],
             flash_values: vec![0.0; max],
             entity_flags: vec![0; max],
+            half_sizes: vec![0.0; max * 2],
             dirty_positions: false,
             dirty_targets: false,
             dirty_speeds: false,
@@ -188,6 +192,7 @@ impl Default for EntityGpuState {
             dirty_healths: false,
             dirty_arrivals: false,
             dirty_flags: false,
+            dirty_half_sizes: false,
             position_dirty_indices: Vec::new(),
             arrival_dirty_indices: Vec::new(),
         }
@@ -272,6 +277,14 @@ impl EntityGpuState {
                 if *idx < self.entity_flags.len() {
                     self.entity_flags[*idx] = *flags;
                     self.dirty_flags = true;
+                }
+            }
+            GpuUpdate::SetHalfSize { idx, half_w, half_h } => {
+                let i = *idx * 2;
+                if i + 1 < self.half_sizes.len() {
+                    self.half_sizes[i] = *half_w;
+                    self.half_sizes[i + 1] = *half_h;
+                    self.dirty_half_sizes = true;
                 }
             }
         }
@@ -427,6 +440,7 @@ pub fn populate_gpu_state(
     npc_state.dirty_healths = false;
     npc_state.dirty_arrivals = false;
     npc_state.dirty_flags = false;
+    npc_state.dirty_half_sizes = false;
     npc_state.position_dirty_indices.clear();
     npc_state.arrival_dirty_indices.clear();
 
@@ -874,7 +888,7 @@ fn populate_tile_flags(
     mut config: ResMut<RenderFrameConfig>,
     grid: Res<crate::world::WorldGrid>,
     world_data: Res<crate::world::WorldData>,
-    building_slots: Res<crate::resources::EntityMap>,
+    entity_map: Res<crate::resources::EntityMap>,
     mut grid_dirty: MessageReader<crate::messages::BuildingGridDirtyMsg>,
 ) {
     // Set grid dimensions every frame (cheap)
@@ -905,7 +919,7 @@ fn populate_tile_flags(
         }
     }
     // Building pass — iterate instances instead of all grid cells
-    for inst in building_slots.iter_instances() {
+    for inst in entity_map.iter_instances() {
         let (gc, gr) = grid.world_to_grid(inst.position);
         let idx = gr * grid.width + gc;
         if idx >= total { continue; }
@@ -944,6 +958,8 @@ pub struct EntityGpuBuffers {
     pub threat_counts: Buffer,
     pub entity_flags: Buffer,
     pub tile_flags: Buffer,
+    /// Per-entity hitbox half-sizes [half_w, half_h] for projectile collision.
+    pub half_sizes: Buffer,
 }
 
 /// Bind groups for compute passes (one per mode, different uniform buffer).
@@ -1091,6 +1107,12 @@ fn init_npc_compute_pipeline(
             label: Some("tile_flags"),
             // Max world: 32000px / 32px = 1000 cells per side → 1024×1024 buffer
             size: (1024 * 1024 * std::mem::size_of::<u32>()) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }),
+        half_sizes: render_device.create_buffer(&BufferDescriptor {
+            label: Some("entity_half_sizes"),
+            size: (max_ents * std::mem::size_of::<[f32; 2]>()) as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }),
@@ -1574,6 +1596,8 @@ fn init_proj_compute_pipeline(
                 // 14-15: projectile spatial grid (read_write)
                 storage_buffer::<Vec<i32>>(false),                // proj_grid_counts
                 storage_buffer::<Vec<i32>>(false),                // proj_grid_data
+                // 16: entity hitbox half-sizes (read only)
+                storage_buffer_read_only::<Vec<[f32; 2]>>(false), // entity_half_sizes
             ),
         ),
     );
@@ -1643,6 +1667,8 @@ fn prepare_proj_bind_groups(
     ub1.write_buffer(&render_device, &render_queue);
     ub2.write_buffer(&render_device, &render_queue);
 
+    let half_sizes_bind = ent.half_sizes.as_entire_buffer_binding();
+
     let mode0 = render_device.create_bind_group(
         Some("proj_compute_bg_mode0"),
         layout,
@@ -1657,6 +1683,7 @@ fn prepare_proj_bind_groups(
             &ub0,
             proj.grid_counts.as_entire_buffer_binding(),
             proj.grid_data.as_entire_buffer_binding(),
+            half_sizes_bind.clone(),
         )),
     );
     let mode1 = render_device.create_bind_group(
@@ -1673,6 +1700,7 @@ fn prepare_proj_bind_groups(
             &ub1,
             proj.grid_counts.as_entire_buffer_binding(),
             proj.grid_data.as_entire_buffer_binding(),
+            half_sizes_bind.clone(),
         )),
     );
     let mode2 = render_device.create_bind_group(
@@ -1689,6 +1717,7 @@ fn prepare_proj_bind_groups(
             &ub2,
             proj.grid_counts.as_entire_buffer_binding(),
             proj.grid_data.as_entire_buffer_binding(),
+            half_sizes_bind.clone(),
         )),
     );
 

@@ -32,7 +32,7 @@ pub fn setup(
     mut test: ResMut<TestState>,
     mut game_time: ResMut<crate::resources::GameTime>,
     mut slot_alloc: ResMut<crate::resources::EntitySlots>,
-    mut building_map: ResMut<crate::resources::EntityMap>,
+    mut entity_map: ResMut<crate::resources::EntityMap>,
 ) {
     game_time.time_scale = 0.0;
 
@@ -68,7 +68,7 @@ pub fn setup(
     ];
     for (col, &(kind, town_idx)) in buildings.iter().enumerate() {
         let pos = grid.grid_to_world(col, BUILDING_ROW);
-        world::place_building_instance(&mut slot_alloc, &mut building_map, kind, pos, town_idx, 0, 0, 0);
+        world::place_building_instance(&mut slot_alloc, &mut entity_map, kind, pos, town_idx, 0, 0, 0);
     }
 
     test.phase_name = "Waiting for tilemap...".into();
@@ -81,7 +81,7 @@ pub fn tick(
     mut test: ResMut<TestState>,
     time: Res<Time>,
     grid: Res<WorldGrid>,
-    building_map: Res<crate::resources::EntityMap>,
+    entity_map: Res<crate::resources::EntityMap>,
     mut camera_query: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
     mut contexts: EguiContexts,
     windows: Query<&Window>,
@@ -212,7 +212,7 @@ pub fn tick(
     // Atlas coordinate labels above each building tile
     for col in 0..BUILDING_LABELS.len() {
         let pos = grid.grid_to_world(col, BUILDING_ROW);
-        if let Some(inst) = building_map.find_by_position(pos) {
+        if let Some(inst) = entity_map.find_by_position(pos) {
             let tile_idx = crate::constants::tileset_index(inst.kind);
             let btiles = world::building_tiles();
             let label = match btiles[tile_idx as usize] {

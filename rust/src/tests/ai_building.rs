@@ -52,13 +52,13 @@ pub(super) fn setup(
         &mut world_grid, &mut world_data,
         &mut town_grids,
         &mut slot_alloc,
-        &mut bld.building_slots,
+        &mut bld.entity_map,
         &mut food_storage, &mut gold_storage,
         &mut faction_stats, &mut state.raider_state,
     );
     world::materialize_generated_world(
         &mut commands,
-        &mut bld.building_slots,
+        &mut bld.entity_map,
         &mut gpu_updates,
         &mut spawn_writer,
         npc_msgs,

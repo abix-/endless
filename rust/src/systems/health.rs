@@ -10,7 +10,7 @@ use crate::resources::{EntityMap, HealthDebug, PopulationStats, KillStats, NpcsB
 use crate::systems::stats::{CombatConfig, TownUpgrades, UPGRADES, level_from_xp, resolve_combat_stats};
 use crate::constants::{UpgradeStatKind, ItemKind, building_def, npc_def};
 use crate::systems::economy::*;
-use crate::world::{WorldData, WorldGrid, TownGrids, BuildingOccupancy, BuildingKind};
+use crate::world::{WorldData, WorldGrid, TownGrids, BuildingKind};
 
 /// Bundled resources for death_system — merged from CleanupResources + WorldState + BuildingDeathExtra.
 #[derive(SystemParam)]
@@ -22,7 +22,6 @@ pub struct DeathResources<'w> {
     pub kill_stats: ResMut<'w, KillStats>,
     pub npcs_by_town: ResMut<'w, NpcsByTownCache>,
     pub slots: ResMut<'w, EntitySlots>,
-    pub farm_occupancy: ResMut<'w, BuildingOccupancy>,
     pub dirty_writers: DirtyWriters<'w>,
     pub grid: ResMut<'w, WorldGrid>,
     pub world_data: ResMut<'w, WorldData>,
@@ -329,10 +328,10 @@ pub fn death_system(
         }
 
         if let Some(assigned) = assigned_farm {
-            res.farm_occupancy.release(assigned.0);
+            res.entity_map.release(assigned.0);
         }
         if let Some(wp) = work_position {
-            res.farm_occupancy.release(wp.0);
+            res.entity_map.release(wp.0);
         }
         if job == Job::Miner {
             res.dirty_writers.mining.write(crate::messages::MiningDirtyMsg);

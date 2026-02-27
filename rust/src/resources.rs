@@ -285,6 +285,24 @@ impl EntityMap {
         self.by_grid_cell.get(&(gc, gr)).and_then(|&s| self.instances.get(&s))
     }
 
+    // ── Occupancy ─────────────────────────────────────────────────────
+
+    pub fn claim(&mut self, slot: usize) {
+        if let Some(inst) = self.instances.get_mut(&slot) { inst.occupants += 1; }
+    }
+
+    pub fn release(&mut self, slot: usize) {
+        if let Some(inst) = self.instances.get_mut(&slot) { inst.occupants = inst.occupants.saturating_sub(1); }
+    }
+
+    pub fn occupant_count(&self, slot: usize) -> i32 {
+        self.instances.get(&slot).map_or(0, |i| i.occupants as i32)
+    }
+
+    pub fn is_occupied(&self, slot: usize) -> bool {
+        self.instances.get(&slot).is_some_and(|i| i.occupants >= 1)
+    }
+
     // ── Spatial grid ───────────────────────────────────────────────────
 
     pub fn init_spatial(&mut self, world_size_px: f32) {
@@ -808,22 +826,73 @@ pub struct NpcsByTownCache(pub Vec<Vec<usize>>);
 
 /// Per-NPC activity logs. Indexed by slot. 500 entries max per NPC.
 #[derive(Resource)]
-pub struct NpcLogCache(pub Vec<VecDeque<NpcLogEntry>>);
+pub struct NpcLogCache {
+    pub logs: Vec<VecDeque<NpcLogEntry>>,
+    /// Filtering mode (synced from UserSettings each frame).
+    pub mode: crate::settings::NpcLogMode,
+    /// Currently selected NPC slot (-1 = none).
+    pub selected: i32,
+    /// Player faction id (for Faction mode filtering).
+    pub player_faction: i32,
+    /// Per-slot faction cache (set from decision_system iteration).
+    slot_factions: Vec<i32>,
+}
 
 impl Default for NpcLogCache {
     fn default() -> Self {
-        Self((0..MAX_NPC_COUNT).map(|_| VecDeque::new()).collect())
+        Self {
+            logs: (0..MAX_NPC_COUNT).map(|_| VecDeque::new()).collect(),
+            mode: crate::settings::NpcLogMode::SelectedOnly,
+            selected: -1,
+            player_faction: 0,
+            slot_factions: vec![-1; MAX_NPC_COUNT],
+        }
     }
 }
 
 impl NpcLogCache {
-    /// Push a log message for an NPC with timestamp.
-    pub fn push(&mut self, idx: usize, day: i32, hour: i32, minute: i32, message: impl Into<Cow<'static, str>>) {
-        if idx >= MAX_NPC_COUNT {
-            return;
+    /// Record a slot's faction (called during decision_system iteration).
+    #[inline]
+    pub fn set_slot_faction(&mut self, idx: usize, faction: i32) {
+        if idx < self.slot_factions.len() {
+            self.slot_factions[idx] = faction;
         }
+    }
+
+    /// Update selected NPC, clearing stale logs from previously selected NPC.
+    pub fn update_selected(&mut self, new_selected: i32) {
+        if new_selected != self.selected {
+            // Clear previous selection's log when in SelectedOnly mode
+            if self.mode == crate::settings::NpcLogMode::SelectedOnly {
+                let old = self.selected as usize;
+                if old < self.logs.len() {
+                    self.logs[old].clear();
+                }
+            }
+            self.selected = new_selected;
+        }
+    }
+
+    /// Push a log message for an NPC with timestamp.
+    /// Filtered by current mode — early-returns for NPCs outside the active scope.
+    pub fn push(&mut self, idx: usize, day: i32, hour: i32, minute: i32, message: impl Into<Cow<'static, str>>) {
+        if idx >= MAX_NPC_COUNT { return; }
+
+        // Gate by mode
+        match self.mode {
+            crate::settings::NpcLogMode::SelectedOnly => {
+                if self.selected < 0 || idx != self.selected as usize { return; }
+            }
+            crate::settings::NpcLogMode::Faction => {
+                if idx < self.slot_factions.len() && self.slot_factions[idx] != self.player_faction {
+                    return;
+                }
+            }
+            crate::settings::NpcLogMode::All => {}
+        }
+
         let entry = NpcLogEntry { day, hour, minute, message: message.into() };
-        if let Some(log) = self.0.get_mut(idx) {
+        if let Some(log) = self.logs.get_mut(idx) {
             if log.len() >= NPC_LOG_CAPACITY {
                 log.pop_front();
             }
@@ -1248,6 +1317,7 @@ pub struct BuildingInstance {
     pub respawn_timer: f32,          // Spawner buildings only (-1.0 = not respawning)
     pub growth_ready: bool,             // Farm/Mine only (false = growing, true = ready to harvest)
     pub growth_progress: f32,            // Farm/Mine only (0.0 to 1.0)
+    pub occupants: i16,                  // Farm/Mine only — number of NPCs working here
 }
 
 impl BuildingInstance {

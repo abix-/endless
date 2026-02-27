@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-02-26m
+
+- **fill profiling blind spots in decision_system** — added sub-timers `decision/squad` (squad rest gate + sync + redirect) and `decision/work` (Working/MiningAtMine + farmer retarget + OnDuty), plus counters `n_squad`/`n_work`/`n_transit_skip`/`n_total` for per-frame NPC throughput visibility; all guarded by profiling flag
+
+## 2026-02-26l
+
+- **slot-indexed occupancy** — replaced `BuildingOccupancy` resource (HashMap<(i32,i32), i32> keyed by rounded position) with `BuildingInstance.occupants: i16` field on `EntityMap`; occupancy is now O(1) slot-indexed instead of hash-by-position; added `claim(slot)`/`release(slot)`/`occupant_count(slot)`/`is_occupied(slot)` methods on EntityMap; changed `AssignedFarm(Vec2)` → `AssignedFarm(usize)` and `WorkPosition(Vec2)` → `WorkPosition(usize)` to store building slots; updated `find_nearest_free` to return `(usize, Vec2)` and `resolve_spawner_npc` to return work_slot; migrated all call sites in behavior, economy, health, UI, save/load, spawn, and tests; deleted `BuildingOccupancy` struct
+
 ## 2026-02-26k
 
 - **rename all_building_slots → all_entity_slots** — method on `EntityMap` renamed for consistency with unified entity terminology; updated call site in world.rs and stale comment in health.rs

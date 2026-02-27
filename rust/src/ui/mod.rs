@@ -286,13 +286,13 @@ fn game_startup_system(
         &mut world_state.grid, &mut world_state.world_data,
         &mut world_state.town_grids,
         &mut world_state.entity_slots,
-        &mut world_state.building_data,
+        &mut world_state.entity_map,
         &mut food_storage, &mut extra.gold_storage,
         &mut faction_stats, &mut raider_state,
     );
     let total = world::materialize_generated_world(
         &mut commands,
-        &mut world_state.building_data,
+        &mut world_state.entity_map,
         &mut gpu_updates,
         &mut spawn_writer,
         npc_msgs,
@@ -303,8 +303,6 @@ fn game_startup_system(
     extra.npcs_by_town.0.resize(num_towns, Vec::new());
     game_config.npc_counts = config.npc_counts.iter().map(|(&job, &count)| (job, count as i32)).collect();
     *game_time = GameTime::default();
-    world_state.building_occupancy.clear();
-
     // Load saved policies + auto-upgrade flags for player's town
     let saved = crate::settings::load_settings();
     let town_idx = world_state.world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
@@ -321,7 +319,7 @@ fn game_startup_system(
         if let Some(policy) = extra.policies.policies.get_mut(player.town_data_idx) {
             *policy = player.personality.default_policies();
             if let Some(town) = world_state.world_data.towns.get(player.town_data_idx) {
-                policy.mining_radius = crate::systems::ai_player::initial_mining_radius(&world_state.building_data, town.center);
+                policy.mining_radius = crate::systems::ai_player::initial_mining_radius(&world_state.entity_map, town.center);
             }
         }
         if let Some(town) = world_state.world_data.towns.get(player.town_data_idx) {
@@ -354,7 +352,7 @@ fn tutorial_init_system(
     mut tutorial: ResMut<TutorialState>,
     settings: Res<crate::settings::UserSettings>,
     world_data: Res<world::WorldData>,
-    building_map: Res<EntityMap>,
+    entity_map: Res<EntityMap>,
     camera_query: Query<&Transform, With<crate::render::MainCamera>>,
     game_time: Res<GameTime>,
     time: Res<Time<Real>>,
@@ -372,11 +370,11 @@ fn tutorial_init_system(
 
     // Snapshot initial building counts for completion checks
     let pt = player_town as u32;
-    tutorial.initial_farms = building_map.count_for_town(BuildingKind::Farm, pt);
-    tutorial.initial_farmer_homes = building_map.count_for_town(BuildingKind::FarmerHome, pt);
-    tutorial.initial_waypoints = building_map.count_for_town(BuildingKind::Waypoint, pt);
-    tutorial.initial_archer_homes = building_map.count_for_town(BuildingKind::ArcherHome, pt);
-    tutorial.initial_miner_homes = building_map.count_for_town(BuildingKind::MinerHome, pt);
+    tutorial.initial_farms = entity_map.count_for_town(BuildingKind::Farm, pt);
+    tutorial.initial_farmer_homes = entity_map.count_for_town(BuildingKind::FarmerHome, pt);
+    tutorial.initial_waypoints = entity_map.count_for_town(BuildingKind::Waypoint, pt);
+    tutorial.initial_archer_homes = entity_map.count_for_town(BuildingKind::ArcherHome, pt);
+    tutorial.initial_miner_homes = entity_map.count_for_town(BuildingKind::MinerHome, pt);
 
     // Snapshot camera start position
     if let Ok(transform) = camera_query.single() {
@@ -558,12 +556,27 @@ fn pause_menu_system(
                     ui.checkbox(&mut settings.log_ai, "AI Actions");
 
                     ui.add_space(4.0);
+                    ui.label("NPC Activity Log Scope:");
+                    let mode = &mut settings.npc_log_mode;
+                    ui.horizontal(|ui| {
+                        use crate::settings::NpcLogMode;
+                        if ui.selectable_label(*mode == NpcLogMode::SelectedOnly, "Selected Only").clicked() { *mode = NpcLogMode::SelectedOnly; }
+                        if ui.selectable_label(*mode == NpcLogMode::Faction, "My Faction").clicked() { *mode = NpcLogMode::Faction; }
+                        if ui.selectable_label(*mode == NpcLogMode::All, "All NPCs").clicked() { *mode = NpcLogMode::All; }
+                    });
+                    match settings.npc_log_mode {
+                        crate::settings::NpcLogMode::SelectedOnly => { ui.small("Only logs the selected NPC. Best performance."); }
+                        crate::settings::NpcLogMode::Faction => { ui.small("Logs your faction's NPCs only."); }
+                        crate::settings::NpcLogMode::All => { ui.small("Logs all NPCs. High memory with large populations."); }
+                    }
+
+                    ui.add_space(4.0);
                     ui.label("Debug:");
                     let prev_debug = (settings.debug_coordinates, settings.debug_all_npcs,
                         settings.debug_readback, settings.debug_combat,
                         settings.debug_spawns, settings.debug_behavior, settings.debug_profiler,
                         settings.show_terrain_sprites, settings.show_all_faction_squad_lines,
-                        settings.debug_ai_decisions);
+                        settings.debug_ai_decisions, settings.npc_log_mode);
                     ui.checkbox(&mut settings.debug_coordinates, "NPC Coordinates");
                     ui.checkbox(&mut settings.debug_all_npcs, "All NPCs in Roster");
                     ui.checkbox(&mut settings.debug_readback, "GPU Readback");
@@ -578,7 +591,7 @@ fn pause_menu_system(
                         settings.debug_readback, settings.debug_combat,
                         settings.debug_spawns, settings.debug_behavior, settings.debug_profiler,
                         settings.show_terrain_sprites, settings.show_all_faction_squad_lines,
-                        settings.debug_ai_decisions);
+                        settings.debug_ai_decisions, settings.npc_log_mode);
                     if prev_debug != now_debug {
                         crate::settings::save_settings(&settings);
                     }
@@ -710,7 +723,7 @@ fn build_place_click_system(
         if !just_pressed { return; }
         build_ctx.clear_drag();
         let (target_slot, bld_kind) = {
-            let inst = match world_state.building_data.get_at_grid(gc as i32, gr as i32) {
+            let inst = match world_state.entity_map.get_at_grid(gc as i32, gr as i32) {
                 Some(inst) if !matches!(inst.kind, world::BuildingKind::Fountain | world::BuildingKind::GoldMine)
                     && world_state.world_data.towns.get(inst.town_idx as usize).map_or(false, |t| t.faction == 0)
                     => inst,
@@ -852,7 +865,7 @@ fn build_ghost_system(
     world_data: Res<world::WorldData>,
     town_grids: Res<world::TownGrids>,
     food_storage: Res<FoodStorage>,
-    building_slots: Res<EntityMap>,
+    entity_map: Res<EntityMap>,
     mut ghost_query: Query<(Entity, &mut Transform, &mut Sprite), (With<BuildGhost>, Without<BuildGhostTrail>, Without<crate::render::MainCamera>)>,
     trail_query: Query<Entity, With<BuildGhostTrail>>,
 ) {
@@ -903,7 +916,7 @@ fn build_ghost_system(
         let slot_pos = world::town_grid_to_world(center, row, col);
         build_ctx.hover_world_pos = slot_pos;
         let (gc, gr) = grid.world_to_grid(slot_pos);
-        let grid_inst = building_slots.get_at_grid(gc as i32, gr as i32);
+        let grid_inst = entity_map.get_at_grid(gc as i32, gr as i32);
         let has_building = grid_inst.is_some();
         let is_fountain = grid_inst
             .map(|inst| matches!(inst.kind, world::BuildingKind::Fountain | world::BuildingKind::GoldMine))
@@ -957,7 +970,7 @@ fn build_ghost_system(
             let cell_world = grid.grid_to_world(sc as usize, sr as usize);
             let (cgc, cgr) = grid.world_to_grid(cell_world);
             let cell = grid.cell(cgc, cgr);
-            let empty = !building_slots.has_building_at(cgc as i32, cgr as i32);
+            let empty = !entity_map.has_building_at(cgc as i32, cgr as i32);
             let not_water = cell.map(|c| c.terrain != world::Biome::Water).unwrap_or(false);
             let valid = empty && not_water && budget >= cost;
             if valid { budget -= cost; }
@@ -1009,7 +1022,7 @@ fn build_ghost_system(
         let snapped = grid.grid_to_world(gc, gr);
         build_ctx.hover_world_pos = snapped;
         let cell = grid.cell(gc, gr);
-        let empty = !building_slots.has_building_at(gc as i32, gr as i32);
+        let empty = !entity_map.has_building_at(gc as i32, gr as i32);
         let not_water = cell.map(|c| c.terrain != world::Biome::Water).unwrap_or(false);
         let valid = empty && not_water;
         build_ctx.show_cursor_hint = !valid;
@@ -1051,7 +1064,7 @@ fn build_ghost_system(
 
     // Determine validity
     let (gc, gr) = grid.world_to_grid(slot_pos);
-    let has_building = building_slots.has_building_at(gc as i32, gr as i32);
+    let has_building = entity_map.has_building_at(gc as i32, gr as i32);
     let town_grid = town_grids.grids.iter().find(|tg| tg.town_data_idx == town_data_idx);
     let in_bounds = town_grid
         .map(|tg| world::is_slot_buildable(tg, row, col))
@@ -1079,7 +1092,7 @@ fn build_ghost_system(
 
             let slot_world = world::town_grid_to_world(center, slot_row, slot_col);
             let (sgc, sgr) = grid.world_to_grid(slot_world);
-            let slot_empty = !building_slots.has_building_at(sgc as i32, sgr as i32);
+            let slot_empty = !entity_map.has_building_at(sgc as i32, sgr as i32);
             let can_pay = budget >= cost;
             let slot_valid = slot_empty && can_pay;
             if slot_valid {
@@ -1174,7 +1187,7 @@ fn draw_slot_indicators(
     world_data: Res<world::WorldData>,
     town_grids: Res<world::TownGrids>,
     grid: Res<world::WorldGrid>,
-    building_slots: Res<EntityMap>,
+    entity_map: Res<EntityMap>,
     build_ctx: Res<BuildMenuContext>,
 ) {
     // Only rebuild when grid state changes or build selection changes
@@ -1209,7 +1222,7 @@ fn draw_slot_indicators(
             let (gc, gr) = grid.world_to_grid(raw_pos);
             let slot_pos = grid.grid_to_world(gc, gr);
 
-            let has_building = building_slots.has_building_at(gc as i32, gr as i32);
+            let has_building = entity_map.has_building_at(gc as i32, gr as i32);
 
             if !has_building {
                 // Horizontal bar
@@ -1243,7 +1256,7 @@ fn process_destroy_system(
         let (col, row) = (msg.0, msg.1);
 
         let (target_slot, bld_kind, town_idx) = {
-            let inst = match world_state.building_data.get_at_grid(col as i32, row as i32) {
+            let inst = match world_state.entity_map.get_at_grid(col as i32, row as i32) {
                 Some(inst) if !matches!(inst.kind, world::BuildingKind::Fountain | world::BuildingKind::GoldMine)
                     && world_state.world_data.towns.get(inst.town_idx as usize).map_or(false, |t| t.faction == 0)
                     => inst,
@@ -1309,7 +1322,6 @@ struct CleanupDebug<'w> {
     health_debug: ResMut<'w, HealthDebug>,
     kill_stats: ResMut<'w, KillStats>,
     raider_state: ResMut<'w, RaiderState>,
-    npc_entity_map: ResMut<'w, EntityMap>,
     pop_stats: ResMut<'w, PopulationStats>,
 }
 
@@ -1388,9 +1400,8 @@ fn game_cleanup_system(
     *debug.combat_debug = Default::default();
     *debug.health_debug = Default::default();
     *debug.kill_stats = Default::default();
-    *world.world_state.building_occupancy = Default::default();
     *debug.raider_state = Default::default();
-    *debug.npc_entity_map = Default::default();
+    *world.world_state.entity_map = Default::default();
     *debug.pop_stats = Default::default();
 
     // Reset UI state
@@ -1413,8 +1424,8 @@ fn game_cleanup_system(
     *gameplay.selected_building = Default::default();
     *gameplay.follow = Default::default();
     *gameplay.proj_slots = Default::default();
-    world.world_state.building_data.clear_buildings();
-    world.world_state.building_data.entities.clear();
+    world.world_state.entity_map.clear_buildings();
+    world.world_state.entity_map.entities.clear();
 
     info!("Game cleanup complete");
 }

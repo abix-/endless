@@ -22,7 +22,7 @@ pub fn setup(
     mut slot_alloc: ResMut<EntitySlots>,
     mut spawn_events: MessageWriter<SpawnNpcMsg>,
     mut world_data: ResMut<world::WorldData>,
-    mut building_slots: ResMut<EntityMap>,
+    mut entity_map: ResMut<EntityMap>,
     mut world_grid: ResMut<world::WorldGrid>,
     mut food_storage: ResMut<FoodStorage>,
     mut faction_stats: ResMut<FactionStats>,
@@ -53,7 +53,7 @@ pub fn setup(
     // Friendly vertical farm wall in projectile lane.
     for y in FARM_WALL_Y {
         let pos = Vec2::new(FARM_WALL_X, y);
-        world::place_building_instance(&mut slot_alloc, &mut building_slots, world::BuildingKind::Farm, pos, 0, 0, 0, 0);
+        world::place_building_instance(&mut slot_alloc, &mut entity_map, world::BuildingKind::Farm, pos, 0, 0, 0, 0);
 
         // Building instance registered via place_building_instance above
     }

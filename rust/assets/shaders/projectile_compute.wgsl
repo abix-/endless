@@ -45,6 +45,9 @@ struct ProjParams {
 @group(0) @binding(14) var<storage, read_write> proj_grid_counts: array<atomic<i32>>;
 @group(0) @binding(15) var<storage, read_write> proj_grid_data: array<i32>;
 
+// Per-entity hitbox half-sizes (read only — Minkowski sum with projectile hitbox)
+@group(0) @binding(16) var<storage, read> entity_half_sizes: array<vec2<f32>>;
+
 @compute @workgroup_size(64, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let i = global_id.x;
@@ -157,15 +160,20 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 let entity_pos = entity_positions[entity_idx];
                 let diff = entity_pos - pos;
 
+                // Minkowski sum: expand projectile hitbox by entity's half-size
+                let ehs = entity_half_sizes[entity_idx];
+                let total_half_len = params.hit_half_length + ehs.x;
+                let total_half_wid = params.hit_half_width + ehs.y;
+
                 var hit = false;
                 if (use_oriented) {
                     // Project onto arrow axes
                     let along = abs(dot(diff, fwd));
                     let across = abs(dot(diff, perp));
-                    hit = along < params.hit_half_length && across < params.hit_half_width;
+                    hit = along < total_half_len && across < total_half_wid;
                 } else {
                     // Fallback: circle with average radius
-                    let r = params.hit_half_length;
+                    let r = total_half_len;
                     hit = dot(diff, diff) < r * r;
                 }
 

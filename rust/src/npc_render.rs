@@ -551,11 +551,11 @@ fn extract_camera_state(
 /// Buildings are few (<500), so rebuilding each frame is cheap.
 fn build_building_body_instances(
     gpu_state: Res<crate::gpu::EntityGpuState>,
-    bld_map: Res<crate::resources::EntityMap>,
+    entity_map: Res<crate::resources::EntityMap>,
     mut instances: ResMut<BuildingBodyInstances>,
 ) {
     instances.0.clear();
-    for inst in bld_map.iter_instances() {
+    for inst in entity_map.iter_instances() {
         let idx = inst.slot;
         let i2 = idx * 2;
         let x = gpu_state.positions.get(i2).copied().unwrap_or(-9999.0);
@@ -594,12 +594,12 @@ fn build_building_body_instances(
 /// Runs in main world PostUpdate. Future visual features push here instead of adding new resources.
 fn build_overlay_instances(
     mut overlay: ResMut<OverlayInstances>,
-    building_map: Res<crate::resources::EntityMap>,
+    entity_map: Res<crate::resources::EntityMap>,
     building_hp: Res<crate::resources::BuildingHpRender>,
 ) {
     overlay.0.clear();
 
-    for inst in building_map.iter_growable() {
+    for inst in entity_map.iter_growable() {
         let pos = inst.position;
         if pos.x < -9000.0 { continue; }
 
@@ -767,6 +767,7 @@ fn extract_npc_data(
         if gpu_state.dirty_factions  { write_bulk(&render_queue, &gpu_bufs.factions, &gpu_state.factions, n); }
         if gpu_state.dirty_healths   { write_bulk(&render_queue, &gpu_bufs.healths, &gpu_state.healths, n); }
         if gpu_state.dirty_flags     { write_bulk(&render_queue, &gpu_bufs.entity_flags, &gpu_state.entity_flags, n); }
+        if gpu_state.dirty_half_sizes { write_bulk(&render_queue, &gpu_bufs.half_sizes, &gpu_state.half_sizes, n * 2); }
         // Road flags: upload when present (rebuilt when roads change)
         if !config.tile_flags.is_empty() {
             render_queue.write_buffer(&gpu_bufs.tile_flags, 0, bytemuck::cast_slice(&config.tile_flags));

@@ -22,7 +22,7 @@ pub fn setup(
     });
     // 1 farm near town — starts Growing at 95%
     params.add_building(crate::world::BuildingKind::Farm, 400.0, 350.0, 0);
-    if let Some(inst) = params.building_slots.find_farm_at_mut(Vec2::new(400.0, 350.0)) {
+    if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(400.0, 350.0)) {
         inst.growth_progress = 0.95;
     }
     params.add_bed(400.0, 450.0);
@@ -32,7 +32,7 @@ pub fn setup(
     raider_state.init(1, 5);
     // Tent spawner so a raider can spawn via spawner_respawn_system
     params.add_building(crate::world::BuildingKind::Tent, 400.0, 100.0, 1);
-    if let Some(inst) = params.building_slots.find_by_position_mut(Vec2::new(400.0, 100.0)) {
+    if let Some(inst) = params.entity_map.find_by_position_mut(Vec2::new(400.0, 100.0)) {
         inst.respawn_timer = 0.0;
     }
     params.game_time.time_scale = 1.0;
@@ -57,14 +57,14 @@ pub fn tick(
     _farmer_query: Query<(), (With<Farmer>, Without<Dead>)>,
     npc_query: Query<(), (With<EntitySlot>, Without<Dead>)>,
     stealer_query: Query<(), (With<Stealer>, Without<Dead>)>,
-    building_map: Res<EntityMap>,
+    entity_map: Res<EntityMap>,
     food_storage: Res<FoodStorage>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
-    let farm_inst = building_map.iter_kind(crate::world::BuildingKind::Farm).next();
+    let farm_inst = entity_map.iter_kind(crate::world::BuildingKind::Farm).next();
     let farm_ready = farm_inst.map(|i| i.growth_ready).unwrap_or(false);
     let farm_progress = farm_inst.map(|i| i.growth_progress).unwrap_or(0.0);
     let town_food = food_storage.food.first().copied().unwrap_or(0);
