@@ -551,7 +551,9 @@ fn click_to_select_system(
         return;
     }
 
-    // Unified entity scan: find nearest NPC + nearest building from GPU readback positions.
+    // Selection scan:
+    // - NPCs use GPU readback positions (movement is GPU-driven).
+    // - Buildings use authoritative EntityMap positions (deterministic placement).
     let positions = &gpu_state.positions;
     let npc_select_radius = 20.0_f32;
     let building_select_radius = 24.0_f32;
@@ -571,18 +573,20 @@ fn click_to_select_system(
         let dy = world_pos.y - py;
         let dist = (dx * dx + dy * dy).sqrt();
 
-        if let Some(inst) = click.entity_map.get_instance(i) {
-            // Building
-            if dist < best_building_dist {
-                best_building_dist = dist;
-                best_building = Some((inst.kind, Vec2::new(px, py), inst.slot));
-            }
-        } else {
-            // NPC
-            if dist < best_npc_dist {
-                best_npc_dist = dist;
-                best_idx = i as i32;
-            }
+        // NPC
+        if click.entity_map.get_instance(i).is_none() && dist < best_npc_dist {
+            best_npc_dist = dist;
+            best_idx = i as i32;
+        }
+    }
+
+    for inst in click.entity_map.iter_instances() {
+        let dx = world_pos.x - inst.position.x;
+        let dy = world_pos.y - inst.position.y;
+        let dist = (dx * dx + dy * dy).sqrt();
+        if dist < best_building_dist {
+            best_building_dist = dist;
+            best_building = Some((inst.kind, inst.position, inst.slot));
         }
     }
 
@@ -916,4 +920,3 @@ fn sync_terrain_visibility(
         }
     }
 }
-

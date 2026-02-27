@@ -61,7 +61,8 @@ const WALL_FACTION_SHIFT: u32 = 8u;  // bits 8-11 encode wall owner faction
 const WALL_FACTION_MASK: u32 = 0xFu;
 
 // Entity type flags
-const ENTITY_BUILDING: u32 = 2u;  // bit 1: skip separation/NPC targeting
+const ENTITY_BUILDING: u32 = 2u;      // bit 1: skip separation/NPC targeting
+const ENTITY_UNTARGETABLE: u32 = 4u;  // bit 2: cannot be selected as combat target
 
 @compute @workgroup_size(64, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -497,6 +498,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
                 if (other3 < 0 || other3 == i32(i)) { continue; }
                 if (u32(other3) >= params.entity_count) { continue; }
+                if ((entity_flags[other3] & ENTITY_UNTARGETABLE) != 0u) { continue; }
 
                 let other_hp = healths[other3];
                 if (other_hp <= 0.0) { continue; }

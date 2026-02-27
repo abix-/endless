@@ -17,6 +17,8 @@ pub const MAX_ENTITIES: usize = MAX_NPC_COUNT + MAX_BUILDINGS;
 pub const ENTITY_FLAG_COMBAT: u32 = 1;
 /// Bit 1: entity is a building (skip separation/NPC targeting in compute shader).
 pub const ENTITY_FLAG_BUILDING: u32 = 2;
+/// Bit 2: entity cannot be selected as a combat target (roads).
+pub const ENTITY_FLAG_UNTARGETABLE: u32 = 4;
 
 // ============================================================================
 // UPGRADE STAT DEFINITIONS (used by NpcDef to declare upgradeable stats)

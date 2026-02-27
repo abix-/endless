@@ -935,7 +935,7 @@ pub fn collect_npc_data(
     attack_type_q: &Query<&BaseAttackType>,
     personality_q: &Query<&Personality>,
     home_q: &Query<&Home>,
-    work_position_q: &Query<&WorkPosition>,
+    work_state_q: &Query<&NpcWorkState>,
     carried_gold_q: &Query<&CarriedGold>,
     weapon_q: &Query<&EquippedWeapon>,
     helmet_q: &Query<&EquippedHelmet>,
@@ -967,7 +967,7 @@ pub fn collect_npc_data(
             xp: meta.xp,
             attack_type: match attack_type_q.get(npc.entity).copied().unwrap_or(BaseAttackType::Melee) { BaseAttackType::Melee => 0, BaseAttackType::Ranged => 1 },
             home: home_q.get(npc.entity).map(|h| [h.0.x, h.0.y]).unwrap_or([0.0, 0.0]),
-            work_position: work_position_q.get(npc.entity).ok().and_then(|w| entity_map.get_instance(w.0).map(|i| v2(i.position))),
+            work_position: work_state_q.get(npc.entity).ok().and_then(|ws| ws.work_target).and_then(|slot| entity_map.get_instance(slot).map(|i| v2(i.position))),
             squad_id: squad_id_q.get(npc.entity).ok().map(|s| s.0),
             carried_gold: carried_gold_q.get(npc.entity).ok().and_then(|g| if g.0 > 0 { Some(g.0) } else { None }),
             weapon: weapon_q.get(npc.entity).ok().map(|w| [w.0, w.1]),
@@ -1023,7 +1023,7 @@ pub struct SaveNpcQueries<'w, 's> {
     pub attack_type_q: Query<'w, 's, &'static BaseAttackType>,
     pub personality_q: Query<'w, 's, &'static Personality>,
     pub home_q: Query<'w, 's, &'static Home>,
-    pub work_position_q: Query<'w, 's, &'static WorkPosition>,
+    pub work_state_q: Query<'w, 's, &'static NpcWorkState>,
     pub carried_gold_q: Query<'w, 's, &'static CarriedGold>,
     pub weapon_q: Query<'w, 's, &'static EquippedWeapon>,
     pub helmet_q: Query<'w, 's, &'static EquippedHelmet>,
@@ -1228,7 +1228,7 @@ pub fn save_game_system(
 ) {
     if save_msgs.read().next().is_none() { return; }
 
-    let npcs = collect_npc_data(&entity_map, &npc_meta, &nq.squad_id_q, &nq.activity_q, &nq.position_q, &nq.health_q, &nq.energy_q, &nq.combat_state_q, &nq.attack_type_q, &nq.personality_q, &nq.home_q, &nq.work_position_q, &nq.carried_gold_q, &nq.weapon_q, &nq.helmet_q, &nq.armor_q, &nq.has_energy_q);
+    let npcs = collect_npc_data(&entity_map, &npc_meta, &nq.squad_id_q, &nq.activity_q, &nq.position_q, &nq.health_q, &nq.energy_q, &nq.combat_state_q, &nq.attack_type_q, &nq.personality_q, &nq.home_q, &nq.work_state_q, &nq.carried_gold_q, &nq.weapon_q, &nq.helmet_q, &nq.armor_q, &nq.has_energy_q);
     let building_hp = collect_building_hp(&building_query, &entity_map);
     let data = collect_save_data(
         &ws.grid, &ws.world_data, &entity_map, &ws.town_grids, &ws.game_time,
@@ -1273,7 +1273,7 @@ pub fn autosave_system(
 
     let Some(path) = autosave_path(slot) else { return };
 
-    let npcs = collect_npc_data(&entity_map, &npc_meta, &nq.squad_id_q, &nq.activity_q, &nq.position_q, &nq.health_q, &nq.energy_q, &nq.combat_state_q, &nq.attack_type_q, &nq.personality_q, &nq.home_q, &nq.work_position_q, &nq.carried_gold_q, &nq.weapon_q, &nq.helmet_q, &nq.armor_q, &nq.has_energy_q);
+    let npcs = collect_npc_data(&entity_map, &npc_meta, &nq.squad_id_q, &nq.activity_q, &nq.position_q, &nq.health_q, &nq.energy_q, &nq.combat_state_q, &nq.attack_type_q, &nq.personality_q, &nq.home_q, &nq.work_state_q, &nq.carried_gold_q, &nq.weapon_q, &nq.helmet_q, &nq.armor_q, &nq.has_energy_q);
     let building_hp = collect_building_hp(&building_query, &entity_map);
     let data = collect_save_data(
         &ws.grid, &ws.world_data, &entity_map, &ws.town_grids, &ws.game_time,

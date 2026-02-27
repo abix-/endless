@@ -210,15 +210,14 @@ pub fn materialize_npc(
         (cached.clone(), attack_type, AttackTimer(0.0), personality),
         // Economy
         CarriedGold(overrides.carried_gold.unwrap_or(0)),
+        // Work state (always present)
+        NpcWorkState { occupied_slot: None, work_target: work_slot },
     ));
     if let Some(sq) = overrides.squad_id {
         ecmds.insert(SquadId(sq));
     }
     if let Some(pr) = patrol_route {
         ecmds.insert(pr);
-    }
-    if let Some(ws) = work_slot {
-        ecmds.insert(WorkPosition(ws));
     }
     if let Some((wc, wr)) = weapon {
         ecmds.insert(EquippedWeapon(wc, wr));

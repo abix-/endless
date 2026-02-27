@@ -1359,8 +1359,31 @@ fn building_inspector_content(
             .map(|h| h.0)
             .unwrap_or(0.0);
 
+        let overlay_debug = bld.selected_building.slot.and_then(|slot| {
+            let i = slot * 2;
+            if i + 1 < gpu_state.positions.len() {
+                let gx = gpu_state.positions[i];
+                let gy = gpu_state.positions[i + 1];
+                Some((slot, gx, gy, gx - world_pos.x, gy - world_pos.y))
+            } else {
+                None
+            }
+        });
+
         ui.label(format!("Pos: ({:.0}, {:.0})  Grid: ({}, {})", world_pos.x, world_pos.y, col, row));
         ui.label(format!("HP: {:.0}/{:.0}  Kind: {:?}", hp, max_hp, kind));
+        if let Some((slot, gx, gy, dx, dy)) = overlay_debug {
+            ui.label(format!(
+                "Overlay anchor (GPU): ({gx:.0}, {gy:.0})  Delta: ({dx:.0}, {dy:.0})  Slot: {slot}",
+                gx = gx,
+                gy = gy,
+                dx = dx,
+                dy = dy,
+                slot = slot,
+            ));
+        } else if let Some(slot) = bld.selected_building.slot {
+            ui.label(format!("Overlay anchor (GPU): unavailable for slot {}", slot));
+        }
 
         if ui.button("Copy Debug Info").clicked() {
             let name = def.label;
@@ -1395,6 +1418,20 @@ fn building_inspector_content(
             }
             if let Some(inst) = bld.entity_map.find_by_position(world_pos) {
                 info.push_str(&format!("Slot: {}\n", inst.slot));
+            }
+            if let Some((slot, gx, gy, dx, dy)) = overlay_debug {
+                info.push_str(&format!(
+                    "Overlay anchor (GPU): ({gx:.0}, {gy:.0})\n\
+                     Overlay delta (GPU-Pos): ({dx:.0}, {dy:.0})\n\
+                     Overlay slot: {slot}\n",
+                    gx = gx,
+                    gy = gy,
+                    dx = dx,
+                    dy = dy,
+                    slot = slot,
+                ));
+            } else if let Some(slot) = bld.selected_building.slot {
+                info.push_str(&format!("Overlay anchor (GPU): unavailable for slot {}\n", slot));
             }
             match kind {
                 BuildingKind::Farm => {
@@ -1614,28 +1651,24 @@ pub fn selection_overlay_system(
         }
     }
 
-    // Building selection: read GPU position (same source as NPC indicator).
+    // Building selection: use authoritative EntityMap position (not GPU readback).
     if selected_building.active {
         if let Some(slot) = selected_building.slot {
-            let i = slot * 2;
-            if i + 1 < gpu_state.positions.len() {
-                let x = gpu_state.positions[i];
-                let y = gpu_state.positions[i + 1];
-                if is_alive(Vec2::new(x, y)) {
-                    let screen = egui::Pos2::new(
-                        center.x + (x - cam.x) * zoom,
-                        center.y - (y - cam.y) * zoom,
-                    );
-                    let half = (grid.cell_size * 0.60 * zoom).max(10.0);
-                    draw_corner_brackets(
-                        &painter,
-                        screen,
-                        half,
-                        half,
-                        egui::Color32::from_rgba_unmultiplied(255, 220, 90, 230),
-                    );
-                }
-            }
+            let world_pos = entity_map.get_instance(slot)
+                .map(|inst| inst.position)
+                .unwrap_or_else(|| grid.grid_to_world(selected_building.col, selected_building.row));
+            let screen = egui::Pos2::new(
+                center.x + (world_pos.x - cam.x) * zoom,
+                center.y - (world_pos.y - cam.y) * zoom,
+            );
+            let half = (grid.cell_size * 0.60 * zoom).max(10.0);
+            draw_corner_brackets(
+                &painter,
+                screen,
+                half,
+                half,
+                egui::Color32::from_rgba_unmultiplied(255, 220, 90, 230),
+            );
         }
     }
 

@@ -110,7 +110,7 @@ Farms have a growth cycle instead of infinite food:
 - Called from 5 sites: arrival_system (working farmer harvest), decision_system (farmer GoingToWork arrival), decision_system (raider steal), decision_system (miner Mining arrival), decision_system (MiningAtMine harvest)
 
 **Farmer harvest** (visible food transport):
-- Working farmer at farm: `arrival_system` detects Ready farm, calls `harvest()`, releases occupancy, removes `AssignedFarm`, enters `Returning { loot: [(Food, 1)] }` targeting home. Farmer visibly carries food sprite home.
+- Working farmer at farm: `arrival_system` detects Ready farm, calls `harvest()`, releases occupancy, clears `NpcWorkState.occupied_slot`, enters `Returning { loot: [(Food, 1)] }` targeting home. Farmer visibly carries food sprite home.
 - GoingToWork arrival: if farm already Ready, `harvest()` + immediate `Returning` (no claim/Working). If not Ready, claim farm + `Working` (tending).
 - On delivery at home: farmer goes `Idle` — decision system re-evaluates best target (may pick a different farm if one is Ready). Dynamic work→carry→deliver→re-evaluate cycle.
 

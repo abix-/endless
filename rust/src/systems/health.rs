@@ -40,8 +40,7 @@ pub struct DeathResources<'w, 's> {
     pub last_hit_by_q: Query<'w, 's, &'static crate::components::LastHitBy>,
     pub home_q: Query<'w, 's, &'static crate::components::Home>,
     pub personality_q: Query<'w, 's, &'static crate::components::Personality>,
-    pub assigned_farm_q: Query<'w, 's, &'static crate::components::AssignedFarm>,
-    pub work_position_q: Query<'w, 's, &'static crate::components::WorkPosition>,
+    pub work_state_q: Query<'w, 's, &'static crate::components::NpcWorkState>,
 }
 
 /// Unified damage system: applies damage to both NPCs and buildings.
@@ -290,13 +289,12 @@ pub fn death_system(
     // Phase 2b: Process dead NPCs (immediate — same frame as marking)
     for &slot in &dead_npc_slots {
         // Extract dead NPC data (immutable borrow ends before killer mutation)
-        let (entity, faction, town_idx, job, activity, assigned_farm, work_position, last_hit_by) = {
+        let (entity, faction, town_idx, job, activity, occupied_slot, work_target, last_hit_by) = {
             let Some(npc) = res.entity_map.get_npc(slot) else { continue };
             let activity = res.activity_q.get(npc.entity).map(|a| a.clone()).unwrap_or_default();
             let lhb = res.last_hit_by_q.get(npc.entity).map(|h| h.0).unwrap_or(-1);
-            let assigned_farm = res.assigned_farm_q.get(npc.entity).ok().map(|af| af.0);
-            let work_position = res.work_position_q.get(npc.entity).ok().map(|wp| wp.0);
-            (npc.entity, npc.faction, npc.town_idx, npc.job, activity, assigned_farm, work_position, lhb)
+            let ws = res.work_state_q.get(npc.entity).ok().copied().unwrap_or_default();
+            (npc.entity, npc.faction, npc.town_idx, npc.job, activity, ws.occupied_slot, ws.work_target, lhb)
         };
 
         if selected.0 == slot as i32 { selected.0 = -1; }
@@ -379,11 +377,11 @@ pub fn death_system(
             pop_dec_working(&mut res.pop_stats, job, town_idx);
         }
 
-        if let Some(assigned) = assigned_farm {
-            res.entity_map.release(assigned);
+        if let Some(slot) = occupied_slot {
+            res.entity_map.release(slot);
         }
-        if let Some(wp) = work_position {
-            res.entity_map.release(wp);
+        if let Some(slot) = work_target {
+            res.entity_map.release(slot);
         }
         if job == Job::Miner {
             res.dirty_writers.mining.write(crate::messages::MiningDirtyMsg);

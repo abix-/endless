@@ -178,5 +178,5 @@ for npc in entity_map.iter_npcs() {
 - Squad/selection flows using `Vec::contains` within nested loops.
 - Overlay target dedupe using per-target linear scans.
 - Cleanup/reassignment systems scanning full queries repeatedly instead of pre-indexing.
-- Decision system still uses clone-local-then-writeback for ~15 component fields per NPC (query-first outer loop eliminates HashMap scan, but inner `get_mut(entity)` random access + clone/writeback remains).
+- Decision system uses clone-local-then-conditional-writeback: captures original values at loop top, compares at end, only calls `get_mut()` for changed fields. Most NPCs exit early via `break 'decide` with no state changes, skipping all writeback. Work state uses always-present `NpcWorkState` (no archetype churn from insert/remove). Patrol route data read inline (no Vec clone). Remaining overhead: per-NPC component reads at loop top for ~10 fields.
 - `game_hud.rs` and `health.rs` death detection still use `entity_map.iter_npcs()` due to SystemParam borrow conflicts with existing bundles (`BuildingInspectorData`, `DeathResources`).

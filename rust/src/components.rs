@@ -129,9 +129,14 @@ pub struct PatrolRoute {
     pub current: usize,
 }
 
-/// Work position for miners. Stores the building slot for occupancy tracking.
-#[derive(Component, Clone, Copy)]
-pub struct WorkPosition(pub usize);
+/// Combined work state for NPCs. Always present — avoids archetype churn from insert/remove.
+/// `occupied_slot`: building slot being occupied (released on death/stop via entity_map.release).
+/// `work_target`: building slot being walked to (navigation target).
+#[derive(Component, Default, Clone, Copy)]
+pub struct NpcWorkState {
+    pub occupied_slot: Option<usize>,
+    pub work_target: Option<usize>,
+}
 
 /// Gold being carried by a miner returning home.
 #[derive(Component, Clone, Copy, Default)]
@@ -256,9 +261,6 @@ pub struct NpcFlags {
 #[derive(Component, Clone, Copy)]
 pub struct SquadId(pub i32);
 
-/// Farmer's assigned farm slot for occupancy tracking.
-#[derive(Component, Clone, Copy)]
-pub struct AssignedFarm(pub usize);
 
 /// NPC is dead and pending removal.
 #[derive(Component)]

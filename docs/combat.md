@@ -48,7 +48,7 @@ DamageMsg (from process_proj_hits)             GPU movement
           ├─ XP grant (LastHitBy → 100 XP, level-up, stat re-resolve)
           ├─ NPC kill loot (npc_def loot_drop → Activity::Returning)
           ├─ despawn entity, HideNpc → GPU (-9999)
-          ├─ Release AssignedFarm/WorkPosition
+          ├─ Release NpcWorkState (occupied_slot + work_target)
           ├─ Update FactionStats, KillStats, PopulationStats
           └─ EntitySlots.free(idx)
         │
@@ -91,6 +91,7 @@ Execution order is **chained** — each system completes before the next starts.
 - **Skips** NPCs with `Activity::Returning`, `Activity::GoingToRest`, or `Activity::Resting` (prevents combat while heading home, going to bed, or sleeping)
 - **Unified GPU targeting**: `combat_targets[i]` returns a unified entity slot. Building vs NPC is determined by `entity_map.get_instance()` presence check. One code path for all target types.
 - **Building targets** (target has instance in `EntityMap`):
+  - **Roads skipped**: `BuildingKind::Road` targets are ignored (roads are untargetable — also filtered via `ENTITY_FLAG_UNTARGETABLE` in GPU compute shader)
   - Only **archers**, **crossbows**, and **raiders** attack buildings (farmers/miners/fighters skip)
   - Validates via `entity_map.get_instance(target)` — checks faction (skip same-faction)
   - Gets building position from `BuildingInstance.position`

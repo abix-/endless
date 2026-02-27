@@ -165,11 +165,10 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 |-----------|------|---------|
 | Energy | `f32` | 0-100, drains while active, recovers while resting |
 | Personality | `{ trait1, trait2 }` | 0-2 traits with magnitude affecting stats and decisions |
-| AssignedFarm | `usize` | Optional — farm building slot farmer is working at (for occupancy tracking) |
+| NpcWorkState | `{ occupied_slot: Option<usize>, work_target: Option<usize> }` | Always-present — building being occupied (released on death/stop) + building being walked to (navigation target). Replaces optional AssignedFarm/WorkPosition to avoid archetype churn. |
 | NpcFlags | `{ healing, starving, direct_control, migrating, at_destination }` | High-churn booleans bundled to avoid archetype moves |
 | CachedStats | `{ max_health, damage, range, ... }` | Resolved combat stats |
 | Home | `Vec2` | NPC's spawner building position — rest destination |
-| WorkPosition | `usize` | Optional — farmer's field / miner's mine building slot |
 | PatrolRoute | `{ posts, current }` | Optional — patrol unit's ordered patrol posts |
 | Stealer | marker | Optional — NPC steals from farms (raiders) |
 | LeashRange | `f32` | Optional — disengage combat if chased this far from origin |
@@ -179,7 +178,7 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 ## Systems
 
 ### decision_system (Unified Priority Cascade)
-- Iterates a focused ECS query `(Entity, &EntitySlot, &Job, &TownId, &Faction)` with `Without<Building>, Without<Dead>` filters for the outer NPC loop. Reads/writes mutable NPC state via `DecisionNpcState` + `NpcDataQueries` SystemParam bundles (`get_mut(entity)` per NPC). Skips `direct_control` NPCs entirely, skips NPCs in transit (`activity.is_transit()`). Optional components (`AssignedFarm`, `WorkPosition`) managed via `commands.entity().insert()/remove()`. `EntityMap` retained for building instance lookups (farms, waypoints, mines, occupancy)
+- Iterates a focused ECS query `(Entity, &EntitySlot, &Job, &TownId, &Faction)` with `Without<Building>, Without<Dead>` filters for the outer NPC loop. Reads/writes mutable NPC state via `DecisionNpcState` + `NpcDataQueries` SystemParam bundles (`get_mut(entity)` per NPC). Skips `direct_control` NPCs entirely, skips NPCs in transit (`activity.is_transit()`). Work state managed via always-present `NpcWorkState` component (no `Commands` needed — no archetype churn). Patrol route data read inline at usage sites (no per-NPC Vec clone). **Conditional writeback**: captures original values at loop top, compares at end — only calls `get_mut()` for changed fields (most NPCs exit early via `break 'decide`). `EntityMap` retained for building instance lookups (farms, waypoints, mines, occupancy)
 - Uses **SystemParam bundles** for farm and economy parameters (see Overview)
 - Reads `NpcDecisionConfig.interval` for Tier 3 bucket count (`interval × 60fps`)
 - Three-tier throttling: arrivals every frame, combat every 8 frames, decisions bucketed by interval
@@ -194,7 +193,7 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
   - `Patrolling` → check squad rest first (tired squad members → `GoingToRest` targeting home instead of `OnDuty`); otherwise `Activity::OnDuty { ticks_waiting: 0 }`
   - `GoingToRest` → `Activity::Resting` (sleep icon derived by `sync_visual_sprites`)
   - `GoingToHeal` → `Activity::HealingAtFountain { recover_until: policy.recovery_hp }` (healing aura handles HP recovery)
-  - `GoingToWork` → check occupancy via `BuildingInstance.occupants`: if farm occupied, redirect to nearest free farm in own town (or idle if none); else check if farm is Ready via `EntityMap::find_farm_at(pos)` (O(1) spatial lookup) — if so, harvest and immediately enter `Returning { loot: Food }` (carry home without claiming); if not Ready, claim farm via `entity_map.claim(slot)` + `AssignedFarm(slot)` + `Working`. Note: farmer dynamically picked this farm via priority scan (ready > unoccupied, closest) during work decision — no permanent assignment.
+  - `GoingToWork` → check occupancy via `BuildingInstance.occupants`: if farm occupied, redirect to nearest free farm in own town (or idle if none); else check if farm is Ready via `EntityMap::find_farm_at(pos)` (O(1) spatial lookup) — if so, harvest and immediately enter `Returning { loot: Food }` (carry home without claiming); if not Ready, claim farm via `entity_map.claim(slot)` + `NpcWorkState.occupied_slot = Some(slot)` + `Working`. Note: farmer dynamically picked this farm via priority scan (ready > unoccupied, closest) during work decision — no permanent assignment.
   - `Raiding { .. }` → steal if farm ready, else find a different farm (excludes current position, skips tombstoned); if no other farm exists, return home
   - `Mining { mine_pos }` → find mine at position, check gold > 0 and occupancy < `MAX_MINE_OCCUPANCY`, claim occupancy via `entity_map.claim(slot)`, insert `MiningProgress(0.0)`, set `Activity::MiningAtMine`
   - `Returning { .. }` → if home is valid, redirect to home (may have arrived at wrong place after DC removal); otherwise transition to Idle
@@ -217,8 +216,8 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 - If `Activity::Resting` + energy >= `ENERGY_WAKE_THRESHOLD` (90%): set `Activity::Idle`, proceed to scoring
 
 **Priority 5: Working/Mining progress**
-- If `Activity::Working` + energy < `ENERGY_TIRED_THRESHOLD` (30%): set `Activity::Idle`, release occupancy via `entity_map.release(slot)`, remove `AssignedFarm`.
-- If `Activity::MiningAtMine`: tick `MiningProgress` by `delta_hours / MINE_WORK_HOURS` (4h cycle). When progress >= 1.0 OR energy < tired threshold: extract gold scaled by progress fraction × `MINE_EXTRACT_PER_CYCLE` × GoldYield upgrade, release occupancy, remove `MiningProgress` + `WorkPosition`, set `Activity::Returning { loot: [(Gold, extracted)] }`. Gold progress bar rendered overhead via `MinerProgressRender` (atlas_id=6.0, gold color).
+- If `Activity::Working` + energy < `ENERGY_TIRED_THRESHOLD` (30%): set `Activity::Idle`, release occupancy via `entity_map.release(slot)`, clear `NpcWorkState.occupied_slot`.
+- If `Activity::MiningAtMine`: tick `MiningProgress` by `delta_hours / MINE_WORK_HOURS` (4h cycle). When progress >= 1.0 OR energy < tired threshold: extract gold scaled by progress fraction × `MINE_EXTRACT_PER_CYCLE` × GoldYield upgrade, release occupancy, remove `MiningProgress`, clear `NpcWorkState.work_target`, set `Activity::Returning { loot: [(Gold, extracted)] }`. Gold progress bar rendered overhead via `MinerProgressRender` (atlas_id=6.0, gold color).
 
 **Priority 6: Patrol**
 - If `Activity::OnDuty { ticks_waiting }` + energy < `ENERGY_TIRED_THRESHOLD`: drop to `Idle` (falls through to scoring where Rest wins). **Squad exception**: archers in a squad with `rest_when_tired == false` stay on duty — they never leave post for energy reasons.
@@ -234,7 +233,7 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 - Score Eat/Rest/Work/Wander with personality multipliers and HP modifier
 - Select via weighted random, execute action
 - **Food check**: Eat only scored if town has food in storage
-- **Farmer work branch**: Farmers dynamically scan same-town farms via `EntityMap::iter_kind_for_town(Farm, town_id)` — O(k) where k = farms in that town. Occupancy checked via `inst.occupants >= 1` (slot-indexed, no hashing). Priority: ready unoccupied > growing unoccupied, closest within each tier. `find_nearest_free` returns `(slot, position)` — inserts `WorkPosition(slot)` and sets `GoingToWork`. While en-route (`GoingToWork`), farmers re-check occupancy at Tier 3 cadence — if another farmer claimed the target farm first, the en-route farmer retargets to the nearest free farm (or idles if none). This prevents dogpiling: closest farmer wins, others keep searching.
+- **Farmer work branch**: Farmers dynamically scan same-town farms via `EntityMap::iter_kind_for_town(Farm, town_id)` — O(k) where k = farms in that town. Occupancy checked via `inst.occupants >= 1` (slot-indexed, no hashing). Priority: ready unoccupied > growing unoccupied, closest within each tier. `find_nearest_free` returns `(slot, position)` — sets `NpcWorkState.work_target = Some(slot)` and `GoingToWork`. While en-route (`GoingToWork`), farmers re-check occupancy at Tier 3 cadence — if another farmer claimed the target farm first, the en-route farmer retargets to the nearest free farm (or idles if none). This prevents dogpiling: closest farmer wins, others keep searching.
 - **Miner work branch**: Miners have a separate `Action::Work` → `Job::Miner` branch. If the miner's `MinerHome` has `assigned_mine` set (via building inspector UI), that mine is used directly. Otherwise, finds the nearest unoccupied mine and walks there (`Activity::Mining { mine_pos }`). Completely independent of farmer logic — no `mining_pct` roll. Miners share farmer schedule/flee/off-duty policies.
 - **Decision logging**: Each decision logged to `NpcLogCache`
 
@@ -244,7 +243,7 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 
 ### arrival_system (Proximity Checks)
 - **Proximity-based delivery** for Returning NPCs: matches `Activity::Returning { .. }`, checks distance to home, delivers food and/or gold within DELIVERY_RADIUS (50px). All NPCs (including farmers) go `Idle` after delivery — the decision system re-evaluates the best target. Gold delivered to `GoldStorage` per town.
-- **Working farmer harvest → carry home** (throttled every 30 frames): re-targets farmers who drifted >20px from their assigned farm; when farm becomes Ready, uses `EntityMap::find_farm_at_mut(pos)` for O(1) spatial lookup, calls `BuildingInstance::harvest()` (resets farm, returns yield), releases occupancy, removes `AssignedFarm`, enters `Returning { loot: [(Food, yield)] }` targeting home — farmer visibly carries food home for delivery
+- **Working farmer harvest → carry home** (throttled every 30 frames): re-targets farmers who drifted >20px from their assigned farm; when farm becomes Ready, uses `EntityMap::find_farm_at_mut(pos)` for O(1) spatial lookup, calls `BuildingInstance::harvest()` (resets farm, returns yield), releases occupancy, clears `NpcWorkState.occupied_slot`, enters `Returning { loot: [(Food, yield)] }` targeting home — farmer visibly carries food home for delivery
 - **Healing drift check** in decision_system: `HealingAtFountain` NPCs pushed >100px from town center by separation physics get re-targeted to fountain (prevents deadlock where NPC is outside healing range but stuck in healing state)
 - **GoingToHeal early arrival** in decision_system: NPCs transition to `HealingAtFountain` as soon as they're within 100px of town center, before reaching the exact pixel
 - Arrival detection (`is_transit()` → `AtDestination`) is handled by `gpu_position_readback` in movement.rs

@@ -299,7 +299,7 @@ pub(crate) fn place_building(
         entity_map.entities.insert(slot, entity);
     }
     push_building_gpu_updates(
-        slot, snapped, faction, def.hp,
+        slot, kind, snapped, faction, def.hp,
         crate::constants::tileset_index(kind), def.is_tower, gpu_updates,
     );
 
@@ -451,6 +451,7 @@ pub fn resolve_spawner_npc(
 /// Push GPU updates for a building slot (position, faction, health, sprite).
 fn push_building_gpu_updates(
     slot: usize,
+    kind: BuildingKind,
     pos: Vec2,
     faction: i32,
     max_hp: f32,
@@ -458,7 +459,13 @@ fn push_building_gpu_updates(
     tower: bool,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
 ) {
-    let flags = if tower { crate::constants::ENTITY_FLAG_BUILDING | crate::constants::ENTITY_FLAG_COMBAT } else { crate::constants::ENTITY_FLAG_BUILDING };
+    let flags = if tower {
+        crate::constants::ENTITY_FLAG_BUILDING | crate::constants::ENTITY_FLAG_COMBAT
+    } else if kind == BuildingKind::Road {
+        crate::constants::ENTITY_FLAG_BUILDING | crate::constants::ENTITY_FLAG_UNTARGETABLE
+    } else {
+        crate::constants::ENTITY_FLAG_BUILDING
+    };
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition { idx: slot, x: pos.x, y: pos.y }));
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFaction { idx: slot, faction }));
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: max_hp }));
@@ -536,7 +543,7 @@ pub fn spawn_building_entities(
             Building { kind },
         )).id();
         entity_map.entities.insert(slot, entity);
-        push_building_gpu_updates(slot, pos, faction, hp, tileset_index(kind), def.is_tower, gpu_updates);
+        push_building_gpu_updates(slot, kind, pos, faction, hp, tileset_index(kind), def.is_tower, gpu_updates);
         count += 1;
     }
     info!("Spawned {} building entities", count);
