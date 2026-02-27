@@ -18,7 +18,7 @@ use bevy::prelude::*;
 
 use crate::components::*;
 use crate::constants::*;
-use crate::messages::CombatLogMsg;
+use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg};
 use crate::resources::{GpuReadState, GameTime, NpcLogCache, SelectedNpc, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings, EntityMap, MovementIntents, MovementPriority};
 use crate::settings::UserSettings;
 use crate::systemparams::EconomyState;
@@ -73,6 +73,7 @@ pub struct DecisionNpcState<'w, 's> {
 pub struct DecisionExtras<'w> {
     pub npc_logs: ResMut<'w, NpcLogCache>,
     pub combat_log: MessageWriter<'w, CombatLogMsg>,
+    pub gpu_updates: MessageWriter<'w, GpuUpdateMsg>,
     pub policies: Res<'w, TownPolicies>,
     pub squad_state: Res<'w, SquadState>,
     pub timings: Res<'w, SystemTimings>,
@@ -99,6 +100,7 @@ pub fn arrival_system(
     mut entity_map: ResMut<EntityMap>,
     mut frame_counter: Local<u32>,
     mut combat_log: MessageWriter<CombatLogMsg>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     timings: Res<SystemTimings>,
     mut npc_q: Query<(Entity, &EntitySlot, &Job, &TownId, &mut Activity, &Home, &mut NpcWorkState), (Without<Building>, Without<Dead>)>,
 ) {
@@ -197,6 +199,7 @@ pub fn arrival_system(
             if let Ok((_, _, _, _, mut act, _, mut ws)) = npc_q.get_mut(entity) {
                 ws.occupied_slot = None;
                 *act = Activity::Returning { loot: vec![(ItemKind::Food, food)] };
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx }));
             }
             submit_intent(&mut intents, entity, home_pos.x, home_pos.y, MovementPriority::JobRoute, "arrival:harvest_return");
             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested -> Carrying home");
@@ -392,6 +395,7 @@ pub fn decision_system(
 
         // Capture originals for conditional writeback
         let orig_activity = std::mem::discriminant(&activity);
+        let orig_visual_key = activity.visual_key();
         let orig_energy = energy;
         let orig_combat_state = std::mem::discriminant(&combat_state);
         let orig_at_destination = at_destination;
@@ -1390,8 +1394,12 @@ pub fn decision_system(
         }
 
         // Conditional writeback: skip unchanged NPCs (most exit early via break 'decide)
+        let new_visual_key = activity.visual_key();
         if std::mem::discriminant(&activity) != orig_activity {
             if let Ok(mut act) = npc_state.activity_q.get_mut(entity) { *act = activity; }
+        }
+        if new_visual_key != orig_visual_key {
+            extras.gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx }));
         }
         if at_destination != orig_at_destination {
             if let Ok(mut flags) = npc_state.npc_flags_q.get_mut(entity) { flags.at_destination = at_destination; }

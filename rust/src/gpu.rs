@@ -6,7 +6,7 @@
 //! Data flow (zero-clone architecture):
 //! - Main world: Systems write GpuUpdateMsg
 //! - PostUpdate: populate_gpu_state reads messages -> EntityGpuState
-//! - PostUpdate: build_visual_upload packs ECS + EntityGpuState → NpcVisualUpload
+//! - PostUpdate: build_visual_upload updates dirty visual slots (event-driven, not full rebuild)
 //! - Extract: extract_npc_data reads both via Extract<Res<T>> (immutable, zero clone)
 //!   → writes compute data per-dirty-index to EntityGpuBuffers
 //!   → writes visual/equip data in bulk to NpcVisualBuffers
@@ -31,7 +31,7 @@ use bevy::{
 };
 use std::borrow::Cow;
 
-use crate::components::Activity;
+use crate::components::{Activity, Building, Dead, EntitySlot, Faction, Job};
 use crate::constants::{
     FOOD_SPRITE, GOLD_SPRITE, ItemKind, MAX_ENTITIES, MAX_NPC_COUNT,
     MAX_PROJECTILES as MAX_PROJECTILE_COUNT, PROJECTILE_HIT_HALF_LENGTH, PROJECTILE_HIT_HALF_WIDTH,
@@ -144,7 +144,7 @@ pub struct EntityGpuState {
     pub entity_flags: Vec<u32>,
     /// Hitbox half-sizes: [half_w, half_h] per entity (interleaved, stride 2)
     pub half_sizes: Vec<f32>,
-    // --- Per-buffer dirty flags (compute only — visual is rebuilt each frame) ---
+    // --- Per-buffer dirty flags (compute) ---
     pub dirty_positions: bool,
     pub dirty_targets: bool,
     pub dirty_speeds: bool,
@@ -162,9 +162,14 @@ pub struct EntityGpuState {
     pub hidden_indices: Vec<usize>,
     /// Last-known target buffer size for full-upload fallback detection.
     pub target_buffer_size: usize,
+    // --- Visual dirty tracking (event-driven visual upload) ---
+    /// Slots whose visual/equip data changed this frame
+    pub visual_dirty_indices: Vec<usize>,
+    /// Force full visual rebuild (startup, load, reset)
+    pub visual_full_rebuild: bool,
 }
 
-/// GPU-ready packed arrays for NPC visual/equip data. Rebuilt each frame by build_visual_upload.
+/// GPU-ready packed arrays for NPC visual/equip data. Persistent across frames; only dirty slots updated.
 /// Read via `Extract<Res<NpcVisualUpload>>` in Extract phase (zero clone).
 #[derive(Resource, Default)]
 pub struct NpcVisualUpload {
@@ -203,6 +208,8 @@ impl Default for EntityGpuState {
             target_dirty_indices: Vec::new(),
             hidden_indices: Vec::new(),
             target_buffer_size: 0,
+            visual_dirty_indices: Vec::new(),
+            visual_full_rebuild: true,
         }
     }
 }
@@ -279,6 +286,7 @@ impl EntityGpuState {
                     self.flash_values[*idx] = 0.0;
                 }
                 self.hidden_indices.push(*idx);
+                self.visual_dirty_indices.push(*idx);
             }
             // Visual-only messages — no compute dirty flag
             GpuUpdate::SetSpriteFrame { idx, col, row, atlas } => {
@@ -287,12 +295,17 @@ impl EntityGpuState {
                     self.sprite_indices[i] = *col;
                     self.sprite_indices[i + 1] = *row;
                     self.sprite_indices[i + 2] = *atlas;
+                    self.visual_dirty_indices.push(*idx);
                 }
             }
             GpuUpdate::SetDamageFlash { idx, intensity } => {
                 if *idx < self.flash_values.len() {
                     self.flash_values[*idx] = *intensity;
+                    self.visual_dirty_indices.push(*idx);
                 }
+            }
+            GpuUpdate::MarkVisualDirty { idx } => {
+                self.visual_dirty_indices.push(*idx);
             }
             GpuUpdate::SetFlags { idx, flags } => {
                 if *idx < self.entity_flags.len() {
@@ -314,11 +327,142 @@ impl EntityGpuState {
 
 // BuildingGpuState removed — buildings use EntityGpuState at their unified slot index.
 
-/// Pack NPC visual + equipment data into GPU-ready arrays for direct upload.
-/// Replaces sync_visual_sprites + prepare_npc_buffers visual repack.
+/// Write NPC visual + equip data for a single slot into upload buffers.
+#[inline]
+fn write_npc_visual(
+    idx: usize,
+    entity: Entity,
+    job: &Job,
+    faction: i32,
+    gpu_state: &EntityGpuState,
+    upload: &mut NpcVisualUpload,
+    activity_q: &Query<&crate::components::Activity>,
+    npc_flags_q: &Query<&crate::components::NpcFlags>,
+    armor_q: &Query<&crate::components::EquippedArmor>,
+    helmet_q: &Query<&crate::components::EquippedHelmet>,
+    weapon_q: &Query<&crate::components::EquippedWeapon>,
+) {
+    let base = idx * 8;
+    if base + 7 >= upload.visual_data.len() { return; }
+
+    // Visual data: [sprite_col, sprite_row, atlas, flash, r, g, b, a]
+    upload.visual_data[base]     = gpu_state.sprite_indices.get(idx * 4).copied().unwrap_or(0.0);
+    upload.visual_data[base + 1] = gpu_state.sprite_indices.get(idx * 4 + 1).copied().unwrap_or(0.0);
+    upload.visual_data[base + 2] = gpu_state.sprite_indices.get(idx * 4 + 2).copied().unwrap_or(0.0);
+    upload.visual_data[base + 3] = gpu_state.flash_values.get(idx).copied().unwrap_or(0.0);
+    let (r, g, b, a) = if faction == 0 {
+        job.color()
+    } else {
+        crate::constants::raider_faction_color(faction)
+    };
+    upload.visual_data[base + 4] = r;
+    upload.visual_data[base + 5] = g;
+    upload.visual_data[base + 6] = b;
+    upload.visual_data[base + 7] = a;
+
+    // Equip data: 6 layers × [col, row, atlas, pad]
+    let eq = idx * 24;
+
+    // Layer 0: Armor
+    let (ac, ar) = armor_q.get(entity).map(|a| (a.0, a.1)).unwrap_or((-1.0, 0.0));
+    upload.equip_data[eq]     = ac;
+    upload.equip_data[eq + 1] = ar;
+    upload.equip_data[eq + 2] = 0.0;
+    upload.equip_data[eq + 3] = 0.0;
+
+    // Layer 1: Helmet
+    let (hc, hr) = helmet_q.get(entity).map(|h| (h.0, h.1)).unwrap_or((-1.0, 0.0));
+    upload.equip_data[eq + 4] = hc;
+    upload.equip_data[eq + 5] = hr;
+    upload.equip_data[eq + 6] = 0.0;
+    upload.equip_data[eq + 7] = 0.0;
+
+    // Layer 2: Weapon
+    let (wc, wr) = weapon_q.get(entity).map(|w| (w.0, w.1)).unwrap_or((-1.0, 0.0));
+    upload.equip_data[eq + 8] = wc;
+    upload.equip_data[eq + 9] = wr;
+    upload.equip_data[eq + 10] = 0.0;
+    upload.equip_data[eq + 11] = 0.0;
+
+    // Layer 3: Item (carried loot — gold takes display priority)
+    let npc_activity = activity_q.get(entity).ok();
+    let (ic, ir, ia) = if let Some(Activity::Returning { loot }) = npc_activity.as_deref() {
+        if loot.iter().any(|(k, a)| *k == ItemKind::Gold && *a > 0) {
+            (GOLD_SPRITE.0, GOLD_SPRITE.1, 1.0)
+        } else if loot.iter().any(|(k, a)| *k == ItemKind::Food && *a > 0) {
+            (FOOD_SPRITE.0, FOOD_SPRITE.1, 1.0)
+        } else {
+            (-1.0, 0.0, 0.0)
+        }
+    } else {
+        (-1.0, 0.0, 0.0)
+    };
+    upload.equip_data[eq + 12] = ic;
+    upload.equip_data[eq + 13] = ir;
+    upload.equip_data[eq + 14] = ia;
+    upload.equip_data[eq + 15] = 0.0;
+
+    // Layer 4: Status (sleep icon)
+    let (sc, sr, sa) = if npc_activity.is_some_and(|a| matches!(*a, Activity::Resting)) {
+        (0.0, 0.0, 3.0)
+    } else {
+        (-1.0, 0.0, 0.0)
+    };
+    upload.equip_data[eq + 16] = sc;
+    upload.equip_data[eq + 17] = sr;
+    upload.equip_data[eq + 18] = sa;
+    upload.equip_data[eq + 19] = 0.0;
+
+    // Layer 5: Healing (heal halo)
+    let is_healing = npc_flags_q.get(entity).is_ok_and(|f| f.healing);
+    let (hlc, hla) = if is_healing { (0.0, 2.0) } else { (-1.0, 0.0) };
+    upload.equip_data[eq + 20] = hlc;
+    upload.equip_data[eq + 21] = 0.0;
+    upload.equip_data[eq + 22] = hla;
+    upload.equip_data[eq + 23] = 0.0;
+}
+
+/// Write building visual data for a single slot into upload buffers.
+#[inline]
+fn write_building_visual(idx: usize, gpu_state: &EntityGpuState, upload: &mut NpcVisualUpload) {
+    let base = idx * 8;
+    if base + 7 >= upload.visual_data.len() { return; }
+    let si = idx * 4;
+    let col = gpu_state.sprite_indices.get(si).copied().unwrap_or(-1.0);
+    if col < 0.0 { return; } // hidden or uninitialized
+    upload.visual_data[base]     = col;
+    upload.visual_data[base + 1] = gpu_state.sprite_indices.get(si + 1).copied().unwrap_or(0.0);
+    upload.visual_data[base + 2] = gpu_state.sprite_indices.get(si + 2).copied().unwrap_or(0.0);
+    upload.visual_data[base + 3] = 0.0; // no flash
+    upload.visual_data[base + 4] = 1.0; // r (white tint)
+    upload.visual_data[base + 5] = 1.0; // g
+    upload.visual_data[base + 6] = 1.0; // b
+    upload.visual_data[base + 7] = 1.0; // a
+    // Wipe stale NPC equip overlays on building slots
+    let eq = idx * 24;
+    if eq + 23 < upload.equip_data.len() {
+        upload.equip_data[eq..eq + 24].fill(-1.0);
+    }
+}
+
+/// Clear a slot to sentinel values (no visual).
+#[inline]
+fn clear_visual_slot(idx: usize, upload: &mut NpcVisualUpload) {
+    let vbase = idx * 8;
+    if vbase + 7 < upload.visual_data.len() {
+        upload.visual_data[vbase..vbase + 8].fill(-1.0);
+    }
+    let ebase = idx * 24;
+    if ebase + 23 < upload.equip_data.len() {
+        upload.equip_data[ebase..ebase + 24].fill(-1.0);
+    }
+}
+
+/// Event-driven visual upload: persistent buffers, only dirty slots updated per frame.
+/// Full rebuild on startup/load; incremental updates via visual_dirty_indices thereafter.
 /// Runs in PostUpdate after populate_gpu_state (chained).
 pub fn build_visual_upload(
-    gpu_state: Res<EntityGpuState>,
+    mut gpu_state: ResMut<EntityGpuState>,
     config: Res<RenderFrameConfig>,
     mut upload: ResMut<NpcVisualUpload>,
     entity_map: Res<crate::resources::EntityMap>,
@@ -328,133 +472,53 @@ pub fn build_visual_upload(
     armor_q: Query<&crate::components::EquippedArmor>,
     helmet_q: Query<&crate::components::EquippedHelmet>,
     weapon_q: Query<&crate::components::EquippedWeapon>,
+    npc_q: Query<(Entity, &EntitySlot, &Job, &Faction), (Without<Building>, Without<Dead>)>,
+    building_q: Query<&EntitySlot, (With<Building>, Without<Dead>)>,
 ) {
     let _t = timings.scope("build_visual_upload");
     let entity_count = config.npc.count as usize;
     upload.entity_count = entity_count;
 
-    // Resize (reuses allocation if already large enough), fill with sentinels
+    // Resize (reuses allocation if already large enough), new tail gets sentinels
     upload.visual_data.resize(entity_count * 8, -1.0);
     upload.equip_data.resize(entity_count * 24, -1.0);
 
-    // Clear only hidden slots (despawned entities) — avoids full O(entity_count) memset.
-    // resize(..., -1.0) already initializes new tail capacity with sentinels.
+    // Clear hidden slots (despawned entities)
     for &idx in &gpu_state.hidden_indices {
-        let vbase = idx * 8;
-        if vbase + 7 < upload.visual_data.len() {
-            upload.visual_data[vbase..vbase + 8].fill(-1.0);
-        }
-        let ebase = idx * 24;
-        if ebase + 23 < upload.equip_data.len() {
-            upload.equip_data[ebase..ebase + 24].fill(-1.0);
-        }
+        clear_visual_slot(idx, &mut upload);
     }
 
-    for npc in entity_map.iter_npcs() {
-        if npc.dead { continue; }
-        let idx = npc.slot;
-        if idx * 8 + 7 >= upload.visual_data.len() { continue; }
-
-        // --- Visual data: [sprite_col, sprite_row, atlas, flash, r, g, b, a] ---
-        let base = idx * 8;
-        upload.visual_data[base]     = gpu_state.sprite_indices.get(idx * 4).copied().unwrap_or(0.0);
-        upload.visual_data[base + 1] = gpu_state.sprite_indices.get(idx * 4 + 1).copied().unwrap_or(0.0);
-        upload.visual_data[base + 2] = gpu_state.sprite_indices.get(idx * 4 + 2).copied().unwrap_or(0.0);
-        upload.visual_data[base + 3] = gpu_state.flash_values.get(idx).copied().unwrap_or(0.0);
-        let (r, g, b, a) = if npc.faction == 0 {
-            npc.job.color()
-        } else {
-            crate::constants::raider_faction_color(npc.faction)
-        };
-        upload.visual_data[base + 4] = r;
-        upload.visual_data[base + 5] = g;
-        upload.visual_data[base + 6] = b;
-        upload.visual_data[base + 7] = a;
-
-        // --- Equip data: 6 layers × [col, row, atlas, pad] ---
-        let eq = idx * 24;
-
-        // Layer 0: Armor
-        let (ac, ar) = armor_q.get(npc.entity).map(|a| (a.0, a.1)).unwrap_or((-1.0, 0.0));
-        upload.equip_data[eq]     = ac;
-        upload.equip_data[eq + 1] = ar;
-        upload.equip_data[eq + 2] = 0.0;
-        upload.equip_data[eq + 3] = 0.0;
-
-        // Layer 1: Helmet
-        let (hc, hr) = helmet_q.get(npc.entity).map(|h| (h.0, h.1)).unwrap_or((-1.0, 0.0));
-        upload.equip_data[eq + 4] = hc;
-        upload.equip_data[eq + 5] = hr;
-        upload.equip_data[eq + 6] = 0.0;
-        upload.equip_data[eq + 7] = 0.0;
-
-        // Layer 2: Weapon
-        let (wc, wr) = weapon_q.get(npc.entity).map(|w| (w.0, w.1)).unwrap_or((-1.0, 0.0));
-        upload.equip_data[eq + 8] = wc;
-        upload.equip_data[eq + 9] = wr;
-        upload.equip_data[eq + 10] = 0.0;
-        upload.equip_data[eq + 11] = 0.0;
-
-        // Layer 3: Item (carried loot — gold takes display priority)
-        let npc_activity = activity_q.get(npc.entity).ok();
-        let (ic, ir, ia) = if let Some(Activity::Returning { loot }) = npc_activity.as_deref() {
-            if loot.iter().any(|(k, a)| *k == ItemKind::Gold && *a > 0) {
-                (GOLD_SPRITE.0, GOLD_SPRITE.1, 1.0)
-            } else if loot.iter().any(|(k, a)| *k == ItemKind::Food && *a > 0) {
-                (FOOD_SPRITE.0, FOOD_SPRITE.1, 1.0)
+    if gpu_state.visual_full_rebuild {
+        // Full rebuild: query-first iteration over all live entities
+        for (entity, es, job, faction) in npc_q.iter() {
+            write_npc_visual(es.0, entity, job, faction.0, &gpu_state, &mut upload,
+                &activity_q, &npc_flags_q, &armor_q, &helmet_q, &weapon_q);
+        }
+        for es in building_q.iter() {
+            write_building_visual(es.0, &gpu_state, &mut upload);
+        }
+        gpu_state.visual_full_rebuild = false;
+    } else {
+        // Dirty-only: dedup then update only changed slots
+        gpu_state.visual_dirty_indices.sort_unstable();
+        gpu_state.visual_dirty_indices.dedup();
+        for i in 0..gpu_state.visual_dirty_indices.len() {
+            let idx = gpu_state.visual_dirty_indices[i];
+            if let Some(npc) = entity_map.get_npc(idx) {
+                if npc.dead {
+                    clear_visual_slot(idx, &mut upload);
+                    continue;
+                }
+                write_npc_visual(idx, npc.entity, &npc.job, npc.faction, &gpu_state, &mut upload,
+                    &activity_q, &npc_flags_q, &armor_q, &helmet_q, &weapon_q);
+            } else if entity_map.get_instance(idx).is_some() {
+                write_building_visual(idx, &gpu_state, &mut upload);
             } else {
-                (-1.0, 0.0, 0.0)
+                clear_visual_slot(idx, &mut upload);
             }
-        } else {
-            (-1.0, 0.0, 0.0)
-        };
-        upload.equip_data[eq + 12] = ic;
-        upload.equip_data[eq + 13] = ir;
-        upload.equip_data[eq + 14] = ia;
-        upload.equip_data[eq + 15] = 0.0;
-
-        // Layer 4: Status (sleep icon)
-        let (sc, sr, sa) = if npc_activity.is_some_and(|a| matches!(*a, Activity::Resting)) {
-            (0.0, 0.0, 3.0)
-        } else {
-            (-1.0, 0.0, 0.0)
-        };
-        upload.equip_data[eq + 16] = sc;
-        upload.equip_data[eq + 17] = sr;
-        upload.equip_data[eq + 18] = sa;
-        upload.equip_data[eq + 19] = 0.0;
-
-        // Layer 5: Healing (heal halo)
-        let is_healing = npc_flags_q.get(npc.entity).is_ok_and(|f| f.healing);
-        let (hlc, hla) = if is_healing { (0.0, 2.0) } else { (-1.0, 0.0) };
-        upload.equip_data[eq + 20] = hlc;
-        upload.equip_data[eq + 21] = 0.0;
-        upload.equip_data[eq + 22] = hla;
-        upload.equip_data[eq + 23] = 0.0;
-    }
-
-    // Building slots: iterate only actual buildings (includes waypoints)
-    for inst in entity_map.iter_instances() {
-        let idx = inst.slot;
-        let base = idx * 8;
-        if base + 7 >= upload.visual_data.len() { continue; }
-        let si = idx * 4;
-        let col = gpu_state.sprite_indices.get(si).copied().unwrap_or(-1.0);
-        if col < 0.0 { continue; } // hidden or uninitialized
-        upload.visual_data[base]     = col;
-        upload.visual_data[base + 1] = gpu_state.sprite_indices.get(si + 1).copied().unwrap_or(0.0);
-        upload.visual_data[base + 2] = gpu_state.sprite_indices.get(si + 2).copied().unwrap_or(0.0);
-        upload.visual_data[base + 3] = 0.0; // no flash
-        upload.visual_data[base + 4] = 1.0; // r (white tint)
-        upload.visual_data[base + 5] = 1.0; // g
-        upload.visual_data[base + 6] = 1.0; // b
-        upload.visual_data[base + 7] = 1.0; // a
-        // Wipe stale NPC equip overlays on building slots
-        let eq = idx * 24;
-        if eq + 23 < upload.equip_data.len() {
-            upload.equip_data[eq..eq + 24].fill(-1.0);
         }
     }
+    gpu_state.visual_dirty_indices.clear();
 }
 
 /// Drain GpuUpdateMsg messages and apply updates to EntityGpuState (unified entity state).
@@ -497,11 +561,14 @@ pub fn populate_gpu_state(
     let dt = time.delta_secs();
     const FLASH_DECAY_RATE: f32 = 5.0;
     let active = slots.count().min(npc_state.flash_values.len());
-    for flash in npc_state.flash_values[..active].iter_mut() {
+    let mut flash_dirty: Vec<usize> = Vec::new();
+    for (slot_idx, flash) in npc_state.flash_values[..active].iter_mut().enumerate() {
         if *flash > 0.0 {
             *flash = (*flash - dt * FLASH_DECAY_RATE).max(0.0);
+            flash_dirty.push(slot_idx);
         }
     }
+    npc_state.visual_dirty_indices.extend(flash_dirty);
 }
 
 // =============================================================================

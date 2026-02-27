@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-27l
+
+- **event-driven visual upload** — `build_visual_upload` no longer rebuilds 100K NPC+building visual/equip buffers every frame; `NpcVisualUpload` is now persistent across frames with only dirty slots updated; new `GpuUpdate::MarkVisualDirty { idx }` variant flows through existing message channel; `EntityGpuState` tracks `visual_dirty_indices` (populated by SetSpriteFrame, SetDamageFlash, Hide, MarkVisualDirty, and flash decay) and `visual_full_rebuild` flag (defaults true for startup/load); full rebuild uses query-first ECS iteration (`Without<Building,Dead>` for NPCs, `With<Building>` for buildings); dirty path uses sort+dedup then EntityMap slot lookup with stale/unmapped slots cleared to sentinels; `Activity::visual_key()` helper distinguishes visual-relevant activity states (Resting, Returning with Gold/Food/empty); decision_system emits dirty only when visual key changes; arrival_system emits dirty on farm delivery; healing_system emits dirty on healing flag toggle; death_system emits dirty on loot drop activity change; expected saving: ~3-7ms/frame at 50K scale in steady state
+
 ## 2026-02-27k
 
 - **fix add_instance spatial index ordering** — `spatial_insert` was called before `instances.insert`, so kind-filtered spatial buckets (`spatial_kind_town`, `spatial_kind_cell`, `spatial_bucket_idx`) were never populated on first insert; new buildings were invisible to `find_nearest_worksite` until `rebuild_spatial()` ran; fixed by saving position, inserting instance first, then calling spatial_insert

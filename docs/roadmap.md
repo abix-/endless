@@ -59,14 +59,13 @@ Road collision bypass, road speed bonus, road attraction, and AI road building c
 
 *Done when: 50K NPCs + 50K buildings at 60fps.*
 
-GPU extract, GPU-native rendering, linear scan elimination, worksite indexing, slot-indexed occupancy, query-first migration, NpcLogCache filtering, decision sub-profiling, visual upload optimization, GPU targets dirty tracking, damage debug gating, and readback throttling complete (see [completed.md](completed.md)).
+GPU extract, GPU-native rendering, linear scan elimination, worksite indexing, slot-indexed occupancy, query-first migration, NpcLogCache filtering, decision sub-profiling, visual upload optimization, GPU targets dirty tracking, damage debug gating, readback throttling, and event-driven visual upload complete (see [completed.md](completed.md)).
 
 ECS source-of-truth migration complete (see [completed.md](completed.md)). ECS owns all NPC gameplay state. EntityMap is index-only (slot↔Entity, grid, kind/town/spatial). No dual-writes. Hot loops use query-first + indexed lookup. GPU is movement authority; ECS Position is read-model synced in `gpu_position_readback`.
 
 Remaining performance items at 50k NPC + 50k buildings (sorted by criticality, then expected savings):
 
-1. [ ] [Critical] `build_visual_upload` NPC HashMap iteration: `iter_npcs()` walks 50k HashMap entries per frame. Building backfill and sentinel fill already fixed. Remaining: query-first NPC iteration (same pattern as other migrated systems).
-   Files: `gpu.rs:320-458`. Expected saving: ~3-6 ms/frame CPU.
+1. [x] [Critical] `build_visual_upload` event-driven dirty tracking: persistent `NpcVisualUpload` buffers with per-slot dirty updates via `GpuUpdate::MarkVisualDirty`. Full rebuild only on startup/load. Steady-state updates only dirty slots (~0.01ms vs ~4-8ms).
 2. [ ] [Critical] Decision-frame budgeting: fixed think-bucket interval at 50k NPCs means more NPCs per bucket, causing frame-time spikes during heavy decision ticks. Need max decisions/frame cap + adaptive interval.
    Expected saving: ~3-8 ms/frame p95/p99 spike reduction.
 3. [ ] [High] Entity sleeping (Factorio-style): NPCs outside camera radius skip behavior/movement ticks. At 50k NPCs, typically 80%+ are off-camera.

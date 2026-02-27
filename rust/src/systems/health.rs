@@ -264,6 +264,7 @@ pub fn death_system(
                             } else {
                                 *act = Activity::Returning { loot: vec![(drop.item, amount)] };
                             }
+                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: attacker_slot }));
                         }
                         let atk_entity = atk.entity;
                         let atk_home = res.home_q.get(atk_entity).map(|h| h.0).unwrap_or(Vec2::ZERO);
@@ -359,6 +360,7 @@ pub fn death_system(
                         } else {
                             *act = Activity::Returning { loot: vec![(drop.item, amount)] };
                         }
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: k_slot }));
                     }
                     if !dc_keep_fighting {
                         intents.submit(k_entity, Vec2::new(k_home.x, k_home.y), crate::resources::MovementPriority::Survival, "loot:return");
@@ -533,12 +535,15 @@ pub fn healing_system(
 
                 if !flags.healing {
                     flags.healing = true;
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx }));
                 }
             } else if flags.healing {
                 flags.healing = false;
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx }));
             }
         } else if flags.healing {
             flags.healing = false;
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx }));
         }
     }
 

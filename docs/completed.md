@@ -28,6 +28,7 @@ Completed items moved from roadmap for readability.
 - [x] Stage 16: dead code removal (FoodEvents, ResetFlag, reset_bevy_system — zero readers/never set)
 - [x] Stage 16: drain systems for MessageReader/Writer conflicts (ai_dirty_drain_system, perimeter_dirty_drain_system)
 - [x] Stage 16 perf: terrain tilemap sync now message-driven (`TerrainDirtyMsg`) instead of `WorldGrid::is_changed()`; prevents full 1000x1000 terrain rewrites on non-terrain grid updates
+- [x] Stage 16 perf item 1: event-driven `build_visual_upload` — persistent `NpcVisualUpload` buffers, `GpuUpdate::MarkVisualDirty` dirty signaling, `visual_dirty_indices` dedup, query-first full rebuild on startup/load, `Activity::visual_key()` for payload-aware change detection. ~4-8ms → ~0.01ms steady state.
 - [x] Stage 16 bugfix: fixed NPC/building selection slot collision in `render.rs` (selection now distinguishes NPC slots from building slots; building hit-tests use `BuildingEntityMap` instances)
 - [x] Stage 16 messages: projectile GPU updates fully message-driven (`ProjGpuUpdateMsg` consumed directly by `populate_proj_buffer_writes`); removed `PROJ_GPU_UPDATE_QUEUE` bridge
 - [x] Stage 20 diagnostics: added `NpcTargetThrashDebug` runtime metric and UI surfacing (Profiler top offenders + selected NPC inspector fields) tracking `TargetChanges/min`, `PingPong/min`, `ReasonFlips/min`, and `TargetWrites/min`

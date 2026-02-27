@@ -46,7 +46,7 @@ Each piece of NPC data has exactly one authoritative owner.
 | **Render-Only** (uploaded to NPC visual/equip storage buffers, never in compute shader) ||||
 | Sprite indices | EntityGpuState | CPU → NpcVisualUpload → NpcVisualBuffers | Atlas col/row per NPC; packed into visual storage buffer [f32;8] by build_visual_upload |
 | Colors | ECS → NpcVisualUpload | CPU → NpcVisualBuffers | RGBA tint from Faction/Job; packed into visual storage buffer [f32;8] by build_visual_upload |
-| Equipment sprites | ECS → NpcVisualUpload | CPU → NpcVisualBuffers | Per-layer col/row (armor/helmet/weapon/item/status/healing); -1.0 sentinel = unequipped/inactive. Derived by `build_visual_upload` from ECS components each frame. |
+| Equipment sprites | ECS → NpcVisualUpload | CPU → NpcVisualBuffers | Per-layer col/row (armor/helmet/weapon/item/status/healing); -1.0 sentinel = unequipped/inactive. Derived by `build_visual_upload` from ECS components on dirty slots only (event-driven via MarkVisualDirty). |
 
 ## Bevy Messages
 
@@ -104,7 +104,7 @@ Startup/load paths are centralized to prevent drift:
 
 `ProjGpuUpdateMsg`: systems emit via `MessageWriter<ProjGpuUpdateMsg>` (attack/tower/hit processing). `populate_proj_buffer_writes` (PostUpdate) reads these messages directly and applies updates to `ProjBufferWrites` (spawn/deactivate dirty index sets). No static projectile queue remains.
 
-`build_visual_upload` (chained after `populate_gpu_state`) packs ECS visual data into `NpcVisualUpload`. Both `EntityGpuState` and `NpcVisualUpload` are read by `extract_npc_data` during Extract via `Extract<Res<T>>` (zero-clone) and written directly to GPU buffers.
+`build_visual_upload` (chained after `populate_gpu_state`) updates dirty slots in persistent `NpcVisualUpload` buffers. Both `EntityGpuState` and `NpcVisualUpload` are read by `extract_npc_data` during Extract via `Extract<Res<T>>` (zero-clone) and written directly to GPU buffers.
 
 | Variant | Fields | Producer Systems |
 |---------|--------|------------------|
@@ -119,10 +119,11 @@ Startup/load paths are centralized to prevent drift:
 | SetDamageFlash | idx, intensity | damage_system (1.0 on hit, decays at 5.0/s in populate_gpu_state) |
 | SetFlags | idx, flags | spawn_npc_system, building slot allocation (bit 0: combat scan enabled, bit 1: building) |
 | Hide | idx | death_system (NPC and building branches) |
+| MarkVisualDirty | idx | decision_system (activity visual key change), arrival_system (farm delivery), healing_system (healing flag toggle), death_system (loot drop activity) |
 
 All variants are routed to `EntityGpuState` by `populate_gpu_state`. NPCs and buildings share the same unified slot namespace — building placement uses SetPosition/SetFaction/SetHealth/SetSpriteFrame/SetFlags with the building's unified slot.
 
-Visual state is derived from ECS components each frame by `build_visual_upload` (see [gpu-compute.md](gpu-compute.md)); visual updates flow through upload packing instead of per-field visual message variants.
+Visual state updates are event-driven via `visual_dirty_indices` in `EntityGpuState`. `SetSpriteFrame`, `SetDamageFlash`, `Hide`, and `MarkVisualDirty` all push to this dirty list. Flash decay also marks slots dirty. `build_visual_upload` only updates dirty slots each frame (full rebuild on startup/load via `visual_full_rebuild` flag).
 
 ## Static Queues
 

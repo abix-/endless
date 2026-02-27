@@ -196,6 +196,8 @@ pub enum GpuUpdate {
     SetFlags { idx: usize, flags: u32 },
     /// Set entity hitbox half-size for projectile collision (Minkowski sum with arrow hitbox)
     SetHalfSize { idx: usize, half_w: f32, half_h: f32 },
+    /// Mark slot's visual data dirty (activity/healing/equipment changed)
+    MarkVisualDirty { idx: usize },
 }
 
 // ============================================================================

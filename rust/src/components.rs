@@ -188,6 +188,20 @@ impl Activity {
             | Self::Mining { .. })
     }
 
+    /// Visual key for dirty tracking: same key = same visual representation.
+    /// Only Resting and Returning (with loot type) affect rendered overlays.
+    pub fn visual_key(&self) -> u8 {
+        match self {
+            Self::Resting => 1,
+            Self::Returning { loot } => {
+                if loot.iter().any(|(k, a)| *k == ItemKind::Gold && *a > 0) { 2 }
+                else if loot.iter().any(|(k, a)| *k == ItemKind::Food && *a > 0) { 3 }
+                else { 4 }
+            }
+            _ => 0,
+        }
+    }
+
     /// Display name for UI/debug.
     pub fn name(&self) -> &'static str {
         match self {
