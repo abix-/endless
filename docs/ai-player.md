@@ -190,7 +190,7 @@ Each eligible action gets a score = `base_weight × need_multiplier`. All scores
 
 **Roads:** `road_weight × road_need` where `road_need = min(road_candidates, economy_buildings - roads/2)`. Pre-checks actual candidate availability via `count_road_candidates()` — if no road-pattern slots are available near economy buildings, roads aren't scored at all. Scored when `road_weight > 0` and food ≥ 4× road cost. Places roads in personality-specific grid patterns (see Personalities table) near economy buildings (farms, farmer homes, miner homes) within Chebyshev distance ≤ 2, scored by adjacency count. Batch places multiple roads per action (batch size per personality). **Aggressive attack corridors**: cardinal axis roads extend to 2× the build radius as offensive attack routes — cells outside town bounds skip the economy-adjacency requirement, scored at priority 1 (built after inner utility roads).
 
-**Waypoints:** `military_desire × gap` where gap = waypoint_target − waypoints. Waypoint target = `max(total_military_homes, perimeter_ring_size)` — ensures enough waypoints to fill the personality's outer ring even when military homes haven't caught up. Scored when waypoints < target. Waypoints are placed on the personality's outer ring pattern (block corners on build area perimeter).
+**Waypoints:** `military_desire × gap` where gap = waypoint_target − waypoints. Waypoint target = `max(total_military_homes, perimeter_ring_size)` — ensures enough waypoints to fill the personality's outer ring even when military homes haven't caught up. Scored when waypoints < target. Waypoints are placed on the perimeter ring (see Slot Placement).
 
 ### Raider AI
 
@@ -207,7 +207,7 @@ Buildings use scored slot selection with fallback to center-nearest. Scorer func
 | Archer home | Near economic core (farms + homes), anti-clump penalty for adjacent archer/crossbow homes. |
 | Crossbow home | Same scoring as archer home (`archer_fill_score`). |
 | Miner home | Minimizes distance to nearest gold mine. Center-biased fallback when no mines exist. |
-| Waypoint | Personality's outer ring: block corners on build area perimeter adjacent to road intersections, min spacing per personality (Aggressive:3, Balanced:4, Economic:5). First unfilled ring slot wins. |
+| Waypoint | Perimeter ring: walks build area perimeter clockwise, always includes 4 corners, fills non-road-slot cells with min 5 Manhattan spacing. First unfilled ring slot wins. Same algorithm for all personalities. |
 
 **Road and waypoint-aware placement:** All non-road building placement (both `find_inner_slot` and snapshot empty slots) filters out slots that match the personality's road pattern (`is_road_slot`) or waypoint ring (`waypoint_ring_slots`). This prevents buildings from being placed on future road or waypoint positions.
 
@@ -273,8 +273,8 @@ Search radius: 5000px from town center. Cooldown includes ±2s jitter. Initial c
 ## Perimeter Maintenance
 
 `sync_patrol_perimeter_system` (flag-gated via `PerimeterSyncDirty` resource, set by `perimeter_dirty_drain_system`):
-1. Compute personality's ideal outer ring via `waypoint_ring_slots(tg)` (block corners on build area perimeter)
-2. Check ring completeness — only prune inner/old waypoints after the new outer ring is fully established (all ideal slots occupied). This prevents premature pruning during expansion when the outer ring is partially built.
+1. Compute personality's ideal outer ring via `waypoint_ring_slots(tg)` (perimeter walk with corners + min spacing)
+2. Check ring completeness — only prune inner/old waypoints after the new outer ring is fully established. An ideal slot counts as "covered" if it has a waypoint OR any other building (prevents a blocked slot from permanently disabling pruning).
 3. Prune waypoints not in the ideal ring (resolves exact building slot by town-grid coords, sends lethal `DamageMsg`) — when town area expands, the ring shifts outward and inner waypoints are destroyed after the new ring fills in
 4. Recalculate clockwise patrol order (angle-based sort around town center)
 

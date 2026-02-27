@@ -85,12 +85,12 @@ Job-specific optional components:
 |-----|------------|
 | Archer | HasEnergy, PatrolRoute, EquippedWeapon, EquippedHelmet, `Activity::OnDuty { ticks_waiting: 0 }` |
 | Crossbow | HasEnergy, PatrolRoute, EquippedWeapon, EquippedHelmet, `Activity::OnDuty { ticks_waiting: 0 }` |
-| Farmer | HasEnergy, WorkPosition, `Activity::GoingToWork` |
+| Farmer | HasEnergy |
 | Miner | HasEnergy |
 | Raider | HasEnergy, Stealer, LeashRange(400), EquippedWeapon |
 | Fighter | HasEnergy, PatrolRoute, `Activity::OnDuty { ticks_waiting: 0 }` |
 
-GPU writes (all jobs): `SetPosition`, `SetTarget` (spawn position, or work position for farmers with valid work_x), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`, `SetSpriteFrame` (job-based sprite from constants.rs), `SetFlags` (bit 0 = 1 for military jobs via `job.is_military()`, 0 for farmers/miners — controls GPU combat scan tier). Colors and equipment sprites are derived from ECS component data by `build_visual_upload` (queries `EquippedWeapon/Helmet/Armor` components).
+GPU writes (all jobs): `SetPosition`, `SetTarget` (spawn position; save-restore path may set work position for farmers), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`, `SetSpriteFrame` (job-based sprite from constants.rs), `SetFlags` (bit 0 = 1 for military jobs via `job.is_military()`, 0 for farmers/miners — controls GPU combat scan tier). Fresh spawns start with `NpcWorkState { occupied_slot: None, work_target: None }` — behavior system assigns work later. Save/restore path may restore explicit `work_target`. Colors and equipment sprites are derived from ECS component data by `build_visual_upload` (queries `EquippedWeapon/Helmet/Armor` components).
 
 Sprite assignments: Farmer=(1,6), Archer=(0,11), Crossbow=(0,0) (placeholder, purple tint), Raider=(0,6), Fighter=(7,0), Miner=(1,6) (brown tint differentiates)
 

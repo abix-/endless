@@ -132,7 +132,10 @@ pub fn materialize_npc(
 
     // GPU init
     let health = overrides.health.unwrap_or(cached.max_health);
-    let (target_x, target_y) = if job == Job::Farmer && work_pos.is_some() {
+    // Fresh spawns should not start with a work target; behavior assigns work later.
+    // Save/restore path (activity override) may restore explicit work targets.
+    let restore_work_state = overrides.activity.is_some();
+    let (target_x, target_y) = if restore_work_state && job == Job::Farmer && work_pos.is_some() {
         let wp = work_pos.unwrap();
         (wp[0], wp[1])
     } else {
@@ -174,13 +177,14 @@ pub fn materialize_npc(
 
     // Work position slot
     let work_slot = work_pos.and_then(|wp| entity_map.slot_at_position(Vec2::new(wp[0], wp[1])));
+    let initial_work_target = if restore_work_state { work_slot } else { None };
 
     // Resolve final activity (patrol/work overrides)
     let activity = if overrides.activity.is_some() {
         activity // save-loaded activity takes precedence
     } else if patrol_route.is_some() {
         Activity::OnDuty { ticks_waiting: 0 }
-    } else if work_slot.is_some() {
+    } else if initial_work_target.is_some() {
         Activity::GoingToWork
     } else {
         activity
@@ -211,7 +215,7 @@ pub fn materialize_npc(
         // Economy
         CarriedGold(overrides.carried_gold.unwrap_or(0)),
         // Work state (always present)
-        NpcWorkState { occupied_slot: None, work_target: work_slot },
+        NpcWorkState { occupied_slot: None, work_target: initial_work_target },
     ));
     if let Some(sq) = overrides.squad_id {
         ecmds.insert(SquadId(sq));

@@ -12,6 +12,7 @@ pub mod farmer_cycle;
 pub mod raider_cycle;
 pub mod combat;
 pub mod projectiles;
+pub mod archer_tent_reliability;
 pub mod fountain_shot_stale;
 pub mod friendly_fire_buildings;
 pub mod healing;
@@ -494,6 +495,21 @@ pub fn register_tests(app: &mut App) {
         projectiles::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("projectiles"))
+            .after(Step::Behavior));
+
+    // archer-tent-reliability
+    registry.tests.push(TestEntry {
+        name: "archer-tent-reliability".into(),
+        description: "Archer vs enemy tent: target lock, projectile activity, sustained tent damage, destruction".into(),
+        phase_count: 5,
+        time_scale: 1.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        archer_tent_reliability::setup.run_if(test_is("archer-tent-reliability")));
+    app.add_systems(Update,
+        archer_tent_reliability::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("archer-tent-reliability"))
             .after(Step::Behavior));
 
     // fountain-shot-stale
@@ -1000,5 +1016,4 @@ fn cleanup_test_world(
 
     info!("Test cleanup: despawned {} NPCs + {} tilemap chunks, reset resources", count, tilemap_count);
 }
-
 

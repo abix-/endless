@@ -277,7 +277,7 @@ pub fn spawner_respawn_system(
                 let Some(inst) = entity_map.get_instance(bld_slot) else { continue };
                 let town_data_idx = inst.town_idx as usize;
 
-                let (job, faction, work_x, work_y, starting_post, attack_type, job_name, building_name, work_slot) =
+                let (job, faction, work_x, work_y, starting_post, attack_type, job_name, building_name, _work_slot) =
                     world::resolve_spawner_npc(inst, &world_data.towns, &entity_map);
 
                 let pos = inst.position;

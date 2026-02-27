@@ -368,15 +368,6 @@ impl AiPersonality {
         }
     }
 
-    /// Road grid spacing for this personality.
-    fn road_spacing(self) -> i32 {
-        match self {
-            Self::Aggressive => 0, // cardinal axes only, no regular grid
-            Self::Balanced => 3,
-            Self::Economic => 4,
-        }
-    }
-
     /// True if (row, col) is reserved for road placement in this personality's pattern.
     /// Economic: 4x4 grid, Balanced: 3x3 grid, Aggressive: cardinal axes from center.
     fn is_road_slot(self, row: i32, col: i32) -> bool {
@@ -389,62 +380,44 @@ impl AiPersonality {
     }
 
     /// Compute the ideal outer ring of waypoint positions for the current build area.
-    /// Waypoints sit at block corners on the perimeter — adjacent to road intersections
-    /// so patrol routes always have road access.
+    /// Walks the perimeter clockwise with corners guaranteed and min 5 Manhattan spacing.
     fn waypoint_ring_slots(self, tg: &world::TownGrid) -> Vec<(i32, i32)> {
         let (min_r, max_r, min_c, max_c) = world::build_bounds(tg);
-        let s = self.road_spacing();
+        const MIN_SPACING: i32 = 5;
 
-        // Collect all perimeter cells that are block corners (adjacent to a road intersection)
-        let is_perimeter = |r: i32, c: i32| {
-            r == min_r || r == max_r || c == min_c || c == max_c
-        };
-        let is_block_corner = |r: i32, c: i32| -> bool {
-            if s == 0 {
-                // Aggressive: roads on axes only. Waypoint at corners of build area
-                // and midpoints, all adjacent to an axis road.
-                // Diagonal corners only — axis slots are reserved for roads.
-                return r.abs() > 1 && c.abs() > 1 && r.abs() == c.abs();
-            }
-            // For grid-based roads: block corner = diagonally adjacent to a road intersection.
-            // A road intersection is at (R, C) where R%S==0 && C%S==0.
-            // Block corners are at offsets ±1 from intersections in both axes.
-            (r.rem_euclid(s) == 1 || r.rem_euclid(s) == s - 1)
-                && (c.rem_euclid(s) == 1 || c.rem_euclid(s) == s - 1)
-        };
+        // Walk perimeter clockwise: top→right→bottom→left (no duplicate corners)
+        let mut perimeter: Vec<(i32, i32)> = Vec::new();
+        for c in min_c..=max_c { perimeter.push((max_r, c)); }
+        for r in (min_r..max_r).rev() { perimeter.push((r, max_c)); }
+        for c in (min_c..max_c).rev() { perimeter.push((min_r, c)); }
+        for r in (min_r + 1)..max_r { perimeter.push((r, min_c)); }
 
-        let mut candidates: Vec<(i32, i32)> = Vec::new();
-        for r in min_r..=max_r {
-            for c in min_c..=max_c {
-                if r == 0 && c == 0 { continue; }
-                if !is_perimeter(r, c) { continue; }
-                if !is_block_corner(r, c) { continue; }
-                if self.is_road_slot(r, c) { continue; }
-                candidates.push((r, c));
+        let corners: HashSet<(i32, i32)> = [
+            (max_r, min_c), (max_r, max_c),
+            (min_r, max_c), (min_r, min_c),
+        ].into_iter().collect();
+
+        let mut result: Vec<(i32, i32)> = Vec::new();
+        for &(r, c) in &perimeter {
+            if r == 0 && c == 0 { continue; }
+            // Corners always included (even on road slots); others skip road slots
+            if self.is_road_slot(r, c) && !corners.contains(&(r, c)) { continue; }
+            let is_corner = corners.contains(&(r, c));
+            let too_close = result.iter().any(|&(pr, pc)|
+                (r - pr).abs() + (c - pc).abs() < MIN_SPACING
+            );
+            if is_corner || !too_close {
+                result.push((r, c));
             }
         }
 
-        // Sort clockwise by angle from center for stable patrol ordering
-        candidates.sort_by(|a, b| {
-            let aa = (a.1 as f32).atan2(a.0 as f32);
-            let ab = (b.1 as f32).atan2(b.0 as f32);
-            aa.partial_cmp(&ab).unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        // Apply minimum spacing along the ring to avoid clustering
-        let min_spacing: i32 = match self {
-            Self::Aggressive => 3,
-            Self::Balanced => 4,
-            Self::Economic => 5,
-        };
-        let mut result: Vec<(i32, i32)> = Vec::new();
-        for &(r, c) in &candidates {
-            let too_close = result.iter().any(|&(pr, pc)| {
-                (r - pr).abs() + (c - pc).abs() < min_spacing
-            });
-            if !too_close {
-                result.push((r, c));
-            }
+        // Wrap-around check: drop trailing non-corner entries too close to the first
+        while result.len() > 4 {
+            let last = *result.last().unwrap();
+            let first = result[0];
+            if (last.0 - first.0).abs() + (last.1 - first.1).abs() >= MIN_SPACING { break; }
+            if corners.contains(&last) { break; }
+            result.pop();
         }
         result
     }
@@ -992,10 +965,9 @@ fn find_waypoint_slot(
         .map(|b| world::world_to_town_grid(center, b.position))
         .collect();
 
-    // Pick first ideal slot not already occupied by any building or road slot
+    // Pick first ideal slot not already occupied by any building
     ideal.iter().copied()
         .filter(|slot| !existing.contains(slot))
-        .filter(|&(r, c)| !personality.is_road_slot(r, c))
         .find(|&(r, c)| {
             let pos = world::town_grid_to_world(center, r, c);
             let (gc, gr) = grid.world_to_grid(pos);
@@ -1028,7 +1000,15 @@ fn sync_town_perimeter_waypoints(
         .collect();
 
     // Do not prune any inner ring yet if the current outer ring is incomplete.
-    let outer_complete = ideal.iter().all(|slot| existing.contains(slot));
+    // An ideal slot counts as "covered" if it has a waypoint OR any other building
+    // (blocked slots can't have waypoints, so we don't hold pruning hostage to them).
+    let outer_complete = ideal.iter().all(|&(r, c)| {
+        existing.contains(&(r, c)) || {
+            let pos = world::town_grid_to_world(center, r, c);
+            let (gc, gr) = world.grid.world_to_grid(pos);
+            world.entity_map.has_building_at(gc as i32, gr as i32)
+        }
+    });
     if !outer_complete {
         return 0;
     }

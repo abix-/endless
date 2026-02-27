@@ -564,7 +564,7 @@ fn spawn_npcs_from_spawners(
     for bld_slot in spawner_slots {
         let Some(slot) = slot_alloc.alloc() else { break };
         let Some(inst) = entity_map.get_instance(bld_slot) else { continue };
-        let (job, faction, work_x, work_y, starting_post, attack_type, _, _, work_slot) =
+        let (job, faction, work_x, work_y, starting_post, attack_type, _, _, _work_slot) =
             resolve_spawner_npc(inst, towns, entity_map);
         let pos = inst.position;
         let town_idx = inst.town_idx as i32;

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-02-27i
+
+- **simplify waypoint ring placement** — replaced personality-specific block-corner algorithm with simple perimeter walk: always includes 4 corners, fills non-road-slot cells with min 5 Manhattan spacing, works identically for all personalities at all grid sizes; deleted unused `road_spacing()` method
+- **fix waypoint cleanup never triggering** — removed stale `is_road_slot` filter from `find_waypoint_slot()` (conflicted with new ring that includes corner road slots); changed completeness gate in `sync_town_perimeter_waypoints()` to treat blocked ideal slots (occupied by other buildings) as "covered" — prevents a single blocked slot from permanently disabling pruning
+- **fresh spawn work_target fix** — `materialize_npc()` no longer sets `work_target` or `GoingToWork` on fresh spawns; only save/restore path restores explicit work targets; prevents pre-claimed farm reservations from spawn that conflict with behavior system self-claim
+- **archer-tent-reliability test** — new 5-phase test: archer target lock on enemy tent, projectile activity, sustained tent damage, destruction
+
 ## 2026-02-27h
 
 - **farm reservation lifecycle hardening** — Working farmer safety invariant now validates farm slot existence, kind, town ownership, and occupancy before allowing work; retroactively claims `work_position` if `assigned_farm` is missing; GoingToWork arrival uses `occupant_count` with owner-aware threshold (`>1` if self, `>=1` if other) and claims before harvest check; end-of-decide invariant auto-releases `assigned_farm` for farmers not in Working/GoingToWork (prevents ghost reservations)
