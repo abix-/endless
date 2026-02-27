@@ -101,9 +101,7 @@ pub fn arrival_system(
     mut frame_counter: Local<u32>,
     mut combat_log: MessageWriter<CombatLogMsg>,
     timings: Res<SystemTimings>,
-    mut activity_q: Query<&mut Activity>,
-    home_q: Query<&Home>,
-    assigned_farm_q: Query<&AssignedFarm>,
+    mut npc_q: Query<(Entity, &EntitySlot, &Job, &TownId, &mut Activity, &Home, Option<&AssignedFarm>), (Without<Building>, Without<Dead>)>,
     mut commands: Commands,
 ) {
     let _t = timings.scope("arrival");
@@ -114,52 +112,47 @@ pub fn arrival_system(
     // ========================================================================
     // 1. Proximity-based delivery for all Returning NPCs
     // ========================================================================
-    let returning_slots: Vec<usize> = entity_map.iter_npcs()
-        .filter(|n| !n.dead && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Returning { .. })))
-        .map(|n| n.slot)
-        .collect();
-
-    for slot in returning_slots {
-        let Some(npc) = entity_map.get_npc(slot) else { continue };
-        let loot = match activity_q.get(npc.entity).ok().as_deref() {
-            Some(Activity::Returning { loot }) => loot.clone(),
+    // Collect (slot, entity, loot, home, town_idx) for returning NPCs near home.
+    let mut deliveries: Vec<(usize, Entity, Vec<(ItemKind, i32)>, usize)> = Vec::new();
+    for (entity, slot, _job, town_id, activity, home, _farm) in npc_q.iter() {
+        let loot = match &*activity {
+            Activity::Returning { loot } => loot,
             _ => continue,
         };
-        let idx = npc.slot;
+        let idx = slot.0;
         if idx * 2 + 1 >= positions.len() { continue; }
         let x = positions[idx * 2];
         let y = positions[idx * 2 + 1];
-        let home = home_q.get(npc.entity).map(|h| h.0).unwrap_or(Vec2::ZERO);
-        let town_idx = npc.town_idx as usize;
-        let dx = x - home.x;
-        let dy = y - home.y;
+        let dx = x - home.0.x;
+        let dy = y - home.0.y;
         let dist = (dx * dx + dy * dy).sqrt();
-
         if dist <= DELIVERY_RADIUS {
-            for &(item, amount) in &loot {
-                if amount <= 0 { continue; }
-                match item {
-                    ItemKind::Food => {
-                        if town_idx < economy.food_storage.food.len() {
-                            economy.food_storage.food[town_idx] += amount;
-                        }
-                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
-                            format!("Delivered {} food", amount));
+            deliveries.push((idx, entity, loot.clone(), town_id.0 as usize));
+        }
+    }
+
+    for (idx, entity, loot, town_idx) in deliveries {
+        for &(item, amount) in &loot {
+            if amount <= 0 { continue; }
+            match item {
+                ItemKind::Food => {
+                    if town_idx < economy.food_storage.food.len() {
+                        economy.food_storage.food[town_idx] += amount;
                     }
-                    ItemKind::Gold => {
-                        if town_idx < economy.gold_storage.gold.len() {
-                            economy.gold_storage.gold[town_idx] += amount;
-                        }
-                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
-                            format!("Delivered {} gold", amount));
+                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
+                        format!("Delivered {} food", amount));
+                }
+                ItemKind::Gold => {
+                    if town_idx < economy.gold_storage.gold.len() {
+                        economy.gold_storage.gold[town_idx] += amount;
                     }
+                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
+                        format!("Delivered {} gold", amount));
                 }
             }
-            if let Some(npc) = entity_map.get_npc(slot) {
-                if let Ok(mut act) = activity_q.get_mut(npc.entity) {
-                    *act = Activity::Idle;
-                }
-            }
+        }
+        if let Ok((_, _, _, _, mut act, _, _)) = npc_q.get_mut(entity) {
+            *act = Activity::Idle;
         }
     }
 
@@ -169,18 +162,18 @@ pub fn arrival_system(
     *frame_counter = frame_counter.wrapping_add(1);
     let frame_slot = *frame_counter % 30;
 
-    let farmer_slots: Vec<(usize, usize, Entity)> = entity_map.iter_npcs()
-        .filter(|n| !n.dead
-            && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Working))
-            && assigned_farm_q.get(n.entity).is_ok()
-            && (n.slot as u32) % 30 == frame_slot)
-        .map(|n| (n.slot, assigned_farm_q.get(n.entity).unwrap().0, n.entity))
+    let farmer_slots: Vec<(Entity, usize, usize)> = npc_q.iter()
+        .filter(|(_, slot, _job, _, activity, _, farm)| {
+            matches!(&**activity, Activity::Working)
+                && farm.is_some()
+                && (slot.0 as u32) % 30 == frame_slot
+        })
+        .map(|(entity, slot, _, _, _, _, farm)| (entity, slot.0, farm.unwrap().0))
         .collect();
 
-    for (slot, farm_slot, entity) in farmer_slots {
+    for (entity, slot, farm_slot) in farmer_slots {
         let Some(farm_pos) = entity_map.get_instance(farm_slot).map(|i| i.position) else { continue };
-        let Some(npc) = entity_map.get_npc(slot) else { continue };
-        let idx = npc.slot;
+        let idx = slot;
         if idx * 2 + 1 >= positions.len() { continue; }
         let current = Vec2::new(positions[idx * 2], positions[idx * 2 + 1]);
 
@@ -194,19 +187,20 @@ pub fn arrival_system(
             if food > 0 { Some((food, inst.harvest_log_msg(food))) } else { None }
         });
         if let Some((food, log_msg)) = harvest_result {
-            let Some(npc) = entity_map.get_npc(slot) else { continue };
-            let fac = world_data.towns.get(npc.town_idx as usize).map(|t| t.faction).unwrap_or(0);
-            let job = npc.job;
-            let town_idx = npc.town_idx;
-            let home = home_q.get(npc.entity).map(|h| h.0).unwrap_or(Vec2::ZERO);
+            // Read NPC data from query
+            let Ok((_, _, job, town_id, _, home, _)) = npc_q.get(entity) else { continue };
+            let fac = world_data.towns.get(town_id.0 as usize).map(|t| t.faction).unwrap_or(0);
+            let job_val = *job;
+            let town_idx = town_id.0;
+            let home_pos = home.0;
             combat_log.write(CombatLogMsg { kind: CombatEventKind::Harvest, faction: fac, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: log_msg, location: None });
             entity_map.release(farm_slot);
-            pop_dec_working(&mut economy.pop_stats, job, town_idx);
+            pop_dec_working(&mut economy.pop_stats, job_val, town_idx);
             commands.entity(entity).remove::<AssignedFarm>();
-            if let Ok(mut act) = activity_q.get_mut(entity) {
+            if let Ok((_, _, _, _, mut act, _, _)) = npc_q.get_mut(entity) {
                 *act = Activity::Returning { loot: vec![(ItemKind::Food, food)] };
             }
-            submit_intent(&mut intents, entity, home.x, home.y, MovementPriority::JobRoute, "arrival:harvest_return");
+            submit_intent(&mut intents, entity, home_pos.x, home_pos.y, MovementPriority::JobRoute, "arrival:harvest_return");
             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested -> Carrying home");
         }
     }
@@ -306,6 +300,7 @@ pub fn decision_system(
     mut npc_state: DecisionNpcState,
     mut npc_data: NpcDataQueries,
     mut commands: Commands,
+    decision_npc_q: Query<(Entity, &EntitySlot, &Job, &TownId, &Faction), (Without<Building>, Without<Dead>)>,
 ) {
     let _t = extras.timings.scope("decision");
     let profiling = extras.timings.enabled;
@@ -341,22 +336,15 @@ pub fn decision_system(
     let mut n_transit_skip: u32 = 0;
     let mut n_total: u32 = 0;
 
-    let npc_slots: Vec<usize> = entity_map.iter_npcs()
-        .filter(|n| !n.dead)
-        .map(|n| n.slot)
-        .collect();
-
-    for slot in npc_slots {
-        let Some(npc_ref) = entity_map.get_npc(slot) else { continue };
-        let entity = npc_ref.entity;
-        let idx = npc_ref.slot;
-        let job = npc_ref.job;
+    for (entity, slot, job, town_id, faction) in decision_npc_q.iter() {
+        let idx = slot.0;
+        let job = *job;
+        let town_idx_i32 = town_id.0;
+        let faction_i32 = faction.0;
         let mut energy = npc_state.energy_q.get(entity).map(|e| e.0).unwrap_or(100.0);
         let health = npc_state.health_q.get(entity).map(|h| h.0).unwrap_or(100.0);
         let home = npc_data.home_q.get(entity).map(|h| h.0).unwrap_or(Vec2::ZERO);
         let personality = npc_data.personality_q.get(entity).cloned().unwrap_or_default();
-        let town_idx_i32 = npc_ref.town_idx;
-        let faction_i32 = npc_ref.faction;
         let mut activity = npc_state.activity_q.get(entity).map(|a| a.clone()).unwrap_or_default();
         let mut combat_state = npc_state.combat_state_q.get(entity).map(|cs| cs.clone()).unwrap_or_default();
         let mut at_destination = npc_state.npc_flags_q.get(entity).map(|f| f.at_destination).unwrap_or(false);
@@ -370,7 +358,6 @@ pub fn decision_system(
         let has_patrol = npc_data.patrol_route_q.get(entity).is_ok();
         let mut patrol_current = npc_data.patrol_route_q.get(entity).ok().map(|r| r.current).unwrap_or(0);
         let patrol_posts = npc_data.patrol_route_q.get(entity).ok().map(|r| r.posts.clone()).unwrap_or_default();
-        let _ = npc_ref;
 
         npc_logs.set_slot_faction(idx, faction_i32);
         let max_hp = if max_hp > 0.0 { max_hp } else { 100.0 };
@@ -1281,19 +1268,14 @@ pub fn decision_system(
 /// Increment OnDuty tick counters (runs every frame for guards at posts).
 /// Separated from decision_system because we need mutable Activity access.
 pub fn on_duty_tick_system(
-    entity_map: Res<EntityMap>,
-    mut activity_q: Query<&mut Activity>,
-    combat_state_q: Query<&CombatState>,
+    mut q: Query<(&mut Activity, &CombatState), (Without<Building>, Without<Dead>)>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("on_duty_tick");
-    for npc in entity_map.iter_npcs() {
-        if npc.dead { continue; }
-        if combat_state_q.get(npc.entity).is_ok_and(|cs| cs.is_fighting()) { continue; }
-        if let Ok(mut act) = activity_q.get_mut(npc.entity) {
-            if let Activity::OnDuty { ticks_waiting } = act.as_mut() {
-                *ticks_waiting += 1;
-            }
+    for (mut activity, combat_state) in q.iter_mut() {
+        if combat_state.is_fighting() { continue; }
+        if let Activity::OnDuty { ticks_waiting } = activity.as_mut() {
+            *ticks_waiting += 1;
         }
     }
 }
@@ -1306,6 +1288,7 @@ pub fn rebuild_patrol_routes_system(
     timings: Res<SystemTimings>,
     mut patrol_route_q: Query<&mut PatrolRoute>,
     mut commands: Commands,
+    patrol_npc_q: Query<(Entity, &EntitySlot, &Job, &TownId), (Without<Building>, Without<Dead>)>,
 ) {
     let _t = timings.scope("rebuild_patrol_routes");
     if patrols_dirty.read().count() == 0 { return; }
@@ -1319,15 +1302,15 @@ pub fn rebuild_patrol_routes_system(
         if let Some(inst) = entity_map.get_instance_mut(sb) { inst.patrol_order = order_a; }
     }
 
-    // Collect patrol unit slots + towns (immutable phase)
-    let patrol_slots: Vec<(usize, i32)> = entity_map.iter_npcs()
-        .filter(|n| !n.dead && n.job.is_patrol_unit())
-        .map(|n| (n.slot, n.town_idx))
+    // Collect patrol unit slots + towns via ECS query
+    let patrol_slots: Vec<(Entity, usize, i32)> = patrol_npc_q.iter()
+        .filter(|(_, _, job, _)| job.is_patrol_unit())
+        .map(|(entity, slot, _, town)| (entity, slot.0, town.0))
         .collect();
 
     // Build routes once per town (immutable entity_map access for building queries)
     let mut town_routes: std::collections::HashMap<u32, Vec<Vec2>> = std::collections::HashMap::new();
-    for &(_, town_idx) in &patrol_slots {
+    for &(_, _, town_idx) in &patrol_slots {
         let tid = town_idx as u32;
         town_routes.entry(tid).or_insert_with(|| {
             crate::systems::spawn::build_patrol_route(&entity_map, tid)
@@ -1335,16 +1318,15 @@ pub fn rebuild_patrol_routes_system(
     }
 
     // Write routes back via ECS
-    for (slot, town_idx) in patrol_slots {
+    for (entity, _slot, town_idx) in patrol_slots {
         let tid = town_idx as u32;
         let Some(new_posts) = town_routes.get(&tid) else { continue };
         if new_posts.is_empty() { continue; }
-        let Some(npc) = entity_map.get_npc(slot) else { continue };
-        if let Ok(mut route) = patrol_route_q.get_mut(npc.entity) {
+        if let Ok(mut route) = patrol_route_q.get_mut(entity) {
             if route.current >= new_posts.len() { route.current = 0; }
             route.posts = new_posts.clone();
         } else {
-            commands.entity(npc.entity).insert(PatrolRoute { posts: new_posts.clone(), current: 0 });
+            commands.entity(entity).insert(PatrolRoute { posts: new_posts.clone(), current: 0 });
         }
     }
 }

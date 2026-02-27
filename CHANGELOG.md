@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-27d
+
+- **query-first migration: eliminate iter_npcs() + Query.get() in runtime systems** — converted 10 hot-path systems from `entity_map.iter_npcs()` HashMap scan + per-entity `Query.get()` to Bevy query-first iteration with `Without<Building>, Without<Dead>` filters: on_duty_tick, starvation, ai_squad_commander, rebuild_patrol_routes, arrival, squad_cleanup (recruit pool), box_select, attack, healing, decision; each system declares a focused per-system query with only needed columns; EntityMap retained for keyed/spatial lookups (building instances, occupancy, slot→entity bridging); AttackQueries SystemParam slimmed to 2 mutable queries (CombatState, AttackTimer) with separate read-only NPC query; decision_system outer loop uses query iteration but retains DecisionNpcState `get_mut(entity)` for mutable per-entity access (clone/writeback removal is Phase 2); game_hud and death detection left unchanged due to SystemParam borrow conflicts
+
 ## 2026-02-27c
 
 - **ECS migration slice D: economy + AI + save/load + GPU + UI → ECS, NpcInstance deleted** — replaced 40-field NpcInstance with 6-field NpcEntry (slot, entity, job, faction, town_idx, dead); moved remaining fields to ECS components: Personality, Home, PatrolRoute, WorkPosition, AssignedFarm, CarriedGold, EquippedWeapon/Helmet/Armor, LeashRange, Stealer, HasEnergy; NpcFlags.migrating replaces NpcInstance.migrating; is_military/is_stealer replaced with Job::is_military()/Job::Raider checks; added SaveNpcQueries SystemParam bundle for save/autosave; extended BuildingInspectorData with 7 ECS queries; extended MigrationResources with NpcFlags + Home queries; EntityMap is now index-only for NPCs (slot↔Entity, npc_by_town, grid, spatial)

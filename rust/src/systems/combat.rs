@@ -11,10 +11,6 @@ use crate::world::{WorldData, BuildingKind, is_alive};
 /// ECS queries for attack_system (bundled to stay under 16-param limit).
 #[derive(bevy::ecs::system::SystemParam)]
 pub struct AttackQueries<'w, 's> {
-    pub manual_target_q: Query<'w, 's, &'static ManualTarget>,
-    pub squad_id_q: Query<'w, 's, &'static SquadId>,
-    pub activity_q: Query<'w, 's, &'static Activity>,
-    pub cached_stats_q: Query<'w, 's, &'static CachedStats>,
     pub combat_state_q: Query<'w, 's, &'static mut CombatState>,
     pub timer_q: Query<'w, 's, &'static mut AttackTimer>,
 }
@@ -67,6 +63,9 @@ pub fn attack_system(
     squad_state: Res<crate::resources::SquadState>,
     mut commands: Commands,
     mut aq: AttackQueries,
+    npc_q: Query<(Entity, &EntitySlot, &Job, &Faction, &CachedStats, &Activity,
+                  Option<&SquadId>, Option<&ManualTarget>),
+                 (Without<Building>, Without<Dead>)>,
 ) {
     let _t = timings.scope("attack");
     let positions = &gpu_state.positions;
@@ -84,29 +83,23 @@ pub fn attack_system(
     let mut timer_ready_count = 0usize;
     let mut sample_timer = -1.0f32;
 
-    // Collect NPC slots to avoid borrow conflict (need &building from same EntityMap)
-    let npc_slots: Vec<usize> = entity_map.iter_npcs()
-        .filter(|n| !n.dead)
-        .map(|n| n.slot)
-        .collect();
-
-    for slot in npc_slots {
-        // Read NPC data (immutable borrow scope)
-        let (entity, i, cached_range, cached_damage, cached_cooldown, cached_proj_speed, cached_proj_lifetime, faction_id, job, activity_skip, manual_target_clone, squad_id_val, is_fighting) = {
-            let npc = entity_map.get_npc(slot).unwrap();
-            let activity_skip = aq.activity_q.get(npc.entity).is_ok_and(|a| matches!(
-                *a,
-                Activity::Returning { .. } | Activity::GoingToRest | Activity::Resting
-                    | Activity::GoingToHeal | Activity::HealingAtFountain { .. }
-            ));
-            let stats = aq.cached_stats_q.get(npc.entity).unwrap();
-            let is_fighting = aq.combat_state_q.get(npc.entity).is_ok_and(|cs| cs.is_fighting());
-            (npc.entity, npc.slot, stats.range, stats.damage,
-             stats.cooldown, stats.projectile_speed,
-             stats.projectile_lifetime, npc.faction, npc.job,
-             activity_skip, aq.manual_target_q.get(npc.entity).ok().cloned(),
-             aq.squad_id_q.get(npc.entity).ok().map(|s| s.0), is_fighting)
-        };
+    for (entity, slot, job, faction, stats, activity, squad_id_opt, manual_target_opt) in npc_q.iter() {
+        let i = slot.0;
+        let faction_id = faction.0;
+        let job = *job;
+        let cached_range = stats.range;
+        let cached_damage = stats.damage;
+        let cached_cooldown = stats.cooldown;
+        let cached_proj_speed = stats.projectile_speed;
+        let cached_proj_lifetime = stats.projectile_lifetime;
+        let activity_skip = matches!(
+            *activity,
+            Activity::Returning { .. } | Activity::GoingToRest | Activity::Resting
+                | Activity::GoingToHeal | Activity::HealingAtFountain { .. }
+        );
+        let manual_target_clone = manual_target_opt.cloned();
+        let squad_id_val = squad_id_opt.map(|s| s.0);
+        let is_fighting = aq.combat_state_q.get(entity).is_ok_and(|cs| cs.is_fighting());
 
         attackers += 1;
 

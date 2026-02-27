@@ -78,10 +78,11 @@ game_time_system (every frame)
 - Spawn mapping resolved by `world::resolve_spawner_npc()` (single source of truth, takes `&BuildingInstance`): FarmerHome → Farmer (nearest **free** farm via `find_nearest_free`), ArcherHome → Archer (nearest waypoint via `find_location_within_radius`), FighterHome → Fighter (nearest waypoint via `find_location_within_radius`), Tent → Raider (home = tent position), MinerHome → Miner (assigned mine from `BuildingInstance.assigned_mine` if set, otherwise nearest gold mine via `find_nearest_free`). All types look up faction from `world_data.towns[town_idx].faction`. Same function used by `spawn_npcs_from_spawners` for initial NPC spawns.
 
 ### starvation_system
+- Query-first: `(&EntitySlot, &Energy, &CachedStats, &mut NpcFlags)` with `Without<Building>, Without<Dead>` — no `EntityMap` dependency
 - Runs when `game_time.hour_ticked` is true
-- NPCs with `energy <= 0` get `Starving` marker
+- NPCs with `energy <= 0` get `starving` flag set on `NpcFlags`
 - Starving NPCs: speed set to `CachedStats.speed * STARVING_SPEED_MULT` (0.5) via `GpuUpdate::SetSpeed`
-- When energy rises above 0 (eating or resting): `Starving` is cleared, speed restored to `CachedStats.speed`
+- When energy rises above 0 (eating or resting): `starving` is cleared, speed restored to `CachedStats.speed`
 
 ## Farm Growth
 
@@ -235,9 +236,9 @@ Both player build menu and AI player use `building_cost()` for affordability che
 - Message-gated via `MessageReader<SquadsDirtyMsg>` — skips entirely when no squad-relevant changes occurred
 - Signal emitted by: `death_system` (any death), `spawn_npc_system` (archer spawn), left_panel UI (assign/dismiss), save load (`emit_all()`)
 - **Phase 1**: retains only members whose slot is still in `EntityMap` (alive)
-- **Phase 2**: keeps Default Squad (index 0) as live pool of unsquadded player archers (inserts `SquadId(0)`)
+- **Phase 2**: keeps Default Squad (index 0) as live pool of unsquadded player military NPCs (query-first via `(&EntitySlot, &Job, &TownId, Option<&SquadId>)` with `Without<Building>, Without<Dead>`, inserts `SquadId(0)`)
 - **Phase 3**: if `target_size > 0` and `members.len() > target_size`, dismisses excess (removes `SquadId` + `DirectControl` components, pops from members)
-- **Phase 4**: if `target_size > 0` and `members.len() < target_size`, auto-recruits unsquadded player-faction archers (inserts `SquadId`, pushes to members). Pool is shared across squads — earlier squad indices get priority.
+- **Phase 4**: if `target_size > 0` and `members.len() < target_size`, auto-recruits unsquadded player-faction military NPCs from the same query (inserts `SquadId`, pushes to members). Pool is shared across squads — earlier squad indices get priority.
 
 ## Dynamic Raider Town Migration
 

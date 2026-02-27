@@ -10,7 +10,7 @@ use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileD
 
 use crate::gpu::RenderFrameConfig;
 use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab, SystemTimings, EntityMap};
-use crate::components::{ManualTarget, Activity, NpcFlags, SquadId, Position};
+use crate::components::{ManualTarget, Activity, NpcFlags, SquadId, Position, Job, Faction, EntitySlot, Building, Dead};
 use crate::messages::{SelectFactionMsg, TerrainDirtyMsg};
 use crate::settings::UserSettings;
 use crate::world::{WorldData, WorldGrid, BuildingKind, build_tileset, build_building_atlas, build_extras_atlas, TERRAIN_TILES, building_tiles};
@@ -676,7 +676,7 @@ fn box_select_system(
     mut selected_building: ResMut<crate::resources::SelectedBuilding>,
     mut commands: Commands,
     mut npc_flags_q: Query<&mut NpcFlags>,
-    position_q: Query<&Position>,
+    box_npc_q: Query<(&EntitySlot, &Job, &Faction, &Position), (Without<Building>, Without<Dead>)>,
 ) {
     // Don't box-select while building or placing squad targets
     if build_ctx.selected_build.is_some() || squad_state.placing_target { return; }
@@ -722,14 +722,12 @@ fn box_select_system(
                 let max_y = start.y.max(world_pos.y);
 
                 let mut selected_slots: Vec<usize> = Vec::new();
-                for npc in entity_map.iter_npcs() {
-                    if npc.dead { continue; }
-                    if npc.faction != 0 { continue; } // only player NPCs
-                    if !npc.job.is_military() { continue; }
-                    let Some(pos) = position_q.get(npc.entity).ok() else { continue };
+                for (slot, job, faction, pos) in box_npc_q.iter() {
+                    if faction.0 != 0 { continue; } // only player NPCs
+                    if !job.is_military() { continue; }
                     if pos.x < -9000.0 { continue; }
                     if pos.x >= min_x && pos.x <= max_x && pos.y >= min_y && pos.y <= max_y {
-                        selected_slots.push(npc.slot);
+                        selected_slots.push(slot.0);
                     }
                 }
 

@@ -461,8 +461,7 @@ pub fn update_healing_zone_cache(
 /// Sets NpcFlags.healing flag (for gpu.rs visual).
 /// Starving NPCs are capped at 50% HP.
 pub fn healing_system(
-    entity_map: Res<EntityMap>,
-    mut npc_q: Query<(&EntitySlot, &mut Health, &CachedStats, &mut NpcFlags), Without<Building>>,
+    mut npc_q: Query<(&EntitySlot, &mut Health, &CachedStats, &mut NpcFlags, &Faction), (Without<Building>, Without<Dead>)>,
     mut building_query: Query<(&EntitySlot, &mut Health, &Faction, &Building), Without<Dead>>,
     gpu_state: Res<GpuReadState>,
     entity_gpu_state: Res<crate::gpu::EntityGpuState>,
@@ -483,12 +482,9 @@ pub fn healing_system(
     let mut in_zone_count = 0usize;
     let mut healed_count = 0usize;
 
-    for npc in entity_map.iter_npcs() {
-        if npc.dead { continue; }
-        let idx = npc.slot;
+    for (slot, mut health, cached, mut flags, faction) in npc_q.iter_mut() {
+        let idx = slot.0;
         npcs_checked += 1;
-
-        let Ok((_, mut health, cached, mut flags)) = npc_q.get_mut(npc.entity) else { continue };
 
         // Calculate effective HP cap (50% if starving)
         let hp_cap = if flags.starving {
@@ -513,7 +509,7 @@ pub fn healing_system(
         // Faction-indexed zone lookup: only check same-faction zones, dist² (no sqrt)
         let mut in_healing_zone = false;
         let mut zone_heal_rate = 0.0;
-        let zones = cache.by_faction.get(npc.faction as usize).map(|v| v.as_slice()).unwrap_or(&[]);
+        let zones = cache.by_faction.get(faction.0 as usize).map(|v| v.as_slice()).unwrap_or(&[]);
         for zone in zones {
             let dx = x - zone.center.x;
             let dy = y - zone.center.y;

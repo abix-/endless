@@ -179,7 +179,7 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 ## Systems
 
 ### decision_system (Unified Priority Cascade)
-- Iterates `EntityMap.iter_npcs()` for slot→entity mapping, reads/writes NPC state via ECS queries (`DecisionNpcState` + `NpcDataQueries` SystemParam bundles). Skips `direct_control` NPCs entirely, skips NPCs in transit (`activity.is_transit()`). Optional components (`AssignedFarm`, `WorkPosition`) managed via `commands.entity().insert()/remove()`
+- Iterates a focused ECS query `(Entity, &EntitySlot, &Job, &TownId, &Faction)` with `Without<Building>, Without<Dead>` filters for the outer NPC loop. Reads/writes mutable NPC state via `DecisionNpcState` + `NpcDataQueries` SystemParam bundles (`get_mut(entity)` per NPC). Skips `direct_control` NPCs entirely, skips NPCs in transit (`activity.is_transit()`). Optional components (`AssignedFarm`, `WorkPosition`) managed via `commands.entity().insert()/remove()`. `EntityMap` retained for building instance lookups (farms, waypoints, mines, occupancy)
 - Uses **SystemParam bundles** for farm and economy parameters (see Overview)
 - Reads `NpcDecisionConfig.interval` for Tier 3 bucket count (`interval × 60fps`)
 - Three-tier throttling: arrivals every frame, combat every 8 frames, decisions bucketed by interval
@@ -239,9 +239,8 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 - **Decision logging**: Each decision logged to `NpcLogCache`
 
 ### on_duty_tick_system
-- Query: NPCs with `Activity::OnDuty { ticks_waiting }` where `CombatState` is not Fighting
-- Increments `ticks_waiting` each frame
-- Separated from decision_system to allow mutable Activity access while main query has immutable view
+- Query-first: `(&mut Activity, &CombatState)` with `Without<Building>, Without<Dead>` — no `EntityMap` dependency
+- Increments `ticks_waiting` each frame for NPCs with `Activity::OnDuty` where `CombatState` is not Fighting
 
 ### arrival_system (Proximity Checks)
 - **Proximity-based delivery** for Returning NPCs: matches `Activity::Returning { .. }`, checks distance to home, delivers food and/or gold within DELIVERY_RADIUS (50px). All NPCs (including farmers) go `Idle` after delivery — the decision system re-evaluates the best target. Gold delivered to `GoldStorage` per town.
@@ -259,7 +258,7 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 - All state transitions (wake-up, stop working) are handled in decision_system to keep decisions centralized
 
 ### healing_system
-- Iterates `EntityMap.iter_npcs()` for slot→entity mapping — reads position, faction, town_idx from NpcEntry; health, cached_stats from ECS queries
+- Query-first: `(&EntitySlot, &mut Health, &CachedStats, &mut NpcFlags, &Faction)` with `Without<Building>, Without<Dead>` — no `EntityMap` dependency
 - Reads town centers from `WorldData`
 - All settlements (villager and raider) are Town entries with faction (unified town model)
 - If NPC within `HEAL_RADIUS` (150px) of same-faction town center: heal `HEAL_RATE` (5 HP/sec)
@@ -315,7 +314,7 @@ Military unit groups for both player and AI. 10 player-reserved squads + AI squa
 
 **Raider behavior**: Raiders are squad-driven — if assigned to a squad with a target, the squad sync block redirects them. Raiders without a squad wander near their town. Raider attacks run through the AI squad commander wave cycle.
 
-**Recruitment**: `squad_cleanup_system` iterates `EntityMap.iter_npcs()` filtering alive military NPCs without `squad_id`. Player squads recruit from player-town units; AI squads recruit from their owner town's units. "Dismiss All" clears `squad_id` from all squad members — units resume normal behavior.
+**Recruitment**: `squad_cleanup_system` uses a focused ECS query `(&EntitySlot, &Job, &TownId, Option<&SquadId>)` with `Without<Building>, Without<Dead>` for recruit pool discovery. Player squads recruit from player-town units; AI squads recruit from their owner town's units. "Dismiss All" clears `squad_id` from all squad members — units resume normal behavior.
 
 **Death cleanup**: `squad_cleanup_system` (Step::Behavior) removes dead NPC slots from `Squad.members` by checking `EntityMap`.
 

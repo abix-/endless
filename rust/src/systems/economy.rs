@@ -172,31 +172,24 @@ pub fn raider_forage_system(
 /// Starving NPCs have 50% speed.
 pub fn starvation_system(
     game_time: Res<GameTime>,
-    entity_map: Res<EntityMap>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     timings: Res<SystemTimings>,
-    energy_q: Query<&crate::components::Energy>,
-    cached_stats_q: Query<&crate::components::CachedStats>,
-    mut npc_flags_q: Query<&mut crate::components::NpcFlags>,
+    mut q: Query<(&EntitySlot, &Energy, &CachedStats, &mut NpcFlags), (Without<Building>, Without<Dead>)>,
 ) {
     let _t = timings.scope("starvation");
     if !game_time.hour_ticked {
         return;
     }
 
-    for npc in entity_map.iter_npcs() {
-        if npc.dead { continue; }
-        let energy = energy_q.get(npc.entity).map(|e| e.0).unwrap_or(100.0);
-        let cached_speed = cached_stats_q.get(npc.entity).map(|s| s.speed).unwrap_or(100.0);
-        let Ok(mut flags) = npc_flags_q.get_mut(npc.entity) else { continue };
-        if energy <= 0.0 {
+    for (slot, energy, cached, mut flags) in q.iter_mut() {
+        if energy.0 <= 0.0 {
             if !flags.starving {
                 flags.starving = true;
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: npc.slot, speed: cached_speed * STARVING_SPEED_MULT }));
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: slot.0, speed: cached.speed * STARVING_SPEED_MULT }));
             }
         } else if flags.starving {
             flags.starving = false;
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: npc.slot, speed: cached_speed }));
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: slot.0, speed: cached.speed }));
         }
     }
 }
@@ -416,6 +409,7 @@ pub fn squad_cleanup_system(
     mut commands: Commands,
     squad_id_q: Query<&SquadId>,
     mut npc_flags_q: Query<&mut NpcFlags>,
+    recruit_q: Query<(&EntitySlot, &Job, &TownId, Option<&SquadId>), (Without<Building>, Without<Dead>)>,
 ) {
     let _t = timings.scope("squad_cleanup");
     if squads_dirty.read().count() == 0 { return; }
@@ -434,16 +428,17 @@ pub fn squad_cleanup_system(
     // Phase 2: keep Default Squad (index 0) as the live pool of unsquadded player military units.
     if let Some(default_squad) = squad_state.squads.get_mut(0) {
         if default_squad.is_player() {
-            let new_members: Vec<usize> = entity_map.iter_npcs()
-                .filter(|n| !n.dead && n.job.is_military() && n.town_idx == player_town
-                    && !pending_squad.get(&n.slot).map(|v| v.is_some()).unwrap_or_else(|| squad_id_q.get(n.entity).is_ok()))
-                .map(|n| n.slot)
+            let new_members: Vec<(usize, Entity)> = recruit_q.iter()
+                .filter(|(slot, job, town_id, sq_id)| {
+                    job.is_military() && town_id.0 == player_town
+                        && !pending_squad.get(&slot.0).map(|v| v.is_some()).unwrap_or(sq_id.is_some())
+                })
+                .map(|(slot, _, _, _)| slot.0)
+                .filter_map(|slot| entity_map.entities.get(&slot).map(|&e| (slot, e)))
                 .collect();
-            for slot in new_members {
-                if let Some(&entity) = entity_map.entities.get(&slot) {
-                    commands.entity(entity).insert(SquadId(0));
-                    pending_squad.insert(slot, Some(0));
-                }
+            for (slot, entity) in new_members {
+                commands.entity(entity).insert(SquadId(0));
+                pending_squad.insert(slot, Some(0));
                 if !default_squad.members.contains(&slot) {
                     default_squad.members.push(slot);
                 }
@@ -478,11 +473,12 @@ pub fn squad_cleanup_system(
 
     // Build per-owner pools: group available (unsquadded) military units by town.
     let mut pool_by_town: HashMap<i32, Vec<usize>> = HashMap::new();
-    for npc in entity_map.iter_npcs() {
-        let eff_has_squad = pending_squad.get(&npc.slot).map(|v| v.is_some()).unwrap_or_else(|| squad_id_q.get(npc.entity).is_ok());
-        if npc.dead || !npc.job.is_military() || eff_has_squad { continue; }
-        if assigned_slots.contains(&npc.slot) { continue; }
-        pool_by_town.entry(npc.town_idx).or_default().push(npc.slot);
+    for (slot, job, town_id, sq_id) in recruit_q.iter() {
+        if !job.is_military() { continue; }
+        let eff_has_squad = pending_squad.get(&slot.0).map(|v| v.is_some()).unwrap_or(sq_id.is_some());
+        if eff_has_squad { continue; }
+        if assigned_slots.contains(&slot.0) { continue; }
+        pool_by_town.entry(town_id.0).or_default().push(slot.0);
     }
 
     for (si, squad) in squad_state.squads.iter_mut().enumerate() {

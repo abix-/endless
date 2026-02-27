@@ -121,12 +121,19 @@ for npc in entity_map.iter_npcs() {
 3. Avoid rebuilding the same derived data multiple times in one pass.
 4. Avoid per-item expensive string work (`format!`, allocation-heavy debug text) in hot loops unless debug-gated.
 5. Avoid full-list dedupe scans in overlays/logical render loops when keyed dedupe is possible.
+6. Do not use `entity_map.iter_npcs()` plus per-item ECS `Query.get(...)` in per-frame/per-tick hot loops; use query-first iteration over ECS components instead.
+7. In hot decision/combat loops, avoid clone-local-then-writeback patterns for large component state; mutate query-owned components directly where possible.
+8. Use mutable query types only when mutation is required (`Query<&T>` over `Query<&mut T>` for read-only paths) to reduce borrow/scheduling contention.
 
 ## Common Anti-Patterns and Replacements
 
 - Repeated query lookup:
   - Pattern: call `query.iter().find(...)` multiple times for the same slot/entity in one frame.
   - Replace with: one pre-pass map (`slot -> data`) or one cached lookup result reused in that frame.
+
+- Index scan + component probe in hot loops:
+  - Pattern: `for npc in entity_map.iter_npcs() { query.get(npc.entity) ... }` every frame/tick.
+  - Replace with: query-native iteration using component filters; use `EntityMap` only for keyed/index lookups that queries cannot express efficiently.
 
 - Nested membership checks:
   - Pattern: `for x in A { if B.contains(x) { ... } }` where `B` is `Vec`.
@@ -135,6 +142,10 @@ for npc in entity_map.iter_npcs() {
 - Redundant traversals:
   - Pattern: multiple passes over the same query/collection for related outputs.
   - Replace with: single pass that accumulates all needed outputs.
+
+- Clone + writeback state machine loops:
+  - Pattern: clone multiple components into locals, run logic, then write back all fields for every entity.
+  - Replace with: mutate query-owned fields in place; only clone small immutable data when needed.
 
 - Per-item dedupe scan:
   - Pattern: maintain `Vec` and run `iter().any(...)` for each candidate.
@@ -151,6 +162,8 @@ for npc in entity_map.iter_npcs() {
 3. Flag any repeated scans/membership checks and propose concrete replacement.
 4. Add/adjust microbenchmarks for modified hotspots.
 5. Confirm no new unconditional debug/string work in tight loops.
+6. Confirm no stale architecture comments remain after migration work (comments must match current ownership model).
+7. Confirm read-only systems do not request mutable queries/resources unless needed.
 
 ## Benchmark/Guardrail Expectations
 
@@ -165,3 +178,5 @@ for npc in entity_map.iter_npcs() {
 - Squad/selection flows using `Vec::contains` within nested loops.
 - Overlay target dedupe using per-target linear scans.
 - Cleanup/reassignment systems scanning full queries repeatedly instead of pre-indexing.
+- Decision system still uses clone-local-then-writeback for ~15 component fields per NPC (query-first outer loop eliminates HashMap scan, but inner `get_mut(entity)` random access + clone/writeback remains).
+- `game_hud.rs` and `health.rs` death detection still use `entity_map.iter_npcs()` due to SystemParam borrow conflicts with existing bundles (`BuildingInspectorData`, `DeathResources`).
