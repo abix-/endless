@@ -89,10 +89,11 @@ pub struct DeltaTime(pub f32);
 #[derive(Resource)]
 pub struct NpcDecisionConfig {
     pub interval: f32, // seconds between decision evaluations (default 2.0)
+    pub max_decisions_per_frame: usize, // max Tier 3 decisions per frame (adaptive bucket floor)
 }
 
 impl Default for NpcDecisionConfig {
-    fn default() -> Self { Self { interval: 2.0 } }
+    fn default() -> Self { Self { interval: 2.0, max_decisions_per_frame: 300 } }
 }
 
 /// Unified entity registry — ALL entities (NPCs + buildings) slot→entity mapping,

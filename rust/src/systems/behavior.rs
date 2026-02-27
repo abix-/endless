@@ -351,7 +351,11 @@ pub fn decision_system(
     const FARM_ARRIVAL_RADIUS: f32 = 20.0;
     const HEAL_DRIFT_RADIUS: f32 = 100.0; // Re-target fountain if pushed beyond this
     const COMBAT_INTERVAL: usize = 8; // Tier 2: combat flee/leash every 8 frames (~133ms)
-    let think_buckets = ((npc_config.interval * 60.0) as usize).max(1); // Tier 3: slow decisions
+    // Tier 3: adaptive bucket count — scales with population to cap per-frame decisions
+    let npc_count = entity_map.npc_count();
+    let interval_buckets = (npc_config.interval * 60.0) as usize;
+    let min_buckets = npc_count / npc_config.max_decisions_per_frame.max(1);
+    let think_buckets = interval_buckets.max(min_buckets).max(1);
 
     // Sub-profiling accumulators (zero cost when profiler disabled)
     let mut t_arrival = std::time::Duration::ZERO;
@@ -1439,6 +1443,8 @@ pub fn decision_system(
         t.record("decision/ws_queries", n_ws_queries as f32);
         t.record("decision/ws_fallbacks", n_ws_fallbacks as f32);
         t.record("decision/ws_stale", n_ws_stale as f32);
+        t.record("decision/think_buckets", think_buckets as f32);
+        t.record("decision/npcs_per_bucket", (npc_count as f32) / (think_buckets as f32));
     }
 }
 

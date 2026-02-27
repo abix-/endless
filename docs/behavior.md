@@ -31,14 +31,14 @@ Priority order (first match wins), with three-tier throttling via `NpcDecisionCo
 2. CombatState::Fighting + should_leash? → Leash
 3. CombatState::Fighting → Skip (attack_system handles)
 
-**Tier 3 — bucketed by `NpcDecisionConfig.interval` (default 2s, configurable 0.5-10s):**
+**Tier 3 — adaptive bucketing with frame budget cap:**
 4a. HealingAtFountain + HP >= threshold → Wake (HP-only check)
 4b. Resting + energy >= 90% → Wake (energy-only check)
 5. Working + tired? → Stop work
 6. OnDuty + time_to_patrol? → Patrol
 7. Idle → Score Eat/Rest/Work/Wander (wounded → fountain, tired → home)
 
-Bucketing uses `(idx + frame) % bucket_count` where `bucket_count = interval × 60fps`. With 5100 NPCs at 2s default, only ~42 NPCs evaluate Tier 3 per frame.
+Bucketing uses `(idx + frame) % think_buckets` where `think_buckets = max(interval × 60fps, npc_count / max_decisions_per_frame)`. The adaptive floor ensures per-frame Tier 3 decisions never exceed `max_decisions_per_frame` (default 300) regardless of population. At 50K NPCs: 167 buckets (~300/frame, effective interval ~2.8s). At low NPC counts the interval-based bucket count dominates (same as before).
 
 All checks are **policy-driven per town**. Flee thresholds come from `TownPolicies` resource (indexed by `TownId`), not per-entity `FleeThreshold` components. Raiders use a hardcoded 0.50 threshold. `archer_aggressive` and `farmer_fight_back` policies disable flee entirely for their respective jobs.
 
@@ -180,8 +180,8 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 ### decision_system (Unified Priority Cascade)
 - Iterates a focused ECS query `(Entity, &EntitySlot, &Job, &TownId, &Faction)` with `Without<Building>, Without<Dead>` filters for the outer NPC loop. Reads/writes mutable NPC state via `DecisionNpcState` + `NpcDataQueries` SystemParam bundles (`get_mut(entity)` per NPC). Skips `direct_control` NPCs entirely, skips NPCs in transit (`activity.is_transit()`). Work state managed via always-present `NpcWorkState` component (no `Commands` needed — no archetype churn). Patrol route data read inline at usage sites (no per-NPC Vec clone). **Conditional writeback**: captures original values at loop top, compares at end — only calls `get_mut()` for changed fields (most NPCs exit early via `break 'decide`). `EntityMap` retained for building instance lookups (farms, waypoints, mines, occupancy)
 - Uses **SystemParam bundles** for farm and economy parameters (see Overview)
-- Reads `NpcDecisionConfig.interval` for Tier 3 bucket count (`interval × 60fps`)
-- Three-tier throttling: arrivals every frame, combat every 8 frames, decisions bucketed by interval
+- Reads `NpcDecisionConfig` for Tier 3 bucket count: `max(interval × 60fps, npc_count / max_decisions_per_frame)` — adaptive floor caps per-frame spike at `max_decisions_per_frame` (default 300)
+- Three-tier throttling: arrivals every frame, combat every 8 frames, decisions adaptively bucketed
 - Matches on Activity and CombatState enums in priority order:
 
 **Squad policy hard gate** (before combat, after arrivals):
@@ -342,6 +342,8 @@ Military unit groups for both player and AI. 10 player-reserved squads + AI squa
 | `decision/ws_queries` | `find_nearest_worksite` calls per frame |
 | `decision/ws_fallbacks` | Queries that expanded beyond first cell radius |
 | `decision/ws_stale` | `try_claim_worksite` failures (stale picks) |
+| `decision/think_buckets` | Adaptive bucket count (max of interval-based and budget-based) |
+| `decision/npcs_per_bucket` | NPCs per bucket (npc_count / think_buckets) |
 
 All timers use `Instant::now()` guarded by the `profiling` flag (only measured when profiler enabled in settings).
 

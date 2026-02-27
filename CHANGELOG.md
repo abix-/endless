@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-27m
+
+- **decision-frame budgeting** — adaptive think-bucket count caps Tier 3 NPC decisions at `max_decisions_per_frame` (default 300) regardless of population; `think_buckets = max(interval × 60, npc_count / max_per_frame)` — at 50K NPCs this increases buckets from 120→167 (~300/frame, effective interval ~2.8s); at low counts the interval dominates (no change); new `NpcDecisionConfig.max_decisions_per_frame` field; new profiling counters `decision/think_buckets` and `decision/npcs_per_bucket`
+
 ## 2026-02-27l
 
 - **event-driven visual upload** — `build_visual_upload` no longer rebuilds 100K NPC+building visual/equip buffers every frame; `NpcVisualUpload` is now persistent across frames with only dirty slots updated; new `GpuUpdate::MarkVisualDirty { idx }` variant flows through existing message channel; `EntityGpuState` tracks `visual_dirty_indices` (populated by SetSpriteFrame, SetDamageFlash, Hide, MarkVisualDirty, and flash decay) and `visual_full_rebuild` flag (defaults true for startup/load); full rebuild uses query-first ECS iteration (`Without<Building,Dead>` for NPCs, `With<Building>` for buildings); dirty path uses sort+dedup then EntityMap slot lookup with stale/unmapped slots cleared to sentinels; `Activity::visual_key()` helper distinguishes visual-relevant activity states (Resting, Returning with Gold/Food/empty); decision_system emits dirty only when visual key changes; arrival_system emits dirty on farm delivery; healing_system emits dirty on healing flag toggle; death_system emits dirty on loot drop activity change; expected saving: ~3-7ms/frame at 50K scale in steady state
