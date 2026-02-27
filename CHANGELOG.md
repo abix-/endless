@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-27n
+
+- **comprehensive NPC Copy Debug Info** — added full NpcFlags dump (healing/starving/direct_control/migrating/at_dest), raw Activity debug repr with fields (e.g. `Returning { loot: [(Food, 5)] }`), Returning loot contents, PatrolRoute current/total; replaces individual Starving+DirectControl lines with consolidated Flags line
+
 ## 2026-02-27m
 
 - **decision-frame budgeting** — adaptive think-bucket count caps Tier 3 NPC decisions at `max_decisions_per_frame` (default 300) regardless of population; `think_buckets = max(interval × 60, npc_count / max_per_frame)` — at 50K NPCs this increases buckets from 120→167 (~300/frame, effective interval ~2.8s); at low counts the interval dominates (no change); new `NpcDecisionConfig.max_decisions_per_frame` field; new profiling counters `decision/think_buckets` and `decision/npcs_per_bucket`

@@ -768,6 +768,7 @@ fn inspector_content(
     let mut is_mining_at_mine = false;
 
     let mut carried_loot: Vec<(ItemKind, i32)> = Vec::new();
+    let mut activity_debug = String::new();
     if let Some(npc) = bld_data.entity_map.get_npc(idx) {
         let npc_home = bld_data.home_q.get(npc.entity).map(|h| h.0).unwrap_or(Vec2::ZERO);
         home_pos = Some(npc_home);
@@ -776,6 +777,7 @@ fn inspector_content(
         faction_id = Some(npc.faction);
         let npc_act = bld_data.activity_q.get(npc.entity).ok();
         is_mining_at_mine = npc_act.is_some_and(|a| matches!(*a, Activity::MiningAtMine));
+        activity_debug = npc_act.map(|a| format!("{:?}", &*a)).unwrap_or_default();
 
         if let Some(Activity::Returning { loot }) = npc_act.as_deref() {
             carried_loot = loot.clone();
@@ -916,11 +918,15 @@ fn inspector_content(
                 if bld_data.armor_q.get(npc.entity).is_ok() { equip_parts.push("Armor"); }
                 let equip_str = if equip_parts.is_empty() { "None".to_string() } else { equip_parts.join(" + ") };
                 info.push_str(&format!("{}\n", equip_str));
-                if bld_data.npc_flags_q.get(npc.entity).is_ok_and(|f| f.starving) {
-                    info.push_str("Starving\n");
+                if let Ok(flags) = bld_data.npc_flags_q.get(npc.entity) {
+                    let mut fp: Vec<&str> = Vec::new();
+                    if flags.healing { fp.push("healing"); }
+                    if flags.starving { fp.push("starving"); }
+                    if flags.direct_control { fp.push("direct_control"); }
+                    if flags.migrating { fp.push("migrating"); }
+                    if flags.at_destination { fp.push("at_dest"); }
+                    info.push_str(&format!("Flags: [{}]\n", fp.join(", ")));
                 }
-                let is_dc = bld_data.npc_flags_q.get(npc.entity).is_ok_and(|f| f.direct_control);
-                info.push_str(&format!("DirectControl: {}\n", if is_dc { "ON" } else { "OFF" }));
                 let combat_state_name = bld_data.combat_state_q.get(npc.entity).map(|cs| cs.name()).unwrap_or("Unknown");
                 info.push_str(&format!("CombatState: {}\n", combat_state_name));
                 let manual_target = bld_data.manual_target_q.get(npc.entity).ok();
@@ -960,6 +966,18 @@ fn inspector_content(
                         info.push_str(&format!("Carrying: {} gold\n", gold.0));
                     }
                 }
+                if !carried_loot.is_empty() {
+                    let parts: Vec<String> = carried_loot.iter()
+                        .filter(|(_, a)| *a > 0)
+                        .map(|(k, a)| format!("{} {:?}", a, k))
+                        .collect();
+                    if !parts.is_empty() {
+                        info.push_str(&format!("Loot: {}\n", parts.join(", ")));
+                    }
+                }
+                if let Ok(route) = bld_data.patrol_route_q.get(npc.entity) {
+                    info.push_str(&format!("Patrol: {}/{} posts\n", route.current, route.posts.len()));
+                }
             }
             if meta.town_id >= 0 {
                 if let Some(town) = world_data.towns.get(meta.town_id as usize) {
@@ -968,10 +986,12 @@ fn inspector_content(
             }
             info.push_str(&format!(
                 "Home: {home}  Faction: {faction}\n\
-                 State: {state}\n",
+                 State: {state}\n\
+                 Activity: {activity}\n",
                 home = home_str,
                 faction = faction_str,
                 state = state_str,
+                activity = activity_debug,
             ));
             if meta.town_id >= 0 {
                 if let Some(p) = data.policies.policies.get(meta.town_id as usize) {
