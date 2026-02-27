@@ -183,6 +183,7 @@ pub struct BuildingInspectorData<'w, 's> {
     pub energy_q: Query<'w, 's, &'static Energy>,
     pub personality_q: Query<'w, 's, &'static Personality>,
     pub home_q: Query<'w, 's, &'static Home>,
+    pub work_state_q: Query<'w, 's, &'static NpcWorkState>,
     pub weapon_q: Query<'w, 's, &'static EquippedWeapon>,
     pub helmet_q: Query<'w, 's, &'static EquippedHelmet>,
     pub armor_q: Query<'w, 's, &'static EquippedArmor>,
@@ -930,6 +931,12 @@ fn inspector_content(
                     None => "None".to_string(),
                 };
                 info.push_str(&format!("ManualTarget: {}\n", manual_target_str));
+                if let Ok(ws) = bld_data.work_state_q.get(npc.entity) {
+                    info.push_str(&format!(
+                        "WorkState: occupied_slot={:?} work_target={:?}\n",
+                        ws.occupied_slot, ws.work_target
+                    ));
+                }
                 if let Some(sq) = bld_data.squad_id_q.get(npc.entity).ok().map(|s| s.0) {
                     info.push_str(&format!("Squad: {}\n", sq));
                     let ss = squad_state;

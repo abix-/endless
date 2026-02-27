@@ -480,10 +480,11 @@ pub fn decision_system(
                             .or_else(|| find_within_radius(search_pos, &entity_map, BuildingKind::Farm, FARM_ARRIVAL_RADIUS, town_idx_i32 as u32));
 
                         if let Some((farm_slot, farm_pos)) = target_farm {
-                            let occupied = entity_map.is_occupied(farm_slot);
-                            let mine = assigned_farm == Some(farm_slot);
+                            let occ = entity_map.occupant_count(farm_slot);
+                            let owns = assigned_farm == Some(farm_slot);
+                            let occupied_by_other = if owns { occ > 1 } else { occ >= 1 };
 
-                            if occupied && !mine {
+                            if occupied_by_other {
                                 // Farm already has a farmer — find a free one in own town
                                 if let Some((free_slot, free_pos, radius)) =
                                     find_farmer_farm_target(search_pos, &entity_map, town_idx_i32 as u32)
@@ -512,6 +513,10 @@ pub fn decision_system(
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "All farms occupied -> Idle");
                                 }
                             } else if entity_map.get_instance(farm_slot).is_some() {
+                                if !owns {
+                                    entity_map.claim(farm_slot);
+                                    assigned_farm = Some(farm_slot);
+                                }
                                 // Check if farm is ready — harvest and carry home immediately.
                                 let harvest = entity_map.get_instance_mut(farm_slot).and_then(|inst| {
                                     let food = inst.harvest();
@@ -986,21 +991,52 @@ pub fn decision_system(
         // ====================================================================
         let _ps_wk = if profiling { Some(std::time::Instant::now()) } else { None };
         if matches!(activity, Activity::Working) {
-            // Safety guard: farms are single-worker worksites.
-            // If contention appears (e.g., stale reservations from older state),
-            // release this farmer's claim and force reassignment.
-            if let Some(af) = assigned_farm {
-                if entity_map.occupant_count(af) > 1 {
-                    entity_map.release(af);
-                    assigned_farm = None;
-                    if work_position == Some(af) {
-                        work_position = None;
-                    }
+            // Safety invariant: Working farmer must own a single valid farm reservation.
+            // This self-heals stale state from older saves/logic and prevents multi-worker farms.
+            let current_farm = assigned_farm.or(work_position);
+            let Some(farm_slot) = current_farm else {
+                activity = Activity::Idle;
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Working without farm -> Reassign");
+                if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
+                break 'decide;
+            };
+            let valid_farm = entity_map.get_instance(farm_slot)
+                .is_some_and(|inst| inst.kind == BuildingKind::Farm && inst.town_idx == town_idx_i32 as u32);
+            if !valid_farm {
+                if assigned_farm == Some(farm_slot) {
+                    entity_map.release(farm_slot);
+                }
+                assigned_farm = None;
+                work_position = None;
+                activity = Activity::Idle;
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Working farm invalid -> Reassign");
+                if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
+                break 'decide;
+            }
+            if assigned_farm.is_none() {
+                // If another farmer already owns this farm, don't pile on.
+                if entity_map.occupant_count(farm_slot) >= 1 {
+                    work_position = None;
                     activity = Activity::Idle;
-                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm contention -> Reassign");
+                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Working on foreign reservation -> Reassign");
                     if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
                     break 'decide;
                 }
+                entity_map.claim(farm_slot);
+                assigned_farm = Some(farm_slot);
+            }
+            if entity_map.occupant_count(farm_slot) > 1 {
+                if assigned_farm == Some(farm_slot) {
+                    entity_map.release(farm_slot);
+                }
+                assigned_farm = None;
+                if work_position == Some(farm_slot) {
+                    work_position = None;
+                }
+                activity = Activity::Idle;
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm contention -> Reassign");
+                if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
+                break 'decide;
             }
             let should_stop = if energy < ENERGY_TIRED_THRESHOLD {
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Tired -> Stopped");
@@ -1360,6 +1396,21 @@ pub fn decision_system(
         }
         if let Some(s) = _ps_idle { t_idle += s.elapsed(); n_idle += 1; }
         } // end 'decide block
+
+        // Farmer reservation invariant:
+        // a farm reservation may exist only while actively working or moving to work.
+        // This prevents "ghost reservations" (farm shows occupants=1 with no active farmer).
+        if job == Job::Farmer && assigned_farm.is_some()
+            && !matches!(activity, Activity::Working | Activity::GoingToWork)
+        {
+            if let Some(slot) = assigned_farm.take() {
+                entity_map.release(slot);
+                if work_position == Some(slot) {
+                    work_position = None;
+                }
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Released farm reservation");
+            }
+        }
 
         // Conditional writeback: skip unchanged NPCs (most exit early via break 'decide)
         if std::mem::discriminant(&activity) != orig_activity {

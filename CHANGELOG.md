@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-27h
+
+- **farm reservation lifecycle hardening** — Working farmer safety invariant now validates farm slot existence, kind, town ownership, and occupancy before allowing work; retroactively claims `work_position` if `assigned_farm` is missing; GoingToWork arrival uses `occupant_count` with owner-aware threshold (`>1` if self, `>=1` if other) and claims before harvest check; end-of-decide invariant auto-releases `assigned_farm` for farmers not in Working/GoingToWork (prevents ghost reservations)
+- **remove pre-claim at spawn** — `spawner_respawn_system` and `spawn_npcs_from_spawners` no longer call `entity_map.claim(work_slot)` — farmers self-claim via behavior system, eliminating orphaned reservations from respawned farmers that die before reaching their farm
+- **inspector NpcWorkState debug** — Copy Debug Info now includes `occupied_slot` and `work_target` from NpcWorkState
+
 ## 2026-02-27g
 
 - **farmer local farm targeting** — replaced global `iter_kind_for_town` full-scan and `find_nearest_free` with `find_farmer_farm_target()`: expanding-radius local search (400→6400px, doubling) via `EntityMap.for_each_nearby()` with priority ordering (ready > growth progress > distance); proper `assigned_farm` claim/release lifecycle at every transition point (retarget, harvest, idle, death); farm contention safety guard in Working state ejects farmers when `occupant_count > 1`; removed unused `find_nearest_free` import

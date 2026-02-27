@@ -193,7 +193,7 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
   - `Patrolling` → check squad rest first (tired squad members → `GoingToRest` targeting home instead of `OnDuty`); otherwise `Activity::OnDuty { ticks_waiting: 0 }`
   - `GoingToRest` → `Activity::Resting` (sleep icon derived by `sync_visual_sprites`)
   - `GoingToHeal` → `Activity::HealingAtFountain { recover_until: policy.recovery_hp }` (healing aura handles HP recovery)
-  - `GoingToWork` → Farmer: checks reserved slot (`work_position` or `assigned_farm`) first. If farm occupied by another (not self), retargets via `find_farmer_farm_target()` from search position — releases old `assigned_farm` before claiming new one (or idles if none free). If farm is Ready, harvests and enters `Returning { loot: Food }` (releases claim). If not Ready, claims farm (if not already claimed by self) via `entity_map.claim(slot)` + `NpcWorkState.occupied_slot = Some(slot)` + `Working`.
+  - `GoingToWork` → Farmer: checks reserved slot (`work_position` or `assigned_farm`) first. Uses `occupant_count` with owner-aware logic: if self owns the farm (`assigned_farm == Some(slot)`), contention threshold is `> 1`; otherwise `>= 1`. If occupied by another, retargets via `find_farmer_farm_target()` — releases old `assigned_farm` before claiming new one (or idles if none free). If not occupied by another, claims farm if not already owned, then checks Ready: if Ready, `harvest()` + release claim + `Returning { loot: Food }`. If not Ready, `Working` (tending).
   - `Raiding { .. }` → steal if farm ready, else find a different farm (excludes current position, skips tombstoned); if no other farm exists, return home
   - `Mining { mine_pos }` → find mine at position, check gold > 0 and occupancy < `MAX_MINE_OCCUPANCY`, claim occupancy via `entity_map.claim(slot)`, insert `MiningProgress(0.0)`, set `Activity::MiningAtMine`
   - `Returning { .. }` → if home is valid, redirect to home (may have arrived at wrong place after DC removal); otherwise transition to Idle
@@ -216,7 +216,7 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 - If `Activity::Resting` + energy >= `ENERGY_WAKE_THRESHOLD` (90%): set `Activity::Idle`, proceed to scoring
 
 **Priority 5: Working/Mining progress**
-- **Farm contention guard**: If `Activity::Working` + `assigned_farm` has `occupant_count > 1`, releases claim and forces `Activity::Idle` for reassignment. Catches stale reservations from older state (e.g. save/load).
+- **Farm safety invariant** (Working farmers only, validated before energy check): (1) no farm slot (`assigned_farm` and `work_position` both None) → Idle, (2) farm slot invalid (wrong kind, wrong town, destroyed) → release + Idle, (3) `assigned_farm` is None but `work_position` exists → if farm occupied by another → Idle, else retroactively claim, (4) `occupant_count > 1` → release + Idle (contention from stale state). This self-heals invalid state from older saves or edge cases.
 - If `Activity::Working` + energy < `ENERGY_TIRED_THRESHOLD` (30%): set `Activity::Idle`, release occupancy via `entity_map.release(slot)`, clear `NpcWorkState.occupied_slot`.
 - If `Activity::MiningAtMine`: tick `MiningProgress` by `delta_hours / MINE_WORK_HOURS` (4h cycle). When progress >= 1.0 OR energy < tired threshold: extract gold scaled by progress fraction × `MINE_EXTRACT_PER_CYCLE` × GoldYield upgrade, release occupancy, remove `MiningProgress`, clear `NpcWorkState.work_target`, set `Activity::Returning { loot: [(Gold, extracted)] }`. Gold progress bar rendered overhead via `MinerProgressRender` (atlas_id=6.0, gold color).
 
@@ -341,6 +341,14 @@ Military unit groups for both player and AI. 10 player-reserved squads + AI squa
 | `decision/n_total` | Total NPCs processed per frame |
 
 All timers use `Instant::now()` guarded by the `profiling` flag (only measured when profiler enabled in settings).
+
+## Farm Reservation Lifecycle
+
+Farmer farm reservations (`assigned_farm` / `NpcWorkState.occupied_slot`) follow a strict lifecycle to prevent ghost reservations (farm shows `occupants=1` with no active farmer):
+
+- **Claim**: only in `find_farmer_farm_target()` (idle → work), GoingToWork arrival (unclaimed farm), or Working safety invariant (retroactive claim for `work_position` without `assigned_farm`).
+- **Release**: at every transition out of Working/GoingToWork — retarget, harvest, tired, idle, death. End-of-decide invariant: if a farmer has `assigned_farm` set but activity is not `Working` or `GoingToWork`, the reservation is released automatically.
+- **No pre-claim at spawn**: `spawner_respawn_system` and `spawn_npcs_from_spawners` do not claim farm slots — farmers self-claim via behavior system on first work decision.
 
 ## Known Issues / Limitations
 

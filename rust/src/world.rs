@@ -568,7 +568,6 @@ fn spawn_npcs_from_spawners(
             resolve_spawner_npc(inst, towns, entity_map);
         let pos = inst.position;
         let town_idx = inst.town_idx as i32;
-        if let Some(ws) = work_slot { entity_map.claim(ws); }
         msgs.push(crate::messages::SpawnNpcMsg {
             slot_idx: slot,
             x: pos.x, y: pos.y,
