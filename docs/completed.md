@@ -2,6 +2,13 @@
 
 Completed items moved from roadmap for readability.
 
+### Roadmap Migration (Stage 16 — Scale Remediation)
+- [x] Stage 16 item 1: indexed worksite query — `find_nearest_worksite` with kind-filtered spatial cell-ring expansion, `try_claim_worksite` authoritative claim, farmer/miner migration
+- [x] Stage 16 item 2: slot-indexed occupancy — `BuildingInstance.occupants` replaces `BuildingOccupancy` hash-by-position, `AssignedFarm`/`WorkPosition` store slot instead of Vec2
+- [x] Stage 16 items 5-6: query-first migration — eliminate `iter_npcs()` + `entity_map.get_npc()` HashMap lookups in 10 runtime systems (cooldown, energy, death, behavior, economy, combat, health, render, ai_player)
+- [x] Stage 16 item 8: NpcLogCache filtering — `NpcLogMode` (All/Faction/SelectedOnly) gates per-NPC string work
+- [x] Stage 16 item 9: decision sub-profiling — `decision/squad`, `decision/work` sub-timers, `n_transit_skip` counter, `ws_queries`/`ws_fallbacks`/`ws_stale` worksite instrumentation
+
 ### Roadmap Migration (Stages 16, 16.5 — GPU buildings, messages)
 - [x] Stage 16.5: separate NPC and building GPU buffers (SlotPool extraction, BuildingSlots, BuildingGpuState, instance-buffer building rendering)
 - [x] Stage 16.5: unified entity collision (buildings in GPU spatial grid, projectiles hit buildings, towers target via GPU readback)
@@ -263,6 +270,7 @@ Completed items moved from roadmap for readability.
 - [x] `sleep-visual` — Sleep Icon (3 phases): energy > 0 → rest shows SLEEP_SPRITE → wake clears
 - [x] `farm-visual` — Farm Ready Marker (3 phases): Growing → Ready spawns marker → harvest despawns
 - [x] `heal-visual` — Heal Icon (3 phases): damaged → Healing shows HEAL_SPRITE → healed clears
+- [x] `archer-tent-reliability` — Archer vs Tent Reliability (5 phases): archer acquires enemy tent, shoots projectiles, tent HP drops
 
 ### Data-Driven Stats
 - [x] `CombatConfig` resource with per-job `JobStats` + per-attack-type `AttackTypeStats`

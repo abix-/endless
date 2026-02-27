@@ -69,23 +69,23 @@ Linear scan elimination complete (see [completed.md](completed.md)).
 
 Performance order at 30k NPC + 30k buildings (highest expected savings first):
 
-1. [ ] [Critical] Replace global worksite scans in `decision_system` with indexed nearest lookup (per-kind/per-town candidate sets + bounded/ring spatial search), because current `iter_kind*` and `f32::MAX` nearest queries scale poorly at high building counts.
+1. [x] [Critical] Replace global worksite scans in `decision_system` with indexed nearest lookup (per-kind/per-town candidate sets + bounded/ring spatial search), because current `iter_kind*` and `f32::MAX` nearest queries scale poorly at high building counts.
    Expected saving: ~8-16 ms/frame CPU in busy sim ticks (largest hot-path win).
-2. [ ] [Critical] Move worksite occupancy hot-path from position-hash lookups to slot-indexed occupancy counters, because repeated hash lookups in high-N decision loops add avoidable CPU cost.
+2. [x] [Critical] Move worksite occupancy hot-path from position-hash lookups to slot-indexed occupancy counters, because repeated hash lookups in high-N decision loops add avoidable CPU cost.
    Expected saving: ~2-6 ms/frame CPU when many workers are selecting/revalidating worksites.
 3. [ ] [Critical] `build_visual_upload` triple inefficiency: (a) NPC loop uses `iter_npcs()` HashMap iteration instead of query-first, (b) building backfill scans all 60K entity slots instead of `iter_instances()` (~30K buildings only), (c) fills 1.92M sentinel floats every frame — track `prev_entity_count` and only fill new range.
    Files: `gpu.rs:299-423`. Expected saving: ~3-8 ms/frame CPU at 60K entities.
 4. [ ] [Critical] Per-index dirty tracking for GPU targets buffer: `dirty_targets` triggers 480KB bulk upload every frame when only ~100-500 targets change. Add `target_dirty_indices: Vec<usize>` to `EntityGpuState`, use `write_dirty_f32` instead of `write_bulk` (same pattern as positions/arrivals).
    Files: `gpu.rs` (EntityGpuState + populate_gpu_state), `npc_render.rs:773` (extract). Expected saving: ~2-5 ms/frame GPU bandwidth.
-5. [ ] [High] Remove per-NPC EntityMap HashMap lookups from `cooldown_system` and `energy_system`: both iterate 30K+ entities and do `entity_map.get_npc(slot)` per entity per frame (60K HashMap lookups total). Fix: add `Without<Dead>, Without<Building>` query filters, query `&Activity` directly in energy_system.
+5. [x] [High] Remove per-NPC EntityMap HashMap lookups from `cooldown_system` and `energy_system`: both iterate 30K+ entities and do `entity_map.get_npc(slot)` per entity per frame (60K HashMap lookups total). Fix: add `Without<Dead>, Without<Building>` query filters, query `&Activity` directly in energy_system.
    Files: `combat.rs:19-49`, `energy.rs:15-41`. Expected saving: ~2-4 ms/frame CPU.
-6. [ ] [High] `death_system` double `iter_npcs()` scan: Phase 1a and Phase 2b both do full HashMap iteration (60K iterations/frame even with zero deaths). Fix: query-first for Phase 1a, reuse Phase 1a dead_slots for Phase 2b.
+6. [x] [High] `death_system` double `iter_npcs()` scan: Phase 1a and Phase 2b both do full HashMap iteration (60K iterations/frame even with zero deaths). Fix: query-first for Phase 1a, reuse Phase 1a dead_slots for Phase 2b.
    Files: `health.rs:148-179`. Expected saving: ~1-3 ms/frame CPU.
 7. [ ] [High] Add decision-frame budgeting (max non-combat decisions per frame + adaptive interval by population), because fixed bucketing still allows expensive spikes at large NPC counts.
    Expected saving: ~2-5 ms/frame average and materially lower p95/p99 spikes.
-8. [ ] [High] Gate `NpcLogCache` writes and `format!` churn behind debug/selection/sampling policy, because per-NPC string work in hot loops scales with population.
+8. [x] [High] Gate `NpcLogCache` writes and `format!` churn behind debug/selection/sampling policy, because per-NPC string work in hot loops scales with population.
    Expected saving: ~1-3 ms/frame CPU (higher in debug-heavy sessions).
-9. [ ] [High] Extend decision sub-profiling to cover squad sync, transit gates, and worksite selection scan counts, because current sub-timers under-report where frame time is spent.
+9. [x] [High] Extend decision sub-profiling to cover squad sync, transit gates, and worksite selection scan counts, because current sub-timers under-report where frame time is spent.
    Expected saving: indirect only (enables targeting next 2-10 ms wins), near-zero immediate runtime win.
 10. [ ] [Medium] Add cache-friendly vectors for hot building iteration paths (keep HashMaps as authority, vectors for tight loops), because data locality and branch predictability matter at 10k+ entities.
     Expected saving: ~1-3 ms/frame CPU on building-heavy ticks.
@@ -117,8 +117,6 @@ Performance order at 30k NPC + 30k buildings (highest expected savings first):
     Expected saving: indirect only (prevents regressions, no direct runtime reduction).
 24. [ ] Message signal regression tests: verify `emit_all()` fires on startup/load and drain systems consume correctly.
     Expected saving: correctness only, no direct runtime reduction.
-- [x] Remove linear HP lookup in inspector rendering (`bottom_panel_system`) - replaced by direct `entity_map.get_npc(idx)` lookup.
-
 ECS source-of-truth migration (plan: `~/.claude/plans/prancy-sauteeing-badger.md`):
 
 ECS owns all NPC gameplay state. EntityMap is index-only (slot↔Entity, grid, kind/town/spatial).
@@ -148,10 +146,10 @@ GPU is movement authority; ECS Position is read-model synced in `gpu_position_re
   - Files: resources.rs, spawn.rs, economy.rs, health.rs, stats.rs, ai_player.rs, behavior.rs, gpu.rs, render.rs, save.rs, game_hud.rs, left_panel.rs, + 4 test files
 
 Scale remediation plan (30k NPC + 30k buildings):
-- Items 1-2: Decision system worksite scan + occupancy counter optimization (Critical)
-- Items 3-4: GPU pipeline — visual upload rewrite + targets dirty tracking (Critical)
-- Items 5-6: Eliminate per-NPC HashMap lookups in cooldown/energy/death systems (High)
-- Items 7-9: Decision budgeting + log gating + sub-profiling (High)
+- Items 1-2: Decision system worksite scan + occupancy counter optimization (Critical) — DONE
+- Items 3-4: GPU pipeline — visual upload rewrite + targets dirty tracking (Critical) — next
+- Items 5-6: Eliminate per-NPC HashMap lookups in cooldown/energy/death systems (High) — DONE
+- Items 7-9: Decision budgeting + log gating + sub-profiling (High) — 8-9 done, 7 remaining
 - Items 10-11: Cache-friendly building iteration + healing system pre-filter (Medium)
 SystemParam bundle consolidation:
 Current shared bundles include `DirtyWriters`, `AiDirtyReaders`, and `AiBuildRes`; remaining consolidation work is listed below.
@@ -357,7 +355,7 @@ Sound (bevy_audio) should be woven into stages as they're built - not deferred t
 ## Backlog
 
 ### Bugs
-- [ ] No active roadmap bugs listed right now.
+- [ ] `add_instance` spatial index ordering: `spatial_insert` is called before `instances.insert`, so `spatial_insert`'s `self.instances.get(&slot)` returns `None` — kind-filtered buckets (`spatial_kind_town`, `spatial_kind_cell`, `spatial_bucket_idx`) are never populated for new buildings until `rebuild_spatial()`. Fix: swap insert order in `resources.rs:add_instance`.
 
 ### DRY & Single Source of Truth
 - [x] Centralize world lifecycle startup/load flows to shared helpers (`world::materialize_generated_world`, `save::restore_world_from_save`) so game startup, menu load, in-game load, and AI world-setup tests cannot drift
@@ -397,8 +395,10 @@ Implementation guides for upcoming stages. After delivery, spec content rolls in
 | GPU spatial grid | 10,000+ | — | 140 | [x] |
 | Full game integration | 10,000 | — | 130 | [x] |
 | Max scale tested | 50,000 | — | TBD | [x] buffers sized |
-| HashMap elimination (items 3-6) | 30,000 | 30,000 | 60+ | [ ] next |
-| Decision budgeting (items 1-2, 7) | 30,000 | 30,000 | 60+ | [ ] planned |
+| Worksite indexing + occupancy (items 1-2) | 30,000 | 30,000 | 60+ | [x] done |
+| Query-first + log gating (items 5-6, 8-9) | 30,000 | 30,000 | 60+ | [x] done |
+| GPU pipeline + dirty tracking (items 3-4) | 30,000 | 30,000 | 60+ | [ ] next |
+| Decision budgeting (item 7) | 30,000 | 30,000 | 60+ | [ ] planned |
 | Future (chunked tilemap) | 50,000+ | 50,000+ | 60+ | Planned |
 
 ## References
