@@ -171,9 +171,8 @@ pub fn raider_forage_system(
 /// Only runs when game_time.hour_ticked is true.
 /// Starving NPCs have 50% speed.
 pub fn starvation_system(
-    mut commands: Commands,
     game_time: Res<GameTime>,
-    query: Query<(Entity, &EntitySlot, &Energy, &CachedStats, Option<&Starving>), Without<Dead>>,
+    mut entity_map: ResMut<EntityMap>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     timings: Res<SystemTimings>,
 ) {
@@ -182,17 +181,16 @@ pub fn starvation_system(
         return;
     }
 
-    for (entity, npc_idx, energy, cached, starving) in query.iter() {
-        let idx = npc_idx.0;
-
-        if energy.0 <= 0.0 {
-            if starving.is_none() {
-                commands.entity(entity).insert(Starving);
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx, speed: cached.speed * STARVING_SPEED_MULT }));
+    for npc in entity_map.iter_npcs_mut() {
+        if npc.dead { continue; }
+        if npc.energy <= 0.0 {
+            if !npc.starving {
+                npc.starving = true;
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: npc.slot, speed: npc.cached_stats.speed * STARVING_SPEED_MULT }));
             }
-        } else if starving.is_some() {
-            commands.entity(entity).remove::<Starving>();
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx, speed: cached.speed }));
+        } else if npc.starving {
+            npc.starving = false;
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: npc.slot, speed: npc.cached_stats.speed }));
         }
     }
 }
@@ -404,12 +402,9 @@ pub fn mining_policy_system(
 /// Remove dead NPCs from squad member lists, auto-recruit to target_size,
 /// and dismiss excess if over target. Owner-aware: recruits by TownId match.
 pub fn squad_cleanup_system(
-    mut commands: Commands,
     mut squad_state: ResMut<SquadState>,
-    entity_map: Res<EntityMap>,
-    available_units: Query<(Entity, &EntitySlot, &TownId), (With<SquadUnit>, Without<Dead>, Without<SquadId>)>,
+    mut entity_map: ResMut<EntityMap>,
     world_data: Res<WorldData>,
-    squad_units: Query<(Entity, &EntitySlot, &SquadId), (With<SquadUnit>, Without<Dead>)>,
     timings: Res<SystemTimings>,
     mut squads_dirty: MessageReader<crate::messages::SquadsDirtyMsg>,
 ) {
@@ -419,18 +414,24 @@ pub fn squad_cleanup_system(
 
     // Phase 1: remove dead members (all squads)
     for squad in squad_state.squads.iter_mut() {
-        squad.members.retain(|&slot| entity_map.entities.contains_key(&slot));
+        squad.members.retain(|&slot| {
+            entity_map.get_npc(slot).is_some_and(|n| !n.dead)
+        });
     }
 
     // Phase 2: keep Default Squad (index 0) as the live pool of unsquadded player military units.
-    // Player-only — AI squads handle recruitment via target_size in Phase 4.
     if let Some(default_squad) = squad_state.squads.get_mut(0) {
         if default_squad.is_player() {
-            for (entity, npc_idx, town) in available_units.iter() {
-                if town.0 != player_town { continue; }
-                commands.entity(entity).insert(SquadId(0));
-                if !default_squad.members.contains(&npc_idx.0) {
-                    default_squad.members.push(npc_idx.0);
+            let new_members: Vec<usize> = entity_map.iter_npcs()
+                .filter(|n| !n.dead && n.is_military && n.town_idx == player_town && n.squad_id.is_none())
+                .map(|n| n.slot)
+                .collect();
+            for slot in new_members {
+                if let Some(npc) = entity_map.get_npc_mut(slot) {
+                    npc.squad_id = Some(0);
+                }
+                if !default_squad.members.contains(&slot) {
+                    default_squad.members.push(slot);
                 }
             }
         }
@@ -440,12 +441,11 @@ pub fn squad_cleanup_system(
     for (si, squad) in squad_state.squads.iter_mut().enumerate() {
         if squad.target_size > 0 && squad.members.len() > squad.target_size {
             let to_dismiss: Vec<usize> = squad.members.drain(squad.target_size..).collect();
-            for slot in &to_dismiss {
-                for (entity, npc_idx, sid) in squad_units.iter() {
-                    if npc_idx.0 == *slot && sid.0 == si as i32 {
-                        commands.entity(entity).remove::<SquadId>();
-                        commands.entity(entity).remove::<crate::components::DirectControl>();
-                        break;
+            for &slot in &to_dismiss {
+                if let Some(npc) = entity_map.get_npc_mut(slot) {
+                    if npc.squad_id == Some(si as i32) {
+                        npc.squad_id = None;
+                        npc.direct_control = false;
                     }
                 }
             }
@@ -458,11 +458,11 @@ pub fn squad_cleanup_system(
         .collect();
 
     // Build per-owner pools: group available (unsquadded) military units by town.
-    // Each squad draws from its owner's pool only.
-    let mut pool_by_town: HashMap<i32, Vec<(Entity, usize)>> = HashMap::new();
-    for (entity, npc_idx, town) in available_units.iter() {
-        if assigned_slots.contains(&npc_idx.0) { continue; }
-        pool_by_town.entry(town.0).or_default().push((entity, npc_idx.0));
+    let mut pool_by_town: HashMap<i32, Vec<usize>> = HashMap::new();
+    for npc in entity_map.iter_npcs() {
+        if npc.dead || !npc.is_military || npc.squad_id.is_some() { continue; }
+        if assigned_slots.contains(&npc.slot) { continue; }
+        pool_by_town.entry(npc.town_idx).or_default().push(npc.slot);
     }
 
     for (si, squad) in squad_state.squads.iter_mut().enumerate() {
@@ -476,8 +476,10 @@ pub fn squad_cleanup_system(
             None => continue,
         };
         while squad.members.len() < squad.target_size {
-            if let Some((entity, slot)) = pool.pop() {
-                commands.entity(entity).insert(SquadId(si as i32));
+            if let Some(slot) = pool.pop() {
+                if let Some(npc) = entity_map.get_npc_mut(slot) {
+                    npc.squad_id = Some(si as i32);
+                }
                 squad.members.push(slot);
             } else {
                 break;
@@ -608,7 +610,6 @@ fn pick_settle_site(
 /// Phase 3: NPCs walk toward settle target, attach Migrating
 /// Phase 4: Settle near target — create AI town, place buildings, activate AI
 pub fn endless_system(
-    mut commands: Commands,
     mut endless: ResMut<EndlessMode>,
     mut migration_state: ResMut<MigrationState>,
     mut world_state: WorldState,
@@ -620,7 +621,6 @@ pub fn endless_system(
     time: Res<Time>,
     config: Res<world::WorldGenConfig>,
     mut res: MigrationResources,
-    migrating_query: Query<(Entity, &EntitySlot, &Position), With<Migrating>>,
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     timings: Res<SystemTimings>,
 ) {
@@ -693,14 +693,12 @@ pub fn endless_system(
         }
     }
 
-    // === ATTACH Migrating component to newly spawned members ===
+    // === ATTACH Migrating flag to newly spawned members ===
     if let Some(mg) = &migration_state.active {
         for &slot in &mg.member_slots {
-            if let Some(&entity) = world_state.entity_map.entities.get(&slot) {
-                if migrating_query.get(entity).is_err() {
-                    if let Ok(mut ec) = commands.get_entity(entity) {
-                        ec.insert(Migrating);
-                    }
+            if let Some(npc) = world_state.entity_map.get_npc_mut(slot) {
+                if !npc.migrating {
+                    npc.migrating = true;
                 }
             }
         }
@@ -714,10 +712,10 @@ pub fn endless_system(
         let mut sum_y = 0.0f32;
         let mut count = 0u32;
         for &slot in &mg.member_slots {
-            if let Some(&entity) = world_state.entity_map.entities.get(&slot) {
-                if let Ok((_, _, pos)) = migrating_query.get(entity) {
-                    sum_x += pos.x;
-                    sum_y += pos.y;
+            if let Some(npc) = world_state.entity_map.get_npc(slot) {
+                if npc.migrating && !npc.dead {
+                    sum_x += npc.position.x;
+                    sum_y += npc.position.y;
                     count += 1;
                 }
             }
@@ -776,13 +774,12 @@ pub fn endless_system(
             player.active = true;
         }
 
-        // Settle NPCs: remove Migrating, set Home, update town_idx
+        // Settle NPCs: clear migrating, set home + town_idx
         for &slot in &member_slots {
-            if let Some(&entity) = world_state.entity_map.entities.get(&slot) {
-                if migrating_query.get(entity).is_ok() {
-                    commands.entity(entity).remove::<Migrating>();
-                    commands.entity(entity).insert(Home(mg.settle_target));
-                }
+            if let Some(npc) = world_state.entity_map.get_npc_mut(slot) {
+                npc.migrating = false;
+                npc.home = mg.settle_target;
+                npc.town_idx = town_data_idx as i32;
             }
         }
 

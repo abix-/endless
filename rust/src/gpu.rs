@@ -31,7 +31,7 @@ use bevy::{
 };
 use std::borrow::Cow;
 
-use crate::components::{EntitySlot, Faction, Job, Healing, Activity, EquippedWeapon, EquippedHelmet, EquippedArmor, Dead};
+use crate::components::Activity;
 use crate::constants::{
     FOOD_SPRITE, GOLD_SPRITE, ItemKind, MAX_ENTITIES, MAX_NPC_COUNT,
     MAX_PROJECTILES as MAX_PROJECTILE_COUNT, PROJECTILE_HIT_HALF_LENGTH, PROJECTILE_HIT_HALF_WIDTH,
@@ -300,11 +300,7 @@ pub fn build_visual_upload(
     gpu_state: Res<EntityGpuState>,
     config: Res<RenderFrameConfig>,
     mut upload: ResMut<NpcVisualUpload>,
-    all_npcs: Query<(
-        &EntitySlot, &Faction, &Job, &Activity,
-        Option<&Healing>,
-        Option<&EquippedWeapon>, Option<&EquippedHelmet>, Option<&EquippedArmor>,
-    ), Without<Dead>>,
+    entity_map: Res<crate::resources::EntityMap>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("build_visual_upload");
@@ -316,12 +312,13 @@ pub fn build_visual_upload(
     upload.equip_data.resize(entity_count * 24, -1.0);
 
     // Reset to -1.0 sentinels (phantom slots like waypoints have no ECS entity,
-    // so the all_npcs loop below never overwrites them — shader hides when col < 0)
+    // so the NPC loop below never overwrites them — shader hides when col < 0)
     upload.visual_data[..entity_count * 8].fill(-1.0);
     upload.equip_data[..entity_count * 24].fill(-1.0);
 
-    for (npc_idx, faction, job, activity, healing, weapon, helmet, armor) in all_npcs.iter() {
-        let idx = npc_idx.0;
+    for npc in entity_map.iter_npcs() {
+        if npc.dead { continue; }
+        let idx = npc.slot;
         if idx * 8 + 7 >= upload.visual_data.len() { continue; }
 
         // --- Visual data: [sprite_col, sprite_row, atlas, flash, r, g, b, a] ---
@@ -330,10 +327,10 @@ pub fn build_visual_upload(
         upload.visual_data[base + 1] = gpu_state.sprite_indices.get(idx * 4 + 1).copied().unwrap_or(0.0);
         upload.visual_data[base + 2] = gpu_state.sprite_indices.get(idx * 4 + 2).copied().unwrap_or(0.0);
         upload.visual_data[base + 3] = gpu_state.flash_values.get(idx).copied().unwrap_or(0.0);
-        let (r, g, b, a) = if faction.0 == 0 {
-            job.color()
+        let (r, g, b, a) = if npc.faction == 0 {
+            npc.job.color()
         } else {
-            crate::constants::raider_faction_color(faction.0)
+            crate::constants::raider_faction_color(npc.faction)
         };
         upload.visual_data[base + 4] = r;
         upload.visual_data[base + 5] = g;
@@ -344,28 +341,28 @@ pub fn build_visual_upload(
         let eq = idx * 24;
 
         // Layer 0: Armor
-        let (ac, ar) = armor.map(|a| (a.0, a.1)).unwrap_or((-1.0, 0.0));
+        let (ac, ar) = npc.armor.map(|(c, r)| (c, r)).unwrap_or((-1.0, 0.0));
         upload.equip_data[eq]     = ac;
         upload.equip_data[eq + 1] = ar;
         upload.equip_data[eq + 2] = 0.0;
         upload.equip_data[eq + 3] = 0.0;
 
         // Layer 1: Helmet
-        let (hc, hr) = helmet.map(|h| (h.0, h.1)).unwrap_or((-1.0, 0.0));
+        let (hc, hr) = npc.helmet.map(|(c, r)| (c, r)).unwrap_or((-1.0, 0.0));
         upload.equip_data[eq + 4] = hc;
         upload.equip_data[eq + 5] = hr;
         upload.equip_data[eq + 6] = 0.0;
         upload.equip_data[eq + 7] = 0.0;
 
         // Layer 2: Weapon
-        let (wc, wr) = weapon.map(|w| (w.0, w.1)).unwrap_or((-1.0, 0.0));
+        let (wc, wr) = npc.weapon.map(|(c, r)| (c, r)).unwrap_or((-1.0, 0.0));
         upload.equip_data[eq + 8] = wc;
         upload.equip_data[eq + 9] = wr;
         upload.equip_data[eq + 10] = 0.0;
         upload.equip_data[eq + 11] = 0.0;
 
         // Layer 3: Item (carried loot — gold takes display priority)
-        let (ic, ir, ia) = if let Activity::Returning { loot } = activity {
+        let (ic, ir, ia) = if let Activity::Returning { loot } = &npc.activity {
             if loot.iter().any(|(k, a)| *k == ItemKind::Gold && *a > 0) {
                 (GOLD_SPRITE.0, GOLD_SPRITE.1, 1.0)
             } else if loot.iter().any(|(k, a)| *k == ItemKind::Food && *a > 0) {
@@ -382,7 +379,7 @@ pub fn build_visual_upload(
         upload.equip_data[eq + 15] = 0.0;
 
         // Layer 4: Status (sleep icon)
-        let (sc, sr, sa) = if matches!(activity, Activity::Resting) {
+        let (sc, sr, sa) = if matches!(npc.activity, Activity::Resting) {
             (0.0, 0.0, 3.0)
         } else {
             (-1.0, 0.0, 0.0)
@@ -393,7 +390,7 @@ pub fn build_visual_upload(
         upload.equip_data[eq + 19] = 0.0;
 
         // Layer 5: Healing (heal halo)
-        let (hlc, hla) = if healing.is_some() { (0.0, 2.0) } else { (-1.0, 0.0) };
+        let (hlc, hla) = if npc.healing { (0.0, 2.0) } else { (-1.0, 0.0) };
         upload.equip_data[eq + 20] = hlc;
         upload.equip_data[eq + 21] = 0.0;
         upload.equip_data[eq + 22] = hla;

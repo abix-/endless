@@ -13,7 +13,7 @@ use crate::world::{WorldData, BuildingKind, is_alive};
 pub fn cooldown_system(
     time: Res<Time>,
     game_time: Res<GameTime>,
-    mut query: Query<&mut AttackTimer>,
+    mut entity_map: ResMut<EntityMap>,
     mut debug: ResMut<CombatDebug>,
     timings: Res<SystemTimings>,
 ) {
@@ -23,14 +23,15 @@ pub fn cooldown_system(
     let mut first_timer_before = -99.0f32;
     let mut timer_count = 0usize;
 
-    for mut timer in query.iter_mut() {
+    for npc in entity_map.iter_npcs_mut() {
+        if npc.dead { continue; }
         if timer_count == 0 {
-            first_timer_before = timer.0;
+            first_timer_before = npc.attack_timer;
         }
         timer_count += 1;
 
-        if timer.0 > 0.0 {
-            timer.0 = (timer.0 - dt).max(0.0);
+        if npc.attack_timer > 0.0 {
+            npc.attack_timer = (npc.attack_timer - dt).max(0.0);
         }
     }
 
@@ -42,18 +43,16 @@ pub fn cooldown_system(
 /// Process attacks using GPU targeting results.
 /// GPU finds nearest enemy, Bevy checks range and applies damage.
 pub fn attack_system(
-    mut query: Query<(Entity, &EntitySlot, &CachedStats, &mut AttackTimer, &Faction, &mut CombatState, &Activity, &Job, Option<&ManualTarget>, Option<&SquadId>), Without<Dead>>,
     mut intents: ResMut<MovementIntents>,
     mut proj_updates: MessageWriter<ProjGpuUpdateMsg>,
     mut damage_events: MessageWriter<DamageMsg>,
     mut debug: ResMut<CombatDebug>,
     gpu_state: Res<GpuReadState>,
     npc_gpu: Res<crate::gpu::EntityGpuState>,
-    entity_map: Res<EntityMap>,
+    mut entity_map: ResMut<EntityMap>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     timings: Res<SystemTimings>,
     squad_state: Res<crate::resources::SquadState>,
-    mut commands: Commands,
 ) {
     let _t = timings.scope("attack");
     let positions = &gpu_state.positions;
@@ -71,35 +70,44 @@ pub fn attack_system(
     let mut timer_ready_count = 0usize;
     let mut sample_timer = -1.0f32;
 
-    for (entity, npc_idx, cached, mut timer, faction, mut combat_state, activity, job, manual_target, squad_id) in query.iter_mut() {
+    // Collect NPC slots to avoid borrow conflict (need &mut npc + &building from same EntityMap)
+    let npc_slots: Vec<usize> = entity_map.iter_npcs()
+        .filter(|n| !n.dead)
+        .map(|n| n.slot)
+        .collect();
+
+    for slot in npc_slots {
+        // Read NPC data (immutable borrow scope)
+        let (entity, i, cached_range, cached_damage, cached_cooldown, cached_proj_speed, cached_proj_lifetime, faction_id, job, activity_skip, manual_target_clone, squad_id_val, is_fighting) = {
+            let npc = entity_map.get_npc(slot).unwrap();
+            let activity_skip = matches!(
+                npc.activity,
+                Activity::Returning { .. } | Activity::GoingToRest | Activity::Resting
+                    | Activity::GoingToHeal | Activity::HealingAtFountain { .. }
+            );
+            (npc.entity, npc.slot, npc.cached_stats.range, npc.cached_stats.damage,
+             npc.cached_stats.cooldown, npc.cached_stats.projectile_speed,
+             npc.cached_stats.projectile_lifetime, npc.faction, npc.job,
+             activity_skip, npc.manual_target.clone(), npc.squad_id, npc.combat_state.is_fighting())
+        };
+
         attackers += 1;
-        let i = npc_idx.0;
 
         // Don't auto-engage while NPC is in survival/transit states.
-        // Healing states are intentionally excluded from combat retargeting to prevent
-        // fountain <-> enemy target oscillation.
-        if matches!(
-            activity,
-            Activity::Returning { .. }
-                | Activity::GoingToRest
-                | Activity::Resting
-                | Activity::GoingToHeal
-                | Activity::HealingAtFountain { .. }
-        ) {
-            if combat_state.is_fighting() {
-                *combat_state = CombatState::None;
+        if activity_skip {
+            if is_fighting {
+                entity_map.get_npc_mut(slot).unwrap().combat_state = CombatState::None;
             }
             continue;
         }
 
-        // Manual target override: player-assigned focus-fire takes priority over GPU auto-target.
-        // Clear ManualTarget::Npc if the target is dead.
-        let mut target_idx = if let Some(mt) = manual_target {
+        // Manual target override
+        let mut target_idx = if let Some(ref mt) = manual_target_clone {
             match mt {
                 ManualTarget::Npc(t) => {
                     let dead = gpu_state.health.get(*t).map_or(true, |&h| h <= 0.0);
                     if dead {
-                        commands.entity(entity).remove::<ManualTarget>();
+                        entity_map.get_npc_mut(slot).unwrap().manual_target = None;
                         combat_targets.get(i).copied().unwrap_or(-1)
                     } else {
                         *t as i32
@@ -110,147 +118,111 @@ pub fn attack_system(
                 }
             }
         } else {
-            // Hold fire: squad members with hold_fire skip auto-targeting
-            let hold = squad_id.and_then(|sid| squad_state.squads.get(sid.0 as usize))
+            let hold = squad_id_val.and_then(|sid| squad_state.squads.get(sid as usize))
                 .map_or(false, |sq| sq.hold_fire);
-            if hold {
-                -1 // don't auto-engage
-            } else {
-                combat_targets.get(i).copied().unwrap_or(-1)
-            }
+            if hold { -1 } else { combat_targets.get(i).copied().unwrap_or(-1) }
         };
 
-        // Sticky building target: avoid cross-town building flops when GPU alternates nearest building.
-        // If current movement target is an enemy building, keep it until invalid.
+        // Sticky building target
         if target_idx >= 0 {
             let ti = target_idx as usize;
             if entity_map.get_instance(ti).is_some() && i * 2 + 1 < npc_gpu.targets.len() {
                 let current_target = Vec2::new(npc_gpu.targets[i * 2], npc_gpu.targets[i * 2 + 1]);
                 if let Some(curr_inst) = entity_map.find_by_position(current_target) {
-                    if curr_inst.faction >= 0 && curr_inst.faction != faction.0 {
+                    if curr_inst.faction >= 0 && curr_inst.faction != faction_id {
                         target_idx = curr_inst.slot as i32;
                     }
                 }
             }
         }
 
-        if attackers == 1 {
-            sample_target = target_idx;
-        }
+        if attackers == 1 { sample_target = target_idx; }
 
-        // No target from GPU
         if target_idx < 0 {
-            if combat_state.is_fighting() {
-                *combat_state = CombatState::None;
-            }
+            if is_fighting { entity_map.get_npc_mut(slot).unwrap().combat_state = CombatState::None; }
             continue;
         }
 
         let ti = target_idx as usize;
         targets_found += 1;
 
-        // Self-targeting guard
         if ti == i {
-            if combat_state.is_fighting() { *combat_state = CombatState::None; }
+            if is_fighting { entity_map.get_npc_mut(slot).unwrap().combat_state = CombatState::None; }
             continue;
         }
 
-        if i * 2 + 1 >= positions.len() {
-            bounds_failures += 1;
-            continue;
-        }
+        if i * 2 + 1 >= positions.len() { bounds_failures += 1; continue; }
         let (x, y) = (positions[i * 2], positions[i * 2 + 1]);
-        if x < -9000.0 { continue; } // dead/hidden
+        if x < -9000.0 { continue; }
 
-        // ── Building target (unified slot, checked via EntityMap) ──
+        // ── Building target ──
         if let Some(inst) = entity_map.get_instance(ti) {
-            // Only combat jobs attack buildings
             if !matches!(job, Job::Archer | Job::Crossbow | Job::Raider) { continue; }
-            // Don't attack same-faction buildings
-            if inst.faction == faction.0 { continue; }
+            if inst.faction == faction_id { continue; }
 
             let dx = inst.position.x - x;
             let dy = inst.position.y - y;
             let dist = (dx * dx + dy * dy).sqrt();
+            let inst_pos = inst.position;
 
-            // Building engagement gate:
-            // - In-range => attack as normal.
-            // - Out-of-range but very close => allow short chase to close distance.
-            // - Far away => ignore to prevent cross-map building pursuit (archer "wander to enemy farm" bug).
-            let close_chase_radius = cached.range + 120.0;
-            if dist <= cached.range {
-                // Stand ground while shooting
+            let close_chase_radius = cached_range + 120.0;
+            if dist <= cached_range {
                 intents.submit(entity, Vec2::new(x, y), MovementPriority::Combat, "combat:hold_building");
                 in_range_count += 1;
-                if timer.0 <= 0.0 {
+                let timer = entity_map.get_npc(slot).unwrap().attack_timer;
+                if timer <= 0.0 {
                     timer_ready_count += 1;
                     if dist > 1.0 {
                         if let Some(proj_slot) = proj_alloc.alloc() {
                             let dir_x = dx / dist;
                             let dir_y = dy / dist;
                             proj_updates.write(ProjGpuUpdateMsg(ProjGpuUpdate::Spawn {
-                                idx: proj_slot,
-                                x, y,
-                                vx: dir_x * cached.projectile_speed,
-                                vy: dir_y * cached.projectile_speed,
-                                damage: cached.damage,
-                                faction: faction.0,
-                                shooter: i as i32,
-                                lifetime: cached.projectile_lifetime,
+                                idx: proj_slot, x, y,
+                                vx: dir_x * cached_proj_speed, vy: dir_y * cached_proj_speed,
+                                damage: cached_damage, faction: faction_id,
+                                shooter: i as i32, lifetime: cached_proj_lifetime,
                             }));
                         }
                     } else {
-                        // Point blank — direct damage
                         damage_events.write(DamageMsg {
-                            entity_idx: ti,
-                            amount: cached.damage,
-                            attacker: i as i32,
-                            attacker_faction: faction.0,
+                            entity_idx: ti, amount: cached_damage,
+                            attacker: i as i32, attacker_faction: faction_id,
                         });
                     }
                     attacks += 1;
-                    timer.0 = cached.cooldown;
+                    entity_map.get_npc_mut(slot).unwrap().attack_timer = cached_cooldown;
                 }
             } else if dist <= close_chase_radius {
-                // Short chase only; prevents unbounded cross-map pulls on distant enemy buildings.
-                intents.submit(entity, inst.position, MovementPriority::Combat, "combat:chase_building");
+                intents.submit(entity, inst_pos, MovementPriority::Combat, "combat:chase_building");
                 chases += 1;
             }
             continue;
         }
 
-        // ── NPC target (not a building) ──
-        let target_entity = entity_map.entities.get(&ti);
-        if target_entity.is_none() {
-            if combat_state.is_fighting() { *combat_state = CombatState::None; }
+        // ── NPC target ──
+        if entity_map.get_npc(ti).is_none() {
+            if is_fighting { entity_map.get_npc_mut(slot).unwrap().combat_state = CombatState::None; }
             continue;
         }
         let target_faction = gpu_state.factions.get(ti).copied().unwrap_or(-1);
-        if target_faction < 0 || target_faction == faction.0 {
-            if combat_state.is_fighting() { *combat_state = CombatState::None; }
+        if target_faction < 0 || target_faction == faction_id {
+            if is_fighting { entity_map.get_npc_mut(slot).unwrap().combat_state = CombatState::None; }
             continue;
         }
         if gpu_state.health.get(ti).copied().unwrap_or(0.0) <= 0.0 {
-            if combat_state.is_fighting() { *combat_state = CombatState::None; }
+            if is_fighting { entity_map.get_npc_mut(slot).unwrap().combat_state = CombatState::None; }
             continue;
         }
+        if ti * 2 + 1 >= positions.len() { bounds_failures += 1; continue; }
 
-        if ti * 2 + 1 >= positions.len() {
-            bounds_failures += 1;
-            continue;
-        }
-
-        if !combat_state.is_fighting() {
-            *combat_state = CombatState::Fighting { origin: Vec2::new(x, y) };
+        if !is_fighting {
+            entity_map.get_npc_mut(slot).unwrap().combat_state = CombatState::Fighting { origin: Vec2::new(x, y) };
             in_combat_added += 1;
         }
         let (tx, ty) = (positions[ti * 2], positions[ti * 2 + 1]);
 
-        // Skip dead/hidden targets (graveyard at ~-9999)
         if tx < -9000.0 {
-            if combat_state.is_fighting() {
-                *combat_state = CombatState::None;
-            }
+            entity_map.get_npc_mut(slot).unwrap().combat_state = CombatState::None;
             continue;
         }
 
@@ -258,52 +230,36 @@ pub fn attack_system(
         let dy = ty - y;
         let dist = (dx * dx + dy * dy).sqrt();
 
-        if attackers == 1 {
-            sample_dist = dist;
-        }
+        if attackers == 1 { sample_dist = dist; }
 
-        if dist <= cached.range {
-            // Stand ground while fighting — set target to own position so NPC stops moving
+        if dist <= cached_range {
             intents.submit(entity, Vec2::new(x, y), MovementPriority::Combat, "combat:hold_npc");
-
             in_range_count += 1;
-            if in_range_count == 1 {
-                sample_timer = timer.0;
-            }
-            if timer.0 <= 0.0 {
+            let timer = entity_map.get_npc(slot).unwrap().attack_timer;
+            if in_range_count == 1 { sample_timer = timer; }
+            if timer <= 0.0 {
                 timer_ready_count += 1;
-
-                // Fire projectile toward target (avoid NaN when overlapping)
                 if dist > 1.0 {
                     if let Some(proj_slot) = proj_alloc.alloc() {
                         let dir_x = dx / dist;
                         let dir_y = dy / dist;
                         proj_updates.write(ProjGpuUpdateMsg(ProjGpuUpdate::Spawn {
-                            idx: proj_slot,
-                            x, y,
-                            vx: dir_x * cached.projectile_speed,
-                            vy: dir_y * cached.projectile_speed,
-                            damage: cached.damage,
-                            faction: faction.0,
-                            shooter: i as i32,
-                            lifetime: cached.projectile_lifetime,
+                            idx: proj_slot, x, y,
+                            vx: dir_x * cached_proj_speed, vy: dir_y * cached_proj_speed,
+                            damage: cached_damage, faction: faction_id,
+                            shooter: i as i32, lifetime: cached_proj_lifetime,
                         }));
                     }
                 } else {
-                    // Point blank — apply damage directly (no projectile needed)
                     damage_events.write(DamageMsg {
-                        entity_idx: ti,
-                        amount: cached.damage,
-                        attacker: i as i32,
-                        attacker_faction: faction.0,
+                        entity_idx: ti, amount: cached_damage,
+                        attacker: i as i32, attacker_faction: faction_id,
                     });
                 }
-
                 attacks += 1;
-                timer.0 = cached.cooldown;
+                entity_map.get_npc_mut(slot).unwrap().attack_timer = cached_cooldown;
             }
         } else {
-            // Out of range - chase target
             intents.submit(entity, Vec2::new(tx, ty), MovementPriority::Combat, "combat:chase_npc");
             chases += 1;
         }

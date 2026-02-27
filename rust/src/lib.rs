@@ -48,7 +48,7 @@ use resources::{
 };
 use systems::{AiPlayerConfig, AiPlayerState};
 use systems::*;
-use components::*;
+
 
 // ============================================================================
 // APP STATE
@@ -69,20 +69,7 @@ pub enum AppState {
 // HELPERS
 // ============================================================================
 
-/// Derive NPC state name from ECS components.
-pub fn derive_npc_state(world: &World, entity: Entity) -> &'static str {
-    if world.get::<Dead>(entity).is_some() { return "Dead"; }
-    // Combat state takes priority for display
-    if let Some(combat) = world.get::<CombatState>(entity) {
-        let name = combat.name();
-        if !name.is_empty() { return name; }
-    }
-    // Then activity
-    if let Some(activity) = world.get::<Activity>(entity) {
-        return activity.name();
-    }
-    "Idle"
-}
+// derive_npc_state removed — NPC state lives in NpcInstance, not ECS
 
 /// Get job name from job ID. Delegates to NPC registry.
 pub fn job_name(job: i32) -> &'static str {

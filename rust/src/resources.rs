@@ -109,6 +109,10 @@ pub struct EntityMap {
     by_kind_town: HashMap<(crate::world::BuildingKind, u32), Vec<usize>>,
     by_grid_cell: HashMap<(i32, i32), usize>,
 
+    // NPC-specific data
+    npcs: HashMap<usize, NpcInstance>,
+    npc_by_town: HashMap<i32, Vec<usize>>,
+
     // Spatial grid
     spatial_cell_size: f32,
     spatial_width: usize,
@@ -301,6 +305,72 @@ impl EntityMap {
 
     pub fn is_occupied(&self, slot: usize) -> bool {
         self.instances.get(&slot).is_some_and(|i| i.occupants >= 1)
+    }
+
+    // ── NPC instance API ───────────────────────────────────────────────
+
+    pub fn insert_npc(&mut self, inst: NpcInstance) {
+        let slot = inst.slot;
+        debug_assert!(!self.npcs.contains_key(&slot), "duplicate NPC slot {}", slot);
+        let town = inst.town_idx;
+        self.entities.insert(slot, inst.entity);
+        self.npc_by_town.entry(town).or_default().push(slot);
+        self.npcs.insert(slot, inst);
+    }
+
+    pub fn remove_npc(&mut self, slot: usize) -> Option<NpcInstance> {
+        debug_assert!(self.npcs.contains_key(&slot), "removing absent NPC slot {}", slot);
+        self.entities.remove(&slot);
+        if let Some(npc) = self.npcs.remove(&slot) {
+            if let Some(slots) = self.npc_by_town.get_mut(&npc.town_idx) {
+                slots.retain(|&s| s != slot);
+            }
+            Some(npc)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_npc(&self, slot: usize) -> Option<&NpcInstance> {
+        self.npcs.get(&slot)
+    }
+
+    pub fn get_npc_mut(&mut self, slot: usize) -> Option<&mut NpcInstance> {
+        self.npcs.get_mut(&slot)
+    }
+
+    pub fn iter_npcs(&self) -> impl Iterator<Item = &NpcInstance> {
+        self.npcs.values()
+    }
+
+    pub fn iter_npcs_mut(&mut self) -> impl Iterator<Item = &mut NpcInstance> {
+        self.npcs.values_mut()
+    }
+
+    pub fn npcs_for_town(&self, town_idx: i32) -> impl Iterator<Item = &NpcInstance> {
+        let npcs = &self.npcs;
+        self.npc_by_town.get(&town_idx)
+            .into_iter()
+            .flat_map(|v| v.iter())
+            .filter_map(move |&s| npcs.get(&s))
+    }
+
+    pub fn npc_count(&self) -> usize {
+        self.npcs.len()
+    }
+
+    pub fn clear_npcs(&mut self) {
+        // Also remove NPC entities from unified map
+        for &slot in self.npcs.keys() {
+            self.entities.remove(&slot);
+        }
+        self.npcs.clear();
+        self.npc_by_town.clear();
+    }
+
+    /// Check if a slot is an NPC (vs building).
+    pub fn is_npc(&self, slot: usize) -> bool {
+        self.npcs.contains_key(&slot)
     }
 
     // ── Spatial grid ───────────────────────────────────────────────────
@@ -1343,6 +1413,52 @@ impl BuildingInstance {
     }
 }
 
+
+/// Per-NPC runtime state. All NPC data lives here — no ECS components except EntitySlot.
+/// Parallel to BuildingInstance: both live in EntityMap, shared slot namespace.
+#[derive(Clone)]
+pub struct NpcInstance {
+    pub slot: usize,
+    pub entity: Entity,
+    pub job: crate::components::Job,
+    pub faction: i32,
+    pub town_idx: i32,
+    pub position: Vec2,
+    pub home: Vec2,
+    pub health: f32,
+    pub energy: f32,
+    pub speed: f32,
+    pub activity: crate::components::Activity,
+    pub combat_state: crate::components::CombatState,
+    pub personality: crate::components::Personality,
+    pub cached_stats: crate::components::CachedStats,
+    pub attack_type: crate::components::BaseAttackType,
+    pub attack_timer: f32,
+    // Equipment
+    pub weapon: Option<(f32, f32)>,
+    pub helmet: Option<(f32, f32)>,
+    pub armor: Option<(f32, f32)>,
+    // Assignment
+    pub patrol_route: Option<crate::components::PatrolRoute>,
+    pub squad_id: Option<i32>,
+    pub work_position: Option<usize>,
+    pub assigned_farm: Option<usize>,
+    pub carried_gold: i32,
+    pub leash_range: Option<f32>,
+    // Flags (replace marker components)
+    pub is_stealer: bool,
+    pub is_military: bool,
+    pub is_patrol_unit: bool,
+    pub has_energy: bool,
+    pub dead: bool,
+    pub healing: bool,
+    pub starving: bool,
+    pub direct_control: bool,
+    pub migrating: bool,
+    pub at_destination: bool,
+    pub manual_target: Option<crate::components::ManualTarget>,
+    pub last_hit_by: i32,
+}
 
 /// Building HP render data. Read by build_overlay_instances for rendering.
 #[derive(Resource, Default)]

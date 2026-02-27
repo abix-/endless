@@ -6,7 +6,6 @@
 
 use bevy::prelude::*;
 use bevy::ecs::system::SystemParam;
-use crate::components::{Faction, Migrating};
 use crate::messages::{DamageMsg, SpawnNpcMsg};
 use crate::resources::*;
 use crate::systems::{AiPlayerState, AiKind};
@@ -93,7 +92,6 @@ pub fn tick(
     mut test: ResMut<TestState>,
     mut damage_writer: MessageWriter<DamageMsg>,
     entity_map: Res<EntityMap>,
-    migrating_query: Query<&Faction, With<Migrating>>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
@@ -218,9 +216,9 @@ pub fn tick(
             if test.get_flag("already_settled") {
                 test.pass_phase(elapsed, "skipped (already settled)");
             } else {
-                let migrating_npcs: Vec<&Faction> = migrating_query.iter().collect();
-                let count = migrating_npcs.len();
-                let non_player = migrating_npcs.iter().filter(|f| f.0 > 0).count();
+                let migrating_factions: Vec<i32> = entity_map.iter_npcs().filter(|n| n.migrating).map(|n| n.faction).collect();
+                let count = migrating_factions.len();
+                let non_player = migrating_factions.iter().filter(|&&f| f > 0).count();
 
                 if let Some(mg) = &migration_state.active {
                     if mg.boat_slot.is_some() {
@@ -397,9 +395,9 @@ pub fn tick(
             if test.get_flag("raider_already_settled") {
                 test.pass_phase(elapsed, "skipped (raider already settled)");
             } else {
-                let migrating_npcs: Vec<&Faction> = migrating_query.iter().collect();
-                let count = migrating_npcs.len();
-                let non_player = migrating_npcs.iter().filter(|f| f.0 > 0).count();
+                let migrating_factions: Vec<i32> = entity_map.iter_npcs().filter(|n| n.migrating).map(|n| n.faction).collect();
+                let count = migrating_factions.len();
+                let non_player = migrating_factions.iter().filter(|&&f| f > 0).count();
 
                 if let Some(mg) = &migration_state.active {
                     if mg.boat_slot.is_some() {

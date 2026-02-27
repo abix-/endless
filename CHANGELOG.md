@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-27a
+
+- **single-ownership cutover: remove all NPC dual-writes** — NPC ECS entities now spawn with only `EntitySlot`; all NPC runtime state lives exclusively in `NpcInstance` (stored in `EntityMap.npcs`); removed all `commands.entity().insert/remove` dual-writes for NPC markers across render.rs, behavior.rs, economy.rs, health.rs, save.rs, game_hud.rs, left_panel.rs (~20 sites); deleted 12 NPC marker structs (Archer/Farmer/Miner/Crossbow/SquadUnit/Stealer/DirectControl/AtDestination/Healing/Starving/Migrating/SquadId); stripped `#[derive(Component)]` from ~20 NPC data types; rewrote `gpu_position_readback` from ECS query to EntityMap-only; migrated 5 test files from ECS queries to EntityMap reads (archer_patrol, farmer_cycle, miner_cycle, raider_cycle, vertical_slice); removed unused `Commands` params from 8 systems; added HashSet for O(1) membership in box_select_system; added debug assertions in EntityMap insert_npc/remove_npc; buildings retain full ECS components (EntitySlot, Position, Health, Faction, TownId, Building)
+
 ## 2026-02-26m
 
 - **fill profiling blind spots in decision_system** — added sub-timers `decision/squad` (squad rest gate + sync + redirect) and `decision/work` (Working/MiningAtMine + farmer retarget + OnDuty), plus counters `n_squad`/`n_work`/`n_transit_skip`/`n_total` for per-frame NPC throughput visibility; all guarded by profiling flag

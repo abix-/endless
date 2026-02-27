@@ -151,7 +151,7 @@ pub fn materialize_npc(
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFlags { idx, flags: combat_flags }));
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHalfSize { idx, half_w: crate::constants::NPC_HITBOX_HALF[0], half_h: crate::constants::NPC_HITBOX_HALF[1] }));
 
-    // Entity with base components
+    // Resolve spawn data
     let activity = overrides.activity.clone().unwrap_or_default();
     let combat_state = overrides.combat_state.clone().unwrap_or_default();
 
@@ -160,77 +160,86 @@ pub fn materialize_npc(
         .map(|t| t.kind.to_id())
         .unwrap_or(-1);
 
-    let mut ec = commands.spawn((
-        EntitySlot(idx),
-        Position::new(x, y),
-        job,
-        TownId(town_idx),
-        Speed(cached.speed),
-        Health(health),
-        cached,
-        attack_type,
-        Faction::from_i32(faction_id),
-        Home(Vec2::new(home[0], home[1])),
-        personality,
-        activity,
-        combat_state,
-    ));
-
-    // Data-driven components from NPC registry
-    if def.has_energy {
-        ec.insert(Energy(overrides.energy.unwrap_or(100.0)));
-    }
-    if def.has_attack_timer { ec.insert(AttackTimer(0.0)); }
-    if let Some(w_default) = def.weapon {
-        let w = overrides.weapon.unwrap_or([w_default.0, w_default.1]);
-        ec.insert(EquippedWeapon(w[0], w[1]));
-    }
-    if let Some(h_default) = def.helmet {
-        let h = overrides.helmet.unwrap_or([h_default.0, h_default.1]);
-        ec.insert(EquippedHelmet(h[0], h[1]));
-    }
-    if def.stealer { ec.insert(Stealer); }
-    if let Some(d) = def.leash_range { ec.insert(LeashRange { distance: d }); }
-
-    // Marker components
-    match job {
-        Job::Archer => { ec.insert(Archer); }
-        Job::Farmer => { ec.insert(Farmer); }
-        Job::Miner => { ec.insert(Miner); }
-        Job::Crossbow => { ec.insert(Crossbow); }
-        _ => {}
-    }
-    if def.is_military { ec.insert(SquadUnit); }
-
-    // Save-specific optional components
-    if let Some(a) = overrides.armor { ec.insert(EquippedArmor(a[0], a[1])); }
-    if let Some(cg) = overrides.carried_gold { ec.insert(CarriedGold(cg)); }
-    if let Some(sq) = overrides.squad_id { ec.insert(SquadId(sq)); }
-
     // Patrol route
-    if def.is_patrol_unit && starting_post >= 0 {
+    let patrol_route = if def.is_patrol_unit && starting_post >= 0 {
         let patrol_posts = build_patrol_route(entity_map, town_idx as u32);
         if !patrol_posts.is_empty() {
-            ec.insert(PatrolRoute { posts: patrol_posts, current: starting_post as usize });
-            // Only set OnDuty for fresh spawns (save restores activity via override)
-            if overrides.activity.is_none() {
-                ec.insert(Activity::OnDuty { ticks_waiting: 0 });
-            }
+            Some(PatrolRoute { posts: patrol_posts, current: starting_post as usize })
+        } else {
+            None
         }
-    }
+    } else {
+        None
+    };
 
-    // Work position
-    if let Some(wp) = work_pos {
-        if let Some(slot) = entity_map.slot_at_position(Vec2::new(wp[0], wp[1])) {
-            ec.insert(WorkPosition(slot));
-            if overrides.activity.is_none() {
-                ec.insert(Activity::GoingToWork);
-            }
-        }
-    }
+    // Work position slot
+    let work_slot = work_pos.and_then(|wp| entity_map.slot_at_position(Vec2::new(wp[0], wp[1])));
 
-    // Register in tracking caches
-    entity_map.entities.insert(idx, ec.id());
+    // Resolve final activity (patrol/work overrides)
+    let activity = if overrides.activity.is_some() {
+        activity // save-loaded activity takes precedence
+    } else if patrol_route.is_some() {
+        Activity::OnDuty { ticks_waiting: 0 }
+    } else if work_slot.is_some() {
+        Activity::GoingToWork
+    } else {
+        activity
+    };
+
+    // Equipment
+    let weapon = def.weapon.map(|w_default| {
+        let w = overrides.weapon.unwrap_or([w_default.0, w_default.1]);
+        (w[0], w[1])
+    });
+    let helmet = def.helmet.map(|h_default| {
+        let h = overrides.helmet.unwrap_or([h_default.0, h_default.1]);
+        (h[0], h[1])
+    });
+
+    // Spawn ECS entity — only EntitySlot needed (all NPC state lives in NpcInstance)
+    let entity = commands.spawn(EntitySlot(idx)).id();
+
+    // Build NpcInstance — canonical source of truth for all NPC state
+    let npc = crate::resources::NpcInstance {
+        slot: idx,
+        entity,
+        job,
+        faction: faction_id,
+        town_idx,
+        position: Vec2::new(x, y),
+        home: Vec2::new(home[0], home[1]),
+        health,
+        energy: if def.has_energy { overrides.energy.unwrap_or(100.0) } else { 0.0 },
+        speed: cached.speed,
+        activity,
+        combat_state,
+        personality,
+        cached_stats: cached,
+        attack_type,
+        attack_timer: 0.0,
+        weapon,
+        helmet,
+        armor: overrides.armor.map(|a| (a[0], a[1])),
+        patrol_route,
+        squad_id: overrides.squad_id,
+        work_position: work_slot,
+        assigned_farm: None,
+        carried_gold: overrides.carried_gold.unwrap_or(0),
+        leash_range: def.leash_range,
+        is_stealer: def.stealer,
+        is_military: def.is_military,
+        is_patrol_unit: def.is_patrol_unit,
+        has_energy: def.has_energy,
+        dead: false,
+        healing: false,
+        starving: false,
+        direct_control: false,
+        migrating: false,
+        at_destination: false,
+        manual_target: None,
+        last_hit_by: -1,
+    };
+    entity_map.insert_npc(npc);
     pop_inc_alive(pop_stats, job, town_idx);
 
     if idx < npc_meta.0.len() {

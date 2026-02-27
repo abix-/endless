@@ -21,7 +21,7 @@ pub fn setup(mut params: TestSetupParams) {
 }
 
 pub fn tick(
-    mut npc_query: Query<(Entity, &EntitySlot, &Job, &mut Health), Without<Dead>>,
+    mut entity_map: ResMut<EntityMap>,
     all_npc_query: Query<(), With<EntitySlot>>,
     mut slot_alloc: ResMut<EntitySlots>,
     mut spawn_events: MessageWriter<crate::messages::SpawnNpcMsg>,
@@ -30,7 +30,7 @@ pub fn tick(
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
-    let alive = npc_query.iter().count();
+    let alive = entity_map.iter_npcs().filter(|n| !n.dead).count();
 
     match test.phase {
         // Phase 1: 5 NPCs spawned with correct Job
@@ -38,7 +38,7 @@ pub fn tick(
             test.phase_name = format!("alive={}/5", alive);
             if alive == 5 {
                 // Verify all are Farmers
-                let farmers = npc_query.iter().filter(|(_, _, j, _)| **j == Job::Farmer).count();
+                let farmers = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer).count();
                 if farmers == 5 {
                     test.pass_phase(elapsed, format!("5 farmers spawned"));
                 } else {
@@ -52,11 +52,12 @@ pub fn tick(
         2 => {
             if !test.get_flag("killed") {
                 // Kill the first NPC
-                if let Some((_, npc_idx, _, mut health)) = npc_query.iter_mut().next() {
+                let first_slot = entity_map.iter_npcs().find(|n| !n.dead).map(|n| n.slot);
+                if let Some(slot) = first_slot {
                     test.set_flag("killed", true);
-                    test.counters.insert("killed_slot".into(), npc_idx.0 as u32);
-                    health.0 = 0.0;
-                    test.phase_name = format!("Killed slot {}, waiting for despawn...", npc_idx.0);
+                    test.counters.insert("killed_slot".into(), slot as u32);
+                    if let Some(npc) = entity_map.get_npc_mut(slot) { npc.health = 0.0; }
+                    test.phase_name = format!("Killed slot {}, waiting for despawn...", slot);
                 }
             } else {
                 test.phase_name = format!("alive={}/4 (waiting for despawn)", alive);

@@ -55,21 +55,20 @@ pub fn setup(
 }
 
 pub fn tick(
-    activity_query: Query<&Activity, (With<Stealer>, Without<Dead>)>,
-    npc_query: Query<(), (With<Stealer>, Without<Dead>)>,
+    entity_map: Res<EntityMap>,
     food_storage: Res<FoodStorage>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
-    let alive = npc_query.iter().count();
+    let alive = entity_map.iter_npcs().filter(|n| !n.dead && n.is_stealer).count();
     if !test.require_entity(alive, elapsed, "raider") { return; }
 
     let mut raiding = 0;
     let mut returning = 0;
     let mut carrying = 0;
-    for activity in activity_query.iter() {
-        match activity {
+    for npc in entity_map.iter_npcs().filter(|n| !n.dead && n.is_stealer) {
+        match &npc.activity {
             Activity::Raiding { .. } => raiding += 1,
             Activity::Returning { loot } => {
                 returning += 1;

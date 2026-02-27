@@ -73,15 +73,7 @@ const OFF_DUTY_OPTIONS: &[&str] = &["Go to Bed", "Stay at Fountain", "Wander Tow
 pub struct RosterParams<'w, 's> {
     selected: ResMut<'w, SelectedNpc>,
     meta_cache: ResMut<'w, NpcMetaCache>,
-    health_query: Query<'w, 's, (
-        &'static EntitySlot,
-        &'static Health,
-        &'static CachedStats,
-        &'static Personality,
-        &'static Activity,
-        &'static CombatState,
-        &'static Faction,
-    ), Without<Dead>>,
+    entity_map: Res<'w, EntityMap>,
     camera_query: Query<'w, 's, &'static mut Transform, With<crate::render::MainCamera>>,
     gpu_state: Res<'w, GpuReadState>,
 }
@@ -101,11 +93,9 @@ pub struct UpgradeParams<'w> {
 // ============================================================================
 
 #[derive(SystemParam)]
-pub struct SquadParams<'w, 's> {
+pub struct SquadParams<'w> {
     squad_state: ResMut<'w, SquadState>,
     gpu_state: Res<'w, GpuReadState>,
-    // Query: military units with SquadId (for dismiss/recruit)
-    squad_guards: Query<'w, 's, (Entity, &'static EntitySlot, &'static SquadId, &'static Job), (With<SquadUnit>, Without<Dead>)>,
 }
 
 // ============================================================================
@@ -202,7 +192,6 @@ pub fn left_panel_system(
     mut squad: SquadParams,
     mut factions: FactionsParams,
     mut profiler: ProfilerParams,
-    mut commands: Commands,
     mut roster_state: Local<RosterState>,
     mut factions_cache: Local<FactionsCache>,
     mut settings: ResMut<UserSettings>,
@@ -272,7 +261,7 @@ pub fn left_panel_system(
                 LeftPanelTab::Upgrades => upgrade_content(ui, &mut upgrade, &world_data, &mut settings),
                 LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data, &factions.entity_map, &mut profiler.mining_policy, &mut dirty_writers, &mut jump_target),
                 LeftPanelTab::Patrols => { patrol_swap = patrols_content(ui, &world_data, &factions.entity_map, &mut jump_target); },
-                LeftPanelTab::Squads => squads_content(ui, &mut squad, &roster.meta_cache, &world_data, &mut commands, &mut dirty_writers),
+                LeftPanelTab::Squads => squads_content(ui, &mut squad, &roster.meta_cache, &world_data, &mut dirty_writers),
                 LeftPanelTab::Factions => factions_content(ui, &factions, &squad.squad_state, &world_data, &policies, &profiler.mining_policy, &mut factions_cache, &mut jump_target, &mut ui_state, &mut copy_text, requested_faction),
                 LeftPanelTab::Profiler => profiler_content(ui, &profiler.timings, &profiler.target_thrash, &mut profiler.migration, &mut settings),
                 LeftPanelTab::Help => help_content(ui),
@@ -335,28 +324,29 @@ fn roster_content(
     state.frame_counter += 1;
     if state.frame_counter % 30 == 1 || state.cached_rows.is_empty() {
         let mut rows = Vec::new();
-        for (npc_idx, health, cached, personality, activity, combat, faction) in roster.health_query.iter() {
-            let idx = npc_idx.0;
+        for npc in roster.entity_map.iter_npcs() {
+            if npc.dead { continue; }
+            let idx = npc.slot;
             let meta = &roster.meta_cache.0[idx];
             // Player faction only unless debug
-            if !debug_all && faction.0 != 0 { continue; }
+            if !debug_all && npc.faction != 0 { continue; }
             if state.job_filter >= 0 && meta.job != state.job_filter {
                 continue;
             }
-            let state_str = if combat.is_fighting() {
-                combat.name().to_string()
+            let state_str = if npc.combat_state.is_fighting() {
+                npc.combat_state.name().to_string()
             } else {
-                activity.name().to_string()
+                npc.activity.name().to_string()
             };
             rows.push(RosterRow {
                 slot: idx,
                 name: meta.name.clone(),
                 job: meta.job,
                 level: meta.level,
-                hp: health.0,
-                max_hp: cached.max_health,
+                hp: npc.health,
+                max_hp: npc.cached_stats.max_health,
                 state: state_str,
-                trait_name: personality.trait_summary(),
+                trait_name: npc.personality.trait_summary(),
             });
         }
 
@@ -882,7 +872,7 @@ fn patrols_content(ui: &mut egui::Ui, world_data: &WorldData, entity_map: &Entit
 // SQUADS CONTENT
 // ============================================================================
 
-fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMetaCache, _world_data: &WorldData, commands: &mut Commands, dirty_writers: &mut crate::messages::DirtyWriters) {
+fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMetaCache, _world_data: &WorldData, dirty_writers: &mut crate::messages::DirtyWriters) {
     let selected = squad.squad_state.selected;
 
     // Squad list (player-owned only — AI squads are hidden from UI)
@@ -977,14 +967,6 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
                     if amount > avail_count { break; }
                     if ui.small_button(format!("+{}", amount)).clicked() {
                         let recruits: Vec<usize> = available.iter().copied().take(amount).collect();
-                        for &slot in &recruits {
-                            for (entity, npc_idx, sid, _) in squad.squad_guards.iter() {
-                                if sid.0 == 0 && npc_idx.0 == slot {
-                                    commands.entity(entity).insert(SquadId(si as i32));
-                                    break;
-                                }
-                            }
-                        }
                         squad.squad_state.squads[0].members.retain(|s| !recruits.contains(s));
                         for slot in recruits {
                             if !squad.squad_state.squads[si].members.contains(&slot) {
@@ -1004,12 +986,6 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
     // Dismiss all
     if member_count > 0 {
         if ui.button("Dismiss All").clicked() {
-            for (entity, _, sid, _) in squad.squad_guards.iter() {
-                if sid.0 == selected {
-                    commands.entity(entity).remove::<SquadId>();
-                    commands.entity(entity).remove::<crate::components::DirectControl>();
-                }
-            }
             squad.squad_state.squads[si].members.clear();
             squad.squad_state.squads[si].target_size = 0;
             dirty_writers.squads.write(crate::messages::SquadsDirtyMsg);

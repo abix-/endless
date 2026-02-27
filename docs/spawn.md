@@ -21,7 +21,8 @@ spawn_npc_system                         spawn_npcs_from_save
                ├─ Emit GPU updates: SetPosition, SetTarget,
                │   SetSpeed, SetFaction, SetHealth, SetSpriteFrame, SetFlags
                │
-               ├─ Spawn ECS entity with base + job-specific components
+               ├─ Spawn ECS entity with EntitySlot only
+               │   (all NPC state lives in NpcInstance)
                │
                ├─ Update EntityMap, PopulationStats
                │
@@ -70,22 +71,24 @@ GPU dispatch count comes from `EntitySlots.count()` (the high-water mark `next`)
 
 ## materialize_npc
 
-Base components (all NPCs): `EntitySlot`, `Position`, `Job`, `TownId`, `Speed(resolved)`, `Health(resolved max_health)`, `CachedStats` (from `resolve_combat_stats()`), `BaseAttackType`, `Faction`, `Home`, `Personality`, `Activity::default()`, `CombatState::default()`
+**ECS entity**: NPC entities are spawned with only `EntitySlot(idx)` — all NPC runtime state lives in `NpcInstance` (stored in `EntityMap.npcs`). No other ECS components are added to NPC entities. Buildings retain full ECS components (`EntitySlot`, `Position`, `Health`, `Faction`, `TownId`, `Building`).
+
+**NpcInstance**: Built inline in `materialize_npc` with all fields populated from spawn parameters, NPC registry, combat config, and overrides. Registered in EntityMap via `insert_npc()` (with debug assertion for duplicate slot detection).
 
 Stats are resolved from `CombatConfig` resource via `resolve_combat_stats(job, attack_type, town_idx, level, personality, &config, &upgrades)`. The resolver applies job base stats × upgrade multipliers × trait multipliers × level multipliers. See `systems/stats.rs`. New NPCs spawn at level 0 (`level_from_xp(0) == 0`).
 
-Job-specific templates:
+Job-specific NpcInstance fields:
 
-| Job | Additional Components |
-|-----|----------------------|
-| Archer | `Energy`, `BaseAttackType::Melee`, `AttackTimer(0)`, `Archer`, `PatrolRoute`, `Activity::OnDuty { ticks_waiting: 0 }`, `EquippedWeapon`, `EquippedHelmet` |
-| Crossbow | `Energy`, `BaseAttackType::Ranged`, `AttackTimer(0)`, `Crossbow`, `PatrolRoute`, `Activity::OnDuty { ticks_waiting: 0 }`, `EquippedWeapon`, `EquippedHelmet` |
-| Farmer | `Energy`, `Farmer`, `WorkPosition`, `Activity::GoingToWork` |
-| Miner | `Energy`, `Miner` |
-| Raider | `Energy`, `BaseAttackType::Melee`, `AttackTimer(0)`, `Stealer`, `LeashRange(400)`, `EquippedWeapon` |
-| Fighter | `Energy`, `BaseAttackType` (Melee or Ranged via attack_type), `AttackTimer(0)`, `PatrolRoute`, `Activity::OnDuty { ticks_waiting: 0 }` |
+| Job | Key Fields |
+|-----|------------|
+| Archer | energy, patrol_route, weapon, helmet, `Activity::OnDuty { ticks_waiting: 0 }` |
+| Crossbow | energy, patrol_route, weapon, helmet, `Activity::OnDuty { ticks_waiting: 0 }` |
+| Farmer | energy, work_position, `Activity::GoingToWork` |
+| Miner | energy |
+| Raider | energy, is_stealer=true, leash_range=400, weapon |
+| Fighter | energy, patrol_route, `Activity::OnDuty { ticks_waiting: 0 }` |
 
-GPU writes (all jobs): `SetPosition`, `SetTarget` (spawn position, or work position for farmers with valid work_x), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`, `SetSpriteFrame` (job-based sprite from constants.rs), `SetFlags` (bit 0 = 1 for military jobs via `job.is_military()`, 0 for farmers/miners — controls GPU combat scan tier). Colors and equipment sprites are derived from ECS components by `sync_visual_sprites` (not sent as messages).
+GPU writes (all jobs): `SetPosition`, `SetTarget` (spawn position, or work position for farmers with valid work_x), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`, `SetSpriteFrame` (job-based sprite from constants.rs), `SetFlags` (bit 0 = 1 for military jobs via `job.is_military()`, 0 for farmers/miners — controls GPU combat scan tier). Colors and equipment sprites are derived from NpcInstance fields by `sync_visual_sprites` (not sent as messages).
 
 Sprite assignments: Farmer=(1,6), Archer=(0,11), Crossbow=(0,0) (placeholder, purple tint), Raider=(0,6), Fighter=(7,0), Miner=(1,6) (brown tint differentiates)
 

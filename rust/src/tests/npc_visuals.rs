@@ -73,8 +73,7 @@ pub fn setup(mut params: TestSetupParams) {
 }
 
 pub fn tick(
-    mut commands: Commands,
-    entity_map: Res<EntityMap>,
+    mut entity_map: ResMut<EntityMap>,
     mut test: ResMut<TestState>,
     time: Res<Time>,
     mut modified: Local<bool>,
@@ -82,11 +81,6 @@ pub fn tick(
     mut camera_query: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
     mut contexts: EguiContexts,
     windows: Query<&Window>,
-    equip_query: Query<(
-        Option<&EquippedWeapon>,
-        Option<&EquippedHelmet>,
-        Option<&EquippedArmor>,
-    )>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
@@ -118,63 +112,56 @@ pub fn tick(
             }
         }
 
-        // Modify components per column
+        // Modify NpcInstance equipment per column
         for row in 0..NUM_ROWS {
             for col in 0..NUM_COLS {
                 let slot = first_slot + row * NUM_COLS + col;
-                let Some(&entity) = entity_map.entities.get(&slot) else { continue };
 
                 // Stop movement
                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: slot, speed: 0.0 }));
 
+                let Some(npc) = entity_map.get_npc_mut(slot) else { continue };
+
                 match col {
                     COL_BODY => {
-                        // Body only: remove all equipment
-                        commands.entity(entity).remove::<EquippedWeapon>();
-                        commands.entity(entity).remove::<EquippedHelmet>();
-                        commands.entity(entity).remove::<EquippedArmor>();
+                        npc.weapon = None;
+                        npc.helmet = None;
+                        npc.armor = None;
                     }
                     COL_WEAPON => {
-                        // Body + weapon only
-                        commands.entity(entity).remove::<EquippedHelmet>();
-                        commands.entity(entity).remove::<EquippedArmor>();
-                        // Insert weapon if not already present (farmers/fighters don't have one)
-                        if equip_query.get(entity).map(|(w, _, _)| w.is_none()).unwrap_or(true) {
-                            commands.entity(entity).insert(EquippedWeapon(EQUIP_SWORD.0, EQUIP_SWORD.1));
+                        npc.helmet = None;
+                        npc.armor = None;
+                        if npc.weapon.is_none() {
+                            npc.weapon = Some((EQUIP_SWORD.0, EQUIP_SWORD.1));
                         }
                     }
                     COL_HELMET => {
-                        // Body + helmet only
-                        commands.entity(entity).remove::<EquippedWeapon>();
-                        commands.entity(entity).remove::<EquippedArmor>();
-                        // Insert helmet if not already present
-                        if equip_query.get(entity).map(|(_, h, _)| h.is_none()).unwrap_or(true) {
-                            commands.entity(entity).insert(EquippedHelmet(EQUIP_HELMET.0, EQUIP_HELMET.1));
+                        npc.weapon = None;
+                        npc.armor = None;
+                        if npc.helmet.is_none() {
+                            npc.helmet = Some((EQUIP_HELMET.0, EQUIP_HELMET.1));
                         }
                     }
                     COL_ITEM => {
-                        // Show food sprite as body (world atlas)
-                        commands.entity(entity).remove::<EquippedWeapon>();
-                        commands.entity(entity).remove::<EquippedHelmet>();
-                        commands.entity(entity).remove::<EquippedArmor>();
+                        npc.weapon = None;
+                        npc.helmet = None;
+                        npc.armor = None;
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx: slot, col: FOOD_SPRITE.0, row: FOOD_SPRITE.1, atlas: 1.0 }));
                     }
                     COL_SLEEP => {
-                        // Show sleep sprite as body (character sheet)
-                        commands.entity(entity).remove::<EquippedWeapon>();
-                        commands.entity(entity).remove::<EquippedHelmet>();
-                        commands.entity(entity).remove::<EquippedArmor>();
+                        npc.weapon = None;
+                        npc.helmet = None;
+                        npc.armor = None;
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx: slot, col: SLEEP_SPRITE.0, row: SLEEP_SPRITE.1, atlas: 0.0 }));
                     }
                     COL_HEAL => {
-                        // Show heal sprite as body (character sheet)
-                        commands.entity(entity).remove::<EquippedWeapon>();
-                        commands.entity(entity).remove::<EquippedHelmet>();
-                        commands.entity(entity).remove::<EquippedArmor>();
+                        npc.weapon = None;
+                        npc.helmet = None;
+                        npc.armor = None;
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx: slot, col: HEAL_SPRITE.0, row: HEAL_SPRITE.1, atlas: 0.0 }));
                     }
                     COL_FULL => {
-                        // Full: keep all equipment as spawned (guard has weapon+helmet, raider has weapon)
+                        // Full: keep all equipment as spawned
                     }
                     _ => {}
                 }

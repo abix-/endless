@@ -2,7 +2,7 @@
 //! Validates: farm growing → ready → harvest → raider town forage → raider respawn.
 
 use bevy::prelude::*;
-use crate::components::*;
+
 use crate::resources::*;
 
 use super::{TestState, TestSetupParams};
@@ -54,9 +54,6 @@ pub fn setup(
 }
 
 pub fn tick(
-    _farmer_query: Query<(), (With<Farmer>, Without<Dead>)>,
-    npc_query: Query<(), (With<EntitySlot>, Without<Dead>)>,
-    stealer_query: Query<(), (With<Stealer>, Without<Dead>)>,
     entity_map: Res<EntityMap>,
     food_storage: Res<FoodStorage>,
     time: Res<Time>,
@@ -115,13 +112,13 @@ pub fn tick(
         }
         // Phase 5: Raider respawns when raider town has food
         5 => {
-            let raiders = stealer_query.iter().count();
+            let raiders = entity_map.iter_npcs().filter(|n| !n.dead && n.is_stealer).count();
             test.phase_name = format!("raiders={} raider_food={}", raiders, raider_food);
             if raiders > 0 {
                 test.pass_phase(elapsed, format!("raiders={} raider_food={}", raiders, raider_food));
                 test.complete(elapsed);
             } else if elapsed > 60.0 {
-                let total = npc_query.iter().count();
+                let total = entity_map.iter_npcs().filter(|n| !n.dead).count();
                 test.fail_phase(elapsed, format!("raiders=0 total={} raider_food={}", total, raider_food));
             }
         }

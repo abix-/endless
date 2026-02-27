@@ -4,6 +4,7 @@
 use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::ENERGY_WAKE_THRESHOLD;
+use crate::resources::EntityMap;
 use super::{TestState, TestSetupParams};
 
 pub fn setup(mut params: TestSetupParams) {
@@ -30,26 +31,26 @@ pub fn setup(mut params: TestSetupParams) {
 }
 
 pub fn tick(
-    activity_query: Query<&Activity, (With<Farmer>, Without<Dead>)>,
-    mut energy_query: Query<&mut Energy, (With<Farmer>, Without<Dead>)>,
-    farmer_query: Query<(), (With<Farmer>, Without<Dead>)>,
+    mut entity_map: ResMut<EntityMap>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
-    if !test.require_entity(farmer_query.iter().count(), elapsed, "farmer") { return; }
+    let farmer_count = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer).count();
+    if !test.require_entity(farmer_count, elapsed, "farmer") { return; }
 
     // Start energy near tired threshold so drain→rest→wake fits in 30s
     if !test.get_flag("energy_set") {
-        for mut e in energy_query.iter_mut() { e.0 = 35.0; }
+        let slots: Vec<usize> = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer).map(|n| n.slot).collect();
+        for slot in slots { if let Some(npc) = entity_map.get_npc_mut(slot) { npc.energy = 35.0; } }
         test.set_flag("energy_set", true);
     }
 
-    let energy = energy_query.iter().next().map(|e| e.0).unwrap_or(100.0);
-    let going_work = activity_query.iter().filter(|a| matches!(a, Activity::GoingToWork)).count();
-    let working = activity_query.iter().filter(|a| matches!(a, Activity::Working)).count();
-    let going_rest = activity_query.iter().filter(|a| matches!(a, Activity::GoingToRest)).count();
-    let resting = activity_query.iter().filter(|a| matches!(a, Activity::Resting)).count();
+    let energy = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer).map(|n| n.energy).unwrap_or(100.0);
+    let going_work = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer && matches!(n.activity, Activity::GoingToWork)).count();
+    let working = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer && matches!(n.activity, Activity::Working)).count();
+    let going_rest = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer && matches!(n.activity, Activity::GoingToRest)).count();
+    let resting = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer && matches!(n.activity, Activity::Resting)).count();
 
     match test.phase {
         // Phase 1: Farmer spawns with GoingToWork

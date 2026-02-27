@@ -294,7 +294,6 @@ pub(crate) fn place_building(
             Health(def.hp),
             Faction(faction),
             TownId(town_data_idx as i32),
-            Speed(0.0),
             Building { kind },
         )).id();
         entity_map.entities.insert(slot, entity);
@@ -534,7 +533,6 @@ pub fn spawn_building_entities(
             Health(hp),
             Faction(faction),
             TownId(town_idx as i32),
-            Speed(0.0),
             Building { kind },
         )).id();
         entity_map.entities.insert(slot, entity);

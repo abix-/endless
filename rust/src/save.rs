@@ -922,72 +922,42 @@ pub struct SaveToast {
 // NPC QUERY — uses nested tuples to stay under Bevy's 16-element limit
 // ============================================================================
 
-// Core query: 12 elements (under 16)
-type NpcCoreQuery = (
-    &'static EntitySlot, &'static Position, &'static Job, &'static Faction, &'static TownId,
-    &'static Health, &'static Activity, &'static CombatState, &'static Personality,
-    &'static BaseAttackType, &'static Home, Option<&'static Energy>,
-);
-
-// Extras query: 7 elements
-type NpcExtrasQuery = (
-    &'static EntitySlot,
-    Option<&'static WorkPosition>, Option<&'static SquadId>, Option<&'static CarriedGold>,
-    Option<&'static EquippedWeapon>, Option<&'static EquippedHelmet>, Option<&'static EquippedArmor>,
-);
-
-/// Collect NPC save data from two ECS queries (core + extras) joined by EntityMap.
+/// Collect NPC save data from EntityMap NpcInstances.
 pub fn collect_npc_data(
-    core_query: &Query<NpcCoreQuery, Without<Dead>>,
-    extras_query: &Query<NpcExtrasQuery, Without<Dead>>,
     entity_map: &EntityMap,
     npc_meta: &NpcMetaCache,
 ) -> Vec<NpcSaveData> {
     let mut npcs = Vec::new();
-    for (npc_idx, pos, job, faction, town_id,
-         health, activity, combat_state, personality,
-         attack_type, home, energy) in core_query.iter()
-    {
-        let idx = npc_idx.0;
+    for npc in entity_map.iter_npcs() {
+        if npc.dead { continue; }
+        let idx = npc.slot;
         let meta = &npc_meta.0[idx];
-
-        // Look up extras via entity
-        let (work_pos, squad_id, carried_gold, weapon, helmet, armor) =
-            if let Some(&entity) = entity_map.entities.get(&idx) {
-                if let Ok((_idx, wp, sq, cg, wep, hel, arm)) = extras_query.get(entity) {
-                    (wp, sq, cg, wep, hel, arm)
-                } else {
-                    (None, None, None, None, None, None)
-                }
-            } else {
-                (None, None, None, None, None, None)
-            };
 
         npcs.push(NpcSaveData {
             slot: idx,
-            position: [pos.x, pos.y],
-            job: match *job {
+            position: [npc.position.x, npc.position.y],
+            job: match npc.job {
                 Job::Farmer => 0, Job::Archer => 1, Job::Raider => 2,
                 Job::Fighter => 3, Job::Miner => 4, Job::Crossbow => 5,
             },
-            faction: faction.to_i32(),
-            town_id: town_id.0,
-            health: health.0,
-            energy: energy.map(|e| e.0).unwrap_or(100.0),
-            activity: ActivitySave::from_activity(activity),
-            combat_state: CombatStateSave::from_combat_state(combat_state),
-            personality: PersonalitySave::from_personality(personality),
+            faction: npc.faction,
+            town_id: npc.town_idx,
+            health: npc.health,
+            energy: if npc.has_energy { npc.energy } else { 100.0 },
+            activity: ActivitySave::from_activity(&npc.activity),
+            combat_state: CombatStateSave::from_combat_state(&npc.combat_state),
+            personality: PersonalitySave::from_personality(&npc.personality),
             name: meta.name.clone(),
             level: meta.level,
             xp: meta.xp,
-            attack_type: match *attack_type { BaseAttackType::Melee => 0, BaseAttackType::Ranged => 1 },
-            home: v2(home.0),
-            work_position: work_pos.and_then(|w| entity_map.get_instance(w.0).map(|i| v2(i.position))),
-            squad_id: squad_id.map(|s| s.0),
-            carried_gold: carried_gold.map(|g| g.0),
-            weapon: weapon.map(|w| [w.0, w.1]),
-            helmet: helmet.map(|h| [h.0, h.1]),
-            armor: armor.map(|a| [a.0, a.1]),
+            attack_type: match npc.attack_type { BaseAttackType::Melee => 0, BaseAttackType::Ranged => 1 },
+            home: v2(npc.home),
+            work_position: npc.work_position.and_then(|w| entity_map.get_instance(w).map(|i| v2(i.position))),
+            squad_id: npc.squad_id,
+            carried_gold: if npc.carried_gold > 0 { Some(npc.carried_gold) } else { None },
+            weapon: npc.weapon.map(|(c, r)| [c, r]),
+            helmet: npc.helmet.map(|(c, r)| [c, r]),
+            armor: npc.armor.map(|(c, r)| [c, r]),
         });
     }
     npcs
@@ -1218,13 +1188,11 @@ pub fn save_game_system(
     fs: SaveFactionState,
     entity_map: Res<EntityMap>,
     npc_meta: Res<NpcMetaCache>,
-    core_query: Query<NpcCoreQuery, Without<Dead>>,
-    extras_query: Query<NpcExtrasQuery, Without<Dead>>,
     building_query: Query<(&Building, &EntitySlot, &Health), Without<Dead>>,
 ) {
     if save_msgs.read().next().is_none() { return; }
 
-    let npcs = collect_npc_data(&core_query, &extras_query, &entity_map, &npc_meta);
+    let npcs = collect_npc_data(&entity_map, &npc_meta);
     let building_hp = collect_building_hp(&building_query, &entity_map);
     let data = collect_save_data(
         &ws.grid, &ws.world_data, &entity_map, &ws.town_grids, &ws.game_time,
@@ -1255,8 +1223,6 @@ pub fn autosave_system(
     fs: SaveFactionState,
     entity_map: Res<EntityMap>,
     npc_meta: Res<NpcMetaCache>,
-    core_query: Query<NpcCoreQuery, Without<Dead>>,
-    extras_query: Query<NpcExtrasQuery, Without<Dead>>,
     building_query: Query<(&Building, &EntitySlot, &Health), Without<Dead>>,
 ) {
     if request.autosave_hours <= 0 || !ws.game_time.hour_ticked { return; }
@@ -1270,7 +1236,7 @@ pub fn autosave_system(
 
     let Some(path) = autosave_path(slot) else { return };
 
-    let npcs = collect_npc_data(&core_query, &extras_query, &entity_map, &npc_meta);
+    let npcs = collect_npc_data(&entity_map, &npc_meta);
     let building_hp = collect_building_hp(&building_query, &entity_map);
     let data = collect_save_data(
         &ws.grid, &ws.world_data, &entity_map, &ws.town_grids, &ws.game_time,
@@ -1410,14 +1376,7 @@ pub fn restore_world_from_save(
         &ws.upgrades,
     );
 
-    // Restore migration markers.
-    if let Some(mg) = &fs.migration_state.active {
-        for &slot in &mg.member_slots {
-            if let Some(&entity) = entity_map.entities.get(&slot) {
-                commands.entity(entity).insert(Migrating);
-            }
-        }
-    }
+    // Migration markers are restored via NpcInstance.migrating in spawn — no ECS marker needed.
 }
 
 /// Execute load when requested. Despawns all NPCs and rebuilds from save.

@@ -16,7 +16,7 @@ use rand::Rng;
 use crate::constants::*;
 use crate::resources::*;
 use crate::systemparams::WorldState;
-use crate::components::{Dead, Job, EntitySlot, SquadUnit, TownId};
+use crate::components::Job;
 use crate::world::{self, BuildingKind, WorldData, WorldGrid};
 use crate::systems::stats::{TownUpgrades, upgrade_node, upgrade_available, upgrade_unlocked, upgrade_cost, expansion_cost, UPGRADES};
 use crate::constants::UpgradeStatKind;
@@ -2056,7 +2056,6 @@ pub fn ai_squad_commander_system(
     mut squad_state: ResMut<SquadState>,
     world_data: Res<WorldData>,
     entity_map: Res<EntityMap>,
-    military: Query<(&TownId, &EntitySlot), (With<SquadUnit>, Without<Dead>)>,
     mut combat_log: MessageWriter<crate::messages::CombatLogMsg>,
     game_time: Res<GameTime>,
     mut ai_squads_dirty: MessageReader<crate::messages::AiSquadsDirtyMsg>,
@@ -2075,8 +2074,9 @@ pub fn ai_squad_commander_system(
 
     // Count alive military units per town.
     let mut units_by_town: HashMap<i32, usize> = HashMap::new();
-    for (town_id, _) in military.iter() {
-        *units_by_town.entry(town_id.0).or_default() += 1;
+    for npc in entity_map.iter_npcs() {
+        if npc.dead || !npc.is_military { continue; }
+        *units_by_town.entry(npc.town_idx).or_default() += 1;
     }
 
     for pi in 0..ai_state.players.len() {

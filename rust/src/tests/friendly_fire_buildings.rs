@@ -3,7 +3,7 @@
 
 use bevy::prelude::*;
 
-use crate::components::*;
+
 use crate::constants::building_def;
 use crate::world::BuildingKind;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, SpawnNpcMsg};
@@ -108,7 +108,7 @@ pub fn setup(
 }
 
 pub fn tick(
-    npc_query: Query<(), (With<EntitySlot>, Without<Dead>)>,
+    entity_map: Res<EntityMap>,
     combat_debug: Res<CombatDebug>,
     health_debug: Res<HealthDebug>,
     proj_alloc: Res<ProjSlotAllocator>,
@@ -126,7 +126,7 @@ pub fn tick(
         y: TARGET_Y,
     }));
 
-    let alive = npc_query.iter().count();
+    let alive = entity_map.iter_npcs().filter(|n| !n.dead).count();
     let max_farm_hp = building_def(BuildingKind::Farm).hp;
     let farm_entities: Vec<f32> = building_query.iter()
         .filter(|(b, _)| b.kind == BuildingKind::Farm)

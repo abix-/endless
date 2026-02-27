@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 use bevy::prelude::*;
-use crate::components::{Job, BaseAttackType, CachedStats, Personality, Dead, Health, Speed, EntitySlot, TownId};
+use crate::components::{Job, BaseAttackType, CachedStats, Personality};
 use crate::constants::{FOUNTAIN_TOWER, TowerStats, NPC_REGISTRY, npc_def, AttackTypeStats, UpgradeStatKind, UpgradeStatDef, ResourceKind, EffectDisplay, TOWN_UPGRADES};
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::resources::{NpcMetaCache, NpcsByTownCache, SystemTimings};
@@ -607,7 +607,6 @@ pub fn process_upgrades_system(
     npcs_by_town: Res<NpcsByTownCache>,
     config: Res<CombatConfig>,
     meta_cache: Res<NpcMetaCache>,
-    mut npc_query: Query<(&EntitySlot, &Job, &TownId, &BaseAttackType, &Personality, &mut Health, &mut CachedStats, &mut Speed), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut world_state: WorldState,
     timings: Res<SystemTimings>,
@@ -658,22 +657,23 @@ pub fn process_upgrades_system(
         if !is_combat_upgrade(upgrade_idx) { continue; }
 
         let Some(npc_slots) = npcs_by_town.0.get(town_idx) else { continue };
-        for &slot in npc_slots {
-            let Some(&entity) = world_state.entity_map.entities.get(&slot) else { continue };
-            let Ok((npc_idx, job, _town_id, atk_type, personality, mut health, mut cached, mut speed)) = npc_query.get_mut(entity) else { continue };
+        let slots: Vec<usize> = npc_slots.clone();
+        for slot in slots {
+            let Some(npc) = world_state.entity_map.get_npc_mut(slot) else { continue };
 
-            let npc_level = meta_cache.0[npc_idx.0].level;
-            let old_max = cached.max_health;
-            *cached = resolve_combat_stats(*job, *atk_type, town_idx as i32, npc_level, personality, &config, &upgrades);
-            speed.0 = cached.speed;
+            let npc_level = meta_cache.0[slot].level;
+            let old_max = npc.cached_stats.max_health;
+            let pers = npc.personality.clone();
+            npc.cached_stats = resolve_combat_stats(npc.job, npc.attack_type, town_idx as i32, npc_level, &pers, &config, &upgrades);
+            npc.speed = npc.cached_stats.speed;
 
             // Rescale HP proportionally
-            if old_max > 0.0 && (cached.max_health - old_max).abs() > 0.01 {
-                health.0 = health.0 * cached.max_health / old_max;
+            if old_max > 0.0 && (npc.cached_stats.max_health - old_max).abs() > 0.01 {
+                npc.health = npc.health * npc.cached_stats.max_health / old_max;
             }
 
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: npc_idx.0, speed: cached.speed }));
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: npc_idx.0, health: health.0 }));
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: slot, speed: npc.speed }));
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: npc.health }));
         }
     }
 }

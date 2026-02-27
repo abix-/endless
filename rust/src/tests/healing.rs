@@ -3,6 +3,7 @@
 
 use bevy::prelude::*;
 use crate::components::*;
+use crate::resources::EntityMap;
 
 use super::{TestState, TestSetupParams};
 
@@ -17,27 +18,26 @@ pub fn setup(mut params: TestSetupParams) {
 }
 
 pub fn tick(
-    mut health_query: Query<(&mut Health, &CachedStats, &EntitySlot), (With<Farmer>, Without<Dead>)>,
-    healing_query: Query<(), (With<Healing>, With<Farmer>, Without<Dead>)>,
+    mut entity_map: ResMut<EntityMap>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
-    let Some((mut health, cached, _)) = health_query.iter_mut().next() else {
+    let Some(farmer_slot) = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer).map(|n| n.slot) else {
         if !test.require_entity(0, elapsed, "farmer") { return; }
         return;
     };
 
-    let healing = healing_query.iter().count();
-    let hp = health.0;
-    let max_hp = cached.max_health;
+    let healing = entity_map.iter_npcs().filter(|n| !n.dead && n.healing && n.job == Job::Farmer).count();
+    let hp = entity_map.get_npc(farmer_slot).map(|n| n.health).unwrap_or(0.0);
+    let max_hp = entity_map.get_npc(farmer_slot).map(|n| n.cached_stats.max_health).unwrap_or(100.0);
 
     match test.phase {
         // Phase 1: Set NPC to 50 HP, wait for Healing marker
         1 => {
             if !test.get_flag("damaged") {
-                health.0 = 50.0;
+                if let Some(npc) = entity_map.get_npc_mut(farmer_slot) { npc.health = 50.0; }
                 test.set_flag("damaged", true);
                 test.phase_name = "Damaged to 50 HP, waiting for Healing...".into();
             } else {

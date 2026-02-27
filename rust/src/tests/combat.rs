@@ -2,7 +2,7 @@
 //! Validates: GPU targeting → Fighting → projectile/damage → health decreases → death → slot freed.
 
 use bevy::prelude::*;
-use crate::components::*;
+
 use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
 use crate::world;
@@ -60,8 +60,7 @@ pub fn setup(
 }
 
 pub fn tick(
-    npc_query: Query<(), (With<EntitySlot>, Without<Dead>)>,
-    combat_state_query: Query<&CombatState, Without<Dead>>,
+    entity_map: Res<EntityMap>,
     combat_debug: Res<CombatDebug>,
     health_debug: Res<HealthDebug>,
     slot_alloc: Res<EntitySlots>,
@@ -70,8 +69,8 @@ pub fn tick(
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
-    let alive = npc_query.iter().count();
-    let in_combat = combat_state_query.iter().filter(|c| c.is_fighting()).count();
+    let alive = entity_map.iter_npcs().filter(|n| !n.dead).count();
+    let in_combat = entity_map.iter_npcs().filter(|n| !n.dead && n.combat_state.is_fighting()).count();
 
     match test.phase {
         // Phase 1: GPU targeting finds enemy

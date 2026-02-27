@@ -4,6 +4,7 @@
 use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::ENERGY_HUNGRY;
+use crate::resources::EntityMap;
 
 use super::{TestState, TestSetupParams};
 
@@ -27,22 +28,23 @@ pub fn setup(mut params: TestSetupParams) {
 }
 
 pub fn tick(
-    mut query: Query<(&mut Energy, &EntitySlot), (With<Farmer>, Without<Dead>)>,
+    mut entity_map: ResMut<EntityMap>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
-    if !test.require_entity(query.iter().count(), elapsed, "farmer") { return; }
-    let Some((mut energy, _)) = query.iter_mut().next() else { return; };
+    let farmer_count = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer).count();
+    if !test.require_entity(farmer_count, elapsed, "farmer") { return; }
+    let Some(farmer_slot) = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer).map(|n| n.slot) else { return; };
 
     // Start energy near threshold so drain completes within 30s at time_scale=1
     if !test.get_flag("energy_set") {
-        energy.0 = 55.0;
+        if let Some(npc) = entity_map.get_npc_mut(farmer_slot) { npc.energy = 55.0; }
         test.set_flag("energy_set", true);
     }
 
-    let e = energy.0;
+    let e = entity_map.get_npc(farmer_slot).map(|n| n.energy).unwrap_or(0.0);
 
     match test.phase {
         // Phase 1: Energy exists and is draining

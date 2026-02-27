@@ -2,7 +2,7 @@
 //! Validates: ranged NPCs target → projectile spawned → hit + damage → slot freed.
 
 use bevy::prelude::*;
-use crate::components::*;
+
 use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
 use crate::world;
@@ -59,7 +59,7 @@ pub fn setup(
 }
 
 pub fn tick(
-    npc_query: Query<(), (With<EntitySlot>, Without<Dead>)>,
+    entity_map: Res<EntityMap>,
     combat_debug: Res<CombatDebug>,
     health_debug: Res<HealthDebug>,
     proj_alloc: Res<ProjSlotAllocator>,
@@ -68,7 +68,7 @@ pub fn tick(
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
-    let alive = npc_query.iter().count();
+    let alive = entity_map.iter_npcs().filter(|n| !n.dead).count();
 
     match test.phase {
         // Phase 1: Combat targeting finds enemy

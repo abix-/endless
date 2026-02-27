@@ -80,7 +80,7 @@ impl Job {
 }
 
 /// Movement speed in pixels per second.
-#[derive(Component, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct Speed(pub f32);
 
 impl Default for Speed {
@@ -89,30 +89,8 @@ impl Default for Speed {
     }
 }
 
-// ============================================================================
-// NPC TYPE MARKERS
-// ============================================================================
-
-/// Archer marker - identifies NPC as an archer (for queries).
-#[derive(Component)]
-pub struct Archer;
-
-/// Farmer marker - identifies NPC as a farmer.
-#[derive(Component)]
-pub struct Farmer;
-
-/// Miner marker - identifies NPC as a miner.
-#[derive(Component)]
-pub struct Miner;
-
-/// Crossbow marker - identifies NPC as a crossbowman.
-#[derive(Component)]
-pub struct Crossbow;
-
-/// Squad-eligible military unit. Applied to Archer, Crossbow, Raider, Fighter at spawn.
-/// Used by squad_cleanup_system and ai_squad_commander_system for recruitment queries.
-#[derive(Component)]
-pub struct SquadUnit;
+// NPC type markers (Archer, Farmer, Miner, Crossbow, SquadUnit) removed —
+// job identity lives in NpcInstance.job and NpcInstance.is_military.
 
 /// TownId identifies which town an NPC belongs to.
 /// Universal component on every NPC. All settlements are "towns" (villager or raider).
@@ -124,7 +102,6 @@ pub struct TownId(pub i32);
 // ============================================================================
 
 /// NPC energy level (0-100). Drains while active, recovers while resting.
-#[derive(Component)]
 pub struct Energy(pub f32);
 
 impl Default for Energy {
@@ -135,7 +112,6 @@ impl Default for Energy {
 
 /// Where the NPC goes to rest (bed position).
 /// Home(-1, -1) means no home assigned — behavior systems should skip.
-#[derive(Component)]
 pub struct Home(pub Vec2);
 
 impl Home {
@@ -145,18 +121,16 @@ impl Home {
 }
 
 /// Patrol route for guards (or any NPC that patrols).
-#[derive(Component)]
+#[derive(Clone)]
 pub struct PatrolRoute {
     pub posts: Vec<Vec2>,
     pub current: usize,
 }
 
 /// Work position for miners. Stores the building slot for occupancy tracking.
-#[derive(Component)]
 pub struct WorkPosition(pub usize);
 
 /// Gold being carried by a miner returning home.
-#[derive(Component)]
 pub struct CarriedGold(pub i32);
 
 
@@ -167,7 +141,7 @@ pub struct CarriedGold(pub i32);
 /// What the NPC is *doing*. Mutually exclusive — an NPC is in exactly one activity.
 /// Transit variants (Patrolling, GoingToWork, GoingToRest, GoingToHeal, Wandering, Raiding, Returning)
 /// mean the NPC is moving toward a destination; use `is_transit()` to check.
-#[derive(Component, Default, Clone, Debug, PartialEq)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub enum Activity {
     #[default]
     Idle,
@@ -230,7 +204,7 @@ impl Activity {
 
 /// Whether the NPC is in combat. Orthogonal to Activity — a Raiding NPC can be Fighting.
 /// Activity is preserved through combat so the NPC resumes what it was doing when combat ends.
-#[derive(Component, Default, Clone, Debug, PartialEq)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub enum CombatState {
     #[default]
     None,
@@ -253,7 +227,7 @@ impl CombatState {
 }
 
 /// Player-forced target for DirectControl NPCs.
-#[derive(Component, Clone)]
+#[derive(Clone)]
 pub enum ManualTarget {
     /// Attack a specific NPC (slot index).
     Npc(usize),
@@ -263,21 +237,10 @@ pub enum ManualTarget {
     Position(Vec2),
 }
 
-/// Marker: NPC is under direct player control (box-selected).
-/// Skips all autonomous behavior in decision_system — no flee, rest, eat, patrol.
-/// Only responds to right-click move/attack commands.
-#[derive(Component)]
-pub struct DirectControl;
+// DirectControl, AtDestination markers removed — flags live in NpcInstance.
 
 /// Farmer's assigned farm slot for occupancy tracking.
-/// Added when entering Working at a farm, removed when leaving.
-#[derive(Component)]
 pub struct AssignedFarm(pub usize);
-
-/// NPC has arrived at destination and needs transition handling.
-/// Set by gpu_position_readback when within ARRIVAL_THRESHOLD; cleared by decision_system.
-#[derive(Component)]
-pub struct AtDestination;
 
 /// NPC is dead and pending removal.
 #[derive(Component)]
@@ -299,7 +262,7 @@ impl Default for Health {
 
 /// Whether this NPC uses melee or ranged attacks.
 /// Used as key into CombatConfig.attacks and stored on entity for re-resolution.
-#[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum BaseAttackType {
     Melee,
     Ranged,
@@ -307,7 +270,7 @@ pub enum BaseAttackType {
 
 /// Cached resolved combat stats. Populated on spawn from resolve_combat_stats().
 /// Re-resolved on upgrade purchase or level-up (Stage 9+).
-#[derive(Component, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct CachedStats {
     pub damage: f32,
     pub range: f32,
@@ -340,17 +303,14 @@ impl Faction {
 
 
 /// Cooldown timer for attacks. When > 0, NPC can't attack.
-#[derive(Component, Default)]
+#[derive(Default)]
 pub struct AttackTimer(pub f32);
 
 // ============================================================================
 // STEALING / EQUIPMENT COMPONENTS
 // ============================================================================
 
-/// Marker: this NPC steals food from farms. Any NPC with this + Home
-/// will use the steal decision system.
-#[derive(Component)]
-pub struct Stealer;
+// Stealer marker removed — flag lives in NpcInstance.is_stealer.
 
 /// Equipment rendering layer index.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -359,40 +319,23 @@ pub enum EquipLayer { Armor = 0, Helmet = 1, Weapon = 2, Item = 3, Status = 4, H
 impl EquipLayer { pub const COUNT: usize = 6; }
 
 /// Equipped weapon sprite (col, row in atlas). Presence = has weapon.
-#[derive(Component, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct EquippedWeapon(pub f32, pub f32);
 
 /// Equipped helmet sprite (col, row in atlas). Presence = has helmet.
-#[derive(Component, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct EquippedHelmet(pub f32, pub f32);
 
 /// Equipped armor sprite (col, row in atlas). Presence = has armor.
-#[derive(Component, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct EquippedArmor(pub f32, pub f32);
 
-/// Tracks the NPC slot index of the last attacker (for XP on kill).
+/// Tracks the NPC/building slot of the last attacker (for XP on kill).
 #[derive(Component)]
 pub struct LastHitBy(pub i32);
 
-/// Marker: NPC is inside a healing aura (near own faction's town center).
-/// Used for visual feedback (halo effect).
-#[derive(Component)]
-pub struct Healing;
-
-/// Marker: NPC is starving (energy reached 0).
-/// Debuffs: HP capped at 50%, speed reduced 50%.
-#[derive(Component)]
-pub struct Starving;
-
-/// Marker: raider is part of an unsettled migrating group.
-/// Removed when the group settles into a town.
-#[derive(Component)]
-pub struct Migrating;
-
-/// Squad assignment for archers. 0-9 = squad index.
-/// Behavior is controlled by SquadState (target + patrol toggle).
-#[derive(Component)]
-pub struct SquadId(pub i32);
+// Healing, Starving, Migrating, SquadId, DirectControl, AtDestination markers removed —
+// flags live in NpcInstance.
 
 /// Marker: entity is a building (not a walking NPC).
 /// Buildings are NPC-like entities with Speed(0.0) on the building atlas.
@@ -413,20 +356,17 @@ pub struct FarmReadyMarker {
 // ============================================================================
 
 /// Flee combat when HP drops below this percentage.
-#[derive(Component)]
 pub struct FleeThreshold {
     pub pct: f32,
 }
 
 /// Disengage combat if distance from Home exceeds this.
-#[derive(Component)]
 pub struct LeashRange {
     pub distance: f32,
 }
 
 /// Drop everything and return home when HP drops below this percentage.
 /// Distinct from FleeThreshold: wounded NPCs enter recovery mode.
-#[derive(Component)]
 pub struct WoundedThreshold {
     pub pct: f32,
 }
@@ -486,7 +426,7 @@ pub struct TraitInstance {
 }
 
 /// NPC personality: 0-2 traits that modify stats and decision weights.
-#[derive(Component, Clone, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Personality {
     pub trait1: Option<TraitInstance>,
     pub trait2: Option<TraitInstance>,

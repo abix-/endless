@@ -19,7 +19,7 @@ The system uses **SystemParam bundles** for farm and economy parameters:
 
 Priority order (first match wins), with three-tier throttling via `NpcDecisionConfig.interval`:
 
-**DirectControl skip** (before all priorities): NPCs with a `DirectControl` component skip the entire decision system — no autonomous behavior whatsoever. The system clears `AtDestination` if present to prevent stale arrival flags. DC NPCs may accumulate loot in `Activity::Returning` while fighting (via `dc_no_return` toggle) — the Returning activity is inert while DC is active. When a DC right-click move/attack command is issued (`click_to_select_system` in render.rs), resting NPCs (`GoingToRest`/`Resting`) are woken to `Idle` so they respond to the command instead of sliding while asleep.
+**DirectControl skip** (before all priorities): NPCs with `direct_control` flag skip the entire decision system — no autonomous behavior whatsoever. The system clears `AtDestination` if present to prevent stale arrival flags. DC NPCs may accumulate loot in `Activity::Returning` while fighting (via `dc_no_return` toggle) — the Returning activity is inert while DC is active. When a DC right-click move/attack command is issued (`click_to_select_system` in render.rs), resting NPCs (`GoingToRest`/`Resting`) are woken to `Idle` so they respond to the command instead of sliding while asleep.
 
 **Tier 1 — every frame:**
 0. AtDestination → Handle arrival transitions (transient one-frame flag, can't miss)
@@ -142,10 +142,10 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 
 ### State Enums (Concurrent State Machines)
 
-| Component | Variants | Purpose |
+| NpcInstance field | Variants | Purpose |
 |-----------|----------|---------|
-| Activity | `Idle, Working, OnDuty{ticks_waiting}, Patrolling, GoingToWork, GoingToRest, Resting, GoingToHeal, HealingAtFountain{recover_until}, Wandering, Raiding{target}, Returning{loot: Vec<(ItemKind, i32)>}, Mining{mine_pos}, MiningAtMine` | What the NPC is *doing* — mutually exclusive |
-| CombatState | `None, Fighting{origin}, Fleeing` | Whether the NPC is *fighting* — orthogonal to Activity |
+| activity: Activity | `Idle, Working, OnDuty{ticks_waiting}, Patrolling, GoingToWork, GoingToRest, Resting, GoingToHeal, HealingAtFountain{recover_until}, Wandering, Raiding{target}, Returning{loot: Vec<(ItemKind, i32)>}, Mining{mine_pos}, MiningAtMine` | What the NPC is *doing* — mutually exclusive |
+| combat_state: CombatState | `None, Fighting{origin}, Fleeing` | Whether the NPC is *fighting* — orthogonal to Activity |
 
 `Activity::is_transit()` returns true for Patrolling, GoingToWork, GoingToRest, GoingToHeal, Wandering, Raiding, Returning, Mining. Used by `gpu_position_readback` for arrival detection.
 
@@ -157,30 +157,32 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 
 `Mining { mine_pos: Vec2 }` — miner walking to a gold mine. `MiningAtMine` — miner actively extracting gold (claims occupancy, progress-based 4-hour work cycle with gold progress bar overhead).
 
-### Data Components
+### NpcInstance Data Fields
 
-| Component | Type | Purpose |
-|-----------|------|---------|
-| TownId | `i32` | Town identifier — every NPC belongs to one |
-| Energy | `f32` | 0-100, drains while active, recovers while resting |
-| Personality | `{ trait1, trait2 }` | 0-2 traits with magnitude affecting stats and decisions |
-| AssignedFarm | `usize` | Farm building slot farmer is working at (for occupancy tracking) |
-| Starving | marker | NPC energy at zero (50% HP cap, 50% speed) |
-| Healing | marker | NPC is inside healing aura (visual feedback) |
-| MaxHealth | `f32` | NPC's maximum health (for healing cap) |
-| Home | `{ x, y }` | NPC's spawner building position — rest destination |
-| WorkPosition | `usize` | Farmer's field / miner's mine building slot |
-| MiningProgress | `f32` | Mining work progress 0.0–1.0, inserted when miner starts at mine, cleared on extraction or interruption |
-| PatrolRoute | `{ posts: Vec<Vec2>, current: usize }` | Patrol unit's ordered patrol posts (archers, crossbows, fighters) |
-| AtDestination | marker | NPC arrived at destination (transient frame flag from gpu_position_readback) |
-| Stealer | marker | NPC steals from farms (enables steal systems) |
-| LeashRange | `{ distance: f32 }` | Disengage combat if chased this far from combat origin (raiders only) |
-| SquadId | `i32` (0-9) | Squad assignment — military units (archers/crossbows/fighters/raiders) with this follow squad target instead of patrolling |
+All NPC state lives in `NpcInstance` (stored in `EntityMap.npcs`). No ECS components except `EntitySlot`.
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| town_idx | `i32` | Town identifier — every NPC belongs to one |
+| energy | `f32` | 0-100, drains while active, recovers while resting |
+| personality | `Personality` | 0-2 traits with magnitude affecting stats and decisions |
+| assigned_farm | `Option<usize>` | Farm building slot farmer is working at (for occupancy tracking) |
+| is_starving | `bool` | NPC energy at zero (50% HP cap, 50% speed) |
+| healing | `bool` | NPC is inside healing aura (visual feedback) |
+| cached_stats.max_health | `f32` | NPC's maximum health (for healing cap) |
+| home | `Vec2` | NPC's spawner building position — rest destination |
+| work_position | `Option<usize>` | Farmer's field / miner's mine building slot |
+| mining_progress | `f32` | Mining work progress 0.0–1.0, set when miner starts at mine, cleared on extraction or interruption |
+| patrol_route | `Option<PatrolRoute>` | Patrol unit's ordered patrol posts (archers, crossbows, fighters) |
+| at_destination | `bool` | NPC arrived at destination (transient frame flag from gpu_position_readback) |
+| is_stealer | `bool` | NPC steals from farms (enables steal systems) |
+| leash_range | `Option<f32>` | Disengage combat if chased this far from combat origin (raiders only) |
+| squad_id | `Option<i32>` | Squad assignment — military units follow squad target instead of patrolling |
 
 ## Systems
 
 ### decision_system (Unified Priority Cascade)
-- Query: NPCs with `&mut Activity`, `&mut CombatState`, `Option<&DirectControl>`, skips `DirectControl` NPCs entirely, skips NPCs in transit (`activity.is_transit()`)
+- Iterates `EntityMap.iter_npcs()` — all NPC state read/written via `NpcInstance` fields, no ECS queries. Skips `direct_control` NPCs entirely, skips NPCs in transit (`activity.is_transit()`)
 - Uses **SystemParam bundles** for farm and economy parameters (see Overview)
 - Reads `NpcDecisionConfig.interval` for Tier 3 bucket count (`interval × 60fps`)
 - Three-tier throttling: arrivals every frame, combat every 8 frames, decisions bucketed by interval
@@ -260,12 +262,12 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - All state transitions (wake-up, stop working) are handled in decision_system to keep decisions centralized
 
 ### healing_system
-- Query: NPCs with `Health`, `MaxHealth`, `Faction`, `TownId` (without `Dead`)
-- Reads NPC position from `GpuReadState`, town centers from `WorldData`
+- Iterates `EntityMap.iter_npcs_mut()` — reads position, faction, town_idx, health, cached_stats from NpcInstance
+- Reads town centers from `WorldData`
 - All settlements (villager and raider) are Town entries with faction (unified town model)
 - If NPC within `HEAL_RADIUS` (150px) of same-faction town center: heal `HEAL_RATE` (5 HP/sec)
-- **Starvation HP cap**: Starving NPCs have HP capped at 50% of MaxHealth (can't heal above this)
-- Adds/removes `Healing` marker component for visual feedback (heal icon derived by `sync_visual_sprites`)
+- **Starvation HP cap**: Starving NPCs have HP capped at 50% of max_health (can't heal above this)
+- Sets/clears `npc.healing` bool for visual feedback (heal icon derived by `sync_visual_sprites`)
 - Debug: `get_health_debug()` returns healing_in_zone_count and healing_healed_count
 
 *Economy systems (game_time, farm_growth, raider_forage, raider_respawn, starvation) documented in [economy.md](economy.md).*
@@ -300,11 +302,11 @@ Each town has 4 waypoints at corners. Patrol units cycle clockwise. Patrol route
 
 ## Squads
 
-Military unit groups for both player and AI. 10 player-reserved squads + AI squads appended after. All military NPCs (`SquadUnit` component: archers, crossbows, fighters, raiders) can be squad members.
+Military unit groups for both player and AI. 10 player-reserved squads + AI squads appended after. All military NPCs (`is_military` flag on NpcInstance: archers, crossbows, fighters, raiders) can be squad members.
 
-**Behavior override**: In `decision_system`'s squad sync block, any NPC with `SquadId` checks `SquadState.squads[id].target`. If a target exists, the unit walks there (`Activity::Patrolling` with squad target). On arrival, `Activity::OnDuty` (same as waypoint). If no target is set and patrol disabled, unit stops (`Activity::Idle`). Squad sync also handles `Activity::Raiding` (raiders redirect to squad target).
+**Behavior override**: In `decision_system`'s squad sync block, any NPC with `squad_id` checks `SquadState.squads[id].target`. If a target exists, the unit walks there (`Activity::Patrolling` with squad target). On arrival, `Activity::OnDuty` (same as waypoint). If no target is set and patrol disabled, unit stops (`Activity::Idle`). Squad sync also handles `Activity::Raiding` (raiders redirect to squad target).
 
-**Manual micro override**: NPCs with a `ManualTarget` component skip the squad sync block entirely — player-assigned attack targets take priority over squad auto-redirect. The combat system handles `ManualTarget` directly (see [combat.md](combat.md#attack-system)).
+**Manual micro override**: NPCs with a `manual_target` field skip the squad sync block entirely — player-assigned attack targets take priority over squad auto-redirect. The combat system handles `ManualTarget` directly (see [combat.md](combat.md#attack-system)).
 
 **Squad sync optimization**: The squad sync block only writes GPU targets when needed — not every frame. `OnDuty` units are redirected only when the squad target moves >100px from the unit's position. `Patrolling`, `Raiding`, `GoingToRest`, `Resting`, `GoingToHeal`, `HealingAtFountain`, and `Returning` units are left alone (already heading to target, resting, healing, or carrying loot home). Other activities (`Idle`, `Wandering`) get redirected immediately.
 
@@ -316,7 +318,7 @@ Military unit groups for both player and AI. 10 player-reserved squads + AI squa
 
 **Raider behavior**: Raiders are squad-driven — if assigned to a squad with a target, the squad sync block redirects them. Raiders without a squad wander near their town. Raider attacks run through the AI squad commander wave cycle.
 
-**Recruitment**: `squad_cleanup_system` queries alive `SquadUnit` NPCs without `SquadId`. Player squads recruit from player-town units; AI squads recruit from their owner town's units. "Dismiss All" removes `SquadId` from all squad members — units resume normal behavior.
+**Recruitment**: `squad_cleanup_system` iterates `EntityMap.iter_npcs()` filtering alive military NPCs without `squad_id`. Player squads recruit from player-town units; AI squads recruit from their owner town's units. "Dismiss All" clears `squad_id` from all squad members — units resume normal behavior.
 
 **Death cleanup**: `squad_cleanup_system` (Step::Behavior) removes dead NPC slots from `Squad.members` by checking `EntityMap`.
 

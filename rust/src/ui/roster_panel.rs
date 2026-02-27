@@ -36,7 +36,7 @@ pub fn roster_panel_system(
     ui_state: Res<UiState>,
     mut selected: ResMut<SelectedNpc>,
     meta_cache: Res<NpcMetaCache>,
-    health_query: Query<(&EntitySlot, &Health, &CachedStats, &Activity, &CombatState), Without<Dead>>,
+    entity_map: Res<EntityMap>,
     mut state: Local<RosterState>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     gpu_state: Res<GpuReadState>,
@@ -51,8 +51,9 @@ pub fn roster_panel_system(
     state.frame_counter += 1;
     if state.frame_counter % 30 == 1 || state.cached_rows.is_empty() {
         let mut rows = Vec::new();
-        for (npc_idx, health, cached, activity, combat) in health_query.iter() {
-            let idx = npc_idx.0;
+        for npc in entity_map.iter_npcs() {
+            if npc.dead { continue; }
+            let idx = npc.slot;
             let meta = &meta_cache.0[idx];
 
             // Job filter
@@ -60,10 +61,10 @@ pub fn roster_panel_system(
                 continue;
             }
 
-            let state_str = if combat.is_fighting() {
-                combat.name().to_string()
+            let state_str = if npc.combat_state.is_fighting() {
+                npc.combat_state.name().to_string()
             } else {
-                activity.name().to_string()
+                npc.activity.name().to_string()
             };
 
             rows.push(RosterRow {
@@ -71,8 +72,8 @@ pub fn roster_panel_system(
                 name: meta.name.clone(),
                 job: meta.job,
                 level: meta.level,
-                hp: health.0,
-                max_hp: cached.max_health,
+                hp: npc.health,
+                max_hp: npc.cached_stats.max_health,
                 state: state_str,
                 trait_name: crate::trait_name(meta.trait_id).to_string(),
             });

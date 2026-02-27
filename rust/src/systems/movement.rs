@@ -8,14 +8,13 @@ use crate::gpu::EntityGpuState;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::resources::{GameTime, GpuReadState, MovementIntents, NpcTargetThrashDebug, SystemTimings};
 
-/// Read positions from GPU and update Bevy Position components.
+/// Read positions from GPU and update Bevy Position + EntityMap NpcInstance.
 /// Also detects arrivals: if NPC is in a transit Activity and within ARRIVAL_THRESHOLD
 /// of their goal, add AtDestination marker for decision_system to handle.
 pub fn gpu_position_readback(
-    mut commands: Commands,
-    mut query: Query<(Entity, &EntitySlot, &mut Position, &Activity, Option<&AtDestination>)>,
     gpu_state: Res<GpuReadState>,
     buffer_writes: Res<EntityGpuState>,
+    mut entity_map: ResMut<crate::resources::EntityMap>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("gpu_position_readback");
@@ -23,42 +22,31 @@ pub fn gpu_position_readback(
     let targets = &buffer_writes.targets;
     let threshold_sq = ARRIVAL_THRESHOLD * ARRIVAL_THRESHOLD;
 
-    const EPSILON: f32 = 0.01;
+    let slots: Vec<usize> = entity_map.iter_npcs()
+        .filter(|n| !n.dead)
+        .map(|n| n.slot)
+        .collect();
 
-    for (entity, npc_idx, mut pos, activity, at_dest) in query.iter_mut() {
-        let i = npc_idx.0;
-        if i * 2 + 1 >= positions.len() {
-            continue;
-        }
+    for i in slots {
+        if i * 2 + 1 >= positions.len() { continue; }
 
         let gpu_x = positions[i * 2];
         let gpu_y = positions[i * 2 + 1];
 
-        // Skip hidden NPCs
-        if gpu_x < -9000.0 {
-            continue;
-        }
+        if gpu_x < -9000.0 { continue; }
 
-        // Update ECS position from GPU
-        let dx = (gpu_x - pos.x).abs();
-        let dy = (gpu_y - pos.y).abs();
-        if dx > EPSILON || dy > EPSILON {
-            pos.x = gpu_x;
-            pos.y = gpu_y;
-        }
+        let Some(npc) = entity_map.get_npc_mut(i) else { continue };
+        npc.position = Vec2::new(gpu_x, gpu_y);
 
-        // CPU-side arrival detection: check if NPC reached their goal
-        if activity.is_transit() && at_dest.is_none() {
+        // CPU-side arrival detection
+        if npc.activity.is_transit() && !npc.at_destination {
             if i * 2 + 1 < targets.len() {
                 let goal_x = targets[i * 2];
                 let goal_y = targets[i * 2 + 1];
                 let dx = gpu_x - goal_x;
                 let dy = gpu_y - goal_y;
-                let dist_sq = dx * dx + dy * dy;
-
-                if dist_sq <= threshold_sq {
-                    commands.entity(entity)
-                        .insert(AtDestination);
+                if dx * dx + dy * dy <= threshold_sq {
+                    npc.at_destination = true;
                 }
             }
         }

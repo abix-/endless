@@ -27,7 +27,7 @@ Pre-computed per-NPC data for UI queries, indexed by slot.
 
 `NpcLogCache.push(idx, day, hour, minute, message)` adds timestamped entries. Oldest evicted at capacity.
 
-NPC state is derived at query time via `derive_npc_state()` which checks ECS components (Dead, InCombat, Resting, etc.), not cached. Trait display reads from `Personality` component via `trait_summary()` at query time (not cached in meta). NPC rename edits `NpcMetaCache` directly from inspector UI.
+NPC state is derived at query time from `NpcInstance` fields (dead, combat_state, activity), not cached. Trait display reads from `NpcInstance.personality` via `trait_summary()` at query time (not cached in meta). NPC rename edits `NpcMetaCache` directly from inspector UI.
 
 ## Population & Kill Stats
 
@@ -263,15 +263,15 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 
 `Squad` fields: `members: Vec<usize>` (NPC slot indices), `target: Option<Vec2>` (world position or None), `target_size: usize` (desired member count, 0 = manual mode — no auto-recruit/dismiss), `patrol_enabled: bool`, `rest_when_tired: bool`, `owner: SquadOwner`, `wave_active: bool`, `wave_start_count: usize`, `wave_min_start: usize`, `wave_retreat_below_pct: usize`, `hold_fire: bool` (when true, members only attack ManualTarget — no auto-engage).
 
-`SquadId(i32)` component added to military units (archers, crossbows, fighters, raiders) when recruited into a squad. Removed on dismiss. Units with `SquadId` walk to squad target instead of patrolling (see [behavior.md](behavior.md#squads)).
+`NpcInstance.squad_id: Option<i32>` set on military units when recruited into a squad. Cleared on dismiss. Units with `squad_id` walk to squad target instead of patrolling (see [behavior.md](behavior.md#squads)).
 
-`SquadUnit` marker component applied to all military NPCs (archers, crossbows, fighters, raiders) at spawn. Used by `squad_cleanup_system` and `ai_squad_commander_system` for recruitment queries instead of per-job component filters.
+`NpcInstance.is_military: bool` flag set on all military NPCs (archers, crossbows, fighters, raiders) at spawn. Used by `squad_cleanup_system` and `ai_squad_commander_system` for recruitment iteration via `EntityMap.iter_npcs()` filters.
 
 `placing_target`: when true, next right-click on the map sets the selected squad's target. Cancelled by ESC.
 
 `drag_start` / `box_selecting`: box-select drag state. `drag_start` is set on left-click press (world-space position), `box_selecting` becomes true when the drag exceeds 5px threshold. On mouse release while `box_selecting`, all player military NPCs inside the AABB are assigned to the currently selected squad. Cleared by ESC or mouse release.
 
-`ManualTarget` enum component: per-NPC target for DirectControl units. Variants: `Npc(usize)` (attack NPC slot), `Building(Vec2)` (attack building position), `Position(Vec2)` (ground move). Inserted by right-click commands on DirectControl NPCs. `Npc` variant overrides GPU auto-targeting in `attack_system`, auto-cleared when target dies. `Building`/`Position` variants fall through to GPU auto-targeting in combat. Crosshair overlay in `squad_overlay_system` renders for `Npc`/`Building` variants on DirectControl NPCs.
+`NpcInstance.manual_target: Option<ManualTarget>` — per-NPC target for DirectControl units. `ManualTarget` enum variants: `Npc(usize)` (attack NPC slot), `Building(Vec2)` (attack building position), `Position(Vec2)` (ground move). Set by right-click commands on DirectControl NPCs. `Npc` variant overrides GPU auto-targeting in `attack_system`, auto-cleared when target dies. `Building`/`Position` variants fall through to GPU auto-targeting in combat. Crosshair overlay in `squad_overlay_system` renders for `Npc`/`Building` variants on DirectControl NPCs.
 
 `npc_matches_owner(owner, npc_town_id, player_town)`: helper for owner-safe recruitment in `squad_cleanup_system`. Player squads recruit from player-town `SquadUnit` NPCs; `Town(tdi)` squads recruit from units with matching `TownId`.
 
@@ -304,7 +304,7 @@ Both unlock slots when full (sets terrain to Dirt) and buy upgrades with surplus
 
 `MigrationGroup` fields: `town_data_idx` (index into WorldData.towns for the raider town-to-be), `grid_idx` (TownGrids index), `member_slots: Vec<usize>` (NPC slot indices of migrating raiders), `boat_slot: Option<usize>` (NPC GPU slot for boat entity), `boat_pos: Vec2` (current boat position), `settle_target: Vec2` (destination chosen by `pick_settle_site`), `faction: i32`.
 
-`Migrating` component: marker on NPC entities that are part of an active migration group. Attached by `migration_attach_system`, cleared by `migration_settle_system` on settlement. Persisted in save via `MigrationSave.member_slots` and re-attached on load.
+`NpcInstance.migrating: bool` flag on NPCs that are part of an active migration group. Set by `migration_attach_system`, cleared by `migration_settle_system` on settlement. Persisted in save via `MigrationSave.member_slots` and re-set on load.
 
 ## Movement Intent Resolution
 

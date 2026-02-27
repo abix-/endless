@@ -124,8 +124,7 @@ pub fn tick(
     gpu_state: Res<GpuReadState>,
     combat_debug: Res<CombatDebug>,
     health_debug: Res<HealthDebug>,
-    activity_query: Query<&Activity, Without<Dead>>,
-    at_dest_query: Query<(), With<AtDestination>>,
+    entity_map: Res<EntityMap>,
     mut test: ResMut<TestState>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
@@ -163,21 +162,21 @@ pub fn tick(
         }
         // Phase 3: Farmers arrive and start working
         3 => {
-            let working = activity_query.iter().filter(|a| matches!(a, Activity::Working)).count();
-            let going_to_work = activity_query.iter().filter(|a| matches!(a, Activity::GoingToWork)).count();
+            let working = entity_map.iter_npcs().filter(|n| !n.dead && matches!(n.activity, Activity::Working)).count();
+            let going_to_work = entity_map.iter_npcs().filter(|n| !n.dead && matches!(n.activity, Activity::GoingToWork)).count();
             test.phase_name = format!("working={} going_to_work={}", working, going_to_work);
             if working >= 3 {
                 test.pass_phase(elapsed, format!("working={}", working));
             } else if elapsed > 8.0 {
-                let at_dest = at_dest_query.iter().count();
-                let transit = activity_query.iter().filter(|a| a.is_transit()).count();
+                let at_dest = entity_map.iter_npcs().filter(|n| !n.dead && n.at_destination).count();
+                let transit = entity_map.iter_npcs().filter(|n| !n.dead && n.activity.is_transit()).count();
                 test.fail_phase(elapsed, format!(
                     "working={} going_to_work={} at_dest={} transit={}", working, going_to_work, at_dest, transit));
             }
         }
         // Phase 4: Raiders dispatched
         4 => {
-            let raiding = activity_query.iter().filter(|a| matches!(a, Activity::Raiding { .. })).count();
+            let raiding = entity_map.iter_npcs().filter(|n| !n.dead && matches!(n.activity, Activity::Raiding { .. })).count();
             test.phase_name = format!("raiding={}/3", raiding);
             if raiding >= 3 {
                 test.pass_phase(elapsed, format!("raiding={}", raiding));
