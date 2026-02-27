@@ -2,7 +2,13 @@
 
 Completed items moved from roadmap for readability.
 
-### Roadmap Migration (Stage 16 — Scale Remediation)
+### Roadmap Migration (Stage 16 — ECS Source-of-Truth + Scale Remediation)
+- [x] ECS Slice A: DirectControl + ManualTarget + Squad flags → ECS (`NpcFlags`, `SquadId`, `ManualTarget` components)
+- [x] ECS Slice B: Activity + Movement + Arrival + Position → ECS (`Activity` component, `Position` read-model, query-first `gpu_position_readback`)
+- [x] ECS Slice C: Combat + Health + Death → ECS (Health, Energy, Speed, CombatState, CachedStats, AttackTimer, LastHitBy components, `AttackQueries` SystemParam bundle)
+- [x] ECS Slice D: Economy + AI + Save/Load + GPU + UI → ECS, delete NpcInstance (NpcEntry 6-field index, Equipment/Personality/Home/PatrolRoute/CarriedGold/WorkPosition → ECS, `SaveNpcQueries` bundle)
+
+### Roadmap Migration (Stage 16 — Scale Remediation Items)
 - [x] Stage 16 item 1: indexed worksite query — `find_nearest_worksite` with kind-filtered spatial cell-ring expansion, `try_claim_worksite` authoritative claim, farmer/miner migration
 - [x] Stage 16 item 2: slot-indexed occupancy — `BuildingInstance.occupants` replaces `BuildingOccupancy` hash-by-position, `AssignedFarm`/`WorkPosition` store slot instead of Vec2
 - [x] Stage 16 items 5-6: query-first migration — eliminate `iter_npcs()` + `entity_map.get_npc()` HashMap lookups in 10 runtime systems (cooldown, energy, death, behavior, economy, combat, health, render, ai_player)
@@ -208,6 +214,8 @@ Completed items moved from roadmap for readability.
 - [x] Patrols tab (T) — view and reorder guard post patrol routes, swap buttons mutate WorldData
 - [x] Left panel (renamed from right_panel): Roster / Upgrades / Policies / Patrols tabs
 - [x] Squads tab updates: visible Default Squad, recruit transfer buttons (+1/+2/+4/+8/+16/+32), and hotkeys `1..9,0` to arm squad target placement for squads 1..10
+- [x] Factions tab shows current policy snapshot for the selected faction (read-only intel view)
+- [x] Selected-NPC target overlay line now renders in test scenes (`AppState::Running`) as well as normal gameplay
 
 ### Building System
 - [x] Runtime add/remove farm/guard_post (place_building/remove_building with tombstone deletion)
@@ -369,6 +377,7 @@ Completed items moved from roadmap for readability.
 - [x] NPC inspector tips (level/xp, trait, energy, state)
 
 ### DRY & Consolidation
+- [x] Centralize world lifecycle startup/load flows to shared helpers (`world::materialize_generated_world`, `save::restore_world_from_save`) so game startup, menu load, in-game load, and AI world-setup tests cannot drift
 - [x] Rename role spawner buildings to `FarmerHome` / `ArcherHome` / `MinerHome` + rename `Job::Guard` → `Job::Archer` and all associated types/fields/UI labels
 - [x] Consolidate farm harvest transitions into one authoritative path (previously split across `arrival_system` and `decision_system`)
 - [x] Consolidate building placement side effects (place + food spend + spawner entry + HP push) into one shared helper used by player + AI
