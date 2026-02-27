@@ -62,13 +62,13 @@ pub fn tick(
     activity_q: Query<&Activity>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
-    let alive = entity_map.iter_npcs().filter(|n| !n.dead && n.is_stealer).count();
+    let alive = entity_map.iter_npcs().filter(|n| !n.dead && n.job == crate::components::Job::Raider).count();
     if !test.require_entity(alive, elapsed, "raider") { return; }
 
     let mut raiding = 0;
     let mut returning = 0;
     let mut carrying = 0;
-    for npc in entity_map.iter_npcs().filter(|n| !n.dead && n.is_stealer) {
+    for npc in entity_map.iter_npcs().filter(|n| !n.dead && n.job == crate::components::Job::Raider) {
         match activity_q.get(npc.entity).ok().as_deref() {
             Some(Activity::Raiding { .. }) => raiding += 1,
             Some(Activity::Returning { loot }) => {

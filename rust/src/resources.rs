@@ -109,8 +109,8 @@ pub struct EntityMap {
     by_kind_town: HashMap<(crate::world::BuildingKind, u32), Vec<usize>>,
     by_grid_cell: HashMap<(i32, i32), usize>,
 
-    // NPC-specific data
-    npcs: HashMap<usize, NpcInstance>,
+    // NPC-specific data (index-only — gameplay state on ECS components)
+    npcs: HashMap<usize, NpcEntry>,
     npc_by_town: HashMap<i32, Vec<usize>>,
 
     // Spatial grid
@@ -309,45 +309,41 @@ impl EntityMap {
 
     // ── NPC instance API ───────────────────────────────────────────────
 
-    pub fn insert_npc(&mut self, inst: NpcInstance) {
-        let slot = inst.slot;
+    /// Register an NPC slot→entity mapping (index-only, no gameplay state).
+    pub fn register_npc(&mut self, slot: usize, entity: Entity, job: crate::components::Job, faction: i32, town_idx: i32) {
         debug_assert!(!self.npcs.contains_key(&slot), "duplicate NPC slot {}", slot);
-        let town = inst.town_idx;
-        self.entities.insert(slot, inst.entity);
-        self.npc_by_town.entry(town).or_default().push(slot);
-        self.npcs.insert(slot, inst);
+        self.entities.insert(slot, entity);
+        self.npc_by_town.entry(town_idx).or_default().push(slot);
+        self.npcs.insert(slot, NpcEntry { slot, entity, job, faction, town_idx, dead: false });
     }
 
-    pub fn remove_npc(&mut self, slot: usize) -> Option<NpcInstance> {
+    /// Unregister an NPC slot. Returns the entry for bookkeeping.
+    pub fn unregister_npc(&mut self, slot: usize) -> Option<NpcEntry> {
         debug_assert!(self.npcs.contains_key(&slot), "removing absent NPC slot {}", slot);
         self.entities.remove(&slot);
-        if let Some(npc) = self.npcs.remove(&slot) {
-            if let Some(slots) = self.npc_by_town.get_mut(&npc.town_idx) {
+        if let Some(entry) = self.npcs.remove(&slot) {
+            if let Some(slots) = self.npc_by_town.get_mut(&entry.town_idx) {
                 slots.retain(|&s| s != slot);
             }
-            Some(npc)
+            Some(entry)
         } else {
             None
         }
     }
 
-    pub fn get_npc(&self, slot: usize) -> Option<&NpcInstance> {
+    pub fn get_npc(&self, slot: usize) -> Option<&NpcEntry> {
         self.npcs.get(&slot)
     }
 
-    pub fn get_npc_mut(&mut self, slot: usize) -> Option<&mut NpcInstance> {
+    pub fn get_npc_mut(&mut self, slot: usize) -> Option<&mut NpcEntry> {
         self.npcs.get_mut(&slot)
     }
 
-    pub fn iter_npcs(&self) -> impl Iterator<Item = &NpcInstance> {
+    pub fn iter_npcs(&self) -> impl Iterator<Item = &NpcEntry> {
         self.npcs.values()
     }
 
-    pub fn iter_npcs_mut(&mut self) -> impl Iterator<Item = &mut NpcInstance> {
-        self.npcs.values_mut()
-    }
-
-    pub fn npcs_for_town(&self, town_idx: i32) -> impl Iterator<Item = &NpcInstance> {
+    pub fn npcs_for_town(&self, town_idx: i32) -> impl Iterator<Item = &NpcEntry> {
         let npcs = &self.npcs;
         self.npc_by_town.get(&town_idx)
             .into_iter()
@@ -360,7 +356,6 @@ impl EntityMap {
     }
 
     pub fn clear_npcs(&mut self) {
-        // Also remove NPC entities from unified map
         for &slot in self.npcs.keys() {
             self.entities.remove(&slot);
         }
@@ -1417,47 +1412,16 @@ impl BuildingInstance {
 /// Per-NPC runtime state. All NPC data lives here — no ECS components except EntitySlot.
 /// Parallel to BuildingInstance: both live in EntityMap, shared slot namespace.
 #[derive(Clone)]
-pub struct NpcInstance {
+/// Lightweight NPC index entry in EntityMap. All gameplay state lives on ECS components.
+/// This provides slot↔Entity mapping and identity fields for fast iteration/filtering.
+pub struct NpcEntry {
     pub slot: usize,
     pub entity: Entity,
     pub job: crate::components::Job,
     pub faction: i32,
     pub town_idx: i32,
-    // position: moved to ECS Position component (Slice B) — GPU is movement authority; ECS Position is read-model synced in gpu_position_readback
-    pub home: Vec2,
-    // health: moved to ECS Health component (Slice C)
-    // energy: moved to ECS Energy component (Slice C)
-    // speed: moved to ECS Speed component (Slice C)
-    // activity: moved to ECS Activity component (Slice B)
-    // combat_state: moved to ECS CombatState component (Slice C)
-    pub personality: crate::components::Personality,
-    // cached_stats: moved to ECS CachedStats component (Slice C)
-    // attack_type: moved to ECS BaseAttackType component (Slice C)
-    // attack_timer: moved to ECS AttackTimer component (Slice C)
-    // Equipment
-    pub weapon: Option<(f32, f32)>,
-    pub helmet: Option<(f32, f32)>,
-    pub armor: Option<(f32, f32)>,
-    // Assignment
-    pub patrol_route: Option<crate::components::PatrolRoute>,
-    // squad_id: moved to ECS SquadId component (Slice A)
-    pub work_position: Option<usize>,
-    pub assigned_farm: Option<usize>,
-    pub carried_gold: i32,
-    pub leash_range: Option<f32>,
-    // Flags (replace marker components)
-    pub is_stealer: bool,
-    pub is_military: bool,
-    pub is_patrol_unit: bool,
-    pub has_energy: bool,
+    /// Set by death_system; entry removed on despawn.
     pub dead: bool,
-    // healing: moved to NpcFlags.healing (Slice C)
-    // starving: moved to NpcFlags.starving (Slice C)
-    // direct_control: moved to ECS NpcFlags.direct_control (Slice A)
-    pub migrating: bool,
-    // at_destination: moved to ECS NpcFlags.at_destination (Slice B)
-    // manual_target: moved to ECS ManualTarget component (Slice A)
-    // last_hit_by: moved to ECS LastHitBy component (Slice C)
 }
 
 /// Building HP render data. Read by build_overlay_instances for rendering.

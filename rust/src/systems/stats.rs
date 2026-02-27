@@ -614,6 +614,7 @@ pub fn process_upgrades_system(
     mut speed_q: Query<&mut crate::components::Speed>,
     mut health_q: Query<&mut crate::components::Health, Without<crate::components::Building>>,
     attack_type_q: Query<&crate::components::BaseAttackType>,
+    personality_q: Query<&crate::components::Personality>,
 ) {
     let _t = timings.scope("process_upgrades");
     let count = upgrade_count();
@@ -668,7 +669,7 @@ pub fn process_upgrades_system(
 
             let npc_level = meta_cache.0[slot].level;
             let old_max = cached_stats_q.get(entity).map(|s| s.max_health).unwrap_or(100.0);
-            let pers = npc.personality.clone();
+            let pers = personality_q.get(entity).cloned().unwrap_or_default();
             let atk_type = attack_type_q.get(entity).copied().unwrap_or(crate::components::BaseAttackType::Melee);
             let new_cached = resolve_combat_stats(npc.job, atk_type, town_idx as i32, npc_level, &pers, &config, &upgrades);
             let new_speed = new_cached.speed;

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-27c
+
+- **ECS migration slice D: economy + AI + save/load + GPU + UI → ECS, NpcInstance deleted** — replaced 40-field NpcInstance with 6-field NpcEntry (slot, entity, job, faction, town_idx, dead); moved remaining fields to ECS components: Personality, Home, PatrolRoute, WorkPosition, AssignedFarm, CarriedGold, EquippedWeapon/Helmet/Armor, LeashRange, Stealer, HasEnergy; NpcFlags.migrating replaces NpcInstance.migrating; is_military/is_stealer replaced with Job::is_military()/Job::Raider checks; added SaveNpcQueries SystemParam bundle for save/autosave; extended BuildingInspectorData with 7 ECS queries; extended MigrationResources with NpcFlags + Home queries; EntityMap is now index-only for NPCs (slot↔Entity, npc_by_town, grid, spatial)
+
 ## 2026-02-27b
 
 - **ECS migration slice C: combat + health + energy → ECS components** — moved 10 NPC fields from NpcInstance to ECS components: Health, Energy, Speed, CombatState, CachedStats, BaseAttackType, AttackTimer, LastHitBy as `#[derive(Component)]`; healing/starving booleans moved to NpcFlags; query-first rewrites for healing_system, cooldown_system, energy_system, starvation_system, attack_system; added AttackQueries SystemParam bundle to keep attack_system under 16-param limit; updated spawn.rs to insert all new components; updated save.rs, gpu.rs, stats.rs, behavior.rs, economy.rs, all UI panels, and 10 test files; NpcInstance now holds only identity/home/equipment/patrol/flags (Slice D target)

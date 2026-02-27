@@ -180,6 +180,13 @@ pub struct BuildingInspectorData<'w, 's> {
     pub cached_stats_q: Query<'w, 's, &'static CachedStats>,
     pub combat_state_q: Query<'w, 's, &'static CombatState>,
     pub energy_q: Query<'w, 's, &'static Energy>,
+    pub personality_q: Query<'w, 's, &'static Personality>,
+    pub home_q: Query<'w, 's, &'static Home>,
+    pub weapon_q: Query<'w, 's, &'static EquippedWeapon>,
+    pub helmet_q: Query<'w, 's, &'static EquippedHelmet>,
+    pub armor_q: Query<'w, 's, &'static EquippedArmor>,
+    pub carried_gold_q: Query<'w, 's, &'static CarriedGold>,
+    pub patrol_route_q: Query<'w, 's, &'static PatrolRoute>,
 }
 
 #[derive(SystemParam)]
@@ -655,9 +662,11 @@ fn inspector_content(
     tipped(ui, format!("{} Lv.{}  XP: {}/{}", crate::job_name(meta.job), meta.level, meta.xp, (meta.level + 1) * (meta.level + 1) * 100), catalog.0.get("npc_level").unwrap_or(&""));
 
     if let Some(npc) = bld_data.entity_map.get_npc(idx) {
-        let trait_str = npc.personality.trait_summary();
-        if !trait_str.is_empty() {
-            tipped(ui, format!("Trait: {}", trait_str), catalog.0.get("npc_trait").unwrap_or(&""));
+        if let Ok(pers) = bld_data.personality_q.get(npc.entity) {
+            let trait_str = pers.trait_summary();
+            if !trait_str.is_empty() {
+                tipped(ui, format!("Trait: {}", trait_str), catalog.0.get("npc_trait").unwrap_or(&""));
+            }
         }
     }
 
@@ -709,9 +718,9 @@ fn inspector_content(
             .and_then(|_| None::<BaseAttackType>); // attack_type from separate query not yet in SystemParam
         let _ = atk_type;
         let mut equip_parts: Vec<&str> = Vec::new();
-        if npc.weapon.is_some() { equip_parts.push("Weapon"); }
-        if npc.helmet.is_some() { equip_parts.push("Helmet"); }
-        if npc.armor.is_some() { equip_parts.push("Armor"); }
+        if bld_data.weapon_q.get(npc.entity).is_ok() { equip_parts.push("Weapon"); }
+        if bld_data.helmet_q.get(npc.entity).is_ok() { equip_parts.push("Helmet"); }
+        if bld_data.armor_q.get(npc.entity).is_ok() { equip_parts.push("Armor"); }
         let equip_str = if equip_parts.is_empty() { "None".to_string() } else { equip_parts.join(" + ") };
         ui.label(equip_str);
 
@@ -722,7 +731,7 @@ fn inspector_content(
         if let Some(sq) = bld_data.squad_id_q.get(npc.entity).ok().map(|s| s.0) {
             ui.label(format!("Squad: {}", sq));
         }
-        if npc.carried_gold > 0 { ui.label(format!("Carrying: {} gold", npc.carried_gold)); }
+        if let Ok(gold) = bld_data.carried_gold_q.get(npc.entity) { if gold.0 > 0 { ui.label(format!("Carrying: {} gold", gold.0)); } }
     }
     // DirectControl toggle (separate borrow scope)
     {
@@ -758,8 +767,9 @@ fn inspector_content(
 
     let mut carried_loot: Vec<(ItemKind, i32)> = Vec::new();
     if let Some(npc) = bld_data.entity_map.get_npc(idx) {
-        home_pos = Some(npc.home);
-        home_str = format!("({:.0}, {:.0})", npc.home.x, npc.home.y);
+        let npc_home = bld_data.home_q.get(npc.entity).map(|h| h.0).unwrap_or(Vec2::ZERO);
+        home_pos = Some(npc_home);
+        home_str = format!("({:.0}, {:.0})", npc_home.x, npc_home.y);
         faction_str = format!("{} (town {})", npc.faction, npc.town_idx);
         faction_id = Some(npc.faction);
         let npc_act = bld_data.activity_q.get(npc.entity).ok();
@@ -884,9 +894,11 @@ fn inspector_content(
                 target = target,
             );
             if let Some(npc) = bld_data.entity_map.get_npc(idx) {
-                let trait_str = npc.personality.trait_summary();
-                if !trait_str.is_empty() {
-                    info.push_str(&format!("Trait: {}\n", trait_str));
+                if let Ok(pers) = bld_data.personality_q.get(npc.entity) {
+                    let trait_str = pers.trait_summary();
+                    if !trait_str.is_empty() {
+                        info.push_str(&format!("Trait: {}\n", trait_str));
+                    }
                 }
             }
             if let Some(ref stats) = cached_stats {
@@ -897,9 +909,9 @@ fn inspector_content(
             }
             if let Some(npc) = bld_data.entity_map.get_npc(idx) {
                 let mut equip_parts: Vec<&str> = Vec::new();
-                if npc.weapon.is_some() { equip_parts.push("Weapon"); }
-                if npc.helmet.is_some() { equip_parts.push("Helmet"); }
-                if npc.armor.is_some() { equip_parts.push("Armor"); }
+                if bld_data.weapon_q.get(npc.entity).is_ok() { equip_parts.push("Weapon"); }
+                if bld_data.helmet_q.get(npc.entity).is_ok() { equip_parts.push("Helmet"); }
+                if bld_data.armor_q.get(npc.entity).is_ok() { equip_parts.push("Armor"); }
                 let equip_str = if equip_parts.is_empty() { "None".to_string() } else { equip_parts.join(" + ") };
                 info.push_str(&format!("{}\n", equip_str));
                 if bld_data.npc_flags_q.get(npc.entity).is_ok_and(|f| f.starving) {
@@ -922,8 +934,10 @@ fn inspector_content(
                         info.push_str(&format!("Squad.placing_target: {}\n", ss.placing_target));
                     }
                 }
-                if npc.carried_gold > 0 {
-                    info.push_str(&format!("Carrying: {} gold\n", npc.carried_gold));
+                if let Ok(gold) = bld_data.carried_gold_q.get(npc.entity) {
+                    if gold.0 > 0 {
+                        info.push_str(&format!("Carrying: {} gold\n", gold.0));
+                    }
                 }
             }
             if meta.town_id >= 0 {
@@ -1304,7 +1318,7 @@ fn building_inspector_content(
                             if let Some(sq) = bld.squad_id_q.get(npc.entity).ok().map(|s| s.0) {
                                 ui.label(format!("Squad: {}", sq + 1));
                             }
-                            let has_patrol = npc.patrol_route.as_ref().is_some_and(|r| !r.posts.is_empty());
+                            let has_patrol = bld.patrol_route_q.get(npc.entity).is_ok_and(|r| !r.posts.is_empty());
                             ui.label(format!("Patrol route: {}", if has_patrol { "yes" } else { "none" }));
                             if slot * 2 + 1 < gpu_state.positions.len() {
                                 let px = gpu_state.positions[slot * 2];
@@ -1313,7 +1327,7 @@ fn building_inspector_content(
                                     ui.label(format!("GPU pos: ({:.0}, {:.0})", px, py));
                                 }
                             }
-                            ui.label(format!("Home: ({:.0}, {:.0})", npc.home.x, npc.home.y));
+                            ui.label(format!("Home: ({:.0}, {:.0})", bld.home_q.get(npc.entity).map(|h| h.0.x).unwrap_or(0.0), bld.home_q.get(npc.entity).map(|h| h.0.y).unwrap_or(0.0)));
                         }
                     } else if inst.respawn_timer > 0.0 {
                         ui.colored_label(egui::Color32::from_rgb(200, 200, 40),
@@ -1454,7 +1468,7 @@ fn building_inspector_content(
                             if let Some(sq) = bld.squad_id_q.get(npc.entity).ok().map(|s| s.0) {
                                 info.push_str(&format!("Squad: {}\n", sq + 1));
                             }
-                            let has_patrol = npc.patrol_route.as_ref().is_some_and(|r| !r.posts.is_empty());
+                            let has_patrol = bld.patrol_route_q.get(npc.entity).is_ok_and(|r| !r.posts.is_empty());
                             info.push_str(&format!("Patrol route: {}\n", if has_patrol { "yes" } else { "none" }));
                             if slot * 2 + 1 < gpu_state.positions.len() {
                                 let px = gpu_state.positions[slot * 2];
@@ -1463,7 +1477,7 @@ fn building_inspector_content(
                                     info.push_str(&format!("GPU pos: ({:.0}, {:.0})\n", px, py));
                                 }
                             }
-                            info.push_str(&format!("Home: ({:.0}, {:.0})\n", npc.home.x, npc.home.y));
+                            info.push_str(&format!("Home: ({:.0}, {:.0})\n", bld.home_q.get(npc.entity).map(|h| h.0.x).unwrap_or(0.0), bld.home_q.get(npc.entity).map(|h| h.0.y).unwrap_or(0.0)));
                         }
                     } else if inst.respawn_timer > 0.0 {
                         info.push_str(&format!("Respawning in {:.0}h\n", inst.respawn_timer));

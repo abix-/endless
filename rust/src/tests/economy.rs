@@ -112,7 +112,7 @@ pub fn tick(
         }
         // Phase 5: Raider respawns when raider town has food
         5 => {
-            let raiders = entity_map.iter_npcs().filter(|n| !n.dead && n.is_stealer).count();
+            let raiders = entity_map.iter_npcs().filter(|n| !n.dead && n.job == crate::components::Job::Raider).count();
             test.phase_name = format!("raiders={} raider_food={}", raiders, raider_food);
             if raiders > 0 {
                 test.pass_phase(elapsed, format!("raiders={} raider_food={}", raiders, raider_food));

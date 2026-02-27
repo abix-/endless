@@ -933,6 +933,14 @@ pub fn collect_npc_data(
     energy_q: &Query<&Energy>,
     combat_state_q: &Query<&CombatState>,
     attack_type_q: &Query<&BaseAttackType>,
+    personality_q: &Query<&Personality>,
+    home_q: &Query<&Home>,
+    work_position_q: &Query<&WorkPosition>,
+    carried_gold_q: &Query<&CarriedGold>,
+    weapon_q: &Query<&EquippedWeapon>,
+    helmet_q: &Query<&EquippedHelmet>,
+    armor_q: &Query<&EquippedArmor>,
+    has_energy_q: &Query<&HasEnergy>,
 ) -> Vec<NpcSaveData> {
     let mut npcs = Vec::new();
     for npc in entity_map.iter_npcs() {
@@ -950,21 +958,21 @@ pub fn collect_npc_data(
             faction: npc.faction,
             town_id: npc.town_idx,
             health: health_q.get(npc.entity).map(|h| h.0).unwrap_or(100.0),
-            energy: if npc.has_energy { energy_q.get(npc.entity).map(|e| e.0).unwrap_or(100.0) } else { 100.0 },
+            energy: if has_energy_q.get(npc.entity).is_ok() { energy_q.get(npc.entity).map(|e| e.0).unwrap_or(100.0) } else { 100.0 },
             activity: activity_q.get(npc.entity).map(|a| ActivitySave::from_activity(a)).unwrap_or(ActivitySave::Idle),
             combat_state: combat_state_q.get(npc.entity).map(|cs| CombatStateSave::from_combat_state(cs)).unwrap_or(CombatStateSave::None),
-            personality: PersonalitySave::from_personality(&npc.personality),
+            personality: personality_q.get(npc.entity).map(|p| PersonalitySave::from_personality(p)).unwrap_or_default(),
             name: meta.name.clone(),
             level: meta.level,
             xp: meta.xp,
             attack_type: match attack_type_q.get(npc.entity).copied().unwrap_or(BaseAttackType::Melee) { BaseAttackType::Melee => 0, BaseAttackType::Ranged => 1 },
-            home: v2(npc.home),
-            work_position: npc.work_position.and_then(|w| entity_map.get_instance(w).map(|i| v2(i.position))),
+            home: home_q.get(npc.entity).map(|h| [h.0.x, h.0.y]).unwrap_or([0.0, 0.0]),
+            work_position: work_position_q.get(npc.entity).ok().and_then(|w| entity_map.get_instance(w.0).map(|i| v2(i.position))),
             squad_id: squad_id_q.get(npc.entity).ok().map(|s| s.0),
-            carried_gold: if npc.carried_gold > 0 { Some(npc.carried_gold) } else { None },
-            weapon: npc.weapon.map(|(c, r)| [c, r]),
-            helmet: npc.helmet.map(|(c, r)| [c, r]),
-            armor: npc.armor.map(|(c, r)| [c, r]),
+            carried_gold: carried_gold_q.get(npc.entity).ok().and_then(|g| if g.0 > 0 { Some(g.0) } else { None }),
+            weapon: weapon_q.get(npc.entity).ok().map(|w| [w.0, w.1]),
+            helmet: helmet_q.get(npc.entity).ok().map(|h| [h.0, h.1]),
+            armor: armor_q.get(npc.entity).ok().map(|a| [a.0, a.1]),
         });
     }
     npcs
@@ -1001,6 +1009,26 @@ pub struct SaveFactionState<'w> {
     pub ai_state: ResMut<'w, AiPlayerState>,
     pub migration_state: ResMut<'w, MigrationState>,
     pub endless: ResMut<'w, EndlessMode>,
+}
+
+/// NPC queries for save (collect_npc_data).
+#[derive(SystemParam)]
+pub struct SaveNpcQueries<'w, 's> {
+    pub squad_id_q: Query<'w, 's, &'static SquadId>,
+    pub activity_q: Query<'w, 's, &'static Activity>,
+    pub position_q: Query<'w, 's, &'static Position>,
+    pub health_q: Query<'w, 's, &'static Health, Without<Building>>,
+    pub energy_q: Query<'w, 's, &'static Energy>,
+    pub combat_state_q: Query<'w, 's, &'static CombatState>,
+    pub attack_type_q: Query<'w, 's, &'static BaseAttackType>,
+    pub personality_q: Query<'w, 's, &'static Personality>,
+    pub home_q: Query<'w, 's, &'static Home>,
+    pub work_position_q: Query<'w, 's, &'static WorkPosition>,
+    pub carried_gold_q: Query<'w, 's, &'static CarriedGold>,
+    pub weapon_q: Query<'w, 's, &'static EquippedWeapon>,
+    pub helmet_q: Query<'w, 's, &'static EquippedHelmet>,
+    pub armor_q: Query<'w, 's, &'static EquippedArmor>,
+    pub has_energy_q: Query<'w, 's, &'static HasEnergy>,
 }
 
 /// NPC tracking resources for load.
@@ -1196,17 +1224,11 @@ pub fn save_game_system(
     entity_map: Res<EntityMap>,
     npc_meta: Res<NpcMetaCache>,
     building_query: Query<(&Building, &EntitySlot, &Health), Without<Dead>>,
-    squad_id_q: Query<&SquadId>,
-    activity_q: Query<&Activity>,
-    position_q: Query<&Position>,
-    health_q: Query<&Health, Without<Building>>,
-    energy_q: Query<&Energy>,
-    combat_state_q: Query<&CombatState>,
-    attack_type_q: Query<&BaseAttackType>,
+    nq: SaveNpcQueries,
 ) {
     if save_msgs.read().next().is_none() { return; }
 
-    let npcs = collect_npc_data(&entity_map, &npc_meta, &squad_id_q, &activity_q, &position_q, &health_q, &energy_q, &combat_state_q, &attack_type_q);
+    let npcs = collect_npc_data(&entity_map, &npc_meta, &nq.squad_id_q, &nq.activity_q, &nq.position_q, &nq.health_q, &nq.energy_q, &nq.combat_state_q, &nq.attack_type_q, &nq.personality_q, &nq.home_q, &nq.work_position_q, &nq.carried_gold_q, &nq.weapon_q, &nq.helmet_q, &nq.armor_q, &nq.has_energy_q);
     let building_hp = collect_building_hp(&building_query, &entity_map);
     let data = collect_save_data(
         &ws.grid, &ws.world_data, &entity_map, &ws.town_grids, &ws.game_time,
@@ -1238,13 +1260,7 @@ pub fn autosave_system(
     entity_map: Res<EntityMap>,
     npc_meta: Res<NpcMetaCache>,
     building_query: Query<(&Building, &EntitySlot, &Health), Without<Dead>>,
-    squad_id_q: Query<&SquadId>,
-    activity_q: Query<&Activity>,
-    position_q: Query<&Position>,
-    health_q: Query<&Health, Without<Building>>,
-    energy_q: Query<&Energy>,
-    combat_state_q: Query<&CombatState>,
-    attack_type_q: Query<&BaseAttackType>,
+    nq: SaveNpcQueries,
 ) {
     if request.autosave_hours <= 0 || !ws.game_time.hour_ticked { return; }
 
@@ -1257,7 +1273,7 @@ pub fn autosave_system(
 
     let Some(path) = autosave_path(slot) else { return };
 
-    let npcs = collect_npc_data(&entity_map, &npc_meta, &squad_id_q, &activity_q, &position_q, &health_q, &energy_q, &combat_state_q, &attack_type_q);
+    let npcs = collect_npc_data(&entity_map, &npc_meta, &nq.squad_id_q, &nq.activity_q, &nq.position_q, &nq.health_q, &nq.energy_q, &nq.combat_state_q, &nq.attack_type_q, &nq.personality_q, &nq.home_q, &nq.work_position_q, &nq.carried_gold_q, &nq.weapon_q, &nq.helmet_q, &nq.armor_q, &nq.has_energy_q);
     let building_hp = collect_building_hp(&building_query, &entity_map);
     let data = collect_save_data(
         &ws.grid, &ws.world_data, &entity_map, &ws.town_grids, &ws.game_time,

@@ -38,6 +38,10 @@ pub struct DeathResources<'w, 's> {
     pub speed_q: Query<'w, 's, &'static mut crate::components::Speed>,
     pub energy_q: Query<'w, 's, &'static crate::components::Energy>,
     pub last_hit_by_q: Query<'w, 's, &'static crate::components::LastHitBy>,
+    pub home_q: Query<'w, 's, &'static crate::components::Home>,
+    pub personality_q: Query<'w, 's, &'static crate::components::Personality>,
+    pub assigned_farm_q: Query<'w, 's, &'static crate::components::AssignedFarm>,
+    pub work_position_q: Query<'w, 's, &'static crate::components::WorkPosition>,
 }
 
 /// Unified damage system: applies damage to both NPCs and buildings.
@@ -103,7 +107,7 @@ pub fn damage_system(
 }
 
 fn hide_npc(idx: usize, entity_map: &mut EntityMap, slots: &mut EntitySlots, gpu: &mut MessageWriter<GpuUpdateMsg>) {
-    entity_map.remove_npc(idx);
+    entity_map.unregister_npc(idx);
     gpu.write(GpuUpdateMsg(GpuUpdate::Hide { idx }));
     slots.free(idx);
 }
@@ -261,7 +265,7 @@ pub fn death_system(
                             }
                         }
                         let atk_entity = atk.entity;
-                        let atk_home = atk.home;
+                        let atk_home = res.home_q.get(atk_entity).map(|h| h.0).unwrap_or(Vec2::ZERO);
                         let atk_faction = atk.faction;
                         let atk_slot = atk.slot;
                         if !dc_keep_fighting {
@@ -290,7 +294,9 @@ pub fn death_system(
             let Some(npc) = res.entity_map.get_npc(slot) else { continue };
             let activity = res.activity_q.get(npc.entity).map(|a| a.clone()).unwrap_or_default();
             let lhb = res.last_hit_by_q.get(npc.entity).map(|h| h.0).unwrap_or(-1);
-            (npc.entity, npc.faction, npc.town_idx, npc.job, activity, npc.assigned_farm, npc.work_position, lhb)
+            let assigned_farm = res.assigned_farm_q.get(npc.entity).ok().map(|af| af.0);
+            let work_position = res.work_position_q.get(npc.entity).ok().map(|wp| wp.0);
+            (npc.entity, npc.faction, npc.town_idx, npc.job, activity, assigned_farm, work_position, lhb)
         };
 
         if selected.0 == slot as i32 { selected.0 = -1; }
@@ -304,7 +310,7 @@ pub fn death_system(
                 let k_slot = killer.slot;
                 let k_entity = killer.entity;
                 let k_faction = killer.faction;
-                let k_home = killer.home;
+                let k_home = res.home_q.get(k_entity).map(|h| h.0).unwrap_or(Vec2::ZERO);
                 res.faction_stats.inc_kills(k_faction);
 
                 let meta = &mut npc_meta.0[k_slot];
@@ -316,7 +322,7 @@ pub fn death_system(
 
                 if new_level > old_level {
                     let old_max = res.cached_stats_q.get(k_entity).map(|s| s.max_health).unwrap_or(100.0);
-                    let pers = killer.personality.clone();
+                    let pers = res.personality_q.get(k_entity).cloned().unwrap_or_default();
                     let attack_type = res.attack_type_q.get(k_entity).copied().unwrap_or(BaseAttackType::Melee);
                     let new_cached = resolve_combat_stats(killer.job, attack_type, killer.town_idx, new_level, &pers, &config, &upgrades);
                     let new_speed = new_cached.speed;

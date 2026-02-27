@@ -725,7 +725,7 @@ fn box_select_system(
                 for npc in entity_map.iter_npcs() {
                     if npc.dead { continue; }
                     if npc.faction != 0 { continue; } // only player NPCs
-                    if !npc.is_military { continue; }
+                    if !npc.job.is_military() { continue; }
                     let Some(pos) = position_q.get(npc.entity).ok() else { continue };
                     if pos.x < -9000.0 { continue; }
                     if pos.x >= min_x && pos.x <= max_x && pos.y >= min_y && pos.y <= max_y {

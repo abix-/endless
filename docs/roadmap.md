@@ -101,7 +101,15 @@ GPU is movement authority; ECS Position is read-model synced in `gpu_position_re
   - NpcFlags.healing/starving replaces NpcInstance booleans
   - Query-first: healing_system, cooldown_system, energy_system, starvation_system, attack_system (with AttackQueries SystemParam bundle)
   - Files: components.rs, resources.rs, spawn.rs, combat.rs, health.rs, energy.rs, behavior.rs, economy.rs, stats.rs, gpu.rs, save.rs, ui/game_hud.rs, ui/left_panel.rs, ui/roster_panel.rs, + 10 test files
-- [ ] Slice D: Economy + AI + Save/Load + GPU + UI → ECS, delete NpcInstance
+- [x] Slice D: Economy + AI + Save/Load + GPU + UI → ECS, delete NpcInstance
+  - NpcInstance (40-field struct) replaced with NpcEntry (6-field index: slot, entity, job, faction, town_idx, dead)
+  - Equipment, Personality, Home, PatrolRoute, CarriedGold, WorkPosition → ECS components
+  - NpcFlags.migrating replaces NpcInstance.migrating
+  - is_military/is_stealer → Job::is_military()/Job::Raider check
+  - SaveNpcQueries SystemParam bundle for save/autosave
+  - BuildingInspectorData extended with 7 ECS queries
+  - MigrationResources extended with NpcFlags + Home queries
+  - Files: resources.rs, spawn.rs, economy.rs, health.rs, stats.rs, ai_player.rs, behavior.rs, gpu.rs, render.rs, save.rs, game_hud.rs, left_panel.rs, + 4 test files
 
 Scale remediation plan (7k NPC + 7k buildings):
 - [ ] [Critical] Replace global worksite scans in `decision_system` with indexed nearest lookup (per-kind/per-town candidate sets + bounded/ring spatial search), because current `iter_kind*` and `f32::MAX` nearest queries scale poorly at high building counts.

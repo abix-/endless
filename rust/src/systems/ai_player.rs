@@ -2075,7 +2075,7 @@ pub fn ai_squad_commander_system(
     // Count alive military units per town.
     let mut units_by_town: HashMap<i32, usize> = HashMap::new();
     for npc in entity_map.iter_npcs() {
-        if npc.dead || !npc.is_military { continue; }
+        if npc.dead || !npc.job.is_military() { continue; }
         *units_by_town.entry(npc.town_idx).or_default() += 1;
     }
 

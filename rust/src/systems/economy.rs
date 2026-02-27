@@ -435,7 +435,7 @@ pub fn squad_cleanup_system(
     if let Some(default_squad) = squad_state.squads.get_mut(0) {
         if default_squad.is_player() {
             let new_members: Vec<usize> = entity_map.iter_npcs()
-                .filter(|n| !n.dead && n.is_military && n.town_idx == player_town
+                .filter(|n| !n.dead && n.job.is_military() && n.town_idx == player_town
                     && !pending_squad.get(&n.slot).map(|v| v.is_some()).unwrap_or_else(|| squad_id_q.get(n.entity).is_ok()))
                 .map(|n| n.slot)
                 .collect();
@@ -480,7 +480,7 @@ pub fn squad_cleanup_system(
     let mut pool_by_town: HashMap<i32, Vec<usize>> = HashMap::new();
     for npc in entity_map.iter_npcs() {
         let eff_has_squad = pending_squad.get(&npc.slot).map(|v| v.is_some()).unwrap_or_else(|| squad_id_q.get(npc.entity).is_ok());
-        if npc.dead || !npc.is_military || eff_has_squad { continue; }
+        if npc.dead || !npc.job.is_military() || eff_has_squad { continue; }
         if assigned_slots.contains(&npc.slot) { continue; }
         pool_by_town.entry(npc.town_idx).or_default().push(npc.slot);
     }
@@ -516,7 +516,7 @@ pub fn squad_cleanup_system(
 /// Check trigger conditions and spawn a migrating raider group at a map edge.
 /// Per-town resources that need extending when a new faction spawns.
 #[derive(SystemParam)]
-pub struct MigrationResources<'w> {
+pub struct MigrationResources<'w, 's> {
     pub food_storage: ResMut<'w, FoodStorage>,
     pub gold_storage: ResMut<'w, GoldStorage>,
     pub faction_stats: ResMut<'w, FactionStats>,
@@ -524,6 +524,8 @@ pub struct MigrationResources<'w> {
     pub npcs_by_town: ResMut<'w, NpcsByTownCache>,
     pub policies: ResMut<'w, TownPolicies>,
     pub gpu_updates: MessageWriter<'w, GpuUpdateMsg>,
+    pub npc_flags_q: Query<'w, 's, &'static mut NpcFlags>,
+    pub home_q: Query<'w, 's, &'static mut Home>,
 }
 
 /// Create a new AI town: allocate faction, push Town + TownGrid, extend all per-town
@@ -718,9 +720,11 @@ pub fn endless_system(
     // === ATTACH Migrating flag to newly spawned members ===
     if let Some(mg) = &migration_state.active {
         for &slot in &mg.member_slots {
-            if let Some(npc) = world_state.entity_map.get_npc_mut(slot) {
-                if !npc.migrating {
-                    npc.migrating = true;
+            if let Some(npc) = world_state.entity_map.get_npc(slot) {
+                if let Ok(mut flags) = res.npc_flags_q.get_mut(npc.entity) {
+                    if !flags.migrating {
+                        flags.migrating = true;
+                    }
                 }
             }
         }
@@ -735,7 +739,8 @@ pub fn endless_system(
         let mut count = 0u32;
         for &slot in &mg.member_slots {
             if let Some(npc) = world_state.entity_map.get_npc(slot) {
-                if npc.migrating && !npc.dead {
+                let is_migrating = res.npc_flags_q.get(npc.entity).map(|f| f.migrating).unwrap_or(false);
+                if is_migrating && !npc.dead {
                     if let Ok(pos) = position_q.get(npc.entity) {
                         sum_x += pos.x;
                         sum_y += pos.y;
@@ -800,9 +805,17 @@ pub fn endless_system(
 
         // Settle NPCs: clear migrating, set home + town_idx
         for &slot in &member_slots {
+            if let Some(npc) = world_state.entity_map.get_npc(slot) {
+                let entity = npc.entity;
+                if let Ok(mut flags) = res.npc_flags_q.get_mut(entity) {
+                    flags.migrating = false;
+                }
+                if let Ok(mut home) = res.home_q.get_mut(entity) {
+                    home.0 = mg.settle_target;
+                }
+            }
+            // Update town_idx in the index
             if let Some(npc) = world_state.entity_map.get_npc_mut(slot) {
-                npc.migrating = false;
-                npc.home = mg.settle_target;
                 npc.town_idx = town_data_idx as i32;
             }
         }

@@ -92,6 +92,7 @@ pub fn tick(
     mut test: ResMut<TestState>,
     mut damage_writer: MessageWriter<DamageMsg>,
     entity_map: Res<EntityMap>,
+    npc_flags_q: Query<&crate::components::NpcFlags>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
@@ -216,7 +217,7 @@ pub fn tick(
             if test.get_flag("already_settled") {
                 test.pass_phase(elapsed, "skipped (already settled)");
             } else {
-                let migrating_factions: Vec<i32> = entity_map.iter_npcs().filter(|n| n.migrating).map(|n| n.faction).collect();
+                let migrating_factions: Vec<i32> = entity_map.iter_npcs().filter(|n| npc_flags_q.get(n.entity).is_ok_and(|f| f.migrating)).map(|n| n.faction).collect();
                 let count = migrating_factions.len();
                 let non_player = migrating_factions.iter().filter(|&&f| f > 0).count();
 
@@ -395,7 +396,7 @@ pub fn tick(
             if test.get_flag("raider_already_settled") {
                 test.pass_phase(elapsed, "skipped (raider already settled)");
             } else {
-                let migrating_factions: Vec<i32> = entity_map.iter_npcs().filter(|n| n.migrating).map(|n| n.faction).collect();
+                let migrating_factions: Vec<i32> = entity_map.iter_npcs().filter(|n| npc_flags_q.get(n.entity).is_ok_and(|f| f.migrating)).map(|n| n.faction).collect();
                 let count = migrating_factions.len();
                 let non_player = migrating_factions.iter().filter(|&&f| f > 0).count();
 

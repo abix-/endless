@@ -304,6 +304,9 @@ pub fn build_visual_upload(
     timings: Res<SystemTimings>,
     activity_q: Query<&crate::components::Activity>,
     npc_flags_q: Query<&crate::components::NpcFlags>,
+    armor_q: Query<&crate::components::EquippedArmor>,
+    helmet_q: Query<&crate::components::EquippedHelmet>,
+    weapon_q: Query<&crate::components::EquippedWeapon>,
 ) {
     let _t = timings.scope("build_visual_upload");
     let entity_count = config.npc.count as usize;
@@ -343,21 +346,21 @@ pub fn build_visual_upload(
         let eq = idx * 24;
 
         // Layer 0: Armor
-        let (ac, ar) = npc.armor.map(|(c, r)| (c, r)).unwrap_or((-1.0, 0.0));
+        let (ac, ar) = armor_q.get(npc.entity).map(|a| (a.0, a.1)).unwrap_or((-1.0, 0.0));
         upload.equip_data[eq]     = ac;
         upload.equip_data[eq + 1] = ar;
         upload.equip_data[eq + 2] = 0.0;
         upload.equip_data[eq + 3] = 0.0;
 
         // Layer 1: Helmet
-        let (hc, hr) = npc.helmet.map(|(c, r)| (c, r)).unwrap_or((-1.0, 0.0));
+        let (hc, hr) = helmet_q.get(npc.entity).map(|h| (h.0, h.1)).unwrap_or((-1.0, 0.0));
         upload.equip_data[eq + 4] = hc;
         upload.equip_data[eq + 5] = hr;
         upload.equip_data[eq + 6] = 0.0;
         upload.equip_data[eq + 7] = 0.0;
 
         // Layer 2: Weapon
-        let (wc, wr) = npc.weapon.map(|(c, r)| (c, r)).unwrap_or((-1.0, 0.0));
+        let (wc, wr) = weapon_q.get(npc.entity).map(|w| (w.0, w.1)).unwrap_or((-1.0, 0.0));
         upload.equip_data[eq + 8] = wc;
         upload.equip_data[eq + 9] = wr;
         upload.equip_data[eq + 10] = 0.0;

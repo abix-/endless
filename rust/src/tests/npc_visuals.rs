@@ -73,7 +73,7 @@ pub fn setup(mut params: TestSetupParams) {
 }
 
 pub fn tick(
-    mut entity_map: ResMut<EntityMap>,
+    entity_map: Res<EntityMap>,
     mut test: ResMut<TestState>,
     time: Res<Time>,
     mut modified: Local<bool>,
@@ -81,6 +81,9 @@ pub fn tick(
     mut camera_query: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
     mut contexts: EguiContexts,
     windows: Query<&Window>,
+    mut commands: Commands,
+    weapon_q: Query<&EquippedWeapon>,
+    helmet_q: Query<&EquippedHelmet>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
@@ -120,44 +123,35 @@ pub fn tick(
                 // Stop movement
                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: slot, speed: 0.0 }));
 
-                let Some(npc) = entity_map.get_npc_mut(slot) else { continue };
+                let Some(npc) = entity_map.get_npc(slot) else { continue };
+                let e = npc.entity;
 
                 match col {
                     COL_BODY => {
-                        npc.weapon = None;
-                        npc.helmet = None;
-                        npc.armor = None;
+                        commands.entity(e).remove::<EquippedWeapon>().remove::<EquippedHelmet>().remove::<EquippedArmor>();
                     }
                     COL_WEAPON => {
-                        npc.helmet = None;
-                        npc.armor = None;
-                        if npc.weapon.is_none() {
-                            npc.weapon = Some((EQUIP_SWORD.0, EQUIP_SWORD.1));
+                        commands.entity(e).remove::<EquippedHelmet>().remove::<EquippedArmor>();
+                        if weapon_q.get(e).is_err() {
+                            commands.entity(e).insert(EquippedWeapon(EQUIP_SWORD.0, EQUIP_SWORD.1));
                         }
                     }
                     COL_HELMET => {
-                        npc.weapon = None;
-                        npc.armor = None;
-                        if npc.helmet.is_none() {
-                            npc.helmet = Some((EQUIP_HELMET.0, EQUIP_HELMET.1));
+                        commands.entity(e).remove::<EquippedWeapon>().remove::<EquippedArmor>();
+                        if helmet_q.get(e).is_err() {
+                            commands.entity(e).insert(EquippedHelmet(EQUIP_HELMET.0, EQUIP_HELMET.1));
                         }
                     }
                     COL_ITEM => {
-                        npc.weapon = None;
-                        npc.helmet = None;
-                        npc.armor = None;
+                        commands.entity(e).remove::<EquippedWeapon>().remove::<EquippedHelmet>().remove::<EquippedArmor>();
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx: slot, col: FOOD_SPRITE.0, row: FOOD_SPRITE.1, atlas: 1.0 }));
                     }
                     COL_SLEEP => {
-                        npc.weapon = None;
-                        npc.helmet = None;
-                        npc.armor = None;
+                        commands.entity(e).remove::<EquippedWeapon>().remove::<EquippedHelmet>().remove::<EquippedArmor>();
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx: slot, col: SLEEP_SPRITE.0, row: SLEEP_SPRITE.1, atlas: 0.0 }));
                     }
                     COL_HEAL => {
-                        npc.weapon = None;
-                        npc.helmet = None;
-                        npc.armor = None;
+                        commands.entity(e).remove::<EquippedWeapon>().remove::<EquippedHelmet>().remove::<EquippedArmor>();
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx: slot, col: HEAL_SPRITE.0, row: HEAL_SPRITE.1, atlas: 0.0 }));
                     }
                     COL_FULL => {

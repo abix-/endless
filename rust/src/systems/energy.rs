@@ -31,7 +31,7 @@ pub fn energy_system(
     for (es, mut energy) in energy_q.iter_mut() {
         let slot = es.0;
         let Some(npc) = entity_map.get_npc(slot) else { continue };
-        if npc.dead || !npc.has_energy { continue; }
+        if npc.dead { continue; }
         if activity_q.get(npc.entity).is_ok_and(|a| matches!(*a, Activity::Resting | Activity::HealingAtFountain { .. })) {
             energy.0 = (energy.0 + ENERGY_RECOVER_PER_HOUR * hours_elapsed).min(100.0);
         } else {

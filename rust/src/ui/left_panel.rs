@@ -80,6 +80,7 @@ pub struct RosterParams<'w, 's> {
     health_q: Query<'w, 's, &'static Health, Without<Building>>,
     cached_stats_q: Query<'w, 's, &'static CachedStats>,
     combat_state_q: Query<'w, 's, &'static CombatState>,
+    personality_q: Query<'w, 's, &'static Personality>,
 }
 
 #[derive(SystemParam)]
@@ -350,7 +351,7 @@ fn roster_content(
                 hp: roster.health_q.get(npc.entity).map(|h| h.0).unwrap_or(0.0),
                 max_hp: roster.cached_stats_q.get(npc.entity).map(|s| s.max_health).unwrap_or(100.0),
                 state: state_str,
-                trait_name: npc.personality.trait_summary(),
+                trait_name: roster.personality_q.get(npc.entity).map(|p| p.trait_summary()).unwrap_or_default(),
             });
         }
 
