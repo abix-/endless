@@ -10,7 +10,7 @@ Defined in: `rust/src/resources.rs`, `rust/src/world.rs`
 
 | Resource | Type | Writers | Readers |
 |----------|------|---------|---------|
-| EntityMap | `entities: HashMap<usize, Entity>` + building instance data/indexes/spatial grid | spawn_npc_system, death_system, place_building | damage_system, attack_system, tower_system, economy, UI (unified slot → entity lookup for all entities) |
+| EntityMap | `entities: HashMap<usize, Entity>` + `npcs: HashMap<usize, NpcEntry>` (6-field index: slot, entity, job, faction, town_idx, dead) + `npc_by_town` secondary index + building instance data/indexes/spatial grid | spawn_npc_system (register_npc), death_system (unregister_npc), place_building | damage_system, attack_system, tower_system, economy, UI (unified slot → entity lookup for all entities; NPC gameplay state read via ECS queries on NpcEntry.entity) |
 | EntitySlots | `SlotPool` wrapper (max=MAX_ENTITIES=200K) | spawn_npc_system (alloc), place_building_instance (alloc), death_system (free) | GPU compute dispatch, UI, tests |
 
 `EntitySlots` wraps a `SlotPool` inner type with LIFO free list. `next` is the high-water mark. Two query methods: `count()` returns high-water mark, `alive()` returns `next - free.len()`. NPCs and buildings share one allocator — each entity's slot IS its GPU buffer index (no offset arithmetic). See [spawn.md](spawn.md).
@@ -27,7 +27,7 @@ Pre-computed per-NPC data for UI queries, indexed by slot.
 
 `NpcLogCache.push(idx, day, hour, minute, message)` adds timestamped entries. Oldest evicted at capacity.
 
-NPC state is derived at query time from `NpcInstance` fields (dead, combat_state, activity), not cached. Trait display reads from `NpcInstance.personality` via `trait_summary()` at query time (not cached in meta). NPC rename edits `NpcMetaCache` directly from inspector UI.
+NPC state is derived at query time from ECS components (Activity, CombatState, Personality) via entity lookup from `NpcEntry.entity`, not cached. Trait display reads from the `Personality` ECS component via `trait_summary()` at query time (not cached in meta). NPC rename edits `NpcMetaCache` directly from inspector UI.
 
 ## Population & Kill Stats
 
@@ -263,17 +263,17 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 
 `Squad` fields: `members: Vec<usize>` (NPC slot indices), `target: Option<Vec2>` (world position or None), `target_size: usize` (desired member count, 0 = manual mode — no auto-recruit/dismiss), `patrol_enabled: bool`, `rest_when_tired: bool`, `owner: SquadOwner`, `wave_active: bool`, `wave_start_count: usize`, `wave_min_start: usize`, `wave_retreat_below_pct: usize`, `hold_fire: bool` (when true, members only attack ManualTarget — no auto-engage).
 
-`NpcInstance.squad_id: Option<i32>` set on military units when recruited into a squad. Cleared on dismiss. Units with `squad_id` walk to squad target instead of patrolling (see [behavior.md](behavior.md#squads)).
+`SquadId(i32)` ECS component inserted on military units when recruited into a squad. Removed on dismiss via `commands.entity().remove::<SquadId>()`. Units with `SquadId` walk to squad target instead of patrolling (see [behavior.md](behavior.md#squads)).
 
-`NpcInstance.is_military: bool` flag set on all military NPCs (archers, crossbows, fighters, raiders) at spawn. Used by `squad_cleanup_system` and `ai_squad_commander_system` for recruitment iteration via `EntityMap.iter_npcs()` filters.
+Military status is derived from `Job::is_military()` (archers, crossbows, fighters, raiders return true). Used by `squad_cleanup_system` and `ai_squad_commander_system` for recruitment iteration via `NpcEntry.job.is_military()` filters on `EntityMap.iter_npcs()`.
 
 `placing_target`: when true, next right-click on the map sets the selected squad's target. Cancelled by ESC.
 
 `drag_start` / `box_selecting`: box-select drag state. `drag_start` is set on left-click press (world-space position), `box_selecting` becomes true when the drag exceeds 5px threshold. On mouse release while `box_selecting`, all player military NPCs inside the AABB are assigned to the currently selected squad. Cleared by ESC or mouse release.
 
-`NpcInstance.manual_target: Option<ManualTarget>` — per-NPC target for DirectControl units. `ManualTarget` enum variants: `Npc(usize)` (attack NPC slot), `Building(Vec2)` (attack building position), `Position(Vec2)` (ground move). Set by right-click commands on DirectControl NPCs. `Npc` variant overrides GPU auto-targeting in `attack_system`, auto-cleared when target dies. `Building`/`Position` variants fall through to GPU auto-targeting in combat. Crosshair overlay in `squad_overlay_system` renders for `Npc`/`Building` variants on DirectControl NPCs.
+`ManualTarget` ECS component — per-NPC target for DirectControl units. Enum variants: `Npc(usize)` (attack NPC slot), `Building(Vec2)` (attack building position), `Position(Vec2)` (ground move). Inserted by right-click commands on DirectControl NPCs. `Npc` variant overrides GPU auto-targeting in `attack_system`, removed when target dies. `Building`/`Position` variants fall through to GPU auto-targeting in combat. Crosshair overlay in `squad_overlay_system` renders for `Npc`/`Building` variants on DirectControl NPCs.
 
-`npc_matches_owner(owner, npc_town_id, player_town)`: helper for owner-safe recruitment in `squad_cleanup_system`. Player squads recruit from player-town `SquadUnit` NPCs; `Town(tdi)` squads recruit from units with matching `TownId`.
+`npc_matches_owner(owner, npc_town_id, player_town)`: helper for owner-safe recruitment in `squad_cleanup_system`. Player squads recruit from player-town military NPCs (via `Job::is_military()`); `Town(tdi)` squads recruit from units with matching `TownId`.
 
 UI filtering: left panel and squad overlay only show `is_player()` squads. Hotkeys 1-0 map to indices 0-9 (always player-reserved).
 
@@ -304,7 +304,7 @@ Both unlock slots when full (sets terrain to Dirt) and buy upgrades with surplus
 
 `MigrationGroup` fields: `town_data_idx` (index into WorldData.towns for the raider town-to-be), `grid_idx` (TownGrids index), `member_slots: Vec<usize>` (NPC slot indices of migrating raiders), `boat_slot: Option<usize>` (NPC GPU slot for boat entity), `boat_pos: Vec2` (current boat position), `settle_target: Vec2` (destination chosen by `pick_settle_site`), `faction: i32`.
 
-`NpcInstance.migrating: bool` flag on NPCs that are part of an active migration group. Set by `migration_attach_system`, cleared by `migration_settle_system` on settlement. Persisted in save via `MigrationSave.member_slots` and re-set on load.
+`NpcFlags.migrating: bool` flag on NPCs that are part of an active migration group. Set via ECS query in `endless_system` (attach phase), cleared on settlement. Persisted in save via `MigrationSave.member_slots` and re-set on load.
 
 ## Movement Intent Resolution
 

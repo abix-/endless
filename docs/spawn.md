@@ -21,10 +21,10 @@ spawn_npc_system                         spawn_npcs_from_save
                ├─ Emit GPU updates: SetPosition, SetTarget,
                │   SetSpeed, SetFaction, SetHealth, SetSpriteFrame, SetFlags
                │
-               ├─ Spawn ECS entity with EntitySlot only
-               │   (all NPC state lives in NpcInstance)
+               ├─ Spawn ECS entity with full component set
+               │   (nested tuple bundles + conditional inserts)
                │
-               ├─ Update EntityMap, PopulationStats
+               ├─ Register slot→entity index in EntityMap
                │
                ├─ Initialize NpcMetaCache (name, level, trait)
                │
@@ -71,24 +71,26 @@ GPU dispatch count comes from `EntitySlots.count()` (the high-water mark `next`)
 
 ## materialize_npc
 
-**ECS entity**: NPC entities are spawned with only `EntitySlot(idx)` — all NPC runtime state lives in `NpcInstance` (stored in `EntityMap.npcs`). No other ECS components are added to NPC entities. Buildings retain full ECS components (`EntitySlot`, `Position`, `Health`, `Faction`, `TownId`, `Building`).
+**ECS entity**: NPC entities are spawned with a full component set via nested tuple bundles (to stay under Bevy's 15-element tuple limit). Required components are always inserted; optional components (`PatrolRoute`, `WorkPosition`, `SquadId`, `EquippedWeapon/Helmet/Armor`, `LeashRange`, `Stealer`, `HasEnergy`) are conditionally inserted via `ecmds.insert()`. Buildings retain full ECS components (`EntitySlot`, `Position`, `Health`, `Faction`, `TownId`, `Building`).
 
-**NpcInstance**: Built inline in `materialize_npc` with all fields populated from spawn parameters, NPC registry, combat config, and overrides. Registered in EntityMap via `insert_npc()` (with debug assertion for duplicate slot detection).
+**Required NPC components** (always inserted): `EntitySlot`, `Job`, `Faction`, `TownId`, `NpcFlags`, `Activity`, `Position`, `Home`, `Health`, `Energy`, `Speed`, `CombatState`, `CachedStats`, `BaseAttackType`, `AttackTimer`, `Personality`, `CarriedGold`.
+
+**EntityMap registration**: `register_npc(slot, entity, job, faction, town_idx)` creates a lightweight `NpcEntry` (6 fields: slot, entity, job, faction, town_idx, dead) and adds the slot to `npc_by_town` secondary index. Debug assertion prevents duplicate slots.
 
 Stats are resolved from `CombatConfig` resource via `resolve_combat_stats(job, attack_type, town_idx, level, personality, &config, &upgrades)`. The resolver applies job base stats × upgrade multipliers × trait multipliers × level multipliers. See `systems/stats.rs`. New NPCs spawn at level 0 (`level_from_xp(0) == 0`).
 
-Job-specific NpcInstance fields:
+Job-specific optional components:
 
-| Job | Key Fields |
+| Job | Optional Components |
 |-----|------------|
-| Archer | energy, patrol_route, weapon, helmet, `Activity::OnDuty { ticks_waiting: 0 }` |
-| Crossbow | energy, patrol_route, weapon, helmet, `Activity::OnDuty { ticks_waiting: 0 }` |
-| Farmer | energy, work_position, `Activity::GoingToWork` |
-| Miner | energy |
-| Raider | energy, is_stealer=true, leash_range=400, weapon |
-| Fighter | energy, patrol_route, `Activity::OnDuty { ticks_waiting: 0 }` |
+| Archer | HasEnergy, PatrolRoute, EquippedWeapon, EquippedHelmet, `Activity::OnDuty { ticks_waiting: 0 }` |
+| Crossbow | HasEnergy, PatrolRoute, EquippedWeapon, EquippedHelmet, `Activity::OnDuty { ticks_waiting: 0 }` |
+| Farmer | HasEnergy, WorkPosition, `Activity::GoingToWork` |
+| Miner | HasEnergy |
+| Raider | HasEnergy, Stealer, LeashRange(400), EquippedWeapon |
+| Fighter | HasEnergy, PatrolRoute, `Activity::OnDuty { ticks_waiting: 0 }` |
 
-GPU writes (all jobs): `SetPosition`, `SetTarget` (spawn position, or work position for farmers with valid work_x), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`, `SetSpriteFrame` (job-based sprite from constants.rs), `SetFlags` (bit 0 = 1 for military jobs via `job.is_military()`, 0 for farmers/miners — controls GPU combat scan tier). Colors and equipment sprites are derived from NpcInstance fields by `sync_visual_sprites` (not sent as messages).
+GPU writes (all jobs): `SetPosition`, `SetTarget` (spawn position, or work position for farmers with valid work_x), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`, `SetSpriteFrame` (job-based sprite from constants.rs), `SetFlags` (bit 0 = 1 for military jobs via `job.is_military()`, 0 for farmers/miners — controls GPU combat scan tier). Colors and equipment sprites are derived from ECS component data by `build_visual_upload` (queries `EquippedWeapon/Helmet/Armor` components).
 
 Sprite assignments: Farmer=(1,6), Archer=(0,11), Crossbow=(0,0) (placeholder, purple tint), Raider=(0,6), Fighter=(7,0), Miner=(1,6) (brown tint differentiates)
 
