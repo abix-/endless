@@ -51,14 +51,9 @@ Stages 1-13, 19: [x] Complete (see [completed.md](completed.md))
 Farmer delivery and core roads complete (see [completed.md](completed.md)).
 
 Roads (remaining):
-- [ ] Road collision bypass: NPCs on road cells skip NPC-NPC separation force in compute shader (no bumping on roads = smooth traffic flow)
 - [ ] Road connects visually to adjacent road tiles (auto-tiling: straight, corner, T-junction, crossroads — 4-bit neighbor mask → tileset index lookup)
 
-AI road building:
-- [ ] AI towns auto-build roads between fountain and farm clusters, mine routes, and waypoint paths
-- [ ] AI road placement uses A* or straight-line between key building positions, placing `BuildingKind::Road` on each cell along the path
-- [ ] Road building happens during AI build tick, costs food same as player (1 food/tile)
-- [ ] Files: `systems/ai_player.rs` (road building logic)
+Road collision bypass, road speed bonus, road attraction, and AI road building complete (see [completed.md](completed.md)).
 
 **Stage 16: Performance**
 

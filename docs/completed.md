@@ -32,6 +32,9 @@ Completed items moved from roadmap for readability.
 - [x] Stage 15: `BuildingKind::Road` with road tileset sprite, build menu placement (1 food/tile, wilderness)
 - [x] Stage 15: `tile_flags` bitfield GPU buffer (terrain bits 0-4 + building bits 5+, `populate_tile_flags` system)
 - [x] Stage 15: road speed bonus in `npc_compute.wgsl` (tile_flags bit 5 → `speed *= 1.5`)
+- [x] Stage 15: road collision bypass in `npc_compute.wgsl` (both NPCs on road → skip NPC-NPC separation force for smooth traffic flow)
+- [x] Stage 15: road attraction in `npc_compute.wgsl` (off-road NPCs steer toward nearby road cells via cardinal ray search + lateral pull at 35% speed)
+- [x] Stage 15: AI road building (`AiAction::BuildRoads` in `ai_player.rs`) — personality-specific grid patterns (`is_road_slot`), food cost, batch placement around economy buildings
 - [x] Stage 15: roads persist in save/load, destroyable via build menu destroy mode
 - [x] Stage 16 linear scan: farmer/miner work assignment via `BuildingEntityMap::iter_kind_for_town()` O(k)
 - [x] Stage 16 linear scan: miner home lookup via `find_by_position()` O(1), mine arrival via `find_mine_at()` O(1)
