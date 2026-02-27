@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-27g
+
+- **farmer local farm targeting** — replaced global `iter_kind_for_town` full-scan and `find_nearest_free` with `find_farmer_farm_target()`: expanding-radius local search (400→6400px, doubling) via `EntityMap.for_each_nearby()` with priority ordering (ready > growth progress > distance); proper `assigned_farm` claim/release lifecycle at every transition point (retarget, harvest, idle, death); farm contention safety guard in Working state ejects farmers when `occupant_count > 1`; removed unused `find_nearest_free` import
+- **fix death double-release** — death_system now guards against releasing `work_target` when it equals `occupied_slot` (same slot released twice caused negative occupant counts)
+- **authority contract** — new `docs/authority.md` defining GPU readback vs ECS source-of-truth rules; roadmap updated with authority hardening items for combat and tower systems
+
 ## 2026-02-27f
 
 - **fix combat: use ECS faction for NPC target validation** — attack_system was reading target NPC faction from GPU readback (`gpu_state.factions`), which can return stale -1 on throttled frames; this caused `target_faction < 0` → skip, silently preventing all NPC-vs-NPC combat; fixed by reading faction from `entity_map.get_npc(ti).faction` (ECS source-of-truth) with GPU readback as fallback

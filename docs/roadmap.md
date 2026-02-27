@@ -15,6 +15,12 @@ Target: 20,000+ NPCs @ 60fps with pure Bevy ECS + WGSL compute + GPU instanced r
 
 See [completed.md](completed.md) for completed work moved out of active stages.
 
+## Done Soon (Authority Safety)
+
+- [ ] Combat authority hardening: remove `gpu_state.health` as a hard liveness gate in `attack_system`; validate NPC target liveness from ECS/EntityMap (`Dead`/Health components, `EntityMap::get_npc`) before clearing `ManualTarget` or rejecting attacks.
+- [ ] Tower authority hardening: in `building_tower_system`, treat `GpuReadState.combat_targets` as candidate-only and re-validate target via ECS/EntityMap (`exists`, `!dead`, enemy faction) before spawning projectiles.
+- [ ] Authority contract enforcement: align all docs to [authority.md](authority.md) and ensure no doc implies throttled readbacks (`factions`, `threat_counts`) are authoritative gameplay state.
+
 ## Stages
 
 Stages 1-13, 19: [x] Complete (see [completed.md](completed.md))

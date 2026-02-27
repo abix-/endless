@@ -25,7 +25,7 @@ use crate::systemparams::EconomyState;
 use crate::systems::economy::*;
 use crate::systems::stats::UPGRADES;
 use crate::constants::UpgradeStatKind;
-use crate::world::{WorldData, LocationKind, find_nearest_free, find_location_within_radius, find_within_radius, BuildingKind};
+use crate::world::{WorldData, LocationKind, find_location_within_radius, find_within_radius, BuildingKind};
 
 // ============================================================================
 // SYSTEM PARAM BUNDLES - Logical groupings for scalability
@@ -213,6 +213,50 @@ pub fn arrival_system(
 #[inline]
 fn unpack_threat_counts(packed: u32) -> (u32, u32) {
     ((packed >> 16), packed & 0xFFFF)
+}
+
+/// Find a farm for a farmer using local expanding-radius search.
+/// Preference order:
+/// 1) Ready farms
+/// 2) Higher growth progress
+/// 3) Closer distance
+/// Returns (farm_slot, farm_position, chosen_radius).
+fn find_farmer_farm_target(
+    from: Vec2,
+    entity_map: &EntityMap,
+    town_idx: u32,
+) -> Option<(usize, Vec2, f32)> {
+    let mut radius = 400.0_f32;
+    let max_radius = 6400.0_f32;
+    while radius <= max_radius {
+        let mut best: Option<(usize, Vec2, bool, f32, f32)> = None; // (slot, pos, ready, growth, d2)
+        entity_map.for_each_nearby(from, radius, |inst| {
+            if inst.kind != BuildingKind::Farm || inst.town_idx != town_idx { return; }
+            if inst.occupants >= 1 { return; }
+            let d = inst.position - from;
+            let d2 = d.length_squared();
+            let ready = inst.growth_ready;
+            let growth = inst.growth_progress;
+
+            let better = match best {
+                None => true,
+                Some((_, _, b_ready, b_growth, b_d2)) => {
+                    if ready != b_ready { ready && !b_ready }
+                    else if (growth - b_growth).abs() > f32::EPSILON { growth > b_growth }
+                    else { d2 < b_d2 }
+                }
+            };
+            if better {
+                best = Some((inst.slot, inst.position, ready, growth, d2));
+            }
+        });
+
+        if let Some((slot, pos, _, _, _)) = best {
+            return Some((slot, pos, radius));
+        }
+        radius *= 2.0;
+    }
+    None
 }
 
 // ============================================================================
@@ -418,7 +462,8 @@ pub fn decision_system(
                 Activity::GoingToWork => {
                     // Farmers: find farm at work_target and start working
                     if job == Job::Farmer {
-                        let search_pos = work_position
+                        let reserved_slot = work_position.or(assigned_farm);
+                        let search_pos = reserved_slot
                             .and_then(|wp| entity_map.get_instance(wp).map(|i| i.position))
                             .unwrap_or_else(|| {
                                 if idx * 2 + 1 < positions.len() {
@@ -428,39 +473,81 @@ pub fn decision_system(
                                 }
                             });
 
-                        if let Some((farm_slot, farm_pos)) = find_within_radius(search_pos, &entity_map, BuildingKind::Farm, FARM_ARRIVAL_RADIUS, town_idx_i32 as u32) {
-                            let occupied = entity_map.is_occupied(farm_slot);
+                        let target_farm = reserved_slot
+                            .and_then(|slot| entity_map.get_instance(slot)
+                                .filter(|inst| inst.kind == BuildingKind::Farm && inst.town_idx == town_idx_i32 as u32)
+                                .map(|inst| (slot, inst.position)))
+                            .or_else(|| find_within_radius(search_pos, &entity_map, BuildingKind::Farm, FARM_ARRIVAL_RADIUS, town_idx_i32 as u32));
 
-                            if occupied {
+                        if let Some((farm_slot, farm_pos)) = target_farm {
+                            let occupied = entity_map.is_occupied(farm_slot);
+                            let mine = assigned_farm == Some(farm_slot);
+
+                            if occupied && !mine {
                                 // Farm already has a farmer — find a free one in own town
-                                if let Some((free_slot, free_pos)) = find_nearest_free(search_pos, &entity_map, BuildingKind::Farm, Some(town_idx_i32 as u32)) {
+                                if let Some((free_slot, free_pos, radius)) =
+                                    find_farmer_farm_target(search_pos, &entity_map, town_idx_i32 as u32)
+                                {
+                                    if let Some(old) = assigned_farm.take() {
+                                        entity_map.release(old);
+                                    }
+                                    entity_map.claim(free_slot);
                                     activity = Activity::GoingToWork;
                                     work_position = Some(free_slot);
+                                    assigned_farm = Some(free_slot);
                                     submit_intent(&mut intents, entity, free_pos.x, free_pos.y, MovementPriority::JobRoute, "arrival:farm_retarget");
-                                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm occupied, going to free farm");
+                                    npc_logs.push(
+                                        idx,
+                                        game_time.day(),
+                                        game_time.hour(),
+                                        game_time.minute(),
+                                        format!("Farm occupied -> local retarget (r:{:.0})", radius),
+                                    );
                                 } else {
+                                    if let Some(old) = assigned_farm.take() {
+                                        entity_map.release(old);
+                                    }
+                                    work_position = None;
                                     activity = Activity::Idle;
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "All farms occupied -> Idle");
                                 }
-                            } else if let Some(inst) = entity_map.get_instance_mut(farm_slot) {
-                                // Check if farm is ready — harvest and carry home immediately
-                                let food = inst.harvest();
-                                if food > 0 {
-                                    combat_log.write(CombatLogMsg { kind: CombatEventKind::Harvest, faction: faction_i32, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: inst.harvest_log_msg(food), location: None });
+                            } else if entity_map.get_instance(farm_slot).is_some() {
+                                // Check if farm is ready — harvest and carry home immediately.
+                                let harvest = entity_map.get_instance_mut(farm_slot).and_then(|inst| {
+                                    let food = inst.harvest();
+                                    if food > 0 {
+                                        Some((food, inst.harvest_log_msg(food)))
+                                    } else {
+                                        None
+                                    }
+                                });
+                                if let Some((food, log_msg)) = harvest {
+                                    if assigned_farm == Some(farm_slot) {
+                                        entity_map.release(farm_slot);
+                                        assigned_farm = None;
+                                    }
+                                    combat_log.write(CombatLogMsg { kind: CombatEventKind::Harvest, faction: faction_i32, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: log_msg, location: None });
                                     activity = Activity::Returning { loot: vec![(ItemKind::Food, food)] };
                                     submit_intent(&mut intents, entity, home.x, home.y, MovementPriority::JobRoute, "arrival:farm_harvest_return");
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested -> Carrying home");
                                 } else {
-                                    // Farm not ready — claim and tend
-                                    entity_map.claim(farm_slot);
+                                    // Farm not ready — if not already reserved by us, claim now.
+                                    if assigned_farm != Some(farm_slot) {
+                                        entity_map.claim(farm_slot);
+                                    }
                                     activity = Activity::Working;
                                     assigned_farm = Some(farm_slot);
+                                    work_position = Some(farm_slot);
                                     pop_inc_working(&mut economy.pop_stats, job, town_idx_i32);
                                     submit_intent(&mut intents, entity, farm_pos.x, farm_pos.y, MovementPriority::JobRoute, "arrival:farm_work");
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "-> Working (tending)");
                                 }
                             }
                         } else {
+                            if let Some(old) = assigned_farm.take() {
+                                entity_map.release(old);
+                            }
+                            work_position = None;
                             activity = Activity::Idle;
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "No farm nearby -> Idle");
                         }
@@ -788,13 +875,37 @@ pub fn decision_system(
         // ====================================================================
         if job == Job::Farmer && matches!(activity, Activity::GoingToWork) && (idx + frame) % think_buckets == 0 {
             if let Some(wp) = work_position {
-                if entity_map.is_occupied(wp) {
+                let occ = entity_map.occupant_count(wp);
+                let occupied_by_other = (occ > 1) || (occ >= 1 && assigned_farm != Some(wp));
+                if occupied_by_other {
                     let wp_pos = entity_map.get_instance(wp).map(|i| i.position).unwrap_or_default();
-                    if let Some((free_slot, free_pos)) = find_nearest_free(wp_pos, &entity_map, BuildingKind::Farm, Some(town_idx_i32 as u32)) {
-                        work_position = Some(free_slot);
-                        submit_intent(&mut intents, entity, free_pos.x, free_pos.y, MovementPriority::JobRoute, "farm:retarget_free");
-                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm taken, retargeting");
+                    let current_pos = if idx * 2 + 1 < positions.len() {
+                        Vec2::new(positions[idx * 2], positions[idx * 2 + 1])
                     } else {
+                        wp_pos
+                    };
+                    if let Some((free_slot, free_pos, radius)) =
+                        find_farmer_farm_target(current_pos, &entity_map, town_idx_i32 as u32)
+                    {
+                        if let Some(old) = assigned_farm.take() {
+                            entity_map.release(old);
+                        }
+                        entity_map.claim(free_slot);
+                        work_position = Some(free_slot);
+                        assigned_farm = Some(free_slot);
+                        submit_intent(&mut intents, entity, free_pos.x, free_pos.y, MovementPriority::JobRoute, "farm:retarget_free");
+                        npc_logs.push(
+                            idx,
+                            game_time.day(),
+                            game_time.hour(),
+                            game_time.minute(),
+                            format!("Farm taken -> local retarget (r:{:.0})", radius),
+                        );
+                    } else {
+                        if let Some(old) = assigned_farm.take() {
+                            entity_map.release(old);
+                        }
+                        work_position = None;
                         activity = Activity::Idle;
                         npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "All farms occupied -> Idle");
                     }
@@ -875,6 +986,22 @@ pub fn decision_system(
         // ====================================================================
         let _ps_wk = if profiling { Some(std::time::Instant::now()) } else { None };
         if matches!(activity, Activity::Working) {
+            // Safety guard: farms are single-worker worksites.
+            // If contention appears (e.g., stale reservations from older state),
+            // release this farmer's claim and force reassignment.
+            if let Some(af) = assigned_farm {
+                if entity_map.occupant_count(af) > 1 {
+                    entity_map.release(af);
+                    assigned_farm = None;
+                    if work_position == Some(af) {
+                        work_position = None;
+                    }
+                    activity = Activity::Idle;
+                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm contention -> Reassign");
+                    if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
+                    break 'decide;
+                }
+            }
             let should_stop = if energy < ENERGY_TIRED_THRESHOLD {
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Tired -> Stopped");
                 true
@@ -1096,24 +1223,28 @@ pub fn decision_system(
             Action::Work => {
                 match job {
                     Job::Farmer => {
-                        // Scan all faction farms: priority ready > unoccupied growing
+                        // Local expanding-radius search: keep farmers working near where they are.
                         let current_pos = if idx * 2 + 1 < positions.len() {
                             Vec2::new(positions[idx * 2], positions[idx * 2 + 1])
                         } else { home };
-                        let mut best: Option<(i32, f32, usize, Vec2)> = None; // (priority, dist, slot, pos)
-                        for inst in entity_map.iter_kind_for_town(BuildingKind::Farm, town_idx_i32 as u32) {
-                            if inst.occupants >= 1 { continue; }
-                            let ready = inst.growth_ready;
-                            let priority = if ready { 0 } else { 1 };
-                            let dist = current_pos.distance(inst.position);
-                            if best.is_none() || (priority, dist as i32) < (best.unwrap().0, best.unwrap().1 as i32) {
-                                best = Some((priority, dist, inst.slot, inst.position));
+                        if let Some((farm_slot, farm_pos, radius)) =
+                            find_farmer_farm_target(current_pos, &entity_map, town_idx_i32 as u32)
+                        {
+                            if let Some(old) = assigned_farm.take() {
+                                entity_map.release(old);
                             }
-                        }
-                        if let Some((_, _, farm_slot, farm_pos)) = best {
+                            entity_map.claim(farm_slot);
                             activity = Activity::GoingToWork;
                             work_position = Some(farm_slot);
+                            assigned_farm = Some(farm_slot);
                             submit_intent(&mut intents, entity, farm_pos.x, farm_pos.y, MovementPriority::JobRoute, "idle:work_farm");
+                            npc_logs.push(
+                                idx,
+                                game_time.day(),
+                                game_time.hour(),
+                                game_time.minute(),
+                                format!("Farm target local (r:{:.0})", radius),
+                            );
                         }
                     }
                     Job::Miner => {

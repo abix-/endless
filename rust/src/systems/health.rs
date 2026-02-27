@@ -381,7 +381,9 @@ pub fn death_system(
             res.entity_map.release(slot);
         }
         if let Some(slot) = work_target {
-            res.entity_map.release(slot);
+            if Some(slot) != occupied_slot {
+                res.entity_map.release(slot);
+            }
         }
         if job == Job::Miner {
             res.dirty_writers.mining.write(crate::messages::MiningDirtyMsg);
