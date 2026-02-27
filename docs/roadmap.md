@@ -1,6 +1,6 @@
 # Roadmap
 
-Target: 30,000 NPCs + 30,000 buildings @ 60fps with pure Bevy ECS + WGSL compute + GPU instanced rendering.
+Target: 50,000 NPCs + 50,000 buildings @ 60fps with pure Bevy ECS + WGSL compute + GPU instanced rendering.
 
 ## How to Maintain This Roadmap
 
@@ -57,52 +57,55 @@ Road collision bypass, road speed bonus, road attraction, and AI road building c
 
 **Stage 16: Performance**
 
-*Done when: 30K NPCs + 30K buildings at 60fps. `NpcGpuState` ExtractResource clone eliminated, and `command_buffer_generation_tasks` drops from ~10ms to ~1ms at default zoom on a 250x250 world.*
+*Done when: 50K NPCs + 50K buildings at 60fps.*
 
-GPU extract optimization, GPU-native NPC rendering, linear scan elimination, worksite indexing, slot-indexed occupancy, query-first migration, NpcLogCache filtering, decision sub-profiling, cooldown/energy EntityMap lookup elimination, visual upload event-driven clearing, target dirty tracking, and `add_instance` spatial index ordering fix complete (see [completed.md](completed.md)).
+GPU extract, GPU-native rendering, linear scan elimination, worksite indexing, slot-indexed occupancy, query-first migration, NpcLogCache filtering, decision sub-profiling, visual upload optimization, GPU targets dirty tracking, damage debug gating, and readback throttling complete (see [completed.md](completed.md)).
 
 ECS source-of-truth migration complete (see [completed.md](completed.md)). ECS owns all NPC gameplay state. EntityMap is index-only (slot↔Entity, grid, kind/town/spatial). No dual-writes. Hot loops use query-first + indexed lookup. GPU is movement authority; ECS Position is read-model synced in `gpu_position_readback`.
 
-Remaining performance items (highest expected savings first):
+Remaining performance items at 50k NPC + 50k buildings (sorted by criticality, then expected savings):
 
-1. [x] `build_visual_upload` optimization: (b) building loop uses `iter_instances()` instead of 60K slot scan, (c) event-driven hidden-slot clearing via `hidden_indices` replaces full sentinel fill. GpuUpdate::Hide clears sprite_indices+flash to prevent ghost visuals on slot reuse. (a) NPC loop still uses `iter_npcs()` — query-first deferred.
-2. [x] Per-index dirty tracking for GPU targets buffer: `target_dirty_indices` with dedup, `write_dirty_f32` instead of `write_bulk`. Full-upload fallback on first frame or buffer resize via `prev_target_size` Local.
-3. [ ] [High] Add decision-frame budgeting (max non-combat decisions per frame + adaptive interval by population), because fixed bucketing still allows expensive spikes at large NPC counts.
-   Expected saving: ~2-5 ms/frame average and materially lower p95/p99 spikes.
-4. [ ] [Medium] Add cache-friendly vectors for hot building iteration paths (keep HashMaps as authority, vectors for tight loops), because data locality and branch predictability matter at 10k+ entities.
+1. [ ] [Critical] `build_visual_upload` NPC HashMap iteration: `iter_npcs()` walks 50k HashMap entries per frame. Building backfill and sentinel fill already fixed. Remaining: query-first NPC iteration (same pattern as other migrated systems).
+   Files: `gpu.rs:320-458`. Expected saving: ~3-6 ms/frame CPU.
+2. [ ] [Critical] Decision-frame budgeting: fixed think-bucket interval at 50k NPCs means more NPCs per bucket, causing frame-time spikes during heavy decision ticks. Need max decisions/frame cap + adaptive interval.
+   Expected saving: ~3-8 ms/frame p95/p99 spike reduction.
+3. [ ] [High] Entity sleeping (Factorio-style): NPCs outside camera radius skip behavior/movement ticks. At 50k NPCs, typically 80%+ are off-camera.
+   Expected saving: ~5-15+ ms/frame CPU when most NPCs off-camera; near-zero if camera covers all.
+4. [ ] [High] `healing_system` full-query iteration: iterates all 50k living NPCs mutably every frame. Most aren't in healing zones. Need spatial pre-filter or fountain proximity check.
+   Files: `health.rs:465`. Expected saving: ~1-3 ms/frame CPU.
+5. [ ] [Medium] Cache-friendly vectors for hot building iteration paths (keep HashMaps as authority, vectors for tight loops), because data locality and branch predictability matter at 50k buildings.
    Expected saving: ~1-3 ms/frame CPU on building-heavy ticks.
-5. [ ] [Medium] `healing_system` iterates all 30K NPCs mutably every frame even though most aren't in healing zones. Consider faction-based pre-filter or spatial bucketing to reduce mutable query touchpoints.
-   Files: `health.rs:485`. Expected saving: ~1-2 ms/frame CPU.
-6. [ ] `decision_system`: reduce per-frame allocation/log pressure in hot paths (avoid unconditional `format!`/log string churn for high-N NPC loops; gate expensive logs behind debug/selection or lower-frequency sampling).
-   Expected saving: ~1-2 ms/frame CPU; partly overlaps with log-cache gating item.
-7. [ ] Entity sleeping (Factorio-style: NPCs outside camera radius sleep).
-   Expected saving: highly scenario-dependent, ~3-12+ ms/frame CPU when most NPCs are off-camera; low gain if camera covers active area.
-8. [ ] `sync_terrain_tilemap` updates only chunks whose grid region changed, not all chunks on every terrain dirty signal.
-   Expected saving: ~0.5-2 ms/frame CPU on terrain-edit-heavy periods; minimal during steady-state.
-9. [ ] Throttle readback: factions every 60 frames, threat_counts every 30 frames, `buffer_range()` sized to `npc_count`.
-   Expected saving: ~0.3-1.2 ms/frame CPU/GPU sync overhead, plus reduced stall risk.
-10. [ ] Pre-allocate `GpuReadState` vecs and `copy_from_slice` instead of per-frame `Vec` allocation.
-    Expected saving: ~0.2-0.8 ms/frame CPU plus less allocator churn.
-11. [ ] `sync_building_hp_render`: rebuild only when `BuildingHpState`/`WorldData` changes (or via dirty flag), not every frame.
-    Expected saving: ~0.3-1.5 ms/frame CPU depending on building damage activity.
-12. [ ] Narrow `on_duty_tick_system` workset so only on-duty archers are iterated each frame.
-    Expected saving: ~0.2-1.0 ms/frame CPU depending on military population ratio.
-13. [x] `damage_system` debug stats: health sampling gated behind `damage_count > 0`; `health_samples.clear()` every frame to prevent stale data.
-14. [ ] Perf anti-pattern remediation pass (UI + systems): remove repeated query scans in hot paths, pre-index slot/entity lookups once per frame/tick, replace nested `Vec::contains` membership checks with `HashSet`, and avoid per-item linear dedupe scans in overlays.
-    Expected saving: broad/follow-up bucket, ~1-4 ms/frame total after targeted fixes.
-15. [ ] SystemTimings Mutex contention: 20+ lock/unlock cycles per frame. Replace with AtomicU32 + f32::to_bits per slot.
-    Expected saving: ~0.2-1.0 ms/frame CPU at high frame rates.
-16. [ ] `NpcsByTownCache` uses `Vec<usize>` with `retain()` on death (O(n) per death, ~6K entries per town). Switch to `HashSet<usize>`.
-    Expected saving: negligible per-frame but prevents worst-case spikes during mass death events.
-17. [ ] Add perf guardrails for hot paths: microbenchmarks for inspector/squad/AI helper paths and CI thresholds that fail on material regressions.
-    Expected saving: indirect only (prevents regressions, no direct runtime reduction).
-18. [ ] Message signal regression tests: verify `emit_all()` fires on startup/load and drain systems consume correctly.
+6. [ ] [Medium] Pre-allocate `GpuReadState` vecs: readback observers call `e.to_shader_type()` creating new Vecs per frame. At 50k entities, positions = 1.6MB allocation per frame.
+   Expected saving: ~0.5-1.5 ms/frame CPU plus allocator churn.
+7. [ ] [Medium] `sync_building_hp_render` every-frame rebuild: queries all 50k buildings every frame, clears and rebuilds vecs. Only damaged buildings (typically <1%) produce output. Gate behind dirty flag.
+   Files: `combat.rs:443`. Expected saving: ~0.5-1.5 ms/frame CPU.
+8. [ ] [Medium] `on_duty_tick_system` full iteration: queries all 50k living non-building entities every frame to increment `ticks_waiting` on the small subset of OnDuty archers.
+   Files: `behavior.rs:1439`. Expected saving: ~0.3-1.0 ms/frame CPU.
+9. [ ] [Medium] Perf anti-pattern remediation pass (UI + systems): remove repeated query scans in hot paths, pre-index slot/entity lookups once per frame/tick, replace nested `Vec::contains` membership checks with `HashSet`, and avoid per-item linear dedupe scans in overlays.
+   Expected saving: ~1-4 ms/frame total across multiple systems.
+10. [ ] [Low] `decision_system` remaining log pressure: ~10 `format!` calls remain after NpcLogCache filtering. Minor at 50k with gating already in place.
+    Expected saving: ~0.3-0.8 ms/frame CPU.
+11. [ ] [Low] `sync_terrain_tilemap` chunk granularity: already message-driven (only fires on `TerrainDirtyMsg`). Remaining: rewrites all chunks on any terrain change instead of only affected chunks.
+    Expected saving: ~0.3-1.0 ms/frame during terrain edits only; zero in steady-state.
+12. [ ] [Low] SystemTimings Mutex contention: 20+ lock/unlock cycles per frame. Constant overhead regardless of entity count. Replace with AtomicU32 + f32::to_bits per slot.
+    Expected saving: ~0.2-1.0 ms/frame at high frame rates.
+13. [ ] [Low] `NpcsByTownCache` uses `Vec<usize>` with `retain()` on death (O(n) per death, ~6K entries/town at 50k). Switch to `HashSet<usize>`.
+    Expected saving: negligible per-frame, prevents worst-case spikes during mass death events.
+14. [ ] [Low] Perf guardrails: microbenchmarks for inspector/squad/AI helper paths and CI thresholds that fail on material regressions.
+    Expected saving: indirect only (prevents regressions).
+15. [ ] [Low] Message signal regression tests: verify `emit_all()` fires on startup/load and drain systems consume correctly.
     Expected saving: correctness only, no direct runtime reduction.
-SystemParam bundle consolidation:
-Current shared bundles include `DirtyWriters`, `AiDirtyReaders`, and `AiBuildRes`; remaining consolidation work is listed below.
-- [ ] Create `GameLog` bundle: `{ combat_log: MessageWriter<CombatLogMsg>, game_time: Res<GameTime>, timings: Res<SystemTimings> }` and migrate systems still carrying this triple directly.
-- [ ] Move/replace remaining ad-hoc bundles in `systems/behavior.rs` (keep only bundles with genuine local-only value; shared bundles live in `resources.rs`).
-- [ ] Keep bundles flat (no nested `SystemParam` bundles inside other bundles) unless required to break Bevy param-count limits.
+
+Scale remediation plan (50k NPC + 50k buildings):
+- Items 1-2: GPU pipeline + decision budgeting (Critical) — next
+- Items 3-4: Entity sleeping + healing pre-filter (High)
+- Items 5-9: Cache locality + allocations + every-frame queries + anti-patterns (Medium)
+- Items 10-15: Log pressure + terrain chunks + mutex + infrastructure (Low)
+
+SystemParam bundle consolidation (code quality, not runtime perf):
+- [ ] [Low] Create `GameLog` bundle: `{ combat_log: MessageWriter<CombatLogMsg>, game_time: Res<GameTime>, timings: Res<SystemTimings> }` and migrate systems still carrying this triple directly.
+- [ ] [Low] Move/replace remaining ad-hoc bundles in `systems/behavior.rs` (keep only bundles with genuine local-only value; shared bundles live in `resources.rs`).
+- [ ] [Low] Keep bundles flat (no nested `SystemParam` bundles inside other bundles) unless required to break Bevy param-count limits.
 
 **Stage 16.5: Buildings as ECS Entities** (see [specs/buildings-as-entities.md](specs/buildings-as-entities.md))
 
@@ -341,8 +344,9 @@ Implementation guides for upcoming stages. After delivery, spec content rolls in
 | Max scale tested | 50,000 | — | TBD | [x] buffers sized |
 | Worksite indexing + occupancy | 30,000 | 30,000 | 60+ | [x] done |
 | Query-first + log gating + sub-profiling | 30,000 | 30,000 | 60+ | [x] done |
-| GPU pipeline + dirty tracking (items 1-2) | 30,000 | 30,000 | 60+ | [ ] next |
-| Decision budgeting (item 3) | 30,000 | 30,000 | 60+ | [ ] planned |
+| Visual upload + targets dirty tracking | 30,000 | 30,000 | 60+ | [x] done |
+| GPU iter + decision budgeting (items 1-2) | 50,000 | 50,000 | 60+ | [ ] next |
+| Entity sleeping + healing (items 3-4) | 50,000 | 50,000 | 60+ | [ ] planned |
 | Future (chunked tilemap) | 50,000+ | 50,000+ | 60+ | Planned |
 
 ## References

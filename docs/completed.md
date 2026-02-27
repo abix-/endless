@@ -14,6 +14,10 @@ Completed items moved from roadmap for readability.
 - [x] Stage 16 items 5-6: query-first migration — eliminate `iter_npcs()` + `entity_map.get_npc()` HashMap lookups in 10 runtime systems (cooldown, energy, death, behavior, economy, combat, health, render, ai_player)
 - [x] Stage 16 item 8: NpcLogCache filtering — `NpcLogMode` (All/Faction/SelectedOnly) gates per-NPC string work
 - [x] Stage 16 item 9: decision sub-profiling — `decision/squad`, `decision/work` sub-timers, `n_transit_skip` counter, `ws_queries`/`ws_fallbacks`/`ws_stale` worksite instrumentation
+- [x] Stage 16: `build_visual_upload` optimization — building loop uses `iter_instances()`, event-driven `hidden_indices` clearing replaces full sentinel fill, `GpuUpdate::Hide` clears sprite_indices+flash
+- [x] Stage 16: per-index dirty tracking for GPU targets buffer — `target_dirty_indices` with dedup, `write_dirty_f32` pattern, full-upload fallback on first frame or buffer resize
+- [x] Stage 16: `damage_system` debug stats — health sampling gated behind `damage_count > 0`, `health_samples.clear()` prevents stale data
+- [x] Stage 16: readback throttling — `sync_readback_ranges` throttles factions every 60 frames, threat_counts every 30 frames, `readback_bucket(entity_count)` sizes buffer to entity count
 
 ### Roadmap Migration (Stages 16, 16.5 — GPU buildings, messages)
 - [x] Stage 16.5: separate NPC and building GPU buffers (SlotPool extraction, BuildingSlots, BuildingGpuState, instance-buffer building rendering)
