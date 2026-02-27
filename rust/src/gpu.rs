@@ -157,6 +157,11 @@ pub struct EntityGpuState {
     // GPU compute writes these every frame; CPU only touches them on spawn/teleport/hide/retarget.
     pub position_dirty_indices: Vec<usize>,
     pub arrival_dirty_indices: Vec<usize>,
+    pub target_dirty_indices: Vec<usize>,
+    /// Slots hidden this frame — used by build_visual_upload to clear stale visual/equip data.
+    pub hidden_indices: Vec<usize>,
+    /// Last-known target buffer size for full-upload fallback detection.
+    pub target_buffer_size: usize,
 }
 
 /// GPU-ready packed arrays for NPC visual/equip data. Rebuilt each frame by build_visual_upload.
@@ -195,6 +200,9 @@ impl Default for EntityGpuState {
             dirty_half_sizes: false,
             position_dirty_indices: Vec::new(),
             arrival_dirty_indices: Vec::new(),
+            target_dirty_indices: Vec::new(),
+            hidden_indices: Vec::new(),
+            target_buffer_size: 0,
         }
     }
 }
@@ -218,6 +226,7 @@ impl EntityGpuState {
                     self.targets[i] = *x;
                     self.targets[i + 1] = *y;
                     self.dirty_targets = true;
+                    self.target_dirty_indices.push(*idx);
                 }
                 // Reset arrival flag so GPU resumes movement toward new target
                 if *idx < self.arrivals.len() {
@@ -258,6 +267,18 @@ impl EntityGpuState {
                     self.dirty_positions = true;
                     self.position_dirty_indices.push(*idx);
                 }
+                // Clear sprite/flash state so reused slots don't show ghost visuals
+                let si = *idx * 4;
+                if si + 3 < self.sprite_indices.len() {
+                    self.sprite_indices[si] = -1.0;
+                    self.sprite_indices[si + 1] = 0.0;
+                    self.sprite_indices[si + 2] = 0.0;
+                    self.sprite_indices[si + 3] = 0.0;
+                }
+                if *idx < self.flash_values.len() {
+                    self.flash_values[*idx] = 0.0;
+                }
+                self.hidden_indices.push(*idx);
             }
             // Visual-only messages — no compute dirty flag
             GpuUpdate::SetSpriteFrame { idx, col, row, atlas } => {
@@ -316,10 +337,18 @@ pub fn build_visual_upload(
     upload.visual_data.resize(entity_count * 8, -1.0);
     upload.equip_data.resize(entity_count * 24, -1.0);
 
-    // Reset to -1.0 sentinels (phantom slots like waypoints have no ECS entity,
-    // so the NPC loop below never overwrites them — shader hides when col < 0)
-    upload.visual_data[..entity_count * 8].fill(-1.0);
-    upload.equip_data[..entity_count * 24].fill(-1.0);
+    // Clear only hidden slots (despawned entities) — avoids full O(entity_count) memset.
+    // resize(..., -1.0) already initializes new tail capacity with sentinels.
+    for &idx in &gpu_state.hidden_indices {
+        let vbase = idx * 8;
+        if vbase + 7 < upload.visual_data.len() {
+            upload.visual_data[vbase..vbase + 8].fill(-1.0);
+        }
+        let ebase = idx * 24;
+        if ebase + 23 < upload.equip_data.len() {
+            upload.equip_data[ebase..ebase + 24].fill(-1.0);
+        }
+    }
 
     for npc in entity_map.iter_npcs() {
         if npc.dead { continue; }
@@ -404,13 +433,14 @@ pub fn build_visual_upload(
         upload.equip_data[eq + 23] = 0.0;
     }
 
-    // Building slots: no ECS entity, sprite data from SetSpriteFrame in sprite_indices
-    for idx in 0..entity_count {
+    // Building slots: iterate only actual buildings (includes waypoints)
+    for inst in entity_map.iter_instances() {
+        let idx = inst.slot;
         let base = idx * 8;
-        if upload.visual_data[base] >= 0.0 { continue; } // already written by NPC loop
+        if base + 7 >= upload.visual_data.len() { continue; }
         let si = idx * 4;
         let col = gpu_state.sprite_indices.get(si).copied().unwrap_or(-1.0);
-        if col < 0.0 { continue; } // truly empty slot
+        if col < 0.0 { continue; } // hidden or uninitialized
         upload.visual_data[base]     = col;
         upload.visual_data[base + 1] = gpu_state.sprite_indices.get(si + 1).copied().unwrap_or(0.0);
         upload.visual_data[base + 2] = gpu_state.sprite_indices.get(si + 2).copied().unwrap_or(0.0);
@@ -419,6 +449,11 @@ pub fn build_visual_upload(
         upload.visual_data[base + 5] = 1.0; // g
         upload.visual_data[base + 6] = 1.0; // b
         upload.visual_data[base + 7] = 1.0; // a
+        // Wipe stale NPC equip overlays on building slots
+        let eq = idx * 24;
+        if eq + 23 < upload.equip_data.len() {
+            upload.equip_data[eq..eq + 24].fill(-1.0);
+        }
     }
 }
 
@@ -447,6 +482,8 @@ pub fn populate_gpu_state(
     npc_state.dirty_half_sizes = false;
     npc_state.position_dirty_indices.clear();
     npc_state.arrival_dirty_indices.clear();
+    npc_state.target_dirty_indices.clear();
+    npc_state.hidden_indices.clear();
 
     for msg in events.read() {
         let update = &msg.0;

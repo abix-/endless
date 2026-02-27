@@ -141,7 +141,7 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 | Resource | Data | Status |
 |----------|------|--------|
 | GpuReadState | positions, combat_targets, health, factions, threat_counts, entity_count | Populated via GPU readback observers (mixed cadence; see below) |
-| EntityGpuState | positions, factions, healths, entity_flags, sprite_indices, flash_values, targets, speeds, arrivals + dirty tracking | Unified CPU-side GPU state for all entities (NPCs + buildings); populated by GpuUpdate variants; read by rendering + healing system |
+| EntityGpuState | positions, factions, healths, entity_flags, sprite_indices, flash_values, targets, speeds, arrivals + per-buffer dirty flags + per-index dirty tracking (position_dirty_indices, arrival_dirty_indices, target_dirty_indices, hidden_indices) + target_buffer_size | Unified CPU-side GPU state for all entities (NPCs + buildings); populated by GpuUpdate variants; `Hide` clears sprite_indices + flash_values and pushes to hidden_indices; read by rendering + healing system |
 | NpcSpriteTexture | handle (char atlas), world_handle (world atlas), extras_handle (extras atlas), building_handle (building atlas) | Shared with instanced renderer for texture bind group |
 | ProjSlotAllocator | next, free list, max (50,000) | Active — allocates projectile slots |
 

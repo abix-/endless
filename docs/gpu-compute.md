@@ -70,14 +70,16 @@ ECS → GPU (upload):
     → ProjBufferWrites (spawn/deactivate dirty sets for extract_proj_data)
 
   build_visual_upload (PostUpdate, chained after populate_gpu_state):
-    Single O(N) pass: ECS query + EntityGpuState → NpcVisualUpload
-    Packs visual_data [f32;8] + equip_data [f32;24] per NPC in GPU-ready format
-    Both arrays reset to -1.0 sentinel each frame; phantom slots (waypoints) have no ECS entity and stay hidden
+    NPC loop: ECS query (EntityMap.iter_npcs) → NpcVisualUpload visual_data + equip_data
+    Building loop: EntityMap.iter_instances() → visual_data (sprite from EntityGpuState) + equip sentinel clear
+    Hidden slot pre-clear: hidden_indices (from GpuUpdate::Hide) → clear stale visual+equip ranges
+    resize(..., -1.0) initializes new capacity tail; no full-array sentinel fill per frame
 
   extract_npc_data (ExtractSchedule, zero-clone):
     Extract<Res<EntityGpuState>> → hybrid writes to EntityGpuBuffers [0..entity_count]:
       GPU-authoritative (positions/arrivals): per-dirty-index write_buffer (~10-50 calls/frame)
-      CPU-authoritative (targets/speeds/factions/healths/flags): 1 bulk write_buffer per dirty buffer
+      Targets: per-dirty-index write_dirty_f32 (deduped) with full-upload fallback on first frame or buffer resize
+      CPU-authoritative (speeds/factions/healths/flags): 1 bulk write_buffer per dirty buffer
       Buildings and NPCs share the same slot namespace — no offset arithmetic
     Extract<Res<NpcVisualUpload>> → bulk write_buffer to NpcVisualBuffers
 

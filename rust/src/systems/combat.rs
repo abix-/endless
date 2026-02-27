@@ -19,10 +19,9 @@ pub struct AttackQueries<'w, 's> {
 pub fn cooldown_system(
     time: Res<Time>,
     game_time: Res<GameTime>,
-    entity_map: Res<EntityMap>,
     mut debug: ResMut<CombatDebug>,
     timings: Res<SystemTimings>,
-    mut timer_q: Query<(&EntitySlot, &mut AttackTimer)>,
+    mut timer_q: Query<(&EntitySlot, &mut AttackTimer), (Without<Building>, Without<Dead>)>,
 ) {
     let _t = timings.scope("cooldown");
     let dt = game_time.delta(&time);
@@ -30,9 +29,7 @@ pub fn cooldown_system(
     let mut first_timer_before = -99.0f32;
     let mut timer_count = 0usize;
 
-    for (es, mut timer) in timer_q.iter_mut() {
-        let Some(npc) = entity_map.get_npc(es.0) else { continue };
-        if npc.dead { continue; }
+    for (_es, mut timer) in timer_q.iter_mut() {
         if timer_count == 0 {
             first_timer_before = timer.0;
         }
@@ -97,7 +94,6 @@ pub fn attack_system(
             Activity::Returning { .. } | Activity::GoingToRest | Activity::Resting
                 | Activity::GoingToHeal | Activity::HealingAtFountain { .. }
         );
-        let manual_target_clone = manual_target_opt.cloned();
         let squad_id_val = squad_id_opt.map(|s| s.0);
         let is_fighting = aq.combat_state_q.get(entity).is_ok_and(|cs| cs.is_fighting());
 
@@ -112,7 +108,7 @@ pub fn attack_system(
         }
 
         // Manual target override
-        let mut target_idx = if let Some(ref mt) = manual_target_clone {
+        let mut target_idx = if let Some(mt) = manual_target_opt {
             match mt {
                 ManualTarget::Npc(t) => {
                     let dead = gpu_state.health.get(*t).map_or(true, |&h| h <= 0.0);

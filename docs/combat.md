@@ -79,13 +79,14 @@ attack_system emits `ProjGpuUpdateMsg` when in range, or applies point-blank dam
 Execution order is **chained** — each system completes before the next starts.
 
 ### 1. cooldown_system (combat.rs)
+- Query-first: `(&EntitySlot, &mut AttackTimer)` with `(Without<Building>, Without<Dead>)` — no EntityMap lookup
 - Decrements `AttackTimer` by `time.delta_secs()` each frame
 - When timer reaches 0, attack is available
 - Updates `CombatDebug` with sample timer and entity count
 
 ### 2. attack_system (combat.rs)
 - **Query-first iteration**: uses a read-only ECS query `(Entity, &EntitySlot, &Job, &Faction, &CachedStats, &Activity, Option<&SquadId>, Option<&ManualTarget>)` with `Without<Building>, Without<Dead>` for the outer NPC loop. `AttackQueries` SystemParam holds only mutable queries (`&mut CombatState`, `&mut AttackTimer`). `EntityMap` retained for building target resolution.
-- **Manual target override**: if NPC has `ManualTarget::Npc(slot)`, uses that slot as target instead of GPU `combat_targets[i]`. Auto-clears `ManualTarget` when target's GPU health <= 0 (dead). `ManualTarget::Building` and `ManualTarget::Position` variants fall through to GPU auto-targeting. See [behavior.md](behavior.md#squads) for how `ManualTarget` is set.
+- **Manual target override**: if NPC has `ManualTarget::Npc(slot)`, uses that slot as target instead of GPU `combat_targets[i]`. Auto-clears `ManualTarget` when target's GPU health <= 0 (dead). `ManualTarget::Building` and `ManualTarget::Position` variants fall through to GPU auto-targeting. `ManualTarget` is matched by reference (no clone per-NPC per-frame). See [behavior.md](behavior.md#squads) for how `ManualTarget` is set.
 - **Hold fire**: if NPC's squad has `hold_fire == true` and no `ManualTarget`, target is set to -1 (skip auto-engage). Reads `SquadState` via `SquadId`.
 - Falls back to `GpuReadState.combat_targets` for NPCs without manual target or hold-fire.
 - **Skips** NPCs with `Activity::Returning`, `Activity::GoingToRest`, or `Activity::Resting` (prevents combat while heading home, going to bed, or sleeping)

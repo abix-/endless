@@ -757,6 +757,7 @@ fn extract_npc_data(
     gpu_buffers: Option<Res<EntityGpuBuffers>>,
     visual_buffers: Option<Res<NpcVisualBuffers>>,
     render_queue: Res<RenderQueue>,
+    mut prev_target_size: Local<usize>,
 ) {
     use std::sync::atomic::Ordering;
     use crate::messages::{RENDER_PROFILING, RENDER_TIMINGS, RT_EXTRACT_NPC};
@@ -770,7 +771,19 @@ fn extract_npc_data(
         let n = config.npc.count as usize;
         if gpu_state.dirty_positions { write_dirty_f32(&render_queue, &gpu_bufs.positions, &gpu_state.positions, &gpu_state.position_dirty_indices, 2); }
         if gpu_state.dirty_arrivals  { write_dirty_i32(&render_queue, &gpu_bufs.arrivals, &gpu_state.arrivals, &gpu_state.arrival_dirty_indices, 1); }
-        if gpu_state.dirty_targets   { write_bulk(&render_queue, &gpu_bufs.targets, &gpu_state.targets, n * 2); }
+        if gpu_state.dirty_targets {
+            // Full upload on first frame or buffer size change; per-index dirty writes otherwise
+            if *prev_target_size != n {
+                write_bulk(&render_queue, &gpu_bufs.targets, &gpu_state.targets, n * 2);
+                *prev_target_size = n;
+            } else {
+                // Dedup dirty indices before writing
+                let mut indices = gpu_state.target_dirty_indices.clone();
+                indices.sort_unstable();
+                indices.dedup();
+                write_dirty_f32(&render_queue, &gpu_bufs.targets, &gpu_state.targets, &indices, 2);
+            }
+        }
         if gpu_state.dirty_speeds    { write_bulk(&render_queue, &gpu_bufs.speeds, &gpu_state.speeds, n); }
         if gpu_state.dirty_factions  { write_bulk(&render_queue, &gpu_bufs.factions, &gpu_state.factions, n); }
         if gpu_state.dirty_healths   { write_bulk(&render_queue, &gpu_bufs.healths, &gpu_state.healths, n); }

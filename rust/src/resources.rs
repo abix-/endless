@@ -193,8 +193,9 @@ impl EntityMap {
         let gc = (inst.position.x / 32.0).floor() as i32;
         let gr = (inst.position.y / 32.0).floor() as i32;
         self.by_grid_cell.insert((gc, gr), slot);
-        self.spatial_insert(slot, inst.position);
+        let pos = inst.position;
         self.instances.insert(slot, inst);
+        self.spatial_insert(slot, pos);
     }
 
     /// Remove an instance by slot. Returns removed instance if any.

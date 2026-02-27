@@ -104,9 +104,9 @@ NPC rendering uses GPU storage buffers instead of per-instance vertex attributes
 | 2 | `npc_visual_buf` | `NpcVisualBuffers.visual` (CPU upload) | 32B ([f32;8]) |
 | 3 | `npc_equip` | `NpcVisualBuffers.equip` (CPU upload) | 96B (6×[f32;4]) |
 
-**Visual buffer layout** (`[f32; 8]` per slot): `[sprite_col, sprite_row, body_atlas, flash, r, g, b, a]`. Built by `build_visual_upload` from `EntityGpuState.sprite_indices`, `.flash_values`, and ECS Faction/Job components. Reset to `-1.0` sentinel each frame — phantom slots stay hidden via `sprite_col < 0`. Building slots (no ECS entity) are filled by a fallback loop that reads `sprite_indices` directly (col, row, atlas from `SetSpriteFrame` messages).
+**Visual buffer layout** (`[f32; 8]` per slot): `[sprite_col, sprite_row, body_atlas, flash, r, g, b, a]`. Built by `build_visual_upload` from `EntityGpuState.sprite_indices`, `.flash_values`, and ECS Faction/Job components. Hidden slots cleared via `hidden_indices` pre-pass (event-driven, not full-array fill). New capacity initialized to `-1.0` via `resize()`. Building slots filled by `iter_instances()` loop. Phantom slots stay hidden via `sprite_col < 0`.
 
-**Equipment buffer layout** (`[f32; 24]` per slot = 6 layers × `[col, row, atlas, _pad]`): Built by `build_visual_upload` from ECS components (EquippedArmor, EquippedHelmet, EquippedWeapon, Activity, Healing). Reset to `-1.0` sentinel each frame — `col < 0` means unequipped/inactive.
+**Equipment buffer layout** (`[f32; 24]` per slot = 6 layers × `[col, row, atlas, _pad]`): Built by `build_visual_upload` from ECS components (EquippedArmor, EquippedHelmet, EquippedWeapon, Activity, Healing). Building slots get equip block wiped to `-1.0` sentinels. `col < 0` means unequipped/inactive.
 
 **Instance offset encoding:** 7 `draw_indexed` calls, each with `entity_count` instances. Shader derives:
 ```wgsl
@@ -319,7 +319,7 @@ The render pipeline runs in Bevy's render world after extract:
 | Phase | System | Purpose |
 |-------|--------|---------|
 | Extract | `extract_npc_batch` | Despawn stale render world NpcBatch, then clone fresh from main world |
-| Extract | `extract_npc_data` | Zero-clone GPU upload from EntityGpuState: hybrid writes (per-dirty-index for GPU-authoritative positions/arrivals, bulk for CPU-authoritative targets/speeds/factions/healths/flags) + unconditional visual/equip writes via `Extract<Res<T>>` |
+| Extract | `extract_npc_data` | Zero-clone GPU upload from EntityGpuState: hybrid writes (per-dirty-index for GPU-authoritative positions/arrivals/targets, bulk for CPU-authoritative speeds/factions/healths/flags; targets use deduped dirty indices with full-upload fallback on resize) + unconditional visual/equip writes via `Extract<Res<T>>` |
 | Extract | `extract_proj_batch` | Despawn stale render world ProjBatch, then clone fresh from main world |
 | Extract | `extract_camera_state` | Build CameraState from Camera2d Transform + Projection + Window |
 | Extract | `extract_building_body_instances` | Zero-clone read of BuildingBodyInstances → BuildingBodyRenderBuffers (building body sprites from EntityGpuState via EntityMap) |

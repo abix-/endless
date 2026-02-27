@@ -59,16 +59,14 @@ Road collision bypass, road speed bonus, road attraction, and AI road building c
 
 *Done when: 30K NPCs + 30K buildings at 60fps. `NpcGpuState` ExtractResource clone eliminated, and `command_buffer_generation_tasks` drops from ~10ms to ~1ms at default zoom on a 250x250 world.*
 
-GPU extract optimization, GPU-native NPC rendering, linear scan elimination, worksite indexing, slot-indexed occupancy, query-first migration, NpcLogCache filtering, and decision sub-profiling complete (see [completed.md](completed.md)).
+GPU extract optimization, GPU-native NPC rendering, linear scan elimination, worksite indexing, slot-indexed occupancy, query-first migration, NpcLogCache filtering, decision sub-profiling, cooldown/energy EntityMap lookup elimination, visual upload event-driven clearing, target dirty tracking, and `add_instance` spatial index ordering fix complete (see [completed.md](completed.md)).
 
 ECS source-of-truth migration complete (see [completed.md](completed.md)). ECS owns all NPC gameplay state. EntityMap is index-only (slot↔Entity, grid, kind/town/spatial). No dual-writes. Hot loops use query-first + indexed lookup. GPU is movement authority; ECS Position is read-model synced in `gpu_position_readback`.
 
 Remaining performance items (highest expected savings first):
 
-1. [ ] [Critical] `build_visual_upload` triple inefficiency: (a) NPC loop uses `iter_npcs()` HashMap iteration instead of query-first, (b) building backfill scans all 60K entity slots instead of `iter_instances()` (~30K buildings only), (c) fills 1.92M sentinel floats every frame — track `prev_entity_count` and only fill new range.
-   Files: `gpu.rs:299-423`. Expected saving: ~3-8 ms/frame CPU at 60K entities.
-2. [ ] [Critical] Per-index dirty tracking for GPU targets buffer: `dirty_targets` triggers 480KB bulk upload every frame when only ~100-500 targets change. Add `target_dirty_indices: Vec<usize>` to `EntityGpuState`, use `write_dirty_f32` instead of `write_bulk` (same pattern as positions/arrivals).
-   Files: `gpu.rs` (EntityGpuState + populate_gpu_state), `npc_render.rs:773` (extract). Expected saving: ~2-5 ms/frame GPU bandwidth.
+1. [x] `build_visual_upload` optimization: (b) building loop uses `iter_instances()` instead of 60K slot scan, (c) event-driven hidden-slot clearing via `hidden_indices` replaces full sentinel fill. GpuUpdate::Hide clears sprite_indices+flash to prevent ghost visuals on slot reuse. (a) NPC loop still uses `iter_npcs()` — query-first deferred.
+2. [x] Per-index dirty tracking for GPU targets buffer: `target_dirty_indices` with dedup, `write_dirty_f32` instead of `write_bulk`. Full-upload fallback on first frame or buffer resize via `prev_target_size` Local.
 3. [ ] [High] Add decision-frame budgeting (max non-combat decisions per frame + adaptive interval by population), because fixed bucketing still allows expensive spikes at large NPC counts.
    Expected saving: ~2-5 ms/frame average and materially lower p95/p99 spikes.
 4. [ ] [Medium] Add cache-friendly vectors for hot building iteration paths (keep HashMaps as authority, vectors for tight loops), because data locality and branch predictability matter at 10k+ entities.
@@ -89,8 +87,7 @@ Remaining performance items (highest expected savings first):
     Expected saving: ~0.3-1.5 ms/frame CPU depending on building damage activity.
 12. [ ] Narrow `on_duty_tick_system` workset so only on-duty archers are iterated each frame.
     Expected saving: ~0.2-1.0 ms/frame CPU depending on military population ratio.
-13. [ ] `damage_system` debug stats: gate `query.iter().count()` and sample collection behind debug flag to avoid unconditional extra iteration each frame.
-    Expected saving: ~0.1-0.6 ms/frame CPU in non-debug gameplay.
+13. [x] `damage_system` debug stats: health sampling gated behind `damage_count > 0`; `health_samples.clear()` every frame to prevent stale data.
 14. [ ] Perf anti-pattern remediation pass (UI + systems): remove repeated query scans in hot paths, pre-index slot/entity lookups once per frame/tick, replace nested `Vec::contains` membership checks with `HashSet`, and avoid per-item linear dedupe scans in overlays.
     Expected saving: broad/follow-up bucket, ~1-4 ms/frame total after targeted fixes.
 15. [ ] SystemTimings Mutex contention: 20+ lock/unlock cycles per frame. Replace with AtomicU32 + f32::to_bits per slot.

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-02-27k
+
+- **fix add_instance spatial index ordering** — `spatial_insert` was called before `instances.insert`, so kind-filtered spatial buckets (`spatial_kind_town`, `spatial_kind_cell`, `spatial_bucket_idx`) were never populated on first insert; new buildings were invisible to `find_nearest_worksite` until `rebuild_spatial()` ran; fixed by saving position, inserting instance first, then calling spatial_insert
+- **build_visual_upload event-driven clearing** — replaced O(entity_count) full sentinel fill (1.92M f32 writes at 60K) with event-driven hidden-slot clearing via `hidden_indices`; `GpuUpdate::Hide` now clears `sprite_indices` and `flash_values` immediately to prevent ghost visuals on slot reuse; building loop replaced with `iter_instances()` (iterates only actual buildings, not all 60K slots); building equip blocks wiped to sentinels to prevent stale NPC overlay data
+- **GPU target dirty tracking** — added `target_dirty_indices` to `EntityGpuState` with dedup; `extract_npc_data` uses `write_dirty_f32` instead of `write_bulk` for the targets buffer (~480KB saved per frame); full-upload fallback on first frame or buffer resize
+- **cooldown_system optimization** — removed per-NPC `entity_map.get_npc()` HashMap lookup (30K lookups/frame); query filters `(Without<Building>, Without<Dead>)` replace EntityMap guard
+- **energy_system optimization** — removed EntityMap dependency entirely; Activity queried directly in main query tuple with `(Without<Building>, Without<Dead>)` filters
+- **damage_system sampling gated** — health sample collection behind `damage_count > 0`; `health_samples.clear()` every frame to prevent stale debug data
+- **ManualTarget clone removal** — `attack_system` matches ManualTarget by reference instead of `.cloned()` per-NPC per-frame
+
 ## 2026-02-27j
 
 - **indexed worksite query** — replaced brute-force worksite scans in `decision_system` with kind-filtered spatial cell-ring expansion: `EntityMap` now maintains per-cell `(kind, town, cell)` and `(kind, cell)` buckets with `SpatialBucketRef` back-index for O(1) swap-remove; new `find_nearest_worksite()` with min-order tuple scoring, cell-ring expansion (r=0 center first, doubling), and `WorksiteFallback` policy (TownOnly/AnyTown); new `try_claim_worksite()` authoritative claim function (validates kind+town+occupancy before incrementing); `find_farmer_farm_target()` now delegates to `find_nearest_worksite` instead of `for_each_nearby` (only visits Farm buildings, not all 20k); miner mine selection replaced `iter_kind_for_town` linear scan + global `iter_kind` fallback with spatial `find_nearest_worksite` (AnyTown fallback); debug validation in `validate_spatial_indexes()` verifies bucket/back-index consistency
