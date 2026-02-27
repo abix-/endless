@@ -215,10 +215,10 @@ fn unpack_threat_counts(packed: u32) -> (u32, u32) {
     ((packed >> 16), packed & 0xFFFF)
 }
 
-/// Find a farm for a farmer using local expanding-radius search.
-/// Preference order:
-/// 1) Ready farms
-/// 2) Higher growth progress
+/// Find a farm for a farmer using cell-ring expansion with kind-filtered spatial index.
+/// Preference order (min-order tuple):
+/// 1) Ready farms first (ready=0, not_ready=1)
+/// 2) Higher growth progress (inverted: lower bits = more growth)
 /// 3) Closer distance
 /// Returns (farm_slot, farm_position, chosen_radius).
 fn find_farmer_farm_target(
@@ -226,37 +226,24 @@ fn find_farmer_farm_target(
     entity_map: &EntityMap,
     town_idx: u32,
 ) -> Option<(usize, Vec2, f32)> {
-    let mut radius = 400.0_f32;
-    let max_radius = 6400.0_f32;
-    while radius <= max_radius {
-        let mut best: Option<(usize, Vec2, bool, f32, f32)> = None; // (slot, pos, ready, growth, d2)
-        entity_map.for_each_nearby(from, radius, |inst| {
-            if inst.kind != BuildingKind::Farm || inst.town_idx != town_idx { return; }
-            if inst.occupants >= 1 { return; }
-            let d = inst.position - from;
-            let d2 = d.length_squared();
-            let ready = inst.growth_ready;
-            let growth = inst.growth_progress;
-
-            let better = match best {
-                None => true,
-                Some((_, _, b_ready, b_growth, b_d2)) => {
-                    if ready != b_ready { ready && !b_ready }
-                    else if (growth - b_growth).abs() > f32::EPSILON { growth > b_growth }
-                    else { d2 < b_d2 }
-                }
-            };
-            if better {
-                best = Some((inst.slot, inst.position, ready, growth, d2));
-            }
-        });
-
-        if let Some((slot, pos, _, _, _)) = best {
-            return Some((slot, pos, radius));
-        }
-        radius *= 2.0;
-    }
-    None
+    use crate::resources::WorksiteFallback;
+    // Score: (not_ready, inverted_growth_bits, dist2_bits) — lower is better
+    let result = entity_map.find_nearest_worksite(
+        from,
+        BuildingKind::Farm,
+        town_idx,
+        WorksiteFallback::TownOnly,
+        6400.0,
+        |inst| {
+            if inst.occupants >= 1 { return None; }
+            let not_ready: u8 = if inst.growth_ready { 0 } else { 1 };
+            // Invert growth so higher progress = lower score
+            let inv_growth = (1.0 - inst.growth_progress).to_bits();
+            let d2 = (inst.position - from).length_squared().to_bits();
+            Some((not_ready, inv_growth, d2))
+        },
+    );
+    result.map(|r| (r.slot, r.position, r.radius_used))
 }
 
 // ============================================================================
@@ -376,6 +363,9 @@ pub fn decision_system(
     let mut n_work: u32 = 0;
     let mut n_transit_skip: u32 = 0;
     let mut n_total: u32 = 0;
+    let mut n_ws_queries: u32 = 0;
+    let mut n_ws_fallbacks: u32 = 0;
+    let mut n_ws_stale: u32 = 0;
 
     for (entity, slot, job, town_id, faction) in decision_npc_q.iter() {
         let idx = slot.0;
@@ -486,24 +476,24 @@ pub fn decision_system(
 
                             if occupied_by_other {
                                 // Farm already has a farmer — find a free one in own town
-                                if let Some((free_slot, free_pos, radius)) =
+                                if let Some((free_slot, _free_pos, radius)) =
                                     find_farmer_farm_target(search_pos, &entity_map, town_idx_i32 as u32)
                                 {
                                     if let Some(old) = assigned_farm.take() {
                                         entity_map.release(old);
                                     }
-                                    entity_map.claim(free_slot);
-                                    activity = Activity::GoingToWork;
-                                    work_position = Some(free_slot);
-                                    assigned_farm = Some(free_slot);
-                                    submit_intent(&mut intents, entity, free_pos.x, free_pos.y, MovementPriority::JobRoute, "arrival:farm_retarget");
-                                    npc_logs.push(
-                                        idx,
-                                        game_time.day(),
-                                        game_time.hour(),
-                                        game_time.minute(),
-                                        format!("Farm occupied -> local retarget (r:{:.0})", radius),
-                                    );
+                                    if let Some(claimed) = entity_map.try_claim_worksite(free_slot, BuildingKind::Farm, Some(town_idx_i32 as u32), 1) {
+                                        activity = Activity::GoingToWork;
+                                        work_position = Some(claimed.slot);
+                                        assigned_farm = Some(claimed.slot);
+                                        submit_intent(&mut intents, entity, claimed.position.x, claimed.position.y, MovementPriority::JobRoute, "arrival:farm_retarget");
+                                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
+                                            format!("Farm occupied -> local retarget (r:{:.0})", radius));
+                                    } else {
+                                        work_position = None;
+                                        activity = Activity::Idle;
+                                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Retarget stale -> Idle");
+                                    }
                                 } else {
                                     if let Some(old) = assigned_farm.take() {
                                         entity_map.release(old);
@@ -889,23 +879,23 @@ pub fn decision_system(
                     } else {
                         wp_pos
                     };
-                    if let Some((free_slot, free_pos, radius)) =
+                    if let Some((free_slot, _free_pos, radius)) =
                         find_farmer_farm_target(current_pos, &entity_map, town_idx_i32 as u32)
                     {
                         if let Some(old) = assigned_farm.take() {
                             entity_map.release(old);
                         }
-                        entity_map.claim(free_slot);
-                        work_position = Some(free_slot);
-                        assigned_farm = Some(free_slot);
-                        submit_intent(&mut intents, entity, free_pos.x, free_pos.y, MovementPriority::JobRoute, "farm:retarget_free");
-                        npc_logs.push(
-                            idx,
-                            game_time.day(),
-                            game_time.hour(),
-                            game_time.minute(),
-                            format!("Farm taken -> local retarget (r:{:.0})", radius),
-                        );
+                        if let Some(claimed) = entity_map.try_claim_worksite(free_slot, BuildingKind::Farm, Some(town_idx_i32 as u32), 1) {
+                            work_position = Some(claimed.slot);
+                            assigned_farm = Some(claimed.slot);
+                            submit_intent(&mut intents, entity, claimed.position.x, claimed.position.y, MovementPriority::JobRoute, "farm:retarget_free");
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
+                                format!("Farm taken -> local retarget (r:{:.0})", radius));
+                        } else {
+                            work_position = None;
+                            activity = Activity::Idle;
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Retarget stale -> Idle");
+                        }
                     } else {
                         if let Some(old) = assigned_farm.take() {
                             entity_map.release(old);
@@ -1259,28 +1249,27 @@ pub fn decision_system(
             Action::Work => {
                 match job {
                     Job::Farmer => {
-                        // Local expanding-radius search: keep farmers working near where they are.
                         let current_pos = if idx * 2 + 1 < positions.len() {
                             Vec2::new(positions[idx * 2], positions[idx * 2 + 1])
                         } else { home };
-                        if let Some((farm_slot, farm_pos, radius)) =
+                        if let Some((farm_slot, _farm_pos, radius)) =
                             find_farmer_farm_target(current_pos, &entity_map, town_idx_i32 as u32)
                         {
+                            if profiling { n_ws_queries += 1; }
+                            // Re-validate and claim through authoritative path
                             if let Some(old) = assigned_farm.take() {
                                 entity_map.release(old);
                             }
-                            entity_map.claim(farm_slot);
-                            activity = Activity::GoingToWork;
-                            work_position = Some(farm_slot);
-                            assigned_farm = Some(farm_slot);
-                            submit_intent(&mut intents, entity, farm_pos.x, farm_pos.y, MovementPriority::JobRoute, "idle:work_farm");
-                            npc_logs.push(
-                                idx,
-                                game_time.day(),
-                                game_time.hour(),
-                                game_time.minute(),
-                                format!("Farm target local (r:{:.0})", radius),
-                            );
+                            if let Some(claimed) = entity_map.try_claim_worksite(farm_slot, BuildingKind::Farm, Some(town_idx_i32 as u32), 1) {
+                                activity = Activity::GoingToWork;
+                                work_position = Some(claimed.slot);
+                                assigned_farm = Some(claimed.slot);
+                                submit_intent(&mut intents, entity, claimed.position.x, claimed.position.y, MovementPriority::JobRoute, "idle:work_farm");
+                                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
+                                    format!("Farm target local (r:{:.0})", radius));
+                            } else if profiling {
+                                n_ws_stale += 1;
+                            }
                         }
                     }
                     Job::Miner => {
@@ -1290,39 +1279,28 @@ pub fn decision_system(
                             .and_then(|inst| inst.assigned_mine);
 
                         let mine_target = if let Some(assigned_pos) = assigned {
-                            // Use assigned mine directly
                             Some(assigned_pos)
                         } else {
-                            // Find nearest mine that isn't occupied
                             let current_pos = if idx * 2 + 1 < positions.len() {
                                 Vec2::new(positions[idx * 2], positions[idx * 2 + 1])
                             } else {
                                 home
                             };
-                            // Priority: ready > unoccupied > least-occupied (town-scoped, global fallback)
-                            let mut best_mine: Option<(i32, i32, f32, Vec2)> = None; // (priority, occupants, dist, pos)
-                            for inst in entity_map.iter_kind_for_town(BuildingKind::GoldMine, town_idx_i32 as u32) {
-                                let occupant_count = inst.occupants as i32;
-                                let ready = inst.growth_ready;
-                                let priority = if ready { 0 } else if occupant_count == 0 { 1 } else { 2 };
-                                let dist = current_pos.distance(inst.position);
-                                if best_mine.is_none() || (priority, occupant_count, dist as i32) < (best_mine.unwrap().0, best_mine.unwrap().1, best_mine.unwrap().2 as i32) {
-                                    best_mine = Some((priority, occupant_count, dist, inst.position));
-                                }
-                            }
-                            // Global fallback if no mines in own town
-                            if best_mine.is_none() {
-                                for inst in entity_map.iter_kind(BuildingKind::GoldMine) {
-                                    let occupant_count = inst.occupants as i32;
-                                    let ready = inst.growth_ready;
-                                    let priority = if ready { 0 } else if occupant_count == 0 { 1 } else { 2 };
-                                    let dist = current_pos.distance(inst.position);
-                                    if best_mine.is_none() || (priority, occupant_count, dist as i32) < (best_mine.unwrap().0, best_mine.unwrap().1, best_mine.unwrap().2 as i32) {
-                                        best_mine = Some((priority, occupant_count, dist, inst.position));
-                                    }
-                                }
-                            }
-                            best_mine.map(|(_, _, _, pos)| pos)
+                            // Spatial cell-ring search: ready > unoccupied > occupied, then nearest
+                            entity_map.find_nearest_worksite(
+                                current_pos,
+                                BuildingKind::GoldMine,
+                                town_idx_i32 as u32,
+                                crate::resources::WorksiteFallback::AnyTown,
+                                6400.0,
+                                |inst| {
+                                    let priority = if inst.growth_ready { 0u8 } else if inst.occupants == 0 { 1 } else { 2 };
+                                    Some((priority, inst.occupants as u16, inst.position.distance_squared(current_pos).to_bits()))
+                                },
+                            ).map(|r| {
+                                if profiling { n_ws_queries += 1; if r.radius_used > entity_map.spatial_cell_size() { n_ws_fallbacks += 1; } }
+                                r.position
+                            })
                         };
 
                         if let Some(mine_pos) = mine_target {
@@ -1330,7 +1308,6 @@ pub fn decision_system(
                             submit_intent(&mut intents, entity, mine_pos.x, mine_pos.y, MovementPriority::JobRoute, "idle:work_mine");
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "-> Mining gold");
                         }
-                        // No mines available — stay idle
                     }
                     Job::Archer | Job::Crossbow | Job::Fighter => {
                         // Squad override: go to squad target instead of patrolling
@@ -1451,6 +1428,9 @@ pub fn decision_system(
         t.record("decision/n_work", n_work as f32);
         t.record("decision/n_transit_skip", n_transit_skip as f32);
         t.record("decision/n_total", n_total as f32);
+        t.record("decision/ws_queries", n_ws_queries as f32);
+        t.record("decision/ws_fallbacks", n_ws_fallbacks as f32);
+        t.record("decision/ws_stale", n_ws_stale as f32);
     }
 }
 

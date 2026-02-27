@@ -234,8 +234,8 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 - Score Eat/Rest/Work/Wander with personality multipliers and HP modifier
 - Select via weighted random, execute action
 - **Food check**: Eat only scored if town has food in storage
-- **Farmer work branch**: Farmers use `find_farmer_farm_target()` — an expanding-radius local search (400→6400px, doubling each step) via `EntityMap.for_each_nearby()`. Priority: ready farms > higher growth progress > closer distance. Returns `(slot, position, radius)`. Claims the farm immediately via `entity_map.claim(slot)`, sets `NpcWorkState.work_target = Some(slot)` + `assigned_farm = Some(slot)` + `GoingToWork`. While en-route (`GoingToWork`), farmers re-check occupancy at Tier 3 cadence — if another farmer claimed the target farm first, the en-route farmer retargets via `find_farmer_farm_target()` from current position (or idles if none). Proper claim/release lifecycle: old `assigned_farm` is released before claiming a new one at every retarget point. This prevents dogpiling and farm contention.
-- **Miner work branch**: Miners have a separate `Action::Work` → `Job::Miner` branch. If the miner's `MinerHome` has `assigned_mine` set (via building inspector UI), that mine is used directly. Otherwise, finds the nearest unoccupied mine and walks there (`Activity::Mining { mine_pos }`). Completely independent of farmer logic — no `mining_pct` roll. Miners share farmer schedule/flee/off-duty policies.
+- **Farmer work branch**: Farmers use `find_farmer_farm_target()` — delegates to `EntityMap.find_nearest_worksite()` with cell-ring expansion (kind-filtered spatial index, `BuildingKind::Farm` + town-scoped, `WorksiteFallback::TownOnly`). Scoring: min-order tuple `(not_ready, inverted_growth_bits, dist2_bits)` — ready farms > higher growth progress > closer distance. Returns `(slot, position, radius_used)`. Claims via `entity_map.try_claim_worksite()` (authoritative validation: kind + town + occupancy < 1), sets `NpcWorkState.work_target = Some(slot)` + `assigned_farm = Some(slot)` + `GoingToWork`. Stale picks (farm claimed between search and claim) cause the NPC to idle and retry next think tick. While en-route (`GoingToWork`), farmers re-check occupancy at Tier 3 cadence — if another farmer claimed the target farm first, the en-route farmer retargets via `find_farmer_farm_target()` from current position (or idles if none). Proper claim/release lifecycle: old `assigned_farm` is released before claiming a new one at every retarget point.
+- **Miner work branch**: Miners have a separate `Action::Work` → `Job::Miner` branch. If the miner's `MinerHome` has `assigned_mine` set (via building inspector UI), that mine is used directly. Otherwise, uses `EntityMap.find_nearest_worksite()` with cell-ring expansion (kind-filtered spatial index, `BuildingKind::GoldMine`, `WorksiteFallback::AnyTown` for global fallback). Scoring: min-order tuple `(priority: u8, occupants: u16, dist2_bits: u32)` — ready(0) > unoccupied(1) > occupied(2), then fewest occupants, then nearest. Walks to mine (`Activity::Mining { mine_pos }`). Completely independent of farmer logic — no `mining_pct` roll. Miners share farmer schedule/flee/off-duty policies.
 - **Decision logging**: Each decision logged to `NpcLogCache`
 
 ### on_duty_tick_system
@@ -339,6 +339,9 @@ Military unit groups for both player and AI. 10 player-reserved squads + AI squa
 | `decision/n_work` | NPCs entering work/mining/onduty check |
 | `decision/n_transit_skip` | NPCs skipped by transit gate |
 | `decision/n_total` | Total NPCs processed per frame |
+| `decision/ws_queries` | `find_nearest_worksite` calls per frame |
+| `decision/ws_fallbacks` | Queries that expanded beyond first cell radius |
+| `decision/ws_stale` | `try_claim_worksite` failures (stale picks) |
 
 All timers use `Instant::now()` guarded by the `profiling` flag (only measured when profiler enabled in settings).
 
@@ -346,7 +349,7 @@ All timers use `Instant::now()` guarded by the `profiling` flag (only measured w
 
 Farmer farm reservations (`assigned_farm` / `NpcWorkState.occupied_slot`) follow a strict lifecycle to prevent ghost reservations (farm shows `occupants=1` with no active farmer):
 
-- **Claim**: only in `find_farmer_farm_target()` (idle → work), GoingToWork arrival (unclaimed farm), or Working safety invariant (retroactive claim for `work_position` without `assigned_farm`).
+- **Claim**: only via `try_claim_worksite()` in idle → work path, en-route retarget path, and GoingToWork arrival retarget; GoingToWork arrival (unclaimed farm) uses direct `entity_map.claim()` for the already-validated arrival farm; Working safety invariant uses direct `entity_map.claim()` for retroactive claim of `work_position` without `assigned_farm`.
 - **Release**: at every transition out of Working/GoingToWork — retarget, harvest, tired, idle, death. End-of-decide invariant: if a farmer has `assigned_farm` set but activity is not `Working` or `GoingToWork`, the reservation is released automatically.
 - **No pre-claim at spawn**: `spawner_respawn_system` and `spawn_npcs_from_spawners` do not claim farm slots — farmers self-claim via behavior system on first work decision.
 

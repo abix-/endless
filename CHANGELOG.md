@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-27j
+
+- **indexed worksite query** — replaced brute-force worksite scans in `decision_system` with kind-filtered spatial cell-ring expansion: `EntityMap` now maintains per-cell `(kind, town, cell)` and `(kind, cell)` buckets with `SpatialBucketRef` back-index for O(1) swap-remove; new `find_nearest_worksite()` with min-order tuple scoring, cell-ring expansion (r=0 center first, doubling), and `WorksiteFallback` policy (TownOnly/AnyTown); new `try_claim_worksite()` authoritative claim function (validates kind+town+occupancy before incrementing); `find_farmer_farm_target()` now delegates to `find_nearest_worksite` instead of `for_each_nearby` (only visits Farm buildings, not all 20k); miner mine selection replaced `iter_kind_for_town` linear scan + global `iter_kind` fallback with spatial `find_nearest_worksite` (AnyTown fallback); debug validation in `validate_spatial_indexes()` verifies bucket/back-index consistency
+- **worksite instrumentation** — added `decision/ws_queries`, `decision/ws_fallbacks`, `decision/ws_stale` profiling counters to decision_system (gated by profiling flag)
+
 ## 2026-02-27i
 
 - **simplify waypoint ring placement** — replaced personality-specific block-corner algorithm with simple perimeter walk: always includes 4 corners, fills non-road-slot cells with min 5 Manhattan spacing, works identically for all personalities at all grid sizes; deleted unused `road_spacing()` method

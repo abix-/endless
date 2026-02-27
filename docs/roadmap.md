@@ -1,6 +1,6 @@
 # Roadmap
 
-Target: 20,000+ NPCs @ 60fps with pure Bevy ECS + WGSL compute + GPU instanced rendering.
+Target: 30,000 NPCs + 30,000 buildings @ 60fps with pure Bevy ECS + WGSL compute + GPU instanced rendering.
 
 ## How to Maintain This Roadmap
 
@@ -62,32 +62,62 @@ AI road building:
 
 **Stage 16: Performance**
 
-*Done when: `NpcGpuState` ExtractResource clone eliminated, and `command_buffer_generation_tasks` drops from ~10ms to ~1ms at default zoom on a 250x250 world.*
+*Done when: 30K NPCs + 30K buildings at 60fps. `NpcGpuState` ExtractResource clone eliminated, and `command_buffer_generation_tasks` drops from ~10ms to ~1ms at default zoom on a 250x250 world.*
 
 GPU extract optimization and GPU-native NPC rendering complete (see [completed.md](completed.md)).
 Linear scan elimination complete (see [completed.md](completed.md)).
 
-Chunked tilemap (see [specs/chunked-tilemap.md](specs/chunked-tilemap.md)):
-- [x] Split single 250x250 TilemapChunk per layer into 32x32 tile chunks
-- [x] Bevy frustum-culls off-screen chunk entities - only visible chunks generate draw commands
-- [ ] `sync_terrain_tilemap` updates only chunks whose grid region changed, not all chunks on every terrain dirty signal
+Performance order at 30k NPC + 30k buildings (highest expected savings first):
 
-Entity sleeping:
-- [ ] Entity sleeping (Factorio-style: NPCs outside camera radius sleep)
-
-GPU readback optimization:
-- [ ] Throttle readback: factions every 60 frames, threat_counts every 30 frames, `buffer_range()` sized to `npc_count`
-- [ ] Pre-allocate `GpuReadState` vecs and `copy_from_slice` instead of per-frame `Vec` allocation
-
-Every-frame review backlog:
-- [ ] `decision_system`: reduce per-frame allocation/log pressure in hot paths (avoid unconditional `format!`/log string churn for high-N NPC loops; gate expensive logs behind debug/selection or lower-frequency sampling).
-- [ ] `damage_system` debug stats: gate `query.iter().count()` and sample collection behind debug flag to avoid unconditional extra iteration each frame.
-- [ ] `sync_building_hp_render`: rebuild only when `BuildingHpState`/`WorldData` changes (or via dirty flag), not every frame.
-- [ ] Message signal regression tests: verify `emit_all()` fires on startup/load and drain systems consume correctly.
-- [ ] Narrow `on_duty_tick_system` workset so only on-duty archers are iterated each frame.
-- [x] Remove linear HP lookup in inspector rendering (`bottom_panel_system`) — replaced by direct `entity_map.get_npc(idx)` lookup.
-- [ ] Perf anti-pattern remediation pass (UI + systems): remove repeated query scans in hot paths, pre-index slot/entity lookups once per frame/tick, replace nested `Vec::contains` membership checks with `HashSet`, and avoid per-item linear dedupe scans in overlays.
-- [ ] Add perf guardrails for hot paths: microbenchmarks for inspector/squad/AI helper paths and CI thresholds that fail on material regressions.
+1. [ ] [Critical] Replace global worksite scans in `decision_system` with indexed nearest lookup (per-kind/per-town candidate sets + bounded/ring spatial search), because current `iter_kind*` and `f32::MAX` nearest queries scale poorly at high building counts.
+   Expected saving: ~8-16 ms/frame CPU in busy sim ticks (largest hot-path win).
+2. [ ] [Critical] Move worksite occupancy hot-path from position-hash lookups to slot-indexed occupancy counters, because repeated hash lookups in high-N decision loops add avoidable CPU cost.
+   Expected saving: ~2-6 ms/frame CPU when many workers are selecting/revalidating worksites.
+3. [ ] [Critical] `build_visual_upload` triple inefficiency: (a) NPC loop uses `iter_npcs()` HashMap iteration instead of query-first, (b) building backfill scans all 60K entity slots instead of `iter_instances()` (~30K buildings only), (c) fills 1.92M sentinel floats every frame — track `prev_entity_count` and only fill new range.
+   Files: `gpu.rs:299-423`. Expected saving: ~3-8 ms/frame CPU at 60K entities.
+4. [ ] [Critical] Per-index dirty tracking for GPU targets buffer: `dirty_targets` triggers 480KB bulk upload every frame when only ~100-500 targets change. Add `target_dirty_indices: Vec<usize>` to `EntityGpuState`, use `write_dirty_f32` instead of `write_bulk` (same pattern as positions/arrivals).
+   Files: `gpu.rs` (EntityGpuState + populate_gpu_state), `npc_render.rs:773` (extract). Expected saving: ~2-5 ms/frame GPU bandwidth.
+5. [ ] [High] Remove per-NPC EntityMap HashMap lookups from `cooldown_system` and `energy_system`: both iterate 30K+ entities and do `entity_map.get_npc(slot)` per entity per frame (60K HashMap lookups total). Fix: add `Without<Dead>, Without<Building>` query filters, query `&Activity` directly in energy_system.
+   Files: `combat.rs:19-49`, `energy.rs:15-41`. Expected saving: ~2-4 ms/frame CPU.
+6. [ ] [High] `death_system` double `iter_npcs()` scan: Phase 1a and Phase 2b both do full HashMap iteration (60K iterations/frame even with zero deaths). Fix: query-first for Phase 1a, reuse Phase 1a dead_slots for Phase 2b.
+   Files: `health.rs:148-179`. Expected saving: ~1-3 ms/frame CPU.
+7. [ ] [High] Add decision-frame budgeting (max non-combat decisions per frame + adaptive interval by population), because fixed bucketing still allows expensive spikes at large NPC counts.
+   Expected saving: ~2-5 ms/frame average and materially lower p95/p99 spikes.
+8. [ ] [High] Gate `NpcLogCache` writes and `format!` churn behind debug/selection/sampling policy, because per-NPC string work in hot loops scales with population.
+   Expected saving: ~1-3 ms/frame CPU (higher in debug-heavy sessions).
+9. [ ] [High] Extend decision sub-profiling to cover squad sync, transit gates, and worksite selection scan counts, because current sub-timers under-report where frame time is spent.
+   Expected saving: indirect only (enables targeting next 2-10 ms wins), near-zero immediate runtime win.
+10. [ ] [Medium] Add cache-friendly vectors for hot building iteration paths (keep HashMaps as authority, vectors for tight loops), because data locality and branch predictability matter at 10k+ entities.
+    Expected saving: ~1-3 ms/frame CPU on building-heavy ticks.
+11. [ ] [Medium] `healing_system` iterates all 30K NPCs mutably every frame even though most aren't in healing zones. Consider faction-based pre-filter or spatial bucketing to reduce mutable query touchpoints.
+    Files: `health.rs:485`. Expected saving: ~1-2 ms/frame CPU.
+12. [ ] `decision_system`: reduce per-frame allocation/log pressure in hot paths (avoid unconditional `format!`/log string churn for high-N NPC loops; gate expensive logs behind debug/selection or lower-frequency sampling).
+    Expected saving: ~1-2 ms/frame CPU; partly overlaps with log-cache gating item.
+13. [ ] Entity sleeping (Factorio-style: NPCs outside camera radius sleep).
+    Expected saving: highly scenario-dependent, ~3-12+ ms/frame CPU when most NPCs are off-camera; low gain if camera covers active area.
+14. [ ] `sync_terrain_tilemap` updates only chunks whose grid region changed, not all chunks on every terrain dirty signal.
+    Expected saving: ~0.5-2 ms/frame CPU on terrain-edit-heavy periods; minimal during steady-state.
+15. [ ] Throttle readback: factions every 60 frames, threat_counts every 30 frames, `buffer_range()` sized to `npc_count`.
+    Expected saving: ~0.3-1.2 ms/frame CPU/GPU sync overhead, plus reduced stall risk.
+16. [ ] Pre-allocate `GpuReadState` vecs and `copy_from_slice` instead of per-frame `Vec` allocation.
+    Expected saving: ~0.2-0.8 ms/frame CPU plus less allocator churn.
+17. [ ] `sync_building_hp_render`: rebuild only when `BuildingHpState`/`WorldData` changes (or via dirty flag), not every frame.
+    Expected saving: ~0.3-1.5 ms/frame CPU depending on building damage activity.
+18. [ ] Narrow `on_duty_tick_system` workset so only on-duty archers are iterated each frame.
+    Expected saving: ~0.2-1.0 ms/frame CPU depending on military population ratio.
+19. [ ] `damage_system` debug stats: gate `query.iter().count()` and sample collection behind debug flag to avoid unconditional extra iteration each frame.
+    Expected saving: ~0.1-0.6 ms/frame CPU in non-debug gameplay.
+20. [ ] Perf anti-pattern remediation pass (UI + systems): remove repeated query scans in hot paths, pre-index slot/entity lookups once per frame/tick, replace nested `Vec::contains` membership checks with `HashSet`, and avoid per-item linear dedupe scans in overlays.
+    Expected saving: broad/follow-up bucket, ~1-4 ms/frame total after targeted fixes.
+21. [ ] SystemTimings Mutex contention: 20+ lock/unlock cycles per frame. Replace with AtomicU32 + f32::to_bits per slot.
+    Expected saving: ~0.2-1.0 ms/frame CPU at high frame rates.
+22. [ ] `NpcsByTownCache` uses `Vec<usize>` with `retain()` on death (O(n) per death, ~6K entries per town). Switch to `HashSet<usize>`.
+    Expected saving: negligible per-frame but prevents worst-case spikes during mass death events.
+23. [ ] Add perf guardrails for hot paths: microbenchmarks for inspector/squad/AI helper paths and CI thresholds that fail on material regressions.
+    Expected saving: indirect only (prevents regressions, no direct runtime reduction).
+24. [ ] Message signal regression tests: verify `emit_all()` fires on startup/load and drain systems consume correctly.
+    Expected saving: correctness only, no direct runtime reduction.
+- [x] Remove linear HP lookup in inspector rendering (`bottom_panel_system`) - replaced by direct `entity_map.get_npc(idx)` lookup.
 
 ECS source-of-truth migration (plan: `~/.claude/plans/prancy-sauteeing-badger.md`):
 
@@ -117,13 +147,12 @@ GPU is movement authority; ECS Position is read-model synced in `gpu_position_re
   - MigrationResources extended with NpcFlags + Home queries
   - Files: resources.rs, spawn.rs, economy.rs, health.rs, stats.rs, ai_player.rs, behavior.rs, gpu.rs, render.rs, save.rs, game_hud.rs, left_panel.rs, + 4 test files
 
-Scale remediation plan (7k NPC + 7k buildings):
-- [ ] [Critical] Replace global worksite scans in `decision_system` with indexed nearest lookup (per-kind/per-town candidate sets + bounded/ring spatial search), because current `iter_kind*` and `f32::MAX` nearest queries scale poorly at high building counts.
-- [ ] [Critical] Move worksite occupancy hot-path from position-hash lookups to slot-indexed occupancy counters, because repeated hash lookups in high-N decision loops add avoidable CPU cost.
-- [ ] [High] Add decision-frame budgeting (max non-combat decisions per frame + adaptive interval by population), because fixed bucketing still allows expensive spikes at large NPC counts.
-- [ ] [High] Gate `NpcLogCache` writes and `format!` churn behind debug/selection/sampling policy, because per-NPC string work in hot loops scales with population.
-- [ ] [High] Extend decision sub-profiling to cover squad sync, transit gates, and worksite selection scan counts, because current sub-timers under-report where frame time is spent.
-- [ ] [Medium] Add cache-friendly vectors for hot building iteration paths (keep HashMaps as authority, vectors for tight loops), because data locality and branch predictability matter at 10k+ entities.
+Scale remediation plan (30k NPC + 30k buildings):
+- Items 1-2: Decision system worksite scan + occupancy counter optimization (Critical)
+- Items 3-4: GPU pipeline — visual upload rewrite + targets dirty tracking (Critical)
+- Items 5-6: Eliminate per-NPC HashMap lookups in cooldown/energy/death systems (High)
+- Items 7-9: Decision budgeting + log gating + sub-profiling (High)
+- Items 10-11: Cache-friendly building iteration + healing system pre-filter (Medium)
 SystemParam bundle consolidation:
 Current shared bundles include `DirtyWriters`, `AiDirtyReaders`, and `AiBuildRes`; remaining consolidation work is listed below.
 - [ ] Create `GameLog` bundle: `{ combat_log: MessageWriter<CombatLogMsg>, game_time: Res<GameTime>, timings: Res<SystemTimings> }` and migrate systems still carrying this triple directly.
@@ -359,16 +388,18 @@ Implementation guides for upcoming stages. After delivery, spec content rolls in
 
 ## Performance
 
-| Milestone | NPCs | FPS | Status |
-|-----------|------|-----|--------|
-| CPU Bevy | 5,000 | 60+ | [x] |
-| GPU physics | 10,000+ | 140 | [x] |
-| Full behaviors | 10,000+ | 140 | [x] |
-| Combat + projectiles | 10,000+ | 140 | [x] |
-| GPU spatial grid | 10,000+ | 140 | [x] |
-| Full game integration | 10,000 | 130 | [x] |
-| Max scale tested | 50,000 | TBD | [x] buffers sized |
-| Future (chunked tilemap) | 50,000+ | 60+ | Planned |
+| Milestone | NPCs | Buildings | FPS | Status |
+|-----------|------|-----------|-----|--------|
+| CPU Bevy | 5,000 | — | 60+ | [x] |
+| GPU physics | 10,000+ | — | 140 | [x] |
+| Full behaviors | 10,000+ | — | 140 | [x] |
+| Combat + projectiles | 10,000+ | — | 140 | [x] |
+| GPU spatial grid | 10,000+ | — | 140 | [x] |
+| Full game integration | 10,000 | — | 130 | [x] |
+| Max scale tested | 50,000 | — | TBD | [x] buffers sized |
+| HashMap elimination (items 3-6) | 30,000 | 30,000 | 60+ | [ ] next |
+| Decision budgeting (items 1-2, 7) | 30,000 | 30,000 | 60+ | [ ] planned |
+| Future (chunked tilemap) | 50,000+ | 50,000+ | 60+ | Planned |
 
 ## References
 
@@ -377,6 +408,7 @@ Implementation guides for upcoming stages. After delivery, spec content rolls in
 - [Bevy Render Graph](https://docs.rs/bevy/latest/bevy/render/render_graph/) - compute + render pipeline
 - [Factorio FFF #251](https://www.factorio.com/blog/post/fff-251) - sprite batching, per-layer draw queues
 - [Factorio FFF #421](https://www.factorio.com/blog/post/fff-421) - entity update optimization, lazy activation
+
 
 
 

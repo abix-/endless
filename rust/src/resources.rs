@@ -117,6 +117,26 @@ pub struct EntityMap {
     spatial_cell_size: f32,
     spatial_width: usize,
     spatial_cells: Vec<Vec<usize>>,
+
+    // Kind-filtered spatial indexes (for worksite queries)
+    // Key: (kind, town_idx, cell_index) → slots matching kind+town in that cell
+    spatial_kind_town: HashMap<(crate::world::BuildingKind, u32, usize), Vec<usize>>,
+    // Key: (kind, cell_index) → slots matching kind (any town) in that cell
+    spatial_kind_cell: HashMap<(crate::world::BuildingKind, usize), Vec<usize>>,
+    // Back-index: slot → bucket positions for O(1) swap-remove
+    spatial_bucket_idx: HashMap<usize, SpatialBucketRef>,
+}
+
+/// Back-index for O(1) swap-remove from kind-filtered spatial buckets.
+#[derive(Clone, Debug)]
+struct SpatialBucketRef {
+    kind: crate::world::BuildingKind,
+    town_idx: u32,
+    cell_idx: usize,
+    /// Index in spatial_kind_town[(kind, town, cell)] vec
+    kind_town_pos: usize,
+    /// Index in spatial_kind_cell[(kind, cell)] vec
+    kind_cell_pos: usize,
 }
 
 impl EntityMap {
@@ -135,6 +155,9 @@ impl EntityMap {
         self.by_kind_town.clear();
         self.by_grid_cell.clear();
         self.spatial_cells.iter_mut().for_each(|c| c.clear());
+        self.spatial_kind_town.clear();
+        self.spatial_kind_cell.clear();
+        self.spatial_bucket_idx.clear();
     }
 
     /// Number of building instances.
@@ -379,10 +402,15 @@ impl EntityMap {
 
     pub fn rebuild_spatial(&mut self) {
         for cell in &mut self.spatial_cells { cell.clear(); }
+        self.spatial_kind_town.clear();
+        self.spatial_kind_cell.clear();
+        self.spatial_bucket_idx.clear();
         let slots: Vec<(usize, Vec2)> = self.instances.values().map(|i| (i.slot, i.position)).collect();
         for (slot, pos) in slots {
             self.spatial_insert(slot, pos);
         }
+        #[cfg(debug_assertions)]
+        self.validate_spatial_indexes();
     }
 
     fn spatial_insert(&mut self, slot: usize, pos: Vec2) {
@@ -390,7 +418,26 @@ impl EntityMap {
         let cx = (pos.x / self.spatial_cell_size) as usize;
         let cy = (pos.y / self.spatial_cell_size) as usize;
         if cx < self.spatial_width && cy < self.spatial_width {
-            self.spatial_cells[cy * self.spatial_width + cx].push(slot);
+            let cell_idx = cy * self.spatial_width + cx;
+            self.spatial_cells[cell_idx].push(slot);
+
+            // Kind-filtered buckets
+            if let Some(inst) = self.instances.get(&slot) {
+                let kind = inst.kind;
+                let town = inst.town_idx;
+
+                let kt_bucket = self.spatial_kind_town.entry((kind, town, cell_idx)).or_default();
+                let kt_pos = kt_bucket.len();
+                kt_bucket.push(slot);
+
+                let kc_bucket = self.spatial_kind_cell.entry((kind, cell_idx)).or_default();
+                let kc_pos = kc_bucket.len();
+                kc_bucket.push(slot);
+
+                self.spatial_bucket_idx.insert(slot, SpatialBucketRef {
+                    kind, town_idx: town, cell_idx, kind_town_pos: kt_pos, kind_cell_pos: kc_pos,
+                });
+            }
         }
     }
 
@@ -401,6 +448,42 @@ impl EntityMap {
         if cx < self.spatial_width && cy < self.spatial_width {
             let idx = cy * self.spatial_width + cx;
             self.spatial_cells[idx].retain(|&s| s != slot);
+        }
+
+        // Kind-filtered bucket swap-remove
+        if let Some(bucket_ref) = self.spatial_bucket_idx.remove(&slot) {
+            // Remove from kind+town bucket
+            let kt_key = (bucket_ref.kind, bucket_ref.town_idx, bucket_ref.cell_idx);
+            if let Some(kt_bucket) = self.spatial_kind_town.get_mut(&kt_key) {
+                let pos_in_vec = bucket_ref.kind_town_pos;
+                if pos_in_vec < kt_bucket.len() {
+                    kt_bucket.swap_remove(pos_in_vec);
+                    // Update the swapped element's back-index
+                    if pos_in_vec < kt_bucket.len() {
+                        let swapped_slot = kt_bucket[pos_in_vec];
+                        if let Some(swapped_ref) = self.spatial_bucket_idx.get_mut(&swapped_slot) {
+                            swapped_ref.kind_town_pos = pos_in_vec;
+                        }
+                    }
+                }
+                if kt_bucket.is_empty() { self.spatial_kind_town.remove(&kt_key); }
+            }
+
+            // Remove from kind+cell bucket
+            let kc_key = (bucket_ref.kind, bucket_ref.cell_idx);
+            if let Some(kc_bucket) = self.spatial_kind_cell.get_mut(&kc_key) {
+                let pos_in_vec = bucket_ref.kind_cell_pos;
+                if pos_in_vec < kc_bucket.len() {
+                    kc_bucket.swap_remove(pos_in_vec);
+                    if pos_in_vec < kc_bucket.len() {
+                        let swapped_slot = kc_bucket[pos_in_vec];
+                        if let Some(swapped_ref) = self.spatial_bucket_idx.get_mut(&swapped_slot) {
+                            swapped_ref.kind_cell_pos = pos_in_vec;
+                        }
+                    }
+                }
+                if kc_bucket.is_empty() { self.spatial_kind_cell.remove(&kc_key); }
+            }
         }
     }
 
@@ -424,6 +507,293 @@ impl EntityMap {
             }
         }
     }
+
+    // ── Kind-filtered spatial queries ─────────────────────────────────
+
+    /// Convert pixel radius to cell radius from a center cell.
+    fn cell_radius(&self, px_radius: f32) -> usize {
+        if self.spatial_cell_size <= 0.0 { return 0; }
+        (px_radius / self.spatial_cell_size).ceil() as usize
+    }
+
+    /// Iterate buildings of a specific kind+town in cells within radius of pos.
+    pub fn for_each_nearby_kind_town(
+        &self, pos: Vec2, radius: f32,
+        kind: crate::world::BuildingKind, town_idx: u32,
+        mut f: impl FnMut(&BuildingInstance),
+    ) {
+        if self.spatial_width == 0 { return; }
+        let cs = self.spatial_cell_size;
+        let min_cx = ((pos.x - radius).max(0.0) / cs) as usize;
+        let max_cx = (((pos.x + radius) / cs) as usize).min(self.spatial_width - 1);
+        let min_cy = ((pos.y - radius).max(0.0) / cs) as usize;
+        let max_cy = (((pos.y + radius) / cs) as usize).min(self.spatial_width - 1);
+        for cy in min_cy..=max_cy {
+            for cx in min_cx..=max_cx {
+                let cell_idx = cy * self.spatial_width + cx;
+                if let Some(bucket) = self.spatial_kind_town.get(&(kind, town_idx, cell_idx)) {
+                    for &slot in bucket {
+                        if let Some(inst) = self.instances.get(&slot) {
+                            f(inst);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Iterate buildings of a specific kind (any town) in cells within radius of pos.
+    pub fn for_each_nearby_kind(
+        &self, pos: Vec2, radius: f32,
+        kind: crate::world::BuildingKind,
+        mut f: impl FnMut(&BuildingInstance),
+    ) {
+        if self.spatial_width == 0 { return; }
+        let cs = self.spatial_cell_size;
+        let min_cx = ((pos.x - radius).max(0.0) / cs) as usize;
+        let max_cx = (((pos.x + radius) / cs) as usize).min(self.spatial_width - 1);
+        let min_cy = ((pos.y - radius).max(0.0) / cs) as usize;
+        let max_cy = (((pos.y + radius) / cs) as usize).min(self.spatial_width - 1);
+        for cy in min_cy..=max_cy {
+            for cx in min_cx..=max_cx {
+                let cell_idx = cy * self.spatial_width + cx;
+                if let Some(bucket) = self.spatial_kind_cell.get(&(kind, cell_idx)) {
+                    for &slot in bucket {
+                        if let Some(inst) = self.instances.get(&slot) {
+                            f(inst);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Cell-ring query: iterate kind+town buildings only in cells between inner and outer radii.
+    /// inner_cell_r=0, outer_cell_r=0 visits only the center cell.
+    /// Each cell is visited exactly once across successive ring expansions.
+    pub fn for_each_ring_kind_town(
+        &self, pos: Vec2, inner_cell_r: usize, outer_cell_r: usize,
+        kind: crate::world::BuildingKind, town_idx: u32,
+        mut f: impl FnMut(&BuildingInstance),
+    ) {
+        if self.spatial_width == 0 { return; }
+        let cs = self.spatial_cell_size;
+        let center_cx = (pos.x / cs) as usize;
+        let center_cy = (pos.y / cs) as usize;
+        let w = self.spatial_width;
+
+        let outer = outer_cell_r;
+        let min_cx = center_cx.saturating_sub(outer).min(w - 1);
+        let max_cx = (center_cx + outer).min(w - 1);
+        let min_cy = center_cy.saturating_sub(outer).min(w - 1);
+        let max_cy = (center_cy + outer).min(w - 1);
+
+        for cy in min_cy..=max_cy {
+            for cx in min_cx..=max_cx {
+                // Skip cells in the inner region (already visited)
+                if inner_cell_r > 0 {
+                    let dx = if cx >= center_cx { cx - center_cx } else { center_cx - cx };
+                    let dy = if cy >= center_cy { cy - center_cy } else { center_cy - cy };
+                    if dx < inner_cell_r && dy < inner_cell_r {
+                        continue;
+                    }
+                }
+                let cell_idx = cy * w + cx;
+                if let Some(bucket) = self.spatial_kind_town.get(&(kind, town_idx, cell_idx)) {
+                    for &slot in bucket {
+                        if let Some(inst) = self.instances.get(&slot) {
+                            f(inst);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Cell-ring query: iterate kind buildings (any town) only in cells between inner and outer radii.
+    pub fn for_each_ring_kind(
+        &self, pos: Vec2, inner_cell_r: usize, outer_cell_r: usize,
+        kind: crate::world::BuildingKind,
+        mut f: impl FnMut(&BuildingInstance),
+    ) {
+        if self.spatial_width == 0 { return; }
+        let cs = self.spatial_cell_size;
+        let center_cx = (pos.x / cs) as usize;
+        let center_cy = (pos.y / cs) as usize;
+        let w = self.spatial_width;
+
+        let outer = outer_cell_r;
+        let min_cx = center_cx.saturating_sub(outer).min(w - 1);
+        let max_cx = (center_cx + outer).min(w - 1);
+        let min_cy = center_cy.saturating_sub(outer).min(w - 1);
+        let max_cy = (center_cy + outer).min(w - 1);
+
+        for cy in min_cy..=max_cy {
+            for cx in min_cx..=max_cx {
+                if inner_cell_r > 0 {
+                    let dx = if cx >= center_cx { cx - center_cx } else { center_cx - cx };
+                    let dy = if cy >= center_cy { cy - center_cy } else { center_cy - cy };
+                    if dx < inner_cell_r && dy < inner_cell_r {
+                        continue;
+                    }
+                }
+                let cell_idx = cy * w + cx;
+                if let Some(bucket) = self.spatial_kind_cell.get(&(kind, cell_idx)) {
+                    for &slot in bucket {
+                        if let Some(inst) = self.instances.get(&slot) {
+                            f(inst);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Worksite query API ────────────────────────────────────────────
+
+    /// Find nearest worksite using cell-ring expansion with kind-filtered spatial index.
+    /// `score` returns `Option<S>` — `None` rejects, `Some(s)` accepts.
+    /// **Lower S wins** (min-order). Use tuples like `(priority: u8, dist2_bits: u32)`.
+    /// Faction filtering (if needed) is applied by the caller inside the score closure.
+    pub fn find_nearest_worksite<S: Ord>(
+        &self,
+        from: Vec2,
+        kind: crate::world::BuildingKind,
+        town_idx: u32,
+        fallback: WorksiteFallback,
+        max_radius: f32,
+        mut score: impl FnMut(&BuildingInstance) -> Option<S>,
+    ) -> Option<WorksiteResult> {
+        debug_assert!(town_idx != u32::MAX, "town_idx looks like -1 as u32");
+        let max_cell_r = self.cell_radius(max_radius);
+        let mut best: Option<(S, usize, Vec2)> = None;
+
+        // Town-scoped expanding ring search
+        let mut prev_r: usize = 0;
+        let mut cell_r: usize = 0; // start with center cell (r=0)
+        loop {
+            self.for_each_ring_kind_town(from, prev_r, cell_r, kind, town_idx, |inst| {
+                if let Some(s) = score(inst) {
+                    if best.is_none() || s < best.as_ref().unwrap().0 {
+                        best = Some((s, inst.slot, inst.position));
+                    }
+                }
+            });
+            if best.is_some() || cell_r >= max_cell_r { break; }
+            prev_r = cell_r + 1;
+            cell_r = if cell_r == 0 { 1 } else { (cell_r * 2).min(max_cell_r) };
+        }
+
+        // AnyTown fallback
+        if best.is_none() && matches!(fallback, WorksiteFallback::AnyTown) {
+            prev_r = 0;
+            cell_r = 0;
+            loop {
+                self.for_each_ring_kind(from, prev_r, cell_r, kind, |inst| {
+                    if let Some(s) = score(inst) {
+                        if best.is_none() || s < best.as_ref().unwrap().0 {
+                            best = Some((s, inst.slot, inst.position));
+                        }
+                    }
+                });
+                if best.is_some() || cell_r >= max_cell_r { break; }
+                prev_r = cell_r + 1;
+                cell_r = if cell_r == 0 { 1 } else { (cell_r * 2).min(max_cell_r) };
+            }
+        }
+
+        best.map(|(_, slot, position)| WorksiteResult {
+            slot,
+            position,
+            radius_used: cell_r as f32 * self.spatial_cell_size,
+        })
+    }
+
+    /// Validate and claim a worksite slot. Returns None if stale/invalid.
+    /// Single authority point for all worksite claims.
+    pub fn try_claim_worksite(
+        &mut self,
+        slot: usize,
+        expected_kind: crate::world::BuildingKind,
+        expected_town: Option<u32>,
+        max_occupants: i32,
+    ) -> Option<ClaimedWorksite> {
+        let valid = self.instances.get(&slot).is_some_and(|inst| {
+            inst.kind == expected_kind
+                && expected_town.is_none_or(|t| inst.town_idx == t)
+                && (inst.occupants as i32) < max_occupants
+        });
+        if valid {
+            let inst = self.instances.get_mut(&slot).unwrap();
+            inst.occupants += 1;
+            Some(ClaimedWorksite { slot, position: inst.position })
+        } else {
+            None
+        }
+    }
+
+    // ── Debug validation ──────────────────────────────────────────────
+
+    /// Verify all kind-filtered spatial indexes are consistent with back-index.
+    #[cfg(debug_assertions)]
+    fn validate_spatial_indexes(&self) {
+        // Every slot in bucket_idx must exist in both corresponding buckets
+        for (&slot, bref) in &self.spatial_bucket_idx {
+            let kt_key = (bref.kind, bref.town_idx, bref.cell_idx);
+            let kt_bucket = self.spatial_kind_town.get(&kt_key)
+                .unwrap_or_else(|| panic!("spatial_bucket_idx slot {} references missing kind_town bucket {:?}", slot, kt_key));
+            assert!(bref.kind_town_pos < kt_bucket.len(),
+                "slot {} kind_town_pos {} >= bucket len {}", slot, bref.kind_town_pos, kt_bucket.len());
+            assert_eq!(kt_bucket[bref.kind_town_pos], slot,
+                "slot {} kind_town_pos {} points to slot {}", slot, bref.kind_town_pos, kt_bucket[bref.kind_town_pos]);
+
+            let kc_key = (bref.kind, bref.cell_idx);
+            let kc_bucket = self.spatial_kind_cell.get(&kc_key)
+                .unwrap_or_else(|| panic!("spatial_bucket_idx slot {} references missing kind_cell bucket {:?}", slot, kc_key));
+            assert!(bref.kind_cell_pos < kc_bucket.len(),
+                "slot {} kind_cell_pos {} >= bucket len {}", slot, bref.kind_cell_pos, kc_bucket.len());
+            assert_eq!(kc_bucket[bref.kind_cell_pos], slot,
+                "slot {} kind_cell_pos {} points to slot {}", slot, bref.kind_cell_pos, kc_bucket[bref.kind_cell_pos]);
+        }
+
+        // Every slot in every bucket must have a back-index entry
+        for (key, bucket) in &self.spatial_kind_town {
+            for (pos, &slot) in bucket.iter().enumerate() {
+                let bref = self.spatial_bucket_idx.get(&slot)
+                    .unwrap_or_else(|| panic!("kind_town bucket {:?} pos {} slot {} has no back-index", key, pos, slot));
+                assert_eq!(bref.kind_town_pos, pos,
+                    "slot {} back-index kind_town_pos {} != actual pos {}", slot, bref.kind_town_pos, pos);
+            }
+        }
+        for (key, bucket) in &self.spatial_kind_cell {
+            for (pos, &slot) in bucket.iter().enumerate() {
+                let bref = self.spatial_bucket_idx.get(&slot)
+                    .unwrap_or_else(|| panic!("kind_cell bucket {:?} pos {} slot {} has no back-index", key, pos, slot));
+                assert_eq!(bref.kind_cell_pos, pos,
+                    "slot {} back-index kind_cell_pos {} != actual pos {}", slot, bref.kind_cell_pos, pos);
+            }
+        }
+    }
+}
+
+/// Result from `find_nearest_worksite`. Slot must be re-validated via `try_claim_worksite`.
+pub struct WorksiteResult {
+    pub slot: usize,
+    pub position: Vec2,
+    pub radius_used: f32,
+}
+
+/// Fallback policy when town-scoped worksite search finds nothing.
+#[derive(Clone, Copy)]
+pub enum WorksiteFallback {
+    TownOnly,
+    AnyTown,
+}
+
+/// Returned by `try_claim_worksite` after successful validation and claim.
+pub struct ClaimedWorksite {
+    pub slot: usize,
+    pub position: Vec2,
 }
 
 /// Population counts per (job_id, clan_id).
