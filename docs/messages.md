@@ -10,9 +10,13 @@ All message types and statics are defined in `rust/src/messages.rs`. Bevy resour
 
 ## Data Ownership & Authority Model
 
-Each piece of NPC data has exactly one authoritative owner. Readers on the other side tolerate 1-frame staleness.
+Canonical contract: see [authority.md](authority.md). If this file and any other doc disagree, `authority.md` wins.
 
-**Staleness budget**: 1 frame = 16ms @ 60fps. NPC max speed 100px/s × 0.016s = 1.6px drift. All thresholds are designed for this: arrival=8px, targeting=300px, separation=20px.
+Each piece of NPC data has exactly one authoritative owner.
+
+**Staleness budget**:
+- Always-on readbacks (`positions`, `combat_targets`, `health`) are typically ~1 frame stale.
+- Throttled readbacks (`factions`, `threat_counts`) are intentionally multi-frame stale and must not be used as hard gameplay authority.
 
 **Anti-pattern**: no system may read from GPU readback AND write back to the same GPU field in the same frame. That creates a feedback loop where 1-frame delay compounds into oscillation.
 
@@ -180,3 +184,6 @@ GOING_TO_REST=11, GOING_TO_WORK=12
 
 - **Health dual ownership**: CPU-authoritative but synced to GPU for targeting. If upload fails or is delayed, GPU targets based on stale health. Bounded to 1 frame.
 - **All large resources zero-clone**: GpuReadState no longer extracted, ProjPositionState + ProjBufferWrites use `Extract<Res<T>>` (zero-clone).
+
+
+

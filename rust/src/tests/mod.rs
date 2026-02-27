@@ -50,6 +50,7 @@ pub struct CleanupCore<'w> {
     pub game_time: ResMut<'w, crate::resources::GameTime>,
     pub entity_map: ResMut<'w, crate::resources::EntityMap>,
     pub npc_gpu_state: ResMut<'w, crate::gpu::EntityGpuState>,
+    pub squad_state: ResMut<'w, crate::resources::SquadState>,
 }
 
 #[derive(SystemParam)]
@@ -969,8 +970,9 @@ fn cleanup_test_world(
 
     *core.slot_alloc = Default::default();
     core.entity_map.clear_buildings();
-    core.entity_map.entities.clear();
+    core.entity_map.clear_npcs();
     *core.npc_gpu_state = Default::default();
+    *core.squad_state = Default::default();
     *core.world_data = Default::default();
     *core.food_storage = Default::default();
     *core.faction_stats = Default::default();
@@ -998,6 +1000,5 @@ fn cleanup_test_world(
 
     info!("Test cleanup: despawned {} NPCs + {} tilemap chunks, reset resources", count, tilemap_count);
 }
-
 
 

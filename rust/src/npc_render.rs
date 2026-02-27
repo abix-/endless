@@ -574,7 +574,15 @@ fn build_building_body_instances(
         let (r, g, b, a) = if faction == 0 {
             (1.0, 1.0, 1.0, 1.0)
         } else {
-            crate::constants::raider_faction_color(faction)
+            // Buildings use a subtle faction tint (not full recolor like NPCs/projectiles).
+            let (fr, fg, fb, _fa) = crate::constants::raider_faction_color(faction);
+            let tint = 0.30_f32;
+            (
+                1.0 + (fr - 1.0) * tint,
+                1.0 + (fg - 1.0) * tint,
+                1.0 + (fb - 1.0) * tint,
+                1.0,
+            )
         };
 
         instances.0.push(InstanceData {

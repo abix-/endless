@@ -15,8 +15,27 @@ pub fn setup(
     mut world_data: ResMut<world::WorldData>,
     mut food_storage: ResMut<FoodStorage>,
     mut faction_stats: ResMut<FactionStats>,
+    mut policies: ResMut<TownPolicies>,
+    mut squad_state: ResMut<SquadState>,
     mut test_state: ResMut<TestState>,
+    mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
 ) {
+    // Keep this test deterministic even after user/debug squad interactions.
+    for squad in squad_state.squads.iter_mut() {
+        if !squad.is_player() { continue; }
+        squad.members.clear();
+        squad.target = None;
+        squad.target_size = 0;
+        squad.patrol_enabled = true;
+        squad.rest_when_tired = true;
+        squad.hold_fire = false;
+    }
+    squad_state.selected = 0;
+    squad_state.placing_target = false;
+    squad_state.drag_start = None;
+    squad_state.box_selecting = false;
+    squad_state.dc_no_return = false;
+
     // Two opposing towns
     world_data.towns.push(world::Town {
         name: "Town".into(),
@@ -32,8 +51,13 @@ pub fn setup(
     });
     food_storage.init(2);
     faction_stats.init(2);
+    policies.policies.resize(2, PolicySet::default());
+    // Test-scene override: archers flee at 5% HP.
+    policies.policies[0].archer_flee_hp = 0.05;
+    // Keep combat test focused on fighting (avoid early heal breakoff).
+    policies.policies[0].recovery_hp = 0.05;
 
-    // Spawn 1 guard (faction 0) and 1 raider (faction 1) close together
+    // Spawn 1 guard (faction 0) and 1 raider (faction 1) close together.
     let slot0 = slot_alloc.alloc().expect("slot alloc");
     spawn_events.write(SpawnNpcMsg {
         slot_idx: slot0,
@@ -54,6 +78,12 @@ pub fn setup(
         starting_post: -1,
         attack_type: 0,
     });
+
+    // Focus the camera on the combat setup so this test is immediately visible.
+    if let Ok(mut cam) = camera_query.single_mut() {
+        cam.translation.x = 400.0;
+        cam.translation.y = 300.0;
+    }
 
     test_state.phase_name = "Waiting for spawns...".into();
     info!("combat: setup — 1 guard vs 1 raider, 20px apart");

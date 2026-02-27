@@ -159,6 +159,7 @@ pub struct BottomPanelData<'w> {
     selected: Res<'w, SelectedNpc>,
     combat_log: Res<'w, CombatLog>,
     target_thrash: Res<'w, NpcTargetThrashDebug>,
+    policies: Res<'w, TownPolicies>,
 }
 
 /// Bundled resources for building inspector.
@@ -919,6 +920,16 @@ fn inspector_content(
                 }
                 let is_dc = bld_data.npc_flags_q.get(npc.entity).is_ok_and(|f| f.direct_control);
                 info.push_str(&format!("DirectControl: {}\n", if is_dc { "ON" } else { "OFF" }));
+                let combat_state_name = bld_data.combat_state_q.get(npc.entity).map(|cs| cs.name()).unwrap_or("Unknown");
+                info.push_str(&format!("CombatState: {}\n", combat_state_name));
+                let manual_target = bld_data.manual_target_q.get(npc.entity).ok();
+                let manual_target_str = match manual_target {
+                    Some(ManualTarget::Npc(slot)) => format!("Npc({})", slot),
+                    Some(ManualTarget::Building(pos)) => format!("Building({:.0}, {:.0})", pos.x, pos.y),
+                    Some(ManualTarget::Position(pos)) => format!("Position({:.0}, {:.0})", pos.x, pos.y),
+                    None => "None".to_string(),
+                };
+                info.push_str(&format!("ManualTarget: {}\n", manual_target_str));
                 if let Some(sq) = bld_data.squad_id_q.get(npc.entity).ok().map(|s| s.0) {
                     info.push_str(&format!("Squad: {}\n", sq));
                     let ss = squad_state;
@@ -931,6 +942,9 @@ fn inspector_content(
                         };
                         info.push_str(&format!("Squad.target: {}\n", tgt));
                         info.push_str(&format!("Squad.members: {:?}\n", s.members));
+                        info.push_str(&format!("Squad.hold_fire: {}\n", s.hold_fire));
+                        info.push_str(&format!("Squad.patrol_enabled: {}\n", s.patrol_enabled));
+                        info.push_str(&format!("Squad.rest_when_tired: {}\n", s.rest_when_tired));
                         info.push_str(&format!("Squad.placing_target: {}\n", ss.placing_target));
                     }
                 }
@@ -952,6 +966,36 @@ fn inspector_content(
                 faction = faction_str,
                 state = state_str,
             ));
+            if meta.town_id >= 0 {
+                if let Some(p) = data.policies.policies.get(meta.town_id as usize) {
+                    info.push_str(&format!(
+                        "Policy: archer_aggressive={} archer_leash={} archer_flee_hp={:.2} prioritize_healing={} recovery_hp={:.2}\n",
+                        p.archer_aggressive, p.archer_leash, p.archer_flee_hp, p.prioritize_healing, p.recovery_hp
+                    ));
+                }
+            }
+            let ct_idx = gpu_state.combat_targets.get(idx).copied().unwrap_or(-99);
+            info.push_str(&format!("GPU.combat_target[{}]: {}\n", idx, ct_idx));
+            if ct_idx >= 0 {
+                let ti = ct_idx as usize;
+                if let Some(inst) = bld_data.entity_map.get_instance(ti) {
+                    info.push_str(&format!(
+                        "GPU target resolve: Building slot={} kind={:?} faction={} pos=({:.0}, {:.0})\n",
+                        ti, inst.kind, inst.faction, inst.position.x, inst.position.y
+                    ));
+                } else if let Some(tnpc) = bld_data.entity_map.get_npc(ti) {
+                    let tx = gpu_state.positions.get(ti * 2).copied().unwrap_or(-9999.0);
+                    let ty = gpu_state.positions.get(ti * 2 + 1).copied().unwrap_or(-9999.0);
+                    let tf = gpu_state.factions.get(ti).copied().unwrap_or(-99);
+                    let th = gpu_state.health.get(ti).copied().unwrap_or(-1.0);
+                    info.push_str(&format!(
+                        "GPU target resolve: NPC slot={} gpu_faction={} ecs_faction={} hp={:.0} pos=({:.0}, {:.0}) dead={}\n",
+                        ti, tf, tnpc.faction, th, tx, ty, tnpc.dead
+                    ));
+                } else {
+                    info.push_str("GPU target resolve: unresolved slot (neither NPC nor building)\n");
+                }
+            }
             let reason_flips = data.target_thrash.reason_flips_this_minute.get(idx).copied().unwrap_or(0);
             let sink_changes = data.target_thrash.sink_target_changes_this_minute.get(idx).copied().unwrap_or(0);
             let sink_ping_pong = data.target_thrash.sink_ping_pong_this_minute.get(idx).copied().unwrap_or(0);

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-02-27f
+
+- **fix combat: use ECS faction for NPC target validation** — attack_system was reading target NPC faction from GPU readback (`gpu_state.factions`), which can return stale -1 on throttled frames; this caused `target_faction < 0` → skip, silently preventing all NPC-vs-NPC combat; fixed by reading faction from `entity_map.get_npc(ti).faction` (ECS source-of-truth) with GPU readback as fallback
+- **combat test hardening** — reset SquadState in test setup (prevents stale squad config from earlier tests); set explicit policies (archer_flee_hp=0.05, recovery_hp=0.05) to prevent heal/flee breakoff; focus camera on combat area; cleanup: `entity_map.clear_npcs()` and `*squad_state = Default::default()` in test teardown
+- **NPC inspector combat diagnostics** — Copy Debug Info now includes: CombatState, ManualTarget, Squad.hold_fire/patrol_enabled/rest_when_tired, town policies (archer_aggressive/leash/flee_hp, prioritize_healing, recovery_hp), GPU.combat_target[slot] with full target resolution (NPC slot/faction/hp/pos/dead, or Building kind/faction/pos)
+- **building faction tint** — enemy buildings now use a subtle 30% faction tint instead of full recolor (more readable at a glance)
+- **docs/messages.md** — updated staleness budget: documents always-on vs throttled readback staleness, canonical authority reference to authority.md
+
 ## 2026-02-27e
 
 - **decision_system phase 2: eliminate archetype churn + conditional writeback** — replaced optional `AssignedFarm` + `WorkPosition` components with always-present `NpcWorkState { occupied_slot: Option<usize>, work_target: Option<usize> }` on all NPCs; eliminates per-entity `commands.insert/remove` archetype moves in decision_system; removed `Commands` param from decision_system entirely; eliminated per-patrol-NPC `Vec<Vec2>` clone by reading patrol route data inline at 2 usage sites; added conditional writeback via original-value comparison (captures discriminant/scalar originals at loop top, skips `get_mut()` for unchanged fields — most NPCs exit early with no state changes); updated arrival_system, death_system (DeathResources), save/load (SaveNpcQueries), and spawn (materialize_npc) to use NpcWorkState

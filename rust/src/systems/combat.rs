@@ -215,7 +215,12 @@ pub fn attack_system(
             if is_fighting { if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) { *cs = CombatState::None; } }
             continue;
         }
-        let target_faction = gpu_state.factions.get(ti).copied().unwrap_or(-1);
+        // Use ECS faction as source-of-truth for NPC targets.
+        // GPU faction readback is throttled and can be temporarily stale (-1),
+        // which would incorrectly suppress valid combat in tests/gameplay.
+        let target_faction = entity_map.get_npc(ti)
+            .map(|n| n.faction)
+            .unwrap_or_else(|| gpu_state.factions.get(ti).copied().unwrap_or(-1));
         if target_faction < 0 || target_faction == faction_id {
             if is_fighting { if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) { *cs = CombatState::None; } }
             continue;

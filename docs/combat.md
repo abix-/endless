@@ -100,7 +100,7 @@ Execution order is **chained** — each system completes before the next starts.
   - Out of range but within close chase radius (range + 120px): chases building (`SetTarget` to building position)
   - Beyond close chase radius: ignores building (prevents cross-map pursuit of distant enemy buildings)
 - **NPC targets** (target has no building instance):
-  - Validates via `entity_map.entities` lookup, faction check, health check
+  - Validates via `entity_map.get_npc()` lookup; **faction check uses ECS faction** from EntityMap (not GPU readback, which can be stale/-1 on throttled frames); health check via GPU readback
   - Sets `CombatState::Fighting { origin }` (stores current position)
   - **In range**: submits `MovementIntents` at `Combat` priority to own position (stand ground — stops GPU movement, NPC holds position while shooting). Projectile dodge from GPU shader provides evasion.
   - **In range + cooldown ready**: resets `AttackTimer`, fires projectile or applies point-blank damage
