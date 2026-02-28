@@ -2054,7 +2054,6 @@ pub fn ai_squad_commander_system(
     entity_map: Res<EntityMap>,
     mut combat_log: MessageWriter<crate::messages::CombatLogMsg>,
     game_time: Res<GameTime>,
-    mut ai_squads_dirty: MessageReader<crate::messages::AiSquadsDirtyMsg>,
     mut squads_dirty_w: MessageWriter<crate::messages::SquadsDirtyMsg>,
     timings: Res<SystemTimings>,
     mut timer: Local<f32>,
@@ -2064,8 +2063,7 @@ pub fn ai_squad_commander_system(
     let _t = timings.scope("ai_squad_commander");
     let dt = game_time.delta(&time);
     *timer += dt;
-    let has_signal = ai_squads_dirty.read().count() > 0;
-    if !has_signal && *timer < AI_SQUAD_HEARTBEAT { return; }
+    if *timer < AI_SQUAD_HEARTBEAT { return; }
     let elapsed = *timer;
     *timer = 0.0;
 

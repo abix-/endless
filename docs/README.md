@@ -56,6 +56,7 @@ UI-selectable integration tests run inside the full Bevy app via a bevy_egui men
 | `ai-building` | 2 | AI town building observation: pick personality, watch it build with 100K food+gold on a 10000x10000 map |
 | `miner-cycle` | 5 | Miner: walk to mine → tend → harvest gold → deliver → rest |
 | `archer-tent-reliability` | 5 | Archer vs enemy tent: target lock, projectile activity, sustained tent damage, destruction |
+| `slot-reuse-wave` | 5 | AI wave vs destroyed building: slot reuse ABA prevents wave end |
 
 ## System Map
 

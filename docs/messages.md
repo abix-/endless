@@ -76,7 +76,6 @@ Individual message types replace the old `DirtyFlags` resource. Each signal is i
 | HealingZonesDirtyMsg | Level-up (heal stats changed) | update_healing_zone_cache |
 | SquadsDirtyMsg | NPC death/spawn, UI assign/dismiss | squad_cleanup_system |
 | MiningDirtyMsg | Miner home built/destroyed, mining policy change | mining_policy_system |
-| AiSquadsDirtyMsg | Military spawn/death, building changes | ai_squad_commander_system |
 | PatrolSwapMsg | UI patrol reorder (slot_a, slot_b) | rebuild_patrol_routes_system |
 
 `DirtyWriters` provides `mark_building_changed(kind)` helper that emits the right combo of signals for build/destroy events, and `emit_all()` for startup/reset to trigger first-frame rebuilds.

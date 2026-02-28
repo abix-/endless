@@ -252,7 +252,7 @@ The TownArea upgrade has special rules beyond normal upgrade scoring:
 
 ## Squad Commander
 
-`ai_squad_commander_system` uses message+heartbeat gating: wakes immediately when `MessageReader<AiSquadsDirtyMsg>` has messages (military spawn/death, building changes) or on a 2-second heartbeat fallback. Skips entirely when neither condition fires — near-zero cost most frames. Military unit counts per town use a focused ECS query `(&Job, &TownId)` with `Without<Building>, Without<Dead>` instead of `EntityMap` NPC scan. Both Builder and Raider AIs use squads. Squad counts and splits are personality-driven (see Personalities section). All military unit types (archers, crossbows, fighters, raiders) participate.
+`ai_squad_commander_system` runs on a 2-second heartbeat timer (`AI_SQUAD_HEARTBEAT`). Skips entirely when the timer hasn't elapsed — near-zero cost most frames. Military unit counts per town use a focused ECS query `(&Job, &TownId)` with `Without<Building>, Without<Dead>` instead of `EntityMap` NPC scan. Both Builder and Raider AIs use squads. Squad counts and splits are personality-driven (see Personalities section). All military unit types (archers, crossbows, fighters, raiders) participate.
 
 ### Squad Roles (Builder AIs)
 

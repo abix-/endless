@@ -8,7 +8,7 @@ use crate::resources::{
     EntityMap, PopulationStats, NpcMetaCache, NpcMeta,
     NpcsByTownCache, FactionStats, GameTime, CombatEventKind, SystemTimings,
 };
-use crate::messages::{DirtyWriters, SquadsDirtyMsg, AiSquadsDirtyMsg, MiningDirtyMsg};
+use crate::messages::{DirtyWriters, SquadsDirtyMsg, MiningDirtyMsg};
 use crate::systems::stats::{CombatConfig, TownUpgrades, resolve_combat_stats};
 use crate::systems::economy::*;
 use crate::world::{WorldData, BuildingKind};
@@ -300,7 +300,7 @@ pub fn spawn_npc_system(
         let job = Job::from_i32(msg.job);
         faction_stats.inc_alive(msg.faction);
         if job == Job::Miner { dirty_writers.mining.write(MiningDirtyMsg); }
-        if crate::constants::npc_def(job).is_military { dirty_writers.squads.write(SquadsDirtyMsg); dirty_writers.ai_squads.write(AiSquadsDirtyMsg); }
+        if crate::constants::npc_def(job).is_military { dirty_writers.squads.write(SquadsDirtyMsg); }
 
         if game_time.total_hours() > 0 {
             let job_str = crate::job_name(msg.job);

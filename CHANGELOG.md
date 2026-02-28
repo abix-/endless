@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-28g
+
+- **heartbeat-only squad commander** — removed `AiSquadsDirtyMsg` message type; `ai_squad_commander_system` now wakes purely on a 2-second heartbeat timer instead of message+heartbeat dual gating; removed message struct, all producers (spawn.rs, health.rs, DirtyWriters), consumer parameter, and registration
+- **slot-reuse-wave test** — new integration test reproducing ABA bug in `SlotPool`: AI wave targets a player farm → farm destroyed → freed slot reused by new building → `resolve_building_pos` finds wrong building → wave never ends; 5-phase test (wave dispatch → destroy → slot reuse → verify wave persists → report)
+
 ## 2026-02-28f
 
 - **building inspector GPU diagnostics** — building Copy Debug Info and inline inspector now show GPU raw state (position/target/health/faction/flags/sprite via `EntityGpuState`), slot allocator status (`entity_slots.free` membership + pool metrics), EntityMap cross-references (building instance + NPC entry + entity mapping), and selection overlay expected values; `BuildingInspectorData` gains `EntitySlots` field

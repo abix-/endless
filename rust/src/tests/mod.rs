@@ -26,6 +26,7 @@ pub mod terrain_visual;
 pub mod endless_mode;
 pub mod ai_building;
 pub mod miner_cycle;
+pub mod slot_reuse_wave;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -727,6 +728,21 @@ pub fn register_tests(app: &mut App) {
         miner_cycle::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("miner-cycle"))
+            .after(Step::Behavior));
+
+    // slot-reuse-wave
+    registry.tests.push(TestEntry {
+        name: "slot-reuse-wave".into(),
+        description: "AI wave vs destroyed building: slot reuse ABA prevents wave end".into(),
+        phase_count: 5,
+        time_scale: 1.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        slot_reuse_wave::setup.run_if(test_is("slot-reuse-wave")));
+    app.add_systems(Update,
+        slot_reuse_wave::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("slot-reuse-wave"))
             .after(Step::Behavior));
 
     // Common test-world materialization:

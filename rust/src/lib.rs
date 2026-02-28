@@ -31,7 +31,7 @@ use messages::{
     SelectFactionMsg,
     ProjGpuUpdateMsg,
     BuildingGridDirtyMsg, TerrainDirtyMsg, PatrolsDirtyMsg, PatrolPerimeterDirtyMsg,
-    HealingZonesDirtyMsg, SquadsDirtyMsg, MiningDirtyMsg, AiSquadsDirtyMsg, PatrolSwapMsg,
+    HealingZonesDirtyMsg, SquadsDirtyMsg, MiningDirtyMsg, PatrolSwapMsg,
 };
 use resources::{
     MigrationState, EndlessMode,
@@ -184,7 +184,6 @@ pub fn build_app(app: &mut App) {
        .add_message::<HealingZonesDirtyMsg>()
        .add_message::<SquadsDirtyMsg>()
        .add_message::<MiningDirtyMsg>()
-       .add_message::<AiSquadsDirtyMsg>()
        .add_message::<PatrolSwapMsg>()
        .add_message::<save::SaveGameMsg>()
        .add_message::<save::LoadGameMsg>()

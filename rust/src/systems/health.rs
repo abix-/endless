@@ -183,7 +183,6 @@ pub fn death_system(
 
     if has_dead_buildings || !dead_npc_slots.is_empty() {
         res.dirty_writers.squads.write(crate::messages::SquadsDirtyMsg);
-        res.dirty_writers.ai_squads.write(crate::messages::AiSquadsDirtyMsg);
     }
 
     for (entity, npc_idx, _faction, _town_id, _building, last_hit_by) in building_dead_query.iter() {

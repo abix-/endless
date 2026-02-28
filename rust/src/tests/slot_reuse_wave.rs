@@ -1,0 +1,355 @@
+//! Slot Reuse Wave Test (5 phases)
+//! Validates: AI wave targets building → building destroyed → slot reused by new building
+//!   → wave should end but doesn't (ABA bug in SlotPool).
+//!
+//! Uses setup_world for proper 2-town setup, then manually places a player farm
+//! near the AI town as a target. AI archers spawn from 5 archer homes.
+//! After wave dispatches, we destroy the target and reuse its slot to prove the bug.
+
+use bevy::prelude::*;
+use bevy::ecs::system::SystemParam;
+
+use crate::components::Health;
+use crate::resources::*;
+use crate::systems::{AiPlayerState, AiPlayerConfig, AiPersonality};
+use crate::world::{self, BuildingKind, WorldGenStyle};
+
+use super::{TestState, BuildingInitParams};
+
+/// Persistent state across phases — tracks the target slot for verification.
+#[derive(Resource, Default)]
+pub struct SlotReuseTestState {
+    /// Slot index of the player farm that the AI wave targets.
+    pub target_slot: Option<usize>,
+    /// Position of the original target building.
+    pub target_pos: Option<Vec2>,
+    /// Set true once we've destroyed the target.
+    pub target_destroyed: bool,
+    /// Set true once we've placed a new building that reused the slot.
+    pub slot_reused: bool,
+    /// Position of the new building that reused the slot.
+    pub reuse_pos: Option<Vec2>,
+    /// Seconds waited in phase 4 for heartbeat.
+    pub heartbeat_wait: f32,
+    /// Index of the AI attack squad we're tracking.
+    pub attack_squad_idx: Option<usize>,
+}
+
+#[derive(SystemParam)]
+pub struct SlotReuseSetup<'w> {
+    ai_state: ResMut<'w, AiPlayerState>,
+    ai_config: ResMut<'w, AiPlayerConfig>,
+    endless: ResMut<'w, EndlessMode>,
+    raider_state: ResMut<'w, RaiderState>,
+    test_state: ResMut<'w, TestState>,
+    game_time: ResMut<'w, GameTime>,
+}
+
+pub fn setup(
+    mut commands: Commands,
+    mut world_data: ResMut<world::WorldData>,
+    mut world_grid: ResMut<world::WorldGrid>,
+    mut config: ResMut<world::WorldGenConfig>,
+    mut food_storage: ResMut<FoodStorage>,
+    mut gold_storage: ResMut<GoldStorage>,
+    mut faction_stats: ResMut<FactionStats>,
+    mut town_grids: ResMut<world::TownGrids>,
+    mut slot_alloc: ResMut<EntitySlots>,
+    mut bld: BuildingInitParams,
+    mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
+    mut spawn_writer: MessageWriter<crate::messages::SpawnNpcMsg>,
+    mut state: SlotReuseSetup,
+    mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
+    mut policies: ResMut<TownPolicies>,
+) {
+    // 1 player town + 1 AI builder town, no raiders
+    config.gen_style = WorldGenStyle::Continents;
+    config.num_towns = 1;
+    config.ai_towns = 1;
+    config.raider_towns = 0;
+    config.world_width = 10000.0;
+    config.world_height = 10000.0;
+    config.world_margin = 300.0;
+    config.min_town_distance = 2000.0;
+
+    let (npc_msgs, ai_players) = world::setup_world(
+        &config,
+        &mut world_grid, &mut world_data,
+        &mut town_grids,
+        &mut slot_alloc,
+        &mut bld.entity_map,
+        &mut food_storage, &mut gold_storage,
+        &mut faction_stats, &mut state.raider_state,
+    );
+    world::materialize_generated_world(
+        &mut commands,
+        &mut bld.entity_map,
+        &mut gpu_updates,
+        &mut spawn_writer,
+        npc_msgs,
+    );
+    state.ai_state.players = ai_players;
+
+    // Give AI town plenty of food for spawning archers
+    for player in &state.ai_state.players {
+        let ti = player.town_data_idx;
+        if let Some(f) = food_storage.food.get_mut(ti) { *f = 500; }
+    }
+
+    // Place 5 extra archer homes for the AI town so military spawns quickly
+    if let Some(player) = state.ai_state.players.first() {
+        let ti = player.town_data_idx;
+        if let Some(town) = world_data.towns.get(ti) {
+            let center = town.center;
+            let faction = town.faction;
+            for i in 0..5 {
+                let offset = Vec2::new(32.0 * (i as f32 + 1.0), 64.0);
+                world::place_building_instance(
+                    &mut slot_alloc, &mut bld.entity_map,
+                    BuildingKind::ArcherHome, center + offset,
+                    ti as u32, faction, 0, 0,
+                );
+            }
+        }
+    }
+
+    // Place a player farm near the AI town as the attack target
+    if let Some(ai_player) = state.ai_state.players.first() {
+        let ai_ti = ai_player.town_data_idx;
+        if let Some(ai_town) = world_data.towns.get(ai_ti) {
+            let farm_pos = ai_town.center + Vec2::new(-200.0, 0.0);
+            let player_ti = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
+            world::place_building_instance(
+                &mut slot_alloc, &mut bld.entity_map,
+                BuildingKind::Farm, farm_pos,
+                player_ti as u32, 0, 0, 0,
+            );
+        }
+    }
+
+    // Aggressive personality → low wave_min_start (3), attacks everything
+    for player in &mut state.ai_state.players {
+        player.personality = AiPersonality::Aggressive;
+    }
+
+    // Ensure policies exist for all towns
+    policies.policies.resize(world_data.towns.len(), PolicySet::default());
+
+    state.ai_config.decision_interval = 1.0;
+    state.endless.enabled = true;
+    state.game_time.time_scale = 4.0; // speed up spawning
+
+    // Init test-local resource
+    commands.insert_resource(SlotReuseTestState::default());
+
+    // Focus camera on AI town
+    if let Some(ai_player) = state.ai_state.players.first() {
+        let ai_ti = ai_player.town_data_idx;
+        if let Some(town) = world_data.towns.get(ai_ti) {
+            if let Ok(mut cam) = camera_query.single_mut() {
+                cam.translation.x = town.center.x;
+                cam.translation.y = town.center.y;
+            }
+        }
+    }
+
+    state.test_state.phase_name = "Waiting for AI wave...".into();
+    info!("slot-reuse-wave: setup — 1 player town, 1 AI builder (Aggressive), 5 extra archer homes");
+}
+
+pub fn tick(
+    mut entity_map: ResMut<EntityMap>,
+    ai_state: Res<AiPlayerState>,
+    squad_state: Res<SquadState>,
+    mut slot_alloc: ResMut<EntitySlots>,
+    time: Res<Time>,
+    mut test: ResMut<TestState>,
+    mut local: ResMut<SlotReuseTestState>,
+    mut health_q: Query<&mut Health>,
+    world_data: Res<world::WorldData>,
+) {
+    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
+
+    match test.phase {
+        // Phase 1: Wait for an AI attack squad wave to dispatch
+        1 => {
+            test.phase_name = "Waiting for AI wave dispatch...".into();
+
+            // Find the AI attack squad with wave_active
+            for player in &ai_state.players {
+                for &si in &player.squad_indices {
+                    if let Some(squad) = squad_state.squads.get(si) {
+                        if squad.wave_active {
+                            // Found active wave — record target slot
+                            if let Some(cmd) = player.squad_cmd.get(&si) {
+                                if let Some(slot) = cmd.target_slot {
+                                    local.target_slot = Some(slot);
+                                    local.target_pos = squad.target;
+                                    local.attack_squad_idx = Some(si);
+                                    let pos_str = squad.target.map(|p| format!("({:.0}, {:.0})", p.x, p.y)).unwrap_or("None".into());
+                                    test.pass_phase(elapsed, format!(
+                                        "wave active: squad {} → slot {} at {}",
+                                        si, slot, pos_str,
+                                    ));
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if elapsed > 30.0 {
+                // Debug: show squad state
+                let squad_count: usize = ai_state.players.iter()
+                    .map(|p| p.squad_indices.len()).sum();
+                let total_members: usize = ai_state.players.iter()
+                    .flat_map(|p| p.squad_indices.iter())
+                    .filter_map(|&si| squad_state.squads.get(si))
+                    .map(|s| s.members.len())
+                    .sum();
+                test.fail_phase(elapsed, format!(
+                    "no active wave after 30s (squads={}, total_members={})",
+                    squad_count, total_members,
+                ));
+            }
+        }
+
+        // Phase 2: Destroy the target building
+        2 => {
+            let Some(slot) = local.target_slot else {
+                test.fail_phase(elapsed, "no target slot recorded");
+                return;
+            };
+
+            if !local.target_destroyed {
+                test.phase_name = format!("Destroying building at slot {}...", slot);
+
+                // Set HP to 0 — death_system will process next frame
+                if let Some(&entity) = entity_map.entities.get(&slot) {
+                    if let Ok(mut hp) = health_q.get_mut(entity) {
+                        hp.0 = 0.0;
+                        local.target_destroyed = true;
+                        info!("slot-reuse-wave: set HP=0 on slot {}", slot);
+                    }
+                } else {
+                    // Building might already be gone (death_system processed it)
+                    local.target_destroyed = true;
+                }
+                return;
+            }
+
+            // Wait for death_system to remove it from EntityMap
+            test.phase_name = format!("Waiting for slot {} removal from EntityMap...", slot);
+            if entity_map.get_instance(slot).is_none() {
+                test.pass_phase(elapsed, format!("slot {} removed from EntityMap", slot));
+            } else if elapsed > 5.0 {
+                test.fail_phase(elapsed, format!("slot {} still in EntityMap after 5s", slot));
+            }
+        }
+
+        // Phase 3: Trigger slot reuse by placing a new building
+        3 => {
+            let Some(slot) = local.target_slot else {
+                test.fail_phase(elapsed, "no target slot recorded");
+                return;
+            };
+
+            if !local.slot_reused {
+                test.phase_name = "Placing new building to trigger slot reuse...".into();
+
+                // Place a new building — the freed slot should be reused (LIFO)
+                let ai_ti = ai_state.players.first().map(|p| p.town_data_idx).unwrap_or(1);
+                let ai_faction = world_data.towns.get(ai_ti).map(|t| t.faction).unwrap_or(1);
+                let new_pos = Vec2::new(200.0, 200.0); // far from original target
+                let new_slot = world::place_building_instance(
+                    &mut slot_alloc, &mut entity_map,
+                    BuildingKind::Farm, new_pos,
+                    ai_ti as u32, ai_faction, 0, 0,
+                );
+
+                if let Some(ns) = new_slot {
+                    local.slot_reused = true;
+                    local.reuse_pos = Some(new_pos);
+                    if ns == slot {
+                        test.pass_phase(elapsed, format!(
+                            "LIFO reuse confirmed: new building got same slot {} at ({:.0}, {:.0})",
+                            ns, new_pos.x, new_pos.y,
+                        ));
+                    } else {
+                        // Slot wasn't reused — someone else allocated first. Still useful data.
+                        test.pass_phase(elapsed, format!(
+                            "slot NOT reused (got {} instead of {}). ABA won't trigger this run.",
+                            ns, slot,
+                        ));
+                    }
+                } else {
+                    test.fail_phase(elapsed, "place_building_instance returned None");
+                }
+                return;
+            }
+        }
+
+        // Phase 4: Wait for squad commander heartbeat — check if wave ended
+        4 => {
+            let Some(si) = local.attack_squad_idx else {
+                test.fail_phase(elapsed, "no attack squad index recorded");
+                return;
+            };
+
+            local.heartbeat_wait += time.delta_secs();
+            test.phase_name = format!(
+                "Waiting for heartbeat ({:.1}s / 3.0s)...",
+                local.heartbeat_wait,
+            );
+
+            // Wait at least 3 real seconds (> heartbeat interval) for commander to process
+            if local.heartbeat_wait < 3.0 { return; }
+
+            if let Some(squad) = squad_state.squads.get(si) {
+                if squad.wave_active {
+                    // BUG CONFIRMED: wave is still active despite target being destroyed
+                    let target_str = squad.target.map(|p| format!("({:.0}, {:.0})", p.x, p.y)).unwrap_or("None".into());
+                    test.pass_phase(elapsed, format!(
+                        "BUG CONFIRMED: wave still active after target destroyed. squad.target={}",
+                        target_str,
+                    ));
+                } else {
+                    // Wave ended correctly — bug is fixed (or wasn't triggered)
+                    test.fail_phase(elapsed, "wave ended correctly — slot reuse ABA did not trigger");
+                }
+            } else {
+                test.fail_phase(elapsed, format!("squad {} no longer exists", si));
+            }
+        }
+
+        // Phase 5: Report
+        5 => {
+            let slot = local.target_slot.unwrap_or(0);
+            let orig_pos = local.target_pos.map(|p| format!("({:.0}, {:.0})", p.x, p.y)).unwrap_or("?".into());
+            let reuse_pos = local.reuse_pos.map(|p| format!("({:.0}, {:.0})", p.x, p.y)).unwrap_or("?".into());
+            let si = local.attack_squad_idx.unwrap_or(0);
+            let wave_active = squad_state.squads.get(si).map(|s| s.wave_active).unwrap_or(false);
+            let resolve_result = entity_map.get_instance(slot)
+                .map(|inst| format!("{:?} at ({:.0}, {:.0})", inst.kind, inst.position.x, inst.position.y))
+                .unwrap_or("None".into());
+
+            info!("========================================");
+            info!("SLOT REUSE WAVE BUG REPORT");
+            info!("  target_slot: {}", slot);
+            info!("  original_pos: {}", orig_pos);
+            info!("  reuse_pos: {}", reuse_pos);
+            info!("  resolve_building_pos(slot): {}", resolve_result);
+            info!("  wave_active: {}", wave_active);
+            info!("========================================");
+
+            test.pass_phase(elapsed, format!(
+                "slot={} orig={} reuse={} resolve={} wave_active={}",
+                slot, orig_pos, reuse_pos, resolve_result, wave_active,
+            ));
+            test.complete(elapsed);
+        }
+
+        _ => {}
+    }
+}

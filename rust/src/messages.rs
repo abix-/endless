@@ -96,10 +96,6 @@ pub struct SquadsDirtyMsg;
 #[derive(Message, Clone)]
 pub struct MiningDirtyMsg;
 
-/// AI squad commander should wake up.
-#[derive(Message, Clone)]
-pub struct AiSquadsDirtyMsg;
-
 /// Patrol waypoint swap request from UI (slot-based identity).
 #[derive(Message, Clone)]
 pub struct PatrolSwapMsg {
@@ -118,7 +114,6 @@ pub struct DirtyWriters<'w> {
     pub healing_zones: MessageWriter<'w, HealingZonesDirtyMsg>,
     pub squads: MessageWriter<'w, SquadsDirtyMsg>,
     pub mining: MessageWriter<'w, MiningDirtyMsg>,
-    pub ai_squads: MessageWriter<'w, AiSquadsDirtyMsg>,
     pub patrol_swap: MessageWriter<'w, PatrolSwapMsg>,
 }
 
@@ -126,7 +121,6 @@ impl DirtyWriters<'_> {
     /// Emit messages equivalent to the old `DirtyFlags::mark_building_changed`.
     pub fn mark_building_changed(&mut self, kind: crate::world::BuildingKind) {
         self.building_grid.write(BuildingGridDirtyMsg);
-        self.ai_squads.write(AiSquadsDirtyMsg);
         if kind == crate::world::BuildingKind::Waypoint {
             self.patrols.write(PatrolsDirtyMsg);
             self.patrol_perimeter.write(PatrolPerimeterDirtyMsg);
@@ -153,7 +147,6 @@ impl DirtyWriters<'_> {
         self.healing_zones.write(HealingZonesDirtyMsg);
         self.squads.write(SquadsDirtyMsg);
         self.mining.write(MiningDirtyMsg);
-        self.ai_squads.write(AiSquadsDirtyMsg);
     }
 }
 
