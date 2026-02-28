@@ -733,7 +733,8 @@ fn inspector_content(
         if let Some(sq) = bld_data.squad_id_q.get(npc.entity).ok().map(|s| s.0) {
             ui.label(format!("Squad: {}", sq));
         }
-        if let Ok(gold) = bld_data.carried_gold_q.get(npc.entity) { if gold.0 > 0 { ui.label(format!("Carrying: {} gold", gold.0)); } }
+        let gold_val = bld_data.carried_gold_q.get(npc.entity).map(|g| g.0).unwrap_or(0);
+        ui.label(format!("CarriedGold: {}", gold_val));
     }
     // DirectControl toggle (separate borrow scope)
     {
@@ -791,14 +792,16 @@ fn inspector_content(
     }
 
     tipped(ui, format!("State: {}", state_str), catalog.0.get("npc_state").unwrap_or(&""));
-    if !carried_loot.is_empty() {
-        let parts: Vec<String> = carried_loot.iter()
-            .filter(|(_, a)| *a > 0)
-            .map(|(k, a)| format!("{} {}", a, match k { ItemKind::Food => "food", ItemKind::Gold => "gold" }))
-            .collect();
-        if !parts.is_empty() {
-            ui.colored_label(egui::Color32::from_rgb(255, 200, 60), format!("Loot: {}", parts.join(", ")));
-        }
+    {
+        let loot_str = if carried_loot.is_empty() {
+            "none".to_string()
+        } else {
+            carried_loot.iter().filter(|(_, a)| *a > 0)
+                .map(|(k, a)| format!("{} {}", a, match k { ItemKind::Food => "food", ItemKind::Gold => "gold" }))
+                .collect::<Vec<_>>().join(", ")
+        };
+        let loot_str = if loot_str.is_empty() { "none".to_string() } else { loot_str };
+        ui.label(format!("Loot: {}", loot_str));
     }
     ui.horizontal(|ui| {
         if let Some(fid) = faction_id {
@@ -961,20 +964,15 @@ fn inspector_content(
                         info.push_str(&format!("Squad.placing_target: {}\n", ss.placing_target));
                     }
                 }
-                if let Ok(gold) = bld_data.carried_gold_q.get(npc.entity) {
-                    if gold.0 > 0 {
-                        info.push_str(&format!("Carrying: {} gold\n", gold.0));
-                    }
-                }
-                if !carried_loot.is_empty() {
-                    let parts: Vec<String> = carried_loot.iter()
-                        .filter(|(_, a)| *a > 0)
-                        .map(|(k, a)| format!("{} {:?}", a, k))
-                        .collect();
-                    if !parts.is_empty() {
-                        info.push_str(&format!("Loot: {}\n", parts.join(", ")));
-                    }
-                }
+                let gold_val = bld_data.carried_gold_q.get(npc.entity).map(|g| g.0).unwrap_or(0);
+                info.push_str(&format!("CarriedGold: {}\n", gold_val));
+                let loot_str = if carried_loot.is_empty() {
+                    "none".to_string()
+                } else {
+                    carried_loot.iter().filter(|(_, a)| *a > 0)
+                        .map(|(k, a)| format!("{} {:?}", a, k)).collect::<Vec<_>>().join(", ")
+                };
+                info.push_str(&format!("Loot: {}\n", loot_str));
                 if let Ok(route) = bld_data.patrol_route_q.get(npc.entity) {
                     info.push_str(&format!("Patrol: {}/{} posts\n", route.current, route.posts.len()));
                 }

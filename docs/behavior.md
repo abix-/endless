@@ -353,7 +353,7 @@ Farmer farm reservations (`assigned_farm` / `NpcWorkState.occupied_slot`) follow
 
 - **Claim**: only via `try_claim_worksite()` in idle → work path, en-route retarget path, and GoingToWork arrival retarget; GoingToWork arrival (unclaimed farm) uses direct `entity_map.claim()` for the already-validated arrival farm; Working safety invariant uses direct `entity_map.claim()` for retroactive claim of `work_position` without `assigned_farm`.
 - **Release**: at every transition out of Working/GoingToWork — retarget, harvest, tired, idle, death. End-of-decide invariant: if a farmer has `assigned_farm` set but activity is not `Working` or `GoingToWork`, the reservation is released automatically.
-- **No pre-claim at spawn**: `spawner_respawn_system` and `spawn_npcs_from_spawners` do not claim farm slots — farmers self-claim via behavior system on first work decision.
+- **No pre-claim at spawn**: `spawner_respawn_system` does not claim farm slots — farmers self-claim via behavior system on first work decision.
 
 ## Known Issues / Limitations
 

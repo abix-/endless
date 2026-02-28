@@ -550,38 +550,6 @@ pub fn spawn_building_entities(
 }
 
 /// Spawn one NPC per building spawner. Returns messages for the caller to write.
-fn spawn_npcs_from_spawners(
-    slot_alloc: &mut EntitySlots,
-    towns: &[Town],
-    entity_map: &mut EntityMap,
-) -> Vec<crate::messages::SpawnNpcMsg> {
-    let mut msgs = Vec::new();
-    // Collect spawner slots first (need immutable entity_map for resolve_spawner_npc, then mutate)
-    let spawner_slots: Vec<usize> = entity_map.iter_instances()
-        .filter(|i| crate::constants::building_def(i.kind).spawner.is_some())
-        .map(|i| i.slot)
-        .collect();
-    for bld_slot in spawner_slots {
-        let Some(slot) = slot_alloc.alloc() else { break };
-        let Some(inst) = entity_map.get_instance(bld_slot) else { continue };
-        let (job, faction, work_x, work_y, starting_post, attack_type, _, _, _work_slot) =
-            resolve_spawner_npc(inst, towns, entity_map);
-        let pos = inst.position;
-        let town_idx = inst.town_idx as i32;
-        msgs.push(crate::messages::SpawnNpcMsg {
-            slot_idx: slot,
-            x: pos.x, y: pos.y,
-            job, faction, town_idx,
-            home_x: pos.x, home_y: pos.y,
-            work_x, work_y, starting_post, attack_type,
-        });
-        if let Some(inst_mut) = entity_map.get_instance_mut(bld_slot) {
-            inst_mut.npc_slot = slot as i32;
-        }
-    }
-    msgs
-}
-
 /// Create AI players for all non-player towns with random personalities.
 fn create_ai_players(
     world_data: &WorldData,
@@ -635,10 +603,9 @@ pub fn setup_world(
     faction_stats.init(n);
     raider_state.init(n, 10);
 
-    let npc_msgs = spawn_npcs_from_spawners(
-        slot_alloc,
-        &world_data.towns, entity_map,
-    );
+    // Homes start with respawn_timer=0.0 — spawner_respawn_system spawns NPCs on first hour tick.
+    // No immediate NPC spawn at world gen (homes ARE the spawners).
+    let npc_msgs = Vec::new();
     let ai_players = create_ai_players(world_data, town_grids);
 
     (npc_msgs, ai_players)

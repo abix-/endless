@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-27o
+
+- **fix double NPC spawn at game start** — removed `spawn_npcs_from_spawners` which spawned NPCs immediately at world gen; combined with `respawn_timer: 0.0` on new homes, `spawner_respawn_system` would spawn a second NPC on the first hour tick (4 archer homes → 8 archers); homes now start with `respawn_timer: 0.0, npc_slot: -1` and `spawner_respawn_system` handles all initial spawns on the first hour tick
+- **always show loot in inspector + copy debug** — CarriedGold and Loot lines now always displayed (show 0/none when empty) instead of being conditionally hidden
+
 ## 2026-02-27n
 
 - **comprehensive NPC Copy Debug Info** — added full NpcFlags dump (healing/starving/direct_control/migrating/at_dest), raw Activity debug repr with fields (e.g. `Returning { loot: [(Food, 5)] }`), Returning loot contents, PatrolRoute current/total; replaces individual Starving+DirectControl lines with consolidated Flags line

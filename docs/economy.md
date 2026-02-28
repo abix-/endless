@@ -73,9 +73,9 @@ game_time_system (every frame)
 - Sentinel values: `npc_slot = -1` (no NPC alive), `respawn_timer = -2.0` (non-spawner building), `-1.0` (not respawning), `>= 0.0` (countdown active)
 - If `npc_slot >= 0` and NPC is dead (not in `EntityMap`): starts 12h respawn timer
 - Timer decrements 1.0 per game hour; on expiry: allocates slot via `SlotAllocator`, emits `SpawnNpcMsg`, logs to `CombatLog`
-- Newly-built spawners start with `respawn_timer: -1.0` — `place_building_instance` sets this for spawner-capable kinds. Initial NPC spawn is handled by `spawn_npcs_from_spawners` which sets `npc_slot` on the instance.
+- All spawner buildings (world gen and player-built) start with `respawn_timer: 0.0` and `npc_slot: -1` — the system spawns the first NPC on the next hourly tick. No separate initial spawn function.
 - Tombstoned entries (position.x < -9000) are skipped (building was destroyed)
-- Spawn mapping resolved by `world::resolve_spawner_npc()` (single source of truth, takes `&BuildingInstance`): FarmerHome → Farmer (nearest farm via `find_nearest_free` as hint, no claim at spawn — farmer self-claims via behavior system), ArcherHome → Archer (nearest waypoint via `find_location_within_radius`), FighterHome → Fighter (nearest waypoint via `find_location_within_radius`), Tent → Raider (home = tent position), MinerHome → Miner (assigned mine from `BuildingInstance.assigned_mine` if set, otherwise nearest gold mine via `find_nearest_free`). All types look up faction from `world_data.towns[town_idx].faction`. Same function used by `spawn_npcs_from_spawners` for initial NPC spawns. Note: spawner_respawn_system and spawn_npcs_from_spawners do **not** pre-claim work slots — farmers self-claim via `find_farmer_farm_target()` in decision_system.
+- Spawn mapping resolved by `world::resolve_spawner_npc()` (single source of truth, takes `&BuildingInstance`): FarmerHome → Farmer (nearest farm via `find_nearest_free` as hint, no claim at spawn — farmer self-claims via behavior system), ArcherHome → Archer (nearest waypoint via `find_location_within_radius`), FighterHome → Fighter (nearest waypoint via `find_location_within_radius`), Tent → Raider (home = tent position), MinerHome → Miner (assigned mine from `BuildingInstance.assigned_mine` if set, otherwise nearest gold mine via `find_nearest_free`). All types look up faction from `world_data.towns[town_idx].faction`. Note: spawner_respawn_system does **not** pre-claim work slots — farmers self-claim via `find_farmer_farm_target()` in decision_system.
 
 ### starvation_system
 - Query-first: `(&EntitySlot, &Energy, &CachedStats, &mut NpcFlags)` with `Without<Building>, Without<Dead>` — no `EntityMap` dependency
@@ -180,7 +180,7 @@ Raiders without a squad assignment wander near their town. Group attacks use squ
 | EntityMap (occupancy) | `BuildingInstance.occupants: i16` per building — slot-indexed claim/release/is_occupied/occupant_count methods on EntityMap | decision_system, death_cleanup |
 | MiningPolicy | discovered_mines per town, mine_enabled per mine | mining_policy_system (dirty-flag gated) |
 | RaiderState | max_pop, respawn_timers, forage_timers | raider_forage_system |
-| EntityMap | `BuildingInstance` with `npc_slot` + `respawn_timer` fields | spawner_respawn_system, game_startup, place_building_instance |
+| EntityMap | `BuildingInstance` with `npc_slot` + `respawn_timer` fields | spawner_respawn_system, place_building_instance |
 | PopulationStats | alive/working/dead per (job, town) | spawn, death, state transitions |
 
 ## Constants

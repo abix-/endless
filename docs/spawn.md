@@ -106,9 +106,9 @@ Deterministic: adjective + job noun. Adjective cycles through a 10-word list, no
 
 ## Building Spawners
 
-All NPC population is building-driven: each **FarmerHome** supports 1 farmer, each **ArcherHome** supports 1 archer, each **CrossbowHome** supports 1 crossbowman, each **FighterHome** supports 1 fighter, each **MinerHome** supports 1 miner, and each **Tent** supports 1 raider. At game startup, `game_startup_system` builds `SpawnerState` from building instances in `EntityMap` (iterating spawner building kinds) and spawns 1 NPC per entry via `EntitySlots` + `SpawnNpcMsg`. Menu sliders control how many FarmerHomes/ArcherHomes/MinerHomes/Tents world gen places.
+All NPC population is building-driven: each **FarmerHome** supports 1 farmer, each **ArcherHome** supports 1 archer, each **CrossbowHome** supports 1 crossbowman, each **FighterHome** supports 1 fighter, each **MinerHome** supports 1 miner, and each **Tent** supports 1 raider. No NPCs are spawned directly at world gen — homes are placed with `respawn_timer: 0.0` and `spawner_respawn_system` spawns their NPCs on the first hour tick. Menu sliders control how many FarmerHomes/ArcherHomes/MinerHomes/Tents world gen places.
 
-When an NPC dies, `spawner_respawn_system` (hourly, Step::Behavior) detects the death via `EntityMap` lookup, starts a 12-hour respawn timer, and spawns a replacement when it expires. Building spawners at runtime via the build menu pushes new `SpawnerEntry` with `respawn_timer: 0.0` — the system spawns the NPC on the next hourly tick. Raider grids only allow Tent placement; villager grids allow Farm/Waypoint/FarmerHome/ArcherHome/CrossbowHome/FighterHome/MinerHome.
+When an NPC dies, `spawner_respawn_system` (hourly, Step::Behavior) detects the death via `EntityMap` lookup, starts a 12-hour respawn timer, and spawns a replacement when it expires. New spawner buildings placed at runtime start with `respawn_timer: 0.0` — the system spawns the NPC on the next hourly tick. Raider grids only allow Tent placement; villager grids allow Farm/Waypoint/FarmerHome/ArcherHome/CrossbowHome/FighterHome/MinerHome.
 
 Destroying a spawner building tombstones the `SpawnerEntry` (position.x = -99999). The linked NPC survives but won't respawn if killed.
 
