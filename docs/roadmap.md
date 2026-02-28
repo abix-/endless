@@ -17,6 +17,9 @@ See [completed.md](completed.md) for completed work moved out of active stages.
 Recent move: shared test-scene world materialization now uses the same `world::materialize_generated_world(...)` helper as main game startup.
 Recent move: pause semantics are now aligned between gameplay and test scenes so paused `AppState::Running` does not continue behavior/combat/movement decision updates.
 Recent move: farmer farm-claim fairness now preserves incumbent `Working` claimants over newcomers, and losing claimants retarget home immediately to avoid stale farm targets.
+Recent move: pause-menu settings are now a categorized two-pane layout (left category list, right detail panel) with inline descriptions and explicit Save/Reload controls.
+Recent move: interface typography now has a dedicated global `interface_text_size` setting with a larger default.
+Recent move: NPC selection overlay anchoring now prefers ECS `Position` and uses screen-stable bracket sizing to prevent zoom wobble/drift.
 
 ## Done Soon (Authority Safety)
 

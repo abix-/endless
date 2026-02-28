@@ -222,6 +222,9 @@ Completed items moved from roadmap for readability.
 - [x] Squads tab updates: visible Default Squad, recruit transfer buttons (+1/+2/+4/+8/+16/+32), and hotkeys `1..9,0` to arm squad target placement for squads 1..10
 - [x] Factions tab shows current policy snapshot for the selected faction (read-only intel view)
 - [x] Selected-NPC target overlay line now renders in test scenes (`AppState::Running`) as well as normal gameplay
+- [x] Pause-menu settings redesign: categorized two-pane layout (left navigation + right detail panel), per-setting descriptions, and explicit Save/Reload actions
+- [x] Interface typography control: global `interface_text_size` setting (persisted in `UserSettings`) with larger default text
+- [x] NPC selection overlay stabilization: anchor from ECS `Position` (GPU fallback only) and fixed pixel-size brackets so overlay no longer scales/wobbles with zoom
 
 ### Building System
 - [x] Runtime add/remove farm/guard_post (place_building/remove_building with tombstone deletion)
