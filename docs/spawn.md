@@ -68,6 +68,7 @@ GPU dispatch count comes from `GpuSlotPool.count()` (the high-water mark `next`)
 | work_x, work_y | f32 | Farm position (-1 = none, farmers only) |
 | starting_post | i32 | Patrol start index (-1 = none, archers only) |
 | attack_type | i32 | 0=melee, 1=ranged (fighters only) |
+| uid_override | Option\<EntityUid\> | Pre-assigned UID (None = allocate fresh) |
 
 ## materialize_npc
 
@@ -90,7 +91,9 @@ Job-specific optional components:
 | Raider | HasEnergy, Stealer, LeashRange(400), EquippedWeapon |
 | Fighter | HasEnergy, PatrolRoute, `Activity::OnDuty { ticks_waiting: 0 }` |
 
-GPU writes (all jobs): `SetPosition`, `SetTarget` (spawn position; save-restore path may set work position for farmers), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`, `SetSpriteFrame` (job-based sprite from constants.rs), `SetFlags` (bit 0 = 1 for military jobs via `job.is_military()`, 0 for farmers/miners — controls GPU combat scan tier). Fresh spawns start with `NpcWorkState { occupied_slot: None, work_target: None }` — behavior system assigns work later. Save/restore path may restore explicit `work_target`. Colors and equipment sprites are derived from ECS component data by `build_visual_upload` (queries `EquippedWeapon/Helmet/Armor` components).
+GPU writes (all jobs): `SetPosition`, `SetTarget` (spawn position; save-restore path may set work position for farmers), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`, `SetSpriteFrame` (job-based sprite from constants.rs), `SetFlags` (bit 0 = 1 for military jobs via `job.is_military()`, 0 for farmers/miners — controls GPU combat scan tier). Fresh spawns start with `NpcWorkState { occupied_building: None, work_target_building: None }` — behavior system assigns work later. Save/restore path may restore explicit `work_target_building` (converted from slot to EntityUid via `uid_for_slot`). Colors and equipment sprites are derived from ECS component data by `build_visual_upload` (queries `EquippedWeapon/Helmet/Armor` components).
+
+**EntityUid assignment**: `materialize_npc` accepts `uid_override: Option<EntityUid>` via `NpcSpawnOverrides`. `None` → allocate fresh UID from `NextEntityUid.next()`. `Some(uid)` → use the provided UID (save/load path, spawner pre-allocation). UID is registered via `register_uid` and inserted as an ECS component. Spawner respawn pre-allocates UIDs so `BuildingInstance.npc_uid` is set in the same frame as spawn.
 
 Sprite assignments: Farmer=(1,6), Archer=(0,11), Crossbow=(0,0) (placeholder, purple tint), Raider=(0,6), Fighter=(7,0), Miner=(1,6) (brown tint differentiates)
 

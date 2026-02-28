@@ -25,6 +25,7 @@ pub fn setup(mut params: TestSetupParams) {
         work_x: 450.0, work_y: 400.0,
         starting_post: -1,
         attack_type: 0,
+        uid_override: None,
     });
 
     params.test_state.phase_name = "Waiting for farmer spawn...".into();

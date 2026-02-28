@@ -168,10 +168,13 @@ pub fn arrival_system(
     let farmer_slots: Vec<(Entity, usize, usize)> = npc_q.iter()
         .filter(|(_, slot, _job, _, activity, _, ws)| {
             matches!(&**activity, Activity::Working)
-                && ws.occupied_slot.is_some()
+                && ws.occupied_building.is_some()
                 && (slot.0 as u32) % 30 == frame_slot
         })
-        .map(|(entity, slot, _, _, _, _, ws)| (entity, slot.0, ws.occupied_slot.unwrap()))
+        .filter_map(|(entity, slot, _, _, _, _, ws)| {
+            let farm_slot = ws.occupied_building.and_then(|uid| entity_map.slot_for_uid(uid))?;
+            Some((entity, slot.0, farm_slot))
+        })
         .collect();
 
     for (entity, slot, farm_slot) in farmer_slots {
@@ -200,7 +203,7 @@ pub fn arrival_system(
             entity_map.release(farm_slot);
             pop_dec_working(&mut economy.pop_stats, job_val, town_idx);
             if let Ok((_, _, _, _, mut act, _, mut ws)) = npc_q.get_mut(entity) {
-                ws.occupied_slot = None;
+                ws.occupied_building = None;
                 *act = Activity::Returning { loot: vec![(ItemKind::Food, food)] };
                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx }));
             }
@@ -391,7 +394,8 @@ pub fn decision_system(
         let Some(ws) = npc_data.work_state_q.get(entity).ok() else {
             continue;
         };
-        let Some(farm_slot) = ws.occupied_slot.or(ws.work_target) else {
+        let Some(farm_slot) = ws.occupied_building.and_then(|uid| entity_map.slot_for_uid(uid))
+            .or_else(|| ws.work_target_building.and_then(|uid| entity_map.slot_for_uid(uid))) else {
             continue;
         };
         let rank = npc_state
@@ -436,8 +440,8 @@ pub fn decision_system(
         let max_hp = npc_state.cached_stats_q.get(entity).map(|s| s.max_health).unwrap_or(100.0);
         let leash_range_val = npc_data.leash_range_q.get(entity).ok().map(|lr| lr.0);
         let work_state = npc_data.work_state_q.get(entity).ok().copied().unwrap_or_default();
-        let mut work_position = work_state.work_target;
-        let mut assigned_farm = work_state.occupied_slot;
+        let mut work_position = work_state.work_target_building.and_then(|uid| entity_map.slot_for_uid(uid));
+        let mut assigned_farm = work_state.occupied_building.and_then(|uid| entity_map.slot_for_uid(uid));
         let has_patrol = npc_data.patrol_route_q.get(entity).is_ok();
         let mut patrol_current = npc_data.patrol_route_q.get(entity).ok().map(|r| r.current).unwrap_or(0);
 
@@ -1559,8 +1563,8 @@ pub fn decision_system(
         }
         if work_position != orig_work_target || assigned_farm != orig_occupied_slot {
             if let Ok(mut ws) = npc_data.work_state_q.get_mut(entity) {
-                ws.occupied_slot = assigned_farm;
-                ws.work_target = work_position;
+                ws.occupied_building = assigned_farm.and_then(|s| entity_map.uid_for_slot(s));
+                ws.work_target_building = work_position.and_then(|s| entity_map.uid_for_slot(s));
             }
         }
         if patrol_current != orig_patrol_current {

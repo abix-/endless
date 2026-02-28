@@ -29,6 +29,7 @@ pub fn setup(mut params: TestSetupParams) {
         work_x: 400.0, work_y: 350.0,
         starting_post: 0,
         attack_type: 0,
+        uid_override: None,
     });
 
     params.test_state.phase_name = "Waiting for farm growth...".into();

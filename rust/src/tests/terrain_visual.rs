@@ -33,6 +33,7 @@ pub fn setup(
     mut game_time: ResMut<crate::resources::GameTime>,
     mut slot_alloc: ResMut<crate::resources::GpuSlotPool>,
     mut entity_map: ResMut<crate::resources::EntityMap>,
+    mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
 ) {
     game_time.time_scale = 0.0;
 
@@ -68,7 +69,7 @@ pub fn setup(
     ];
     for (col, &(kind, town_idx)) in buildings.iter().enumerate() {
         let pos = grid.grid_to_world(col, BUILDING_ROW);
-        world::place_building_instance(&mut slot_alloc, &mut entity_map, kind, pos, town_idx, 0, 0, 0);
+        world::place_building_instance(&mut slot_alloc, &mut entity_map, kind, pos, town_idx, 0, 0, 0, &mut uid_alloc, None);
     }
 
     test.phase_name = "Waiting for tilemap...".into();

@@ -37,6 +37,7 @@ pub(super) fn setup(
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     mut state: EndlessModeSetupState,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
+    mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
 ) {
     config.gen_style = WorldGenStyle::Continents;
     config.num_towns = 1;
@@ -56,6 +57,7 @@ pub(super) fn setup(
         &mut bld.entity_map,
         &mut food_storage, &mut gold_storage,
         &mut faction_stats, &mut state.raider_state,
+        &mut uid_alloc,
     );
     world::materialize_generated_world(
         &mut commands,

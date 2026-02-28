@@ -97,6 +97,7 @@ pub struct TestSetupParams<'w, 's> {
     pub test_state: ResMut<'w, TestState>,
     pub world_grid: ResMut<'w, world::WorldGrid>,
     pub camera_q: Query<'w, 's, &'static mut Transform, With<MainCamera>>,
+    pub uid_alloc: ResMut<'w, crate::resources::NextEntityUid>,
 }
 
 /// Shared test setup params bundle — stays under 16-param limit.
@@ -143,13 +144,13 @@ impl TestSetupParams<'_, '_> {
     /// Add a building instance at the given position for a town.
     pub fn add_building(&mut self, kind: world::BuildingKind, x: f32, y: f32, town_idx: u32) {
         let faction = self.world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
-        world::place_building_instance(&mut self.slot_alloc, &mut self.entity_map, kind, Vec2::new(x, y), town_idx, faction, 0, 0);
+        world::place_building_instance(&mut self.slot_alloc, &mut self.entity_map, kind, Vec2::new(x, y), town_idx, faction, 0, 0, &mut self.uid_alloc, None);
     }
 
     /// Add a waypoint with patrol_order at the given position for a town.
     pub fn add_waypoint(&mut self, x: f32, y: f32, town_idx: u32, patrol_order: u32) {
         let faction = self.world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
-        world::place_building_instance(&mut self.slot_alloc, &mut self.entity_map, world::BuildingKind::Waypoint, Vec2::new(x, y), town_idx, faction, patrol_order, 0);
+        world::place_building_instance(&mut self.slot_alloc, &mut self.entity_map, world::BuildingKind::Waypoint, Vec2::new(x, y), town_idx, faction, patrol_order, 0, &mut self.uid_alloc, None);
     }
 
     /// Init food_storage + faction_stats for N towns.
@@ -170,6 +171,7 @@ impl TestSetupParams<'_, '_> {
             work_x: -1.0, work_y: -1.0,
             starting_post: -1,
             attack_type: 0,
+            uid_override: None,
         });
         slot
     }

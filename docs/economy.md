@@ -37,10 +37,10 @@ game_time_system (every frame)
     │   └─ Uses AiBuildRes SystemParam bundle (8 mutable resources) to stay under Bevy's 16-param limit
     │
     └─ squad_cleanup_system (message-gated: MessageReader<SquadsDirtyMsg>)
-        └─ Phase 1: remove dead slots from Squad.members
-        └─ Phase 2: keep Default Squad (0) as live pool of unsquadded player archers
-        └─ Phase 3: dismiss excess if members > target_size (remove SquadId)
-        └─ Phase 4: auto-recruit unsquadded player archers if members < target_size (insert SquadId)
+        └─ Phase 1: remove dead UIDs from Squad.members (UID→slot resolution, dead/missing = remove)
+        └─ Phase 2: keep Default Squad (0) as live pool of unsquadded player military (slot→UID on push)
+        └─ Phase 3: dismiss excess if members > target_size (UID→slot for entity lookup, remove SquadId)
+        └─ Phase 4: auto-recruit unsquadded military if members < target_size (slot→UID on push, insert SquadId)
 ```
 
 ## Systems

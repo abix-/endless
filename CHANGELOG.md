@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-02-28i
+
+- **EntityUid stable identity system** — introduced `EntityUid(u64)` as the canonical stable identity for all gameplay cross-references, replacing raw `GpuSlot(usize)` indices which suffered from ABA hazards due to LIFO slot recycling; `NextEntityUid` resource allocates monotonically increasing UIDs (0 reserved as "none"); `EntityMap` maintains bidirectional UID maps (`uid_to_slot`/`slot_to_uid`/`uid_to_entity`/`entity_to_uid`) with debug-build bijection assertions
+- **ABA slot-reuse bug fixed** — `AiSquadCmdState.building_gpu_slot` → `building_uid: Option<EntityUid>`; wave end condition now correctly detects destroyed buildings (UID resolves to None after unregister, regardless of slot reuse); `slot-reuse-wave` test Phase 4 inverted to confirm fix
+- **BuildingInstance.npc_uid** — replaced `npc_gpu_slot: i32` sentinel (-1) with `npc_uid: Option<EntityUid>`; spawner respawn pre-allocates UIDs via `NextEntityUid.next()` and passes through `SpawnNpcMsg.uid_override` for same-frame consistency
+- **NpcWorkState UID migration** — `occupied_slot`/`work_target` (Option\<usize\>) → `occupied_building`/`work_target_building` (Option\<EntityUid\>); behavior system resolves UID→slot at loop entry, converts slot→UID at writeback; death cleanup resolves UIDs before releasing occupancy
+- **Squad.members UID migration** — `Vec<usize>` → `Vec<EntityUid>`; squad cleanup, recruit, dismiss, and box-select all convert between slots and UIDs at boundaries; economy auto-recruit uses `uid_for_slot` on push
+- **Save/load UID support** — `NpcSaveData.uid`, `SpawnerSave.npc_uid`, `SquadSave.member_uids`, `SaveData.next_entity_uid` fields added with `#[serde(default)]` for old-save backward compatibility; old saves get deterministic UID assignment during load + post-spawn squad member fixup
+
 ## 2026-02-28h
 
 - **EntitySlot→GpuSlot, EntitySlots→GpuSlotPool renames** — renamed `EntitySlot` component to `GpuSlot` and `EntitySlots` resource to `GpuSlotPool` across all source, tests, and docs for clarity; no logic changes

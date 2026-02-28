@@ -168,6 +168,10 @@ pub struct SaveData {
     #[serde(default)]
     pub migration: Option<MigrationSave>,
 
+    // UID counter
+    #[serde(default)]
+    pub next_entity_uid: Option<u64>,
+
     // Endless mode
     #[serde(default)]
     pub endless_mode: bool,
@@ -203,13 +207,15 @@ pub struct SpawnerSave {
     pub town_idx: i32,
     pub position: [f32; 2],
     #[serde(alias = "npc_slot")]
-    pub npc_gpu_slot: i32,
+    pub npc_gpu_slot: i32,  // Legacy: kept for old save compat, derived from npc_uid
     pub respawn_timer: f32,
+    #[serde(default)]
+    pub npc_uid: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SquadSave {
-    pub members: Vec<usize>,
+    pub members: Vec<usize>,  // Legacy: kept for old save compat, derived from member_uids
     pub target: Option<[f32; 2]>,
     pub target_size: usize,
     pub patrol_enabled: bool,
@@ -224,6 +230,8 @@ pub struct SquadSave {
     pub wave_retreat_below_pct: usize,
     #[serde(default)]
     pub owner: SquadOwner,
+    #[serde(default)]
+    pub member_uids: Option<Vec<u64>>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -286,6 +294,8 @@ pub struct NpcSaveData {
     pub town_id: i32,
     pub health: f32,
     pub energy: f32,
+    #[serde(default)]
+    pub uid: Option<u64>,
     pub activity: ActivitySave,
     pub combat_state: CombatStateSave,
     pub personality: PersonalitySave,
@@ -487,6 +497,7 @@ pub fn collect_save_data(
     migration_state: &MigrationState,
     endless: &EndlessMode,
     npcs: Vec<NpcSaveData>,
+    uid_alloc: &NextEntityUid,
 ) -> SaveData {
     // Terrain + buildings
     let terrain: Vec<u8> = grid.cells.iter().map(|c| biome_to_u8(c.terrain)).collect();
@@ -533,8 +544,9 @@ pub fn collect_save_data(
             building_kind: crate::constants::tileset_index(i.kind) as i32,
             town_idx: i.town_idx as i32,
             position: v2(i.position),
-            npc_gpu_slot: i.npc_gpu_slot,
+            npc_gpu_slot: i.npc_uid.and_then(|uid| entity_map.slot_for_uid(uid)).map(|s| s as i32).unwrap_or(-1),
             respawn_timer: i.respawn_timer,
+            npc_uid: i.npc_uid.map(|uid| uid.0),
         }).collect();
 
     let building_hp_save = building_hp;
@@ -547,7 +559,7 @@ pub fn collect_save_data(
 
     // Squads
     let squads: Vec<SquadSave> = squad_state.squads.iter().map(|s| SquadSave {
-        members: s.members.clone(),
+        members: s.members.iter().filter_map(|uid| entity_map.slot_for_uid(*uid)).collect(),
         target: s.target.map(v2),
         target_size: s.target_size,
         patrol_enabled: s.patrol_enabled,
@@ -557,6 +569,7 @@ pub fn collect_save_data(
         wave_min_start: s.wave_min_start,
         wave_retreat_below_pct: s.wave_retreat_below_pct,
         owner: s.owner,
+        member_uids: Some(s.members.iter().map(|uid| uid.0).collect()),
     }).collect();
 
     // Faction stats
@@ -633,6 +646,7 @@ pub fn collect_save_data(
                 starting_food: g.starting_food,
                 starting_gold: g.starting_gold,
             }),
+        next_entity_uid: Some(uid_alloc.0),
         endless_mode: endless.enabled,
         endless_strength: endless.strength_fraction,
         endless_pending: endless.pending_spawns.clone(),
@@ -789,8 +803,11 @@ pub fn apply_save(
     // First MAX_SQUADS are player-reserved; extras are AI squads.
     squad_state.squads.clear();
     for ss in save.squads.iter() {
+        let members = ss.member_uids.as_ref()
+            .map(|uids| uids.iter().map(|&u| crate::components::EntityUid(u)).collect())
+            .unwrap_or_default(); // old saves: empty until post-spawn fixup
         squad_state.squads.push(Squad {
-            members: ss.members.clone(),
+            members,
             target: ss.target.map(to_vec2),
             target_size: ss.target_size,
             patrol_enabled: ss.patrol_enabled,
@@ -1001,6 +1018,7 @@ pub fn collect_npc_data(
             faction: npc.faction,
             town_id: npc.town_idx,
             health: health_q.get(npc.entity).map(|h| h.0).unwrap_or(100.0),
+            uid: entity_map.uid_for_slot(idx).map(|u| u.0),
             energy: if has_energy_q.get(npc.entity).is_ok() { energy_q.get(npc.entity).map(|e| e.0).unwrap_or(100.0) } else { 100.0 },
             activity: activity_q.get(npc.entity).map(|a| ActivitySave::from_activity(a)).unwrap_or(ActivitySave::Idle),
             combat_state: combat_state_q.get(npc.entity).map(|cs| CombatStateSave::from_combat_state(cs)).unwrap_or(CombatStateSave::None),
@@ -1010,7 +1028,7 @@ pub fn collect_npc_data(
             xp: meta.xp,
             attack_type: match attack_type_q.get(npc.entity).copied().unwrap_or(BaseAttackType::Melee) { BaseAttackType::Melee => 0, BaseAttackType::Ranged => 1 },
             home: home_q.get(npc.entity).map(|h| [h.0.x, h.0.y]).unwrap_or([0.0, 0.0]),
-            work_position: work_state_q.get(npc.entity).ok().and_then(|ws| ws.work_target).and_then(|slot| entity_map.get_instance(slot).map(|i| v2(i.position))),
+            work_position: work_state_q.get(npc.entity).ok().and_then(|ws| ws.work_target_building).and_then(|uid| entity_map.instance_by_uid(uid).map(|i| v2(i.position))),
             squad_id: squad_id_q.get(npc.entity).ok().map(|s| s.0),
             carried_gold: carried_gold_q.get(npc.entity).ok().and_then(|g| if g.0 > 0 { Some(g.0) } else { None }),
             weapon: weapon_q.get(npc.entity).ok().map(|w| [w.0, w.1]),
@@ -1152,6 +1170,7 @@ pub fn load_building_instances_from_save(
     entity_map: &mut EntityMap,
     world_data: &WorldData,
     world_size_px: f32,
+    uid_alloc: &mut NextEntityUid,
 ) {
     use crate::constants::{BUILDING_REGISTRY, FACTION_NEUTRAL};
     entity_map.clear_buildings();
@@ -1164,6 +1183,7 @@ pub fn load_building_instances_from_save(
         world::place_building_instance(
             slot_alloc, entity_map,
             world::BuildingKind::Fountain, town.center, i as u32, town.faction, 0, 0,
+            uid_alloc, None,
         );
     }
 
@@ -1180,6 +1200,7 @@ pub fn load_building_instances_from_save(
                 slot_alloc, entity_map,
                 def.kind, b.position, b.town_idx, faction,
                 b.patrol_order, b.wall_level,
+                uid_alloc, None,
             );
             // Restore miner home fields
             if def.kind == world::BuildingKind::MinerHome {
@@ -1191,11 +1212,11 @@ pub fn load_building_instances_from_save(
         }
     }
 
-    // Restore spawner state (npc_gpu_slot, respawn_timer) from save data
+    // Restore spawner state (npc_uid, respawn_timer) from save data
     for s in &save.spawners {
         let pos = to_vec2(s.position);
         if let Some(inst) = entity_map.find_by_position_mut(pos) {
-            inst.npc_gpu_slot = s.npc_gpu_slot;
+            inst.npc_uid = s.npc_uid.map(crate::components::EntityUid);
             inst.respawn_timer = s.respawn_timer;
         }
     }
@@ -1270,6 +1291,7 @@ pub fn save_game_system(
     npc_meta: Res<NpcMetaCache>,
     building_query: Query<(&Building, &GpuSlot, &Health), Without<Dead>>,
     nq: SaveNpcQueries,
+    uid_alloc: Res<NextEntityUid>,
 ) {
     if save_msgs.read().next().is_none() { return; }
 
@@ -1281,6 +1303,7 @@ pub fn save_game_system(
         building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
         &ws.squad_state, &fs.raider_state, &fs.faction_stats,
         &fs.kill_stats, &fs.ai_state, &fs.migration_state, &fs.endless, npcs,
+        &uid_alloc,
     );
 
     let result = if let Some(path) = request.save_path.take() {
@@ -1312,6 +1335,7 @@ pub fn autosave_system(
     npc_meta: Res<NpcMetaCache>,
     building_query: Query<(&Building, &GpuSlot, &Health), Without<Dead>>,
     nq: SaveNpcQueries,
+    uid_alloc: Res<NextEntityUid>,
 ) {
     if request.autosave_hours <= 0 || !ws.game_time.hour_ticked { return; }
 
@@ -1332,6 +1356,7 @@ pub fn autosave_system(
         building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
         &ws.squad_state, &fs.raider_state, &fs.faction_stats,
         &fs.kill_stats, &fs.ai_state, &fs.migration_state, &fs.endless, npcs,
+        &uid_alloc,
     );
 
     match write_save_to(&data, &path) {
@@ -1359,8 +1384,10 @@ pub fn spawn_npcs_from_save(
     world_data: &WorldData,
     combat_config: &CombatConfig,
     upgrades: &TownUpgrades,
+    uid_alloc: &mut NextEntityUid,
 ) {
     for npc in &save.npcs {
+        let uid_override = npc.uid.map(crate::components::EntityUid);
         let overrides = NpcSpawnOverrides {
             health: Some(npc.health),
             energy: Some(npc.energy),
@@ -1375,6 +1402,7 @@ pub fn spawn_npcs_from_save(
             armor: npc.armor,
             carried_gold: npc.carried_gold,
             squad_id: npc.squad_id,
+            uid_override,
         };
 
         // Patrol units always get starting_post=0 on load (patrol route rebuilt from world)
@@ -1387,6 +1415,7 @@ pub fn spawn_npcs_from_save(
             &overrides,
             commands, entity_map, pop_stats, npc_meta,
             npcs_by_town, gpu_updates, world_data, combat_config, upgrades,
+            uid_alloc,
         );
     }
 }
@@ -1402,9 +1431,12 @@ pub fn restore_world_from_save(
     entity_map: &mut EntityMap,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
     combat_config: &CombatConfig,
+    uid_alloc: &mut NextEntityUid,
 ) {
     // Reset transient runtime resources.
     *entity_map = Default::default();
+    // Restore UID counter from save, or start fresh for old saves
+    uid_alloc.0 = save.next_entity_uid.unwrap_or(1);
     *tracking.pop_stats = Default::default();
     *tracking.combat_log = Default::default();
     *tracking.gpu_state = Default::default();
@@ -1445,6 +1477,7 @@ pub fn restore_world_from_save(
         entity_map,
         &ws.world_data,
         world_size_px,
+        uid_alloc,
     );
     world::update_all_wall_sprites(&ws.grid, entity_map, gpu_updates);
     restore_growth_from_save(save, entity_map);
@@ -1463,7 +1496,17 @@ pub fn restore_world_from_save(
         &ws.world_data,
         combat_config,
         &ws.upgrades,
+        uid_alloc,
     );
+
+    // Old-save fixup: convert legacy squad member slots to UIDs (NPCs are now spawned)
+    for (si, ss) in save.squads.iter().enumerate() {
+        if ss.member_uids.is_none() && si < ws.squad_state.squads.len() {
+            ws.squad_state.squads[si].members = ss.members.iter()
+                .filter_map(|&slot| entity_map.uid_for_slot(slot))
+                .collect();
+        }
+    }
 
     // Migration markers are restored via NpcInstance.migrating in spawn — no ECS marker needed.
 }
@@ -1482,6 +1525,7 @@ pub fn load_game_system(
     combat_config: Res<CombatConfig>,
     npc_query: Query<Entity, With<GpuSlot>>,
     marker_query: Query<Entity, With<FarmReadyMarker>>,
+    mut uid_alloc: ResMut<NextEntityUid>,
 ) {
     if load_msgs.read().next().is_none() { return; }
 
@@ -1521,6 +1565,7 @@ pub fn load_game_system(
         &mut entity_map,
         &mut gpu_updates,
         &combat_config,
+        &mut uid_alloc,
     );
 
 

@@ -85,6 +85,23 @@ impl Drop for TimerGuard<'_> {
 #[derive(Resource, Default)]
 pub struct DeltaTime(pub f32);
 
+/// Monotonically increasing UID allocator. Starts at 1 (0 is reserved as "none").
+#[derive(Resource)]
+pub struct NextEntityUid(pub u64);
+
+impl Default for NextEntityUid {
+    fn default() -> Self { Self(1) }
+}
+
+impl NextEntityUid {
+    /// Allocate the next UID. Never returns EntityUid(0).
+    pub fn next(&mut self) -> crate::components::EntityUid {
+        let uid = crate::components::EntityUid(self.0);
+        self.0 += 1;
+        uid
+    }
+}
+
 /// NPC decision throttling config. Controls how often non-combat decisions are evaluated.
 #[derive(Resource)]
 pub struct NpcDecisionConfig {
@@ -103,6 +120,12 @@ impl Default for NpcDecisionConfig {
 pub struct EntityMap {
     /// ALL entities (NPCs + buildings) — unified slot→entity
     pub entities: HashMap<usize, Entity>,
+
+    // UID bidirectional maps — stable identity for gameplay cross-references
+    uid_to_slot: HashMap<crate::components::EntityUid, usize>,
+    slot_to_uid: HashMap<usize, crate::components::EntityUid>,
+    uid_to_entity: HashMap<crate::components::EntityUid, Entity>,
+    entity_to_uid: HashMap<Entity, crate::components::EntityUid>,
 
     // Building-specific data
     instances: HashMap<usize, BuildingInstance>,
@@ -141,11 +164,95 @@ struct SpatialBucketRef {
 }
 
 impl EntityMap {
+    // ── UID API ───────────────────────────────────────────────────────
+
+    /// Register a UID↔slot↔entity mapping. Called at NPC spawn time.
+    pub fn register_uid(&mut self, slot: usize, uid: crate::components::EntityUid, entity: Entity) {
+        debug_assert!(uid.0 != 0, "EntityUid(0) is reserved");
+        self.uid_to_slot.insert(uid, slot);
+        self.slot_to_uid.insert(slot, uid);
+        self.uid_to_entity.insert(uid, entity);
+        self.entity_to_uid.insert(entity, uid);
+        #[cfg(debug_assertions)]
+        self.debug_assert_uid_bijection();
+    }
+
+    /// Register UID↔slot only (no entity yet). Used for buildings before ECS entity exists.
+    pub fn register_uid_slot_only(&mut self, slot: usize, uid: crate::components::EntityUid) {
+        debug_assert!(uid.0 != 0, "EntityUid(0) is reserved");
+        self.uid_to_slot.insert(uid, slot);
+        self.slot_to_uid.insert(slot, uid);
+    }
+
+    /// Bind a UID to an ECS entity. Called when ECS entity is created for a building.
+    pub fn bind_uid_entity(&mut self, uid: crate::components::EntityUid, entity: Entity) {
+        self.uid_to_entity.insert(uid, entity);
+        self.entity_to_uid.insert(entity, uid);
+    }
+
+    /// Unregister UID mappings for a slot. Called at death/despawn.
+    pub fn unregister_uid(&mut self, slot: usize) {
+        if let Some(uid) = self.slot_to_uid.remove(&slot) {
+            self.uid_to_slot.remove(&uid);
+            if let Some(entity) = self.uid_to_entity.remove(&uid) {
+                self.entity_to_uid.remove(&entity);
+            }
+        }
+        #[cfg(debug_assertions)]
+        self.debug_assert_uid_bijection();
+    }
+
+    /// Clear all UID mappings. Called on world reset/load.
+    pub fn clear_uids(&mut self) {
+        self.uid_to_slot.clear();
+        self.slot_to_uid.clear();
+        self.uid_to_entity.clear();
+        self.entity_to_uid.clear();
+    }
+
+    pub fn uid_for_slot(&self, slot: usize) -> Option<crate::components::EntityUid> {
+        self.slot_to_uid.get(&slot).copied()
+    }
+
+    pub fn slot_for_uid(&self, uid: crate::components::EntityUid) -> Option<usize> {
+        self.uid_to_slot.get(&uid).copied()
+    }
+
+    pub fn entity_by_uid(&self, uid: crate::components::EntityUid) -> Option<Entity> {
+        self.uid_to_entity.get(&uid).copied()
+    }
+
+    pub fn uid_by_entity(&self, entity: Entity) -> Option<crate::components::EntityUid> {
+        self.entity_to_uid.get(&entity).copied()
+    }
+
+    /// Look up a building instance by UID (resolves UID→slot→instance).
+    pub fn instance_by_uid(&self, uid: crate::components::EntityUid) -> Option<&BuildingInstance> {
+        self.uid_to_slot.get(&uid).and_then(|&slot| self.instances.get(&slot))
+    }
+
+    #[cfg(debug_assertions)]
+    fn debug_assert_uid_bijection(&self) {
+        debug_assert_eq!(self.uid_to_slot.len(), self.slot_to_uid.len(),
+            "UID↔slot map length mismatch: {} vs {}", self.uid_to_slot.len(), self.slot_to_uid.len());
+        debug_assert_eq!(self.uid_to_entity.len(), self.entity_to_uid.len(),
+            "UID↔entity map length mismatch: {} vs {}", self.uid_to_entity.len(), self.entity_to_uid.len());
+        for (&uid, &slot) in &self.uid_to_slot {
+            debug_assert_eq!(self.slot_to_uid.get(&slot), Some(&uid),
+                "UID→slot→UID round-trip failed for uid={:?} slot={}", uid, slot);
+        }
+        for (&uid, &entity) in &self.uid_to_entity {
+            debug_assert_eq!(self.entity_to_uid.get(&entity), Some(&uid),
+                "UID→entity→UID round-trip failed for uid={:?}", uid);
+        }
+    }
+
     // ── Building instance API ──────────────────────────────────────────
 
-    /// Remove a building by its slot. Removes entity mapping AND instance data.
+    /// Remove a building by its slot. Removes entity mapping, UID mapping, AND instance data.
     pub fn remove_by_slot(&mut self, slot: usize) {
         self.entities.remove(&slot);
+        self.unregister_uid(slot);
         self.remove_instance(slot);
     }
 
@@ -159,6 +266,7 @@ impl EntityMap {
         self.spatial_kind_town.clear();
         self.spatial_kind_cell.clear();
         self.spatial_bucket_idx.clear();
+        self.clear_uids();
     }
 
     /// Number of building instances.
@@ -342,10 +450,11 @@ impl EntityMap {
         self.npcs.insert(slot, NpcEntry { slot, entity, job, faction, town_idx, dead: false });
     }
 
-    /// Unregister an NPC slot. Returns the entry for bookkeeping.
+    /// Unregister an NPC slot. Removes entity mapping, UID mapping, and NPC entry.
     pub fn unregister_npc(&mut self, slot: usize) -> Option<NpcEntry> {
         debug_assert!(self.npcs.contains_key(&slot), "removing absent NPC slot {}", slot);
         self.entities.remove(&slot);
+        self.unregister_uid(slot);
         if let Some(entry) = self.npcs.remove(&slot) {
             if let Some(slots) = self.npc_by_town.get_mut(&entry.town_idx) {
                 slots.retain(|&s| s != slot);
@@ -383,6 +492,13 @@ impl EntityMap {
     pub fn clear_npcs(&mut self) {
         for &slot in self.npcs.keys() {
             self.entities.remove(&slot);
+            // UID cleanup: remove slot's UID mappings
+            if let Some(uid) = self.slot_to_uid.remove(&slot) {
+                self.uid_to_slot.remove(&uid);
+                if let Some(entity) = self.uid_to_entity.remove(&uid) {
+                    self.entity_to_uid.remove(&entity);
+                }
+            }
         }
         self.npcs.clear();
         self.npc_by_town.clear();
@@ -1774,7 +1890,7 @@ pub struct BuildingInstance {
     pub assigned_mine: Option<Vec2>, // MinerHome only
     pub manual_mine: bool,           // MinerHome only
     pub wall_level: u8,              // Wall only
-    pub npc_gpu_slot: i32,               // Spawner buildings only (-1 = no NPC alive)
+    pub npc_uid: Option<crate::components::EntityUid>, // Spawner buildings only (None = no NPC alive)
     pub respawn_timer: f32,          // Spawner buildings only (-1.0 = not respawning)
     pub growth_ready: bool,             // Farm/Mine only (false = growing, true = ready to harvest)
     pub growth_progress: f32,            // Farm/Mine only (0.0 to 1.0)
@@ -2027,8 +2143,8 @@ pub fn npc_matches_owner(owner: SquadOwner, npc_town_id: i32, player_town: i32) 
 /// A squad of combat units (player-controlled or AI-commanded).
 #[derive(Clone)]
 pub struct Squad {
-    /// NPC slot indices assigned to this squad.
-    pub members: Vec<usize>,
+    /// NPC UIDs assigned to this squad (stable across slot reuse).
+    pub members: Vec<crate::components::EntityUid>,
     /// Squad target position. None = no target, guards patrol normally.
     pub target: Option<Vec2>,
     /// Desired member count. 0 = manual mode (no auto-recruit).

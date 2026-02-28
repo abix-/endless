@@ -67,6 +67,7 @@ pub fn setup(
         work_x: -1.0, work_y: -1.0,
         starting_post: -1, // no patrol — just stands there
         attack_type: 0,
+        uid_override: None,
     });
     let slot1 = slot_alloc.alloc().expect("slot alloc");
     spawn_events.write(SpawnNpcMsg {
@@ -77,6 +78,7 @@ pub fn setup(
         work_x: -1.0, work_y: -1.0,
         starting_post: -1,
         attack_type: 0,
+        uid_override: None,
     });
 
     // Focus the camera on the combat setup so this test is immediately visible.

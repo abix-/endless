@@ -7,8 +7,15 @@ use crate::constants::ItemKind;
 // CORE COMPONENTS
 // ============================================================================
 
+/// Stable identity for gameplay cross-references. Monotonically increasing u64 counter.
+/// Survives slot recycling — unlike GpuSlot, an EntityUid is never reused.
+/// EntityUid(0) is reserved as "none/invalid".
+#[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct EntityUid(pub u64);
+
 /// Links a Bevy entity to its unified slot in the GPU entity buffers.
 /// Both NPCs and buildings get an GpuSlot(n) where n = GPU buffer index.
+/// GpuSlot is a dense GPU address, NOT a stable identity — use EntityUid for cross-references.
 #[derive(Component, Clone, Copy)]
 pub struct GpuSlot(pub usize);
 
@@ -130,12 +137,12 @@ pub struct PatrolRoute {
 }
 
 /// Combined work state for NPCs. Always present — avoids archetype churn from insert/remove.
-/// `occupied_slot`: building slot being occupied (released on death/stop via entity_map.release).
-/// `work_target`: building slot being walked to (navigation target).
+/// `occupied_building`: UID of building being occupied (released on death/stop via entity_map.release).
+/// `work_target_building`: UID of building being walked to (navigation target).
 #[derive(Component, Default, Clone, Copy)]
 pub struct NpcWorkState {
-    pub occupied_slot: Option<usize>,
-    pub work_target: Option<usize>,
+    pub occupied_building: Option<EntityUid>,
+    pub work_target_building: Option<EntityUid>,
 }
 
 /// Gold being carried by a miner returning home.

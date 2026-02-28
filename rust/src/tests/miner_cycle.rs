@@ -35,6 +35,7 @@ pub fn setup(
         work_x: 400.0, work_y: 300.0,
         starting_post: -1,
         attack_type: 0,
+        uid_override: None,
     });
 
     params.focus_camera(400.0, 350.0);

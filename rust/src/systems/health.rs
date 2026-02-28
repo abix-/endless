@@ -297,7 +297,9 @@ pub fn death_system(
             let activity = res.activity_q.get(npc.entity).map(|a| a.clone()).unwrap_or_default();
             let lhb = res.last_hit_by_q.get(npc.entity).map(|h| h.0).unwrap_or(-1);
             let ws = res.work_state_q.get(npc.entity).ok().copied().unwrap_or_default();
-            (npc.entity, npc.faction, npc.town_idx, npc.job, activity, ws.occupied_slot, ws.work_target, lhb)
+            let occ_slot = ws.occupied_building.and_then(|uid| res.entity_map.slot_for_uid(uid));
+            let wt_slot = ws.work_target_building.and_then(|uid| res.entity_map.slot_for_uid(uid));
+            (npc.entity, npc.faction, npc.town_idx, npc.job, activity, occ_slot, wt_slot, lhb)
         };
 
         if selected.0 == slot as i32 { selected.0 = -1; }

@@ -19,7 +19,9 @@ use super::{TestState, BuildingInitParams};
 /// Persistent state across phases — tracks the target slot for verification.
 #[derive(Resource, Default)]
 pub struct SlotReuseTestState {
-    /// Slot index of the player farm that the AI wave targets.
+    /// UID of the player farm that the AI wave targets.
+    pub target_uid: Option<crate::components::EntityUid>,
+    /// Slot index of the target (for direct EntityMap lookups in test).
     pub building_gpu_slot: Option<usize>,
     /// Position of the original target building.
     pub target_pos: Option<Vec2>,
@@ -61,6 +63,7 @@ pub fn setup(
     mut state: SlotReuseSetup,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     mut policies: ResMut<TownPolicies>,
+    mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
 ) {
     // 1 player town + 1 AI builder town, no raiders
     config.gen_style = WorldGenStyle::Continents;
@@ -80,6 +83,7 @@ pub fn setup(
         &mut bld.entity_map,
         &mut food_storage, &mut gold_storage,
         &mut faction_stats, &mut state.raider_state,
+        &mut uid_alloc,
     );
     world::materialize_generated_world(
         &mut commands,
@@ -108,6 +112,7 @@ pub fn setup(
                     &mut slot_alloc, &mut bld.entity_map,
                     BuildingKind::ArcherHome, center + offset,
                     ti as u32, faction, 0, 0,
+                    &mut uid_alloc, None,
                 );
             }
         }
@@ -123,6 +128,7 @@ pub fn setup(
                 &mut slot_alloc, &mut bld.entity_map,
                 BuildingKind::Farm, farm_pos,
                 player_ti as u32, 0, 0, 0,
+                &mut uid_alloc, None,
             );
         }
     }
@@ -167,6 +173,7 @@ pub fn tick(
     mut local: ResMut<SlotReuseTestState>,
     mut health_q: Query<&mut Health>,
     world_data: Res<world::WorldData>,
+    mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
@@ -180,16 +187,18 @@ pub fn tick(
                 for &si in &player.squad_indices {
                     if let Some(squad) = squad_state.squads.get(si) {
                         if squad.wave_active {
-                            // Found active wave — record target slot
+                            // Found active wave — record target UID + slot
                             if let Some(cmd) = player.squad_cmd.get(&si) {
-                                if let Some(slot) = cmd.building_gpu_slot {
-                                    local.building_gpu_slot = Some(slot);
+                                if let Some(uid) = cmd.building_uid {
+                                    let slot = entity_map.slot_for_uid(uid);
+                                    local.target_uid = Some(uid);
+                                    local.building_gpu_slot = slot;
                                     local.target_pos = squad.target;
                                     local.attack_squad_idx = Some(si);
                                     let pos_str = squad.target.map(|p| format!("({:.0}, {:.0})", p.x, p.y)).unwrap_or("None".into());
                                     test.pass_phase(elapsed, format!(
-                                        "wave active: squad {} → slot {} at {}",
-                                        si, slot, pos_str,
+                                        "wave active: squad {} → uid {} (slot {:?}) at {}",
+                                        si, uid.0, slot, pos_str,
                                     ));
                                     return;
                                 }
@@ -266,6 +275,7 @@ pub fn tick(
                     &mut slot_alloc, &mut entity_map,
                     BuildingKind::Farm, new_pos,
                     ai_ti as u32, ai_faction, 0, 0,
+                    &mut uid_alloc, None,
                 );
 
                 if let Some(ns) = new_slot {
@@ -307,16 +317,16 @@ pub fn tick(
             if local.heartbeat_wait < 3.0 { return; }
 
             if let Some(squad) = squad_state.squads.get(si) {
-                if squad.wave_active {
-                    // BUG CONFIRMED: wave is still active despite target being destroyed
+                if !squad.wave_active {
+                    // FIX CONFIRMED: wave ended correctly after target destroyed (UID-based identity)
+                    test.pass_phase(elapsed, "fix confirmed: wave ends after target destroyed");
+                } else {
+                    // Bug still present — UID lookup should have resolved this
                     let target_str = squad.target.map(|p| format!("({:.0}, {:.0})", p.x, p.y)).unwrap_or("None".into());
-                    test.pass_phase(elapsed, format!(
-                        "BUG CONFIRMED: wave still active after target destroyed. squad.target={}",
+                    test.fail_phase(elapsed, format!(
+                        "wave still active after target destroyed (UID bug?). squad.target={}",
                         target_str,
                     ));
-                } else {
-                    // Wave ended correctly — bug is fixed (or wasn't triggered)
-                    test.fail_phase(elapsed, "wave ended correctly — slot reuse ABA did not trigger");
                 }
             } else {
                 test.fail_phase(elapsed, format!("squad {} no longer exists", si));

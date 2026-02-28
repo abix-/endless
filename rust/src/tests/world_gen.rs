@@ -18,12 +18,13 @@ pub fn setup(
     mut entity_map: ResMut<EntityMap>,
     mut test_state: ResMut<TestState>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
+    mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
 ) {
     // Generate the world using our config (default: 2 towns)
     town_grids.grids.clear();
     entity_map.clear_buildings();
     entity_map.entities.clear();
-    world::generate_world(&config, &mut world_grid, &mut world_data, &mut town_grids, &mut slot_alloc, &mut entity_map);
+    world::generate_world(&config, &mut world_grid, &mut world_data, &mut town_grids, &mut slot_alloc, &mut entity_map, &mut uid_alloc);
 
     // Init supporting resources based on generated world
     let total_towns = world_data.towns.len();

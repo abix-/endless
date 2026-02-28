@@ -95,6 +95,7 @@ pub fn tick(
                     work_x: -1.0, work_y: -1.0,
                     starting_post: -1,
                     attack_type: 0,
+                    uid_override: None,
                 });
                 test.set_flag("respawned", true);
                 test.phase_name = format!("Spawned at slot {}, killed was {}", new_slot, killed_slot);

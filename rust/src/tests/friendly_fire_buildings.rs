@@ -28,6 +28,7 @@ pub fn setup(
     mut faction_stats: ResMut<FactionStats>,
     mut test_state: ResMut<TestState>,
     mut camera_query: Query<&mut Transform, With<MainCamera>>,
+    mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
 ) {
     // Grid must exist so building spatial grid rebuild runs in normal systems.
     world_grid.width = 40;
@@ -53,7 +54,7 @@ pub fn setup(
     // Friendly vertical farm wall in projectile lane.
     for y in FARM_WALL_Y {
         let pos = Vec2::new(FARM_WALL_X, y);
-        world::place_building_instance(&mut slot_alloc, &mut entity_map, world::BuildingKind::Farm, pos, 0, 0, 0, 0);
+        world::place_building_instance(&mut slot_alloc, &mut entity_map, world::BuildingKind::Farm, pos, 0, 0, 0, 0, &mut uid_alloc, None);
 
         // Building instance registered via place_building_instance above
     }
@@ -73,6 +74,7 @@ pub fn setup(
         work_y: -1.0,
         starting_post: -1,
         attack_type: 1, // ranged
+        uid_override: None,
     });
 
     // Target dummy (faction 1, melee) so only one side shoots.
@@ -90,6 +92,7 @@ pub fn setup(
         work_y: -1.0,
         starting_post: -1,
         attack_type: 0, // melee
+        uid_override: None,
     });
 
     if let Ok(mut cam) = camera_query.single_mut() {

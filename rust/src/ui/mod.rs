@@ -232,6 +232,7 @@ fn game_load_system(
     combat_config: Res<crate::systems::stats::CombatConfig>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     mut mining_policy: ResMut<MiningPolicy>,
+    mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
 ) {
     if !save_request.load_on_enter { return; }
     save_request.load_on_enter = false;
@@ -263,6 +264,7 @@ fn game_load_system(
         &mut entity_map,
         &mut gpu_updates,
         &combat_config,
+        &mut uid_alloc,
     );
     *mining_policy = MiningPolicy::default();
 
@@ -314,6 +316,7 @@ fn game_startup_system(
         &mut world_state.entity_map,
         &mut food_storage, &mut extra.gold_storage,
         &mut faction_stats, &mut raider_state,
+        &mut world_state.uid_alloc,
     );
     let total = world::materialize_generated_world(
         &mut commands,

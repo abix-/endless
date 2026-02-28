@@ -413,11 +413,11 @@ fn click_to_select_system(
             && click.squad_state.squads[si as usize].is_player()
         {
             let members: Vec<usize> = click.squad_state.squads[si as usize].members.iter()
-                .copied()
+                .filter_map(|uid| click.entity_map.slot_for_uid(*uid))
                 .filter(|&slot| {
                     click.entity_map.entities.get(&slot)
                         .and_then(|&e| npc_flags_q.get(e).ok())
-                        .is_some_and(|f| f.direct_control)  // NpcFlags query read
+                        .is_some_and(|f| f.direct_control)
                 })
                 .collect();
             if members.is_empty() { return; }
@@ -650,7 +650,8 @@ fn click_to_select_system(
     if best_idx < 0 && best_building.is_none() {
         for squad in click.squad_state.squads.iter() {
             if !squad.is_player() { continue; }
-            for &slot in &squad.members {
+            for &uid in &squad.members {
+                let Some(slot) = click.entity_map.slot_for_uid(uid) else { continue };
                 if let Some(&entity) = click.entity_map.entities.get(&slot) {
                     if let Ok(mut flags) = npc_flags_q.get_mut(entity) {
                         flags.direct_control = false;
@@ -741,7 +742,8 @@ fn box_select_system(
                     let si = if squad_state.selected < 0 { 0 } else { squad_state.selected as usize };
                     if si < squad_state.squads.len() && squad_state.squads[si].is_player() {
                         // Remove DirectControl from old squad members being replaced
-                        for &old_slot in &squad_state.squads[si].members {
+                        for &old_uid in &squad_state.squads[si].members {
+                            let Some(old_slot) = entity_map.slot_for_uid(old_uid) else { continue };
                             if !selected_set.contains(&old_slot) {
                                 if let Some(&entity) = entity_map.entities.get(&old_slot) {
                                     if let Ok(mut flags) = npc_flags_q.get_mut(entity) {
@@ -754,10 +756,14 @@ fn box_select_system(
                         for qi in 0..squad_state.squads.len() {
                             if qi == si { continue; }
                             if !squad_state.squads[qi].is_player() { continue; }
-                            squad_state.squads[qi].members.retain(|s| !selected_set.contains(s));
+                            squad_state.squads[qi].members.retain(|uid| {
+                                entity_map.slot_for_uid(*uid).map_or(false, |s| !selected_set.contains(&s))
+                            });
                         }
-                        // Set as the squad's members (replace, not append)
-                        squad_state.squads[si].members = selected_slots.clone();
+                        // Set as the squad's members (replace, not append) — convert slots to UIDs
+                        squad_state.squads[si].members = selected_slots.iter()
+                            .filter_map(|&slot| entity_map.uid_for_slot(slot))
+                            .collect();
                         // Update SquadId + DirectControl on each selected NPC
                         for &slot in &selected_slots {
                             if let Some(&entity) = entity_map.entities.get(&slot) {

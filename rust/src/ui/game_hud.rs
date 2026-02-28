@@ -943,8 +943,8 @@ fn inspector_content(
                 info.push_str(&format!("ManualTarget: {}\n", manual_target_str));
                 if let Ok(ws) = bld_data.work_state_q.get(npc.entity) {
                     info.push_str(&format!(
-                        "WorkState: occupied_slot={:?} work_target={:?}\n",
-                        ws.occupied_slot, ws.work_target
+                        "WorkState: occupied={:?} work_target={:?}\n",
+                        ws.occupied_building, ws.work_target_building
                     ));
                 }
                 if let Some(sq) = bld_data.squad_id_q.get(npc.entity).ok().map(|s| s.0) {
@@ -1372,33 +1372,33 @@ fn building_inspector_content(
                     .filter(|i| crate::constants::building_def(i.kind).spawner.is_some())
                 {
                     ui.label(format!("Spawns: {}", spawns_label));
-                    if inst.npc_gpu_slot >= 0 {
-                        let slot = inst.npc_gpu_slot as usize;
-                        if slot < meta_cache.0.len() {
-                            let meta = &meta_cache.0[slot];
-                            ui.label(format!("NPC: {} (Lv.{})", meta.name, meta.level));
-                        }
-                        ui.colored_label(egui::Color32::from_rgb(80, 200, 80), "Alive");
-                        // Show NPC state from EntityMap + ECS
-                        if let Some(npc) = bld.entity_map.get_npc(slot) {
-                            let mut parts: Vec<&str> = Vec::new();
-                            let combat_name = bld.combat_state_q.get(npc.entity).map(|cs| cs.name()).unwrap_or("");
-                            if !combat_name.is_empty() { parts.push(combat_name); }
-                            parts.push(bld.activity_q.get(npc.entity).map(|a| a.name()).unwrap_or("Unknown"));
-                            ui.label(format!("State: {}", parts.join(", ")));
-                            if let Some(sq) = bld.squad_id_q.get(npc.entity).ok().map(|s| s.0) {
-                                ui.label(format!("Squad: {}", sq + 1));
+                    if let Some(npc_uid) = inst.npc_uid {
+                        if let Some(slot) = bld.entity_map.slot_for_uid(npc_uid) {
+                            if slot < meta_cache.0.len() {
+                                let meta = &meta_cache.0[slot];
+                                ui.label(format!("NPC: {} (Lv.{})", meta.name, meta.level));
                             }
-                            let has_patrol = bld.patrol_route_q.get(npc.entity).is_ok_and(|r| !r.posts.is_empty());
-                            ui.label(format!("Patrol route: {}", if has_patrol { "yes" } else { "none" }));
-                            if slot * 2 + 1 < gpu_state.positions.len() {
-                                let px = gpu_state.positions[slot * 2];
-                                let py = gpu_state.positions[slot * 2 + 1];
-                                if px > -9000.0 {
-                                    ui.label(format!("GPU pos: ({:.0}, {:.0})", px, py));
+                            ui.colored_label(egui::Color32::from_rgb(80, 200, 80), "Alive");
+                            if let Some(npc) = bld.entity_map.get_npc(slot) {
+                                let mut parts: Vec<&str> = Vec::new();
+                                let combat_name = bld.combat_state_q.get(npc.entity).map(|cs| cs.name()).unwrap_or("");
+                                if !combat_name.is_empty() { parts.push(combat_name); }
+                                parts.push(bld.activity_q.get(npc.entity).map(|a| a.name()).unwrap_or("Unknown"));
+                                ui.label(format!("State: {}", parts.join(", ")));
+                                if let Some(sq) = bld.squad_id_q.get(npc.entity).ok().map(|s| s.0) {
+                                    ui.label(format!("Squad: {}", sq + 1));
                                 }
+                                let has_patrol = bld.patrol_route_q.get(npc.entity).is_ok_and(|r| !r.posts.is_empty());
+                                ui.label(format!("Patrol route: {}", if has_patrol { "yes" } else { "none" }));
+                                if slot * 2 + 1 < gpu_state.positions.len() {
+                                    let px = gpu_state.positions[slot * 2];
+                                    let py = gpu_state.positions[slot * 2 + 1];
+                                    if px > -9000.0 {
+                                        ui.label(format!("GPU pos: ({:.0}, {:.0})", px, py));
+                                    }
+                                }
+                                ui.label(format!("Home: ({:.0}, {:.0})", bld.home_q.get(npc.entity).map(|h| h.0.x).unwrap_or(0.0), bld.home_q.get(npc.entity).map(|h| h.0.y).unwrap_or(0.0)));
                             }
-                            ui.label(format!("Home: ({:.0}, {:.0})", bld.home_q.get(npc.entity).map(|h| h.0.x).unwrap_or(0.0), bld.home_q.get(npc.entity).map(|h| h.0.y).unwrap_or(0.0)));
                         }
                     } else if inst.respawn_timer > 0.0 {
                         ui.colored_label(egui::Color32::from_rgb(200, 200, 40),
@@ -1709,31 +1709,32 @@ fn building_inspector_content(
                 if let Some(inst) = bld.entity_map.find_by_position(world_pos) {
                     let spawns_label = npc_def(Job::from_i32(spawner.job)).label;
                     info.push_str(&format!("Spawns: {}\n", spawns_label));
-                    if inst.npc_gpu_slot >= 0 {
-                        let slot = inst.npc_gpu_slot as usize;
-                        if slot < meta_cache.0.len() {
-                            let meta = &meta_cache.0[slot];
-                            info.push_str(&format!("NPC: {} (Lv.{}) slot={}\n", meta.name, meta.level, slot));
-                        }
-                        if let Some(npc) = bld.entity_map.get_npc(slot) {
-                            let combat_name = bld.combat_state_q.get(npc.entity).map(|cs| cs.name()).unwrap_or("");
-                            let act_name = bld.activity_q.get(npc.entity).map(|a| a.name()).unwrap_or("Unknown");
-                            info.push_str(&format!("State: {}{}\n",
-                                if combat_name.is_empty() { "" } else { combat_name },
-                                if combat_name.is_empty() { act_name.to_string() } else { format!(", {}", act_name) }));
-                            if let Some(sq) = bld.squad_id_q.get(npc.entity).ok().map(|s| s.0) {
-                                info.push_str(&format!("Squad: {}\n", sq + 1));
+                    if let Some(npc_uid) = inst.npc_uid {
+                        if let Some(slot) = bld.entity_map.slot_for_uid(npc_uid) {
+                            if slot < meta_cache.0.len() {
+                                let meta = &meta_cache.0[slot];
+                                info.push_str(&format!("NPC: {} (Lv.{}) uid={}\n", meta.name, meta.level, npc_uid.0));
                             }
-                            let has_patrol = bld.patrol_route_q.get(npc.entity).is_ok_and(|r| !r.posts.is_empty());
-                            info.push_str(&format!("Patrol route: {}\n", if has_patrol { "yes" } else { "none" }));
-                            if slot * 2 + 1 < gpu_state.positions.len() {
-                                let px = gpu_state.positions[slot * 2];
-                                let py = gpu_state.positions[slot * 2 + 1];
-                                if px > -9000.0 {
-                                    info.push_str(&format!("GPU pos: ({:.0}, {:.0})\n", px, py));
+                            if let Some(npc) = bld.entity_map.get_npc(slot) {
+                                let combat_name = bld.combat_state_q.get(npc.entity).map(|cs| cs.name()).unwrap_or("");
+                                let act_name = bld.activity_q.get(npc.entity).map(|a| a.name()).unwrap_or("Unknown");
+                                info.push_str(&format!("State: {}{}\n",
+                                    if combat_name.is_empty() { "" } else { combat_name },
+                                    if combat_name.is_empty() { act_name.to_string() } else { format!(", {}", act_name) }));
+                                if let Some(sq) = bld.squad_id_q.get(npc.entity).ok().map(|s| s.0) {
+                                    info.push_str(&format!("Squad: {}\n", sq + 1));
                                 }
+                                let has_patrol = bld.patrol_route_q.get(npc.entity).is_ok_and(|r| !r.posts.is_empty());
+                                info.push_str(&format!("Patrol route: {}\n", if has_patrol { "yes" } else { "none" }));
+                                if slot * 2 + 1 < gpu_state.positions.len() {
+                                    let px = gpu_state.positions[slot * 2];
+                                    let py = gpu_state.positions[slot * 2 + 1];
+                                    if px > -9000.0 {
+                                        info.push_str(&format!("GPU pos: ({:.0}, {:.0})\n", px, py));
+                                    }
+                                }
+                                info.push_str(&format!("Home: ({:.0}, {:.0})\n", bld.home_q.get(npc.entity).map(|h| h.0.x).unwrap_or(0.0), bld.home_q.get(npc.entity).map(|h| h.0.y).unwrap_or(0.0)));
                             }
-                            info.push_str(&format!("Home: ({:.0}, {:.0})\n", bld.home_q.get(npc.entity).map(|h| h.0.x).unwrap_or(0.0), bld.home_q.get(npc.entity).map(|h| h.0.y).unwrap_or(0.0)));
                         }
                     } else if inst.respawn_timer > 0.0 {
                         info.push_str(&format!("Respawning in {:.0}h\n", inst.respawn_timer));

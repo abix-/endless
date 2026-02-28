@@ -245,13 +245,14 @@ pub fn spawner_respawn_system(
     mut combat_log: MessageWriter<CombatLogMsg>,
     timings: Res<SystemTimings>,
     mut dirty_writers: crate::messages::DirtyWriters,
+    mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
 ) {
     let _t = timings.scope("spawner_respawn");
     if !game_time.hour_ticked {
         return;
     }
 
-    // Collect spawner slots to avoid borrow conflict (need &mut for npc_gpu_slot/respawn_timer, & for resolve)
+    // Collect spawner slots to avoid borrow conflict (need &mut for npc_uid/respawn_timer, & for resolve)
     let spawner_slots: Vec<usize> = entity_map.iter_instances()
         .filter(|i| i.respawn_timer > -2.0)
         .map(|i| i.slot)
@@ -260,14 +261,19 @@ pub fn spawner_respawn_system(
     for bld_slot in spawner_slots {
         let Some(inst) = entity_map.get_instance(bld_slot) else { continue };
 
-        // Check if linked NPC died
-        if inst.npc_gpu_slot >= 0 && !entity_map.entities.contains_key(&(inst.npc_gpu_slot as usize)) {
-            let is_miner_home = inst.kind == BuildingKind::MinerHome;
-            if let Some(inst_mut) = entity_map.get_instance_mut(bld_slot) {
-                inst_mut.npc_gpu_slot = -1;
-                inst_mut.respawn_timer = SPAWNER_RESPAWN_HOURS;
+        // Check if linked NPC died (UID no longer maps to a live slot)
+        if let Some(npc_uid) = inst.npc_uid {
+            let npc_alive = entity_map.slot_for_uid(npc_uid)
+                .map(|s| entity_map.entities.contains_key(&s))
+                .unwrap_or(false);
+            if !npc_alive {
+                let is_miner_home = inst.kind == BuildingKind::MinerHome;
+                if let Some(inst_mut) = entity_map.get_instance_mut(bld_slot) {
+                    inst_mut.npc_uid = None;
+                    inst_mut.respawn_timer = SPAWNER_RESPAWN_HOURS;
+                }
+                if is_miner_home { dirty_writers.mining.write(crate::messages::MiningDirtyMsg); }
             }
-            if is_miner_home { dirty_writers.mining.write(crate::messages::MiningDirtyMsg); }
         }
 
         let Some(inst) = entity_map.get_instance(bld_slot) else { continue };
@@ -288,15 +294,17 @@ pub fn spawner_respawn_system(
 
                 let pos = inst.position;
                 let is_miner_home = inst.kind == BuildingKind::MinerHome;
+                let npc_uid = uid_alloc.next();
                 spawn_writer.write(SpawnNpcMsg {
                     slot_idx: slot,
                     x: pos.x, y: pos.y,
                     job, faction, town_idx: town_data_idx as i32,
                     home_x: pos.x, home_y: pos.y,
                     work_x, work_y, starting_post, attack_type,
+                    uid_override: Some(npc_uid),
                 });
                 if let Some(inst_mut) = entity_map.get_instance_mut(bld_slot) {
-                    inst_mut.npc_gpu_slot = slot as i32;
+                    inst_mut.npc_uid = Some(npc_uid);
                     inst_mut.respawn_timer = -1.0;
                 }
                 if is_miner_home { dirty_writers.mining.write(crate::messages::MiningDirtyMsg); }
@@ -364,8 +372,8 @@ pub fn mining_policy_system(
         // Collect auto-assign miner home slots (O(town's miner homes) instead of O(all spawners))
         let auto_home_slots: Vec<usize> = entity_map
             .iter_kind_for_town(BuildingKind::MinerHome, town_idx as u32)
-            .filter(|inst| !inst.manual_mine && inst.npc_gpu_slot >= 0
-                && entity_map.entities.contains_key(&(inst.npc_gpu_slot as usize)))
+            .filter(|inst| !inst.manual_mine && inst.npc_uid.is_some()
+                && inst.npc_uid.and_then(|uid| entity_map.slot_for_uid(uid)).map(|s| entity_map.entities.contains_key(&s)).unwrap_or(false))
             .map(|inst| inst.slot)
             .collect();
 
@@ -424,27 +432,33 @@ pub fn squad_cleanup_system(
 
     // Phase 1: remove dead members (all squads)
     for squad in squad_state.squads.iter_mut() {
-        squad.members.retain(|&slot| {
-            entity_map.get_npc(slot).is_some_and(|n| !n.dead)
+        squad.members.retain(|&uid| {
+            entity_map.slot_for_uid(uid)
+                .and_then(|slot| entity_map.get_npc(slot))
+                .is_some_and(|n| !n.dead)
         });
     }
 
     // Phase 2: keep Default Squad (index 0) as the live pool of unsquadded player military units.
     if let Some(default_squad) = squad_state.squads.get_mut(0) {
         if default_squad.is_player() {
-            let new_members: Vec<(usize, Entity)> = recruit_q.iter()
+            let new_members: Vec<(usize, Entity, crate::components::EntityUid)> = recruit_q.iter()
                 .filter(|(slot, job, town_id, sq_id)| {
                     job.is_military() && town_id.0 == player_town
                         && !pending_squad.get(&slot.0).map(|v| v.is_some()).unwrap_or(sq_id.is_some())
                 })
                 .map(|(slot, _, _, _)| slot.0)
-                .filter_map(|slot| entity_map.entities.get(&slot).map(|&e| (slot, e)))
+                .filter_map(|slot| {
+                    let entity = *entity_map.entities.get(&slot)?;
+                    let uid = entity_map.uid_for_slot(slot)?;
+                    Some((slot, entity, uid))
+                })
                 .collect();
-            for (slot, entity) in new_members {
+            for (slot, entity, uid) in new_members {
                 commands.entity(entity).insert(SquadId(0));
                 pending_squad.insert(slot, Some(0));
-                if !default_squad.members.contains(&slot) {
-                    default_squad.members.push(slot);
+                if !default_squad.members.contains(&uid) {
+                    default_squad.members.push(uid);
                 }
             }
         }
@@ -453,8 +467,9 @@ pub fn squad_cleanup_system(
     // Phase 3: dismiss excess (target_size > 0 and members > target_size, all squads)
     for (si, squad) in squad_state.squads.iter_mut().enumerate() {
         if squad.target_size > 0 && squad.members.len() > squad.target_size {
-            let to_dismiss: Vec<usize> = squad.members.drain(squad.target_size..).collect();
-            for &slot in &to_dismiss {
+            let to_dismiss: Vec<crate::components::EntityUid> = squad.members.drain(squad.target_size..).collect();
+            for &uid in &to_dismiss {
+                let Some(slot) = entity_map.slot_for_uid(uid) else { continue };
                 if let Some(&entity) = entity_map.entities.get(&slot) {
                     let current_sq = pending_squad.get(&slot).copied().flatten()
                         .or_else(|| squad_id_q.get(entity).ok().map(|s| s.0));
@@ -472,7 +487,7 @@ pub fn squad_cleanup_system(
 
     // Phase 4: auto-recruit to fill target_size (owner-aware)
     let assigned_slots: HashSet<usize> = squad_state.squads.iter()
-        .flat_map(|s| s.members.iter().copied())
+        .flat_map(|s| s.members.iter().filter_map(|uid| entity_map.slot_for_uid(*uid)))
         .collect();
 
     // Build per-owner pools: group available (unsquadded) military units by town.
@@ -501,7 +516,9 @@ pub fn squad_cleanup_system(
                     commands.entity(entity).insert(SquadId(si as i32));
                     pending_squad.insert(slot, Some(si as i32));
                 }
-                squad.members.push(slot);
+                if let Some(uid) = entity_map.uid_for_slot(slot) {
+                    squad.members.push(uid);
+                }
             } else {
                 break;
             }
@@ -702,6 +719,7 @@ pub fn endless_system(
                         faction: next_faction, town_idx: -1,
                         home_x: mg.settle_target.x, home_y: mg.settle_target.y,
                         work_x: -1.0, work_y: -1.0, starting_post: -1, attack_type: 0,
+                        uid_override: None,
                     });
                     mg.member_slots.push(slot);
                 }
@@ -799,7 +817,7 @@ pub fn endless_system(
 
         // Place buildings directly into EntityMap
         if let Some(town_grid) = world_state.town_grids.grids.get_mut(grid_idx) {
-            world::place_buildings(&mut world_state.grid, &world_state.world_data, mg.settle_target, town_data_idx as u32, &config, town_grid, is_raider, &mut world_state.entity_slots, &mut world_state.entity_map);
+            world::place_buildings(&mut world_state.grid, &world_state.world_data, mg.settle_target, town_data_idx as u32, &config, town_grid, is_raider, &mut world_state.entity_slots, &mut world_state.entity_map, &mut world_state.uid_alloc);
         }
         world::stamp_dirt(&mut world_state.grid, &[mg.settle_target]);
 

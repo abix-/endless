@@ -101,6 +101,7 @@ pub struct UpgradeParams<'w> {
 pub struct SquadParams<'w> {
     squad_state: ResMut<'w, SquadState>,
     gpu_state: Res<'w, GpuReadState>,
+    entity_map: Res<'w, EntityMap>,
 }
 
 // ============================================================================
@@ -131,7 +132,7 @@ struct SquadSnapshot {
     patrol_enabled: bool,
     rest_when_tired: bool,
     target: Option<Vec2>,
-    commander_slot: Option<usize>,
+    commander_uid: Option<crate::components::EntityUid>,
     commander_cooldown: Option<f32>,
 }
 
@@ -954,8 +955,11 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
         if def.job == Job::Raider { continue; }
         let job_id = def.job as i32;
         // Available units of this job in default squad (squad 0)
-        let available: Vec<usize> = squad.squad_state.squads[0].members.iter().copied()
-            .filter(|&slot| slot < meta_cache.0.len() && meta_cache.0[slot].job == job_id)
+        let available: Vec<crate::components::EntityUid> = squad.squad_state.squads[0].members.iter().copied()
+            .filter(|uid| {
+                squad.entity_map.slot_for_uid(*uid)
+                    .is_some_and(|slot| slot < meta_cache.0.len() && meta_cache.0[slot].job == job_id)
+            })
             .collect();
         let avail_count = available.len();
         if avail_count == 0 && si == 0 { continue; }
@@ -971,11 +975,11 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
                 for amount in [1usize, 2, 4, 8, 16, 32] {
                     if amount > avail_count { break; }
                     if ui.small_button(format!("+{}", amount)).clicked() {
-                        let recruits: Vec<usize> = available.iter().copied().take(amount).collect();
+                        let recruits: Vec<crate::components::EntityUid> = available.iter().copied().take(amount).collect();
                         squad.squad_state.squads[0].members.retain(|s| !recruits.contains(s));
-                        for slot in recruits {
-                            if !squad.squad_state.squads[si].members.contains(&slot) {
-                                squad.squad_state.squads[si].members.push(slot);
+                        for uid in recruits {
+                            if !squad.squad_state.squads[si].members.contains(&uid) {
+                                squad.squad_state.squads[si].members.push(uid);
                             }
                         }
                         let selected_len = squad.squad_state.squads[si].members.len();
@@ -1002,7 +1006,8 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
     // Member list
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         let members = &squad.squad_state.squads[si].members;
-        for &slot in members {
+        for &uid in members {
+            let Some(slot) = squad.entity_map.slot_for_uid(uid) else { continue };
             if slot >= meta_cache.0.len() { continue; }
             let meta = &meta_cache.0[slot];
             if meta.name.is_empty() { continue; }
@@ -1069,7 +1074,7 @@ fn rebuild_factions_cache(
             .filter(|def| def.spawner.is_some())
             .map(|def| {
                 let count = factions.entity_map.iter_kind_for_town(def.kind, tdi as u32)
-                    .filter(|i| i.npc_gpu_slot >= 0 && is_alive(i.position)).count();
+                    .filter(|i| i.npc_uid.is_some() && is_alive(i.position)).count();
                 (def.kind, count)
             })
             .collect();
@@ -1229,9 +1234,9 @@ fn rebuild_factions_cache(
                     return None;
                 }
 
-                let (commander_slot, commander_cooldown) = ai_player
+                let (commander_uid, commander_cooldown) = ai_player
                     .and_then(|p| p.squad_cmd.get(&si))
-                    .map(|cmd| (cmd.building_gpu_slot, Some(cmd.cooldown)))
+                    .map(|cmd| (cmd.building_uid, Some(cmd.cooldown)))
                     .unwrap_or((None, None));
 
                 Some(SquadSnapshot {
@@ -1241,7 +1246,7 @@ fn rebuild_factions_cache(
                     patrol_enabled: squad.patrol_enabled,
                     rest_when_tired: squad.rest_when_tired,
                     target: squad.target,
-                    commander_slot,
+                    commander_uid,
                     commander_cooldown,
                 })
             })
@@ -1383,8 +1388,8 @@ fn build_faction_debug_string(snap: &AiSnapshot) -> String {
                 else if i == 0 { "DEF" }
                 else if sq.target_size == 0 { "IDLE" }
                 else { "ATK" };
-            let target = if let Some(slot) = sq.commander_slot {
-                format!("slot#{}", slot)
+            let target = if let Some(uid) = sq.commander_uid {
+                format!("uid#{}", uid.0)
             } else if sq.target.is_some() {
                 "Map target".into()
             } else {
@@ -1941,15 +1946,15 @@ fn factions_content(
                             let mut state_bits: Vec<&str> = Vec::new();
                             if squad.patrol_enabled { state_bits.push("PATROL"); }
                             if squad.rest_when_tired { state_bits.push("REST"); }
-                            if squad.commander_slot.is_some() { state_bits.push("LOCK"); }
+                            if squad.commander_uid.is_some() { state_bits.push("LOCK"); }
                             let state = if state_bits.is_empty() {
                                 "-".to_string()
                             } else {
                                 state_bits.join(" ")
                             };
 
-                            let target = if let Some(slot) = squad.commander_slot {
-                                format!("slot#{}", slot)
+                            let target = if let Some(uid) = squad.commander_uid {
+                                format!("uid#{}", uid.0)
                             } else if squad.target.is_some() {
                                 "Map target".to_string()
                             } else {

@@ -23,6 +23,7 @@ pub fn setup(
     mut faction_stats: ResMut<FactionStats>,
     mut test_state: ResMut<TestState>,
     mut camera_query: Query<&mut Transform, With<MainCamera>>,
+    mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
 ) {
     // Ensure world/grid visuals are initialized so building + extras atlases
     // are composited and sampled correctly in this test scene.
@@ -55,6 +56,8 @@ pub fn setup(
         0,
         0,
         0,
+        &mut uid_alloc,
+        None,
     ).expect("archer home A slot alloc");
     let _home_b = world::place_building_instance(
         &mut slot_alloc,
@@ -65,6 +68,8 @@ pub fn setup(
         0,
         0,
         0,
+        &mut uid_alloc,
+        None,
     ).expect("archer home B slot alloc");
 
     let tent_slot = world::place_building_instance(
@@ -76,6 +81,8 @@ pub fn setup(
         1,
         0,
         0,
+        &mut uid_alloc,
+        None,
     ).expect("tent slot alloc");
     test_state.counters.insert("tent_slot".into(), tent_slot as u32);
 

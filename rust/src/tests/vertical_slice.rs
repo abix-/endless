@@ -65,6 +65,7 @@ pub fn setup(
     // Spawn 5 farmers + register spawners
     for (i, &(fx, fy)) in FARMS.iter().enumerate() {
         let slot = params.slot_alloc.alloc().expect("slot alloc");
+        let uid = params.uid_alloc.next();
         params.spawn_events.write(crate::messages::SpawnNpcMsg {
             slot_idx: slot,
             x: fx, y: fy + 200.0,
@@ -73,15 +74,17 @@ pub fn setup(
             work_x: fx, work_y: fy,
             starting_post: -1,
             attack_type: 0,
+            uid_override: Some(uid),
         });
         if let Some(inst) = params.entity_map.find_by_position_mut(Vec2::new(300.0 + (i as f32 * 50.0), 450.0)) {
-            inst.npc_gpu_slot = slot as i32;
+            inst.npc_uid = Some(uid);
         }
     }
 
     // Spawn 2 guards + register spawners
     for i in 0..2 {
         let slot = params.slot_alloc.alloc().expect("slot alloc");
+        let uid = params.uid_alloc.next();
         params.spawn_events.write(crate::messages::SpawnNpcMsg {
             slot_idx: slot,
             x: 400.0, y: 400.0,
@@ -90,15 +93,17 @@ pub fn setup(
             work_x: -1.0, work_y: -1.0,
             starting_post: i,
             attack_type: 0,
+            uid_override: Some(uid),
         });
         if let Some(inst) = params.entity_map.find_by_position_mut(Vec2::new(400.0, 400.0)) {
-            inst.npc_gpu_slot = slot as i32;
+            inst.npc_uid = Some(uid);
         }
     }
 
     // Spawn 5 raiders + register spawners
     for i in 0..5 {
         let slot = params.slot_alloc.alloc().expect("slot alloc");
+        let uid = params.uid_alloc.next();
         params.spawn_events.write(crate::messages::SpawnNpcMsg {
             slot_idx: slot,
             x: 380.0 + (i as f32 * 10.0), y: 100.0,
@@ -107,9 +112,10 @@ pub fn setup(
             work_x: -1.0, work_y: -1.0,
             starting_post: -1,
             attack_type: 0,
+            uid_override: Some(uid),
         });
         if let Some(inst) = params.entity_map.find_by_position_mut(Vec2::new(380.0 + (i as f32 * 10.0), 100.0)) {
-            inst.npc_gpu_slot = slot as i32;
+            inst.npc_uid = Some(uid);
         }
     }
 

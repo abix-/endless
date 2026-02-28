@@ -16,6 +16,7 @@ pub struct WorldState<'w> {
     pub dirty_writers: DirtyWriters<'w>,
     pub entity_slots: ResMut<'w, GpuSlotPool>,
     pub entity_map: ResMut<'w, EntityMap>,
+    pub uid_alloc: ResMut<'w, NextEntityUid>,
 }
 
 impl WorldState<'_> {
@@ -34,6 +35,7 @@ impl WorldState<'_> {
             food_storage, &mut self.entity_slots, &mut self.entity_map,
             &mut self.dirty_writers, kind, town_data_idx, world_pos, cost,
             &self.town_grids, gpu_updates, commands,
+            &mut self.uid_alloc,
         )
     }
 

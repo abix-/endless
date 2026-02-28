@@ -43,6 +43,7 @@ pub fn setup(
         work_x: -1.0, work_y: -1.0,
         starting_post: -1,
         attack_type: 1, // ranged
+        uid_override: None,
     });
     let slot1 = slot_alloc.alloc().expect("slot alloc");
     spawn_events.write(SpawnNpcMsg {
@@ -53,6 +54,7 @@ pub fn setup(
         work_x: -1.0, work_y: -1.0,
         starting_post: -1,
         attack_type: 1, // ranged
+        uid_override: None,
     });
 
     if let Ok(mut cam) = camera_query.single_mut() {

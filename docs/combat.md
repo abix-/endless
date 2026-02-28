@@ -48,7 +48,7 @@ DamageMsg (from process_proj_hits)             GPU movement
           ├─ XP grant (LastHitBy → 100 XP, level-up, stat re-resolve)
           ├─ NPC kill loot (npc_def loot_drop → Activity::Returning)
           ├─ despawn entity, HideNpc → GPU (-9999)
-          ├─ Release NpcWorkState (occupied_slot + work_target)
+          ├─ Release NpcWorkState (occupied_building + work_target_building UIDs → resolved to slots for release)
           ├─ Update FactionStats, KillStats, PopulationStats
           └─ GpuSlotPool.free(idx)
         │

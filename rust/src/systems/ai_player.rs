@@ -658,8 +658,8 @@ pub fn cheapest_gold_upgrade_cost(weights: &[f32], levels: &[u8], gold: i32) -> 
 /// Per-squad AI command state — independent cooldown and target memory.
 #[derive(Clone, Default)]
 pub struct AiSquadCmdState {
-    /// Target building slot (sole runtime identity). Validated alive each cycle.
-    pub building_gpu_slot: Option<usize>,
+    /// Target building UID (stable identity, survives slot reuse).
+    pub building_uid: Option<crate::components::EntityUid>,
     /// Seconds remaining before retarget is allowed.
     pub cooldown: f32,
 }
@@ -1881,8 +1881,8 @@ fn log_ai(log: &mut MessageWriter<crate::messages::CombatLogMsg>, gt: &GameTime,
 // ============================================================================
 
 /// Resolve a building's position by slot. Returns None if slot has no instance (dead/freed).
-fn resolve_building_pos(entity_map: &EntityMap, slot: usize) -> Option<Vec2> {
-    entity_map.get_instance(slot).map(|inst| inst.position)
+fn resolve_building_pos(entity_map: &EntityMap, uid: crate::components::EntityUid) -> Option<Vec2> {
+    entity_map.instance_by_uid(uid).map(|inst| inst.position)
 }
 
 impl AiPersonality {
@@ -1981,19 +1981,20 @@ fn pick_raider_farm_target(
     entity_map: &EntityMap,
     center: Vec2,
     faction: i32,
-) -> Option<(BuildingKind, usize, Vec2)> {
+) -> Option<(BuildingKind, crate::components::EntityUid, Vec2)> {
     let mut best_d2 = f32::MAX;
-    let mut result: Option<(BuildingKind, usize, Vec2)> = None;
+    let mut result: Option<(BuildingKind, crate::components::EntityUid, Vec2)> = None;
     let r2 = AI_ATTACK_SEARCH_RADIUS * AI_ATTACK_SEARCH_RADIUS;
     entity_map.for_each_nearby(center, AI_ATTACK_SEARCH_RADIUS, |inst| {
         if inst.faction == faction || inst.faction < 0 { return; }
         if inst.kind != BuildingKind::Farm { return; }
+        let Some(uid) = entity_map.uid_for_slot(inst.slot) else { return; };
         let dx = inst.position.x - center.x;
         let dy = inst.position.y - center.y;
         let d2 = dx * dx + dy * dy;
         if d2 <= r2 && d2 < best_d2 {
             best_d2 = d2;
-            result = Some((inst.kind, inst.slot, inst.position));
+            result = Some((inst.kind, uid, inst.position));
         }
     });
     result
@@ -2005,24 +2006,25 @@ fn pick_ai_target_unclaimed(
     faction: i32,
     personality: AiPersonality,
     role: SquadRole,
-    claimed: &HashSet<usize>,
-) -> Option<(BuildingKind, usize, Vec2)> {
+    claimed: &HashSet<crate::components::EntityUid>,
+) -> Option<(BuildingKind, crate::components::EntityUid, Vec2)> {
     if role != SquadRole::Attack { return None; }
 
-    let find_nearest_unclaimed = |allowed_kinds: &[BuildingKind]| -> Option<(BuildingKind, usize, Vec2)> {
+    let find_nearest_unclaimed = |allowed_kinds: &[BuildingKind]| -> Option<(BuildingKind, crate::components::EntityUid, Vec2)> {
         let mut best_d2 = f32::MAX;
-        let mut result: Option<(BuildingKind, usize, Vec2)> = None;
+        let mut result: Option<(BuildingKind, crate::components::EntityUid, Vec2)> = None;
         let r2 = AI_ATTACK_SEARCH_RADIUS * AI_ATTACK_SEARCH_RADIUS;
         entity_map.for_each_nearby(center, AI_ATTACK_SEARCH_RADIUS, |inst| {
             if inst.faction == faction || inst.faction < 0 { return; }
             if !allowed_kinds.contains(&inst.kind) { return; }
-            if claimed.contains(&inst.slot) { return; }
+            let Some(uid) = entity_map.uid_for_slot(inst.slot) else { return; };
+            if claimed.contains(&uid) { return; }
             let dx = inst.position.x - center.x;
             let dy = inst.position.y - center.y;
             let d2 = dx * dx + dy * dy;
             if d2 <= r2 && d2 < best_d2 {
                 best_d2 = d2;
-                result = Some((inst.kind, inst.slot, inst.position));
+                result = Some((inst.kind, uid, inst.position));
             }
         });
         result
@@ -2102,7 +2104,7 @@ pub fn ai_squad_commander_system(
                 sq.wave_min_start = personality.wave_min_start(kind);
                 sq.wave_retreat_below_pct = personality.wave_retreat_pct(kind);
                 ai_state.players[pi].squad_cmd.insert(idx, AiSquadCmdState {
-                    building_gpu_slot: None,
+                    building_uid: None,
                     cooldown: base_cd * jitter,
                 });
             }
@@ -2188,7 +2190,7 @@ pub fn ai_squad_commander_system(
         }
 
         // --- Wave-based retarget for all attack squads ---
-        let mut claimed_targets: HashSet<usize> = HashSet::new();
+        let mut claimed_targets: HashSet<crate::components::EntityUid> = HashSet::new();
         for &si in &squad_indices {
             let cmd = ai_state.players[pi].squad_cmd.entry(si).or_default();
             if cmd.cooldown > 0.0 { cmd.cooldown -= elapsed; }
@@ -2205,7 +2207,7 @@ pub fn ai_squad_commander_system(
                 }
             };
             if !is_attack {
-                cmd.building_gpu_slot = None;
+                cmd.building_uid = None;
                 continue;
             }
 
@@ -2213,8 +2215,8 @@ pub fn ai_squad_commander_system(
 
             if squad.wave_active {
                 // --- Wave end conditions ---
-                let target_alive = cmd.building_gpu_slot
-                    .and_then(|s| resolve_building_pos(&entity_map, s))
+                let target_alive = cmd.building_uid
+                    .and_then(|uid| resolve_building_pos(&entity_map, uid))
                     .is_some();
 
                 let loss_threshold = squad.wave_start_count
@@ -2228,7 +2230,7 @@ pub fn ai_squad_commander_system(
                     squad.wave_active = false;
                     squad.target = None;
                     squad.wave_start_count = 0;
-                    cmd.building_gpu_slot = None;
+                    cmd.building_uid = None;
                     cmd.cooldown = personality.retarget_cooldown()
                         + rand::rng().random_range(-RETARGET_JITTER..RETARGET_JITTER);
 
@@ -2251,9 +2253,9 @@ pub fn ai_squad_commander_system(
                     ),
                 };
 
-                if let Some((bk, slot, pos)) = target {
-                    cmd.building_gpu_slot = Some(slot);
-                    claimed_targets.insert(slot);
+                if let Some((bk, uid, pos)) = target {
+                    cmd.building_uid = Some(uid);
+                    claimed_targets.insert(uid);
 
                     let squad = squad_state.squads.get_mut(si).unwrap();
                     squad.target = Some(pos);

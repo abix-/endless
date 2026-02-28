@@ -271,9 +271,9 @@ All squads have `rest_when_tired = true` (except raider squads: `rest_when_tired
 Attack squads use a gather→dispatch→retreat model instead of continuous retargeting:
 
 1. **Gathering**: Squad accumulates members via `squad_cleanup_system` recruitment. No target set — units idle or patrol near base.
-2. **Threshold**: When `members.len() >= wave_min_start` AND cooldown expired, pick a target.
+2. **Threshold**: When `members.len() >= wave_min_start` AND cooldown expired, pick a target. Target stored as `AiSquadCmdState.building_uid: Option<EntityUid>` (stable identity — survives slot reuse).
 3. **Dispatch**: Set squad target, `wave_active = true`, record `wave_start_count = members.len()`. All squad members redirect to target via squad sync in `decision_system`.
-4. **End conditions**: Wave ends when target is destroyed OR alive members drop below `wave_retreat_below_pct` % of `wave_start_count` (heavy losses).
+4. **End conditions**: Wave ends when target is destroyed (UID resolves to None via `instance_by_uid`) OR alive members drop below `wave_retreat_below_pct` % of `wave_start_count` (heavy losses).
 5. **Reset**: Clear target, `wave_active = false`, apply retarget cooldown with jitter. Squad returns to gathering.
 
 ### Wave Thresholds by Personality

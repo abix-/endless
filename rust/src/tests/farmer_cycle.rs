@@ -43,7 +43,7 @@ pub fn tick(
     let homes: Vec<_> = entity_map.iter_kind_for_town(BuildingKind::FarmerHome, 0).collect();
     let farms: Vec<_> = entity_map.iter_kind_for_town(BuildingKind::Farm, 0).collect();
 
-    let spawned_from_homes = homes.iter().filter(|h| h.npc_gpu_slot >= 0).count();
+    let spawned_from_homes = homes.iter().filter(|h| h.npc_uid.is_some()).count();
     let occupied_farms = farms.iter().filter(|f| f.occupants == 1).count();
     let overbooked_farms = farms.iter().filter(|f| f.occupants > 1).count();
     let total_occupants: i32 = farms.iter().map(|f| f.occupants as i32).sum();

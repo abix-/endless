@@ -23,6 +23,7 @@ pub struct SpawnNpcMsg {
     pub work_y: f32,
     pub starting_post: i32, // -1 = none
     pub attack_type: i32,   // 0=melee, 1=ranged
+    pub uid_override: Option<crate::components::EntityUid>, // None = allocate fresh
 }
 
 
