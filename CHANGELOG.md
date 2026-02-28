@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-28n
+
+- **fix projectiles hitting roads** — roads had `BUILDING_HITBOX_HALF = [16.0, 16.0]` and player faction, so enemy arrows collided with them despite `ENTITY_FLAG_UNTARGETABLE`; fix: zero half-size for roads in `push_building_gpu_updates`, and bind `entity_flags` buffer to projectile compute shader (new binding 17) with UNTARGETABLE skip in collision loop
+- **flash-only visual upload split** — flash decay (damage flash fading) now writes `flash_only_indices` instead of `visual_dirty_indices`; `build_visual_upload` updates only the flash float in visual_data for these slots (skips full ECS query + equip rebuild); separate `equip_uploaded_indices` excludes flash-only slots from equip_data GPU upload, saving ~96B × flash_count per frame
+- **coalescing gap tuning** — widened visual/equip gap thresholds: `GAP_VISUAL` 93→750 (24KB max waste/gap), `GAP_EQUIP` 31→250 (24KB max waste/gap); fewer `write_buffer` calls at ~4μs each outweighs small data overhead; `count_gap_ranges` profiler helper added for gap-based coalescing diagnostics
+
 ## 2026-02-28m
 
 - **strict coalescing for GPU-authoritative buffers** — positions and arrivals are GPU-authoritative (compute shader updates them each frame); added `write_coalesced_exact_f32/i32` that merge only exactly-adjacent dirty indices (`saturating_add(1)` adjacency, no gap merging, no bulk fallback); debug-asserts sorted+deduped+bounds on all dirty indices; gap-based coalescing (`write_coalesced_f32/i32/u32`) retained for CPU-authoritative buffers (targets, speeds, factions, healths, flags, half_sizes); authority contract comments locked on `EntityGpuState` dirty fields and at extraction callsites

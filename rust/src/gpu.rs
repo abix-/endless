@@ -168,8 +168,10 @@ pub struct EntityGpuState {
     /// Last-known target buffer size for full-upload fallback detection.
     pub target_buffer_size: usize,
     // --- Visual dirty tracking (event-driven visual upload) ---
-    /// Slots whose visual/equip data changed this frame
+    /// Slots whose visual/equip data changed this frame (sprite, activity, equipment changes)
     pub visual_dirty_indices: Vec<usize>,
+    /// Slots dirty from flash decay only — need visual_data[flash] update but NOT equip
+    pub flash_only_indices: Vec<usize>,
     /// Force full visual rebuild (startup, load, reset)
     pub visual_full_rebuild: bool,
 }
@@ -184,8 +186,10 @@ pub struct NpcVisualUpload {
     pub equip_data: Vec<f32>,
     /// Number of entities packed
     pub entity_count: usize,
-    /// Slots whose visual/equip data was written this frame (for per-index GPU upload)
+    /// Slots whose visual data was written this frame (for per-index GPU upload)
     pub visual_uploaded_indices: Vec<usize>,
+    /// Slots whose equip data was written this frame (subset — excludes flash-only changes)
+    pub equip_uploaded_indices: Vec<usize>,
     /// True when full visual rebuild happened (startup/load) — extract should do bulk upload
     pub visual_full_upload: bool,
 }
@@ -216,6 +220,7 @@ impl Default for EntityGpuState {
             hidden_indices: Vec::new(),
             target_buffer_size: 0,
             visual_dirty_indices: Vec::new(),
+            flash_only_indices: Vec::new(),
             visual_full_rebuild: true,
         }
     }
@@ -502,6 +507,7 @@ pub fn build_visual_upload(
         gpu_state.visual_full_rebuild = false;
         upload.visual_full_upload = true;
         upload.visual_uploaded_indices.clear();
+        upload.equip_uploaded_indices.clear();
     } else {
         // Dirty-only: dedup then update only changed slots
         gpu_state.visual_dirty_indices.sort_unstable();
@@ -522,13 +528,39 @@ pub fn build_visual_upload(
             }
         }
         upload.visual_full_upload = false;
-        // Pass dirty indices to extract phase for per-index GPU upload
+
+        // Flash-only slots: update just the flash float in visual_data, skip equip entirely.
+        // These are slots whose flash is decaying but nothing else changed (no sprite/activity/equipment change).
+        // Use binary_search on the sorted visual_dirty_indices to skip slots already handled above.
+        for &idx in &gpu_state.flash_only_indices {
+            if gpu_state.visual_dirty_indices.binary_search(&idx).is_ok() {
+                continue; // already fully updated above
+            }
+            let base = idx * 8;
+            if base + 3 < upload.visual_data.len() {
+                upload.visual_data[base + 3] = gpu_state.flash_values.get(idx).copied().unwrap_or(0.0);
+            }
+        }
+
+        // Build upload index Vecs: visual includes everything, equip excludes flash-only
         upload.visual_uploaded_indices.clear();
+        upload.equip_uploaded_indices.clear();
+        // Visual-dirty slots need both visual + equip upload
         upload.visual_uploaded_indices.extend_from_slice(&gpu_state.visual_dirty_indices);
-        // Also include hidden indices (cleared earlier but need GPU upload)
+        upload.equip_uploaded_indices.extend_from_slice(&gpu_state.visual_dirty_indices);
+        // Flash-only slots need visual upload only (not equip)
+        for &idx in &gpu_state.flash_only_indices {
+            if gpu_state.visual_dirty_indices.binary_search(&idx).is_err() {
+                upload.visual_uploaded_indices.push(idx);
+            }
+        }
+        // Hidden indices need both visual + equip upload
         upload.visual_uploaded_indices.extend_from_slice(&gpu_state.hidden_indices);
+        upload.equip_uploaded_indices.extend_from_slice(&gpu_state.hidden_indices);
         upload.visual_uploaded_indices.sort_unstable();
         upload.visual_uploaded_indices.dedup();
+        upload.equip_uploaded_indices.sort_unstable();
+        upload.equip_uploaded_indices.dedup();
     }
     gpu_state.visual_dirty_indices.clear();
 }
@@ -566,6 +598,7 @@ pub fn populate_gpu_state(
     }
 
     // Decay damage flash values (1.0 → 0.0 in ~0.2s)
+    // Flash-only slots go to flash_only_indices (visual update but no equip upload needed).
     let dt = time.delta_secs();
     const FLASH_DECAY_RATE: f32 = 5.0;
     let active = slots.count().min(npc_state.flash_values.len());
@@ -576,7 +609,8 @@ pub fn populate_gpu_state(
             flash_dirty.push(slot_idx);
         }
     }
-    npc_state.visual_dirty_indices.extend(flash_dirty);
+    npc_state.flash_only_indices.clear();
+    npc_state.flash_only_indices.extend_from_slice(&flash_dirty);
 
     // Pre-sort+dedup dirty index Vecs so extract phase receives coalesce-ready data
     macro_rules! sort_dedup {
@@ -1692,7 +1726,7 @@ fn init_proj_compute_pipeline(
 
     commands.insert_resource(buffers);
 
-    // 16 bindings: 8 proj (rw) + 3 NPC (ro) + 2 NPC grid (ro) + 1 uniform + 2 proj grid (rw)
+    // 18 bindings: 8 proj (rw) + 3 NPC (ro) + 2 NPC grid (ro) + 1 uniform + 2 proj grid (rw) + 1 half_sizes (ro) + 1 entity_flags (ro)
     let bind_group_layout = BindGroupLayoutDescriptor::new(
         "ProjComputeLayout",
         &BindGroupLayoutEntries::sequential(
@@ -1721,6 +1755,8 @@ fn init_proj_compute_pipeline(
                 storage_buffer::<Vec<i32>>(false),                // proj_grid_data
                 // 16: entity hitbox half-sizes (read only)
                 storage_buffer_read_only::<Vec<[f32; 2]>>(false), // entity_half_sizes
+                // 17: entity flags (read only — UNTARGETABLE skip)
+                storage_buffer_read_only::<Vec<u32>>(false),      // entity_flags
             ),
         ),
     );
@@ -1791,6 +1827,7 @@ fn prepare_proj_bind_groups(
     ub2.write_buffer(&render_device, &render_queue);
 
     let half_sizes_bind = ent.half_sizes.as_entire_buffer_binding();
+    let entity_flags_bind = ent.entity_flags.as_entire_buffer_binding();
 
     let mode0 = render_device.create_bind_group(
         Some("proj_compute_bg_mode0"),
@@ -1807,6 +1844,7 @@ fn prepare_proj_bind_groups(
             proj.grid_counts.as_entire_buffer_binding(),
             proj.grid_data.as_entire_buffer_binding(),
             half_sizes_bind.clone(),
+            entity_flags_bind.clone(),
         )),
     );
     let mode1 = render_device.create_bind_group(
@@ -1824,6 +1862,7 @@ fn prepare_proj_bind_groups(
             proj.grid_counts.as_entire_buffer_binding(),
             proj.grid_data.as_entire_buffer_binding(),
             half_sizes_bind.clone(),
+            entity_flags_bind.clone(),
         )),
     );
     let mode2 = render_device.create_bind_group(
@@ -1841,6 +1880,7 @@ fn prepare_proj_bind_groups(
             proj.grid_counts.as_entire_buffer_binding(),
             proj.grid_data.as_entire_buffer_binding(),
             half_sizes_bind.clone(),
+            entity_flags_bind.clone(),
         )),
     );
 

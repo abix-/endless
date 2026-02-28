@@ -17,7 +17,7 @@ Bevy's built-in sprite renderer creates one entity per sprite. At 16K NPCs, that
 
 - **1 entity per batch** (NpcBatch, ProjBatch) instead of 16,384 entities
 - **GPU compute data stays on GPU** — vertex shader reads positions/health directly from compute output via storage buffers (bind group 2), no readback needed for rendering
-- **Per-dirty storage buffer uploads** — visual [f32;8] + equip [f32;24] per slot, only changed slots uploaded per frame via per-index `write_buffer` (typically <1KB vs ~3.84MB bulk at 30K NPCs)
+- **Per-dirty storage buffer uploads** — visual [f32;8] + equip [f32;24] per slot, only changed slots uploaded per frame via per-index `write_buffer` (typically <1KB vs ~3.84MB bulk at 30K NPCs). Flash-only slots (damage flash decay) upload visual_data only, skipping equip_data entirely
 - **Multi-layer drawing** — body + up to 6 overlay layers (4 equipment + 2 visual indicators), each a separate `draw_indexed` call within one RenderCommand
 
 ## Data Flow
@@ -345,7 +345,7 @@ The render pipeline runs in Bevy's render world after extract:
 | Phase | System | Purpose |
 |-------|--------|---------|
 | Extract | `extract_npc_batch` | Despawn stale render world NpcBatch, then clone fresh from main world |
-| Extract | `extract_npc_data` | Zero-clone GPU upload from EntityGpuState: GPU-authoritative buffers (positions, arrivals) use strict coalescing via `write_coalesced_exact_f32/i32` (exact-adjacent merging only, no gap, no bulk fallback). CPU-authoritative buffers (targets, speeds, factions, healths, flags, half_sizes) use gap-based `write_coalesced_f32/i32/u32` with 40% window fallback. Visual/equip also gap-based via `visual_uploaded_indices` (full upload only on startup/load via `visual_full_upload` flag) |
+| Extract | `extract_npc_data` | Zero-clone GPU upload from EntityGpuState: GPU-authoritative buffers (positions, arrivals) use strict coalescing via `write_coalesced_exact_f32/i32` (exact-adjacent merging only, no gap, no bulk fallback). CPU-authoritative buffers (targets, speeds, factions, healths, flags, half_sizes) use gap-based `write_coalesced_f32/i32/u32` with 40% window fallback. Visual gap-based via `visual_uploaded_indices`, equip gap-based via `equip_uploaded_indices` (flash-only slots excluded from equip). Full upload only on startup/load via `visual_full_upload` flag |
 | Extract | `extract_proj_batch` | Despawn stale render world ProjBatch, then clone fresh from main world |
 | Extract | `extract_camera_state` | Build CameraState from Camera2d Transform + Projection + Window |
 | Extract | `extract_building_body_instances` | Zero-clone read of BuildingBodyInstances → BuildingBodyRenderBuffers (building body sprites from EntityGpuState via EntityMap) |

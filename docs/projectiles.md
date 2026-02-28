@@ -57,6 +57,7 @@ For each active projectile:
    - Skip shooter entity (`entity_idx == proj_shooters[i]`) — prevents self-collision with source
    - Skip same faction or neutral faction -1 (no friendly fire)
    - Skip dead entities (`health <= 0`)
+   - Skip untargetable entities (`entity_flags & 4u` — roads)
    - Oriented rectangle collision (long along velocity, thin perpendicular)
    - If hit: write `hit = ivec2(entity_idx, 0)`, deactivate, hide. `entity_idx < npc_count` = NPC hit, `entity_idx >= npc_count` = building hit.
 
@@ -102,6 +103,8 @@ Entity buffer layout: `[0..npc_count]` = NPCs, `[npc_count..entity_count]` = bui
 | 10 | entity_healths | EntityGpuBuffers.healths |
 | 11 | grid_counts | EntityGpuBuffers.grid_counts |
 | 12 | grid_data | EntityGpuBuffers.grid_data |
+| 16 | entity_half_sizes | EntityGpuBuffers.half_sizes |
+| 17 | entity_flags | EntityGpuBuffers.entity_flags |
 
 ### Projectile Spatial Grid (built by modes 0+1, read by NPC compute for dodge)
 

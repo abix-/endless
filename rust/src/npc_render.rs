@@ -875,12 +875,12 @@ fn extract_selection_overlay(
 // --- Shared dirty-write helpers (used by both NPC and projectile extract) ---
 
 // Coalescing gap thresholds for CPU-AUTHORITATIVE buffers (slots).
-// Derived from: per_call_overhead / (stride * 4 bytes).
-// Tuned for DX12 backend (~3μs per write_buffer call). Adjust if profiling shows different overhead.
-const GAP_STRIDE_1: usize = 750;   // speeds, factions, healths, flags
-const GAP_STRIDE_2: usize = 375;   // targets, half_sizes
-const GAP_VISUAL: usize = 93;      // visual_data (stride 8)
-const GAP_EQUIP: usize = 31;       // equip_data (stride 24)
+// Tuned for DX12 backend: balances per-call overhead (~4μs) vs wasted bytes (~3KB/gap).
+// Wider gaps merge more but upload non-dirty data; narrower gaps have more write_buffer calls.
+const GAP_STRIDE_1: usize = 750;   // speeds, factions, healths, flags (750 × 1 × 4 = 3KB/gap)
+const GAP_STRIDE_2: usize = 375;   // targets, half_sizes (375 × 2 × 4 = 3KB/gap)
+const GAP_VISUAL: usize = 93;      // visual_data (93 × 8 × 4 = 3KB/gap)
+const GAP_EQUIP: usize = 31;       // equip_data (31 × 24 × 4 = 3KB/gap)
 
 /// Bulk-write the first `count` elements of `data` to `buf` in a single write_buffer call.
 fn write_bulk<T: bytemuck::NoUninit>(queue: &RenderQueue, buf: &Buffer, data: &[T], count: usize) {
@@ -1053,6 +1053,26 @@ fn write_coalesced_exact_i32(queue: &RenderQueue, buf: &Buffer, data: &[i32], di
     if s < e { queue.write_buffer(buf, (s * 4) as u64, bytemuck::cast_slice(&data[s..e])); }
 }
 
+/// Count gap-based coalesced ranges (matching write_coalesced_* logic) for profiler.
+fn count_gap_ranges(dirty: &[usize], gap: usize) -> usize {
+    if dirty.is_empty() { return 0; }
+    let first = dirty[0];
+    let last = dirty[dirty.len() - 1];
+    let window = last - first + 1;
+    if dirty.len() > window * 2 / 5 { return 1; } // bulk fallback
+    let mut ranges = 1usize;
+    let mut range_end = first;
+    for &idx in &dirty[1..] {
+        if idx <= range_end.saturating_add(gap + 1) {
+            range_end = idx;
+        } else {
+            ranges += 1;
+            range_end = idx;
+        }
+    }
+    ranges
+}
+
 /// Count exact contiguous ranges and total uploaded bytes for profiler counters.
 fn count_exact_ranges(dirty: &[usize], stride: usize) -> (usize, usize) {
     if dirty.is_empty() { return (0, 0); }
@@ -1085,11 +1105,12 @@ fn extract_npc_data(
     mut prev_target_size: Local<usize>,
 ) {
     use std::sync::atomic::Ordering;
-    use crate::messages::{RENDER_PROFILING, RENDER_TIMINGS, RT_EXTRACT_NPC};
+    use crate::messages::{RENDER_PROFILING, RENDER_TIMINGS, RT_EXTRACT_NPC, RT_EXTRACT_COMPUTE, RT_EXTRACT_VISUAL};
     let profiling = RENDER_PROFILING.load(Ordering::Relaxed);
     let start = if profiling { Some(std::time::Instant::now()) } else { None };
 
-    // Compute data: sort+dedup done in populate_gpu_state
+    // --- Sub-timing: compute buffers ---
+    let t0 = std::time::Instant::now();
     if let Some(gpu_bufs) = gpu_buffers {
         let n = config.npc.count as usize;
         // GPU-authoritative: strict coalescing only (no gap merging, no bulk fallback)
@@ -1114,8 +1135,9 @@ fn extract_npc_data(
             render_queue.write_buffer(&gpu_bufs.tile_flags, 0, bytemuck::cast_slice(&config.tile_flags));
         }
     }
+    let t1 = std::time::Instant::now();
 
-    // Visual data: skip when clean, coalesce when dirty
+    // --- Sub-timing: visual data ---
     if let Some(vis_bufs) = visual_buffers {
         if visual_upload.visual_full_upload {
             if visual_upload.entity_count > 0 {
@@ -1125,17 +1147,42 @@ fn extract_npc_data(
         } else if !visual_upload.visual_uploaded_indices.is_empty() {
             write_coalesced_f32(&render_queue, &vis_bufs.visual, &visual_upload.visual_data,
                 &visual_upload.visual_uploaded_indices, 8, GAP_VISUAL);
-            write_coalesced_f32(&render_queue, &vis_bufs.equip, &visual_upload.equip_data,
-                &visual_upload.visual_uploaded_indices, 24, GAP_EQUIP);
+            // Equip uses separate indices — excludes flash-only slots (equipment didn't change)
+            if !visual_upload.equip_uploaded_indices.is_empty() {
+                write_coalesced_f32(&render_queue, &vis_bufs.equip, &visual_upload.equip_data,
+                    &visual_upload.equip_uploaded_indices, 24, GAP_EQUIP);
+            }
         }
+    }
+    let t2 = std::time::Instant::now();
+
+    if profiling {
+        let compute_ms = (t1 - t0).as_secs_f64() as f32 * 1000.0;
+        let visual_ms = (t2 - t1).as_secs_f64() as f32 * 1000.0;
+        RENDER_TIMINGS[RT_EXTRACT_COMPUTE].store(compute_ms.to_bits(), Ordering::Relaxed);
+        RENDER_TIMINGS[RT_EXTRACT_VISUAL].store(visual_ms.to_bits(), Ordering::Relaxed);
+    }
+
+    // Log dirty counts every ~120 frames for diagnostics
+    static EXTRACT_FRAME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let frame = EXTRACT_FRAME.fetch_add(1, Ordering::Relaxed);
+    if frame % 120 == 0 {
+        info!(
+            "extract_npc dirty: pos={} arr={} tgt={} spd={} fac={} hp={} flg={} hs={} vis={} eq={}",
+            gpu_state.position_dirty_indices.len(),
+            gpu_state.arrival_dirty_indices.len(),
+            gpu_state.target_dirty_indices.len(),
+            gpu_state.speed_dirty_indices.len(),
+            gpu_state.faction_dirty_indices.len(),
+            gpu_state.health_dirty_indices.len(),
+            gpu_state.flags_dirty_indices.len(),
+            gpu_state.half_size_dirty_indices.len(),
+            visual_upload.visual_uploaded_indices.len(),
+            visual_upload.equip_uploaded_indices.len(),
+        );
     }
 
     if let Some(s) = start {
-        let (pos_ranges, pos_bytes) = count_exact_ranges(&gpu_state.position_dirty_indices, 2);
-        let (arr_ranges, arr_bytes) = count_exact_ranges(&gpu_state.arrival_dirty_indices, 1);
-        if pos_ranges > 0 || arr_ranges > 0 {
-            bevy::log::trace!("extract_npc_data: pos={pos_ranges} writes/{pos_bytes}B, arr={arr_ranges} writes/{arr_bytes}B");
-        }
         RENDER_TIMINGS[RT_EXTRACT_NPC].store((s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(), Ordering::Relaxed);
     }
 }

@@ -506,7 +506,8 @@ fn push_building_gpu_updates(
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFaction { idx: slot, faction }));
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: max_hp }));
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFlags { idx: slot, flags }));
-    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHalfSize { idx: slot, half_w: crate::constants::BUILDING_HITBOX_HALF[0], half_h: crate::constants::BUILDING_HITBOX_HALF[1] }));
+    let half = if kind == BuildingKind::Road { [0.0, 0.0] } else { crate::constants::BUILDING_HITBOX_HALF };
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHalfSize { idx: slot, half_w: half[0], half_h: half[1] }));
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
         idx: slot, col: tileset_idx as f32, row: 0.0,
         atlas: crate::constants::ATLAS_BUILDING,

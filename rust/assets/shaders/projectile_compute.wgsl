@@ -58,6 +58,9 @@ struct ProjParams {
 // Per-entity hitbox half-sizes (read only — Minkowski sum with projectile hitbox)
 @group(0) @binding(16) var<storage, read> entity_half_sizes: array<vec2<f32>>;
 
+// Per-entity flags (read only — bit 2 = UNTARGETABLE, skip collision)
+@group(0) @binding(17) var<storage, read> entity_flags: array<u32>;
+
 @compute @workgroup_size(64, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let i = global_id.x;
@@ -170,6 +173,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
                 // Ignore dead entities.
                 if (entity_healths[entity_idx] <= 0.0) { continue; }
+
+                // Ignore untargetable entities (roads).
+                if ((entity_flags[entity_idx] & 4u) != 0u) { continue; }
 
                 let entity_pos = entity_positions[entity_idx];
                 let diff = entity_pos - pos;
