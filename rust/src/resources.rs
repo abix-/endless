@@ -1567,11 +1567,25 @@ pub enum LeftPanelTab {
     Help,
 }
 
+/// Active category in the pause-menu settings panel.
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+pub enum PauseSettingsTab {
+    #[default]
+    Interface,
+    Camera,
+    Audio,
+    Logs,
+    Debug,
+    SaveGame,
+    LoadGame,
+}
+
 /// Which UI panels are open. Toggled by keyboard shortcuts and HUD buttons.
 #[derive(Resource)]
 pub struct UiState {
     pub build_menu_open: bool,
     pub pause_menu_open: bool,
+    pub pause_settings_tab: PauseSettingsTab,
     pub left_panel_open: bool,
     pub left_panel_tab: LeftPanelTab,
     pub combat_log_visible: bool,
@@ -1590,6 +1604,7 @@ impl Default for UiState {
         Self {
             build_menu_open: false,
             pause_menu_open: false,
+            pause_settings_tab: PauseSettingsTab::default(),
             left_panel_open: false,
             left_panel_tab: LeftPanelTab::default(),
             combat_log_visible: true,

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-02-28e
+
+- **GPU selection brackets** — moved selection overlay from egui CPU painter to GPU render pipeline; new `SelectionBracket` StorageDrawMode with `SelectionInstance` (slot/color/scale/y_offset), `vertex_selection` entry point reads `npc_positions[slot]` from storage buffer, procedural corner brackets rendered in fragment shader at `atlas_id=9`; cyan for selected NPC, gold for selected building, green for DirectControl group (capped at 200); LOD-aware (discarded below `lod_zoom`); removed `selection_overlay_system` + `draw_corner_brackets` from `game_hud.rs`
+- **tabbed pause menu** — redesigned pause menu from flat collapsible to tabbed layout with `PauseSettingsTab` enum (Interface/Camera/Audio/Logs/Debug/SaveGame/LoadGame); left sidebar tab list + right scrollable content panel; 820×520 min size
+- **named save/load** — added `named_save_path()` (sanitized filename → `Documents/Endless/saves/<name>.json`), `SaveLoadRequest.save_path` for save-to-path, `list_saves()` directory listing, manual save/load UI in pause menu SaveGame/LoadGame tabs
+- **interface text size setting** — new `interface_text_size` (default 16.0) in `UserSettings` + `apply_interface_text_size` system sets global egui text styles (Heading/Body/Button/Monospace/Small) from setting
+- **healing flag toggle fix** — `healing_system` now properly sets `NpcFlags.healing = false` when HP reaches cap, emitting `MarkVisualDirty` to clear heal halo sprite
+- **main menu simplification** — removed world gen style selector (always Continents), capped per-town sliders to 10, stripped Miner/Fighter/Crossbow homes from player-facing menu via `strip_disabled_home_jobs`
+- **WorldGrid init in all tests** — `materialize_test_world` now initializes WorldGrid (25×25, 32px cells) when `width == 0`, ensuring building atlas renders correctly in all test scenes
+
 ## 2026-02-28d
 
 - **randomized AI road placement** — added `RoadStyle` enum (None/Cardinal/Grid4/Grid5) randomly assigned per AI town at creation, independent of personality; decoupled road patterns from `AiPersonality`; threaded `road_style` through all building/waypoint/scoring functions; persisted in save files with Grid4 default for backward compat

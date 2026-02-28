@@ -63,11 +63,13 @@ pub const LAYER_COUNT: usize = 7;
 //   0.5                NPC bodies            StorageDrawMode::NpcBody
 //   0.6                NPC overlays          StorageDrawMode::NpcOverlay (equipment layers 1-6)
 //   1.0                Projectiles           Instance buffer
+//   1.5                Selection brackets    StorageDrawMode::SelectionBracket
 pub const ORDER_BUILDING_BODY: f32 = 0.2;
 pub const ORDER_BUILDING_OVERLAY: f32 = 0.3;
 pub const ORDER_NPC_BODY: f32 = 0.5;
 pub const ORDER_NPC_OVERLAY: f32 = 0.6;
 pub const ORDER_PROJECTILES: f32 = 1.0;
+pub const ORDER_SELECTION_OVERLAY: f32 = 1.5;
 
 /// Which storage-buffer draw pass to specialize. Maps to shader_defs in vertex_npc.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -75,6 +77,7 @@ pub enum StorageDrawMode {
     BuildingBody,
     NpcBody,
     NpcOverlay,
+    SelectionBracket,
 }
 
 /// Marker component for the NPC batch entity.
@@ -101,6 +104,18 @@ pub struct InstanceData {
     pub scale: f32,
     pub atlas_id: f32,
     pub rotation: f32,
+}
+
+/// Per-bracket instance data for GPU selection overlay.
+/// Position is read from npc_positions[slot] in the vertex shader.
+#[derive(Clone, Copy, Pod, Zeroable)]
+#[repr(C)]
+pub struct SelectionInstance {
+    pub slot: u32,
+    pub color: [f32; 4],
+    pub scale: f32,
+    pub y_offset: f32,
+    pub _pad: f32,
 }
 
 /// Static quad vertex: position and UV
@@ -154,6 +169,10 @@ pub struct BuildingBodyInstances(pub Vec<InstanceData>);
 #[derive(Resource, Default)]
 pub struct OverlayInstances(pub Vec<InstanceData>);
 
+/// Selection bracket instances, rebuilt each frame from SelectedNpc/SelectedBuilding/DC state.
+#[derive(Resource, Default)]
+pub struct SelectionOverlayInstances(pub Vec<SelectionInstance>);
+
 /// Instance buffer for building overlays (farms, building HP bars, mine progress).
 #[derive(Resource)]
 pub struct BuildingOverlayBuffers {
@@ -165,6 +184,13 @@ pub struct BuildingOverlayBuffers {
 #[derive(Resource)]
 pub struct BuildingBodyRenderBuffers {
     pub instances: RawBufferVec<InstanceData>,
+    pub count: u32,
+}
+
+/// GPU buffers for selection bracket rendering (render world).
+#[derive(Resource)]
+pub struct SelectionRenderBuffers {
+    pub instances: RawBufferVec<SelectionInstance>,
     pub count: u32,
 }
 
@@ -324,6 +350,44 @@ impl<P: PhaseItem> RenderCommand<P> for DrawBuildingOverlay {
     }
 }
 
+/// Draw command for selection brackets (storage buffer path + selection instance buffer).
+pub struct DrawSelectionBrackets;
+
+impl<P: PhaseItem> RenderCommand<P> for DrawSelectionBrackets {
+    type Param = (SRes<NpcRenderBuffers>, SRes<NpcVisualBuffers>, SRes<SelectionRenderBuffers>);
+    type ViewQuery = ();
+    type ItemQuery = ();
+
+    fn render<'w>(
+        _item: &P,
+        _view: ROQueryItem<'w, 'w, Self::ViewQuery>,
+        _entity: Option<ROQueryItem<'w, 'w, Self::ItemQuery>>,
+        params: SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        let (npc_buffers, visual_buffers, sel_buffers) = params;
+        let npc_buffers = npc_buffers.into_inner();
+        let visual_buffers = visual_buffers.into_inner();
+        let sel_buffers = sel_buffers.into_inner();
+
+        if sel_buffers.count == 0 { return RenderCommandResult::Skip; }
+        let Some(ref bind_group) = visual_buffers.bind_group else {
+            return RenderCommandResult::Skip;
+        };
+        let Some(instance_buffer) = sel_buffers.instances.buffer() else {
+            return RenderCommandResult::Skip;
+        };
+
+        pass.set_bind_group(2, bind_group, &[]);
+        pass.set_vertex_buffer(0, npc_buffers.vertex_buffer.slice(..));
+        pass.set_vertex_buffer(1, instance_buffer.slice(..));
+        pass.set_index_buffer(npc_buffers.index_buffer.slice(..), IndexFormat::Uint16);
+        pass.draw_indexed(0..6, 0, 0..sel_buffers.count);
+
+        RenderCommandResult::Success
+    }
+}
+
 /// Bind group setter for NPC texture.
 pub struct SetNpcTextureBindGroup<const I: usize>;
 
@@ -400,6 +464,14 @@ type DrawBuildingOverlayCommands = (
     DrawBuildingOverlay,
 );
 
+/// Selection bracket draw commands (storage buffer path + selection instance buffer).
+type DrawSelectionBracketCommands = (
+    SetItemPipeline,
+    SetNpcTextureBindGroup<0>,
+    SetNpcCameraBindGroup<1>,
+    DrawSelectionBrackets,
+);
+
 /// Draw command for projectiles. Shares NPC quad geometry, uses proj instance buffer.
 pub struct DrawProjs;
 
@@ -455,8 +527,9 @@ impl Plugin for NpcRenderPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<OverlayInstances>()
             .init_resource::<BuildingBodyInstances>()
+            .init_resource::<SelectionOverlayInstances>()
             .add_systems(Startup, (spawn_npc_batch, spawn_proj_batch))
-            .add_systems(PostUpdate, (build_building_body_instances, build_overlay_instances));
+            .add_systems(PostUpdate, (build_building_body_instances, build_overlay_instances, build_selection_overlay));
 
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
@@ -468,11 +541,12 @@ impl Plugin for NpcRenderPlugin {
             .add_render_command::<Transparent2d, DrawNpcBodyCommands>()
             .add_render_command::<Transparent2d, DrawNpcOverlayCommands>()
             .add_render_command::<Transparent2d, DrawProjCommands>()
+            .add_render_command::<Transparent2d, DrawSelectionBracketCommands>()
             .init_resource::<SpecializedRenderPipelines<NpcPipeline>>()
             .add_systems(RenderStartup, init_npc_render_pipeline)
             .add_systems(
                 ExtractSchedule,
-                (extract_npc_batch, extract_proj_batch, extract_camera_state, extract_npc_data, extract_proj_data, extract_overlay_instances, extract_building_body_instances),
+                (extract_npc_batch, extract_proj_batch, extract_camera_state, extract_npc_data, extract_proj_data, extract_overlay_instances, extract_building_body_instances, extract_selection_overlay),
             )
             .add_systems(
                 Render,
@@ -661,6 +735,59 @@ fn build_overlay_instances(
     }
 }
 
+/// Build selection bracket instances from SelectedNpc, SelectedBuilding, and DirectControl state.
+fn build_selection_overlay(
+    mut instances: ResMut<SelectionOverlayInstances>,
+    selected_npc: Res<crate::resources::SelectedNpc>,
+    selected_building: Res<crate::resources::SelectedBuilding>,
+    entity_map: Res<crate::resources::EntityMap>,
+    npc_flags_q: Query<&crate::components::NpcFlags>,
+) {
+    instances.0.clear();
+    let sel_slot = selected_npc.0;
+
+    // Single NPC selection (cyan)
+    if sel_slot >= 0 {
+        instances.0.push(SelectionInstance {
+            slot: sel_slot as u32,
+            color: [0.39, 0.78, 1.0, 0.86],
+            scale: 20.0,
+            y_offset: 0.0,
+            _pad: 0.0,
+        });
+    }
+
+    // Single building selection (gold, slightly offset Y)
+    if selected_building.active {
+        if let Some(slot) = selected_building.slot {
+            instances.0.push(SelectionInstance {
+                slot: slot as u32,
+                color: [1.0, 0.86, 0.35, 0.90],
+                scale: 36.0,
+                y_offset: 2.0,
+                _pad: 0.0,
+            });
+        }
+    }
+
+    // DirectControl multi-select (green), skip selected NPC, cap at 200
+    let mut dc_count = 0usize;
+    for npc in entity_map.iter_npcs() {
+        if npc.dead { continue; }
+        if !npc_flags_q.get(npc.entity).is_ok_and(|f| f.direct_control) { continue; }
+        if sel_slot >= 0 && npc.slot == sel_slot as usize { continue; }
+        if dc_count >= 200 { break; }
+        instances.0.push(SelectionInstance {
+            slot: npc.slot as u32,
+            color: [0.31, 0.86, 0.31, 0.70],
+            scale: 20.0,
+            y_offset: 0.0,
+            _pad: 0.0,
+        });
+        dc_count += 1;
+    }
+}
+
 /// Zero-clone extract: reads OverlayInstances from main world, writes to BuildingOverlayBuffers.
 fn extract_overlay_instances(
     mut commands: Commands,
@@ -711,6 +838,32 @@ fn extract_building_body_instances(
         let count = instances.len() as u32;
         instances.write_buffer(&render_device, &render_queue);
         commands.insert_resource(BuildingBodyRenderBuffers { instances, count });
+    }
+}
+
+/// Zero-clone extract: reads SelectionOverlayInstances from main world, writes to SelectionRenderBuffers.
+fn extract_selection_overlay(
+    mut commands: Commands,
+    sel: Extract<Res<SelectionOverlayInstances>>,
+    existing: Option<ResMut<SelectionRenderBuffers>>,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+) {
+    if let Some(mut buf) = existing {
+        buf.instances.clear();
+        for inst in sel.0.iter() {
+            buf.instances.push(*inst);
+        }
+        buf.count = buf.instances.len() as u32;
+        buf.instances.write_buffer(&render_device, &render_queue);
+    } else {
+        let mut instances = RawBufferVec::new(BufferUsages::VERTEX);
+        for inst in sel.0.iter() {
+            instances.push(*inst);
+        }
+        let count = instances.len() as u32;
+        instances.write_buffer(&render_device, &render_queue);
+        commands.insert_resource(SelectionRenderBuffers { instances, count });
     }
 }
 
@@ -1140,6 +1293,7 @@ fn queue_npcs(
     visual_buffers: Option<Res<NpcVisualBuffers>>,
     overlay_buffers: Option<Res<BuildingOverlayBuffers>>,
     body_buffers: Option<Res<BuildingBodyRenderBuffers>>,
+    selection_buffers: Option<Res<SelectionRenderBuffers>>,
     config: Option<Res<RenderFrameConfig>>,
     mut transparent_phases: ResMut<ViewSortedRenderPhases<Transparent2d>>,
     views: Query<(Entity, &ExtractedView, &Msaa)>,
@@ -1155,8 +1309,9 @@ fn queue_npcs(
         && config.as_ref().is_some_and(|c| c.npc.count > 0);
     let has_building_overlays = overlay_buffers.as_ref().is_some_and(|m| m.count > 0);
     let has_building_bodies = body_buffers.as_ref().is_some_and(|b| b.count > 0);
+    let has_selection = selection_buffers.as_ref().is_some_and(|s| s.count > 0);
 
-    if !has_npcs && !has_building_overlays && !has_building_bodies { return; }
+    if !has_npcs && !has_building_overlays && !has_building_bodies && !has_selection { return; }
 
     let building_body_draw = draw_functions.read().id::<DrawBuildingBodyCommands>();
     let building_overlay_draw = draw_functions.read().id::<DrawBuildingOverlayCommands>();
@@ -1194,6 +1349,14 @@ fn queue_npcs(
                     &pipeline_cache, &pipeline, (view.hdr, msaa.samples(), Some(StorageDrawMode::NpcOverlay)),
                 );
                 queue_phase_item(transparent_phase, npc_overlay_draw, npc_overlay_pid, ORDER_NPC_OVERLAY, view_entity, batch_entity);
+            }
+
+            if has_selection {
+                let sel_draw = draw_functions.read().id::<DrawSelectionBracketCommands>();
+                let sel_pid = pipelines.specialize(
+                    &pipeline_cache, &pipeline, (view.hdr, msaa.samples(), Some(StorageDrawMode::SelectionBracket)),
+                );
+                queue_phase_item(transparent_phase, sel_draw, sel_pid, ORDER_SELECTION_OVERLAY, view_entity, batch_entity);
             }
         }
     }
@@ -1277,6 +1440,36 @@ fn instance_vertex_layout() -> VertexBufferLayout {
     }
 }
 
+/// Selection bracket instance layout (slot 1): slot(u32) + color(vec4) + scale(f32) + y_offset(f32).
+fn selection_instance_layout() -> VertexBufferLayout {
+    VertexBufferLayout {
+        array_stride: std::mem::size_of::<SelectionInstance>() as u64,
+        step_mode: VertexStepMode::Instance,
+        attributes: vec![
+            VertexAttribute {
+                format: bevy::render::render_resource::VertexFormat::Uint32,
+                offset: 0,
+                shader_location: 2, // slot
+            },
+            VertexAttribute {
+                format: bevy::render::render_resource::VertexFormat::Float32x4,
+                offset: 4,
+                shader_location: 3, // color
+            },
+            VertexAttribute {
+                format: bevy::render::render_resource::VertexFormat::Float32,
+                offset: 20,
+                shader_location: 4, // scale
+            },
+            VertexAttribute {
+                format: bevy::render::render_resource::VertexFormat::Float32,
+                offset: 24,
+                shader_location: 5, // y_offset
+            },
+        ],
+    }
+}
+
 impl SpecializedRenderPipeline for NpcPipeline {
     type Key = (bool, u32, Option<StorageDrawMode>); // (HDR, MSAA, storage mode or instance)
 
@@ -1318,6 +1511,13 @@ impl SpecializedRenderPipeline for NpcPipeline {
                 "vertex_npc",
                 vec![quad_vertex_layout()],
                 vec!["MODE_NPC_OVERLAY".into()],
+            ),
+            Some(StorageDrawMode::SelectionBracket) => (
+                "selection_bracket_pipeline",
+                storage_layout,
+                "vertex_selection",
+                vec![quad_vertex_layout(), selection_instance_layout()],
+                vec!["MODE_SELECTION_BRACKET".into()],
             ),
             None => (
                 "npc_instance_pipeline",

@@ -915,6 +915,8 @@ pub struct LoadGameMsg;
 pub struct SaveLoadRequest {
     /// Set by main menu "Load Game" — tells game_startup_system to load instead of world gen.
     pub load_on_enter: bool,
+    /// When set, save to this path instead of quicksave.
+    pub save_path: Option<std::path::PathBuf>,
     /// When set, load from this path instead of quicksave.
     pub load_path: Option<std::path::PathBuf>,
     /// Autosave interval in game-hours (0 = disabled). Set from settings on game start.
@@ -928,6 +930,27 @@ pub struct SaveLoadRequest {
 /// Check if a quicksave file exists.
 pub fn has_quicksave() -> bool {
     quicksave_path().map(|p| p.exists()).unwrap_or(false)
+}
+
+/// Build a named save path in Documents/Endless/saves.
+pub fn named_save_path(name: &str) -> Option<std::path::PathBuf> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let safe: String = trimmed.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if safe.is_empty() {
+        return None;
+    }
+    save_dir().map(|d| d.join(format!("{safe}.json")))
 }
 
 /// Toast notification state for save/load feedback.
@@ -1238,6 +1261,7 @@ pub fn save_load_input_system(
 /// Execute save when requested.
 pub fn save_game_system(
     mut save_msgs: MessageReader<SaveGameMsg>,
+    mut request: ResMut<SaveLoadRequest>,
     mut toast: ResMut<SaveToast>,
     ws: SaveWorldState,
     fs: SaveFactionState,
@@ -1258,7 +1282,13 @@ pub fn save_game_system(
         &fs.kill_stats, &fs.ai_state, &fs.migration_state, &fs.endless, npcs,
     );
 
-    match write_save(&data) {
+    let result = if let Some(path) = request.save_path.take() {
+        write_save_to(&data, &path)
+    } else {
+        write_save(&data)
+    };
+
+    match result {
         Ok(()) => {
             toast.message = format!("Game Saved ({} NPCs)", data.npcs.len());
             toast.timer = 2.0;

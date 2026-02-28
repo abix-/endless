@@ -13,7 +13,7 @@ use crate::render::MainCamera;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
 use crate::ui::tipped;
-use crate::world::{WorldData, WorldGrid, BuildingKind, is_alive};
+use crate::world::{WorldData, WorldGrid, BuildingKind};
 use crate::systems::stats::{CombatConfig, TownUpgrades, UPGRADES, resolve_town_tower_stats};
 use crate::constants::UpgradeStatKind;
 
@@ -1613,136 +1613,6 @@ fn building_inspector_content(
 // ============================================================================
 // TARGET OVERLAY
 // ============================================================================
-
-fn draw_corner_brackets(
-    painter: &egui::Painter,
-    center: egui::Pos2,
-    half_w: f32,
-    half_h: f32,
-    color: egui::Color32,
-) {
-    let hw = half_w.max(6.0);
-    let hh = half_h.max(6.0);
-    let x0 = center.x - hw;
-    let x1 = center.x + hw;
-    let y0 = center.y - hh;
-    let y1 = center.y + hh;
-    let len_x = (hw * 0.55).clamp(6.0, 18.0);
-    let len_y = (hh * 0.55).clamp(6.0, 18.0);
-    let stroke = egui::Stroke::new(2.0, color);
-
-    // Top-left
-    painter.line_segment([egui::pos2(x0, y0), egui::pos2(x0 + len_x, y0)], stroke);
-    painter.line_segment([egui::pos2(x0, y0), egui::pos2(x0, y0 + len_y)], stroke);
-    // Top-right
-    painter.line_segment([egui::pos2(x1 - len_x, y0), egui::pos2(x1, y0)], stroke);
-    painter.line_segment([egui::pos2(x1, y0), egui::pos2(x1, y0 + len_y)], stroke);
-    // Bottom-left
-    painter.line_segment([egui::pos2(x0, y1 - len_y), egui::pos2(x0, y1)], stroke);
-    painter.line_segment([egui::pos2(x0, y1), egui::pos2(x0 + len_x, y1)], stroke);
-    // Bottom-right
-    painter.line_segment([egui::pos2(x1 - len_x, y1), egui::pos2(x1, y1)], stroke);
-    painter.line_segment([egui::pos2(x1, y1 - len_y), egui::pos2(x1, y1)], stroke);
-}
-
-/// Draw corner-bracket selection indicators for clicked NPCs/buildings.
-/// NPC and building boxes use different world sizes so the brackets scale correctly.
-pub fn selection_overlay_system(
-    mut contexts: EguiContexts,
-    selected: Res<SelectedNpc>,
-    selected_building: Res<SelectedBuilding>,
-    gpu_state: Res<GpuReadState>,
-    entity_map: Res<EntityMap>,
-    grid: Res<WorldGrid>,
-    _world_data: Res<WorldData>,
-    camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
-    windows: Query<&Window>,
-    npc_flags_q: Query<&NpcFlags>,
-) -> Result {
-    let dc_slots: Vec<usize> = entity_map.iter_npcs().filter(|n| !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| f.direct_control)).map(|n| n.slot).collect();
-    let has_dc_sel = !dc_slots.is_empty();
-    if selected.0 < 0 && !selected_building.active && !has_dc_sel { return Ok(()); }
-
-    let Ok(window) = windows.single() else { return Ok(()); };
-    let Ok((transform, projection)) = camera_query.single() else { return Ok(()); };
-    let zoom = match projection {
-        Projection::Orthographic(ortho) => 1.0 / ortho.scale,
-        _ => 1.0,
-    };
-    let cam = transform.translation.truncate();
-    let viewport = egui::Vec2::new(window.width(), window.height());
-    let center = viewport * 0.5;
-
-    let ctx = contexts.ctx_mut()?;
-    let painter = ctx.layer_painter(egui::LayerId::background());
-
-    // NPC selection: sprite is ~16 world units.
-    if selected.0 >= 0 {
-        let idx = selected.0 as usize;
-        let positions = &gpu_state.positions;
-        if idx * 2 + 1 < positions.len() {
-            let x = positions[idx * 2];
-            let y = positions[idx * 2 + 1];
-            if is_alive(Vec2::new(x, y)) {
-                let screen = egui::Pos2::new(
-                    center.x + (x - cam.x) * zoom,
-                    center.y - (y - cam.y) * zoom,
-                );
-                let half = (10.0 * zoom).max(7.0);
-                draw_corner_brackets(
-                    &painter,
-                    screen,
-                    half,
-                    half,
-                    egui::Color32::from_rgba_unmultiplied(100, 200, 255, 220),
-                );
-            }
-        }
-    }
-
-    // DirectControl highlight: green brackets on box-selected NPCs
-    if has_dc_sel {
-        let positions = &gpu_state.positions;
-        let color = egui::Color32::from_rgba_unmultiplied(80, 220, 80, 180);
-        for &slot in &dc_slots {
-            if slot * 2 + 1 >= positions.len() { continue; }
-            let x = positions[slot * 2];
-            let y = positions[slot * 2 + 1];
-            if !is_alive(Vec2::new(x, y)) { continue; }
-            // Skip the individually-selected NPC (already drawn in cyan)
-            if selected.0 >= 0 && slot == selected.0 as usize { continue; }
-            let screen = egui::Pos2::new(
-                center.x + (x - cam.x) * zoom,
-                center.y - (y - cam.y) * zoom,
-            );
-            let half = (8.0 * zoom).max(6.0);
-            draw_corner_brackets(&painter, screen, half, half, color);
-        }
-    }
-
-    // Building selection: use authoritative EntityMap position (not GPU readback).
-    if selected_building.active {
-        if let Some(slot) = selected_building.slot {
-            let world_pos = entity_map.get_instance(slot)
-                .map(|inst| inst.position)
-                .unwrap_or_else(|| grid.grid_to_world(selected_building.col, selected_building.row));
-            let screen = egui::Pos2::new(
-                center.x + (world_pos.x - cam.x) * zoom,
-                center.y - (world_pos.y - cam.y) * zoom,
-            );
-            let half = (grid.cell_size * 0.60 * zoom).max(10.0);
-            draw_corner_brackets(
-                &painter,
-                screen,
-                half,
-                half,
-                egui::Color32::from_rgba_unmultiplied(255, 220, 90, 230),
-            );
-        }
-    }
-
-    Ok(())
-}
 
 /// Draw a target indicator line from selected NPC to its movement target.
 /// Uses egui painter on the background layer so it renders over the game viewport.

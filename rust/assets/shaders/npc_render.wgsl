@@ -24,6 +24,16 @@ struct NpcVertexInput {
     @builtin(instance_index) instance_index: u32,
 };
 
+struct SelectionInput {
+    @location(0) quad_pos: vec2<f32>,
+    @location(1) quad_uv: vec2<f32>,
+    // Slot 1: per-bracket instance data
+    @location(2) slot: u32,
+    @location(3) color: vec4<f32>,
+    @location(4) scale: f32,
+    @location(5) y_offset: f32,
+};
+
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
@@ -254,11 +264,47 @@ fn vertex_npc(in: NpcVertexInput) -> VertexOutput {
 }
 
 // =============================================================================
+// VERTEX: Selection brackets (storage buffer positions + instance buffer style)
+// =============================================================================
+
+#ifdef MODE_SELECTION_BRACKET
+@vertex
+fn vertex_selection(in: SelectionInput) -> VertexOutput {
+    var out: VertexOutput;
+    let pos = npc_positions[in.slot];
+    if pos.x < -9000.0 { out.clip_position = HIDDEN; return out; }
+    out.clip_position = world_to_clip(pos + vec2<f32>(0.0, in.y_offset) + in.quad_pos * in.scale);
+    out.uv = vec2<f32>(0.0, 0.0);
+    out.color = in.color;
+    out.health = 1.0;
+    out.quad_uv = in.quad_uv;
+    out.flash = 0.0;
+    out.atlas_id = 9.0;
+    return out;
+}
+#endif
+
+// =============================================================================
 // FRAGMENT (shared by both vertex paths)
 // =============================================================================
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Selection brackets (atlas_id 9): procedural corner brackets from quad_uv
+    if in.atlas_id >= 8.5 && in.atlas_id < 9.5 {
+        if camera.zoom < camera.lod_zoom { discard; }
+        let u = in.quad_uv.x;
+        let v = in.quad_uv.y;
+        let bracket_len = 0.35;
+        let bracket_w = 0.08;
+        let in_tl = (u < bracket_len && v < bracket_w) || (u < bracket_w && v < bracket_len);
+        let in_tr = (u > 1.0 - bracket_len && v < bracket_w) || (u > 1.0 - bracket_w && v < bracket_len);
+        let in_bl = (u < bracket_len && v > 1.0 - bracket_w) || (u < bracket_w && v > 1.0 - bracket_len);
+        let in_br = (u > 1.0 - bracket_len && v > 1.0 - bracket_w) || (u > 1.0 - bracket_w && v > 1.0 - bracket_len);
+        if !(in_tl || in_tr || in_bl || in_br) { discard; }
+        return vec4<f32>(in.color.rgb, in.color.a);
+    }
+
     // Strategic zoom: flat colored rectangles when zoomed out far
     if camera.zoom < camera.lod_zoom {
         // Buildings: solid faction-colored rectangle

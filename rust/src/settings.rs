@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use crate::resources::PolicySet;
 
-const SETTINGS_VERSION: u32 = 9;
+const SETTINGS_VERSION: u32 = 10;
 
 /// Controls which NPCs have their activity logged in `NpcLogCache`.
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug)]
@@ -111,6 +111,8 @@ pub struct UserSettings {
     pub npc_interval: f32,
     #[serde(default = "default_ui_scale")]
     pub ui_scale: f32,
+    #[serde(default = "default_interface_text_size")]
+    pub interface_text_size: f32,
     #[serde(default = "default_help_text_size")]
     pub help_text_size: f32,
     #[serde(default = "default_build_menu_text_scale")]
@@ -167,6 +169,7 @@ fn default_five() -> usize { 5 }
 fn default_ai_interval() -> f32 { 5.0 }
 fn default_npc_interval() -> f32 { 2.0 }
 fn default_ui_scale() -> f32 { 1.0 }
+fn default_interface_text_size() -> f32 { 16.0 }
 fn default_help_text_size() -> f32 { 14.0 }
 fn default_build_menu_text_scale() -> f32 { 1.2 }
 fn default_autosave_hours() -> i32 { 12 }
@@ -221,6 +224,7 @@ impl Default for UserSettings {
             gold_mines_per_town: 2,
             npc_interval: 2.0,
             ui_scale: 1.0,
+            interface_text_size: 16.0,
             help_text_size: 14.0,
             build_menu_text_scale: 1.2,
             raider_passive_forage: false,

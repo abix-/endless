@@ -753,9 +753,22 @@ fn materialize_test_world(
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
     mut spawn_writer: MessageWriter<crate::messages::SpawnNpcMsg>,
     mut state: ResMut<TestWorldMaterializeState>,
+    mut world_grid: ResMut<world::WorldGrid>,
 ) {
     if state.done {
         return;
+    }
+    // Ensure WorldGrid is initialized so spawn_world_tilemap can build the building atlas.
+    // Tests using TestSetup::add_town get this automatically; tests with manual setup don't.
+    if world_grid.width == 0 {
+        world_grid.width = 25;
+        world_grid.height = 25;
+        world_grid.cell_size = 32.0;
+        world_grid.cells = vec![world::WorldCell::default(); 25 * 25];
+    }
+    if entity_map.spatial_cell_size() <= 0.0 {
+        let world_size_px = world_grid.width as f32 * world_grid.cell_size;
+        entity_map.init_spatial(world_size_px);
     }
     let _ = crate::world::materialize_generated_world(
         &mut commands,

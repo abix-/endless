@@ -23,7 +23,6 @@ pub struct MenuState {
     pub raider_towns: f32,
     pub ai_interval: f32,
     pub npc_interval: f32,
-    pub gen_style: i32,
     pub gold_mines: f32,
     pub raider_passive_forage: bool,
     pub difficulty: crate::resources::Difficulty,
@@ -33,6 +32,25 @@ pub struct MenuState {
     pub initialized: bool,
     pub endless_mode: bool,
     pub endless_strength: f32,
+}
+
+fn is_player_home_job(job: Job) -> bool {
+    matches!(job, Job::Farmer | Job::Archer)
+}
+
+fn strip_disabled_home_jobs(npc_counts: &mut BTreeMap<Job, f32>) {
+    npc_counts.insert(Job::Miner, 0.0);
+    npc_counts.insert(Job::Fighter, 0.0);
+    npc_counts.insert(Job::Crossbow, 0.0);
+}
+
+fn clamp_player_menu_caps(state: &mut MenuState) {
+    state.farms = state.farms.clamp(0.0, 10.0);
+    state.gold_mines = state.gold_mines.clamp(0.0, 10.0);
+    for job in [Job::Farmer, Job::Archer] {
+        let v = state.npc_counts.entry(job).or_insert(0.0);
+        *v = v.clamp(0.0, 10.0);
+    }
 }
 
 fn size_name(size: f32) -> &'static str {
@@ -78,7 +96,6 @@ pub fn main_menu_system(
         state.raider_towns = saved.raider_towns as f32;
         state.ai_interval = saved.ai_interval;
         state.npc_interval = saved.npc_interval;
-        state.gen_style = saved.gen_style as i32;
         state.gold_mines = saved.gold_mines_per_town as f32;
         state.raider_passive_forage = saved.raider_passive_forage;
         state.difficulty = saved.difficulty;
@@ -86,6 +103,8 @@ pub fn main_menu_system(
         state.autosave_hours = saved.autosave_hours;
         state.endless_mode = saved.endless_mode;
         state.endless_strength = saved.endless_strength;
+        strip_disabled_home_jobs(&mut state.npc_counts);
+        clamp_player_menu_caps(&mut state);
         state.initialized = true;
     }
 
@@ -101,6 +120,8 @@ pub fn main_menu_system(
         for (&job, &count) in &preset.npc_counts {
             state.npc_counts.insert(job, count as f32);
         }
+        strip_disabled_home_jobs(&mut state.npc_counts);
+        clamp_player_menu_caps(&mut state);
         state.prev_difficulty = state.difficulty;
     }
 
@@ -136,19 +157,6 @@ pub fn main_menu_system(
 
             ui.add_space(4.0);
 
-            ui.horizontal(|ui| {
-                ui.label("World Gen:").on_hover_text("Classic: single landmass. Continents: multiple islands separated by ocean.");
-                egui::ComboBox::from_id_salt("gen_style")
-                    .selected_text(match state.gen_style {
-                        1 => "Continents",
-                        _ => "Classic",
-                    })
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut state.gen_style, 0, "Classic");
-                        ui.selectable_value(&mut state.gen_style, 1, "Continents");
-                    });
-            });
-
             ui.add_space(8.0);
 
             // ── Difficulty ─────────────────────────
@@ -174,11 +182,11 @@ pub fn main_menu_system(
             ui.indent("per_town_settings", |ui| {
                 ui.horizontal(|ui| {
                     ui.label("Farms:").on_hover_text("Farms per town. Farms produce food for NPCs.");
-                    ui.add(egui::Slider::new(&mut state.farms, 0.0..=100.0)
+                    ui.add(egui::Slider::new(&mut state.farms, 0.0..=10.0)
                         .step_by(1.0)
                         .show_value(false));
                     let mut fm = state.farms as i32;
-                    if ui.add(egui::DragValue::new(&mut fm).range(0..=100).suffix(" /town")).changed() {
+                    if ui.add(egui::DragValue::new(&mut fm).range(0..=10).suffix(" /town")).changed() {
                         state.farms = fm as f32;
                     }
                 });
@@ -192,17 +200,17 @@ pub fn main_menu_system(
                         state.gold_mines = gm as f32;
                     }
                 });
-                for def in NPC_REGISTRY.iter().filter(|d| !d.is_raider_unit) {
+                for def in NPC_REGISTRY.iter().filter(|d| !d.is_raider_unit && is_player_home_job(d.job)) {
                     ui.horizontal(|ui| {
                         let label = format!("{} Homes:", def.label);
                         let tip = format!("{} homes per town (player & AI). Each home spawns one {}.", def.label, def.label.to_lowercase());
                         ui.label(label).on_hover_text(tip);
                         let val = state.npc_counts.entry(def.job).or_insert(0.0);
-                        ui.add(egui::Slider::new(val, 0.0..=1000.0)
+                        ui.add(egui::Slider::new(val, 0.0..=10.0)
                             .step_by(1.0)
                             .show_value(false));
                         let mut iv = *val as i32;
-                        if ui.add(egui::DragValue::new(&mut iv).range(0..=1000).suffix(" /town")).changed() {
+                        if ui.add(egui::DragValue::new(&mut iv).range(0..=10).suffix(" /town")).changed() {
                             *val = iv as f32;
                         }
                     });
@@ -284,7 +292,9 @@ pub fn main_menu_system(
 
             // Play button
             if ui.button(egui::RichText::new("  Play  ").size(18.0)).clicked() {
-                wg_config.gen_style = if state.gen_style == 1 { WorldGenStyle::Continents } else { WorldGenStyle::Classic };
+                strip_disabled_home_jobs(&mut state.npc_counts);
+                clamp_player_menu_caps(&mut state);
+                wg_config.gen_style = WorldGenStyle::Continents;
                 wg_config.world_width = state.world_size;
                 wg_config.world_height = state.world_size;
                 wg_config.num_towns = 1;
@@ -307,7 +317,7 @@ pub fn main_menu_system(
                 saved.raider_towns = state.raider_towns as usize;
                 saved.ai_interval = state.ai_interval;
                 saved.npc_interval = state.npc_interval;
-                saved.gen_style = state.gen_style as u8;
+                saved.gen_style = 1;
                 saved.gold_mines_per_town = state.gold_mines as usize;
                 saved.raider_passive_forage = state.raider_passive_forage;
                 saved.difficulty = state.difficulty;
@@ -409,25 +419,26 @@ pub fn main_menu_system(
                             state.world_size = defaults.world_size;
                             state.towns = defaults.towns as f32;
                             state.farms = defaults.farms as f32;
-                            for def in NPC_REGISTRY {
-                                let key = format!("{:?}", def.job);
-                                let count = defaults.npc_counts.get(&key).copied().unwrap_or(def.default_count);
-                                state.npc_counts.insert(def.job, count as f32);
-                            }
+                        for def in NPC_REGISTRY {
+                            let key = format!("{:?}", def.job);
+                            let count = defaults.npc_counts.get(&key).copied().unwrap_or(def.default_count);
+                            state.npc_counts.insert(def.job, count as f32);
+                        }
                             state.ai_towns = defaults.ai_towns as f32;
                             state.raider_towns = defaults.raider_towns as f32;
                             state.ai_interval = defaults.ai_interval;
                             state.npc_interval = defaults.npc_interval;
-                            state.gen_style = defaults.gen_style as i32;
                             state.gold_mines = defaults.gold_mines_per_town as f32;
                             state.raider_passive_forage = defaults.raider_passive_forage;
                             state.difficulty = defaults.difficulty;
                             state.autosave_hours = defaults.autosave_hours;
-                            state.endless_mode = defaults.endless_mode;
-                            state.endless_strength = defaults.endless_strength;
-                            settings::save_settings(&defaults);
-                        }
-                    });
+                        state.endless_mode = defaults.endless_mode;
+                        state.endless_strength = defaults.endless_strength;
+                        strip_disabled_home_jobs(&mut state.npc_counts);
+                        clamp_player_menu_caps(&mut state);
+                        settings::save_settings(&defaults);
+                    }
+                });
                 });
         });
     });

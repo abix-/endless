@@ -553,16 +553,22 @@ pub fn healing_system(
         }
 
         if in_zone {
-            if let Ok((_, mut health, cached, flags, _)) = npc_q.get_mut(npc.entity) {
+            if let Ok((_, mut health, cached, mut flags, _)) = npc_q.get_mut(npc.entity) {
                 let hp_cap = if flags.starving {
                     cached.max_health * STARVING_HP_CAP
                 } else {
                     cached.max_health
                 };
+                let was_healing = flags.healing;
                 if health.0 < hp_cap {
                     health.0 = (health.0 + zone_heal_rate * dt).min(hp_cap);
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: health.0 }));
                     healed_count += 1;
+                }
+                let should_heal = health.0 < hp_cap;
+                if was_healing != should_heal {
+                    flags.healing = should_heal;
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: slot }));
                 }
             }
             i += 1;
@@ -618,9 +624,15 @@ pub fn healing_system(
     to_activate.dedup_by_key(|(slot, _)| *slot);
 
     for (slot, entity) in to_activate {
-        if let Ok((_, _, _, mut flags, _)) = npc_q.get_mut(entity) {
-            if !flags.healing {
-                flags.healing = true;
+        if let Ok((_, health, cached, mut flags, _)) = npc_q.get_mut(entity) {
+            let hp_cap = if flags.starving {
+                cached.max_health * STARVING_HP_CAP
+            } else {
+                cached.max_health
+            };
+            let should_heal = health.0 < hp_cap;
+            if flags.healing != should_heal {
+                flags.healing = should_heal;
                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: slot }));
             }
         }

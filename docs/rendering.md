@@ -4,10 +4,10 @@
 
 **Terrain** uses Bevy's built-in `TilemapChunk` (single layer, `AlphaMode2d::Opaque`, z=-1). **Everything else** — buildings, NPCs, equipment, farms, building HP bars, projectiles — uses a custom GPU pipeline via Bevy's RenderCommand pattern in the Transparent2d phase. Explicit sort keys guarantee deterministic layer ordering (`CompareFunction::Always`, no depth testing between passes). Two render paths share one pipeline with a `StorageDrawMode` specialization key:
 
-- **Storage buffer path** (NPCs only): `vertex_npc` shader entry point reads positions/health directly from compute shader's `NpcGpuBuffers` storage buffers (bind group 2). Visual/equipment data uploaded from CPU as flat storage buffers (`NpcVisualBuffers`). Two specialized variants via `#ifdef` shader defs: `MODE_NPC_BODY` (layer 0, non-building only), `MODE_NPC_OVERLAY` (layers 1-6, non-building only).
+- **Storage buffer path** (NPCs + selection brackets): `vertex_npc` shader entry point reads positions/health directly from compute shader's `NpcGpuBuffers` storage buffers (bind group 2). Visual/equipment data uploaded from CPU as flat storage buffers (`NpcVisualBuffers`). Three specialized variants via `#ifdef` shader defs: `MODE_NPC_BODY` (layer 0, non-building only), `MODE_NPC_OVERLAY` (layers 1-6, non-building only), `MODE_SELECTION_BRACKET` (procedural corner brackets from per-instance style data).
 - **Instance buffer path** (buildings, building overlays, projectiles): `vertex` shader entry point reads from classic per-instance `InstanceData` vertex attributes (slot 1). Building bodies use `BuildingBodyInstances` built each frame from `EntityGpuState` via `EntityMap.iter_instances()`.
 
-Four textures bound simultaneously (group 0, bindings 0-7) — `atlas_id` selects which to sample (0=character, 1=world, 2=heal/3=sleep/4=arrow/8=boat via extras atlas, 7=building). Bar-only modes: 5=building HP bar (green/yellow/red), 6=mining progress bar (gold). Atlas ID constants defined in `constants.rs` (`ATLAS_CHAR` through `ATLAS_BOAT`).
+Four textures bound simultaneously (group 0, bindings 0-7) — `atlas_id` selects which to sample (0=character, 1=world, 2=heal/3=sleep/4=arrow/8=boat via extras atlas, 7=building). Bar-only modes: 5=building HP bar (green/yellow/red), 6=mining progress bar (gold). Procedural mode: 9=selection brackets (no texture sampling, corner brackets from quad_uv). Atlas ID constants defined in `constants.rs` (`ATLAS_CHAR` through `ATLAS_BOAT`).
 
 Defined in: `rust/src/npc_render.rs`, `rust/src/render.rs`, `shaders/npc_render.wgsl`
 
@@ -30,6 +30,7 @@ NpcVisualUpload       ──Extract<Res<T>>──▶ zero-clone immutable read
 RenderFrameConfig     ──ExtractResource──▶ RenderFrameConfig (bundles EntityGpuData + ProjGpuData + textures + readback)
 OverlayInstances      ──Extract<Res<T>>──▶ zero-clone → BuildingOverlayBuffers
 BuildingBodyInstances ──Extract<Res<T>>──▶ zero-clone → BuildingBodyRenderBuffers (built from EntityGpuState via EntityMap)
+SelectionOverlayInstances ──Extract<Res<T>>──▶ zero-clone → SelectionRenderBuffers
 NpcGpuBuffers         ──(render world)──▶ positions + healths (bind group 2)
 Camera2d entity       ──extract_camera_state──▶ CameraState
 NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
@@ -56,7 +57,8 @@ NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
                                (DrawBuildingBodyCommands sort_key=0.2,
                                 DrawBuildingOverlayCommands sort_key=0.3,
                                 DrawNpcBodyCommands sort_key=0.5,
-                                DrawNpcOverlayCommands sort_key=0.6)
+                                DrawNpcOverlayCommands sort_key=0.6,
+                                DrawSelectionBracketCommands sort_key=1.5)
                                       │
                                       ▼
                     DrawBuildingBodyCommands (buildings, instance path):
@@ -141,6 +143,13 @@ pub struct InstanceData {
 }
 ```
 
+**Selection brackets** (in `SelectionRenderBuffers`, drawn by `DrawSelectionBrackets`):
+- atlas_id=9.0 (procedural — no texture sampling), fragment shader draws corner brackets from quad_uv
+- `SelectionInstance` (32 bytes): `slot: u32, color: [f32;4], scale: f32, y_offset: f32, _pad: f32`
+- Position read from `npc_positions[slot]` in vertex shader (storage buffer path)
+- Colors: cyan (selected NPC), gold (selected building), green (DirectControl group, capped at 200)
+- LOD-aware: discarded when `camera.zoom < camera.lod_zoom`
+
 **Farm sprites** (in `BuildingOverlayBuffers`, drawn by `DrawBuildingOverlay`):
 - atlas_id=1.0 (world atlas), sprite=(24,9), scale=16
 - Color: golden [1.0, 0.85, 0.0] when ready, green [0.4, 0.8, 0.2] when growing
@@ -200,7 +209,14 @@ The vertex shader scales the unit quad by the per-instance `scale` field (16.0 f
 | 0 | Vertex | Static quad (4 vertices) | 16B | @location(0) quad_pos, @location(1) quad_uv |
 | 1 | Instance | Per-instance data (N instances) | 52B | @location(2) instance_pos, @location(3) sprite_cell, @location(4) color, @location(5) health, @location(6) flash, @location(7) scale, @location(8) atlas_id, @location(9) rotation |
 
-Both paths share `quad_vertex_layout()` (slot 0). The instance path adds `instance_vertex_layout()` (slot 1). Selected via `StorageDrawMode` in pipeline specialization key `(hdr, samples, Option<StorageDrawMode>)`. `None` = instance path, `Some(mode)` = storage path with shader def gating.
+**Selection bracket path** (`vertex_selection`, selection overlays) — slot 0 + slot 1:
+
+| Slot | Step Mode | Data | Stride | Attributes |
+|------|-----------|------|--------|------------|
+| 0 | Vertex | Static quad (4 vertices) | 16B | @location(0) quad_pos, @location(1) quad_uv |
+| 1 | Instance | Per-bracket data (N instances) | 32B | @location(2) slot, @location(3) color, @location(4) scale, @location(5) y_offset |
+
+All paths share `quad_vertex_layout()` (slot 0). The instance path adds `instance_vertex_layout()` (slot 1). The selection path adds `selection_instance_layout()` (slot 1). Selected via `StorageDrawMode` in pipeline specialization key `(hdr, samples, Option<StorageDrawMode>)`. `None` = instance path, `Some(mode)` = storage path with shader def gating.
 
 ## Sprite Atlases
 
@@ -249,6 +265,16 @@ Job sprite assignments (from constants.rs):
 ## Fragment Shader
 
 The fragment shader handles both health bar rendering and sprite rendering. The vertex shader passes two UV sets: `uv` (atlas-transformed for texture sampling) and `quad_uv` (raw 0-1 within the sprite quad for health bar positioning).
+
+**Selection brackets** (atlas_id 9, early-return before all other rendering):
+```wgsl
+if in.atlas_id >= 8.5 && in.atlas_id < 9.5 {
+    if camera.zoom < camera.lod_zoom { discard; }
+    // Procedural corner brackets from quad_uv: 35% length, 8% width per corner
+    if !(in_tl || in_tr || in_bl || in_br) { discard; }
+    return vec4<f32>(in.color.rgb, in.color.a);
+}
+```
 
 **Extras atlas overlays** (early-return before health bar / sprite rendering):
 ```wgsl
@@ -324,21 +350,23 @@ The render pipeline runs in Bevy's render world after extract:
 | Extract | `extract_camera_state` | Build CameraState from Camera2d Transform + Projection + Window |
 | Extract | `extract_building_body_instances` | Zero-clone read of BuildingBodyInstances → BuildingBodyRenderBuffers (building body sprites from EntityGpuState via EntityMap) |
 | Extract | `extract_overlay_instances` | Zero-clone read of OverlayInstances → BuildingOverlayBuffers (farms/BHP/mining) with RawBufferVec reuse |
+| Extract | `extract_selection_overlay` | Zero-clone read of SelectionOverlayInstances → SelectionRenderBuffers (selection brackets) |
 | PrepareResources | `prepare_npc_buffers` | Buffer creation + sentinel init (first frame), create bind group 2 |
 | Extract | `extract_proj_data` | Zero-clone GPU upload: per-dirty-index compute writes + projectile instance buffer build from `active_set` via `Extract<Res<T>>` |
 | PrepareBindGroups | `prepare_npc_texture_bind_group` | Create texture bind group from RenderFrameConfig.textures (4 textures: char + world + extras + building; building/extras fall back to char_image until atlas loads) |
 | PrepareBindGroups | `prepare_npc_camera_bind_group` | Create camera uniform bind group (includes entity_count from RenderFrameConfig.npc) |
-| Queue | `queue_npcs` | Add DrawBuildingBodyCommands (0.2), DrawBuildingOverlayCommands (0.3), DrawNpcBodyCommands (0.5), DrawNpcOverlayCommands (0.6) |
+| Queue | `queue_npcs` | Add DrawBuildingBodyCommands (0.2), DrawBuildingOverlayCommands (0.3), DrawNpcBodyCommands (0.5), DrawNpcOverlayCommands (0.6), DrawSelectionBracketCommands (1.5) |
 | Queue | `queue_projs` | Add DrawProjCommands (sort_key=1.0, above NPCs) |
 | Render | `DrawBuildingBodyCommands` | Instance path — building body sprites from `BuildingBodyRenderBuffers` (built from `EntityGpuState` via `EntityMap`) |
 | Render | `DrawBuildingOverlayCommands` | Instance path — farms, building HP bars, mine progress |
 | Render | `DrawNpcBodyCommands` | Storage path, `#ifdef MODE_NPC_BODY` — layer 0, non-building only |
 | Render | `DrawNpcOverlayCommands` | Storage path, `#ifdef MODE_NPC_OVERLAY` — layers 1-6, non-building only |
 | Render | `DrawProjCommands` | Instance path — arrow projectiles |
+| Render | `DrawSelectionBracketCommands` | Storage+instance hybrid — procedural selection brackets |
 
 ## RenderCommand Pattern
 
-Bevy's RenderCommand trait defines GPU commands for drawing. Five command chains share one pipeline (specialized via `Option<StorageDrawMode>`):
+Bevy's RenderCommand trait defines GPU commands for drawing. Six command chains share one pipeline (specialized via `Option<StorageDrawMode>`):
 
 **Generic storage draw** — `DrawStoragePass<const BODY_ONLY: bool>`:
 ```rust
@@ -369,6 +397,12 @@ type DrawProjCommands = (..., DrawProjs);
 ```
 
 `DrawProjs::render()` reads `ProjRenderBuffers` — sharing static quad/index from `NpcRenderBuffers`. Faction-colored: blue for villagers, per-faction color for raiders.
+
+**Selection bracket storage+instance hybrid path** — `DrawSelectionBrackets`:
+```rust
+type DrawSelectionBracketCommands = (..., DrawSelectionBrackets);
+```
+`DrawSelectionBrackets::render()` reads `SelectionRenderBuffers` — a `RawBufferVec<SelectionInstance>` built each frame by `build_selection_overlay` (PostUpdate) from `SelectedNpc`, `SelectedBuilding`, and `NpcFlags.direct_control`. Uses storage buffer bind group 2 for positions (from NPC compute output) and instance buffer slot 1 for per-bracket style (slot, color, scale, y_offset). Vertex shader reads `npc_positions[in.slot]` for world position, fragment shader renders procedural corner brackets.
 
 **Sort key helper** — `queue_phase_item()` adds a single `Transparent2d` item, used by both `queue_npcs` and `queue_projs` to avoid repetitive phase item construction.
 
