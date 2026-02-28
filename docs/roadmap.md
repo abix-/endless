@@ -66,7 +66,7 @@ ECS source-of-truth migration complete (see [completed.md](completed.md)). ECS o
 Remaining performance items at 50k NPC + 50k buildings (sorted by criticality, then expected savings):
 
 1. [x] [Critical] `build_visual_upload` event-driven dirty tracking: persistent `NpcVisualUpload` buffers with per-slot dirty updates via `GpuUpdate::MarkVisualDirty`. Full rebuild only on startup/load. Steady-state updates only dirty slots (~0.01ms vs ~4-8ms).
-2. [ ] [Critical] Decision-frame budgeting: fixed think-bucket interval at 50k NPCs means more NPCs per bucket, causing frame-time spikes during heavy decision ticks. Need max decisions/frame cap + adaptive interval.
+2. [x] [Critical] Decision-frame budgeting: adaptive `think_buckets = max(interval × 60, npc_count / 300)` caps Tier 3 decisions at 300/frame regardless of population. At 50k NPCs: 167 buckets (~300/frame).
    Expected saving: ~3-8 ms/frame p95/p99 spike reduction.
 3. [ ] [High] Entity sleeping (Factorio-style): NPCs outside camera radius skip behavior/movement ticks. At 50k NPCs, typically 80%+ are off-camera.
    Expected saving: ~5-15+ ms/frame CPU when most NPCs off-camera; near-zero if camera covers all.
