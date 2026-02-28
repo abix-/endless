@@ -68,7 +68,7 @@ Bevy ECS (lib.rs build_app)
     ├─ AppState: MainMenu → Playing | TestMenu → Running
     │
     ├─ UI (ui/) ─────────────────────────────▶ main_menu, game_hud, panels, startup, cleanup
-    │   ├─ Main menu: sectioned layout (World / Difficulty / Options / Debug), Continents-only world generation, player-focused per-town caps (farms/mines/farmer homes/archer homes up to 10), non-player homes (miner/fighter/crossbow) removed from player-facing sliders, tooltips on controls, Play / Load Game / Debug Tests / Restart Tutorial
+    │   ├─ Main menu: sectioned layout (World / Difficulty / Options / Debug), Continents-only world generation (no worldgen selector), player-focused per-town caps (farms/mines/farmer homes/archer homes up to 10), non-player homes (miner/fighter/crossbow) removed from player-facing sliders, tooltips on controls, Play / Load Game / Debug Tests / Restart Tutorial
     │   ├─ Game startup: world gen + NPC spawn (OnEnter Playing)
     │   ├─ Top bar: panel toggles left, town name + time center, stats (food + gold) + FPS right
     │   ├─ Floating windows: NPC/building/DC-group inspector with combat stats + equipment + status + keep-fighting toggle (bottom-left) + combat log with faction filter + type filters (bottom-right)
