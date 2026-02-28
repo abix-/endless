@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use crate::components::*;
 use crate::resources::*;
 use crate::systemparams::{EconomyState, WorldState};
-use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, RAIDER_FORAGE_RATE, STARVING_SPEED_MULT, SPAWNER_RESPAWN_HOURS,
+use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, RAIDER_FORAGE_RATE, STARVING_SPEED_MULT, STARVING_HP_CAP, SPAWNER_RESPAWN_HOURS,
     RAIDER_SETTLE_RADIUS, MIGRATION_BASE_SIZE, BOAT_SPEED, ATLAS_BOAT, ENDLESS_RESPAWN_DELAY_HOURS, TOWN_GRID_SPACING,
 };
 use crate::world::{self, WorldData, BuildingKind, TownGrids, Biome};
@@ -169,23 +169,29 @@ pub fn raider_forage_system(
 
 /// Starvation check: NPCs with zero energy become Starving.
 /// Only runs when game_time.hour_ticked is true.
-/// Starving NPCs have 50% speed.
+/// Starving NPCs have 50% speed and HP capped at 50%.
 pub fn starvation_system(
     game_time: Res<GameTime>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     timings: Res<SystemTimings>,
-    mut q: Query<(&EntitySlot, &Energy, &CachedStats, &mut NpcFlags), (Without<Building>, Without<Dead>)>,
+    mut q: Query<(&EntitySlot, &Energy, &CachedStats, &mut NpcFlags, &mut Health), (Without<Building>, Without<Dead>)>,
 ) {
     let _t = timings.scope("starvation");
     if !game_time.hour_ticked {
         return;
     }
 
-    for (slot, energy, cached, mut flags) in q.iter_mut() {
+    for (slot, energy, cached, mut flags, mut health) in q.iter_mut() {
         if energy.0 <= 0.0 {
             if !flags.starving {
                 flags.starving = true;
                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: slot.0, speed: cached.speed * STARVING_SPEED_MULT }));
+            }
+            // Always clamp HP for starving NPCs (handles transition + save/load edge cases)
+            let hp_cap = cached.max_health * STARVING_HP_CAP;
+            if health.0 > hp_cap {
+                health.0 = hp_cap;
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot.0, health: health.0 }));
             }
         } else if flags.starving {
             flags.starving = false;

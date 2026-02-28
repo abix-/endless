@@ -78,10 +78,11 @@ game_time_system (every frame)
 - Spawn mapping resolved by `world::resolve_spawner_npc()` (single source of truth, takes `&BuildingInstance`): FarmerHome → Farmer (nearest farm via `find_nearest_free` as hint, no claim at spawn — farmer self-claims via behavior system), ArcherHome → Archer (nearest waypoint via `find_location_within_radius`), FighterHome → Fighter (nearest waypoint via `find_location_within_radius`), Tent → Raider (home = tent position), MinerHome → Miner (assigned mine from `BuildingInstance.assigned_mine` if set, otherwise nearest gold mine via `find_nearest_free`). All types look up faction from `world_data.towns[town_idx].faction`. Note: spawner_respawn_system does **not** pre-claim work slots — farmers self-claim via `find_farmer_farm_target()` in decision_system.
 
 ### starvation_system
-- Query-first: `(&EntitySlot, &Energy, &CachedStats, &mut NpcFlags)` with `Without<Building>, Without<Dead>` — no `EntityMap` dependency
+- Query-first: `(&EntitySlot, &Energy, &CachedStats, &mut NpcFlags, &mut Health)` with `Without<Building>, Without<Dead>` — no `EntityMap` dependency
 - Runs when `game_time.hour_ticked` is true
 - NPCs with `energy <= 0` get `starving` flag set on `NpcFlags`
 - Starving NPCs: speed set to `CachedStats.speed * STARVING_SPEED_MULT` (0.5) via `GpuUpdate::SetSpeed`
+- **HP cap**: always clamps HP to `max_health * STARVING_HP_CAP` (50%) for all starving NPCs (handles both transition and save/load edge cases) via `GpuUpdate::SetHealth`
 - When energy rises above 0 (eating or resting): `starving` is cleared, speed restored to `CachedStats.speed`
 
 ## Farm Growth
@@ -155,7 +156,7 @@ Speed restored to CachedStats.speed
 
 Starvation applies to **both villagers and raiders**. If raiders can't steal food and their town runs out, they'll starve and become easier to kill.
 
-The HP cap is enforced by `healing_system` — starving NPCs can't heal above 50% MaxHealth even inside a healing aura.
+The HP cap is enforced by `starvation_system` (immediate clamp on every hourly tick) and `healing_system` (healing zone caps at 50% for starving NPCs). No other system can raise HP outside healing zones.
 
 ## Raider Attack System
 

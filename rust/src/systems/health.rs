@@ -6,7 +6,8 @@ use crate::components::*;
 use crate::constants::STARVING_HP_CAP;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, DirtyWriters};
 use crate::messages::CombatLogMsg;
-use crate::resources::{EntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, EntitySlots, GpuReadState, FactionStats, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SelectedBuilding, SystemTimings, HealingZoneCache, BuildingHealState, EndlessMode, SquadState, FoodStorage, GoldStorage};
+use crate::resources::{EntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, EntitySlots, GpuReadState, FactionStats, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SelectedBuilding, SystemTimings, HealingZoneCache, BuildingHealState, ActiveHealingSlots, EndlessMode, SquadState, FoodStorage, GoldStorage};
+use std::collections::HashMap;
 use crate::systems::stats::{CombatConfig, TownUpgrades, UPGRADES, level_from_xp, resolve_combat_stats};
 use crate::constants::{UpgradeStatKind, ItemKind, building_def, npc_def};
 use crate::systems::economy::*;
@@ -450,10 +451,14 @@ pub fn update_healing_zone_cache(
         let radius = combat_config.heal_radius + radius_lvl as f32 * 24.0;
         let heal_rate = combat_config.heal_rate * heal_mult;
 
+        let enter_radius_sq = radius * radius;
         cache.by_faction[town.faction as usize].push(crate::resources::HealingZone {
             center: town.center,
-            radius_sq: radius * radius,
+            enter_radius_sq,
+            exit_radius_sq: enter_radius_sq * 1.21, // 10% larger radius for hysteresis
             heal_rate,
+            town_idx,
+            faction: town.faction,
         });
     }
 
@@ -461,93 +466,173 @@ pub fn update_healing_zone_cache(
     info!("Healing zone cache rebuilt: {} factions", cache.by_faction.len());
 }
 
-/// Heal NPCs inside their faction's town center healing aura.
-/// Sets NpcFlags.healing flag (for gpu.rs visual).
-/// Starving NPCs are capped at 50% HP.
+/// Candidate-driven healing: enter-check (cadenced) + sustain-check (every frame).
+/// Replaces full 50k NPC iteration with O(active_healing + sampled_candidates).
+/// Starving HP cap moved to starvation_system (economy.rs).
 pub fn healing_system(
     mut npc_q: Query<(&EntitySlot, &mut Health, &CachedStats, &mut NpcFlags, &Faction), (Without<Building>, Without<Dead>)>,
     mut building_query: Query<(&EntitySlot, &mut Health, &Faction, &Building), Without<Dead>>,
     gpu_state: Res<GpuReadState>,
     entity_gpu_state: Res<crate::gpu::EntityGpuState>,
+    entity_map: Res<EntityMap>,
     cache: Res<HealingZoneCache>,
+    world_data: Res<WorldData>,
     time: Res<Time>,
     game_time: Res<GameTime>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut debug: ResMut<HealthDebug>,
     mut heal_state: ResMut<BuildingHealState>,
+    mut active: ResMut<ActiveHealingSlots>,
+    mut frame_count: Local<u32>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("healing");
     let positions = &gpu_state.positions;
     let dt = game_time.delta(&time);
+    *frame_count = frame_count.wrapping_add(1);
+    let bucket = (*frame_count % 4) as usize;
 
-    // Debug tracking
-    let mut npcs_checked = 0usize;
-    let mut in_zone_count = 0usize;
+    let mut enter_checks = 0usize;
     let mut healed_count = 0usize;
+    let mut exit_count = 0usize;
 
-    for (slot, mut health, cached, mut flags, faction) in npc_q.iter_mut() {
-        let idx = slot.0;
-        npcs_checked += 1;
-
-        // Calculate effective HP cap (50% if starving)
-        let hp_cap = if flags.starving {
-            cached.max_health * STARVING_HP_CAP
-        } else {
-            cached.max_health
-        };
-
-        // If starving and HP > cap, drain to cap
-        if flags.starving && health.0 > hp_cap {
-            health.0 = hp_cap;
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: health.0 }));
-        }
-
-        if idx * 2 + 1 >= positions.len() {
-            continue;
-        }
-
-        let x = positions[idx * 2];
-        let y = positions[idx * 2 + 1];
-
-        // Faction-indexed zone lookup: only check same-faction zones, dist² (no sqrt)
-        let mut in_healing_zone = false;
-        let mut zone_heal_rate = 0.0;
-        let zones = cache.by_faction.get(faction.0 as usize).map(|v| v.as_slice()).unwrap_or(&[]);
+    // Precompute faction → zones lookup (HashMap<i32> because faction can be negative/sparse)
+    let mut faction_zones: HashMap<i32, Vec<&crate::resources::HealingZone>> = HashMap::new();
+    for zones in &cache.by_faction {
         for zone in zones {
-            let dx = x - zone.center.x;
-            let dy = y - zone.center.y;
-            if dx * dx + dy * dy <= zone.radius_sq {
-                in_healing_zone = true;
-                zone_heal_rate = zone.heal_rate;
-                break;
-            }
-        }
-
-        if in_healing_zone {
-            in_zone_count += 1;
-
-            let heal_amount = zone_heal_rate * dt;
-            if health.0 < hp_cap {
-                health.0 = (health.0 + heal_amount).min(hp_cap);
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: health.0 }));
-                healed_count += 1;
-
-                if !flags.healing {
-                    flags.healing = true;
-                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx }));
-                }
-            } else if flags.healing {
-                flags.healing = false;
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx }));
-            }
-        } else if flags.healing {
-            flags.healing = false;
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx }));
+            faction_zones.entry(zone.faction).or_default().push(zone);
         }
     }
 
-    // Heal damaged buildings in same-faction fountain range (entity-driven).
+    // ========================================================================
+    // 1. Sustain-check: process active healing set every frame
+    // ========================================================================
+    let mut i = 0;
+    while i < active.slots.len() {
+        let slot = active.slots[i];
+
+        // Stale/dead slot cleanup
+        let Some(npc) = entity_map.get_npc(slot) else {
+            if slot < active.mark.len() { active.mark[slot] = 0; }
+            active.slots.swap_remove(i);
+            exit_count += 1;
+            continue;
+        };
+        if npc.dead {
+            if slot < active.mark.len() { active.mark[slot] = 0; }
+            active.slots.swap_remove(i);
+            exit_count += 1;
+            continue;
+        }
+
+        // Position + exit check
+        let base = slot * 2;
+        if base + 1 >= positions.len() {
+            if slot < active.mark.len() { active.mark[slot] = 0; }
+            active.slots.swap_remove(i);
+            exit_count += 1;
+            continue;
+        }
+        let px = positions[base];
+        let py = positions[base + 1];
+
+        // Check against same-faction zones using exit_radius_sq (hysteresis)
+        let fac = npc.faction;
+        let mut in_zone = false;
+        let mut zone_heal_rate = 0.0;
+        if let Some(zones) = faction_zones.get(&fac) {
+            for zone in zones.iter() {
+                let dx = px - zone.center.x;
+                let dy = py - zone.center.y;
+                if dx * dx + dy * dy <= zone.exit_radius_sq {
+                    in_zone = true;
+                    zone_heal_rate = zone.heal_rate;
+                    break;
+                }
+            }
+        }
+
+        if in_zone {
+            if let Ok((_, mut health, cached, flags, _)) = npc_q.get_mut(npc.entity) {
+                let hp_cap = if flags.starving {
+                    cached.max_health * STARVING_HP_CAP
+                } else {
+                    cached.max_health
+                };
+                if health.0 < hp_cap {
+                    health.0 = (health.0 + zone_heal_rate * dt).min(hp_cap);
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: health.0 }));
+                    healed_count += 1;
+                }
+            }
+            i += 1;
+        } else {
+            // Exited zone
+            if let Ok((_, _, _, mut flags, _)) = npc_q.get_mut(npc.entity) {
+                if flags.healing {
+                    flags.healing = false;
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: slot }));
+                }
+            }
+            if slot < active.mark.len() { active.mark[slot] = 0; }
+            active.slots.swap_remove(i);
+            exit_count += 1;
+        }
+    }
+
+    // ========================================================================
+    // 2. Enter-check: find new healing candidates (cadenced, 1/4 NPCs per frame)
+    // ========================================================================
+    let mut to_activate: Vec<(usize, Entity)> = Vec::new();
+
+    for (town_idx, _town) in world_data.towns.iter().enumerate() {
+        for npc in entity_map.npcs_for_town(town_idx as i32) {
+            if npc.dead { continue; }
+            let slot = npc.slot;
+            if slot % 4 != bucket { continue; }
+            if slot < active.mark.len() && active.mark[slot] == 1 { continue; }
+
+            enter_checks += 1;
+
+            let base = slot * 2;
+            if base + 1 >= positions.len() { continue; }
+            let px = positions[base];
+            let py = positions[base + 1];
+
+            // Check all same-faction zones using enter_radius_sq
+            if let Some(zones) = faction_zones.get(&npc.faction) {
+                for zone in zones.iter() {
+                    let dx = px - zone.center.x;
+                    let dy = py - zone.center.y;
+                    if dx * dx + dy * dy <= zone.enter_radius_sq {
+                        to_activate.push((slot, npc.entity));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Dedup and activate
+    to_activate.sort_unstable_by_key(|(slot, _)| *slot);
+    to_activate.dedup_by_key(|(slot, _)| *slot);
+
+    for (slot, entity) in to_activate {
+        if let Ok((_, _, _, mut flags, _)) = npc_q.get_mut(entity) {
+            if !flags.healing {
+                flags.healing = true;
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: slot }));
+            }
+        }
+        if slot < active.mark.len() {
+            active.slots.push(slot);
+            active.mark[slot] = 1;
+        }
+    }
+
+    // ========================================================================
+    // 3. Building healing (unchanged — already gated behind needs_healing)
+    // ========================================================================
     if heal_state.needs_healing {
         let bld_positions = &entity_gpu_state.positions;
         let mut any_damaged = false;
@@ -560,27 +645,32 @@ pub fn healing_system(
             let x = bld_positions[idx * 2];
             let y = bld_positions[idx * 2 + 1];
             if faction.0 < 0 { continue; }
-            let zones = cache.by_faction.get(faction.0 as usize).map(|v| v.as_slice()).unwrap_or(&[]);
-            let mut zone_heal_rate = 0.0f32;
-            for zone in zones {
-                let dx = x - zone.center.x;
-                let dy = y - zone.center.y;
-                if dx * dx + dy * dy <= zone.radius_sq {
-                    zone_heal_rate = zone.heal_rate;
-                    break;
+            if let Some(zones) = faction_zones.get(&faction.0) {
+                let mut zone_heal_rate = 0.0f32;
+                for zone in zones.iter() {
+                    let dx = x - zone.center.x;
+                    let dy = y - zone.center.y;
+                    if dx * dx + dy * dy <= zone.enter_radius_sq {
+                        zone_heal_rate = zone.heal_rate;
+                        break;
+                    }
+                }
+                if zone_heal_rate > 0.0 {
+                    health.0 = (health.0 + zone_heal_rate * dt).min(max_hp);
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: health.0 }));
                 }
             }
-            if zone_heal_rate <= 0.0 { continue; }
-            health.0 = (health.0 + zone_heal_rate * dt).min(max_hp);
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: health.0 }));
         }
         if !any_damaged { heal_state.needs_healing = false; }
     }
 
     // Update debug stats
-    debug.healing_npcs_checked = npcs_checked;
+    debug.healing_npcs_checked = enter_checks;
     debug.healing_positions_len = positions.len();
     debug.healing_towns_count = cache.by_faction.iter().map(|v| v.len()).sum();
-    debug.healing_in_zone_count = in_zone_count;
+    debug.healing_in_zone_count = active.slots.len();
     debug.healing_healed_count = healed_count;
+    debug.healing_active_count = active.slots.len();
+    debug.healing_enter_checks = enter_checks;
+    debug.healing_exits = exit_count;
 }

@@ -15,6 +15,7 @@
 //! Priority 7: Idle -> Score Eat/Rest/Work/Wander (wounded -> fountain)
 
 use bevy::prelude::*;
+use std::collections::HashMap;
 
 use crate::components::*;
 use crate::constants::*;
@@ -375,6 +376,31 @@ pub fn decision_system(
     let mut n_ws_fallbacks: u32 = 0;
     let mut n_ws_stale: u32 = 0;
 
+    // Reconcile per-farm farmer ownership for this frame using NPC work states.
+    // If multiple farmers reference the same farm slot, the lowest NPC slot keeps it.
+    let mut farm_owner_counts: HashMap<usize, usize> = HashMap::new();
+    let mut farm_owner_keep_slot: HashMap<usize, usize> = HashMap::new();
+    for (entity, slot, job, _, _) in decision_npc_q.iter() {
+        if *job != Job::Farmer {
+            continue;
+        }
+        let Some(ws) = npc_data.work_state_q.get(entity).ok() else {
+            continue;
+        };
+        let Some(farm_slot) = ws.occupied_slot.or(ws.work_target) else {
+            continue;
+        };
+        *farm_owner_counts.entry(farm_slot).or_insert(0) += 1;
+        farm_owner_keep_slot
+            .entry(farm_slot)
+            .and_modify(|keep| {
+                if slot.0 < *keep {
+                    *keep = slot.0;
+                }
+            })
+            .or_insert(slot.0);
+    }
+
     for (entity, slot, job, town_id, faction) in decision_npc_q.iter() {
         let idx = slot.0;
         let job = *job;
@@ -513,7 +539,26 @@ pub fn decision_system(
                                 }
                             } else if entity_map.get_instance(farm_slot).is_some() {
                                 if !owns {
-                                    entity_map.claim(farm_slot);
+                                    if entity_map
+                                        .try_claim_worksite(
+                                            farm_slot,
+                                            BuildingKind::Farm,
+                                            Some(town_idx_i32 as u32),
+                                            1,
+                                        )
+                                        .is_none()
+                                    {
+                                        work_position = None;
+                                        activity = Activity::Idle;
+                                        npc_logs.push(
+                                            idx,
+                                            game_time.day(),
+                                            game_time.hour(),
+                                            game_time.minute(),
+                                            "Farm claim failed -> Idle",
+                                        );
+                                        break 'decide;
+                                    }
                                     assigned_farm = Some(farm_slot);
                                 }
                                 // Check if farm is ready — harvest and carry home immediately.
@@ -537,7 +582,26 @@ pub fn decision_system(
                                 } else {
                                     // Farm not ready — if not already reserved by us, claim now.
                                     if assigned_farm != Some(farm_slot) {
-                                        entity_map.claim(farm_slot);
+                                        if entity_map
+                                            .try_claim_worksite(
+                                                farm_slot,
+                                                BuildingKind::Farm,
+                                                Some(town_idx_i32 as u32),
+                                                1,
+                                            )
+                                            .is_none()
+                                        {
+                                            work_position = None;
+                                            activity = Activity::Idle;
+                                            npc_logs.push(
+                                                idx,
+                                                game_time.day(),
+                                                game_time.hour(),
+                                                game_time.minute(),
+                                                "Farm claim stale -> Idle",
+                                            );
+                                            break 'decide;
+                                        }
                                     }
                                     activity = Activity::Working;
                                     assigned_farm = Some(farm_slot);
@@ -1012,16 +1076,47 @@ pub fn decision_system(
                 if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
                 break 'decide;
             }
+            let duplicate_refs = farm_owner_counts.get(&farm_slot).copied().unwrap_or(0);
+            if duplicate_refs > 1 {
+                let keep_slot = farm_owner_keep_slot.get(&farm_slot).copied().unwrap_or(idx);
+                if idx != keep_slot {
+                    if assigned_farm == Some(farm_slot) {
+                        entity_map.release(farm_slot);
+                    }
+                    assigned_farm = None;
+                    if work_position == Some(farm_slot) {
+                        work_position = None;
+                    }
+                    activity = Activity::Idle;
+                    npc_logs.push(
+                        idx,
+                        game_time.day(),
+                        game_time.hour(),
+                        game_time.minute(),
+                        "Duplicate farm assignment -> Reassign",
+                    );
+                    if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
+                    break 'decide;
+                }
+            }
             if assigned_farm.is_none() {
                 // If another farmer already owns this farm, don't pile on.
-                if entity_map.occupant_count(farm_slot) >= 1 {
+                let occupied = entity_map.occupant_count(farm_slot) >= 1;
+                let claimed = entity_map
+                    .try_claim_worksite(
+                        farm_slot,
+                        BuildingKind::Farm,
+                        Some(town_idx_i32 as u32),
+                        1,
+                    )
+                    .is_some();
+                if occupied && !claimed {
                     work_position = None;
                     activity = Activity::Idle;
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Working on foreign reservation -> Reassign");
                     if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
                     break 'decide;
                 }
-                entity_map.claim(farm_slot);
                 assigned_farm = Some(farm_slot);
             }
             if entity_map.occupant_count(farm_slot) > 1 {

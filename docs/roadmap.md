@@ -59,7 +59,7 @@ Road collision bypass, road speed bonus, road attraction, and AI road building c
 
 *Done when: 50K NPCs + 50K buildings at 60fps.*
 
-GPU extract, GPU-native rendering, linear scan elimination, worksite indexing, slot-indexed occupancy, query-first migration, NpcLogCache filtering, decision sub-profiling, visual upload optimization, GPU targets dirty tracking, damage debug gating, readback throttling, and event-driven visual upload complete (see [completed.md](completed.md)).
+GPU extract, GPU-native rendering, linear scan elimination, worksite indexing, slot-indexed occupancy, query-first migration, NpcLogCache filtering, decision sub-profiling, visual upload optimization, GPU targets dirty tracking, damage debug gating, readback throttling, event-driven visual upload, decision-frame budgeting, and candidate-driven healing complete (see [completed.md](completed.md)).
 
 ECS source-of-truth migration complete (see [completed.md](completed.md)). ECS owns all NPC gameplay state. EntityMap is index-only (slot↔Entity, grid, kind/town/spatial). No dual-writes. Hot loops use query-first + indexed lookup. GPU is movement authority; ECS Position is read-model synced in `gpu_position_readback`.
 
@@ -70,8 +70,8 @@ Remaining performance items at 50k NPC + 50k buildings (sorted by criticality, t
    Expected saving: ~3-8 ms/frame p95/p99 spike reduction.
 3. [ ] [High] Entity sleeping (Factorio-style): NPCs outside camera radius skip behavior/movement ticks. At 50k NPCs, typically 80%+ are off-camera.
    Expected saving: ~5-15+ ms/frame CPU when most NPCs off-camera; near-zero if camera covers all.
-4. [ ] [High] `healing_system` full-query iteration: iterates all 50k living NPCs mutably every frame. Most aren't in healing zones. Need spatial pre-filter or fountain proximity check.
-   Files: `health.rs:465`. Expected saving: ~1-3 ms/frame CPU.
+4. [x] [High] `healing_system` candidate-driven healing pipeline: `ActiveHealingSlots` resource with cadenced enter-check (slot % 4 bucketing via `npcs_for_town()`) + every-frame sustain-check with hysteresis radii. Starvation HP cap moved to `starvation_system`.
+   Files: `health.rs`, `economy.rs`, `resources.rs`. Saved: ~1-3 ms/frame CPU.
 5. [ ] [Medium] Cache-friendly vectors for hot building iteration paths (keep HashMaps as authority, vectors for tight loops), because data locality and branch predictability matter at 50k buildings.
    Expected saving: ~1-3 ms/frame CPU on building-heavy ticks.
 6. [ ] [Medium] Pre-allocate `GpuReadState` vecs: readback observers call `e.to_shader_type()` creating new Vecs per frame. At 50k entities, positions = 1.6MB allocation per frame.

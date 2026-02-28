@@ -44,7 +44,7 @@ use resources::{
     TowerState, FollowSelected, TownPolicies, SelectedBuilding,
     AutoUpgrade, SquadState, HelpCatalog,
     Difficulty, HealingZoneCache, GameAudio, PlaySfxMsg, TutorialState, MiningPolicy,
-    BuildingHealState, NpcTargetThrashDebug, MovementIntents,
+    BuildingHealState, ActiveHealingSlots, NpcTargetThrashDebug, MovementIntents,
 };
 use systems::{AiPlayerConfig, AiPlayerState};
 use systems::*;
@@ -218,6 +218,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<FactionStats>()
        .init_resource::<RaiderState>()
        .init_resource::<BuildingHealState>()
+       .init_resource::<ActiveHealingSlots>()
        .init_resource::<HealingZoneCache>()
        .init_resource::<SystemTimings>()
        .init_resource::<world::WorldGrid>()

@@ -1356,6 +1356,7 @@ fn game_cleanup_system(
     mut squad_state: ResMut<SquadState>,
     mut building_hp_render: ResMut<crate::resources::BuildingHpRender>,
     mut healing_cache: ResMut<HealingZoneCache>,
+    mut active_healing: ResMut<ActiveHealingSlots>,
     mut gameplay: CleanupGameplay,
 ) {
     // Despawn all entities
@@ -1410,6 +1411,7 @@ fn game_cleanup_system(
     *squad_state = Default::default();
     world.world_state.dirty_writers.emit_all();
     healing_cache.by_faction.clear();
+    *active_healing = Default::default();
 
     // Reset gameplay resources missed by original cleanup
     *gameplay.upgrades = Default::default();

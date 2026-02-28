@@ -1044,6 +1044,7 @@ pub struct LoadNpcTracking<'w> {
     pub tilemap_spawned: ResMut<'w, crate::render::TilemapSpawned>,
     pub building_hp_render: ResMut<'w, BuildingHpRender>,
     pub healing_cache: ResMut<'w, HealingZoneCache>,
+    pub active_healing: ResMut<'w, ActiveHealingSlots>,
     pub npc_gpu_state: ResMut<'w, crate::gpu::EntityGpuState>,
 }
 
@@ -1359,6 +1360,7 @@ pub fn restore_world_from_save(
     *tracking.gpu_state = Default::default();
     *tracking.building_hp_render = Default::default();
     *tracking.npc_gpu_state = Default::default();
+    *tracking.active_healing = Default::default();
     tracking.dirty_writers.emit_all();
     tracking.tilemap_spawned.0 = false;
 

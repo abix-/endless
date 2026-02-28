@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-27q
+
+- **candidate-driven healing pipeline** — replaced O(50k) mutable ECS iteration with `ActiveHealingSlots` resource tracking only NPCs in healing zones; cadenced enter-check (slot % 4 bucketing via `npcs_for_town()`) + every-frame sustain-check with hysteresis radii (10% exit buffer); `HashMap<i32>` faction→zone lookup; starvation HP cap moved from `healing_system` to `starvation_system` with always-clamp for save/load safety; ~1-3ms → <0.1ms at 50k NPCs
+
 ## 2026-02-27p
 
 - **fix food sprite persisting after delivery** — `arrival_system` delivery path (Returning→Idle) was missing `MarkVisualDirty` emit, so event-driven `build_visual_upload` never cleared the carried-food sprite; added dirty signal at delivery writeback

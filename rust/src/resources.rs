@@ -957,6 +957,9 @@ pub struct HealthDebug {
     pub healing_towns_count: usize,
     pub healing_in_zone_count: usize,
     pub healing_healed_count: usize,
+    pub healing_active_count: usize,
+    pub healing_enter_checks: usize,
+    pub healing_exits: usize,
 }
 
 /// Combat system debug info - updated by cooldown/attack systems, read by GDScript.
@@ -2243,8 +2246,11 @@ impl Default for EndlessMode {
 /// Pre-computed healing zone per town, indexed by faction for O(1) lookup.
 pub struct HealingZone {
     pub center: Vec2,
-    pub radius_sq: f32,
+    pub enter_radius_sq: f32,
+    pub exit_radius_sq: f32,
     pub heal_rate: f32,
+    pub town_idx: usize,
+    pub faction: i32,
 }
 
 /// Faction-indexed healing zone cache. Rebuilt when HealingZonesDirtyMsg is received.
@@ -2259,6 +2265,22 @@ pub struct HealingZoneCache {
 #[derive(Resource, Default)]
 pub struct BuildingHealState {
     pub needs_healing: bool,
+}
+
+/// Tracks NPC slots currently in a healing zone. Sustain-check iterates only these.
+#[derive(Resource)]
+pub struct ActiveHealingSlots {
+    pub slots: Vec<usize>,
+    pub mark: Vec<u8>,
+}
+
+impl Default for ActiveHealingSlots {
+    fn default() -> Self {
+        Self {
+            slots: Vec::new(),
+            mark: vec![0u8; crate::constants::MAX_ENTITIES],
+        }
+    }
 }
 
 // ============================================================================
