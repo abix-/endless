@@ -14,6 +14,7 @@ Target: 50,000 NPCs + 50,000 buildings @ 60fps with pure Bevy ECS + WGSL compute
 ## Completed
 
 See [completed.md](completed.md) for completed work moved out of active stages.
+Recent move: shared test-scene world materialization now uses the same `world::materialize_generated_world(...)` helper as main game startup.
 
 ## Done Soon (Authority Safety)
 

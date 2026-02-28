@@ -333,6 +333,11 @@ pub struct RunAllState {
     pub results: Vec<(String, bool)>,
 }
 
+#[derive(Resource, Default)]
+struct TestWorldMaterializeState {
+    done: bool,
+}
+
 // ============================================================================
 // REGISTRATION
 // ============================================================================
@@ -345,6 +350,7 @@ pub fn register_tests(app: &mut App) {
     app.init_resource::<TestState>();
     app.init_resource::<TestRegistry>();
     app.init_resource::<RunAllState>();
+    app.init_resource::<TestWorldMaterializeState>();
 
     // Menu + HUD UI (must run in EguiPrimaryContextPass, not Update)
     app.add_systems(EguiPrimaryContextPass, test_menu_system.run_if(in_state(AppState::TestMenu)));
@@ -360,6 +366,7 @@ pub fn register_tests(app: &mut App) {
 
     // Cleanup when leaving Running
     app.add_systems(OnExit(AppState::Running), cleanup_test_world);
+    app.add_systems(OnEnter(AppState::Running), reset_test_world_materialization_state);
 
     // Test completion detection (returns to menu or starts next test)
     app.add_systems(Update, test_completion_system
@@ -721,7 +728,42 @@ pub fn register_tests(app: &mut App) {
             .run_if(test_is("miner-cycle"))
             .after(Step::Behavior));
 
+    // Common test-world materialization:
+    // spawn ECS building entities + GPU building state from placed instances
+    // using the same startup helper as main game startup.
+    // Runs once on first Update after all OnEnter test setup systems complete.
+    app.add_systems(
+        Update,
+        materialize_test_world
+            .run_if(in_state(AppState::Running))
+            .before(Step::Behavior),
+    );
+
     app.insert_resource(registry);
+}
+
+fn reset_test_world_materialization_state(mut state: ResMut<TestWorldMaterializeState>) {
+    state.done = false;
+}
+
+fn materialize_test_world(
+    mut commands: Commands,
+    mut entity_map: ResMut<EntityMap>,
+    mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
+    mut spawn_writer: MessageWriter<crate::messages::SpawnNpcMsg>,
+    mut state: ResMut<TestWorldMaterializeState>,
+) {
+    if state.done {
+        return;
+    }
+    let _ = crate::world::materialize_generated_world(
+        &mut commands,
+        &mut entity_map,
+        &mut gpu_updates,
+        &mut spawn_writer,
+        Vec::new(),
+    );
+    state.done = true;
 }
 
 // ============================================================================
@@ -1026,5 +1068,3 @@ fn cleanup_test_world(
 
     info!("Test cleanup: despawned {} NPCs + {} tilemap chunks, reset resources", count, tilemap_count);
 }
-
-

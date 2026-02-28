@@ -4,7 +4,6 @@
 use bevy::prelude::*;
 
 use crate::components::{Building, Dead, EntitySlot, Health, Job};
-use crate::messages::GpuUpdateMsg;
 use crate::render::MainCamera;
 use crate::resources::*;
 use crate::world::{self, BuildingKind, WorldCell};
@@ -16,9 +15,7 @@ const ARCHER_HOME_A: Vec2 = Vec2::new(400.0, 300.0);
 const ARCHER_HOME_B: Vec2 = Vec2::new(432.0, 300.0);
 
 pub fn setup(
-    mut commands: Commands,
     mut slot_alloc: ResMut<EntitySlots>,
-    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut world_data: ResMut<world::WorldData>,
     mut entity_map: ResMut<EntityMap>,
     mut world_grid: ResMut<world::WorldGrid>,
@@ -80,7 +77,6 @@ pub fn setup(
         0,
         0,
     ).expect("tent slot alloc");
-    world::spawn_building_entities(&mut commands, &mut entity_map, &mut gpu_updates, None);
     test_state.counters.insert("tent_slot".into(), tent_slot as u32);
 
     if let Ok(mut cam) = camera_query.single_mut() {

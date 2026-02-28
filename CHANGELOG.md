@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-28a
+
+- **shared world materialization for all test scenes** — added common `materialize_test_world` hook in `tests/mod.rs` (first `Update` in `AppState::Running`, before `Step::Behavior`) that calls `world::materialize_generated_world(...)`; this makes test building/entity/GPU spawn path match main game startup and removes per-test setup drift
+- **remove one-off test materialization path** — `archer_tent_reliability` no longer manually calls `spawn_building_entities`; it now relies on shared harness setup like all other tests
+
 ## 2026-02-27r
 
 - **town grid world-edge caps** — `TownGrid` now stores `min_row_cap`/`max_row_cap`/`min_col_cap`/`max_col_cap` clamping buildable bounds to world grid boundary; `build_bounds()` uses per-axis caps instead of symmetric `MAX_GRID_EXTENT`; caps computed at world gen, endless migration (`create_ai_town`), and save load (`sync_town_grid_world_caps`); prevents AI from placing buildings outside world edges
@@ -2137,5 +2142,3 @@
 
 ## 2025-03-02
 - initial prototype: persistent state, NPC system
-
-

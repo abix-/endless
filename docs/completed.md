@@ -384,6 +384,7 @@ Completed items moved from roadmap for readability.
 
 ### DRY & Consolidation
 - [x] Centralize world lifecycle startup/load flows to shared helpers (`world::materialize_generated_world`, `save::restore_world_from_save`) so game startup, menu load, in-game load, and AI world-setup tests cannot drift
+- [x] Centralize test-scene building materialization to `world::materialize_generated_world` via shared test harness first-`Update` hook in `AppState::Running` (before `Step::Behavior`), removing per-test manual building spawns and keeping tests aligned with main-game setup
 - [x] Rename role spawner buildings to `FarmerHome` / `ArcherHome` / `MinerHome` + rename `Job::Guard` → `Job::Archer` and all associated types/fields/UI labels
 - [x] Consolidate farm harvest transitions into one authoritative path (previously split across `arrival_system` and `decision_system`)
 - [x] Consolidate building placement side effects (place + food spend + spawner entry + HP push) into one shared helper used by player + AI
@@ -437,6 +438,4 @@ Completed items moved from roadmap for readability.
 ### Intentional Removals
 - [x] Sprite atlas browser tool — intentional removal (Godot dev tool, not needed in Bevy)
 - [x] World-space town labels — intentional removal (Godot scenes, not ported)
-
-
 
