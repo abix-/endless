@@ -3,11 +3,10 @@
 use bevy::prelude::*;
 
 use crate::messages::*;
-use crate::resources::{SystemTimings, CombatLog};
+use crate::resources::CombatLog;
 
 /// Drain game config staging into Bevy Resource (one-shot).
-pub fn drain_game_config(mut config: ResMut<crate::resources::GameConfig>, timings: Res<SystemTimings>) {
-    let _t = timings.scope("drain_game_config");
+pub fn drain_game_config(mut config: ResMut<crate::resources::GameConfig>) {
     if let Ok(mut staging) = GAME_CONFIG_STAGING.lock() {
         if let Some(new_config) = staging.take() {
             *config = new_config;

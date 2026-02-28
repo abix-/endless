@@ -9,7 +9,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileData};
 
 use crate::gpu::RenderFrameConfig;
-use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab, SystemTimings, EntityMap};
+use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab, EntityMap};
 use crate::components::{ManualTarget, Activity, NpcFlags, SquadId, Position, Job, Faction, GpuSlot, Building, Dead};
 use crate::messages::{SelectFactionMsg, TerrainDirtyMsg};
 use crate::settings::UserSettings;
@@ -369,14 +369,12 @@ fn click_to_select_system(
     grid: Res<WorldGrid>,
     time: Res<Time<Real>>,
     mut dbl_click: Local<DoubleClickState>,
-    timings: Res<SystemTimings>,
     mut intents: ResMut<crate::resources::MovementIntents>,
     mut faction_select: MessageWriter<SelectFactionMsg>,
     mut commands: Commands,
     mut npc_flags_q: Query<&mut NpcFlags>,
     mut activity_q: Query<&mut Activity>,
 ) {
-    let _t = timings.scope("click_select");
     // Right-click: squad target placement, DirectControl micro, or cancel mine assignment
     if mouse.just_pressed(MouseButton::Right) {
         if click.ui_state.assigning_mine.is_some() {
@@ -892,9 +890,7 @@ fn sync_terrain_tilemap(
     grid: Res<WorldGrid>,
     mut chunks: Query<(&mut TilemapChunkTileData, &TerrainChunkRegion), With<TerrainChunk>>,
     mut terrain_dirty: MessageReader<TerrainDirtyMsg>,
-    timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("sync_terrain");
     if grid.width == 0 || terrain_dirty.read().count() == 0 { return; }
 
     for (mut tile_data, region) in chunks.iter_mut() {

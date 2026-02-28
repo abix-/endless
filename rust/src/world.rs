@@ -34,7 +34,7 @@ mod opt_vec2_as_array {
 
 use crate::components::Job;
 use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID_EXTENT, NPC_REGISTRY};
-use crate::resources::{FoodStorage, GoldStorage, FactionStats, RaiderState, EntityMap, CombatEventKind, GameTime, SystemTimings, GpuSlotPool};
+use crate::resources::{FoodStorage, GoldStorage, FactionStats, RaiderState, EntityMap, CombatEventKind, GameTime, GpuSlotPool};
 use crate::messages::{DirtyWriters, BuildingGridDirtyMsg};
 use crate::messages::{GpuUpdate, GpuUpdateMsg, CombatLogMsg};
 
@@ -905,9 +905,7 @@ pub fn rebuild_building_grid_system(
     mut entity_map: ResMut<EntityMap>,
     mut grid_dirty: MessageReader<BuildingGridDirtyMsg>,
     grid: Res<WorldGrid>,
-    timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("rebuild_grid");
     if grid.width == 0 || grid_dirty.read().count() == 0 { return; }
     let world_size_px = grid.width as f32 * grid.cell_size;
     entity_map.init_spatial(world_size_px);

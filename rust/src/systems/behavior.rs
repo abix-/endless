@@ -15,12 +15,10 @@
 //! Priority 7: Idle -> Score Eat/Rest/Work/Wander (wounded -> fountain)
 
 use bevy::prelude::*;
-use std::collections::HashMap;
-
 use crate::components::*;
 use crate::constants::*;
 use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg};
-use crate::resources::{GpuReadState, GameTime, NpcLogCache, SelectedNpc, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings, EntityMap, MovementIntents, MovementPriority};
+use crate::resources::{GpuReadState, GameTime, NpcLogCache, SelectedNpc, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, EntityMap, MovementIntents, MovementPriority};
 use crate::settings::UserSettings;
 use crate::systemparams::EconomyState;
 use crate::systems::economy::*;
@@ -77,7 +75,6 @@ pub struct DecisionExtras<'w> {
     pub gpu_updates: MessageWriter<'w, GpuUpdateMsg>,
     pub policies: Res<'w, TownPolicies>,
     pub squad_state: Res<'w, SquadState>,
-    pub timings: Res<'w, SystemTimings>,
     pub town_upgrades: Res<'w, crate::systems::stats::TownUpgrades>,
     pub selected_npc: Res<'w, SelectedNpc>,
     pub settings: Res<'w, UserSettings>,
@@ -102,10 +99,8 @@ pub fn arrival_system(
     mut frame_counter: Local<u32>,
     mut combat_log: MessageWriter<CombatLogMsg>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
-    timings: Res<SystemTimings>,
     mut npc_q: Query<(Entity, &GpuSlot, &Job, &TownId, &mut Activity, &Home, &mut NpcWorkState), (Without<Building>, Without<Dead>)>,
 ) {
-    let _t = timings.scope("arrival");
     if game_time.is_paused() { return; }
     let positions = &gpu_state.positions;
     const DELIVERY_RADIUS: f32 = 50.0;
@@ -339,9 +334,7 @@ pub fn decision_system(
     mut npc_data: NpcDataQueries,
     decision_npc_q: Query<(Entity, &GpuSlot, &Job, &TownId, &Faction), (Without<Building>, Without<Dead>)>,
 ) {
-    let _t = extras.timings.scope("decision");
     if game_time.is_paused() { return; }
-    let profiling = extras.timings.enabled;
 
     // Sync NPC log filter state from settings + selected NPC
     extras.npc_logs.mode = extras.settings.npc_log_mode;
@@ -357,73 +350,29 @@ pub fn decision_system(
     const CHECK_INTERVAL: usize = 30;
     const FARM_ARRIVAL_RADIUS: f32 = 20.0;
     const HEAL_DRIFT_RADIUS: f32 = 100.0; // Re-target fountain if pushed beyond this
-    const COMBAT_INTERVAL: usize = 8; // Tier 2: combat flee/leash every 8 frames (~133ms)
-    // Tier 3: adaptive bucket count — scales with population to cap per-frame decisions
+    // Adaptive bucket count — scales with population to cap per-frame decisions
     let npc_count = entity_map.npc_count();
     let interval_buckets = (npc_config.interval * 60.0) as usize;
     let min_buckets = npc_count / npc_config.max_decisions_per_frame.max(1);
     let think_buckets = interval_buckets.max(min_buckets).max(1);
 
-    // Sub-profiling accumulators (zero cost when profiler disabled)
-    let mut t_arrival = std::time::Duration::ZERO;
-    let mut t_combat = std::time::Duration::ZERO;
-    let mut t_idle = std::time::Duration::ZERO;
-    let mut t_squad = std::time::Duration::ZERO;
-    let mut t_work = std::time::Duration::ZERO;
-    let mut n_arrival: u32 = 0;
-    let mut n_combat: u32 = 0;
-    let mut n_idle: u32 = 0;
-    let mut n_squad: u32 = 0;
-    let mut n_work: u32 = 0;
-    let mut n_transit_skip: u32 = 0;
-    let mut n_total: u32 = 0;
-    let mut n_ws_queries: u32 = 0;
-    let mut n_ws_fallbacks: u32 = 0;
-    let mut n_ws_stale: u32 = 0;
-
-    // Reconcile per-farm farmer ownership for this frame using NPC work states.
-    // Fairness rule: incumbent workers keep ownership.
-    // Rank claimants by activity so `Working` beats `GoingToWork`, then deterministic slot tie-break.
-    let mut farm_owner_counts: HashMap<usize, usize> = HashMap::new();
-    let mut farm_owner_keep_slot: HashMap<usize, usize> = HashMap::new();
-    let mut farm_owner_keep_rank: HashMap<usize, u8> = HashMap::new();
-    for (entity, slot, job, _, _) in decision_npc_q.iter() {
-        if *job != Job::Farmer {
-            continue;
-        }
-        let Some(ws) = npc_data.work_state_q.get(entity).ok() else {
-            continue;
-        };
-        let Some(farm_slot) = ws.occupied_building.and_then(|uid| entity_map.slot_for_uid(uid))
-            .or_else(|| ws.work_target_building.and_then(|uid| entity_map.slot_for_uid(uid))) else {
-            continue;
-        };
-        let rank = npc_state
-            .activity_q
-            .get(entity)
-            .ok()
-            .map(|a| match *a {
-                // Existing worker on-tile keeps claim over in-transit/new contenders.
-                Activity::Working => 0u8,
-                Activity::GoingToWork => 1u8,
-                _ => 2u8,
-            })
-            .unwrap_or(3u8);
-        *farm_owner_counts.entry(farm_slot).or_insert(0) += 1;
-        if let Some(keep_rank) = farm_owner_keep_rank.get_mut(&farm_slot) {
-            let keep_slot = farm_owner_keep_slot.get_mut(&farm_slot).expect("keep_slot exists when rank exists");
-            if rank < *keep_rank || (rank == *keep_rank && slot.0 < *keep_slot) {
-                *keep_rank = rank;
-                *keep_slot = slot.0;
-            }
-        } else {
-            farm_owner_keep_rank.insert(farm_slot, rank);
-            farm_owner_keep_slot.insert(farm_slot, slot.0);
-        }
-    }
-
     for (entity, slot, job, town_id, faction) in decision_npc_q.iter() {
         let idx = slot.0;
+
+        // ====================================================================
+        // Top-of-loop bucket gate: only process NPCs on their think cadence.
+        // Fighting NPCs use a tighter bucket for responsive flee/leash.
+        // ====================================================================
+        const COMBAT_BUCKET: usize = 16; // ~267ms at 60fps
+        let combat_state_peek = npc_state.combat_state_q.get(entity)
+            .map(|cs| cs.is_fighting()).unwrap_or(false);
+        if combat_state_peek {
+            if (idx + frame) % COMBAT_BUCKET != 0 { continue; }
+        } else {
+            if (idx + frame) % think_buckets != 0 { continue; }
+        }
+
+        // Full component reads — only for NPCs that passed the bucket gate
         let job = *job;
         let town_idx_i32 = town_id.0;
         let faction_i32 = faction.0;
@@ -444,6 +393,11 @@ pub fn decision_system(
         let mut assigned_farm = work_state.occupied_building.and_then(|uid| entity_map.slot_for_uid(uid));
         let has_patrol = npc_data.patrol_route_q.get(entity).is_ok();
         let mut patrol_current = npc_data.patrol_route_q.get(entity).ok().map(|r| r.current).unwrap_or(0);
+        let npc_pos = if idx * 2 + 1 < positions.len() {
+            Some(Vec2::new(positions[idx * 2], positions[idx * 2 + 1]))
+        } else {
+            None
+        };
 
         // Capture originals for conditional writeback
         let orig_activity = std::mem::discriminant(&activity);
@@ -468,13 +422,11 @@ pub fn decision_system(
             }
             break 'decide;
         }
-        n_total += 1;
 
         // ====================================================================
         // Priority 0: AtDestination -> Handle arrival transition
         // ====================================================================
         if at_destination {
-            let _ps = if profiling { Some(std::time::Instant::now()) } else { None };
             at_destination = false;
 
             match &activity {
@@ -486,7 +438,6 @@ pub fn decision_system(
                                 activity = Activity::GoingToRest;
                                 submit_intent(&mut intents, entity, home.x, home.y, MovementPriority::Survival, "arrival:squad_rest");
                                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Tired -> Rest (squad)");
-                                if let Some(s) = _ps { t_arrival += s.elapsed(); n_arrival += 1; }
                                 break 'decide;
                             }
                         }
@@ -511,13 +462,7 @@ pub fn decision_system(
                         let reserved_slot = work_position.or(assigned_farm);
                         let search_pos = reserved_slot
                             .and_then(|wp| entity_map.get_instance(wp).map(|i| i.position))
-                            .unwrap_or_else(|| {
-                                if idx * 2 + 1 < positions.len() {
-                                    Vec2::new(positions[idx * 2], positions[idx * 2 + 1])
-                                } else {
-                                    Vec2::new(0.0, 0.0)
-                                }
-                            });
+                            .unwrap_or_else(|| npc_pos.unwrap_or(Vec2::ZERO));
 
                         let target_farm = reserved_slot
                             .and_then(|slot| entity_map.get_instance(slot)
@@ -641,11 +586,7 @@ pub fn decision_system(
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "No farm nearby -> Idle");
                         }
                     } else {
-                        let current_pos = if idx * 2 + 1 < positions.len() {
-                            Vec2::new(positions[idx * 2], positions[idx * 2 + 1])
-                        } else {
-                            Vec2::new(0.0, 0.0)
-                        };
+                        let current_pos = npc_pos.unwrap_or(Vec2::ZERO);
                         activity = Activity::Working;
                         pop_inc_working(&mut economy.pop_stats, job, town_idx_i32);
                         submit_intent(&mut intents, entity, current_pos.x, current_pos.y, MovementPriority::JobRoute, "arrival:work_hold");
@@ -654,8 +595,7 @@ pub fn decision_system(
                 }
                 Activity::Raiding { .. } => {
                     // Raider arrived at farm - check if ready to steal
-                    if idx * 2 + 1 < positions.len() {
-                        let pos = Vec2::new(positions[idx * 2], positions[idx * 2 + 1]);
+                    if let Some(pos) = npc_pos {
 
                         let ready_farm_pos = find_location_within_radius(pos, &entity_map, LocationKind::Farm, FARM_ARRIVAL_RADIUS)
                             .and_then(|(_, fp)| entity_map.find_farm_at(fp).filter(|i| i.growth_ready).map(|_| fp));
@@ -741,7 +681,6 @@ pub fn decision_system(
                 _ => {}
             }
 
-            if let Some(s) = _ps { t_arrival += s.elapsed(); n_arrival += 1; }
             break 'decide;
         }
 
@@ -770,12 +709,9 @@ pub fn decision_system(
         // ====================================================================
         // Priority 1-3: Combat decisions (flee/leash/skip)
         // Runs BEFORE transit skip so fighting NPCs in transit (e.g. Raiding)
-        // can still flee or leash back. Tier 2: every COMBAT_INTERVAL frames.
+        // can still flee or leash back. Bucket-gated at COMBAT_BUCKET (16 frames).
         // ====================================================================
         if combat_state.is_fighting() {
-            let combat_tick = (idx + frame) % COMBAT_INTERVAL == 0;
-            if combat_tick {
-            let _ps = if profiling { Some(std::time::Instant::now()) } else { None };
             // Priority 1: Should flee? (policy-driven)
             let town_idx_usize = town_idx_i32 as usize;
             let flee_pct = match job {
@@ -823,7 +759,6 @@ pub fn decision_system(
                     }
                     submit_intent(&mut intents, entity, home.x, home.y, MovementPriority::Survival, "combat:flee_home");
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Fled combat");
-                    if let Some(s) = _ps { t_combat += s.elapsed(); n_combat += 1; }
                     break 'decide;
                 }
             }
@@ -839,7 +774,6 @@ pub fn decision_system(
                         submit_intent(&mut intents, entity, town.center.x, town.center.y, MovementPriority::Survival, "combat:heal_fountain");
                         npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Combat: wounded -> Fountain");
                     }
-                    if let Some(s) = _ps { t_combat += s.elapsed(); n_combat += 1; }
                     break 'decide;
                 }
             }
@@ -852,9 +786,9 @@ pub fn decision_system(
             if should_leash {
                 let leash_dist = leash_range_val.unwrap_or(400.0);
                 if let CombatState::Fighting { origin } = &combat_state {
-                    if idx * 2 + 1 < positions.len() {
-                        let dx = positions[idx * 2] - origin.x;
-                        let dy = positions[idx * 2 + 1] - origin.y;
+                    if let Some(pos) = npc_pos {
+                        let dx = pos.x - origin.x;
+                        let dy = pos.y - origin.y;
                         if (dx * dx + dy * dy).sqrt() > leash_dist {
                             if matches!(activity, Activity::MiningAtMine) {
                                 if let Some(wp) = work_position {
@@ -868,7 +802,6 @@ pub fn decision_system(
                             }
                             submit_intent(&mut intents, entity, home.x, home.y, MovementPriority::Survival, "combat:leash_home");
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Leashed -> Returning");
-                            if let Some(s) = _ps { t_combat += s.elapsed(); n_combat += 1; }
                             break 'decide;
                         }
                     }
@@ -876,8 +809,6 @@ pub fn decision_system(
             }
 
             // Priority 3: Still in combat, attack_system handles targeting
-            if let Some(s) = _ps { t_combat += s.elapsed(); n_combat += 1; }
-            } // end combat_tick
             break 'decide;
         }
 
@@ -886,7 +817,6 @@ pub fn decision_system(
         // (before transit skip) so squad members react by next decision tick.
         // Covers all squad-assigned units: archers, crossbow, raiders, fighters.
         // ====================================================================
-        let _ps_sq = if profiling && squad_id.is_some() { Some(std::time::Instant::now()) } else { None };
         if let Some(sid) = squad_id {
             // Manual micro override: player-assigned attack target takes priority.
             // Don't redirect the NPC — combat system handles ManualTarget directly.
@@ -925,9 +855,9 @@ pub fn decision_system(
                     match activity {
                         Activity::OnDuty { .. } => {
                             // At a position — redirect only if squad target moved
-                            if idx * 2 + 1 < positions.len() {
-                                let dx = positions[idx * 2] - target.x;
-                                let dy = positions[idx * 2 + 1] - target.y;
+                            if let Some(pos) = npc_pos {
+                                let dx = pos.x - target.x;
+                                let dy = pos.y - target.y;
                                 if dx * dx + dy * dy > 100.0 * 100.0 {
                                     activity = Activity::Patrolling;
                                     submit_intent(&mut intents, entity, target.x, target.y, MovementPriority::Squad, "squad:target_rejoin");
@@ -950,14 +880,13 @@ pub fn decision_system(
                     // No target + patrol disabled: stop and wait (gathering phase)
                     if matches!(activity, Activity::Patrolling | Activity::OnDuty { .. } | Activity::Raiding { .. }) {
                         activity = Activity::Idle;
-                        if idx * 2 + 1 < positions.len() {
-                            submit_intent(&mut intents, entity, positions[idx * 2], positions[idx * 2 + 1], MovementPriority::Squad, "squad:hold_position");
+                        if let Some(pos) = npc_pos {
+                            submit_intent(&mut intents, entity, pos.x, pos.y, MovementPriority::Squad, "squad:hold_position");
                         }
                     }
                 }
             }
         }
-        if let Some(s) = _ps_sq { t_squad += s.elapsed(); n_squad += 1; }
 
         // ====================================================================
         // Farmer en-route retarget: if target farm became occupied, find another
@@ -968,11 +897,7 @@ pub fn decision_system(
                 let occupied_by_other = (occ > 1) || (occ >= 1 && assigned_farm != Some(wp));
                 if occupied_by_other {
                     let wp_pos = entity_map.get_instance(wp).map(|i| i.position).unwrap_or_default();
-                    let current_pos = if idx * 2 + 1 < positions.len() {
-                        Vec2::new(positions[idx * 2], positions[idx * 2 + 1])
-                    } else {
-                        wp_pos
-                    };
+                    let current_pos = npc_pos.unwrap_or(wp_pos);
                     if let Some((free_slot, _free_pos, radius)) =
                         find_farmer_farm_target(current_pos, &entity_map, town_idx_i32 as u32)
                     {
@@ -1005,15 +930,14 @@ pub fn decision_system(
 
         // ====================================================================
         // Skip NPCs in transit states (they're walking to their destination)
-        // GoingToHeal proximity check runs at combat cadence (every 8 frames).
+        // GoingToHeal proximity check: bucket gate ensures this runs on cadence.
         // ====================================================================
         if activity.is_transit() {
             // Early arrival: GoingToHeal NPCs stop once inside healing range
-            if (idx + frame) % COMBAT_INTERVAL == 0 && matches!(activity, Activity::GoingToHeal) {
+            if matches!(activity, Activity::GoingToHeal) {
                 let town_idx = town_idx_i32 as usize;
                 if let Some(town) = farms.world.towns.get(town_idx) {
-                    if idx * 2 + 1 < positions.len() {
-                        let current = Vec2::new(positions[idx * 2], positions[idx * 2 + 1]);
+                    if let Some(current) = npc_pos {
                         if current.distance(town.center) <= HEAL_DRIFT_RADIUS {
                             let threshold = policies.policies.get(town_idx)
                                 .map(|p| p.recovery_hp).unwrap_or(0.8);
@@ -1023,16 +947,10 @@ pub fn decision_system(
                     }
                 }
             }
-            n_transit_skip += 1;
             break 'decide;
         }
 
-        // ====================================================================
-        // Tier 3 gate: non-combat decisions only run on this NPC's bucket
-        // ====================================================================
-        if (idx + frame) % think_buckets != 0 {
-            break 'decide;
-        }
+        // (Tier 3 bucket gate removed — gating now happens at top of loop)
 
         // ====================================================================
         // Priority 4a: HealingAtFountain? -> Wake when HP recovered
@@ -1046,8 +964,7 @@ pub fn decision_system(
                 // Drift check: separation physics pushes NPCs out of healing range
                 let town_idx = town_idx_i32 as usize;
                 if let Some(town) = farms.world.towns.get(town_idx) {
-                    if idx * 2 + 1 < positions.len() {
-                        let current = Vec2::new(positions[idx * 2], positions[idx * 2 + 1]);
+                    if let Some(current) = npc_pos {
                         if current.distance(town.center) > HEAL_DRIFT_RADIUS {
                             submit_intent(&mut intents, entity, town.center.x, town.center.y, MovementPriority::Survival, "heal:drift_retarget");
                         }
@@ -1073,7 +990,6 @@ pub fn decision_system(
         // ====================================================================
         // Priority 5: Working/Mining + tired?
         // ====================================================================
-        let _ps_wk = if profiling { Some(std::time::Instant::now()) } else { None };
         if matches!(activity, Activity::Working) {
             // Safety invariant: Working farmer must own a single valid farm reservation.
             // This self-heals stale state from older saves/logic and prevents multi-worker farms.
@@ -1081,7 +997,6 @@ pub fn decision_system(
             let Some(farm_slot) = current_farm else {
                 activity = Activity::Idle;
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Working without farm -> Reassign");
-                if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
                 break 'decide;
             };
             let valid_farm = entity_map.get_instance(farm_slot)
@@ -1094,41 +1009,30 @@ pub fn decision_system(
                 work_position = None;
                 activity = Activity::Idle;
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Working farm invalid -> Reassign");
-                if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
                 break 'decide;
             }
-            let duplicate_refs = farm_owner_counts.get(&farm_slot).copied().unwrap_or(0);
-            if duplicate_refs > 1 {
-                let keep_slot = farm_owner_keep_slot.get(&farm_slot).copied().unwrap_or(idx);
-                if idx != keep_slot {
-                    if assigned_farm == Some(farm_slot) {
-                        entity_map.release(farm_slot);
-                    }
-                    assigned_farm = None;
-                    if work_position == Some(farm_slot) {
-                        work_position = None;
-                    }
-                    activity = Activity::Idle;
-                    if home != Vec2::ZERO {
-                        submit_intent(
-                            &mut intents,
-                            entity,
-                            home.x,
-                            home.y,
-                            MovementPriority::JobRoute,
-                            "farm:claim_lost_home",
-                        );
-                    }
-                    npc_logs.push(
-                        idx,
-                        game_time.day(),
-                        game_time.hour(),
-                        game_time.minute(),
-                        "Duplicate farm assignment -> Reassign",
-                    );
-                    if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
-                    break 'decide;
+            // Contention: if multiple farmers claim this farm, release ours
+            if entity_map.occupant_count(farm_slot) > 1 {
+                if assigned_farm == Some(farm_slot) {
+                    entity_map.release(farm_slot);
                 }
+                assigned_farm = None;
+                if work_position == Some(farm_slot) {
+                    work_position = None;
+                }
+                activity = Activity::Idle;
+                if home != Vec2::ZERO {
+                    submit_intent(
+                        &mut intents,
+                        entity,
+                        home.x,
+                        home.y,
+                        MovementPriority::JobRoute,
+                        "farm:contention_home",
+                    );
+                }
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm contention -> Reassign");
+                break 'decide;
             }
             if assigned_farm.is_none() {
                 // If another farmer already owns this farm, don't pile on.
@@ -1155,7 +1059,6 @@ pub fn decision_system(
                         );
                     }
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Working on foreign reservation -> Reassign");
-                    if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
                     break 'decide;
                 }
                 assigned_farm = Some(farm_slot);
@@ -1180,7 +1083,6 @@ pub fn decision_system(
                     );
                 }
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm contention -> Reassign");
-                if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
                 break 'decide;
             }
             let should_stop = if energy < ENERGY_TIRED_THRESHOLD {
@@ -1196,7 +1098,6 @@ pub fn decision_system(
                 }
                 activity = Activity::Idle;
             }
-            if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
             break 'decide;
         }
 
@@ -1204,15 +1105,13 @@ pub fn decision_system(
             if let Some(mine_slot) = work_position {
                 let mine_pos = entity_map.get_instance(mine_slot).map(|i| i.position).unwrap_or_default();
                 // Proximity check — if pushed away from mine, abort and re-walk
-                if idx * 2 + 1 < positions.len() {
-                    let current = Vec2::new(positions[idx * 2], positions[idx * 2 + 1]);
+                if let Some(current) = npc_pos {
                     if current.distance(mine_pos) > MINE_WORK_RADIUS {
                         entity_map.release(mine_slot);
                         work_position = None;
                         activity = Activity::Mining { mine_pos };
                         submit_intent(&mut intents, entity, mine_pos.x, mine_pos.y, MovementPriority::JobRoute, "mining:push_return");
                         npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Pushed from mine -> returning");
-                        if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
                         break 'decide;
                     }
                 }
@@ -1241,7 +1140,6 @@ pub fn decision_system(
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Mining -> Tired -> Idle");
                 }
             }
-            if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
             break 'decide;
         }
 
@@ -1273,7 +1171,6 @@ pub fn decision_system(
                         }
                     }
                 }
-                if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
                 break 'decide;
             }
         }
@@ -1282,7 +1179,6 @@ pub fn decision_system(
         // ====================================================================
         // Priority 8: Idle -> Score Eat/Rest/Work/Wander (policy-aware)
         // ====================================================================
-        let _ps_idle = if profiling { Some(std::time::Instant::now()) } else { None };
         let en = energy;
         let (_fight_m, _flee_m, rest_m, eat_m, work_m, wander_m) = personality.get_multipliers();
 
@@ -1303,7 +1199,6 @@ pub fn decision_system(
                     activity = Activity::GoingToHeal;
                     submit_intent(&mut intents, entity, center.x, center.y, MovementPriority::Survival, "idle:heal_fountain");
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Wounded -> Fountain");
-                    if let Some(s) = _ps_idle { t_idle += s.elapsed(); n_idle += 1; }
                     break 'decide;
                 }
             }
@@ -1369,7 +1264,6 @@ pub fn decision_system(
                         activity = Activity::Wandering;
                         submit_intent(&mut intents, entity, center.x, center.y, MovementPriority::Survival, "offduty:fountain");
                         npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Off-duty -> Fountain");
-                        if let Some(s) = _ps_idle { t_idle += s.elapsed(); n_idle += 1; }
                         break 'decide;
                     }
                 }
@@ -1404,13 +1298,10 @@ pub fn decision_system(
             Action::Work => {
                 match job {
                     Job::Farmer => {
-                        let current_pos = if idx * 2 + 1 < positions.len() {
-                            Vec2::new(positions[idx * 2], positions[idx * 2 + 1])
-                        } else { home };
+                        let current_pos = npc_pos.unwrap_or(home);
                         if let Some((farm_slot, _farm_pos, radius)) =
                             find_farmer_farm_target(current_pos, &entity_map, town_idx_i32 as u32)
                         {
-                            if profiling { n_ws_queries += 1; }
                             // Re-validate and claim through authoritative path
                             if let Some(old) = assigned_farm.take() {
                                 entity_map.release(old);
@@ -1422,8 +1313,6 @@ pub fn decision_system(
                                 submit_intent(&mut intents, entity, claimed.position.x, claimed.position.y, MovementPriority::JobRoute, "idle:work_farm");
                                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
                                     format!("Farm target local (r:{:.0})", radius));
-                            } else if profiling {
-                                n_ws_stale += 1;
                             }
                         }
                     }
@@ -1436,11 +1325,7 @@ pub fn decision_system(
                         let mine_target = if let Some(assigned_pos) = assigned {
                             Some(assigned_pos)
                         } else {
-                            let current_pos = if idx * 2 + 1 < positions.len() {
-                                Vec2::new(positions[idx * 2], positions[idx * 2 + 1])
-                            } else {
-                                home
-                            };
+                            let current_pos = npc_pos.unwrap_or(home);
                             // Spatial cell-ring search: ready > unoccupied > occupied, then nearest
                             entity_map.find_nearest_worksite(
                                 current_pos,
@@ -1453,7 +1338,6 @@ pub fn decision_system(
                                     Some((priority, inst.occupants as u16, inst.position.distance_squared(current_pos).to_bits()))
                                 },
                             ).map(|r| {
-                                if profiling { n_ws_queries += 1; if r.radius_used > entity_map.spatial_cell_size() { n_ws_fallbacks += 1; } }
                                 r.position
                             })
                         };
@@ -1473,11 +1357,9 @@ pub fn decision_system(
                                     submit_intent(&mut intents, entity, target.x, target.y, MovementPriority::Squad, "idle:squad_target");
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
                                         format!("Squad {} -> target", sid + 1));
-                                    if let Some(s) = _ps_idle { t_idle += s.elapsed(); n_idle += 1; }
                                     break 'decide;
                                 }
                                 if !squad.patrol_enabled {
-                                    if let Some(s) = _ps_idle { t_idle += s.elapsed(); n_idle += 1; }
                                     break 'decide;
                                 }
                             }
@@ -1511,14 +1393,14 @@ pub fn decision_system(
             }
             Action::Wander => {
                 // Wander near home to prevent unbounded drift off the map
-                let (base_x, base_y) = if home != Vec2::ZERO {
-                    (home.x, home.y)
-                } else if idx * 2 + 1 < positions.len() {
-                    (positions[idx * 2], positions[idx * 2 + 1])
+                let base = if home != Vec2::ZERO {
+                    home
+                } else if let Some(pos) = npc_pos {
+                    pos
                 } else {
-                    if let Some(s) = _ps_idle { t_idle += s.elapsed(); n_idle += 1; }
                     break 'decide;
                 };
+                let (base_x, base_y) = (base.x, base.y);
                 let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 200.0;
                 let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 200.0;
                 activity = Activity::Wandering;
@@ -1526,7 +1408,6 @@ pub fn decision_system(
             }
             Action::Fight | Action::Flee => {}
         }
-        if let Some(s) = _ps_idle { t_idle += s.elapsed(); n_idle += 1; }
         } // end 'decide block
 
         // Farmer reservation invariant:
@@ -1572,27 +1453,6 @@ pub fn decision_system(
         }
     }
 
-    // Record sub-profiling results
-    if profiling {
-        let t = &extras.timings;
-        t.record("decision/arrival", t_arrival.as_secs_f32() * 1000.0);
-        t.record("decision/combat", t_combat.as_secs_f32() * 1000.0);
-        t.record("decision/idle", t_idle.as_secs_f32() * 1000.0);
-        t.record("decision/squad", t_squad.as_secs_f32() * 1000.0);
-        t.record("decision/work", t_work.as_secs_f32() * 1000.0);
-        t.record("decision/n_arrival", n_arrival as f32);
-        t.record("decision/n_combat", n_combat as f32);
-        t.record("decision/n_idle", n_idle as f32);
-        t.record("decision/n_squad", n_squad as f32);
-        t.record("decision/n_work", n_work as f32);
-        t.record("decision/n_transit_skip", n_transit_skip as f32);
-        t.record("decision/n_total", n_total as f32);
-        t.record("decision/ws_queries", n_ws_queries as f32);
-        t.record("decision/ws_fallbacks", n_ws_fallbacks as f32);
-        t.record("decision/ws_stale", n_ws_stale as f32);
-        t.record("decision/think_buckets", think_buckets as f32);
-        t.record("decision/npcs_per_bucket", (npc_count as f32) / (think_buckets as f32));
-    }
 }
 
 /// Increment OnDuty tick counters (runs every frame for guards at posts).
@@ -1600,9 +1460,7 @@ pub fn decision_system(
 pub fn on_duty_tick_system(
     game_time: Res<GameTime>,
     mut q: Query<(&mut Activity, &CombatState), (Without<Building>, Without<Dead>)>,
-    timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("on_duty_tick");
     if game_time.is_paused() { return; }
     for (mut activity, combat_state) in q.iter_mut() {
         if combat_state.is_fighting() { continue; }
@@ -1617,12 +1475,10 @@ pub fn rebuild_patrol_routes_system(
     mut entity_map: ResMut<EntityMap>,
     mut patrols_dirty: MessageReader<crate::messages::PatrolsDirtyMsg>,
     mut patrol_swaps: MessageReader<crate::messages::PatrolSwapMsg>,
-    timings: Res<SystemTimings>,
     mut patrol_route_q: Query<&mut PatrolRoute>,
     mut commands: Commands,
     patrol_npc_q: Query<(Entity, &GpuSlot, &Job, &TownId), (Without<Building>, Without<Dead>)>,
 ) {
-    let _t = timings.scope("rebuild_patrol_routes");
     if patrols_dirty.read().count() == 0 { return; }
 
     // Apply pending patrol order swap from UI

@@ -14,31 +14,37 @@ Activity is preserved through combat — a Raiding NPC stays `Activity::Raiding`
 The system uses **SystemParam bundles** for farm and economy parameters:
 - `FarmParams`: `EntityMap` (occupancy tracked via `BuildingInstance.occupants` field)
 - `EconomyParams`: food storage, food events, population stats
-- `DecisionExtras`: npc logs, combat log, policies, squad state, timings, town upgrades
+- `DecisionExtras`: npc logs, combat log, policies, squad state, town upgrades
 - `Res<EntityMap>`: sole source of truth for all building instance lookups (farms, waypoints, towns, gold mines)
 
-Priority order (first match wins), with three-tier throttling via `NpcDecisionConfig.interval`:
+Priority order (first match wins), with two-cadence top-of-loop bucket gating via `NpcDecisionConfig.interval`:
+
+**Top-of-loop bucket gate**: Every NPC is gated at the top of the decision loop before any queries or state reads. Two cadences based on combat state:
+- **Fighting NPCs**: gated every `COMBAT_BUCKET` (16) frames (~267ms at 60fps) — fast enough for flee/leash reactions
+- **Non-fighting NPCs**: gated by `think_buckets = max(interval × 60fps, npc_count / max_decisions_per_frame)` — adaptive bucketing with frame budget cap
+
+This reduces per-frame ECS lookups from `queries × npc_count` to `queries × (npc_count / bucket_count)`. At 10K NPCs with 120 buckets: ~83 NPCs processed per frame instead of 10K. Position is hoisted once per NPC into `npc_pos: Option<Vec2>` after the bucket gate, replacing all scattered position reads.
 
 **DirectControl skip** (before all priorities): NPCs with `direct_control` flag skip the entire decision system — no autonomous behavior whatsoever. The system clears `AtDestination` if present to prevent stale arrival flags. DC NPCs may accumulate loot in `Activity::Returning` while fighting (via `dc_no_return` toggle) — the Returning activity is inert while DC is active. When a DC right-click move/attack command is issued (`click_to_select_system` in render.rs), resting NPCs (`GoingToRest`/`Resting`) are woken to `Idle` so they respond to the command instead of sliding while asleep.
 
-**Tier 1 — every frame:**
-0. AtDestination → Handle arrival transitions (transient one-frame flag, can't miss)
--- Farmer en-route retarget (GoingToWork + target farm occupied by other → `find_farmer_farm_target()` local search with claim/release lifecycle, or idle; throttled at Tier 3 cadence) --
--- Transit skip (`activity.is_transit()` → continue, with GoingToHeal proximity check at Tier 2 cadence) --
+**Priority 0 — arrivals** (every bucket tick):
+0. AtDestination → Handle arrival transitions (transient one-frame flag)
+-- Farmer en-route retarget (GoingToWork + target farm occupied by other → `find_farmer_farm_target()` local search with claim/release lifecycle, or idle) --
+-- Transit skip (`activity.is_transit()` → continue, with GoingToHeal proximity check) --
 
-**Tier 2 — every 8 frames (~133ms):**
+**Priority 1-3 — combat decisions** (every bucket tick, fighting NPCs on COMBAT_BUCKET cadence):
 1. CombatState::Fighting + should_flee? → Flee
 2. CombatState::Fighting + should_leash? → Leash
 3. CombatState::Fighting → Skip (attack_system handles)
 
-**Tier 3 — adaptive bucketing with frame budget cap:**
+**Priority 4-7 — idle/work decisions** (every bucket tick):
 4a. HealingAtFountain + HP >= threshold → Wake (HP-only check)
 4b. Resting + energy >= 90% → Wake (energy-only check)
 5. Working + tired? → Stop work
 6. OnDuty + time_to_patrol? → Patrol
 7. Idle → Score Eat/Rest/Work/Wander (wounded → fountain, tired → home)
 
-Bucketing uses `(idx + frame) % think_buckets` where `think_buckets = max(interval × 60fps, npc_count / max_decisions_per_frame)`. The adaptive floor ensures per-frame Tier 3 decisions never exceed `max_decisions_per_frame` (default 300) regardless of population. At 50K NPCs: 167 buckets (~300/frame, effective interval ~2.8s). At low NPC counts the interval-based bucket count dominates (same as before).
+Bucketing uses `(idx + frame) % bucket_count`. The adaptive floor ensures per-frame decisions never exceed `max_decisions_per_frame` (default 300) regardless of population. At 50K NPCs: 167 buckets (~300/frame, effective interval ~2.8s). At low NPC counts the interval-based bucket count dominates.
 
 All checks are **policy-driven per town**. Flee thresholds come from `TownPolicies` resource (indexed by `TownId`), not per-entity `FleeThreshold` components. Raiders use a hardcoded 0.50 threshold. `archer_aggressive` and `farmer_fight_back` policies disable flee entirely for their respective jobs.
 
@@ -180,8 +186,8 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 ### decision_system (Unified Priority Cascade)
 - Iterates a focused ECS query `(Entity, &GpuSlot, &Job, &TownId, &Faction)` with `Without<Building>, Without<Dead>` filters for the outer NPC loop. Reads/writes mutable NPC state via `DecisionNpcState` + `NpcDataQueries` SystemParam bundles (`get_mut(entity)` per NPC). Skips `direct_control` NPCs entirely, skips NPCs in transit (`activity.is_transit()`). Work state managed via always-present `NpcWorkState` component (no `Commands` needed — no archetype churn). Patrol route data read inline at usage sites (no per-NPC Vec clone). **Conditional writeback**: captures original values at loop top, compares at end — only calls `get_mut()` for changed fields (most NPCs exit early via `break 'decide`). `EntityMap` retained for building instance lookups (farms, waypoints, mines, occupancy)
 - Uses **SystemParam bundles** for farm and economy parameters (see Overview)
-- Reads `NpcDecisionConfig` for Tier 3 bucket count: `max(interval × 60fps, npc_count / max_decisions_per_frame)` — adaptive floor caps per-frame spike at `max_decisions_per_frame` (default 300)
-- Three-tier throttling: arrivals every frame, combat every 8 frames, decisions adaptively bucketed
+- Reads `NpcDecisionConfig` for bucket count: `max(interval × 60fps, npc_count / max_decisions_per_frame)` — adaptive floor caps per-frame spike at `max_decisions_per_frame` (default 300)
+- Two-cadence top-of-loop bucket gate: fighting NPCs every 16 frames (~267ms), everything else adaptively bucketed; position hoisted into `npc_pos: Option<Vec2>` after gate
 - Matches on Activity and CombatState enums in priority order:
 
 **Squad policy hard gate** (before combat, after arrivals):
@@ -323,35 +329,6 @@ Military unit groups for both player and AI. 10 player-reserved squads + AI squa
 **Recruitment**: `squad_cleanup_system` uses a focused ECS query `(&GpuSlot, &Job, &TownId, Option<&SquadId>)` with `Without<Building>, Without<Dead>` for recruit pool discovery. Player squads recruit from player-town units; AI squads recruit from their owner town's units. "Dismiss All" clears `squad_id` from all squad members — units resume normal behavior.
 
 **Death cleanup**: `squad_cleanup_system` (Step::Behavior) removes dead NPC slots from `Squad.members` by checking `EntityMap`.
-
-## Profiling
-
-`decision_system` has sub-timers recorded via `SystemTimings.record()` for performance analysis:
-
-| Timer | What it measures |
-|-------|-----------------|
-| `decision/arrival` | Priority 0 arrival transitions |
-| `decision/combat` | Priority 1-3 combat decisions |
-| `decision/idle` | Priority 7 idle scoring (utility AI) |
-| `decision/squad` | Squad rest gate + squad sync + squad target redirect |
-| `decision/work` | Priority 5 Working/MiningAtMine + farmer retarget + OnDuty checks |
-
-| Counter | What it counts |
-|---------|---------------|
-| `decision/n_arrival` | NPCs entering arrival path |
-| `decision/n_combat` | NPCs entering combat path |
-| `decision/n_idle` | NPCs entering idle scoring |
-| `decision/n_squad` | NPCs entering squad sync path |
-| `decision/n_work` | NPCs entering work/mining/onduty check |
-| `decision/n_transit_skip` | NPCs skipped by transit gate |
-| `decision/n_total` | Total NPCs processed per frame |
-| `decision/ws_queries` | `find_nearest_worksite` calls per frame |
-| `decision/ws_fallbacks` | Queries that expanded beyond first cell radius |
-| `decision/ws_stale` | `try_claim_worksite` failures (stale picks) |
-| `decision/think_buckets` | Adaptive bucket count (max of interval-based and budget-based) |
-| `decision/npcs_per_bucket` | NPCs per bucket (npc_count / think_buckets) |
-
-All timers use `Instant::now()` guarded by the `profiling` flag (only measured when profiler enabled in settings).
 
 ## Farm Reservation Lifecycle
 

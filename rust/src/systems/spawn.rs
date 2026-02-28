@@ -7,7 +7,7 @@ use crate::resources::NextEntityUid;
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg, CombatLogMsg};
 use crate::resources::{
     EntityMap, PopulationStats, NpcMetaCache, NpcMeta,
-    NpcsByTownCache, FactionStats, GameTime, CombatEventKind, SystemTimings,
+    NpcsByTownCache, FactionStats, GameTime, CombatEventKind,
 };
 use crate::messages::{DirtyWriters, SquadsDirtyMsg, MiningDirtyMsg};
 use crate::systems::stats::{CombatConfig, TownUpgrades, resolve_combat_stats};
@@ -291,11 +291,9 @@ pub fn spawn_npc_system(
     mut combat_log: MessageWriter<CombatLogMsg>,
     combat_config: Res<CombatConfig>,
     upgrades: Res<TownUpgrades>,
-    timings: Res<SystemTimings>,
     mut dirty_writers: DirtyWriters,
     mut uid_alloc: ResMut<NextEntityUid>,
 ) {
-    let _t = timings.scope("spawn_npc");
     for msg in events.read() {
         let work_pos = if msg.work_x >= 0.0 { Some([msg.work_x, msg.work_y]) } else { None };
 

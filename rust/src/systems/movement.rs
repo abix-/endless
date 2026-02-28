@@ -6,7 +6,7 @@ use crate::components::*;
 use crate::constants::ARRIVAL_THRESHOLD;
 use crate::gpu::EntityGpuState;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
-use crate::resources::{GameTime, GpuReadState, MovementIntents, NpcTargetThrashDebug, SystemTimings};
+use crate::resources::{GameTime, GpuReadState, MovementIntents, NpcTargetThrashDebug};
 
 /// Read positions from GPU readback buffer → ECS Position + arrival detection.
 /// GPU is movement authority; ECS Position is read-model synced here.
@@ -15,9 +15,7 @@ pub fn gpu_position_readback(
     gpu_state: Res<GpuReadState>,
     buffer_writes: Res<EntityGpuState>,
     mut npc_q: Query<(&GpuSlot, &mut Position, &Activity, &mut NpcFlags)>,
-    timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("gpu_position_readback");
     let positions = &gpu_state.positions;
     let targets = &buffer_writes.targets;
     let threshold_sq = ARRIVAL_THRESHOLD * ARRIVAL_THRESHOLD;
@@ -59,9 +57,7 @@ pub fn resolve_movement_system(
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut target_thrash: ResMut<NpcTargetThrashDebug>,
     game_time: Res<GameTime>,
-    timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("resolve_movement");
     if game_time.is_paused() { return; }
     let targets = &npc_gpu.targets;
     let minute_key = game_time.day() * 24 * 60 + game_time.hour() * 60 + game_time.minute();

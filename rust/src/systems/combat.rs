@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 use crate::components::*;
 use crate::messages::{DamageMsg, ProjGpuUpdate, ProjGpuUpdateMsg};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TowerState, SystemTimings, GameTime, EntityMap, MovementIntents, MovementPriority};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TowerState, GameTime, EntityMap, MovementIntents, MovementPriority};
 use crate::systems::stats::{TownUpgrades, resolve_town_tower_stats};
 use crate::gpu::ProjBufferWrites;
 use crate::world::{WorldData, BuildingKind, is_alive};
@@ -20,10 +20,8 @@ pub fn cooldown_system(
     time: Res<Time>,
     game_time: Res<GameTime>,
     mut debug: ResMut<CombatDebug>,
-    timings: Res<SystemTimings>,
     mut timer_q: Query<(&GpuSlot, &mut AttackTimer), (Without<Building>, Without<Dead>)>,
 ) {
-    let _t = timings.scope("cooldown");
     let dt = game_time.delta(&time);
 
     let mut first_timer_before = -99.0f32;
@@ -56,7 +54,6 @@ pub fn attack_system(
     npc_gpu: Res<crate::gpu::EntityGpuState>,
     entity_map: Res<EntityMap>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
-    timings: Res<SystemTimings>,
     squad_state: Res<crate::resources::SquadState>,
     mut commands: Commands,
     game_time: Res<GameTime>,
@@ -65,7 +62,6 @@ pub fn attack_system(
                   Option<&SquadId>, Option<&ManualTarget>),
                  (Without<Building>, Without<Dead>)>,
 ) {
-    let _t = timings.scope("attack");
     if game_time.is_paused() { return; }
     let positions = &gpu_state.positions;
     let combat_targets = &gpu_state.combat_targets;
@@ -313,9 +309,7 @@ pub fn process_proj_hits(
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     proj_writes: Res<ProjBufferWrites>,
     mut hit_state: ResMut<ProjHitState>,
-    timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("process_proj_hits");
     let max_slot = proj_alloc.next.min(hit_state.0.len());
     for (slot, hit) in hit_state.0[..max_slot].iter().enumerate() {
         if slot < proj_writes.active.len() && proj_writes.active[slot] == 0 {
@@ -369,9 +363,7 @@ pub fn building_tower_system(
     mut tower: ResMut<TowerState>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     mut proj_updates: MessageWriter<ProjGpuUpdateMsg>,
-    timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("building_tower");
     let dt = game_time.delta(&time);
     // --- Towns: sync state, refresh enabled from sprite_type == 0 (fountain) every tick ---
     while tower.town.timers.len() < world_data.towns.len() {
@@ -446,9 +438,7 @@ pub fn sync_building_hp_render(
     query: Query<(&Building, &GpuSlot, &Health), Without<Dead>>,
     gpu_state: Res<crate::gpu::EntityGpuState>,
     mut render: ResMut<crate::resources::BuildingHpRender>,
-    timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("sync_hp_render");
     render.positions.clear();
     render.health_pcts.clear();
     let positions = &gpu_state.positions;

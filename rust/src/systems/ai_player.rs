@@ -1072,11 +1072,9 @@ pub fn sync_patrol_perimeter_system(
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
     mut damage_writer: MessageWriter<crate::messages::DamageMsg>,
     game_time: Res<GameTime>,
-    timings: Res<SystemTimings>,
     mut perimeter_dirty: ResMut<PerimeterSyncDirty>,
 ) {
     // Flag-gated system: only runs when perimeter_dirty_drain_system detected dirty messages.
-    let _t = timings.scope("sync_patrol_perimeter");
     if !perimeter_dirty.0 { return; }
     perimeter_dirty.0 = false;
 
@@ -1195,13 +1193,11 @@ pub fn ai_decision_system(
     pop_stats: Res<PopulationStats>,
     mut timer: Local<f32>,
     mut snapshots: Local<AiTownSnapshotCache>,
-    timings: Res<SystemTimings>,
     settings: Res<crate::settings::UserSettings>,
     mut snapshot_dirty: ResMut<AiSnapshotDirty>,
 ) {
     // System timing gate:
     // runs every `decision_interval`, not every frame.
-    let _t = timings.scope("ai_decision");
     *timer += game_time.delta(&time);
     if *timer < config.decision_interval { return; }
     *timer = 0.0;
@@ -2057,12 +2053,10 @@ pub fn ai_squad_commander_system(
     mut combat_log: MessageWriter<crate::messages::CombatLogMsg>,
     game_time: Res<GameTime>,
     mut squads_dirty_w: MessageWriter<crate::messages::SquadsDirtyMsg>,
-    timings: Res<SystemTimings>,
     mut timer: Local<f32>,
     military_q: Query<(&Job, &TownId), (Without<Building>, Without<Dead>)>,
 ) {
     const AI_SQUAD_HEARTBEAT: f32 = 2.0;
-    let _t = timings.scope("ai_squad_commander");
     let dt = game_time.delta(&time);
     *timer += dt;
     if *timer < AI_SQUAD_HEARTBEAT { return; }

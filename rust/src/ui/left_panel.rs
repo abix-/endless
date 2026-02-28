@@ -205,7 +205,6 @@ pub fn left_panel_system(
     mut prev_tab: Local<LeftPanelTab>,
     mut dirty_writers: crate::messages::DirtyWriters,
 ) -> Result {
-    let _t = profiler.timings.scope("ui_left_panel");
     if !ui_state.left_panel_open {
         ui_state.factions_overlay_faction = None;
         *prev_tab = LeftPanelTab::Roster;
@@ -2071,77 +2070,108 @@ fn profiler_content(
         });
     ui.separator();
 
-    let all = timings.get_timings();
-    if all.is_empty() {
+    // Auto-captured tracing timings — split into game vs engine
+    let traced = timings.get_traced_timings();
+    if traced.is_empty() {
         ui.label("Enable profiler in pause menu settings");
         return;
     }
 
-    // Separate timings from counts (keys containing "/n_")
-    let mut timing_entries: Vec<(&str, f32)> = Vec::new();
-    let mut count_map: HashMap<&str, f32> = HashMap::new();
-    for (&name, &val) in &all {
-        if name.contains("/n_") {
-            count_map.insert(name, val);
+    let mut game_entries: Vec<(&str, f32)> = Vec::new();
+    let mut engine_entries: Vec<(&str, f32)> = Vec::new();
+    for (name, &ms) in &traced {
+        if name.starts_with("endless::") {
+            game_entries.push((name.as_str(), ms));
         } else {
-            timing_entries.push((name, val));
+            engine_entries.push((name.as_str(), ms));
         }
     }
-    timing_entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    game_entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    engine_entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    let game_sum: f32 = game_entries.iter().map(|(_, ms)| ms).sum();
+    let engine_sum: f32 = engine_entries.iter().map(|(_, ms)| ms).sum();
 
-    // Compute untracked time (render pipeline, vsync, ECS scheduling)
-    let systems_total: f32 = timing_entries.iter().map(|(_, ms)| ms).sum();
-    let untracked = (frame_ms - systems_total).max(0.0);
-    timing_entries.push(("render + other", untracked));
-
-    // Check if any entry has a paired count
-    let has_counts = !count_map.is_empty();
+    ui.label(egui::RichText::new("(cpu sums include parallel overlap)").weak().small());
 
     if ui.button("Copy Top 10").clicked() {
-        let top10: String = timing_entries.iter().take(10)
+        let top_game: String = game_entries.iter().take(10)
             .map(|(name, ms)| format!("{}: {:.3} ms", name, ms))
             .collect::<Vec<_>>()
             .join("\n");
-        let text = format!("Frame: {:.2} ms\n{}", frame_ms, top10);
-        ui.ctx().copy_text(text);
+        let top_engine: String = engine_entries.iter().take(10)
+            .map(|(name, ms)| format!("{}: {:.3} ms", name, ms))
+            .collect::<Vec<_>>()
+            .join("\n");
+        ui.ctx().copy_text(format!(
+            "Frame: {:.2} ms\n\nGame Systems (cpu sum: {:.2} ms)\n{}\n\nEngine Systems (cpu sum: {:.2} ms)\n{}",
+            frame_ms, game_sum, top_game, engine_sum, top_engine
+        ));
     }
     ui.separator();
 
-    let cols = if has_counts { 3 } else { 2 };
-    egui::Grid::new("profiler_grid").num_columns(cols).striped(true).show(ui, |ui| {
-        // Header
-        ui.label(egui::RichText::new("system").strong());
-        ui.label(egui::RichText::new("ms").strong());
-        if has_counts { ui.label(egui::RichText::new("count").strong()); }
-        ui.end_row();
-
-        for (name, ms) in &timing_entries {
-            ui.label(*name);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(egui::RichText::new(format!("{:.3}", ms)).monospace());
-            });
-            if has_counts {
-                // Look for paired count: "decision/arrival" → "decision/n_arrival"
-                let count_key = if let Some(slash) = name.rfind('/') {
-                    let (prefix, suffix) = name.split_at(slash + 1);
-                    let candidate = format!("{prefix}n_{suffix}");
-                    count_map.iter().find(|(k, _)| **k == candidate).map(|(_, &v)| v)
-                } else {
-                    None
-                };
-                if let Some(c) = count_key {
+    // Game systems
+    egui::CollapsingHeader::new(format!("Game Systems ({:.2} ms)", game_sum))
+        .id_salt("prof_game")
+        .default_open(true)
+        .show(ui, |ui| {
+            egui::Grid::new("prof_game_grid").num_columns(2).striped(true).show(ui, |ui| {
+                ui.label(egui::RichText::new("system").strong());
+                ui.label(egui::RichText::new("ms").strong());
+                ui.end_row();
+                for (name, ms) in &game_entries {
+                    ui.label(*name);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(egui::RichText::new(format!("{:.0}", c)).monospace());
+                        ui.label(egui::RichText::new(format!("{:.3}", ms)).monospace());
                     });
-                } else {
-                    ui.label("");
+                    ui.end_row();
                 }
-            }
-            ui.end_row();
-        }
-    });
-}
+            });
+        });
 
+    // Engine systems
+    egui::CollapsingHeader::new(format!("Engine Systems ({:.2} ms)", engine_sum))
+        .id_salt("prof_engine")
+        .default_open(false)
+        .show(ui, |ui| {
+            egui::Grid::new("prof_engine_grid").num_columns(2).striped(true).show(ui, |ui| {
+                ui.label(egui::RichText::new("system").strong());
+                ui.label(egui::RichText::new("ms").strong());
+                ui.end_row();
+                for (name, ms) in &engine_entries {
+                    ui.label(*name);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(egui::RichText::new(format!("{:.3}", ms)).monospace());
+                    });
+                    ui.end_row();
+                }
+            });
+        });
+    ui.separator();
+
+    // Render pipeline timings (render-world, captured via atomics)
+    let render_timings = timings.get_timings();
+    if !render_timings.is_empty() {
+        let mut render_entries: Vec<(&str, f32)> = render_timings.iter().map(|(&n, &v)| (n, v)).collect();
+        render_entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        egui::CollapsingHeader::new(egui::RichText::new("Render Pipeline").strong())
+            .id_salt("prof_render")
+            .default_open(false)
+            .show(ui, |ui| {
+                egui::Grid::new("prof_render_grid").num_columns(2).striped(true).show(ui, |ui| {
+                    ui.label(egui::RichText::new("stage").strong());
+                    ui.label(egui::RichText::new("ms").strong());
+                    ui.end_row();
+                    for (name, ms) in &render_entries {
+                        ui.label(*name);
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(egui::RichText::new(format!("{:.3}", ms)).monospace());
+                        });
+                        ui.end_row();
+                    }
+                });
+            });
+    }
+}
 // ============================================================================
 // HELP TAB
 // ============================================================================
@@ -2194,3 +2224,4 @@ fn help_content(ui: &mut egui::Ui) {
             });
     });
 }
+

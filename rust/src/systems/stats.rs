@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use crate::components::{Job, BaseAttackType, CachedStats, Personality};
 use crate::constants::{FOUNTAIN_TOWER, TowerStats, NPC_REGISTRY, npc_def, AttackTypeStats, UpgradeStatKind, UpgradeStatDef, ResourceKind, EffectDisplay, TOWN_UPGRADES};
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
-use crate::resources::{NpcMetaCache, NpcsByTownCache, SystemTimings};
+use crate::resources::{NpcMetaCache, NpcsByTownCache};
 use crate::systemparams::{EconomyState, WorldState};
 
 // ============================================================================
@@ -609,14 +609,12 @@ pub fn process_upgrades_system(
     meta_cache: Res<NpcMetaCache>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut world_state: WorldState,
-    timings: Res<SystemTimings>,
     mut cached_stats_q: Query<&mut crate::components::CachedStats>,
     mut speed_q: Query<&mut crate::components::Speed>,
     mut health_q: Query<&mut crate::components::Health, Without<crate::components::Building>>,
     attack_type_q: Query<&crate::components::BaseAttackType>,
     personality_q: Query<&crate::components::Personality>,
 ) {
-    let _t = timings.scope("process_upgrades");
     let count = upgrade_count();
     for msg in queue.read() {
         let (town_idx, upgrade_idx) = (msg.town_idx, msg.upgrade_idx);
@@ -702,9 +700,7 @@ pub fn auto_upgrade_system(
     food_storage: Res<crate::resources::FoodStorage>,
     gold_storage: Res<crate::resources::GoldStorage>,
     mut queue: MessageWriter<UpgradeMsg>,
-    timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("auto_upgrade");
     if !game_time.hour_ticked { return; }
 
     let count = upgrade_count();

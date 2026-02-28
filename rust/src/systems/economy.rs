@@ -64,9 +64,7 @@ pub fn pop_inc_dead(stats: &mut PopulationStats, job: Job, clan: i32) {
 pub fn game_time_system(
     time: Res<Time>,
     mut game_time: ResMut<GameTime>,
-    timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("game_time");
     // Reset tick flag each frame
     game_time.hour_ticked = false;
 
@@ -97,9 +95,7 @@ pub fn growth_system(
     game_time: Res<GameTime>,
     mut entity_map: ResMut<EntityMap>,
     upgrades: Res<TownUpgrades>,
-    timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("growth");
     if game_time.is_paused() { return; }
 
     let hours_elapsed = game_time.delta(&time) / game_time.seconds_per_hour;
@@ -148,9 +144,7 @@ pub fn raider_forage_system(
     mut economy: EconomyState,
     world_data: Res<WorldData>,
     user_settings: Res<crate::settings::UserSettings>,
-    timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("raider_forage");
     if !game_time.hour_ticked || !user_settings.raider_passive_forage {
         return;
     }
@@ -173,10 +167,8 @@ pub fn raider_forage_system(
 pub fn starvation_system(
     game_time: Res<GameTime>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
-    timings: Res<SystemTimings>,
     mut q: Query<(&GpuSlot, &Energy, &CachedStats, &mut NpcFlags, &mut Health), (Without<Building>, Without<Dead>)>,
 ) {
-    let _t = timings.scope("starvation");
     if !game_time.hour_ticked {
         return;
     }
@@ -211,9 +203,7 @@ pub fn farm_visual_system(
     entity_map: Res<EntityMap>,
     markers: Query<(Entity, &FarmReadyMarker)>,
     mut prev_ready: Local<HashMap<usize, bool>>,
-    timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("farm_visual");
     for inst in entity_map.iter_kind(BuildingKind::Farm) {
         let was_ready = prev_ready.get(&inst.slot).copied().unwrap_or(false);
         if inst.growth_ready && !was_ready {
@@ -243,11 +233,9 @@ pub fn spawner_respawn_system(
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     world_data: Res<WorldData>,
     mut combat_log: MessageWriter<CombatLogMsg>,
-    timings: Res<SystemTimings>,
     mut dirty_writers: crate::messages::DirtyWriters,
     mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
 ) {
-    let _t = timings.scope("spawner_respawn");
     if !game_time.hour_ticked {
         return;
     }
@@ -322,9 +310,7 @@ pub fn mining_policy_system(
     policies: Res<TownPolicies>,
     mut mining: ResMut<MiningPolicy>,
     mut mining_dirty: MessageReader<crate::messages::MiningDirtyMsg>,
-    timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("mining_policy");
     if mining_dirty.read().count() == 0 { return; }
 
     // Mine discovery: iterate EntityMap gold mines, keyed by slot
@@ -416,14 +402,12 @@ pub fn squad_cleanup_system(
     mut squad_state: ResMut<SquadState>,
     entity_map: Res<EntityMap>,
     world_data: Res<WorldData>,
-    timings: Res<SystemTimings>,
     mut squads_dirty: MessageReader<crate::messages::SquadsDirtyMsg>,
     mut commands: Commands,
     squad_id_q: Query<&SquadId>,
     mut npc_flags_q: Query<&mut NpcFlags>,
     recruit_q: Query<(&GpuSlot, &Job, &TownId, Option<&SquadId>), (Without<Building>, Without<Dead>)>,
 ) {
-    let _t = timings.scope("squad_cleanup");
     if squads_dirty.read().count() == 0 { return; }
     let player_town = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0) as i32;
 
@@ -667,10 +651,8 @@ pub fn endless_system(
     config: Res<world::WorldGenConfig>,
     mut res: MigrationResources,
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
-    timings: Res<SystemTimings>,
     position_q: Query<&Position>,
 ) {
-    let _t = timings.scope("endless");
 
     // Debug button: queue an immediate raider spawn
     if migration_state.debug_spawn {

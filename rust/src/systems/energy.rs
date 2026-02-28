@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 
 use crate::components::{Activity, Building, Dead, Energy, GpuSlot};
-use crate::resources::{GameTime, SystemTimings};
+use crate::resources::{GameTime};
 
 /// Energy recovery/drain rates (per game hour)
 const ENERGY_RECOVER_PER_HOUR: f32 = 100.0 / 6.0;  // 6 hours to full (resting)
@@ -15,10 +15,8 @@ const ENERGY_DRAIN_PER_HOUR: f32 = 100.0 / 24.0;   // 24 hours to empty (active)
 pub fn energy_system(
     time: Res<Time>,
     game_time: Res<GameTime>,
-    timings: Res<SystemTimings>,
     mut energy_q: Query<(&GpuSlot, &mut Energy, &Activity), (Without<Building>, Without<Dead>)>,
 ) {
-    let _t = timings.scope("energy");
     if game_time.is_paused() {
         return;
     }

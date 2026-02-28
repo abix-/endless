@@ -334,7 +334,7 @@ Systems that write intents no longer need `MessageWriter<GpuUpdateMsg>` for move
 |----------|-----------|------------|
 | CombatDebug | attackers_queried, targets_found, attacks_made, chases_started, sample positions/distances | cooldown/attack systems |
 | HealthDebug | damage_processed, deaths, despawned, entity_count, healing stats | damage/death systems |
-| SystemTimings | per-system EMA-smoothed ms (internal Mutex, `Res` not `ResMut`), frame_ms, enabled toggle (F5) | all systems via `timings.scope("name")` RAII guard |
+| SystemTimings | per-system EMA-smoothed ms (internal Mutex, `Res` not `ResMut`), frame_ms, enabled toggle (F5) | render-world atomic timings via `record()`, tracing layer via `record_traced()` |
 
 ## Control Resources
 

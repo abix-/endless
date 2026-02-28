@@ -37,7 +37,7 @@ use crate::constants::{
     MAX_PROJECTILES as MAX_PROJECTILE_COUNT, PROJECTILE_HIT_HALF_LENGTH, PROJECTILE_HIT_HALF_WIDTH,
 };
 use crate::messages::{GpuUpdate, GpuUpdateMsg, ProjGpuUpdate, ProjGpuUpdateMsg};
-use crate::resources::{GameTime, GpuReadState, ProjHitState, ProjPositionState, GpuSlotPool, SystemTimings, NpcTargetThrashDebug};
+use crate::resources::{GameTime, GpuReadState, ProjHitState, ProjPositionState, GpuSlotPool, NpcTargetThrashDebug};
 use crate::systems::stats::{self, TownUpgrades};
 use crate::world::WorldData;
 
@@ -466,7 +466,6 @@ pub fn build_visual_upload(
     config: Res<RenderFrameConfig>,
     mut upload: ResMut<NpcVisualUpload>,
     entity_map: Res<crate::resources::EntityMap>,
-    timings: Res<SystemTimings>,
     activity_q: Query<&crate::components::Activity>,
     npc_flags_q: Query<&crate::components::NpcFlags>,
     armor_q: Query<&crate::components::EquippedArmor>,
@@ -475,7 +474,6 @@ pub fn build_visual_upload(
     npc_q: Query<(Entity, &GpuSlot, &Job, &Faction), (Without<Building>, Without<Dead>)>,
     building_q: Query<&GpuSlot, (With<Building>, Without<Dead>)>,
 ) {
-    let _t = timings.scope("build_visual_upload");
     let entity_count = config.npc.count as usize;
     upload.entity_count = entity_count;
 
@@ -531,9 +529,7 @@ pub fn populate_gpu_state(
     real_time: Res<Time<Real>>,
     time: Res<Time>,
     slots: Res<GpuSlotPool>,
-    timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("populate_gpu");
     let sink_window_key = real_time.elapsed_secs_f64().floor() as i64;
     // Reset dirty flags
     npc_state.dirty_positions = false;
@@ -695,9 +691,7 @@ impl ProjBufferWrites {
 pub fn populate_proj_buffer_writes(
     mut events: MessageReader<ProjGpuUpdateMsg>,
     mut writes: ResMut<ProjBufferWrites>,
-    timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("populate_proj");
     writes.dirty = false;
     writes.spawn_dirty_indices.clear();
     writes.deactivate_dirty_indices.clear();
@@ -977,9 +971,7 @@ fn update_gpu_data(
     game_time: Res<GameTime>,
     upgrades: Res<TownUpgrades>,
     world_data: Res<WorldData>,
-    timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("update_gpu_data");
     let dt = game_time.delta(&time);
     config.npc.count = slots.count() as u32;
     config.npc.entity_count = slots.count() as u32;
@@ -1592,9 +1584,7 @@ fn update_proj_gpu_data(
     proj_alloc: Res<crate::resources::ProjSlotAllocator>,
     time: Res<Time>,
     game_time: Res<GameTime>,
-    timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("update_proj_gpu");
     let dt = game_time.delta(&time);
     config.proj.proj_count = proj_alloc.next as u32;
     config.proj._npc_count = slots.count() as u32;

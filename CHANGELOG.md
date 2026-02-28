@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-02-28j
+
+- **decision_system two-cadence bucket gate** — moved bucket gate to top of decision loop before any ECS queries or state reads; fighting NPCs gated every 16 frames (~267ms), non-fighting NPCs gated by adaptive `think_buckets`; reduces per-frame ECS lookups from `queries × npc_count` to `queries × (npc_count / bucket_count)` (~92% reduction at 10K NPCs)
+- **farm reconciliation removal** — removed per-frame pre-scan that rebuilt 3 HashMaps (`farm_owner_counts`, `farm_owner_keep_slot`, `farm_owner_keep_rank`) by iterating all NPCs every frame; replaced with inline `occupant_count` checks that only run for the ~83 NPCs processed per bucket tick
+- **position hoisting** — `npc_pos: Option<Vec2>` computed once per NPC after bucket gate replaces ~15 scattered `positions[idx * 2]` reads throughout the decision loop
+- **manual timings cleanup** — removed `scope()`/`TimerGuard` RAII pattern and `Res<SystemTimings>` parameter from ~40 system functions across ~20 files; removed decision sub-profiling boilerplate (~60 lines of timing/counter accumulators); kept render-world atomic timings (not capturable by tracing) and tracing-based auto-capture
+- **profiler UI simplification** — removed Manual Timings and Stats sections from profiler; added Render Pipeline section for 8 render-world timings; profiler now shows Frame time, Game Systems (auto-captured via tracing), Engine Systems, and Render Pipeline
+
 ## 2026-02-28i
 
 - **EntityUid stable identity system** — introduced `EntityUid(u64)` as the canonical stable identity for all gameplay cross-references, replacing raw `GpuSlot(usize)` indices which suffered from ABA hazards due to LIFO slot recycling; `NextEntityUid` resource allocates monotonically increasing UIDs (0 reserved as "none"); `EntityMap` maintains bidirectional UID maps (`uid_to_slot`/`slot_to_uid`/`uid_to_entity`/`entity_to_uid`) with debug-build bijection assertions

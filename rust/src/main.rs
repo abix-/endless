@@ -130,6 +130,12 @@ fn main() {
             }),
             ..default()
         })
+        .set(bevy::log::LogPlugin {
+            custom_layer: |_app: &mut App| {
+                Some(Box::new(endless::tracing_layer::SystemTimingLayer))
+            },
+            ..default()
+        })
     );
 
     // Wire up ECS systems

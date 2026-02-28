@@ -6,7 +6,7 @@ use crate::components::*;
 use crate::constants::STARVING_HP_CAP;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, DirtyWriters};
 use crate::messages::CombatLogMsg;
-use crate::resources::{EntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, GpuSlotPool, GpuReadState, FactionStats, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SelectedBuilding, SystemTimings, HealingZoneCache, BuildingHealState, ActiveHealingSlots, EndlessMode, SquadState, FoodStorage, GoldStorage};
+use crate::resources::{EntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, GpuSlotPool, GpuReadState, FactionStats, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SelectedBuilding, HealingZoneCache, BuildingHealState, ActiveHealingSlots, EndlessMode, SquadState, FoodStorage, GoldStorage};
 use std::collections::HashMap;
 use crate::systems::stats::{CombatConfig, TownUpgrades, UPGRADES, level_from_xp, resolve_combat_stats};
 use crate::constants::{UpgradeStatKind, ItemKind, building_def, npc_def};
@@ -55,9 +55,7 @@ pub fn damage_system(
     mut debug: ResMut<HealthDebug>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut heal_state: ResMut<BuildingHealState>,
-    timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("damage");
     let mut damage_count = 0;
     for event in events.read() {
         damage_count += 1;
@@ -135,7 +133,6 @@ pub fn death_system(
     game_time: Res<GameTime>,
     mut npc_meta: ResMut<NpcMetaCache>,
     mut selected: ResMut<SelectedNpc>,
-    timings: Res<SystemTimings>,
     squad_state: Res<SquadState>,
     upgrades: Res<TownUpgrades>,
     food_storage: Res<FoodStorage>,
@@ -143,7 +140,6 @@ pub fn death_system(
     config: Res<CombatConfig>,
     mut intents: ResMut<crate::resources::MovementIntents>,
 ) {
-    let _t = timings.scope("death");
 
     // Phase 1a: Mark newly dead NPCs (immediate — processed same frame)
     let mut death_count = 0;
@@ -434,9 +430,7 @@ pub fn update_healing_zone_cache(
     world_data: Res<WorldData>,
     combat_config: Res<CombatConfig>,
     upgrades: Res<TownUpgrades>,
-    timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("healing_zones");
     if healing_dirty.read().count() == 0 { return; }
 
     let max_faction = world_data.towns.iter().map(|t| t.faction).max().unwrap_or(0);
@@ -485,9 +479,7 @@ pub fn healing_system(
     mut heal_state: ResMut<BuildingHealState>,
     mut active: ResMut<ActiveHealingSlots>,
     mut frame_count: Local<u32>,
-    timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("healing");
     let positions = &gpu_state.positions;
     let dt = game_time.delta(&time);
     *frame_count = frame_count.wrapping_add(1);

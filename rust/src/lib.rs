@@ -19,6 +19,7 @@ pub mod systems;
 pub mod tests;
 pub mod ui;
 pub mod world;
+pub mod tracing_layer;
 
 // ============================================================================
 // IMPORTS
@@ -104,6 +105,12 @@ fn frame_timer_start(timings: Res<SystemTimings>, time: Res<Time>) {
             let bits = RENDER_TIMINGS[i].swap(0, Ordering::Relaxed);
             if bits != 0 {
                 timings.record(RT_NAMES[i], f32::from_bits(bits));
+            }
+        }
+        // Drain tracing-captured system timings (Bevy auto-spans)
+        if let Ok(map) = crate::tracing_layer::TRACING_TIMINGS.lock() {
+            for (name, &ms) in map.iter() {
+                timings.record_traced(name, ms);
             }
         }
     }

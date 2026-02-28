@@ -6,11 +6,16 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use crate::constants::{MAX_NPC_COUNT, MAX_ENTITIES, MAX_PROJECTILES};
 
-/// Per-system profiling (Factorio-style). RAII guard pattern: `let _t = timings.scope("name");`
-/// Uses Res<SystemTimings> (not ResMut) with internal Mutex so parallel systems don't serialize.
+/// Profiling resource: frame timing + render-world timing drain + tracing capture.
+/// Auto-capture via SystemTimingLayer handles all main-world systems.
+/// Render-world timings still use record() via atomic drain in frame_timer_start.
+const EMA_ALPHA: f32 = 0.1;
+
 #[derive(Resource)]
 pub struct SystemTimings {
     data: Mutex<HashMap<&'static str, f32>>,
+    /// Tracing-captured timings (Bevy auto-spans, feature-gated behind `trace`).
+    traced: Mutex<HashMap<String, f32>>,
     pub frame_ms: Mutex<f32>,
     pub enabled: bool,
 }
@@ -19,6 +24,7 @@ impl Default for SystemTimings {
     fn default() -> Self {
         Self {
             data: Mutex::new(HashMap::new()),
+            traced: Mutex::new(HashMap::new()),
             frame_ms: Mutex::new(0.0),
             enabled: false,
         }
@@ -26,20 +32,12 @@ impl Default for SystemTimings {
 }
 
 impl SystemTimings {
-    pub fn scope(&self, name: &'static str) -> TimerGuard<'_> {
-        TimerGuard {
-            timings: self,
-            name,
-            start: if self.enabled { Some(std::time::Instant::now()) } else { None },
-        }
-    }
-
     /// Record true frame time from Bevy's Time::delta (captures render + vsync + everything).
     pub fn record_frame_delta(&self, dt_secs: f32) {
         if self.enabled {
             let ms = dt_secs * 1000.0;
             if let Ok(mut fm) = self.frame_ms.lock() {
-                *fm = *fm * 0.95 + ms * 0.05;
+                *fm = *fm * (1.0 - EMA_ALPHA) + ms * EMA_ALPHA;
             }
         }
     }
@@ -49,7 +47,16 @@ impl SystemTimings {
     pub fn record(&self, name: &'static str, ms: f32) {
         if let Ok(mut data) = self.data.lock() {
             let entry = data.entry(name).or_insert(0.0);
-            *entry = *entry * 0.95 + ms * 0.05;
+            *entry = *entry * (1.0 - EMA_ALPHA) + ms * EMA_ALPHA;
+        }
+    }
+
+    /// Record a tracing-captured timing (from Bevy auto-spans).
+    pub fn record_traced(&self, name: &str, ms: f32) {
+        if let Ok(mut traced) = self.traced.lock() {
+            let entry = traced.entry(name.to_string()).or_insert(0.0);
+            // Already EMA-smoothed by the tracing layer; just copy the latest value.
+            *entry = ms;
         }
     }
 
@@ -57,29 +64,14 @@ impl SystemTimings {
         self.data.lock().map(|d| d.clone()).unwrap_or_default()
     }
 
+    pub fn get_traced_timings(&self) -> HashMap<String, f32> {
+        self.traced.lock().map(|d| d.clone()).unwrap_or_default()
+    }
+
     pub fn get_frame_ms(&self) -> f32 {
         self.frame_ms.lock().map(|f| *f).unwrap_or(0.0)
     }
 }
-
-pub struct TimerGuard<'a> {
-    timings: &'a SystemTimings,
-    name: &'static str,
-    start: Option<std::time::Instant>,
-}
-
-impl Drop for TimerGuard<'_> {
-    fn drop(&mut self) {
-        if let Some(start) = self.start {
-            let ms = start.elapsed().as_secs_f64() as f32 * 1000.0;
-            if let Ok(mut data) = self.timings.data.lock() {
-                let entry = data.entry(self.name).or_insert(0.0);
-                *entry = *entry * 0.95 + ms * 0.05;
-            }
-        }
-    }
-}
-
 
 /// Delta time for the current frame (seconds).
 #[derive(Resource, Default)]
