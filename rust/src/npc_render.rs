@@ -874,13 +874,118 @@ fn extract_selection_overlay(
 /// Upload NPC compute + visual data directly to GPU buffers during Extract phase.
 // --- Shared dirty-write helpers (used by both NPC and projectile extract) ---
 
+// Coalescing gap thresholds (slots). Derived from: per_call_overhead / (stride * 4 bytes).
+// Tuned for DX12 backend (~3μs per write_buffer call). Adjust if profiling shows different overhead.
+const GAP_STRIDE_1: usize = 750;   // speeds, factions, healths, flags, arrivals
+const GAP_STRIDE_2: usize = 375;   // positions, targets, half_sizes
+const GAP_VISUAL: usize = 93;      // visual_data (stride 8)
+const GAP_EQUIP: usize = 31;       // equip_data (stride 24)
+
 /// Bulk-write the first `count` elements of `data` to `buf` in a single write_buffer call.
-/// Replaces per-index write_dirty_* for NPCs (thousands of staging buffer allocations → 1).
 fn write_bulk<T: bytemuck::NoUninit>(queue: &RenderQueue, buf: &Buffer, data: &[T], count: usize) {
     let count = count.min(data.len());
     if count > 0 {
         queue.write_buffer(buf, 0, bytemuck::cast_slice(&data[..count]));
     }
+}
+
+/// Coalesce pre-sorted dirty indices into contiguous ranges, one write_buffer per range.
+/// Falls back to offset bulk write when dirty coverage > 40% of the dirty window.
+fn write_coalesced_f32(queue: &RenderQueue, buf: &Buffer, data: &[f32], dirty: &[usize], stride: usize, gap: usize) {
+    if dirty.is_empty() { return; }
+    let first = dirty[0];
+    let last = dirty[dirty.len() - 1];
+    let window = last - first + 1;
+    if dirty.len() > window * 2 / 5 {
+        let start = first * stride;
+        let end = ((last + 1) * stride).min(data.len());
+        if start < end {
+            queue.write_buffer(buf, (start * 4) as u64, bytemuck::cast_slice(&data[start..end]));
+        }
+        return;
+    }
+    let mut range_start = first;
+    let mut range_end = first;
+    for &idx in &dirty[1..] {
+        if idx <= range_end.saturating_add(gap + 1) {
+            range_end = idx;
+        } else {
+            flush_range_f32(queue, buf, data, range_start, range_end, stride);
+            range_start = idx;
+            range_end = idx;
+        }
+    }
+    flush_range_f32(queue, buf, data, range_start, range_end, stride);
+}
+
+fn flush_range_f32(queue: &RenderQueue, buf: &Buffer, data: &[f32], start_idx: usize, end_idx: usize, stride: usize) {
+    let start = start_idx * stride;
+    let end = (end_idx + 1) * stride;
+    debug_assert!(end <= data.len(), "coalesced range overflows: {}..{} len={}", start, end, data.len());
+    if end > data.len() { return; }
+    queue.write_buffer(buf, (start * 4) as u64, bytemuck::cast_slice(&data[start..end]));
+}
+
+fn write_coalesced_i32(queue: &RenderQueue, buf: &Buffer, data: &[i32], dirty: &[usize], stride: usize, gap: usize) {
+    if dirty.is_empty() { return; }
+    let first = dirty[0];
+    let last = dirty[dirty.len() - 1];
+    let window = last - first + 1;
+    if dirty.len() > window * 2 / 5 {
+        let start = first * stride;
+        let end = ((last + 1) * stride).min(data.len());
+        if start < end {
+            queue.write_buffer(buf, (start * 4) as u64, bytemuck::cast_slice(&data[start..end]));
+        }
+        return;
+    }
+    let mut range_start = first;
+    let mut range_end = first;
+    for &idx in &dirty[1..] {
+        if idx <= range_end.saturating_add(gap + 1) {
+            range_end = idx;
+        } else {
+            let s = range_start * stride;
+            let e = ((range_end + 1) * stride).min(data.len());
+            if s < e { queue.write_buffer(buf, (s * 4) as u64, bytemuck::cast_slice(&data[s..e])); }
+            range_start = idx;
+            range_end = idx;
+        }
+    }
+    let s = range_start * stride;
+    let e = ((range_end + 1) * stride).min(data.len());
+    if s < e { queue.write_buffer(buf, (s * 4) as u64, bytemuck::cast_slice(&data[s..e])); }
+}
+
+fn write_coalesced_u32(queue: &RenderQueue, buf: &Buffer, data: &[u32], dirty: &[usize], stride: usize, gap: usize) {
+    if dirty.is_empty() { return; }
+    let first = dirty[0];
+    let last = dirty[dirty.len() - 1];
+    let window = last - first + 1;
+    if dirty.len() > window * 2 / 5 {
+        let start = first * stride;
+        let end = ((last + 1) * stride).min(data.len());
+        if start < end {
+            queue.write_buffer(buf, (start * 4) as u64, bytemuck::cast_slice(&data[start..end]));
+        }
+        return;
+    }
+    let mut range_start = first;
+    let mut range_end = first;
+    for &idx in &dirty[1..] {
+        if idx <= range_end.saturating_add(gap + 1) {
+            range_end = idx;
+        } else {
+            let s = range_start * stride;
+            let e = ((range_end + 1) * stride).min(data.len());
+            if s < e { queue.write_buffer(buf, (s * 4) as u64, bytemuck::cast_slice(&data[s..e])); }
+            range_start = idx;
+            range_end = idx;
+        }
+    }
+    let s = range_start * stride;
+    let e = ((range_end + 1) * stride).min(data.len());
+    if s < e { queue.write_buffer(buf, (s * 4) as u64, bytemuck::cast_slice(&data[s..e])); }
 }
 
 /// Per-index write for small dirty sets (projectile spawn/deactivate — typically <100 per frame).
@@ -894,15 +999,6 @@ fn write_dirty_f32(queue: &RenderQueue, buf: &Buffer, data: &[f32], indices: &[u
 }
 
 fn write_dirty_i32(queue: &RenderQueue, buf: &Buffer, data: &[i32], indices: &[usize], stride: usize) {
-    for &idx in indices {
-        let start = idx * stride;
-        if start + stride <= data.len() {
-            queue.write_buffer(buf, (start * 4) as u64, bytemuck::cast_slice(&data[start..start + stride]));
-        }
-    }
-}
-
-fn write_dirty_u32(queue: &RenderQueue, buf: &Buffer, data: &[u32], indices: &[usize], stride: usize) {
     for &idx in indices {
         let start = idx * stride;
         if start + stride <= data.len() {
@@ -926,58 +1022,42 @@ fn extract_npc_data(
     let profiling = RENDER_PROFILING.load(Ordering::Relaxed);
     let start = if profiling { Some(std::time::Instant::now()) } else { None };
 
-    // Compute data: all per-index dirty writes (O(changed) not O(total))
+    // Compute data: coalesced dirty writes (sort+dedup done in populate_gpu_state)
     if let Some(gpu_bufs) = gpu_buffers {
         let n = config.npc.count as usize;
-        if gpu_state.dirty_positions { write_dirty_f32(&render_queue, &gpu_bufs.positions, &gpu_state.positions, &gpu_state.position_dirty_indices, 2); }
-        if gpu_state.dirty_arrivals  { write_dirty_i32(&render_queue, &gpu_bufs.arrivals, &gpu_state.arrivals, &gpu_state.arrival_dirty_indices, 1); }
+        write_coalesced_f32(&render_queue, &gpu_bufs.positions, &gpu_state.positions, &gpu_state.position_dirty_indices, 2, GAP_STRIDE_2);
+        write_coalesced_i32(&render_queue, &gpu_bufs.arrivals, &gpu_state.arrivals, &gpu_state.arrival_dirty_indices, 1, GAP_STRIDE_1);
         if gpu_state.dirty_targets {
-            // Full upload on first frame or buffer size change; per-index dirty writes otherwise
             if *prev_target_size != n {
                 write_bulk(&render_queue, &gpu_bufs.targets, &gpu_state.targets, n * 2);
                 *prev_target_size = n;
             } else {
-                let mut indices = gpu_state.target_dirty_indices.clone();
-                indices.sort_unstable();
-                indices.dedup();
-                write_dirty_f32(&render_queue, &gpu_bufs.targets, &gpu_state.targets, &indices, 2);
+                write_coalesced_f32(&render_queue, &gpu_bufs.targets, &gpu_state.targets, &gpu_state.target_dirty_indices, 2, GAP_STRIDE_2);
             }
         }
-        if !gpu_state.speed_dirty_indices.is_empty()     { write_dirty_f32(&render_queue, &gpu_bufs.speeds, &gpu_state.speeds, &gpu_state.speed_dirty_indices, 1); }
-        if !gpu_state.faction_dirty_indices.is_empty()    { write_dirty_i32(&render_queue, &gpu_bufs.factions, &gpu_state.factions, &gpu_state.faction_dirty_indices, 1); }
-        if !gpu_state.health_dirty_indices.is_empty()     { write_dirty_f32(&render_queue, &gpu_bufs.healths, &gpu_state.healths, &gpu_state.health_dirty_indices, 1); }
-        if !gpu_state.flags_dirty_indices.is_empty()      { write_dirty_u32(&render_queue, &gpu_bufs.entity_flags, &gpu_state.entity_flags, &gpu_state.flags_dirty_indices, 1); }
-        if !gpu_state.half_size_dirty_indices.is_empty()  { write_dirty_f32(&render_queue, &gpu_bufs.half_sizes, &gpu_state.half_sizes, &gpu_state.half_size_dirty_indices, 2); }
+        write_coalesced_f32(&render_queue, &gpu_bufs.speeds, &gpu_state.speeds, &gpu_state.speed_dirty_indices, 1, GAP_STRIDE_1);
+        write_coalesced_i32(&render_queue, &gpu_bufs.factions, &gpu_state.factions, &gpu_state.faction_dirty_indices, 1, GAP_STRIDE_1);
+        write_coalesced_f32(&render_queue, &gpu_bufs.healths, &gpu_state.healths, &gpu_state.health_dirty_indices, 1, GAP_STRIDE_1);
+        write_coalesced_u32(&render_queue, &gpu_bufs.entity_flags, &gpu_state.entity_flags, &gpu_state.flags_dirty_indices, 1, GAP_STRIDE_1);
+        write_coalesced_f32(&render_queue, &gpu_bufs.half_sizes, &gpu_state.half_sizes, &gpu_state.half_size_dirty_indices, 2, GAP_STRIDE_2);
         // Road flags: upload when present (rebuilt when roads change)
         if !config.tile_flags.is_empty() {
             render_queue.write_buffer(&gpu_bufs.tile_flags, 0, bytemuck::cast_slice(&config.tile_flags));
         }
     }
 
-    // Visual data: per-dirty-index upload (saves ~2.56MB/frame vs bulk)
+    // Visual data: skip when clean, coalesce when dirty
     if let Some(vis_bufs) = visual_buffers {
         if visual_upload.visual_full_upload {
-            // Full upload on startup/load/reset
             if visual_upload.entity_count > 0 {
                 render_queue.write_buffer(&vis_bufs.visual, 0, bytemuck::cast_slice(&visual_upload.visual_data));
                 render_queue.write_buffer(&vis_bufs.equip, 0, bytemuck::cast_slice(&visual_upload.equip_data));
             }
-        } else {
-            // Per-index writes for only changed slots
-            for &idx in &visual_upload.visual_uploaded_indices {
-                let vis_start = idx * 8;
-                let vis_end = vis_start + 8;
-                if vis_end <= visual_upload.visual_data.len() {
-                    let offset = (vis_start * 4) as u64;
-                    render_queue.write_buffer(&vis_bufs.visual, offset, bytemuck::cast_slice(&visual_upload.visual_data[vis_start..vis_end]));
-                }
-                let eq_start = idx * 24;
-                let eq_end = eq_start + 24;
-                if eq_end <= visual_upload.equip_data.len() {
-                    let offset = (eq_start * 4) as u64;
-                    render_queue.write_buffer(&vis_bufs.equip, offset, bytemuck::cast_slice(&visual_upload.equip_data[eq_start..eq_end]));
-                }
-            }
+        } else if !visual_upload.visual_uploaded_indices.is_empty() {
+            write_coalesced_f32(&render_queue, &vis_bufs.visual, &visual_upload.visual_data,
+                &visual_upload.visual_uploaded_indices, 8, GAP_VISUAL);
+            write_coalesced_f32(&render_queue, &vis_bufs.equip, &visual_upload.equip_data,
+                &visual_upload.visual_uploaded_indices, 24, GAP_EQUIP);
         }
     }
 

@@ -27,6 +27,20 @@ pub struct ProfilerParams<'w> {
     target_thrash: Res<'w, NpcTargetThrashDebug>,
 }
 
+#[derive(Default)]
+pub struct ProfilerCache {
+    frame_counter: u32,
+    frame_ms: f32,
+    game_entries: Vec<(String, f32)>,
+    engine_entries: Vec<(String, f32)>,
+    game_sum: f32,
+    engine_sum: f32,
+    render_entries: Vec<(String, f32)>,
+    top_flips: Vec<(usize, u16, u16, u16, u16, String)>,
+    total_changes: u32,
+    sink_window_key: i64,
+}
+
 // ============================================================================
 // ROSTER TYPES
 // ============================================================================
@@ -203,6 +217,7 @@ pub fn left_panel_system(
     mut settings: ResMut<UserSettings>,
     catalog: Res<HelpCatalog>,
     mut prev_tab: Local<LeftPanelTab>,
+    mut profiler_cache: Local<ProfilerCache>,
     mut dirty_writers: crate::messages::DirtyWriters,
 ) -> Result {
     if !ui_state.left_panel_open {
@@ -268,7 +283,7 @@ pub fn left_panel_system(
                 LeftPanelTab::Patrols => { patrol_swap = patrols_content(ui, &world_data, &factions.entity_map, &mut jump_target); },
                 LeftPanelTab::Squads => squads_content(ui, &mut squad, &roster.meta_cache, &world_data, &mut dirty_writers),
                 LeftPanelTab::Factions => factions_content(ui, &factions, &squad.squad_state, &world_data, &policies, &profiler.mining_policy, &mut factions_cache, &mut jump_target, &mut ui_state, &mut copy_text, requested_faction),
-                LeftPanelTab::Profiler => profiler_content(ui, &profiler.timings, &profiler.target_thrash, &mut profiler.migration, &mut settings),
+                LeftPanelTab::Profiler => profiler_content(ui, &profiler.timings, &profiler.target_thrash, &mut profiler.migration, &mut settings, &mut profiler_cache),
                 LeftPanelTab::Help => help_content(ui),
             }
         });
@@ -2002,12 +2017,47 @@ fn profiler_content(
     target_thrash: &NpcTargetThrashDebug,
     migration: &mut MigrationState,
     user_settings: &mut UserSettings,
+    cache: &mut ProfilerCache,
 ) {
-    let frame_ms = timings.get_frame_ms();
-    ui.label(egui::RichText::new(format!("Frame: {:.2} ms", frame_ms)).strong());
+    // Refresh cached data every 15 frames
+    cache.frame_counter += 1;
+    if cache.frame_counter % 15 == 1 || cache.game_entries.is_empty() {
+        cache.frame_ms = timings.get_frame_ms();
+
+        let traced = timings.get_traced_timings();
+        cache.game_entries.clear();
+        cache.engine_entries.clear();
+        for (name, &ms) in &traced {
+            if name.starts_with("endless::") {
+                cache.game_entries.push((name.clone(), ms));
+            } else {
+                cache.engine_entries.push((name.clone(), ms));
+            }
+        }
+        cache.game_entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        cache.engine_entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        cache.game_sum = cache.game_entries.iter().map(|(_, ms)| ms).sum();
+        cache.engine_sum = cache.engine_entries.iter().map(|(_, ms)| ms).sum();
+        cache.game_entries.truncate(10);
+        cache.engine_entries.truncate(10);
+
+        let render_timings = timings.get_timings();
+        cache.render_entries.clear();
+        cache.render_entries.extend(render_timings.iter().map(|(&n, &v)| (n.to_string(), v)));
+        cache.render_entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let flips = target_thrash.top_offenders(8);
+        cache.total_changes = flips.iter().map(|(_, c, _, _, _, _)| *c as u32).sum();
+        cache.sink_window_key = target_thrash.sink_window_key;
+        cache.top_flips = flips.into_iter()
+            .map(|(idx, c, pp, rf, w, r)| (idx, c, pp, rf, w, r.to_string()))
+            .collect();
+    }
+
+    ui.label(egui::RichText::new(format!("Frame: {:.2} ms", cache.frame_ms)).strong());
     ui.separator();
 
-    // Debug actions
+    // Debug actions (not cached — cheap interactive widgets)
     egui::CollapsingHeader::new(egui::RichText::new("Debug Actions").strong())
         .default_open(false)
         .show(ui, |ui| {
@@ -2029,24 +2079,22 @@ fn profiler_content(
         });
     ui.separator();
 
-    let top_flips = target_thrash.top_offenders(8);
-    let total_changes: u32 = top_flips.iter().map(|(_, changes, _, _, _, _)| *changes as u32).sum();
     egui::CollapsingHeader::new(egui::RichText::new("NPC Target Thrash (sink, 1s window)").strong())
         .default_open(true)
         .show(ui, |ui| {
-            ui.label(format!("Window key: {}", target_thrash.sink_window_key));
-            ui.label(format!("Top-8 sink target-change sum: {}", total_changes));
-            if top_flips.is_empty() {
+            ui.label(format!("Window key: {}", cache.sink_window_key));
+            ui.label(format!("Top-8 sink target-change sum: {}", cache.total_changes));
+            if cache.top_flips.is_empty() {
                 ui.label("No target changes yet.");
             } else {
                 if ui.button("Copy Thrash Top 8").clicked() {
-                    let body = top_flips.iter()
+                    let body = cache.top_flips.iter()
                         .map(|(idx, changes, ping_pong, reason_flips, writes, reason)| {
                             format!("#{idx}: sink_target_changes={changes} sink_ping_pong={ping_pong} reason_flips={reason_flips} sink_writes={writes} last={reason}")
                         })
                         .collect::<Vec<_>>()
                         .join("\n");
-                    ui.ctx().copy_text(format!("Window key: {}\n{}", target_thrash.sink_window_key, body));
+                    ui.ctx().copy_text(format!("Window key: {}\n{}", cache.sink_window_key, body));
                 }
                 egui::Grid::new("target_thrash_grid").num_columns(6).striped(true).show(ui, |ui| {
                     ui.label(egui::RichText::new("npc").strong());
@@ -2056,13 +2104,13 @@ fn profiler_content(
                     ui.label(egui::RichText::new("writes").strong());
                     ui.label(egui::RichText::new("last reason").strong());
                     ui.end_row();
-                    for (idx, changes, ping_pong, reason_flips, writes, reason) in &top_flips {
+                    for (idx, changes, ping_pong, reason_flips, writes, reason) in &cache.top_flips {
                         ui.label(format!("#{idx}"));
                         ui.label(format!("{changes}"));
                         ui.label(format!("{ping_pong}"));
                         ui.label(format!("{reason_flips}"));
                         ui.label(format!("{writes}"));
-                        ui.label(*reason);
+                        ui.label(reason.as_str());
                         ui.end_row();
                     }
                 });
@@ -2070,47 +2118,31 @@ fn profiler_content(
         });
     ui.separator();
 
-    // Auto-captured tracing timings — split into game vs engine
-    let traced = timings.get_traced_timings();
-    if traced.is_empty() {
+    if cache.game_entries.is_empty() && cache.engine_entries.is_empty() {
         ui.label("Enable profiler in pause menu settings");
         return;
     }
 
-    let mut game_entries: Vec<(&str, f32)> = Vec::new();
-    let mut engine_entries: Vec<(&str, f32)> = Vec::new();
-    for (name, &ms) in &traced {
-        if name.starts_with("endless::") {
-            game_entries.push((name.as_str(), ms));
-        } else {
-            engine_entries.push((name.as_str(), ms));
-        }
-    }
-    game_entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    engine_entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    let game_sum: f32 = game_entries.iter().map(|(_, ms)| ms).sum();
-    let engine_sum: f32 = engine_entries.iter().map(|(_, ms)| ms).sum();
-
     ui.label(egui::RichText::new("(cpu sums include parallel overlap)").weak().small());
 
     if ui.button("Copy Top 10").clicked() {
-        let top_game: String = game_entries.iter().take(10)
+        let top_game: String = cache.game_entries.iter()
             .map(|(name, ms)| format!("{}: {:.3} ms", name, ms))
             .collect::<Vec<_>>()
             .join("\n");
-        let top_engine: String = engine_entries.iter().take(10)
+        let top_engine: String = cache.engine_entries.iter()
             .map(|(name, ms)| format!("{}: {:.3} ms", name, ms))
             .collect::<Vec<_>>()
             .join("\n");
         ui.ctx().copy_text(format!(
             "Frame: {:.2} ms\n\nGame Systems (cpu sum: {:.2} ms)\n{}\n\nEngine Systems (cpu sum: {:.2} ms)\n{}",
-            frame_ms, game_sum, top_game, engine_sum, top_engine
+            cache.frame_ms, cache.game_sum, top_game, cache.engine_sum, top_engine
         ));
     }
     ui.separator();
 
-    // Game systems
-    egui::CollapsingHeader::new(format!("Game Systems ({:.2} ms)", game_sum))
+    // Game systems (top 10, pre-sorted)
+    egui::CollapsingHeader::new(format!("Game Systems ({:.2} ms)", cache.game_sum))
         .id_salt("prof_game")
         .default_open(true)
         .show(ui, |ui| {
@@ -2118,8 +2150,8 @@ fn profiler_content(
                 ui.label(egui::RichText::new("system").strong());
                 ui.label(egui::RichText::new("ms").strong());
                 ui.end_row();
-                for (name, ms) in &game_entries {
-                    ui.label(*name);
+                for (name, ms) in &cache.game_entries {
+                    ui.label(name.as_str());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(egui::RichText::new(format!("{:.3}", ms)).monospace());
                     });
@@ -2128,8 +2160,8 @@ fn profiler_content(
             });
         });
 
-    // Engine systems
-    egui::CollapsingHeader::new(format!("Engine Systems ({:.2} ms)", engine_sum))
+    // Engine systems (top 10, pre-sorted)
+    egui::CollapsingHeader::new(format!("Engine Systems ({:.2} ms)", cache.engine_sum))
         .id_salt("prof_engine")
         .default_open(false)
         .show(ui, |ui| {
@@ -2137,8 +2169,8 @@ fn profiler_content(
                 ui.label(egui::RichText::new("system").strong());
                 ui.label(egui::RichText::new("ms").strong());
                 ui.end_row();
-                for (name, ms) in &engine_entries {
-                    ui.label(*name);
+                for (name, ms) in &cache.engine_entries {
+                    ui.label(name.as_str());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(egui::RichText::new(format!("{:.3}", ms)).monospace());
                     });
@@ -2148,11 +2180,8 @@ fn profiler_content(
         });
     ui.separator();
 
-    // Render pipeline timings (render-world, captured via atomics)
-    let render_timings = timings.get_timings();
-    if !render_timings.is_empty() {
-        let mut render_entries: Vec<(&str, f32)> = render_timings.iter().map(|(&n, &v)| (n, v)).collect();
-        render_entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    // Render pipeline timings
+    if !cache.render_entries.is_empty() {
         egui::CollapsingHeader::new(egui::RichText::new("Render Pipeline").strong())
             .id_salt("prof_render")
             .default_open(false)
@@ -2161,8 +2190,8 @@ fn profiler_content(
                     ui.label(egui::RichText::new("stage").strong());
                     ui.label(egui::RichText::new("ms").strong());
                     ui.end_row();
-                    for (name, ms) in &render_entries {
-                        ui.label(*name);
+                    for (name, ms) in &cache.render_entries {
+                        ui.label(name.as_str());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.label(egui::RichText::new(format!("{:.3}", ms)).monospace());
                         });

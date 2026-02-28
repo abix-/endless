@@ -13,7 +13,7 @@ Main World (ECS)                       Render World (GPU)
 ├─ RenderFrameConfig ───────────────▶ ExtractResource (bundles EntityGpuData + ProjGpuData + NpcSpriteTexture + ReadbackHandles + tile_flags)
 │
 │  Extract<Res<T>> (zero-clone immutable reads):
-├─ EntityGpuState ───────────────────▶ extract_npc_data (per-buffer dirty flags → GPU writes, unified NPC+building state)
+├─ EntityGpuState ───────────────────▶ extract_npc_data (pre-sorted dirty indices → coalesced GPU writes, unified NPC+building state)
 ├─ NpcVisualUpload ──────────────────▶ extract_npc_data (visual + equip arrays → GPU writes)
 ├─ ProjBufferWrites ─────────────────▶ extract_proj_data (per-dirty-index compute writes)
 ├─ ProjPositionState ────────────────▶ extract_proj_data (projectile instance buffer)
@@ -27,8 +27,8 @@ Main World (ECS)                       Render World (GPU)
 │                                      │   └─ Create GPU buffers (no staging — Bevy Readback handles it)
 │                                      │
 │                                      ├─ extract_npc_data (ExtractSchedule)
-│                                      │   ├─ All compute buffers: per-dirty-index write_buffer (O(changed) not O(total))
-│                                      │   └─ Visual + equip arrays: per-dirty-index write_buffer (full upload on startup/load only)
+│                                      │   ├─ All compute buffers: coalesced range writes from pre-sorted dirty indices (40% window fallback)
+│                                      │   └─ Visual + equip arrays: coalesced range writes (full upload on startup/load only)
 │                                      │
 │                                      ├─ prepare_npc_bind_groups (PrepareBindGroups)
 │                                      │   └─ 3 bind groups (one per mode, different uniform)
@@ -78,11 +78,13 @@ ECS → GPU (upload):
     resize(..., -1.0) initializes new capacity tail.
 
   extract_npc_data (ExtractSchedule, zero-clone):
-    Extract<Res<EntityGpuState>> → per-dirty-index writes to EntityGpuBuffers [0..entity_count]:
-      All buffers use per-index dirty tracking (positions/arrivals/targets/speeds/factions/healths/flags/half_sizes)
-      Targets: per-dirty-index write_dirty_f32 (deduped) with full-upload fallback on first frame or buffer resize
+    Extract<Res<EntityGpuState>> → coalesced range writes to EntityGpuBuffers [0..entity_count]:
+      Dirty indices pre-sorted+deduped in populate_gpu_state; write_coalesced_f32/i32/u32 merges nearby indices
+      into contiguous ranges (one write_buffer per range). Falls back to window bulk write when >40% coverage.
+      Gap thresholds tuned per stride: GAP_STRIDE_1=750 (1-wide), GAP_STRIDE_2=375 (2-wide), GAP_VISUAL=93, GAP_EQUIP=31
+      Targets: coalesced with full-upload fallback on first frame or buffer resize
       Buildings and NPCs share the same slot namespace — no offset arithmetic
-    Extract<Res<NpcVisualUpload>> → per-dirty-index write_buffer to NpcVisualBuffers
+    Extract<Res<NpcVisualUpload>> → coalesced range writes to NpcVisualBuffers
       visual_uploaded_indices tracks which slots changed; full upload only on startup/load (visual_full_upload flag)
 
 GPU → ECS (readback, Bevy async Readback):
@@ -108,7 +110,7 @@ GPU → Render:
     → DrawMiscCommands: farms/BHP via InstanceData
 ```
 
-Note: `sprite_indices` and `flash_values` live in `EntityGpuState`. Colors and equipment are derived from ECS components by `build_visual_upload`, which packs them into persistent `NpcVisualUpload` buffers (visual_data + equip_data). Only dirty slots are updated each frame via `visual_dirty_indices` (event-driven by `GpuUpdate::MarkVisualDirty`, `SetSpriteFrame`, `SetDamageFlash`, `Hide`, and flash decay). Full rebuild triggers on startup/load via `visual_full_rebuild` flag. `build_visual_upload` populates `visual_uploaded_indices` (deduped list of changed slots including hidden) for the extract phase. These are uploaded to NPC visual/equipment storage buffers (`NpcVisualBuffers`) for the render shader — not to compute shader buffers. `extract_npc_data` uploads only the dirty slots per frame (per-index `write_buffer` with byte offsets), falling back to full upload only when `visual_full_upload` is true. Positions and health for rendering come directly from compute output (`NpcGpuBuffers.positions`, `.healths`) via storage buffer binding, not via readback. `EntityGpuState` and `NpcVisualUpload` are read during Extract via `Extract<Res<T>>` — zero-clone immutable access, no ExtractResourcePlugin.
+Note: `sprite_indices` and `flash_values` live in `EntityGpuState`. Colors and equipment are derived from ECS components by `build_visual_upload`, which packs them into persistent `NpcVisualUpload` buffers (visual_data + equip_data). Only dirty slots are updated each frame via `visual_dirty_indices` (event-driven by `GpuUpdate::MarkVisualDirty`, `SetSpriteFrame`, `SetDamageFlash`, `Hide`, and flash decay). Full rebuild triggers on startup/load via `visual_full_rebuild` flag. `build_visual_upload` populates `visual_uploaded_indices` (deduped list of changed slots including hidden) for the extract phase. These are uploaded to NPC visual/equipment storage buffers (`NpcVisualBuffers`) for the render shader — not to compute shader buffers. `extract_npc_data` uploads only the dirty slots per frame (coalesced range `write_buffer` calls merging nearby dirty indices), falling back to full upload only when `visual_full_upload` is true. Positions and health for rendering come directly from compute output (`NpcGpuBuffers.positions`, `.healths`) via storage buffer binding, not via readback. `EntityGpuState` and `NpcVisualUpload` are read during Extract via `Extract<Res<T>>` — zero-clone immutable access, no ExtractResourcePlugin.
 
 ## NPC Compute Shader (npc_compute.wgsl)
 

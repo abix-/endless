@@ -11,7 +11,7 @@ game_time_system (every frame)
     │
     ▼ sets hour_ticked = true when hour changes
     │
-    ├─ farm_growth_system (every frame, uses game-time delta, filtered to Farm+Mine via by_kind index)
+    ├─ farm_growth_system (every frame, uses game-time delta, iter_instances_mut with Farm/GoldMine match)
     │   └─ BuildingInstance: Growing → Ready when progress >= 1.0
     │
     ├─ raider_forage_system (hourly)
@@ -53,7 +53,7 @@ game_time_system (every frame)
 
 ### growth_system (unified farms + mines)
 - Runs every frame, advances growth based on elapsed game time
-- Iterates only Farm and GoldMine buildings via `EntityMap.kind_slots()` (by_kind index) — skips all other building types
+- Iterates all building instances via `iter_instances_mut()`, matches on `BuildingKind::Farm` and `BuildingKind::GoldMine`
 - Skips tombstoned entries (`position.x < -9000`) — destroyed farms/mines don't regrow
 - **BuildingInstance fields**: `growth_ready: bool` (false = growing, true = ready to harvest) and `growth_progress: f32` (0.0-1.0) on each Farm/Mine instance in `EntityMap`
 - **Hybrid growth model**:
@@ -61,7 +61,7 @@ game_time_system (every frame)
   - Tended: `FARM_TENDED_GROWTH_RATE` (0.25/hour) — ~4 game hours with farmer working
 - Farm transitions to `Ready` when progress >= 1.0
 - Checks `inst.occupants >= 1` (slot-indexed on `BuildingInstance`) to determine if a farmer is tending
-- **FarmYield upgrade**: growth rate multiplied by `1.0 + level * 0.15` per-town (reads `TownUpgrades` via `inst.town_idx`)
+- **FarmYield upgrade**: growth rate multiplied by `1.0 + level * 0.15` per-town (precomputed per-town `farm_mults` Vec, indexed by `inst.town_idx`)
 
 ### raider_forage_system
 - Runs when `game_time.hour_ticked` is true

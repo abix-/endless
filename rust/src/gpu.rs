@@ -146,11 +146,8 @@ pub struct EntityGpuState {
     pub half_sizes: Vec<f32>,
     // --- Per-index dirty tracking (all buffers) ---
     // Each Vec tracks which slot indices changed this frame.
-    // Positions/arrivals/targets were already per-index; speeds/factions/healths/flags/half_sizes
-    // converted from bulk bools to per-index for O(changed) GPU uploads instead of O(total).
-    pub dirty_positions: bool,
+    // Pre-sorted and deduped in populate_gpu_state for coalesced GPU uploads in extract.
     pub dirty_targets: bool,
-    pub dirty_arrivals: bool,
     pub position_dirty_indices: Vec<usize>,
     pub arrival_dirty_indices: Vec<usize>,
     pub target_dirty_indices: Vec<usize>,
@@ -200,9 +197,7 @@ impl Default for EntityGpuState {
             flash_values: vec![0.0; max],
             entity_flags: vec![0; max],
             half_sizes: vec![0.0; max * 2],
-            dirty_positions: false,
             dirty_targets: false,
-            dirty_arrivals: false,
             position_dirty_indices: Vec::new(),
             arrival_dirty_indices: Vec::new(),
             target_dirty_indices: Vec::new(),
@@ -228,7 +223,6 @@ impl EntityGpuState {
                 if i + 1 < self.positions.len() {
                     self.positions[i] = *x;
                     self.positions[i + 1] = *y;
-                    self.dirty_positions = true;
                     self.position_dirty_indices.push(*idx);
                 }
             }
@@ -243,7 +237,6 @@ impl EntityGpuState {
                 // Reset arrival flag so GPU resumes movement toward new target
                 if *idx < self.arrivals.len() {
                     self.arrivals[*idx] = 0;
-                    self.dirty_arrivals = true;
                     self.arrival_dirty_indices.push(*idx);
                 }
             }
@@ -276,7 +269,6 @@ impl EntityGpuState {
                 if i + 1 < self.positions.len() {
                     self.positions[i] = -9999.0;
                     self.positions[i + 1] = -9999.0;
-                    self.dirty_positions = true;
                     self.position_dirty_indices.push(*idx);
                 }
                 // Clear sprite/flash state so reused slots don't show ghost visuals
@@ -547,9 +539,7 @@ pub fn populate_gpu_state(
 ) {
     let sink_window_key = real_time.elapsed_secs_f64().floor() as i64;
     // Reset dirty flags and per-index dirty tracking
-    npc_state.dirty_positions = false;
     npc_state.dirty_targets = false;
-    npc_state.dirty_arrivals = false;
     npc_state.position_dirty_indices.clear();
     npc_state.arrival_dirty_indices.clear();
     npc_state.target_dirty_indices.clear();
@@ -580,6 +570,19 @@ pub fn populate_gpu_state(
         }
     }
     npc_state.visual_dirty_indices.extend(flash_dirty);
+
+    // Pre-sort+dedup dirty index Vecs so extract phase receives coalesce-ready data
+    macro_rules! sort_dedup {
+        ($v:expr) => { if $v.len() > 1 { $v.sort_unstable(); $v.dedup(); } };
+    }
+    sort_dedup!(npc_state.position_dirty_indices);
+    sort_dedup!(npc_state.arrival_dirty_indices);
+    sort_dedup!(npc_state.target_dirty_indices);
+    sort_dedup!(npc_state.speed_dirty_indices);
+    sort_dedup!(npc_state.faction_dirty_indices);
+    sort_dedup!(npc_state.health_dirty_indices);
+    sort_dedup!(npc_state.flags_dirty_indices);
+    sort_dedup!(npc_state.half_size_dirty_indices);
 }
 
 // =============================================================================

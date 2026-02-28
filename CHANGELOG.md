@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-28l
+
+- **coalesced GPU uploads** — replaced per-index `write_buffer` calls with `write_coalesced_f32/i32/u32` that merge pre-sorted dirty indices into contiguous ranges (one `write_buffer` per range); falls back to offset bulk write when dirty coverage exceeds 40% of the index window; gap thresholds tuned per stride for DX12 backend (~3μs per call overhead); dirty indices pre-sorted+deduped in `populate_gpu_state` so extract phase receives coalesce-ready data; removed now-redundant `dirty_positions`/`dirty_arrivals` bool flags
+- **growth_system simplification** — reverted from `kind_slots()` two-pass iteration to single `iter_instances_mut()` pass with match on `BuildingKind::Farm`/`GoldMine`; precomputes per-town farm yield multiplier Vec to avoid repeated `town_levels()` + string lookup per farm; removed unused `EntityMap.kind_slots()` method
+- **profiler tab caching** — added `Local<ProfilerCache>` that refreshes every 15 frames (~4 updates/sec at 60 FPS); amortizes 3 mutex locks, 2 HashMap clones, and 200K-element `top_offenders` array scan; renders only top 10 entries per section instead of all ~60 traced systems
+
 ## 2026-02-28k
 
 - **per-dirty-index GPU uploads** — converted all remaining bulk `write_buffer` calls in `extract_npc_data` to per-dirty-index writes; speeds/factions/healths/entity_flags/half_sizes now track changed indices (like positions/arrivals/targets already did), uploading only changed bytes instead of full 80-160KB arrays per buffer

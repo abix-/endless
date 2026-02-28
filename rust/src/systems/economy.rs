@@ -100,40 +100,44 @@ pub fn growth_system(
 
     let hours_elapsed = game_time.delta(&time) / game_time.seconds_per_hour;
 
-    // Iterate only farms and mines (via by_kind index) instead of all 10K buildings
-    let farm_slots = entity_map.kind_slots(BuildingKind::Farm);
-    for slot in farm_slots {
-        let Some(inst) = entity_map.get_instance_mut(slot) else { continue };
-        if inst.position.x < -9000.0 || inst.growth_ready { continue; }
-        let is_tended = inst.occupants >= 1;
-        let base_rate = if is_tended { FARM_TENDED_GROWTH_RATE } else { FARM_BASE_GROWTH_RATE };
-        let town = inst.town_idx as usize;
-        let town_levels = upgrades.town_levels(town);
-        let growth_rate = base_rate * UPGRADES.stat_mult(&town_levels, "Farmer", UpgradeStatKind::Yield);
-        if growth_rate > 0.0 {
-            inst.growth_progress += growth_rate * hours_elapsed;
-            if inst.growth_progress >= 1.0 {
-                inst.growth_ready = true;
-                inst.growth_progress = 1.0;
-            }
-        }
+    // Precompute per-town farm yield multiplier (avoids per-farm Vec clone + string lookup)
+    let max_towns = upgrades.levels.len();
+    let mut farm_mults: Vec<f32> = Vec::with_capacity(max_towns);
+    for t in 0..max_towns {
+        let levels = upgrades.town_levels(t);
+        farm_mults.push(UPGRADES.stat_mult(&levels, "Farmer", UpgradeStatKind::Yield));
     }
-    let mine_slots = entity_map.kind_slots(BuildingKind::GoldMine);
-    for slot in mine_slots {
-        let Some(inst) = entity_map.get_instance_mut(slot) else { continue };
+
+    for inst in entity_map.iter_instances_mut() {
         if inst.position.x < -9000.0 || inst.growth_ready { continue; }
-        let worker_count = inst.occupants as i32;
-        let growth_rate = if worker_count > 0 {
-            crate::constants::MINE_TENDED_GROWTH_RATE * crate::constants::mine_productivity_mult(worker_count)
-        } else {
-            0.0
-        };
-        if growth_rate > 0.0 {
-            inst.growth_progress += growth_rate * hours_elapsed;
-            if inst.growth_progress >= 1.0 {
-                inst.growth_ready = true;
-                inst.growth_progress = 1.0;
+        match inst.kind {
+            BuildingKind::Farm => {
+                let is_tended = inst.occupants >= 1;
+                let base_rate = if is_tended { FARM_TENDED_GROWTH_RATE } else { FARM_BASE_GROWTH_RATE };
+                let mult = farm_mults.get(inst.town_idx as usize).copied().unwrap_or(1.0);
+                let growth_rate = base_rate * mult;
+                if growth_rate > 0.0 {
+                    inst.growth_progress += growth_rate * hours_elapsed;
+                    if inst.growth_progress >= 1.0 {
+                        inst.growth_ready = true;
+                        inst.growth_progress = 1.0;
+                    }
+                }
             }
+            BuildingKind::GoldMine => {
+                let worker_count = inst.occupants as i32;
+                let growth_rate = if worker_count > 0 {
+                    crate::constants::MINE_TENDED_GROWTH_RATE * crate::constants::mine_productivity_mult(worker_count)
+                } else { 0.0 };
+                if growth_rate > 0.0 {
+                    inst.growth_progress += growth_rate * hours_elapsed;
+                    if inst.growth_progress >= 1.0 {
+                        inst.growth_ready = true;
+                        inst.growth_progress = 1.0;
+                    }
+                }
+            }
+            _ => {}
         }
     }
 }
