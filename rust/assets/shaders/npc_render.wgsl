@@ -3,11 +3,15 @@
 //   vertex     — instance buffer (farms, building HP bars, projectiles)
 //   vertex_npc — storage buffer (NPCs + equipment, reads compute shader output directly)
 
+// PowerShell-style mental model:
+// - Vertex stage transforms each input row into clip-space coordinates.
+// - Fragment stage decides color/discard for each pixel of those primitives.
+// - `atlas_id` is a routing key that selects texture/bar/procedural behavior.
 struct VertexInput {
     // Slot 0: Static quad vertex
     @location(0) quad_pos: vec2<f32>,
     @location(1) quad_uv: vec2<f32>,
-    // Slot 1: Per-instance data (step_mode = Instance)
+    // Slot 1: Per-instance payload; one row per sprite instance.
     @location(2) instance_pos: vec2<f32>,
     @location(3) sprite_cell: vec2<f32>,  // col, row in sprite atlas
     @location(4) color: vec4<f32>,
@@ -21,7 +25,7 @@ struct VertexInput {
 struct NpcVertexInput {
     @location(0) quad_pos: vec2<f32>,
     @location(1) quad_uv: vec2<f32>,
-    @builtin(instance_index) instance_index: u32,
+    @builtin(instance_index) instance_index: u32, // Global instance row index.
 };
 
 struct SelectionInput {
@@ -39,7 +43,7 @@ struct VertexOutput {
     @location(0) uv: vec2<f32>,
     @location(1) color: vec4<f32>,
     @location(2) health: f32,
-    @location(3) quad_uv: vec2<f32>,     // raw 0-1 UV within sprite quad
+    @location(3) quad_uv: vec2<f32>,     // Raw 0-1 UV used by bar/procedural logic.
     @location(4) flash: f32,
     @location(5) atlas_id: f32,
 };
@@ -117,6 +121,7 @@ fn is_building_atlas(id: f32) -> bool {
 // =============================================================================
 
 fn calc_uv(sprite_col: f32, sprite_row: f32, atlas_id: f32, quad_uv: vec2<f32>) -> vec2<f32> {
+    // Convert logical sprite coordinates into normalized UV for the selected atlas.
     if is_building_atlas(atlas_id) {
         // Building atlas: vertical strip, sprite_col selects tile layer
         // Inset by half a pixel to avoid sampling at layer boundaries
@@ -147,6 +152,7 @@ fn calc_uv(sprite_col: f32, sprite_row: f32, atlas_id: f32, quad_uv: vec2<f32>) 
 }
 
 fn world_to_clip(world_pos: vec2<f32>) -> vec4<f32> {
+    // Camera transform from world units to clip-space.
     let offset = (world_pos - camera.pos) * camera.zoom;
     let ndc = offset / (camera.viewport * 0.5);
     return vec4<f32>(ndc.x, ndc.y, 0.0, 1.0);
@@ -160,7 +166,7 @@ fn world_to_clip(world_pos: vec2<f32>) -> vec4<f32> {
 fn vertex(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
 
-    // Apply rotation to quad vertices (identity when rotation == 0)
+    // Rotate local quad point then offset by instance world position.
     let c = cos(in.rotation);
     let s = sin(in.rotation);
     let rotated = vec2<f32>(
@@ -188,14 +194,17 @@ fn vertex(in: VertexInput) -> VertexOutput {
 fn vertex_npc(in: NpcVertexInput) -> VertexOutput {
     var out: VertexOutput;
 
+    // Flattened stream mapping:
+    // - slot: entity index
+    // - layer: body/equipment layer for that entity
     let slot = in.instance_index % camera.entity_count;
     let layer = in.instance_index / camera.entity_count;
     let pos = npc_positions[slot];
 
-    // Hidden NPC (tombstoned position)
+    // Tombstoned entity: keep vertex off-screen.
     if pos.x < -9000.0 { out.clip_position = HIDDEN; return out; }
 
-    // Strategic zoom: skip equipment/overlay layers when zoomed out
+    // LOD rule: hide non-body layers when zoomed out.
     if camera.zoom < camera.lod_zoom && layer > 0u { out.clip_position = HIDDEN; return out; }
 
     let vis = npc_visual_buf[slot];
@@ -204,7 +213,7 @@ fn vertex_npc(in: NpcVertexInput) -> VertexOutput {
     var color: vec4<f32>; var scale: f32 = 16.0; var health: f32;
 
     if layer == 0u {
-        // Body layer
+        // Layer 0 is the base body sprite.
         if vis.sprite_col < 0.0 { out.clip_position = HIDDEN; return out; }
         sprite_col = vis.sprite_col;
         sprite_row = vis.sprite_row;
@@ -213,7 +222,7 @@ fn vertex_npc(in: NpcVertexInput) -> VertexOutput {
         color = vec4<f32>(vis.r, vis.g, vis.b, vis.a);
         health = clamp(npc_healths[slot] / 100.0, 0.0, 1.0);
     } else {
-        // Equipment layer (1-6)
+        // Layers 1..6 are equipment/overlay sprites.
         let eq = npc_equip[slot * 6u + (layer - 1u)];
         if eq.col < 0.0 { out.clip_position = HIDDEN; return out; }
         sprite_col = eq.col;
@@ -235,7 +244,7 @@ fn vertex_npc(in: NpcVertexInput) -> VertexOutput {
         }
     }
 
-    // Pass-specific gating (compile-time via shader_defs)
+    // Compile-time pass gates allow one shader source for multiple draw passes.
 #ifdef MODE_BUILDING_BODY
     if layer != 0u || !is_building_atlas(atlas_id) { out.clip_position = HIDDEN; return out; }
 #endif
@@ -246,7 +255,7 @@ fn vertex_npc(in: NpcVertexInput) -> VertexOutput {
     if layer == 0u || is_building_atlas(atlas_id) { out.clip_position = HIDDEN; return out; }
 #endif
 
-    // Buildings: 32x32 scale, suppress NPC HP bar
+    // Building sprites use larger scale and bypass NPC HP bar logic.
     if is_building_atlas(atlas_id) {
         scale = 32.0;
         health = 1.0; // suppress NPC HP bar; BuildingHpRender handles via atlas_id=5
@@ -290,6 +299,8 @@ fn vertex_selection(in: SelectionInput) -> VertexOutput {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Branch order is intentional: special/procedural first, then bars,
+    // then default texture sampling for remaining atlas types.
     // Selection brackets (atlas_id 9): procedural corner brackets from quad_uv
     if in.atlas_id >= 8.5 && in.atlas_id < 9.5 {
         if camera.zoom < camera.lod_zoom { discard; }
@@ -305,7 +316,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(in.color.rgb, in.color.a);
     }
 
-    // Strategic zoom: flat colored rectangles when zoomed out far
+    // Far zoom LOD path: replace textured shading with flat-color silhouettes.
     if camera.zoom < camera.lod_zoom {
         // Buildings: solid faction-colored rectangle
         if is_building_atlas(in.atlas_id) { return vec4<f32>(in.color.rgb, 1.0); }
@@ -317,6 +328,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Building sprite (atlas_id 7) — must come before bar branches to avoid discard
     if is_building_atlas(in.atlas_id) {
+        // Building textured path.
         // Snap V to texel center to prevent cross-layer bleeding after interpolation
         let tex_h = camera.bldg_layers * 32.0;
         let snapped_v = (floor(in.uv.y * tex_h) + 0.5) / tex_h;
@@ -327,6 +339,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Boat sprite (atlas_id 8) — extras atlas, check before mining/HP bar branches
     if in.atlas_id >= 7.5 {
+        // Boat textured path.
         let tex_color = textureSample(extras_texture, extras_sampler, in.uv);
         if tex_color.a < 0.1 { discard; }
         return vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
@@ -334,6 +347,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Mining progress bar (atlas_id 6): gold bar in bottom 15%, discard rest
     if in.atlas_id >= 5.5 {
+        // Mining progress bar-only path.
         if in.quad_uv.y > 0.85 {
             var bar_color = vec4<f32>(0.2, 0.2, 0.2, 1.0);
             if in.quad_uv.x < in.health {
@@ -346,6 +360,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Building HP bar-only mode (atlas_id 5): health bar in bottom 15%, discard rest
     if in.atlas_id >= 4.5 {
+        // Building HP bar-only path.
         if in.quad_uv.y > 0.85 && in.health < 0.99 {
             var bar_color = vec4<f32>(0.2, 0.2, 0.2, 1.0);
             if in.quad_uv.x < in.health {
@@ -364,6 +379,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Extras atlas sprites: heal (2), sleep (3), arrow (4), boat (8)
     if in.atlas_id >= 1.5 {
+        // Generic extras-atlas sprite path.
         let tex_color = textureSample(extras_texture, extras_sampler, in.uv);
         if tex_color.a < 0.1 { discard; }
         return vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
@@ -371,6 +387,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Carried item sprite (atlas_id 1): original colors, no grayscale tint
     if in.atlas_id >= 0.5 && in.health >= 0.99 {
+        // Carried world item path with original texture colors.
         let tex_color = textureSample(world_texture, world_sampler, in.uv);
         if tex_color.a < 0.1 { discard; }
         return vec4<f32>(tex_color.rgb, tex_color.a);
@@ -394,7 +411,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         return bar_color;
     }
 
-    // Sample from the correct atlas
+    // Default textured path for character/world atlases.
     var tex_color: vec4<f32>;
     if in.atlas_id < 0.5 {
         tex_color = textureSample(char_texture, char_sampler, in.uv);
@@ -406,7 +423,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
 
-    // Equipment layers (health >= 1.0): discard bottom pixels to preserve health bar visibility
+    // Keep HP bar visible by masking equipment pixels in bottom strip.
     if in.health >= 0.99 && in.quad_uv.y > 0.85 && in.atlas_id < 0.5 {
         discard;
     }
@@ -414,7 +431,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let brightness = dot(tex_color.rgb, vec3<f32>(0.299, 0.587, 0.114));
     var final_color = vec4<f32>(brightness * in.color.rgb, tex_color.a);
 
-    // Damage flash: white overlay that fades out (character sprites only)
+    // Hit flash overlay for character sprites.
     if in.flash > 0.0 && in.atlas_id < 0.5 {
         final_color = vec4<f32>(mix(final_color.rgb, vec3<f32>(1.0, 1.0, 1.0), in.flash), final_color.a);
     }

@@ -42,7 +42,7 @@ DamageMsg (from process_proj_hits)             GPU movement
       │   ├─ destroy_building (grid clear, wall auto-tile)
       │   ├─ Fountain → deactivate AI, endless respawn queue
       │   ├─ Loot to attacker (LastHitBy → Activity::Returning)
-      │   ├─ Hide + SetHealth(0), EntitySlots.free(idx)
+      │   ├─ Hide + SetHealth(0), GpuSlotPool.free(idx)
       │   └─ remove_by_slot (slot_to_entity + instances + by_kind)
       └─ NPC branch:
           ├─ XP grant (LastHitBy → 100 XP, level-up, stat re-resolve)
@@ -50,7 +50,7 @@ DamageMsg (from process_proj_hits)             GPU movement
           ├─ despawn entity, HideNpc → GPU (-9999)
           ├─ Release NpcWorkState (occupied_slot + work_target)
           ├─ Update FactionStats, KillStats, PopulationStats
-          └─ EntitySlots.free(idx)
+          └─ GpuSlotPool.free(idx)
         │
         ▼
   building_tower_system
@@ -79,13 +79,13 @@ attack_system emits `ProjGpuUpdateMsg` when in range, or applies point-blank dam
 Execution order is **chained** — each system completes before the next starts.
 
 ### 1. cooldown_system (combat.rs)
-- Query-first: `(&EntitySlot, &mut AttackTimer)` with `(Without<Building>, Without<Dead>)` — no EntityMap lookup
+- Query-first: `(&GpuSlot, &mut AttackTimer)` with `(Without<Building>, Without<Dead>)` — no EntityMap lookup
 - Decrements `AttackTimer` by `time.delta_secs()` each frame
 - When timer reaches 0, attack is available
 - Updates `CombatDebug` with sample timer and entity count
 
 ### 2. attack_system (combat.rs)
-- **Query-first iteration**: uses a read-only ECS query `(Entity, &EntitySlot, &Job, &Faction, &CachedStats, &Activity, Option<&SquadId>, Option<&ManualTarget>)` with `Without<Building>, Without<Dead>` for the outer NPC loop. `AttackQueries` SystemParam holds only mutable queries (`&mut CombatState`, `&mut AttackTimer`). `EntityMap` retained for building target resolution.
+- **Query-first iteration**: uses a read-only ECS query `(Entity, &GpuSlot, &Job, &Faction, &CachedStats, &Activity, Option<&SquadId>, Option<&ManualTarget>)` with `Without<Building>, Without<Dead>` for the outer NPC loop. `AttackQueries` SystemParam holds only mutable queries (`&mut CombatState`, `&mut AttackTimer`). `EntityMap` retained for building target resolution.
 - **Manual target override**: if NPC has `ManualTarget::Npc(slot)`, uses that slot as target instead of GPU `combat_targets[i]`. Auto-clears `ManualTarget` when target's GPU health <= 0 (dead). `ManualTarget::Building` and `ManualTarget::Position` variants fall through to GPU auto-targeting. `ManualTarget` is matched by reference (no clone per-NPC per-frame). See [behavior.md](behavior.md#squads) for how `ManualTarget` is set.
 - **Hold fire**: if NPC's squad has `hold_fire == true` and no `ManualTarget`, target is set to -1 (skip auto-engage). Reads `SquadState` via `SquadId`.
 - Falls back to `GpuReadState.combat_targets` for NPCs without manual target or hold-fire.
@@ -140,7 +140,7 @@ For each dead entity:
 - Emits `mark_building_changed(kind)` dirty signals
 - **Fountain death**: deactivates AI player for that town. In endless mode, queues replacement AI (`PendingAiSpawn`) scaled to player strength.
 - **Building loot**: `BuildingDef::loot_drop()` returns `cost / 2` as food. Uses `LastHitBy` to find attacker, looks up attacker entity via `params.p1()`. Attacker set to `Activity::Returning { loot }`, targets home. DC keep-fighting override skips disengage + home target when `dc_no_return`.
-- `remove_by_slot(idx)` (clears `entities` + `instances` + `by_kind`), `Hide + SetHealth(0)`, `EntitySlots.free(idx)`
+- `remove_by_slot(idx)` (clears `entities` + `instances` + `by_kind`), `Hide + SetHealth(0)`, `GpuSlotPool.free(idx)`
 
 **NPC branch:**
 - **XP grant**: if `LastHitBy` present, looks up killer entity via `params.p1()`. Grants 100 XP, increments `FactionStats.inc_kills()`. Checks for level-up: `level_from_xp(new_xp) > level_from_xp(old_xp)`. On level-up: re-resolves `CachedStats`, updates `Speed`, rescales HP proportionally, sends GPU updates, emits `CombatEventKind::LevelUp`.
@@ -148,7 +148,7 @@ For each dead entity:
 - Despawn entity, `HideNpc` → GPU (-9999), release AssignedFarm/WorkPosition
 - Update stats: `PopulationStats`, `FactionStats`, `KillStats`
 - Remove from `NpcsByTownCache`, deselect if SelectedNpc matches
-- `EntitySlots.free(idx)` — recycle slot
+- `GpuSlotPool.free(idx)` — recycle slot
 
 XP formula: `level = floor(sqrt(xp / 100))`, level multiplier = `1.0 + level * 0.01`
 
@@ -168,18 +168,18 @@ Tower auto-attack using GPU spatial grid targeting. Towers are in the unified en
 ## Slot Recycling
 
 ```
-NPC Spawn:  EntitySlots.alloc()  ──▶ pop free list (or next++)
+NPC Spawn:  GpuSlotPool.alloc()  ──▶ pop free list (or next++)
                                               ▲
 NPC Death:  death_system  ───────────────────────┘
-            EntitySlots.free(idx)
+            GpuSlotPool.free(idx)
 
-Building:   EntitySlots.alloc()  ──▶ pop free list (or next++)
+Building:   GpuSlotPool.alloc()  ──▶ pop free list (or next++)
                                               ▲
 Bld Death:  death_system  ───────────────────────┘
-            EntitySlots.free(idx)
+            GpuSlotPool.free(idx)
 ```
 
-NPCs and buildings share a unified slot allocator (`EntitySlots`, max=MAX_ENTITIES=200K) backed by a `SlotPool` inner type. Each entity's slot IS its GPU buffer index — no offset arithmetic needed.
+NPCs and buildings share a unified slot allocator (`GpuSlotPool`, max=MAX_ENTITIES=200K) backed by a `SlotPool` inner type. Each entity's slot IS its GPU buffer index — no offset arithmetic needed.
 
 Slots are raw `usize` indices without generational counters. This is safe because:
 1. Combat systems are **chained** — damage is applied and death is processed in the same frame

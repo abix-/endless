@@ -3,7 +3,7 @@
 
 use bevy::prelude::*;
 
-use crate::components::{Building, Dead, EntitySlot, Health, Job};
+use crate::components::{Building, Dead, GpuSlot, Health, Job};
 use crate::render::MainCamera;
 use crate::resources::*;
 use crate::world::{self, BuildingKind, WorldCell};
@@ -15,7 +15,7 @@ const ARCHER_HOME_A: Vec2 = Vec2::new(400.0, 300.0);
 const ARCHER_HOME_B: Vec2 = Vec2::new(432.0, 300.0);
 
 pub fn setup(
-    mut slot_alloc: ResMut<EntitySlots>,
+    mut slot_alloc: ResMut<GpuSlotPool>,
     mut world_data: ResMut<world::WorldData>,
     mut entity_map: ResMut<EntityMap>,
     mut world_grid: ResMut<world::WorldGrid>,
@@ -99,7 +99,7 @@ pub fn tick(
     proj_alloc: Res<ProjSlotAllocator>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
-    building_q: Query<(&EntitySlot, &Building, &Health), Without<Dead>>,
+    building_q: Query<(&GpuSlot, &Building, &Health), Without<Dead>>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 

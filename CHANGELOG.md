@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-28h
+
+- **EntitySlot→GpuSlot, EntitySlots→GpuSlotPool renames** — renamed `EntitySlot` component to `GpuSlot` and `EntitySlots` resource to `GpuSlotPool` across all source, tests, and docs for clarity; no logic changes
+- **shader comment annotations** — added educational section headers, mental model comments, and inline annotations to `npc_compute.wgsl`, `npc_render.wgsl`, and `projectile_compute.wgsl`; no logic changes
+- **dirt roads sprite** — added `dirt_roads_131_32.png` atlas (32px tile sheet)
+
 ## 2026-02-28g
 
 - **heartbeat-only squad commander** — removed `AiSquadsDirtyMsg` message type; `ai_squad_commander_system` now wakes purely on a 2-second heartbeat timer instead of message+heartbeat dual gating; removed message struct, all producers (spawn.rs, health.rs, DirtyWriters), consumer parameter, and registration

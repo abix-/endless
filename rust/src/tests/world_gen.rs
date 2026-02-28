@@ -14,7 +14,7 @@ pub fn setup(
     mut food_storage: ResMut<FoodStorage>,
     mut faction_stats: ResMut<FactionStats>,
     mut town_grids: ResMut<world::TownGrids>,
-    mut slot_alloc: ResMut<EntitySlots>,
+    mut slot_alloc: ResMut<GpuSlotPool>,
     mut entity_map: ResMut<EntityMap>,
     mut test_state: ResMut<TestState>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,

@@ -10,7 +10,7 @@ use crate::world;
 use super::TestState;
 
 pub fn setup(
-    mut slot_alloc: ResMut<EntitySlots>,
+    mut slot_alloc: ResMut<GpuSlotPool>,
     mut spawn_events: MessageWriter<SpawnNpcMsg>,
     mut world_data: ResMut<world::WorldData>,
     mut food_storage: ResMut<FoodStorage>,
@@ -93,7 +93,7 @@ pub fn tick(
     entity_map: Res<EntityMap>,
     combat_debug: Res<CombatDebug>,
     health_debug: Res<HealthDebug>,
-    slot_alloc: Res<EntitySlots>,
+    slot_alloc: Res<GpuSlotPool>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
     combat_state_q: Query<&crate::components::CombatState>,

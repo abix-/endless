@@ -34,7 +34,7 @@ mod opt_vec2_as_array {
 
 use crate::components::Job;
 use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID_EXTENT, NPC_REGISTRY};
-use crate::resources::{FoodStorage, GoldStorage, FactionStats, RaiderState, EntityMap, CombatEventKind, GameTime, SystemTimings, EntitySlots};
+use crate::resources::{FoodStorage, GoldStorage, FactionStats, RaiderState, EntityMap, CombatEventKind, GameTime, SystemTimings, GpuSlotPool};
 use crate::messages::{DirtyWriters, BuildingGridDirtyMsg};
 use crate::messages::{GpuUpdate, GpuUpdateMsg, CombatLogMsg};
 
@@ -278,7 +278,7 @@ pub(crate) fn place_building(
     grid: &mut WorldGrid,
     world_data: &WorldData,
     food_storage: &mut FoodStorage,
-    slot_alloc: &mut crate::resources::EntitySlots,
+    slot_alloc: &mut crate::resources::GpuSlotPool,
     entity_map: &mut EntityMap,
     dirty_writers: &mut DirtyWriters,
     kind: BuildingKind,
@@ -324,7 +324,7 @@ pub(crate) fn place_building(
     {
         use crate::components::*;
         let entity = commands.spawn((
-            EntitySlot(slot),
+            GpuSlot(slot),
             Position::new(snapped.x, snapped.y),
             Health(def.hp),
             Faction(faction),
@@ -515,7 +515,7 @@ fn push_building_gpu_updates(
 /// Allocate GPU slot + create BuildingInstance + register spawner in one call.
 /// Returns the allocated slot, or None if no slots available.
 pub fn place_building_instance(
-    slot_alloc: &mut crate::resources::EntitySlots,
+    slot_alloc: &mut crate::resources::GpuSlotPool,
     entity_map: &mut EntityMap,
     kind: BuildingKind,
     pos: Vec2,
@@ -534,7 +534,7 @@ pub fn place_building_instance(
     entity_map.add_instance(crate::resources::BuildingInstance {
         kind, position: pos, town_idx, slot, faction,
         patrol_order, assigned_mine: None, manual_mine: false, wall_level,
-        npc_slot: -1,
+        npc_gpu_slot: -1,
         respawn_timer: if has_spawner { 0.0 } else { -2.0 },
         growth_ready: false,
         growth_progress: 0.0,
@@ -570,7 +570,7 @@ pub fn spawn_building_entities(
         let town_idx = inst.town_idx;
         let kind = inst.kind;
         let entity = commands.spawn((
-            EntitySlot(slot),
+            GpuSlot(slot),
             Position::new(pos.x, pos.y),
             Health(hp),
             Faction(faction),
@@ -622,7 +622,7 @@ pub fn setup_world(
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
     town_grids: &mut TownGrids,
-    slot_alloc: &mut EntitySlots,
+    slot_alloc: &mut GpuSlotPool,
     entity_map: &mut EntityMap,
     food_storage: &mut FoodStorage,
     gold_storage: &mut GoldStorage,
@@ -1336,7 +1336,7 @@ pub fn generate_world(
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
     town_grids: &mut TownGrids,
-    slot_alloc: &mut crate::resources::EntitySlots,
+    slot_alloc: &mut crate::resources::GpuSlotPool,
     entity_map: &mut EntityMap,
 ) {
     use rand::Rng;
@@ -1532,7 +1532,7 @@ pub fn place_buildings(
     config: &WorldGenConfig,
     town_grid: &mut TownGrid,
     is_raider: bool,
-    slot_alloc: &mut crate::resources::EntitySlots,
+    slot_alloc: &mut crate::resources::GpuSlotPool,
     entity_map: &mut EntityMap,
 ) {
     let mut occupied = HashSet::new();

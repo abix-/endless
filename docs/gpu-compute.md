@@ -100,7 +100,7 @@ GPU → ECS (readback, Bevy async Readback):
     → gpu_position_readback: GpuReadState → ECS Position components
       + arrival detection: if HasTarget && dist(pos, goal) < ARRIVAL_THRESHOLD → AtDestination
   Data is 1 frame old (~1.6px drift at 100px/s). ARRIVAL_THRESHOLD=8px >> drift.
-  entity_count not set from readback (buffer is MAX-sized) — comes from EntitySlots.count().
+  entity_count not set from readback (buffer is MAX-sized) — comes from GpuSlotPool.count().
 
 GPU → Render:
   Vertex shader reads positions/health directly from NpcGpuBuffers storage buffers (bind group 2).
@@ -113,7 +113,7 @@ Note: `sprite_indices` and `flash_values` live in `EntityGpuState`. Colors and e
 
 ## NPC Compute Shader (npc_compute.wgsl)
 
-Workgroup size: 64 threads. 3 dispatches per frame with different `mode` uniform values. Mode 0 dispatches `ceil(grid_cells / 64)` workgroups. Modes 1 and 2 dispatch `ceil(entity_count / 64)` workgroups where `entity_count = EntitySlots.count()` (unified high-water mark for NPCs + buildings).
+Workgroup size: 64 threads. 3 dispatches per frame with different `mode` uniform values. Mode 0 dispatches `ceil(grid_cells / 64)` workgroups. Modes 1 and 2 dispatch `ceil(entity_count / 64)` workgroups where `entity_count = GpuSlotPool.count()` (unified high-water mark for NPCs + buildings).
 
 ### Mode 0: Clear Grid
 One thread per grid cell. Atomically clears `grid_counts[cell]` to 0. Early exit if `i >= grid_cells`.
@@ -153,7 +153,7 @@ Four phases per NPC thread (speed > 0):
 
 ### Compute Buffers (gpu.rs EntityGpuBuffers)
 
-Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write`, sized to `MAX_ENTITIES` (= MAX_NPC_COUNT + MAX_BUILDINGS = 200K). NPCs and buildings share a unified slot namespace via `EntitySlots` — each entity's slot IS its GPU buffer index. No offset arithmetic. GPU→CPU readback uses Bevy's async `Readback` + `ReadbackComplete` pattern via `ShaderStorageBuffer` assets (no manual staging buffers).
+Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write`, sized to `MAX_ENTITIES` (= MAX_NPC_COUNT + MAX_BUILDINGS = 200K). NPCs and buildings share a unified slot namespace via `GpuSlotPool` — each entity's slot IS its GPU buffer index. No offset arithmetic. GPU→CPU readback uses Bevy's async `Readback` + `ReadbackComplete` pattern via `ShaderStorageBuffer` assets (no manual staging buffers).
 
 | Binding | Name | Type | Per-NPC Size | Uploaded From | Purpose |
 |---------|------|------|-------------|---------------|---------|
@@ -198,7 +198,7 @@ Built by `build_visual_upload` from ECS components (EquippedArmor, EquippedHelme
 
 | Field | Default | Purpose |
 |-------|---------|---------|
-| count | 0 | Entity slot high-water mark (set from EntitySlots.count() each frame) |
+| count | 0 | Entity slot high-water mark (set from GpuSlotPool.count() each frame) |
 | separation_radius | 20.0 | Minimum distance NPCs try to maintain |
 | separation_strength | 100.0 | Repulsion force multiplier |
 | delta | 0.016 | Frame delta time |
@@ -215,7 +215,7 @@ Built by `build_visual_upload` from ECS components (EquippedArmor, EquippedHelme
 | tile_grid_width | 0 | World grid columns (for tile_flags lookup) |
 | tile_grid_height | 0 | World grid rows (for tile_flags lookup) |
 | tile_cell_size | 0.0 | World grid cell size in pixels (for tile_flags lookup) |
-| entity_count | 0 | Total entities (set each frame from EntitySlots.count() — single unified high-water mark) |
+| entity_count | 0 | Total entities (set each frame from GpuSlotPool.count() — single unified high-water mark) |
 
 ## Spatial Grid
 

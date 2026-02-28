@@ -167,7 +167,7 @@ pub struct BottomPanelData<'w> {
 pub struct BuildingInspectorData<'w, 's> {
     selected_building: Res<'w, SelectedBuilding>,
     grid: Res<'w, WorldGrid>,
-    entity_slots: Res<'w, EntitySlots>,
+    entity_slots: Res<'w, GpuSlotPool>,
     food_storage: ResMut<'w, FoodStorage>,
     gold_storage: ResMut<'w, GoldStorage>,
     combat_config: Res<'w, CombatConfig>,
@@ -1372,8 +1372,8 @@ fn building_inspector_content(
                     .filter(|i| crate::constants::building_def(i.kind).spawner.is_some())
                 {
                     ui.label(format!("Spawns: {}", spawns_label));
-                    if inst.npc_slot >= 0 {
-                        let slot = inst.npc_slot as usize;
+                    if inst.npc_gpu_slot >= 0 {
+                        let slot = inst.npc_gpu_slot as usize;
                         if slot < meta_cache.0.len() {
                             let meta = &meta_cache.0[slot];
                             ui.label(format!("NPC: {} (Lv.{})", meta.name, meta.level));
@@ -1709,8 +1709,8 @@ fn building_inspector_content(
                 if let Some(inst) = bld.entity_map.find_by_position(world_pos) {
                     let spawns_label = npc_def(Job::from_i32(spawner.job)).label;
                     info.push_str(&format!("Spawns: {}\n", spawns_label));
-                    if inst.npc_slot >= 0 {
-                        let slot = inst.npc_slot as usize;
+                    if inst.npc_gpu_slot >= 0 {
+                        let slot = inst.npc_gpu_slot as usize;
                         if slot < meta_cache.0.len() {
                             let meta = &meta_cache.0[slot];
                             info.push_str(&format!("NPC: {} (Lv.{}) slot={}\n", meta.name, meta.level, slot));

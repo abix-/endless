@@ -23,8 +23,8 @@ pub fn setup(mut params: TestSetupParams) {
 
 pub fn tick(
     entity_map: Res<EntityMap>,
-    all_npc_query: Query<(), With<EntitySlot>>,
-    mut slot_alloc: ResMut<EntitySlots>,
+    all_npc_query: Query<(), With<GpuSlot>>,
+    mut slot_alloc: ResMut<GpuSlotPool>,
     mut spawn_events: MessageWriter<crate::messages::SpawnNpcMsg>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
@@ -71,7 +71,7 @@ pub fn tick(
                 }
             }
         }
-        // Phase 3: Slot freed in EntitySlots
+        // Phase 3: Slot freed in GpuSlotPool
         3 => {
             let free_count = slot_alloc.free.len();
             test.phase_name = format!("free_slots={}", free_count);

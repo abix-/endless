@@ -14,7 +14,7 @@ use crate::resources::{GameTime, GpuReadState, MovementIntents, NpcTargetThrashD
 pub fn gpu_position_readback(
     gpu_state: Res<GpuReadState>,
     buffer_writes: Res<EntityGpuState>,
-    mut npc_q: Query<(&EntitySlot, &mut Position, &Activity, &mut NpcFlags)>,
+    mut npc_q: Query<(&GpuSlot, &mut Position, &Activity, &mut NpcFlags)>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("gpu_position_readback");
@@ -54,7 +54,7 @@ pub fn gpu_position_readback(
 /// Runs after all intent-producing systems (decision, combat, health, render).
 pub fn resolve_movement_system(
     mut intents: ResMut<MovementIntents>,
-    npc_query: Query<&EntitySlot>,
+    npc_query: Query<&GpuSlot>,
     npc_gpu: Res<EntityGpuState>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut target_thrash: ResMut<NpcTargetThrashDebug>,

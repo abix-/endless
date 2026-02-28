@@ -75,7 +75,7 @@ pub fn setup(
             attack_type: 0,
         });
         if let Some(inst) = params.entity_map.find_by_position_mut(Vec2::new(300.0 + (i as f32 * 50.0), 450.0)) {
-            inst.npc_slot = slot as i32;
+            inst.npc_gpu_slot = slot as i32;
         }
     }
 
@@ -92,7 +92,7 @@ pub fn setup(
             attack_type: 0,
         });
         if let Some(inst) = params.entity_map.find_by_position_mut(Vec2::new(400.0, 400.0)) {
-            inst.npc_slot = slot as i32;
+            inst.npc_gpu_slot = slot as i32;
         }
     }
 
@@ -109,7 +109,7 @@ pub fn setup(
             attack_type: 0,
         });
         if let Some(inst) = params.entity_map.find_by_position_mut(Vec2::new(380.0 + (i as f32 * 10.0), 100.0)) {
-            inst.npc_slot = slot as i32;
+            inst.npc_gpu_slot = slot as i32;
         }
     }
 
@@ -121,7 +121,7 @@ pub fn setup(
 /// Tick: phased assertions with time gates.
 pub fn tick(
     time: Res<Time>,
-    slots: Res<EntitySlots>,
+    slots: Res<GpuSlotPool>,
     gpu_state: Res<GpuReadState>,
     combat_debug: Res<CombatDebug>,
     health_debug: Res<HealthDebug>,

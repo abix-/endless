@@ -6,7 +6,7 @@ use crate::components::*;
 use crate::constants::STARVING_HP_CAP;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, DirtyWriters};
 use crate::messages::CombatLogMsg;
-use crate::resources::{EntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, EntitySlots, GpuReadState, FactionStats, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SelectedBuilding, SystemTimings, HealingZoneCache, BuildingHealState, ActiveHealingSlots, EndlessMode, SquadState, FoodStorage, GoldStorage};
+use crate::resources::{EntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, GpuSlotPool, GpuReadState, FactionStats, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SelectedBuilding, SystemTimings, HealingZoneCache, BuildingHealState, ActiveHealingSlots, EndlessMode, SquadState, FoodStorage, GoldStorage};
 use std::collections::HashMap;
 use crate::systems::stats::{CombatConfig, TownUpgrades, UPGRADES, level_from_xp, resolve_combat_stats};
 use crate::constants::{UpgradeStatKind, ItemKind, building_def, npc_def};
@@ -22,7 +22,7 @@ pub struct DeathResources<'w, 's> {
     pub debug: ResMut<'w, HealthDebug>,
     pub kill_stats: ResMut<'w, KillStats>,
     pub npcs_by_town: ResMut<'w, NpcsByTownCache>,
-    pub slots: ResMut<'w, EntitySlots>,
+    pub slots: ResMut<'w, GpuSlotPool>,
     pub dirty_writers: DirtyWriters<'w>,
     pub grid: ResMut<'w, WorldGrid>,
     pub world_data: ResMut<'w, WorldData>,
@@ -108,13 +108,13 @@ pub fn damage_system(
     }
 }
 
-fn hide_npc(idx: usize, entity_map: &mut EntityMap, slots: &mut EntitySlots, gpu: &mut MessageWriter<GpuUpdateMsg>) {
+fn hide_npc(idx: usize, entity_map: &mut EntityMap, slots: &mut GpuSlotPool, gpu: &mut MessageWriter<GpuUpdateMsg>) {
     entity_map.unregister_npc(idx);
     gpu.write(GpuUpdateMsg(GpuUpdate::Hide { idx }));
     slots.free(idx);
 }
 
-fn hide_building(idx: usize, entity_map: &mut EntityMap, alloc: &mut EntitySlots, gpu: &mut MessageWriter<GpuUpdateMsg>) {
+fn hide_building(idx: usize, entity_map: &mut EntityMap, alloc: &mut GpuSlotPool, gpu: &mut MessageWriter<GpuUpdateMsg>) {
     entity_map.remove_by_slot(idx);
     gpu.write(GpuUpdateMsg(GpuUpdate::Hide { idx }));
     gpu.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: 0.0 }));
@@ -127,7 +127,7 @@ fn hide_building(idx: usize, entity_map: &mut EntityMap, alloc: &mut EntitySlots
 pub fn death_system(
     mut commands: Commands,
     building_mark_query: Query<(Entity, &Health), (With<Building>, Without<Dead>)>,
-    building_dead_query: Query<(Entity, &EntitySlot, &Faction, &TownId,
+    building_dead_query: Query<(Entity, &GpuSlot, &Faction, &TownId,
         &Building, Option<&LastHitBy>), With<Dead>>,
     mut res: DeathResources,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
@@ -469,8 +469,8 @@ pub fn update_healing_zone_cache(
 /// Replaces full 50k NPC iteration with O(active_healing + sampled_candidates).
 /// Starving HP cap moved to starvation_system (economy.rs).
 pub fn healing_system(
-    mut npc_q: Query<(&EntitySlot, &mut Health, &CachedStats, &mut NpcFlags, &Faction), (Without<Building>, Without<Dead>)>,
-    mut building_query: Query<(&EntitySlot, &mut Health, &Faction, &Building), Without<Dead>>,
+    mut npc_q: Query<(&GpuSlot, &mut Health, &CachedStats, &mut NpcFlags, &Faction), (Without<Building>, Without<Dead>)>,
+    mut building_query: Query<(&GpuSlot, &mut Health, &Faction, &Building), Without<Dead>>,
     gpu_state: Res<GpuReadState>,
     entity_gpu_state: Res<crate::gpu::EntityGpuState>,
     entity_map: Res<EntityMap>,

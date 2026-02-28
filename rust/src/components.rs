@@ -8,9 +8,9 @@ use crate::constants::ItemKind;
 // ============================================================================
 
 /// Links a Bevy entity to its unified slot in the GPU entity buffers.
-/// Both NPCs and buildings get an EntitySlot(n) where n = GPU buffer index.
+/// Both NPCs and buildings get an GpuSlot(n) where n = GPU buffer index.
 #[derive(Component, Clone, Copy)]
-pub struct EntitySlot(pub usize);
+pub struct GpuSlot(pub usize);
 
 /// NPC position in world coordinates. Bevy owns this, syncs to GPU for physics.
 /// Phase 11: Replaces GPU-owned positions with Bevy-owned + GPU accelerated.

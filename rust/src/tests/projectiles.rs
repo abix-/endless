@@ -10,7 +10,7 @@ use crate::world;
 use super::TestState;
 
 pub fn setup(
-    mut slot_alloc: ResMut<EntitySlots>,
+    mut slot_alloc: ResMut<GpuSlotPool>,
     mut spawn_events: MessageWriter<SpawnNpcMsg>,
     mut world_data: ResMut<world::WorldData>,
     mut food_storage: ResMut<FoodStorage>,

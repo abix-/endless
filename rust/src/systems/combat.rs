@@ -21,7 +21,7 @@ pub fn cooldown_system(
     game_time: Res<GameTime>,
     mut debug: ResMut<CombatDebug>,
     timings: Res<SystemTimings>,
-    mut timer_q: Query<(&EntitySlot, &mut AttackTimer), (Without<Building>, Without<Dead>)>,
+    mut timer_q: Query<(&GpuSlot, &mut AttackTimer), (Without<Building>, Without<Dead>)>,
 ) {
     let _t = timings.scope("cooldown");
     let dt = game_time.delta(&time);
@@ -61,7 +61,7 @@ pub fn attack_system(
     mut commands: Commands,
     game_time: Res<GameTime>,
     mut aq: AttackQueries,
-    npc_q: Query<(Entity, &EntitySlot, &Job, &Faction, &CachedStats, &Activity,
+    npc_q: Query<(Entity, &GpuSlot, &Job, &Faction, &CachedStats, &Activity,
                   Option<&SquadId>, Option<&ManualTarget>),
                  (Without<Building>, Without<Dead>)>,
 ) {
@@ -443,7 +443,7 @@ pub fn building_tower_system(
 
 /// Populate BuildingHpRender from building entity Health (only damaged buildings).
 pub fn sync_building_hp_render(
-    query: Query<(&Building, &EntitySlot, &Health), Without<Dead>>,
+    query: Query<(&Building, &GpuSlot, &Health), Without<Dead>>,
     gpu_state: Res<crate::gpu::EntityGpuState>,
     mut render: ResMut<crate::resources::BuildingHpRender>,
     timings: Res<SystemTimings>,

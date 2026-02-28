@@ -19,7 +19,7 @@ const TARGET_X: f32 = 555.0;
 const TARGET_Y: f32 = 320.0;
 
 pub fn setup(
-    mut slot_alloc: ResMut<EntitySlots>,
+    mut slot_alloc: ResMut<GpuSlotPool>,
     mut spawn_events: MessageWriter<SpawnNpcMsg>,
     mut world_data: ResMut<world::WorldData>,
     mut entity_map: ResMut<EntityMap>,

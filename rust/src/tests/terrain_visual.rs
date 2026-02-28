@@ -31,7 +31,7 @@ pub fn setup(
     mut grid: ResMut<WorldGrid>,
     mut test: ResMut<TestState>,
     mut game_time: ResMut<crate::resources::GameTime>,
-    mut slot_alloc: ResMut<crate::resources::EntitySlots>,
+    mut slot_alloc: ResMut<crate::resources::GpuSlotPool>,
     mut entity_map: ResMut<crate::resources::EntityMap>,
 ) {
     game_time.time_scale = 0.0;

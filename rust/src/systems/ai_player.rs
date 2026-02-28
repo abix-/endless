@@ -659,7 +659,7 @@ pub fn cheapest_gold_upgrade_cost(weights: &[f32], levels: &[u8], gold: i32) -> 
 #[derive(Clone, Default)]
 pub struct AiSquadCmdState {
     /// Target building slot (sole runtime identity). Validated alive each cycle.
-    pub target_slot: Option<usize>,
+    pub building_gpu_slot: Option<usize>,
     /// Seconds remaining before retarget is allowed.
     pub cooldown: f32,
 }
@@ -1038,14 +1038,14 @@ fn sync_town_perimeter_waypoints(
     for (row, col) in prune_slots {
         // Resolve the exact waypoint slot from town-grid coords.
         // If we cannot map slot->entity, do not clear the grid cell; that avoids orphaned sprites.
-        let target_slot = world.entity_map.iter_kind_for_town(BuildingKind::Waypoint, ti)
+        let building_gpu_slot = world.entity_map.iter_kind_for_town(BuildingKind::Waypoint, ti)
             .find(|b| world::world_to_town_grid(center, b.position) == (row, col))
             .map(|b| b.slot);
-        let Some(target_slot) = target_slot else { continue; };
+        let Some(building_gpu_slot) = building_gpu_slot else { continue; };
 
         // Send lethal damage so death_system handles despawn (single Dead writer)
         damage_writer.write(crate::messages::DamageMsg {
-            entity_idx: target_slot,
+            entity_idx: building_gpu_slot,
             amount: f32::MAX,
             attacker: -1,
             attacker_faction: 0,
@@ -2102,7 +2102,7 @@ pub fn ai_squad_commander_system(
                 sq.wave_min_start = personality.wave_min_start(kind);
                 sq.wave_retreat_below_pct = personality.wave_retreat_pct(kind);
                 ai_state.players[pi].squad_cmd.insert(idx, AiSquadCmdState {
-                    target_slot: None,
+                    building_gpu_slot: None,
                     cooldown: base_cd * jitter,
                 });
             }
@@ -2205,7 +2205,7 @@ pub fn ai_squad_commander_system(
                 }
             };
             if !is_attack {
-                cmd.target_slot = None;
+                cmd.building_gpu_slot = None;
                 continue;
             }
 
@@ -2213,7 +2213,7 @@ pub fn ai_squad_commander_system(
 
             if squad.wave_active {
                 // --- Wave end conditions ---
-                let target_alive = cmd.target_slot
+                let target_alive = cmd.building_gpu_slot
                     .and_then(|s| resolve_building_pos(&entity_map, s))
                     .is_some();
 
@@ -2228,7 +2228,7 @@ pub fn ai_squad_commander_system(
                     squad.wave_active = false;
                     squad.target = None;
                     squad.wave_start_count = 0;
-                    cmd.target_slot = None;
+                    cmd.building_gpu_slot = None;
                     cmd.cooldown = personality.retarget_cooldown()
                         + rand::rng().random_range(-RETARGET_JITTER..RETARGET_JITTER);
 
@@ -2252,7 +2252,7 @@ pub fn ai_squad_commander_system(
                 };
 
                 if let Some((bk, slot, pos)) = target {
-                    cmd.target_slot = Some(slot);
+                    cmd.building_gpu_slot = Some(slot);
                     claimed_targets.insert(slot);
 
                     let squad = squad_state.squads.get_mut(si).unwrap();

@@ -349,7 +349,7 @@ Completed items moved from roadmap for readability.
 - [x] `FarmerHome`/`ArcherHome` structs in `WorldData`, `BUILDING_TILES` extended
 - [x] Wire `place_building()`/`remove_building()` for FarmerHome/ArcherHome (same tombstone pattern)
 - [x] World gen: `place_town_buildings()` places N FarmerHomes + N ArcherHomes from config sliders
-- [x] `SpawnerEntry` struct: `building_kind`, `town_idx`, `position`, `npc_slot` (-1=none), `respawn_timer`
+- [x] `SpawnerEntry` struct: `building_kind`, `town_idx`, `position`, `npc_gpu_slot` (-1=none), `respawn_timer`
 - [x] `SpawnerState` resource: `Vec<SpawnerEntry>` — one entry per FarmerHome/ArcherHome/MinerHome
 - [x] `spawner_respawn_system` in `systems/economy.rs` (Step::Behavior, hourly): detects dead NPC via `NpcEntityMap`, starts 12h timer, spawns replacement when timer expires
 - [x] FarmerHome + ArcherHome + MinerHome buttons in build_menu.rs (push `SpawnerEntry` on build)

@@ -15,7 +15,7 @@ Use a hybrid access pattern by default:
 
 Treat `slot` as the canonical foreign key between ECS and `EntityMap`.
 
-1. Canonical identity key: `slot` (`EntitySlot` in ECS).
+1. Canonical identity key: `slot` (`GpuSlot` in ECS).
 2. Runtime handle: `Entity` (ephemeral; not persistence identity).
 3. Required bridge: `slot <-> Entity` mapping stays synchronized.
 4. Uniqueness rule: NPCs and buildings share one slot namespace; a slot value cannot be owned by both at the same time.

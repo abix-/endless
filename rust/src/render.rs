@@ -10,7 +10,7 @@ use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileD
 
 use crate::gpu::RenderFrameConfig;
 use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab, SystemTimings, EntityMap};
-use crate::components::{ManualTarget, Activity, NpcFlags, SquadId, Position, Job, Faction, EntitySlot, Building, Dead};
+use crate::components::{ManualTarget, Activity, NpcFlags, SquadId, Position, Job, Faction, GpuSlot, Building, Dead};
 use crate::messages::{SelectFactionMsg, TerrainDirtyMsg};
 use crate::settings::UserSettings;
 use crate::world::{WorldData, WorldGrid, BuildingKind, build_tileset, build_building_atlas, build_extras_atlas, TERRAIN_TILES, building_tiles};
@@ -680,7 +680,7 @@ fn box_select_system(
     mut selected_building: ResMut<crate::resources::SelectedBuilding>,
     mut commands: Commands,
     mut npc_flags_q: Query<&mut NpcFlags>,
-    box_npc_q: Query<(&EntitySlot, &Job, &Faction, &Position), (Without<Building>, Without<Dead>)>,
+    box_npc_q: Query<(&GpuSlot, &Job, &Faction, &Position), (Without<Building>, Without<Dead>)>,
 ) {
     // Don't box-select while building or placing squad targets
     if build_ctx.selected_build.is_some() || squad_state.placing_target { return; }

@@ -202,7 +202,8 @@ pub struct SpawnerSave {
     pub building_kind: i32,
     pub town_idx: i32,
     pub position: [f32; 2],
-    pub npc_slot: i32,
+    #[serde(alias = "npc_slot")]
+    pub npc_gpu_slot: i32,
     pub respawn_timer: f32,
 }
 
@@ -532,7 +533,7 @@ pub fn collect_save_data(
             building_kind: crate::constants::tileset_index(i.kind) as i32,
             town_idx: i.town_idx as i32,
             position: v2(i.position),
-            npc_slot: i.npc_slot,
+            npc_gpu_slot: i.npc_gpu_slot,
             respawn_timer: i.respawn_timer,
         }).collect();
 
@@ -727,7 +728,7 @@ pub fn apply_save(
     migration_state: &mut MigrationState,
     endless: &mut EndlessMode,
     npcs_by_town: &mut NpcsByTownCache,
-    slots: &mut EntitySlots,
+    slots: &mut GpuSlotPool,
 ) {
     info!("Applying save version {}", save.version);
 
@@ -1079,7 +1080,7 @@ pub struct LoadNpcTracking<'w> {
     pub pop_stats: ResMut<'w, PopulationStats>,
     pub npc_meta: ResMut<'w, NpcMetaCache>,
     pub npcs_by_town: ResMut<'w, NpcsByTownCache>,
-    pub slots: ResMut<'w, EntitySlots>,
+    pub slots: ResMut<'w, GpuSlotPool>,
     pub combat_log: ResMut<'w, CombatLog>,
     pub gpu_state: ResMut<'w, GpuReadState>,
     pub dirty_writers: crate::messages::DirtyWriters<'w>,
@@ -1097,7 +1098,7 @@ pub struct LoadNpcTracking<'w> {
 /// Build building HP hashmap from entity queries for save format.
 /// Produces the same JSON as the old BuildingHpState serde.
 fn collect_building_hp(
-    building_query: &Query<(&Building, &EntitySlot, &Health), Without<Dead>>,
+    building_query: &Query<(&Building, &GpuSlot, &Health), Without<Dead>>,
     entity_map: &EntityMap,
 ) -> std::collections::HashMap<String, Vec<f32>> {
     use std::collections::HashMap;
@@ -1147,7 +1148,7 @@ pub fn convert_building_hp_to_slots(
 /// Handles backward compat: deserializes PlacedBuilding vecs, skips tombstoned (is_alive check).
 pub fn load_building_instances_from_save(
     save: &SaveData,
-    slot_alloc: &mut crate::resources::EntitySlots,
+    slot_alloc: &mut crate::resources::GpuSlotPool,
     entity_map: &mut EntityMap,
     world_data: &WorldData,
     world_size_px: f32,
@@ -1190,11 +1191,11 @@ pub fn load_building_instances_from_save(
         }
     }
 
-    // Restore spawner state (npc_slot, respawn_timer) from save data
+    // Restore spawner state (npc_gpu_slot, respawn_timer) from save data
     for s in &save.spawners {
         let pos = to_vec2(s.position);
         if let Some(inst) = entity_map.find_by_position_mut(pos) {
-            inst.npc_slot = s.npc_slot;
+            inst.npc_gpu_slot = s.npc_gpu_slot;
             inst.respawn_timer = s.respawn_timer;
         }
     }
@@ -1267,7 +1268,7 @@ pub fn save_game_system(
     fs: SaveFactionState,
     entity_map: Res<EntityMap>,
     npc_meta: Res<NpcMetaCache>,
-    building_query: Query<(&Building, &EntitySlot, &Health), Without<Dead>>,
+    building_query: Query<(&Building, &GpuSlot, &Health), Without<Dead>>,
     nq: SaveNpcQueries,
 ) {
     if save_msgs.read().next().is_none() { return; }
@@ -1309,7 +1310,7 @@ pub fn autosave_system(
     fs: SaveFactionState,
     entity_map: Res<EntityMap>,
     npc_meta: Res<NpcMetaCache>,
-    building_query: Query<(&Building, &EntitySlot, &Health), Without<Dead>>,
+    building_query: Query<(&Building, &GpuSlot, &Health), Without<Dead>>,
     nq: SaveNpcQueries,
 ) {
     if request.autosave_hours <= 0 || !ws.game_time.hour_ticked { return; }
@@ -1479,7 +1480,7 @@ pub fn load_game_system(
     mut entity_map: ResMut<EntityMap>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     combat_config: Res<CombatConfig>,
-    npc_query: Query<Entity, With<EntitySlot>>,
+    npc_query: Query<Entity, With<GpuSlot>>,
     marker_query: Query<Entity, With<FarmReadyMarker>>,
 ) {
     if load_msgs.read().next().is_none() { return; }

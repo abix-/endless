@@ -33,7 +33,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use std::collections::HashMap;
 
-use crate::components::{EntitySlot, FarmReadyMarker};
+use crate::components::{GpuSlot, FarmReadyMarker};
 use crate::messages::SpawnNpcMsg;
 use crate::render::MainCamera;
 use crate::resources::*;
@@ -45,7 +45,7 @@ use crate::world;
 
 #[derive(SystemParam)]
 pub struct CleanupCore<'w> {
-    pub slot_alloc: ResMut<'w, crate::resources::EntitySlots>,
+    pub slot_alloc: ResMut<'w, crate::resources::GpuSlotPool>,
     pub world_data: ResMut<'w, crate::world::WorldData>,
     pub food_storage: ResMut<'w, crate::resources::FoodStorage>,
     pub faction_stats: ResMut<'w, crate::resources::FactionStats>,
@@ -87,7 +87,7 @@ pub struct CleanupEndless<'w> {
 
 #[derive(SystemParam)]
 pub struct TestSetupParams<'w, 's> {
-    pub slot_alloc: ResMut<'w, EntitySlots>,
+    pub slot_alloc: ResMut<'w, GpuSlotPool>,
     pub spawn_events: MessageWriter<'w, SpawnNpcMsg>,
     pub world_data: ResMut<'w, world::WorldData>,
     pub entity_map: ResMut<'w, EntityMap>,
@@ -1031,7 +1031,7 @@ pub fn auto_start_next_test(
 /// Despawn all NPC entities and reset resources when leaving a test.
 fn cleanup_test_world(
     mut commands: Commands,
-    entity_query: Query<Entity, Or<(With<EntitySlot>, With<FarmReadyMarker>)>>,
+    entity_query: Query<Entity, Or<(With<GpuSlot>, With<FarmReadyMarker>)>>,
     tilemap_query: Query<Entity, With<crate::render::TerrainChunk>>,
     mut core: CleanupCore,
     mut extra: CleanupExtra,

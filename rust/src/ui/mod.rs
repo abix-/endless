@@ -995,7 +995,7 @@ fn build_place_click_system(
     if build_ctx.destroy_mode {
         if !just_pressed { return; }
         build_ctx.clear_drag();
-        let (target_slot, bld_kind) = {
+        let (building_gpu_slot, bld_kind) = {
             let inst = match world_state.entity_map.get_at_grid(gc as i32, gr as i32) {
                 Some(inst) if !matches!(inst.kind, world::BuildingKind::Fountain | world::BuildingKind::GoldMine)
                     && world_state.world_data.towns.get(inst.town_idx as usize).map_or(false, |t| t.faction == 0)
@@ -1007,7 +1007,7 @@ fn build_place_click_system(
 
         // Send lethal damage so death_system handles despawn (single Dead writer)
         damage_writer.write(crate::messages::DamageMsg {
-            entity_idx: target_slot,
+            entity_idx: building_gpu_slot,
             amount: f32::MAX,
             attacker: -1,
             attacker_faction: 0,
@@ -1528,7 +1528,7 @@ fn process_destroy_system(
     for msg in request.read() {
         let (col, row) = (msg.0, msg.1);
 
-        let (target_slot, bld_kind, town_idx) = {
+        let (building_gpu_slot, bld_kind, town_idx) = {
             let inst = match world_state.entity_map.get_at_grid(col as i32, row as i32) {
                 Some(inst) if !matches!(inst.kind, world::BuildingKind::Fountain | world::BuildingKind::GoldMine)
                     && world_state.world_data.towns.get(inst.town_idx as usize).map_or(false, |t| t.faction == 0)
@@ -1549,7 +1549,7 @@ fn process_destroy_system(
 
         // Send lethal damage so death_system handles despawn (single Dead writer)
         damage_writer.write(crate::messages::DamageMsg {
-            entity_idx: target_slot,
+            entity_idx: building_gpu_slot,
             amount: f32::MAX,
             attacker: -1,
             attacker_faction: 0,
@@ -1617,7 +1617,7 @@ struct CleanupGameplay<'w> {
 /// Clean up world when leaving Playing state.
 fn game_cleanup_system(
     mut commands: Commands,
-    npc_query: Query<Entity, With<EntitySlot>>,
+    npc_query: Query<Entity, With<GpuSlot>>,
     marker_query: Query<Entity, With<FarmReadyMarker>>,
     indicator_query: Query<Entity, With<SlotIndicator>>,
     ghost_query: Query<Entity, With<BuildGhost>>,

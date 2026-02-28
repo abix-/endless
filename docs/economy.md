@@ -69,16 +69,16 @@ game_time_system (every frame)
 
 ### spawner_respawn_system
 - Runs when `game_time.hour_ticked` is true
-- Iterates all `BuildingInstance` entries in `EntityMap` where `respawn_timer > -2.0` (spawner-capable buildings). Spawner fields (`npc_slot: i32`, `respawn_timer: f32`) live directly on `BuildingInstance` — no separate SpawnerState resource.
-- Sentinel values: `npc_slot = -1` (no NPC alive), `respawn_timer = -2.0` (non-spawner building), `-1.0` (not respawning), `>= 0.0` (countdown active)
-- If `npc_slot >= 0` and NPC is dead (not in `EntityMap`): starts 12h respawn timer
+- Iterates all `BuildingInstance` entries in `EntityMap` where `respawn_timer > -2.0` (spawner-capable buildings). Spawner fields (`npc_gpu_slot: i32`, `respawn_timer: f32`) live directly on `BuildingInstance` — no separate SpawnerState resource.
+- Sentinel values: `npc_gpu_slot = -1` (no NPC alive), `respawn_timer = -2.0` (non-spawner building), `-1.0` (not respawning), `>= 0.0` (countdown active)
+- If `npc_gpu_slot >= 0` and NPC is dead (not in `EntityMap`): starts 12h respawn timer
 - Timer decrements 1.0 per game hour; on expiry: allocates slot via `SlotAllocator`, emits `SpawnNpcMsg`, logs to `CombatLog`
-- All spawner buildings (world gen and player-built) start with `respawn_timer: 0.0` and `npc_slot: -1` — the system spawns the first NPC on the next hourly tick. No separate initial spawn function.
+- All spawner buildings (world gen and player-built) start with `respawn_timer: 0.0` and `npc_gpu_slot: -1` — the system spawns the first NPC on the next hourly tick. No separate initial spawn function.
 - Tombstoned entries (position.x < -9000) are skipped (building was destroyed)
 - Spawn mapping resolved by `world::resolve_spawner_npc()` (single source of truth, takes `&BuildingInstance`): FarmerHome → Farmer (nearest farm via `find_nearest_free` as hint, no claim at spawn — farmer self-claims via behavior system), ArcherHome → Archer (nearest waypoint via `find_location_within_radius`), FighterHome → Fighter (nearest waypoint via `find_location_within_radius`), Tent → Raider (home = tent position), MinerHome → Miner (assigned mine from `BuildingInstance.assigned_mine` if set, otherwise nearest gold mine via `find_nearest_free`). All types look up faction from `world_data.towns[town_idx].faction`. Note: spawner_respawn_system does **not** pre-claim work slots — farmers self-claim via `find_farmer_farm_target()` in decision_system.
 
 ### starvation_system
-- Query-first: `(&EntitySlot, &Energy, &CachedStats, &mut NpcFlags, &mut Health)` with `Without<Building>, Without<Dead>` — no `EntityMap` dependency
+- Query-first: `(&GpuSlot, &Energy, &CachedStats, &mut NpcFlags, &mut Health)` with `Without<Building>, Without<Dead>` — no `EntityMap` dependency
 - Runs when `game_time.hour_ticked` is true
 - NPCs with `energy <= 0` get `starving` flag set on `NpcFlags`
 - Starving NPCs: speed set to `CachedStats.speed * STARVING_SPEED_MULT` (0.5) via `GpuUpdate::SetSpeed`
@@ -181,7 +181,7 @@ Raiders without a squad assignment wander near their town. Group attacks use squ
 | EntityMap (occupancy) | `BuildingInstance.occupants: i16` per building — slot-indexed claim/release/is_occupied/occupant_count methods on EntityMap | decision_system, death_cleanup |
 | MiningPolicy | discovered_mines per town, mine_enabled per mine | mining_policy_system (dirty-flag gated) |
 | RaiderState | max_pop, respawn_timers, forage_timers | raider_forage_system |
-| EntityMap | `BuildingInstance` with `npc_slot` + `respawn_timer` fields | spawner_respawn_system, place_building_instance |
+| EntityMap | `BuildingInstance` with `npc_gpu_slot` + `respawn_timer` fields | spawner_respawn_system, place_building_instance |
 | PopulationStats | alive/working/dead per (job, town) | spawn, death, state transitions |
 
 ## Constants
@@ -237,7 +237,7 @@ Both player build menu and AI player use `building_cost()` for affordability che
 - Message-gated via `MessageReader<SquadsDirtyMsg>` — skips entirely when no squad-relevant changes occurred
 - Signal emitted by: `death_system` (any death), `spawn_npc_system` (archer spawn), left_panel UI (assign/dismiss), save load (`emit_all()`)
 - **Phase 1**: retains only members whose slot is still in `EntityMap` (alive)
-- **Phase 2**: keeps Default Squad (index 0) as live pool of unsquadded player military NPCs (query-first via `(&EntitySlot, &Job, &TownId, Option<&SquadId>)` with `Without<Building>, Without<Dead>`, inserts `SquadId(0)`)
+- **Phase 2**: keeps Default Squad (index 0) as live pool of unsquadded player military NPCs (query-first via `(&GpuSlot, &Job, &TownId, Option<&SquadId>)` with `Without<Building>, Without<Dead>`, inserts `SquadId(0)`)
 - **Phase 3**: if `target_size > 0` and `members.len() > target_size`, dismisses excess (removes `SquadId` + `DirectControl` components, pops from members)
 - **Phase 4**: if `target_size > 0` and `members.len() < target_size`, auto-recruits unsquadded player-faction military NPCs from the same query (inserts `SquadId`, pushes to members). Pool is shared across squads — earlier squad indices get priority.
 

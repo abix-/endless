@@ -16,7 +16,7 @@ This contract prevents that class of bug.
 | `health` (entity state) | ECS/CPU (`Health` components) | GPU mirror read back always-on | ECS is truth; GPU value is advisory |
 | `factions` | ECS/CPU (`Faction`, `EntityMap` NPC metadata) | Throttled readback (every 60 frames) | No hard gates; debug/advisory only |
 | `threat_counts` | GPU compute derived metric | Throttled readback (every 30 frames) | Heuristic input only; never identity/ownership truth |
-| Slot identity (`slot -> entity`) | ECS/CPU (`EntitySlots`, `EntityMap`) | N/A | Authoritative for routing and ownership checks |
+| Slot identity (`slot -> entity`) | ECS/CPU (`GpuSlotPool`, `EntityMap`) | N/A | Authoritative for routing and ownership checks |
 
 ## Hard Rules
 

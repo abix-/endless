@@ -6,6 +6,15 @@
 //   Mode 1: Build spatial grid (insert all entities into cells)
 //   Mode 2: Movement (NPCs) + combat targeting (NPCs + towers) via grid
 
+// PowerShell-style mental model:
+// - This shader is a parallel loop over entity indices (`i`).
+// - `params.mode` is a pass selector, similar to `switch ($mode)`.
+// - Early returns behave like fast filters that skip non-matching entities.
+//
+// Pass pipeline per frame:
+// 1) clear spatial grid counters
+// 2) rebuild grid occupancy from positions
+// 3) run movement and combat/threat logic
 struct Params {
     count: u32,
     separation_radius: f32,
@@ -67,10 +76,12 @@ const ENTITY_UNTARGETABLE: u32 = 4u;  // bit 2: cannot be selected as combat tar
 @compute @workgroup_size(64, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let i = global_id.x;
+    // `i` is the shared key across all entity-aligned storage buffers.
 
     // =========================================================================
     // MODE 0: Clear spatial grid
     // =========================================================================
+    // Mode 0: one invocation clears one grid cell counter.
     if (params.mode == 0u) {
         let grid_cells = params.grid_width * params.grid_height;
         if (i >= grid_cells) { return; }
@@ -81,6 +92,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // =========================================================================
     // MODE 1: Build spatial grid (insert all entities — NPCs + buildings)
     // =========================================================================
+    // Mode 1: map each live entity to a cell, then atomically append index.
     if (params.mode == 1u) {
         if (i >= params.entity_count) { return; }
         let pos = positions[i];
@@ -108,6 +120,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // =========================================================================
     // MODE 2: Movement (NPCs) + Combat Targeting (NPCs + towers)
     // =========================================================================
+    // Mode 2 starts here: movement + combat for regular entities.
     if (i >= params.entity_count) { return; }
 
     var pos = positions[i];
@@ -132,13 +145,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
 
-    // Grid constants (shared by movement + combat targeting)
+    // Cache grid dimensions used by both movement and combat scans.
     let gw = i32(params.grid_width);
     let gh = i32(params.grid_height);
     let mpc = i32(params.max_per_cell);
 
     // --- Movement, separation, dodge (only for moving NPCs, speed > 0) ---
     if (speed > 0.0) {
+    // Movable entity branch only (buildings usually have speed = 0).
     let goal = goals[i];
     var settled = arrivals[i];
     var my_backoff = backoff[i];
@@ -180,9 +194,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         my_dir = normalize(to_goal);
     }
 
+    // Current cell of this entity in spatial grid coordinates.
     let cx = clamp(i32(pos.x / params.cell_size), 0, gw - 1);
     let cy = clamp(i32(pos.y / params.cell_size), 0, gh - 1);
 
+    // Broad phase: inspect 3x3 neighboring cells.
     for (var dy: i32 = -1; dy <= 1; dy++) {
         let ny = cy + dy;
         if (ny < 0 || ny >= gh) { continue; }
@@ -224,6 +240,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                         if (goal.x == goal_j.x && goal.y == goal_j.y) { continue; }
                     }
 
+                    // Priority rule: settled and moving actors push differently.
                     var push_strength = 1.0;
                     if (settled == 0 && neighbor_settled == 1) {
                         push_strength = 0.2;  // I'm moving, they're settled: barely block me
@@ -282,6 +299,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     }
 
+    // Convert raw separation vectors into configured world-space strength.
     avoidance *= params.separation_strength;
 
     // Normalize dodge direction, scale to fraction of separation strength
@@ -299,6 +317,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     // --- Projectile dodge: strafe away from incoming arrows (spatial grid) ---
+    // Projectile dodge is optional and only active when unlocked.
     var proj_dodge = vec2<f32>(0.0, 0.0);
     if (params.dodge_unlocked != 0u) {
         let dodge_radius = 60.0;
@@ -326,6 +345,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                     if (dist_sq > dodge_radius_sq || dist_sq < 1.0) { continue; }
 
                     // Is projectile heading toward me?
+                    // Ignore nearly-static projectiles; direction is unreliable there.
                     let pspd_sq = dot(pv, pv);
                     if (pspd_sq < 1.0) { continue; }
                     let pdir = pv / sqrt(pspd_sq);
@@ -398,6 +418,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     // --- STEP 3: Movement toward goal + lateral steering when blocked ---
     // Instead of slowing down when blocked, steer sideways to route around.
+    // Movement intent before obstacle corrections.
     var movement = vec2<f32>(0.0, 0.0);
     if (is_moving) {
         // Full-speed forward movement (no backoff persistence penalty)
@@ -434,6 +455,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     // --- STEP 4: Apply movement + avoidance + road attraction ---
+    // Keep rollback position so blocked wall entries can be undone.
     let pre_wall_pos = pos;
     pos += (movement + avoidance + proj_dodge + road_pull) * params.delta;
 
@@ -469,6 +491,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
 
+    // Threat-only entities use threat radius; fighters use combat radius.
     let scan_range = select(params.threat_radius, params.combat_range, needs_combat);
     let range_sq = scan_range * scan_range;
     let threat_radius_sq = params.threat_radius * params.threat_radius;
@@ -478,11 +501,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let my_cx = i32(pos.x / params.cell_size);
     let my_cy = i32(pos.y / params.cell_size);
 
+    // Running best target and local crowd metrics.
     var best_dist_sq = range_sq;
     var best_target: i32 = -1;
     var threat_enemies = 0u;
     var threat_allies = 0u;
 
+    // Wider neighborhood scan than separation to support ranged behavior.
     for (var dy3: i32 = -search_r; dy3 <= search_r; dy3++) {
         for (var dx3: i32 = -search_r; dx3 <= search_r; dx3++) {
             let nx3 = my_cx + dx3;
@@ -527,6 +552,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     }
 
+    // Final writes consumed by CPU and later render/AI stages.
     combat_targets[i] = select(-1, best_target, needs_combat);
     threat_counts[i] = (threat_enemies << 16u) | (threat_allies & 0xFFFFu);
 }

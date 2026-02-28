@@ -33,7 +33,7 @@ Each piece of NPC data has exactly one authoritative owner.
 | Factions | CPU | CPU → GPU | Set at spawn, never changes (0=Villager, 1+=Raider towns) |
 | Speeds | CPU | CPU → GPU | Set at spawn, modified by starvation_system |
 | **CPU-Only** (never sent to GPU) ||||
-| EntitySlot | CPU | Internal | Links Bevy entity to GPU slot index (unified namespace for NPCs + buildings) |
+| GpuSlot | CPU | Internal | Links Bevy entity to GPU slot index (unified namespace for NPCs + buildings) |
 | Job | CPU | Internal | Archer, Farmer, Raider, Fighter, Miner — determines behavior |
 | Energy | CPU | Internal | Drives tired/rest decisions (drain/recover rates) |
 | State markers | CPU | Internal | Dead, InCombat, Patrolling, OnDuty, Resting, Raiding, etc. |
@@ -134,11 +134,11 @@ GPU readback data is written directly to Bevy resources by `ReadbackComplete` ob
 
 ## GPU Read State
 
-`GpuReadState` (Bevy Resource, main-world only — no Clone, no extraction) holds GPU output for gameplay systems. Populated asynchronously by `ReadbackComplete` observers when Bevy's Readback system completes the GPU→CPU transfer. Not extracted to render world — nothing in render world reads it. `entity_count` set by `EntitySlots.count()` (not from readback — buffer is MAX-sized).
+`GpuReadState` (Bevy Resource, main-world only — no Clone, no extraction) holds GPU output for gameplay systems. Populated asynchronously by `ReadbackComplete` observers when Bevy's Readback system completes the GPU→CPU transfer. Not extracted to render world — nothing in render world reads it. `entity_count` set by `GpuSlotPool.count()` (not from readback — buffer is MAX-sized).
 
 | Field | Type | Source | Consumers |
 |-------|------|--------|-----------|
-| entity_count | usize | EntitySlots.count() | gpu_position_readback |
+| entity_count | usize | GpuSlotPool.count() | gpu_position_readback |
 | positions | Vec\<f32\> | ReadbackComplete (npc_positions buffer) | attack_system, healing_system, click_to_select_system |
 | combat_targets | Vec\<i32\> | ReadbackComplete (combat_targets buffer) | attack_system (target selection) |
 | health | Vec\<f32\> | ReadbackComplete (npc_health buffer) | (available for queries) |
@@ -149,7 +149,7 @@ GPU readback data is written directly to Bevy resources by `ReadbackComplete` ob
 
 Two allocators share a `SlotPool` inner type (LIFO free list, high-water mark tracking) with type-safe Bevy Resource wrappers:
 
-`EntitySlots` (NPC + building slots, max=MAX_ENTITIES=200K) wraps `SlotPool`. NPCs and buildings share one namespace — each entity's slot IS its GPU buffer index. Allocated in `spawn_npc_system` (NPCs) and `place_building_instance` (buildings), recycled in `death_system` (both branches).
+`GpuSlotPool` (NPC + building slots, max=MAX_ENTITIES=200K) wraps `SlotPool`. NPCs and buildings share one namespace — each entity's slot IS its GPU buffer index. Allocated in `spawn_npc_system` (NPCs) and `place_building_instance` (buildings), recycled in `death_system` (both branches).
 
 `ProjSlotAllocator` (projectile slots, max=50K) manages projectile slot indices. Allocated in `attack_system`, recycled in `process_proj_hits`.
 

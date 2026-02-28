@@ -31,13 +31,13 @@ use bevy::{
 };
 use std::borrow::Cow;
 
-use crate::components::{Activity, Building, Dead, EntitySlot, Faction, Job};
+use crate::components::{Activity, Building, Dead, GpuSlot, Faction, Job};
 use crate::constants::{
     FOOD_SPRITE, GOLD_SPRITE, ItemKind, MAX_ENTITIES, MAX_NPC_COUNT,
     MAX_PROJECTILES as MAX_PROJECTILE_COUNT, PROJECTILE_HIT_HALF_LENGTH, PROJECTILE_HIT_HALF_WIDTH,
 };
 use crate::messages::{GpuUpdate, GpuUpdateMsg, ProjGpuUpdate, ProjGpuUpdateMsg};
-use crate::resources::{GameTime, GpuReadState, ProjHitState, ProjPositionState, EntitySlots, SystemTimings, NpcTargetThrashDebug};
+use crate::resources::{GameTime, GpuReadState, ProjHitState, ProjPositionState, GpuSlotPool, SystemTimings, NpcTargetThrashDebug};
 use crate::systems::stats::{self, TownUpgrades};
 use crate::world::WorldData;
 
@@ -472,8 +472,8 @@ pub fn build_visual_upload(
     armor_q: Query<&crate::components::EquippedArmor>,
     helmet_q: Query<&crate::components::EquippedHelmet>,
     weapon_q: Query<&crate::components::EquippedWeapon>,
-    npc_q: Query<(Entity, &EntitySlot, &Job, &Faction), (Without<Building>, Without<Dead>)>,
-    building_q: Query<&EntitySlot, (With<Building>, Without<Dead>)>,
+    npc_q: Query<(Entity, &GpuSlot, &Job, &Faction), (Without<Building>, Without<Dead>)>,
+    building_q: Query<&GpuSlot, (With<Building>, Without<Dead>)>,
 ) {
     let _t = timings.scope("build_visual_upload");
     let entity_count = config.npc.count as usize;
@@ -530,7 +530,7 @@ pub fn populate_gpu_state(
     _game_time: Res<GameTime>,
     real_time: Res<Time<Real>>,
     time: Res<Time>,
-    slots: Res<EntitySlots>,
+    slots: Res<GpuSlotPool>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("populate_gpu");
@@ -810,7 +810,7 @@ fn sync_readback_ranges(
     mut commands: Commands,
     config: Res<RenderFrameConfig>,
     mut rb_state: ResMut<ReadbackState>,
-    slots: Res<EntitySlots>,
+    slots: Res<GpuSlotPool>,
     proj_alloc: Res<crate::resources::ProjSlotAllocator>,
 ) {
     let entity_count = slots.count();
@@ -972,7 +972,7 @@ struct ProjectileComputeLabel;
 /// Update GPU data from ECS each frame.
 fn update_gpu_data(
     mut config: ResMut<RenderFrameConfig>,
-    slots: Res<EntitySlots>,
+    slots: Res<GpuSlotPool>,
     time: Res<Time>,
     game_time: Res<GameTime>,
     upgrades: Res<TownUpgrades>,
@@ -1588,7 +1588,7 @@ impl render_graph::Node for NpcComputeNode {
 /// Update projectile GPU data from ECS each frame.
 fn update_proj_gpu_data(
     mut config: ResMut<RenderFrameConfig>,
-    slots: Res<EntitySlots>,
+    slots: Res<GpuSlotPool>,
     proj_alloc: Res<crate::resources::ProjSlotAllocator>,
     time: Res<Time>,
     game_time: Res<GameTime>,

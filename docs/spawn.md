@@ -2,7 +2,7 @@
 
 ## Overview
 
-NPCs are created through `SpawnNpcMsg` messages processed by `spawn_npc_system`. Slot allocation uses Bevy's `EntitySlots` resource (unified for NPCs + buildings), which reuses dead entity indices before allocating new ones. Job determines the component template at spawn time. All GPU writes go through `GpuUpdateMsg` messages — see [messages.md](messages.md).
+NPCs are created through `SpawnNpcMsg` messages processed by `spawn_npc_system`. Slot allocation uses Bevy's `GpuSlotPool` resource (unified for NPCs + buildings), which reuses dead entity indices before allocating new ones. Job determines the component template at spawn time. All GPU writes go through `GpuUpdateMsg` messages — see [messages.md](messages.md).
 
 The core spawn logic lives in `materialize_npc()` — a shared helper used by both fresh spawns and save-load. This ensures a single source of truth for entity creation, GPU init, and tracking cache registration.
 
@@ -35,7 +35,7 @@ Fresh spawns pass `NpcSpawnOverrides::default()` (all None — uses generated va
 
 ## Slot Allocation
 
-`EntitySlots` (NPCs + buildings, max=MAX_ENTITIES=200K) wraps a `SlotPool` inner type (defined in `resources.rs`):
+`GpuSlotPool` (NPCs + buildings, max=MAX_ENTITIES=200K) wraps a `SlotPool` inner type (defined in `resources.rs`):
 
 ```rust
 pub struct SlotPool {
@@ -45,13 +45,13 @@ pub struct SlotPool {
 }
 ```
 
-`alloc()` pops from the free list first, falls back to incrementing `next` (capped at `max`). `free()` pushes onto the free list. LIFO reuse — most recently freed slot is allocated first. `EntitySlots` implements `Deref`/`DerefMut` to `SlotPool`.
+`alloc()` pops from the free list first, falls back to incrementing `next` (capped at `max`). `free()` pushes onto the free list. LIFO reuse — most recently freed slot is allocated first. `GpuSlotPool` implements `Deref`/`DerefMut` to `SlotPool`.
 
 NPC slots: allocated in `spawn_npc_system`, recycled in `death_system`.
 Building slots: allocated in `place_building_instance`, recycled in `death_system` (building branch).
-Both share the same `EntitySlots` — each entity's slot IS its GPU buffer index (no offset arithmetic).
+Both share the same `GpuSlotPool` — each entity's slot IS its GPU buffer index (no offset arithmetic).
 
-GPU dispatch count comes from `EntitySlots.count()` (the high-water mark `next`). Dead entity slots within this range are hidden via sentinel position (-9999) and culled by the renderer.
+GPU dispatch count comes from `GpuSlotPool.count()` (the high-water mark `next`). Dead entity slots within this range are hidden via sentinel position (-9999) and culled by the renderer.
 
 ## Spawn Parameters
 
@@ -59,7 +59,7 @@ GPU dispatch count comes from `EntitySlots.count()` (the high-water mark `next`)
 
 | Field | Type | Notes |
 |-------|------|-------|
-| slot_idx | usize | Pre-allocated via EntitySlots |
+| slot_idx | usize | Pre-allocated via GpuSlotPool |
 | x, y | f32 | Spawn position |
 | job | i32 | 0=Farmer, 1=Archer, 2=Raider, 3=Fighter, 4=Miner, 5=Crossbow |
 | faction | i32 | 0=Player, 1+=AI settlements |
@@ -71,9 +71,9 @@ GPU dispatch count comes from `EntitySlots.count()` (the high-water mark `next`)
 
 ## materialize_npc
 
-**ECS entity**: NPC entities are spawned with a full component set via nested tuple bundles (to stay under Bevy's 15-element tuple limit). Required components are always inserted; optional components (`PatrolRoute`, `WorkPosition`, `SquadId`, `EquippedWeapon/Helmet/Armor`, `LeashRange`, `Stealer`, `HasEnergy`) are conditionally inserted via `ecmds.insert()`. Buildings retain full ECS components (`EntitySlot`, `Position`, `Health`, `Faction`, `TownId`, `Building`).
+**ECS entity**: NPC entities are spawned with a full component set via nested tuple bundles (to stay under Bevy's 15-element tuple limit). Required components are always inserted; optional components (`PatrolRoute`, `WorkPosition`, `SquadId`, `EquippedWeapon/Helmet/Armor`, `LeashRange`, `Stealer`, `HasEnergy`) are conditionally inserted via `ecmds.insert()`. Buildings retain full ECS components (`GpuSlot`, `Position`, `Health`, `Faction`, `TownId`, `Building`).
 
-**Required NPC components** (always inserted): `EntitySlot`, `Job`, `Faction`, `TownId`, `NpcFlags`, `Activity`, `Position`, `Home`, `Health`, `Energy`, `Speed`, `CombatState`, `CachedStats`, `BaseAttackType`, `AttackTimer`, `Personality`, `CarriedGold`.
+**Required NPC components** (always inserted): `GpuSlot`, `Job`, `Faction`, `TownId`, `NpcFlags`, `Activity`, `Position`, `Home`, `Health`, `Energy`, `Speed`, `CombatState`, `CachedStats`, `BaseAttackType`, `AttackTimer`, `Personality`, `CarriedGold`.
 
 **EntityMap registration**: `register_npc(slot, entity, job, faction, town_idx)` creates a lightweight `NpcEntry` (6 fields: slot, entity, job, faction, town_idx, dead) and adds the slot to `npc_by_town` secondary index. Debug assertion prevents duplicate slots.
 

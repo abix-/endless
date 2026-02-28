@@ -205,7 +205,7 @@ pub fn materialize_npc(
     let home_vec = Vec2::new(home[0], home[1]);
     let mut ecmds = commands.spawn((
         // Identity
-        (EntitySlot(idx), job, Faction(faction_id), TownId(town_idx)),
+        (GpuSlot(idx), job, Faction(faction_id), TownId(town_idx)),
         // State
         (NpcFlags::default(), activity.clone(), Position { x, y }, Home(home_vec)),
         // Combat

@@ -1383,22 +1383,22 @@ impl SlotPool {
 /// Unified entity slot allocator. NPCs and buildings share the same slot namespace.
 /// Slot = GPU index (no offset arithmetic). Manages 0..MAX_ENTITIES with free list.
 #[derive(Resource)]
-pub struct EntitySlots(pub SlotPool);
+pub struct GpuSlotPool(pub SlotPool);
 
-impl Default for EntitySlots {
+impl Default for GpuSlotPool {
     fn default() -> Self { Self(SlotPool::new(MAX_ENTITIES)) }
 }
 
-impl std::ops::Deref for EntitySlots {
+impl std::ops::Deref for GpuSlotPool {
     type Target = SlotPool;
     fn deref(&self) -> &SlotPool { &self.0 }
 }
 
-impl std::ops::DerefMut for EntitySlots {
+impl std::ops::DerefMut for GpuSlotPool {
     fn deref_mut(&mut self) -> &mut SlotPool { &mut self.0 }
 }
 
-/// Projectile slot allocator. Wraps SlotPool like EntitySlots.
+/// Projectile slot allocator. Wraps SlotPool like GpuSlotPool.
 #[derive(Resource)]
 pub struct ProjSlotAllocator(pub SlotPool);
 
@@ -1774,7 +1774,7 @@ pub struct BuildingInstance {
     pub assigned_mine: Option<Vec2>, // MinerHome only
     pub manual_mine: bool,           // MinerHome only
     pub wall_level: u8,              // Wall only
-    pub npc_slot: i32,               // Spawner buildings only (-1 = no NPC alive)
+    pub npc_gpu_slot: i32,               // Spawner buildings only (-1 = no NPC alive)
     pub respawn_timer: f32,          // Spawner buildings only (-1.0 = not respawning)
     pub growth_ready: bool,             // Farm/Mine only (false = growing, true = ready to harvest)
     pub growth_progress: f32,            // Farm/Mine only (0.0 to 1.0)
@@ -1805,7 +1805,7 @@ impl BuildingInstance {
 }
 
 
-/// Per-NPC runtime state. All NPC data lives here — no ECS components except EntitySlot.
+/// Per-NPC runtime state. All NPC data lives here — no ECS components except GpuSlot.
 /// Parallel to BuildingInstance: both live in EntityMap, shared slot namespace.
 #[derive(Clone)]
 /// Lightweight NPC index entry in EntityMap. All gameplay state lives on ECS components.

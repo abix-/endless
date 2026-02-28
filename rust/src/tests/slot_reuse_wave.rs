@@ -20,7 +20,7 @@ use super::{TestState, BuildingInitParams};
 #[derive(Resource, Default)]
 pub struct SlotReuseTestState {
     /// Slot index of the player farm that the AI wave targets.
-    pub target_slot: Option<usize>,
+    pub building_gpu_slot: Option<usize>,
     /// Position of the original target building.
     pub target_pos: Option<Vec2>,
     /// Set true once we've destroyed the target.
@@ -54,7 +54,7 @@ pub fn setup(
     mut gold_storage: ResMut<GoldStorage>,
     mut faction_stats: ResMut<FactionStats>,
     mut town_grids: ResMut<world::TownGrids>,
-    mut slot_alloc: ResMut<EntitySlots>,
+    mut slot_alloc: ResMut<GpuSlotPool>,
     mut bld: BuildingInitParams,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
     mut spawn_writer: MessageWriter<crate::messages::SpawnNpcMsg>,
@@ -161,7 +161,7 @@ pub fn tick(
     mut entity_map: ResMut<EntityMap>,
     ai_state: Res<AiPlayerState>,
     squad_state: Res<SquadState>,
-    mut slot_alloc: ResMut<EntitySlots>,
+    mut slot_alloc: ResMut<GpuSlotPool>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
     mut local: ResMut<SlotReuseTestState>,
@@ -182,8 +182,8 @@ pub fn tick(
                         if squad.wave_active {
                             // Found active wave — record target slot
                             if let Some(cmd) = player.squad_cmd.get(&si) {
-                                if let Some(slot) = cmd.target_slot {
-                                    local.target_slot = Some(slot);
+                                if let Some(slot) = cmd.building_gpu_slot {
+                                    local.building_gpu_slot = Some(slot);
                                     local.target_pos = squad.target;
                                     local.attack_squad_idx = Some(si);
                                     let pos_str = squad.target.map(|p| format!("({:.0}, {:.0})", p.x, p.y)).unwrap_or("None".into());
@@ -217,7 +217,7 @@ pub fn tick(
 
         // Phase 2: Destroy the target building
         2 => {
-            let Some(slot) = local.target_slot else {
+            let Some(slot) = local.building_gpu_slot else {
                 test.fail_phase(elapsed, "no target slot recorded");
                 return;
             };
@@ -250,7 +250,7 @@ pub fn tick(
 
         // Phase 3: Trigger slot reuse by placing a new building
         3 => {
-            let Some(slot) = local.target_slot else {
+            let Some(slot) = local.building_gpu_slot else {
                 test.fail_phase(elapsed, "no target slot recorded");
                 return;
             };
@@ -325,7 +325,7 @@ pub fn tick(
 
         // Phase 5: Report
         5 => {
-            let slot = local.target_slot.unwrap_or(0);
+            let slot = local.building_gpu_slot.unwrap_or(0);
             let orig_pos = local.target_pos.map(|p| format!("({:.0}, {:.0})", p.x, p.y)).unwrap_or("?".into());
             let reuse_pos = local.reuse_pos.map(|p| format!("({:.0}, {:.0})", p.x, p.y)).unwrap_or("?".into());
             let si = local.attack_squad_idx.unwrap_or(0);
@@ -336,7 +336,7 @@ pub fn tick(
 
             info!("========================================");
             info!("SLOT REUSE WAVE BUG REPORT");
-            info!("  target_slot: {}", slot);
+            info!("  building_gpu_slot: {}", slot);
             info!("  original_pos: {}", orig_pos);
             info!("  reuse_pos: {}", reuse_pos);
             info!("  resolve_building_pos(slot): {}", resolve_result);

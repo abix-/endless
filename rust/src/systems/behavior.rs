@@ -103,7 +103,7 @@ pub fn arrival_system(
     mut combat_log: MessageWriter<CombatLogMsg>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     timings: Res<SystemTimings>,
-    mut npc_q: Query<(Entity, &EntitySlot, &Job, &TownId, &mut Activity, &Home, &mut NpcWorkState), (Without<Building>, Without<Dead>)>,
+    mut npc_q: Query<(Entity, &GpuSlot, &Job, &TownId, &mut Activity, &Home, &mut NpcWorkState), (Without<Building>, Without<Dead>)>,
 ) {
     let _t = timings.scope("arrival");
     if game_time.is_paused() { return; }
@@ -334,7 +334,7 @@ pub fn decision_system(
     mut entity_map: ResMut<EntityMap>,
     mut npc_state: DecisionNpcState,
     mut npc_data: NpcDataQueries,
-    decision_npc_q: Query<(Entity, &EntitySlot, &Job, &TownId, &Faction), (Without<Building>, Without<Dead>)>,
+    decision_npc_q: Query<(Entity, &GpuSlot, &Job, &TownId, &Faction), (Without<Building>, Without<Dead>)>,
 ) {
     let _t = extras.timings.scope("decision");
     if game_time.is_paused() { return; }
@@ -1616,7 +1616,7 @@ pub fn rebuild_patrol_routes_system(
     timings: Res<SystemTimings>,
     mut patrol_route_q: Query<&mut PatrolRoute>,
     mut commands: Commands,
-    patrol_npc_q: Query<(Entity, &EntitySlot, &Job, &TownId), (Without<Building>, Without<Dead>)>,
+    patrol_npc_q: Query<(Entity, &GpuSlot, &Job, &TownId), (Without<Building>, Without<Dead>)>,
 ) {
     let _t = timings.scope("rebuild_patrol_routes");
     if patrols_dirty.read().count() == 0 { return; }

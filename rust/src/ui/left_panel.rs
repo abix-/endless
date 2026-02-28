@@ -1069,7 +1069,7 @@ fn rebuild_factions_cache(
             .filter(|def| def.spawner.is_some())
             .map(|def| {
                 let count = factions.entity_map.iter_kind_for_town(def.kind, tdi as u32)
-                    .filter(|i| i.npc_slot >= 0 && is_alive(i.position)).count();
+                    .filter(|i| i.npc_gpu_slot >= 0 && is_alive(i.position)).count();
                 (def.kind, count)
             })
             .collect();
@@ -1231,7 +1231,7 @@ fn rebuild_factions_cache(
 
                 let (commander_slot, commander_cooldown) = ai_player
                     .and_then(|p| p.squad_cmd.get(&si))
-                    .map(|cmd| (cmd.target_slot, Some(cmd.cooldown)))
+                    .map(|cmd| (cmd.building_gpu_slot, Some(cmd.cooldown)))
                     .unwrap_or((None, None));
 
                 Some(SquadSnapshot {

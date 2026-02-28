@@ -14,7 +14,7 @@ pub struct WorldState<'w> {
     pub world_data: ResMut<'w, crate::world::WorldData>,
     pub town_grids: ResMut<'w, crate::world::TownGrids>,
     pub dirty_writers: DirtyWriters<'w>,
-    pub entity_slots: ResMut<'w, EntitySlots>,
+    pub entity_slots: ResMut<'w, GpuSlotPool>,
     pub entity_map: ResMut<'w, EntityMap>,
 }
 

@@ -31,7 +31,7 @@ pub fn setup(mut params: TestSetupParams) {
 pub fn tick(
     entity_map: Res<EntityMap>,
     gpu_state: Res<GpuReadState>,
-    slots: Res<EntitySlots>,
+    slots: Res<GpuSlotPool>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
     activity_q: Query<&Activity>,

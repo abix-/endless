@@ -174,7 +174,7 @@ pub fn starvation_system(
     game_time: Res<GameTime>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     timings: Res<SystemTimings>,
-    mut q: Query<(&EntitySlot, &Energy, &CachedStats, &mut NpcFlags, &mut Health), (Without<Building>, Without<Dead>)>,
+    mut q: Query<(&GpuSlot, &Energy, &CachedStats, &mut NpcFlags, &mut Health), (Without<Building>, Without<Dead>)>,
 ) {
     let _t = timings.scope("starvation");
     if !game_time.hour_ticked {
@@ -234,12 +234,12 @@ pub fn farm_visual_system(
 // ============================================================================
 
 /// Detects dead NPCs linked to House/Barracks/Tent buildings, counts down respawn timers,
-/// and spawns replacements via EntitySlots + SpawnNpcMsg.
+/// and spawns replacements via GpuSlotPool + SpawnNpcMsg.
 /// Only runs when game_time.hour_ticked is true.
 pub fn spawner_respawn_system(
     game_time: Res<GameTime>,
     mut entity_map: ResMut<EntityMap>,
-    mut slots: ResMut<EntitySlots>,
+    mut slots: ResMut<GpuSlotPool>,
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     world_data: Res<WorldData>,
     mut combat_log: MessageWriter<CombatLogMsg>,
@@ -251,7 +251,7 @@ pub fn spawner_respawn_system(
         return;
     }
 
-    // Collect spawner slots to avoid borrow conflict (need &mut for npc_slot/respawn_timer, & for resolve)
+    // Collect spawner slots to avoid borrow conflict (need &mut for npc_gpu_slot/respawn_timer, & for resolve)
     let spawner_slots: Vec<usize> = entity_map.iter_instances()
         .filter(|i| i.respawn_timer > -2.0)
         .map(|i| i.slot)
@@ -261,10 +261,10 @@ pub fn spawner_respawn_system(
         let Some(inst) = entity_map.get_instance(bld_slot) else { continue };
 
         // Check if linked NPC died
-        if inst.npc_slot >= 0 && !entity_map.entities.contains_key(&(inst.npc_slot as usize)) {
+        if inst.npc_gpu_slot >= 0 && !entity_map.entities.contains_key(&(inst.npc_gpu_slot as usize)) {
             let is_miner_home = inst.kind == BuildingKind::MinerHome;
             if let Some(inst_mut) = entity_map.get_instance_mut(bld_slot) {
-                inst_mut.npc_slot = -1;
+                inst_mut.npc_gpu_slot = -1;
                 inst_mut.respawn_timer = SPAWNER_RESPAWN_HOURS;
             }
             if is_miner_home { dirty_writers.mining.write(crate::messages::MiningDirtyMsg); }
@@ -296,7 +296,7 @@ pub fn spawner_respawn_system(
                     work_x, work_y, starting_post, attack_type,
                 });
                 if let Some(inst_mut) = entity_map.get_instance_mut(bld_slot) {
-                    inst_mut.npc_slot = slot as i32;
+                    inst_mut.npc_gpu_slot = slot as i32;
                     inst_mut.respawn_timer = -1.0;
                 }
                 if is_miner_home { dirty_writers.mining.write(crate::messages::MiningDirtyMsg); }
@@ -364,8 +364,8 @@ pub fn mining_policy_system(
         // Collect auto-assign miner home slots (O(town's miner homes) instead of O(all spawners))
         let auto_home_slots: Vec<usize> = entity_map
             .iter_kind_for_town(BuildingKind::MinerHome, town_idx as u32)
-            .filter(|inst| !inst.manual_mine && inst.npc_slot >= 0
-                && entity_map.entities.contains_key(&(inst.npc_slot as usize)))
+            .filter(|inst| !inst.manual_mine && inst.npc_gpu_slot >= 0
+                && entity_map.entities.contains_key(&(inst.npc_gpu_slot as usize)))
             .map(|inst| inst.slot)
             .collect();
 
@@ -413,7 +413,7 @@ pub fn squad_cleanup_system(
     mut commands: Commands,
     squad_id_q: Query<&SquadId>,
     mut npc_flags_q: Query<&mut NpcFlags>,
-    recruit_q: Query<(&EntitySlot, &Job, &TownId, Option<&SquadId>), (Without<Building>, Without<Dead>)>,
+    recruit_q: Query<(&GpuSlot, &Job, &TownId, Option<&SquadId>), (Without<Building>, Without<Dead>)>,
 ) {
     let _t = timings.scope("squad_cleanup");
     if squads_dirty.read().count() == 0 { return; }

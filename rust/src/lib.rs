@@ -38,7 +38,7 @@ use resources::{
     EntityMap, PopulationStats, GameConfig, GameTime,
     HealthDebug, CombatDebug, KillStats, SelectedNpc,
     NpcMetaCache, NpcsByTownCache, NpcLogCache,
-    GpuReadState, EntitySlots, ProjSlotAllocator,
+    GpuReadState, GpuSlotPool, ProjSlotAllocator,
     FoodStorage, GoldStorage, FactionStats, RaiderState, SystemTimings,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
     TowerState, FollowSelected, TownPolicies, SelectedBuilding,
@@ -130,7 +130,7 @@ fn sync_debug_settings(
 /// Debug: log NPC count every second, plus optional detailed logs.
 fn debug_tick_system(
     time: Res<Time>,
-    slots: Res<EntitySlots>,
+    slots: Res<GpuSlotPool>,
     gpu_state: Res<GpuReadState>,
     combat_debug: Res<CombatDebug>,
     health_debug: Res<HealthDebug>,
@@ -209,7 +209,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<GpuReadState>()
        .init_resource::<ProjHitState>()
        .init_resource::<ProjPositionState>()
-       .init_resource::<EntitySlots>()
+       .init_resource::<GpuSlotPool>()
 
        .init_resource::<ProjSlotAllocator>()
        .init_resource::<FoodStorage>()
