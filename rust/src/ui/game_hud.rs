@@ -86,7 +86,7 @@ pub fn top_bar_system(
                     town_name,
                     game_time.day(), game_time.hour(), game_time.minute(), period,
                     game_time.time_scale,
-                    if game_time.paused { " [PAUSED]" } else { "" });
+                    if game_time.is_paused() { " [PAUSED]" } else { "" });
                 let galley = ui.painter().layout_no_wrap(
                     center_text.clone(),
                     egui::FontId::default(),

@@ -59,12 +59,14 @@ pub fn attack_system(
     timings: Res<SystemTimings>,
     squad_state: Res<crate::resources::SquadState>,
     mut commands: Commands,
+    game_time: Res<GameTime>,
     mut aq: AttackQueries,
     npc_q: Query<(Entity, &EntitySlot, &Job, &Faction, &CachedStats, &Activity,
                   Option<&SquadId>, Option<&ManualTarget>),
                  (Without<Building>, Without<Dead>)>,
 ) {
     let _t = timings.scope("attack");
+    if game_time.is_paused() { return; }
     let positions = &gpu_state.positions;
     let combat_targets = &gpu_state.combat_targets;
 

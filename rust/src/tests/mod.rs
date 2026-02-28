@@ -122,6 +122,10 @@ impl TestSetupParams<'_, '_> {
             self.world_grid.cell_size = 32.0;
             self.world_grid.cells = vec![world::WorldCell::default(); 25 * 25];
         }
+        if self.entity_map.spatial_cell_size() <= 0.0 {
+            let world_size_px = self.world_grid.width as f32 * self.world_grid.cell_size;
+            self.entity_map.init_spatial(world_size_px);
+        }
         self.world_data.towns.push(world::Town {
             name: name.into(),
             center: Vec2::new(400.0, 400.0),
@@ -372,9 +376,6 @@ pub fn register_tests(app: &mut App) {
     app.add_systems(Update, test_completion_system
         .run_if(in_state(AppState::Running))
         .after(Step::Behavior));
-
-    // Speed controls: Space=pause, +/-=scale (same keys as game_escape_system)
-    app.add_systems(Update, test_time_controls.run_if(in_state(AppState::Running)));
 
     // Register individual tests
     let mut registry = TestRegistry::default();
@@ -921,26 +922,6 @@ fn test_hud_system(
             }
         });
     Ok(())
-}
-
-// ============================================================================
-// TIME CONTROLS (for test scenes)
-// ============================================================================
-
-/// Space=pause, +/- =speed. Mirrors game_escape_system keys.
-fn test_time_controls(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut game_time: ResMut<GameTime>,
-) {
-    if keys.just_pressed(KeyCode::Space) {
-        game_time.paused = !game_time.paused;
-    }
-    if keys.just_pressed(KeyCode::Equal) {
-        game_time.time_scale = (game_time.time_scale * 2.0).min(128.0);
-    }
-    if keys.just_pressed(KeyCode::Minus) {
-        game_time.time_scale = (game_time.time_scale / 2.0).max(0.25);
-    }
 }
 
 // ============================================================================

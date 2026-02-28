@@ -843,9 +843,15 @@ pub struct GameTime {
 }
 
 impl GameTime {
+    /// True when gameplay should be frozen.
+    /// `time_scale <= 0` is treated the same as paused.
+    pub fn is_paused(&self) -> bool {
+        self.paused || self.time_scale <= 0.0
+    }
+
     /// Gameplay-scaled delta. Zero when paused, multiplied by time_scale otherwise.
     pub fn delta(&self, time: &Time) -> f32 {
-        if self.paused { 0.0 } else { time.delta_secs() * self.time_scale }
+        if self.is_paused() { 0.0 } else { time.delta_secs() * self.time_scale }
     }
 
     pub fn total_hours(&self) -> i32 {
@@ -2116,7 +2122,7 @@ impl HelpCatalog {
         m.insert("farmers", "Each Farmer Home spawns 1 farmer who works at the nearest free farm. Build farms first, then Farmer Homes to staff them.");
         m.insert("archers", "Each Archer Home spawns 1 archer who patrols waypoints. Build Waypoints to create a patrol route, then Archer Homes to staff them.");
         m.insert("raiders", "Enemy raiders steal food from your farms. Build archers and waypoints near farms to defend them.");
-        m.insert("time", "Space = pause/unpause. +/- = speed up/slow down (0.25x to 128x). Day/Night affects work schedules set in Policies (P key).");
+        m.insert("time", "Space = pause/unpause. +/- = speed up/slow down (0x, 0.25x to 128x). 0x behaves as pause. Day/Night affects work schedules set in Policies (P key).");
 
         // Left panel tabs
         m.insert("tab_roster", "Filter, sort, click to inspect. F to follow.");

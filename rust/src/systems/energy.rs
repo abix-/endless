@@ -19,7 +19,7 @@ pub fn energy_system(
     mut energy_q: Query<(&EntitySlot, &mut Energy, &Activity), (Without<Building>, Without<Dead>)>,
 ) {
     let _t = timings.scope("energy");
-    if game_time.paused {
+    if game_time.is_paused() {
         return;
     }
 

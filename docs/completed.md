@@ -385,6 +385,9 @@ Completed items moved from roadmap for readability.
 ### DRY & Consolidation
 - [x] Centralize world lifecycle startup/load flows to shared helpers (`world::materialize_generated_world`, `save::restore_world_from_save`) so game startup, menu load, in-game load, and AI world-setup tests cannot drift
 - [x] Centralize test-scene building materialization to `world::materialize_generated_world` via shared test harness first-`Update` hook in `AppState::Running` (before `Step::Behavior`), removing per-test manual building spawns and keeping tests aligned with main-game setup
+- [x] Align pause behavior between gameplay and test scenes with `GameTime::is_paused()` (`paused || time_scale <= 0.0`) so `0x` and pause both freeze behavior/combat/movement decisions and retargeting in both paths
+- [x] Farm-claim fairness: duplicate farm owner reconciliation now preserves incumbent `Activity::Working` farmers over `GoingToWork` contenders, with deterministic slot tie-break only within the same activity rank
+- [x] Farm-claim loser retarget: farmers that lose reservation/conflict resolution immediately get a home movement intent while entering `Idle`, preventing stale farm targets in inspector/debug sink output
 - [x] Rename role spawner buildings to `FarmerHome` / `ArcherHome` / `MinerHome` + rename `Job::Guard` → `Job::Archer` and all associated types/fields/UI labels
 - [x] Consolidate farm harvest transitions into one authoritative path (previously split across `arrival_system` and `decision_system`)
 - [x] Consolidate building placement side effects (place + food spend + spawner entry + HP push) into one shared helper used by player + AI

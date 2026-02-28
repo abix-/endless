@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-02-28c
+
+- **`0x` speed now behaves as pause** - added `GameTime::is_paused()` (`paused || time_scale <= 0.0`) and switched behavior/combat/movement/economy/energy gating plus HUD pause label to use unified paused semantics
+- **time controls updated for explicit `0x` state** - `-` now steps from `0.25x` to `0x`, `+` from `0x` returns to `0.25x`, and `Space` unpauses from `0x` by restoring `1.0x`
+- **farm claim fairness + loser retarget fix** - duplicate farm owner resolution now prefers incumbent `Activity::Working` farmers over `GoingToWork` contenders; losing farmers immediately target home on demotion to `Idle` to avoid stale farm targets in debug/inspector
+
+## 2026-02-28b
+
+- **pause parity between game and test scenes** - `AppState::Running` now uses the same pause semantics in both paths, so behavior/combat/movement do not advance decisions or retarget while paused
+- **documented shared test world setup contract** - test scenes continue to materialize world/buildings through the same shared helper as main gameplay startup to prevent setup drift
+
 ## 2026-02-28a
 
 - **shared world materialization for all test scenes** — added common `materialize_test_world` hook in `tests/mod.rs` (first `Update` in `AppState::Running`, before `Step::Behavior`) that calls `world::materialize_generated_world(...)`; this makes test building/entity/GPU spawn path match main game startup and removes per-test setup drift

@@ -2173,7 +2173,7 @@ fn help_content(ui: &mut egui::Ui) {
         egui::CollapsingHeader::new(egui::RichText::new("Controls").strong())
             .show(ui, |ui| {
                 ui.label("WASD - scroll    Wheel - zoom    Click - select");
-                ui.label("Space - pause    +/- - speed (0.25x-128x)");
+                ui.label("Space - pause    +/- - speed (0x, 0.25x-128x)");
                 ui.label("B - Build   R - Roster   U - Upgrades   P - Policies");
                 ui.label("T - Patrols   Q - Squads   I - Factions   L - Log   H - Help");
                 ui.label("F - Follow NPC   1-9 - Squad target   ESC - Menu");

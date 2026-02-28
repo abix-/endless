@@ -438,13 +438,28 @@ fn game_escape_system(
     // Time controls only when pause menu is closed
     if !ui_state.pause_menu_open {
         if keys.just_pressed(KeyCode::Space) {
-            game_time.paused = !game_time.paused;
+            if game_time.is_paused() {
+                if game_time.time_scale <= 0.0 {
+                    game_time.time_scale = 1.0;
+                }
+                game_time.paused = false;
+            } else {
+                game_time.paused = true;
+            }
         }
         if keys.just_pressed(KeyCode::Equal) {
-            game_time.time_scale = (game_time.time_scale * 2.0).min(128.0);
+            if game_time.time_scale <= 0.0 {
+                game_time.time_scale = 0.25;
+            } else {
+                game_time.time_scale = (game_time.time_scale * 2.0).min(128.0);
+            }
         }
         if keys.just_pressed(KeyCode::Minus) {
-            game_time.time_scale = (game_time.time_scale / 2.0).max(0.25);
+            if game_time.time_scale <= 0.25 {
+                game_time.time_scale = 0.0;
+            } else {
+                game_time.time_scale = (game_time.time_scale / 2.0).max(0.25);
+            }
         }
     }
 }

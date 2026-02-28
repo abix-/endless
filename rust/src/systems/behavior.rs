@@ -106,6 +106,7 @@ pub fn arrival_system(
     mut npc_q: Query<(Entity, &EntitySlot, &Job, &TownId, &mut Activity, &Home, &mut NpcWorkState), (Without<Building>, Without<Dead>)>,
 ) {
     let _t = timings.scope("arrival");
+    if game_time.is_paused() { return; }
     let positions = &gpu_state.positions;
     const DELIVERY_RADIUS: f32 = 50.0;
     const MAX_DRIFT: f32 = 20.0;
@@ -336,6 +337,7 @@ pub fn decision_system(
     decision_npc_q: Query<(Entity, &EntitySlot, &Job, &TownId, &Faction), (Without<Building>, Without<Dead>)>,
 ) {
     let _t = extras.timings.scope("decision");
+    if game_time.is_paused() { return; }
     let profiling = extras.timings.enabled;
 
     // Sync NPC log filter state from settings + selected NPC
@@ -377,9 +379,11 @@ pub fn decision_system(
     let mut n_ws_stale: u32 = 0;
 
     // Reconcile per-farm farmer ownership for this frame using NPC work states.
-    // If multiple farmers reference the same farm slot, the lowest NPC slot keeps it.
+    // Fairness rule: incumbent workers keep ownership.
+    // Rank claimants by activity so `Working` beats `GoingToWork`, then deterministic slot tie-break.
     let mut farm_owner_counts: HashMap<usize, usize> = HashMap::new();
     let mut farm_owner_keep_slot: HashMap<usize, usize> = HashMap::new();
+    let mut farm_owner_keep_rank: HashMap<usize, u8> = HashMap::new();
     for (entity, slot, job, _, _) in decision_npc_q.iter() {
         if *job != Job::Farmer {
             continue;
@@ -390,15 +394,28 @@ pub fn decision_system(
         let Some(farm_slot) = ws.occupied_slot.or(ws.work_target) else {
             continue;
         };
-        *farm_owner_counts.entry(farm_slot).or_insert(0) += 1;
-        farm_owner_keep_slot
-            .entry(farm_slot)
-            .and_modify(|keep| {
-                if slot.0 < *keep {
-                    *keep = slot.0;
-                }
+        let rank = npc_state
+            .activity_q
+            .get(entity)
+            .ok()
+            .map(|a| match *a {
+                // Existing worker on-tile keeps claim over in-transit/new contenders.
+                Activity::Working => 0u8,
+                Activity::GoingToWork => 1u8,
+                _ => 2u8,
             })
-            .or_insert(slot.0);
+            .unwrap_or(3u8);
+        *farm_owner_counts.entry(farm_slot).or_insert(0) += 1;
+        if let Some(keep_rank) = farm_owner_keep_rank.get_mut(&farm_slot) {
+            let keep_slot = farm_owner_keep_slot.get_mut(&farm_slot).expect("keep_slot exists when rank exists");
+            if rank < *keep_rank || (rank == *keep_rank && slot.0 < *keep_slot) {
+                *keep_rank = rank;
+                *keep_slot = slot.0;
+            }
+        } else {
+            farm_owner_keep_rank.insert(farm_slot, rank);
+            farm_owner_keep_slot.insert(farm_slot, slot.0);
+        }
     }
 
     for (entity, slot, job, town_id, faction) in decision_npc_q.iter() {
@@ -1088,6 +1105,16 @@ pub fn decision_system(
                         work_position = None;
                     }
                     activity = Activity::Idle;
+                    if home != Vec2::ZERO {
+                        submit_intent(
+                            &mut intents,
+                            entity,
+                            home.x,
+                            home.y,
+                            MovementPriority::JobRoute,
+                            "farm:claim_lost_home",
+                        );
+                    }
                     npc_logs.push(
                         idx,
                         game_time.day(),
@@ -1113,6 +1140,16 @@ pub fn decision_system(
                 if occupied && !claimed {
                     work_position = None;
                     activity = Activity::Idle;
+                    if home != Vec2::ZERO {
+                        submit_intent(
+                            &mut intents,
+                            entity,
+                            home.x,
+                            home.y,
+                            MovementPriority::JobRoute,
+                            "farm:foreign_claim_home",
+                        );
+                    }
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Working on foreign reservation -> Reassign");
                     if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
                     break 'decide;
@@ -1128,6 +1165,16 @@ pub fn decision_system(
                     work_position = None;
                 }
                 activity = Activity::Idle;
+                if home != Vec2::ZERO {
+                    submit_intent(
+                        &mut intents,
+                        entity,
+                        home.x,
+                        home.y,
+                        MovementPriority::JobRoute,
+                        "farm:contention_home",
+                    );
+                }
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm contention -> Reassign");
                 if let Some(s) = _ps_wk { t_work += s.elapsed(); n_work += 1; }
                 break 'decide;
@@ -1547,10 +1594,12 @@ pub fn decision_system(
 /// Increment OnDuty tick counters (runs every frame for guards at posts).
 /// Separated from decision_system because we need mutable Activity access.
 pub fn on_duty_tick_system(
+    game_time: Res<GameTime>,
     mut q: Query<(&mut Activity, &CombatState), (Without<Building>, Without<Dead>)>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("on_duty_tick");
+    if game_time.is_paused() { return; }
     for (mut activity, combat_state) in q.iter_mut() {
         if combat_state.is_fighting() { continue; }
         if let Activity::OnDuty { ticks_waiting } = activity.as_mut() {

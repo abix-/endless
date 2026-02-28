@@ -70,7 +70,7 @@ pub fn game_time_system(
     // Reset tick flag each frame
     game_time.hour_ticked = false;
 
-    if game_time.paused {
+    if game_time.is_paused() {
         return;
     }
 
@@ -100,7 +100,7 @@ pub fn growth_system(
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("growth");
-    if game_time.paused { return; }
+    if game_time.is_paused() { return; }
 
     let hours_elapsed = game_time.delta(&time) / game_time.seconds_per_hour;
 

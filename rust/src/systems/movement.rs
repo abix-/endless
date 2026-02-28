@@ -62,6 +62,7 @@ pub fn resolve_movement_system(
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("resolve_movement");
+    if game_time.is_paused() { return; }
     let targets = &npc_gpu.targets;
     let minute_key = game_time.day() * 24 * 60 + game_time.hour() * 60 + game_time.minute();
 

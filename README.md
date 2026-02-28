@@ -27,7 +27,7 @@ Your AI rivals do the same — each with a distinct strategy
 | Left Click        | Place selected building                         |
 | Right Click / ESC | Cancel current building placement               |
 | Space             | Pause                                           |
-| +/-               | Time speed                                      |
+| +/-               | Time speed (`0x`, `0.25x`-`128x`)               |
 | R / U / P / T / Q | Roster / Upgrades / Policies / Patrols / Squads |
 | F5                | Quicksave                                       |
 | F9                | Quickload                                       |
@@ -56,5 +56,4 @@ Built with [Bevy 0.18](https://bevyengine.org/) ECS + GPU compute shaders (WGSL)
 - Engine: [Bevy 0.18](https://bevyengine.org/)
 - Sprites: [Kenney Roguelike RPG Pack](https://kenney.nl/assets/roguelike-rpg-pack)
 - Music: [Not Jam Music Pack](https://not-jam.itch.io/not-jam-music-pack)
-
 

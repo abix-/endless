@@ -15,6 +15,8 @@ Target: 50,000 NPCs + 50,000 buildings @ 60fps with pure Bevy ECS + WGSL compute
 
 See [completed.md](completed.md) for completed work moved out of active stages.
 Recent move: shared test-scene world materialization now uses the same `world::materialize_generated_world(...)` helper as main game startup.
+Recent move: pause semantics are now aligned between gameplay and test scenes so paused `AppState::Running` does not continue behavior/combat/movement decision updates.
+Recent move: farmer farm-claim fairness now preserves incumbent `Working` claimants over newcomers, and losing claimants retarget home immediately to avoid stale farm targets.
 
 ## Done Soon (Authority Safety)
 
