@@ -238,9 +238,13 @@ pub struct AiPlayerSave {
     pub grid_idx: usize,
     pub kind: u8,         // 0=Raider, 1=Builder
     pub personality: u8,  // 0=Aggressive, 1=Balanced, 2=Economic
+    #[serde(default = "default_road_style")]
+    pub road_style: u8,   // 0=None, 1=Cardinal, 2=Grid4, 3=Grid5
     #[serde(default = "default_true")]
     pub active: bool,
 }
+
+fn default_road_style() -> u8 { 2 } // Grid4 for old saves
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct MigrationSave {
@@ -571,6 +575,12 @@ pub fn collect_save_data(
                 AiPersonality::Balanced => 1,
                 AiPersonality::Economic => 2,
             },
+            road_style: match p.road_style {
+                RoadStyle::None => 0,
+                RoadStyle::Cardinal => 1,
+                RoadStyle::Grid4 => 2,
+                RoadStyle::Grid5 => 3,
+            },
             active: p.active,
         }
     }).collect();
@@ -825,6 +835,12 @@ pub fn apply_save(
                 0 => AiPersonality::Aggressive,
                 2 => AiPersonality::Economic,
                 _ => AiPersonality::Balanced,
+            },
+            road_style: match p.road_style {
+                0 => RoadStyle::None,
+                1 => RoadStyle::Cardinal,
+                3 => RoadStyle::Grid5,
+                _ => RoadStyle::Grid4,
             },
             last_actions: VecDeque::new(),
             active: p.active,

@@ -54,6 +54,7 @@ For each active projectile:
 1. **Lifetime**: `lifetime -= delta`. If <= 0, deactivate, hide at (-9999, -9999), and write `proj_hits[i] = (-2, 0)` (expired sentinel for CPU slot recycling).
 2. **Movement**: `pos += velocity * delta`
 3. **Collision**: Skip if already hit. Compute grid cell, scan 3x3 neighborhood of entity spatial grid (contains both NPCs and buildings):
+   - Skip shooter entity (`entity_idx == proj_shooters[i]`) — prevents self-collision with source
    - Skip same faction or neutral faction -1 (no friendly fire)
    - Skip dead entities (`health <= 0`)
    - Oriented rectangle collision (long along velocity, thin perpendicular)

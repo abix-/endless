@@ -591,6 +591,7 @@ fn create_ai_players(
     town_grids: &TownGrids,
 ) -> Vec<crate::systems::AiPlayer> {
     use crate::systems::{AiKind, AiPlayer, AiPersonality};
+    use crate::systems::ai_player::RoadStyle;
     use rand::Rng;
     let personalities = [AiPersonality::Aggressive, AiPersonality::Balanced, AiPersonality::Economic];
     let mut rng = rand::rng();
@@ -601,8 +602,9 @@ fn create_ai_players(
             if town.faction > 0 {
                 let kind = if town.sprite_type == 1 { AiKind::Raider } else { AiKind::Builder };
                 let personality = personalities[rng.random_range(0..personalities.len())];
+                let road_style = RoadStyle::random(&mut rng);
                 players.push(AiPlayer {
-                    town_data_idx: tdi, grid_idx, kind, personality,
+                    town_data_idx: tdi, grid_idx, kind, personality, road_style,
                     last_actions: std::collections::VecDeque::new(),
                     active: true, squad_indices: Vec::new(),
                     squad_cmd: std::collections::HashMap::new(),

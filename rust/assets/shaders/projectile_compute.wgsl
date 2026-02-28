@@ -151,6 +151,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
                 if (entity_idx < 0 || entity_idx >= ec) { continue; }
 
+                // Skip shooter (prevent self-collision with source entity)
+                if (entity_idx == proj_shooters[i]) { continue; }
+
                 // Skip same faction (no friendly fire)
                 if (entity_factions[entity_idx] == my_faction || entity_factions[entity_idx] == -1) { continue; }
 

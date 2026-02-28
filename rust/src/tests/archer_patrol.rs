@@ -1,5 +1,5 @@
 //! Archer Patrol Cycle Test (5 phases)
-//! Validates: OnDuty → Patrolling → OnDuty → rest when tired → resume when rested.
+//! Validates: OnDuty -> Patrolling -> OnDuty -> rest when tired -> resume when rested.
 
 use bevy::prelude::*;
 use crate::components::*;
@@ -14,28 +14,18 @@ pub fn setup(mut params: TestSetupParams) {
     for (order, &(gx, gy)) in [(300.0, 300.0), (500.0, 300.0), (500.0, 500.0), (300.0, 500.0)].iter().enumerate() {
         params.add_waypoint(gx, gy, 0, order as u32);
     }
-    // Beds for resting
-    for i in 0..2 {
-        params.add_bed(380.0 + (i as f32 * 40.0), 420.0);
+
+    // Archer homes drive spawning in test scenes just like normal gameplay.
+    for (x, y) in [(360.0, 420.0), (400.0, 420.0), (440.0, 420.0), (480.0, 420.0)] {
+        params.add_building(crate::world::BuildingKind::ArcherHome, x, y, 0);
     }
+
     params.init_economy(1);
     params.game_time.time_scale = 1.0;
     params.focus_camera(400.0, 400.0);
 
-    // Spawn 1 archer at post 0 (job=1, starting_post=0)
-    let slot = params.slot_alloc.alloc().expect("slot alloc");
-    params.spawn_events.write(crate::messages::SpawnNpcMsg {
-        slot_idx: slot,
-        x: 300.0, y: 300.0,
-        job: 1, faction: 0, town_idx: 0,
-        home_x: 400.0, home_y: 420.0,
-        work_x: -1.0, work_y: -1.0,
-        starting_post: 0,
-        attack_type: 0,
-    });
-
-    params.test_state.phase_name = "Waiting for archer spawn...".into();
-    info!("archer-patrol: setup — 1 archer, 4 waypoints");
+    params.test_state.phase_name = "Waiting for archer home spawns...".into();
+    info!("archer-patrol: setup - 4 archer homes, 4 waypoints");
 }
 
 pub fn tick(
@@ -48,7 +38,14 @@ pub fn tick(
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
     let archer_count = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Archer).count();
-    if !test.require_entity(archer_count, elapsed, "archer") { return; }
+    if archer_count == 0 {
+        test.phase_name = "Waiting for archer spawns...".into();
+        // Spawner-driven startup can take longer than manual spawn.
+        if elapsed > 10.0 {
+            test.fail_phase(elapsed, "No archer entity");
+        }
+        return;
+    }
 
     // Start energy near tired threshold so rest triggers within 30s
     if !test.get_flag("energy_set") {
@@ -75,7 +72,7 @@ pub fn tick(
                 test.fail_phase(elapsed, format!("on_duty=0 patrolling={}", patrolling));
             }
         }
-        // Phase 2: After ARCHER_PATROL_WAIT ticks → Patrolling
+        // Phase 2: After ARCHER_PATROL_WAIT ticks -> Patrolling
         2 => {
             test.phase_name = format!("patrolling={} on_duty={} e={:.0}", patrolling, on_duty, energy);
             if patrolling > 0 {
@@ -87,7 +84,7 @@ pub fn tick(
                 test.fail_phase(elapsed, format!("patrolling=0 ticks={}", ticks));
             }
         }
-        // Phase 3: Arrives at next post → OnDuty again
+        // Phase 3: Arrives at next post -> OnDuty again
         3 => {
             test.phase_name = format!("on_duty={} patrolling={} e={:.0}", on_duty, patrolling, energy);
             if on_duty > 0 {
@@ -96,7 +93,7 @@ pub fn tick(
                 test.fail_phase(elapsed, format!("on_duty=0 patrolling={}", patrolling));
             }
         }
-        // Phase 4: Energy < ENERGY_HUNGRY → goes to rest
+        // Phase 4: Energy < ENERGY_HUNGRY -> goes to rest
         4 => {
             test.phase_name = format!("e={:.0} resting={} going_rest={}", energy, resting, going_rest);
             if resting > 0 || going_rest > 0 {
@@ -107,7 +104,7 @@ pub fn tick(
                 test.fail_phase(elapsed, format!("energy={:.0} never reached hungry", energy));
             }
         }
-        // Phase 5: Energy recovers → archer wakes from rest
+        // Phase 5: Energy recovers -> archer wakes from rest
         5 => {
             test.phase_name = format!("e={:.0} on_duty={} patrolling={} resting={}", energy, on_duty, patrolling, resting);
             if energy >= ENERGY_WAKE_THRESHOLD && resting == 0 {

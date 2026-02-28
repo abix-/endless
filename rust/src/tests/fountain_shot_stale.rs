@@ -97,11 +97,8 @@ pub fn tick(
         y: ty,
     }));
 
-    // Analyze only new tower projectile spawns this frame (tower shots have shooter == -1).
+    // Analyze only new tower projectile spawns this frame (tower shots have shooter == building slot).
     for &idx in &writes.spawn_dirty_indices {
-        if writes.shooters.get(idx).copied().unwrap_or(0) != -1 {
-            continue;
-        }
 
         let spawn_order = test.count("tower_spawns") + 1;
         test.inc("tower_spawns");

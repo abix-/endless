@@ -430,7 +430,7 @@ pub fn building_tower_system(
                     vy: dir_y * stats.proj_speed,
                     damage: stats.damage,
                     faction,
-                    shooter: -1,
+                    shooter: bld_slot as i32,
                     lifetime: stats.proj_lifetime,
                 }));
             }

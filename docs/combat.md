@@ -161,7 +161,7 @@ Tower auto-attack using GPU spatial grid targeting. Towers are in the unified en
 - State length auto-syncs with building count each tick
 - **Fountains**: `FOUNTAIN_TOWER` (range=400, damage=15, cooldown=1.5s, proj_speed=350, proj_lifetime=1.5s). Always-on — `attack_enabled` refreshed from `is_alive(town.center)` every tick (all alive town centers shoot). Strong enough to defend spawn area.
 - **GPU-side targeting**: Reads `GpuReadState.combat_targets[bld_slot]` from readback buffer (building slot IS the GPU index — unified namespace, no offset). The GPU found the nearest enemy via the spatial grid (same O(1) grid lookup as NPC targeting). `combat_range` = 400.0 to cover `FOUNTAIN_TOWER.range`. Only NPC targets are valid (towers skip building targets via `EntityMap` check).
-- Tower loop: for each enabled building, look up building slot via `EntityMap.iter_kind_for_town(Fountain, town_idx).next()` (debug_assert one per town), read GPU target, emit `ProjGpuUpdateMsg(ProjGpuUpdate::Spawn)` with `shooter: -1`
+- Tower loop: for each enabled building, look up building slot via `EntityMap.iter_kind_for_town(Fountain, town_idx).next()` (debug_assert one per town), read GPU target, emit `ProjGpuUpdateMsg(ProjGpuUpdate::Spawn)` with `shooter: bld_slot` (building's unified entity slot — enables GPU self-collision skip so towers don't hit themselves)
 - DRY: adding a new tower building kind requires a `TowerStats` const, a `TowerKindState` field in `TowerState`, and a block in `building_tower_system`. Building flags in `world.rs` + extract mapping in `npc_render.rs` handle the GPU side.
 
 

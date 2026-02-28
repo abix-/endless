@@ -187,7 +187,7 @@ impl Default for EntityGpuState {
         Self {
             positions: vec![-9999.0; max * 2],
             targets: vec![0.0; max * 2],
-            speeds: vec![100.0; max],
+            speeds: vec![0.0; max],
             factions: vec![-1; max],
             healths: vec![0.0; max],
             arrivals: vec![0; max],

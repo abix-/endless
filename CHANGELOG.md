@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-02-28d
+
+- **randomized AI road placement** — added `RoadStyle` enum (None/Cardinal/Grid4/Grid5) randomly assigned per AI town at creation, independent of personality; decoupled road patterns from `AiPersonality`; threaded `road_style` through all building/waypoint/scoring functions; persisted in save files with Grid4 default for backward compat
+- **projectile self-collision skip** — GPU projectile compute now skips shooter entity (`entity_idx == proj_shooters[i]`), preventing projectiles from colliding with their source; tower `building_tower_system` now passes `bld_slot` as shooter instead of `-1`
+- **GPU default speed fix** — `EntityGpuState` default speeds changed from `100.0` to `0.0` so uninitialized entity slots don't move in the spatial grid
+- **archer patrol test uses spawner-driven setup** — test now places ArcherHome buildings instead of manually spawning NPCs, matching normal gameplay flow
+
 ## 2026-02-28c
 
 - **`0x` speed now behaves as pause** - added `GameTime::is_paused()` (`paused || time_scale <= 0.0`) and switched behavior/combat/movement/economy/energy gating plus HUD pause label to use unified paused semantics

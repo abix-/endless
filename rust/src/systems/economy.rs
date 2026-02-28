@@ -569,11 +569,12 @@ fn create_ai_town(
     res.npcs_by_town.0.resize(num_towns, Vec::new());
     res.policies.policies.resize(num_towns, PolicySet::default());
 
-    // Create AiPlayer with random personality
+    // Create AiPlayer with random personality and road style
     let ai_kind = if is_raider { AiKind::Raider } else { AiKind::Builder };
     let mut rng = rand::rng();
     let personalities = [AiPersonality::Aggressive, AiPersonality::Balanced, AiPersonality::Economic];
     let personality = personalities[rng.random_range(0..personalities.len())];
+    let road_style = super::ai_player::RoadStyle::random(&mut rng);
     if let Some(policy) = res.policies.policies.get_mut(town_data_idx) {
         *policy = personality.default_policies();
         policy.mining_radius = super::ai_player::initial_mining_radius(entity_map, center);
@@ -583,6 +584,7 @@ fn create_ai_town(
         grid_idx,
         kind: ai_kind,
         personality,
+        road_style,
         last_actions: std::collections::VecDeque::new(),
         active: false,
         squad_indices: Vec::new(),
