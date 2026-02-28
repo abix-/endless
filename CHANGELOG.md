@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-28f
+
+- **building inspector GPU diagnostics** — building Copy Debug Info and inline inspector now show GPU raw state (position/target/health/faction/flags/sprite via `EntityGpuState`), slot allocator status (`entity_slots.free` membership + pool metrics), EntityMap cross-references (building instance + NPC entry + entity mapping), and selection overlay expected values; `BuildingInspectorData` gains `EntitySlots` field
+
 ## 2026-02-28e
 
 - **GPU selection brackets** — moved selection overlay from egui CPU painter to GPU render pipeline; new `SelectionBracket` StorageDrawMode with `SelectionInstance` (slot/color/scale/y_offset), `vertex_selection` entry point reads `npc_positions[slot]` from storage buffer, procedural corner brackets rendered in fragment shader at `atlas_id=9`; cyan for selected NPC, gold for selected building, green for DirectControl group (capped at 200); LOD-aware (discarded below `lod_zoom`); removed `selection_overlay_system` + `draw_corner_brackets` from `game_hud.rs`

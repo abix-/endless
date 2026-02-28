@@ -167,6 +167,7 @@ pub struct BottomPanelData<'w> {
 pub struct BuildingInspectorData<'w, 's> {
     selected_building: Res<'w, SelectedBuilding>,
     grid: Res<'w, WorldGrid>,
+    entity_slots: Res<'w, EntitySlots>,
     food_storage: ResMut<'w, FoodStorage>,
     gold_storage: ResMut<'w, GoldStorage>,
     combat_config: Res<'w, CombatConfig>,
@@ -604,7 +605,7 @@ fn inspector_content(
         rename_state.slot = -1;
         rename_state.text.clear();
         if bld_data.selected_building.active {
-            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty_writers, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, gpu_state, faction_select);
+            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty_writers, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, gpu_state, buffer_writes, faction_select);
             return;
         }
         if dc_count > 0 {
@@ -620,7 +621,7 @@ fn inspector_content(
         rename_state.slot = -1;
         rename_state.text.clear();
         if bld_data.selected_building.active {
-            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty_writers, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, gpu_state, faction_select);
+            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty_writers, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, gpu_state, buffer_writes, faction_select);
             return;
         }
         if dc_count > 0 {
@@ -636,7 +637,7 @@ fn inspector_content(
         rename_state.slot = -1;
         rename_state.text.clear();
         if bld_data.selected_building.active {
-            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty_writers, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, gpu_state, faction_select);
+            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty_writers, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, gpu_state, buffer_writes, faction_select);
         } else {
             ui.label("Click an NPC or building to inspect");
         }
@@ -1166,6 +1167,7 @@ fn building_inspector_content(
     settings: &UserSettings,
     combat_log: &CombatLog,
     gpu_state: &GpuReadState,
+    buffer_writes: &EntityGpuState,
     faction_select: &mut MessageWriter<crate::messages::SelectFactionMsg>,
 ) {
     let Some((kind, bld_town_idx, world_pos, col, row)) =
@@ -1427,6 +1429,8 @@ fn building_inspector_content(
             .and_then(|e| bld.building_health.get(e).ok())
             .map(|h| h.0)
             .unwrap_or(0.0);
+        let selected_slot = bld.selected_building.slot
+            .or_else(|| bld.entity_map.find_by_position(world_pos).map(|inst| inst.slot));
 
         let overlay_debug = bld.selected_building.slot.and_then(|slot| {
             let i = slot * 2;
@@ -1452,6 +1456,79 @@ fn building_inspector_content(
             ));
         } else if let Some(slot) = bld.selected_building.slot {
             ui.label(format!("Overlay anchor (GPU): unavailable for slot {}", slot));
+        }
+        if let Some(slot) = selected_slot {
+            let slot_building = bld.entity_map.get_instance(slot);
+            let slot_npc = bld.entity_map.get_npc(slot);
+            ui.label(format!(
+                "Slot owner: building={} npc={}",
+                slot_building.is_some(),
+                slot_npc.is_some(),
+            ));
+            if let Some(inst) = slot_building {
+                ui.label(format!(
+                    "Slot building: kind={:?} pos=({:.0}, {:.0}) town={} faction={}",
+                    inst.kind, inst.position.x, inst.position.y, inst.town_idx, inst.faction
+                ));
+            }
+            if let Some(npc) = slot_npc {
+                ui.label(format!(
+                    "Slot NPC: entity={:?} job={:?} town={} faction={} dead={}",
+                    npc.entity, npc.job, npc.town_idx, npc.faction, npc.dead
+                ));
+            }
+            if let Some(&entity) = bld.entity_map.entities.get(&slot) {
+                ui.label(format!("Slot entity map entry: {:?}", entity));
+            }
+
+            let i2 = slot * 2;
+            let si = slot * 4;
+            if i2 + 1 < buffer_writes.positions.len() {
+                let px = buffer_writes.positions[i2];
+                let py = buffer_writes.positions[i2 + 1];
+                ui.label(format!("GPU raw pos: ({:.0}, {:.0})", px, py));
+            }
+            if i2 + 1 < buffer_writes.targets.len() {
+                let tx = buffer_writes.targets[i2];
+                let ty = buffer_writes.targets[i2 + 1];
+                ui.label(format!("GPU raw target: ({:.0}, {:.0})", tx, ty));
+            }
+            if let Some(h) = buffer_writes.healths.get(slot).copied() {
+                ui.label(format!("GPU raw health: {:.1}", h));
+            }
+            if let Some(f) = buffer_writes.factions.get(slot).copied() {
+                ui.label(format!("GPU raw faction: {}", f));
+            }
+            if let Some(flags) = buffer_writes.entity_flags.get(slot).copied() {
+                let is_building = (flags & crate::constants::ENTITY_FLAG_BUILDING) != 0;
+                let is_combat = (flags & crate::constants::ENTITY_FLAG_COMBAT) != 0;
+                let untargetable = (flags & crate::constants::ENTITY_FLAG_UNTARGETABLE) != 0;
+                ui.label(format!(
+                    "GPU raw flags: {} (building={} combat={} untargetable={})",
+                    flags, is_building, is_combat, untargetable
+                ));
+            }
+            if si + 2 < buffer_writes.sprite_indices.len() {
+                let scol = buffer_writes.sprite_indices[si];
+                let srow = buffer_writes.sprite_indices[si + 1];
+                let satlas = buffer_writes.sprite_indices[si + 2];
+                ui.label(format!(
+                    "GPU raw sprite: col={:.1} row={:.1} atlas={:.1}",
+                    scol, srow, satlas
+                ));
+            }
+
+            let free_hits = bld.entity_slots.free.iter().filter(|&&s| s == slot).count();
+            ui.label(format!(
+                "Allocator: slot_in_free_list={} free_list_hits={} next={} free_len={}",
+                free_hits > 0, free_hits, bld.entity_slots.next, bld.entity_slots.free.len()
+            ));
+            if bld.selected_building.active {
+                ui.label(format!(
+                    "SelectionOverlay expected: slot={} color=(1.00,0.86,0.35,0.90) scale=36 y_offset=2",
+                    slot
+                ));
+            }
         }
 
         if ui.button("Copy Debug Info").clicked() {
@@ -1487,6 +1564,79 @@ fn building_inspector_content(
             }
             if let Some(inst) = bld.entity_map.find_by_position(world_pos) {
                 info.push_str(&format!("Slot: {}\n", inst.slot));
+            }
+            if let Some(slot) = selected_slot {
+                let slot_building = bld.entity_map.get_instance(slot);
+                let slot_npc = bld.entity_map.get_npc(slot);
+                info.push_str(&format!(
+                    "Slot owner: building={} npc={}\n",
+                    slot_building.is_some(),
+                    slot_npc.is_some(),
+                ));
+                if let Some(inst) = slot_building {
+                    info.push_str(&format!(
+                        "Slot building: kind={:?} pos=({:.0}, {:.0}) town={} faction={}\n",
+                        inst.kind, inst.position.x, inst.position.y, inst.town_idx, inst.faction
+                    ));
+                }
+                if let Some(npc) = slot_npc {
+                    info.push_str(&format!(
+                        "Slot NPC: entity={:?} job={:?} town={} faction={} dead={}\n",
+                        npc.entity, npc.job, npc.town_idx, npc.faction, npc.dead
+                    ));
+                }
+                if let Some(&entity) = bld.entity_map.entities.get(&slot) {
+                    info.push_str(&format!("Slot entity map entry: {:?}\n", entity));
+                }
+
+                let i2 = slot * 2;
+                let si = slot * 4;
+                if i2 + 1 < buffer_writes.positions.len() {
+                    let px = buffer_writes.positions[i2];
+                    let py = buffer_writes.positions[i2 + 1];
+                    info.push_str(&format!("GPU raw pos: ({:.0}, {:.0})\n", px, py));
+                }
+                if i2 + 1 < buffer_writes.targets.len() {
+                    let tx = buffer_writes.targets[i2];
+                    let ty = buffer_writes.targets[i2 + 1];
+                    info.push_str(&format!("GPU raw target: ({:.0}, {:.0})\n", tx, ty));
+                }
+                if let Some(h) = buffer_writes.healths.get(slot).copied() {
+                    info.push_str(&format!("GPU raw health: {:.1}\n", h));
+                }
+                if let Some(f) = buffer_writes.factions.get(slot).copied() {
+                    info.push_str(&format!("GPU raw faction: {}\n", f));
+                }
+                if let Some(flags) = buffer_writes.entity_flags.get(slot).copied() {
+                    let is_building = (flags & crate::constants::ENTITY_FLAG_BUILDING) != 0;
+                    let is_combat = (flags & crate::constants::ENTITY_FLAG_COMBAT) != 0;
+                    let untargetable = (flags & crate::constants::ENTITY_FLAG_UNTARGETABLE) != 0;
+                    info.push_str(&format!(
+                        "GPU raw flags: {} (building={} combat={} untargetable={})\n",
+                        flags, is_building, is_combat, untargetable
+                    ));
+                }
+                if si + 2 < buffer_writes.sprite_indices.len() {
+                    let scol = buffer_writes.sprite_indices[si];
+                    let srow = buffer_writes.sprite_indices[si + 1];
+                    let satlas = buffer_writes.sprite_indices[si + 2];
+                    info.push_str(&format!(
+                        "GPU raw sprite: col={:.1} row={:.1} atlas={:.1}\n",
+                        scol, srow, satlas
+                    ));
+                }
+
+                let free_hits = bld.entity_slots.free.iter().filter(|&&s| s == slot).count();
+                info.push_str(&format!(
+                    "Allocator: slot_in_free_list={} free_list_hits={} next={} free_len={}\n",
+                    free_hits > 0, free_hits, bld.entity_slots.next, bld.entity_slots.free.len()
+                ));
+                if bld.selected_building.active {
+                    info.push_str(&format!(
+                        "SelectionOverlay expected: slot={} color=(1.00,0.86,0.35,0.90) scale=36 y_offset=2\n",
+                        slot
+                    ));
+                }
             }
             if let Some((slot, gx, gy, dx, dy)) = overlay_debug {
                 info.push_str(&format!(
