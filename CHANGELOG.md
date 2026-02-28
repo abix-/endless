@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-27p
+
+- **fix food sprite persisting after delivery** — `arrival_system` delivery path (Returning→Idle) was missing `MarkVisualDirty` emit, so event-driven `build_visual_upload` never cleared the carried-food sprite; added dirty signal at delivery writeback
+
 ## 2026-02-27o
 
 - **fix double NPC spawn at game start** — removed `spawn_npcs_from_spawners` which spawned NPCs immediately at world gen; combined with `respawn_timer: 0.0` on new homes, `spawner_respawn_system` would spawn a second NPC on the first hour tick (4 archer homes → 8 archers); homes now start with `respawn_timer: 0.0, npc_slot: -1` and `spawner_respawn_system` handles all initial spawns on the first hour tick

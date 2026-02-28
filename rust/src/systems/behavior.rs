@@ -151,8 +151,9 @@ pub fn arrival_system(
                 }
             }
         }
-        if let Ok((_, _, _, _, mut act, _, _)) = npc_q.get_mut(entity) {
+        if let Ok((_, slot, _, _, mut act, _, _)) = npc_q.get_mut(entity) {
             *act = Activity::Idle;
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: slot.0 }));
         }
     }
 
