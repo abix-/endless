@@ -37,6 +37,7 @@ pub fn setup(
         attack_type: 0,
     });
 
+    params.focus_camera(400.0, 350.0);
     params.test_state.phase_name = "Waiting for miner...".into();
     info!("miner-cycle: setup — 1 miner, 1 gold mine");
 }

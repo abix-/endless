@@ -17,6 +17,7 @@ pub fn setup(mut params: TestSetupParams) {
     params.add_bed(400.0, 450.0);
     params.init_economy(1);
     params.game_time.time_scale = 1.0;
+    params.focus_camera(400.0, 400.0);
 
     // Spawn 1 farmer to tend the farm (speeds growth to Ready)
     let slot = params.slot_alloc.alloc().expect("slot alloc");

@@ -16,6 +16,7 @@ pub fn setup(
     mut food_storage: ResMut<FoodStorage>,
     mut faction_stats: ResMut<FactionStats>,
     mut test_state: ResMut<TestState>,
+    mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
 ) {
     world_data.towns.push(world::Town {
         name: "Archers".into(),
@@ -54,6 +55,10 @@ pub fn setup(
         attack_type: 1, // ranged
     });
 
+    if let Ok(mut cam) = camera_query.single_mut() {
+        cam.translation.x = 400.0;
+        cam.translation.y = 300.0;
+    }
     test_state.phase_name = "Waiting for spawns...".into();
     info!("projectiles: setup — 2 ranged fighters, 100px apart");
 }

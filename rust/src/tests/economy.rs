@@ -49,6 +49,7 @@ pub fn setup(
         attack_type: 0,
     });
 
+    params.focus_camera(400.0, 400.0);
     params.test_state.phase_name = "Waiting for farmer...".into();
     info!("economy: setup — 1 farmer, 1 farm at 95%, raider town with 10 food");
 }

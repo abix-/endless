@@ -22,6 +22,7 @@ pub fn setup(mut params: TestSetupParams) {
         params.add_building(crate::world::BuildingKind::FarmerHome, fx, HOME_Y, 0);
     }
     params.init_economy(1);
+    params.focus_camera(400.0, 400.0);
 
     params.test_state.phase_name = "Waiting for spawns...".into();
     info!("movement: setup — 3 farmers, homes at y={}, farms at y={}", HOME_Y, FARM_Y);

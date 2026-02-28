@@ -34,6 +34,7 @@ use std::collections::HashMap;
 
 use crate::components::{EntitySlot, FarmReadyMarker};
 use crate::messages::SpawnNpcMsg;
+use crate::render::MainCamera;
 use crate::resources::*;
 use crate::world;
 
@@ -84,7 +85,7 @@ pub struct CleanupEndless<'w> {
 // ============================================================================
 
 #[derive(SystemParam)]
-pub struct TestSetupParams<'w> {
+pub struct TestSetupParams<'w, 's> {
     pub slot_alloc: ResMut<'w, EntitySlots>,
     pub spawn_events: MessageWriter<'w, SpawnNpcMsg>,
     pub world_data: ResMut<'w, world::WorldData>,
@@ -94,6 +95,7 @@ pub struct TestSetupParams<'w> {
     pub game_time: ResMut<'w, GameTime>,
     pub test_state: ResMut<'w, TestState>,
     pub world_grid: ResMut<'w, world::WorldGrid>,
+    pub camera_q: Query<'w, 's, &'static mut Transform, With<MainCamera>>,
 }
 
 /// Shared test setup params bundle — stays under 16-param limit.
@@ -102,7 +104,15 @@ pub struct BuildingInitParams<'w> {
     pub entity_map: ResMut<'w, EntityMap>,
 }
 
-impl TestSetupParams<'_> {
+impl TestSetupParams<'_, '_> {
+    /// Focus camera on a world position so the test scene is visible.
+    pub fn focus_camera(&mut self, x: f32, y: f32) {
+        if let Ok(mut cam) = self.camera_q.single_mut() {
+            cam.translation.x = x;
+            cam.translation.y = y;
+        }
+    }
+
     /// Add a default faction-0 town at (400,400).
     /// Auto-inits WorldGrid on first call so building atlas composites correctly.
     pub fn add_town(&mut self, name: &str) {
@@ -440,7 +450,7 @@ pub fn register_tests(app: &mut App) {
     // farmer-cycle
     registry.tests.push(TestEntry {
         name: "farmer-cycle".into(),
-        description: "Farmer: work → tired → rest → recover → return".into(),
+        description: "3 farmer homes + 2 farms: occupancy cap, one farmer idle".into(),
         phase_count: 5,
         time_scale: 1.0,
     });
@@ -1016,4 +1026,5 @@ fn cleanup_test_world(
 
     info!("Test cleanup: despawned {} NPCs + {} tilemap chunks, reset resources", count, tilemap_count);
 }
+
 

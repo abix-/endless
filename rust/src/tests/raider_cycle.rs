@@ -50,6 +50,7 @@ pub fn setup(
         });
     }
 
+    params.focus_camera(400.0, 250.0);
     params.test_state.phase_name = "Waiting for raiders...".into();
     info!("raider-cycle: setup — 3 raiders, 3 ready farms");
 }

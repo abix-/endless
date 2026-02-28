@@ -36,6 +36,7 @@ pub(super) fn setup(
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     mut state: EndlessModeSetupState,
+    mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
 ) {
     config.gen_style = WorldGenStyle::Continents;
     config.num_towns = 1;
@@ -76,6 +77,12 @@ pub(super) fn setup(
     state.test_state.counters.insert("initial_towns".into(), total_towns as u32);
     state.test_state.counters.insert("initial_fountain_hp".into(), total_towns as u32);
 
+    if let Some(town) = world_data.towns.first() {
+        if let Ok(mut cam) = camera_query.single_mut() {
+            cam.translation.x = town.center.x;
+            cam.translation.y = town.center.y;
+        }
+    }
     state.test_state.phase_name = "Checking AI towns...".into();
     info!("endless-mode: setup — {} towns, 6000x6000 world, endless enabled", total_towns);
 }

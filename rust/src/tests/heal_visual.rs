@@ -14,6 +14,7 @@ pub fn setup(mut params: TestSetupParams) {
     params.init_economy(1);
     params.food_storage.food[0] = 10; // enough food to prevent starvation
     params.game_time.time_scale = 1.0;
+    params.focus_camera(400.0, 400.0);
 
     // Spawn farmer at town center (inside healing radius)
     params.spawn_npc(0, 400.0, 400.0, 400.0, 410.0);

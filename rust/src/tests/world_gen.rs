@@ -17,6 +17,7 @@ pub fn setup(
     mut slot_alloc: ResMut<EntitySlots>,
     mut entity_map: ResMut<EntityMap>,
     mut test_state: ResMut<TestState>,
+    mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
 ) {
     // Generate the world using our config (default: 2 towns)
     town_grids.grids.clear();
@@ -29,6 +30,12 @@ pub fn setup(
     food_storage.init(total_towns);
     faction_stats.init(total_towns);
 
+    if let Some(town) = world_data.towns.first() {
+        if let Ok(mut cam) = camera_query.single_mut() {
+            cam.translation.x = town.center.x;
+            cam.translation.y = town.center.y;
+        }
+    }
     test_state.phase_name = "Checking grid dimensions...".into();
     info!("world-gen: setup — generated world with {} config towns", config.num_towns);
 }

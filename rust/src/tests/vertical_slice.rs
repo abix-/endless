@@ -113,6 +113,7 @@ pub fn setup(
         }
     }
 
+    params.focus_camera(400.0, 400.0);
     params.test_state.phase_name = "Waiting for spawns...".into();
     info!("vertical-slice: setup complete — 5 farmers, 2 guards, 5 raiders");
 }

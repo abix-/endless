@@ -13,6 +13,7 @@ pub fn setup(mut params: TestSetupParams) {
     params.add_building(crate::world::BuildingKind::Farm, 450.0, 400.0, 0);
     params.init_economy(1);
     params.game_time.time_scale = 1.0;
+    params.focus_camera(400.0, 400.0);
 
     // Spawn 1 farmer with work position at farm
     let slot = params.slot_alloc.alloc().expect("slot alloc");

@@ -16,6 +16,7 @@ pub fn setup(mut params: TestSetupParams) {
         params.spawn_npc(0, 300.0 + (i as f32 * 40.0), 400.0, 300.0 + (i as f32 * 40.0), 450.0);
     }
 
+    params.focus_camera(400.0, 400.0);
     params.test_state.phase_name = "Waiting for 5 NPCs...".into();
     info!("spawning: setup — 5 farmers");
 }

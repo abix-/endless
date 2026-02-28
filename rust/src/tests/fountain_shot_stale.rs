@@ -21,6 +21,7 @@ pub fn setup(
     mut food_storage: ResMut<FoodStorage>,
     mut faction_stats: ResMut<FactionStats>,
     mut test_state: ResMut<TestState>,
+    mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
 ) {
     // One town with a fountain tower.
     world_data.towns.push(world::Town {
@@ -52,6 +53,10 @@ pub fn setup(
         attack_type: 0,
     });
 
+    if let Ok(mut cam) = camera_query.single_mut() {
+        cam.translation.x = 400.0;
+        cam.translation.y = 400.0;
+    }
     test_state.phase_name = "Waiting for first tower projectile...".into();
     test_state.counters.insert("target_slot".into(), target_slot as u32);
     test_state.counters.insert("tower_spawns".into(), 0);

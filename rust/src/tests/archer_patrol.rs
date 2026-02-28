@@ -20,6 +20,7 @@ pub fn setup(mut params: TestSetupParams) {
     }
     params.init_economy(1);
     params.game_time.time_scale = 1.0;
+    params.focus_camera(400.0, 400.0);
 
     // Spawn 1 archer at post 0 (job=1, starting_post=0)
     let slot = params.slot_alloc.alloc().expect("slot alloc");

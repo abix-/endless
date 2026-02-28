@@ -37,6 +37,7 @@ pub(super) fn setup(
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
     mut spawn_writer: MessageWriter<crate::messages::SpawnNpcMsg>,
     mut state: AiBuildingSetupState,
+    mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
 ) {
     config.gen_style = WorldGenStyle::Continents;
     config.num_towns = 0;
@@ -76,6 +77,12 @@ pub(super) fn setup(
     state.endless.enabled = true;
     state.game_time.time_scale = 1.0;
 
+    if let Some(town) = world_data.towns.first() {
+        if let Ok(mut cam) = camera_query.single_mut() {
+            cam.translation.x = town.center.x;
+            cam.translation.y = town.center.y;
+        }
+    }
     state.test_state.phase_name = "Pick personality...".into();
     info!("ai-building: setup — {} towns, 1 AI, 100K food+gold, 1s interval",
         world_data.towns.len());
