@@ -7,7 +7,7 @@ use crate::constants::STARVING_HP_CAP;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, DirtyWriters};
 use crate::messages::CombatLogMsg;
 use crate::resources::{EntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, GpuSlotPool, GpuReadState, FactionStats, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SelectedBuilding, HealingZoneCache, BuildingHealState, ActiveHealingSlots, EndlessMode, SquadState, FoodStorage, GoldStorage};
-use std::collections::HashMap;
+
 use crate::systems::stats::{CombatConfig, TownUpgrades, UPGRADES, level_from_xp, resolve_combat_stats};
 use crate::constants::{UpgradeStatKind, ItemKind, building_def, npc_def};
 use crate::systems::economy::*;
@@ -489,13 +489,7 @@ pub fn healing_system(
     let mut healed_count = 0usize;
     let mut exit_count = 0usize;
 
-    // Precompute faction → zones lookup (HashMap<i32> because faction can be negative/sparse)
-    let mut faction_zones: HashMap<i32, Vec<&crate::resources::HealingZone>> = HashMap::new();
-    for zones in &cache.by_faction {
-        for zone in zones {
-            faction_zones.entry(zone.faction).or_default().push(zone);
-        }
-    }
+    // Use cache.by_faction directly — already Vec<Vec<HealingZone>> indexed by faction
 
     // ========================================================================
     // 1. Sustain-check: process active healing set every frame
@@ -533,7 +527,7 @@ pub fn healing_system(
         let fac = npc.faction;
         let mut in_zone = false;
         let mut zone_heal_rate = 0.0;
-        if let Some(zones) = faction_zones.get(&fac) {
+        if let Some(zones) = if fac >= 0 { cache.by_faction.get(fac as usize) } else { None } {
             for zone in zones.iter() {
                 let dx = px - zone.center.x;
                 let dy = py - zone.center.y;
@@ -599,7 +593,7 @@ pub fn healing_system(
             let py = positions[base + 1];
 
             // Check all same-faction zones using enter_radius_sq
-            if let Some(zones) = faction_zones.get(&npc.faction) {
+            if let Some(zones) = { let f = npc.faction; if f >= 0 { cache.by_faction.get(f as usize) } else { None } } {
                 for zone in zones.iter() {
                     let dx = px - zone.center.x;
                     let dy = py - zone.center.y;
@@ -650,7 +644,7 @@ pub fn healing_system(
             let x = bld_positions[idx * 2];
             let y = bld_positions[idx * 2 + 1];
             if faction.0 < 0 { continue; }
-            if let Some(zones) = faction_zones.get(&faction.0) {
+            if let Some(zones) = { let f = faction.0; if f >= 0 { cache.by_faction.get(f as usize) } else { None } } {
                 let mut zone_heal_rate = 0.0f32;
                 for zone in zones.iter() {
                     let dx = x - zone.center.x;

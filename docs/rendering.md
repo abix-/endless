@@ -17,7 +17,7 @@ Bevy's built-in sprite renderer creates one entity per sprite. At 16K NPCs, that
 
 - **1 entity per batch** (NpcBatch, ProjBatch) instead of 16,384 entities
 - **GPU compute data stays on GPU** — vertex shader reads positions/health directly from compute output via storage buffers (bind group 2), no readback needed for rendering
-- **Flat storage buffer uploads** — visual [f32;8] + equip [f32;24] per slot, two `write_buffer` calls per frame (~3.84MB at 30K NPCs)
+- **Per-dirty storage buffer uploads** — visual [f32;8] + equip [f32;24] per slot, only changed slots uploaded per frame via per-index `write_buffer` (typically <1KB vs ~3.84MB bulk at 30K NPCs)
 - **Multi-layer drawing** — body + up to 6 overlay layers (4 equipment + 2 visual indicators), each a separate `draw_indexed` call within one RenderCommand
 
 ## Data Flow
@@ -37,8 +37,8 @@ NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
                                       │
                                       ▼
                                extract_npc_data (ExtractSchedule)
-                               (hybrid writes from EntityGpuState: per-dirty-index for GPU-authoritative,
-                                bulk write_buffer for CPU-authoritative + visual/equip)
+                               (all per-dirty-index writes from EntityGpuState,
+                                visual/equip per-dirty-index via visual_uploaded_indices)
                                       │
                                       ▼
                                prepare_npc_buffers
@@ -345,7 +345,7 @@ The render pipeline runs in Bevy's render world after extract:
 | Phase | System | Purpose |
 |-------|--------|---------|
 | Extract | `extract_npc_batch` | Despawn stale render world NpcBatch, then clone fresh from main world |
-| Extract | `extract_npc_data` | Zero-clone GPU upload from EntityGpuState: hybrid writes (per-dirty-index for GPU-authoritative positions/arrivals/targets, bulk for CPU-authoritative speeds/factions/healths/flags; targets use deduped dirty indices with full-upload fallback on resize) + unconditional visual/equip writes via `Extract<Res<T>>` |
+| Extract | `extract_npc_data` | Zero-clone GPU upload from EntityGpuState: all buffers use per-dirty-index writes (positions/arrivals/targets/speeds/factions/healths/flags/half_sizes; targets have full-upload fallback on resize). Visual/equip upload also per-dirty-index via `visual_uploaded_indices` (full upload only on startup/load via `visual_full_upload` flag) |
 | Extract | `extract_proj_batch` | Despawn stale render world ProjBatch, then clone fresh from main world |
 | Extract | `extract_camera_state` | Build CameraState from Camera2d Transform + Projection + Window |
 | Extract | `extract_building_body_instances` | Zero-clone read of BuildingBodyInstances → BuildingBodyRenderBuffers (building body sprites from EntityGpuState via EntityMap) |

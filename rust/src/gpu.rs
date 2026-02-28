@@ -144,20 +144,21 @@ pub struct EntityGpuState {
     pub entity_flags: Vec<u32>,
     /// Hitbox half-sizes: [half_w, half_h] per entity (interleaved, stride 2)
     pub half_sizes: Vec<f32>,
-    // --- Per-buffer dirty flags (compute) ---
+    // --- Per-index dirty tracking (all buffers) ---
+    // Each Vec tracks which slot indices changed this frame.
+    // Positions/arrivals/targets were already per-index; speeds/factions/healths/flags/half_sizes
+    // converted from bulk bools to per-index for O(changed) GPU uploads instead of O(total).
     pub dirty_positions: bool,
     pub dirty_targets: bool,
-    pub dirty_speeds: bool,
-    pub dirty_factions: bool,
-    pub dirty_healths: bool,
     pub dirty_arrivals: bool,
-    pub dirty_flags: bool,
-    pub dirty_half_sizes: bool,
-    // --- Per-index tracking for GPU-authoritative buffers (positions + arrivals) ---
-    // GPU compute writes these every frame; CPU only touches them on spawn/teleport/hide/retarget.
     pub position_dirty_indices: Vec<usize>,
     pub arrival_dirty_indices: Vec<usize>,
     pub target_dirty_indices: Vec<usize>,
+    pub speed_dirty_indices: Vec<usize>,
+    pub faction_dirty_indices: Vec<usize>,
+    pub health_dirty_indices: Vec<usize>,
+    pub flags_dirty_indices: Vec<usize>,
+    pub half_size_dirty_indices: Vec<usize>,
     /// Slots hidden this frame — used by build_visual_upload to clear stale visual/equip data.
     pub hidden_indices: Vec<usize>,
     /// Last-known target buffer size for full-upload fallback detection.
@@ -179,6 +180,10 @@ pub struct NpcVisualUpload {
     pub equip_data: Vec<f32>,
     /// Number of entities packed
     pub entity_count: usize,
+    /// Slots whose visual/equip data was written this frame (for per-index GPU upload)
+    pub visual_uploaded_indices: Vec<usize>,
+    /// True when full visual rebuild happened (startup/load) — extract should do bulk upload
+    pub visual_full_upload: bool,
 }
 
 impl Default for EntityGpuState {
@@ -197,15 +202,15 @@ impl Default for EntityGpuState {
             half_sizes: vec![0.0; max * 2],
             dirty_positions: false,
             dirty_targets: false,
-            dirty_speeds: false,
-            dirty_factions: false,
-            dirty_healths: false,
             dirty_arrivals: false,
-            dirty_flags: false,
-            dirty_half_sizes: false,
             position_dirty_indices: Vec::new(),
             arrival_dirty_indices: Vec::new(),
             target_dirty_indices: Vec::new(),
+            speed_dirty_indices: Vec::new(),
+            faction_dirty_indices: Vec::new(),
+            health_dirty_indices: Vec::new(),
+            flags_dirty_indices: Vec::new(),
+            half_size_dirty_indices: Vec::new(),
             hidden_indices: Vec::new(),
             target_buffer_size: 0,
             visual_dirty_indices: Vec::new(),
@@ -245,25 +250,25 @@ impl EntityGpuState {
             GpuUpdate::SetSpeed { idx, speed } => {
                 if *idx < self.speeds.len() {
                     self.speeds[*idx] = *speed;
-                    self.dirty_speeds = true;
+                    self.speed_dirty_indices.push(*idx);
                 }
             }
             GpuUpdate::SetFaction { idx, faction } => {
                 if *idx < self.factions.len() {
                     self.factions[*idx] = *faction;
-                    self.dirty_factions = true;
+                    self.faction_dirty_indices.push(*idx);
                 }
             }
             GpuUpdate::SetHealth { idx, health } => {
                 if *idx < self.healths.len() {
                     self.healths[*idx] = *health;
-                    self.dirty_healths = true;
+                    self.health_dirty_indices.push(*idx);
                 }
             }
             GpuUpdate::ApplyDamage { idx, amount } => {
                 if *idx < self.healths.len() {
                     self.healths[*idx] = (self.healths[*idx] - amount).max(0.0);
-                    self.dirty_healths = true;
+                    self.health_dirty_indices.push(*idx);
                 }
             }
             GpuUpdate::Hide { idx } => {
@@ -310,7 +315,7 @@ impl EntityGpuState {
             GpuUpdate::SetFlags { idx, flags } => {
                 if *idx < self.entity_flags.len() {
                     self.entity_flags[*idx] = *flags;
-                    self.dirty_flags = true;
+                    self.flags_dirty_indices.push(*idx);
                 }
             }
             GpuUpdate::SetHalfSize { idx, half_w, half_h } => {
@@ -318,7 +323,7 @@ impl EntityGpuState {
                 if i + 1 < self.half_sizes.len() {
                     self.half_sizes[i] = *half_w;
                     self.half_sizes[i + 1] = *half_h;
-                    self.dirty_half_sizes = true;
+                    self.half_size_dirty_indices.push(*idx);
                 }
             }
         }
@@ -496,6 +501,8 @@ pub fn build_visual_upload(
             write_building_visual(es.0, &gpu_state, &mut upload);
         }
         gpu_state.visual_full_rebuild = false;
+        upload.visual_full_upload = true;
+        upload.visual_uploaded_indices.clear();
     } else {
         // Dirty-only: dedup then update only changed slots
         gpu_state.visual_dirty_indices.sort_unstable();
@@ -515,6 +522,14 @@ pub fn build_visual_upload(
                 clear_visual_slot(idx, &mut upload);
             }
         }
+        upload.visual_full_upload = false;
+        // Pass dirty indices to extract phase for per-index GPU upload
+        upload.visual_uploaded_indices.clear();
+        upload.visual_uploaded_indices.extend_from_slice(&gpu_state.visual_dirty_indices);
+        // Also include hidden indices (cleared earlier but need GPU upload)
+        upload.visual_uploaded_indices.extend_from_slice(&gpu_state.hidden_indices);
+        upload.visual_uploaded_indices.sort_unstable();
+        upload.visual_uploaded_indices.dedup();
     }
     gpu_state.visual_dirty_indices.clear();
 }
@@ -531,18 +546,18 @@ pub fn populate_gpu_state(
     slots: Res<GpuSlotPool>,
 ) {
     let sink_window_key = real_time.elapsed_secs_f64().floor() as i64;
-    // Reset dirty flags
+    // Reset dirty flags and per-index dirty tracking
     npc_state.dirty_positions = false;
     npc_state.dirty_targets = false;
-    npc_state.dirty_speeds = false;
-    npc_state.dirty_factions = false;
-    npc_state.dirty_healths = false;
     npc_state.dirty_arrivals = false;
-    npc_state.dirty_flags = false;
-    npc_state.dirty_half_sizes = false;
     npc_state.position_dirty_indices.clear();
     npc_state.arrival_dirty_indices.clear();
     npc_state.target_dirty_indices.clear();
+    npc_state.speed_dirty_indices.clear();
+    npc_state.faction_dirty_indices.clear();
+    npc_state.health_dirty_indices.clear();
+    npc_state.flags_dirty_indices.clear();
+    npc_state.half_size_dirty_indices.clear();
     npc_state.hidden_indices.clear();
 
     for msg in events.read() {

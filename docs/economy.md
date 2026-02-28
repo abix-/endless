@@ -11,7 +11,7 @@ game_time_system (every frame)
     │
     ▼ sets hour_ticked = true when hour changes
     │
-    ├─ farm_growth_system (every frame, uses game-time delta)
+    ├─ farm_growth_system (every frame, uses game-time delta, filtered to Farm+Mine via by_kind index)
     │   └─ BuildingInstance: Growing → Ready when progress >= 1.0
     │
     ├─ raider_forage_system (hourly)
@@ -29,7 +29,7 @@ game_time_system (every frame)
     ├─ sync_miner_progress_render (every frame)
     │   └─ Populates MinerProgressRender from miners with MiningProgress (positions + progress for GPU bar rendering)
     │
-    ├─ farm_visual_system (every frame)
+    ├─ farm_visual_system (every 4th frame, cadenced)
     │   └─ BuildingInstance Growing→Ready: spawn FarmReadyMarker; Ready→Growing: despawn
     │
     ├─ ai_decision_system (real-time interval, default 5s)
@@ -53,6 +53,7 @@ game_time_system (every frame)
 
 ### growth_system (unified farms + mines)
 - Runs every frame, advances growth based on elapsed game time
+- Iterates only Farm and GoldMine buildings via `EntityMap.kind_slots()` (by_kind index) — skips all other building types
 - Skips tombstoned entries (`position.x < -9000`) — destroyed farms/mines don't regrow
 - **BuildingInstance fields**: `growth_ready: bool` (false = growing, true = ready to harvest) and `growth_progress: f32` (0.0-1.0) on each Farm/Mine instance in `EntityMap`
 - **Hybrid growth model**:
@@ -123,7 +124,7 @@ Farms have a growth cycle instead of infinite food:
 
 **Farm destruction**: Building removal from `EntityMap` handles cleanup. Tombstoned position (x < -9000) causes render pipeline to skip the crop sprite and `growth_system` to skip growth.
 
-**Visual feedback**: `farm_visual_system` watches `EntityMap` Farm instances for state transitions and spawns/despawns `FarmReadyMarker` entities (keyed by `farm_slot: usize` — building slot). Uses `Local<HashMap<usize, bool>>` to detect transitions without extra resources. `!ready → ready` spawns a marker; `ready → !ready` (harvest) despawns it.
+**Visual feedback**: `farm_visual_system` watches `EntityMap` Farm instances for state transitions and spawns/despawns `FarmReadyMarker` entities (keyed by `farm_slot: usize` — building slot). Uses `Local<HashMap<usize, bool>>` to detect transitions without extra resources. Cadenced to run every 4th frame (crop state changes slowly). `!ready → ready` spawns a marker; `ready → !ready` (harvest) despawns it.
 
 ## Starvation
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-02-28k
+
+- **per-dirty-index GPU uploads** — converted all remaining bulk `write_buffer` calls in `extract_npc_data` to per-dirty-index writes; speeds/factions/healths/entity_flags/half_sizes now track changed indices (like positions/arrivals/targets already did), uploading only changed bytes instead of full 80-160KB arrays per buffer
+- **per-dirty visual/equip upload** — `extract_npc_data` now uploads only changed visual/equip slots via `visual_uploaded_indices` (populated by `build_visual_upload`), saving ~2.56MB/frame of unconditional GPU writes; full upload retained for startup/load via `visual_full_upload` flag
+- **healing_system HashMap removal** — replaced per-frame `HashMap<i32, Vec<&HealingZone>>` allocation with direct access to `cache.by_faction` (already indexed by faction)
+- **farm_visual_system cadencing** — runs every 4th frame instead of every frame (crop state changes slowly)
+- **growth_system filtered iteration** — uses `EntityMap.kind_slots()` to iterate only Farm and GoldMine buildings instead of all 10K instances; added `kind_slots()` method to EntityMap
+
 ## 2026-02-28j
 
 - **decision_system two-cadence bucket gate** — moved bucket gate to top of decision loop before any ECS queries or state reads; fighting NPCs gated every 16 frames (~267ms), non-fighting NPCs gated by adaptive `think_buckets`; reduces per-frame ECS lookups from `queries × npc_count` to `queries × (npc_count / bucket_count)` (~92% reduction at 10K NPCs)

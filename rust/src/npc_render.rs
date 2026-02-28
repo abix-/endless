@@ -902,6 +902,15 @@ fn write_dirty_i32(queue: &RenderQueue, buf: &Buffer, data: &[i32], indices: &[u
     }
 }
 
+fn write_dirty_u32(queue: &RenderQueue, buf: &Buffer, data: &[u32], indices: &[usize], stride: usize) {
+    for &idx in indices {
+        let start = idx * stride;
+        if start + stride <= data.len() {
+            queue.write_buffer(buf, (start * 4) as u64, bytemuck::cast_slice(&data[start..start + stride]));
+        }
+    }
+}
+
 /// Zero-clone NPC extract: reads main world via Extract<Res<T>>, writes directly to GPU.
 fn extract_npc_data(
     gpu_state: Extract<Res<EntityGpuState>>,
@@ -917,9 +926,7 @@ fn extract_npc_data(
     let profiling = RENDER_PROFILING.load(Ordering::Relaxed);
     let start = if profiling { Some(std::time::Instant::now()) } else { None };
 
-    // Compute data: hybrid writes
-    // GPU-authoritative (positions/arrivals): per-index writes (spawn/death only, ~10-50/frame)
-    // CPU-authoritative (rest): bulk writes (1 call per buffer instead of thousands)
+    // Compute data: all per-index dirty writes (O(changed) not O(total))
     if let Some(gpu_bufs) = gpu_buffers {
         let n = config.npc.count as usize;
         if gpu_state.dirty_positions { write_dirty_f32(&render_queue, &gpu_bufs.positions, &gpu_state.positions, &gpu_state.position_dirty_indices, 2); }
@@ -930,29 +937,47 @@ fn extract_npc_data(
                 write_bulk(&render_queue, &gpu_bufs.targets, &gpu_state.targets, n * 2);
                 *prev_target_size = n;
             } else {
-                // Dedup dirty indices before writing
                 let mut indices = gpu_state.target_dirty_indices.clone();
                 indices.sort_unstable();
                 indices.dedup();
                 write_dirty_f32(&render_queue, &gpu_bufs.targets, &gpu_state.targets, &indices, 2);
             }
         }
-        if gpu_state.dirty_speeds    { write_bulk(&render_queue, &gpu_bufs.speeds, &gpu_state.speeds, n); }
-        if gpu_state.dirty_factions  { write_bulk(&render_queue, &gpu_bufs.factions, &gpu_state.factions, n); }
-        if gpu_state.dirty_healths   { write_bulk(&render_queue, &gpu_bufs.healths, &gpu_state.healths, n); }
-        if gpu_state.dirty_flags     { write_bulk(&render_queue, &gpu_bufs.entity_flags, &gpu_state.entity_flags, n); }
-        if gpu_state.dirty_half_sizes { write_bulk(&render_queue, &gpu_bufs.half_sizes, &gpu_state.half_sizes, n * 2); }
+        if !gpu_state.speed_dirty_indices.is_empty()     { write_dirty_f32(&render_queue, &gpu_bufs.speeds, &gpu_state.speeds, &gpu_state.speed_dirty_indices, 1); }
+        if !gpu_state.faction_dirty_indices.is_empty()    { write_dirty_i32(&render_queue, &gpu_bufs.factions, &gpu_state.factions, &gpu_state.faction_dirty_indices, 1); }
+        if !gpu_state.health_dirty_indices.is_empty()     { write_dirty_f32(&render_queue, &gpu_bufs.healths, &gpu_state.healths, &gpu_state.health_dirty_indices, 1); }
+        if !gpu_state.flags_dirty_indices.is_empty()      { write_dirty_u32(&render_queue, &gpu_bufs.entity_flags, &gpu_state.entity_flags, &gpu_state.flags_dirty_indices, 1); }
+        if !gpu_state.half_size_dirty_indices.is_empty()  { write_dirty_f32(&render_queue, &gpu_bufs.half_sizes, &gpu_state.half_sizes, &gpu_state.half_size_dirty_indices, 2); }
         // Road flags: upload when present (rebuilt when roads change)
         if !config.tile_flags.is_empty() {
             render_queue.write_buffer(&gpu_bufs.tile_flags, 0, bytemuck::cast_slice(&config.tile_flags));
         }
     }
 
-    // Visual data: bulk write_buffer
+    // Visual data: per-dirty-index upload (saves ~2.56MB/frame vs bulk)
     if let Some(vis_bufs) = visual_buffers {
-        if visual_upload.entity_count > 0 {
-            render_queue.write_buffer(&vis_bufs.visual, 0, bytemuck::cast_slice(&visual_upload.visual_data));
-            render_queue.write_buffer(&vis_bufs.equip, 0, bytemuck::cast_slice(&visual_upload.equip_data));
+        if visual_upload.visual_full_upload {
+            // Full upload on startup/load/reset
+            if visual_upload.entity_count > 0 {
+                render_queue.write_buffer(&vis_bufs.visual, 0, bytemuck::cast_slice(&visual_upload.visual_data));
+                render_queue.write_buffer(&vis_bufs.equip, 0, bytemuck::cast_slice(&visual_upload.equip_data));
+            }
+        } else {
+            // Per-index writes for only changed slots
+            for &idx in &visual_upload.visual_uploaded_indices {
+                let vis_start = idx * 8;
+                let vis_end = vis_start + 8;
+                if vis_end <= visual_upload.visual_data.len() {
+                    let offset = (vis_start * 4) as u64;
+                    render_queue.write_buffer(&vis_bufs.visual, offset, bytemuck::cast_slice(&visual_upload.visual_data[vis_start..vis_end]));
+                }
+                let eq_start = idx * 24;
+                let eq_end = eq_start + 24;
+                if eq_end <= visual_upload.equip_data.len() {
+                    let offset = (eq_start * 4) as u64;
+                    render_queue.write_buffer(&vis_bufs.equip, offset, bytemuck::cast_slice(&visual_upload.equip_data[eq_start..eq_end]));
+                }
+            }
         }
     }
 

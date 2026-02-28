@@ -340,6 +340,10 @@ impl EntityMap {
         slots.into_iter().flat_map(|v| v.iter()).filter_map(move |&s| instances.get(&s))
     }
 
+    pub fn kind_slots(&self, kind: crate::world::BuildingKind) -> Vec<usize> {
+        self.by_kind.get(&kind).cloned().unwrap_or_default()
+    }
+
     pub fn iter_kind_for_town(&self, kind: crate::world::BuildingKind, town_idx: u32) -> impl Iterator<Item = &BuildingInstance> {
         let slots = self.by_kind_town.get(&(kind, town_idx));
         let instances = &self.instances;
