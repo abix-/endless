@@ -84,11 +84,11 @@ Spatial queries (`find_nearest_location`, `find_location_within_radius`, `find_n
 
 ### Town Building Grid
 
-Per-town slot tracking for the building system. Each town (villager and raider) has a `TownGrid` with an `area_level: i32` controlling the buildable radius and a `town_data_idx` linking to its `WorldData.towns` entry. Initial base grid is 6x6 (rows/cols -2 to +3), expandable via `expand_town_build_area()` which increments `area_level` (max 50x50 extent).
+Per-town slot tracking for the building system. Each town (villager and raider) has a `TownGrid` with an `area_level: i32` controlling the buildable radius, a `town_data_idx` linking to its `WorldData.towns` entry, and world-edge caps (`min_row_cap`, `max_row_cap`, `min_col_cap`, `max_col_cap`) that clamp buildable bounds to the world grid boundary. Initial base grid is 6x6 (rows/cols -2 to +3), expandable via `expand_town_build_area()` which increments `area_level` (max 50x50 extent). `recompute_world_caps(center, grid)` converts town center to grid coords and sets caps; `sync_town_grid_world_caps()` batch-updates all grids (called on load).
 
 | Struct | Fields |
 |--------|--------|
-| TownGrid | town_data_idx: usize, area_level: i32 |
+| TownGrid | town_data_idx: usize, area_level: i32, min_row_cap/max_row_cap/min_col_cap/max_col_cap: i32 |
 | TownGrids | grids: `Vec<TownGrid>` (one per town — villager + raider) |
 | BuildMenuContext | town_data_idx: `Option<usize>`, selected_build: `Option<BuildingKind>`, destroy_mode: bool, hover_world_pos: Vec2, ghost_sprites: `HashMap<BuildingKind, Handle<Image>>` |
 | DestroyRequest | `Option<(usize, usize)>` — (grid_col, grid_row), set by inspector, processed by `process_destroy_system` |

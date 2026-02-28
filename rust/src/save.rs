@@ -736,9 +736,12 @@ pub fn apply_save(
     }
 
     // Town grids
-    town_grids.grids = save.town_grids.iter().map(|g| world::TownGrid {
-        town_data_idx: g.town_data_idx, area_level: g.area_level,
+    town_grids.grids = save.town_grids.iter().map(|g| {
+        let mut tg = world::TownGrid::new_base(g.town_data_idx);
+        tg.area_level = g.area_level;
+        tg
     }).collect();
+    world::sync_town_grid_world_caps(grid, &world_data.towns, town_grids);
 
     // Game time
     game_time.total_seconds = save.total_seconds;

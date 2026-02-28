@@ -532,6 +532,7 @@ pub struct MigrationResources<'w, 's> {
 /// resource vecs, create an inactive AiPlayer with random personality.
 /// Returns (town_data_idx, grid_idx, faction).
 fn create_ai_town(
+    grid: &crate::world::WorldGrid,
     world_data: &mut WorldData,
     entity_map: &EntityMap,
     town_grids: &mut TownGrids,
@@ -552,7 +553,9 @@ fn create_ai_town(
     });
     let town_data_idx = world_data.towns.len() - 1;
 
-    town_grids.grids.push(world::TownGrid::new_base(town_data_idx));
+    let mut tg = world::TownGrid::new_base(town_data_idx);
+    tg.recompute_world_caps(center, grid);
+    town_grids.grids.push(tg);
     let grid_idx = town_grids.grids.len() - 1;
 
     // Extend per-town resources
@@ -777,7 +780,7 @@ pub fn endless_system(
         let member_slots = mg.member_slots.clone();
 
         let (town_data_idx, grid_idx, _faction) = create_ai_town(
-            &mut world_state.world_data, &world_state.entity_map, &mut world_state.town_grids, &mut res, &mut ai_state,
+            &world_state.grid, &mut world_state.world_data, &world_state.entity_map, &mut world_state.town_grids, &mut res, &mut ai_state,
             mg.settle_target, is_raider,
         );
 

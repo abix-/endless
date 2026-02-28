@@ -255,7 +255,7 @@ migration_spawn_system (hourly check)
         ▼ YES: spawn group at nearest map edge to settle target
         │
         ├─ Create Town entry (faction = max+1, sprite_type = 1)
-        ├─ Create TownGrid, extend all per-town resources (food, gold, factions, raider_state, policies)
+        ├─ Create TownGrid (with world-edge caps via recompute_world_caps), extend all per-town resources (food, gold, factions, raider_state, policies)
         ├─ Create inactive AiPlayer (active: false, kind: Raider, random personality)
         ├─ Spawn N raiders via SpawnNpcMsg with Home = player town center
         │   Group size: MIGRATION_BASE_SIZE (3) + player_alive / difficulty.migration_scaling()

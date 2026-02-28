@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-27r
+
+- **town grid world-edge caps** — `TownGrid` now stores `min_row_cap`/`max_row_cap`/`min_col_cap`/`max_col_cap` clamping buildable bounds to world grid boundary; `build_bounds()` uses per-axis caps instead of symmetric `MAX_GRID_EXTENT`; caps computed at world gen, endless migration (`create_ai_town`), and save load (`sync_town_grid_world_caps`); prevents AI from placing buildings outside world edges
+- **focus camera on all test scenes** — added `camera_q` to `TestSetupParams` with `focus_camera()` helper; all 21 integration tests now center camera on their scene at setup
+
 ## 2026-02-27q
 
 - **candidate-driven healing pipeline** — replaced O(50k) mutable ECS iteration with `ActiveHealingSlots` resource tracking only NPCs in healing zones; cadenced enter-check (slot % 4 bucketing via `npcs_for_town()`) + every-frame sustain-check with hysteresis radii (10% exit buffer); `HashMap<i32>` faction→zone lookup; starvation HP cap moved from `healing_system` to `starvation_system` with always-clamp for save/load safety; ~1-3ms → <0.1ms at 50k NPCs

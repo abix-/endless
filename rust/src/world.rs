@@ -120,12 +120,37 @@ pub struct WorldData {
 pub struct TownGrid {
     pub town_data_idx: usize,
     pub area_level: i32,
+    pub min_row_cap: i32,
+    pub max_row_cap: i32,
+    pub min_col_cap: i32,
+    pub max_col_cap: i32,
 }
 
 impl TownGrid {
     /// Create with base 7x7 build area for the given town data index.
     pub fn new_base(town_data_idx: usize) -> Self {
-        Self { town_data_idx, area_level: 0 }
+        Self {
+            town_data_idx,
+            area_level: 0,
+            min_row_cap: -MAX_GRID_EXTENT,
+            max_row_cap: MAX_GRID_EXTENT + 1,
+            min_col_cap: -MAX_GRID_EXTENT,
+            max_col_cap: MAX_GRID_EXTENT + 1,
+        }
+    }
+
+    /// Recompute world-edge caps for this town in town-grid coordinates.
+    pub fn recompute_world_caps(&mut self, center: Vec2, grid: &WorldGrid) {
+        if grid.width == 0 || grid.height == 0 {
+            return;
+        }
+        let (center_col, center_row) = grid.world_to_grid(center);
+        let center_col = center_col as i32;
+        let center_row = center_row as i32;
+        self.min_row_cap = -center_row;
+        self.max_row_cap = grid.height as i32 - 1 - center_row;
+        self.min_col_cap = -center_col;
+        self.max_col_cap = grid.width as i32 - 1 - center_col;
     }
 }
 
@@ -133,6 +158,14 @@ impl TownGrid {
 #[derive(Resource, Default)]
 pub struct TownGrids {
     pub grids: Vec<TownGrid>,
+}
+
+/// Recompute world-edge caps for all town grids.
+pub fn sync_town_grid_world_caps(grid: &WorldGrid, towns: &[Town], town_grids: &mut TownGrids) {
+    for tg in &mut town_grids.grids {
+        let Some(town) = towns.get(tg.town_data_idx) else { continue };
+        tg.recompute_world_caps(town.center, grid);
+    }
 }
 
 /// Convert town-relative grid coords to world position.
@@ -153,9 +186,11 @@ pub fn world_to_town_grid(center: Vec2, world_pos: Vec2) -> (i32, i32) {
 
 /// Buildable slot bounds for a town grid (inclusive): min_row, max_row, min_col, max_col.
 pub fn build_bounds(grid: &TownGrid) -> (i32, i32, i32, i32) {
-    let min = (BASE_GRID_MIN - grid.area_level).max(-MAX_GRID_EXTENT);
-    let max = (BASE_GRID_MAX + grid.area_level).min(MAX_GRID_EXTENT + 1);
-    (min, max, min, max)
+    let min_row = (BASE_GRID_MIN - grid.area_level).max(grid.min_row_cap);
+    let max_row = (BASE_GRID_MAX + grid.area_level).min(grid.max_row_cap);
+    let min_col = (BASE_GRID_MIN - grid.area_level).max(grid.min_col_cap);
+    let max_col = (BASE_GRID_MAX + grid.area_level).min(grid.max_col_cap);
+    (min_row, max_row, min_col, max_col)
 }
 
 /// True if (row, col) is currently inside this town's buildable area.
@@ -1366,7 +1401,9 @@ pub fn generate_world(
         world_data.towns.push(Town { name, center, faction: 0, sprite_type: 0 });
         let town_data_idx = world_data.towns.len() - 1;
         let town_idx = town_data_idx as u32;
-        town_grids.grids.push(TownGrid::new_base(town_data_idx));
+        let mut tg = TownGrid::new_base(town_data_idx);
+        tg.recompute_world_caps(center, grid);
+        town_grids.grids.push(tg);
         let gi = town_grids.grids.len() - 1;
         place_buildings(grid, world_data, center, town_idx, config,&mut town_grids.grids[gi], false, slot_alloc, entity_map);
     }
@@ -1399,7 +1436,9 @@ pub fn generate_world(
         world_data.towns.push(Town { name, center, faction, sprite_type: 0 });
         let town_data_idx = world_data.towns.len() - 1;
         let town_idx = town_data_idx as u32;
-        town_grids.grids.push(TownGrid::new_base(town_data_idx));
+        let mut tg = TownGrid::new_base(town_data_idx);
+        tg.recompute_world_caps(center, grid);
+        town_grids.grids.push(tg);
         let gi = town_grids.grids.len() - 1;
         place_buildings(grid, world_data, center, town_idx, config,&mut town_grids.grids[gi], false, slot_alloc, entity_map);
     }
@@ -1430,7 +1469,9 @@ pub fn generate_world(
         world_data.towns.push(Town { name: "Raider Town".into(), center, faction, sprite_type: 1 });
         let town_data_idx = world_data.towns.len() - 1;
         let town_idx = town_data_idx as u32;
-        town_grids.grids.push(TownGrid::new_base(town_data_idx));
+        let mut tg = TownGrid::new_base(town_data_idx);
+        tg.recompute_world_caps(center, grid);
+        town_grids.grids.push(tg);
         let gi = town_grids.grids.len() - 1;
         place_buildings(grid, world_data, center, town_idx, config,&mut town_grids.grids[gi], true, slot_alloc, entity_map);
     }
