@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-28m
+
+- **strict coalescing for GPU-authoritative buffers** — positions and arrivals are GPU-authoritative (compute shader updates them each frame); added `write_coalesced_exact_f32/i32` that merge only exactly-adjacent dirty indices (`saturating_add(1)` adjacency, no gap merging, no bulk fallback); debug-asserts sorted+deduped+bounds on all dirty indices; gap-based coalescing (`write_coalesced_f32/i32/u32`) retained for CPU-authoritative buffers (targets, speeds, factions, healths, flags, half_sizes); authority contract comments locked on `EntityGpuState` dirty fields and at extraction callsites
+- **coalesce profiler counters** — `count_exact_ranges` helper tracks strict coalescing write count + actual uploaded bytes per frame for positions/arrivals; logged via `bevy::log::trace` when non-zero
+- **coalesce safety tests** — `coalesce-movement` (2 phases): spawns 2 farmers, injects `SetPosition` on unused slot, verifies no NPC teleports; `coalesce-arrival` (2 phases): spawns 2 archers, waits for arrival, verifies arrival flag stable after unrelated activity; 7 unit tests for `count_exact_ranges` (empty/single/sparse/adjacent/stride-1/all-adjacent/gap-of-one)
+
 ## 2026-02-28l
 
 - **coalesced GPU uploads** — replaced per-index `write_buffer` calls with `write_coalesced_f32/i32/u32` that merge pre-sorted dirty indices into contiguous ranges (one `write_buffer` per range); falls back to offset bulk write when dirty coverage exceeds 40% of the index window; gap thresholds tuned per stride for DX12 backend (~3μs per call overhead); dirty indices pre-sorted+deduped in `populate_gpu_state` so extract phase receives coalesce-ready data; removed now-redundant `dirty_positions`/`dirty_arrivals` bool flags

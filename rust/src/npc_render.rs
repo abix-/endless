@@ -874,10 +874,11 @@ fn extract_selection_overlay(
 /// Upload NPC compute + visual data directly to GPU buffers during Extract phase.
 // --- Shared dirty-write helpers (used by both NPC and projectile extract) ---
 
-// Coalescing gap thresholds (slots). Derived from: per_call_overhead / (stride * 4 bytes).
+// Coalescing gap thresholds for CPU-AUTHORITATIVE buffers (slots).
+// Derived from: per_call_overhead / (stride * 4 bytes).
 // Tuned for DX12 backend (~3μs per write_buffer call). Adjust if profiling shows different overhead.
-const GAP_STRIDE_1: usize = 750;   // speeds, factions, healths, flags, arrivals
-const GAP_STRIDE_2: usize = 375;   // positions, targets, half_sizes
+const GAP_STRIDE_1: usize = 750;   // speeds, factions, healths, flags
+const GAP_STRIDE_2: usize = 375;   // targets, half_sizes
 const GAP_VISUAL: usize = 93;      // visual_data (stride 8)
 const GAP_EQUIP: usize = 31;       // equip_data (stride 24)
 
@@ -1007,6 +1008,72 @@ fn write_dirty_i32(queue: &RenderQueue, buf: &Buffer, data: &[i32], indices: &[u
     }
 }
 
+/// Strict coalesce for GPU-authoritative buffers. Merges only exactly-adjacent
+/// dirty indices (idx == prev + 1). No gap merging, no dense bulk fallback.
+/// Dirty indices MUST be sorted+deduped (debug-asserted).
+fn write_coalesced_exact_f32(queue: &RenderQueue, buf: &Buffer, data: &[f32], dirty: &[usize], stride: usize) {
+    if dirty.is_empty() { return; }
+    debug_assert!(dirty.windows(2).all(|w| w[0] < w[1]), "dirty indices not sorted+deduped");
+    debug_assert!(dirty[0] * stride + stride <= data.len(), "first dirty index {} out of bounds (len={})", dirty[0], data.len());
+    let mut range_start = dirty[0];
+    let mut range_end = dirty[0];
+    for &idx in &dirty[1..] {
+        debug_assert!(idx * stride + stride <= data.len(), "dirty index {idx} out of bounds (len={})", data.len());
+        if idx == range_end.saturating_add(1) {
+            range_end = idx;
+        } else {
+            flush_range_f32(queue, buf, data, range_start, range_end, stride);
+            range_start = idx;
+            range_end = idx;
+        }
+    }
+    flush_range_f32(queue, buf, data, range_start, range_end, stride);
+}
+
+fn write_coalesced_exact_i32(queue: &RenderQueue, buf: &Buffer, data: &[i32], dirty: &[usize], stride: usize) {
+    if dirty.is_empty() { return; }
+    debug_assert!(dirty.windows(2).all(|w| w[0] < w[1]), "dirty indices not sorted+deduped");
+    debug_assert!(dirty[0] * stride + stride <= data.len(), "first dirty index {} out of bounds (len={})", dirty[0], data.len());
+    let mut range_start = dirty[0];
+    let mut range_end = dirty[0];
+    for &idx in &dirty[1..] {
+        debug_assert!(idx * stride + stride <= data.len(), "dirty index {idx} out of bounds (len={})", data.len());
+        if idx == range_end.saturating_add(1) {
+            range_end = idx;
+        } else {
+            let s = range_start * stride;
+            let e = ((range_end + 1) * stride).min(data.len());
+            if s < e { queue.write_buffer(buf, (s * 4) as u64, bytemuck::cast_slice(&data[s..e])); }
+            range_start = idx;
+            range_end = idx;
+        }
+    }
+    let s = range_start * stride;
+    let e = ((range_end + 1) * stride).min(data.len());
+    if s < e { queue.write_buffer(buf, (s * 4) as u64, bytemuck::cast_slice(&data[s..e])); }
+}
+
+/// Count exact contiguous ranges and total uploaded bytes for profiler counters.
+fn count_exact_ranges(dirty: &[usize], stride: usize) -> (usize, usize) {
+    if dirty.is_empty() { return (0, 0); }
+    let mut ranges = 1usize;
+    let mut bytes = 0usize;
+    let mut range_start = dirty[0];
+    let mut range_end = dirty[0];
+    for &idx in &dirty[1..] {
+        if idx == range_end.saturating_add(1) {
+            range_end = idx;
+        } else {
+            bytes += (range_end - range_start + 1) * stride * 4;
+            ranges += 1;
+            range_start = idx;
+            range_end = idx;
+        }
+    }
+    bytes += (range_end - range_start + 1) * stride * 4;
+    (ranges, bytes)
+}
+
 /// Zero-clone NPC extract: reads main world via Extract<Res<T>>, writes directly to GPU.
 fn extract_npc_data(
     gpu_state: Extract<Res<EntityGpuState>>,
@@ -1022,11 +1089,13 @@ fn extract_npc_data(
     let profiling = RENDER_PROFILING.load(Ordering::Relaxed);
     let start = if profiling { Some(std::time::Instant::now()) } else { None };
 
-    // Compute data: coalesced dirty writes (sort+dedup done in populate_gpu_state)
+    // Compute data: sort+dedup done in populate_gpu_state
     if let Some(gpu_bufs) = gpu_buffers {
         let n = config.npc.count as usize;
-        write_coalesced_f32(&render_queue, &gpu_bufs.positions, &gpu_state.positions, &gpu_state.position_dirty_indices, 2, GAP_STRIDE_2);
-        write_coalesced_i32(&render_queue, &gpu_bufs.arrivals, &gpu_state.arrivals, &gpu_state.arrival_dirty_indices, 1, GAP_STRIDE_1);
+        // GPU-authoritative: strict coalescing only (no gap merging, no bulk fallback)
+        write_coalesced_exact_f32(&render_queue, &gpu_bufs.positions, &gpu_state.positions, &gpu_state.position_dirty_indices, 2);
+        write_coalesced_exact_i32(&render_queue, &gpu_bufs.arrivals, &gpu_state.arrivals, &gpu_state.arrival_dirty_indices, 1);
+        // CPU-authoritative: gap-based coalescing safe (EntityGpuState is ground truth)
         if gpu_state.dirty_targets {
             if *prev_target_size != n {
                 write_bulk(&render_queue, &gpu_bufs.targets, &gpu_state.targets, n * 2);
@@ -1062,6 +1131,11 @@ fn extract_npc_data(
     }
 
     if let Some(s) = start {
+        let (pos_ranges, pos_bytes) = count_exact_ranges(&gpu_state.position_dirty_indices, 2);
+        let (arr_ranges, arr_bytes) = count_exact_ranges(&gpu_state.arrival_dirty_indices, 1);
+        if pos_ranges > 0 || arr_ranges > 0 {
+            bevy::log::trace!("extract_npc_data: pos={pos_ranges} writes/{pos_bytes}B, arr={arr_ranges} writes/{arr_bytes}B");
+        }
         RENDER_TIMINGS[RT_EXTRACT_NPC].store((s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(), Ordering::Relaxed);
     }
 }
@@ -1779,5 +1853,57 @@ fn queue_projs(
         for batch_entity in &proj_batch {
             queue_phase_item(transparent_phase, draw_function, pipeline_id, ORDER_PROJECTILES, view_entity, batch_entity);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::count_exact_ranges;
+
+    #[test]
+    fn exact_ranges_empty() {
+        assert_eq!(count_exact_ranges(&[], 2), (0, 0));
+    }
+
+    #[test]
+    fn exact_ranges_single() {
+        assert_eq!(count_exact_ranges(&[42], 2), (1, 8)); // 1 slot × stride 2 × 4 bytes
+    }
+
+    #[test]
+    fn exact_ranges_sparse() {
+        // 3 non-adjacent indices → 3 separate ranges
+        let (ranges, bytes) = count_exact_ranges(&[5, 20, 100], 2);
+        assert_eq!(ranges, 3);
+        assert_eq!(bytes, 3 * 2 * 4); // 3 single-slot ranges
+    }
+
+    #[test]
+    fn exact_ranges_adjacent_merge() {
+        // [5,6,7] merge into one range, [20,21] merge into another
+        let (ranges, bytes) = count_exact_ranges(&[5, 6, 7, 20, 21], 2);
+        assert_eq!(ranges, 2);
+        assert_eq!(bytes, (3 + 2) * 2 * 4); // 3-slot + 2-slot ranges
+    }
+
+    #[test]
+    fn exact_ranges_stride_1() {
+        let (ranges, bytes) = count_exact_ranges(&[10, 11, 12, 50], 1);
+        assert_eq!(ranges, 2);
+        assert_eq!(bytes, (3 + 1) * 1 * 4);
+    }
+
+    #[test]
+    fn exact_ranges_all_adjacent() {
+        let (ranges, bytes) = count_exact_ranges(&[0, 1, 2, 3, 4], 2);
+        assert_eq!(ranges, 1);
+        assert_eq!(bytes, 5 * 2 * 4);
+    }
+
+    #[test]
+    fn exact_ranges_gap_of_one_not_merged() {
+        // Gap of 1 between 5 and 7 — must NOT merge (strict adjacency)
+        let (ranges, _) = count_exact_ranges(&[5, 7], 2);
+        assert_eq!(ranges, 2);
     }
 }

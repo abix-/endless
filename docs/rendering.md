@@ -37,8 +37,8 @@ NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
                                       │
                                       ▼
                                extract_npc_data (ExtractSchedule)
-                               (coalesced range writes from pre-sorted dirty indices,
-                                visual/equip coalesced via visual_uploaded_indices)
+                               (strict coalescing for GPU-authoritative buffers,
+                                gap-based coalescing for CPU-authoritative + visual/equip)
                                       │
                                       ▼
                                prepare_npc_buffers
@@ -345,7 +345,7 @@ The render pipeline runs in Bevy's render world after extract:
 | Phase | System | Purpose |
 |-------|--------|---------|
 | Extract | `extract_npc_batch` | Despawn stale render world NpcBatch, then clone fresh from main world |
-| Extract | `extract_npc_data` | Zero-clone GPU upload from EntityGpuState: all buffers use coalesced range writes from pre-sorted dirty indices (positions/arrivals/targets/speeds/factions/healths/flags/half_sizes; targets have full-upload fallback on resize). Visual/equip also coalesced via `visual_uploaded_indices` (full upload only on startup/load via `visual_full_upload` flag). Gap thresholds tuned per stride for DX12 backend (~3μs per write_buffer call) |
+| Extract | `extract_npc_data` | Zero-clone GPU upload from EntityGpuState: GPU-authoritative buffers (positions, arrivals) use strict coalescing via `write_coalesced_exact_f32/i32` (exact-adjacent merging only, no gap, no bulk fallback). CPU-authoritative buffers (targets, speeds, factions, healths, flags, half_sizes) use gap-based `write_coalesced_f32/i32/u32` with 40% window fallback. Visual/equip also gap-based via `visual_uploaded_indices` (full upload only on startup/load via `visual_full_upload` flag) |
 | Extract | `extract_proj_batch` | Despawn stale render world ProjBatch, then clone fresh from main world |
 | Extract | `extract_camera_state` | Build CameraState from Camera2d Transform + Projection + Window |
 | Extract | `extract_building_body_instances` | Zero-clone read of BuildingBodyInstances → BuildingBodyRenderBuffers (building body sprites from EntityGpuState via EntityMap) |

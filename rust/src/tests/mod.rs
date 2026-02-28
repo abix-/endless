@@ -27,6 +27,7 @@ pub mod endless_mode;
 pub mod ai_building;
 pub mod miner_cycle;
 pub mod slot_reuse_wave;
+pub mod coalesce_safety;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -745,6 +746,36 @@ pub fn register_tests(app: &mut App) {
         slot_reuse_wave::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("slot-reuse-wave"))
+            .after(Step::Behavior));
+
+    // coalesce-movement
+    registry.tests.push(TestEntry {
+        name: "coalesce-movement".into(),
+        description: "SetPosition on unused slot must not teleport moving NPCs".into(),
+        phase_count: 2,
+        time_scale: 1.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        coalesce_safety::setup_movement.run_if(test_is("coalesce-movement")));
+    app.add_systems(Update,
+        coalesce_safety::tick_movement
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("coalesce-movement"))
+            .after(Step::Behavior));
+
+    // coalesce-arrival
+    registry.tests.push(TestEntry {
+        name: "coalesce-arrival".into(),
+        description: "Arrival flags not reset for non-dirty slots".into(),
+        phase_count: 2,
+        time_scale: 1.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        coalesce_safety::setup_arrival.run_if(test_is("coalesce-arrival")));
+    app.add_systems(Update,
+        coalesce_safety::tick_arrival
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("coalesce-arrival"))
             .after(Step::Behavior));
 
     // Common test-world materialization:

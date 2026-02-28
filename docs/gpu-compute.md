@@ -27,8 +27,9 @@ Main World (ECS)                       Render World (GPU)
 │                                      │   └─ Create GPU buffers (no staging — Bevy Readback handles it)
 │                                      │
 │                                      ├─ extract_npc_data (ExtractSchedule)
-│                                      │   ├─ All compute buffers: coalesced range writes from pre-sorted dirty indices (40% window fallback)
-│                                      │   └─ Visual + equip arrays: coalesced range writes (full upload on startup/load only)
+│                                      │   ├─ GPU-authoritative (positions, arrivals): strict coalescing (exact-adjacent only)
+│                                      │   ├─ CPU-authoritative (targets, speeds, factions, etc.): gap-based coalescing
+│                                      │   └─ Visual + equip arrays: gap-based coalescing (full upload on startup/load only)
 │                                      │
 │                                      ├─ prepare_npc_bind_groups (PrepareBindGroups)
 │                                      │   └─ 3 bind groups (one per mode, different uniform)
@@ -78,14 +79,18 @@ ECS → GPU (upload):
     resize(..., -1.0) initializes new capacity tail.
 
   extract_npc_data (ExtractSchedule, zero-clone):
-    Extract<Res<EntityGpuState>> → coalesced range writes to EntityGpuBuffers [0..entity_count]:
-      Dirty indices pre-sorted+deduped in populate_gpu_state; write_coalesced_f32/i32/u32 merges nearby indices
-      into contiguous ranges (one write_buffer per range). Falls back to window bulk write when >40% coverage.
-      Gap thresholds tuned per stride: GAP_STRIDE_1=750 (1-wide), GAP_STRIDE_2=375 (2-wide), GAP_VISUAL=93, GAP_EQUIP=31
-      Targets: coalesced with full-upload fallback on first frame or buffer resize
+    Extract<Res<EntityGpuState>> → writes to EntityGpuBuffers [0..entity_count]:
+      Dirty indices pre-sorted+deduped in populate_gpu_state. Two coalescing strategies:
+      GPU-authoritative (positions, arrivals): write_coalesced_exact_f32/i32 — merges only
+        exactly-adjacent indices (idx == prev+1). No gap merging, no bulk fallback.
+        Debug-asserted sorted+deduped+bounds. Typically <10 dirty/frame (spawn/death/migration).
+      CPU-authoritative (targets, speeds, factions, healths, flags, half_sizes):
+        write_coalesced_f32/i32/u32 — gap-based merging with 40% window bulk fallback.
+        Gap thresholds tuned per stride: GAP_STRIDE_1=750, GAP_STRIDE_2=375
+      Targets: gap-based coalesced with full-upload fallback on first frame or buffer resize
       Buildings and NPCs share the same slot namespace — no offset arithmetic
-    Extract<Res<NpcVisualUpload>> → coalesced range writes to NpcVisualBuffers
-      visual_uploaded_indices tracks which slots changed; full upload only on startup/load (visual_full_upload flag)
+    Extract<Res<NpcVisualUpload>> → gap-based coalesced writes to NpcVisualBuffers
+      GAP_VISUAL=93, GAP_EQUIP=31. Full upload only on startup/load (visual_full_upload flag)
 
 GPU → ECS (readback, Bevy async Readback):
   NpcComputeNode: dispatch compute + copy positions/combat_targets/factions/healths/threat_counts → ReadbackHandles ShaderStorageBuffer assets

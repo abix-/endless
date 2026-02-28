@@ -145,8 +145,15 @@ pub struct EntityGpuState {
     /// Hitbox half-sizes: [half_w, half_h] per entity (interleaved, stride 2)
     pub half_sizes: Vec<f32>,
     // --- Per-index dirty tracking (all buffers) ---
-    // Each Vec tracks which slot indices changed this frame.
     // Pre-sorted and deduped in populate_gpu_state for coalesced GPU uploads in extract.
+    //
+    // AUTHORITY CONTRACT:
+    // - positions, arrivals: GPU-AUTHORITATIVE between GpuUpdate events.
+    //   CPU array holds only spawn/teleport/hide values. Uploads must never
+    //   include non-dirty slots (use strict coalescing, not gap-based).
+    // - All other buffers (targets, speeds, factions, healths, flags, half_sizes):
+    //   CPU-AUTHORITATIVE. EntityGpuState always holds ground truth.
+    //   Gap-based coalescing is safe for these.
     pub dirty_targets: bool,
     pub position_dirty_indices: Vec<usize>,
     pub arrival_dirty_indices: Vec<usize>,
