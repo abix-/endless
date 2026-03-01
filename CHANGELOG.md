@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-03-01u
+
+- **initial mining radius fix** — `initial_mining_radius()` now sets radius to nearest mine distance + 50px margin (exactly 1 mine in range) instead of rounding up to 300px steps with a 2000px floor; returns 0 if no mines exist; applies to both player and AI towns at world gen
+- **AI miner targeting** — miner target floor changed from 1 to `mines_in_radius` (at least 1 miner per in-radius mine); `ExpandMiningRadius` now requires all in-radius mines to be staffed before expanding
+- **gold mine names** — mines display as "Gold Mine A/B/C..." instead of raw slot numbers in inspector, miner home links, and mining policy UI
+- **AI Manager UI position** — moved AI Manager section to top of Policies tab (before General), since it's the most impactful toggle
+
 ## 2026-03-01t
 
 - **tower XP, kills, and loot** — towers and fountains now earn XP (+100), kill count, and loot when they last-hit an NPC; same `level_from_xp()` and `npc_def(job).loot_drop` as NPC killers (DRY); loot deposited directly to `FoodStorage`/`GoldStorage` for the tower's town with `SetDamageFlash` visual feedback; tower inspector shows kills/level/xp when kills > 0; `BuildingInstance` gained `kills: i32` and `xp: i32` fields, saved/loaded via `PlacedBuilding`; `death_system` food/gold storage upgraded to `ResMut`

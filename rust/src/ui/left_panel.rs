@@ -977,7 +977,56 @@ fn policies_content(
         ui.separator();
     }
 
+    // -- AI Manager --
+    ui.label(egui::RichText::new("AI Manager").strong());
+
+    if let Some(player) = ai_state
+        .players
+        .iter_mut()
+        .find(|p| p.town_data_idx == town_idx)
+    {
+        ui.checkbox(&mut player.active, "Enable AI Manager")
+            .on_hover_text("AI automatically builds and upgrades your town");
+
+        if player.active {
+            ui.checkbox(&mut player.build_enabled, "Auto-Build")
+                .on_hover_text("AI places buildings");
+            ui.checkbox(&mut player.upgrade_enabled, "Auto-Upgrade")
+                .on_hover_text("AI purchases upgrades");
+
+            let personalities = ["Aggressive", "Balanced", "Economic"];
+            let mut idx = player.personality as usize;
+            ui.horizontal(|ui| {
+                ui.label("Strategy:");
+                egui::ComboBox::from_id_salt("ai_personality")
+                    .selected_text(personalities[idx])
+                    .show_index(ui, &mut idx, personalities.len(), |i| personalities[i]);
+            });
+            player.personality = match idx {
+                0 => AiPersonality::Aggressive,
+                2 => AiPersonality::Economic,
+                _ => AiPersonality::Balanced,
+            };
+
+            let road_styles = ["None", "Cardinal", "Grid 4", "Grid 5"];
+            let mut rs_idx = player.road_style as usize;
+            ui.horizontal(|ui| {
+                ui.label("Roads:");
+                egui::ComboBox::from_id_salt("ai_road_style")
+                    .selected_text(road_styles[rs_idx])
+                    .show_index(ui, &mut rs_idx, road_styles.len(), |i| road_styles[i]);
+            });
+            player.road_style = match rs_idx {
+                0 => RoadStyle::None,
+                1 => RoadStyle::Cardinal,
+                3 => RoadStyle::Grid5,
+                _ => RoadStyle::Grid4,
+            };
+        }
+    }
+
     // -- General --
+    ui.add_space(8.0);
     ui.label(egui::RichText::new("General").strong());
     ui.checkbox(&mut policy.eat_food, "Eat Food")
         .on_hover_text("NPCs consume food to restore HP and energy");
@@ -1147,54 +1196,6 @@ fn policies_content(
         }
     }
 
-    // -- AI Manager --
-    ui.add_space(8.0);
-    ui.label(egui::RichText::new("AI Manager").strong());
-
-    if let Some(player) = ai_state
-        .players
-        .iter_mut()
-        .find(|p| p.town_data_idx == town_idx)
-    {
-        ui.checkbox(&mut player.active, "Enable AI Manager")
-            .on_hover_text("AI automatically builds and upgrades your town");
-
-        if player.active {
-            ui.checkbox(&mut player.build_enabled, "Auto-Build")
-                .on_hover_text("AI places buildings");
-            ui.checkbox(&mut player.upgrade_enabled, "Auto-Upgrade")
-                .on_hover_text("AI purchases upgrades");
-
-            let personalities = ["Aggressive", "Balanced", "Economic"];
-            let mut idx = player.personality as usize;
-            ui.horizontal(|ui| {
-                ui.label("Strategy:");
-                egui::ComboBox::from_id_salt("ai_personality")
-                    .selected_text(personalities[idx])
-                    .show_index(ui, &mut idx, personalities.len(), |i| personalities[i]);
-            });
-            player.personality = match idx {
-                0 => AiPersonality::Aggressive,
-                2 => AiPersonality::Economic,
-                _ => AiPersonality::Balanced,
-            };
-
-            let road_styles = ["None", "Cardinal", "Grid 4", "Grid 5"];
-            let mut rs_idx = player.road_style as usize;
-            ui.horizontal(|ui| {
-                ui.label("Roads:");
-                egui::ComboBox::from_id_salt("ai_road_style")
-                    .selected_text(road_styles[rs_idx])
-                    .show_index(ui, &mut rs_idx, road_styles.len(), |i| road_styles[i]);
-            });
-            player.road_style = match rs_idx {
-                0 => RoadStyle::None,
-                1 => RoadStyle::Cardinal,
-                3 => RoadStyle::Grid5,
-                _ => RoadStyle::Grid4,
-            };
-        }
-    }
 }
 
 // ============================================================================

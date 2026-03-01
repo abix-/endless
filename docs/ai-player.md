@@ -201,7 +201,7 @@ Each eligible action gets a score = `base_weight × need_multiplier`. All scores
 - Below target: `military_desire × deficit`
 - At target: `military_desire × 0.5`
 
-**Miner homes:** Only scored when miner deficit > 0: `gold_desire × deficit`. Uses house base weight `hw`. Gets 5× bootstrap boost when current miner homes < personality's `min_miner_homes` to guarantee early mining. Miner target has a floor of 1 when mines exist in radius.
+**Miner homes:** Only scored when miner deficit > 0: `gold_desire × deficit`. Uses house base weight `hw`. Gets 5× bootstrap boost when current miner homes < personality's `min_miner_homes` to guarantee early mining. Miner target has a floor of `mines_in_radius` (at least 1 miner per in-radius mine).
 
 **Roads:** `road_weight × road_need` where `road_need = min(road_candidates, economy_buildings - roads/2)`. Pre-checks actual candidate availability via `count_road_candidates()` — if no road-pattern slots are available near economy buildings, roads aren't scored at all. Scored when `road_style != None` and `road_weight > 0` and food ≥ 4× road cost. Places roads in the town's `RoadStyle` grid pattern (see Road Style section) near economy buildings (farms, farmer homes, miner homes) within Chebyshev distance ≤ 2, scored by adjacency count. Batch places multiple roads per action (batch size per personality). **Cardinal attack corridors**: when `road_style == Cardinal`, cardinal axis roads extend to 2× the build radius as offensive attack routes — cells outside town bounds skip the economy-adjacency requirement, scored at priority 1 (built after inner utility roads).
 
@@ -234,11 +234,11 @@ Buildings use scored slot selection with fallback to center-nearest. Scorer func
 - Counts mines in/outside mining radius
 - Collects all alive mine positions (for miner home slot scoring)
 
-**Initial mining radius**: `initial_mining_radius()` sets the starting `policy.mining_radius` to reach at least the nearest gold mine (rounded up to the 300px step grid), clamped to `DEFAULT_MINING_RADIUS..MAX_MINING_RADIUS`. Applied at world gen (`game_startup_system`) and dynamic town creation (`create_ai_town`).
+**Initial mining radius**: `initial_mining_radius()` sets the starting `policy.mining_radius` to the nearest gold mine distance + 50px margin (exactly 1 mine in range), capped at `MAX_MINING_RADIUS` (5000). Returns 0 if no mines exist. Applied at world gen (`game_startup_system`) and dynamic town creation (`create_ai_town`).
 
 **Flow** (miner and expand are mutually exclusive per tick):
 1. Miner deficit > 0 → score BuildMinerHome (uses house base weight `hw`)
-2. Miner deficit == 0 AND mines exist outside radius → score ExpandMiningRadius (increases policy radius by 300px, max 5000px)
+2. Miner deficit == 0 AND mines exist outside radius AND all in-radius mines are staffed (mine_shafts >= mines_in_radius) → score ExpandMiningRadius (increases policy radius by 300px, max 5000px)
 3. Uncovered mines exist → score BuildWaypoint (independent of above, placed near nearest uncovered mine)
 
 ## Expansion Upgrade

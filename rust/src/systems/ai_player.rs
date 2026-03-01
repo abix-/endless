@@ -96,10 +96,8 @@ pub fn initial_mining_radius(entity_map: &EntityMap, center: Vec2) -> f32 {
         .map(|m| (m.position - center).length())
         .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     match nearest {
-        Some(dist) => ((dist / MINING_RADIUS_STEP).ceil() * MINING_RADIUS_STEP)
-            .max(crate::constants::DEFAULT_MINING_RADIUS)
-            .min(MAX_MINING_RADIUS),
-        None => crate::constants::DEFAULT_MINING_RADIUS,
+        Some(dist) => (dist + 50.0).min(MAX_MINING_RADIUS),
+        None => 0.0,
     }
 }
 
@@ -1720,7 +1718,7 @@ pub fn ai_decision_system(
                 let ht = personality.farmer_home_target(farms);
                 let mines = ctx.mines.as_ref().unwrap();
                 let ms_target = ((total_civilians as f32 * personality.mining_ratio()) as usize)
-                    .max(if mines.in_radius > 0 { 1 } else { 0 })
+                    .max(mines.in_radius) // at least 1 miner per in-radius mine
                     .min(mines.in_radius * MAX_MINERS_PER_MINE);
                 let house_deficit = ht.saturating_sub(houses);
                 let barracks_deficit = bt.saturating_sub(barracks);
@@ -1770,7 +1768,10 @@ pub fn ai_decision_system(
                             1.0
                         };
                         build_scores.push((AiAction::BuildMinerHome, hw * ms_need * bootstrap));
-                    } else if miner_deficit == 0 && mines.outside_radius > 0 {
+                    } else if miner_deficit == 0
+                        && mines.outside_radius > 0
+                        && mine_shafts >= mines.in_radius
+                    {
                         let expand_need = desires.gold_desire * mines.outside_radius as f32;
                         build_scores.push((
                             AiAction::ExpandMiningRadius,

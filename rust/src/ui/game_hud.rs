@@ -1973,7 +1973,12 @@ fn building_inspector_content(
 
         BuildingKind::GoldMine => {
             if let Some(mine_inst) = bld.entity_map.find_by_position(world_pos) {
-                ui.label(format!("Name: Gold Mine (slot {})", mine_inst.slot));
+                let mine_label = if let Some(idx) = bld.entity_map.gold_mine_index(world_pos) {
+                    crate::ui::gold_mine_name(idx)
+                } else {
+                    format!("Gold Mine (slot {})", mine_inst.slot)
+                };
+                ui.label(format!("Name: {}", mine_label));
                 let enabled = *mining_policy
                     .mine_enabled
                     .get(&mine_inst.slot)
@@ -2689,7 +2694,12 @@ fn building_inspector_content(
                 }
                 BuildingKind::GoldMine => {
                     if let Some(mine_inst) = bld.entity_map.find_by_position(world_pos) {
-                        info.push_str(&format!("Gold Mine (slot {})\n", mine_inst.slot));
+                        let mine_label = if let Some(idx) = bld.entity_map.gold_mine_index(world_pos) {
+                            crate::ui::gold_mine_name(idx)
+                        } else {
+                            format!("Gold Mine (slot {})", mine_inst.slot)
+                        };
+                        info.push_str(&format!("{}\n", mine_label));
                         let enabled = *mining_policy
                             .mine_enabled
                             .get(&mine_inst.slot)
