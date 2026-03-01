@@ -183,7 +183,7 @@ pub(crate) fn build_menu_system(
 
     // Bottom-center Build toggle button (always visible)
     let btn_offset = if ui_state.build_menu_open {
-        -140.0
+        -120.0
     } else {
         0.0
     };
