@@ -85,24 +85,16 @@ pub struct DecisionExtras<'w> {
     pub settings: Res<'w, UserSettings>,
 }
 
-/// Arrival system: proximity checks for returning NPCs and working farmers.
+/// Arrival system: proximity-based delivery for Returning NPCs.
 ///
-/// Responsibilities:
-/// 1. Proximity-based delivery for all Returning NPCs (raiders, farmers, miners)
-/// 2. Working farmer drift check + harvest → carry home (continuous, not event-based)
-///
+/// When a Returning NPC is within delivery radius of home, deposit loot and go Idle.
 /// Arrival detection (transit -> AtDestination) is handled by gpu_position_readback.
-/// All state transitions are handled by decision_system.
+/// Farm occupancy and harvest are handled exclusively by decision_system.
 pub fn arrival_system(
-    mut intents: ResMut<MovementIntents>,
     mut economy: EconomyState,
-    world_data: Res<WorldData>,
     gpu_state: Res<GpuReadState>,
     game_time: Res<GameTime>,
     mut npc_logs: ResMut<NpcLogCache>,
-    mut entity_map: ResMut<EntityMap>,
-    mut frame_counter: Local<u32>,
-    mut combat_log: MessageWriter<CombatLogMsg>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut npc_q: Query<
         (
@@ -112,7 +104,7 @@ pub fn arrival_system(
             &TownId,
             &mut Activity,
             &Home,
-            &mut NpcWorkState,
+            &NpcWorkState,
         ),
         (Without<Building>, Without<Dead>),
     >,
@@ -122,7 +114,6 @@ pub fn arrival_system(
     }
     let positions = &gpu_state.positions;
     const DELIVERY_RADIUS: f32 = 50.0;
-    const MAX_DRIFT: f32 = 20.0;
 
     // ========================================================================
     // 1. Proximity-based delivery for all Returning NPCs
@@ -183,106 +174,6 @@ pub fn arrival_system(
         if let Ok((_, slot, _, _, mut act, _, _)) = npc_q.get_mut(entity) {
             *act = Activity::Idle;
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: slot.0 }));
-        }
-    }
-
-    // ========================================================================
-    // 2. Working farmer drift check + harvest → carry home (throttled)
-    // ========================================================================
-    *frame_counter = frame_counter.wrapping_add(1);
-    let frame_slot = *frame_counter % 30;
-
-    let farmer_slots: Vec<(Entity, usize, usize)> = npc_q
-        .iter()
-        .filter(|(_, slot, _job, _, activity, _, ws)| {
-            matches!(&**activity, Activity::Working)
-                && ws.occupied_building.is_some()
-                && (slot.0 as u32) % 30 == frame_slot
-        })
-        .filter_map(|(entity, slot, _, _, _, _, ws)| {
-            let farm_slot = ws
-                .occupied_building
-                .and_then(|uid| entity_map.slot_for_uid(uid))?;
-            Some((entity, slot.0, farm_slot))
-        })
-        .collect();
-
-    for (entity, slot, farm_slot) in farmer_slots {
-        let Some(farm_pos) = entity_map.get_instance(farm_slot).map(|i| i.position) else {
-            continue;
-        };
-        let idx = slot;
-        if idx * 2 + 1 >= positions.len() {
-            continue;
-        }
-        let current = Vec2::new(positions[idx * 2], positions[idx * 2 + 1]);
-
-        if current.distance(farm_pos) > MAX_DRIFT {
-            submit_intent(
-                &mut intents,
-                entity,
-                farm_pos.x,
-                farm_pos.y,
-                MovementPriority::JobRoute,
-                "arrival:farm_drift",
-            );
-        }
-
-        // Harvest check
-        let harvest_result = entity_map.get_instance_mut(farm_slot).and_then(|inst| {
-            let food = inst.harvest();
-            if food > 0 {
-                Some((food, inst.harvest_log_msg(food)))
-            } else {
-                None
-            }
-        });
-        if let Some((food, log_msg)) = harvest_result {
-            // Read NPC data from query
-            let Ok((_, _, job, town_id, _, home, _)) = npc_q.get(entity) else {
-                continue;
-            };
-            let fac = world_data
-                .towns
-                .get(town_id.0 as usize)
-                .map(|t| t.faction)
-                .unwrap_or(0);
-            let job_val = *job;
-            let town_idx = town_id.0;
-            let home_pos = home.0;
-            combat_log.write(CombatLogMsg {
-                kind: CombatEventKind::Harvest,
-                faction: fac,
-                day: game_time.day(),
-                hour: game_time.hour(),
-                minute: game_time.minute(),
-                message: log_msg,
-                location: None,
-            });
-            entity_map.release(farm_slot);
-            pop_dec_working(&mut economy.pop_stats, job_val, town_idx);
-            if let Ok((_, _, _, _, mut act, _, mut ws)) = npc_q.get_mut(entity) {
-                ws.occupied_building = None;
-                *act = Activity::Returning {
-                    loot: vec![(ItemKind::Food, food)],
-                };
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx }));
-            }
-            submit_intent(
-                &mut intents,
-                entity,
-                home_pos.x,
-                home_pos.y,
-                MovementPriority::JobRoute,
-                "arrival:harvest_return",
-            );
-            npc_logs.push(
-                idx,
-                game_time.day(),
-                game_time.hour(),
-                game_time.minute(),
-                "Harvested -> Carrying home",
-            );
         }
     }
 }
@@ -385,6 +276,24 @@ fn submit_intent(
     source: &'static str,
 ) {
     intents.submit(entity, Vec2::new(x, y), priority, source);
+}
+
+/// Submit a movement intent with a deterministic scatter offset around a center point.
+#[inline]
+fn submit_intent_scattered(
+    intents: &mut MovementIntents,
+    entity: Entity,
+    center_x: f32,
+    center_y: f32,
+    scatter: f32,
+    idx: usize,
+    frame: usize,
+    priority: MovementPriority,
+    source: &'static str,
+) {
+    let ox = (pseudo_random(idx, frame + 5) - 0.5) * scatter;
+    let oy = (pseudo_random(idx, frame + 6) - 0.5) * scatter;
+    intents.submit(entity, Vec2::new(center_x + ox, center_y + oy), priority, source);
 }
 
 /// Frame counter for pseudo-random seeding.
@@ -594,6 +503,15 @@ pub fn decision_system(
                             }
                         }
                         activity = Activity::OnDuty { ticks_waiting: 0 };
+                        // Scatter near waypoint so guards don't stack on the exact same spot
+                        if let Ok(route) = npc_data.patrol_route_q.get(entity) {
+                            if let Some(post) = route.posts.get(patrol_current) {
+                                submit_intent_scattered(
+                                    &mut intents, entity, post.x, post.y, 64.0,
+                                    idx, frame, MovementPriority::JobRoute, "onduty:scatter",
+                                );
+                            }
+                        }
                         npc_logs.push(
                             idx,
                             game_time.day(),
@@ -1205,13 +1123,9 @@ pub fn decision_system(
                             Activity::GoingToHeal | Activity::HealingAtFountain { .. }
                         ) {
                             activity = Activity::GoingToHeal;
-                            submit_intent(
-                                &mut intents,
-                                entity,
-                                town.center.x,
-                                town.center.y,
-                                MovementPriority::Survival,
-                                "combat:heal_fountain",
+                            submit_intent_scattered(
+                                &mut intents, entity, town.center.x, town.center.y, 80.0,
+                                idx, frame, MovementPriority::Survival, "combat:heal_fountain",
                             );
                             npc_logs.push(
                                 idx,
@@ -1320,13 +1234,9 @@ pub fn decision_system(
                                     if let Some(town) = farms.world.towns.get(ti) {
                                         combat_state = CombatState::None;
                                         activity = Activity::GoingToHeal;
-                                        submit_intent(
-                                            &mut intents,
-                                            entity,
-                                            town.center.x,
-                                            town.center.y,
-                                            MovementPriority::Survival,
-                                            "squad:heal_fountain",
+                                        submit_intent_scattered(
+                                            &mut intents, entity, town.center.x, town.center.y, 80.0,
+                                            idx, frame, MovementPriority::Survival, "squad:heal_fountain",
                                         );
                                         npc_logs.push(
                                             idx,
@@ -1536,13 +1446,9 @@ pub fn decision_system(
                     if let Some(town) = farms.world.towns.get(town_idx) {
                         if let Some(current) = npc_pos {
                             if current.distance(town.center) > HEAL_DRIFT_RADIUS {
-                                submit_intent(
-                                    &mut intents,
-                                    entity,
-                                    town.center.x,
-                                    town.center.y,
-                                    MovementPriority::Survival,
-                                    "heal:drift_retarget",
+                                submit_intent_scattered(
+                                    &mut intents, entity, town.center.x, town.center.y, 80.0,
+                                    idx, frame, MovementPriority::Survival, "heal:drift_retarget",
                                 );
                             }
                         }
@@ -1671,32 +1577,70 @@ pub fn decision_system(
                     }
                     assigned_farm = Some(farm_slot);
                 }
-                if entity_map.occupant_count(farm_slot) > 1 {
-                    if assigned_farm == Some(farm_slot) {
-                        entity_map.release(farm_slot);
+                // Drift check: push farmer back to farm if separated
+                let farm_pos = entity_map
+                    .get_instance(farm_slot)
+                    .map(|i| i.position)
+                    .unwrap_or_default();
+                if let Some(current) = npc_pos {
+                    if current.distance(farm_pos) > 20.0 {
+                        submit_intent(
+                            &mut intents,
+                            entity,
+                            farm_pos.x,
+                            farm_pos.y,
+                            MovementPriority::JobRoute,
+                            "farm:drift",
+                        );
                     }
-                    assigned_farm = None;
-                    if work_position == Some(farm_slot) {
-                        work_position = None;
-                    }
-                    activity = Activity::Idle;
-                    if home != Vec2::ZERO {
+                }
+                // Harvest check
+                let mut harvested = false;
+                if let Some(inst) = entity_map.get_instance_mut(farm_slot) {
+                    if inst.kind == BuildingKind::Farm && inst.growth_ready {
+                        let town_levels =
+                            extras.town_upgrades.town_levels(town_idx_i32 as usize);
+                        let yield_mult =
+                            UPGRADES.stat_mult(&town_levels, "Farmer", UpgradeStatKind::Yield);
+                        let base_food = inst.harvest();
+                        if base_food > 0 {
+                            combat_log.write(CombatLogMsg {
+                                kind: CombatEventKind::Harvest,
+                                faction: faction_i32,
+                                day: game_time.day(),
+                                hour: game_time.hour(),
+                                minute: game_time.minute(),
+                                message: inst.harvest_log_msg(base_food),
+                                location: None,
+                            });
+                        }
+                        let food_amount = ((base_food as f32) * yield_mult).round() as i32;
+                        if assigned_farm == Some(farm_slot) {
+                            entity_map.release(farm_slot);
+                            assigned_farm = None;
+                        }
+                        activity = Activity::Returning {
+                            loot: vec![(ItemKind::Food, food_amount)],
+                        };
                         submit_intent(
                             &mut intents,
                             entity,
                             home.x,
                             home.y,
                             MovementPriority::JobRoute,
-                            "farm:contention_home",
+                            "farm:harvest_return",
                         );
+                        npc_logs.push(
+                            idx,
+                            game_time.day(),
+                            game_time.hour(),
+                            game_time.minute(),
+                            format!("Harvested {} food -> Returning", food_amount),
+                        );
+                        harvested = true;
                     }
-                    npc_logs.push(
-                        idx,
-                        game_time.day(),
-                        game_time.hour(),
-                        game_time.minute(),
-                        "Farm contention -> Reassign",
-                    );
+                }
+                if harvested {
                     break 'decide;
                 }
                 let should_stop = if energy < ENERGY_TIRED_THRESHOLD {
@@ -1885,13 +1829,9 @@ pub fn decision_system(
                     if let Some(town) = farms.world.towns.get(town_idx) {
                         let center = town.center;
                         activity = Activity::GoingToHeal;
-                        submit_intent(
-                            &mut intents,
-                            entity,
-                            center.x,
-                            center.y,
-                            MovementPriority::Survival,
-                            "idle:heal_fountain",
+                        submit_intent_scattered(
+                            &mut intents, entity, center.x, center.y, 80.0,
+                            idx, frame, MovementPriority::Survival, "idle:heal_fountain",
                         );
                         npc_logs.push(
                             idx,

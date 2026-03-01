@@ -620,6 +620,8 @@ pub struct UserSettings {
     #[serde(default = "default_music_speed")]
     pub music_speed: f32,
     #[serde(default)]
+    pub jukebox_loop: bool,
+    #[serde(default)]
     pub tutorial_completed: bool,
     // Endless mode
     #[serde(default)]
@@ -757,6 +759,7 @@ impl Default for UserSettings {
             music_volume: 0.3,
             sfx_volume: 0.5,
             music_speed: 1.0,
+            jukebox_loop: false,
             tutorial_completed: false,
             upgrade_expanded: Vec::new(),
             endless_mode: false,

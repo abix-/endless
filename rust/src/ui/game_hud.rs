@@ -3035,6 +3035,8 @@ pub fn jukebox_ui_system(
                     let resp = ui.add(btn);
                     if resp.clicked() {
                         audio.loop_current = !audio.loop_current;
+                        settings.jukebox_loop = audio.loop_current;
+                        crate::settings::save_settings(&settings);
                     }
                     if resp.hovered() {
                         resp.clone().show_tooltip_text(if audio.loop_current {

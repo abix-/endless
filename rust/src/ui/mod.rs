@@ -577,17 +577,17 @@ fn game_escape_system(
             }
         }
         if keys.just_pressed(settings.key_for_action(ControlAction::SpeedUp)) {
-            if game_time.time_scale <= 0.0 {
-                game_time.time_scale = 0.25;
+            if game_time.time_scale < 0.5 {
+                game_time.time_scale = 0.5;
             } else {
                 game_time.time_scale = (game_time.time_scale * 2.0).min(128.0);
             }
         }
         if keys.just_pressed(settings.key_for_action(ControlAction::SpeedDown)) {
-            if game_time.time_scale <= 0.25 {
-                game_time.time_scale = 0.0;
+            if game_time.time_scale <= 0.5 {
+                game_time.paused = true;
             } else {
-                game_time.time_scale = (game_time.time_scale / 2.0).max(0.25);
+                game_time.time_scale = (game_time.time_scale / 2.0).max(0.5);
             }
         }
     }
@@ -619,8 +619,6 @@ fn pause_menu_system(
     let ctx = contexts.ctx_mut()?;
     let mut save_game_requested = false;
     let mut load_game_requested = false;
-    let mut save_requested = false;
-    let mut reload_requested = false;
     let mut reset_requested = false;
     if let Some(action) = *rebinding_action {
         if let Some(bound_key) = keys
@@ -630,7 +628,7 @@ fn pause_menu_system(
         {
             settings.set_key_for_action(action, bound_key);
             *rebinding_action = None;
-            save_requested = true;
+            crate::settings::save_settings(&settings);
         }
     }
     if manual_save_name.is_empty() {
@@ -658,18 +656,6 @@ fn pause_menu_system(
         .min_width(820.0)
         .min_height(520.0)
         .show(ctx, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.add_space(8.0);
-                if ui.button("Resume").clicked() {
-                    ui_state.pause_menu_open = false;
-                    game_time.paused = false;
-                    crate::settings::save_settings(&settings);
-                }
-                ui.add_space(4.0);
-            });
-
-            ui.separator();
-
             ui.horizontal(|ui| {
                 ui.set_min_height(390.0);
                 ui.set_max_height(390.0);
@@ -848,7 +834,7 @@ fn pause_menu_system(
                                     if ui.button("Reset Controls to Defaults").clicked() {
                                         settings.reset_key_bindings();
                                         *rebinding_action = None;
-                                        save_requested = true;
+                                        crate::settings::save_settings(&settings);
                                     }
                                 }
                                 PauseSettingsTab::Audio => {
@@ -990,18 +976,14 @@ fn pause_menu_system(
             ui.separator();
             ui.vertical_centered(|ui| {
                 ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    if ui.button("Save Settings").clicked() {
-                        save_requested = true;
-                    }
-                    if ui.button("Reload Settings").clicked() {
-                        reload_requested = true;
-                    }
-                    if ui.button("Reset Defaults").clicked() {
-                        reset_requested = true;
-                    }
-                });
-                ui.add_space(4.0);
+                if ui.button("Reset Defaults").clicked() {
+                    reset_requested = true;
+                }
+                if ui.button("Resume").clicked() {
+                    ui_state.pause_menu_open = false;
+                    game_time.paused = false;
+                    crate::settings::save_settings(&settings);
+                }
                 if ui.button("Exit to Main Menu").clicked() {
                     ui_state.pause_menu_open = false;
                     crate::settings::save_settings(&settings);
@@ -1032,25 +1014,6 @@ fn pause_menu_system(
         for mut sink in &mut music_sinks {
             sink.set_volume(Volume::Linear(settings.music_volume));
         }
-        crate::settings::save_settings(&settings);
-    } else if reload_requested {
-        *rebinding_action = None;
-        let loaded = crate::settings::load_settings();
-        *settings = loaded;
-        winit_settings.unfocused_mode = if settings.background_fps {
-            bevy::winit::UpdateMode::Continuous
-        } else {
-            bevy::winit::UpdateMode::reactive_low_power(std::time::Duration::from_secs_f64(
-                1.0 / 60.0,
-            ))
-        };
-        audio.music_volume = settings.music_volume;
-        audio.sfx_volume = settings.sfx_volume;
-        for mut sink in &mut music_sinks {
-            sink.set_volume(Volume::Linear(settings.music_volume));
-        }
-    }
-    if save_requested {
         crate::settings::save_settings(&settings);
     }
 

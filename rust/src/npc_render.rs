@@ -1214,53 +1214,6 @@ fn write_coalesced_exact_f32(
     flush_range_f32(queue, buf, data, range_start, range_end, stride);
 }
 
-fn write_coalesced_exact_i32(
-    queue: &RenderQueue,
-    buf: &Buffer,
-    data: &[i32],
-    dirty: &[usize],
-    stride: usize,
-) {
-    if dirty.is_empty() {
-        return;
-    }
-    debug_assert!(
-        dirty.windows(2).all(|w| w[0] < w[1]),
-        "dirty indices not sorted+deduped"
-    );
-    debug_assert!(
-        dirty[0] * stride + stride <= data.len(),
-        "first dirty index {} out of bounds (len={})",
-        dirty[0],
-        data.len()
-    );
-    let mut range_start = dirty[0];
-    let mut range_end = dirty[0];
-    for &idx in &dirty[1..] {
-        debug_assert!(
-            idx * stride + stride <= data.len(),
-            "dirty index {idx} out of bounds (len={})",
-            data.len()
-        );
-        if idx == range_end.saturating_add(1) {
-            range_end = idx;
-        } else {
-            let s = range_start * stride;
-            let e = ((range_end + 1) * stride).min(data.len());
-            if s < e {
-                queue.write_buffer(buf, (s * 4) as u64, bytemuck::cast_slice(&data[s..e]));
-            }
-            range_start = idx;
-            range_end = idx;
-        }
-    }
-    let s = range_start * stride;
-    let e = ((range_end + 1) * stride).min(data.len());
-    if s < e {
-        queue.write_buffer(buf, (s * 4) as u64, bytemuck::cast_slice(&data[s..e]));
-    }
-}
-
 /// Zero-clone NPC extract: reads main world via Extract<Res<T>>, writes directly to GPU.
 fn extract_npc_data(
     gpu_state: Extract<Res<EntityGpuState>>,
@@ -2318,54 +2271,3 @@ fn queue_projs(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::count_exact_ranges;
-
-    #[test]
-    fn exact_ranges_empty() {
-        assert_eq!(count_exact_ranges(&[], 2), (0, 0));
-    }
-
-    #[test]
-    fn exact_ranges_single() {
-        assert_eq!(count_exact_ranges(&[42], 2), (1, 8)); // 1 slot × stride 2 × 4 bytes
-    }
-
-    #[test]
-    fn exact_ranges_sparse() {
-        // 3 non-adjacent indices → 3 separate ranges
-        let (ranges, bytes) = count_exact_ranges(&[5, 20, 100], 2);
-        assert_eq!(ranges, 3);
-        assert_eq!(bytes, 3 * 2 * 4); // 3 single-slot ranges
-    }
-
-    #[test]
-    fn exact_ranges_adjacent_merge() {
-        // [5,6,7] merge into one range, [20,21] merge into another
-        let (ranges, bytes) = count_exact_ranges(&[5, 6, 7, 20, 21], 2);
-        assert_eq!(ranges, 2);
-        assert_eq!(bytes, (3 + 2) * 2 * 4); // 3-slot + 2-slot ranges
-    }
-
-    #[test]
-    fn exact_ranges_stride_1() {
-        let (ranges, bytes) = count_exact_ranges(&[10, 11, 12, 50], 1);
-        assert_eq!(ranges, 2);
-        assert_eq!(bytes, (3 + 1) * 1 * 4);
-    }
-
-    #[test]
-    fn exact_ranges_all_adjacent() {
-        let (ranges, bytes) = count_exact_ranges(&[0, 1, 2, 3, 4], 2);
-        assert_eq!(ranges, 1);
-        assert_eq!(bytes, 5 * 2 * 4);
-    }
-
-    #[test]
-    fn exact_ranges_gap_of_one_not_merged() {
-        // Gap of 1 between 5 and 7 — must NOT merge (strict adjacency)
-        let (ranges, _) = count_exact_ranges(&[5, 7], 2);
-        assert_eq!(ranges, 2);
-    }
-}

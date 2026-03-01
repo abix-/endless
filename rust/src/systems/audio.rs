@@ -78,6 +78,7 @@ pub fn start_music(
     audio.music_volume = settings.music_volume;
     audio.sfx_volume = settings.sfx_volume;
     audio.music_speed = settings.music_speed;
+    audio.loop_current = settings.jukebox_loop;
     if audio.tracks.is_empty() {
         return;
     }
