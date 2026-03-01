@@ -2449,8 +2449,8 @@ impl Difficulty {
                 ),
                 Difficulty::Hard => (
                     1,
-                    10,
-                    10,
+                    20,
+                    20,
                     1,
                     true,
                     1.25,

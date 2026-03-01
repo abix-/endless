@@ -238,7 +238,7 @@ pub fn main_menu_system(
 
             // Town counts
             ui.horizontal(|ui| {
-                ui.label("AI Builder Towns:").on_hover_text("Number of AI-controlled friendly builder towns on the map.");
+                ui.label("AI Builder Towns:").on_hover_text("Number of AI-controlled rival builder towns on the map.");
                 ui.add(egui::Slider::new(&mut state.ai_towns, 0.0..=20.0)
                     .step_by(1.0)
                     .show_value(false));
