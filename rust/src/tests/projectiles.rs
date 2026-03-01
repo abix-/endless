@@ -34,7 +34,7 @@ pub fn setup(
     faction_stats.init(2);
 
     // 2 ranged fighters on opposing factions, within range (300px)
-    let slot0 = slot_alloc.alloc().expect("slot alloc");
+    let slot0 = slot_alloc.alloc_reset().expect("slot alloc");
     spawn_events.write(SpawnNpcMsg {
         slot_idx: slot0,
         x: 400.0,
@@ -50,7 +50,7 @@ pub fn setup(
         attack_type: 1, // ranged
         uid_override: None,
     });
-    let slot1 = slot_alloc.alloc().expect("slot alloc");
+    let slot1 = slot_alloc.alloc_reset().expect("slot alloc");
     spawn_events.write(SpawnNpcMsg {
         slot_idx: slot1,
         x: 400.0,

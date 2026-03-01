@@ -86,7 +86,7 @@ pub fn tick(
         }
         // Phase 3: Slot freed in GpuSlotPool
         3 => {
-            let free_count = slot_alloc.free.len();
+            let free_count = slot_alloc.free_list().len();
             test.phase_name = format!("free_slots={}", free_count);
             if free_count > 0 {
                 test.pass_phase(elapsed, format!("slot freed (free={})", free_count));
@@ -98,7 +98,7 @@ pub fn tick(
         4 => {
             if !test.get_flag("respawned") {
                 let killed_slot = test.count("killed_slot") as usize;
-                let new_slot = slot_alloc.alloc().expect("slot alloc for respawn");
+                let new_slot = slot_alloc.alloc_reset().expect("slot alloc for respawn");
                 test.counters.insert("new_slot".into(), new_slot as u32);
                 spawn_events.write(crate::messages::SpawnNpcMsg {
                     slot_idx: new_slot,

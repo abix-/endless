@@ -391,7 +391,7 @@ pub fn spawner_respawn_system(
             }
             if new_timer <= 0.0 {
                 // Spawn replacement NPC
-                let Some(slot) = slots.alloc() else { continue };
+                let Some(slot) = slots.alloc_reset() else { continue };
                 let Some(inst) = entity_map.get_instance(bld_slot) else {
                     continue;
                 };
@@ -947,7 +947,7 @@ pub fn endless_system(
                 let mut rng = rand::rng();
 
                 for _ in 0..group_size {
-                    let Some(slot) = world_state.entity_slots.alloc() else {
+                    let Some(slot) = world_state.entity_slots.alloc_reset() else {
                         break;
                     };
                     let jx = mg.boat_pos.x + rng.random_range(-30.0..30.0);
@@ -972,9 +972,7 @@ pub fn endless_system(
                 }
                 mg.faction = next_faction;
 
-                // Free boat slot
-                res.gpu_updates
-                    .write(GpuUpdateMsg(GpuUpdate::Hide { idx: boat_slot }));
+                // Free boat slot (allocator handles GPU hide)
                 world_state.entity_slots.free(boat_slot);
                 mg.boat_slot = None;
 
@@ -1222,7 +1220,7 @@ pub fn endless_system(
     };
 
     // Allocate boat GPU slot
-    let boat_slot = world_state.entity_slots.alloc();
+    let boat_slot = world_state.entity_slots.alloc_reset();
     if let Some(bs) = boat_slot {
         res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition {
             idx: bs,

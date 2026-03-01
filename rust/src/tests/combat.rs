@@ -60,7 +60,7 @@ pub fn setup(
     policies.policies[0].recovery_hp = 0.05;
 
     // Spawn 1 guard (faction 0) and 1 raider (faction 1) close together.
-    let slot0 = slot_alloc.alloc().expect("slot alloc");
+    let slot0 = slot_alloc.alloc_reset().expect("slot alloc");
     spawn_events.write(SpawnNpcMsg {
         slot_idx: slot0,
         x: 400.0,
@@ -76,7 +76,7 @@ pub fn setup(
         attack_type: 0,
         uid_override: None,
     });
-    let slot1 = slot_alloc.alloc().expect("slot alloc");
+    let slot1 = slot_alloc.alloc_reset().expect("slot alloc");
     spawn_events.write(SpawnNpcMsg {
         slot_idx: slot1,
         x: 400.0,
@@ -201,7 +201,7 @@ pub fn tick(
         }
         // Phase 6: Slot freed, entity despawned
         6 => {
-            let free = slot_alloc.free.len();
+            let free = slot_alloc.free_list().len();
             test.phase_name = format!("free_slots={} alive={}", free, alive);
             if free > 0 {
                 test.pass_phase(elapsed, format!("slot freed (free={})", free));

@@ -65,6 +65,8 @@ Main World (ECS)                       Render World (GPU)
 
 ```
 ECS → GPU (upload):
+  GpuSlotPool.pending_frees → populate_gpu_state (hide: pos=-9999, health=0, speed=0, flags=0)
+  GpuSlotPool.pending_resets → populate_gpu_state (full wipe: all 9 GPU fields to safe defaults)
   GpuUpdateMsg → populate_gpu_state → EntityGpuState (unified NPC+building state, per-buffer dirty flags)
   ProjGpuUpdateMsg → populate_proj_buffer_writes
     → ProjBufferWrites (spawn/deactivate dirty sets for extract_proj_data)

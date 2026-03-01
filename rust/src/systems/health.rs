@@ -144,10 +144,9 @@ fn hide_npc(
     idx: usize,
     entity_map: &mut EntityMap,
     slots: &mut GpuSlotPool,
-    gpu: &mut MessageWriter<GpuUpdateMsg>,
+    _gpu: &mut MessageWriter<GpuUpdateMsg>,
 ) {
     entity_map.unregister_npc(idx);
-    gpu.write(GpuUpdateMsg(GpuUpdate::Hide { idx }));
     slots.free(idx);
 }
 
@@ -155,11 +154,9 @@ fn hide_building(
     idx: usize,
     entity_map: &mut EntityMap,
     alloc: &mut GpuSlotPool,
-    gpu: &mut MessageWriter<GpuUpdateMsg>,
+    _gpu: &mut MessageWriter<GpuUpdateMsg>,
 ) {
     entity_map.remove_by_slot(idx);
-    gpu.write(GpuUpdateMsg(GpuUpdate::Hide { idx }));
-    gpu.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: 0.0 }));
     alloc.free(idx);
 }
 

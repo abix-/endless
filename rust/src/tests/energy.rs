@@ -14,7 +14,7 @@ pub fn setup(mut params: TestSetupParams) {
     params.game_time.time_scale = 1.0;
     params.focus_camera(400.0, 400.0);
     // No home → farmer can't rest → energy only drains
-    let slot = params.slot_alloc.alloc().expect("slot alloc");
+    let slot = params.slot_alloc.alloc_reset().expect("slot alloc");
     params.spawn_events.write(crate::messages::SpawnNpcMsg {
         slot_idx: slot,
         x: 400.0,

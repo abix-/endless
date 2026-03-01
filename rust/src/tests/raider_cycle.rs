@@ -35,7 +35,7 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
 
     // Spawn 3 raiders (minimum for RAID_GROUP_SIZE)
     for i in 0..3 {
-        let slot = params.slot_alloc.alloc().expect("slot alloc");
+        let slot = params.slot_alloc.alloc_reset().expect("slot alloc");
         params.spawn_events.write(crate::messages::SpawnNpcMsg {
             slot_idx: slot,
             x: 380.0 + (i as f32 * 20.0),

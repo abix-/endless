@@ -643,7 +643,7 @@ pub fn populate_gpu_state(
     _game_time: Res<GameTime>,
     real_time: Res<Time<Real>>,
     time: Res<Time>,
-    slots: Res<GpuSlotPool>,
+    mut slots: ResMut<GpuSlotPool>,
 ) {
     let sink_window_key = real_time.elapsed_secs_f64().floor() as i64;
     // Reset dirty flags and per-index dirty tracking
@@ -657,6 +657,73 @@ pub fn populate_gpu_state(
     npc_state.flags_dirty_indices.clear();
     npc_state.half_size_dirty_indices.clear();
     npc_state.hidden_indices.clear();
+
+    // Hide freed slots (deallocation cleanup — position=-9999, health=0, speed=0, flags=0)
+    for slot in slots.take_pending_frees() {
+        let pi = slot * 2;
+        if pi + 1 < npc_state.positions.len() {
+            npc_state.positions[pi] = -9999.0;
+            npc_state.positions[pi + 1] = -9999.0;
+            npc_state.position_dirty_indices.push(slot);
+            npc_state.hidden_indices.push(slot);
+        }
+        if slot < npc_state.healths.len() {
+            npc_state.healths[slot] = 0.0;
+            npc_state.health_dirty_indices.push(slot);
+        }
+        if slot < npc_state.speeds.len() {
+            npc_state.speeds[slot] = 0.0;
+            npc_state.speed_dirty_indices.push(slot);
+        }
+        if slot < npc_state.entity_flags.len() {
+            npc_state.entity_flags[slot] = 0;
+            npc_state.flags_dirty_indices.push(slot);
+        }
+    }
+
+    // Reset GPU state for newly allocated slots (prevents stale data from previous occupants)
+    for slot in slots.take_pending_resets() {
+        let pi = slot * 2;
+        if pi + 1 < npc_state.positions.len() {
+            npc_state.positions[pi] = -9999.0;
+            npc_state.positions[pi + 1] = -9999.0;
+            npc_state.position_dirty_indices.push(slot);
+        }
+        if pi + 1 < npc_state.targets.len() {
+            npc_state.targets[pi] = -9999.0;
+            npc_state.targets[pi + 1] = -9999.0;
+            npc_state.target_dirty_indices.push(slot);
+        }
+        if slot < npc_state.arrivals.len() {
+            npc_state.arrivals[slot] = 0;
+            npc_state.arrival_dirty_indices.push(slot);
+        }
+        if slot < npc_state.speeds.len() {
+            npc_state.speeds[slot] = 0.0;
+            npc_state.speed_dirty_indices.push(slot);
+        }
+        if slot < npc_state.factions.len() {
+            npc_state.factions[slot] = -1;
+            npc_state.faction_dirty_indices.push(slot);
+        }
+        if slot < npc_state.healths.len() {
+            npc_state.healths[slot] = 0.0;
+            npc_state.health_dirty_indices.push(slot);
+        }
+        if slot < npc_state.entity_flags.len() {
+            npc_state.entity_flags[slot] = 0;
+            npc_state.flags_dirty_indices.push(slot);
+        }
+        let hi = slot * 2;
+        if hi + 1 < npc_state.half_sizes.len() {
+            npc_state.half_sizes[hi] = 0.0;
+            npc_state.half_sizes[hi + 1] = 0.0;
+            npc_state.half_size_dirty_indices.push(slot);
+        }
+        if slot < npc_state.flash_values.len() {
+            npc_state.flash_values[slot] = 0.0;
+        }
+    }
 
     for msg in events.read() {
         let update = &msg.0;

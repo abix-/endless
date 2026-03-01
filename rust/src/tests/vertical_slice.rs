@@ -84,7 +84,7 @@ pub fn setup(mut params: TestSetupParams) {
 
     // Spawn 5 farmers + register spawners
     for (i, &(fx, fy)) in FARMS.iter().enumerate() {
-        let slot = params.slot_alloc.alloc().expect("slot alloc");
+        let slot = params.slot_alloc.alloc_reset().expect("slot alloc");
         let uid = params.uid_alloc.next();
         params.spawn_events.write(crate::messages::SpawnNpcMsg {
             slot_idx: slot,
@@ -111,7 +111,7 @@ pub fn setup(mut params: TestSetupParams) {
 
     // Spawn 2 guards + register spawners
     for i in 0..2 {
-        let slot = params.slot_alloc.alloc().expect("slot alloc");
+        let slot = params.slot_alloc.alloc_reset().expect("slot alloc");
         let uid = params.uid_alloc.next();
         params.spawn_events.write(crate::messages::SpawnNpcMsg {
             slot_idx: slot,
@@ -138,7 +138,7 @@ pub fn setup(mut params: TestSetupParams) {
 
     // Spawn 5 raiders + register spawners
     for i in 0..5 {
-        let slot = params.slot_alloc.alloc().expect("slot alloc");
+        let slot = params.slot_alloc.alloc_reset().expect("slot alloc");
         let uid = params.uid_alloc.next();
         params.spawn_events.write(crate::messages::SpawnNpcMsg {
             slot_idx: slot,

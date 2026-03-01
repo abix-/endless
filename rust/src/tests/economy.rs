@@ -38,7 +38,7 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
     params.game_time.time_scale = 1.0;
 
     // Spawn 1 farmer to tend the farm (speeds growth)
-    let slot = params.slot_alloc.alloc().expect("slot alloc");
+    let slot = params.slot_alloc.alloc_reset().expect("slot alloc");
     params.spawn_events.write(crate::messages::SpawnNpcMsg {
         slot_idx: slot,
         x: 400.0,

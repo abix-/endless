@@ -195,7 +195,7 @@ impl TestSetupParams<'_, '_> {
     /// Alloc a slot and write a SpawnNpcMsg with sensible defaults.
     /// Returns the allocated slot index.
     pub fn spawn_npc(&mut self, job: i32, x: f32, y: f32, home_x: f32, home_y: f32) -> usize {
-        let slot = self.slot_alloc.alloc().expect("slot alloc");
+        let slot = self.slot_alloc.alloc_reset().expect("slot alloc");
         self.spawn_events.write(SpawnNpcMsg {
             slot_idx: slot,
             x,

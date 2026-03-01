@@ -714,7 +714,7 @@ pub fn place_building_instance(
 ) -> Option<usize> {
     use crate::constants::building_def;
     let def = building_def(kind);
-    let Some(slot) = slot_alloc.alloc() else {
+    let Some(slot) = slot_alloc.alloc_reset() else {
         warn!("No building slots available for {:?}", kind);
         return None;
     };

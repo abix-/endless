@@ -1759,25 +1759,71 @@ impl SlotPool {
 
 /// Unified entity slot allocator. NPCs and buildings share the same slot namespace.
 /// Slot = GPU index (no offset arithmetic). Manages 0..MAX_ENTITIES with free list.
+/// Every allocation queues a GPU state reset (drained by `populate_gpu_state`).
 #[derive(Resource)]
-pub struct GpuSlotPool(pub SlotPool);
+pub struct GpuSlotPool {
+    pool: SlotPool,
+    pending_resets: Vec<usize>,
+    pending_frees: Vec<usize>,
+}
 
 impl Default for GpuSlotPool {
     fn default() -> Self {
-        Self(SlotPool::new(MAX_ENTITIES))
+        Self {
+            pool: SlotPool::new(MAX_ENTITIES),
+            pending_resets: Vec::new(),
+            pending_frees: Vec::new(),
+        }
     }
 }
 
-impl std::ops::Deref for GpuSlotPool {
-    type Target = SlotPool;
-    fn deref(&self) -> &SlotPool {
-        &self.0
+impl GpuSlotPool {
+    /// Allocate a slot and queue a full GPU state reset (prevents stale data from previous occupant).
+    pub fn alloc_reset(&mut self) -> Option<usize> {
+        let slot = self.pool.alloc()?;
+        self.pending_resets.push(slot);
+        Some(slot)
     }
-}
-
-impl std::ops::DerefMut for GpuSlotPool {
-    fn deref_mut(&mut self) -> &mut SlotPool {
-        &mut self.0
+    pub fn free(&mut self, slot: usize) {
+        self.pool.free(slot);
+        self.pending_frees.push(slot);
+    }
+    /// High-water mark: max slot index ever allocated.
+    pub fn count(&self) -> usize {
+        self.pool.count()
+    }
+    /// Currently alive: allocated minus freed.
+    pub fn alive(&self) -> usize {
+        self.pool.alive()
+    }
+    pub fn reset(&mut self) {
+        self.pool.reset();
+        self.pending_resets.clear();
+        self.pending_frees.clear();
+    }
+    /// Drain slots needing GPU state reset. Called by `populate_gpu_state`.
+    pub fn take_pending_resets(&mut self) -> Vec<usize> {
+        std::mem::take(&mut self.pending_resets)
+    }
+    /// Drain slots needing GPU hide cleanup. Called by `populate_gpu_state`.
+    pub fn take_pending_frees(&mut self) -> Vec<usize> {
+        std::mem::take(&mut self.pending_frees)
+    }
+    /// Direct access for save/load that rebuilds allocator state.
+    pub fn set_next(&mut self, n: usize) {
+        self.pool.next = n;
+    }
+    /// Direct access to free list for save/load.
+    pub fn free_list_mut(&mut self) -> &mut Vec<usize> {
+        &mut self.pool.free
+    }
+    /// Read-only access to free list for debug display.
+    pub fn free_list(&self) -> &[usize] {
+        &self.pool.free
+    }
+    /// High-water mark (alias for debug display).
+    pub fn next(&self) -> usize {
+        self.pool.next
     }
 }
 
@@ -2118,6 +2164,23 @@ pub enum CombatEventKind {
     Loot,
 }
 
+impl CombatEventKind {
+    const COUNT: usize = 8;
+
+    fn index(self) -> usize {
+        match self {
+            Self::Kill => 0,
+            Self::Spawn => 1,
+            Self::Raid => 2,
+            Self::Harvest => 3,
+            Self::LevelUp => 4,
+            Self::Ai => 5,
+            Self::BuildingDamage => 6,
+            Self::Loot => 7,
+        }
+    }
+}
+
 /// A single combat log entry.
 #[derive(Clone)]
 pub struct CombatLogEntry {
@@ -2131,14 +2194,20 @@ pub struct CombatLogEntry {
     pub location: Option<bevy::math::Vec2>,
 }
 
-const COMBAT_LOG_MAX: usize = 200;
-const COMBAT_LOG_PRIORITY_MAX: usize = 200;
+const COMBAT_LOG_PER_KIND: usize = 200;
 
-/// Global combat event log. Ring buffer, newest at back.
-#[derive(Resource, Default)]
+/// Global combat event log. Per-kind ring buffers (200 each), newest at back.
+#[derive(Resource)]
 pub struct CombatLog {
-    pub entries: VecDeque<CombatLogEntry>,
-    pub priority_entries: VecDeque<CombatLogEntry>,
+    buffers: [VecDeque<CombatLogEntry>; CombatEventKind::COUNT],
+}
+
+impl Default for CombatLog {
+    fn default() -> Self {
+        Self {
+            buffers: std::array::from_fn(|_| VecDeque::new()),
+        }
+    }
 }
 
 impl CombatLog {
@@ -2164,15 +2233,11 @@ impl CombatLog {
         message: String,
         location: Option<bevy::math::Vec2>,
     ) {
-        let (target, cap) = if matches!(kind, CombatEventKind::Raid | CombatEventKind::Ai) {
-            (&mut self.priority_entries, COMBAT_LOG_PRIORITY_MAX)
-        } else {
-            (&mut self.entries, COMBAT_LOG_MAX)
-        };
-        if target.len() >= cap {
-            target.pop_front();
+        let buf = &mut self.buffers[kind.index()];
+        if buf.len() >= COMBAT_LOG_PER_KIND {
+            buf.pop_front();
         }
-        target.push_back(CombatLogEntry {
+        buf.push_back(CombatLogEntry {
             day,
             hour,
             minute,
@@ -2184,7 +2249,7 @@ impl CombatLog {
     }
 
     pub fn iter_all(&self) -> impl Iterator<Item = &CombatLogEntry> {
-        self.entries.iter().chain(self.priority_entries.iter())
+        self.buffers.iter().flat_map(|b| b.iter())
     }
 }
 

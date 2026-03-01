@@ -140,12 +140,12 @@ For each dead entity:
 - Emits `mark_building_changed(kind)` dirty signals
 - **Fountain death**: deactivates AI player for that town. In endless mode, queues replacement AI (`PendingAiSpawn`) scaled to player strength.
 - **Building loot**: `BuildingDef::loot_drop()` returns `cost / 2` as food. Uses `LastHitBy` to find attacker, looks up attacker entity via `params.p1()`. Attacker set to `Activity::Returning { loot }`, targets home. DC keep-fighting override skips disengage + home target when `dc_no_return`.
-- `remove_by_slot(idx)` (clears `entities` + `instances` + `by_kind`), `Hide + SetHealth(0)`, `GpuSlotPool.free(idx)`
+- `remove_by_slot(idx)` (clears `entities` + `instances` + `by_kind`), `GpuSlotPool.free(idx)` (allocator queues GPU hide cleanup — position=-9999, health=0, speed=0, flags=0)
 
 **NPC branch:**
 - **XP grant**: if `LastHitBy` present, looks up killer entity via `params.p1()`. Grants 100 XP, increments `FactionStats.inc_kills()`. Checks for level-up: `level_from_xp(new_xp) > level_from_xp(old_xp)`. On level-up: re-resolves `CachedStats`, updates `Speed`, rescales HP proportionally, sends GPU updates, emits `CombatEventKind::LevelUp`.
 - **Loot on kill**: reads `npc_def(dead_job).loot_drop`, picks one deterministically via `xp % len`. Sets killer to `Activity::Returning { loot }`, clears `CombatState::None`. DC keep-fighting override applies.
-- Despawn entity, `HideNpc` → GPU (-9999), release AssignedFarm/WorkPosition
+- Despawn entity, `GpuSlotPool.free(idx)` (allocator queues GPU hide cleanup), release AssignedFarm/WorkPosition
 - Update stats: `PopulationStats`, `FactionStats`, `KillStats`
 - Remove from `NpcsByTownCache`, deselect if SelectedNpc matches
 - `GpuSlotPool.free(idx)` — recycle slot

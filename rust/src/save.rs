@@ -1078,11 +1078,11 @@ pub fn apply_save(
         used_slots.insert(npc.slot);
         max_slot = max_slot.max(npc.slot + 1);
     }
-    slots.next = max_slot;
+    slots.set_next(max_slot);
     // Free list = all slots below max_slot that aren't used
     for i in 0..max_slot {
         if !used_slots.contains(&i) {
-            slots.free.push(i);
+            slots.free_list_mut().push(i);
         }
     }
 }

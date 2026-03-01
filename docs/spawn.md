@@ -35,19 +35,23 @@ Fresh spawns pass `NpcSpawnOverrides::default()` (all None — uses generated va
 
 ## Slot Allocation
 
-`GpuSlotPool` (NPCs + buildings, max=MAX_ENTITIES=200K) wraps a `SlotPool` inner type (defined in `resources.rs`):
+`GpuSlotPool` (NPCs + buildings, max=MAX_ENTITIES=200K) wraps a `SlotPool` inner type (defined in `resources.rs`) with lifecycle-aware allocation and deallocation:
 
 ```rust
-pub struct SlotPool {
-    pub next: usize,      // High-water mark
-    pub max: usize,       // Capacity cap
-    pub free: Vec<usize>, // Recycled slots
+pub struct GpuSlotPool {
+    pool: SlotPool,           // Inner allocator (next, max, free list)
+    pending_resets: Vec<usize>,  // Slots needing GPU state wipe (on alloc)
+    pending_frees: Vec<usize>,   // Slots needing GPU hide cleanup (on free)
 }
 ```
 
-`alloc()` pops from the free list first, falls back to incrementing `next` (capped at `max`). `free()` pushes onto the free list. LIFO reuse — most recently freed slot is allocated first. `GpuSlotPool` implements `Deref`/`DerefMut` to `SlotPool`.
+`alloc_reset()` pops from the free list first, falls back to incrementing `next` (capped at `max`), and queues the slot for a full GPU state reset. `free()` pushes onto the free list and queues the slot for GPU hide cleanup. LIFO reuse — most recently freed slot is allocated first. `populate_gpu_state` (gpu.rs) drains both queues each frame before processing `GpuUpdateMsg` events:
+- **pending_frees**: position=-9999 (hidden), health=0, speed=0, flags=0
+- **pending_resets**: all 9 GPU fields zeroed to safe defaults (position=-9999, target=-9999, speed=0, faction=-1, health=0, flags=0, half_size=0, arrivals=0, flash=0)
 
-NPC slots: allocated in `spawn_npc_system`, recycled in `death_system`.
+Spawn code then overwrites with real values via normal `GpuUpdateMsg` flow.
+
+NPC slots: allocated in `spawn_npc_system` (via economy.rs callers), recycled in `death_system`.
 Building slots: allocated in `place_building_instance`, recycled in `death_system` (building branch).
 Both share the same `GpuSlotPool` — each entity's slot IS its GPU buffer index (no offset arithmetic).
 

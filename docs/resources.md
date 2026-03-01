@@ -11,10 +11,10 @@ Defined in: `rust/src/resources.rs`, `rust/src/world.rs`
 | Resource | Type | Writers | Readers |
 |----------|------|---------|---------|
 | EntityMap | `entities: HashMap<usize, Entity>` + `npcs: HashMap<usize, NpcEntry>` (6-field index: slot, entity, job, faction, town_idx, dead) + `npc_by_town` secondary index + building instance data/indexes/spatial grid + UID maps (see below) | spawn_npc_system (register_npc), death_system (unregister_npc), place_building | damage_system, attack_system, tower_system, economy, UI (unified slot → entity lookup for all entities; NPC gameplay state read via ECS queries on NpcEntry.entity) |
-| GpuSlotPool | `SlotPool` wrapper (max=MAX_ENTITIES=200K) | spawn_npc_system (alloc), place_building_instance (alloc), death_system (free) | GPU compute dispatch, UI, tests |
+| GpuSlotPool | `SlotPool` + `pending_resets` + `pending_frees` (max=MAX_ENTITIES=200K) | spawn_npc_system (alloc_reset), place_building_instance (alloc_reset), death_system (free) | GPU compute dispatch, populate_gpu_state (drains resets+frees), UI, tests |
 | NextEntityUid | `u64` counter (default=1, 0 reserved as "none") | spawn (materialize_npc), place_building_instance | spawn, economy (spawner respawn), save/load |
 
-`GpuSlotPool` wraps a `SlotPool` inner type with LIFO free list. `next` is the high-water mark. Two query methods: `count()` returns high-water mark, `alive()` returns `next - free.len()`. NPCs and buildings share one allocator — each entity's slot IS its GPU buffer index (no offset arithmetic). See [spawn.md](spawn.md).
+`GpuSlotPool` wraps a `SlotPool` inner type with LIFO free list, plus lifecycle queues: `pending_resets` (GPU state wipe on alloc) and `pending_frees` (GPU hide on free). `alloc_reset()` allocates + queues reset, `free()` deallocates + queues hide. Both queues are drained by `populate_gpu_state` each frame before processing `GpuUpdateMsg` events. Query methods: `count()` returns high-water mark, `alive()` returns `next - free.len()`, `free_list()` / `next()` for debug display, `set_next()` / `free_list_mut()` for save/load. NPCs and buildings share one allocator — each entity's slot IS its GPU buffer index (no offset arithmetic). See [spawn.md](spawn.md).
 
 ### EntityUid — Stable Identity
 

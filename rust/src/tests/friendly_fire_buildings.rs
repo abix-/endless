@@ -72,7 +72,7 @@ pub fn setup(
     }
 
     // Shooter (faction 0, ranged).
-    let shooter = slot_alloc.alloc().expect("slot alloc");
+    let shooter = slot_alloc.alloc_reset().expect("slot alloc");
     spawn_events.write(SpawnNpcMsg {
         slot_idx: shooter,
         x: 425.0,
@@ -90,7 +90,7 @@ pub fn setup(
     });
 
     // Target dummy (faction 1, melee) so only one side shoots.
-    let target = slot_alloc.alloc().expect("slot alloc");
+    let target = slot_alloc.alloc_reset().expect("slot alloc");
     spawn_events.write(SpawnNpcMsg {
         slot_idx: target,
         x: TARGET_X,

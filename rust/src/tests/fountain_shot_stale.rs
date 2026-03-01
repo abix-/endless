@@ -49,7 +49,7 @@ pub fn setup(
     );
 
     // One enemy NPC in fountain range; keep this NPC pinned in tick so tower fires repeatedly.
-    let building_gpu_slot = slot_alloc.alloc().expect("slot alloc for target");
+    let building_gpu_slot = slot_alloc.alloc_reset().expect("slot alloc for target");
     spawn_events.write(SpawnNpcMsg {
         slot_idx: building_gpu_slot,
         x: ENEMY_START_X,

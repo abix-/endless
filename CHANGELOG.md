@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-03-01m
+
+- **gpu slot allocator lifecycle** — `GpuSlotPool` now owns full GPU state lifecycle: `alloc_reset()` queues pending resets (all 9 GPU fields zeroed to safe defaults), `free()` queues pending frees (hide + health/speed/flags zeroed); `populate_gpu_state` drains both queues before processing `GpuUpdateMsg` events; removed Deref/DerefMut to inner SlotPool, all access through explicit methods; eliminates stale GPU state on slot reuse (root cause: buildings on reused NPC slots inherited speed=100.0, causing phantom movement)
+- **tower debug info** — building inspector Tower arm shows LastHitBy, combat_target, targeted-by count, GPU raw speed, GPU readback position; Copy Debug Info includes all fields
+
 ## 2026-03-01l
 
 - **building construction time** — all runtime-placed buildings (player + AI) now have a 10-second construction period (at 1x speed, scales with time_scale); buildings start at 0.01 HP scaling to full, sprite progressively reveals bottom-to-top via shader clip on health < 1.0; spawner dormant during construction (respawn_timer = -1.0), growth system skips under-construction farms/mines; `under_construction: f32` on `BuildingInstance`, `construction_tick_system` in Step::Behavior before growth_system; world-gen buildings appear instantly; save/load persists construction state

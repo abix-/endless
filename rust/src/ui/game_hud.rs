@@ -378,6 +378,7 @@ pub struct BuildingInspectorData<'w, 's> {
     pub armor_q: Query<'w, 's, &'static EquippedArmor>,
     pub carried_gold_q: Query<'w, 's, &'static CarriedGold>,
     pub patrol_route_q: Query<'w, 's, &'static PatrolRoute>,
+    pub last_hit_by_q: Query<'w, 's, &'static LastHitBy>,
 }
 
 #[derive(SystemParam)]
@@ -2329,6 +2330,17 @@ fn building_inspector_content(
             if let Some(f) = buffer_writes.factions.get(slot).copied() {
                 ui.label(format!("GPU raw faction: {}", f));
             }
+            if let Some(spd) = buffer_writes.speeds.get(slot).copied() {
+                ui.label(format!("GPU raw speed: {:.1}", spd));
+            }
+            {
+                let i2 = slot * 2;
+                if i2 + 1 < gpu_state.positions.len() {
+                    let rx = gpu_state.positions[i2];
+                    let ry = gpu_state.positions[i2 + 1];
+                    ui.label(format!("GPU readback pos: ({:.0}, {:.0})", rx, ry));
+                }
+            }
             if let Some(flags) = buffer_writes.entity_flags.get(slot).copied() {
                 let is_building = (flags & crate::constants::ENTITY_FLAG_BUILDING) != 0;
                 let is_combat = (flags & crate::constants::ENTITY_FLAG_COMBAT) != 0;
@@ -2356,19 +2368,61 @@ fn building_inspector_content(
                 ));
             }
 
-            let free_hits = bld.entity_slots.free.iter().filter(|&&s| s == slot).count();
+            let free_hits = bld.entity_slots.free_list().iter().filter(|&&s| s == slot).count();
             ui.label(format!(
                 "Allocator: slot_in_free_list={} free_list_hits={} next={} free_len={}",
                 free_hits > 0,
                 free_hits,
-                bld.entity_slots.next,
-                bld.entity_slots.free.len()
+                bld.entity_slots.next(),
+                bld.entity_slots.free_list().len()
             ));
             if bld.selected_building.active {
                 ui.label(format!(
                     "SelectionOverlay expected: slot={} color=(1.00,0.86,0.35,0.90) scale=36 y_offset=2",
                     slot
                 ));
+            }
+
+            // LastHitBy
+            if let Some(&entity) = bld.entity_map.entities.get(&slot) {
+                if let Ok(lhb) = bld.last_hit_by_q.get(entity) {
+                    let a = lhb.0;
+                    let info = if a < 0 {
+                        "none".to_string()
+                    } else if let Some(npc) = bld.entity_map.get_npc(a as usize) {
+                        format!("NPC {:?} faction={}", npc.job, npc.faction)
+                    } else if let Some(inst) = bld.entity_map.get_instance(a as usize) {
+                        format!("{:?} faction={}", inst.kind, inst.faction)
+                    } else {
+                        "unknown (dead/freed)".to_string()
+                    };
+                    ui.label(format!("LastHitBy: slot={} ({})", a, info));
+                }
+            }
+
+            // Combat target (outgoing)
+            let ct = gpu_state.combat_targets.get(slot).copied().unwrap_or(-1);
+            ui.label(format!("combat_target: {}", ct));
+
+            // Incoming attackers
+            let mut incoming: Vec<usize> = Vec::new();
+            for (idx, &ct_val) in gpu_state.combat_targets.iter().enumerate() {
+                if ct_val == slot as i32 && idx != slot {
+                    incoming.push(idx);
+                    if incoming.len() >= 5 { break; }
+                }
+            }
+            if !incoming.is_empty() {
+                let descs: Vec<String> = incoming.iter().map(|&idx| {
+                    if let Some(npc) = bld.entity_map.get_npc(idx) {
+                        format!("#{} {:?} f{}", idx, npc.job, npc.faction)
+                    } else if let Some(inst) = bld.entity_map.get_instance(idx) {
+                        format!("#{} {:?} f{}", idx, inst.kind, inst.faction)
+                    } else {
+                        format!("#{}", idx)
+                    }
+                }).collect();
+                ui.label(format!("Targeted by: [{}]", descs.join(", ")));
             }
         }
 
@@ -2462,6 +2516,14 @@ fn building_inspector_content(
                 if let Some(f) = buffer_writes.factions.get(slot).copied() {
                     info.push_str(&format!("GPU raw faction: {}\n", f));
                 }
+                if let Some(spd) = buffer_writes.speeds.get(slot).copied() {
+                    info.push_str(&format!("GPU raw speed: {:.1}\n", spd));
+                }
+                if i2 + 1 < gpu_state.positions.len() {
+                    let rx = gpu_state.positions[i2];
+                    let ry = gpu_state.positions[i2 + 1];
+                    info.push_str(&format!("GPU readback pos: ({:.0}, {:.0})\n", rx, ry));
+                }
                 if let Some(flags) = buffer_writes.entity_flags.get(slot).copied() {
                     let is_building = (flags & crate::constants::ENTITY_FLAG_BUILDING) != 0;
                     let is_combat = (flags & crate::constants::ENTITY_FLAG_COMBAT) != 0;
@@ -2489,13 +2551,13 @@ fn building_inspector_content(
                     ));
                 }
 
-                let free_hits = bld.entity_slots.free.iter().filter(|&&s| s == slot).count();
+                let free_hits = bld.entity_slots.free_list().iter().filter(|&&s| s == slot).count();
                 info.push_str(&format!(
                     "Allocator: slot_in_free_list={} free_list_hits={} next={} free_len={}\n",
                     free_hits > 0,
                     free_hits,
-                    bld.entity_slots.next,
-                    bld.entity_slots.free.len()
+                    bld.entity_slots.next(),
+                    bld.entity_slots.free_list().len()
                 ));
                 if bld.selected_building.active {
                     info.push_str(&format!(
@@ -2520,6 +2582,45 @@ fn building_inspector_content(
                     "Overlay anchor (GPU): unavailable for slot {}\n",
                     slot
                 ));
+            }
+            // LastHitBy
+            if let Some(slot) = selected_slot {
+                if let Some(&entity) = bld.entity_map.entities.get(&slot) {
+                    if let Ok(lhb) = bld.last_hit_by_q.get(entity) {
+                        let a = lhb.0;
+                        let lhb_info = if a < 0 {
+                            "none".to_string()
+                        } else if let Some(npc) = bld.entity_map.get_npc(a as usize) {
+                            format!("NPC {:?} faction={}", npc.job, npc.faction)
+                        } else if let Some(inst) = bld.entity_map.get_instance(a as usize) {
+                            format!("{:?} faction={}", inst.kind, inst.faction)
+                        } else {
+                            "unknown (dead/freed)".to_string()
+                        };
+                        info.push_str(&format!("LastHitBy: slot={} ({})\n", a, lhb_info));
+                    }
+                }
+                let ct = gpu_state.combat_targets.get(slot).copied().unwrap_or(-1);
+                info.push_str(&format!("combat_target: {}\n", ct));
+                let mut incoming: Vec<usize> = Vec::new();
+                for (idx, &ct_val) in gpu_state.combat_targets.iter().enumerate() {
+                    if ct_val == slot as i32 && idx != slot {
+                        incoming.push(idx);
+                        if incoming.len() >= 5 { break; }
+                    }
+                }
+                if !incoming.is_empty() {
+                    let descs: Vec<String> = incoming.iter().map(|&idx| {
+                        if let Some(npc) = bld.entity_map.get_npc(idx) {
+                            format!("#{} {:?} f{}", idx, npc.job, npc.faction)
+                        } else if let Some(inst) = bld.entity_map.get_instance(idx) {
+                            format!("#{} {:?} f{}", idx, inst.kind, inst.faction)
+                        } else {
+                            format!("#{}", idx)
+                        }
+                    }).collect();
+                    info.push_str(&format!("Targeted by: [{}]\n", descs.join(", ")));
+                }
             }
             match kind {
                 BuildingKind::Farm => {
