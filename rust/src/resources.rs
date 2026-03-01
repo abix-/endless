@@ -2205,6 +2205,8 @@ pub struct TowerKindState {
 #[derive(Resource, Default)]
 pub struct TowerState {
     pub town: TowerKindState,
+    /// Per-slot cooldown for player/AI-built Tower buildings.
+    pub tower_cooldowns: std::collections::HashMap<usize, f32>,
 }
 
 // ============================================================================

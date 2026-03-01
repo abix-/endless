@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-03-01k
+
+- **tower building** — added `BuildingKind::Tower` with `DisplayCategory::Tower` tab in build menu; player-buildable defensive tower (50 food, 1000 HP) auto-shoots nearest enemy within 250px (10 dmg, 2s cooldown); uses `tower-1.png` sprite; cooldowns tracked via `TowerState.tower_cooldowns` HashMap keyed by slot; save/load via `save_key: "towers"`
+- **fire_projectile DRY helper** — extracted `fire_projectile()` in combat.rs replacing 3 copies of `ProjGpuUpdate::Spawn` boilerplate across `attack_system` (building + NPC targets) and `building_tower_system` (fountain); tower loop reuses same helper
+- **save load 0x speed** — `time_scale` clamp on load changed from `.max(0.5)` to `.max(0.0)` to preserve paused state; `paused` restored as `time_scale <= 0.0` instead of hardcoded `false`
+- **speed controls paused state** — speed-up from paused sets 0.5x + unpauses; speed-down to 0x sets `paused = true`
+
 ## 2026-03-01j
 
 - **tutorial update** — expanded from 20 to 24 steps: added Walls, Roads, Save/Load, and Controls rebinding steps; replaced hardcoded key names with dynamic `key_label_for_action()` so tutorial text reflects player's actual keybindings; step 2 mentions build menu Economy/Military tabs

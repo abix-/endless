@@ -992,6 +992,14 @@ pub const FOUNTAIN_TOWER: TowerStats = TowerStats {
     proj_lifetime: 1.5,
 };
 
+pub const TOWER_STATS: TowerStats = TowerStats {
+    range: 250.0,
+    damage: 10.0,
+    cooldown: 2.0,
+    proj_speed: 300.0,
+    proj_lifetime: 1.2,
+};
+
 // ============================================================================
 // SQUAD CONSTANTS
 // ============================================================================
@@ -1138,6 +1146,7 @@ pub enum DisplayCategory {
     Hidden,
     Economy,
     Military,
+    Tower,
 }
 
 /// Worksite occupancy config for buildings that NPCs can claim and work at.
@@ -1502,6 +1511,27 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         on_place: OnPlace::None,
         spawner: None,
         save_key: Some("walls"),
+        is_unit_home: false,
+        worksite: None,
+    },
+    // 14: Tower (auto-shoots enemies)
+    BuildingDef {
+        kind: BuildingKind::Tower,
+        display: DisplayCategory::Tower,
+        tile: TileSpec::External("sprites/tower-1.png"),
+        hp: 1000.0,
+        cost: 50,
+        label: "Tower",
+        help: "Auto-attacks nearby enemies",
+        tooltip: "Defensive tower — auto-shoots nearest enemy\nwithin 250px. 10 dmg, 2s cooldown. HP: 1000",
+        player_buildable: true,
+        raider_buildable: false,
+        placement: PlacementMode::TownGrid,
+        is_tower: true,
+        tower_stats: Some(TOWER_STATS),
+        on_place: OnPlace::None,
+        spawner: None,
+        save_key: Some("towers"),
         is_unit_home: false,
         worksite: None,
     },

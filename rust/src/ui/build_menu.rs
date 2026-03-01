@@ -239,10 +239,11 @@ pub(crate) fn build_menu_system(
         .frame(frame)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                for &cat in &[DisplayCategory::Economy, DisplayCategory::Military] {
+                for &cat in &[DisplayCategory::Economy, DisplayCategory::Military, DisplayCategory::Tower] {
                     let label = match cat {
                         DisplayCategory::Economy => "Economy",
                         DisplayCategory::Military => "Military",
+                        DisplayCategory::Tower => "Tower",
                         _ => unreachable!(),
                     };
                     let active = build_ctx.build_tab == cat;

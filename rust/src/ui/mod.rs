@@ -979,7 +979,10 @@ fn game_escape_system(
             }
         }
         if keys.just_pressed(settings.key_for_action(ControlAction::SpeedUp)) {
-            if game_time.time_scale < 0.5 {
+            if game_time.is_paused() {
+                game_time.time_scale = 0.5;
+                game_time.paused = false;
+            } else if game_time.time_scale < 0.5 {
                 game_time.time_scale = 0.5;
             } else {
                 game_time.time_scale = (game_time.time_scale * 2.0).min(128.0);
@@ -987,6 +990,7 @@ fn game_escape_system(
         }
         if keys.just_pressed(settings.key_for_action(ControlAction::SpeedDown)) {
             if game_time.time_scale <= 0.5 {
+                game_time.time_scale = 0.0;
                 game_time.paused = true;
             } else {
                 game_time.time_scale = (game_time.time_scale / 2.0).max(0.5);

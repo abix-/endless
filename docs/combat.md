@@ -2,7 +2,7 @@
 
 ## Overview
 
-Six Bevy systems handle the complete combat loop: cooldown management, GPU-targeted attacks (NPC and building targets), unified damage application (NPCs + buildings), unified death processing (mark dead + XP grant + building destruction + NPC cleanup + despawn), and building tower auto-attack (fountains). All six run chained in `Step::Combat`.
+Six Bevy systems handle the complete combat loop: cooldown management, GPU-targeted attacks (NPC and building targets), unified damage application (NPCs + buildings), unified death processing (mark dead + XP grant + building destruction + NPC cleanup + despawn), and building tower auto-attack (fountains + player-built towers). All six run chained in `Step::Combat`.
 
 ## Data Flow
 
@@ -54,7 +54,7 @@ DamageMsg (from process_proj_hits)             GPU movement
         │
         ▼
   building_tower_system
-  (fountains via GPU combat_targets,
+  (fountains + towers via GPU combat_targets,
    reads readback at bld_slot — unified namespace)
 ```
 
@@ -156,13 +156,13 @@ XP formula: `level = floor(sqrt(xp / 100))`, level multiplier = `1.0 + level * 0
 
 Tower auto-attack using GPU spatial grid targeting. Towers are in the unified entity buffer at their unified slot with `ENTITY_FLAG_BUILDING | ENTITY_FLAG_COMBAT`. The GPU compute shader MODE 2 runs the same combat targeting scan for towers as for NPC combatants — finding the nearest enemy NPC via the spatial grid.
 
-- **TowerState** resource: holds per-kind `TowerKindState` with `timers: Vec<f32>` and `attack_enabled: Vec<bool>`
+- **TowerState** resource: `town: TowerKindState` (Vec-indexed by town for fountains) + `tower_cooldowns: HashMap<usize, f32>` (slot-indexed for player-built towers)
 - **TowerStats** struct in `constants.rs`: `range`, `damage`, `cooldown`, `proj_speed`, `proj_lifetime`
-- State length auto-syncs with building count each tick
-- **Fountains**: `FOUNTAIN_TOWER` (range=400, damage=15, cooldown=1.5s, proj_speed=350, proj_lifetime=1.5s). Always-on — `attack_enabled` refreshed from `is_alive(town.center)` every tick (all alive town centers shoot). Strong enough to defend spawn area.
-- **GPU-side targeting**: Reads `GpuReadState.combat_targets[bld_slot]` from readback buffer (building slot IS the GPU index — unified namespace, no offset). The GPU found the nearest enemy via the spatial grid (same O(1) grid lookup as NPC targeting). `combat_range` = 400.0 to cover `FOUNTAIN_TOWER.range`. Only NPC targets are valid (towers skip building targets via `EntityMap` check).
-- Tower loop: for each enabled building, look up building slot via `EntityMap.iter_kind_for_town(Fountain, town_idx).next()` (debug_assert one per town), read GPU target, emit `ProjGpuUpdateMsg(ProjGpuUpdate::Spawn)` with `shooter: bld_slot` (building's unified entity slot — enables GPU self-collision skip so towers don't hit themselves)
-- DRY: adding a new tower building kind requires a `TowerStats` const, a `TowerKindState` field in `TowerState`, and a block in `building_tower_system`. Building flags in `world.rs` + extract mapping in `npc_render.rs` handle the GPU side.
+- **fire_projectile()** helper: shared projectile spawn function used by both `attack_system` (NPC ranged attacks) and `building_tower_system` (tower auto-attack). Takes raw `(src, target_pos, damage, proj_speed, lifetime, faction, shooter)` — returns false when dist <= 1.0 (melee range, caller handles DamageMsg). Eliminates 3 copies of ProjGpuUpdate::Spawn boilerplate.
+- **Fountains**: `FOUNTAIN_TOWER` (range=400, damage=15, cooldown=1.5s, proj_speed=350, proj_lifetime=1.5s). Always-on — `attack_enabled` refreshed from `is_alive(town.center)` every tick. Lookup via `EntityMap.iter_kind_for_town(Fountain, town_idx)`.
+- **Player-built Towers**: `TOWER_STATS` (range=250, damage=10, cooldown=2.0s, proj_speed=300, proj_lifetime=1.2s). Buildable on TownGrid, 50 food cost, 200 HP. Iterates via `EntityMap.iter_kind(Tower)`, per-slot cooldown in `tower_cooldowns` HashMap. Stale entries cleaned up via `retain()`.
+- **GPU-side targeting**: Reads `GpuReadState.combat_targets[bld_slot]` from readback buffer (building slot IS the GPU index — unified namespace, no offset). Only NPC targets are valid (towers skip building targets via `EntityMap` check).
+- **Projectile spawn**: Both fountain and tower loops call `fire_projectile()` with `shooter: bld_slot` (building's unified entity slot — enables GPU self-collision skip).
 
 
 ## Slot Recycling

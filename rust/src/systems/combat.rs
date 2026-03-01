@@ -1,6 +1,7 @@
 //! Combat systems - Attack processing using GPU targeting results
 
 use crate::components::*;
+use crate::constants::TOWER_STATS;
 use crate::gpu::ProjBufferWrites;
 use crate::messages::{DamageMsg, ProjGpuUpdate, ProjGpuUpdateMsg};
 use crate::resources::{
@@ -10,6 +11,41 @@ use crate::resources::{
 use crate::systems::stats::{TownUpgrades, resolve_town_tower_stats};
 use crate::world::{BuildingKind, WorldData, is_alive};
 use bevy::prelude::*;
+
+/// Fire a projectile from source toward target. Returns true if fired.
+fn fire_projectile(
+    src: Vec2,
+    target_pos: Vec2,
+    damage: f32,
+    proj_speed: f32,
+    lifetime: f32,
+    faction: i32,
+    shooter: i32,
+    proj_alloc: &mut ProjSlotAllocator,
+    proj_updates: &mut MessageWriter<ProjGpuUpdateMsg>,
+) -> bool {
+    let delta = target_pos - src;
+    let dist = delta.length();
+    if dist <= 1.0 {
+        return false;
+    }
+    if let Some(proj_slot) = proj_alloc.alloc() {
+        let dir = delta / dist;
+        proj_updates.write(ProjGpuUpdateMsg(ProjGpuUpdate::Spawn {
+            idx: proj_slot,
+            x: src.x,
+            y: src.y,
+            vx: dir.x * proj_speed,
+            vy: dir.y * proj_speed,
+            damage,
+            faction,
+            shooter,
+            lifetime,
+        }));
+        return true;
+    }
+    false
+}
 
 /// ECS queries for attack_system (bundled to stay under 16-param limit).
 #[derive(bevy::ecs::system::SystemParam)]
@@ -233,23 +269,11 @@ pub fn attack_system(
                 let timer = aq.timer_q.get(entity).map(|t| t.0).unwrap_or(0.0);
                 if timer <= 0.0 {
                     timer_ready_count += 1;
-                    if dist > 1.0 {
-                        if let Some(proj_slot) = proj_alloc.alloc() {
-                            let dir_x = dx / dist;
-                            let dir_y = dy / dist;
-                            proj_updates.write(ProjGpuUpdateMsg(ProjGpuUpdate::Spawn {
-                                idx: proj_slot,
-                                x,
-                                y,
-                                vx: dir_x * cached_proj_speed,
-                                vy: dir_y * cached_proj_speed,
-                                damage: cached_damage,
-                                faction: faction_id,
-                                shooter: i as i32,
-                                lifetime: cached_proj_lifetime,
-                            }));
-                        }
-                    } else {
+                    if !fire_projectile(
+                        Vec2::new(x, y), inst_pos,
+                        cached_damage, cached_proj_speed, cached_proj_lifetime,
+                        faction_id, i as i32, &mut proj_alloc, &mut proj_updates,
+                    ) {
                         damage_events.write(DamageMsg {
                             entity_idx: ti,
                             amount: cached_damage,
@@ -350,23 +374,11 @@ pub fn attack_system(
             }
             if timer <= 0.0 {
                 timer_ready_count += 1;
-                if dist > 1.0 {
-                    if let Some(proj_slot) = proj_alloc.alloc() {
-                        let dir_x = dx / dist;
-                        let dir_y = dy / dist;
-                        proj_updates.write(ProjGpuUpdateMsg(ProjGpuUpdate::Spawn {
-                            idx: proj_slot,
-                            x,
-                            y,
-                            vx: dir_x * cached_proj_speed,
-                            vy: dir_y * cached_proj_speed,
-                            damage: cached_damage,
-                            faction: faction_id,
-                            shooter: i as i32,
-                            lifetime: cached_proj_lifetime,
-                        }));
-                    }
-                } else {
+                if !fire_projectile(
+                    Vec2::new(x, y), Vec2::new(tx, ty),
+                    cached_damage, cached_proj_speed, cached_proj_lifetime,
+                    faction_id, i as i32, &mut proj_alloc, &mut proj_updates,
+                ) {
                     damage_events.write(DamageMsg {
                         entity_idx: ti,
                         amount: cached_damage,
@@ -549,27 +561,64 @@ pub fn building_tower_system(
 
         if dist > stats.range {
             continue;
-        } // out of range
+        }
 
-        if dist > 1.0 {
-            if let Some(proj_slot) = proj_alloc.alloc() {
-                let dir_x = dx / dist;
-                let dir_y = dy / dist;
-                proj_updates.write(ProjGpuUpdateMsg(ProjGpuUpdate::Spawn {
-                    idx: proj_slot,
-                    x: pos.x,
-                    y: pos.y,
-                    vx: dir_x * stats.proj_speed,
-                    vy: dir_y * stats.proj_speed,
-                    damage: stats.damage,
-                    faction,
-                    shooter: bld_slot as i32,
-                    lifetime: stats.proj_lifetime,
-                }));
+        if fire_projectile(
+            pos, Vec2::new(tx, ty),
+            stats.damage, stats.proj_speed, stats.proj_lifetime,
+            faction, bld_slot as i32, &mut proj_alloc, &mut proj_updates,
+        ) {
+            if i < tower.town.timers.len() {
+                tower.town.timers[i] = stats.cooldown;
             }
         }
-        if i < tower.town.timers.len() {
-            tower.town.timers[i] = stats.cooldown;
+    }
+
+    // --- Player/AI-built Towers ---
+    tower.tower_cooldowns.retain(|slot, _| {
+        entity_map
+            .get_instance(*slot)
+            .is_some_and(|i| i.kind == BuildingKind::Tower)
+    });
+
+    for inst in entity_map.iter_kind(BuildingKind::Tower) {
+        let slot = inst.slot;
+        let timer = tower.tower_cooldowns.entry(slot).or_insert(0.0);
+        if *timer > 0.0 {
+            *timer = (*timer - dt).max(0.0);
+            if *timer > 0.0 {
+                continue;
+            }
+        }
+        let target = gpu_state
+            .combat_targets
+            .get(slot)
+            .copied()
+            .unwrap_or(-1);
+        if target < 0 || entity_map.get_instance(target as usize).is_some() {
+            continue;
+        }
+        let ti = target as usize;
+        let tx = gpu_state.positions.get(ti * 2).copied().unwrap_or(-9999.0);
+        let ty = gpu_state
+            .positions
+            .get(ti * 2 + 1)
+            .copied()
+            .unwrap_or(-9999.0);
+        if tx < -9000.0 {
+            continue;
+        }
+        let target_pos = Vec2::new(tx, ty);
+        let src = inst.position;
+        if src.distance(target_pos) > TOWER_STATS.range {
+            continue;
+        }
+        if fire_projectile(
+            src, target_pos,
+            TOWER_STATS.damage, TOWER_STATS.proj_speed, TOWER_STATS.proj_lifetime,
+            inst.faction, slot as i32, &mut proj_alloc, &mut proj_updates,
+        ) {
+            *timer = TOWER_STATS.cooldown;
         }
     }
 }

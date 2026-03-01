@@ -909,11 +909,11 @@ pub fn apply_save(
     // Game time
     game_time.total_seconds = save.total_seconds;
     game_time.seconds_per_hour = save.seconds_per_hour;
-    game_time.time_scale = save.time_scale.max(0.5);
+    game_time.time_scale = save.time_scale.max(0.0);
     game_time.start_hour = 6;
     game_time.last_hour = game_time.total_hours();
     game_time.hour_ticked = false;
-    game_time.paused = false;
+    game_time.paused = game_time.time_scale <= 0.0;
 
     // Economy
     food_storage.food = save.food.clone();

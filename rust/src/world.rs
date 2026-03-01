@@ -1156,6 +1156,7 @@ pub enum BuildingKind {
     FighterHome,
     Road,
     Wall,
+    Tower,
 }
 
 /// Rebuild building spatial grid. Only runs when BuildingGridDirtyMsg is received.
