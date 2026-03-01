@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-03-01q
+
+- **boat loot_drop crash fix** — `Job::Boat` had `loot_drop: &[]` (empty), causing `% drops.len()` division by zero in `death_system` when something killed a boat; added food loot drop (1-3) so boats drop salvage when destroyed
+- **death SFX** — NPC death emits `PlaySfxMsg::Death` with spatial position from GPU state; 24 death groan variants loaded at startup (skipping variant 2); `DeathResources` gained `sfx_writer` + `gpu_state` fields
+
 ## 2026-03-01p
 
 - **boat as proper NPC entity** — boat is now spawned via `SpawnNpcMsg` with `Job::Boat` (index 6) instead of raw GPU slot writes; registered in `entity_map` so `build_visual_upload` renders it correctly; proper cleanup at disembark (entity despawn + unregister_npc + free slot); `NpcDef` gained `atlas: f32` field (0.0 for character NPCs, `ATLAS_BOAT` for boat); `materialize_npc` uses `def.atlas` instead of hardcoded `0.0`
