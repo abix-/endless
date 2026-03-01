@@ -271,6 +271,8 @@ pub fn main_menu_system(
                         }
                     });
                 }
+                ui.checkbox(&mut state.raider_passive_forage, "Passive Forage")
+                    .on_hover_text("Raiders passively gather food even when not actively raiding.");
             });
 
             ui.add_space(4.0);
@@ -373,35 +375,6 @@ pub fn main_menu_system(
             egui::CollapsingHeader::new("Debug Options")
                 .default_open(false)
                 .show(ui, |ui| {
-                    ui.add_space(4.0);
-
-                    ui.horizontal(|ui| {
-                        ui.label("AI Think:").on_hover_text("How often AI towns make decisions (build, recruit, attack). Lower = more responsive.");
-                        ui.add(egui::Slider::new(&mut state.ai_interval, 1.0..=30.0)
-                            .step_by(0.5)
-                            .suffix("s")
-                            .show_value(true));
-                    });
-
-                    ui.add_space(4.0);
-
-                    ui.horizontal(|ui| {
-                        ui.label("NPC Think:").on_hover_text("How often NPCs re-evaluate their behavior. Lower = more responsive but heavier on CPU.");
-                        ui.add(egui::Slider::new(&mut state.npc_interval, 0.5..=10.0)
-                            .step_by(0.5)
-                            .suffix("s")
-                            .show_value(true));
-                    });
-
-                    ui.add_space(4.0);
-
-                    ui.horizontal(|ui| {
-                        ui.label("Raider Passive Forage:").on_hover_text("Raiders passively gather food even when not actively raiding.");
-                        ui.checkbox(&mut state.raider_passive_forage, "Enabled");
-                    });
-
-                    ui.add_space(8.0);
-
                     // NPC total — computed from registry grouping
                     let towns = state.towns as i32 + state.ai_towns as i32;
                     let raiders = state.raider_towns as i32;

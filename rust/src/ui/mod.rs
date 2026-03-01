@@ -336,6 +336,21 @@ pub fn settings_panel_ui(
                             ui.small("Toggle sprite-vs-plain rendering for terrain.");
                             ui.checkbox(&mut settings.show_all_faction_squad_lines, "Show All Faction Squad Lines");
                             ui.small("Draw squad path lines for all factions.");
+                            ui.separator();
+                            ui.horizontal(|ui| {
+                                ui.label("AI Think:");
+                                ui.add(egui::Slider::new(&mut settings.ai_interval, 1.0..=30.0)
+                                    .step_by(0.5)
+                                    .suffix("s"));
+                            });
+                            ui.small("How often AI towns make decisions.");
+                            ui.horizontal(|ui| {
+                                ui.label("NPC Think:");
+                                ui.add(egui::Slider::new(&mut settings.npc_interval, 0.5..=10.0)
+                                    .step_by(0.5)
+                                    .suffix("s"));
+                            });
+                            ui.small("How often NPCs re-evaluate behavior.");
                         }
                         PauseSettingsTab::SaveGame => {
                             if let Some(save_name) = manual_save_name {
@@ -962,6 +977,14 @@ fn game_escape_system(
 }
 
 /// Pause menu overlay — Resume, Settings, Exit to Main Menu.
+/// Bundled locals for pause_menu_system (avoids exceeding Bevy's 16-param limit).
+#[derive(Default)]
+struct PauseMenuLocals {
+    save_name: String,
+    load_name: String,
+    rebinding: Option<ControlAction>,
+}
+
 fn pause_menu_system(
     mut contexts: bevy_egui::EguiContexts,
     keys: Res<ButtonInput<KeyCode>>,
@@ -976,33 +999,33 @@ fn pause_menu_system(
     mut windows: Query<&mut Window>,
     mut audio: ResMut<crate::resources::GameAudio>,
     mut music_sinks: Query<&mut AudioSink, With<crate::resources::MusicTrack>>,
-    mut manual_save_name: Local<String>,
-    mut manual_load_name: Local<String>,
-    mut rebinding_action: Local<Option<ControlAction>>,
+    mut locals: Local<PauseMenuLocals>,
+    mut ai_config: ResMut<crate::systems::ai_player::AiPlayerConfig>,
+    mut npc_config: ResMut<crate::resources::NpcDecisionConfig>,
 ) -> Result {
     if !ui_state.pause_menu_open {
-        *rebinding_action = None;
+        locals.rebinding = None;
         return Ok(());
     }
 
     let ctx = contexts.ctx_mut()?;
     let mut reset_requested = false;
-    if let Some(action) = *rebinding_action {
+    if let Some(action) = locals.rebinding {
         if let Some(bound_key) = keys
             .get_just_pressed()
             .copied()
             .find(|key| settings::is_rebindable_key(*key))
         {
             settings.set_key_for_action(action, bound_key);
-            *rebinding_action = None;
+            locals.rebinding = None;
             crate::settings::save_settings(&settings);
         }
     }
-    if manual_save_name.is_empty() {
-        *manual_save_name = "save1".to_string();
+    if locals.save_name.is_empty() {
+        locals.save_name = "save1".to_string();
     }
-    if manual_load_name.is_empty() {
-        *manual_load_name = "save1".to_string();
+    if locals.load_name.is_empty() {
+        locals.load_name = "save1".to_string();
     }
     let prev_window_width = settings.window_width;
     let prev_window_height = settings.window_height;
@@ -1030,13 +1053,14 @@ fn pause_menu_system(
         .min_width(820.0)
         .min_height(520.0)
         .show(ctx, |ui| {
+            let PauseMenuLocals { save_name, load_name, rebinding } = &mut *locals;
             let resp = settings_panel_ui(
                 ui,
                 &mut settings,
                 &mut ui_state.pause_settings_tab,
-                &mut rebinding_action,
-                Some(&mut manual_save_name),
-                Some(&mut manual_load_name),
+                rebinding,
+                Some(save_name),
+                Some(load_name),
             );
 
             if ui.button("Resume").clicked() {
@@ -1071,7 +1095,7 @@ fn pause_menu_system(
         reset_requested = inner.reset_requested;
     }
     if reset_requested {
-        *rebinding_action = None;
+        locals.rebinding = None;
         *settings = crate::settings::UserSettings::default();
         winit_settings.unfocused_mode = if settings.background_fps {
             bevy::winit::UpdateMode::Continuous
@@ -1117,6 +1141,9 @@ fn pause_menu_system(
         }
     }
     audio.sfx_volume = settings.sfx_volume;
+    // Sync think intervals to runtime configs
+    ai_config.decision_interval = settings.ai_interval;
+    npc_config.interval = settings.npc_interval;
 
     Ok(())
 }

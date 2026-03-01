@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-03-01f
+
+- **endless mode always enabled** — removed endless mode checkbox and replacement strength slider from main menu; all difficulty presets now have `endless_mode: true`; save load forces `endless.enabled = true`; default settings `endless_mode` changed to `true`
+- **main menu reorganization** — moved raider passive forage checkbox under AI Raider Towns indent; moved AI Think and NPC Think interval sliders from main menu Debug Options to settings panel Debug tab (live-synced to `AiPlayerConfig`/`NpcDecisionConfig` via pause menu system)
+- **pause menu locals bundle** — combined `manual_save_name`, `manual_load_name`, `rebinding_action` into `PauseMenuLocals` struct to stay within Bevy 16-param system limit after adding `AiPlayerConfig`/`NpcDecisionConfig`
+
 ## 2026-03-01e
 
 - **shared settings panel** — extracted `settings_panel_ui()` in `mod.rs` with `SettingsResponse` return struct; both pause menu and main menu call the same function; `PauseSettingsTab` gained `label()`/`title_subtitle()` methods; pause menu passes `Some(save/load names)` to show Save/Load tabs, main menu passes `None` to hide them

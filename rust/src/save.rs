@@ -1056,7 +1056,7 @@ pub fn apply_save(
     }
 
     // Endless mode
-    endless.enabled = save.endless_mode;
+    endless.enabled = true; // always enabled
     endless.strength_fraction = save.endless_strength;
     endless.pending_spawns = save.endless_pending.clone();
 
