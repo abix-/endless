@@ -30,22 +30,48 @@ impl WorldState<'_> {
         gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
         commands: &mut Commands,
     ) -> Result<(), &'static str> {
+        let faction = self
+            .world_data
+            .towns
+            .get(town_data_idx)
+            .map(|t| t.faction)
+            .unwrap_or(0);
+        let patrol_order = if kind == crate::world::BuildingKind::Waypoint {
+            self.entity_map
+                .count_for_town(crate::world::BuildingKind::Waypoint, town_data_idx as u32)
+                as u32
+        } else {
+            0
+        };
+        let wall_level = if kind == crate::world::BuildingKind::Wall {
+            1
+        } else {
+            0
+        };
         crate::world::place_building(
-            &mut self.grid,
-            &self.world_data,
-            food_storage,
             &mut self.entity_slots,
             &mut self.entity_map,
-            &mut self.dirty_writers,
-            kind,
-            town_data_idx,
-            world_pos,
-            cost,
-            &self.town_grids,
-            gpu_updates,
-            commands,
             &mut self.uid_alloc,
+            commands,
+            gpu_updates,
+            kind,
+            world_pos,
+            town_data_idx as u32,
+            faction,
+            patrol_order,
+            wall_level,
+            None,
+            None,
+            Some(crate::world::BuildContext {
+                grid: &mut self.grid,
+                world_data: &self.world_data,
+                food_storage,
+                town_grids: &self.town_grids,
+                cost,
+            }),
+            Some(&mut self.dirty_writers),
         )
+        .map(|_| ())
     }
 
     pub fn destroy_building(

@@ -756,7 +756,7 @@ fn game_startup_system(
     mut faction_stats: ResMut<FactionStats>,
     mut raider_state: ResMut<RaiderState>,
     mut game_config: ResMut<GameConfig>,
-    mut spawn_writer: MessageWriter<SpawnNpcMsg>,
+    _spawn_writer: MessageWriter<SpawnNpcMsg>,
     mut game_time: ResMut<GameTime>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     mut extra: StartupExtra,
@@ -773,7 +773,7 @@ fn game_startup_system(
     info!("Game startup: generating world...");
 
     // Full world setup: terrain, towns, resources, buildings, spawners, NPCs, AI players
-    let (npc_msgs, ai_players) = world::setup_world(
+    let ai_players = world::setup_world(
         &config,
         &mut world_state.grid,
         &mut world_state.world_data,
@@ -785,13 +785,8 @@ fn game_startup_system(
         &mut faction_stats,
         &mut raider_state,
         &mut world_state.uid_alloc,
-    );
-    let total = world::materialize_generated_world(
         &mut commands,
-        &mut world_state.entity_map,
         &mut gpu_updates,
-        &mut spawn_writer,
-        npc_msgs,
     );
     // Game-specific post-setup: settings, policies, combat log
     *extra.mining_policy = MiningPolicy::default();
@@ -859,8 +854,8 @@ fn game_startup_system(
     world_state.dirty_writers.emit_all();
 
     info!(
-        "Game startup complete: {} NPCs spawned across {} towns",
-        total, config.num_towns
+        "Game startup complete: {} towns",
+        num_towns,
     );
 }
 

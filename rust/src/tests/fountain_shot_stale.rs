@@ -23,6 +23,8 @@ pub fn setup(
     mut test_state: ResMut<TestState>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
+    mut commands: Commands,
+    mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
 ) {
     // One town with a fountain tower.
     world_data.towns.push(world::Town {
@@ -35,17 +37,10 @@ pub fn setup(
     faction_stats.init(2);
 
     // Create fountain instance directly
-    world::place_building_instance(
-        &mut slot_alloc,
-        &mut entity_map,
-        world::BuildingKind::Fountain,
-        Vec2::new(400.0, 400.0),
-        0,
-        0,
-        0,
-        0,
-        &mut uid_alloc,
-        None,
+    let _ = world::place_building(
+        &mut slot_alloc, &mut entity_map, &mut uid_alloc, &mut commands, &mut gpu_updates,
+        world::BuildingKind::Fountain, Vec2::new(400.0, 400.0), 0, 0, 0, 0,
+        None, None, None, None,
     );
 
     // One enemy NPC in fountain range; keep this NPC pinned in tick so tower fires repeatedly.

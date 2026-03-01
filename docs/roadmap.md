@@ -47,8 +47,7 @@ Stages 1-13: [x] Complete (see [completed.md](completed.md))
 *Done when: remaining single-item stages from logistics, buildings-as-entities, and AI expansion are finished.*
 
 - [ ] Road auto-tiling: road connects visually to adjacent road tiles (straight, corner, T-junction, crossroads — 4-bit neighbor mask → tileset index lookup)
-- [ ] `WorldGrid.cells[].building` stores `Option<Entity>` (was Stage 16.5; see [specs/buildings-as-entities.md](specs/buildings-as-entities.md))
-- [ ] AI patrol routes automatically cover placed waypoints (PatrolRoute rebuild already handles this via `build_patrol_route`)
+- [x] AI patrol routes automatically cover placed waypoints (PatrolRoute rebuild already handles this via `build_patrol_route`)
 
 **Stage 16: Performance**
 

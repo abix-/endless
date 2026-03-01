@@ -99,6 +99,8 @@ pub struct TestSetupParams<'w, 's> {
     pub world_grid: ResMut<'w, world::WorldGrid>,
     pub camera_q: Query<'w, 's, &'static mut Transform, With<MainCamera>>,
     pub uid_alloc: ResMut<'w, crate::resources::NextEntityUid>,
+    pub commands: Commands<'w, 's>,
+    pub gpu_updates: MessageWriter<'w, crate::messages::GpuUpdateMsg>,
 }
 
 /// Shared test setup params bundle — stays under 16-param limit.
@@ -150,16 +152,21 @@ impl TestSetupParams<'_, '_> {
             .get(town_idx as usize)
             .map(|t| t.faction)
             .unwrap_or(0);
-        world::place_building_instance(
+        let _ = world::place_building(
             &mut self.slot_alloc,
             &mut self.entity_map,
+            &mut self.uid_alloc,
+            &mut self.commands,
+            &mut self.gpu_updates,
             kind,
             Vec2::new(x, y),
             town_idx,
             faction,
             0,
             0,
-            &mut self.uid_alloc,
+            None,
+            None,
+            None,
             None,
         );
     }
@@ -172,16 +179,21 @@ impl TestSetupParams<'_, '_> {
             .get(town_idx as usize)
             .map(|t| t.faction)
             .unwrap_or(0);
-        world::place_building_instance(
+        let _ = world::place_building(
             &mut self.slot_alloc,
             &mut self.entity_map,
+            &mut self.uid_alloc,
+            &mut self.commands,
+            &mut self.gpu_updates,
             world::BuildingKind::Waypoint,
             Vec2::new(x, y),
             town_idx,
             faction,
             patrol_order,
             0,
-            &mut self.uid_alloc,
+            None,
+            None,
+            None,
             None,
         );
     }
@@ -389,11 +401,6 @@ pub struct RunAllState {
     pub results: Vec<(String, bool)>,
 }
 
-#[derive(Resource, Default)]
-struct TestWorldMaterializeState {
-    done: bool,
-}
-
 // ============================================================================
 // REGISTRATION
 // ============================================================================
@@ -406,7 +413,6 @@ pub fn register_tests(app: &mut App) {
     app.init_resource::<TestState>();
     app.init_resource::<TestRegistry>();
     app.init_resource::<RunAllState>();
-    app.init_resource::<TestWorldMaterializeState>();
 
     // Menu + HUD UI (must run in EguiPrimaryContextPass, not Update)
     app.add_systems(
@@ -432,10 +438,6 @@ pub fn register_tests(app: &mut App) {
 
     // Cleanup when leaving Running
     app.add_systems(OnExit(AppState::Running), cleanup_test_world);
-    app.add_systems(
-        OnEnter(AppState::Running),
-        reset_test_world_materialization_state,
-    );
 
     // Test completion detection (returns to menu or starts next test)
     app.add_systems(
@@ -950,54 +952,7 @@ pub fn register_tests(app: &mut App) {
     );
 
     // Common test-world materialization:
-    // spawn ECS building entities + GPU building state from placed instances
-    // using the same startup helper as main game startup.
-    // Runs once on first Update after all OnEnter test setup systems complete.
-    app.add_systems(
-        Update,
-        materialize_test_world
-            .run_if(in_state(AppState::Running))
-            .before(Step::Behavior),
-    );
-
     app.insert_resource(registry);
-}
-
-fn reset_test_world_materialization_state(mut state: ResMut<TestWorldMaterializeState>) {
-    state.done = false;
-}
-
-fn materialize_test_world(
-    mut commands: Commands,
-    mut entity_map: ResMut<EntityMap>,
-    mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
-    mut spawn_writer: MessageWriter<crate::messages::SpawnNpcMsg>,
-    mut state: ResMut<TestWorldMaterializeState>,
-    mut world_grid: ResMut<world::WorldGrid>,
-) {
-    if state.done {
-        return;
-    }
-    // Ensure WorldGrid is initialized so spawn_world_tilemap can build the building atlas.
-    // Tests using TestSetup::add_town get this automatically; tests with manual setup don't.
-    if world_grid.width == 0 {
-        world_grid.width = 25;
-        world_grid.height = 25;
-        world_grid.cell_size = 32.0;
-        world_grid.cells = vec![world::WorldCell::default(); 25 * 25];
-    }
-    if entity_map.spatial_cell_size() <= 0.0 {
-        let world_size_px = world_grid.width as f32 * world_grid.cell_size;
-        entity_map.init_spatial(world_size_px);
-    }
-    let _ = crate::world::materialize_generated_world(
-        &mut commands,
-        &mut entity_map,
-        &mut gpu_updates,
-        &mut spawn_writer,
-        Vec::new(),
-    );
-    state.done = true;
 }
 
 // ============================================================================

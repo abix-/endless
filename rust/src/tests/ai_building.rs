@@ -35,7 +35,7 @@ pub(super) fn setup(
     mut slot_alloc: ResMut<GpuSlotPool>,
     mut bld: BuildingInitParams,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
-    mut spawn_writer: MessageWriter<crate::messages::SpawnNpcMsg>,
+    _spawn_writer: MessageWriter<crate::messages::SpawnNpcMsg>,
     mut state: AiBuildingSetupState,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
@@ -49,7 +49,7 @@ pub(super) fn setup(
     config.world_margin = 300.0;
     config.min_town_distance = 500.0;
 
-    let (npc_msgs, ai_players) = world::setup_world(
+    let ai_players = world::setup_world(
         &config,
         &mut world_grid,
         &mut world_data,
@@ -61,13 +61,8 @@ pub(super) fn setup(
         &mut faction_stats,
         &mut state.raider_state,
         &mut uid_alloc,
-    );
-    world::materialize_generated_world(
         &mut commands,
-        &mut bld.entity_map,
         &mut gpu_updates,
-        &mut spawn_writer,
-        npc_msgs,
     );
     state.ai_state.players = ai_players;
 

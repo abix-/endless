@@ -59,7 +59,7 @@ pub fn setup(
     mut slot_alloc: ResMut<GpuSlotPool>,
     mut bld: BuildingInitParams,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
-    mut spawn_writer: MessageWriter<crate::messages::SpawnNpcMsg>,
+    _spawn_writer: MessageWriter<crate::messages::SpawnNpcMsg>,
     mut state: SlotReuseSetup,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     mut policies: ResMut<TownPolicies>,
@@ -75,7 +75,7 @@ pub fn setup(
     config.world_margin = 300.0;
     config.min_town_distance = 2000.0;
 
-    let (npc_msgs, ai_players) = world::setup_world(
+    let ai_players = world::setup_world(
         &config,
         &mut world_grid,
         &mut world_data,
@@ -87,13 +87,8 @@ pub fn setup(
         &mut faction_stats,
         &mut state.raider_state,
         &mut uid_alloc,
-    );
-    world::materialize_generated_world(
         &mut commands,
-        &mut bld.entity_map,
         &mut gpu_updates,
-        &mut spawn_writer,
-        npc_msgs,
     );
     state.ai_state.players = ai_players;
 
@@ -113,17 +108,11 @@ pub fn setup(
             let faction = town.faction;
             for i in 0..5 {
                 let offset = Vec2::new(32.0 * (i as f32 + 1.0), 64.0);
-                world::place_building_instance(
-                    &mut slot_alloc,
-                    &mut bld.entity_map,
-                    BuildingKind::ArcherHome,
-                    center + offset,
-                    ti as u32,
-                    faction,
-                    0,
-                    0,
-                    &mut uid_alloc,
-                    None,
+                let _ = world::place_building(
+                    &mut slot_alloc, &mut bld.entity_map, &mut uid_alloc,
+                    &mut commands, &mut gpu_updates,
+                    BuildingKind::ArcherHome, center + offset, ti as u32, faction,
+                    0, 0, None, None, None, None,
                 );
             }
         }
@@ -139,17 +128,11 @@ pub fn setup(
                 .iter()
                 .position(|t| t.faction == 0)
                 .unwrap_or(0);
-            world::place_building_instance(
-                &mut slot_alloc,
-                &mut bld.entity_map,
-                BuildingKind::Farm,
-                farm_pos,
-                player_ti as u32,
-                0,
-                0,
-                0,
-                &mut uid_alloc,
-                None,
+            let _ = world::place_building(
+                &mut slot_alloc, &mut bld.entity_map, &mut uid_alloc,
+                &mut commands, &mut gpu_updates,
+                BuildingKind::Farm, farm_pos, player_ti as u32, 0,
+                0, 0, None, None, None, None,
             );
         }
     }
@@ -199,6 +182,8 @@ pub fn tick(
     mut health_q: Query<&mut Health>,
     world_data: Res<world::WorldData>,
     mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
+    mut commands: Commands,
+    mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else {
         return;
@@ -316,20 +301,14 @@ pub fn tick(
                     .unwrap_or(1);
                 let ai_faction = world_data.towns.get(ai_ti).map(|t| t.faction).unwrap_or(1);
                 let new_pos = Vec2::new(200.0, 200.0); // far from original target
-                let new_slot = world::place_building_instance(
-                    &mut slot_alloc,
-                    &mut entity_map,
-                    BuildingKind::Farm,
-                    new_pos,
-                    ai_ti as u32,
-                    ai_faction,
-                    0,
-                    0,
-                    &mut uid_alloc,
-                    None,
+                let new_slot = world::place_building(
+                    &mut slot_alloc, &mut entity_map, &mut uid_alloc,
+                    &mut commands, &mut gpu_updates,
+                    BuildingKind::Farm, new_pos, ai_ti as u32, ai_faction,
+                    0, 0, None, None, None, None,
                 );
 
-                if let Some(ns) = new_slot {
+                if let Ok(ns) = new_slot {
                     local.slot_reused = true;
                     local.reuse_pos = Some(new_pos);
                     if ns == slot {
@@ -345,7 +324,7 @@ pub fn tick(
                         ));
                     }
                 } else {
-                    test.fail_phase(elapsed, "place_building_instance returned None");
+                    test.fail_phase(elapsed, "place_building returned Err");
                 }
                 return;
             }

@@ -1356,7 +1356,7 @@ fn collect_building_hp(
     map
 }
 
-/// Convert old HP format (save_key → Vec<f32>) to slot-keyed HashMap for spawn_building_entities.
+/// Convert old HP format (save_key → Vec<f32>) to slot-keyed HashMap.
 pub fn convert_building_hp_to_slots(
     old_hp: &std::collections::HashMap<String, Vec<f32>>,
     entity_map: &EntityMap,
@@ -1392,28 +1392,27 @@ pub fn load_building_instances_from_save(
     world_data: &WorldData,
     world_size_px: f32,
     uid_alloc: &mut NextEntityUid,
+    commands: &mut Commands,
+    gpu_updates: &mut MessageWriter<crate::messages::GpuUpdateMsg>,
 ) {
     use crate::constants::{BUILDING_REGISTRY, FACTION_NEUTRAL};
     entity_map.clear_buildings();
     entity_map.entities.clear();
     entity_map.init_spatial(world_size_px);
 
+    // HP lookup: per save_key (or "towns" for Fountain), indexed by ordinal
+    let fountain_hps = save.building_hp.get("towns");
+
     // Fountain instances from towns
     for (i, town) in world_data.towns.iter().enumerate() {
         if !world::is_alive(town.center) {
             continue;
         }
-        world::place_building_instance(
-            slot_alloc,
-            entity_map,
-            world::BuildingKind::Fountain,
-            town.center,
-            i as u32,
-            town.faction,
-            0,
-            0,
-            uid_alloc,
-            None,
+        let hp = fountain_hps.and_then(|v| v.get(i).copied());
+        let _ = world::place_building(
+            slot_alloc, entity_map, uid_alloc, commands, gpu_updates,
+            world::BuildingKind::Fountain, town.center, i as u32, town.faction,
+            0, 0, None, hp, None, None,
         );
     }
 
@@ -1425,7 +1424,8 @@ pub fn load_building_instances_from_save(
         };
         let buildings: Vec<world::PlacedBuilding> =
             serde_json::from_value(val.clone()).unwrap_or_default();
-        for b in &buildings {
+        let kind_hps = save.building_hp.get(key);
+        for (i, b) in buildings.iter().enumerate() {
             if !world::is_alive(b.position) {
                 continue;
             }
@@ -1438,17 +1438,11 @@ pub fn load_building_instances_from_save(
                     .map(|t| t.faction)
                     .unwrap_or(0)
             };
-            world::place_building_instance(
-                slot_alloc,
-                entity_map,
-                def.kind,
-                b.position,
-                b.town_idx,
-                faction,
-                b.patrol_order,
-                b.wall_level,
-                uid_alloc,
-                None,
+            let hp = kind_hps.and_then(|v| v.get(i).copied());
+            let _ = world::place_building(
+                slot_alloc, entity_map, uid_alloc, commands, gpu_updates,
+                def.kind, b.position, b.town_idx, faction,
+                b.patrol_order, b.wall_level, None, hp, None, None,
             );
             // Restore miner home fields
             if def.kind == world::BuildingKind::MinerHome {
@@ -1828,11 +1822,11 @@ pub fn restore_world_from_save(
         &ws.world_data,
         world_size_px,
         uid_alloc,
+        commands,
+        gpu_updates,
     );
     world::update_all_wall_sprites(&ws.grid, entity_map, gpu_updates);
     restore_growth_from_save(save, entity_map);
-    let hp_by_slot = convert_building_hp_to_slots(&save.building_hp, entity_map, &ws.world_data);
-    world::spawn_building_entities(commands, entity_map, gpu_updates, Some(&hp_by_slot));
 
     // Rebuild NPCs from save payload.
     spawn_npcs_from_save(

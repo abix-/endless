@@ -30,6 +30,8 @@ pub fn setup(
     mut test_state: ResMut<TestState>,
     mut camera_query: Query<&mut Transform, With<MainCamera>>,
     mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
+    mut commands: Commands,
+    mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
 ) {
     // Grid must exist so building spatial grid rebuild runs in normal systems.
     world_grid.width = 40;
@@ -55,20 +57,10 @@ pub fn setup(
     // Friendly vertical farm wall in projectile lane.
     for y in FARM_WALL_Y {
         let pos = Vec2::new(FARM_WALL_X, y);
-        world::place_building_instance(
-            &mut slot_alloc,
-            &mut entity_map,
-            world::BuildingKind::Farm,
-            pos,
-            0,
-            0,
-            0,
-            0,
-            &mut uid_alloc,
-            None,
+        let _ = world::place_building(
+            &mut slot_alloc, &mut entity_map, &mut uid_alloc, &mut commands, &mut gpu_updates,
+            world::BuildingKind::Farm, pos, 0, 0, 0, 0, None, None, None, None,
         );
-
-        // Building instance registered via place_building_instance above
     }
 
     // Shooter (faction 0, ranged).

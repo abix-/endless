@@ -35,6 +35,8 @@ pub(super) fn setup(
     mut state: EndlessModeSetupState,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
+    mut commands: Commands,
+    mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
 ) {
     config.gen_style = WorldGenStyle::Continents;
     config.num_towns = 1;
@@ -46,7 +48,7 @@ pub(super) fn setup(
     config.raider_distance = 2000.0;
     config.min_town_distance = 1000.0;
 
-    let (_npc_msgs, ai_players) = world::setup_world(
+    let ai_players = world::setup_world(
         &config,
         &mut world_grid,
         &mut world_data,
@@ -58,8 +60,9 @@ pub(super) fn setup(
         &mut faction_stats,
         &mut state.raider_state,
         &mut uid_alloc,
+        &mut commands,
+        &mut gpu_updates,
     );
-    // Building entities + NPC spawning handled by common materialize_test_world system
     state.ai_state.players = ai_players;
 
     let total_towns = world_data.towns.len();

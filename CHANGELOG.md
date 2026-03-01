@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-03-01o
+
+- **unified place_building** — merged `place_building` (runtime), `place_building_instance` (data-only), `spawn_building_entities` (batch ECS+GPU), and `materialize_generated_world` into a single `place_building` function with optional `BuildContext` parameter; `ctx: Some(BuildContext)` enables runtime validation (cell checks, cost deduction, construction timer, wall auto-tile, dirty signals); `ctx: None` creates buildings at full HP for world-gen, save/load, migration, and tests; every code path now creates GPU slot + BuildingInstance + ECS entity + GPU updates in one call
+- **migration invisible buildings fix** — migration settlement now calls `place_building` which creates ECS entities and GPU state; previously `place_buildings` only called `place_building_instance` (data-only), so settled towns had building data but no visual presence — dirt sprites flashed and buildings were invisible
+- **deleted materialization system** — removed `materialize_generated_world`, `materialize_test_world`, `TestWorldMaterializeState` resource, and `reset_test_world_materialization_state`; buildings are now fully created at placement time with no deferred entity spawn pass
+
 ## 2026-03-01n
 
 - **DamageMsg EntityUid migration** — `DamageMsg.entity_idx: usize` replaced with `DamageMsg.target: EntityUid` for stable identity; `damage_system` resolves UID→slot via `entity_map.slot_for_uid()`; all 7 sender sites updated (combat.rs attack_system/process_proj_hits, ai_player.rs waypoint prune, ui/mod.rs demolish/debug destroy, test); `process_proj_hits` now takes `Res<EntityMap>` parameter; eliminates class of bugs where raw slot disagrees with entity identity after slot recycling

@@ -19,6 +19,8 @@ pub fn setup(
     mut test_state: ResMut<TestState>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
+    mut commands: Commands,
+    mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
 ) {
     // Generate the world using our config (default: 2 towns)
     town_grids.grids.clear();
@@ -32,6 +34,8 @@ pub fn setup(
         &mut slot_alloc,
         &mut entity_map,
         &mut uid_alloc,
+        &mut commands,
+        &mut gpu_updates,
     );
 
     // Init supporting resources based on generated world

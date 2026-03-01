@@ -52,7 +52,7 @@ pub struct GpuSlotPool {
 Spawn code then overwrites with real values via normal `GpuUpdateMsg` flow.
 
 NPC slots: allocated in `spawn_npc_system` (via economy.rs callers), recycled in `death_system`.
-Building slots: allocated in `place_building_instance`, recycled in `death_system` (building branch).
+Building slots: allocated in `place_building` (unified), recycled in `death_system` (building branch).
 Both share the same `GpuSlotPool` — each entity's slot IS its GPU buffer index (no offset arithmetic).
 
 GPU dispatch count comes from `GpuSlotPool.count()` (the high-water mark `next`). Dead entity slots within this range are hidden via sentinel position (-9999) and culled by the renderer.

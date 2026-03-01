@@ -40,6 +40,8 @@ pub fn setup(
     mut slot_alloc: ResMut<crate::resources::GpuSlotPool>,
     mut entity_map: ResMut<crate::resources::EntityMap>,
     mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
+    mut commands: Commands,
+    mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
 ) {
     game_time.time_scale = 0.0;
 
@@ -80,17 +82,9 @@ pub fn setup(
     ];
     for (col, &(kind, town_idx)) in buildings.iter().enumerate() {
         let pos = grid.grid_to_world(col, BUILDING_ROW);
-        world::place_building_instance(
-            &mut slot_alloc,
-            &mut entity_map,
-            kind,
-            pos,
-            town_idx,
-            0,
-            0,
-            0,
-            &mut uid_alloc,
-            None,
+        let _ = world::place_building(
+            &mut slot_alloc, &mut entity_map, &mut uid_alloc, &mut commands, &mut gpu_updates,
+            kind, pos, town_idx, 0, 0, 0, None, None, None, None,
         );
     }
 

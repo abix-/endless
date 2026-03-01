@@ -195,7 +195,7 @@ Raiders without a squad assignment wander near their town. Group attacks use squ
 | EntityMap (occupancy) | `BuildingInstance.occupants: i16` per building — slot-indexed claim/release/is_occupied/occupant_count methods on EntityMap | decision_system, death_cleanup |
 | MiningPolicy | discovered_mines per town, mine_enabled per mine | mining_policy_system (dirty-flag gated) |
 | RaiderState | max_pop, respawn_timers, forage_timers | raider_forage_system |
-| EntityMap | `BuildingInstance` with `npc_uid` + `respawn_timer` + `under_construction` fields | spawner_respawn_system, place_building_instance, construction_tick_system |
+| EntityMap | `BuildingInstance` with `npc_uid` + `respawn_timer` + `under_construction` fields | spawner_respawn_system, place_building, construction_tick_system |
 | PopulationStats | alive/working/dead per (job, town) | spawn, death, state transitions |
 
 ## Constants

@@ -889,6 +889,7 @@ pub fn endless_system(
     mut res: MigrationResources,
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     position_q: Query<&Position>,
+    mut commands: Commands,
 ) {
     // Debug button: queue an immediate raider spawn
     if migration_state.debug_spawn {
@@ -1122,6 +1123,8 @@ pub fn endless_system(
                 &mut world_state.entity_slots,
                 &mut world_state.entity_map,
                 &mut world_state.uid_alloc,
+                &mut commands,
+                &mut res.gpu_updates,
             );
         }
         world::stamp_dirt(&mut world_state.grid, &[mg.settle_target]);
