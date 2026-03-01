@@ -93,6 +93,10 @@ pub struct PlacedBuilding {
     /// Wall tier level (1-3) — used by Wall only. 0 = not a wall (default).
     #[serde(default)]
     pub wall_level: u8,
+    #[serde(default)]
+    pub kills: i32,
+    #[serde(default)]
+    pub xp: i32,
 }
 
 impl PlacedBuilding {
@@ -104,6 +108,8 @@ impl PlacedBuilding {
             assigned_mine: None,
             manual_mine: false,
             wall_level: 0,
+            kills: 0,
+            xp: 0,
         }
     }
     pub fn new_wall(position: Vec2, town_idx: u32) -> Self {
@@ -114,6 +120,8 @@ impl PlacedBuilding {
             assigned_mine: None,
             manual_mine: false,
             wall_level: 1,
+            kills: 0,
+            xp: 0,
         }
     }
 }
@@ -673,6 +681,8 @@ pub fn place_building(
         growth_progress: 0.0,
         occupants: 0,
         under_construction: 0.0,
+        kills: 0,
+        xp: 0,
     });
     entity_map.register_uid_slot_only(slot, uid);
 

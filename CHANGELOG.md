@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-03-01t
+
+- **tower XP, kills, and loot** — towers and fountains now earn XP (+100), kill count, and loot when they last-hit an NPC; same `level_from_xp()` and `npc_def(job).loot_drop` as NPC killers (DRY); loot deposited directly to `FoodStorage`/`GoldStorage` for the tower's town with `SetDamageFlash` visual feedback; tower inspector shows kills/level/xp when kills > 0; `BuildingInstance` gained `kills: i32` and `xp: i32` fields, saved/loaded via `PlacedBuilding`; `death_system` food/gold storage upgraded to `ResMut`
+- **upgrade cost clarity** — `format_upgrade_cost` now shows explicit `"N food, N gold"` labels instead of cryptic `"100+50g"` format; matches existing wall upgrade cost style; expansion cost uses same clear format
+- **roadmap cleanup** — removed accumulated "Recent move:" lines from Completed section; collapsed completed stages and checked-off items into concise references to completed.md
+
 ## 2026-03-01s
 
 - **stamina upgrades** — `UpgradeStatKind::Stamina` added to all 4 job upgrade arrays (military ranged, military melee, farmer, miner) with MoveSpeed level 1 prereq; `-10% energy drain per level` using CooldownReduction formula `1/(1+lv*0.10)`; `CachedStats.stamina` field wired through `resolve_combat_stats` → `energy_system` drain multiplier; AI weights per personality (economic AI values stamina most for farmers/miners)

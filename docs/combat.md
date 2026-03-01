@@ -45,8 +45,10 @@ DamageMsg (from process_proj_hits)             GPU movement
       │   ├─ Hide + SetHealth(0), GpuSlotPool.free(idx)
       │   └─ remove_by_slot (slot_to_entity + instances + by_kind)
       └─ NPC branch:
-          ├─ XP grant (LastHitBy → 100 XP, level-up, stat re-resolve)
-          ├─ NPC kill loot (npc_def loot_drop → Activity::Returning)
+          ├─ XP grant — NPC killer (LastHitBy → 100 XP, level-up, stat re-resolve)
+          ├─ XP grant — tower killer (LastHitBy → BuildingInstance.xp += 100, .kills++)
+          ├─ Loot — NPC killer (npc_def loot_drop → Activity::Returning)
+          ├─ Loot — tower killer (npc_def loot_drop → FoodStorage/GoldStorage + flash)
           ├─ despawn entity, HideNpc → GPU (-9999)
           ├─ Release NpcWorkState (occupied_building + work_target_building UIDs → resolved to slots for release)
           ├─ Update FactionStats, KillStats, PopulationStats
@@ -144,8 +146,10 @@ For each dead entity:
 - `remove_by_slot(idx)` (clears `entities` + `instances` + `by_kind`), `GpuSlotPool.free(idx)` (allocator queues GPU hide cleanup — position=-9999, health=0, speed=0, flags=0)
 
 **NPC branch:**
-- **XP grant**: if `LastHitBy` present, looks up killer entity via `params.p1()`. Grants 100 XP, increments `FactionStats.inc_kills()`. Checks for level-up: `level_from_xp(new_xp) > level_from_xp(old_xp)`. On level-up: re-resolves `CachedStats`, updates `Speed`, rescales HP proportionally, sends GPU updates, emits `CombatEventKind::LevelUp`.
-- **Loot on kill**: reads `npc_def(dead_job).loot_drop`, picks one deterministically via `xp % len`. Sets killer to `Activity::Returning { loot }`, clears `CombatState::None`. DC keep-fighting override applies.
+- **XP grant (NPC killer)**: if `LastHitBy` present and killer is NPC (via `entity_map.get_npc`), grants 100 XP, increments `FactionStats.inc_kills()`. Checks for level-up: `level_from_xp(new_xp) > level_from_xp(old_xp)`. On level-up: re-resolves `CachedStats`, updates `Speed`, rescales HP proportionally, sends GPU updates, emits `CombatEventKind::LevelUp`.
+- **Loot on kill (NPC killer)**: reads `npc_def(dead_job).loot_drop`, picks one deterministically via `xp % len`. Sets killer to `Activity::Returning { loot }`, clears `CombatState::None`. DC keep-fighting override applies.
+- **XP grant (tower/fountain killer)**: if killer slot is a Fountain or Tower building (via `entity_map.get_instance`), grants 100 XP to `BuildingInstance.xp`, increments `BuildingInstance.kills` and `FactionStats.inc_kills()`. Same `level_from_xp()` formula as NPCs. Level-up emits `CombatEventKind::LevelUp` to combat log.
+- **Loot on kill (tower killer)**: same `npc_def(dead_job).loot_drop` table, deposited directly to `FoodStorage`/`GoldStorage` for the tower's town (towers can't carry). `SetDamageFlash` on tower for visual feedback. Loot event logged to combat log.
 - Despawn entity, `GpuSlotPool.free(idx)` (allocator queues GPU hide cleanup), release AssignedFarm/WorkPosition
 - Update stats: `PopulationStats`, `FactionStats`, `KillStats`
 - Remove from `NpcsByTownCache`, deselect if SelectedNpc matches

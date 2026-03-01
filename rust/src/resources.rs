@@ -2297,6 +2297,8 @@ pub struct BuildingInstance {
     pub growth_progress: f32, // Farm/Mine only (0.0 to 1.0)
     pub occupants: i16,       // Farm/Mine only — number of NPCs working here
     pub under_construction: f32, // Seconds remaining; 0.0 = complete, >0 = constructing
+    pub kills: i32,              // Tower/Fountain only — kill counter
+    pub xp: i32,                 // Tower/Fountain only — XP (same scale as NPC: +100 per kill)
 }
 
 impl BuildingInstance {
@@ -2949,7 +2951,7 @@ impl Default for GameAudio {
     fn default() -> Self {
         Self {
             music_volume: 0.3,
-            sfx_volume: 0.5,
+            sfx_volume: 0.15,
             tracks: Vec::new(),
             last_track: None,
             loop_current: false,

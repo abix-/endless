@@ -14,14 +14,6 @@ Target: 50,000 NPCs + 50,000 buildings @ 60fps with pure Bevy ECS + WGSL compute
 ## Completed
 
 See [completed.md](completed.md) for completed work moved out of active stages.
-Recent move: shared test-scene world materialization now uses the same `world::materialize_generated_world(...)` helper as main game startup.
-Recent move: pause semantics are now aligned between gameplay and test scenes so paused `AppState::Running` does not continue behavior/combat/movement decision updates.
-Recent move: farmer farm-claim fairness now preserves incumbent `Working` claimants over newcomers, and losing claimants retarget home immediately to avoid stale farm targets.
-Recent move: pause-menu settings are now a categorized two-pane layout (left category list, right detail panel) with inline descriptions and explicit Save/Reload controls.
-Recent move: interface typography now has a dedicated global `interface_text_size` setting with a larger default.
-Recent move: NPC selection overlay anchoring now prefers ECS `Position` and uses screen-stable bracket sizing to prevent zoom wobble/drift.
-Recent move: Stage 14 building construction time (10s build period, sprite clip reveal, spawner dormancy) and loss condition (game over screen on fountain destruction).
-Recent move: left panel UI state persistence (active tab + collapsed sections in UserSettings).
 
 ## Done Soon (Authority Safety)
 
@@ -31,23 +23,7 @@ Recent move: left panel UI state persistence (active tab + collapsed sections in
 
 ## Stages
 
-Stages 1-13: [x] Complete (see [completed.md](completed.md))
-
-**Stage 14: Tension**
-
-*Done when: a player who doesn't build or upgrade loses within 30 minutes - raids escalate, food runs out, town falls.*
-
-- [ ] Raid escalation: wave size and stats increase every N game-hours
-- [ ] Differentiate job base stats (raiders hit harder, archers are tankier, farmers are fragile)
-- [x] Loss condition: all town NPCs dead + no spawners -> game over screen
-- [x] Building construction time: 10s at 1x game speed (scales with time_scale), building is inert during construction
-
-**Stage 15: Close-Out**
-
-*Done when: remaining single-item stages from logistics, buildings-as-entities, and AI expansion are finished.*
-
-- [x] Road auto-tiling: road connects visually to adjacent road tiles (straight, corner, T-junction, crossroads — 4-bit neighbor mask → tileset index lookup)
-- [x] AI patrol routes automatically cover placed waypoints (PatrolRoute rebuild already handles this via `build_patrol_route`)
+Stages 1-15: [x] Complete (see [completed.md](completed.md))
 
 **Stage 16: Performance**
 
@@ -57,43 +33,26 @@ GPU extract, GPU-native rendering, linear scan elimination, worksite indexing, s
 
 ECS source-of-truth migration complete (see [completed.md](completed.md)). ECS owns all NPC gameplay state. EntityMap is index-only (slot↔Entity, grid, kind/town/spatial). No dual-writes. Hot loops use query-first + indexed lookup. GPU is movement authority; ECS Position is read-model synced in `gpu_position_readback`.
 
-Remaining performance items at 50k NPC + 50k buildings (sorted by criticality, then expected savings):
+Remaining performance items (sorted by expected savings):
 
-1. [x] [Critical] `build_visual_upload` event-driven dirty tracking: persistent `NpcVisualUpload` buffers with per-slot dirty updates via `GpuUpdate::MarkVisualDirty`. Full rebuild only on startup/load. Steady-state updates only dirty slots (~0.01ms vs ~4-8ms).
-2. [x] [Critical] Decision-frame budgeting: adaptive `think_buckets = max(interval × 60, npc_count / 300)` caps Tier 3 decisions at 300/frame regardless of population. At 50k NPCs: 167 buckets (~300/frame).
-   Expected saving: ~3-8 ms/frame p95/p99 spike reduction.
-3. [ ] [High] Entity sleeping (Factorio-style): NPCs outside camera radius skip behavior/movement ticks. At 50k NPCs, typically 80%+ are off-camera.
+1. [ ] [High] Entity sleeping (Factorio-style): NPCs outside camera radius skip behavior/movement ticks. At 50k NPCs, typically 80%+ are off-camera.
    Expected saving: ~5-15+ ms/frame CPU when most NPCs off-camera; near-zero if camera covers all.
-4. [x] [High] `healing_system` candidate-driven healing pipeline: `ActiveHealingSlots` resource with cadenced enter-check (slot % 4 bucketing via `npcs_for_town()`) + every-frame sustain-check with hysteresis radii. Starvation HP cap moved to `starvation_system`.
-   Files: `health.rs`, `economy.rs`, `resources.rs`. Saved: ~1-3 ms/frame CPU.
-5. [ ] [Medium] Cache-friendly vectors for hot building iteration paths (keep HashMaps as authority, vectors for tight loops), because data locality and branch predictability matter at 50k buildings.
+2. [ ] [Medium] Cache-friendly vectors for hot building iteration paths (keep HashMaps as authority, vectors for tight loops).
    Expected saving: ~1-3 ms/frame CPU on building-heavy ticks.
-6. [ ] [Medium] Pre-allocate `GpuReadState` vecs: readback observers call `e.to_shader_type()` creating new Vecs per frame. At 50k entities, positions = 1.6MB allocation per frame.
+3. [ ] [Medium] Pre-allocate `GpuReadState` vecs: readback observers create new Vecs per frame. At 50k entities, positions = 1.6MB allocation per frame.
    Expected saving: ~0.5-1.5 ms/frame CPU plus allocator churn.
-7. [ ] [Medium] `sync_building_hp_render` every-frame rebuild: queries all 50k buildings every frame, clears and rebuilds vecs. Only damaged buildings (typically <1%) produce output. Gate behind dirty flag.
-   Files: `combat.rs:443`. Expected saving: ~0.5-1.5 ms/frame CPU.
-8. [ ] [Medium] `on_duty_tick_system` full iteration: queries all 50k living non-building entities every frame to increment `ticks_waiting` on the small subset of OnDuty archers.
-   Files: `behavior.rs:1439`. Expected saving: ~0.3-1.0 ms/frame CPU.
-9. [ ] [Medium] Perf anti-pattern remediation pass (UI + systems): remove repeated query scans in hot paths, pre-index slot/entity lookups once per frame/tick, replace nested `Vec::contains` membership checks with `HashSet`, and avoid per-item linear dedupe scans in overlays.
-   Expected saving: ~1-4 ms/frame total across multiple systems.
-10. [ ] [Low] `decision_system` remaining log pressure: ~10 `format!` calls remain after NpcLogCache filtering. Minor at 50k with gating already in place.
-    Expected saving: ~0.3-0.8 ms/frame CPU.
-11. [ ] [Low] `sync_terrain_tilemap` chunk granularity: already message-driven (only fires on `TerrainDirtyMsg`). Remaining: rewrites all chunks on any terrain change instead of only affected chunks.
-    Expected saving: ~0.3-1.0 ms/frame during terrain edits only; zero in steady-state.
-12. [ ] [Low] SystemTimings Mutex contention: 20+ lock/unlock cycles per frame. Constant overhead regardless of entity count. Replace with AtomicU32 + f32::to_bits per slot.
-    Expected saving: ~0.2-1.0 ms/frame at high frame rates.
-13. [ ] [Low] `NpcsByTownCache` uses `Vec<usize>` with `retain()` on death (O(n) per death, ~6K entries/town at 50k). Switch to `HashSet<usize>`.
-    Expected saving: negligible per-frame, prevents worst-case spikes during mass death events.
-14. [ ] [Low] Perf guardrails: microbenchmarks for inspector/squad/AI helper paths and CI thresholds that fail on material regressions.
-    Expected saving: indirect only (prevents regressions).
-15. [ ] [Low] Message signal regression tests: verify `emit_all()` fires on startup/load and drain systems consume correctly.
-    Expected saving: correctness only, no direct runtime reduction.
-
-Scale remediation plan (50k NPC + 50k buildings):
-- Items 1-2: GPU pipeline + decision budgeting (Critical) — done
-- Items 3-4: Entity sleeping (High, next) + healing pre-filter (done)
-- Items 5-9: Cache locality + allocations + every-frame queries + anti-patterns (Medium)
-- Items 10-15: Log pressure + terrain chunks + mutex + infrastructure (Low)
+4. [ ] [Medium] `sync_building_hp_render` every-frame rebuild: gate behind dirty flag. Only damaged buildings (<1%) produce output.
+   Expected saving: ~0.5-1.5 ms/frame CPU.
+5. [ ] [Medium] `on_duty_tick_system` full iteration: narrow to OnDuty archers only.
+   Expected saving: ~0.3-1.0 ms/frame CPU.
+6. [ ] [Medium] Perf anti-pattern remediation pass: repeated query scans, `Vec::contains` → `HashSet`, per-item linear dedup.
+   Expected saving: ~1-4 ms/frame total.
+7. [ ] [Low] `decision_system` remaining log pressure (~10 `format!` calls).
+8. [ ] [Low] `sync_terrain_tilemap` chunk granularity: rewrites all chunks on any terrain change.
+9. [ ] [Low] SystemTimings Mutex contention: replace with AtomicU32 + f32::to_bits.
+10. [ ] [Low] `NpcsByTownCache` `Vec::retain()` → `HashSet` for mass death spikes.
+11. [ ] [Low] Perf guardrails: microbenchmarks + CI thresholds.
+12. [ ] [Low] Message signal regression tests.
 
 SystemParam bundle consolidation (code quality, not runtime perf):
 - [ ] [Low] Create `GameLog` bundle: `{ combat_log: MessageWriter<CombatLogMsg>, game_time: Res<GameTime>, timings: Res<SystemTimings> }` and migrate systems still carrying this triple directly.
@@ -117,13 +76,12 @@ Remaining:
 
 *Done when: two archers with different traits fight the same raider noticeably differently - one flees early, the other berserks at low HP.*
 
+Trait combinations, squad ignore-patrol, and target oscillation fix complete (see [completed.md](completed.md)).
+
+Remaining:
 - [ ] Unify `TraitKind` (4 variants) and `trait_name()` (9 names) into single 9-trait Personality system
 - [ ] All 9 traits affect both `resolve_combat_stats()` and `decision_system` behavior weights
-- [x] Trait combinations (multiple traits per NPC)
 - [ ] Target switching (prefer non-fleeing enemies, prioritize low-HP targets)
-- [x] Squad behavior: add option for squad-assigned archers to ignore patrol responsibilities
-- [x] When "Ignore Patrol" is enabled, archers with `SquadId` must never enter `OnDuty`/patrol route flow; they only follow squad target (or squad-idle behavior) while still respecting survival rules (combat/flee/rest/heal)
-- [x] Eliminate guard target oscillation between squad targets and patrol route posts (`OnDuty`/`Patrolling` conflict): enforce squad-target precedence, add no-spam target writes, and verify via `NpcTargetThrashDebug` sink counters (`SinkTargetChanges/s`, `SinkPingPong/s`)
 
 **Stage 19: Loot & Equipment**
 
@@ -158,8 +116,9 @@ Prerequisite for Stage 21 (wall gates) and Stage 26 (tower defense maze).
 
 Core wall system complete (see [completed.md](completed.md)).
 
+Wall auto-tiling complete (see [completed.md](completed.md)).
+
 Remaining:
-- [x] Wall auto-tiling (connect adjacent walls visually: straight, corner, T-junction, crossroads)
 - [ ] Gate building (walls with a passthrough that friendlies use, raiders must breach)
 - [ ] Pathfinding integration: raiders route around walls to find openings, attack walls when no path exists (uses Stage 20 pathfinding)
 - [ ] Guard towers (upgrade from guard post - elevated, +range, requires wall adjacency)
@@ -172,23 +131,7 @@ Remaining:
 - [ ] FoodEfficiency upgrade wired into `decision_system` eat logic
 - [ ] Economy pressure: upgrades cost more food, NPCs consume more as population grows
 
-**Stage 23: Tech Trees** (see [specs/tech-tree.md](specs/tech-tree.md))
-
-*Done when: player spends Food or Gold to buy tech-tree upgrades with prerequisites (no research building), and branch progression visibly unlocks stronger nodes (e.g., ArcherHome Lv2 unlock path, Military damage tier path).*
-
-Chunks 1-2 complete (see [completed.md](completed.md)).
-
-Chunk 3: Energy Nodes
-- [ ] Add `UpgradeType` variants: `MilitaryStamina`, `FarmerStamina`, `MinerStamina` (bump `UPGRADE_COUNT`)
-- [ ] Wire into `energy_system`: per-town per-job drain modifier based on stamina upgrade level
-- [ ] Prereqs: MilitaryStamina after MoveSpeed, FarmerStamina after FarmerMoveSpeed, MinerStamina after MinerMoveSpeed
-- [ ] AI weights for new nodes
-
-Chunk 4: Player AI Manager
-- [ ] Tech-tree unlock node for `Player AI Manager`
-- [ ] `PlayerAiManager` resource: `unlocked`, `enabled`, `build_enabled`, `upgrade_enabled`
-- [ ] Reuse `AiKind::Builder` decision logic for faction 0 town, gated by unlock + toggle
-- [ ] UI: hidden until unlocked, then show enable toggle + build/upgrade toggles + status label
+Stage 23: Tech Trees — [x] Complete (see [completed.md](completed.md))
 
 **Stage 24: NPC Skills & Proficiency** (see [specs/npc-skills.md](specs/npc-skills.md))
 
@@ -288,19 +231,15 @@ Chunk 4 — Economy & Sending:
 - [ ] Persistent bonuses between regions (tech carries over, starting resources from tribute)
 - [ ] "Country" = set of regions. "World" = set of countries. Campaign arc.
 
-Sound (bevy_audio) should be woven into stages as they're built - not deferred to a dedicated stage. Minimum SFX per tier: arrow impact + building place + NPC death (Stages 14-15); tower fire + wall hit + loot pickup (Stages 18-21); element sounds + wave horn (Stage 26).
+Sound (bevy_audio) woven into stages. Done: arrow shoot SFX, NPC death SFX (24 variants), spatial camera culling, per-kind dedup. Remaining: building place, wall hit, loot pickup (Stages 18-21); element sounds + wave horn (Stage 26).
 
 ## Backlog
-
-### Bugs
-- [x] `add_instance` spatial index ordering: fixed in 2026-02-27k (swap insert order in `resources.rs:add_instance`)
 
 ### DRY & Single Source of Truth
 - [ ] Replace hardcoded town indices in HUD with faction/town lookup helpers
 - [ ] Add regression tests that enforce no behavior drift between player and AI build flows, startup and respawn flows, and both destroy entry points
 
 ### UI & UX
-- [x] Persist left panel UI state (active tab + expanded/collapsed sections) in `UserSettings`
 - [ ] Add `show_active_radius` debug toggle in Bevy UI
 - [ ] Upgrade tab town snapshot: show `farmers/archers/farms/next spawn` summary
 - [ ] Combat log window sizing: allow resize + persist width/height in `UserSettings`
@@ -316,7 +255,6 @@ Implementation guides for upcoming stages. After delivery, spec content rolls in
 | Spec | Stage | File |
 |---|---|---|
 | Chunked Tilemap | 16 | [specs/chunked-tilemap.md](specs/chunked-tilemap.md) |
-| Tech Tree (Chunks 3-4) | 23 | [specs/tech-tree.md](specs/tech-tree.md) |
 | NPC Skills & Proficiency | 24 | [specs/npc-skills.md](specs/npc-skills.md) |
 
 ## Performance

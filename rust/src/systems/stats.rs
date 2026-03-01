@@ -640,7 +640,10 @@ pub fn format_upgrade_cost(idx: usize, level: u8) -> String {
     let node = &UPGRADES.nodes[idx];
     if node.custom_cost {
         let (fc, gc) = expansion_cost(level);
-        return format!("{fc}+{gc}g");
+        let mut parts = Vec::new();
+        if fc > 0 { parts.push(format!("{fc} food")); }
+        if gc > 0 { parts.push(format!("{gc} gold")); }
+        return parts.join(", ");
     }
     let scale = upgrade_cost(level);
     node.cost
@@ -648,12 +651,12 @@ pub fn format_upgrade_cost(idx: usize, level: u8) -> String {
         .map(|&(kind, base)| {
             let total = base * scale;
             match kind {
-                ResourceKind::Food => format!("{total}"),
-                ResourceKind::Gold => format!("{total}g"),
+                ResourceKind::Food => format!("{total} food"),
+                ResourceKind::Gold => format!("{total} gold"),
             }
         })
         .collect::<Vec<_>>()
-        .join("+")
+        .join(", ")
 }
 
 /// Resolve town tower stats from base constants + town upgrades.

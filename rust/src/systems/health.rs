@@ -189,8 +189,8 @@ pub fn death_system(
     mut selected: ResMut<SelectedNpc>,
     squad_state: Res<SquadState>,
     upgrades: Res<TownUpgrades>,
-    food_storage: Res<FoodStorage>,
-    gold_storage: Res<GoldStorage>,
+    mut food_storage: ResMut<FoodStorage>,
+    mut gold_storage: ResMut<GoldStorage>,
     config: Res<CombatConfig>,
     mut intents: ResMut<crate::resources::MovementIntents>,
     mut ui_state: ResMut<crate::resources::UiState>,
@@ -655,6 +655,82 @@ pub fn death_system(
                             "{} '{}' looted {} {}",
                             killer_job, killer_name, amount, item_name
                         ),
+                        location: None,
+                    });
+                }
+            } else if res
+                .entity_map
+                .get_instance(killer_slot)
+                .is_some_and(|i| {
+                    i.kind == BuildingKind::Fountain || i.kind == BuildingKind::Tower
+                })
+            {
+                // Tower/fountain killer — XP, kills, loot deposit
+                let tower_faction = res.entity_map.get_instance(killer_slot).unwrap().faction;
+                let tower_town = res.entity_map.get_instance(killer_slot).unwrap().town_idx as usize;
+                res.faction_stats.inc_kills(tower_faction);
+
+                let inst = res.entity_map.get_instance_mut(killer_slot).unwrap();
+                inst.kills += 1;
+                let old_xp = inst.xp;
+                inst.xp += 100;
+                let old_level = level_from_xp(old_xp);
+                let new_level = level_from_xp(inst.xp);
+                let kind_name = if inst.kind == BuildingKind::Tower {
+                    "Tower"
+                } else {
+                    "Fountain"
+                };
+
+                if new_level > old_level {
+                    combat_log.write(CombatLogMsg {
+                        kind: CombatEventKind::LevelUp,
+                        faction: tower_faction,
+                        day: game_time.day(),
+                        hour: game_time.hour(),
+                        minute: game_time.minute(),
+                        message: format!("{} reached Lv.{}", kind_name, new_level),
+                        location: None,
+                    });
+                }
+
+                // Loot from victim's loot table, deposited directly to town
+                let drops = npc_def(job).loot_drop;
+                let tower_xp = old_xp + 100;
+                let drop = &drops[(tower_xp as usize) % drops.len()];
+                let amount = if drop.min == drop.max {
+                    drop.min
+                } else {
+                    drop.min + (tower_xp as i32 % (drop.max - drop.min + 1))
+                };
+                if amount > 0 {
+                    match drop.item {
+                        ItemKind::Food => {
+                            if tower_town < food_storage.food.len() {
+                                food_storage.food[tower_town] += amount;
+                            }
+                        }
+                        ItemKind::Gold => {
+                            if tower_town < gold_storage.gold.len() {
+                                gold_storage.gold[tower_town] += amount;
+                            }
+                        }
+                    }
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetDamageFlash {
+                        idx: killer_slot,
+                        intensity: 1.0,
+                    }));
+                    let item_name = match drop.item {
+                        ItemKind::Food => "food",
+                        ItemKind::Gold => "gold",
+                    };
+                    combat_log.write(CombatLogMsg {
+                        kind: CombatEventKind::Loot,
+                        faction: tower_faction,
+                        day: game_time.day(),
+                        hour: game_time.hour(),
+                        minute: game_time.minute(),
+                        message: format!("{} looted {} {}", kind_name, amount, item_name),
                         location: None,
                     });
                 }

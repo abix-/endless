@@ -620,6 +620,8 @@ pub fn collect_save_data(
                 assigned_mine: inst.assigned_mine,
                 manual_mine: inst.manual_mine,
                 wall_level: inst.wall_level,
+                kills: inst.kills,
+                xp: inst.xp,
             })
             .collect();
         building_data.insert(key.to_string(), serde_json::to_value(&placed).unwrap());
@@ -1476,6 +1478,13 @@ pub fn load_building_instances_from_save(
                 if let Some(inst) = entity_map.find_by_position_mut(b.position) {
                     inst.assigned_mine = b.assigned_mine;
                     inst.manual_mine = b.manual_mine;
+                }
+            }
+            // Restore tower kills/xp
+            if b.kills > 0 || b.xp > 0 {
+                if let Some(inst) = entity_map.find_by_position_mut(b.position) {
+                    inst.kills = b.kills;
+                    inst.xp = b.xp;
                 }
             }
         }

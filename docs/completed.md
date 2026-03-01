@@ -446,6 +446,24 @@ Completed items moved from roadmap for readability.
 - [x] Stage 14: loss condition — fountain destruction triggers `UiState.game_over` with dimmed overlay, session stats (days, NPCs, kills, food, gold), Play Again / Keep Watching / Exit to Main Menu
 - [x] Backlog UI: left panel persistence — `left_panel_tab` + `collapsed_sections` in `UserSettings`, `TRACKED_SECTIONS` list, snapshot/restore helpers, tab string converters
 
+### Recent Completions (2026-03-01n through 2026-03-01s)
+- [x] Stage 14: NPC stat differentiation — Farmer 60hp, Crossbow 70hp/85spd, Archer 80hp, Miner 80hp, Raider 120hp/115spd, Fighter 150hp/85spd
+- [x] Stage 14: town destruction cleanup — fountain death removes roads via `clear_town_roads_and_dirt`, restores dirt terrain to `original_terrain: Biome` on WorldCell
+- [x] Stage 14: normalized GPU health buffer — stores 0.0–1.0 values with `SetMaxHealth` per-slot max; render shader no longer divides by 100.0
+- [x] Stage 14: tower/fountain kill tracking — `BuildingInstance.kills`/`xp` fields, XP grant + level-up combat log, loot deposited directly to town food/gold storage
+- [x] Stage 14: raid escalation — endless mode replaces defeated AI towns with new ones scaled to player strength (`EndlessMode.strength_fraction`), AI squad commanders run wave-based attack cycles
+- [x] Stage 14: DamageMsg EntityUid migration — `DamageMsg.target: EntityUid` for stable identity, all 7 sender sites updated
+- [x] Stage 15: unified `place_building()` — single function for all building creation (player, AI, world gen, save/load) with optional `BuildContext` for runtime validation; deleted `materialize_generated_world` deferred spawn
+- [x] Stage 15: generalized auto-tile — wall-specific functions replaced with kind-agnostic `autotile_variant`/`update_autotile_around`/`update_all_autotile`; `BuildingDef.autotile: bool` field; Road uses auto-tile
+- [x] Stage 15: boat as proper NPC entity — `Job::Boat` spawned via `SpawnNpcMsg`, `NpcDef.atlas` field, proper cleanup at disembark
+- [x] Stage 23 chunk 3: stamina upgrades — `UpgradeStatKind::Stamina` in all 4 job upgrade arrays, `CachedStats.stamina` wired through `energy_system` drain multiplier, AI weights per personality
+- [x] Stage 23 chunk 4: player AI manager — faction 0 gets `AiPlayer` with `active: false`, Policies tab AI Manager section with enable/auto-build/auto-upgrade/personality/road-style controls, `build_enabled`/`upgrade_enabled` gate AI phases independently
+- [x] Sound: arrow shoot SFX — `fire_projectile` emits `PlaySfxMsg::ArrowShoot` with spatial position, covers all 4 call sites
+- [x] Sound: NPC death SFX — 24 death groan variants, spatial camera culling (viewport margin + zoom suppression), per-kind dedup
+- [x] Sound: SFX system — `play_sfx_system` with spatial camera culling, `GameAudio.sfx_handles`, `PlaySfxMsg` with position
+- [x] Endless-mode test hardening — deleted transient-state phases 6/14, renumbered to 14 phases, removed `disembarked` field from `MigrationGroup`
+- [x] Migration settlement terrain signal — replaced `TilemapSpawned = false` with proper `TerrainDirtyMsg` + `BuildingGridDirtyMsg`
+
 ### Intentional Removals
 - [x] Sprite atlas browser tool — intentional removal (Godot dev tool, not needed in Bevy)
 - [x] World-space town labels — intentional removal (Godot scenes, not ported)

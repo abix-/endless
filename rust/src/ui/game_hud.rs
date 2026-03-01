@@ -16,7 +16,7 @@ use crate::gpu::EntityGpuState;
 use crate::render::MainCamera;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
-use crate::systems::stats::{CombatConfig, TownUpgrades, UPGRADES, resolve_town_tower_stats};
+use crate::systems::stats::{CombatConfig, TownUpgrades, UPGRADES, level_from_xp, resolve_town_tower_stats};
 use crate::ui::tipped;
 use crate::world::{BuildingKind, WorldData, WorldGrid};
 
@@ -1951,6 +1951,16 @@ fn building_inspector_content(
                 tower.proj_lifetime
             ));
 
+            // Kills / XP / Level
+            if let Some(slot) = bld.entity_map.slot_at_position(world_pos) {
+                if let Some(inst) = bld.entity_map.get_instance(slot) {
+                    if inst.kills > 0 {
+                        let level = level_from_xp(inst.xp);
+                        ui.label(format!("Kills: {}  Lv.{} ({}xp)", inst.kills, level, inst.xp));
+                    }
+                }
+            }
+
             // Town food — town_idx is direct index into food_storage
             if let Some(&food) = bld.food_storage.food.get(town_idx) {
                 ui.label(format!("Food: {}", food));
@@ -2145,6 +2155,14 @@ fn building_inspector_content(
                             );
                         });
                     }
+                }
+            }
+
+            // Kills / XP / Level
+            if let Some(inst) = bld.entity_map.find_by_position(world_pos) {
+                if inst.kills > 0 {
+                    let level = level_from_xp(inst.xp);
+                    ui.label(format!("Kills: {}  Lv.{} ({}xp)", inst.kills, level, inst.xp));
                 }
             }
         }
