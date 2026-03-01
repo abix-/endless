@@ -1017,6 +1017,9 @@ pub const DEFAULT_AI_INTERVAL: f32 = 5.0;
 /// Gold extracted per harvest cycle (mine becomes Ready → miner takes this much).
 pub const MINE_EXTRACT_PER_CYCLE: i32 = 5;
 
+/// Seconds (at 1x speed) for a newly placed building to finish construction.
+pub const BUILDING_CONSTRUCT_SECS: f32 = 10.0;
+
 /// Speed multiplier for NPCs walking on road tiles.
 pub const ROAD_SPEED_MULT: f32 = 1.5;
 
