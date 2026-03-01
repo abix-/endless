@@ -1140,6 +1140,15 @@ pub enum DisplayCategory {
     Military,
 }
 
+/// Worksite occupancy config for buildings that NPCs can claim and work at.
+#[derive(Clone, Copy, Debug)]
+pub struct WorksiteDef {
+    pub max_occupants: i32,
+    pub drift_radius: f32,
+    pub upgrade_job: &'static str,
+    pub harvest_item: ItemKind,
+}
+
 /// Complete building definition — one entry per BuildingKind.
 /// Index in BUILDING_REGISTRY = tileset index for GPU rendering.
 #[derive(Clone, Copy, Debug)]
@@ -1163,6 +1172,8 @@ pub struct BuildingDef {
     pub save_key: Option<&'static str>,
     /// Whether this kind uses unit_homes BTreeMap storage.
     pub is_unit_home: bool,
+    /// Worksite config (None = not a worksite NPCs can occupy).
+    pub worksite: Option<WorksiteDef>,
 }
 
 impl BuildingDef {
@@ -1203,6 +1214,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         spawner: None,
         save_key: None,
         is_unit_home: false,
+        worksite: None,
     },
     // 1: Bed
     BuildingDef {
@@ -1223,6 +1235,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         spawner: None,
         save_key: Some("beds"),
         is_unit_home: false,
+        worksite: None,
     },
     // 2: Waypoint
     BuildingDef {
@@ -1243,6 +1256,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         spawner: None,
         save_key: Some("waypoints"),
         is_unit_home: false,
+        worksite: None,
     },
     // 3: Farm
     BuildingDef {
@@ -1263,6 +1277,12 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         spawner: None,
         save_key: Some("farms"),
         is_unit_home: false,
+        worksite: Some(WorksiteDef {
+            max_occupants: 1,
+            drift_radius: 20.0,
+            upgrade_job: "Farmer",
+            harvest_item: ItemKind::Food,
+        }),
     },
     // 5: Farmer Home
     BuildingDef {
@@ -1287,6 +1307,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         }),
         save_key: Some("farmer_homes"),
         is_unit_home: true,
+        worksite: None,
     },
     // 6: Archer Home
     BuildingDef {
@@ -1311,6 +1332,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         }),
         save_key: Some("archer_homes"),
         is_unit_home: true,
+        worksite: None,
     },
     // 7: Tent (raider spawner)
     BuildingDef {
@@ -1335,6 +1357,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         }),
         save_key: Some("tents"),
         is_unit_home: true,
+        worksite: None,
     },
     // 8: Gold Mine
     BuildingDef {
@@ -1355,6 +1378,12 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         spawner: None,
         save_key: Some("gold_mines"),
         is_unit_home: false,
+        worksite: Some(WorksiteDef {
+            max_occupants: 5,
+            drift_radius: MINE_WORK_RADIUS,
+            upgrade_job: "Miner",
+            harvest_item: ItemKind::Gold,
+        }),
     },
     // 9: Miner Home
     BuildingDef {
@@ -1379,6 +1408,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         }),
         save_key: Some("miner_homes"),
         is_unit_home: false,
+        worksite: None,
     },
     // 10: Crossbow Home
     BuildingDef {
@@ -1403,6 +1433,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         }),
         save_key: Some("crossbow_homes"),
         is_unit_home: true,
+        worksite: None,
     },
     // 11: Fighter Home
     BuildingDef {
@@ -1427,6 +1458,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         }),
         save_key: Some("fighter_homes"),
         is_unit_home: true,
+        worksite: None,
     },
     // 12: Road
     BuildingDef {
@@ -1447,6 +1479,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         spawner: None,
         save_key: Some("roads"),
         is_unit_home: false,
+        worksite: None,
     },
     // 13: Wall
     BuildingDef {
@@ -1467,6 +1500,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         spawner: None,
         save_key: Some("walls"),
         is_unit_home: false,
+        worksite: None,
     },
 ];
 

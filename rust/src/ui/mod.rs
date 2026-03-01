@@ -605,6 +605,7 @@ fn pause_menu_system(
     mut save_game_msgs: MessageWriter<crate::save::SaveGameMsg>,
     mut load_game_msgs: MessageWriter<crate::save::LoadGameMsg>,
     mut winit_settings: ResMut<bevy::winit::WinitSettings>,
+    mut windows: Query<&mut Window>,
     mut audio: ResMut<crate::resources::GameAudio>,
     mut music_sinks: Query<&mut AudioSink, With<crate::resources::MusicTrack>>,
     mut manual_save_name: Local<String>,
@@ -637,6 +638,10 @@ fn pause_menu_system(
     if manual_load_name.is_empty() {
         *manual_load_name = "save1".to_string();
     }
+    let prev_window_width = settings.window_width;
+    let prev_window_height = settings.window_height;
+    let prev_window_maximized = settings.window_maximized;
+    let prev_vsync = settings.vsync;
 
     // Dim background
     let screen = ctx.content_rect();
@@ -667,6 +672,11 @@ fn pause_menu_system(
                         &mut ui_state.pause_settings_tab,
                         PauseSettingsTab::Interface,
                         egui::RichText::new("Interface").size(18.0),
+                    );
+                    ui.selectable_value(
+                        &mut ui_state.pause_settings_tab,
+                        PauseSettingsTab::Video,
+                        egui::RichText::new("Video").size(18.0),
                     );
                     ui.selectable_value(
                         &mut ui_state.pause_settings_tab,
@@ -711,6 +721,7 @@ fn pause_menu_system(
                     ui.set_min_width(580.0);
                     let (title, subtitle) = match ui_state.pause_settings_tab {
                         PauseSettingsTab::Interface => ("Interface", "UI size, text readability, and display behavior."),
+                        PauseSettingsTab::Video => ("Video", "Window resolution, vsync, and display behavior."),
                         PauseSettingsTab::Camera => ("Camera", "Panning, zoom speed, and sprite-detail transitions."),
                         PauseSettingsTab::Controls => ("Controls", "View and rebind keyboard shortcuts."),
                         PauseSettingsTab::Audio => ("Audio", "Music and sound effect levels."),
@@ -761,6 +772,55 @@ fn pause_menu_system(
                                             )
                                         };
                                     }
+                                }
+                                PauseSettingsTab::Video => {
+                                    const VIDEO_PRESETS: &[(u32, u32, &str)] = &[
+                                        (1280, 720, "1280 x 720"),
+                                        (1600, 900, "1600 x 900"),
+                                        (1920, 1080, "1920 x 1080"),
+                                        (2560, 1440, "2560 x 1440"),
+                                        (3840, 2160, "3840 x 2160"),
+                                    ];
+
+                                    ui.label("Resolution");
+                                    ui.horizontal(|ui| {
+                                        ui.label("Width");
+                                        ui.add(
+                                            egui::DragValue::new(&mut settings.window_width)
+                                                .range(800..=7680)
+                                                .speed(8),
+                                        );
+                                        ui.label("Height");
+                                        ui.add(
+                                            egui::DragValue::new(&mut settings.window_height)
+                                                .range(600..=4320)
+                                                .speed(8),
+                                        );
+                                    });
+                                    ui.small("Applies immediately while this menu is open.");
+                                    ui.add_space(6.0);
+
+                                    ui.label("Presets");
+                                    ui.horizontal_wrapped(|ui| {
+                                        for (width, height, label) in VIDEO_PRESETS {
+                                            let selected = settings.window_width == *width
+                                                && settings.window_height == *height;
+                                            if ui.selectable_label(selected, *label).clicked() {
+                                                settings.window_width = *width;
+                                                settings.window_height = *height;
+                                            }
+                                        }
+                                    });
+                                    ui.add_space(6.0);
+
+                                    ui.checkbox(&mut settings.window_maximized, "Start Maximized")
+                                        .on_hover_text("Open in maximized mode on launch and when changed here.");
+                                    ui.small("Disable to use the selected window size directly.");
+                                    ui.add_space(6.0);
+
+                                    ui.checkbox(&mut settings.vsync, "VSync")
+                                        .on_hover_text("Reduces tearing by syncing frame presentation to refresh rate.");
+                                    ui.small("Disable for uncapped presentation.");
                                 }
                                 PauseSettingsTab::Camera => {
                                     ui.add(egui::Slider::new(&mut settings.scroll_speed, 100.0..=2000.0).text("Scroll Speed"))
@@ -1015,6 +1075,16 @@ fn pause_menu_system(
             sink.set_volume(Volume::Linear(settings.music_volume));
         }
         crate::settings::save_settings(&settings);
+    }
+    if settings.window_width != prev_window_width
+        || settings.window_height != prev_window_height
+        || settings.window_maximized != prev_window_maximized
+        || settings.vsync != prev_vsync
+    {
+        settings.clamp_video_settings();
+        if let Ok(mut window) = windows.single_mut() {
+            crate::settings::apply_video_settings_to_window(&mut window, &settings);
+        }
     }
 
     Ok(())

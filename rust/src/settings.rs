@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use crate::resources::PolicySet;
 
-const SETTINGS_VERSION: u32 = 11;
+const SETTINGS_VERSION: u32 = 12;
 
 /// Controls which NPCs have their activity logged in `NpcLogCache`.
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug)]
@@ -573,7 +573,15 @@ pub struct UserSettings {
     // Town policies
     #[serde(default)]
     pub policy: PolicySet,
-    // Display
+    // Video / display
+    #[serde(default = "default_window_width")]
+    pub window_width: u32,
+    #[serde(default = "default_window_height")]
+    pub window_height: u32,
+    #[serde(default = "default_true")]
+    pub window_maximized: bool,
+    #[serde(default = "default_true")]
+    pub vsync: bool,
     #[serde(default)]
     pub background_fps: bool,
     // World gen style (0=Classic, 1=Continents)
@@ -679,6 +687,12 @@ fn default_help_text_size() -> f32 {
 fn default_build_menu_text_scale() -> f32 {
     1.2
 }
+fn default_window_width() -> u32 {
+    1280
+}
+fn default_window_height() -> u32 {
+    720
+}
 fn default_autosave_hours() -> i32 {
     12
 }
@@ -703,6 +717,11 @@ fn default_zoom_max() -> f32 {
 fn default_lod_transition() -> f32 {
     0.5
 }
+
+const MIN_WINDOW_WIDTH: u32 = 800;
+const MAX_WINDOW_WIDTH: u32 = 7680;
+const MIN_WINDOW_HEIGHT: u32 = 600;
+const MAX_WINDOW_HEIGHT: u32 = 4320;
 
 impl Default for UserSettings {
     fn default() -> Self {
@@ -731,6 +750,10 @@ impl Default for UserSettings {
             log_loot: true,
             log_faction_filter: -1,
             gen_style: 1,
+            window_width: default_window_width(),
+            window_height: default_window_height(),
+            window_maximized: true,
+            vsync: true,
             background_fps: false,
             debug_coordinates: false,
             debug_all_npcs: false,
@@ -801,6 +824,31 @@ impl UserSettings {
     pub fn reset_key_bindings(&mut self) {
         self.key_bindings = default_key_bindings();
     }
+
+    pub fn clamp_video_settings(&mut self) {
+        self.window_width = self
+            .window_width
+            .clamp(MIN_WINDOW_WIDTH, MAX_WINDOW_WIDTH);
+        self.window_height = self
+            .window_height
+            .clamp(MIN_WINDOW_HEIGHT, MAX_WINDOW_HEIGHT);
+    }
+}
+
+pub fn apply_video_settings_to_window(window: &mut bevy::window::Window, settings: &UserSettings) {
+    let width = settings
+        .window_width
+        .clamp(MIN_WINDOW_WIDTH, MAX_WINDOW_WIDTH);
+    let height = settings
+        .window_height
+        .clamp(MIN_WINDOW_HEIGHT, MAX_WINDOW_HEIGHT);
+    window.resolution = (width, height).into();
+    window.present_mode = if settings.vsync {
+        bevy::window::PresentMode::AutoVsync
+    } else {
+        bevy::window::PresentMode::AutoNoVsync
+    };
+    window.set_maximized(settings.window_maximized);
 }
 
 fn settings_path() -> Option<PathBuf> {
@@ -855,6 +903,7 @@ pub fn load_settings() -> UserSettings {
                 }
             }
             settings.ensure_key_bindings();
+            settings.clamp_video_settings();
             if settings.version < SETTINGS_VERSION {
                 info!(
                     "Settings version {} → {}, new fields use defaults",

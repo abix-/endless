@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-03-01b
+
+- **unified worksite occupancy (farm + mine)** — added `WorksiteDef` to `BuildingDef` in `BUILDING_REGISTRY` with `max_occupants`/`drift_radius`/`upgrade_job`/`harvest_item`; merged separate Working and MiningAtMine decision blocks into a single Priority 5 block driven by registry config; renamed `assigned_farm` → `occupied_building`, `work_position` → `target_building` throughout decision_system for clarity; mine arrival now uses `try_claim_worksite()` with max=5 cap (previously raw `claim()` with no occupancy check); flee/leash cleanup releases `occupied_building` for both farm and mine workers; removed unused `EntityMap.claim()` method
+
 ## 2026-03-01a
 
 - **configurable controls + keybinding persistence** — added `ControlAction`/`ControlGroup` model in `settings.rs`, persisted `key_bindings` map in `UserSettings`, settings migration to `SETTINGS_VERSION=11`, and helpers for default/fallback/rebind-safe key parsing

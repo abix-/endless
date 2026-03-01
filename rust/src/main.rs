@@ -142,14 +142,14 @@ fn main() {
     // Wire up ECS systems
     endless::build_app(&mut app);
 
-    // Maximize window + apply saved display settings on startup
+    // Apply saved display settings on startup
     app.add_systems(
         Startup,
         |mut windows: Query<&mut Window>,
          settings: Res<endless::settings::UserSettings>,
          mut winit_settings: ResMut<bevy::winit::WinitSettings>| {
             if let Ok(mut window) = windows.single_mut() {
-                window.set_maximized(true);
+                endless::settings::apply_video_settings_to_window(&mut window, &settings);
             }
             if settings.background_fps {
                 winit_settings.unfocused_mode = bevy::winit::UpdateMode::Continuous;

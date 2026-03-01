@@ -171,7 +171,7 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 |-----------|------|---------|
 | Energy | `f32` | 0-100, drains while active, recovers while resting |
 | Personality | `{ trait1, trait2 }` | 0-2 traits with magnitude affecting stats and decisions |
-| NpcWorkState | `{ occupied_slot: Option<usize>, work_target: Option<usize> }` | Always-present — building being occupied (released on death/stop) + building being walked to (navigation target). Replaces optional AssignedFarm/WorkPosition to avoid archetype churn. |
+| NpcWorkState | `{ occupied_building: Option<EntityUid>, work_target_building: Option<EntityUid> }` | Always-present — building being occupied (released on death/stop) + building being walked to (navigation target). UID-based for ABA safety. Used by both farms and mines. |
 | NpcFlags | `{ healing, starving, direct_control, migrating, at_destination }` | High-churn booleans bundled to avoid archetype moves |
 | CachedStats | `{ max_health, damage, range, ... }` | Resolved combat stats |
 | Home | `Vec2` | NPC's spawner building position — rest destination |
@@ -199,9 +199,9 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
   - `Patrolling` → check squad rest first (tired squad members → `GoingToRest` targeting home instead of `OnDuty`); otherwise `Activity::OnDuty { ticks_waiting: 0 }`
   - `GoingToRest` → `Activity::Resting` (sleep icon derived by `sync_visual_sprites`)
   - `GoingToHeal` → `Activity::HealingAtFountain { recover_until: policy.recovery_hp }` (healing aura handles HP recovery)
-  - `GoingToWork` → Farmer: checks reserved slot (`work_position` or `assigned_farm`) first. Uses `occupant_count` with owner-aware logic: if self owns the farm (`assigned_farm == Some(slot)`), contention threshold is `> 1`; otherwise `>= 1`. If occupied by another, retargets via `find_farmer_farm_target()` — releases old `assigned_farm` before claiming new one (or idles if none free). If not occupied by another, claims farm if not already owned, then checks Ready: if Ready, `harvest()` + release claim + `Returning { loot: Food }`. If not Ready, `Working` (tending).
+  - `GoingToWork` → Farmer: checks reserved slot (`target_building` or `occupied_building`) first. Uses `occupant_count` with owner-aware logic: if self owns the farm (`occupied_building == Some(slot)`), contention threshold is `> 1`; otherwise `>= 1`. If occupied by another, retargets via `find_farmer_farm_target()` — releases old `occupied_building` before claiming new one (or idles if none free). If not occupied by another, claims farm if not already owned, then checks Ready: if Ready, `harvest()` + release claim + `Returning { loot: Food }`. If not Ready, `Working` (tending).
   - `Raiding { .. }` → steal if farm ready, else find a different farm (excludes current position, skips tombstoned); if no other farm exists, return home
-  - `Mining { mine_pos }` → find mine at position, check gold > 0 and occupancy < `MAX_MINE_OCCUPANCY`, claim occupancy via `entity_map.claim(slot)`, insert `MiningProgress(0.0)`, set `Activity::MiningAtMine`
+  - `Mining { mine_pos }` → find mine at position, check gold > 0, claim occupancy via `try_claim_worksite(slot, GoldMine, town, ws.max_occupants)` (rejects if full), insert `MiningProgress(0.0)`, set `Activity::MiningAtMine`, store in `occupied_building` + `target_building`
   - `Returning { .. }` → if home is valid, redirect to home (may have arrived at wrong place after DC removal); otherwise transition to Idle
   - `Wandering` → `Activity::Idle` (wander targets are offset from home position, not current position, preventing unbounded drift)
 - Removes `AtDestination` after handling
@@ -221,10 +221,12 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 **Priority 4b: Resting wake**
 - If `Activity::Resting` + energy >= `ENERGY_WAKE_THRESHOLD` (90%): set `Activity::Idle`, proceed to scoring
 
-**Priority 5: Working/Mining progress**
-- **Farm safety invariant** (Working farmers only, validated before energy check): (1) no farm slot (`assigned_farm` and `work_position` both None) → Idle, (2) farm slot invalid (wrong kind, wrong town, destroyed) → release + Idle, (3) `assigned_farm` is None but `work_position` exists → if farm occupied by another → Idle, else retroactively claim, (4) `occupant_count > 1` → release + Idle (contention from stale state). This self-heals invalid state from older saves or edge cases.
-- If `Activity::Working` + energy < `ENERGY_TIRED_THRESHOLD` (30%): set `Activity::Idle`, release occupancy via `entity_map.release(slot)`, clear `NpcWorkState.occupied_slot`.
-- If `Activity::MiningAtMine`: tick `MiningProgress` by `delta_hours / MINE_WORK_HOURS` (4h cycle). When progress >= 1.0 OR energy < tired threshold: extract gold scaled by progress fraction × `MINE_EXTRACT_PER_CYCLE` × GoldYield upgrade, release occupancy, remove `MiningProgress`, clear `NpcWorkState.work_target`, set `Activity::Returning { loot: [(Gold, extracted)] }`. Gold progress bar rendered overhead via `MinerProgressRender` (atlas_id=6.0, gold color).
+**Priority 5: Unified worksite occupancy (farm + mine)**
+- Single merged block handles both `Activity::Working` and `Activity::MiningAtMine` using config from `BuildingDef.worksite` (`WorksiteDef` in `BUILDING_REGISTRY`). Config fields: `max_occupants` (Farm=1, GoldMine=5), `drift_radius` (Farm=20, Mine=MINE_WORK_RADIUS=40), `upgrade_job` ("Farmer"/"Miner"), `harvest_item` (Food/Gold).
+- **Worksite safety invariant** (validated before energy check): (1) no slot (`occupied_building` and `target_building` both None) → Idle, (2) worksite destroyed or wrong town → release + Idle, (3) contention: `occupant_count > ws.max_occupants` → release + Idle, (4) `occupied_building` is None → `try_claim_worksite(slot, kind, town, ws.max_occupants)`, if occupied by another → Idle, else claim. This self-heals invalid state from older saves or edge cases.
+- **Drift check**: if NPC distance > `ws.drift_radius` from worksite position, submit intent back (stay claimed, no release). Applies to both farm and mine.
+- **Harvest check**: if `growth_ready`, `inst.harvest()` → yield multiplied by `UPGRADES.stat_mult(ws.upgrade_job, Yield)` → release occupancy → `Activity::Returning { loot: [(ws.harvest_item, final_yield)] }` targeting home.
+- **Tired check**: energy < `ENERGY_TIRED_THRESHOLD` → release occupancy → Idle.
 
 **Priority 6: Patrol**
 - If `Activity::OnDuty { ticks_waiting }` + energy < `ENERGY_TIRED_THRESHOLD`: drop to `Idle` (falls through to scoring where Rest wins). **Squad exception**: archers in a squad with `rest_when_tired == false` stay on duty — they never leave post for energy reasons.
@@ -240,7 +242,7 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 - Score Eat/Rest/Work/Wander with personality multipliers and HP modifier
 - Select via weighted random, execute action
 - **Food check**: Eat only scored if town has food in storage
-- **Farmer work branch**: Farmers use `find_farmer_farm_target()` — delegates to `EntityMap.find_nearest_worksite()` with cell-ring expansion (kind-filtered spatial index, `BuildingKind::Farm` + town-scoped, `WorksiteFallback::TownOnly`). Scoring: min-order tuple `(not_ready, inverted_growth_bits, dist2_bits)` — ready farms > higher growth progress > closer distance. Returns `(slot, position, radius_used)`. Claims via `entity_map.try_claim_worksite()` (authoritative validation: kind + town + occupancy < 1), sets `NpcWorkState.work_target = Some(slot)` + `assigned_farm = Some(slot)` + `GoingToWork`. Stale picks (farm claimed between search and claim) cause the NPC to idle and retry next think tick. While en-route (`GoingToWork`), farmers re-check occupancy at Tier 3 cadence — if another farmer claimed the target farm first, the en-route farmer retargets via `find_farmer_farm_target()` from current position (or idles if none). Proper claim/release lifecycle: old `assigned_farm` is released before claiming a new one at every retarget point.
+- **Farmer work branch**: Farmers use `find_farmer_farm_target()` — delegates to `EntityMap.find_nearest_worksite()` with cell-ring expansion (kind-filtered spatial index, `BuildingKind::Farm` + town-scoped, `WorksiteFallback::TownOnly`). Scoring: min-order tuple `(not_ready, inverted_growth_bits, dist2_bits)` — ready farms > higher growth progress > closer distance. Returns `(slot, position, radius_used)`. Claims via `entity_map.try_claim_worksite()` (authoritative validation: kind + town + occupancy < max_occupants), sets `NpcWorkState.work_target_building = Some(slot)` + `occupied_building = Some(slot)` + `GoingToWork`. Stale picks (farm claimed between search and claim) cause the NPC to idle and retry next think tick. While en-route (`GoingToWork`), farmers re-check occupancy at Tier 3 cadence — if another farmer claimed the target farm first, the en-route farmer retargets via `find_farmer_farm_target()` from current position (or idles if none). Proper claim/release lifecycle: old `occupied_building` is released before claiming a new one at every retarget point.
 - **Miner work branch**: Miners have a separate `Action::Work` → `Job::Miner` branch. If the miner's `MinerHome` has `assigned_mine` set (via building inspector UI), that mine is used directly. Otherwise, uses `EntityMap.find_nearest_worksite()` with cell-ring expansion (kind-filtered spatial index, `BuildingKind::GoldMine`, `WorksiteFallback::AnyTown` for global fallback). Scoring: min-order tuple `(priority: u8, occupants: u16, dist2_bits: u32)` — ready(0) > unoccupied(1) > occupied(2), then fewest occupants, then nearest. Walks to mine (`Activity::Mining { mine_pos }`). Completely independent of farmer logic — no `mining_pct` roll. Miners share farmer schedule/flee/off-duty policies.
 - **Decision logging**: Each decision logged to `NpcLogCache`
 
@@ -250,7 +252,7 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 
 ### arrival_system (Proximity Checks)
 - **Proximity-based delivery** for Returning NPCs: matches `Activity::Returning { .. }`, checks distance to home, delivers food and/or gold within DELIVERY_RADIUS (50px). All NPCs (including farmers) go `Idle` after delivery — the decision system re-evaluates the best target. Gold delivered to `GoldStorage` per town.
-- **Working farmer harvest → carry home** (throttled every 30 frames): re-targets farmers who drifted >20px from their assigned farm; when farm becomes Ready, uses `EntityMap::find_farm_at_mut(pos)` for O(1) spatial lookup, calls `BuildingInstance::harvest()` (resets farm, returns yield), releases occupancy, clears `NpcWorkState.occupied_slot`, enters `Returning { loot: [(Food, yield)] }` targeting home — farmer visibly carries food home for delivery
+- **Worksite harvest + drift** handled entirely by `decision_system` Priority 5 unified worksite block (not arrival_system)
 - **Healing drift check** in decision_system: `HealingAtFountain` NPCs pushed >100px from town center by separation physics get re-targeted to fountain (prevents deadlock where NPC is outside healing range but stuck in healing state)
 - **GoingToHeal early arrival** in decision_system: NPCs transition to `HealingAtFountain` as soon as they're within 100px of town center, before reaching the exact pixel
 - Arrival detection (`is_transit()` → `AtDestination`) is handled by `gpu_position_readback` in movement.rs
@@ -330,13 +332,13 @@ Military unit groups for both player and AI. 10 player-reserved squads + AI squa
 
 **Death cleanup**: `squad_cleanup_system` (Step::Behavior) removes dead NPC slots from `Squad.members` by checking `EntityMap`.
 
-## Farm Reservation Lifecycle
+## Worksite Reservation Lifecycle
 
-Farmer farm reservations (`assigned_farm` / `NpcWorkState.occupied_slot`) follow a strict lifecycle to prevent ghost reservations (farm shows `occupants=1` with no active farmer):
+Worksite reservations (`occupied_building` / `NpcWorkState.occupied_building`) follow a strict lifecycle to prevent ghost reservations (building shows occupants with no active worker). Both farms (max 1) and mines (max 5) use the same path via `BuildingDef.worksite` config from `BUILDING_REGISTRY`.
 
-- **Claim**: only via `try_claim_worksite()` in idle → work path, en-route retarget path, and GoingToWork arrival retarget; GoingToWork arrival (unclaimed farm) uses direct `entity_map.claim()` for the already-validated arrival farm; Working safety invariant uses direct `entity_map.claim()` for retroactive claim of `work_position` without `assigned_farm`.
-- **Release**: at every transition out of Working/GoingToWork — retarget, harvest, tired, idle, death. End-of-decide invariant: if a farmer has `assigned_farm` set but activity is not `Working` or `GoingToWork`, the reservation is released automatically.
-- **No pre-claim at spawn**: `spawner_respawn_system` does not claim farm slots — farmers self-claim via behavior system on first work decision.
+- **Claim**: only via `try_claim_worksite()` — idle → work path, en-route retarget path, GoingToWork arrival retarget, Mining arrival, and Priority 5 safety invariant (self-healing retroactive claim). All claims go through `occupied_building`.
+- **Release**: at every transition out of Working/MiningAtMine/GoingToWork — retarget, harvest, tired, idle, flee/leash, death. End-of-decide invariant: if a worker has `occupied_building` set but activity is not `Working`, `MiningAtMine`, or `GoingToWork`, the reservation is released automatically.
+- **No pre-claim at spawn**: `spawner_respawn_system` does not claim worksite slots — workers self-claim via behavior system on first work decision.
 
 ## Known Issues / Limitations
 

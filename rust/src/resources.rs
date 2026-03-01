@@ -477,12 +477,6 @@ impl EntityMap {
 
     // ── Occupancy ─────────────────────────────────────────────────────
 
-    pub fn claim(&mut self, slot: usize) {
-        if let Some(inst) = self.instances.get_mut(&slot) {
-            inst.occupants += 1;
-        }
-    }
-
     pub fn release(&mut self, slot: usize) {
         if let Some(inst) = self.instances.get_mut(&slot) {
             inst.occupants = inst.occupants.saturating_sub(1);
@@ -1965,6 +1959,7 @@ pub enum LeftPanelTab {
 pub enum PauseSettingsTab {
     #[default]
     Interface,
+    Video,
     Camera,
     Controls,
     Audio,
