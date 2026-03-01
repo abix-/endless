@@ -3,6 +3,7 @@
 ## 2026-03-01d
 
 - **wire inspector NPC link action** — `inspector_content` now returns `Option<InspectorAction>` and bubbles up from `building_inspector_content`; `bottom_panel_system` calls `apply_inspector_action` to select NPC + jump camera on click; `SelectedBuilding` upgraded to `ResMut` in `BuildingInspectorData`
+- **clickable home building link** — NPC inspector home coordinates rendered as `building_link` clickable link; looks up building slot via `entity_map.find_by_position(home_pos)`, clicking selects the home building and jumps camera
 
 ## 2026-03-01c
 

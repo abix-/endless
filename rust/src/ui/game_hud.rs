@@ -25,6 +25,7 @@ use crate::world::{BuildingKind, WorldData, WorldGrid};
 // ============================================================================
 
 /// Action returned by inspector UI when user clicks an entity link.
+#[allow(dead_code)]
 enum InspectorAction {
     SelectNpc(i32),
     SelectBuilding(usize),
@@ -530,6 +531,7 @@ pub fn bottom_panel_system(
                     &mut world_data,
                     &gpu_state,
                     &buffer_writes,
+                    &visual_upload,
                     &mut follow,
                     &settings,
                     &catalog,
@@ -908,6 +910,7 @@ fn inspector_content(
     world_data: &mut WorldData,
     gpu_state: &GpuReadState,
     buffer_writes: &EntityGpuState,
+    visual_upload: &crate::gpu::NpcVisualUpload,
     follow: &mut FollowSelected,
     settings: &UserSettings,
     catalog: &HelpCatalog,
@@ -938,6 +941,7 @@ fn inspector_content(
                 &data.combat_log,
                 gpu_state,
                 buffer_writes,
+                visual_upload,
                 faction_select,
             );
         }
@@ -975,6 +979,7 @@ fn inspector_content(
                 &data.combat_log,
                 gpu_state,
                 buffer_writes,
+                visual_upload,
                 faction_select,
             );
         }
@@ -1014,6 +1019,7 @@ fn inspector_content(
                 &data.combat_log,
                 gpu_state,
                 buffer_writes,
+                visual_upload,
                 faction_select,
             );
         } else {
@@ -1212,6 +1218,7 @@ fn inspector_content(
     let mut faction_str = String::new();
     let mut faction_id: Option<i32> = None;
     let mut home_pos: Option<Vec2> = None;
+    let mut home_slot: Option<usize> = None;
     let mut is_mining_at_mine = false;
 
     let mut carried_loot: Vec<(ItemKind, i32)> = Vec::new();
@@ -1223,6 +1230,7 @@ fn inspector_content(
             .map(|h| h.0)
             .unwrap_or(Vec2::ZERO);
         home_pos = Some(npc_home);
+        home_slot = bld_data.entity_map.find_by_position(npc_home).map(|i| i.slot);
         home_str = format!("({:.0}, {:.0})", npc_home.x, npc_home.y);
         faction_str = format!("{} (town {})", npc.faction, npc.town_idx);
         faction_id = Some(npc.faction);
@@ -1279,7 +1287,7 @@ fn inspector_content(
         };
         ui.label(format!("Loot: {}", loot_str));
     }
-    ui.horizontal(|ui| {
+    let home_action = ui.horizontal(|ui| {
         if let Some(fid) = faction_id {
             if ui.link(format!("Faction: {}", faction_str)).clicked() {
                 ui_state.left_panel_open = true;
@@ -1289,8 +1297,16 @@ fn inspector_content(
         } else {
             ui.label(format!("Faction: {}", faction_str));
         }
-        ui.label(format!("Home: {}", home_str));
-    });
+        if let Some(slot) = home_slot {
+            building_link(ui, &format!("Home: {}", home_str), slot)
+        } else {
+            ui.label(format!("Home: {}", home_str));
+            None
+        }
+    }).inner;
+    if let Some(action) = home_action {
+        return Some(action);
+    }
 
     // Mine assignment for miners (same UI as MinerHome building inspector)
     if meta.job == 4 {
@@ -1822,6 +1838,7 @@ fn building_inspector_content(
     combat_log: &CombatLog,
     gpu_state: &GpuReadState,
     buffer_writes: &EntityGpuState,
+    visual_upload: &crate::gpu::NpcVisualUpload,
     faction_select: &mut MessageWriter<crate::messages::SelectFactionMsg>,
 ) -> Option<InspectorAction> {
     let Some((kind, bld_town_idx, world_pos, col, row)) =
@@ -2273,6 +2290,14 @@ fn building_inspector_content(
                     scol, srow, satlas
                 ));
             }
+            let vbase = slot * 8;
+            if vbase + 7 < visual_upload.visual_data.len() {
+                let vd = &visual_upload.visual_data[vbase..vbase + 8];
+                ui.label(format!(
+                    "Visual upload: col={:.1} row={:.1} atlas={:.1} flash={:.2} rgba=({:.2},{:.2},{:.2},{:.2})",
+                    vd[0], vd[1], vd[2], vd[3], vd[4], vd[5], vd[6], vd[7]
+                ));
+            }
 
             let free_hits = bld.entity_slots.free.iter().filter(|&&s| s == slot).count();
             ui.label(format!(
@@ -2396,6 +2421,14 @@ fn building_inspector_content(
                     info.push_str(&format!(
                         "GPU raw sprite: col={:.1} row={:.1} atlas={:.1}\n",
                         scol, srow, satlas
+                    ));
+                }
+                let vbase = slot * 8;
+                if vbase + 7 < visual_upload.visual_data.len() {
+                    let vd = &visual_upload.visual_data[vbase..vbase + 8];
+                    info.push_str(&format!(
+                        "Visual upload: col={:.1} row={:.1} atlas={:.1} flash={:.2} rgba=({:.2},{:.2},{:.2},{:.2})\n",
+                        vd[0], vd[1], vd[2], vd[3], vd[4], vd[5], vd[6], vd[7]
                     ));
                 }
 
