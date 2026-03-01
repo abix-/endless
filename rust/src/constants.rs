@@ -806,7 +806,11 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         default_count: 0,
         upgrade_category: None,
         upgrade_stats: &[],
-        loot_drop: &[],
+        loot_drop: &[LootDrop {
+            item: ItemKind::Food,
+            min: 1,
+            max: 3,
+        }],
     },
 ];
 

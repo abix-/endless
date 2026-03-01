@@ -49,6 +49,8 @@ pub struct DeathResources<'w, 's> {
     pub home_q: Query<'w, 's, &'static crate::components::Home>,
     pub personality_q: Query<'w, 's, &'static crate::components::Personality>,
     pub work_state_q: Query<'w, 's, &'static crate::components::NpcWorkState>,
+    pub sfx_writer: MessageWriter<'w, crate::resources::PlaySfxMsg>,
+    pub gpu_state: Res<'w, crate::gpu::EntityGpuState>,
 }
 
 /// Unified damage system: applies damage to both NPCs and buildings.
@@ -508,6 +510,15 @@ pub fn death_system(
 
         if selected.0 == slot as i32 {
             selected.0 = -1;
+        }
+        // Death SFX with spatial position from GPU state
+        let base = slot * 2;
+        if base + 1 < res.gpu_state.positions.len() {
+            let pos = Vec2::new(res.gpu_state.positions[base], res.gpu_state.positions[base + 1]);
+            res.sfx_writer.write(crate::resources::PlaySfxMsg {
+                kind: crate::resources::SfxKind::Death,
+                position: Some(pos),
+            });
         }
         commands.entity(entity).despawn();
         despawn_count += 1;
