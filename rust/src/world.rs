@@ -384,14 +384,24 @@ pub(crate) fn place_building(
         return Err("no GPU slots available");
     };
 
-    // Spawn building entity
+    // Construction: all runtime-placed buildings start under construction
+    {
+        let inst = entity_map.get_instance_mut(slot).unwrap();
+        inst.under_construction = crate::constants::BUILDING_CONSTRUCT_SECS;
+        // Suppress spawner until construction completes
+        if inst.respawn_timer >= 0.0 {
+            inst.respawn_timer = -1.0;
+        }
+    }
+
+    // Spawn building entity (low HP during construction)
     {
         use crate::components::*;
         let entity = commands
             .spawn((
                 GpuSlot(slot),
                 Position::new(snapped.x, snapped.y),
-                Health(def.hp),
+                Health(0.01),
                 Faction(faction),
                 TownId(town_data_idx as i32),
                 Building { kind },
@@ -404,7 +414,7 @@ pub(crate) fn place_building(
         kind,
         snapped,
         faction,
-        def.hp,
+        0.01,
         crate::constants::tileset_index(kind),
         def.is_tower,
         gpu_updates,
@@ -725,6 +735,7 @@ pub fn place_building_instance(
         growth_ready: false,
         growth_progress: 0.0,
         occupants: 0,
+        under_construction: 0.0,
     });
     // Register UID↔slot (entity mapping deferred to spawn_building_entities)
     entity_map.register_uid_slot_only(slot, uid);

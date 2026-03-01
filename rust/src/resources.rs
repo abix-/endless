@@ -2231,6 +2231,7 @@ pub struct BuildingInstance {
     pub growth_ready: bool,   // Farm/Mine only (false = growing, true = ready to harvest)
     pub growth_progress: f32, // Farm/Mine only (0.0 to 1.0)
     pub occupants: i16,       // Farm/Mine only — number of NPCs working here
+    pub under_construction: f32, // Seconds remaining; 0.0 = complete, >0 = constructing
 }
 
 impl BuildingInstance {

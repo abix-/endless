@@ -652,10 +652,23 @@ pub fn death_system(
                 .write(crate::messages::MiningDirtyMsg);
         }
 
-        if faction == 0 {
-            res.kill_stats.villager_kills += 1;
-        } else {
-            res.kill_stats.archer_kills += 1;
+        // Attribute kills to player faction only
+        if last_hit_by >= 0 {
+            let killer_faction = res
+                .entity_map
+                .get_npc(last_hit_by as usize)
+                .map(|n| n.faction)
+                .or_else(|| {
+                    res.entity_map
+                        .get_instance(last_hit_by as usize)
+                        .map(|b| b.faction)
+                })
+                .unwrap_or(-1);
+            if killer_faction == 0 && faction != 0 {
+                res.kill_stats.archer_kills += 1;
+            } else if killer_faction != 0 && faction == 0 {
+                res.kill_stats.villager_kills += 1;
+            }
         }
 
         // Combat log: death event

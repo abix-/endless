@@ -222,4 +222,4 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 - **No generational indices**: Stale references to recycled slots would silently alias. Currently safe due to chained execution, but would break if damage messages span frames.
 - **No friendly fire**: Faction check prevents same-faction damage. No way to enable it selectively.
 - **CombatState::Fighting blocks behavior decisions**: While fighting, decision_system skips the NPC. However, Activity is preserved through combat — when combat ends (`CombatState::None`), the NPC resumes its previous activity.
-- **KillStats naming can be misread**: `archer_kills` tracks raiders killed by guards/defenders, while `villager_kills` tracks villagers killed by raiders.
+- **KillStats faction-attributed**: `archer_kills` counts enemy NPCs killed by player faction (killer_faction == 0, victim != 0); `villager_kills` counts player NPCs killed by enemies (killer_faction != 0, victim == 0). Attribution uses `last_hit_by` slot → faction lookup via EntityMap (NPC or building).

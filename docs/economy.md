@@ -11,8 +11,11 @@ game_time_system (every frame)
     │
     ▼ sets hour_ticked = true when hour changes
     │
+    ├─ construction_tick_system (every frame, uses game-time delta)
+    │   └─ BuildingInstance: under_construction countdown, HP scales 0.01→full, arms spawner on complete
+    │
     ├─ farm_growth_system (every frame, uses game-time delta, iter_instances_mut with Farm/GoldMine match)
-    │   └─ BuildingInstance: Growing → Ready when progress >= 1.0
+    │   └─ BuildingInstance: Growing → Ready when progress >= 1.0 (skips under-construction buildings)
     │
     ├─ raider_forage_system (hourly)
     │   └─ Each raider town gains RAIDER_FORAGE_RATE food
@@ -50,6 +53,16 @@ game_time_system (every frame)
 - Sets `hour_ticked = true` when the hour changes (single source of truth for hourly events)
 - Respects `paused` flag
 - Other systems check `game_time.hour_ticked` instead of tracking their own timers
+
+### construction_tick_system
+- Runs every frame, ticks `under_construction` countdown on newly placed buildings
+- All runtime-placed buildings (player + AI) start with `under_construction = BUILDING_CONSTRUCT_SECS` (10s at 1x speed), `respawn_timer = -1.0` (dormant), and `Health(0.01)`
+- Each frame: `under_construction -= game_time.delta()`, scales ECS Health proportionally (`progress * def.hp`), sends `SetHealth` GPU update
+- On completion (`<= 0.0`): sets `under_construction = 0.0`, arms spawner (`respawn_timer = 0.0`), sets full HP
+- World-gen buildings skip construction (`under_construction: 0.0`)
+- Growth system skips buildings with `under_construction > 0.0`
+- Rendering: `build_building_body_instances` overrides health field with construction progress fraction (0.0→0.999) so shader clips sprite bottom-to-top
+- Save/load: `under_construction` persisted in `SpawnerSave` and `FarmGrowthSave`
 
 ### growth_system (unified farms + mines)
 - Runs every frame, advances growth based on elapsed game time
@@ -182,13 +195,14 @@ Raiders without a squad assignment wander near their town. Group attacks use squ
 | EntityMap (occupancy) | `BuildingInstance.occupants: i16` per building — slot-indexed claim/release/is_occupied/occupant_count methods on EntityMap | decision_system, death_cleanup |
 | MiningPolicy | discovered_mines per town, mine_enabled per mine | mining_policy_system (dirty-flag gated) |
 | RaiderState | max_pop, respawn_timers, forage_timers | raider_forage_system |
-| EntityMap | `BuildingInstance` with `npc_gpu_slot` + `respawn_timer` fields | spawner_respawn_system, place_building_instance |
+| EntityMap | `BuildingInstance` with `npc_uid` + `respawn_timer` + `under_construction` fields | spawner_respawn_system, place_building_instance, construction_tick_system |
 | PopulationStats | alive/working/dead per (job, town) | spawn, death, state transitions |
 
 ## Constants
 
 | Constant | Value | Purpose |
 |----------|-------|---------|
+| BUILDING_CONSTRUCT_SECS | 10.0 | Seconds (at 1x) for building construction |
 | FARM_BASE_GROWTH_RATE | 0.08/hour | Passive growth (~12h to harvest) |
 | FARM_TENDED_GROWTH_RATE | 0.25/hour | Tended growth (~4h to harvest) |
 | RAIDER_FORAGE_RATE | 1 food/hour | Passive raider food income |

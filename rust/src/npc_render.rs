@@ -708,7 +708,14 @@ fn build_building_body_instances(
             .unwrap_or(1.0);
         let flash = gpu_state.flash_values.get(idx).copied().unwrap_or(0.0);
         let faction = gpu_state.factions.get(idx).copied().unwrap_or(0);
-        let health = gpu_state.healths.get(idx).copied().unwrap_or(0.0);
+        // During construction, pass progress fraction (0→0.999) so shader clips sprite.
+        // Fully-built buildings pass real HP (always >> 1.0), so shader skips the clip.
+        let health = if inst.under_construction > 0.0 {
+            let total = crate::constants::BUILDING_CONSTRUCT_SECS;
+            ((total - inst.under_construction) / total).clamp(0.0, 0.999)
+        } else {
+            gpu_state.healths.get(idx).copied().unwrap_or(0.0)
+        };
 
         let (r, g, b, a) = if faction == 0 {
             (1.0, 1.0, 1.0, 1.0)
@@ -748,7 +755,7 @@ fn build_overlay_instances(
 
     for inst in entity_map.iter_growable() {
         let pos = inst.position;
-        if pos.x < -9000.0 {
+        if pos.x < -9000.0 || inst.under_construction > 0.0 {
             continue;
         }
 

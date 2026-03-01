@@ -29,7 +29,7 @@ MAIN WORLD — Bevy Update Schedule (game systems gated on AppState::Running)
 ├─ Step::Behavior
 │     rebuild_building_grid_system (before decision_system, spawner_respawn_system),
 │     arrival_system, energy_system, healing_system,
-│     on_duty_tick_system, game_time_system, farm_growth_system,
+│     on_duty_tick_system, game_time_system, construction_tick_system, farm_growth_system,
 │     raider_forage_system, raider_respawn_system, starvation_system,
 │     decision_system, farm_visual_system, process_upgrades_system
 │

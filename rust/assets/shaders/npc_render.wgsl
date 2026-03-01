@@ -328,6 +328,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Building sprite (atlas_id 7) — must come before bar branches to avoid discard
     if is_building_atlas(in.atlas_id) {
+        // Construction reveal: clip top portion when health < 1.0 (progress fraction)
+        if in.health < 1.0 {
+            let progress = clamp(in.health, 0.0, 1.0);
+            // quad_uv.y=0 is top, =1 is bottom; reveal from bottom up
+            if (1.0 - in.quad_uv.y) > progress { discard; }
+        }
         // Building textured path.
         // Snap V to texel center to prevent cross-layer bleeding after interpolation
         let tex_h = camera.bldg_layers * 32.0;

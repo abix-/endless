@@ -237,6 +237,8 @@ pub struct TownGridSave {
 pub struct FarmGrowthSave {
     pub state: u8, // 0=Growing, 1=Ready
     pub progress: f32,
+    #[serde(default)]
+    pub under_construction: f32,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -249,6 +251,8 @@ pub struct SpawnerSave {
     pub respawn_timer: f32,
     #[serde(default)]
     pub npc_uid: Option<u64>,
+    #[serde(default)]
+    pub under_construction: f32,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -626,6 +630,7 @@ pub fn collect_save_data(
         .map(|i| FarmGrowthSave {
             state: if i.growth_ready { 1 } else { 0 },
             progress: i.growth_progress,
+            under_construction: i.under_construction,
         })
         .collect();
 
@@ -644,6 +649,7 @@ pub fn collect_save_data(
                 .unwrap_or(-1),
             respawn_timer: i.respawn_timer,
             npc_uid: i.npc_uid.map(|uid| uid.0),
+            under_construction: i.under_construction,
         })
         .collect();
 
@@ -738,6 +744,7 @@ pub fn collect_save_data(
             .map(|i| FarmGrowthSave {
                 state: if i.growth_ready { 1 } else { 0 },
                 progress: i.growth_progress,
+                under_construction: i.under_construction,
             })
             .collect(),
         spawners,
@@ -1459,6 +1466,7 @@ pub fn load_building_instances_from_save(
         if let Some(inst) = entity_map.find_by_position_mut(pos) {
             inst.npc_uid = s.npc_uid.map(crate::components::EntityUid);
             inst.respawn_timer = s.respawn_timer;
+            inst.under_construction = s.under_construction;
         }
     }
 
@@ -1486,6 +1494,7 @@ pub fn restore_growth_from_save(save: &SaveData, entity_map: &mut EntityMap) {
             if let Some(fg) = farm_growth.get(i) {
                 inst.growth_ready = fg.state == 1;
                 inst.growth_progress = fg.progress;
+                inst.under_construction = fg.under_construction;
             }
         }
     }
@@ -1501,6 +1510,7 @@ pub fn restore_growth_from_save(save: &SaveData, entity_map: &mut EntityMap) {
             if let Some(mg) = save.mine_growth.get(i) {
                 inst.growth_ready = mg.state == 1;
                 inst.growth_progress = mg.progress;
+                inst.under_construction = mg.under_construction;
             }
         }
     }

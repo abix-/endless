@@ -83,6 +83,66 @@ pub fn game_time_system(time: Res<Time>, mut game_time: ResMut<GameTime>) {
 }
 
 // ============================================================================
+// CONSTRUCTION TICK SYSTEM
+// ============================================================================
+
+/// Tick building construction timers. Scales HP from 0.01→full over BUILDING_CONSTRUCT_SECS.
+/// When complete, arms spawner (respawn_timer=0) and sets full HP.
+pub fn construction_tick_system(
+    time: Res<Time>,
+    game_time: Res<GameTime>,
+    mut entity_map: ResMut<EntityMap>,
+    mut health_q: Query<&mut Health, With<Building>>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+) {
+    if game_time.is_paused() {
+        return;
+    }
+    let dt = game_time.delta(&time);
+
+    // Collect slots needing update (can't mutate EntityMap while iterating)
+    let constructing: Vec<usize> = entity_map
+        .iter_instances()
+        .filter(|i| i.under_construction > 0.0)
+        .map(|i| i.slot)
+        .collect();
+
+    for slot in constructing {
+        let (kind, finished, new_hp) = {
+            let inst = entity_map.get_instance_mut(slot).unwrap();
+            inst.under_construction -= dt;
+            let total = crate::constants::BUILDING_CONSTRUCT_SECS;
+            if inst.under_construction <= 0.0 {
+                // Construction complete
+                inst.under_construction = 0.0;
+                let def = crate::constants::building_def(inst.kind);
+                if def.spawner.is_some() {
+                    inst.respawn_timer = 0.0; // arm spawner
+                }
+                (inst.kind, true, def.hp)
+            } else {
+                let progress = (total - inst.under_construction) / total;
+                let def = crate::constants::building_def(inst.kind);
+                let hp = (progress * def.hp).max(0.01);
+                (inst.kind, false, hp)
+            }
+        };
+        // Update ECS health
+        if let Some(&entity) = entity_map.entities.get(&slot) {
+            if let Ok(mut health) = health_q.get_mut(entity) {
+                health.0 = new_hp;
+            }
+        }
+        // Update GPU health buffer
+        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth {
+            idx: slot,
+            health: new_hp,
+        }));
+        let _ = (kind, finished); // suppress unused warnings
+    }
+}
+
+// ============================================================================
 // GROWTH SYSTEM (farms + mines)
 // ============================================================================
 
@@ -110,7 +170,7 @@ pub fn growth_system(
     }
 
     for inst in entity_map.iter_instances_mut() {
-        if inst.position.x < -9000.0 || inst.growth_ready {
+        if inst.position.x < -9000.0 || inst.growth_ready || inst.under_construction > 0.0 {
             continue;
         }
         match inst.kind {

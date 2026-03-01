@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-03-01l
+
+- **building construction time** — all runtime-placed buildings (player + AI) now have a 10-second construction period (at 1x speed, scales with time_scale); buildings start at 0.01 HP scaling to full, sprite progressively reveals bottom-to-top via shader clip on health < 1.0; spawner dormant during construction (respawn_timer = -1.0), growth system skips under-construction farms/mines; `under_construction: f32` on `BuildingInstance`, `construction_tick_system` in Step::Behavior before growth_system; world-gen buildings appear instantly; save/load persists construction state
+- **tower inspector** — added `BuildingKind::Tower` match arm in building inspector showing range, damage, cooldown from `TOWER_STATS` constant + HP progress bar; towers previously showed no per-type info
+- **construction inspector** — building inspector shows yellow "Under Construction" label + progress bar with percentage and time remaining; per-type details hidden during construction
+- **kill stats fix** — `death_system` now properly attributes kills by faction using `last_hit_by` slot → faction lookup via EntityMap; `archer_kills` only counts enemies killed by player faction, `villager_kills` only counts player NPCs killed by enemies
+
 ## 2026-03-01k
 
 - **tower building** — added `BuildingKind::Tower` with `DisplayCategory::Tower` tab in build menu; player-buildable defensive tower (50 food, 1000 HP) auto-shoots nearest enemy within 250px (10 dmg, 2s cooldown); uses `tower-1.png` sprite; cooldowns tracked via `TowerState.tower_cooldowns` HashMap keyed by slot; save/load via `save_key: "towers"`

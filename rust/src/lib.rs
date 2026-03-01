@@ -343,7 +343,7 @@ pub fn build_app(app: &mut App) {
                 healing_system,
                 on_duty_tick_system,
                 game_time_system,
-                growth_system,
+                (construction_tick_system.before(growth_system), growth_system),
                 raider_forage_system,
                 spawner_respawn_system,
                 mining_policy_system

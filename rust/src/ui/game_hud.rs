@@ -9,8 +9,8 @@ use bevy_egui::{EguiContexts, egui};
 use crate::components::*;
 use crate::constants::UpgradeStatKind;
 use crate::constants::{
-    ItemKind, ResourceKind, WALL_TIER_HP, WALL_TIER_NAMES, WALL_UPGRADE_COSTS, building_def,
-    npc_def,
+    ItemKind, ResourceKind, TOWER_STATS, WALL_TIER_HP, WALL_TIER_NAMES, WALL_UPGRADE_COSTS,
+    building_def, npc_def,
 };
 use crate::gpu::EntityGpuState;
 use crate::render::MainCamera;
@@ -1866,8 +1866,32 @@ fn building_inspector_content(
         ui.label("Faction: Unowned");
     }
 
-    // Per-type details
-    match kind {
+    // Construction status
+    let is_constructing = bld
+        .entity_map
+        .find_by_position(world_pos)
+        .is_some_and(|inst| inst.under_construction > 0.0);
+    if is_constructing {
+        let inst = bld.entity_map.find_by_position(world_pos).unwrap();
+        let total = crate::constants::BUILDING_CONSTRUCT_SECS;
+        let progress = ((total - inst.under_construction) / total).clamp(0.0, 1.0);
+        ui.colored_label(egui::Color32::from_rgb(200, 200, 40), "Under Construction");
+        ui.horizontal(|ui| {
+            ui.label("Progress:");
+            ui.add(
+                egui::ProgressBar::new(progress)
+                    .text(format!(
+                        "{:.0}% ({:.1}s)",
+                        progress * 100.0,
+                        inst.under_construction
+                    ))
+                    .fill(egui::Color32::from_rgb(200, 160, 40)),
+            );
+        });
+    }
+
+    // Per-type details (hidden during construction)
+    if !is_constructing { match kind {
         BuildingKind::Farm => {
             if let Some(inst) = bld.entity_map.find_farm_at(world_pos) {
                 let state_name = if inst.growth_ready {
@@ -2094,6 +2118,36 @@ fn building_inspector_content(
             }
         }
 
+        BuildingKind::Tower => {
+            // Tower combat stats
+            ui.label(format!("Range: {:.0}px", TOWER_STATS.range));
+            ui.label(format!("Damage: {:.1}", TOWER_STATS.damage));
+            ui.label(format!("Cooldown: {:.2}s", TOWER_STATS.cooldown));
+
+            // HP bar
+            if let Some(inst) = bld.entity_map.find_by_position(world_pos) {
+                if let Some(&entity) = bld.entity_map.entities.get(&inst.slot) {
+                    if let Ok(health) = bld.building_health.get(entity) {
+                        let max_hp = def.hp;
+                        let pct = health.0 / max_hp;
+                        let color = if pct > 0.5 {
+                            egui::Color32::from_rgb(80, 200, 80)
+                        } else {
+                            egui::Color32::from_rgb(200, 80, 80)
+                        };
+                        ui.horizontal(|ui| {
+                            ui.label("HP:");
+                            ui.add(
+                                egui::ProgressBar::new(pct)
+                                    .text(format!("{:.0}/{:.0}", health.0, max_hp))
+                                    .fill(color),
+                            );
+                        });
+                    }
+                }
+            }
+        }
+
         _ => {
             if let Some(spawner) = def.spawner {
                 let spawns_label = npc_def(Job::from_i32(spawner.job)).label;
@@ -2183,7 +2237,7 @@ fn building_inspector_content(
                 }
             }
         }
-    }
+    } } // end if !is_constructing + match
 
     // Copy Debug Info — gated behind debug_coordinates (same as NPC inspector)
     if settings.debug_coordinates {
@@ -2546,6 +2600,15 @@ fn building_inspector_content(
                             ));
                         }
                     }
+                }
+                BuildingKind::Tower => {
+                    info.push_str(&format!("Range: {:.0}px\n", TOWER_STATS.range));
+                    info.push_str(&format!("Damage: {:.1}\n", TOWER_STATS.damage));
+                    info.push_str(&format!("Cooldown: {:.2}s\n", TOWER_STATS.cooldown));
+                    info.push_str(&format!(
+                        "Projectile life: {:.2}s\n",
+                        TOWER_STATS.proj_lifetime
+                    ));
                 }
                 _ => {}
             }
