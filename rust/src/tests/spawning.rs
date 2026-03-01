@@ -1,11 +1,11 @@
 //! Spawning & Slot Reuse Test (4 phases)
 //! Validates: spawn entities, kill via health=0, slot freed, slot reused on respawn.
 
-use bevy::prelude::*;
 use crate::components::*;
 use crate::resources::*;
+use bevy::prelude::*;
 
-use super::{TestState, TestSetupParams};
+use super::{TestSetupParams, TestState};
 
 pub fn setup(mut params: TestSetupParams) {
     params.add_town("TestTown");
@@ -13,7 +13,13 @@ pub fn setup(mut params: TestSetupParams) {
 
     // Spawn 5 farmers
     for i in 0..5 {
-        params.spawn_npc(0, 300.0 + (i as f32 * 40.0), 400.0, 300.0 + (i as f32 * 40.0), 450.0);
+        params.spawn_npc(
+            0,
+            300.0 + (i as f32 * 40.0),
+            400.0,
+            300.0 + (i as f32 * 40.0),
+            450.0,
+        );
     }
 
     params.focus_camera(400.0, 400.0);
@@ -30,7 +36,9 @@ pub fn tick(
     mut test: ResMut<TestState>,
     mut health_q: Query<&mut Health, Without<Building>>,
 ) {
-    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
+    let Some(elapsed) = test.tick_elapsed(&time) else {
+        return;
+    };
 
     let alive = entity_map.iter_npcs().filter(|n| !n.dead).count();
 
@@ -40,7 +48,10 @@ pub fn tick(
             test.phase_name = format!("alive={}/5", alive);
             if alive == 5 {
                 // Verify all are Farmers
-                let farmers = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer).count();
+                let farmers = entity_map
+                    .iter_npcs()
+                    .filter(|n| !n.dead && n.job == Job::Farmer)
+                    .count();
                 if farmers == 5 {
                     test.pass_phase(elapsed, format!("5 farmers spawned"));
                 } else {
@@ -59,7 +70,9 @@ pub fn tick(
                     test.set_flag("killed", true);
                     test.counters.insert("killed_slot".into(), slot as u32);
                     let npc = entity_map.get_npc(slot).unwrap();
-                    if let Ok(mut h) = health_q.get_mut(npc.entity) { h.0 = 0.0; }
+                    if let Ok(mut h) = health_q.get_mut(npc.entity) {
+                        h.0 = 0.0;
+                    }
                     test.phase_name = format!("Killed slot {}, waiting for despawn...", slot);
                 }
             } else {
@@ -89,26 +102,36 @@ pub fn tick(
                 test.counters.insert("new_slot".into(), new_slot as u32);
                 spawn_events.write(crate::messages::SpawnNpcMsg {
                     slot_idx: new_slot,
-                    x: 400.0, y: 400.0,
-                    job: 0, faction: 0, town_idx: 0,
-                    home_x: 400.0, home_y: 450.0,
-                    work_x: -1.0, work_y: -1.0,
+                    x: 400.0,
+                    y: 400.0,
+                    job: 0,
+                    faction: 0,
+                    town_idx: 0,
+                    home_x: 400.0,
+                    home_y: 450.0,
+                    work_x: -1.0,
+                    work_y: -1.0,
                     starting_post: -1,
                     attack_type: 0,
                     uid_override: None,
                 });
                 test.set_flag("respawned", true);
-                test.phase_name = format!("Spawned at slot {}, killed was {}", new_slot, killed_slot);
+                test.phase_name =
+                    format!("Spawned at slot {}, killed was {}", new_slot, killed_slot);
             } else {
                 let total = all_npc_query.iter().count();
                 let new_slot = test.count("new_slot");
                 let killed_slot = test.count("killed_slot");
-                test.phase_name = format!("total={}/5 new={} killed={}", total, new_slot, killed_slot);
+                test.phase_name =
+                    format!("total={}/5 new={} killed={}", total, new_slot, killed_slot);
                 if total >= 5 {
                     if new_slot == killed_slot {
                         test.pass_phase(elapsed, format!("slot {} reused", new_slot));
                     } else {
-                        test.pass_phase(elapsed, format!("spawned at slot {} (killed={})", new_slot, killed_slot));
+                        test.pass_phase(
+                            elapsed,
+                            format!("spawned at slot {} (killed={})", new_slot, killed_slot),
+                        );
                     }
                     test.complete(elapsed);
                 } else if elapsed > 8.0 {

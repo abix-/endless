@@ -18,6 +18,16 @@ Real-time kingdom builder: pure Bevy 0.18 ECS with GPU compute for 50K NPCs via 
 
 - **NEVER use the Task tool to launch agents.** Do all work manually with direct tool calls (Read, Edit, Grep, Glob, Bash). If you think an agent would help, ask first — the answer will be no.
 
+## Rust LSP (rust-analyzer)
+
+LSP tool is available for Rust. Use it for type-aware queries instead of grep when you need compiler understanding.
+
+- **Use LSP for**: type info (`hover`), jump to definition (`goToDefinition`), finding all callers (`incomingCalls`), impact analysis (`findReferences`), file structure (`documentSymbol`)
+- **Use Grep/Glob for**: finding files, text search, locating symbols by name when you don't need type info
+- **Paths**: Use Windows paths (`C:\code\endless\rust\src\foo.rs`) for LSP filePath, not bash paths
+- **Indexing delay**: rust-analyzer needs time to index after startup. If `goToDefinition` returns nothing, try `hover` on the definition site directly, or retry later.
+- **Column positions**: 1-based. Match the column to the start of the symbol name, not the line start.
+
 ## Lessons Learned
 
 - **PowerShell error suppression**: Don't use `2>$null` - it causes parse errors. Use `-ErrorAction SilentlyContinue` instead.

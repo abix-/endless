@@ -45,23 +45,39 @@ fn step_complete(
     selected_npc: &SelectedNpc,
     follow: &FollowSelected,
 ) -> bool {
-    let pt = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
+    let pt = world_data
+        .towns
+        .iter()
+        .position(|t| t.faction == 0)
+        .unwrap_or(0);
     match step {
         1 => (camera_pos - tutorial.camera_start).length() > 50.0,
         2 => ui_state.build_menu_open,
         3 => entity_map.count_for_town(BuildingKind::Farm, pt as u32) > tutorial.initial_farms,
-        4 => entity_map.count_for_town(BuildingKind::FarmerHome, pt as u32) > tutorial.initial_farmer_homes,
+        4 => {
+            entity_map.count_for_town(BuildingKind::FarmerHome, pt as u32)
+                > tutorial.initial_farmer_homes
+        }
         5 => false, // info-only — user clicks Next
         6 => selected_npc.0 >= 0,
         7 => follow.0,
         8 => pt < food_storage.food.len() && food_storage.food[pt] > 0,
         9 => false, // info-only — user clicks Next
-        10 => entity_map.count_for_town(BuildingKind::Waypoint, pt as u32) > tutorial.initial_waypoints,
-        11 => entity_map.count_for_town(BuildingKind::ArcherHome, pt as u32) > tutorial.initial_archer_homes,
+        10 => {
+            entity_map.count_for_town(BuildingKind::Waypoint, pt as u32)
+                > tutorial.initial_waypoints
+        }
+        11 => {
+            entity_map.count_for_town(BuildingKind::ArcherHome, pt as u32)
+                > tutorial.initial_archer_homes
+        }
         12 => ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Upgrades,
         13 => false, // info-only — user clicks Next
         14 => false, // info-only — user clicks Next
-        15 => entity_map.count_for_town(BuildingKind::MinerHome, pt as u32) > tutorial.initial_miner_homes,
+        15 => {
+            entity_map.count_for_town(BuildingKind::MinerHome, pt as u32)
+                > tutorial.initial_miner_homes
+        }
         16 => ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Policies,
         17 => ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Patrols,
         18 => ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Squads,
@@ -87,7 +103,9 @@ pub fn tutorial_ui_system(
     time: Res<Time<Real>>,
 ) -> Result {
     // Not active
-    if tutorial.step == 0 || tutorial.step == 255 { return Ok(()); }
+    if tutorial.step == 0 || tutorial.step == 255 {
+        return Ok(());
+    }
 
     // Auto-end after 10 minutes
     if time.elapsed_secs_f64() - tutorial.start_time >= TUTORIAL_TIMEOUT_SECS {
@@ -99,10 +117,23 @@ pub fn tutorial_ui_system(
 
     let ctx = contexts.ctx_mut()?;
 
-    let camera_pos = camera_query.single().map(|t| Vec2::new(t.translation.x, t.translation.y)).unwrap_or(Vec2::ZERO);
+    let camera_pos = camera_query
+        .single()
+        .map(|t| Vec2::new(t.translation.x, t.translation.y))
+        .unwrap_or(Vec2::ZERO);
 
     // Check completion
-    if step_complete(tutorial.step, &tutorial, &ui_state, &world_data, &entity_map, &food_storage, camera_pos, &selected_npc, &follow) {
+    if step_complete(
+        tutorial.step,
+        &tutorial,
+        &ui_state,
+        &world_data,
+        &entity_map,
+        &food_storage,
+        camera_pos,
+        &selected_npc,
+        &follow,
+    ) {
         tutorial.step += 1;
         if tutorial.step > STEP_COUNT {
             tutorial.step = 255;
@@ -114,7 +145,9 @@ pub fn tutorial_ui_system(
 
     // Render current step
     let step_idx = (tutorial.step - 1) as usize;
-    if step_idx >= STEPS.len() { return Ok(()); }
+    if step_idx >= STEPS.len() {
+        return Ok(());
+    }
     let text = STEPS[step_idx];
 
     let mut skip_all = false;
@@ -130,22 +163,29 @@ pub fn tutorial_ui_system(
                 .show(ui, |ui| {
                     ui.set_max_width(500.0);
                     ui.vertical(|ui| {
-                        ui.label(egui::RichText::new(text)
-                            .size(15.0)
-                            .color(egui::Color32::from_rgb(230, 230, 210)));
+                        ui.label(
+                            egui::RichText::new(text)
+                                .size(15.0)
+                                .color(egui::Color32::from_rgb(230, 230, 210)),
+                        );
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(format!("{}/{}", tutorial.step, STEP_COUNT))
-                                .size(11.0)
-                                .color(egui::Color32::from_rgb(100, 100, 120)));
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.small_button("Skip Tutorial").clicked() {
-                                    skip_all = true;
-                                }
-                                if ui.small_button("Next").clicked() {
-                                    skip_step = true;
-                                }
-                            });
+                            ui.label(
+                                egui::RichText::new(format!("{}/{}", tutorial.step, STEP_COUNT))
+                                    .size(11.0)
+                                    .color(egui::Color32::from_rgb(100, 100, 120)),
+                            );
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.small_button("Skip Tutorial").clicked() {
+                                        skip_all = true;
+                                    }
+                                    if ui.small_button("Next").clicked() {
+                                        skip_step = true;
+                                    }
+                                },
+                            );
                         });
                     });
                 });

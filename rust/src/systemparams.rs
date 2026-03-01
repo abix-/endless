@@ -3,9 +3,9 @@
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
+use crate::messages::DirtyWriters;
 use crate::messages::GpuUpdateMsg;
 use crate::resources::*;
-use crate::messages::DirtyWriters;
 
 /// Mutable world resources commonly edited together by gameplay systems.
 #[derive(SystemParam)]
@@ -31,10 +31,19 @@ impl WorldState<'_> {
         commands: &mut Commands,
     ) -> Result<(), &'static str> {
         crate::world::place_building(
-            &mut self.grid, &self.world_data,
-            food_storage, &mut self.entity_slots, &mut self.entity_map,
-            &mut self.dirty_writers, kind, town_data_idx, world_pos, cost,
-            &self.town_grids, gpu_updates, commands,
+            &mut self.grid,
+            &self.world_data,
+            food_storage,
+            &mut self.entity_slots,
+            &mut self.entity_map,
+            &mut self.dirty_writers,
+            kind,
+            town_data_idx,
+            world_pos,
+            cost,
+            &self.town_grids,
+            gpu_updates,
+            commands,
             &mut self.uid_alloc,
         )
     }
@@ -43,15 +52,23 @@ impl WorldState<'_> {
         &mut self,
         combat_log: &mut MessageWriter<crate::messages::CombatLogMsg>,
         game_time: &GameTime,
-        row: i32, col: i32,
+        row: i32,
+        col: i32,
         town_center: Vec2,
         reason: &str,
         gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
     ) -> Result<(), &'static str> {
         crate::world::destroy_building(
-            &mut self.grid, &self.world_data,
-            &mut self.entity_map, combat_log, game_time,
-            row, col, town_center, reason, gpu_updates,
+            &mut self.grid,
+            &self.world_data,
+            &mut self.entity_map,
+            combat_log,
+            game_time,
+            row,
+            col,
+            town_center,
+            reason,
+            gpu_updates,
         )
     }
 }

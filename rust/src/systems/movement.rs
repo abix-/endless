@@ -22,12 +22,16 @@ pub fn gpu_position_readback(
 
     for (es, mut pos, activity, mut flags) in npc_q.iter_mut() {
         let i = es.0;
-        if i * 2 + 1 >= positions.len() { continue; }
+        if i * 2 + 1 >= positions.len() {
+            continue;
+        }
 
         let gpu_x = positions[i * 2];
         let gpu_y = positions[i * 2 + 1];
 
-        if gpu_x < -9000.0 { continue; }
+        if gpu_x < -9000.0 {
+            continue;
+        }
 
         pos.x = gpu_x;
         pos.y = gpu_y;
@@ -58,12 +62,16 @@ pub fn resolve_movement_system(
     mut target_thrash: ResMut<NpcTargetThrashDebug>,
     game_time: Res<GameTime>,
 ) {
-    if game_time.is_paused() { return; }
+    if game_time.is_paused() {
+        return;
+    }
     let targets = &npc_gpu.targets;
     let minute_key = game_time.day() * 24 * 60 + game_time.hour() * 60 + game_time.minute();
 
     for (entity, intent) in intents.drain() {
-        let Ok(npc_idx) = npc_query.get(entity) else { continue };
+        let Ok(npc_idx) = npc_query.get(entity) else {
+            continue;
+        };
         let idx = npc_idx.0;
 
         // Skip if target unchanged (same check as combat's target_changed)
@@ -71,12 +79,22 @@ pub fn resolve_movement_system(
         if i + 1 < targets.len() {
             let dx = targets[i] - intent.target.x;
             let dy = targets[i + 1] - intent.target.y;
-            if dx * dx + dy * dy <= 1.0 { continue; }
+            if dx * dx + dy * dy <= 1.0 {
+                continue;
+            }
         }
 
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-            idx, x: intent.target.x, y: intent.target.y,
+            idx,
+            x: intent.target.x,
+            y: intent.target.y,
         }));
-        target_thrash.record(idx, intent.source, minute_key, intent.target.x, intent.target.y);
+        target_thrash.record(
+            idx,
+            intent.source,
+            minute_key,
+            intent.target.x,
+            intent.target.y,
+        );
     }
 }

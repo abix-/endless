@@ -2,22 +2,24 @@
 //! Validates full core loop: spawn → work → raid → combat → death → respawn.
 //! 5 farmers + 2 archers + 5 raiders, phased assertions with time gates.
 
-use bevy::prelude::*;
 use crate::components::*;
 use crate::resources::*;
 use crate::world;
+use bevy::prelude::*;
 
-use super::{TestState, TestSetupParams};
+use super::{TestSetupParams, TestState};
 
 /// Farm positions for the vertical slice test.
 const FARMS: [(f32, f32); 5] = [
-    (300.0, 350.0), (350.0, 350.0), (400.0, 350.0), (450.0, 350.0), (500.0, 350.0),
+    (300.0, 350.0),
+    (350.0, 350.0),
+    (400.0, 350.0),
+    (450.0, 350.0),
+    (500.0, 350.0),
 ];
 
 /// Setup: populate world, spawn NPCs, init resources.
-pub fn setup(
-    mut params: TestSetupParams,
-) {
+pub fn setup(mut params: TestSetupParams) {
     // World data: 2 towns
     params.add_town("Harvest");
     params.world_data.towns.push(world::Town {
@@ -42,19 +44,37 @@ pub fn setup(
     }
 
     // 4 waypoints (square patrol around town)
-    for (order, &(gx, gy)) in [(250.0, 250.0), (550.0, 250.0), (550.0, 550.0), (250.0, 550.0)].iter().enumerate() {
+    for (order, &(gx, gy)) in [
+        (250.0, 250.0),
+        (550.0, 250.0),
+        (550.0, 550.0),
+        (250.0, 550.0),
+    ]
+    .iter()
+    .enumerate()
+    {
         params.add_waypoint(gx, gy, 0, order as u32);
     }
 
     // Spawner buildings: FarmerHomes, ArcherHomes, Tents (for respawn system)
     for i in 0..5 {
-        params.add_building(world::BuildingKind::FarmerHome, 300.0 + (i as f32 * 50.0), 450.0, 0);
+        params.add_building(
+            world::BuildingKind::FarmerHome,
+            300.0 + (i as f32 * 50.0),
+            450.0,
+            0,
+        );
     }
     for _ in 0..2 {
         params.add_building(world::BuildingKind::ArcherHome, 400.0, 400.0, 0);
     }
     for i in 0..5 {
-        params.add_building(world::BuildingKind::Tent, 380.0 + (i as f32 * 10.0), 100.0, 1);
+        params.add_building(
+            world::BuildingKind::Tent,
+            380.0 + (i as f32 * 10.0),
+            100.0,
+            1,
+        );
     }
 
     // Resources
@@ -68,15 +88,23 @@ pub fn setup(
         let uid = params.uid_alloc.next();
         params.spawn_events.write(crate::messages::SpawnNpcMsg {
             slot_idx: slot,
-            x: fx, y: fy + 200.0,
-            job: 0, faction: 0, town_idx: 0,
-            home_x: 300.0 + (i as f32 * 50.0), home_y: 450.0,
-            work_x: fx, work_y: fy,
+            x: fx,
+            y: fy + 200.0,
+            job: 0,
+            faction: 0,
+            town_idx: 0,
+            home_x: 300.0 + (i as f32 * 50.0),
+            home_y: 450.0,
+            work_x: fx,
+            work_y: fy,
             starting_post: -1,
             attack_type: 0,
             uid_override: Some(uid),
         });
-        if let Some(inst) = params.entity_map.find_by_position_mut(Vec2::new(300.0 + (i as f32 * 50.0), 450.0)) {
+        if let Some(inst) = params
+            .entity_map
+            .find_by_position_mut(Vec2::new(300.0 + (i as f32 * 50.0), 450.0))
+        {
             inst.npc_uid = Some(uid);
         }
     }
@@ -87,15 +115,23 @@ pub fn setup(
         let uid = params.uid_alloc.next();
         params.spawn_events.write(crate::messages::SpawnNpcMsg {
             slot_idx: slot,
-            x: 400.0, y: 400.0,
-            job: 1, faction: 0, town_idx: 0,
-            home_x: 400.0, home_y: 400.0,
-            work_x: -1.0, work_y: -1.0,
+            x: 400.0,
+            y: 400.0,
+            job: 1,
+            faction: 0,
+            town_idx: 0,
+            home_x: 400.0,
+            home_y: 400.0,
+            work_x: -1.0,
+            work_y: -1.0,
             starting_post: i,
             attack_type: 0,
             uid_override: Some(uid),
         });
-        if let Some(inst) = params.entity_map.find_by_position_mut(Vec2::new(400.0, 400.0)) {
+        if let Some(inst) = params
+            .entity_map
+            .find_by_position_mut(Vec2::new(400.0, 400.0))
+        {
             inst.npc_uid = Some(uid);
         }
     }
@@ -106,15 +142,23 @@ pub fn setup(
         let uid = params.uid_alloc.next();
         params.spawn_events.write(crate::messages::SpawnNpcMsg {
             slot_idx: slot,
-            x: 380.0 + (i as f32 * 10.0), y: 100.0,
-            job: 2, faction: 1, town_idx: 1,
-            home_x: 400.0, home_y: 100.0,
-            work_x: -1.0, work_y: -1.0,
+            x: 380.0 + (i as f32 * 10.0),
+            y: 100.0,
+            job: 2,
+            faction: 1,
+            town_idx: 1,
+            home_x: 400.0,
+            home_y: 100.0,
+            work_x: -1.0,
+            work_y: -1.0,
             starting_post: -1,
             attack_type: 0,
             uid_override: Some(uid),
         });
-        if let Some(inst) = params.entity_map.find_by_position_mut(Vec2::new(380.0 + (i as f32 * 10.0), 100.0)) {
+        if let Some(inst) = params
+            .entity_map
+            .find_by_position_mut(Vec2::new(380.0 + (i as f32 * 10.0), 100.0))
+        {
             inst.npc_uid = Some(uid);
         }
     }
@@ -136,14 +180,18 @@ pub fn tick(
     activity_q: Query<&Activity>,
     npc_flags_q: Query<&NpcFlags>,
 ) {
-    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
+    let Some(elapsed) = test.tick_elapsed(&time) else {
+        return;
+    };
 
     // Track lowest NPC count for death detection
     if slots.alive() > 0 && slots.alive() < test.count("lowest_npc") as usize {
-        test.counters.insert("lowest_npc".into(), slots.alive() as u32);
+        test.counters
+            .insert("lowest_npc".into(), slots.alive() as u32);
     }
     if !test.counters.contains_key("lowest_npc") && slots.alive() > 0 {
-        test.counters.insert("lowest_npc".into(), slots.alive() as u32);
+        test.counters
+            .insert("lowest_npc".into(), slots.alive() as u32);
     }
 
     match test.phase {
@@ -153,7 +201,10 @@ pub fn tick(
             if slots.alive() == 12 {
                 test.pass_phase(elapsed, format!("npc_count={}", slots.alive()));
             } else if elapsed > 2.0 {
-                test.fail_phase(elapsed, format!("npc_count={} (expected 12)", slots.alive()));
+                test.fail_phase(
+                    elapsed,
+                    format!("npc_count={} (expected 12)", slots.alive()),
+                );
             }
         }
         // Phase 2: GPU readback has valid positions
@@ -162,30 +213,75 @@ pub fn tick(
                 && gpu_state.positions.iter().take(24).any(|&v| v != 0.0);
             test.phase_name = format!("positions_len={}", gpu_state.positions.len());
             if has_positions {
-                let p0 = (gpu_state.positions.get(0).copied().unwrap_or(0.0),
-                           gpu_state.positions.get(1).copied().unwrap_or(0.0));
-                test.pass_phase(elapsed, format!("positions valid, sample=({:.0},{:.0})", p0.0, p0.1));
+                let p0 = (
+                    gpu_state.positions.get(0).copied().unwrap_or(0.0),
+                    gpu_state.positions.get(1).copied().unwrap_or(0.0),
+                );
+                test.pass_phase(
+                    elapsed,
+                    format!("positions valid, sample=({:.0},{:.0})", p0.0, p0.1),
+                );
             } else if elapsed > 3.0 {
-                test.fail_phase(elapsed, format!("positions_len={}, all zeros", gpu_state.positions.len()));
+                test.fail_phase(
+                    elapsed,
+                    format!("positions_len={}, all zeros", gpu_state.positions.len()),
+                );
             }
         }
         // Phase 3: Farmers arrive and start working
         3 => {
-            let working = entity_map.iter_npcs().filter(|n| !n.dead && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Working))).count();
-            let going_to_work = entity_map.iter_npcs().filter(|n| !n.dead && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::GoingToWork))).count();
+            let working = entity_map
+                .iter_npcs()
+                .filter(|n| {
+                    !n.dead
+                        && activity_q
+                            .get(n.entity)
+                            .is_ok_and(|a| matches!(*a, Activity::Working))
+                })
+                .count();
+            let going_to_work = entity_map
+                .iter_npcs()
+                .filter(|n| {
+                    !n.dead
+                        && activity_q
+                            .get(n.entity)
+                            .is_ok_and(|a| matches!(*a, Activity::GoingToWork))
+                })
+                .count();
             test.phase_name = format!("working={} going_to_work={}", working, going_to_work);
             if working >= 3 {
                 test.pass_phase(elapsed, format!("working={}", working));
             } else if elapsed > 8.0 {
-                let at_dest = entity_map.iter_npcs().filter(|n| !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| f.at_destination)).count();
-                let transit = entity_map.iter_npcs().filter(|n| !n.dead && activity_q.get(n.entity).is_ok_and(|a| a.is_transit())).count();
-                test.fail_phase(elapsed, format!(
-                    "working={} going_to_work={} at_dest={} transit={}", working, going_to_work, at_dest, transit));
+                let at_dest = entity_map
+                    .iter_npcs()
+                    .filter(|n| {
+                        !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| f.at_destination)
+                    })
+                    .count();
+                let transit = entity_map
+                    .iter_npcs()
+                    .filter(|n| !n.dead && activity_q.get(n.entity).is_ok_and(|a| a.is_transit()))
+                    .count();
+                test.fail_phase(
+                    elapsed,
+                    format!(
+                        "working={} going_to_work={} at_dest={} transit={}",
+                        working, going_to_work, at_dest, transit
+                    ),
+                );
             }
         }
         // Phase 4: Raiders dispatched
         4 => {
-            let raiding = entity_map.iter_npcs().filter(|n| !n.dead && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Raiding { .. }))).count();
+            let raiding = entity_map
+                .iter_npcs()
+                .filter(|n| {
+                    !n.dead
+                        && activity_q
+                            .get(n.entity)
+                            .is_ok_and(|a| matches!(*a, Activity::Raiding { .. }))
+                })
+                .count();
             test.phase_name = format!("raiding={}/3", raiding);
             if raiding >= 3 {
                 test.pass_phase(elapsed, format!("raiding={}", raiding));
@@ -197,7 +293,10 @@ pub fn tick(
         5 => {
             test.phase_name = format!("targets_found={}", combat_debug.targets_found);
             if combat_debug.targets_found > 0 {
-                test.pass_phase(elapsed, format!("targets_found={}", combat_debug.targets_found));
+                test.pass_phase(
+                    elapsed,
+                    format!("targets_found={}", combat_debug.targets_found),
+                );
             } else if elapsed > 25.0 {
                 test.fail_phase(elapsed, "targets_found=0");
             }
@@ -206,17 +305,31 @@ pub fn tick(
         6 => {
             test.phase_name = format!("damage_processed={}", health_debug.damage_processed);
             if health_debug.damage_processed > 0 {
-                test.pass_phase(elapsed, format!("damage_processed={}", health_debug.damage_processed));
+                test.pass_phase(
+                    elapsed,
+                    format!("damage_processed={}", health_debug.damage_processed),
+                );
             } else if elapsed > 30.0 {
                 test.fail_phase(elapsed, "damage_processed=0");
             }
         }
         // Phase 7: At least one death
         7 => {
-            test.phase_name = format!("npc_count={} deaths_frame={}", slots.alive(), health_debug.deaths_this_frame);
+            test.phase_name = format!(
+                "npc_count={} deaths_frame={}",
+                slots.alive(),
+                health_debug.deaths_this_frame
+            );
             if slots.alive() < 12 || health_debug.deaths_this_frame > 0 {
                 test.set_flag("death_seen", true);
-                test.pass_phase(elapsed, format!("npc_count={}, deaths_frame={}", slots.alive(), health_debug.deaths_this_frame));
+                test.pass_phase(
+                    elapsed,
+                    format!(
+                        "npc_count={}, deaths_frame={}",
+                        slots.alive(),
+                        health_debug.deaths_this_frame
+                    ),
+                );
             } else if elapsed > 40.0 {
                 test.fail_phase(elapsed, format!("npc_count={} (no deaths)", slots.alive()));
             }
@@ -230,8 +343,15 @@ pub fn tick(
             } else if elapsed > 90.0 {
                 let lowest = test.count("lowest_npc");
                 let death_seen = test.get_flag("death_seen");
-                test.fail_phase(elapsed, format!(
-                    "npc_count={}, lowest={}, death_seen={}", slots.alive(), lowest, death_seen));
+                test.fail_phase(
+                    elapsed,
+                    format!(
+                        "npc_count={}, lowest={}, death_seen={}",
+                        slots.alive(),
+                        lowest,
+                        death_seen
+                    ),
+                );
             }
         }
         _ => {}

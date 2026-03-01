@@ -1,9 +1,9 @@
 //! World Generation Test (6 phases)
 //! Validates: grid dimensions, town placement, distances, buildings, terrain, raider towns.
 
-use bevy::prelude::*;
 use crate::resources::*;
 use crate::world;
+use bevy::prelude::*;
 
 use super::TestState;
 
@@ -24,7 +24,15 @@ pub fn setup(
     town_grids.grids.clear();
     entity_map.clear_buildings();
     entity_map.entities.clear();
-    world::generate_world(&config, &mut world_grid, &mut world_data, &mut town_grids, &mut slot_alloc, &mut entity_map, &mut uid_alloc);
+    world::generate_world(
+        &config,
+        &mut world_grid,
+        &mut world_data,
+        &mut town_grids,
+        &mut slot_alloc,
+        &mut entity_map,
+        &mut uid_alloc,
+    );
 
     // Init supporting resources based on generated world
     let total_towns = world_data.towns.len();
@@ -38,7 +46,10 @@ pub fn setup(
         }
     }
     test_state.phase_name = "Checking grid dimensions...".into();
-    info!("world-gen: setup — generated world with {} config towns", config.num_towns);
+    info!(
+        "world-gen: setup — generated world with {} config towns",
+        config.num_towns
+    );
 }
 
 pub fn tick(
@@ -49,7 +60,9 @@ pub fn tick(
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
-    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
+    let Some(elapsed) = test.tick_elapsed(&time) else {
+        return;
+    };
 
     match test.phase {
         // Phase 1: Grid has correct dimensions
@@ -57,15 +70,37 @@ pub fn tick(
             let expected_w = (config.world_width / world_grid.cell_size) as usize;
             let expected_h = (config.world_height / world_grid.cell_size) as usize;
             let expected_cells = expected_w * expected_h;
-            test.phase_name = format!("grid={}x{} cells={}", world_grid.width, world_grid.height, world_grid.cells.len());
+            test.phase_name = format!(
+                "grid={}x{} cells={}",
+                world_grid.width,
+                world_grid.height,
+                world_grid.cells.len()
+            );
 
-            if world_grid.width == expected_w && world_grid.height == expected_h && world_grid.cells.len() == expected_cells {
-                test.pass_phase(elapsed, format!("grid {}x{} ({} cells)", world_grid.width, world_grid.height, expected_cells));
+            if world_grid.width == expected_w
+                && world_grid.height == expected_h
+                && world_grid.cells.len() == expected_cells
+            {
+                test.pass_phase(
+                    elapsed,
+                    format!(
+                        "grid {}x{} ({} cells)",
+                        world_grid.width, world_grid.height, expected_cells
+                    ),
+                );
             } else {
-                test.fail_phase(elapsed, format!(
-                    "grid {}x{} cells={} (expected {}x{} = {})",
-                    world_grid.width, world_grid.height, world_grid.cells.len(),
-                    expected_w, expected_h, expected_cells));
+                test.fail_phase(
+                    elapsed,
+                    format!(
+                        "grid {}x{} cells={} (expected {}x{} = {})",
+                        world_grid.width,
+                        world_grid.height,
+                        world_grid.cells.len(),
+                        expected_w,
+                        expected_h,
+                        expected_cells
+                    ),
+                );
             }
         }
         // Phase 2: Correct number of towns (villager + raider per config town)
@@ -75,32 +110,54 @@ pub fn tick(
             test.phase_name = format!("towns={}/{}", actual, expected_towns);
 
             if actual == expected_towns {
-                test.pass_phase(elapsed, format!("{} towns ({} villager + {} raider)", actual, config.num_towns, config.num_towns));
+                test.pass_phase(
+                    elapsed,
+                    format!(
+                        "{} towns ({} villager + {} raider)",
+                        actual, config.num_towns, config.num_towns
+                    ),
+                );
             } else {
-                test.fail_phase(elapsed, format!("towns={} (expected {})", actual, expected_towns));
+                test.fail_phase(
+                    elapsed,
+                    format!("towns={} (expected {})", actual, expected_towns),
+                );
             }
         }
         // Phase 3: Villager towns are min distance apart
         3 => {
-            let villager_towns: Vec<Vec2> = world_data.towns.iter()
+            let villager_towns: Vec<Vec2> = world_data
+                .towns
+                .iter()
                 .filter(|t| t.faction == 0)
                 .map(|t| t.center)
                 .collect();
 
             let mut min_dist = f32::MAX;
             for i in 0..villager_towns.len() {
-                for j in (i+1)..villager_towns.len() {
+                for j in (i + 1)..villager_towns.len() {
                     let d = villager_towns[i].distance(villager_towns[j]);
-                    if d < min_dist { min_dist = d; }
+                    if d < min_dist {
+                        min_dist = d;
+                    }
                 }
             }
 
             test.phase_name = format!("min_dist={:.0}", min_dist);
 
             if villager_towns.len() <= 1 || min_dist >= config.min_town_distance {
-                test.pass_phase(elapsed, format!("min_dist={:.0} (threshold={})", min_dist, config.min_town_distance));
+                test.pass_phase(
+                    elapsed,
+                    format!(
+                        "min_dist={:.0} (threshold={})",
+                        min_dist, config.min_town_distance
+                    ),
+                );
             } else {
-                test.fail_phase(elapsed, format!("min_dist={:.0} < {}", min_dist, config.min_town_distance));
+                test.fail_phase(
+                    elapsed,
+                    format!("min_dist={:.0} < {}", min_dist, config.min_town_distance),
+                );
             }
         }
         // Phase 4: Each villager town has correct buildings on grid
@@ -115,34 +172,51 @@ pub fn tick(
                 let ti = inst.town_idx as usize;
                 if ti < num_vill {
                     match inst.kind {
-                        world::BuildingKind::Fountain => { fountains[ti] += 1; }
-                        world::BuildingKind::Farm => { farms[ti] += 1; }
-                        world::BuildingKind::Waypoint => { posts[ti] += 1; }
+                        world::BuildingKind::Fountain => {
+                            fountains[ti] += 1;
+                        }
+                        world::BuildingKind::Farm => {
+                            farms[ti] += 1;
+                        }
+                        world::BuildingKind::Waypoint => {
+                            posts[ti] += 1;
+                        }
                         _ => {}
                     }
                 }
             }
 
-            let all_ok = (0..num_vill).all(|i| {
-                fountains[i] == 1 && farms[i] == 2 && posts[i] == 4
-            });
+            let all_ok = (0..num_vill).all(|i| fountains[i] == 1 && farms[i] == 2 && posts[i] == 4);
 
-            test.phase_name = format!("town0: f={} farm={} post={}",
-                fountains.first().unwrap_or(&0), farms.first().unwrap_or(&0),
-                posts.first().unwrap_or(&0));
+            test.phase_name = format!(
+                "town0: f={} farm={} post={}",
+                fountains.first().unwrap_or(&0),
+                farms.first().unwrap_or(&0),
+                posts.first().unwrap_or(&0)
+            );
 
             if all_ok {
-                test.pass_phase(elapsed, format!("all {} towns have 1 fountain, 2 farms, 4 posts", num_vill));
+                test.pass_phase(
+                    elapsed,
+                    format!("all {} towns have 1 fountain, 2 farms, 4 posts", num_vill),
+                );
             } else {
-                let details: Vec<String> = (0..num_vill).map(|i| {
-                    format!("town{}: f={} farm={} post={}", i, fountains[i], farms[i], posts[i])
-                }).collect();
+                let details: Vec<String> = (0..num_vill)
+                    .map(|i| {
+                        format!(
+                            "town{}: f={} farm={} post={}",
+                            i, fountains[i], farms[i], posts[i]
+                        )
+                    })
+                    .collect();
                 test.fail_phase(elapsed, details.join(", "));
             }
         }
         // Phase 5: Terrain near town centers is Dirt
         5 => {
-            let villager_towns: Vec<Vec2> = world_data.towns.iter()
+            let villager_towns: Vec<Vec2> = world_data
+                .towns
+                .iter()
                 .filter(|t| t.faction == 0)
                 .map(|t| t.center)
                 .collect();
@@ -167,21 +241,34 @@ pub fn tick(
         }
         // Phase 6: Raider raider towns exist with correct faction
         6 => {
-            let raider_towns: Vec<&world::Town> = world_data.towns.iter()
-                .filter(|t| t.faction > 0)
-                .collect();
+            let raider_towns: Vec<&world::Town> =
+                world_data.towns.iter().filter(|t| t.faction > 0).collect();
 
             let expected = config.num_towns;
             let raider_centers = entity_map.iter_kind(world::BuildingKind::Fountain).count();
 
-            test.phase_name = format!("raider_towns={} centers_on_grid={}", raider_towns.len(), raider_centers);
+            test.phase_name = format!(
+                "raider_towns={} centers_on_grid={}",
+                raider_towns.len(),
+                raider_centers
+            );
 
             if raider_towns.len() == expected && raider_centers >= expected {
-                test.pass_phase(elapsed, format!("{} raider towns with correct factions", expected));
+                test.pass_phase(
+                    elapsed,
+                    format!("{} raider towns with correct factions", expected),
+                );
                 test.complete(elapsed);
             } else {
-                test.fail_phase(elapsed, format!(
-                    "raider_towns={} centers={} (expected {})", raider_towns.len(), raider_centers, expected));
+                test.fail_phase(
+                    elapsed,
+                    format!(
+                        "raider_towns={} centers={} (expected {})",
+                        raider_towns.len(),
+                        raider_centers,
+                        expected
+                    ),
+                );
             }
         }
         _ => {}

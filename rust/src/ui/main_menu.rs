@@ -1,15 +1,15 @@
 //! Main menu — world config sliders + Play / Debug Tests buttons.
 
-use std::collections::BTreeMap;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
+use std::collections::BTreeMap;
 
 use crate::AppState;
 use crate::components::Job;
 use crate::constants::NPC_REGISTRY;
 use crate::settings;
-use crate::world::{WorldGenConfig, WorldGenStyle};
 use crate::systems::AiPlayerConfig;
+use crate::world::{WorldGenConfig, WorldGenStyle};
 
 /// Slider state persisted across frames via Local.
 #[derive(Default)]
@@ -89,7 +89,11 @@ pub fn main_menu_system(
         // Load npc_counts from settings (String keys → Job)
         for def in NPC_REGISTRY {
             let key = format!("{:?}", def.job);
-            let count = saved.npc_counts.get(&key).copied().unwrap_or(def.default_count);
+            let count = saved
+                .npc_counts
+                .get(&key)
+                .copied()
+                .unwrap_or(def.default_count);
             state.npc_counts.insert(def.job, count as f32);
         }
         state.ai_towns = saved.ai_towns as f32;

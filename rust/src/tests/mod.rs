@@ -3,38 +3,38 @@
 //! Each test is a file in src/tests/ exporting setup (OnEnter) + tick (Update) systems.
 //! Tests are selected from a bevy_egui menu and run within the full Bevy app.
 
-pub mod vertical_slice;
-pub mod spawning;
-pub mod energy;
-pub mod movement;
+pub mod ai_building;
 pub mod archer_patrol;
-pub mod farmer_cycle;
-pub mod raider_cycle;
-pub mod combat;
-pub mod projectiles;
 pub mod archer_tent_reliability;
+pub mod coalesce_safety;
+pub mod combat;
+pub mod economy;
+pub mod endless_mode;
+pub mod energy;
+pub mod farm_visual;
+pub mod farmer_cycle;
 pub mod fountain_shot_stale;
 pub mod friendly_fire_buildings;
-pub mod healing;
-pub mod economy;
-pub mod world_gen;
-pub mod sleep_visual;
-pub mod farm_visual;
 pub mod heal_visual;
-pub mod npc_visuals;
-pub mod terrain_visual;
-pub mod endless_mode;
-pub mod ai_building;
+pub mod healing;
 pub mod miner_cycle;
+pub mod movement;
+pub mod npc_visuals;
+pub mod projectiles;
+pub mod raider_cycle;
+pub mod sleep_visual;
 pub mod slot_reuse_wave;
-pub mod coalesce_safety;
+pub mod spawning;
+pub mod terrain_visual;
+pub mod vertical_slice;
+pub mod world_gen;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use std::collections::HashMap;
 
-use crate::components::{GpuSlot, FarmReadyMarker};
+use crate::components::{FarmReadyMarker, GpuSlot};
 use crate::messages::SpawnNpcMsg;
 use crate::render::MainCamera;
 use crate::resources::*;
@@ -144,14 +144,46 @@ impl TestSetupParams<'_, '_> {
 
     /// Add a building instance at the given position for a town.
     pub fn add_building(&mut self, kind: world::BuildingKind, x: f32, y: f32, town_idx: u32) {
-        let faction = self.world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
-        world::place_building_instance(&mut self.slot_alloc, &mut self.entity_map, kind, Vec2::new(x, y), town_idx, faction, 0, 0, &mut self.uid_alloc, None);
+        let faction = self
+            .world_data
+            .towns
+            .get(town_idx as usize)
+            .map(|t| t.faction)
+            .unwrap_or(0);
+        world::place_building_instance(
+            &mut self.slot_alloc,
+            &mut self.entity_map,
+            kind,
+            Vec2::new(x, y),
+            town_idx,
+            faction,
+            0,
+            0,
+            &mut self.uid_alloc,
+            None,
+        );
     }
 
     /// Add a waypoint with patrol_order at the given position for a town.
     pub fn add_waypoint(&mut self, x: f32, y: f32, town_idx: u32, patrol_order: u32) {
-        let faction = self.world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
-        world::place_building_instance(&mut self.slot_alloc, &mut self.entity_map, world::BuildingKind::Waypoint, Vec2::new(x, y), town_idx, faction, patrol_order, 0, &mut self.uid_alloc, None);
+        let faction = self
+            .world_data
+            .towns
+            .get(town_idx as usize)
+            .map(|t| t.faction)
+            .unwrap_or(0);
+        world::place_building_instance(
+            &mut self.slot_alloc,
+            &mut self.entity_map,
+            world::BuildingKind::Waypoint,
+            Vec2::new(x, y),
+            town_idx,
+            faction,
+            patrol_order,
+            0,
+            &mut self.uid_alloc,
+            None,
+        );
     }
 
     /// Init food_storage + faction_stats for N towns.
@@ -166,10 +198,15 @@ impl TestSetupParams<'_, '_> {
         let slot = self.slot_alloc.alloc().expect("slot alloc");
         self.spawn_events.write(SpawnNpcMsg {
             slot_idx: slot,
-            x, y,
-            job, faction: 0, town_idx: 0,
-            home_x, home_y,
-            work_x: -1.0, work_y: -1.0,
+            x,
+            y,
+            job,
+            faction: 0,
+            town_idx: 0,
+            home_x,
+            home_y,
+            work_x: -1.0,
+            work_y: -1.0,
             starting_post: -1,
             attack_type: 0,
             uid_override: None,
@@ -248,12 +285,19 @@ impl TestState {
     pub fn complete(&mut self, elapsed: f32) {
         self.passed = true;
         info!("========================================");
-        info!("Test '{}': ALL {} PHASES PASSED ({:.1}s)",
-            self.test_name.as_deref().unwrap_or("?"), self.total_phases, elapsed);
+        info!(
+            "Test '{}': ALL {} PHASES PASSED ({:.1}s)",
+            self.test_name.as_deref().unwrap_or("?"),
+            self.total_phases,
+            elapsed
+        );
         info!("========================================");
         for r in &self.results {
             let status = if r.passed { "PASS" } else { "FAIL" };
-            info!("  Phase {}: {} ({:.1}s) — {}", r.phase, status, r.elapsed, r.message);
+            info!(
+                "  Phase {}: {} ({:.1}s) — {}",
+                r.phase, status, r.elapsed, r.message
+            );
         }
     }
 
@@ -279,9 +323,13 @@ impl TestState {
 
     /// Tick preamble: returns elapsed seconds, or None if test is done.
     pub fn tick_elapsed(&mut self, time: &Time) -> Option<f32> {
-        if self.passed || self.failed { return None; }
+        if self.passed || self.failed {
+            return None;
+        }
         let now = time.elapsed_secs();
-        if self.start == 0.0 { self.start = now; }
+        if self.start == 0.0 {
+            self.start = now;
+        }
         Some(now - self.start)
     }
 
@@ -289,7 +337,9 @@ impl TestState {
     pub fn require_entity(&mut self, count: usize, elapsed: f32, name: &str) -> bool {
         if count == 0 {
             self.phase_name = format!("Waiting for {}...", name);
-            if elapsed > 3.0 { self.fail_phase(elapsed, format!("No {} entity", name)); }
+            if elapsed > 3.0 {
+                self.fail_phase(elapsed, format!("No {} entity", name));
+            }
             return false;
         }
         true
@@ -324,9 +374,7 @@ pub struct TestRegistry {
 
 /// Run condition: true when the active test matches the given name.
 pub fn test_is(name: &'static str) -> impl Fn(Res<TestState>) -> bool {
-    move |state: Res<TestState>| {
-        state.test_name.as_deref() == Some(name)
-    }
+    move |state: Res<TestState>| state.test_name.as_deref() == Some(name)
 }
 
 // ============================================================================
@@ -361,25 +409,41 @@ pub fn register_tests(app: &mut App) {
     app.init_resource::<TestWorldMaterializeState>();
 
     // Menu + HUD UI (must run in EguiPrimaryContextPass, not Update)
-    app.add_systems(EguiPrimaryContextPass, test_menu_system.run_if(in_state(AppState::TestMenu)));
-    app.add_systems(EguiPrimaryContextPass, (
-        crate::ui::game_hud::top_bar_system,
-        crate::ui::left_panel::left_panel_system,
-        crate::ui::game_hud::combat_log_system,
-        test_hud_system,
-    ).chain().run_if(in_state(AppState::Running)));
-    app.add_systems(Update, crate::ui::ui_toggle_system
-        .run_if(in_state(AppState::Running)));
+    app.add_systems(
+        EguiPrimaryContextPass,
+        test_menu_system.run_if(in_state(AppState::TestMenu)),
+    );
+    app.add_systems(
+        EguiPrimaryContextPass,
+        (
+            crate::ui::game_hud::top_bar_system,
+            crate::ui::left_panel::left_panel_system,
+            crate::ui::game_hud::combat_log_system,
+            test_hud_system,
+        )
+            .chain()
+            .run_if(in_state(AppState::Running)),
+    );
+    app.add_systems(
+        Update,
+        crate::ui::ui_toggle_system.run_if(in_state(AppState::Running)),
+    );
     app.add_systems(OnEnter(AppState::TestMenu), auto_start_next_test);
 
     // Cleanup when leaving Running
     app.add_systems(OnExit(AppState::Running), cleanup_test_world);
-    app.add_systems(OnEnter(AppState::Running), reset_test_world_materialization_state);
+    app.add_systems(
+        OnEnter(AppState::Running),
+        reset_test_world_materialization_state,
+    );
 
     // Test completion detection (returns to menu or starts next test)
-    app.add_systems(Update, test_completion_system
-        .run_if(in_state(AppState::Running))
-        .after(Step::Behavior));
+    app.add_systems(
+        Update,
+        test_completion_system
+            .run_if(in_state(AppState::Running))
+            .after(Step::Behavior),
+    );
 
     // Register individual tests
     let mut registry = TestRegistry::default();
@@ -391,13 +455,17 @@ pub fn register_tests(app: &mut App) {
         phase_count: 8,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        vertical_slice::setup.run_if(test_is("vertical-slice")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        vertical_slice::setup.run_if(test_is("vertical-slice")),
+    );
+    app.add_systems(
+        Update,
         vertical_slice::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("vertical-slice"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // spawning
     registry.tests.push(TestEntry {
@@ -406,13 +474,17 @@ pub fn register_tests(app: &mut App) {
         phase_count: 4,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        spawning::setup.run_if(test_is("spawning")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        spawning::setup.run_if(test_is("spawning")),
+    );
+    app.add_systems(
+        Update,
         spawning::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("spawning"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // energy
     registry.tests.push(TestEntry {
@@ -421,13 +493,17 @@ pub fn register_tests(app: &mut App) {
         phase_count: 3,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        energy::setup.run_if(test_is("energy")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        energy::setup.run_if(test_is("energy")),
+    );
+    app.add_systems(
+        Update,
         energy::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("energy"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // movement
     registry.tests.push(TestEntry {
@@ -436,13 +512,17 @@ pub fn register_tests(app: &mut App) {
         phase_count: 5,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        movement::setup.run_if(test_is("movement")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        movement::setup.run_if(test_is("movement")),
+    );
+    app.add_systems(
+        Update,
         movement::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("movement"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // archer-patrol
     registry.tests.push(TestEntry {
@@ -451,13 +531,17 @@ pub fn register_tests(app: &mut App) {
         phase_count: 5,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        archer_patrol::setup.run_if(test_is("archer-patrol")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        archer_patrol::setup.run_if(test_is("archer-patrol")),
+    );
+    app.add_systems(
+        Update,
         archer_patrol::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("archer-patrol"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // farmer-cycle
     registry.tests.push(TestEntry {
@@ -466,13 +550,17 @@ pub fn register_tests(app: &mut App) {
         phase_count: 5,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        farmer_cycle::setup.run_if(test_is("farmer-cycle")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        farmer_cycle::setup.run_if(test_is("farmer-cycle")),
+    );
+    app.add_systems(
+        Update,
         farmer_cycle::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("farmer-cycle"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // raider-cycle
     registry.tests.push(TestEntry {
@@ -481,13 +569,17 @@ pub fn register_tests(app: &mut App) {
         phase_count: 5,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        raider_cycle::setup.run_if(test_is("raider-cycle")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        raider_cycle::setup.run_if(test_is("raider-cycle")),
+    );
+    app.add_systems(
+        Update,
         raider_cycle::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("raider-cycle"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // combat
     registry.tests.push(TestEntry {
@@ -496,13 +588,17 @@ pub fn register_tests(app: &mut App) {
         phase_count: 6,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        combat::setup.run_if(test_is("combat")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        combat::setup.run_if(test_is("combat")),
+    );
+    app.add_systems(
+        Update,
         combat::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("combat"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // projectiles
     registry.tests.push(TestEntry {
@@ -511,13 +607,17 @@ pub fn register_tests(app: &mut App) {
         phase_count: 4,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        projectiles::setup.run_if(test_is("projectiles")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        projectiles::setup.run_if(test_is("projectiles")),
+    );
+    app.add_systems(
+        Update,
         projectiles::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("projectiles"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // archer-tent-reliability
     registry.tests.push(TestEntry {
@@ -526,43 +626,57 @@ pub fn register_tests(app: &mut App) {
         phase_count: 5,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        archer_tent_reliability::setup.run_if(test_is("archer-tent-reliability")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        archer_tent_reliability::setup.run_if(test_is("archer-tent-reliability")),
+    );
+    app.add_systems(
+        Update,
         archer_tent_reliability::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("archer-tent-reliability"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // fountain-shot-stale
     registry.tests.push(TestEntry {
         name: "fountain-shot-stale".into(),
-        description: "Fountain projectiles: detect alternating stale readback position pattern".into(),
+        description: "Fountain projectiles: detect alternating stale readback position pattern"
+            .into(),
         phase_count: 3,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        fountain_shot_stale::setup.run_if(test_is("fountain-shot-stale")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        fountain_shot_stale::setup.run_if(test_is("fountain-shot-stale")),
+    );
+    app.add_systems(
+        Update,
         fountain_shot_stale::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("fountain-shot-stale"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // friendly-fire-buildings
     registry.tests.push(TestEntry {
         name: "friendly-fire-buildings".into(),
-        description: "Single ranged shooter; same-faction building in shot lane must not take damage".into(),
+        description:
+            "Single ranged shooter; same-faction building in shot lane must not take damage".into(),
         phase_count: 4,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        friendly_fire_buildings::setup.run_if(test_is("friendly-fire-buildings")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        friendly_fire_buildings::setup.run_if(test_is("friendly-fire-buildings")),
+    );
+    app.add_systems(
+        Update,
         friendly_fire_buildings::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("friendly-fire-buildings"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // healing
     registry.tests.push(TestEntry {
@@ -571,13 +685,17 @@ pub fn register_tests(app: &mut App) {
         phase_count: 3,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        healing::setup.run_if(test_is("healing")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        healing::setup.run_if(test_is("healing")),
+    );
+    app.add_systems(
+        Update,
         healing::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("healing"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // economy
     registry.tests.push(TestEntry {
@@ -586,13 +704,17 @@ pub fn register_tests(app: &mut App) {
         phase_count: 5,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        economy::setup.run_if(test_is("economy")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        economy::setup.run_if(test_is("economy")),
+    );
+    app.add_systems(
+        Update,
         economy::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("economy"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // world-gen
     registry.tests.push(TestEntry {
@@ -601,13 +723,17 @@ pub fn register_tests(app: &mut App) {
         phase_count: 6,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        world_gen::setup.run_if(test_is("world-gen")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        world_gen::setup.run_if(test_is("world-gen")),
+    );
+    app.add_systems(
+        Update,
         world_gen::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("world-gen"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // sleep-visual
     registry.tests.push(TestEntry {
@@ -616,13 +742,16 @@ pub fn register_tests(app: &mut App) {
         phase_count: 3,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        sleep_visual::setup.run_if(test_is("sleep-visual")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        sleep_visual::setup.run_if(test_is("sleep-visual")),
+    );
+    app.add_systems(
+        Update,
         sleep_visual::tick
             .run_if(in_state(AppState::Running))
-            .run_if(test_is("sleep-visual"))
-);
+            .run_if(test_is("sleep-visual")),
+    );
 
     // farm-visual
     registry.tests.push(TestEntry {
@@ -631,13 +760,17 @@ pub fn register_tests(app: &mut App) {
         phase_count: 3,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        farm_visual::setup.run_if(test_is("farm-visual")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        farm_visual::setup.run_if(test_is("farm-visual")),
+    );
+    app.add_systems(
+        Update,
         farm_visual::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("farm-visual"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // heal-visual
     registry.tests.push(TestEntry {
@@ -646,13 +779,16 @@ pub fn register_tests(app: &mut App) {
         phase_count: 3,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        heal_visual::setup.run_if(test_is("heal-visual")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        heal_visual::setup.run_if(test_is("heal-visual")),
+    );
+    app.add_systems(
+        Update,
         heal_visual::tick
             .run_if(in_state(AppState::Running))
-            .run_if(test_is("heal-visual"))
-);
+            .run_if(test_is("heal-visual")),
+    );
 
     // npc-visuals
     registry.tests.push(TestEntry {
@@ -661,13 +797,16 @@ pub fn register_tests(app: &mut App) {
         phase_count: 1,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        npc_visuals::setup.run_if(test_is("npc-visuals")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        npc_visuals::setup.run_if(test_is("npc-visuals")),
+    );
+    app.add_systems(
+        Update,
         npc_visuals::tick
             .run_if(in_state(AppState::Running))
-            .run_if(test_is("npc-visuals"))
-);
+            .run_if(test_is("npc-visuals")),
+    );
 
     // terrain-visual
     registry.tests.push(TestEntry {
@@ -676,47 +815,63 @@ pub fn register_tests(app: &mut App) {
         phase_count: 1,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        terrain_visual::setup.run_if(test_is("terrain-visual")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        terrain_visual::setup.run_if(test_is("terrain-visual")),
+    );
+    app.add_systems(
+        Update,
         terrain_visual::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("terrain-visual"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // endless-mode
     registry.tests.push(TestEntry {
         name: "endless-mode".into(),
-        description: "Builder + raider fountain destroyed → spawn queued → migration → settle".into(),
+        description: "Builder + raider fountain destroyed → spawn queued → migration → settle"
+            .into(),
         phase_count: 16,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        endless_mode::setup.run_if(test_is("endless-mode")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        endless_mode::setup.run_if(test_is("endless-mode")),
+    );
+    app.add_systems(
+        Update,
         endless_mode::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("endless-mode"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // ai-building
     registry.tests.push(TestEntry {
         name: "ai-building".into(),
-        description: "AI town building: pick personality, watch it build with 100K food+gold".into(),
+        description: "AI town building: pick personality, watch it build with 100K food+gold"
+            .into(),
         phase_count: 2,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        ai_building::setup.run_if(test_is("ai-building")));
-    app.add_systems(EguiPrimaryContextPass,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        ai_building::setup.run_if(test_is("ai-building")),
+    );
+    app.add_systems(
+        EguiPrimaryContextPass,
         ai_building::ui
             .run_if(in_state(AppState::Running))
-            .run_if(test_is("ai-building")));
-    app.add_systems(Update,
+            .run_if(test_is("ai-building")),
+    );
+    app.add_systems(
+        Update,
         ai_building::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("ai-building"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // miner-cycle
     registry.tests.push(TestEntry {
@@ -725,13 +880,17 @@ pub fn register_tests(app: &mut App) {
         phase_count: 5,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        miner_cycle::setup.run_if(test_is("miner-cycle")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        miner_cycle::setup.run_if(test_is("miner-cycle")),
+    );
+    app.add_systems(
+        Update,
         miner_cycle::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("miner-cycle"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // slot-reuse-wave
     registry.tests.push(TestEntry {
@@ -740,13 +899,17 @@ pub fn register_tests(app: &mut App) {
         phase_count: 5,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        slot_reuse_wave::setup.run_if(test_is("slot-reuse-wave")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        slot_reuse_wave::setup.run_if(test_is("slot-reuse-wave")),
+    );
+    app.add_systems(
+        Update,
         slot_reuse_wave::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("slot-reuse-wave"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // coalesce-movement
     registry.tests.push(TestEntry {
@@ -755,13 +918,17 @@ pub fn register_tests(app: &mut App) {
         phase_count: 2,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        coalesce_safety::setup_movement.run_if(test_is("coalesce-movement")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        coalesce_safety::setup_movement.run_if(test_is("coalesce-movement")),
+    );
+    app.add_systems(
+        Update,
         coalesce_safety::tick_movement
             .run_if(in_state(AppState::Running))
             .run_if(test_is("coalesce-movement"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // coalesce-arrival
     registry.tests.push(TestEntry {
@@ -770,13 +937,17 @@ pub fn register_tests(app: &mut App) {
         phase_count: 2,
         time_scale: 1.0,
     });
-    app.add_systems(OnEnter(AppState::Running),
-        coalesce_safety::setup_arrival.run_if(test_is("coalesce-arrival")));
-    app.add_systems(Update,
+    app.add_systems(
+        OnEnter(AppState::Running),
+        coalesce_safety::setup_arrival.run_if(test_is("coalesce-arrival")),
+    );
+    app.add_systems(
+        Update,
         coalesce_safety::tick_arrival
             .run_if(in_state(AppState::Running))
             .run_if(test_is("coalesce-arrival"))
-            .after(Step::Behavior));
+            .after(Step::Behavior),
+    );
 
     // Common test-world materialization:
     // spawn ECS building entities + GPU building state from placed instances
@@ -859,7 +1030,11 @@ fn test_menu_system(
             let total = run_all.results.len();
             let passed = run_all.results.iter().filter(|(_, p)| *p).count();
             ui.separator();
-            let summary_color = if passed == total { egui::Color32::GREEN } else { egui::Color32::RED };
+            let summary_color = if passed == total {
+                egui::Color32::GREEN
+            } else {
+                egui::Color32::RED
+            };
             ui.colored_label(summary_color, format!("{}/{} passed", passed, total));
             ui.separator();
         }
@@ -871,10 +1046,18 @@ fn test_menu_system(
         for entry in &registry.tests {
             ui.horizontal(|ui| {
                 if ui.button(&entry.name).clicked() {
-                    start_test(&entry.name, entry.phase_count, entry.time_scale,
-                        &mut test_state, &mut next_state);
+                    start_test(
+                        &entry.name,
+                        entry.phase_count,
+                        entry.time_scale,
+                        &mut test_state,
+                        &mut next_state,
+                    );
                 }
-                ui.label(format!("({} phases) {}", entry.phase_count, entry.description));
+                ui.label(format!(
+                    "({} phases) {}",
+                    entry.phase_count, entry.description
+                ));
             });
         }
 
@@ -890,8 +1073,13 @@ fn test_menu_system(
                 // Start first test
                 if let Some(first) = run_all.queue.pop_front() {
                     let entry = registry.tests.iter().find(|t| t.name == first).unwrap();
-                    start_test(&first, entry.phase_count, entry.time_scale,
-                        &mut test_state, &mut next_state);
+                    start_test(
+                        &first,
+                        entry.phase_count,
+                        entry.time_scale,
+                        &mut test_state,
+                        &mut next_state,
+                    );
                 }
             }
 
@@ -916,7 +1104,10 @@ fn start_test(
     test_state.test_name = Some(name.to_string());
     test_state.phase = 1;
     test_state.total_phases = phase_count;
-    info!("Starting test: {} ({} phases, time_scale={})", name, phase_count, time_scale);
+    info!(
+        "Starting test: {} ({} phases, time_scale={})",
+        name, phase_count, time_scale
+    );
     next_state.set(AppState::Running);
 }
 
@@ -944,10 +1135,12 @@ fn test_hud_system(
         .show(ctx, |ui| {
             let name = test_state.test_name.as_deref().unwrap_or("?");
             ui.label(egui::RichText::new(name).strong().size(16.0));
-            ui.label(format!("Phase {}/{} — {:.1}s",
+            ui.label(format!(
+                "Phase {}/{} — {:.1}s",
                 test_state.phase.min(test_state.total_phases),
                 test_state.total_phases,
-                elapsed));
+                elapsed
+            ));
 
             // Phase checklist — show all phases, check off as they complete
             ui.add_space(4.0);
@@ -955,12 +1148,24 @@ fn test_hud_system(
                 let result = test_state.results.iter().find(|r| r.phase == p);
                 let (icon, color, label) = if let Some(r) = result {
                     if r.passed {
-                        ("✓", egui::Color32::GREEN, format!("Phase {} ({:.1}s): {}", p, r.elapsed, r.message))
+                        (
+                            "✓",
+                            egui::Color32::GREEN,
+                            format!("Phase {} ({:.1}s): {}", p, r.elapsed, r.message),
+                        )
                     } else {
-                        ("✗", egui::Color32::RED, format!("Phase {} ({:.1}s): {}", p, r.elapsed, r.message))
+                        (
+                            "✗",
+                            egui::Color32::RED,
+                            format!("Phase {} ({:.1}s): {}", p, r.elapsed, r.message),
+                        )
                     }
                 } else if test_state.phase == p {
-                    ("▶", egui::Color32::YELLOW, format!("Phase {}: {}", p, test_state.phase_name))
+                    (
+                        "▶",
+                        egui::Color32::YELLOW,
+                        format!("Phase {}: {}", p, test_state.phase_name),
+                    )
                 } else {
                     ("○", egui::Color32::GRAY, format!("Phase {}", p))
                 };
@@ -970,15 +1175,23 @@ fn test_hud_system(
             // Overall status
             ui.add_space(4.0);
             if test_state.passed {
-                ui.colored_label(egui::Color32::GREEN,
-                    egui::RichText::new("ALL PASSED").strong().size(14.0));
+                ui.colored_label(
+                    egui::Color32::GREEN,
+                    egui::RichText::new("ALL PASSED").strong().size(14.0),
+                );
             } else if test_state.failed {
-                ui.colored_label(egui::Color32::RED,
-                    egui::RichText::new("FAILED").strong().size(14.0));
+                ui.colored_label(
+                    egui::Color32::RED,
+                    egui::RichText::new("FAILED").strong().size(14.0),
+                );
             }
 
             ui.separator();
-            let label = if test_state.passed || test_state.failed { "Back" } else { "Cancel" };
+            let label = if test_state.passed || test_state.failed {
+                "Back"
+            } else {
+                "Cancel"
+            };
             if ui.button(label).clicked() {
                 next_state.set(AppState::TestMenu);
             }
@@ -1024,9 +1237,11 @@ fn test_completion_system(
 
     if run_all.queue.is_empty() {
         run_all.active = false;
-        info!("Run All: complete — {}/{} passed",
+        info!(
+            "Run All: complete — {}/{} passed",
             run_all.results.iter().filter(|(_, p)| *p).count(),
-            run_all.results.len());
+            run_all.results.len()
+        );
     }
 
     next_state.set(AppState::TestMenu);
@@ -1049,8 +1264,13 @@ pub fn auto_start_next_test(
     }
     if let Some(next_name) = run_all.queue.pop_front() {
         if let Some(entry) = registry.tests.iter().find(|t| t.name == next_name) {
-            start_test(&next_name, entry.phase_count, entry.time_scale,
-                &mut test_state, &mut next_state);
+            start_test(
+                &next_name,
+                entry.phase_count,
+                entry.time_scale,
+                &mut test_state,
+                &mut next_state,
+            );
         }
     } else {
         run_all.active = false;
@@ -1109,5 +1329,8 @@ fn cleanup_test_world(
     *endless_cleanup.policies = Default::default();
     *endless_cleanup.combat_log = Default::default();
 
-    info!("Test cleanup: despawned {} NPCs + {} tilemap chunks, reset resources", count, tilemap_count);
+    info!(
+        "Test cleanup: despawned {} NPCs + {} tilemap chunks, reset resources",
+        count, tilemap_count
+    );
 }

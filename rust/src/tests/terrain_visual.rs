@@ -17,14 +17,20 @@ const GRID_ROWS: usize = 5;
 // Terrain row (row 3 in grid = second from top)
 const TERRAIN_ROW: usize = 3;
 const TERRAIN_LABELS: [&str; GRID_COLS] = [
-    "Grass A", "Grass B", "Forest A", "Forest B", "Forest C",
-    "Forest D", "Forest E", "Forest F", "Water", "Rock", "Dirt",
+    "Grass A", "Grass B", "Forest A", "Forest B", "Forest C", "Forest D", "Forest E", "Forest F",
+    "Water", "Rock", "Dirt",
 ];
 
 // Building row (row 1 in grid)
 const BUILDING_ROW: usize = 1;
 const BUILDING_LABELS: [&str; 7] = [
-    "Fountain", "Bed", "Waypoint", "Farm", "FarmerHome", "ArcherHome", "Tent",
+    "Fountain",
+    "Bed",
+    "Waypoint",
+    "Farm",
+    "FarmerHome",
+    "ArcherHome",
+    "Tent",
 ];
 
 pub fn setup(
@@ -41,13 +47,18 @@ pub fn setup(
     grid.width = GRID_COLS;
     grid.height = GRID_ROWS;
     grid.cell_size = 32.0;
-    grid.cells = vec![WorldCell { terrain: Biome::Dirt }; GRID_COLS * GRID_ROWS];
+    grid.cells = vec![
+        WorldCell {
+            terrain: Biome::Dirt
+        };
+        GRID_COLS * GRID_ROWS
+    ];
 
     // Row 3: terrain showcase — each column gets a distinct biome
     for col in 0..GRID_COLS {
         let idx = TERRAIN_ROW * GRID_COLS + col;
         grid.cells[idx].terrain = match col {
-            0 => Biome::Grass,  // tileset_index uses cell_index % 2
+            0 => Biome::Grass, // tileset_index uses cell_index % 2
             1 => Biome::Grass,
             2..=7 => Biome::Forest,
             8 => Biome::Water,
@@ -69,12 +80,28 @@ pub fn setup(
     ];
     for (col, &(kind, town_idx)) in buildings.iter().enumerate() {
         let pos = grid.grid_to_world(col, BUILDING_ROW);
-        world::place_building_instance(&mut slot_alloc, &mut entity_map, kind, pos, town_idx, 0, 0, 0, &mut uid_alloc, None);
+        world::place_building_instance(
+            &mut slot_alloc,
+            &mut entity_map,
+            kind,
+            pos,
+            town_idx,
+            0,
+            0,
+            0,
+            &mut uid_alloc,
+            None,
+        );
     }
 
     test.phase_name = "Waiting for tilemap...".into();
-    info!("terrain-visual: setup — {}x{} grid, {} terrain biomes, {} buildings",
-        GRID_COLS, GRID_ROWS, GRID_COLS, buildings.len());
+    info!(
+        "terrain-visual: setup — {}x{} grid, {} terrain biomes, {} buildings",
+        GRID_COLS,
+        GRID_ROWS,
+        GRID_COLS,
+        buildings.len()
+    );
 }
 
 pub fn tick(
@@ -88,7 +115,9 @@ pub fn tick(
     windows: Query<&Window>,
     mut positioned: Local<bool>,
 ) {
-    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
+    let Some(elapsed) = test.tick_elapsed(&time) else {
+        return;
+    };
 
     // Phase 1: wait for tilemap to spawn
     if test.phase == 1 && !*positioned {
@@ -112,15 +141,22 @@ pub fn tick(
         }
 
         *positioned = true;
-        test.pass_phase(elapsed, format!("Tilemap spawned, {}x{} grid", grid.width, grid.height));
+        test.pass_phase(
+            elapsed,
+            format!("Tilemap spawned, {}x{} grid", grid.width, grid.height),
+        );
         return;
     }
 
     // Egui overlay: labels for terrain and building tiles
     let Ok(ctx) = contexts.ctx_mut() else { return };
     let Ok(window) = windows.single() else { return };
-    let Ok((cam_transform, cam_projection)) = camera_query.single() else { return };
-    let Projection::Orthographic(ref ortho) = *cam_projection else { return };
+    let Ok((cam_transform, cam_projection)) = camera_query.single() else {
+        return;
+    };
+    let Projection::Orthographic(ref ortho) = *cam_projection else {
+        return;
+    };
 
     let zoom = 1.0 / ortho.scale;
     let cam_pos = cam_transform.translation.truncate();
@@ -128,10 +164,7 @@ pub fn tick(
 
     let world_to_screen = |world_pos: Vec2| -> egui::Pos2 {
         let offset = (world_pos - cam_pos) * zoom;
-        egui::Pos2::new(
-            offset.x + viewport.x / 2.0,
-            viewport.y / 2.0 - offset.y,
-        )
+        egui::Pos2::new(offset.x + viewport.x / 2.0, viewport.y / 2.0 - offset.y)
     };
 
     let cell_center = |col: usize, row: usize| -> Vec2 {
@@ -150,7 +183,12 @@ pub fn tick(
             .pivot(egui::Align2::CENTER_BOTTOM)
             .interactable(false)
             .show(ctx, |ui| {
-                ui.label(egui::RichText::new(TERRAIN_LABELS[col]).strong().size(11.0).color(egui::Color32::WHITE));
+                ui.label(
+                    egui::RichText::new(TERRAIN_LABELS[col])
+                        .strong()
+                        .size(11.0)
+                        .color(egui::Color32::WHITE),
+                );
             });
     }
 
@@ -162,7 +200,12 @@ pub fn tick(
         .pivot(egui::Align2::CENTER_CENTER)
         .interactable(false)
         .show(ctx, |ui| {
-            ui.label(egui::RichText::new("Terrain").strong().size(14.0).color(egui::Color32::from_rgb(102, 255, 102)));
+            ui.label(
+                egui::RichText::new("Terrain")
+                    .strong()
+                    .size(14.0)
+                    .color(egui::Color32::from_rgb(102, 255, 102)),
+            );
         });
 
     // Building labels (below building row)
@@ -174,7 +217,12 @@ pub fn tick(
             .pivot(egui::Align2::CENTER_TOP)
             .interactable(false)
             .show(ctx, |ui| {
-                ui.label(egui::RichText::new(BUILDING_LABELS[col]).strong().size(11.0).color(egui::Color32::WHITE));
+                ui.label(
+                    egui::RichText::new(BUILDING_LABELS[col])
+                        .strong()
+                        .size(11.0)
+                        .color(egui::Color32::WHITE),
+                );
             });
     }
 
@@ -186,7 +234,12 @@ pub fn tick(
         .pivot(egui::Align2::CENTER_CENTER)
         .interactable(false)
         .show(ctx, |ui| {
-            ui.label(egui::RichText::new("Buildings").strong().size(14.0).color(egui::Color32::from_rgb(255, 204, 102)));
+            ui.label(
+                egui::RichText::new("Buildings")
+                    .strong()
+                    .size(14.0)
+                    .color(egui::Color32::from_rgb(255, 204, 102)),
+            );
         });
 
     // Atlas coordinate labels under each terrain tile
@@ -205,8 +258,11 @@ pub fn tick(
             .pivot(egui::Align2::CENTER_TOP)
             .interactable(false)
             .show(ctx, |ui| {
-                ui.label(egui::RichText::new(label)
-                    .size(9.0).color(egui::Color32::GRAY));
+                ui.label(
+                    egui::RichText::new(label)
+                        .size(9.0)
+                        .color(egui::Color32::GRAY),
+                );
             });
     }
 
@@ -228,8 +284,11 @@ pub fn tick(
                 .pivot(egui::Align2::CENTER_BOTTOM)
                 .interactable(false)
                 .show(ctx, |ui| {
-                    ui.label(egui::RichText::new(label)
-                        .size(9.0).color(egui::Color32::GRAY));
+                    ui.label(
+                        egui::RichText::new(label)
+                            .size(9.0)
+                            .color(egui::Color32::GRAY),
+                    );
                 });
         }
     }

@@ -2,11 +2,11 @@
 //! Validates: GPU-authoritative buffers (positions, arrivals) are not corrupted
 //! by coalesced uploads when unrelated slots get SetPosition/SetTarget events.
 
-use bevy::prelude::*;
 use crate::components::*;
 use crate::resources::*;
+use bevy::prelude::*;
 
-use super::{TestState, TestSetupParams};
+use super::{TestSetupParams, TestState};
 
 // --- movement-coalesce: SetPosition on one NPC must not teleport another ---
 
@@ -41,20 +41,28 @@ pub fn tick_movement(
     mut test: ResMut<TestState>,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
 ) {
-    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
+    let Some(elapsed) = test.tick_elapsed(&time) else {
+        return;
+    };
 
     match test.phase {
         // Phase 1: Wait for 2 farmers to move away from spawn
         1 => {
-            if slots.alive() < 2 { return; }
+            if slots.alive() < 2 {
+                return;
+            }
             let positions = &gpu_read.positions;
             let mut moved = 0;
             for npc in entity_map.iter_npcs() {
-                if npc.dead { continue; }
+                if npc.dead {
+                    continue;
+                }
                 let i = npc.slot;
                 if i * 2 + 1 < positions.len() {
                     let y = positions[i * 2 + 1];
-                    if y > 0.0 && y < HOME_Y - 30.0 { moved += 1; }
+                    if y > 0.0 && y < HOME_Y - 30.0 {
+                        moved += 1;
+                    }
                 }
             }
             test.phase_name = format!("moved={moved}/2 alive={}", slots.alive());
@@ -68,31 +76,48 @@ pub fn tick_movement(
         // Phase 2: Inject SetPosition on unused slot, check no snap-back
         2 => {
             if !test.get_flag("injected") {
-                gpu_updates.write(crate::messages::GpuUpdateMsg(crate::messages::GpuUpdate::SetPosition {
-                    idx: 9999, x: 100.0, y: 100.0,
-                }));
+                gpu_updates.write(crate::messages::GpuUpdateMsg(
+                    crate::messages::GpuUpdate::SetPosition {
+                        idx: 9999,
+                        x: 100.0,
+                        y: 100.0,
+                    },
+                ));
                 test.set_flag("injected", true);
                 test.phase_name = "Injected SetPosition, monitoring...".into();
                 return;
             }
-            if elapsed < 0.5 { return; }
+            if elapsed < 0.5 {
+                return;
+            }
 
             let positions = &gpu_read.positions;
             let mut snapped = false;
             let mut detail = String::new();
             for npc in entity_map.iter_npcs() {
-                if npc.dead { continue; }
+                if npc.dead {
+                    continue;
+                }
                 let i = npc.slot;
-                if i * 2 + 1 >= positions.len() { continue; }
+                if i * 2 + 1 >= positions.len() {
+                    continue;
+                }
                 let y = positions[i * 2 + 1];
                 if (y - HOME_Y).abs() < 5.0 {
                     snapped = true;
                     detail = format!("slot {} snapped to y={:.0} (spawn={HOME_Y})", npc.slot, y);
                 }
             }
-            test.phase_name = if snapped { detail.clone() } else { "No teleport".into() };
+            test.phase_name = if snapped {
+                detail.clone()
+            } else {
+                "No teleport".into()
+            };
             if !snapped {
-                test.pass_phase(elapsed, format!("positions stable after foreign SetPosition"));
+                test.pass_phase(
+                    elapsed,
+                    format!("positions stable after foreign SetPosition"),
+                );
                 test.complete(elapsed);
             } else {
                 test.fail_phase(elapsed, detail);
@@ -128,19 +153,26 @@ pub fn tick_arrival(
     npc_flags_q: Query<&NpcFlags>,
     activity_q: Query<&Activity>,
 ) {
-    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
+    let Some(elapsed) = test.tick_elapsed(&time) else {
+        return;
+    };
 
     match test.phase {
         // Phase 1: Wait for at least one archer to arrive
         1 => {
-            if slots.alive() < 2 { return; }
-            let arrived = entity_map.iter_npcs().filter(|n| {
-                !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| f.at_destination)
-            }).count();
+            if slots.alive() < 2 {
+                return;
+            }
+            let arrived = entity_map
+                .iter_npcs()
+                .filter(|n| !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| f.at_destination))
+                .count();
             test.phase_name = format!("arrived={arrived}/2 alive={}", slots.alive());
             if arrived >= 1 {
                 for npc in entity_map.iter_npcs() {
-                    if npc.dead { continue; }
+                    if npc.dead {
+                        continue;
+                    }
                     if npc_flags_q.get(npc.entity).is_ok_and(|f| f.at_destination) {
                         test.counters.insert("arrived_slot".into(), npc.slot as u32);
                         break;
@@ -160,7 +192,10 @@ pub fn tick_arrival(
                 let still_arrived = npc_flags_q.get(npc.entity).is_ok_and(|f| f.at_destination);
                 let activity = activity_q.get(npc.entity).ok();
                 let is_stable = still_arrived || activity.is_some_and(|a| !a.is_transit());
-                test.phase_name = format!("slot {arrived_slot} arrived={still_arrived} act={:?}", activity);
+                test.phase_name = format!(
+                    "slot {arrived_slot} arrived={still_arrived} act={:?}",
+                    activity
+                );
                 if elapsed > 2.0 {
                     if is_stable {
                         test.pass_phase(elapsed, format!("slot {arrived_slot} stable"));

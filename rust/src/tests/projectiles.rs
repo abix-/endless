@@ -37,10 +37,15 @@ pub fn setup(
     let slot0 = slot_alloc.alloc().expect("slot alloc");
     spawn_events.write(SpawnNpcMsg {
         slot_idx: slot0,
-        x: 400.0, y: 350.0,
-        job: 3, faction: 0, town_idx: 0, // Fighter
-        home_x: 400.0, home_y: 400.0,
-        work_x: -1.0, work_y: -1.0,
+        x: 400.0,
+        y: 350.0,
+        job: 3,
+        faction: 0,
+        town_idx: 0, // Fighter
+        home_x: 400.0,
+        home_y: 400.0,
+        work_x: -1.0,
+        work_y: -1.0,
         starting_post: -1,
         attack_type: 1, // ranged
         uid_override: None,
@@ -48,10 +53,15 @@ pub fn setup(
     let slot1 = slot_alloc.alloc().expect("slot alloc");
     spawn_events.write(SpawnNpcMsg {
         slot_idx: slot1,
-        x: 400.0, y: 250.0,
-        job: 3, faction: 1, town_idx: 1, // Fighter
-        home_x: 400.0, home_y: 200.0,
-        work_x: -1.0, work_y: -1.0,
+        x: 400.0,
+        y: 250.0,
+        job: 3,
+        faction: 1,
+        town_idx: 1, // Fighter
+        home_x: 400.0,
+        home_y: 200.0,
+        work_x: -1.0,
+        work_y: -1.0,
         starting_post: -1,
         attack_type: 1, // ranged
         uid_override: None,
@@ -73,7 +83,9 @@ pub fn tick(
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
-    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
+    let Some(elapsed) = test.tick_elapsed(&time) else {
+        return;
+    };
 
     let alive = entity_map.iter_npcs().filter(|n| !n.dead).count();
 
@@ -82,7 +94,10 @@ pub fn tick(
         1 => {
             test.phase_name = format!("targets={} alive={}", combat_debug.targets_found, alive);
             if combat_debug.targets_found > 0 {
-                test.pass_phase(elapsed, format!("targets_found={}", combat_debug.targets_found));
+                test.pass_phase(
+                    elapsed,
+                    format!("targets_found={}", combat_debug.targets_found),
+                );
             } else if elapsed > 10.0 {
                 test.fail_phase(elapsed, format!("targets_found=0 alive={}", alive));
             }
@@ -90,9 +105,18 @@ pub fn tick(
         // Phase 2: Projectile spawned (proj allocator advanced)
         2 => {
             let proj_count = proj_alloc.next;
-            test.phase_name = format!("proj_next={} attacks={}", proj_count, combat_debug.attacks_made);
+            test.phase_name = format!(
+                "proj_next={} attacks={}",
+                proj_count, combat_debug.attacks_made
+            );
             if proj_count > 0 || combat_debug.attacks_made > 0 {
-                test.pass_phase(elapsed, format!("proj_next={} attacks={}", proj_count, combat_debug.attacks_made));
+                test.pass_phase(
+                    elapsed,
+                    format!(
+                        "proj_next={} attacks={}",
+                        proj_count, combat_debug.attacks_made
+                    ),
+                );
             } else if elapsed > 20.0 {
                 test.fail_phase(elapsed, format!("proj_next=0 attacks=0"));
             }

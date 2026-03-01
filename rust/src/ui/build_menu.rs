@@ -1,22 +1,21 @@
 //! Build bar - bottom-center horizontal bar for building placement + destroy mode.
 
-use std::collections::HashMap;
-use bevy::prelude::*;
 use bevy::image::Image;
+use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiTextureHandle, egui};
+use std::collections::HashMap;
 
 use crate::constants::{BUILDING_REGISTRY, TileSpec};
 use crate::render::SpriteAssets;
 use crate::resources::*;
 use crate::settings::UserSettings;
-use crate::world::{self, BuildingKind, SPRITE_SIZE, CELL};
-
+use crate::world::{self, BuildingKind, CELL, SPRITE_SIZE};
 
 /// Extract a single 32x32 image from the world atlas for a Quad tile spec.
 fn extract_quad_tile(atlas: &Image, quad: [(u32, u32); 4]) -> Image {
     let sprite = SPRITE_SIZE as u32; // 16
-    let out_size = sprite * 2;       // 32
-    let cell_size = CELL as u32;     // 17
+    let out_size = sprite * 2; // 32
+    let cell_size = CELL as u32; // 17
     let atlas_width = atlas.width();
     let atlas_data = atlas.data.as_ref().expect("atlas image has no data");
 
@@ -36,10 +35,10 @@ fn extract_quad_tile(atlas: &Image, quad: [(u32, u32); 4]) -> Image {
         }
     };
 
-    blit(&mut data, quad[0].0, quad[0].1, 0, 0);           // TL
-    blit(&mut data, quad[1].0, quad[1].1, sprite, 0);       // TR
-    blit(&mut data, quad[2].0, quad[2].1, 0, sprite);       // BL
-    blit(&mut data, quad[3].0, quad[3].1, sprite, sprite);  // BR
+    blit(&mut data, quad[0].0, quad[0].1, 0, 0); // TL
+    blit(&mut data, quad[1].0, quad[1].1, sprite, 0); // TR
+    blit(&mut data, quad[2].0, quad[2].1, 0, sprite); // BL
+    blit(&mut data, quad[3].0, quad[3].1, sprite, sprite); // BR
 
     Image::new(
         bevy::render::render_resource::Extent3d {
@@ -67,7 +66,9 @@ fn external_handle<'a>(path: &str, sprites: &'a SpriteAssets) -> Option<&'a Hand
     let mut idx = 0;
     for def in BUILDING_REGISTRY {
         if let TileSpec::External(p) = def.tile {
-            if p == path { return sprites.external_textures.get(idx); }
+            if p == path {
+                return sprites.external_textures.get(idx);
+            }
             idx += 1;
         }
     }
@@ -82,18 +83,29 @@ fn init_sprite_cache(
     images: &mut Assets<Image>,
     build_ctx: &mut BuildMenuContext,
 ) {
-    if cache.initialized { return; }
+    if cache.initialized {
+        return;
+    }
 
-    let Some(atlas) = images.get(&sprites.world_texture).cloned() else { return };
+    let Some(atlas) = images.get(&sprites.world_texture).cloned() else {
+        return;
+    };
     // Ensure all external textures are loaded
     for def in BUILDING_REGISTRY {
         if let TileSpec::External(path) = def.tile {
-            if external_handle(path, sprites).and_then(|h| images.get(h)).is_none() { return; }
+            if external_handle(path, sprites)
+                .and_then(|h| images.get(h))
+                .is_none()
+            {
+                return;
+            }
         }
     }
 
     for def in BUILDING_REGISTRY {
-        if !def.player_buildable && !def.raider_buildable { continue; }
+        if !def.player_buildable && !def.raider_buildable {
+            continue;
+        }
 
         let handle = match def.tile {
             TileSpec::External(path) => {
@@ -103,7 +115,11 @@ fn init_sprite_cache(
                     if let Some(ext_img) = images.get(ext_h) {
                         let sprite = crate::world::extract_sprite_32(ext_img, 0);
                         let img = Image::new(
-                            bevy::render::render_resource::Extent3d { width: 32, height: 32, depth_or_array_layers: 1 },
+                            bevy::render::render_resource::Extent3d {
+                                width: 32,
+                                height: 32,
+                                depth_or_array_layers: 1,
+                            },
                             bevy::render::render_resource::TextureDimension::D2,
                             sprite,
                             bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
@@ -126,7 +142,8 @@ fn init_sprite_cache(
                 h
             }
             TileSpec::Single(col, row) => {
-                let img = extract_quad_tile(&atlas, [(col, row), (col, row), (col, row), (col, row)]);
+                let img =
+                    extract_quad_tile(&atlas, [(col, row), (col, row), (col, row), (col, row)]);
                 let h = images.add(img);
                 cache._handles.push(h.clone());
                 h
@@ -154,12 +171,22 @@ pub(crate) fn build_menu_system(
     mut cache: Local<BuildSpriteCache>,
 ) -> Result {
     // Initialize sprite cache (one-time, before borrowing egui context)
-    init_sprite_cache(&mut cache, &mut contexts, &sprites, &mut images, &mut build_ctx);
+    init_sprite_cache(
+        &mut cache,
+        &mut contexts,
+        &sprites,
+        &mut images,
+        &mut build_ctx,
+    );
 
     let ctx = contexts.ctx_mut()?;
 
     // Bottom-center Build toggle button (always visible)
-    let btn_offset = if ui_state.build_menu_open { -100.0 } else { 0.0 };
+    let btn_offset = if ui_state.build_menu_open {
+        -100.0
+    } else {
+        0.0
+    };
     egui::Area::new(egui::Id::new("build_toggle_btn"))
         .anchor(egui::Align2::CENTER_BOTTOM, [0.0, btn_offset])
         .show(ctx, |ui| {
@@ -176,7 +203,9 @@ pub(crate) fn build_menu_system(
             }
         });
 
-    if !ui_state.build_menu_open { return Ok(()); }
+    if !ui_state.build_menu_open {
+        return Ok(());
+    }
 
     if build_ctx.town_data_idx.is_none() {
         build_ctx.town_data_idx = world_data.towns.iter().position(|t| t.faction == 0);
@@ -211,8 +240,14 @@ pub(crate) fn build_menu_system(
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 for def in BUILDING_REGISTRY {
-                    let show = if is_raider { def.raider_buildable } else { def.player_buildable };
-                    if !show { continue; }
+                    let show = if is_raider {
+                        def.raider_buildable
+                    } else {
+                        def.player_buildable
+                    };
+                    if !show {
+                        continue;
+                    }
 
                     let cost = def.cost;
                     let can_afford = food >= cost;
@@ -228,7 +263,13 @@ pub(crate) fn build_menu_system(
                             } else {
                                 egui::Color32::WHITE
                             };
-                            ui.add(egui::Image::new(egui::load::SizedTexture::new(tex_id, [48.0, 48.0])).tint(tint));
+                            ui.add(
+                                egui::Image::new(egui::load::SizedTexture::new(
+                                    tex_id,
+                                    [48.0, 48.0],
+                                ))
+                                .tint(tint),
+                            );
                         }
 
                         // Label + cost
@@ -281,7 +322,12 @@ pub(crate) fn build_menu_system(
                         } else {
                             egui::Color32::from_rgb(200, 100, 100)
                         };
-                        ui.label(egui::RichText::new("X").color(icon_color).size(24.0).strong());
+                        ui.label(
+                            egui::RichText::new("X")
+                                .color(icon_color)
+                                .size(24.0)
+                                .strong(),
+                        );
                         let label_color = if destroy_selected {
                             egui::Color32::from_rgb(220, 80, 80)
                         } else {
@@ -294,7 +340,14 @@ pub(crate) fn build_menu_system(
                         );
                     },
                 );
-                if ui.interact(destroy_resp.response.rect, egui::Id::new("destroy_btn"), egui::Sense::click()).clicked() {
+                if ui
+                    .interact(
+                        destroy_resp.response.rect,
+                        egui::Id::new("destroy_btn"),
+                        egui::Sense::click(),
+                    )
+                    .clicked()
+                {
                     if destroy_selected {
                         build_ctx.destroy_mode = false;
                         build_ctx.clear_drag();
@@ -324,12 +377,18 @@ pub(crate) fn build_menu_system(
                     .interactable(false)
                     .show(ctx, |ui| {
                         if build_ctx.destroy_mode {
-                            ui.label(egui::RichText::new("X").size(32.0)
-                                .color(egui::Color32::from_rgb(220, 50, 50)));
+                            ui.label(
+                                egui::RichText::new("X")
+                                    .size(32.0)
+                                    .color(egui::Color32::from_rgb(220, 50, 50)),
+                            );
                         } else if let Some(selected) = build_ctx.selected_build {
                             if let Some(&tex_id) = cache.textures.get(&selected) {
-                                let img = egui::Image::new(egui::load::SizedTexture::new(tex_id, [48.0, 48.0]))
-                                    .tint(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 180));
+                                let img = egui::Image::new(egui::load::SizedTexture::new(
+                                    tex_id,
+                                    [48.0, 48.0],
+                                ))
+                                .tint(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 180));
                                 ui.add(img);
                             }
                         }

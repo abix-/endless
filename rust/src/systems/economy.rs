@@ -6,16 +6,18 @@ use rand::Rng;
 use std::collections::{HashMap, HashSet};
 
 use crate::components::*;
+use crate::constants::UpgradeStatKind;
+use crate::constants::{
+    ATLAS_BOAT, BOAT_SPEED, ENDLESS_RESPAWN_DELAY_HOURS, FARM_BASE_GROWTH_RATE,
+    FARM_TENDED_GROWTH_RATE, MIGRATION_BASE_SIZE, RAIDER_FORAGE_RATE, RAIDER_SETTLE_RADIUS,
+    SPAWNER_RESPAWN_HOURS, STARVING_HP_CAP, STARVING_SPEED_MULT, TOWN_GRID_SPACING,
+};
+use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg, SpawnNpcMsg};
 use crate::resources::*;
 use crate::systemparams::{EconomyState, WorldState};
-use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, RAIDER_FORAGE_RATE, STARVING_SPEED_MULT, STARVING_HP_CAP, SPAWNER_RESPAWN_HOURS,
-    RAIDER_SETTLE_RADIUS, MIGRATION_BASE_SIZE, BOAT_SPEED, ATLAS_BOAT, ENDLESS_RESPAWN_DELAY_HOURS, TOWN_GRID_SPACING,
-};
-use crate::world::{self, WorldData, BuildingKind, TownGrids, Biome};
-use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg, CombatLogMsg};
+use crate::systems::ai_player::{AiKind, AiPersonality, AiPlayer, AiPlayerState};
 use crate::systems::stats::{TownUpgrades, UPGRADES};
-use crate::constants::UpgradeStatKind;
-use crate::systems::ai_player::{AiPlayer, AiPlayerState, AiKind, AiPersonality};
+use crate::world::{self, Biome, BuildingKind, TownGrids, WorldData};
 
 // ============================================================================
 // POPULATION TRACKING HELPERS
@@ -61,10 +63,7 @@ pub fn pop_inc_dead(stats: &mut PopulationStats, job: Job, clan: i32) {
 
 /// Advances game time based on delta and time_scale.
 /// Sets hour_ticked = true when the hour changes (for hourly systems).
-pub fn game_time_system(
-    time: Res<Time>,
-    mut game_time: ResMut<GameTime>,
-) {
+pub fn game_time_system(time: Res<Time>, mut game_time: ResMut<GameTime>) {
     // Reset tick flag each frame
     game_time.hour_ticked = false;
 
@@ -96,7 +95,9 @@ pub fn growth_system(
     mut entity_map: ResMut<EntityMap>,
     upgrades: Res<TownUpgrades>,
 ) {
-    if game_time.is_paused() { return; }
+    if game_time.is_paused() {
+        return;
+    }
 
     let hours_elapsed = game_time.delta(&time) / game_time.seconds_per_hour;
 
@@ -109,12 +110,21 @@ pub fn growth_system(
     }
 
     for inst in entity_map.iter_instances_mut() {
-        if inst.position.x < -9000.0 || inst.growth_ready { continue; }
+        if inst.position.x < -9000.0 || inst.growth_ready {
+            continue;
+        }
         match inst.kind {
             BuildingKind::Farm => {
                 let is_tended = inst.occupants >= 1;
-                let base_rate = if is_tended { FARM_TENDED_GROWTH_RATE } else { FARM_BASE_GROWTH_RATE };
-                let mult = farm_mults.get(inst.town_idx as usize).copied().unwrap_or(1.0);
+                let base_rate = if is_tended {
+                    FARM_TENDED_GROWTH_RATE
+                } else {
+                    FARM_BASE_GROWTH_RATE
+                };
+                let mult = farm_mults
+                    .get(inst.town_idx as usize)
+                    .copied()
+                    .unwrap_or(1.0);
                 let growth_rate = base_rate * mult;
                 if growth_rate > 0.0 {
                     inst.growth_progress += growth_rate * hours_elapsed;
@@ -127,8 +137,11 @@ pub fn growth_system(
             BuildingKind::GoldMine => {
                 let worker_count = inst.occupants as i32;
                 let growth_rate = if worker_count > 0 {
-                    crate::constants::MINE_TENDED_GROWTH_RATE * crate::constants::mine_productivity_mult(worker_count)
-                } else { 0.0 };
+                    crate::constants::MINE_TENDED_GROWTH_RATE
+                        * crate::constants::mine_productivity_mult(worker_count)
+                } else {
+                    0.0
+                };
                 if growth_rate > 0.0 {
                     inst.growth_progress += growth_rate * hours_elapsed;
                     if inst.growth_progress >= 1.0 {
@@ -176,7 +189,10 @@ pub fn raider_forage_system(
 pub fn starvation_system(
     game_time: Res<GameTime>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
-    mut q: Query<(&GpuSlot, &Energy, &CachedStats, &mut NpcFlags, &mut Health), (Without<Building>, Without<Dead>)>,
+    mut q: Query<
+        (&GpuSlot, &Energy, &CachedStats, &mut NpcFlags, &mut Health),
+        (Without<Building>, Without<Dead>),
+    >,
 ) {
     if !game_time.hour_ticked {
         return;
@@ -186,17 +202,26 @@ pub fn starvation_system(
         if energy.0 <= 0.0 {
             if !flags.starving {
                 flags.starving = true;
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: slot.0, speed: cached.speed * STARVING_SPEED_MULT }));
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed {
+                    idx: slot.0,
+                    speed: cached.speed * STARVING_SPEED_MULT,
+                }));
             }
             // Always clamp HP for starving NPCs (handles transition + save/load edge cases)
             let hp_cap = cached.max_health * STARVING_HP_CAP;
             if health.0 > hp_cap {
                 health.0 = hp_cap;
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot.0, health: health.0 }));
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth {
+                    idx: slot.0,
+                    health: health.0,
+                }));
             }
         } else if flags.starving {
             flags.starving = false;
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: slot.0, speed: cached.speed }));
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed {
+                idx: slot.0,
+                speed: cached.speed,
+            }));
         }
     }
 }
@@ -216,12 +241,16 @@ pub fn farm_visual_system(
 ) {
     // Cadence: only check every 4th frame (crop state changes slowly)
     *frame_count = frame_count.wrapping_add(1);
-    if *frame_count % 4 != 0 { return; }
+    if *frame_count % 4 != 0 {
+        return;
+    }
 
     for inst in entity_map.iter_kind(BuildingKind::Farm) {
         let was_ready = prev_ready.get(&inst.slot).copied().unwrap_or(false);
         if inst.growth_ready && !was_ready {
-            commands.spawn(FarmReadyMarker { farm_slot: inst.slot });
+            commands.spawn(FarmReadyMarker {
+                farm_slot: inst.slot,
+            });
         } else if !inst.growth_ready && was_ready {
             for (entity, marker) in markers.iter() {
                 if marker.farm_slot == inst.slot {
@@ -255,17 +284,21 @@ pub fn spawner_respawn_system(
     }
 
     // Collect spawner slots to avoid borrow conflict (need &mut for npc_uid/respawn_timer, & for resolve)
-    let spawner_slots: Vec<usize> = entity_map.iter_instances()
+    let spawner_slots: Vec<usize> = entity_map
+        .iter_instances()
         .filter(|i| i.respawn_timer > -2.0)
         .map(|i| i.slot)
         .collect();
 
     for bld_slot in spawner_slots {
-        let Some(inst) = entity_map.get_instance(bld_slot) else { continue };
+        let Some(inst) = entity_map.get_instance(bld_slot) else {
+            continue;
+        };
 
         // Check if linked NPC died (UID no longer maps to a live slot)
         if let Some(npc_uid) = inst.npc_uid {
-            let npc_alive = entity_map.slot_for_uid(npc_uid)
+            let npc_alive = entity_map
+                .slot_for_uid(npc_uid)
                 .map(|s| entity_map.entities.contains_key(&s))
                 .unwrap_or(false);
             if !npc_alive {
@@ -274,11 +307,15 @@ pub fn spawner_respawn_system(
                     inst_mut.npc_uid = None;
                     inst_mut.respawn_timer = SPAWNER_RESPAWN_HOURS;
                 }
-                if is_miner_home { dirty_writers.mining.write(crate::messages::MiningDirtyMsg); }
+                if is_miner_home {
+                    dirty_writers.mining.write(crate::messages::MiningDirtyMsg);
+                }
             }
         }
 
-        let Some(inst) = entity_map.get_instance(bld_slot) else { continue };
+        let Some(inst) = entity_map.get_instance(bld_slot) else {
+            continue;
+        };
         // Count down respawn timer (>= 0.0 catches newly-built spawners at 0.0)
         if inst.respawn_timer >= 0.0 {
             let new_timer = inst.respawn_timer - 1.0;
@@ -288,30 +325,58 @@ pub fn spawner_respawn_system(
             if new_timer <= 0.0 {
                 // Spawn replacement NPC
                 let Some(slot) = slots.alloc() else { continue };
-                let Some(inst) = entity_map.get_instance(bld_slot) else { continue };
+                let Some(inst) = entity_map.get_instance(bld_slot) else {
+                    continue;
+                };
                 let town_data_idx = inst.town_idx as usize;
 
-                let (job, faction, work_x, work_y, starting_post, attack_type, job_name, building_name, _work_slot) =
-                    world::resolve_spawner_npc(inst, &world_data.towns, &entity_map);
+                let (
+                    job,
+                    faction,
+                    work_x,
+                    work_y,
+                    starting_post,
+                    attack_type,
+                    job_name,
+                    building_name,
+                    _work_slot,
+                ) = world::resolve_spawner_npc(inst, &world_data.towns, &entity_map);
 
                 let pos = inst.position;
                 let is_miner_home = inst.kind == BuildingKind::MinerHome;
                 let npc_uid = uid_alloc.next();
                 spawn_writer.write(SpawnNpcMsg {
                     slot_idx: slot,
-                    x: pos.x, y: pos.y,
-                    job, faction, town_idx: town_data_idx as i32,
-                    home_x: pos.x, home_y: pos.y,
-                    work_x, work_y, starting_post, attack_type,
+                    x: pos.x,
+                    y: pos.y,
+                    job,
+                    faction,
+                    town_idx: town_data_idx as i32,
+                    home_x: pos.x,
+                    home_y: pos.y,
+                    work_x,
+                    work_y,
+                    starting_post,
+                    attack_type,
                     uid_override: Some(npc_uid),
                 });
                 if let Some(inst_mut) = entity_map.get_instance_mut(bld_slot) {
                     inst_mut.npc_uid = Some(npc_uid);
                     inst_mut.respawn_timer = -1.0;
                 }
-                if is_miner_home { dirty_writers.mining.write(crate::messages::MiningDirtyMsg); }
+                if is_miner_home {
+                    dirty_writers.mining.write(crate::messages::MiningDirtyMsg);
+                }
 
-                combat_log.write(CombatLogMsg { kind: CombatEventKind::Spawn, faction, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{} respawned from {}", job_name, building_name), location: None });
+                combat_log.write(CombatLogMsg {
+                    kind: CombatEventKind::Spawn,
+                    faction,
+                    day: game_time.day(),
+                    hour: game_time.hour(),
+                    minute: game_time.minute(),
+                    message: format!("{} respawned from {}", job_name, building_name),
+                    location: None,
+                });
             }
         }
     }
@@ -325,10 +390,14 @@ pub fn mining_policy_system(
     mut mining: ResMut<MiningPolicy>,
     mut mining_dirty: MessageReader<crate::messages::MiningDirtyMsg>,
 ) {
-    if mining_dirty.read().count() == 0 { return; }
+    if mining_dirty.read().count() == 0 {
+        return;
+    }
 
     // Mine discovery: iterate EntityMap gold mines, keyed by slot
-    mining.discovered_mines.resize(world_data.towns.len(), Vec::new());
+    mining
+        .discovered_mines
+        .resize(world_data.towns.len(), Vec::new());
 
     for town_idx in 0..world_data.towns.len() {
         let town = &world_data.towns[town_idx];
@@ -336,7 +405,8 @@ pub fn mining_policy_system(
             mining.discovered_mines[town_idx].clear();
             continue;
         }
-        let radius = policies.policies
+        let radius = policies
+            .policies
             .get(town_idx)
             .map(|p| p.mining_radius)
             .unwrap_or(crate::constants::DEFAULT_MINING_RADIUS);
@@ -354,7 +424,9 @@ pub fn mining_policy_system(
     }
 
     for town_idx in 0..world_data.towns.len() {
-        if world_data.towns[town_idx].faction < 0 { continue; }
+        if world_data.towns[town_idx].faction < 0 {
+            continue;
+        }
 
         let enabled_slots: Vec<usize> = mining.discovered_mines[town_idx]
             .iter()
@@ -362,26 +434,45 @@ pub fn mining_policy_system(
             .filter(|&slot| *mining.mine_enabled.get(&slot).unwrap_or(&true))
             .collect();
 
-        let enabled_positions: Vec<Vec2> = enabled_slots.iter()
+        let enabled_positions: Vec<Vec2> = enabled_slots
+            .iter()
             .filter_map(|&slot| entity_map.get_instance(slot).map(|i| i.position))
             .collect();
-        let enabled_grid_cells: std::collections::HashSet<(i32,i32)> = enabled_positions.iter()
-            .map(|p| ((p.x / TOWN_GRID_SPACING).floor() as i32, (p.y / TOWN_GRID_SPACING).floor() as i32))
+        let enabled_grid_cells: std::collections::HashSet<(i32, i32)> = enabled_positions
+            .iter()
+            .map(|p| {
+                (
+                    (p.x / TOWN_GRID_SPACING).floor() as i32,
+                    (p.y / TOWN_GRID_SPACING).floor() as i32,
+                )
+            })
             .collect();
 
         // Collect auto-assign miner home slots (O(town's miner homes) instead of O(all spawners))
         let auto_home_slots: Vec<usize> = entity_map
             .iter_kind_for_town(BuildingKind::MinerHome, town_idx as u32)
-            .filter(|inst| !inst.manual_mine && inst.npc_uid.is_some()
-                && inst.npc_uid.and_then(|uid| entity_map.slot_for_uid(uid)).map(|s| entity_map.entities.contains_key(&s)).unwrap_or(false))
+            .filter(|inst| {
+                !inst.manual_mine
+                    && inst.npc_uid.is_some()
+                    && inst
+                        .npc_uid
+                        .and_then(|uid| entity_map.slot_for_uid(uid))
+                        .map(|s| entity_map.entities.contains_key(&s))
+                        .unwrap_or(false)
+            })
             .map(|inst| inst.slot)
             .collect();
 
         // Clear stale assignments (mine disabled or no longer discovered)
         for &slot in &auto_home_slots {
-            let Some(inst) = entity_map.get_instance(slot) else { continue };
+            let Some(inst) = entity_map.get_instance(slot) else {
+                continue;
+            };
             if let Some(pos) = inst.assigned_mine {
-                let cell = ((pos.x / TOWN_GRID_SPACING).floor() as i32, (pos.y / TOWN_GRID_SPACING).floor() as i32);
+                let cell = (
+                    (pos.x / TOWN_GRID_SPACING).floor() as i32,
+                    (pos.y / TOWN_GRID_SPACING).floor() as i32,
+                );
                 let still_enabled = enabled_grid_cells.contains(&cell);
                 if !still_enabled {
                     if let Some(inst_mut) = entity_map.get_instance_mut(slot) {
@@ -420,10 +511,19 @@ pub fn squad_cleanup_system(
     mut commands: Commands,
     squad_id_q: Query<&SquadId>,
     mut npc_flags_q: Query<&mut NpcFlags>,
-    recruit_q: Query<(&GpuSlot, &Job, &TownId, Option<&SquadId>), (Without<Building>, Without<Dead>)>,
+    recruit_q: Query<
+        (&GpuSlot, &Job, &TownId, Option<&SquadId>),
+        (Without<Building>, Without<Dead>),
+    >,
 ) {
-    if squads_dirty.read().count() == 0 { return; }
-    let player_town = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0) as i32;
+    if squads_dirty.read().count() == 0 {
+        return;
+    }
+    let player_town = world_data
+        .towns
+        .iter()
+        .position(|t| t.faction == 0)
+        .unwrap_or(0) as i32;
 
     // Track pending assignments locally to avoid deferred-Commands read-after-write issues
     let mut pending_squad: HashMap<usize, Option<i32>> = HashMap::new();
@@ -431,7 +531,8 @@ pub fn squad_cleanup_system(
     // Phase 1: remove dead members (all squads)
     for squad in squad_state.squads.iter_mut() {
         squad.members.retain(|&uid| {
-            entity_map.slot_for_uid(uid)
+            entity_map
+                .slot_for_uid(uid)
                 .and_then(|slot| entity_map.get_npc(slot))
                 .is_some_and(|n| !n.dead)
         });
@@ -440,10 +541,15 @@ pub fn squad_cleanup_system(
     // Phase 2: keep Default Squad (index 0) as the live pool of unsquadded player military units.
     if let Some(default_squad) = squad_state.squads.get_mut(0) {
         if default_squad.is_player() {
-            let new_members: Vec<(usize, Entity, crate::components::EntityUid)> = recruit_q.iter()
+            let new_members: Vec<(usize, Entity, crate::components::EntityUid)> = recruit_q
+                .iter()
                 .filter(|(slot, job, town_id, sq_id)| {
-                    job.is_military() && town_id.0 == player_town
-                        && !pending_squad.get(&slot.0).map(|v| v.is_some()).unwrap_or(sq_id.is_some())
+                    job.is_military()
+                        && town_id.0 == player_town
+                        && !pending_squad
+                            .get(&slot.0)
+                            .map(|v| v.is_some())
+                            .unwrap_or(sq_id.is_some())
                 })
                 .map(|(slot, _, _, _)| slot.0)
                 .filter_map(|slot| {
@@ -465,11 +571,17 @@ pub fn squad_cleanup_system(
     // Phase 3: dismiss excess (target_size > 0 and members > target_size, all squads)
     for (si, squad) in squad_state.squads.iter_mut().enumerate() {
         if squad.target_size > 0 && squad.members.len() > squad.target_size {
-            let to_dismiss: Vec<crate::components::EntityUid> = squad.members.drain(squad.target_size..).collect();
+            let to_dismiss: Vec<crate::components::EntityUid> =
+                squad.members.drain(squad.target_size..).collect();
             for &uid in &to_dismiss {
-                let Some(slot) = entity_map.slot_for_uid(uid) else { continue };
+                let Some(slot) = entity_map.slot_for_uid(uid) else {
+                    continue;
+                };
                 if let Some(&entity) = entity_map.entities.get(&slot) {
-                    let current_sq = pending_squad.get(&slot).copied().flatten()
+                    let current_sq = pending_squad
+                        .get(&slot)
+                        .copied()
+                        .flatten()
                         .or_else(|| squad_id_q.get(entity).ok().map(|s| s.0));
                     if current_sq == Some(si as i32) {
                         commands.entity(entity).remove::<SquadId>();
@@ -484,22 +596,39 @@ pub fn squad_cleanup_system(
     }
 
     // Phase 4: auto-recruit to fill target_size (owner-aware)
-    let assigned_slots: HashSet<usize> = squad_state.squads.iter()
-        .flat_map(|s| s.members.iter().filter_map(|uid| entity_map.slot_for_uid(*uid)))
+    let assigned_slots: HashSet<usize> = squad_state
+        .squads
+        .iter()
+        .flat_map(|s| {
+            s.members
+                .iter()
+                .filter_map(|uid| entity_map.slot_for_uid(*uid))
+        })
         .collect();
 
     // Build per-owner pools: group available (unsquadded) military units by town.
     let mut pool_by_town: HashMap<i32, Vec<usize>> = HashMap::new();
     for (slot, job, town_id, sq_id) in recruit_q.iter() {
-        if !job.is_military() { continue; }
-        let eff_has_squad = pending_squad.get(&slot.0).map(|v| v.is_some()).unwrap_or(sq_id.is_some());
-        if eff_has_squad { continue; }
-        if assigned_slots.contains(&slot.0) { continue; }
+        if !job.is_military() {
+            continue;
+        }
+        let eff_has_squad = pending_squad
+            .get(&slot.0)
+            .map(|v| v.is_some())
+            .unwrap_or(sq_id.is_some());
+        if eff_has_squad {
+            continue;
+        }
+        if assigned_slots.contains(&slot.0) {
+            continue;
+        }
         pool_by_town.entry(town_id.0).or_default().push(slot.0);
     }
 
     for (si, squad) in squad_state.squads.iter_mut().enumerate() {
-        if squad.target_size == 0 { continue; }
+        if squad.target_size == 0 {
+            continue;
+        }
         let town_key = match squad.owner {
             SquadOwner::Player => player_town,
             SquadOwner::Town(tdi) => tdi as i32,
@@ -556,8 +685,18 @@ fn create_ai_town(
     center: Vec2,
     is_raider: bool,
 ) -> (usize, usize, i32) {
-    let next_faction = world_data.towns.iter().map(|t| t.faction).max().unwrap_or(0) + 1;
-    let name = if is_raider { "Raider Town" } else { "Rival Town" };
+    let next_faction = world_data
+        .towns
+        .iter()
+        .map(|t| t.faction)
+        .max()
+        .unwrap_or(0)
+        + 1;
+    let name = if is_raider {
+        "Raider Town"
+    } else {
+        "Rival Town"
+    };
     let sprite_type = if is_raider { 1 } else { 0 };
 
     world_data.towns.push(world::Town {
@@ -577,17 +716,29 @@ fn create_ai_town(
     let num_towns = world_data.towns.len();
     res.food_storage.food.resize(num_towns, 0);
     res.gold_storage.gold.resize(num_towns, 0);
-    res.faction_stats.stats.resize(num_towns, FactionStat::default());
+    res.faction_stats
+        .stats
+        .resize(num_towns, FactionStat::default());
     res.raider_state.max_pop.resize(num_towns, 10);
     res.raider_state.respawn_timers.resize(num_towns, 0.0);
     res.raider_state.forage_timers.resize(num_towns, 0.0);
     res.npcs_by_town.0.resize(num_towns, Vec::new());
-    res.policies.policies.resize(num_towns, PolicySet::default());
+    res.policies
+        .policies
+        .resize(num_towns, PolicySet::default());
 
     // Create AiPlayer with random personality and road style
-    let ai_kind = if is_raider { AiKind::Raider } else { AiKind::Builder };
+    let ai_kind = if is_raider {
+        AiKind::Raider
+    } else {
+        AiKind::Builder
+    };
     let mut rng = rand::rng();
-    let personalities = [AiPersonality::Aggressive, AiPersonality::Balanced, AiPersonality::Economic];
+    let personalities = [
+        AiPersonality::Aggressive,
+        AiPersonality::Balanced,
+        AiPersonality::Economic,
+    ];
     let personality = personalities[rng.random_range(0..personalities.len())];
     let road_style = super::ai_player::RoadStyle::random(&mut rng);
     if let Some(policy) = res.policies.policies.get_mut(town_data_idx) {
@@ -614,7 +765,8 @@ fn create_ai_town(
 fn pick_settle_site(
     grid: &crate::world::WorldGrid,
     world_data: &WorldData,
-    world_w: f32, world_h: f32,
+    world_w: f32,
+    world_h: f32,
 ) -> Vec2 {
     let margin = 200.0;
     let mut rng = rand::rng();
@@ -628,10 +780,14 @@ fn pick_settle_site(
 
         // Reject water cells
         let (gc, gr) = grid.world_to_grid(pos);
-        if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) { continue; }
+        if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) {
+            continue;
+        }
 
         // Score: minimum distance to any existing town
-        let min_dist = world_data.towns.iter()
+        let min_dist = world_data
+            .towns
+            .iter()
             .map(|t| pos.distance(t.center))
             .min_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap_or(f32::MAX);
@@ -667,17 +823,21 @@ pub fn endless_system(
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     position_q: Query<&Position>,
 ) {
-
     // Debug button: queue an immediate raider spawn
     if migration_state.debug_spawn {
         migration_state.debug_spawn = false;
         endless.pending_spawns.push(PendingAiSpawn {
-            delay_remaining: 0.0, is_raider: true,
-            upgrade_levels: Vec::new(), starting_food: 0, starting_gold: 0,
+            delay_remaining: 0.0,
+            is_raider: true,
+            upgrade_levels: Vec::new(),
+            starting_food: 0,
+            starting_gold: 0,
         });
     }
 
-    if !endless.enabled { return; }
+    if !endless.enabled {
+        return;
+    }
 
     let world_w = world_state.grid.width as f32 * world_state.grid.cell_size;
     let world_h = world_state.grid.height as f32 * world_state.grid.cell_size;
@@ -689,32 +849,56 @@ pub fn endless_system(
             mg.boat_pos += dir * BOAT_SPEED * time.delta_secs();
 
             res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition {
-                idx: boat_slot, x: mg.boat_pos.x, y: mg.boat_pos.y,
+                idx: boat_slot,
+                x: mg.boat_pos.x,
+                y: mg.boat_pos.y,
             }));
 
             // Check if boat reached land
             let (gc, gr) = world_state.grid.world_to_grid(mg.boat_pos);
-            let on_water = world_state.grid.cell(gc, gr)
+            let on_water = world_state
+                .grid
+                .cell(gc, gr)
                 .map(|c| c.terrain == Biome::Water)
                 .unwrap_or(true);
 
             if !on_water {
                 // === DISEMBARK — spawn NPCs at boat position ===
-                let next_faction = world_state.world_data.towns.iter()
-                    .map(|t| t.faction).max().unwrap_or(0) + 1;
-                let group_size = if mg.is_raider { MIGRATION_BASE_SIZE + 5 } else { 5 };
+                let next_faction = world_state
+                    .world_data
+                    .towns
+                    .iter()
+                    .map(|t| t.faction)
+                    .max()
+                    .unwrap_or(0)
+                    + 1;
+                let group_size = if mg.is_raider {
+                    MIGRATION_BASE_SIZE + 5
+                } else {
+                    5
+                };
                 let mut rng = rand::rng();
 
                 for _ in 0..group_size {
-                    let Some(slot) = world_state.entity_slots.alloc() else { break };
+                    let Some(slot) = world_state.entity_slots.alloc() else {
+                        break;
+                    };
                     let jx = mg.boat_pos.x + rng.random_range(-30.0..30.0);
                     let jy = mg.boat_pos.y + rng.random_range(-30.0..30.0);
                     let job = if mg.is_raider { 2 } else { 1 };
                     spawn_writer.write(SpawnNpcMsg {
-                        slot_idx: slot, x: jx, y: jy, job,
-                        faction: next_faction, town_idx: -1,
-                        home_x: mg.settle_target.x, home_y: mg.settle_target.y,
-                        work_x: -1.0, work_y: -1.0, starting_post: -1, attack_type: 0,
+                        slot_idx: slot,
+                        x: jx,
+                        y: jy,
+                        job,
+                        faction: next_faction,
+                        town_idx: -1,
+                        home_x: mg.settle_target.x,
+                        home_y: mg.settle_target.y,
+                        work_x: -1.0,
+                        work_y: -1.0,
+                        starting_post: -1,
+                        attack_type: 0,
                         uid_override: None,
                     });
                     mg.member_slots.push(slot);
@@ -722,17 +906,31 @@ pub fn endless_system(
                 mg.faction = next_faction;
 
                 // Free boat slot
-                res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::Hide { idx: boat_slot }));
+                res.gpu_updates
+                    .write(GpuUpdateMsg(GpuUpdate::Hide { idx: boat_slot }));
                 world_state.entity_slots.free(boat_slot);
                 mg.boat_slot = None;
 
                 let kind_str = if mg.is_raider { "Raiders" } else { "Settlers" };
-                combat_log.write(CombatLogMsg { kind: CombatEventKind::Raid, faction: -1, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{} have landed!", kind_str), location: Some(mg.boat_pos) });
-                info!("Migration disembarked at ({:.0}, {:.0}), faction {}", mg.boat_pos.x, mg.boat_pos.y, next_faction);
+                combat_log.write(CombatLogMsg {
+                    kind: CombatEventKind::Raid,
+                    faction: -1,
+                    day: game_time.day(),
+                    hour: game_time.hour(),
+                    minute: game_time.minute(),
+                    message: format!("{} have landed!", kind_str),
+                    location: Some(mg.boat_pos),
+                });
+                info!(
+                    "Migration disembarked at ({:.0}, {:.0}), faction {}",
+                    mg.boat_pos.x, mg.boat_pos.y, next_faction
+                );
             }
 
             // While boat active, skip attach/settle
-            if mg.boat_slot.is_some() { return; }
+            if mg.boat_slot.is_some() {
+                return;
+            }
         }
     }
 
@@ -751,14 +949,20 @@ pub fn endless_system(
 
     // === SETTLE — when NPCs are near a town, create AI town + buildings ===
     if let Some(mg) = &migration_state.active {
-        if mg.town_data_idx.is_some() { return; } // already settled (shouldn't happen)
+        if mg.town_data_idx.is_some() {
+            return;
+        } // already settled (shouldn't happen)
 
         let mut sum_x = 0.0f32;
         let mut sum_y = 0.0f32;
         let mut count = 0u32;
         for &slot in &mg.member_slots {
             if let Some(npc) = world_state.entity_map.get_npc(slot) {
-                let is_migrating = res.npc_flags_q.get(npc.entity).map(|f| f.migrating).unwrap_or(false);
+                let is_migrating = res
+                    .npc_flags_q
+                    .get(npc.entity)
+                    .map(|f| f.migrating)
+                    .unwrap_or(false);
                 if is_migrating && !npc.dead {
                     if let Ok(pos) = position_q.get(npc.entity) {
                         sum_x += pos.x;
@@ -772,8 +976,20 @@ pub fn endless_system(
             if !mg.member_slots.is_empty() {
                 // All members dead — migration wiped out, queue replacement
                 let is_raider = mg.is_raider;
-                let kind_str = if is_raider { "raider band" } else { "rival faction" };
-                combat_log.write(CombatLogMsg { kind: CombatEventKind::Raid, faction: -1, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("The migrating {} was wiped out!", kind_str), location: None });
+                let kind_str = if is_raider {
+                    "raider band"
+                } else {
+                    "rival faction"
+                };
+                combat_log.write(CombatLogMsg {
+                    kind: CombatEventKind::Raid,
+                    faction: -1,
+                    day: game_time.day(),
+                    hour: game_time.hour(),
+                    minute: game_time.minute(),
+                    message: format!("The migrating {} was wiped out!", kind_str),
+                    location: None,
+                });
                 endless.pending_spawns.push(PendingAiSpawn {
                     delay_remaining: ENDLESS_RESPAWN_DELAY_HOURS,
                     is_raider,
@@ -781,7 +997,10 @@ pub fn endless_system(
                     starting_food: mg.starting_food,
                     starting_gold: mg.starting_gold,
                 });
-                info!("Migration wiped out (is_raider={}), queued replacement in {}h", is_raider, ENDLESS_RESPAWN_DELAY_HOURS);
+                info!(
+                    "Migration wiped out (is_raider={}), queued replacement in {}h",
+                    is_raider, ENDLESS_RESPAWN_DELAY_HOURS
+                );
             }
             migration_state.active = None;
             return;
@@ -789,15 +1008,23 @@ pub fn endless_system(
         let avg_pos = Vec2::new(sum_x / count as f32, sum_y / count as f32);
 
         let near_target = avg_pos.distance(mg.settle_target) < RAIDER_SETTLE_RADIUS;
-        if !near_target { return; }
+        if !near_target {
+            return;
+        }
 
         // === CREATE TOWN + SETTLE ===
         let is_raider = mg.is_raider;
         let member_slots = mg.member_slots.clone();
 
         let (town_data_idx, grid_idx, _faction) = create_ai_town(
-            &world_state.grid, &mut world_state.world_data, &world_state.entity_map, &mut world_state.town_grids, &mut res, &mut ai_state,
-            mg.settle_target, is_raider,
+            &world_state.grid,
+            &mut world_state.world_data,
+            &world_state.entity_map,
+            &mut world_state.town_grids,
+            &mut res,
+            &mut ai_state,
+            mg.settle_target,
+            is_raider,
         );
 
         // Apply stored resources and upgrades
@@ -813,12 +1040,27 @@ pub fn endless_system(
 
         // Place buildings directly into EntityMap
         if let Some(town_grid) = world_state.town_grids.grids.get_mut(grid_idx) {
-            world::place_buildings(&mut world_state.grid, &world_state.world_data, mg.settle_target, town_data_idx as u32, &config, town_grid, is_raider, &mut world_state.entity_slots, &mut world_state.entity_map, &mut world_state.uid_alloc);
+            world::place_buildings(
+                &mut world_state.grid,
+                &world_state.world_data,
+                mg.settle_target,
+                town_data_idx as u32,
+                &config,
+                town_grid,
+                is_raider,
+                &mut world_state.entity_slots,
+                &mut world_state.entity_map,
+                &mut world_state.uid_alloc,
+            );
         }
         world::stamp_dirt(&mut world_state.grid, &[mg.settle_target]);
 
         // Activate AI
-        if let Some(player) = ai_state.players.iter_mut().find(|p| p.town_data_idx == town_data_idx) {
+        if let Some(player) = ai_state
+            .players
+            .iter_mut()
+            .find(|p| p.town_data_idx == town_data_idx)
+        {
             player.active = true;
         }
 
@@ -839,36 +1081,66 @@ pub fn endless_system(
             }
         }
 
-        world_state.dirty_writers.building_grid.write(crate::messages::BuildingGridDirtyMsg);
+        world_state
+            .dirty_writers
+            .building_grid
+            .write(crate::messages::BuildingGridDirtyMsg);
         tilemap_spawned.0 = false;
 
-        let kind_str = if is_raider { "raider band" } else { "rival faction" };
-        combat_log.write(CombatLogMsg { kind: CombatEventKind::Raid, faction: -1, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("A {} has settled nearby!", kind_str), location: Some(mg.settle_target) });
-        info!("Migration settled at ({:.0}, {:.0}), town_data_idx={}", mg.settle_target.x, mg.settle_target.y, town_data_idx);
+        let kind_str = if is_raider {
+            "raider band"
+        } else {
+            "rival faction"
+        };
+        combat_log.write(CombatLogMsg {
+            kind: CombatEventKind::Raid,
+            faction: -1,
+            day: game_time.day(),
+            hour: game_time.hour(),
+            minute: game_time.minute(),
+            message: format!("A {} has settled nearby!", kind_str),
+            location: Some(mg.settle_target),
+        });
+        info!(
+            "Migration settled at ({:.0}, {:.0}), town_data_idx={}",
+            mg.settle_target.x, mg.settle_target.y, town_data_idx
+        );
         migration_state.active = None;
         return;
     }
 
     // === SPAWN BOAT — pick edge, allocate boat GPU slot ===
-    if endless.pending_spawns.is_empty() { return; }
+    if endless.pending_spawns.is_empty() {
+        return;
+    }
 
     let dt_hours = game_time.delta(&time) / game_time.seconds_per_hour;
     for spawn in &mut endless.pending_spawns {
         spawn.delay_remaining -= dt_hours;
     }
 
-    let Some(idx) = endless.pending_spawns.iter().position(|s| s.delay_remaining <= 0.0) else { return };
+    let Some(idx) = endless
+        .pending_spawns
+        .iter()
+        .position(|s| s.delay_remaining <= 0.0)
+    else {
+        return;
+    };
     let spawn = endless.pending_spawns.remove(idx);
 
     // Pick settlement site first so we can approach from the nearest edge
-    let settle_target = pick_settle_site(&world_state.grid, &world_state.world_data, world_w, world_h);
-    info!("Endless: settle target at ({:.0}, {:.0})", settle_target.x, settle_target.y);
+    let settle_target =
+        pick_settle_site(&world_state.grid, &world_state.world_data, world_w, world_h);
+    info!(
+        "Endless: settle target at ({:.0}, {:.0})",
+        settle_target.x, settle_target.y
+    );
 
     // Approach from the map edge closest to settle target
     let dist_north = settle_target.y;
     let dist_south = world_h - settle_target.y;
-    let dist_west  = settle_target.x;
-    let dist_east  = world_w - settle_target.x;
+    let dist_west = settle_target.x;
+    let dist_east = world_w - settle_target.x;
     let min_dist = dist_north.min(dist_south).min(dist_west).min(dist_east);
 
     let mut rng = rand::rng();
@@ -885,12 +1157,35 @@ pub fn endless_system(
     // Allocate boat GPU slot
     let boat_slot = world_state.entity_slots.alloc();
     if let Some(bs) = boat_slot {
-        res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition { idx: bs, x: spawn_x, y: spawn_y }));
-        res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx: bs, col: 0.0, row: 0.0, atlas: ATLAS_BOAT }));
-        res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: bs, speed: BOAT_SPEED }));
-        res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: bs, x: settle_target.x, y: settle_target.y }));
-        res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: bs, health: 100.0 }));
-        res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFaction { idx: bs, faction: 0 }));
+        res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition {
+            idx: bs,
+            x: spawn_x,
+            y: spawn_y,
+        }));
+        res.gpu_updates
+            .write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
+                idx: bs,
+                col: 0.0,
+                row: 0.0,
+                atlas: ATLAS_BOAT,
+            }));
+        res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed {
+            idx: bs,
+            speed: BOAT_SPEED,
+        }));
+        res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+            idx: bs,
+            x: settle_target.x,
+            y: settle_target.y,
+        }));
+        res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth {
+            idx: bs,
+            health: 100.0,
+        }));
+        res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFaction {
+            idx: bs,
+            faction: 0,
+        }));
     }
 
     migration_state.active = Some(MigrationGroup {
@@ -907,7 +1202,19 @@ pub fn endless_system(
         grid_idx: 0,
     });
 
-    let kind_str = if spawn.is_raider { "raider band" } else { "rival faction" };
-    combat_log.write(CombatLogMsg { kind: CombatEventKind::Raid, faction: -1, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("A {} approaches from the {}!", kind_str, direction), location: Some(Vec2::new(spawn_x, spawn_y)) });
+    let kind_str = if spawn.is_raider {
+        "raider band"
+    } else {
+        "rival faction"
+    };
+    combat_log.write(CombatLogMsg {
+        kind: CombatEventKind::Raid,
+        faction: -1,
+        day: game_time.day(),
+        hour: game_time.hour(),
+        minute: game_time.minute(),
+        message: format!("A {} approaches from the {}!", kind_str, direction),
+        location: Some(Vec2::new(spawn_x, spawn_y)),
+    });
     info!("Endless: boat spawned from {} edge", direction);
 }

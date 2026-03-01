@@ -1,12 +1,12 @@
 //! Farmer Occupancy Cycle Test (5 phases)
 //! Validates: farmer homes spawn workers, farm occupancy caps at 1, and one extra farmer stays idle.
 
-use bevy::prelude::*;
 use crate::components::*;
 use crate::resources::EntityMap;
 use crate::world::BuildingKind;
+use bevy::prelude::*;
 
-use super::{TestState, TestSetupParams};
+use super::{TestSetupParams, TestState};
 
 pub fn setup(mut params: TestSetupParams) {
     params.add_town("FarmTown");
@@ -33,15 +33,21 @@ pub fn tick(
     mut test: ResMut<TestState>,
     activity_q: Query<&Activity>,
 ) {
-    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
+    let Some(elapsed) = test.tick_elapsed(&time) else {
+        return;
+    };
 
     let farmer_count = entity_map
         .iter_npcs()
         .filter(|n| !n.dead && n.job == Job::Farmer)
         .count();
 
-    let homes: Vec<_> = entity_map.iter_kind_for_town(BuildingKind::FarmerHome, 0).collect();
-    let farms: Vec<_> = entity_map.iter_kind_for_town(BuildingKind::Farm, 0).collect();
+    let homes: Vec<_> = entity_map
+        .iter_kind_for_town(BuildingKind::FarmerHome, 0)
+        .collect();
+    let farms: Vec<_> = entity_map
+        .iter_kind_for_town(BuildingKind::Farm, 0)
+        .collect();
 
     let spawned_from_homes = homes.iter().filter(|h| h.npc_uid.is_some()).count();
     let occupied_farms = farms.iter().filter(|f| f.occupants == 1).count();
@@ -73,7 +79,9 @@ pub fn tick(
         .filter(|n| {
             !n.dead
                 && n.job == Job::Farmer
-                && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Idle))
+                && activity_q
+                    .get(n.entity)
+                    .is_ok_and(|a| matches!(*a, Activity::Idle))
         })
         .count();
     let wandering = entity_map
@@ -93,7 +101,10 @@ pub fn tick(
     match test.phase {
         // Phase 1: 3 farmers spawned from 3 farmer homes.
         1 => {
-            test.phase_name = format!("farmers={}/3 homes_linked={}/3", farmer_count, spawned_from_homes);
+            test.phase_name = format!(
+                "farmers={}/3 homes_linked={}/3",
+                farmer_count, spawned_from_homes
+            );
             if farmer_count == 3 && spawned_from_homes == 3 {
                 test.pass_phase(elapsed, "3 farmers spawned from 3 homes");
             } else if elapsed > 12.0 {

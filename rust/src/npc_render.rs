@@ -12,19 +12,20 @@ use bevy::{
     core_pipeline::core_2d::Transparent2d,
     ecs::{
         query::ROQueryItem,
-        system::{lifetimeless::SRes, SystemParamItem},
+        system::{SystemParamItem, lifetimeless::SRes},
     },
     math::FloatOrd,
     mesh::VertexBufferLayout,
     prelude::*,
     render::{
+        Extract, Render, RenderApp, RenderStartup, RenderSystems,
         render_asset::RenderAssets,
         render_phase::{
             AddRenderCommand, DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand,
-            RenderCommandResult, SetItemPipeline, SortedRenderPhase, TrackedRenderPass, ViewSortedRenderPhases,
+            RenderCommandResult, SetItemPipeline, SortedRenderPhase, TrackedRenderPass,
+            ViewSortedRenderPhases,
         },
         render_resource::{
-            binding_types::{sampler, storage_buffer_read_only, texture_2d, uniform_buffer},
             BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries,
             BlendState, Buffer, BufferDescriptor, BufferInitDescriptor, BufferUsages,
             ColorTargetState, ColorWrites, CompareFunction, DepthBiasState, DepthStencilState,
@@ -32,18 +33,21 @@ use bevy::{
             RawBufferVec, RenderPipelineDescriptor, SamplerBindingType, ShaderStages, ShaderType,
             SpecializedRenderPipeline, SpecializedRenderPipelines, StencilState, TextureFormat,
             TextureSampleType, UniformBuffer, VertexAttribute, VertexState, VertexStepMode,
+            binding_types::{sampler, storage_buffer_read_only, texture_2d, uniform_buffer},
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
         texture::GpuImage,
         view::ExtractedView,
-        Extract, Render, RenderApp, RenderStartup, RenderSystems,
     },
 };
 use bytemuck::{Pod, Zeroable};
 
 use crate::constants::MAX_NPC_COUNT;
-use crate::gpu::{EntityGpuState, EntityGpuBuffers, NpcVisualUpload, ProjBufferWrites, ProjGpuBuffers, RenderFrameConfig};
+use crate::gpu::{
+    EntityGpuBuffers, EntityGpuState, NpcVisualUpload, ProjBufferWrites, ProjGpuBuffers,
+    RenderFrameConfig,
+};
 use crate::render::{CameraState, MainCamera};
 
 // =============================================================================
@@ -128,10 +132,22 @@ struct QuadVertex {
 
 /// Unit quad vertices (centered at origin, size 1x1)
 static QUAD_VERTICES: [QuadVertex; 4] = [
-    QuadVertex { position: [-0.5, -0.5], uv: [0.0, 1.0] }, // bottom-left
-    QuadVertex { position: [ 0.5, -0.5], uv: [1.0, 1.0] }, // bottom-right
-    QuadVertex { position: [ 0.5,  0.5], uv: [1.0, 0.0] }, // top-right
-    QuadVertex { position: [-0.5,  0.5], uv: [0.0, 0.0] }, // top-left
+    QuadVertex {
+        position: [-0.5, -0.5],
+        uv: [0.0, 1.0],
+    }, // bottom-left
+    QuadVertex {
+        position: [0.5, -0.5],
+        uv: [1.0, 1.0],
+    }, // bottom-right
+    QuadVertex {
+        position: [0.5, 0.5],
+        uv: [1.0, 0.0],
+    }, // top-right
+    QuadVertex {
+        position: [-0.5, 0.5],
+        uv: [0.0, 0.0],
+    }, // top-left
 ];
 
 /// Two triangles forming a quad
@@ -247,7 +263,11 @@ pub struct NpcCameraBindGroup {
 pub struct DrawStoragePass<const BODY_ONLY: bool>;
 
 impl<P: PhaseItem, const BODY_ONLY: bool> RenderCommand<P> for DrawStoragePass<BODY_ONLY> {
-    type Param = (SRes<NpcRenderBuffers>, SRes<NpcVisualBuffers>, SRes<RenderFrameConfig>);
+    type Param = (
+        SRes<NpcRenderBuffers>,
+        SRes<NpcVisualBuffers>,
+        SRes<RenderFrameConfig>,
+    );
     type ViewQuery = ();
     type ItemQuery = ();
 
@@ -262,7 +282,9 @@ impl<P: PhaseItem, const BODY_ONLY: bool> RenderCommand<P> for DrawStoragePass<B
         let npc_buffers = npc_buffers.into_inner();
         let visual_buffers = visual_buffers.into_inner();
         let entity_count = config.into_inner().npc.count;
-        if entity_count == 0 { return RenderCommandResult::Skip; }
+        if entity_count == 0 {
+            return RenderCommandResult::Skip;
+        }
 
         let Some(ref bind_group) = visual_buffers.bind_group else {
             return RenderCommandResult::Skip;
@@ -276,7 +298,11 @@ impl<P: PhaseItem, const BODY_ONLY: bool> RenderCommand<P> for DrawStoragePass<B
             pass.draw_indexed(0..6, 0, 0..entity_count);
         } else {
             for layer in 1..LAYER_COUNT as u32 {
-                pass.draw_indexed(0..6, 0, (layer * entity_count)..((layer + 1) * entity_count));
+                pass.draw_indexed(
+                    0..6,
+                    0,
+                    (layer * entity_count)..((layer + 1) * entity_count),
+                );
             }
         }
 
@@ -303,7 +329,9 @@ impl<P: PhaseItem> RenderCommand<P> for DrawBuildingBody {
         let npc_buffers = npc_buffers.into_inner();
         let body_buffers = body_buffers.into_inner();
 
-        if body_buffers.count == 0 { return RenderCommandResult::Skip; }
+        if body_buffers.count == 0 {
+            return RenderCommandResult::Skip;
+        }
         let Some(instance_buffer) = body_buffers.instances.buffer() else {
             return RenderCommandResult::Skip;
         };
@@ -336,7 +364,9 @@ impl<P: PhaseItem> RenderCommand<P> for DrawBuildingOverlay {
         let npc_buffers = npc_buffers.into_inner();
         let overlay_buffers = overlay_buffers.into_inner();
 
-        if overlay_buffers.count == 0 { return RenderCommandResult::Skip; }
+        if overlay_buffers.count == 0 {
+            return RenderCommandResult::Skip;
+        }
         let Some(instance_buffer) = overlay_buffers.instances.buffer() else {
             return RenderCommandResult::Skip;
         };
@@ -354,7 +384,11 @@ impl<P: PhaseItem> RenderCommand<P> for DrawBuildingOverlay {
 pub struct DrawSelectionBrackets;
 
 impl<P: PhaseItem> RenderCommand<P> for DrawSelectionBrackets {
-    type Param = (SRes<NpcRenderBuffers>, SRes<NpcVisualBuffers>, SRes<SelectionRenderBuffers>);
+    type Param = (
+        SRes<NpcRenderBuffers>,
+        SRes<NpcVisualBuffers>,
+        SRes<SelectionRenderBuffers>,
+    );
     type ViewQuery = ();
     type ItemQuery = ();
 
@@ -370,7 +404,9 @@ impl<P: PhaseItem> RenderCommand<P> for DrawSelectionBrackets {
         let visual_buffers = visual_buffers.into_inner();
         let sel_buffers = sel_buffers.into_inner();
 
-        if sel_buffers.count == 0 { return RenderCommandResult::Skip; }
+        if sel_buffers.count == 0 {
+            return RenderCommandResult::Skip;
+        }
         let Some(ref bind_group) = visual_buffers.bind_group else {
             return RenderCommandResult::Skip;
         };
@@ -529,7 +565,14 @@ impl Plugin for NpcRenderPlugin {
             .init_resource::<BuildingBodyInstances>()
             .init_resource::<SelectionOverlayInstances>()
             .add_systems(Startup, (spawn_npc_batch, spawn_proj_batch))
-            .add_systems(PostUpdate, (build_building_body_instances, build_overlay_instances, build_selection_overlay));
+            .add_systems(
+                PostUpdate,
+                (
+                    build_building_body_instances,
+                    build_overlay_instances,
+                    build_selection_overlay,
+                ),
+            );
 
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
@@ -546,7 +589,16 @@ impl Plugin for NpcRenderPlugin {
             .add_systems(RenderStartup, init_npc_render_pipeline)
             .add_systems(
                 ExtractSchedule,
-                (extract_npc_batch, extract_proj_batch, extract_camera_state, extract_npc_data, extract_proj_data, extract_overlay_instances, extract_building_body_instances, extract_selection_overlay),
+                (
+                    extract_npc_batch,
+                    extract_proj_batch,
+                    extract_camera_state,
+                    extract_npc_data,
+                    extract_proj_data,
+                    extract_overlay_instances,
+                    extract_building_body_instances,
+                    extract_selection_overlay,
+                ),
             )
             .add_systems(
                 Render,
@@ -559,16 +611,11 @@ impl Plugin for NpcRenderPlugin {
                 ),
             );
     }
-
 }
 
 /// Spawn the single NPC batch entity (represents all NPC layers for rendering).
 fn spawn_npc_batch(mut commands: Commands) {
-    commands.spawn((
-        NpcBatch,
-        Transform::default(),
-        Visibility::default(),
-    ));
+    commands.spawn((NpcBatch, Transform::default(), Visibility::default()));
     info!("NPC batch entity spawned ({LAYER_COUNT} layers)");
 }
 
@@ -597,7 +644,9 @@ fn extract_camera_state(
     windows: Extract<Query<&Window>>,
     user_settings: Extract<Res<crate::settings::UserSettings>>,
 ) {
-    let Ok((transform, projection)) = query.single() else { return };
+    let Ok((transform, projection)) = query.single() else {
+        return;
+    };
     let Ok(window) = windows.single() else { return };
 
     let zoom = match projection {
@@ -634,13 +683,29 @@ fn build_building_body_instances(
         let i2 = idx * 2;
         let x = gpu_state.positions.get(i2).copied().unwrap_or(-9999.0);
         let y = gpu_state.positions.get(i2 + 1).copied().unwrap_or(-9999.0);
-        if x < -9000.0 { continue; } // hidden/dead
+        if x < -9000.0 {
+            continue;
+        } // hidden/dead
 
-        let col = gpu_state.sprite_indices.get(idx * 4).copied().unwrap_or(-1.0);
-        if col < 0.0 { continue; } // no sprite assigned
+        let col = gpu_state
+            .sprite_indices
+            .get(idx * 4)
+            .copied()
+            .unwrap_or(-1.0);
+        if col < 0.0 {
+            continue;
+        } // no sprite assigned
 
-        let row = gpu_state.sprite_indices.get(idx * 4 + 1).copied().unwrap_or(0.0);
-        let atlas = gpu_state.sprite_indices.get(idx * 4 + 2).copied().unwrap_or(1.0);
+        let row = gpu_state
+            .sprite_indices
+            .get(idx * 4 + 1)
+            .copied()
+            .unwrap_or(0.0);
+        let atlas = gpu_state
+            .sprite_indices
+            .get(idx * 4 + 2)
+            .copied()
+            .unwrap_or(1.0);
         let flash = gpu_state.flash_values.get(idx).copied().unwrap_or(0.0);
         let faction = gpu_state.factions.get(idx).copied().unwrap_or(0);
         let health = gpu_state.healths.get(idx).copied().unwrap_or(0.0);
@@ -683,7 +748,9 @@ fn build_overlay_instances(
 
     for inst in entity_map.iter_growable() {
         let pos = inst.position;
-        if pos.x < -9000.0 { continue; }
+        if pos.x < -9000.0 {
+            continue;
+        }
 
         let ready = inst.growth_ready;
         match inst.kind {
@@ -720,7 +787,10 @@ fn build_overlay_instances(
         }
     }
 
-    let bhp_count = building_hp.positions.len().min(building_hp.health_pcts.len());
+    let bhp_count = building_hp
+        .positions
+        .len()
+        .min(building_hp.health_pcts.len());
     for i in 0..bhp_count {
         overlay.0.push(InstanceData {
             position: [building_hp.positions[i].x, building_hp.positions[i].y],
@@ -773,10 +843,18 @@ fn build_selection_overlay(
     // DirectControl multi-select (green), skip selected NPC, cap at 200
     let mut dc_count = 0usize;
     for npc in entity_map.iter_npcs() {
-        if npc.dead { continue; }
-        if !npc_flags_q.get(npc.entity).is_ok_and(|f| f.direct_control) { continue; }
-        if sel_slot >= 0 && npc.slot == sel_slot as usize { continue; }
-        if dc_count >= 200 { break; }
+        if npc.dead {
+            continue;
+        }
+        if !npc_flags_q.get(npc.entity).is_ok_and(|f| f.direct_control) {
+            continue;
+        }
+        if sel_slot >= 0 && npc.slot == sel_slot as usize {
+            continue;
+        }
+        if dc_count >= 200 {
+            break;
+        }
         instances.0.push(SelectionInstance {
             slot: npc.slot as u32,
             color: [0.31, 0.86, 0.31, 0.70],
@@ -877,10 +955,10 @@ fn extract_selection_overlay(
 // Coalescing gap thresholds for CPU-AUTHORITATIVE buffers (slots).
 // Tuned for DX12 backend: balances per-call overhead (~4μs) vs wasted bytes (~3KB/gap).
 // Wider gaps merge more but upload non-dirty data; narrower gaps have more write_buffer calls.
-const GAP_STRIDE_1: usize = 750;   // speeds, factions, healths, flags (750 × 1 × 4 = 3KB/gap)
-const GAP_STRIDE_2: usize = 375;   // targets, half_sizes (375 × 2 × 4 = 3KB/gap)
-const GAP_VISUAL: usize = 93;      // visual_data (93 × 8 × 4 = 3KB/gap)
-const GAP_EQUIP: usize = 31;       // equip_data (31 × 24 × 4 = 3KB/gap)
+const GAP_STRIDE_1: usize = 750; // speeds, factions, healths, flags (750 × 1 × 4 = 3KB/gap)
+const GAP_STRIDE_2: usize = 375; // targets, half_sizes (375 × 2 × 4 = 3KB/gap)
+const GAP_VISUAL: usize = 93; // visual_data (93 × 8 × 4 = 3KB/gap)
+const GAP_EQUIP: usize = 31; // equip_data (31 × 24 × 4 = 3KB/gap)
 
 /// Bulk-write the first `count` elements of `data` to `buf` in a single write_buffer call.
 fn write_bulk<T: bytemuck::NoUninit>(queue: &RenderQueue, buf: &Buffer, data: &[T], count: usize) {
@@ -892,8 +970,17 @@ fn write_bulk<T: bytemuck::NoUninit>(queue: &RenderQueue, buf: &Buffer, data: &[
 
 /// Coalesce pre-sorted dirty indices into contiguous ranges, one write_buffer per range.
 /// Falls back to offset bulk write when dirty coverage > 40% of the dirty window.
-fn write_coalesced_f32(queue: &RenderQueue, buf: &Buffer, data: &[f32], dirty: &[usize], stride: usize, gap: usize) {
-    if dirty.is_empty() { return; }
+fn write_coalesced_f32(
+    queue: &RenderQueue,
+    buf: &Buffer,
+    data: &[f32],
+    dirty: &[usize],
+    stride: usize,
+    gap: usize,
+) {
+    if dirty.is_empty() {
+        return;
+    }
     let first = dirty[0];
     let last = dirty[dirty.len() - 1];
     let window = last - first + 1;
@@ -901,7 +988,11 @@ fn write_coalesced_f32(queue: &RenderQueue, buf: &Buffer, data: &[f32], dirty: &
         let start = first * stride;
         let end = ((last + 1) * stride).min(data.len());
         if start < end {
-            queue.write_buffer(buf, (start * 4) as u64, bytemuck::cast_slice(&data[start..end]));
+            queue.write_buffer(
+                buf,
+                (start * 4) as u64,
+                bytemuck::cast_slice(&data[start..end]),
+            );
         }
         return;
     }
@@ -919,16 +1010,44 @@ fn write_coalesced_f32(queue: &RenderQueue, buf: &Buffer, data: &[f32], dirty: &
     flush_range_f32(queue, buf, data, range_start, range_end, stride);
 }
 
-fn flush_range_f32(queue: &RenderQueue, buf: &Buffer, data: &[f32], start_idx: usize, end_idx: usize, stride: usize) {
+fn flush_range_f32(
+    queue: &RenderQueue,
+    buf: &Buffer,
+    data: &[f32],
+    start_idx: usize,
+    end_idx: usize,
+    stride: usize,
+) {
     let start = start_idx * stride;
     let end = (end_idx + 1) * stride;
-    debug_assert!(end <= data.len(), "coalesced range overflows: {}..{} len={}", start, end, data.len());
-    if end > data.len() { return; }
-    queue.write_buffer(buf, (start * 4) as u64, bytemuck::cast_slice(&data[start..end]));
+    debug_assert!(
+        end <= data.len(),
+        "coalesced range overflows: {}..{} len={}",
+        start,
+        end,
+        data.len()
+    );
+    if end > data.len() {
+        return;
+    }
+    queue.write_buffer(
+        buf,
+        (start * 4) as u64,
+        bytemuck::cast_slice(&data[start..end]),
+    );
 }
 
-fn write_coalesced_i32(queue: &RenderQueue, buf: &Buffer, data: &[i32], dirty: &[usize], stride: usize, gap: usize) {
-    if dirty.is_empty() { return; }
+fn write_coalesced_i32(
+    queue: &RenderQueue,
+    buf: &Buffer,
+    data: &[i32],
+    dirty: &[usize],
+    stride: usize,
+    gap: usize,
+) {
+    if dirty.is_empty() {
+        return;
+    }
     let first = dirty[0];
     let last = dirty[dirty.len() - 1];
     let window = last - first + 1;
@@ -936,7 +1055,11 @@ fn write_coalesced_i32(queue: &RenderQueue, buf: &Buffer, data: &[i32], dirty: &
         let start = first * stride;
         let end = ((last + 1) * stride).min(data.len());
         if start < end {
-            queue.write_buffer(buf, (start * 4) as u64, bytemuck::cast_slice(&data[start..end]));
+            queue.write_buffer(
+                buf,
+                (start * 4) as u64,
+                bytemuck::cast_slice(&data[start..end]),
+            );
         }
         return;
     }
@@ -948,18 +1071,31 @@ fn write_coalesced_i32(queue: &RenderQueue, buf: &Buffer, data: &[i32], dirty: &
         } else {
             let s = range_start * stride;
             let e = ((range_end + 1) * stride).min(data.len());
-            if s < e { queue.write_buffer(buf, (s * 4) as u64, bytemuck::cast_slice(&data[s..e])); }
+            if s < e {
+                queue.write_buffer(buf, (s * 4) as u64, bytemuck::cast_slice(&data[s..e]));
+            }
             range_start = idx;
             range_end = idx;
         }
     }
     let s = range_start * stride;
     let e = ((range_end + 1) * stride).min(data.len());
-    if s < e { queue.write_buffer(buf, (s * 4) as u64, bytemuck::cast_slice(&data[s..e])); }
+    if s < e {
+        queue.write_buffer(buf, (s * 4) as u64, bytemuck::cast_slice(&data[s..e]));
+    }
 }
 
-fn write_coalesced_u32(queue: &RenderQueue, buf: &Buffer, data: &[u32], dirty: &[usize], stride: usize, gap: usize) {
-    if dirty.is_empty() { return; }
+fn write_coalesced_u32(
+    queue: &RenderQueue,
+    buf: &Buffer,
+    data: &[u32],
+    dirty: &[usize],
+    stride: usize,
+    gap: usize,
+) {
+    if dirty.is_empty() {
+        return;
+    }
     let first = dirty[0];
     let last = dirty[dirty.len() - 1];
     let window = last - first + 1;
@@ -967,7 +1103,11 @@ fn write_coalesced_u32(queue: &RenderQueue, buf: &Buffer, data: &[u32], dirty: &
         let start = first * stride;
         let end = ((last + 1) * stride).min(data.len());
         if start < end {
-            queue.write_buffer(buf, (start * 4) as u64, bytemuck::cast_slice(&data[start..end]));
+            queue.write_buffer(
+                buf,
+                (start * 4) as u64,
+                bytemuck::cast_slice(&data[start..end]),
+            );
         }
         return;
     }
@@ -979,31 +1119,55 @@ fn write_coalesced_u32(queue: &RenderQueue, buf: &Buffer, data: &[u32], dirty: &
         } else {
             let s = range_start * stride;
             let e = ((range_end + 1) * stride).min(data.len());
-            if s < e { queue.write_buffer(buf, (s * 4) as u64, bytemuck::cast_slice(&data[s..e])); }
+            if s < e {
+                queue.write_buffer(buf, (s * 4) as u64, bytemuck::cast_slice(&data[s..e]));
+            }
             range_start = idx;
             range_end = idx;
         }
     }
     let s = range_start * stride;
     let e = ((range_end + 1) * stride).min(data.len());
-    if s < e { queue.write_buffer(buf, (s * 4) as u64, bytemuck::cast_slice(&data[s..e])); }
+    if s < e {
+        queue.write_buffer(buf, (s * 4) as u64, bytemuck::cast_slice(&data[s..e]));
+    }
 }
 
 /// Per-index write for small dirty sets (projectile spawn/deactivate — typically <100 per frame).
-fn write_dirty_f32(queue: &RenderQueue, buf: &Buffer, data: &[f32], indices: &[usize], stride: usize) {
+fn write_dirty_f32(
+    queue: &RenderQueue,
+    buf: &Buffer,
+    data: &[f32],
+    indices: &[usize],
+    stride: usize,
+) {
     for &idx in indices {
         let start = idx * stride;
         if start + stride <= data.len() {
-            queue.write_buffer(buf, (start * 4) as u64, bytemuck::cast_slice(&data[start..start + stride]));
+            queue.write_buffer(
+                buf,
+                (start * 4) as u64,
+                bytemuck::cast_slice(&data[start..start + stride]),
+            );
         }
     }
 }
 
-fn write_dirty_i32(queue: &RenderQueue, buf: &Buffer, data: &[i32], indices: &[usize], stride: usize) {
+fn write_dirty_i32(
+    queue: &RenderQueue,
+    buf: &Buffer,
+    data: &[i32],
+    indices: &[usize],
+    stride: usize,
+) {
     for &idx in indices {
         let start = idx * stride;
         if start + stride <= data.len() {
-            queue.write_buffer(buf, (start * 4) as u64, bytemuck::cast_slice(&data[start..start + stride]));
+            queue.write_buffer(
+                buf,
+                (start * 4) as u64,
+                bytemuck::cast_slice(&data[start..start + stride]),
+            );
         }
     }
 }
@@ -1011,14 +1175,34 @@ fn write_dirty_i32(queue: &RenderQueue, buf: &Buffer, data: &[i32], indices: &[u
 /// Strict coalesce for GPU-authoritative buffers. Merges only exactly-adjacent
 /// dirty indices (idx == prev + 1). No gap merging, no dense bulk fallback.
 /// Dirty indices MUST be sorted+deduped (debug-asserted).
-fn write_coalesced_exact_f32(queue: &RenderQueue, buf: &Buffer, data: &[f32], dirty: &[usize], stride: usize) {
-    if dirty.is_empty() { return; }
-    debug_assert!(dirty.windows(2).all(|w| w[0] < w[1]), "dirty indices not sorted+deduped");
-    debug_assert!(dirty[0] * stride + stride <= data.len(), "first dirty index {} out of bounds (len={})", dirty[0], data.len());
+fn write_coalesced_exact_f32(
+    queue: &RenderQueue,
+    buf: &Buffer,
+    data: &[f32],
+    dirty: &[usize],
+    stride: usize,
+) {
+    if dirty.is_empty() {
+        return;
+    }
+    debug_assert!(
+        dirty.windows(2).all(|w| w[0] < w[1]),
+        "dirty indices not sorted+deduped"
+    );
+    debug_assert!(
+        dirty[0] * stride + stride <= data.len(),
+        "first dirty index {} out of bounds (len={})",
+        dirty[0],
+        data.len()
+    );
     let mut range_start = dirty[0];
     let mut range_end = dirty[0];
     for &idx in &dirty[1..] {
-        debug_assert!(idx * stride + stride <= data.len(), "dirty index {idx} out of bounds (len={})", data.len());
+        debug_assert!(
+            idx * stride + stride <= data.len(),
+            "dirty index {idx} out of bounds (len={})",
+            data.len()
+        );
         if idx == range_end.saturating_add(1) {
             range_end = idx;
         } else {
@@ -1030,68 +1214,51 @@ fn write_coalesced_exact_f32(queue: &RenderQueue, buf: &Buffer, data: &[f32], di
     flush_range_f32(queue, buf, data, range_start, range_end, stride);
 }
 
-fn write_coalesced_exact_i32(queue: &RenderQueue, buf: &Buffer, data: &[i32], dirty: &[usize], stride: usize) {
-    if dirty.is_empty() { return; }
-    debug_assert!(dirty.windows(2).all(|w| w[0] < w[1]), "dirty indices not sorted+deduped");
-    debug_assert!(dirty[0] * stride + stride <= data.len(), "first dirty index {} out of bounds (len={})", dirty[0], data.len());
+fn write_coalesced_exact_i32(
+    queue: &RenderQueue,
+    buf: &Buffer,
+    data: &[i32],
+    dirty: &[usize],
+    stride: usize,
+) {
+    if dirty.is_empty() {
+        return;
+    }
+    debug_assert!(
+        dirty.windows(2).all(|w| w[0] < w[1]),
+        "dirty indices not sorted+deduped"
+    );
+    debug_assert!(
+        dirty[0] * stride + stride <= data.len(),
+        "first dirty index {} out of bounds (len={})",
+        dirty[0],
+        data.len()
+    );
     let mut range_start = dirty[0];
     let mut range_end = dirty[0];
     for &idx in &dirty[1..] {
-        debug_assert!(idx * stride + stride <= data.len(), "dirty index {idx} out of bounds (len={})", data.len());
+        debug_assert!(
+            idx * stride + stride <= data.len(),
+            "dirty index {idx} out of bounds (len={})",
+            data.len()
+        );
         if idx == range_end.saturating_add(1) {
             range_end = idx;
         } else {
             let s = range_start * stride;
             let e = ((range_end + 1) * stride).min(data.len());
-            if s < e { queue.write_buffer(buf, (s * 4) as u64, bytemuck::cast_slice(&data[s..e])); }
+            if s < e {
+                queue.write_buffer(buf, (s * 4) as u64, bytemuck::cast_slice(&data[s..e]));
+            }
             range_start = idx;
             range_end = idx;
         }
     }
     let s = range_start * stride;
     let e = ((range_end + 1) * stride).min(data.len());
-    if s < e { queue.write_buffer(buf, (s * 4) as u64, bytemuck::cast_slice(&data[s..e])); }
-}
-
-/// Count gap-based coalesced ranges (matching write_coalesced_* logic) for profiler.
-fn count_gap_ranges(dirty: &[usize], gap: usize) -> usize {
-    if dirty.is_empty() { return 0; }
-    let first = dirty[0];
-    let last = dirty[dirty.len() - 1];
-    let window = last - first + 1;
-    if dirty.len() > window * 2 / 5 { return 1; } // bulk fallback
-    let mut ranges = 1usize;
-    let mut range_end = first;
-    for &idx in &dirty[1..] {
-        if idx <= range_end.saturating_add(gap + 1) {
-            range_end = idx;
-        } else {
-            ranges += 1;
-            range_end = idx;
-        }
+    if s < e {
+        queue.write_buffer(buf, (s * 4) as u64, bytemuck::cast_slice(&data[s..e]));
     }
-    ranges
-}
-
-/// Count exact contiguous ranges and total uploaded bytes for profiler counters.
-fn count_exact_ranges(dirty: &[usize], stride: usize) -> (usize, usize) {
-    if dirty.is_empty() { return (0, 0); }
-    let mut ranges = 1usize;
-    let mut bytes = 0usize;
-    let mut range_start = dirty[0];
-    let mut range_end = dirty[0];
-    for &idx in &dirty[1..] {
-        if idx == range_end.saturating_add(1) {
-            range_end = idx;
-        } else {
-            bytes += (range_end - range_start + 1) * stride * 4;
-            ranges += 1;
-            range_start = idx;
-            range_end = idx;
-        }
-    }
-    bytes += (range_end - range_start + 1) * stride * 4;
-    (ranges, bytes)
 }
 
 /// Zero-clone NPC extract: reads main world via Extract<Res<T>>, writes directly to GPU.
@@ -1104,35 +1271,102 @@ fn extract_npc_data(
     render_queue: Res<RenderQueue>,
     mut prev_target_size: Local<usize>,
 ) {
+    use crate::messages::{
+        EXTRACT_DIRTY_COUNTS, RENDER_PROFILING, RENDER_TIMINGS, RT_EXTRACT_COMPUTE, RT_EXTRACT_NPC,
+        RT_EXTRACT_VISUAL,
+    };
     use std::sync::atomic::Ordering;
-    use crate::messages::{RENDER_PROFILING, RENDER_TIMINGS, RT_EXTRACT_NPC, RT_EXTRACT_COMPUTE, RT_EXTRACT_VISUAL};
     let profiling = RENDER_PROFILING.load(Ordering::Relaxed);
-    let start = if profiling { Some(std::time::Instant::now()) } else { None };
+    let start = if profiling {
+        Some(std::time::Instant::now())
+    } else {
+        None
+    };
 
     // --- Sub-timing: compute buffers ---
     let t0 = std::time::Instant::now();
     if let Some(gpu_bufs) = gpu_buffers {
         let n = config.npc.count as usize;
-        // GPU-authoritative: strict coalescing only (no gap merging, no bulk fallback)
-        write_coalesced_exact_f32(&render_queue, &gpu_bufs.positions, &gpu_state.positions, &gpu_state.position_dirty_indices, 2);
-        write_coalesced_exact_i32(&render_queue, &gpu_bufs.arrivals, &gpu_state.arrivals, &gpu_state.arrival_dirty_indices, 1);
+        // Positions: strict coalescing — GPU writes positions[i] every frame, stale CPU values teleport NPCs
+        write_coalesced_exact_f32(
+            &render_queue,
+            &gpu_bufs.positions,
+            &gpu_state.positions,
+            &gpu_state.position_dirty_indices,
+            2,
+        );
+        // Arrivals: gap-safe — CPU array is always 0, GPU re-computes settled=1 same frame
+        write_coalesced_i32(
+            &render_queue,
+            &gpu_bufs.arrivals,
+            &gpu_state.arrivals,
+            &gpu_state.arrival_dirty_indices,
+            1,
+            GAP_STRIDE_1,
+        );
         // CPU-authoritative: gap-based coalescing safe (EntityGpuState is ground truth)
         if gpu_state.dirty_targets {
             if *prev_target_size != n {
                 write_bulk(&render_queue, &gpu_bufs.targets, &gpu_state.targets, n * 2);
                 *prev_target_size = n;
             } else {
-                write_coalesced_f32(&render_queue, &gpu_bufs.targets, &gpu_state.targets, &gpu_state.target_dirty_indices, 2, GAP_STRIDE_2);
+                write_coalesced_f32(
+                    &render_queue,
+                    &gpu_bufs.targets,
+                    &gpu_state.targets,
+                    &gpu_state.target_dirty_indices,
+                    2,
+                    GAP_STRIDE_2,
+                );
             }
         }
-        write_coalesced_f32(&render_queue, &gpu_bufs.speeds, &gpu_state.speeds, &gpu_state.speed_dirty_indices, 1, GAP_STRIDE_1);
-        write_coalesced_i32(&render_queue, &gpu_bufs.factions, &gpu_state.factions, &gpu_state.faction_dirty_indices, 1, GAP_STRIDE_1);
-        write_coalesced_f32(&render_queue, &gpu_bufs.healths, &gpu_state.healths, &gpu_state.health_dirty_indices, 1, GAP_STRIDE_1);
-        write_coalesced_u32(&render_queue, &gpu_bufs.entity_flags, &gpu_state.entity_flags, &gpu_state.flags_dirty_indices, 1, GAP_STRIDE_1);
-        write_coalesced_f32(&render_queue, &gpu_bufs.half_sizes, &gpu_state.half_sizes, &gpu_state.half_size_dirty_indices, 2, GAP_STRIDE_2);
+        write_coalesced_f32(
+            &render_queue,
+            &gpu_bufs.speeds,
+            &gpu_state.speeds,
+            &gpu_state.speed_dirty_indices,
+            1,
+            GAP_STRIDE_1,
+        );
+        write_coalesced_i32(
+            &render_queue,
+            &gpu_bufs.factions,
+            &gpu_state.factions,
+            &gpu_state.faction_dirty_indices,
+            1,
+            GAP_STRIDE_1,
+        );
+        write_coalesced_f32(
+            &render_queue,
+            &gpu_bufs.healths,
+            &gpu_state.healths,
+            &gpu_state.health_dirty_indices,
+            1,
+            GAP_STRIDE_1,
+        );
+        write_coalesced_u32(
+            &render_queue,
+            &gpu_bufs.entity_flags,
+            &gpu_state.entity_flags,
+            &gpu_state.flags_dirty_indices,
+            1,
+            GAP_STRIDE_1,
+        );
+        write_coalesced_f32(
+            &render_queue,
+            &gpu_bufs.half_sizes,
+            &gpu_state.half_sizes,
+            &gpu_state.half_size_dirty_indices,
+            2,
+            GAP_STRIDE_2,
+        );
         // Road flags: upload when present (rebuilt when roads change)
         if !config.tile_flags.is_empty() {
-            render_queue.write_buffer(&gpu_bufs.tile_flags, 0, bytemuck::cast_slice(&config.tile_flags));
+            render_queue.write_buffer(
+                &gpu_bufs.tile_flags,
+                0,
+                bytemuck::cast_slice(&config.tile_flags),
+            );
         }
     }
     let t1 = std::time::Instant::now();
@@ -1141,16 +1375,36 @@ fn extract_npc_data(
     if let Some(vis_bufs) = visual_buffers {
         if visual_upload.visual_full_upload {
             if visual_upload.entity_count > 0 {
-                render_queue.write_buffer(&vis_bufs.visual, 0, bytemuck::cast_slice(&visual_upload.visual_data));
-                render_queue.write_buffer(&vis_bufs.equip, 0, bytemuck::cast_slice(&visual_upload.equip_data));
+                render_queue.write_buffer(
+                    &vis_bufs.visual,
+                    0,
+                    bytemuck::cast_slice(&visual_upload.visual_data),
+                );
+                render_queue.write_buffer(
+                    &vis_bufs.equip,
+                    0,
+                    bytemuck::cast_slice(&visual_upload.equip_data),
+                );
             }
         } else if !visual_upload.visual_uploaded_indices.is_empty() {
-            write_coalesced_f32(&render_queue, &vis_bufs.visual, &visual_upload.visual_data,
-                &visual_upload.visual_uploaded_indices, 8, GAP_VISUAL);
+            write_coalesced_f32(
+                &render_queue,
+                &vis_bufs.visual,
+                &visual_upload.visual_data,
+                &visual_upload.visual_uploaded_indices,
+                8,
+                GAP_VISUAL,
+            );
             // Equip uses separate indices — excludes flash-only slots (equipment didn't change)
             if !visual_upload.equip_uploaded_indices.is_empty() {
-                write_coalesced_f32(&render_queue, &vis_bufs.equip, &visual_upload.equip_data,
-                    &visual_upload.equip_uploaded_indices, 24, GAP_EQUIP);
+                write_coalesced_f32(
+                    &render_queue,
+                    &vis_bufs.equip,
+                    &visual_upload.equip_data,
+                    &visual_upload.equip_uploaded_indices,
+                    24,
+                    GAP_EQUIP,
+                );
             }
         }
     }
@@ -1163,27 +1417,53 @@ fn extract_npc_data(
         RENDER_TIMINGS[RT_EXTRACT_VISUAL].store(visual_ms.to_bits(), Ordering::Relaxed);
     }
 
-    // Log dirty counts every ~120 frames for diagnostics
-    static EXTRACT_FRAME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let frame = EXTRACT_FRAME.fetch_add(1, Ordering::Relaxed);
-    if frame % 120 == 0 {
-        info!(
-            "extract_npc dirty: pos={} arr={} tgt={} spd={} fac={} hp={} flg={} hs={} vis={} eq={}",
-            gpu_state.position_dirty_indices.len(),
-            gpu_state.arrival_dirty_indices.len(),
-            gpu_state.target_dirty_indices.len(),
-            gpu_state.speed_dirty_indices.len(),
-            gpu_state.faction_dirty_indices.len(),
-            gpu_state.health_dirty_indices.len(),
-            gpu_state.flags_dirty_indices.len(),
-            gpu_state.half_size_dirty_indices.len(),
-            visual_upload.visual_uploaded_indices.len(),
-            visual_upload.equip_uploaded_indices.len(),
-        );
-    }
+    // Store dirty counts for profiler tab
+    EXTRACT_DIRTY_COUNTS[0].store(
+        gpu_state.position_dirty_indices.len() as u32,
+        Ordering::Relaxed,
+    );
+    EXTRACT_DIRTY_COUNTS[1].store(
+        gpu_state.arrival_dirty_indices.len() as u32,
+        Ordering::Relaxed,
+    );
+    EXTRACT_DIRTY_COUNTS[2].store(
+        gpu_state.target_dirty_indices.len() as u32,
+        Ordering::Relaxed,
+    );
+    EXTRACT_DIRTY_COUNTS[3].store(
+        gpu_state.speed_dirty_indices.len() as u32,
+        Ordering::Relaxed,
+    );
+    EXTRACT_DIRTY_COUNTS[4].store(
+        gpu_state.faction_dirty_indices.len() as u32,
+        Ordering::Relaxed,
+    );
+    EXTRACT_DIRTY_COUNTS[5].store(
+        gpu_state.health_dirty_indices.len() as u32,
+        Ordering::Relaxed,
+    );
+    EXTRACT_DIRTY_COUNTS[6].store(
+        gpu_state.flags_dirty_indices.len() as u32,
+        Ordering::Relaxed,
+    );
+    EXTRACT_DIRTY_COUNTS[7].store(
+        gpu_state.half_size_dirty_indices.len() as u32,
+        Ordering::Relaxed,
+    );
+    EXTRACT_DIRTY_COUNTS[8].store(
+        visual_upload.visual_uploaded_indices.len() as u32,
+        Ordering::Relaxed,
+    );
+    EXTRACT_DIRTY_COUNTS[9].store(
+        visual_upload.equip_uploaded_indices.len() as u32,
+        Ordering::Relaxed,
+    );
 
     if let Some(s) = start {
-        RENDER_TIMINGS[RT_EXTRACT_NPC].store((s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(), Ordering::Relaxed);
+        RENDER_TIMINGS[RT_EXTRACT_NPC].store(
+            (s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(),
+            Ordering::Relaxed,
+        );
     }
 }
 
@@ -1198,21 +1478,55 @@ fn extract_proj_data(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
 ) {
-    use std::sync::atomic::Ordering;
     use crate::messages::{RENDER_PROFILING, RENDER_TIMINGS, RT_EXTRACT_PROJ};
+    use std::sync::atomic::Ordering;
     let profiling = RENDER_PROFILING.load(Ordering::Relaxed);
-    let start = if profiling { Some(std::time::Instant::now()) } else { None };
+    let start = if profiling {
+        Some(std::time::Instant::now())
+    } else {
+        None
+    };
     // --- Compute data: per-dirty-index write_buffer ---
     if let Some(gpu_bufs) = gpu_buffers {
         if writes.dirty {
             // Spawn: write all fields for new projectiles
             for &idx in &writes.spawn_dirty_indices {
-                write_dirty_f32(&render_queue, &gpu_bufs.positions, &writes.positions, &[idx], 2);
-                write_dirty_f32(&render_queue, &gpu_bufs.velocities, &writes.velocities, &[idx], 2);
+                write_dirty_f32(
+                    &render_queue,
+                    &gpu_bufs.positions,
+                    &writes.positions,
+                    &[idx],
+                    2,
+                );
+                write_dirty_f32(
+                    &render_queue,
+                    &gpu_bufs.velocities,
+                    &writes.velocities,
+                    &[idx],
+                    2,
+                );
                 write_dirty_f32(&render_queue, &gpu_bufs.damages, &writes.damages, &[idx], 1);
-                write_dirty_i32(&render_queue, &gpu_bufs.factions, &writes.factions, &[idx], 1);
-                write_dirty_i32(&render_queue, &gpu_bufs.shooters, &writes.shooters, &[idx], 1);
-                write_dirty_f32(&render_queue, &gpu_bufs.lifetimes, &writes.lifetimes, &[idx], 1);
+                write_dirty_i32(
+                    &render_queue,
+                    &gpu_bufs.factions,
+                    &writes.factions,
+                    &[idx],
+                    1,
+                );
+                write_dirty_i32(
+                    &render_queue,
+                    &gpu_bufs.shooters,
+                    &writes.shooters,
+                    &[idx],
+                    1,
+                );
+                write_dirty_f32(
+                    &render_queue,
+                    &gpu_bufs.lifetimes,
+                    &writes.lifetimes,
+                    &[idx],
+                    1,
+                );
                 write_dirty_i32(&render_queue, &gpu_bufs.active, &writes.active, &[idx], 1);
                 write_dirty_i32(&render_queue, &gpu_bufs.hits, &writes.hits, &[idx], 2);
             }
@@ -1239,7 +1553,9 @@ fn extract_proj_data(
                 writes.positions.get(i2 + 1).copied().unwrap_or(0.0),
             )
         };
-        if px < -9000.0 { continue; }
+        if px < -9000.0 {
+            continue;
+        }
 
         let faction = writes.factions[i];
         let (cr, cg, cb) = if faction == 0 {
@@ -1279,7 +1595,10 @@ fn extract_proj_data(
     }
 
     if let Some(s) = start {
-        RENDER_TIMINGS[RT_EXTRACT_PROJ].store((s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(), Ordering::Relaxed);
+        RENDER_TIMINGS[RT_EXTRACT_PROJ].store(
+            (s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(),
+            Ordering::Relaxed,
+        );
     }
 }
 
@@ -1298,10 +1617,14 @@ fn prepare_npc_buffers(
     existing_render: Option<ResMut<NpcRenderBuffers>>,
     existing_visual: Option<ResMut<NpcVisualBuffers>>,
 ) {
-    use std::sync::atomic::Ordering;
     use crate::messages::{RENDER_PROFILING, RENDER_TIMINGS, RT_PREPARE_NPC};
+    use std::sync::atomic::Ordering;
     let profiling = RENDER_PROFILING.load(Ordering::Relaxed);
-    let start = if profiling { Some(std::time::Instant::now()) } else { None };
+    let start = if profiling {
+        Some(std::time::Instant::now())
+    } else {
+        None
+    };
 
     // --- NPC visual storage buffers ---
     // Visual data is uploaded by extract_npc_data in Extract phase (zero clone).
@@ -1343,7 +1666,9 @@ fn prepare_npc_buffers(
         render_queue.write_buffer(&equip_buffer, 0, bytemuck::cast_slice(&sentinel_equip));
 
         // Create bind group if gpu_buffers available
-        let bind_group = if let (Some(gpu_bufs), Some(ref pipeline)) = (gpu_buffers.as_ref(), pipeline.as_ref()) {
+        let bind_group = if let (Some(gpu_bufs), Some(ref pipeline)) =
+            (gpu_buffers.as_ref(), pipeline.as_ref())
+        {
             let layout = pipeline_cache.get_bind_group_layout(&pipeline.npc_data_bind_group_layout);
             Some(render_device.create_bind_group(
                 Some("npc_storage_bind_group"),
@@ -1387,7 +1712,10 @@ fn prepare_npc_buffers(
     }
 
     if let Some(s) = start {
-        RENDER_TIMINGS[RT_PREPARE_NPC].store((s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(), Ordering::Relaxed);
+        RENDER_TIMINGS[RT_PREPARE_NPC].store(
+            (s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(),
+            Ordering::Relaxed,
+        );
     }
 }
 
@@ -1404,14 +1732,28 @@ fn prepare_npc_texture_bind_group(
     let Some(pipeline) = pipeline else { return };
     let Some(config) = config else { return };
     let textures = &config.textures;
-    let Some(char_handle) = &textures.handle else { return };
-    let Some(world_handle) = &textures.world_handle else { return };
-    let Some(char_image) = gpu_images.get(char_handle) else { return };
-    let Some(world_image) = gpu_images.get(world_handle) else { return };
+    let Some(char_handle) = &textures.handle else {
+        return;
+    };
+    let Some(world_handle) = &textures.world_handle else {
+        return;
+    };
+    let Some(char_image) = gpu_images.get(char_handle) else {
+        return;
+    };
+    let Some(world_image) = gpu_images.get(world_handle) else {
+        return;
+    };
 
     // Building + extras atlases: fallback to char_image until spawn_world_tilemap composites them
-    let building_image = textures.building_handle.as_ref().and_then(|h| gpu_images.get(h));
-    let extras_image = textures.extras_handle.as_ref().and_then(|h| gpu_images.get(h));
+    let building_image = textures
+        .building_handle
+        .as_ref()
+        .and_then(|h| gpu_images.get(h));
+    let extras_image = textures
+        .extras_handle
+        .as_ref()
+        .and_then(|h| gpu_images.get(h));
     if !*atlases_ready {
         if building_image.is_some() && extras_image.is_some() {
             info!("Building + extras atlases bound");
@@ -1452,14 +1794,17 @@ fn prepare_npc_camera_bind_group(
     config: Option<Res<RenderFrameConfig>>,
 ) {
     let Some(pipeline) = pipeline else { return };
-    let Some(camera_state) = camera_state else { return };
+    let Some(camera_state) = camera_state else {
+        return;
+    };
 
     let uniform = CameraUniform {
         camera_pos: camera_state.position,
         zoom: camera_state.zoom,
         entity_count: config.map(|c| c.npc.count).unwrap_or(0),
         viewport: camera_state.viewport,
-        bldg_layers: (crate::constants::BUILDING_REGISTRY.len() + crate::constants::WALL_EXTRA_LAYERS) as f32,
+        bldg_layers: (crate::constants::BUILDING_REGISTRY.len()
+            + crate::constants::WALL_EXTRA_LAYERS) as f32,
         extras_cols: 4.0,
         lod_zoom: camera_state.lod_zoom,
         _pad: 0,
@@ -1468,7 +1813,9 @@ fn prepare_npc_camera_bind_group(
     let mut buffer = UniformBuffer::from(uniform);
     buffer.write_buffer(&render_device, &render_queue);
 
-    let Some(binding) = buffer.binding() else { return };
+    let Some(binding) = buffer.binding() else {
+        return;
+    };
 
     let layout = pipeline_cache.get_bind_group_layout(&pipeline.camera_bind_group_layout);
 
@@ -1525,19 +1872,29 @@ fn queue_npcs(
     views: Query<(Entity, &ExtractedView, &Msaa)>,
     npc_batch: Query<Entity, With<NpcBatch>>,
 ) {
-    use std::sync::atomic::Ordering;
     use crate::messages::{RENDER_PROFILING, RENDER_TIMINGS, RT_QUEUE_NPC};
+    use std::sync::atomic::Ordering;
     let profiling = RENDER_PROFILING.load(Ordering::Relaxed);
-    let start = if profiling { Some(std::time::Instant::now()) } else { None };
-    let Some(_render_buffers) = render_buffers else { return };
+    let start = if profiling {
+        Some(std::time::Instant::now())
+    } else {
+        None
+    };
+    let Some(_render_buffers) = render_buffers else {
+        return;
+    };
 
-    let has_npcs = visual_buffers.as_ref().is_some_and(|vb| vb.bind_group.is_some())
+    let has_npcs = visual_buffers
+        .as_ref()
+        .is_some_and(|vb| vb.bind_group.is_some())
         && config.as_ref().is_some_and(|c| c.npc.count > 0);
     let has_building_overlays = overlay_buffers.as_ref().is_some_and(|m| m.count > 0);
     let has_building_bodies = body_buffers.as_ref().is_some_and(|b| b.count > 0);
     let has_selection = selection_buffers.as_ref().is_some_and(|s| s.count > 0);
 
-    if !has_npcs && !has_building_overlays && !has_building_bodies && !has_selection { return; }
+    if !has_npcs && !has_building_overlays && !has_building_bodies && !has_selection {
+        return;
+    }
 
     let building_body_draw = draw_functions.read().id::<DrawBuildingBodyCommands>();
     let building_overlay_draw = draw_functions.read().id::<DrawBuildingOverlayCommands>();
@@ -1553,42 +1910,94 @@ fn queue_npcs(
             // Building bodies: instance buffer path (decoupled from NPC compute)
             if has_building_bodies {
                 let building_body_pid = pipelines.specialize(
-                    &pipeline_cache, &pipeline, (view.hdr, msaa.samples(), None),
+                    &pipeline_cache,
+                    &pipeline,
+                    (view.hdr, msaa.samples(), None),
                 );
-                queue_phase_item(transparent_phase, building_body_draw, building_body_pid, ORDER_BUILDING_BODY, view_entity, batch_entity);
+                queue_phase_item(
+                    transparent_phase,
+                    building_body_draw,
+                    building_body_pid,
+                    ORDER_BUILDING_BODY,
+                    view_entity,
+                    batch_entity,
+                );
             }
 
             if has_building_overlays {
                 let overlay_pid = pipelines.specialize(
-                    &pipeline_cache, &pipeline, (view.hdr, msaa.samples(), None),
+                    &pipeline_cache,
+                    &pipeline,
+                    (view.hdr, msaa.samples(), None),
                 );
-                queue_phase_item(transparent_phase, building_overlay_draw, overlay_pid, ORDER_BUILDING_OVERLAY, view_entity, batch_entity);
+                queue_phase_item(
+                    transparent_phase,
+                    building_overlay_draw,
+                    overlay_pid,
+                    ORDER_BUILDING_OVERLAY,
+                    view_entity,
+                    batch_entity,
+                );
             }
 
             if has_npcs {
                 let npc_body_pid = pipelines.specialize(
-                    &pipeline_cache, &pipeline, (view.hdr, msaa.samples(), Some(StorageDrawMode::NpcBody)),
+                    &pipeline_cache,
+                    &pipeline,
+                    (view.hdr, msaa.samples(), Some(StorageDrawMode::NpcBody)),
                 );
-                queue_phase_item(transparent_phase, npc_body_draw, npc_body_pid, ORDER_NPC_BODY, view_entity, batch_entity);
+                queue_phase_item(
+                    transparent_phase,
+                    npc_body_draw,
+                    npc_body_pid,
+                    ORDER_NPC_BODY,
+                    view_entity,
+                    batch_entity,
+                );
 
                 let npc_overlay_pid = pipelines.specialize(
-                    &pipeline_cache, &pipeline, (view.hdr, msaa.samples(), Some(StorageDrawMode::NpcOverlay)),
+                    &pipeline_cache,
+                    &pipeline,
+                    (view.hdr, msaa.samples(), Some(StorageDrawMode::NpcOverlay)),
                 );
-                queue_phase_item(transparent_phase, npc_overlay_draw, npc_overlay_pid, ORDER_NPC_OVERLAY, view_entity, batch_entity);
+                queue_phase_item(
+                    transparent_phase,
+                    npc_overlay_draw,
+                    npc_overlay_pid,
+                    ORDER_NPC_OVERLAY,
+                    view_entity,
+                    batch_entity,
+                );
             }
 
             if has_selection {
                 let sel_draw = draw_functions.read().id::<DrawSelectionBracketCommands>();
                 let sel_pid = pipelines.specialize(
-                    &pipeline_cache, &pipeline, (view.hdr, msaa.samples(), Some(StorageDrawMode::SelectionBracket)),
+                    &pipeline_cache,
+                    &pipeline,
+                    (
+                        view.hdr,
+                        msaa.samples(),
+                        Some(StorageDrawMode::SelectionBracket),
+                    ),
                 );
-                queue_phase_item(transparent_phase, sel_draw, sel_pid, ORDER_SELECTION_OVERLAY, view_entity, batch_entity);
+                queue_phase_item(
+                    transparent_phase,
+                    sel_draw,
+                    sel_pid,
+                    ORDER_SELECTION_OVERLAY,
+                    view_entity,
+                    batch_entity,
+                );
             }
         }
     }
 
     if let Some(s) = start {
-        RENDER_TIMINGS[RT_QUEUE_NPC].store((s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(), Ordering::Relaxed);
+        RENDER_TIMINGS[RT_QUEUE_NPC].store(
+            (s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(),
+            Ordering::Relaxed,
+        );
     }
 }
 
@@ -1793,10 +2202,7 @@ impl SpecializedRenderPipeline for NpcPipeline {
     }
 }
 
-fn init_npc_render_pipeline(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-) {
+fn init_npc_render_pipeline(mut commands: Commands, asset_server: Res<AssetServer>) {
     // 4 texture+sampler pairs: char, world, building, extras
     let texture_bind_group_layout = BindGroupLayoutDescriptor::new(
         "npc_texture_bind_group_layout",
@@ -1849,11 +2255,7 @@ fn init_npc_render_pipeline(
 // =============================================================================
 
 fn spawn_proj_batch(mut commands: Commands) {
-    commands.spawn((
-        ProjBatch,
-        Transform::default(),
-        Visibility::default(),
-    ));
+    commands.spawn((ProjBatch, Transform::default(), Visibility::default()));
     info!("Projectile batch entity spawned");
 }
 
@@ -1871,7 +2273,6 @@ fn extract_proj_batch(
     }
 }
 
-
 /// Queue projectile batch into Transparent2d phase (above NPCs).
 fn queue_projs(
     draw_functions: Res<DrawFunctions<Transparent2d>>,
@@ -1884,9 +2285,15 @@ fn queue_projs(
     views: Query<(Entity, &ExtractedView, &Msaa)>,
     proj_batch: Query<Entity, With<ProjBatch>>,
 ) {
-    let Some(_npc_buffers) = npc_buffers else { return };
-    let Some(proj_buffers) = proj_buffers else { return };
-    if proj_buffers.instance_count == 0 { return; }
+    let Some(_npc_buffers) = npc_buffers else {
+        return;
+    };
+    let Some(proj_buffers) = proj_buffers else {
+        return;
+    };
+    if proj_buffers.instance_count == 0 {
+        return;
+    }
 
     let draw_function = draw_functions.read().id::<DrawProjCommands>();
 
@@ -1895,10 +2302,18 @@ fn queue_projs(
             continue;
         };
 
-        let pipeline_id = pipelines.specialize(&pipeline_cache, &pipeline, (view.hdr, msaa.samples(), None));
+        let pipeline_id =
+            pipelines.specialize(&pipeline_cache, &pipeline, (view.hdr, msaa.samples(), None));
 
         for batch_entity in &proj_batch {
-            queue_phase_item(transparent_phase, draw_function, pipeline_id, ORDER_PROJECTILES, view_entity, batch_entity);
+            queue_phase_item(
+                transparent_phase,
+                draw_function,
+                pipeline_id,
+                ORDER_PROJECTILES,
+                view_entity,
+                batch_entity,
+            );
         }
     }
 }

@@ -1,12 +1,12 @@
 //! Healing Visual Test (3 phases)
 //! Validates: Healing NPC gets halo in NpcVisualUpload equip layer 5 (atlas_id=2.0), cleared when healed.
 
-use bevy::prelude::*;
 use crate::components::*;
 use crate::gpu::NpcVisualUpload;
 use crate::resources::EntityMap;
+use bevy::prelude::*;
 
-use super::{TestState, TestSetupParams};
+use super::{TestSetupParams, TestState};
 
 pub fn setup(mut params: TestSetupParams) {
     params.add_town("HealVisTown");
@@ -31,10 +31,17 @@ pub fn tick(
     mut health_q: Query<&mut Health, Without<Building>>,
     npc_flags_q: Query<&NpcFlags>,
 ) {
-    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
+    let Some(elapsed) = test.tick_elapsed(&time) else {
+        return;
+    };
 
-    let Some(farmer) = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer) else {
-        if !test.require_entity(0, elapsed, "farmer") { return; }
+    let Some(farmer) = entity_map
+        .iter_npcs()
+        .find(|n| !n.dead && n.job == Job::Farmer)
+    else {
+        if !test.require_entity(0, elapsed, "farmer") {
+            return;
+        }
         return;
     };
     let farmer_entity = farmer.entity;
@@ -45,11 +52,16 @@ pub fn tick(
         // Phase 1: Damage NPC, wait for Healing marker
         1 => {
             if !test.get_flag("damaged") {
-                if let Ok(mut h) = health_q.get_mut(farmer_entity) { h.0 = 50.0; }
+                if let Ok(mut h) = health_q.get_mut(farmer_entity) {
+                    h.0 = 50.0;
+                }
                 test.set_flag("damaged", true);
                 test.phase_name = "Damaged to 50 HP, waiting for Healing...".into();
             } else {
-                let healing = entity_map.iter_npcs().filter(|n| !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| f.healing)).count();
+                let healing = entity_map
+                    .iter_npcs()
+                    .filter(|n| !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| f.healing))
+                    .count();
                 test.phase_name = format!("hp={:.0} healing={}", hp, healing);
                 if healing > 0 {
                     test.pass_phase(elapsed, format!("Healing marker (hp={:.0})", hp));
@@ -60,7 +72,10 @@ pub fn tick(
         }
         // Phase 2: Healing NPC → equip layer 5 should show halo (col>=0, atlas=2.0)
         2 => {
-            let healing_idx = entity_map.iter_npcs().find(|n| !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| f.healing)).map(|n| n.slot);
+            let healing_idx = entity_map
+                .iter_npcs()
+                .find(|n| !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| f.healing))
+                .map(|n| n.slot);
             test.phase_name = format!("hp={:.0} healing_idx={:?}", hp, healing_idx);
 
             if let Some(idx) = healing_idx {
@@ -68,9 +83,18 @@ pub fn tick(
                 let col = upload.equip_data.get(eq_base).copied().unwrap_or(-1.0);
                 let atlas = upload.equip_data.get(eq_base + 2).copied().unwrap_or(0.0);
                 if col >= 0.0 && atlas == 2.0 {
-                    test.pass_phase(elapsed, format!("Halo active (idx={}, atlas={:.0})", idx, atlas));
+                    test.pass_phase(
+                        elapsed,
+                        format!("Halo active (idx={}, atlas={:.0})", idx, atlas),
+                    );
                 } else {
-                    test.fail_phase(elapsed, format!("Healing but col={:.1} atlas={:.1}, expected col>=0 atlas=2", col, atlas));
+                    test.fail_phase(
+                        elapsed,
+                        format!(
+                            "Healing but col={:.1} atlas={:.1}, expected col>=0 atlas=2",
+                            col, atlas
+                        ),
+                    );
                 }
             } else if elapsed > 15.0 {
                 test.fail_phase(elapsed, format!("Lost Healing marker (hp={:.0})", hp));
@@ -78,17 +102,35 @@ pub fn tick(
         }
         // Phase 3: NPC healed to full → Healing removed → equip layer 5 cleared
         3 => {
-            let not_healing_idx = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer && !npc_flags_q.get(n.entity).is_ok_and(|f| f.healing)).map(|n| n.slot);
+            let not_healing_idx = entity_map
+                .iter_npcs()
+                .find(|n| {
+                    !n.dead
+                        && n.job == Job::Farmer
+                        && !npc_flags_q.get(n.entity).is_ok_and(|f| f.healing)
+                })
+                .map(|n| n.slot);
             test.phase_name = format!("hp={:.0} not_healing={}", hp, not_healing_idx.is_some());
 
             if let Some(idx) = not_healing_idx {
                 if hp >= 90.0 {
-                    let col = upload.equip_data.get(idx * 24 + 20).copied().unwrap_or(-1.0);
+                    let col = upload
+                        .equip_data
+                        .get(idx * 24 + 20)
+                        .copied()
+                        .unwrap_or(-1.0);
                     if col == -1.0 {
                         test.pass_phase(elapsed, format!("Halo cleared (hp={:.0})", hp));
                         test.complete(elapsed);
                     } else {
-                        test.fail_phase(elapsed, format!("Healed but equip[{}]={:.1}, expected -1", idx * 24 + 20, col));
+                        test.fail_phase(
+                            elapsed,
+                            format!(
+                                "Healed but equip[{}]={:.1}, expected -1",
+                                idx * 24 + 20,
+                                col
+                            ),
+                        );
                     }
                 }
             }

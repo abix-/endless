@@ -6,15 +6,15 @@
 //! near the AI town as a target. AI archers spawn from 5 archer homes.
 //! After wave dispatches, we destroy the target and reuse its slot to prove the bug.
 
-use bevy::prelude::*;
 use bevy::ecs::system::SystemParam;
+use bevy::prelude::*;
 
 use crate::components::Health;
 use crate::resources::*;
-use crate::systems::{AiPlayerState, AiPlayerConfig, AiPersonality};
+use crate::systems::{AiPersonality, AiPlayerConfig, AiPlayerState};
 use crate::world::{self, BuildingKind, WorldGenStyle};
 
-use super::{TestState, BuildingInitParams};
+use super::{BuildingInitParams, TestState};
 
 /// Persistent state across phases — tracks the target slot for verification.
 #[derive(Resource, Default)]
@@ -77,12 +77,15 @@ pub fn setup(
 
     let (npc_msgs, ai_players) = world::setup_world(
         &config,
-        &mut world_grid, &mut world_data,
+        &mut world_grid,
+        &mut world_data,
         &mut town_grids,
         &mut slot_alloc,
         &mut bld.entity_map,
-        &mut food_storage, &mut gold_storage,
-        &mut faction_stats, &mut state.raider_state,
+        &mut food_storage,
+        &mut gold_storage,
+        &mut faction_stats,
+        &mut state.raider_state,
         &mut uid_alloc,
     );
     world::materialize_generated_world(
@@ -97,7 +100,9 @@ pub fn setup(
     // Give AI town plenty of food for spawning archers
     for player in &state.ai_state.players {
         let ti = player.town_data_idx;
-        if let Some(f) = food_storage.food.get_mut(ti) { *f = 500; }
+        if let Some(f) = food_storage.food.get_mut(ti) {
+            *f = 500;
+        }
     }
 
     // Place 5 extra archer homes for the AI town so military spawns quickly
@@ -109,10 +114,16 @@ pub fn setup(
             for i in 0..5 {
                 let offset = Vec2::new(32.0 * (i as f32 + 1.0), 64.0);
                 world::place_building_instance(
-                    &mut slot_alloc, &mut bld.entity_map,
-                    BuildingKind::ArcherHome, center + offset,
-                    ti as u32, faction, 0, 0,
-                    &mut uid_alloc, None,
+                    &mut slot_alloc,
+                    &mut bld.entity_map,
+                    BuildingKind::ArcherHome,
+                    center + offset,
+                    ti as u32,
+                    faction,
+                    0,
+                    0,
+                    &mut uid_alloc,
+                    None,
                 );
             }
         }
@@ -123,12 +134,22 @@ pub fn setup(
         let ai_ti = ai_player.town_data_idx;
         if let Some(ai_town) = world_data.towns.get(ai_ti) {
             let farm_pos = ai_town.center + Vec2::new(-200.0, 0.0);
-            let player_ti = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
+            let player_ti = world_data
+                .towns
+                .iter()
+                .position(|t| t.faction == 0)
+                .unwrap_or(0);
             world::place_building_instance(
-                &mut slot_alloc, &mut bld.entity_map,
-                BuildingKind::Farm, farm_pos,
-                player_ti as u32, 0, 0, 0,
-                &mut uid_alloc, None,
+                &mut slot_alloc,
+                &mut bld.entity_map,
+                BuildingKind::Farm,
+                farm_pos,
+                player_ti as u32,
+                0,
+                0,
+                0,
+                &mut uid_alloc,
+                None,
             );
         }
     }
@@ -139,7 +160,9 @@ pub fn setup(
     }
 
     // Ensure policies exist for all towns
-    policies.policies.resize(world_data.towns.len(), PolicySet::default());
+    policies
+        .policies
+        .resize(world_data.towns.len(), PolicySet::default());
 
     state.ai_config.decision_interval = 1.0;
     state.endless.enabled = true;
@@ -160,7 +183,9 @@ pub fn setup(
     }
 
     state.test_state.phase_name = "Waiting for AI wave...".into();
-    info!("slot-reuse-wave: setup — 1 player town, 1 AI builder (Aggressive), 5 extra archer homes");
+    info!(
+        "slot-reuse-wave: setup — 1 player town, 1 AI builder (Aggressive), 5 extra archer homes"
+    );
 }
 
 pub fn tick(
@@ -175,7 +200,9 @@ pub fn tick(
     world_data: Res<world::WorldData>,
     mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
 ) {
-    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
+    let Some(elapsed) = test.tick_elapsed(&time) else {
+        return;
+    };
 
     match test.phase {
         // Phase 1: Wait for an AI attack squad wave to dispatch
@@ -195,11 +222,17 @@ pub fn tick(
                                     local.building_gpu_slot = slot;
                                     local.target_pos = squad.target;
                                     local.attack_squad_idx = Some(si);
-                                    let pos_str = squad.target.map(|p| format!("({:.0}, {:.0})", p.x, p.y)).unwrap_or("None".into());
-                                    test.pass_phase(elapsed, format!(
-                                        "wave active: squad {} → uid {} (slot {:?}) at {}",
-                                        si, uid.0, slot, pos_str,
-                                    ));
+                                    let pos_str = squad
+                                        .target
+                                        .map(|p| format!("({:.0}, {:.0})", p.x, p.y))
+                                        .unwrap_or("None".into());
+                                    test.pass_phase(
+                                        elapsed,
+                                        format!(
+                                            "wave active: squad {} → uid {} (slot {:?}) at {}",
+                                            si, uid.0, slot, pos_str,
+                                        ),
+                                    );
                                     return;
                                 }
                             }
@@ -210,17 +243,22 @@ pub fn tick(
 
             if elapsed > 30.0 {
                 // Debug: show squad state
-                let squad_count: usize = ai_state.players.iter()
-                    .map(|p| p.squad_indices.len()).sum();
-                let total_members: usize = ai_state.players.iter()
+                let squad_count: usize =
+                    ai_state.players.iter().map(|p| p.squad_indices.len()).sum();
+                let total_members: usize = ai_state
+                    .players
+                    .iter()
                     .flat_map(|p| p.squad_indices.iter())
                     .filter_map(|&si| squad_state.squads.get(si))
                     .map(|s| s.members.len())
                     .sum();
-                test.fail_phase(elapsed, format!(
-                    "no active wave after 30s (squads={}, total_members={})",
-                    squad_count, total_members,
-                ));
+                test.fail_phase(
+                    elapsed,
+                    format!(
+                        "no active wave after 30s (squads={}, total_members={})",
+                        squad_count, total_members,
+                    ),
+                );
             }
         }
 
@@ -253,7 +291,10 @@ pub fn tick(
             if entity_map.get_instance(slot).is_none() {
                 test.pass_phase(elapsed, format!("slot {} removed from EntityMap", slot));
             } else if elapsed > 5.0 {
-                test.fail_phase(elapsed, format!("slot {} still in EntityMap after 5s", slot));
+                test.fail_phase(
+                    elapsed,
+                    format!("slot {} still in EntityMap after 5s", slot),
+                );
             }
         }
 
@@ -268,14 +309,24 @@ pub fn tick(
                 test.phase_name = "Placing new building to trigger slot reuse...".into();
 
                 // Place a new building — the freed slot should be reused (LIFO)
-                let ai_ti = ai_state.players.first().map(|p| p.town_data_idx).unwrap_or(1);
+                let ai_ti = ai_state
+                    .players
+                    .first()
+                    .map(|p| p.town_data_idx)
+                    .unwrap_or(1);
                 let ai_faction = world_data.towns.get(ai_ti).map(|t| t.faction).unwrap_or(1);
                 let new_pos = Vec2::new(200.0, 200.0); // far from original target
                 let new_slot = world::place_building_instance(
-                    &mut slot_alloc, &mut entity_map,
-                    BuildingKind::Farm, new_pos,
-                    ai_ti as u32, ai_faction, 0, 0,
-                    &mut uid_alloc, None,
+                    &mut slot_alloc,
+                    &mut entity_map,
+                    BuildingKind::Farm,
+                    new_pos,
+                    ai_ti as u32,
+                    ai_faction,
+                    0,
+                    0,
+                    &mut uid_alloc,
+                    None,
                 );
 
                 if let Some(ns) = new_slot {
@@ -314,7 +365,9 @@ pub fn tick(
             );
 
             // Wait at least 3 real seconds (> heartbeat interval) for commander to process
-            if local.heartbeat_wait < 3.0 { return; }
+            if local.heartbeat_wait < 3.0 {
+                return;
+            }
 
             if let Some(squad) = squad_state.squads.get(si) {
                 if !squad.wave_active {
@@ -322,11 +375,17 @@ pub fn tick(
                     test.pass_phase(elapsed, "fix confirmed: wave ends after target destroyed");
                 } else {
                     // Bug still present — UID lookup should have resolved this
-                    let target_str = squad.target.map(|p| format!("({:.0}, {:.0})", p.x, p.y)).unwrap_or("None".into());
-                    test.fail_phase(elapsed, format!(
-                        "wave still active after target destroyed (UID bug?). squad.target={}",
-                        target_str,
-                    ));
+                    let target_str = squad
+                        .target
+                        .map(|p| format!("({:.0}, {:.0})", p.x, p.y))
+                        .unwrap_or("None".into());
+                    test.fail_phase(
+                        elapsed,
+                        format!(
+                            "wave still active after target destroyed (UID bug?). squad.target={}",
+                            target_str,
+                        ),
+                    );
                 }
             } else {
                 test.fail_phase(elapsed, format!("squad {} no longer exists", si));
@@ -336,12 +395,28 @@ pub fn tick(
         // Phase 5: Report
         5 => {
             let slot = local.building_gpu_slot.unwrap_or(0);
-            let orig_pos = local.target_pos.map(|p| format!("({:.0}, {:.0})", p.x, p.y)).unwrap_or("?".into());
-            let reuse_pos = local.reuse_pos.map(|p| format!("({:.0}, {:.0})", p.x, p.y)).unwrap_or("?".into());
+            let orig_pos = local
+                .target_pos
+                .map(|p| format!("({:.0}, {:.0})", p.x, p.y))
+                .unwrap_or("?".into());
+            let reuse_pos = local
+                .reuse_pos
+                .map(|p| format!("({:.0}, {:.0})", p.x, p.y))
+                .unwrap_or("?".into());
             let si = local.attack_squad_idx.unwrap_or(0);
-            let wave_active = squad_state.squads.get(si).map(|s| s.wave_active).unwrap_or(false);
-            let resolve_result = entity_map.get_instance(slot)
-                .map(|inst| format!("{:?} at ({:.0}, {:.0})", inst.kind, inst.position.x, inst.position.y))
+            let wave_active = squad_state
+                .squads
+                .get(si)
+                .map(|s| s.wave_active)
+                .unwrap_or(false);
+            let resolve_result = entity_map
+                .get_instance(slot)
+                .map(|inst| {
+                    format!(
+                        "{:?} at ({:.0}, {:.0})",
+                        inst.kind, inst.position.x, inst.position.y
+                    )
+                })
                 .unwrap_or("None".into());
 
             info!("========================================");
@@ -353,10 +428,13 @@ pub fn tick(
             info!("  wave_active: {}", wave_active);
             info!("========================================");
 
-            test.pass_phase(elapsed, format!(
-                "slot={} orig={} reuse={} resolve={} wave_active={}",
-                slot, orig_pos, reuse_pos, resolve_result, wave_active,
-            ));
+            test.pass_phase(
+                elapsed,
+                format!(
+                    "slot={} orig={} reuse={} resolve={} wave_active={}",
+                    slot, orig_pos, reuse_pos, resolve_result, wave_active,
+                ),
+            );
             test.complete(elapsed);
         }
 

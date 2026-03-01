@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU32, AtomicBool};
+use std::sync::atomic::{AtomicBool, AtomicU32};
 
 // ============================================================================
 // EVENT TYPES
@@ -14,18 +14,17 @@ pub struct SpawnNpcMsg {
     pub slot_idx: usize,
     pub x: f32,
     pub y: f32,
-    pub job: i32,           // 0=Farmer, 1=Archer, 2=Raider
-    pub faction: i32,       // 0=Villager, 1=Raider
-    pub town_idx: i32,      // -1 = none
+    pub job: i32,      // 0=Farmer, 1=Archer, 2=Raider
+    pub faction: i32,  // 0=Villager, 1=Raider
+    pub town_idx: i32, // -1 = none
     pub home_x: f32,
     pub home_y: f32,
-    pub work_x: f32,        // -1 = none
+    pub work_x: f32, // -1 = none
     pub work_y: f32,
-    pub starting_post: i32, // -1 = none
-    pub attack_type: i32,   // 0=melee, 1=ranged
+    pub starting_post: i32,                                 // -1 = none
+    pub attack_type: i32,                                   // 0=melee, 1=ranged
     pub uid_override: Option<crate::components::EntityUid>, // None = allocate fresh
 }
-
 
 /// Unified damage message for both NPCs and buildings.
 /// entity_idx = unified slot (same as GPU index). Routes to NPC or building via EntityMap.
@@ -33,8 +32,8 @@ pub struct SpawnNpcMsg {
 pub struct DamageMsg {
     pub entity_idx: usize,
     pub amount: f32,
-    pub attacker: i32,          // NPC slot of attacker (-1 = tower/unknown)
-    pub attacker_faction: i32,  // for combat log attribution
+    pub attacker: i32,         // NPC slot of attacker (-1 = tower/unknown)
+    pub attacker_faction: i32, // for combat log attribution
 }
 
 /// Reassign an NPC to a different job (Farmer <-> Guard).
@@ -63,7 +62,6 @@ pub struct CombatLogMsg {
     pub message: String,
     pub location: Option<bevy::math::Vec2>,
 }
-
 
 // ============================================================================
 // DIRTY-FLAG MESSAGES (replace DirtyFlags resource)
@@ -126,11 +124,12 @@ impl DirtyWriters<'_> {
             self.patrols.write(PatrolsDirtyMsg);
             self.patrol_perimeter.write(PatrolPerimeterDirtyMsg);
         }
-        if matches!(kind,
+        if matches!(
+            kind,
             crate::world::BuildingKind::Farm
-            | crate::world::BuildingKind::FarmerHome
-            | crate::world::BuildingKind::ArcherHome
-            | crate::world::BuildingKind::MinerHome
+                | crate::world::BuildingKind::FarmerHome
+                | crate::world::BuildingKind::ArcherHome
+                | crate::world::BuildingKind::MinerHome
         ) {
             self.patrol_perimeter.write(PatrolPerimeterDirtyMsg);
         }
@@ -183,13 +182,22 @@ pub enum GpuUpdate {
     /// Set speed
     SetSpeed { idx: usize, speed: f32 },
     /// Set sprite frame (column, row in sprite sheet, atlas: 0.0=character, 1.0=world)
-    SetSpriteFrame { idx: usize, col: f32, row: f32, atlas: f32 },
+    SetSpriteFrame {
+        idx: usize,
+        col: f32,
+        row: f32,
+        atlas: f32,
+    },
     /// Set damage flash intensity (1.0 = full white, decays to 0.0)
     SetDamageFlash { idx: usize, intensity: f32 },
     /// Set entity flags (bit 0: combat scan enabled, bit 1: building)
     SetFlags { idx: usize, flags: u32 },
     /// Set entity hitbox half-size for projectile collision (Minkowski sum with arrow hitbox)
-    SetHalfSize { idx: usize, half_w: f32, half_h: f32 },
+    SetHalfSize {
+        idx: usize,
+        half_w: f32,
+        half_h: f32,
+    },
     /// Mark slot's visual data dirty (activity/healing/equipment changed)
     MarkVisualDirty { idx: usize },
 }
@@ -204,8 +212,10 @@ pub enum ProjGpuUpdate {
     /// Spawn a projectile at a slot index.
     Spawn {
         idx: usize,
-        x: f32, y: f32,
-        vx: f32, vy: f32,
+        x: f32,
+        y: f32,
+        vx: f32,
+        vy: f32,
         damage: f32,
         faction: i32,
         shooter: i32,
@@ -237,14 +247,31 @@ pub const RT_GPU_COMPUTE: usize = 4;
 pub const RT_PROJ_COMPUTE: usize = 5;
 pub const RT_NPC_BINDS: usize = 6;
 pub const RT_PROJ_BINDS: usize = 7;
-pub const RT_COUNT: usize = 8;
+pub const RT_EXTRACT_COMPUTE: usize = 8;
+pub const RT_EXTRACT_VISUAL: usize = 9;
+pub const RT_COUNT: usize = 10;
 
 pub static RENDER_TIMINGS: [AtomicU32; RT_COUNT] = [const { AtomicU32::new(0) }; RT_COUNT];
 
 pub const RT_NAMES: [&str; RT_COUNT] = [
-    "r:extract_npc", "r:extract_proj", "r:prepare_npc", "r:queue_npc",
-    "r:gpu_compute", "r:proj_compute", "r:npc_binds", "r:proj_binds",
+    "r:extract_npc",
+    "r:extract_proj",
+    "r:prepare_npc",
+    "r:queue_npc",
+    "r:gpu_compute",
+    "r:proj_compute",
+    "r:npc_binds",
+    "r:proj_binds",
+    "r:ext_compute",
+    "r:ext_visual",
 ];
+
+// Extract dirty index counts — written by extract_npc_data, read by profiler tab.
+pub const DC_COUNT: usize = 10;
+pub const DC_NAMES: [&str; DC_COUNT] = [
+    "pos", "arr", "tgt", "spd", "fac", "hp", "flg", "hs", "vis", "eq",
+];
+pub static EXTRACT_DIRTY_COUNTS: [AtomicU32; DC_COUNT] = [const { AtomicU32::new(0) }; DC_COUNT];
 
 // ============================================================================
 // GAME CONFIG (write-once from GDScript, drained into Res<GameConfig>)
@@ -274,5 +301,3 @@ pub const STATE_RECOVERING: i32 = 9;
 pub const STATE_FLEEING: i32 = 10;
 pub const STATE_GOING_TO_REST: i32 = 11;
 pub const STATE_GOING_TO_WORK: i32 = 12;
-
-

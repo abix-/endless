@@ -1,11 +1,11 @@
 //! Farmer Lifecycle Test (5 phases)
 //! Validates: spawn from home → walk to farm → work → tired → rest at home.
 
-use bevy::prelude::*;
 use crate::components::*;
 use crate::resources::*;
+use bevy::prelude::*;
 
-use super::{TestState, TestSetupParams};
+use super::{TestSetupParams, TestState};
 
 const HOME_Y: f32 = 550.0;
 const FARM_Y: f32 = 350.0;
@@ -25,7 +25,10 @@ pub fn setup(mut params: TestSetupParams) {
     params.focus_camera(400.0, 400.0);
 
     params.test_state.phase_name = "Waiting for spawns...".into();
-    info!("movement: setup — 3 farmers, homes at y={}, farms at y={}", HOME_Y, FARM_Y);
+    info!(
+        "movement: setup — 3 farmers, homes at y={}, farms at y={}",
+        HOME_Y, FARM_Y
+    );
 }
 
 pub fn tick(
@@ -38,22 +41,53 @@ pub fn tick(
     npc_flags_q: Query<&NpcFlags>,
     mut energy_q: Query<&mut Energy>,
 ) {
-    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
+    let Some(elapsed) = test.tick_elapsed(&time) else {
+        return;
+    };
 
     // Set energy near tired threshold so drain→rest fits in test window
     if !test.get_flag("energy_set") && slots.alive() >= 3 {
         for npc in entity_map.iter_npcs() {
             if !npc.dead && npc.job == Job::Farmer {
-                if let Ok(mut en) = energy_q.get_mut(npc.entity) { en.0 = 35.0; }
+                if let Ok(mut en) = energy_q.get_mut(npc.entity) {
+                    en.0 = 35.0;
+                }
             }
         }
         test.set_flag("energy_set", true);
     }
 
-    let transit = entity_map.iter_npcs().filter(|n| !n.dead && activity_q.get(n.entity).is_ok_and(|a| a.is_transit())).count();
-    let working = entity_map.iter_npcs().filter(|n| !n.dead && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Working))).count();
-    let going_rest = entity_map.iter_npcs().filter(|n| !n.dead && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::GoingToRest))).count();
-    let resting = entity_map.iter_npcs().filter(|n| !n.dead && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Resting))).count();
+    let transit = entity_map
+        .iter_npcs()
+        .filter(|n| !n.dead && activity_q.get(n.entity).is_ok_and(|a| a.is_transit()))
+        .count();
+    let working = entity_map
+        .iter_npcs()
+        .filter(|n| {
+            !n.dead
+                && activity_q
+                    .get(n.entity)
+                    .is_ok_and(|a| matches!(*a, Activity::Working))
+        })
+        .count();
+    let going_rest = entity_map
+        .iter_npcs()
+        .filter(|n| {
+            !n.dead
+                && activity_q
+                    .get(n.entity)
+                    .is_ok_and(|a| matches!(*a, Activity::GoingToRest))
+        })
+        .count();
+    let resting = entity_map
+        .iter_npcs()
+        .filter(|n| {
+            !n.dead
+                && activity_q
+                    .get(n.entity)
+                    .is_ok_and(|a| matches!(*a, Activity::Resting))
+        })
+        .count();
 
     match test.phase {
         // Phase 1: Farmers in transit to farms
@@ -62,13 +96,32 @@ pub fn tick(
             if transit + working >= 3 {
                 test.pass_phase(elapsed, format!("transit={} working={}", transit, working));
             } else if slots.alive() >= 3 && elapsed > 0.5 {
-                let at_dest = entity_map.iter_npcs().filter(|n| !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| f.at_destination)).count();
+                let at_dest = entity_map
+                    .iter_npcs()
+                    .filter(|n| {
+                        !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| f.at_destination)
+                    })
+                    .count();
                 if transit + working + at_dest >= 3 {
-                    test.pass_phase(elapsed, format!("transit={} working={} at_dest={}", transit, working, at_dest));
+                    test.pass_phase(
+                        elapsed,
+                        format!(
+                            "transit={} working={} at_dest={}",
+                            transit, working, at_dest
+                        ),
+                    );
                 }
             }
             if elapsed > 10.0 {
-                test.fail_phase(elapsed, format!("transit={} working={} alive={}", transit, working, slots.alive()));
+                test.fail_phase(
+                    elapsed,
+                    format!(
+                        "transit={} working={} alive={}",
+                        transit,
+                        working,
+                        slots.alive()
+                    ),
+                );
             }
         }
         // Phase 2: GPU positions changed (moved from HOME_Y toward FARM_Y)
@@ -88,7 +141,10 @@ pub fn tick(
                 test.pass_phase(elapsed, format!("moved={}", moved_count));
             } else if elapsed > 8.0 {
                 let sample_y = positions.get(1).copied().unwrap_or(-1.0);
-                test.fail_phase(elapsed, format!("moved=0, sample_y={:.1}, len={}", sample_y, positions.len()));
+                test.fail_phase(
+                    elapsed,
+                    format!("moved=0, sample_y={:.1}, len={}", sample_y, positions.len()),
+                );
             }
         }
         // Phase 3: Farmers working at farms
@@ -97,31 +153,65 @@ pub fn tick(
             if working >= 1 {
                 test.pass_phase(elapsed, format!("working={}", working));
             } else if elapsed > 15.0 {
-                let at_dest = entity_map.iter_npcs().filter(|n| !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| f.at_destination)).count();
-                test.fail_phase(elapsed, format!("working=0 transit={} at_dest={}", transit, at_dest));
+                let at_dest = entity_map
+                    .iter_npcs()
+                    .filter(|n| {
+                        !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| f.at_destination)
+                    })
+                    .count();
+                test.fail_phase(
+                    elapsed,
+                    format!("working=0 transit={} at_dest={}", transit, at_dest),
+                );
             }
         }
         // Phase 4: Energy drains → going home to rest
         4 => {
-            let energy = entity_map.iter_npcs().find(|n| !n.dead)
-                .and_then(|n| energy_q.get(n.entity).ok()).map(|e| e.0).unwrap_or(100.0);
-            test.phase_name = format!("going_rest={} resting={} e={:.0}", going_rest, resting, energy);
+            let energy = entity_map
+                .iter_npcs()
+                .find(|n| !n.dead)
+                .and_then(|n| energy_q.get(n.entity).ok())
+                .map(|e| e.0)
+                .unwrap_or(100.0);
+            test.phase_name = format!(
+                "going_rest={} resting={} e={:.0}",
+                going_rest, resting, energy
+            );
             if going_rest > 0 || resting > 0 {
-                test.pass_phase(elapsed, format!("going_rest={} resting={} (energy={:.0})", going_rest, resting, energy));
+                test.pass_phase(
+                    elapsed,
+                    format!(
+                        "going_rest={} resting={} (energy={:.0})",
+                        going_rest, resting, energy
+                    ),
+                );
             } else if elapsed > 25.0 {
-                test.fail_phase(elapsed, format!("not resting, working={} energy={:.0}", working, energy));
+                test.fail_phase(
+                    elapsed,
+                    format!("not resting, working={} energy={:.0}", working, energy),
+                );
             }
         }
         // Phase 5: Resting at home
         5 => {
-            let energy = entity_map.iter_npcs().find(|n| !n.dead)
-                .and_then(|n| energy_q.get(n.entity).ok()).map(|e| e.0).unwrap_or(100.0);
+            let energy = entity_map
+                .iter_npcs()
+                .find(|n| !n.dead)
+                .and_then(|n| energy_q.get(n.entity).ok())
+                .map(|e| e.0)
+                .unwrap_or(100.0);
             test.phase_name = format!("resting={} e={:.0}", resting, energy);
             if resting > 0 {
-                test.pass_phase(elapsed, format!("resting={} (energy={:.0})", resting, energy));
+                test.pass_phase(
+                    elapsed,
+                    format!("resting={} (energy={:.0})", resting, energy),
+                );
                 test.complete(elapsed);
             } else if elapsed > 30.0 {
-                test.fail_phase(elapsed, format!("resting=0 going_rest={} energy={:.0}", going_rest, energy));
+                test.fail_phase(
+                    elapsed,
+                    format!("resting=0 going_rest={} energy={:.0}", going_rest, energy),
+                );
             }
         }
         _ => {}

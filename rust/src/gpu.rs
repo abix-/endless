@@ -15,6 +15,7 @@ use bevy::{
     asset::RenderAssetUsages,
     prelude::*,
     render::{
+        Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::{ExtractResource, ExtractResourcePlugin},
         gpu_readback::{Readback, ReadbackComplete},
         render_asset::RenderAssets,
@@ -25,19 +26,20 @@ use bevy::{
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
         storage::{GpuShaderStorageBuffer, ShaderStorageBuffer},
-        Render, RenderApp, RenderStartup, RenderSystems,
     },
     shader::PipelineCacheError,
 };
 use std::borrow::Cow;
 
-use crate::components::{Activity, Building, Dead, GpuSlot, Faction, Job};
+use crate::components::{Activity, Building, Dead, Faction, GpuSlot, Job};
 use crate::constants::{
     FOOD_SPRITE, GOLD_SPRITE, ItemKind, MAX_ENTITIES, MAX_NPC_COUNT,
     MAX_PROJECTILES as MAX_PROJECTILE_COUNT, PROJECTILE_HIT_HALF_LENGTH, PROJECTILE_HIT_HALF_WIDTH,
 };
 use crate::messages::{GpuUpdate, GpuUpdateMsg, ProjGpuUpdate, ProjGpuUpdateMsg};
-use crate::resources::{GameTime, GpuReadState, ProjHitState, ProjPositionState, GpuSlotPool, NpcTargetThrashDebug};
+use crate::resources::{
+    GameTime, GpuReadState, GpuSlotPool, NpcTargetThrashDebug, ProjHitState, ProjPositionState,
+};
 use crate::systems::stats::{self, TownUpgrades};
 use crate::world::WorldData;
 
@@ -298,7 +300,12 @@ impl EntityGpuState {
                 self.visual_dirty_indices.push(*idx);
             }
             // Visual-only messages — no compute dirty flag
-            GpuUpdate::SetSpriteFrame { idx, col, row, atlas } => {
+            GpuUpdate::SetSpriteFrame {
+                idx,
+                col,
+                row,
+                atlas,
+            } => {
                 let i = *idx * 4;
                 if i + 3 < self.sprite_indices.len() {
                     self.sprite_indices[i] = *col;
@@ -322,7 +329,11 @@ impl EntityGpuState {
                     self.flags_dirty_indices.push(*idx);
                 }
             }
-            GpuUpdate::SetHalfSize { idx, half_w, half_h } => {
+            GpuUpdate::SetHalfSize {
+                idx,
+                half_w,
+                half_h,
+            } => {
                 let i = *idx * 2;
                 if i + 1 < self.half_sizes.len() {
                     self.half_sizes[i] = *half_w;
@@ -352,12 +363,26 @@ fn write_npc_visual(
     weapon_q: &Query<&crate::components::EquippedWeapon>,
 ) {
     let base = idx * 8;
-    if base + 7 >= upload.visual_data.len() { return; }
+    if base + 7 >= upload.visual_data.len() {
+        return;
+    }
 
     // Visual data: [sprite_col, sprite_row, atlas, flash, r, g, b, a]
-    upload.visual_data[base]     = gpu_state.sprite_indices.get(idx * 4).copied().unwrap_or(0.0);
-    upload.visual_data[base + 1] = gpu_state.sprite_indices.get(idx * 4 + 1).copied().unwrap_or(0.0);
-    upload.visual_data[base + 2] = gpu_state.sprite_indices.get(idx * 4 + 2).copied().unwrap_or(0.0);
+    upload.visual_data[base] = gpu_state
+        .sprite_indices
+        .get(idx * 4)
+        .copied()
+        .unwrap_or(0.0);
+    upload.visual_data[base + 1] = gpu_state
+        .sprite_indices
+        .get(idx * 4 + 1)
+        .copied()
+        .unwrap_or(0.0);
+    upload.visual_data[base + 2] = gpu_state
+        .sprite_indices
+        .get(idx * 4 + 2)
+        .copied()
+        .unwrap_or(0.0);
     upload.visual_data[base + 3] = gpu_state.flash_values.get(idx).copied().unwrap_or(0.0);
     let (r, g, b, a) = if faction == 0 {
         job.color()
@@ -373,21 +398,30 @@ fn write_npc_visual(
     let eq = idx * 24;
 
     // Layer 0: Armor
-    let (ac, ar) = armor_q.get(entity).map(|a| (a.0, a.1)).unwrap_or((-1.0, 0.0));
-    upload.equip_data[eq]     = ac;
+    let (ac, ar) = armor_q
+        .get(entity)
+        .map(|a| (a.0, a.1))
+        .unwrap_or((-1.0, 0.0));
+    upload.equip_data[eq] = ac;
     upload.equip_data[eq + 1] = ar;
     upload.equip_data[eq + 2] = 0.0;
     upload.equip_data[eq + 3] = 0.0;
 
     // Layer 1: Helmet
-    let (hc, hr) = helmet_q.get(entity).map(|h| (h.0, h.1)).unwrap_or((-1.0, 0.0));
+    let (hc, hr) = helmet_q
+        .get(entity)
+        .map(|h| (h.0, h.1))
+        .unwrap_or((-1.0, 0.0));
     upload.equip_data[eq + 4] = hc;
     upload.equip_data[eq + 5] = hr;
     upload.equip_data[eq + 6] = 0.0;
     upload.equip_data[eq + 7] = 0.0;
 
     // Layer 2: Weapon
-    let (wc, wr) = weapon_q.get(entity).map(|w| (w.0, w.1)).unwrap_or((-1.0, 0.0));
+    let (wc, wr) = weapon_q
+        .get(entity)
+        .map(|w| (w.0, w.1))
+        .unwrap_or((-1.0, 0.0));
     upload.equip_data[eq + 8] = wc;
     upload.equip_data[eq + 9] = wr;
     upload.equip_data[eq + 10] = 0.0;
@@ -435,11 +469,15 @@ fn write_npc_visual(
 #[inline]
 fn write_building_visual(idx: usize, gpu_state: &EntityGpuState, upload: &mut NpcVisualUpload) {
     let base = idx * 8;
-    if base + 7 >= upload.visual_data.len() { return; }
+    if base + 7 >= upload.visual_data.len() {
+        return;
+    }
     let si = idx * 4;
     let col = gpu_state.sprite_indices.get(si).copied().unwrap_or(-1.0);
-    if col < 0.0 { return; } // hidden or uninitialized
-    upload.visual_data[base]     = col;
+    if col < 0.0 {
+        return;
+    } // hidden or uninitialized
+    upload.visual_data[base] = col;
     upload.visual_data[base + 1] = gpu_state.sprite_indices.get(si + 1).copied().unwrap_or(0.0);
     upload.visual_data[base + 2] = gpu_state.sprite_indices.get(si + 2).copied().unwrap_or(0.0);
     upload.visual_data[base + 3] = 0.0; // no flash
@@ -498,8 +536,19 @@ pub fn build_visual_upload(
     if gpu_state.visual_full_rebuild {
         // Full rebuild: query-first iteration over all live entities
         for (entity, es, job, faction) in npc_q.iter() {
-            write_npc_visual(es.0, entity, job, faction.0, &gpu_state, &mut upload,
-                &activity_q, &npc_flags_q, &armor_q, &helmet_q, &weapon_q);
+            write_npc_visual(
+                es.0,
+                entity,
+                job,
+                faction.0,
+                &gpu_state,
+                &mut upload,
+                &activity_q,
+                &npc_flags_q,
+                &armor_q,
+                &helmet_q,
+                &weapon_q,
+            );
         }
         for es in building_q.iter() {
             write_building_visual(es.0, &gpu_state, &mut upload);
@@ -519,8 +568,19 @@ pub fn build_visual_upload(
                     clear_visual_slot(idx, &mut upload);
                     continue;
                 }
-                write_npc_visual(idx, npc.entity, &npc.job, npc.faction, &gpu_state, &mut upload,
-                    &activity_q, &npc_flags_q, &armor_q, &helmet_q, &weapon_q);
+                write_npc_visual(
+                    idx,
+                    npc.entity,
+                    &npc.job,
+                    npc.faction,
+                    &gpu_state,
+                    &mut upload,
+                    &activity_q,
+                    &npc_flags_q,
+                    &armor_q,
+                    &helmet_q,
+                    &weapon_q,
+                );
             } else if entity_map.get_instance(idx).is_some() {
                 write_building_visual(idx, &gpu_state, &mut upload);
             } else {
@@ -538,7 +598,8 @@ pub fn build_visual_upload(
             }
             let base = idx * 8;
             if base + 3 < upload.visual_data.len() {
-                upload.visual_data[base + 3] = gpu_state.flash_values.get(idx).copied().unwrap_or(0.0);
+                upload.visual_data[base + 3] =
+                    gpu_state.flash_values.get(idx).copied().unwrap_or(0.0);
             }
         }
 
@@ -546,8 +607,12 @@ pub fn build_visual_upload(
         upload.visual_uploaded_indices.clear();
         upload.equip_uploaded_indices.clear();
         // Visual-dirty slots need both visual + equip upload
-        upload.visual_uploaded_indices.extend_from_slice(&gpu_state.visual_dirty_indices);
-        upload.equip_uploaded_indices.extend_from_slice(&gpu_state.visual_dirty_indices);
+        upload
+            .visual_uploaded_indices
+            .extend_from_slice(&gpu_state.visual_dirty_indices);
+        upload
+            .equip_uploaded_indices
+            .extend_from_slice(&gpu_state.visual_dirty_indices);
         // Flash-only slots need visual upload only (not equip)
         for &idx in &gpu_state.flash_only_indices {
             if gpu_state.visual_dirty_indices.binary_search(&idx).is_err() {
@@ -555,8 +620,12 @@ pub fn build_visual_upload(
             }
         }
         // Hidden indices need both visual + equip upload
-        upload.visual_uploaded_indices.extend_from_slice(&gpu_state.hidden_indices);
-        upload.equip_uploaded_indices.extend_from_slice(&gpu_state.hidden_indices);
+        upload
+            .visual_uploaded_indices
+            .extend_from_slice(&gpu_state.hidden_indices);
+        upload
+            .equip_uploaded_indices
+            .extend_from_slice(&gpu_state.hidden_indices);
         upload.visual_uploaded_indices.sort_unstable();
         upload.visual_uploaded_indices.dedup();
         upload.equip_uploaded_indices.sort_unstable();
@@ -614,7 +683,12 @@ pub fn populate_gpu_state(
 
     // Pre-sort+dedup dirty index Vecs so extract phase receives coalesce-ready data
     macro_rules! sort_dedup {
-        ($v:expr) => { if $v.len() > 1 { $v.sort_unstable(); $v.dedup(); } };
+        ($v:expr) => {
+            if $v.len() > 1 {
+                $v.sort_unstable();
+                $v.dedup();
+            }
+        };
     }
     sort_dedup!(npc_state.position_dirty_indices);
     sort_dedup!(npc_state.arrival_dirty_indices);
@@ -634,7 +708,7 @@ pub fn populate_gpu_state(
 #[derive(Clone, ShaderType)]
 pub struct ProjGpuData {
     pub proj_count: u32,
-    pub _npc_count: u32,  // unused by shader, kept for struct alignment
+    pub _npc_count: u32, // unused by shader, kept for struct alignment
     pub delta: f32,
     pub hit_half_length: f32,
     pub hit_half_width: f32,
@@ -668,14 +742,14 @@ impl Default for ProjGpuData {
 /// Read during Extract via Extract<Res<T>> (zero-clone).
 #[derive(Resource)]
 pub struct ProjBufferWrites {
-    pub positions: Vec<f32>,   // [x, y] per proj
-    pub velocities: Vec<f32>,  // [vx, vy] per proj
+    pub positions: Vec<f32>,  // [x, y] per proj
+    pub velocities: Vec<f32>, // [vx, vy] per proj
     pub damages: Vec<f32>,
     pub factions: Vec<i32>,
     pub shooters: Vec<i32>,
     pub lifetimes: Vec<f32>,
     pub active: Vec<i32>,
-    pub hits: Vec<i32>,        // [npc_idx, processed] per proj
+    pub hits: Vec<i32>, // [npc_idx, processed] per proj
     pub dirty: bool,
     /// Per-slot dirty tracking: Spawn writes all fields, Deactivate writes active+hits
     pub spawn_dirty_indices: Vec<usize>,
@@ -695,7 +769,7 @@ impl Default for ProjBufferWrites {
             shooters: vec![-1; max],
             lifetimes: vec![0.0; max],
             active: vec![0; max],
-            hits: vec![-1; max * 2],   // -1 = no hit
+            hits: vec![-1; max * 2], // -1 = no hit
             dirty: false,
             spawn_dirty_indices: Vec::new(),
             deactivate_dirty_indices: Vec::new(),
@@ -707,7 +781,17 @@ impl Default for ProjBufferWrites {
 impl ProjBufferWrites {
     pub fn apply(&mut self, update: &ProjGpuUpdate) {
         match update {
-            ProjGpuUpdate::Spawn { idx, x, y, vx, vy, damage, faction, shooter, lifetime } => {
+            ProjGpuUpdate::Spawn {
+                idx,
+                x,
+                y,
+                vx,
+                vy,
+                damage,
+                faction,
+                shooter,
+                lifetime,
+            } => {
                 let i2 = *idx * 2;
                 if i2 + 1 < self.positions.len() {
                     self.positions[i2] = *x;
@@ -793,7 +877,7 @@ pub struct ReadbackState {
     pub always_entities: Vec<Entity>,
     /// Throttled readback entities (factions, threat_counts). Despawned 2 frames after spawn
     /// to allow async readback to complete (GPU copy frame N, CPU read frame N+1).
-    pub throttled_entities: Vec<(Entity, u32)>,  // (entity, frames_alive)
+    pub throttled_entities: Vec<(Entity, u32)>, // (entity, frames_alive)
     pub faction_frame_counter: u32,
     pub threat_frame_counter: u32,
 }
@@ -807,40 +891,61 @@ fn setup_readback_buffers(
     // Create readback target buffers (COPY_DST for compute→copy, COPY_SRC for Readback to map)
     let npc_pos_buf = {
         let init_pos: Vec<f32> = vec![-9999.0; MAX_NPC_COUNT * 2];
-        let mut buf = ShaderStorageBuffer::new(bytemuck::cast_slice(&init_pos), RenderAssetUsages::RENDER_WORLD);
+        let mut buf = ShaderStorageBuffer::new(
+            bytemuck::cast_slice(&init_pos),
+            RenderAssetUsages::RENDER_WORLD,
+        );
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
         buffers.add(buf)
     };
     let combat_target_buf = {
         let init_targets: Vec<i32> = vec![-1; MAX_ENTITIES];
-        let mut buf = ShaderStorageBuffer::new(bytemuck::cast_slice(&init_targets), RenderAssetUsages::RENDER_WORLD);
+        let mut buf = ShaderStorageBuffer::new(
+            bytemuck::cast_slice(&init_targets),
+            RenderAssetUsages::RENDER_WORLD,
+        );
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
         buffers.add(buf)
     };
     let npc_faction_buf = {
         let init_factions: Vec<i32> = vec![-1; MAX_NPC_COUNT];
-        let mut buf = ShaderStorageBuffer::new(bytemuck::cast_slice(&init_factions), RenderAssetUsages::RENDER_WORLD);
+        let mut buf = ShaderStorageBuffer::new(
+            bytemuck::cast_slice(&init_factions),
+            RenderAssetUsages::RENDER_WORLD,
+        );
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
         buffers.add(buf)
     };
     let npc_health_buf = {
-        let mut buf = ShaderStorageBuffer::new(&vec![0u8; MAX_NPC_COUNT * 4], RenderAssetUsages::RENDER_WORLD);
+        let mut buf = ShaderStorageBuffer::new(
+            &vec![0u8; MAX_NPC_COUNT * 4],
+            RenderAssetUsages::RENDER_WORLD,
+        );
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
         buffers.add(buf)
     };
     let threat_count_buf = {
-        let mut buf = ShaderStorageBuffer::new(&vec![0u8; MAX_NPC_COUNT * 4], RenderAssetUsages::RENDER_WORLD);
+        let mut buf = ShaderStorageBuffer::new(
+            &vec![0u8; MAX_NPC_COUNT * 4],
+            RenderAssetUsages::RENDER_WORLD,
+        );
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
         buffers.add(buf)
     };
     let proj_hit_buf = {
         let init_hits: Vec<[i32; 2]> = vec![[-1, 0]; MAX_PROJECTILE_COUNT];
-        let mut buf = ShaderStorageBuffer::new(bytemuck::cast_slice(&init_hits), RenderAssetUsages::RENDER_WORLD);
+        let mut buf = ShaderStorageBuffer::new(
+            bytemuck::cast_slice(&init_hits),
+            RenderAssetUsages::RENDER_WORLD,
+        );
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
         buffers.add(buf)
     };
     let proj_pos_buf = {
-        let mut buf = ShaderStorageBuffer::new(&vec![0u8; MAX_PROJECTILE_COUNT * 8], RenderAssetUsages::RENDER_WORLD);
+        let mut buf = ShaderStorageBuffer::new(
+            &vec![0u8; MAX_PROJECTILE_COUNT * 8],
+            RenderAssetUsages::RENDER_WORLD,
+        );
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
         buffers.add(buf)
     };
@@ -888,42 +993,83 @@ fn sync_readback_ranges(
     // Always-on readbacks: only respawn when bucket changes or first frame
     if bucket_changed || rb_state.always_entities.is_empty() {
         for entity in rb_state.always_entities.drain(..) {
-            if let Ok(mut cmds) = commands.get_entity(entity) { cmds.despawn(); }
+            if let Ok(mut cmds) = commands.get_entity(entity) {
+                cmds.despawn();
+            }
         }
         // Throttled entities also have stale bucket sizes — clear them too
         for (entity, _) in rb_state.throttled_entities.drain(..) {
-            if let Ok(mut cmds) = commands.get_entity(entity) { cmds.despawn(); }
+            if let Ok(mut cmds) = commands.get_entity(entity) {
+                cmds.despawn();
+            }
         }
 
-        rb_state.always_entities.push(commands.spawn(
-            Readback::buffer_range(rb.npc_positions.clone(), 0, sz(new_npc, 8))
-        ).observe(|e: On<ReadbackComplete>, mut s: ResMut<GpuReadState>| {
-            s.positions = e.to_shader_type();
-        }).id());
+        rb_state.always_entities.push(
+            commands
+                .spawn(Readback::buffer_range(
+                    rb.npc_positions.clone(),
+                    0,
+                    sz(new_npc, 8),
+                ))
+                .observe(|e: On<ReadbackComplete>, mut s: ResMut<GpuReadState>| {
+                    s.positions = e.to_shader_type();
+                })
+                .id(),
+        );
 
-        rb_state.always_entities.push(commands.spawn(
-            Readback::buffer_range(rb.combat_targets.clone(), 0, sz(new_entity, 4))
-        ).observe(|e: On<ReadbackComplete>, mut s: ResMut<GpuReadState>| {
-            s.combat_targets = e.to_shader_type();
-        }).id());
+        rb_state.always_entities.push(
+            commands
+                .spawn(Readback::buffer_range(
+                    rb.combat_targets.clone(),
+                    0,
+                    sz(new_entity, 4),
+                ))
+                .observe(|e: On<ReadbackComplete>, mut s: ResMut<GpuReadState>| {
+                    s.combat_targets = e.to_shader_type();
+                })
+                .id(),
+        );
 
-        rb_state.always_entities.push(commands.spawn(
-            Readback::buffer_range(rb.npc_health.clone(), 0, sz(new_npc, 4))
-        ).observe(|e: On<ReadbackComplete>, mut s: ResMut<GpuReadState>| {
-            s.health = e.to_shader_type();
-        }).id());
+        rb_state.always_entities.push(
+            commands
+                .spawn(Readback::buffer_range(
+                    rb.npc_health.clone(),
+                    0,
+                    sz(new_npc, 4),
+                ))
+                .observe(|e: On<ReadbackComplete>, mut s: ResMut<GpuReadState>| {
+                    s.health = e.to_shader_type();
+                })
+                .id(),
+        );
 
-        rb_state.always_entities.push(commands.spawn(
-            Readback::buffer_range(rb.proj_hits.clone(), 0, sz(new_proj, 8))
-        ).observe(|e: On<ReadbackComplete>, mut s: ResMut<ProjHitState>| {
-            s.0 = e.to_shader_type();
-        }).id());
+        rb_state.always_entities.push(
+            commands
+                .spawn(Readback::buffer_range(
+                    rb.proj_hits.clone(),
+                    0,
+                    sz(new_proj, 8),
+                ))
+                .observe(|e: On<ReadbackComplete>, mut s: ResMut<ProjHitState>| {
+                    s.0 = e.to_shader_type();
+                })
+                .id(),
+        );
 
-        rb_state.always_entities.push(commands.spawn(
-            Readback::buffer_range(rb.proj_positions.clone(), 0, sz(new_proj, 8))
-        ).observe(|e: On<ReadbackComplete>, mut s: ResMut<ProjPositionState>| {
-            s.0 = e.to_shader_type();
-        }).id());
+        rb_state.always_entities.push(
+            commands
+                .spawn(Readback::buffer_range(
+                    rb.proj_positions.clone(),
+                    0,
+                    sz(new_proj, 8),
+                ))
+                .observe(
+                    |e: On<ReadbackComplete>, mut s: ResMut<ProjPositionState>| {
+                        s.0 = e.to_shader_type();
+                    },
+                )
+                .id(),
+        );
 
         rb_state.npc_bucket = new_npc;
         rb_state.entity_bucket = new_entity;
@@ -935,7 +1081,9 @@ fn sync_readback_ranges(
     rb_state.throttled_entities.retain_mut(|(entity, age)| {
         *age += 1;
         if *age >= 3 {
-            if let Ok(mut cmds) = commands.get_entity(*entity) { cmds.despawn(); }
+            if let Ok(mut cmds) = commands.get_entity(*entity) {
+                cmds.despawn();
+            }
             false
         } else {
             true
@@ -943,20 +1091,36 @@ fn sync_readback_ranges(
     });
 
     if faction_due || (bucket_changed && rb_state.faction_frame_counter > 0) {
-        rb_state.throttled_entities.push((commands.spawn(
-            Readback::buffer_range(rb.npc_factions.clone(), 0, sz(new_npc, 4))
-        ).observe(|e: On<ReadbackComplete>, mut s: ResMut<GpuReadState>| {
-            s.factions = e.to_shader_type();
-        }).id(), 0));
+        rb_state.throttled_entities.push((
+            commands
+                .spawn(Readback::buffer_range(
+                    rb.npc_factions.clone(),
+                    0,
+                    sz(new_npc, 4),
+                ))
+                .observe(|e: On<ReadbackComplete>, mut s: ResMut<GpuReadState>| {
+                    s.factions = e.to_shader_type();
+                })
+                .id(),
+            0,
+        ));
         rb_state.faction_frame_counter = 0;
     }
 
     if threat_due || (bucket_changed && rb_state.threat_frame_counter > 0) {
-        rb_state.throttled_entities.push((commands.spawn(
-            Readback::buffer_range(rb.threat_counts.clone(), 0, sz(new_npc, 4))
-        ).observe(|e: On<ReadbackComplete>, mut s: ResMut<GpuReadState>| {
-            s.threat_counts = e.to_shader_type();
-        }).id(), 0));
+        rb_state.throttled_entities.push((
+            commands
+                .spawn(Readback::buffer_range(
+                    rb.threat_counts.clone(),
+                    0,
+                    sz(new_npc, 4),
+                ))
+                .observe(|e: On<ReadbackComplete>, mut s: ResMut<GpuReadState>| {
+                    s.threat_counts = e.to_shader_type();
+                })
+                .id(),
+            0,
+        ));
         rb_state.threat_frame_counter = 0;
     }
 }
@@ -978,8 +1142,19 @@ impl Plugin for GpuComputePlugin {
             .init_resource::<NpcVisualUpload>()
             .init_resource::<ProjBufferWrites>()
             .init_resource::<ReadbackState>()
-            .add_systems(Update, (update_gpu_data, update_proj_gpu_data, populate_tile_flags, sync_readback_ranges))
-            .add_systems(PostUpdate, (populate_gpu_state, build_visual_upload).chain())
+            .add_systems(
+                Update,
+                (
+                    update_gpu_data,
+                    update_proj_gpu_data,
+                    populate_tile_flags,
+                    sync_readback_ranges,
+                ),
+            )
+            .add_systems(
+                PostUpdate,
+                (populate_gpu_state, build_visual_upload).chain(),
+            )
             .add_systems(PostUpdate, populate_proj_buffer_writes);
 
         // Async readback: create ShaderStorageBuffer assets (Readback entities spawned by sync_readback_ranges)
@@ -999,10 +1174,14 @@ impl Plugin for GpuComputePlugin {
         };
 
         render_app
-            .add_systems(RenderStartup, (init_npc_compute_pipeline, init_proj_compute_pipeline))
+            .add_systems(
+                RenderStartup,
+                (init_npc_compute_pipeline, init_proj_compute_pipeline),
+            )
             .add_systems(
                 Render,
-                (prepare_npc_bind_groups, prepare_proj_bind_groups).in_set(RenderSystems::PrepareBindGroups),
+                (prepare_npc_bind_groups, prepare_proj_bind_groups)
+                    .in_set(RenderSystems::PrepareBindGroups),
             );
 
         // Add compute nodes to render graph
@@ -1012,7 +1191,10 @@ impl Plugin for GpuComputePlugin {
             render_graph.add_node(NpcComputeLabel, NpcComputeNode::default());
             render_graph.add_node(ProjectileComputeLabel, ProjectileComputeNode::default());
             render_graph.add_node_edge(NpcComputeLabel, ProjectileComputeLabel);
-            render_graph.add_node_edge(ProjectileComputeLabel, bevy::render::graph::CameraDriverLabel);
+            render_graph.add_node_edge(
+                ProjectileComputeLabel,
+                bevy::render::graph::CameraDriverLabel,
+            );
         }
 
         info!("GPU compute plugin initialized");
@@ -1036,7 +1218,11 @@ fn update_gpu_data(
     config.npc.entity_count = slots.count() as u32;
     config.npc.delta = dt;
 
-    let player_town_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
+    let player_town_idx = world_data
+        .towns
+        .iter()
+        .position(|t| t.faction == 0)
+        .unwrap_or(0);
     let levels = upgrades.town_levels(player_town_idx);
     config.npc.dodge_unlocked = if stats::dodge_unlocked(&levels) { 1 } else { 0 };
 }
@@ -1060,7 +1246,9 @@ fn populate_tile_flags(
         return;
     }
     let total = grid.width * grid.height;
-    if total == 0 { return; }
+    if total == 0 {
+        return;
+    }
     let mut flags = vec![0u32; total];
     // Terrain pass
     for row in 0..grid.height {
@@ -1081,16 +1269,21 @@ fn populate_tile_flags(
     for inst in entity_map.iter_instances() {
         let (gc, gr) = grid.world_to_grid(inst.position);
         let idx = gr * grid.width + gc;
-        if idx >= total { continue; }
+        if idx >= total {
+            continue;
+        }
         if inst.kind == crate::world::BuildingKind::Road {
             flags[idx] |= crate::constants::TILE_ROAD;
         }
         if inst.kind == crate::world::BuildingKind::Wall {
-            let faction = world_data.towns.get(inst.town_idx as usize)
+            let faction = world_data
+                .towns
+                .get(inst.town_idx as usize)
                 .map(|t| t.faction as u32)
                 .unwrap_or(0);
             flags[idx] |= crate::constants::TILE_WALL
-                | ((faction & crate::constants::WALL_FACTION_MASK) << crate::constants::WALL_FACTION_SHIFT);
+                | ((faction & crate::constants::WALL_FACTION_MASK)
+                    << crate::constants::WALL_FACTION_SHIFT);
         }
     }
     config.tile_flags = flags;
@@ -1124,9 +1317,9 @@ pub struct EntityGpuBuffers {
 /// Bind groups for compute passes (one per mode, different uniform buffer).
 #[derive(Resource)]
 struct NpcBindGroups {
-    mode0: BindGroup,  // Clear grid
-    mode1: BindGroup,  // Build grid
-    mode2: BindGroup,  // Movement + targeting
+    mode0: BindGroup, // Clear grid
+    mode1: BindGroup, // Build grid
+    mode2: BindGroup, // Movement + targeting
 }
 
 /// Pipeline resources for compute.
@@ -1308,8 +1501,8 @@ fn init_npc_compute_pipeline(
                 // 10: params (uniform)
                 uniform_buffer::<EntityGpuData>(false),
                 // 11-12: projectile spatial grid (read only from NPC perspective)
-                storage_buffer_read_only::<Vec<i32>>(false),  // proj_grid_counts
-                storage_buffer_read_only::<Vec<i32>>(false),  // proj_grid_data
+                storage_buffer_read_only::<Vec<i32>>(false), // proj_grid_counts
+                storage_buffer_read_only::<Vec<i32>>(false), // proj_grid_data
                 // 13-15: projectile data (read only)
                 storage_buffer_read_only::<Vec<[f32; 2]>>(false), // proj_positions
                 storage_buffer_read_only::<Vec<[f32; 2]>>(false), // proj_velocities
@@ -1342,7 +1535,6 @@ fn init_npc_compute_pipeline(
     info!("NPC compute pipeline queued");
 }
 
-
 // =============================================================================
 // BIND GROUP PREPARATION
 // =============================================================================
@@ -1357,10 +1549,14 @@ fn prepare_npc_bind_groups(
     render_queue: Res<RenderQueue>,
     pipeline_cache: Res<PipelineCache>,
 ) {
-    use std::sync::atomic::Ordering;
     use crate::messages::{RENDER_PROFILING, RENDER_TIMINGS, RT_NPC_BINDS};
+    use std::sync::atomic::Ordering;
     let profiling = RENDER_PROFILING.load(Ordering::Relaxed);
-    let start = if profiling { Some(std::time::Instant::now()) } else { None };
+    let start = if profiling {
+        Some(std::time::Instant::now())
+    } else {
+        None
+    };
 
     let Some(pipeline) = pipeline else { return };
     let Some(buffers) = buffers else { return };
@@ -1383,9 +1579,12 @@ fn prepare_npc_bind_groups(
         buffers.combat_targets.as_entire_buffer_binding(),
     );
 
-    let mut p0 = params.clone(); p0.mode = 0;
-    let mut p1 = params.clone(); p1.mode = 1;
-    let mut p2 = params.clone(); p2.mode = 2;
+    let mut p0 = params.clone();
+    p0.mode = 0;
+    let mut p1 = params.clone();
+    p1.mode = 1;
+    let mut p2 = params.clone();
+    p2.mode = 2;
 
     let mut ub0 = UniformBuffer::from(p0);
     let mut ub1 = UniformBuffer::from(p1);
@@ -1411,14 +1610,22 @@ fn prepare_npc_bind_groups(
         Some("npc_compute_bg_mode0"),
         layout,
         &BindGroupEntries::sequential((
-            storage_bindings.0.clone(), storage_bindings.1.clone(),
-            storage_bindings.2.clone(), storage_bindings.3.clone(),
-            storage_bindings.4.clone(), storage_bindings.5.clone(),
-            storage_bindings.6.clone(), storage_bindings.7.clone(),
-            storage_bindings.8.clone(), storage_bindings.9.clone(),
+            storage_bindings.0.clone(),
+            storage_bindings.1.clone(),
+            storage_bindings.2.clone(),
+            storage_bindings.3.clone(),
+            storage_bindings.4.clone(),
+            storage_bindings.5.clone(),
+            storage_bindings.6.clone(),
+            storage_bindings.7.clone(),
+            storage_bindings.8.clone(),
+            storage_bindings.9.clone(),
             &ub0,
-            proj_bind.0.clone(), proj_bind.1.clone(),
-            proj_bind.2.clone(), proj_bind.3.clone(), proj_bind.4.clone(),
+            proj_bind.0.clone(),
+            proj_bind.1.clone(),
+            proj_bind.2.clone(),
+            proj_bind.3.clone(),
+            proj_bind.4.clone(),
             threat_bind.clone(),
             flags_bind.clone(),
             tile_bind.clone(),
@@ -1428,14 +1635,22 @@ fn prepare_npc_bind_groups(
         Some("npc_compute_bg_mode1"),
         layout,
         &BindGroupEntries::sequential((
-            storage_bindings.0.clone(), storage_bindings.1.clone(),
-            storage_bindings.2.clone(), storage_bindings.3.clone(),
-            storage_bindings.4.clone(), storage_bindings.5.clone(),
-            storage_bindings.6.clone(), storage_bindings.7.clone(),
-            storage_bindings.8.clone(), storage_bindings.9.clone(),
+            storage_bindings.0.clone(),
+            storage_bindings.1.clone(),
+            storage_bindings.2.clone(),
+            storage_bindings.3.clone(),
+            storage_bindings.4.clone(),
+            storage_bindings.5.clone(),
+            storage_bindings.6.clone(),
+            storage_bindings.7.clone(),
+            storage_bindings.8.clone(),
+            storage_bindings.9.clone(),
             &ub1,
-            proj_bind.0.clone(), proj_bind.1.clone(),
-            proj_bind.2.clone(), proj_bind.3.clone(), proj_bind.4.clone(),
+            proj_bind.0.clone(),
+            proj_bind.1.clone(),
+            proj_bind.2.clone(),
+            proj_bind.3.clone(),
+            proj_bind.4.clone(),
             threat_bind.clone(),
             flags_bind.clone(),
             tile_bind.clone(),
@@ -1445,27 +1660,41 @@ fn prepare_npc_bind_groups(
         Some("npc_compute_bg_mode2"),
         layout,
         &BindGroupEntries::sequential((
-            storage_bindings.0.clone(), storage_bindings.1.clone(),
-            storage_bindings.2.clone(), storage_bindings.3.clone(),
-            storage_bindings.4.clone(), storage_bindings.5.clone(),
-            storage_bindings.6.clone(), storage_bindings.7.clone(),
-            storage_bindings.8.clone(), storage_bindings.9.clone(),
+            storage_bindings.0.clone(),
+            storage_bindings.1.clone(),
+            storage_bindings.2.clone(),
+            storage_bindings.3.clone(),
+            storage_bindings.4.clone(),
+            storage_bindings.5.clone(),
+            storage_bindings.6.clone(),
+            storage_bindings.7.clone(),
+            storage_bindings.8.clone(),
+            storage_bindings.9.clone(),
             &ub2,
-            proj_bind.0.clone(), proj_bind.1.clone(),
-            proj_bind.2.clone(), proj_bind.3.clone(), proj_bind.4.clone(),
+            proj_bind.0.clone(),
+            proj_bind.1.clone(),
+            proj_bind.2.clone(),
+            proj_bind.3.clone(),
+            proj_bind.4.clone(),
             threat_bind.clone(),
             flags_bind.clone(),
             tile_bind.clone(),
         )),
     );
 
-    commands.insert_resource(NpcBindGroups { mode0, mode1, mode2 });
+    commands.insert_resource(NpcBindGroups {
+        mode0,
+        mode1,
+        mode2,
+    });
 
     if let Some(s) = start {
-        RENDER_TIMINGS[RT_NPC_BINDS].store((s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(), Ordering::Relaxed);
+        RENDER_TIMINGS[RT_NPC_BINDS].store(
+            (s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(),
+            Ordering::Relaxed,
+        );
     }
 }
-
 
 // write_npc_buffers DELETED — logic moved to extract_npc_data (npc_render.rs, ExtractSchedule)
 
@@ -1521,10 +1750,14 @@ impl render_graph::Node for NpcComputeNode {
         render_context: &mut RenderContext,
         world: &World,
     ) -> Result<(), render_graph::NodeRunError> {
-        use std::sync::atomic::Ordering;
         use crate::messages::{RENDER_PROFILING, RENDER_TIMINGS, RT_GPU_COMPUTE};
+        use std::sync::atomic::Ordering;
         let profiling = RENDER_PROFILING.load(Ordering::Relaxed);
-        let start = if profiling { Some(std::time::Instant::now()) } else { None };
+        let start = if profiling {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
 
         // Only run if ready
         if !matches!(self.state, NpcComputeState::Ready) {
@@ -1592,16 +1825,24 @@ impl render_graph::Node for NpcComputeNode {
         let render_assets = world.resource::<RenderAssets<GpuShaderStorageBuffer>>();
 
         let pos_copy_size = (npc_count as u64) * std::mem::size_of::<[f32; 2]>() as u64;
-        let ct_copy_size = (entity_count as u64) * std::mem::size_of::<i32>() as u64;  // entity_count: includes tower targets
+        let ct_copy_size = (entity_count as u64) * std::mem::size_of::<i32>() as u64; // entity_count: includes tower targets
 
         if let Some(rb_pos) = render_assets.get(&handles.npc_positions) {
             render_context.command_encoder().copy_buffer_to_buffer(
-                &buffers.positions, 0, &rb_pos.buffer, 0, pos_copy_size,
+                &buffers.positions,
+                0,
+                &rb_pos.buffer,
+                0,
+                pos_copy_size,
             );
         }
         if let Some(rb_ct) = render_assets.get(&handles.combat_targets) {
             render_context.command_encoder().copy_buffer_to_buffer(
-                &buffers.combat_targets, 0, &rb_ct.buffer, 0, ct_copy_size,
+                &buffers.combat_targets,
+                0,
+                &rb_ct.buffer,
+                0,
+                ct_copy_size,
             );
         }
 
@@ -1610,23 +1851,38 @@ impl render_graph::Node for NpcComputeNode {
 
         if let Some(rb_fac) = render_assets.get(&handles.npc_factions) {
             render_context.command_encoder().copy_buffer_to_buffer(
-                &buffers.factions, 0, &rb_fac.buffer, 0, i32_copy_size,
+                &buffers.factions,
+                0,
+                &rb_fac.buffer,
+                0,
+                i32_copy_size,
             );
         }
         if let Some(rb_hp) = render_assets.get(&handles.npc_health) {
             render_context.command_encoder().copy_buffer_to_buffer(
-                &buffers.healths, 0, &rb_hp.buffer, 0, f32_copy_size,
+                &buffers.healths,
+                0,
+                &rb_hp.buffer,
+                0,
+                f32_copy_size,
             );
         }
         let u32_copy_size = (npc_count as u64) * std::mem::size_of::<u32>() as u64;
         if let Some(rb_tc) = render_assets.get(&handles.threat_counts) {
             render_context.command_encoder().copy_buffer_to_buffer(
-                &buffers.threat_counts, 0, &rb_tc.buffer, 0, u32_copy_size,
+                &buffers.threat_counts,
+                0,
+                &rb_tc.buffer,
+                0,
+                u32_copy_size,
             );
         }
 
         if let Some(s) = start {
-            RENDER_TIMINGS[RT_GPU_COMPUTE].store((s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(), Ordering::Relaxed);
+            RENDER_TIMINGS[RT_GPU_COMPUTE].store(
+                (s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(),
+                Ordering::Relaxed,
+            );
         }
         Ok(())
     }
@@ -1733,30 +1989,30 @@ fn init_proj_compute_pipeline(
             ShaderStages::COMPUTE,
             (
                 // 0-7: projectile buffers (read_write)
-                storage_buffer::<Vec<[f32; 2]>>(false),  // positions
-                storage_buffer::<Vec<[f32; 2]>>(false),  // velocities
-                storage_buffer::<Vec<f32>>(false),        // damages
-                storage_buffer::<Vec<i32>>(false),        // factions
-                storage_buffer::<Vec<i32>>(false),        // shooters
-                storage_buffer::<Vec<f32>>(false),        // lifetimes
-                storage_buffer::<Vec<i32>>(false),        // active
-                storage_buffer::<Vec<[i32; 2]>>(false),   // hits
+                storage_buffer::<Vec<[f32; 2]>>(false), // positions
+                storage_buffer::<Vec<[f32; 2]>>(false), // velocities
+                storage_buffer::<Vec<f32>>(false),      // damages
+                storage_buffer::<Vec<i32>>(false),      // factions
+                storage_buffer::<Vec<i32>>(false),      // shooters
+                storage_buffer::<Vec<f32>>(false),      // lifetimes
+                storage_buffer::<Vec<i32>>(false),      // active
+                storage_buffer::<Vec<[i32; 2]>>(false), // hits
                 // 8-10: NPC buffers (read only)
                 storage_buffer_read_only::<Vec<[f32; 2]>>(false), // npc_positions
                 storage_buffer_read_only::<Vec<i32>>(false),      // npc_factions
                 storage_buffer_read_only::<Vec<f32>>(false),      // npc_healths
                 // 11-12: NPC spatial grid (read only)
-                storage_buffer_read_only::<Vec<i32>>(false),      // grid_counts
-                storage_buffer_read_only::<Vec<i32>>(false),      // grid_data
+                storage_buffer_read_only::<Vec<i32>>(false), // grid_counts
+                storage_buffer_read_only::<Vec<i32>>(false), // grid_data
                 // 13: uniform params
                 uniform_buffer::<ProjGpuData>(false),
                 // 14-15: projectile spatial grid (read_write)
-                storage_buffer::<Vec<i32>>(false),                // proj_grid_counts
-                storage_buffer::<Vec<i32>>(false),                // proj_grid_data
+                storage_buffer::<Vec<i32>>(false), // proj_grid_counts
+                storage_buffer::<Vec<i32>>(false), // proj_grid_data
                 // 16: entity hitbox half-sizes (read only)
                 storage_buffer_read_only::<Vec<[f32; 2]>>(false), // entity_half_sizes
                 // 17: entity flags (read only — UNTARGETABLE skip)
-                storage_buffer_read_only::<Vec<u32>>(false),      // entity_flags
+                storage_buffer_read_only::<Vec<u32>>(false), // entity_flags
             ),
         ),
     );
@@ -1788,10 +2044,14 @@ fn prepare_proj_bind_groups(
     render_queue: Res<RenderQueue>,
     pipeline_cache: Res<PipelineCache>,
 ) {
-    use std::sync::atomic::Ordering;
     use crate::messages::{RENDER_PROFILING, RENDER_TIMINGS, RT_PROJ_BINDS};
+    use std::sync::atomic::Ordering;
     let profiling = RENDER_PROFILING.load(Ordering::Relaxed);
-    let start = if profiling { Some(std::time::Instant::now()) } else { None };
+    let start = if profiling {
+        Some(std::time::Instant::now())
+    } else {
+        None
+    };
 
     let Some(pipeline) = pipeline else { return };
     let Some(proj) = proj_buffers else { return };
@@ -1815,9 +2075,12 @@ fn prepare_proj_bind_groups(
         ent.grid_data.as_entire_buffer_binding(),
     );
 
-    let mut p0 = config.proj.clone(); p0.mode = 0;
-    let mut p1 = config.proj.clone(); p1.mode = 1;
-    let mut p2 = config.proj.clone(); p2.mode = 2;
+    let mut p0 = config.proj.clone();
+    p0.mode = 0;
+    let mut p1 = config.proj.clone();
+    p1.mode = 1;
+    let mut p2 = config.proj.clone();
+    p2.mode = 2;
 
     let mut ub0 = UniformBuffer::from(p0);
     let mut ub1 = UniformBuffer::from(p1);
@@ -1833,12 +2096,18 @@ fn prepare_proj_bind_groups(
         Some("proj_compute_bg_mode0"),
         layout,
         &BindGroupEntries::sequential((
-            storage_bindings.0.clone(), storage_bindings.1.clone(),
-            storage_bindings.2.clone(), storage_bindings.3.clone(),
-            storage_bindings.4.clone(), storage_bindings.5.clone(),
-            storage_bindings.6.clone(), storage_bindings.7.clone(),
-            storage_bindings.8.clone(), storage_bindings.9.clone(),
-            storage_bindings.10.clone(), storage_bindings.11.clone(),
+            storage_bindings.0.clone(),
+            storage_bindings.1.clone(),
+            storage_bindings.2.clone(),
+            storage_bindings.3.clone(),
+            storage_bindings.4.clone(),
+            storage_bindings.5.clone(),
+            storage_bindings.6.clone(),
+            storage_bindings.7.clone(),
+            storage_bindings.8.clone(),
+            storage_bindings.9.clone(),
+            storage_bindings.10.clone(),
+            storage_bindings.11.clone(),
             storage_bindings.12.clone(),
             &ub0,
             proj.grid_counts.as_entire_buffer_binding(),
@@ -1851,12 +2120,18 @@ fn prepare_proj_bind_groups(
         Some("proj_compute_bg_mode1"),
         layout,
         &BindGroupEntries::sequential((
-            storage_bindings.0.clone(), storage_bindings.1.clone(),
-            storage_bindings.2.clone(), storage_bindings.3.clone(),
-            storage_bindings.4.clone(), storage_bindings.5.clone(),
-            storage_bindings.6.clone(), storage_bindings.7.clone(),
-            storage_bindings.8.clone(), storage_bindings.9.clone(),
-            storage_bindings.10.clone(), storage_bindings.11.clone(),
+            storage_bindings.0.clone(),
+            storage_bindings.1.clone(),
+            storage_bindings.2.clone(),
+            storage_bindings.3.clone(),
+            storage_bindings.4.clone(),
+            storage_bindings.5.clone(),
+            storage_bindings.6.clone(),
+            storage_bindings.7.clone(),
+            storage_bindings.8.clone(),
+            storage_bindings.9.clone(),
+            storage_bindings.10.clone(),
+            storage_bindings.11.clone(),
             storage_bindings.12.clone(),
             &ub1,
             proj.grid_counts.as_entire_buffer_binding(),
@@ -1869,12 +2144,18 @@ fn prepare_proj_bind_groups(
         Some("proj_compute_bg_mode2"),
         layout,
         &BindGroupEntries::sequential((
-            storage_bindings.0.clone(), storage_bindings.1.clone(),
-            storage_bindings.2.clone(), storage_bindings.3.clone(),
-            storage_bindings.4.clone(), storage_bindings.5.clone(),
-            storage_bindings.6.clone(), storage_bindings.7.clone(),
-            storage_bindings.8.clone(), storage_bindings.9.clone(),
-            storage_bindings.10.clone(), storage_bindings.11.clone(),
+            storage_bindings.0.clone(),
+            storage_bindings.1.clone(),
+            storage_bindings.2.clone(),
+            storage_bindings.3.clone(),
+            storage_bindings.4.clone(),
+            storage_bindings.5.clone(),
+            storage_bindings.6.clone(),
+            storage_bindings.7.clone(),
+            storage_bindings.8.clone(),
+            storage_bindings.9.clone(),
+            storage_bindings.10.clone(),
+            storage_bindings.11.clone(),
             storage_bindings.12.clone(),
             &ub2,
             proj.grid_counts.as_entire_buffer_binding(),
@@ -1884,10 +2165,17 @@ fn prepare_proj_bind_groups(
         )),
     );
 
-    commands.insert_resource(ProjBindGroups { mode0, mode1, mode2 });
+    commands.insert_resource(ProjBindGroups {
+        mode0,
+        mode1,
+        mode2,
+    });
 
     if let Some(s) = start {
-        RENDER_TIMINGS[RT_PROJ_BINDS].store((s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(), Ordering::Relaxed);
+        RENDER_TIMINGS[RT_PROJ_BINDS].store(
+            (s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(),
+            Ordering::Relaxed,
+        );
     }
 }
 
@@ -1902,7 +2190,9 @@ struct ProjectileComputeNode {
 
 impl Default for ProjectileComputeNode {
     fn default() -> Self {
-        Self { state: ProjComputeState::Loading }
+        Self {
+            state: ProjComputeState::Loading,
+        }
     }
 }
 
@@ -1937,10 +2227,14 @@ impl render_graph::Node for ProjectileComputeNode {
         render_context: &mut RenderContext,
         world: &World,
     ) -> Result<(), render_graph::NodeRunError> {
-        use std::sync::atomic::Ordering;
         use crate::messages::{RENDER_PROFILING, RENDER_TIMINGS, RT_PROJ_COMPUTE};
+        use std::sync::atomic::Ordering;
         let profiling = RENDER_PROFILING.load(Ordering::Relaxed);
-        let start = if profiling { Some(std::time::Instant::now()) } else { None };
+        let start = if profiling {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
 
         if !matches!(self.state, ProjComputeState::Ready) {
             return Ok(());
@@ -2007,18 +2301,29 @@ impl render_graph::Node for ProjectileComputeNode {
         let hit_copy_size = (proj_count as u64) * std::mem::size_of::<[i32; 2]>() as u64;
         if let Some(rb_hits) = render_assets.get(&handles.proj_hits) {
             render_context.command_encoder().copy_buffer_to_buffer(
-                &proj_buffers.hits, 0, &rb_hits.buffer, 0, hit_copy_size,
+                &proj_buffers.hits,
+                0,
+                &rb_hits.buffer,
+                0,
+                hit_copy_size,
             );
         }
         let pos_copy_size = (proj_count as u64) * std::mem::size_of::<[f32; 2]>() as u64;
         if let Some(rb_pos) = render_assets.get(&handles.proj_positions) {
             render_context.command_encoder().copy_buffer_to_buffer(
-                &proj_buffers.positions, 0, &rb_pos.buffer, 0, pos_copy_size,
+                &proj_buffers.positions,
+                0,
+                &rb_pos.buffer,
+                0,
+                pos_copy_size,
             );
         }
 
         if let Some(s) = start {
-            RENDER_TIMINGS[RT_PROJ_COMPUTE].store((s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(), Ordering::Relaxed);
+            RENDER_TIMINGS[RT_PROJ_COMPUTE].store(
+                (s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(),
+                Ordering::Relaxed,
+            );
         }
         Ok(())
     }

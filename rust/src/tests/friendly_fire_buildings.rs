@@ -3,18 +3,19 @@
 
 use bevy::prelude::*;
 
-
 use crate::constants::building_def;
-use crate::world::BuildingKind;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, SpawnNpcMsg};
 use crate::render::MainCamera;
 use crate::resources::*;
+use crate::world::BuildingKind;
 use crate::world::{self, WorldCell};
 
 use super::TestState;
 
 const FARM_WALL_X: f32 = 500.0;
-const FARM_WALL_Y: [f32; 10] = [230.0, 250.0, 270.0, 290.0, 310.0, 330.0, 350.0, 370.0, 390.0, 410.0];
+const FARM_WALL_Y: [f32; 10] = [
+    230.0, 250.0, 270.0, 290.0, 310.0, 330.0, 350.0, 370.0, 390.0, 410.0,
+];
 const TARGET_X: f32 = 555.0;
 const TARGET_Y: f32 = 320.0;
 
@@ -54,7 +55,18 @@ pub fn setup(
     // Friendly vertical farm wall in projectile lane.
     for y in FARM_WALL_Y {
         let pos = Vec2::new(FARM_WALL_X, y);
-        world::place_building_instance(&mut slot_alloc, &mut entity_map, world::BuildingKind::Farm, pos, 0, 0, 0, 0, &mut uid_alloc, None);
+        world::place_building_instance(
+            &mut slot_alloc,
+            &mut entity_map,
+            world::BuildingKind::Farm,
+            pos,
+            0,
+            0,
+            0,
+            0,
+            &mut uid_alloc,
+            None,
+        );
 
         // Building instance registered via place_building_instance above
     }
@@ -115,12 +127,17 @@ pub fn tick(
     combat_debug: Res<CombatDebug>,
     health_debug: Res<HealthDebug>,
     proj_alloc: Res<ProjSlotAllocator>,
-    building_query: Query<(&crate::components::Building, &crate::components::Health), Without<crate::components::Dead>>,
+    building_query: Query<
+        (&crate::components::Building, &crate::components::Health),
+        Without<crate::components::Dead>,
+    >,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
-    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
+    let Some(elapsed) = test.tick_elapsed(&time) else {
+        return;
+    };
 
     // Pin target dummy so it can't flee/chase and invalidate the lane geometry.
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
@@ -131,7 +148,8 @@ pub fn tick(
 
     let alive = entity_map.iter_npcs().filter(|n| !n.dead).count();
     let max_farm_hp = building_def(BuildingKind::Farm).hp;
-    let farm_entities: Vec<f32> = building_query.iter()
+    let farm_entities: Vec<f32> = building_query
+        .iter()
         .filter(|(b, _)| b.kind == BuildingKind::Farm)
         .map(|(_, h)| h.0)
         .collect();
@@ -143,18 +161,27 @@ pub fn tick(
         1 => {
             test.phase_name = format!("targets={} alive={}", combat_debug.targets_found, alive);
             if combat_debug.targets_found > 0 {
-                test.pass_phase(elapsed, format!("targets_found={}", combat_debug.targets_found));
+                test.pass_phase(
+                    elapsed,
+                    format!("targets_found={}", combat_debug.targets_found),
+                );
             } else if elapsed > 10.0 {
                 test.fail_phase(elapsed, format!("targets_found=0 alive={}", alive));
             }
         }
         // Phase 2: projectile activity observed.
         2 => {
-            test.phase_name = format!("proj_next={} attacks={}", proj_alloc.next, combat_debug.attacks_made);
+            test.phase_name = format!(
+                "proj_next={} attacks={}",
+                proj_alloc.next, combat_debug.attacks_made
+            );
             if proj_alloc.next > 0 || combat_debug.attacks_made > 0 {
                 test.pass_phase(
                     elapsed,
-                    format!("proj_next={} attacks={}", proj_alloc.next, combat_debug.attacks_made),
+                    format!(
+                        "proj_next={} attacks={}",
+                        proj_alloc.next, combat_debug.attacks_made
+                    ),
                 );
             } else if elapsed > 20.0 {
                 test.fail_phase(elapsed, "no projectile activity");
@@ -178,7 +205,10 @@ pub fn tick(
             }
             if health_debug.damage_processed > 0 {
                 test.set_flag("damage_seen", true);
-                test.pass_phase(elapsed, format!("npc_damage={}", health_debug.damage_processed));
+                test.pass_phase(
+                    elapsed,
+                    format!("npc_damage={}", health_debug.damage_processed),
+                );
             } else if elapsed > 30.0 {
                 test.fail_phase(
                     elapsed,
@@ -193,7 +223,9 @@ pub fn tick(
         4 => {
             test.phase_name = format!(
                 "damaged_farms={} min_farm_hp={:.1}/{:.1}",
-                damaged_farms, min_farm_hp, building_def(BuildingKind::Farm).hp
+                damaged_farms,
+                min_farm_hp,
+                building_def(BuildingKind::Farm).hp
             );
             if damaged_farms > 0 {
                 test.fail_phase(
@@ -214,4 +246,3 @@ pub fn tick(
         _ => {}
     }
 }
-

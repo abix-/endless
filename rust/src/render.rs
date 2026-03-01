@@ -2,18 +2,23 @@
 //!
 //! Replaces Godot MultiMesh with bevy_sprite TextureAtlas.
 
-use bevy::prelude::*;
-use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::ecs::system::SystemParam;
+use bevy::input::mouse::AccumulatedMouseScroll;
+use bevy::prelude::*;
 
-use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileData};
+use bevy::sprite_render::{AlphaMode2d, TileData, TilemapChunk, TilemapChunkTileData};
 
+use crate::components::{
+    Activity, Building, Dead, Faction, GpuSlot, Job, ManualTarget, NpcFlags, Position, SquadId,
+};
 use crate::gpu::RenderFrameConfig;
-use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab, EntityMap};
-use crate::components::{ManualTarget, Activity, NpcFlags, SquadId, Position, Job, Faction, GpuSlot, Building, Dead};
 use crate::messages::{SelectFactionMsg, TerrainDirtyMsg};
-use crate::settings::UserSettings;
-use crate::world::{WorldData, WorldGrid, BuildingKind, build_tileset, build_building_atlas, build_extras_atlas, TERRAIN_TILES, building_tiles};
+use crate::resources::{EntityMap, LeftPanelTab, SelectedBuilding, SelectedNpc};
+use crate::settings::{ControlAction, UserSettings};
+use crate::world::{
+    BuildingKind, TERRAIN_TILES, WorldData, WorldGrid, build_building_atlas, build_extras_atlas,
+    build_tileset, building_tiles,
+};
 
 // =============================================================================
 // CONSTANTS
@@ -89,28 +94,27 @@ impl Plugin for RenderPlugin {
         app.init_resource::<SpriteAssets>()
             .init_resource::<TilemapSpawned>()
             .add_systems(Startup, (setup_camera, load_sprites))
-            .add_systems(Update, (
-                camera_pan_system,
-                camera_mouse_pan_system,
-                camera_edge_pan_system,
-                camera_zoom_system,
-                camera_follow_system,
-                click_to_select_system,
-                box_select_system,
-                spawn_world_tilemap,
-                sync_terrain_tilemap,
-                sync_terrain_visibility,
-            ));
+            .add_systems(
+                Update,
+                (
+                    camera_pan_system,
+                    camera_mouse_pan_system,
+                    camera_edge_pan_system,
+                    camera_zoom_system,
+                    camera_follow_system,
+                    click_to_select_system,
+                    box_select_system,
+                    spawn_world_tilemap,
+                    sync_terrain_tilemap,
+                    sync_terrain_visibility,
+                ),
+            );
     }
 }
 
 /// Set up 2D camera.
 fn setup_camera(mut commands: Commands) {
-    commands.spawn((
-        Camera2d,
-        MainCamera,
-        Transform::from_xyz(400.0, 300.0, 0.0),
-    ));
+    commands.spawn((Camera2d, MainCamera, Transform::from_xyz(400.0, 300.0, 0.0)));
     info!("2D camera spawned at (400, 300)");
 }
 
@@ -139,9 +143,13 @@ fn load_sprites(
 
     // Load world sprite sheet + external building sprites from registry
     assets.world_texture = asset_server.load("sprites/roguelikeSheet_transparent.png");
-    assets.external_textures = crate::constants::BUILDING_REGISTRY.iter().filter_map(|def| {
-        match def.tile { crate::constants::TileSpec::External(path) => Some(asset_server.load(path)), _ => None }
-    }).collect();
+    assets.external_textures = crate::constants::BUILDING_REGISTRY
+        .iter()
+        .filter_map(|def| match def.tile {
+            crate::constants::TileSpec::External(path) => Some(asset_server.load(path)),
+            _ => None,
+        })
+        .collect();
     config.textures.world_handle = Some(assets.world_texture.clone());
 
     // Extras atlas sprites: composited into a single grid texture in spawn_world_tilemap
@@ -165,8 +173,10 @@ fn load_sprites(
     assets.world_atlas = texture_atlases.add(world_layout);
 
     assets.loaded = true;
-    info!("Sprite sheets loaded: char ({}x{}), world ({}x{})",
-          CHAR_SHEET_COLS, CHAR_SHEET_ROWS, WORLD_SHEET_COLS, WORLD_SHEET_ROWS);
+    info!(
+        "Sprite sheets loaded: char ({}x{}), world ({}x{})",
+        CHAR_SHEET_COLS, CHAR_SHEET_ROWS, WORLD_SHEET_COLS, WORLD_SHEET_ROWS
+    );
 }
 
 // =============================================================================
@@ -181,20 +191,35 @@ fn ortho_zoom(projection: &Projection) -> f32 {
     }
 }
 
-/// WASD camera pan. Speed scales inversely with zoom for consistent screen-space feel.
+/// Keyboard camera pan. Speed scales inversely with zoom for consistent screen-space feel.
 fn camera_pan_system(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     mut query: Query<(&mut Transform, &Projection), With<MainCamera>>,
     user_settings: Res<UserSettings>,
 ) {
-    let Ok((mut transform, projection)) = query.single_mut() else { return };
+    let Ok((mut transform, projection)) = query.single_mut() else {
+        return;
+    };
+
+    let up_key = user_settings.key_for_action(ControlAction::PanUp);
+    let down_key = user_settings.key_for_action(ControlAction::PanDown);
+    let left_key = user_settings.key_for_action(ControlAction::PanLeft);
+    let right_key = user_settings.key_for_action(ControlAction::PanRight);
 
     let mut dir = Vec2::ZERO;
-    if keys.pressed(KeyCode::KeyW) { dir.y += 1.0; }
-    if keys.pressed(KeyCode::KeyS) { dir.y -= 1.0; }
-    if keys.pressed(KeyCode::KeyA) { dir.x -= 1.0; }
-    if keys.pressed(KeyCode::KeyD) { dir.x += 1.0; }
+    if keys.pressed(up_key) {
+        dir.y += 1.0;
+    }
+    if keys.pressed(down_key) {
+        dir.y -= 1.0;
+    }
+    if keys.pressed(left_key) {
+        dir.x -= 1.0;
+    }
+    if keys.pressed(right_key) {
+        dir.x += 1.0;
+    }
 
     if dir != Vec2::ZERO {
         let speed = user_settings.scroll_speed / ortho_zoom(projection);
@@ -234,7 +259,9 @@ fn camera_mouse_pan_system(
         if let Some(prev) = *last_pos {
             let screen_delta = cursor_pos - prev;
             if screen_delta != Vec2::ZERO {
-                let Ok((mut transform, projection)) = query.single_mut() else { return };
+                let Ok((mut transform, projection)) = query.single_mut() else {
+                    return;
+                };
                 let zoom = ortho_zoom(projection);
                 // Screen-space to world-space: divide by zoom, flip Y
                 transform.translation.x -= screen_delta.x / zoom;
@@ -255,18 +282,30 @@ fn camera_edge_pan_system(
     user_settings: Res<UserSettings>,
 ) {
     let Ok(window) = windows.single() else { return };
-    let Some(cursor_pos) = window.cursor_position() else { return };
+    let Some(cursor_pos) = window.cursor_position() else {
+        return;
+    };
     let w = window.width();
     let h = window.height();
 
     let mut dir = Vec2::ZERO;
-    if cursor_pos.x < EDGE_PAN_MARGIN { dir.x -= 1.0; }
-    if cursor_pos.x > w - EDGE_PAN_MARGIN { dir.x += 1.0; }
-    if cursor_pos.y < EDGE_PAN_MARGIN { dir.y += 1.0; } // top of screen = +Y world
-    if cursor_pos.y > h - EDGE_PAN_MARGIN { dir.y -= 1.0; }
+    if cursor_pos.x < EDGE_PAN_MARGIN {
+        dir.x -= 1.0;
+    }
+    if cursor_pos.x > w - EDGE_PAN_MARGIN {
+        dir.x += 1.0;
+    }
+    if cursor_pos.y < EDGE_PAN_MARGIN {
+        dir.y += 1.0;
+    } // top of screen = +Y world
+    if cursor_pos.y > h - EDGE_PAN_MARGIN {
+        dir.y -= 1.0;
+    }
 
     if dir != Vec2::ZERO {
-        let Ok((mut transform, projection)) = query.single_mut() else { return };
+        let Ok((mut transform, projection)) = query.single_mut() else {
+            return;
+        };
         let speed = user_settings.scroll_speed / ortho_zoom(projection);
         let delta = dir.normalize() * speed * time.delta_secs();
         transform.translation.x += delta.x;
@@ -284,15 +323,25 @@ fn camera_zoom_system(
 ) {
     // Don't zoom when scrolling over UI panels (combat log, etc.)
     if let Ok(ctx) = egui_contexts.ctx_mut() {
-        if ctx.wants_pointer_input() || ctx.is_pointer_over_area() { return; }
+        if ctx.wants_pointer_input() || ctx.is_pointer_over_area() {
+            return;
+        }
     }
     let scroll = accumulated_scroll.delta.y;
-    if scroll == 0.0 { return; }
+    if scroll == 0.0 {
+        return;
+    }
 
     let Ok(window) = windows.single() else { return };
-    let Some(cursor_pos) = window.cursor_position() else { return };
-    let Ok((mut transform, mut projection)) = query.single_mut() else { return };
-    let Projection::Orthographic(ref mut ortho) = *projection else { return };
+    let Some(cursor_pos) = window.cursor_position() else {
+        return;
+    };
+    let Ok((mut transform, mut projection)) = query.single_mut() else {
+        return;
+    };
+    let Projection::Orthographic(ref mut ortho) = *projection else {
+        return;
+    };
 
     let zoom = 1.0 / ortho.scale;
     let position = transform.translation.truncate();
@@ -309,7 +358,11 @@ fn camera_zoom_system(
     let world_pos = position + mouse_offset / zoom;
 
     // Apply zoom
-    let factor = if scroll > 0.0 { 1.0 + user_settings.zoom_speed } else { 1.0 - user_settings.zoom_speed };
+    let factor = if scroll > 0.0 {
+        1.0 + user_settings.zoom_speed
+    } else {
+        1.0 - user_settings.zoom_speed
+    };
     let new_zoom = (zoom * factor).clamp(user_settings.zoom_min, user_settings.zoom_max);
     ortho.scale = 1.0 / new_zoom;
 
@@ -326,13 +379,19 @@ fn camera_follow_system(
     gpu_state: Res<crate::resources::GpuReadState>,
     mut query: Query<&mut Transform, With<MainCamera>>,
 ) {
-    if !follow.0 || selected.0 < 0 { return; }
+    if !follow.0 || selected.0 < 0 {
+        return;
+    }
     let idx = selected.0 as usize;
     let positions = &gpu_state.positions;
-    if idx * 2 + 1 >= positions.len() { return; }
+    if idx * 2 + 1 >= positions.len() {
+        return;
+    }
     let x = positions[idx * 2];
     let y = positions[idx * 2 + 1];
-    if x < -9000.0 { return; } // dead/hidden
+    if x < -9000.0 {
+        return;
+    } // dead/hidden
     if let Ok(mut transform) = query.single_mut() {
         transform.translation.x = x;
         transform.translation.y = y;
@@ -383,8 +442,12 @@ fn click_to_select_system(
         }
 
         let Ok(window) = windows.single() else { return };
-        let Some(cursor_pos) = window.cursor_position() else { return };
-        let Ok((transform, projection)) = camera_query.single() else { return };
+        let Some(cursor_pos) = window.cursor_position() else {
+            return;
+        };
+        let Ok((transform, projection)) = camera_query.single() else {
+            return;
+        };
         let zoom = ortho_zoom(projection);
         let cam = transform.translation.truncate();
         let viewport = Vec2::new(window.width(), window.height());
@@ -407,18 +470,26 @@ fn click_to_select_system(
 
         // DirectControl micro: right-click commands only box-selected (DirectControl) members
         let si = click.squad_state.selected;
-        if si >= 0 && (si as usize) < click.squad_state.squads.len()
+        if si >= 0
+            && (si as usize) < click.squad_state.squads.len()
             && click.squad_state.squads[si as usize].is_player()
         {
-            let members: Vec<usize> = click.squad_state.squads[si as usize].members.iter()
+            let members: Vec<usize> = click.squad_state.squads[si as usize]
+                .members
+                .iter()
                 .filter_map(|uid| click.entity_map.slot_for_uid(*uid))
                 .filter(|&slot| {
-                    click.entity_map.entities.get(&slot)
+                    click
+                        .entity_map
+                        .entities
+                        .get(&slot)
                         .and_then(|&e| npc_flags_q.get(e).ok())
                         .is_some_and(|f| f.direct_control)
                 })
                 .collect();
-            if members.is_empty() { return; }
+            if members.is_empty() {
+                return;
+            }
 
             let positions = &gpu_state.positions;
             let factions = &gpu_state.factions;
@@ -429,12 +500,18 @@ fn click_to_select_system(
             let mut best_dist = select_radius;
             let mut best_enemy: Option<(usize, Vec2)> = None;
             for i in 0..npc_count {
-                if i * 2 + 1 >= positions.len() { continue; }
+                if i * 2 + 1 >= positions.len() {
+                    continue;
+                }
                 let px = positions[i * 2];
                 let py = positions[i * 2 + 1];
-                if px < -9000.0 { continue; }
+                if px < -9000.0 {
+                    continue;
+                }
                 let faction = factions.get(i).copied().unwrap_or(0);
-                if faction == 0 { continue; }
+                if faction == 0 {
+                    continue;
+                }
                 let dx = world_pos.x - px;
                 let dy = world_pos.y - py;
                 let dist = (dx * dx + dy * dy).sqrt();
@@ -449,14 +526,21 @@ fn click_to_select_system(
                 for &slot in &members {
                     if let Some(npc) = click.entity_map.get_npc(slot) {
                         let entity = npc.entity;
-                        commands.entity(entity).insert(ManualTarget::Npc(enemy_slot));
+                        commands
+                            .entity(entity)
+                            .insert(ManualTarget::Npc(enemy_slot));
                         // Wake resting NPCs on move command
                         if let Ok(mut act) = activity_q.get_mut(entity) {
                             if matches!(*act, Activity::GoingToRest | Activity::Resting) {
                                 *act = Activity::Idle;
                             }
                         }
-                        intents.submit(entity, enemy_pos, crate::resources::MovementPriority::DirectControl, "dc:attack");
+                        intents.submit(
+                            entity,
+                            enemy_pos,
+                            crate::resources::MovementPriority::DirectControl,
+                            "dc:attack",
+                        );
                     }
                 }
             } else {
@@ -465,12 +549,18 @@ fn click_to_select_system(
                 let mut best_bdist = building_radius;
                 let mut best_bpos: Option<Vec2> = None;
                 for inst in click.entity_map.iter_instances() {
-                    if inst.position.x < -9000.0 { continue; }
+                    if inst.position.x < -9000.0 {
+                        continue;
+                    }
                     let px = inst.position.x;
                     let py = inst.position.y;
                     let faction = inst.faction;
-                    if faction == 0 { continue; }
-                    if px < -9000.0 { continue; }
+                    if faction == 0 {
+                        continue;
+                    }
+                    if px < -9000.0 {
+                        continue;
+                    }
                     let dx = world_pos.x - px;
                     let dy = world_pos.y - py;
                     let dist = (dx * dx + dy * dy).sqrt();
@@ -495,7 +585,12 @@ fn click_to_select_system(
                                 *act = Activity::Idle;
                             }
                         }
-                        intents.submit(entity, target_pos, crate::resources::MovementPriority::DirectControl, "dc:move");
+                        intents.submit(
+                            entity,
+                            target_pos,
+                            crate::resources::MovementPriority::DirectControl,
+                            "dc:move",
+                        );
                     }
                 }
             }
@@ -503,7 +598,9 @@ fn click_to_select_system(
         }
     }
 
-    if !mouse.just_pressed(MouseButton::Left) { return; }
+    if !mouse.just_pressed(MouseButton::Left) {
+        return;
+    }
 
     // Build placement owns left-click while a build is selected.
     if click.build_ctx.selected_build.is_some() {
@@ -518,8 +615,12 @@ fn click_to_select_system(
     }
 
     let Ok(window) = windows.single() else { return };
-    let Some(cursor_pos) = window.cursor_position() else { return };
-    let Ok((transform, projection)) = camera_query.single() else { return };
+    let Some(cursor_pos) = window.cursor_position() else {
+        return;
+    };
+    let Ok((transform, projection)) = camera_query.single() else {
+        return;
+    };
 
     let zoom = ortho_zoom(projection);
     let position = transform.translation.truncate();
@@ -534,7 +635,9 @@ fn click_to_select_system(
     // Mine assignment — snap to nearest gold mine within radius
     if let Some(mh_slot) = click.ui_state.assigning_mine {
         let snap_radius = 60.0;
-        let best = click.entity_map.iter_kind(BuildingKind::GoldMine)
+        let best = click
+            .entity_map
+            .iter_kind(BuildingKind::GoldMine)
             .map(|inst| (inst.position.distance(world_pos), inst.position))
             .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
         if let Some((dist, mine_pos)) = best {
@@ -564,8 +667,12 @@ fn click_to_select_system(
     for i in 0..entity_count {
         let px = positions[i * 2];
         let py = positions[i * 2 + 1];
-        if px < -9000.0 { continue; }
-        if !click.entity_map.entities.contains_key(&i) { continue; }
+        if px < -9000.0 {
+            continue;
+        }
+        if !click.entity_map.entities.contains_key(&i) {
+            continue;
+        }
 
         let dx = world_pos.x - px;
         let dy = world_pos.y - py;
@@ -590,8 +697,8 @@ fn click_to_select_system(
 
     // Double-click detection
     let now = time.elapsed_secs_f64();
-    let is_double = (now - dbl_click.last_time) < 0.4
-        && (world_pos - dbl_click.last_pos).length() < 5.0;
+    let is_double =
+        (now - dbl_click.last_time) < 0.4 && (world_pos - dbl_click.last_pos).length() < 5.0;
     dbl_click.last_time = now;
     dbl_click.last_pos = world_pos;
 
@@ -629,7 +736,8 @@ fn click_to_select_system(
     if best_idx >= 0 && best_building.is_some() {
         let npc_x = positions[best_idx as usize * 2];
         let npc_y = positions[best_idx as usize * 2 + 1];
-        let (_, bpos, _) = best_building.unwrap_or((BuildingKind::Farm, grid.grid_to_world(col, row), 0));
+        let (_, bpos, _) =
+            best_building.unwrap_or((BuildingKind::Farm, grid.grid_to_world(col, row), 0));
         let npc_dx = world_pos.x - npc_x;
         let npc_dy = world_pos.y - npc_y;
         let bld_dx = world_pos.x - bpos.x;
@@ -647,9 +755,13 @@ fn click_to_select_system(
     // Click empty ground → clear DirectControl from all player squad members
     if best_idx < 0 && best_building.is_none() {
         for squad in click.squad_state.squads.iter() {
-            if !squad.is_player() { continue; }
+            if !squad.is_player() {
+                continue;
+            }
             for &uid in &squad.members {
-                let Some(slot) = click.entity_map.slot_for_uid(uid) else { continue };
+                let Some(slot) = click.entity_map.slot_for_uid(uid) else {
+                    continue;
+                };
                 if let Some(&entity) = click.entity_map.entities.get(&slot) {
                     if let Ok(mut flags) = npc_flags_q.get_mut(entity) {
                         flags.direct_control = false;
@@ -682,11 +794,17 @@ fn box_select_system(
     box_npc_q: Query<(&GpuSlot, &Job, &Faction, &Position), (Without<Building>, Without<Dead>)>,
 ) {
     // Don't box-select while building or placing squad targets
-    if build_ctx.selected_build.is_some() || squad_state.placing_target { return; }
+    if build_ctx.selected_build.is_some() || squad_state.placing_target {
+        return;
+    }
 
     let Ok(window) = windows.single() else { return };
-    let Some(cursor_pos) = window.cursor_position() else { return };
-    let Ok((transform, projection)) = camera_query.single() else { return };
+    let Some(cursor_pos) = window.cursor_position() else {
+        return;
+    };
+    let Ok((transform, projection)) = camera_query.single() else {
+        return;
+    };
     let zoom = ortho_zoom(projection);
     let cam = transform.translation.truncate();
     let viewport = Vec2::new(window.width(), window.height());
@@ -700,7 +818,9 @@ fn box_select_system(
     // Check egui wants pointer
     let egui_wants = if let Ok(ctx) = egui_contexts.ctx_mut() {
         ctx.wants_pointer_input() || ctx.is_pointer_over_area()
-    } else { false };
+    } else {
+        false
+    };
 
     if mouse.just_pressed(MouseButton::Left) && !egui_wants {
         squad_state.drag_start = Some(world_pos);
@@ -726,22 +846,35 @@ fn box_select_system(
 
                 let mut selected_slots: Vec<usize> = Vec::new();
                 for (slot, job, faction, pos) in box_npc_q.iter() {
-                    if faction.0 != 0 { continue; } // only player NPCs
-                    if !job.is_military() { continue; }
-                    if pos.x < -9000.0 { continue; }
+                    if faction.0 != 0 {
+                        continue;
+                    } // only player NPCs
+                    if !job.is_military() {
+                        continue;
+                    }
+                    if pos.x < -9000.0 {
+                        continue;
+                    }
                     if pos.x >= min_x && pos.x <= max_x && pos.y >= min_y && pos.y <= max_y {
                         selected_slots.push(slot.0);
                     }
                 }
 
                 if !selected_slots.is_empty() {
-                    let selected_set: std::collections::HashSet<usize> = selected_slots.iter().copied().collect();
+                    let selected_set: std::collections::HashSet<usize> =
+                        selected_slots.iter().copied().collect();
                     // Auto-select squad 0 if none selected
-                    let si = if squad_state.selected < 0 { 0 } else { squad_state.selected as usize };
+                    let si = if squad_state.selected < 0 {
+                        0
+                    } else {
+                        squad_state.selected as usize
+                    };
                     if si < squad_state.squads.len() && squad_state.squads[si].is_player() {
                         // Remove DirectControl from old squad members being replaced
                         for &old_uid in &squad_state.squads[si].members {
-                            let Some(old_slot) = entity_map.slot_for_uid(old_uid) else { continue };
+                            let Some(old_slot) = entity_map.slot_for_uid(old_uid) else {
+                                continue;
+                            };
                             if !selected_set.contains(&old_slot) {
                                 if let Some(&entity) = entity_map.entities.get(&old_slot) {
                                     if let Ok(mut flags) = npc_flags_q.get_mut(entity) {
@@ -752,14 +885,21 @@ fn box_select_system(
                         }
                         // Remove these slots from any other player squad first
                         for qi in 0..squad_state.squads.len() {
-                            if qi == si { continue; }
-                            if !squad_state.squads[qi].is_player() { continue; }
+                            if qi == si {
+                                continue;
+                            }
+                            if !squad_state.squads[qi].is_player() {
+                                continue;
+                            }
                             squad_state.squads[qi].members.retain(|uid| {
-                                entity_map.slot_for_uid(*uid).map_or(false, |s| !selected_set.contains(&s))
+                                entity_map
+                                    .slot_for_uid(*uid)
+                                    .map_or(false, |s| !selected_set.contains(&s))
                             });
                         }
                         // Set as the squad's members (replace, not append) — convert slots to UIDs
-                        squad_state.squads[si].members = selected_slots.iter()
+                        squad_state.squads[si].members = selected_slots
+                            .iter()
                             .filter_map(|&slot| entity_map.uid_for_slot(slot))
                             .collect();
                         // Update SquadId + DirectControl on each selected NPC
@@ -818,12 +958,21 @@ fn spawn_world_tilemap(
     mut spawned: ResMut<TilemapSpawned>,
     mut config: ResMut<RenderFrameConfig>,
 ) {
-    if spawned.0 || grid.width == 0 { return; }
-    let Some(atlas) = images.get(&assets.world_texture).cloned() else { return; };
+    if spawned.0 || grid.width == 0 {
+        return;
+    }
+    let Some(atlas) = images.get(&assets.world_texture).cloned() else {
+        return;
+    };
     // Collect external building images from registry-driven handles
-    let extra_imgs: Option<Vec<Image>> = assets.external_textures.iter()
-        .map(|h| images.get(h).cloned()).collect();
-    let Some(extra_imgs) = extra_imgs else { return; };
+    let extra_imgs: Option<Vec<Image>> = assets
+        .external_textures
+        .iter()
+        .map(|h| images.get(h).cloned())
+        .collect();
+    let Some(extra_imgs) = extra_imgs else {
+        return;
+    };
     let extra_refs: Vec<&Image> = extra_imgs.iter().collect();
 
     // Terrain layer — split into CHUNK_SIZE x CHUNK_SIZE chunks for frustum culling
@@ -838,7 +987,9 @@ fn spawn_world_tilemap(
             for ly in 0..ch {
                 for lx in 0..cw {
                     let gi = (cy + ly) * grid.width + (cx + lx);
-                    tile_data.push(Some(TileData::from_tileset_index(grid.cells[gi].terrain.tileset_index(gi))));
+                    tile_data.push(Some(TileData::from_tileset_index(
+                        grid.cells[gi].terrain.tileset_index(gi),
+                    )));
                 }
             }
             let center_x = (cx as f32 + cw as f32 / 2.0) * grid.cell_size;
@@ -853,7 +1004,12 @@ fn spawn_world_tilemap(
                 TilemapChunkTileData(tile_data),
                 Transform::from_xyz(center_x, center_y, -1.0),
                 TerrainChunk,
-                TerrainChunkRegion { origin_x: cx, origin_y: cy, chunk_w: cw, chunk_h: ch },
+                TerrainChunkRegion {
+                    origin_x: cx,
+                    origin_y: cy,
+                    chunk_w: cw,
+                    chunk_h: ch,
+                },
             ));
             chunk_count += 1;
         }
@@ -861,26 +1017,30 @@ fn spawn_world_tilemap(
 
     // Building atlas for NPC instanced renderer (replaces building TilemapChunk)
     let btiles = building_tiles();
-    let building_atlas = build_building_atlas(
-        &atlas,
-        &btiles,
-        &extra_refs,
-        &mut images,
-    );
+    let building_atlas = build_building_atlas(&atlas, &btiles, &extra_refs, &mut images);
     if let Some(img) = images.get(&building_atlas) {
-        assert_eq!(img.height(), 32 * (btiles.len() + crate::constants::WALL_EXTRA_LAYERS) as u32,
-            "building atlas height mismatch");
+        assert_eq!(
+            img.height(),
+            32 * (btiles.len() + crate::constants::WALL_EXTRA_LAYERS) as u32,
+            "building atlas height mismatch"
+        );
     }
     config.textures.building_handle = Some(building_atlas);
 
     // Extras atlas: composites heal, sleep, arrow, boat into a single grid texture
-    let extras_imgs: Option<Vec<Image>> = assets.extras_sprites.iter()
-        .map(|h| images.get(h).cloned()).collect();
+    let extras_imgs: Option<Vec<Image>> = assets
+        .extras_sprites
+        .iter()
+        .map(|h| images.get(h).cloned())
+        .collect();
     if let Some(extras_imgs) = extras_imgs {
         config.textures.extras_handle = Some(build_extras_atlas(&extras_imgs, &mut images));
     }
 
-    info!("World tilemap spawned: {}x{} grid ({} terrain chunks)", grid.width, grid.height, chunk_count);
+    info!(
+        "World tilemap spawned: {}x{} grid ({} terrain chunks)",
+        grid.width, grid.height, chunk_count
+    );
     spawned.0 = true;
 }
 
@@ -891,7 +1051,9 @@ fn sync_terrain_tilemap(
     mut chunks: Query<(&mut TilemapChunkTileData, &TerrainChunkRegion), With<TerrainChunk>>,
     mut terrain_dirty: MessageReader<TerrainDirtyMsg>,
 ) {
-    if grid.width == 0 || terrain_dirty.read().count() == 0 { return; }
+    if grid.width == 0 || terrain_dirty.read().count() == 0 {
+        return;
+    }
 
     for (mut tile_data, region) in chunks.iter_mut() {
         for ly in 0..region.chunk_h {
@@ -899,7 +1061,7 @@ fn sync_terrain_tilemap(
                 let gi = (region.origin_y + ly) * grid.width + (region.origin_x + lx);
                 let li = ly * region.chunk_w + lx;
                 tile_data.0[li] = Some(TileData::from_tileset_index(
-                    grid.cells[gi].terrain.tileset_index(gi)
+                    grid.cells[gi].terrain.tileset_index(gi),
                 ));
             }
         }

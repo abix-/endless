@@ -1,11 +1,11 @@
 //! Sleep Visual Test (3 phases)
 //! Validates: Resting NPC gets sleep icon in NpcVisualUpload equip layer 4, cleared on wake.
 
-use bevy::prelude::*;
+use super::{TestSetupParams, TestState};
 use crate::components::*;
 use crate::gpu::NpcVisualUpload;
 use crate::resources::EntityMap;
-use super::{TestState, TestSetupParams};
+use bevy::prelude::*;
 
 pub fn setup(mut params: TestSetupParams) {
     params.add_town("SleepTown");
@@ -19,10 +19,15 @@ pub fn setup(mut params: TestSetupParams) {
     let slot = params.slot_alloc.alloc().expect("slot alloc");
     params.spawn_events.write(crate::messages::SpawnNpcMsg {
         slot_idx: slot,
-        x: 450.0, y: 400.0,
-        job: 0, faction: 0, town_idx: 0,
-        home_x: 380.0, home_y: 420.0,
-        work_x: 450.0, work_y: 400.0,
+        x: 450.0,
+        y: 400.0,
+        job: 0,
+        faction: 0,
+        town_idx: 0,
+        home_x: 380.0,
+        home_y: 420.0,
+        work_x: 450.0,
+        work_y: 400.0,
         starting_post: -1,
         attack_type: 0,
         uid_override: None,
@@ -40,18 +45,31 @@ pub fn tick(
     activity_q: Query<&Activity>,
     mut energy_q: Query<&mut Energy>,
 ) {
-    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
-    let farmer_count = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer).count();
-    if !test.require_entity(farmer_count, elapsed, "farmer") { return; }
+    let Some(elapsed) = test.tick_elapsed(&time) else {
+        return;
+    };
+    let farmer_count = entity_map
+        .iter_npcs()
+        .filter(|n| !n.dead && n.job == Job::Farmer)
+        .count();
+    if !test.require_entity(farmer_count, elapsed, "farmer") {
+        return;
+    }
 
-    let energy = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer)
-        .and_then(|n| energy_q.get(n.entity).ok()).map(|e| e.0).unwrap_or(100.0);
+    let energy = entity_map
+        .iter_npcs()
+        .find(|n| !n.dead && n.job == Job::Farmer)
+        .and_then(|n| energy_q.get(n.entity).ok())
+        .map(|e| e.0)
+        .unwrap_or(100.0);
 
     // Start energy near tired threshold so rest triggers within 30s
     if !test.get_flag("energy_set") {
         for npc in entity_map.iter_npcs() {
             if !npc.dead && npc.job == Job::Farmer {
-                if let Ok(mut en) = energy_q.get_mut(npc.entity) { en.0 = 35.0; }
+                if let Ok(mut en) = energy_q.get_mut(npc.entity) {
+                    en.0 = 35.0;
+                }
             }
         }
         test.set_flag("energy_set", true);
@@ -69,7 +87,16 @@ pub fn tick(
         }
         // Phase 2: Farmer rests → equip layer 4 should show sleep icon (atlas=3.0)
         2 => {
-            let resting = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Resting))).map(|n| n.slot);
+            let resting = entity_map
+                .iter_npcs()
+                .find(|n| {
+                    !n.dead
+                        && n.job == Job::Farmer
+                        && activity_q
+                            .get(n.entity)
+                            .is_ok_and(|a| matches!(*a, Activity::Resting))
+                })
+                .map(|n| n.slot);
             test.phase_name = format!("e={:.0} resting={}", energy, resting.is_some());
 
             if let Some(idx) = resting {
@@ -77,9 +104,21 @@ pub fn tick(
                 let col = upload.equip_data.get(eq_base).copied().unwrap_or(-1.0);
                 let atlas = upload.equip_data.get(eq_base + 2).copied().unwrap_or(0.0);
                 if col >= 0.0 && atlas >= 2.5 {
-                    test.pass_phase(elapsed, format!("Sleep icon set (idx={}, col={:.0}, atlas={:.0})", idx, col, atlas));
+                    test.pass_phase(
+                        elapsed,
+                        format!(
+                            "Sleep icon set (idx={}, col={:.0}, atlas={:.0})",
+                            idx, col, atlas
+                        ),
+                    );
                 } else {
-                    test.fail_phase(elapsed, format!("Resting but equip[{}] col={:.1} atlas={:.1}, expected col>=0 atlas=3", eq_base, col, atlas));
+                    test.fail_phase(
+                        elapsed,
+                        format!(
+                            "Resting but equip[{}] col={:.1} atlas={:.1}, expected col>=0 atlas=3",
+                            eq_base, col, atlas
+                        ),
+                    );
                 }
             } else if elapsed > 45.0 {
                 test.fail_phase(elapsed, format!("energy={:.0} but never rested", energy));
@@ -87,17 +126,36 @@ pub fn tick(
         }
         // Phase 3: Farmer wakes → equip layer 4 should be cleared (-1)
         3 => {
-            let awake = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer && !activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Resting))).map(|n| n.slot);
+            let awake = entity_map
+                .iter_npcs()
+                .find(|n| {
+                    !n.dead
+                        && n.job == Job::Farmer
+                        && !activity_q
+                            .get(n.entity)
+                            .is_ok_and(|a| matches!(*a, Activity::Resting))
+                })
+                .map(|n| n.slot);
             test.phase_name = format!("e={:.0} awake={}", energy, awake.is_some());
 
             if let Some(idx) = awake {
                 if energy >= 80.0 {
-                    let col = upload.equip_data.get(idx * 24 + 16).copied().unwrap_or(-1.0);
+                    let col = upload
+                        .equip_data
+                        .get(idx * 24 + 16)
+                        .copied()
+                        .unwrap_or(-1.0);
                     if col == -1.0 {
-                        test.pass_phase(elapsed, format!("Sleep icon cleared (idx={}, energy={:.0})", idx, energy));
+                        test.pass_phase(
+                            elapsed,
+                            format!("Sleep icon cleared (idx={}, energy={:.0})", idx, energy),
+                        );
                         test.complete(elapsed);
                     } else {
-                        test.fail_phase(elapsed, format!("Awake but equip[{}]={:.1}, expected -1", idx * 24 + 16, col));
+                        test.fail_phase(
+                            elapsed,
+                            format!("Awake but equip[{}]={:.1}, expected -1", idx * 24 + 16, col),
+                        );
                     }
                 }
             }

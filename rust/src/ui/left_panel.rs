@@ -1,19 +1,25 @@
 //! Left panel — tabbed container for Roster, Upgrades, Policies, and Patrols.
 
-use std::collections::HashMap;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::egui;
+use std::collections::HashMap;
 
-use crate::constants::{BUILDING_REGISTRY, DisplayCategory, FOUNTAIN_TOWER, npc_def};
 use crate::components::*;
+use crate::constants::UpgradeStatKind;
+use crate::constants::{BUILDING_REGISTRY, DisplayCategory, FOUNTAIN_TOWER, npc_def};
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
-use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeMsg, UPGRADES, upgrade_count, upgrade_unlocked, upgrade_available, missing_prereqs, format_upgrade_cost, upgrade_effect_summary, branch_total, resolve_town_tower_stats};
-use crate::constants::UpgradeStatKind;
-use crate::systems::{AiPlayerState, AiKind};
-use crate::systems::ai_player::{AiPersonality, cheapest_gold_upgrade_cost, debug_food_military_desire};
-use crate::world::{WorldData, WorldGrid, TownGrids, BuildingKind, is_alive};
+use crate::systems::ai_player::{
+    AiPersonality, cheapest_gold_upgrade_cost, debug_food_military_desire,
+};
+use crate::systems::stats::{
+    CombatConfig, TownUpgrades, UPGRADES, UpgradeMsg, branch_total, format_upgrade_cost,
+    missing_prereqs, resolve_town_tower_stats, upgrade_available, upgrade_count,
+    upgrade_effect_summary, upgrade_unlocked,
+};
+use crate::systems::{AiKind, AiPlayerState};
+use crate::world::{BuildingKind, TownGrids, WorldData, WorldGrid, is_alive};
 
 // ============================================================================
 // PROFILER PARAMS
@@ -39,6 +45,7 @@ pub struct ProfilerCache {
     top_flips: Vec<(usize, u16, u16, u16, u16, String)>,
     total_changes: u32,
     sink_window_key: i64,
+    dirty_counts: Vec<(String, u32)>,
 }
 
 // ============================================================================
@@ -46,7 +53,14 @@ pub struct ProfilerCache {
 // ============================================================================
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SortColumn { Name, Job, Level, Hp, State, Trait }
+enum SortColumn {
+    Name,
+    Job,
+    Level,
+    Hp,
+    State,
+    Trait,
+}
 
 #[derive(Default)]
 pub struct RosterState {
@@ -70,7 +84,6 @@ struct RosterRow {
     state: String,
     trait_name: String,
 }
-
 
 // ============================================================================
 // POLICIES CONSTANTS
@@ -277,22 +290,69 @@ pub fn left_panel_system(
             }
 
             match ui_state.left_panel_tab {
-                LeftPanelTab::Roster => roster_content(ui, &mut roster, &mut roster_state, debug_all),
-                LeftPanelTab::Upgrades => upgrade_content(ui, &mut upgrade, &world_data, &mut settings),
-                LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data, &factions.entity_map, &mut profiler.mining_policy, &mut dirty_writers, &mut jump_target),
-                LeftPanelTab::Patrols => { patrol_swap = patrols_content(ui, &world_data, &factions.entity_map, &mut jump_target); },
-                LeftPanelTab::Squads => squads_content(ui, &mut squad, &roster.meta_cache, &world_data, &mut dirty_writers),
-                LeftPanelTab::Factions => factions_content(ui, &factions, &squad.squad_state, &world_data, &policies, &profiler.mining_policy, &mut factions_cache, &mut jump_target, &mut ui_state, &mut copy_text, requested_faction),
-                LeftPanelTab::Profiler => profiler_content(ui, &profiler.timings, &profiler.target_thrash, &mut profiler.migration, &mut settings, &mut profiler_cache),
+                LeftPanelTab::Roster => {
+                    roster_content(ui, &mut roster, &mut roster_state, debug_all)
+                }
+                LeftPanelTab::Upgrades => {
+                    upgrade_content(ui, &mut upgrade, &world_data, &mut settings)
+                }
+                LeftPanelTab::Policies => policies_content(
+                    ui,
+                    &mut policies,
+                    &world_data,
+                    &factions.entity_map,
+                    &mut profiler.mining_policy,
+                    &mut dirty_writers,
+                    &mut jump_target,
+                ),
+                LeftPanelTab::Patrols => {
+                    patrol_swap =
+                        patrols_content(ui, &world_data, &factions.entity_map, &mut jump_target);
+                }
+                LeftPanelTab::Squads => squads_content(
+                    ui,
+                    &mut squad,
+                    &roster.meta_cache,
+                    &world_data,
+                    &mut dirty_writers,
+                ),
+                LeftPanelTab::Factions => factions_content(
+                    ui,
+                    &factions,
+                    &squad.squad_state,
+                    &world_data,
+                    &policies,
+                    &profiler.mining_policy,
+                    &mut factions_cache,
+                    &mut jump_target,
+                    &mut ui_state,
+                    &mut copy_text,
+                    requested_faction,
+                ),
+                LeftPanelTab::Profiler => profiler_content(
+                    ui,
+                    &profiler.timings,
+                    &profiler.target_thrash,
+                    &mut profiler.migration,
+                    &mut settings,
+                    &mut profiler_cache,
+                ),
                 LeftPanelTab::Help => help_content(ui),
             }
         });
 
     // Queue patrol swap — applied in rebuild_patrol_routes_system which reads PatrolSwapMsg
     if let Some((a, b)) = patrol_swap {
-        dirty_writers.patrols.write(crate::messages::PatrolsDirtyMsg);
+        dirty_writers
+            .patrols
+            .write(crate::messages::PatrolsDirtyMsg);
         // PatrolSwapMsg is a separate message type — written directly via the system param below
-        dirty_writers.patrol_swap.write(crate::messages::PatrolSwapMsg { slot_a: a, slot_b: b });
+        dirty_writers
+            .patrol_swap
+            .write(crate::messages::PatrolSwapMsg {
+                slot_a: a,
+                slot_b: b,
+            });
     }
 
     // Apply camera jump from Factions panel
@@ -318,14 +378,22 @@ pub fn left_panel_system(
     let was_policies = *prev_tab == LeftPanelTab::Policies;
     let is_policies = ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Policies;
     if was_policies && !is_policies {
-        let town_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
+        let town_idx = world_data
+            .towns
+            .iter()
+            .position(|t| t.faction == 0)
+            .unwrap_or(0);
         if town_idx < policies.policies.len() {
             let mut saved = settings::load_settings();
             saved.policy = policies.policies[town_idx].clone();
             settings::save_settings(&saved);
         }
     }
-    *prev_tab = if ui_state.left_panel_open { ui_state.left_panel_tab } else { LeftPanelTab::Roster };
+    *prev_tab = if ui_state.left_panel_open {
+        ui_state.left_panel_tab
+    } else {
+        LeftPanelTab::Roster
+    };
 
     Ok(())
 }
@@ -345,18 +413,34 @@ fn roster_content(
     if state.frame_counter % 30 == 1 || state.cached_rows.is_empty() {
         let mut rows = Vec::new();
         for npc in roster.entity_map.iter_npcs() {
-            if npc.dead { continue; }
+            if npc.dead {
+                continue;
+            }
             let idx = npc.slot;
             let meta = &roster.meta_cache.0[idx];
             // Player faction only unless debug
-            if !debug_all && npc.faction != 0 { continue; }
+            if !debug_all && npc.faction != 0 {
+                continue;
+            }
             if state.job_filter >= 0 && meta.job != state.job_filter {
                 continue;
             }
-            let state_str = if roster.combat_state_q.get(npc.entity).is_ok_and(|cs| cs.is_fighting()) {
-                roster.combat_state_q.get(npc.entity).map(|cs| cs.name().to_string()).unwrap_or_default()
+            let state_str = if roster
+                .combat_state_q
+                .get(npc.entity)
+                .is_ok_and(|cs| cs.is_fighting())
+            {
+                roster
+                    .combat_state_q
+                    .get(npc.entity)
+                    .map(|cs| cs.name().to_string())
+                    .unwrap_or_default()
             } else {
-                roster.activity_q.get(npc.entity).map(|a| a.name().to_string()).unwrap_or_else(|_| "Unknown".to_string())
+                roster
+                    .activity_q
+                    .get(npc.entity)
+                    .map(|a| a.name().to_string())
+                    .unwrap_or_else(|_| "Unknown".to_string())
             };
             rows.push(RosterRow {
                 slot: idx,
@@ -364,9 +448,17 @@ fn roster_content(
                 job: meta.job,
                 level: meta.level,
                 hp: roster.health_q.get(npc.entity).map(|h| h.0).unwrap_or(0.0),
-                max_hp: roster.cached_stats_q.get(npc.entity).map(|s| s.max_health).unwrap_or(100.0),
+                max_hp: roster
+                    .cached_stats_q
+                    .get(npc.entity)
+                    .map(|s| s.max_health)
+                    .unwrap_or(100.0),
                 state: state_str,
-                trait_name: roster.personality_q.get(npc.entity).map(|p| p.trait_summary()).unwrap_or_default(),
+                trait_name: roster
+                    .personality_q
+                    .get(npc.entity)
+                    .map(|p| p.trait_summary())
+                    .unwrap_or_default(),
             });
         }
 
@@ -380,7 +472,11 @@ fn roster_content(
                     SortColumn::State => a.state.cmp(&b.state),
                     SortColumn::Trait => a.trait_name.cmp(&b.trait_name),
                 };
-                if state.sort_descending { ord.reverse() } else { ord }
+                if state.sort_descending {
+                    ord.reverse()
+                } else {
+                    ord
+                }
             });
         } else {
             rows.sort_by(|a, b| b.level.cmp(&a.level));
@@ -397,10 +493,17 @@ fn roster_content(
         // Military first, then civilian
         for &military_first in &[true, false] {
             for def in crate::constants::NPC_REGISTRY.iter() {
-                if def.is_military != military_first { continue; }
-                if def.job == Job::Raider && !debug_all { continue; }
+                if def.is_military != military_first {
+                    continue;
+                }
+                if def.job == Job::Raider && !debug_all {
+                    continue;
+                }
                 let job_id = def.job as i32;
-                if ui.selectable_label(state.job_filter == job_id, def.label_plural).clicked() {
+                if ui
+                    .selectable_label(state.job_filter == job_id, def.label_plural)
+                    .clicked()
+                {
                     state.job_filter = job_id;
                     state.frame_counter = 0;
                 }
@@ -442,7 +545,11 @@ fn roster_content(
     // Sort headers
     fn arrow_str(state: &RosterState, col: SortColumn) -> &'static str {
         if state.sort_column == Some(col) {
-            if state.sort_descending { " \u{25BC}" } else { " \u{25B2}" }
+            if state.sort_descending {
+                " \u{25BC}"
+            } else {
+                " \u{25B2}"
+            }
         } else {
             ""
         }
@@ -457,12 +564,24 @@ fn roster_content(
 
     let mut clicked_col: Option<SortColumn> = None;
     ui.horizontal(|ui| {
-        if ui.button(format!("Name{}", name_arrow)).clicked() { clicked_col = Some(SortColumn::Name); }
-        if ui.button(format!("Job{}", job_arrow)).clicked() { clicked_col = Some(SortColumn::Job); }
-        if ui.button(format!("Lv{}", level_arrow)).clicked() { clicked_col = Some(SortColumn::Level); }
-        if ui.button(format!("HP{}", hp_arrow)).clicked() { clicked_col = Some(SortColumn::Hp); }
-        if ui.button(format!("State{}", state_arrow)).clicked() { clicked_col = Some(SortColumn::State); }
-        if ui.button(format!("Trait{}", trait_arrow)).clicked() { clicked_col = Some(SortColumn::Trait); }
+        if ui.button(format!("Name{}", name_arrow)).clicked() {
+            clicked_col = Some(SortColumn::Name);
+        }
+        if ui.button(format!("Job{}", job_arrow)).clicked() {
+            clicked_col = Some(SortColumn::Job);
+        }
+        if ui.button(format!("Lv{}", level_arrow)).clicked() {
+            clicked_col = Some(SortColumn::Level);
+        }
+        if ui.button(format!("HP{}", hp_arrow)).clicked() {
+            clicked_col = Some(SortColumn::Hp);
+        }
+        if ui.button(format!("State{}", state_arrow)).clicked() {
+            clicked_col = Some(SortColumn::State);
+        }
+        if ui.button(format!("Trait{}", trait_arrow)).clicked() {
+            clicked_col = Some(SortColumn::Trait);
+        }
     });
 
     if let Some(col) = clicked_col {
@@ -478,82 +597,113 @@ fn roster_content(
     ui.separator();
 
     // Scrollable NPC list
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        let mut new_selected: Option<i32> = None;
-        let mut follow_idx: Option<usize> = None;
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            let mut new_selected: Option<i32> = None;
+            let mut follow_idx: Option<usize> = None;
 
-        for row in &state.cached_rows {
-            let is_selected = selected_idx == row.slot as i32;
-            let (r, g, b) = npc_def(Job::from_i32(row.job)).ui_color;
-            let job_color = egui::Color32::from_rgb(r, g, b);
+            for row in &state.cached_rows {
+                let is_selected = selected_idx == row.slot as i32;
+                let (r, g, b) = npc_def(Job::from_i32(row.job)).ui_color;
+                let job_color = egui::Color32::from_rgb(r, g, b);
 
-            let response = ui.horizontal(|ui| {
-                if is_selected {
-                    let rect = ui.available_rect_before_wrap();
-                    ui.painter().rect_filled(rect, 0.0, egui::Color32::from_rgba_premultiplied(60, 60, 100, 80));
-                }
+                let response = ui.horizontal(|ui| {
+                    if is_selected {
+                        let rect = ui.available_rect_before_wrap();
+                        ui.painter().rect_filled(
+                            rect,
+                            0.0,
+                            egui::Color32::from_rgba_premultiplied(60, 60, 100, 80),
+                        );
+                    }
 
-                let name_text = if row.name.len() > 16 { &row.name[..16] } else { &row.name };
-                ui.colored_label(job_color, name_text);
-                ui.label(crate::job_name(row.job));
-                ui.label(format!("{}", row.level));
+                    let name_text = if row.name.len() > 16 {
+                        &row.name[..16]
+                    } else {
+                        &row.name
+                    };
+                    ui.colored_label(job_color, name_text);
+                    ui.label(crate::job_name(row.job));
+                    ui.label(format!("{}", row.level));
 
-                let hp_frac = if row.max_hp > 0.0 { row.hp / row.max_hp } else { 0.0 };
-                let hp_color = if hp_frac > 0.6 {
-                    egui::Color32::from_rgb(80, 200, 80)
-                } else if hp_frac > 0.3 {
-                    egui::Color32::from_rgb(200, 200, 40)
-                } else {
-                    egui::Color32::from_rgb(200, 60, 60)
-                };
-                ui.colored_label(hp_color, format!("{:.0}/{:.0}", row.hp, row.max_hp));
-                ui.label(&row.state);
+                    let hp_frac = if row.max_hp > 0.0 {
+                        row.hp / row.max_hp
+                    } else {
+                        0.0
+                    };
+                    let hp_color = if hp_frac > 0.6 {
+                        egui::Color32::from_rgb(80, 200, 80)
+                    } else if hp_frac > 0.3 {
+                        egui::Color32::from_rgb(200, 200, 40)
+                    } else {
+                        egui::Color32::from_rgb(200, 60, 60)
+                    };
+                    ui.colored_label(hp_color, format!("{:.0}/{:.0}", row.hp, row.max_hp));
+                    ui.label(&row.state);
 
-                if !row.trait_name.is_empty() {
-                    ui.small(&row.trait_name);
-                }
+                    if !row.trait_name.is_empty() {
+                        ui.small(&row.trait_name);
+                    }
 
-                if ui.small_button("◎").clicked() {
+                    if ui.small_button("◎").clicked() {
+                        new_selected = Some(row.slot as i32);
+                    }
+                    if ui.small_button("▶").clicked() {
+                        new_selected = Some(row.slot as i32);
+                        follow_idx = Some(row.slot);
+                    }
+                });
+
+                if response.response.clicked() {
                     new_selected = Some(row.slot as i32);
                 }
-                if ui.small_button("▶").clicked() {
-                    new_selected = Some(row.slot as i32);
-                    follow_idx = Some(row.slot);
-                }
-
-            });
-
-            if response.response.clicked() {
-                new_selected = Some(row.slot as i32);
             }
-        }
 
-        if let Some(idx) = new_selected {
-            roster.selected.0 = idx;
-        }
+            if let Some(idx) = new_selected {
+                roster.selected.0 = idx;
+            }
 
-        if let Some(idx) = follow_idx {
-            if idx * 2 + 1 < roster.gpu_state.positions.len() {
-                let x = roster.gpu_state.positions[idx * 2];
-                let y = roster.gpu_state.positions[idx * 2 + 1];
-                if let Ok(mut transform) = roster.camera_query.single_mut() {
-                    transform.translation.x = x;
-                    transform.translation.y = y;
+            if let Some(idx) = follow_idx {
+                if idx * 2 + 1 < roster.gpu_state.positions.len() {
+                    let x = roster.gpu_state.positions[idx * 2];
+                    let y = roster.gpu_state.positions[idx * 2 + 1];
+                    if let Ok(mut transform) = roster.camera_query.single_mut() {
+                        transform.translation.x = x;
+                        transform.translation.y = y;
+                    }
                 }
             }
-        }
-
-    });
+        });
 }
 
 // ============================================================================
 // UPGRADE CONTENT
 // ============================================================================
 
-fn upgrade_content(ui: &mut egui::Ui, upgrade: &mut UpgradeParams, world_data: &WorldData, settings: &mut UserSettings) {
-    let town_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
-    let food = upgrade.food_storage.food.get(town_idx).copied().unwrap_or(0);
-    let gold = upgrade.gold_storage.gold.get(town_idx).copied().unwrap_or(0);
+fn upgrade_content(
+    ui: &mut egui::Ui,
+    upgrade: &mut UpgradeParams,
+    world_data: &WorldData,
+    settings: &mut UserSettings,
+) {
+    let town_idx = world_data
+        .towns
+        .iter()
+        .position(|t| t.faction == 0)
+        .unwrap_or(0);
+    let food = upgrade
+        .food_storage
+        .food
+        .get(town_idx)
+        .copied()
+        .unwrap_or(0);
+    let gold = upgrade
+        .gold_storage
+        .gold
+        .get(town_idx)
+        .copied()
+        .unwrap_or(0);
     let villager_stats = upgrade.faction_stats.stats.first();
     let alive = villager_stats.map(|s| s.alive).unwrap_or(0);
     let levels = upgrade.upgrades.town_levels(town_idx);
@@ -578,7 +728,11 @@ fn upgrade_content(ui: &mut egui::Ui, upgrade: &mut UpgradeParams, world_data: &
             let bt = branch_total(&levels, branch.label);
             ui.label(egui::RichText::new(format!("{}: {}", branch.label, bt)).small());
         }
-        ui.label(egui::RichText::new(format!("Total: {}", total)).small().strong());
+        ui.label(
+            egui::RichText::new(format!("Total: {}", total))
+                .small()
+                .strong(),
+        );
     });
     ui.separator();
 
@@ -592,67 +746,87 @@ fn upgrade_content(ui: &mut egui::Ui, upgrade: &mut UpgradeParams, world_data: &
             let bt = branch_total(&levels, branch.label);
             let is_expanded = settings.upgrade_expanded.iter().any(|s| s == branch.label);
             let id = ui.make_persistent_id(format!("upg_{}", branch.label));
-            let state = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, is_expanded);
+            let state = egui::collapsing_header::CollapsingState::load_with_default_open(
+                ui.ctx(),
+                id,
+                is_expanded,
+            );
             let header_res = state.show_header(ui, |ui| {
                 ui.label(egui::RichText::new(format!("{} ({})", branch.label, bt)).strong());
             });
             header_res.body(|ui| {
-                    for &(i, depth) in &branch.entries {
-                        let upg = &reg.nodes[i];
-                        let unlocked = upgrade_unlocked(&levels, i);
-                        let lv_i = levels.get(i).copied().unwrap_or(0);
-                        let available = upgrade_available(&levels, i, food, gold);
-                        let indent = depth as f32 * 16.0;
+                for &(i, depth) in &branch.entries {
+                    let upg = &reg.nodes[i];
+                    let unlocked = upgrade_unlocked(&levels, i);
+                    let lv_i = levels.get(i).copied().unwrap_or(0);
+                    let available = upgrade_available(&levels, i, food, gold);
+                    let indent = depth as f32 * 16.0;
 
-                        ui.horizontal(|ui| {
-                            ui.add_space(indent);
+                    ui.horizontal(|ui| {
+                        ui.add_space(indent);
 
-                            // Auto-upgrade checkbox
-                            upgrade.auto.ensure_towns(town_idx + 1);
-                            let count = upgrade_count();
-                            upgrade.auto.flags[town_idx].resize(count, false);
-                            let auto_flag = &mut upgrade.auto.flags[town_idx][i];
-                            let prev_auto = *auto_flag;
-                            ui.add_enabled(unlocked, egui::Checkbox::new(auto_flag, ""))
-                                .on_hover_text("Auto-buy each game hour");
-                            if *auto_flag != prev_auto {
-                                let mut saved = settings::load_settings();
-                                saved.auto_upgrades = upgrade.auto.flags[town_idx].clone();
-                                settings::save_settings(&saved);
+                        // Auto-upgrade checkbox
+                        upgrade.auto.ensure_towns(town_idx + 1);
+                        let count = upgrade_count();
+                        upgrade.auto.flags[town_idx].resize(count, false);
+                        let auto_flag = &mut upgrade.auto.flags[town_idx][i];
+                        let prev_auto = *auto_flag;
+                        ui.add_enabled(unlocked, egui::Checkbox::new(auto_flag, ""))
+                            .on_hover_text("Auto-buy each game hour");
+                        if *auto_flag != prev_auto {
+                            let mut saved = settings::load_settings();
+                            saved.auto_upgrades = upgrade.auto.flags[town_idx].clone();
+                            settings::save_settings(&saved);
+                        }
+
+                        // Label (dimmed when locked)
+                        let label_text = egui::RichText::new(upg.label);
+                        ui.label(if unlocked {
+                            label_text
+                        } else {
+                            label_text.weak()
+                        });
+
+                        // Effect summary (now/next)
+                        let (now, next) = upgrade_effect_summary(i, lv_i);
+                        ui.label(
+                            egui::RichText::new(format!("{} -> {}", now, next))
+                                .small()
+                                .weak(),
+                        );
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let cost_text = format_upgrade_cost(i, lv_i);
+                            let response = ui.add_enabled(available, egui::Button::new(&cost_text));
+
+                            let response = if !unlocked {
+                                if let Some(msg) = missing_prereqs(&levels, i) {
+                                    response.on_hover_text(msg)
+                                } else {
+                                    response
+                                }
+                            } else {
+                                response.on_hover_text(upg.tooltip)
+                            };
+                            if response.clicked() {
+                                upgrade.queue.write(UpgradeMsg {
+                                    town_idx,
+                                    upgrade_idx: i,
+                                });
                             }
 
-                            // Label (dimmed when locked)
-                            let label_text = egui::RichText::new(upg.label);
-                            ui.label(if unlocked { label_text } else { label_text.weak() });
-
-                            // Effect summary (now/next)
-                            let (now, next) = upgrade_effect_summary(i, lv_i);
-                            ui.label(egui::RichText::new(format!("{} -> {}", now, next)).small().weak());
-
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                let cost_text = format_upgrade_cost(i, lv_i);
-                                let response = ui.add_enabled(available, egui::Button::new(&cost_text));
-
-                                let response = if !unlocked {
-                                    if let Some(msg) = missing_prereqs(&levels, i) {
-                                        response.on_hover_text(msg)
-                                    } else {
-                                        response
-                                    }
-                                } else {
-                                    response.on_hover_text(upg.tooltip)
-                                };
-                                if response.clicked() {
-                                    upgrade.queue.write(UpgradeMsg { town_idx, upgrade_idx: i });
-                                }
-
-                                ui.label(format!("Lv{}", lv_i));
-                            });
+                            ui.label(format!("Lv{}", lv_i));
                         });
-                    }
-                });
+                    });
+                }
+            });
             // Persist expand/collapse changes after body renders (borrow on ui released)
-            let now_open = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false).is_open();
+            let now_open = egui::collapsing_header::CollapsingState::load_with_default_open(
+                ui.ctx(),
+                id,
+                false,
+            )
+            .is_open();
             if now_open != is_expanded {
                 if now_open {
                     settings.upgrade_expanded.push(branch.label.to_string());
@@ -678,7 +852,11 @@ fn policies_content(
     dirty_writers: &mut crate::messages::DirtyWriters,
     jump_target: &mut Option<Vec2>,
 ) {
-    let town_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
+    let town_idx = world_data
+        .towns
+        .iter()
+        .position(|t| t.faction == 0)
+        .unwrap_or(0);
 
     if town_idx >= policies.policies.len() {
         policies.policies.resize(town_idx + 1, PolicySet::default());
@@ -721,7 +899,9 @@ fn policies_content(
         ui.label("Schedule:");
         egui::ComboBox::from_id_salt("archer_schedule")
             .selected_text(SCHEDULE_OPTIONS[archer_sched_idx])
-            .show_index(ui, &mut archer_sched_idx, SCHEDULE_OPTIONS.len(), |i| SCHEDULE_OPTIONS[i]);
+            .show_index(ui, &mut archer_sched_idx, SCHEDULE_OPTIONS.len(), |i| {
+                SCHEDULE_OPTIONS[i]
+            });
     });
     policy.archer_schedule = match archer_sched_idx {
         1 => WorkSchedule::DayOnly,
@@ -733,7 +913,9 @@ fn policies_content(
         ui.label("Off-duty:");
         egui::ComboBox::from_id_salt("archer_off_duty")
             .selected_text(OFF_DUTY_OPTIONS[archer_off_idx])
-            .show_index(ui, &mut archer_off_idx, OFF_DUTY_OPTIONS.len(), |i| OFF_DUTY_OPTIONS[i]);
+            .show_index(ui, &mut archer_off_idx, OFF_DUTY_OPTIONS.len(), |i| {
+                OFF_DUTY_OPTIONS[i]
+            });
     });
     policy.archer_off_duty = match archer_off_idx {
         1 => OffDutyBehavior::StayAtFountain,
@@ -757,7 +939,9 @@ fn policies_content(
         ui.label("Schedule:");
         egui::ComboBox::from_id_salt("farmer_schedule")
             .selected_text(SCHEDULE_OPTIONS[farmer_sched_idx])
-            .show_index(ui, &mut farmer_sched_idx, SCHEDULE_OPTIONS.len(), |i| SCHEDULE_OPTIONS[i]);
+            .show_index(ui, &mut farmer_sched_idx, SCHEDULE_OPTIONS.len(), |i| {
+                SCHEDULE_OPTIONS[i]
+            });
     });
     policy.farmer_schedule = match farmer_sched_idx {
         1 => WorkSchedule::DayOnly,
@@ -769,7 +953,9 @@ fn policies_content(
         ui.label("Off-duty:");
         egui::ComboBox::from_id_salt("farmer_off_duty")
             .selected_text(OFF_DUTY_OPTIONS[farmer_off_idx])
-            .show_index(ui, &mut farmer_off_idx, OFF_DUTY_OPTIONS.len(), |i| OFF_DUTY_OPTIONS[i]);
+            .show_index(ui, &mut farmer_off_idx, OFF_DUTY_OPTIONS.len(), |i| {
+                OFF_DUTY_OPTIONS[i]
+            });
     });
     policy.farmer_off_duty = match farmer_off_idx {
         1 => OffDutyBehavior::StayAtFountain,
@@ -791,7 +977,9 @@ fn policies_content(
     }
 
     if mining_policy.discovered_mines.len() <= town_idx {
-        mining_policy.discovered_mines.resize(town_idx + 1, Vec::new());
+        mining_policy
+            .discovered_mines
+            .resize(town_idx + 1, Vec::new());
     }
 
     let discovered = mining_policy.discovered_mines[town_idx].clone();
@@ -805,22 +993,35 @@ fn policies_content(
     // Count auto-assigned miners per mine (keyed by mine slot)
     let mut assigned_per_mine: HashMap<usize, usize> = HashMap::new();
     for inst in entity_map.iter_kind_for_town(BuildingKind::MinerHome, town_idx as u32) {
-        if inst.manual_mine { continue; }
-        let Some(mine_pos) = inst.assigned_mine else { continue; };
+        if inst.manual_mine {
+            continue;
+        }
+        let Some(mine_pos) = inst.assigned_mine else {
+            continue;
+        };
         if let Some(mine_inst) = entity_map.find_by_position(mine_pos) {
             *assigned_per_mine.entry(mine_inst.slot).or_default() += 1;
         }
     }
     let assigned_auto: usize = assigned_per_mine.values().sum();
 
-    ui.label(format!("{}/{} mines enabled, {} miners assigned", enabled_count, discovered.len(), assigned_auto));
+    ui.label(format!(
+        "{}/{} mines enabled, {} miners assigned",
+        enabled_count,
+        discovered.len(),
+        assigned_auto
+    ));
 
     if discovered.is_empty() {
         ui.small("No discovered mines in radius.");
     } else {
         for (display_idx, &slot) in discovered.iter().enumerate() {
-            let Some(mine_inst) = entity_map.get_instance(slot) else { continue };
-            let dist = mine_inst.position.distance(world_data.towns[town_idx].center);
+            let Some(mine_inst) = entity_map.get_instance(slot) else {
+                continue;
+            };
+            let dist = mine_inst
+                .position
+                .distance(world_data.towns[town_idx].center);
             let mut enabled = *mining_policy.mine_enabled.get(&slot).unwrap_or(&true);
             let mine_name = crate::ui::gold_mine_name(display_idx);
             let assigned_here = assigned_per_mine.get(&slot).copied().unwrap_or(0);
@@ -843,8 +1044,17 @@ fn policies_content(
 // ============================================================================
 
 /// Returns swap indices if the user clicked a reorder button.
-fn patrols_content(ui: &mut egui::Ui, world_data: &WorldData, entity_map: &EntityMap, jump_target: &mut Option<Vec2>) -> Option<(usize, usize)> {
-    let town_pair_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0) as u32;
+fn patrols_content(
+    ui: &mut egui::Ui,
+    world_data: &WorldData,
+    entity_map: &EntityMap,
+    jump_target: &mut Option<Vec2>,
+) -> Option<(usize, usize)> {
+    let town_pair_idx = world_data
+        .towns
+        .iter()
+        .position(|t| t.faction == 0)
+        .unwrap_or(0) as u32;
 
     if let Some(town) = world_data.towns.get(town_pair_idx as usize) {
         ui.small(format!("Town: {}", town.name));
@@ -852,7 +1062,8 @@ fn patrols_content(ui: &mut egui::Ui, world_data: &WorldData, entity_map: &Entit
 
     // Collect waypoints for this town from EntityMap, sorted by patrol_order
     // Collect waypoints: (slot, patrol_order, position), sorted by patrol_order
-    let mut posts: Vec<(usize, u32, Vec2)> = entity_map.iter_kind_for_town(BuildingKind::Waypoint, town_pair_idx)
+    let mut posts: Vec<(usize, u32, Vec2)> = entity_map
+        .iter_kind_for_town(BuildingKind::Waypoint, town_pair_idx)
         .map(|inst| (inst.slot, inst.patrol_order, inst.position))
         .collect();
     posts.sort_by_key(|(_, order, _)| *order);
@@ -862,28 +1073,34 @@ fn patrols_content(ui: &mut egui::Ui, world_data: &WorldData, entity_map: &Entit
 
     let mut swap: Option<(usize, usize)> = None;
 
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        for (list_idx, &(slot, order, pos)) in posts.iter().enumerate() {
-            ui.horizontal(|ui| {
-                ui.label(format!("#{}", order));
-                if ui.button(format!("({:.0}, {:.0})", pos.x, pos.y)).on_hover_text("Jump to this post").clicked() {
-                    *jump_target = Some(pos);
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if list_idx + 1 < posts.len() {
-                        if ui.small_button("Down").on_hover_text("Move down").clicked() {
-                            swap = Some((slot, posts[list_idx + 1].0));
-                        }
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            for (list_idx, &(slot, order, pos)) in posts.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.label(format!("#{}", order));
+                    if ui
+                        .button(format!("({:.0}, {:.0})", pos.x, pos.y))
+                        .on_hover_text("Jump to this post")
+                        .clicked()
+                    {
+                        *jump_target = Some(pos);
                     }
-                    if list_idx > 0 {
-                        if ui.small_button("Up").on_hover_text("Move up").clicked() {
-                            swap = Some((slot, posts[list_idx - 1].0));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if list_idx + 1 < posts.len() {
+                            if ui.small_button("Down").on_hover_text("Move down").clicked() {
+                                swap = Some((slot, posts[list_idx + 1].0));
+                            }
                         }
-                    }
+                        if list_idx > 0 {
+                            if ui.small_button("Up").on_hover_text("Move up").clicked() {
+                                swap = Some((slot, posts[list_idx - 1].0));
+                            }
+                        }
+                    });
                 });
-            });
-        }
-    });
+            }
+        });
 
     swap
 }
@@ -892,12 +1109,20 @@ fn patrols_content(ui: &mut egui::Ui, world_data: &WorldData, entity_map: &Entit
 // SQUADS CONTENT
 // ============================================================================
 
-fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMetaCache, _world_data: &WorldData, dirty_writers: &mut crate::messages::DirtyWriters) {
+fn squads_content(
+    ui: &mut egui::Ui,
+    squad: &mut SquadParams,
+    meta_cache: &NpcMetaCache,
+    _world_data: &WorldData,
+    dirty_writers: &mut crate::messages::DirtyWriters,
+) {
     let selected = squad.squad_state.selected;
 
     // Squad list (player-owned only — AI squads are hidden from UI)
     for i in 0..squad.squad_state.squads.len() {
-        if !squad.squad_state.squads[i].is_player() { continue; }
+        if !squad.squad_state.squads[i].is_player() {
+            continue;
+        }
         let count = squad.squad_state.squads[i].members.len();
         let has_target = squad.squad_state.squads[i].target.is_some();
         let patrol_on = squad.squad_state.squads[i].patrol_enabled;
@@ -908,7 +1133,16 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
         let patrol_str = if patrol_on { "patrol:on" } else { "patrol:off" };
         let rest_str = if rest_on { "rest:on" } else { "rest:off" };
         let squad_name = if i == 0 { "Default Squad" } else { "Squad" };
-        let label = format!("{}. {} {}  [{}]  {}  {}  {}", i + 1, squad_name, i + 1, count, target_str, patrol_str, rest_str);
+        let label = format!(
+            "{}. {} {}  [{}]  {}  {}  {}",
+            i + 1,
+            squad_name,
+            i + 1,
+            count,
+            target_str,
+            patrol_str,
+            rest_str
+        );
 
         if ui.selectable_label(is_selected, label).clicked() {
             squad.squad_state.selected = if is_selected { -1 } else { i as i32 };
@@ -926,7 +1160,12 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
     let member_count = squad.squad_state.squads[si].members.len();
 
     let header_name = if si == 0 { "Default Squad" } else { "Squad" };
-    ui.strong(format!("{} {} — {} members", header_name, si + 1, member_count));
+    ui.strong(format!(
+        "{} {} — {} members",
+        header_name,
+        si + 1,
+        member_count
+    ));
 
     // Target controls
     ui.horizontal(|ui| {
@@ -949,15 +1188,24 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
     }
 
     let mut patrol_enabled = squad.squad_state.squads[si].patrol_enabled;
-    if ui.checkbox(&mut patrol_enabled, "Patrol when no target").changed() {
+    if ui
+        .checkbox(&mut patrol_enabled, "Patrol when no target")
+        .changed()
+    {
         squad.squad_state.squads[si].patrol_enabled = patrol_enabled;
     }
     let mut rest_when_tired = squad.squad_state.squads[si].rest_when_tired;
-    if ui.checkbox(&mut rest_when_tired, "Go home to rest when tired").changed() {
+    if ui
+        .checkbox(&mut rest_when_tired, "Go home to rest when tired")
+        .changed()
+    {
         squad.squad_state.squads[si].rest_when_tired = rest_when_tired;
     }
     let mut hold_fire = squad.squad_state.squads[si].hold_fire;
-    if ui.checkbox(&mut hold_fire, "Hold fire (attack on command only)").changed() {
+    if ui
+        .checkbox(&mut hold_fire, "Hold fire (attack on command only)")
+        .changed()
+    {
         squad.squad_state.squads[si].hold_fire = hold_fire;
     }
 
@@ -965,32 +1213,53 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
 
     // Per-job recruit controls — one row per military NPC type from registry
     for def in crate::constants::NPC_REGISTRY.iter() {
-        if !def.is_military { continue; }
-        if def.job == Job::Raider { continue; }
+        if !def.is_military {
+            continue;
+        }
+        if def.job == Job::Raider {
+            continue;
+        }
         let job_id = def.job as i32;
         // Available units of this job in default squad (squad 0)
-        let available: Vec<crate::components::EntityUid> = squad.squad_state.squads[0].members.iter().copied()
+        let available: Vec<crate::components::EntityUid> = squad.squad_state.squads[0]
+            .members
+            .iter()
+            .copied()
             .filter(|uid| {
-                squad.entity_map.slot_for_uid(*uid)
-                    .is_some_and(|slot| slot < meta_cache.0.len() && meta_cache.0[slot].job == job_id)
+                squad.entity_map.slot_for_uid(*uid).is_some_and(|slot| {
+                    slot < meta_cache.0.len() && meta_cache.0[slot].job == job_id
+                })
             })
             .collect();
         let avail_count = available.len();
-        if avail_count == 0 && si == 0 { continue; }
+        if avail_count == 0 && si == 0 {
+            continue;
+        }
 
         let (r, g, b) = def.ui_color;
         let label_color = egui::Color32::from_rgb(r, g, b);
 
         if si == 0 {
-            ui.colored_label(label_color, format!("{}: {}", def.label_plural, avail_count));
+            ui.colored_label(
+                label_color,
+                format!("{}: {}", def.label_plural, avail_count),
+            );
         } else {
             ui.horizontal_wrapped(|ui| {
-                ui.colored_label(label_color, format!("{}: {}", def.label_plural, avail_count));
+                ui.colored_label(
+                    label_color,
+                    format!("{}: {}", def.label_plural, avail_count),
+                );
                 for amount in [1usize, 2, 4, 8, 16, 32] {
-                    if amount > avail_count { break; }
+                    if amount > avail_count {
+                        break;
+                    }
                     if ui.small_button(format!("+{}", amount)).clicked() {
-                        let recruits: Vec<crate::components::EntityUid> = available.iter().copied().take(amount).collect();
-                        squad.squad_state.squads[0].members.retain(|s| !recruits.contains(s));
+                        let recruits: Vec<crate::components::EntityUid> =
+                            available.iter().copied().take(amount).collect();
+                        squad.squad_state.squads[0]
+                            .members
+                            .retain(|s| !recruits.contains(s));
                         for uid in recruits {
                             if !squad.squad_state.squads[si].members.contains(&uid) {
                                 squad.squad_state.squads[si].members.push(uid);
@@ -998,7 +1267,8 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
                         }
                         let selected_len = squad.squad_state.squads[si].members.len();
                         let selected_target = squad.squad_state.squads[si].target_size;
-                        squad.squad_state.squads[si].target_size = selected_target.max(selected_len);
+                        squad.squad_state.squads[si].target_size =
+                            selected_target.max(selected_len);
                         dirty_writers.squads.write(crate::messages::SquadsDirtyMsg);
                     }
                 }
@@ -1018,39 +1288,46 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
     ui.separator();
 
     // Member list
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        let members = &squad.squad_state.squads[si].members;
-        for &uid in members {
-            let Some(slot) = squad.entity_map.slot_for_uid(uid) else { continue };
-            if slot >= meta_cache.0.len() { continue; }
-            let meta = &meta_cache.0[slot];
-            if meta.name.is_empty() { continue; }
-
-            // Try to get HP from GPU readback
-            let hp_str = if slot < squad.gpu_state.health.len() {
-                format!("HP {:.0}", squad.gpu_state.health[slot])
-            } else {
-                String::new()
-            };
-
-            ui.horizontal(|ui| {
-                let (r, g, b) = npc_def(Job::from_i32(meta.job)).ui_color;
-                let job_color = egui::Color32::from_rgb(r, g, b);
-                ui.colored_label(job_color, &meta.name);
-                ui.label(Job::from_i32(meta.job).label());
-                ui.label(format!("Lv.{}", meta.level));
-                if !hp_str.is_empty() {
-                    ui.label(hp_str);
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            let members = &squad.squad_state.squads[si].members;
+            for &uid in members {
+                let Some(slot) = squad.entity_map.slot_for_uid(uid) else {
+                    continue;
+                };
+                if slot >= meta_cache.0.len() {
+                    continue;
                 }
-            });
-        }
-    });
+                let meta = &meta_cache.0[slot];
+                if meta.name.is_empty() {
+                    continue;
+                }
+
+                // Try to get HP from GPU readback
+                let hp_str = if slot < squad.gpu_state.health.len() {
+                    format!("HP {:.0}", squad.gpu_state.health[slot])
+                } else {
+                    String::new()
+                };
+
+                ui.horizontal(|ui| {
+                    let (r, g, b) = npc_def(Job::from_i32(meta.job)).ui_color;
+                    let job_color = egui::Color32::from_rgb(r, g, b);
+                    ui.colored_label(job_color, &meta.name);
+                    ui.label(Job::from_i32(meta.job).label());
+                    ui.label(format!("Lv.{}", meta.level));
+                    if !hp_str.is_empty() {
+                        ui.label(hp_str);
+                    }
+                });
+            }
+        });
 }
 
 // ============================================================================
 // INTEL CONTENT
 // ============================================================================
-
 
 fn rebuild_factions_cache(
     factions: &FactionsParams,
@@ -1076,73 +1353,114 @@ fn rebuild_factions_cache(
         last_actions: Vec<(String, i32, i32)>,
     ) {
         let ti = tdi as u32;
-        let town_name = world_data.towns.get(tdi)
-            .map(|t| t.name.clone()).unwrap_or_default();
-        let center = world_data.towns.get(tdi)
-            .map(|t| t.center).unwrap_or_default();
+        let town_name = world_data
+            .towns
+            .get(tdi)
+            .map(|t| t.name.clone())
+            .unwrap_or_default();
+        let center = world_data
+            .towns
+            .get(tdi)
+            .map(|t| t.center)
+            .unwrap_or_default();
         let faction = world_data.towns.get(tdi).map(|t| t.faction).unwrap_or(0);
 
         let buildings = entity_map.building_counts(ti);
 
-        let npcs: std::collections::HashMap<BuildingKind, usize> = crate::constants::BUILDING_REGISTRY.iter()
-            .filter(|def| def.spawner.is_some())
-            .map(|def| {
-                let count = factions.entity_map.iter_kind_for_town(def.kind, tdi as u32)
-                    .filter(|i| i.npc_uid.is_some() && is_alive(i.position)).count();
-                (def.kind, count)
-            })
-            .collect();
+        let npcs: std::collections::HashMap<BuildingKind, usize> =
+            crate::constants::BUILDING_REGISTRY
+                .iter()
+                .filter(|def| def.spawner.is_some())
+                .map(|def| {
+                    let count = factions
+                        .entity_map
+                        .iter_kind_for_town(def.kind, tdi as u32)
+                        .filter(|i| i.npc_uid.is_some() && is_alive(i.position))
+                        .count();
+                    (def.kind, count)
+                })
+                .collect();
 
         let food = factions.food_storage.food.get(tdi).copied().unwrap_or(0);
         let gold = factions.gold_storage.gold.get(tdi).copied().unwrap_or(0);
-        let (alive, dead, kills) = factions.faction_stats.stats.get(faction as usize)
+        let (alive, dead, kills) = factions
+            .faction_stats
+            .stats
+            .get(faction as usize)
             .map(|s| (s.alive, s.dead, s.kills))
             .unwrap_or((0, 0, 0));
         let upgrades = factions.upgrades.town_levels(tdi);
-        let next_upgrade = UPGRADES.nodes.iter().enumerate()
-            .find_map(|(idx, node)| {
-                let level = upgrades.get(idx).copied().unwrap_or(0);
-                if level >= 20 || !upgrade_unlocked(&upgrades, idx) {
-                    return None;
-                }
-                Some(NextUpgradeSnapshot {
-                    label: node.label.to_string(),
-                    cost: format_upgrade_cost(idx, level),
-                    affordable: upgrade_available(&upgrades, idx, food, gold),
-                })
-            });
+        let next_upgrade = UPGRADES.nodes.iter().enumerate().find_map(|(idx, node)| {
+            let level = upgrades.get(idx).copied().unwrap_or(0);
+            if level >= 20 || !upgrade_unlocked(&upgrades, idx) {
+                return None;
+            }
+            Some(NextUpgradeSnapshot {
+                label: node.label.to_string(),
+                cost: format_upgrade_cost(idx, level),
+                affordable: upgrade_available(&upgrades, idx, food, gold),
+            })
+        });
 
         let policy = policies.policies.get(tdi);
-        let mining_radius = policy.map(|p| p.mining_radius).unwrap_or(crate::constants::DEFAULT_MINING_RADIUS);
-        let mines_in_radius = entity_map.iter_kind(BuildingKind::GoldMine)
-            .filter(|inst| (inst.position - center).length_squared() <= mining_radius * mining_radius)
+        let mining_radius = policy
+            .map(|p| p.mining_radius)
+            .unwrap_or(crate::constants::DEFAULT_MINING_RADIUS);
+        let mines_in_radius = entity_map
+            .iter_kind(BuildingKind::GoldMine)
+            .filter(|inst| {
+                (inst.position - center).length_squared() <= mining_radius * mining_radius
+            })
             .count();
         let discovered = mining_policy.discovered_mines.get(tdi);
         let mines_discovered = discovered.map(|v| v.len()).unwrap_or(0);
-        let mines_enabled = discovered.map(|v| {
-            v.iter()
-                .filter(|&&slot| *mining_policy.mine_enabled.get(&slot).unwrap_or(&true))
-                .count()
-        }).unwrap_or(0);
-        let spawner_count = factions.entity_map.iter_instances()
-            .filter(|i| is_alive(i.position) && i.town_idx == tdi as u32
-                && crate::constants::building_def(i.kind).spawner.is_some())
+        let mines_enabled = discovered
+            .map(|v| {
+                v.iter()
+                    .filter(|&&slot| *mining_policy.mine_enabled.get(&slot).unwrap_or(&true))
+                    .count()
+            })
+            .unwrap_or(0);
+        let spawner_count = factions
+            .entity_map
+            .iter_instances()
+            .filter(|i| {
+                is_alive(i.position)
+                    && i.town_idx == tdi as u32
+                    && crate::constants::building_def(i.kind).spawner.is_some()
+            })
             .count() as i32;
         let reserve_food = personality
             .map(|p| p.food_reserve_per_spawner() * spawner_count)
             .unwrap_or(0);
 
-        let farmer_homes = buildings.get(&BuildingKind::FarmerHome).copied().unwrap_or(0);
-        let miner_homes = buildings.get(&BuildingKind::MinerHome).copied().unwrap_or(0);
+        let farmer_homes = buildings
+            .get(&BuildingKind::FarmerHome)
+            .copied()
+            .unwrap_or(0);
+        let miner_homes = buildings
+            .get(&BuildingKind::MinerHome)
+            .copied()
+            .unwrap_or(0);
         let civilian_homes = farmer_homes + miner_homes;
-        let archer_homes = buildings.get(&BuildingKind::ArcherHome).copied().unwrap_or(0);
-        let crossbow_homes = buildings.get(&BuildingKind::CrossbowHome).copied().unwrap_or(0);
+        let archer_homes = buildings
+            .get(&BuildingKind::ArcherHome)
+            .copied()
+            .unwrap_or(0);
+        let crossbow_homes = buildings
+            .get(&BuildingKind::CrossbowHome)
+            .copied()
+            .unwrap_or(0);
         let military_homes = archer_homes + crossbow_homes;
         let waypoints = buildings.get(&BuildingKind::Waypoint).copied().unwrap_or(0);
 
-        let (food_desire, military_desire, food_desire_tip, military_desire_tip) = if let Some(p) = personality {
-            let threat = entity_map.iter_kind_for_town(BuildingKind::Fountain, tdi as u32)
-                .next().map(|inst| inst.slot)
+        let (food_desire, military_desire, food_desire_tip, military_desire_tip) = if let Some(p) =
+            personality
+        {
+            let threat = entity_map
+                .iter_kind_for_town(BuildingKind::Fountain, tdi as u32)
+                .next()
+                .map(|inst| inst.slot)
                 .and_then(|slot| factions.gpu_state.threat_counts.get(slot).copied())
                 .map(|packed| {
                     let enemies = (packed >> 16) as f32;
@@ -1160,7 +1478,8 @@ fn rebuild_factions_cache(
                     .max(0) as usize
             };
             let civilians = pop_alive(Job::Farmer) + pop_alive(Job::Miner);
-            let military = pop_alive(Job::Archer) + pop_alive(Job::Fighter) + pop_alive(Job::Crossbow);
+            let military =
+                pop_alive(Job::Archer) + pop_alive(Job::Fighter) + pop_alive(Job::Crossbow);
             let (food_desire, military_desire) = debug_food_military_desire(
                 p,
                 food,
@@ -1186,7 +1505,12 @@ fn rebuild_factions_cache(
                 military_desire * 100.0,
             );
 
-            (Some(food_desire), Some(military_desire), food_tip, military_tip)
+            (
+                Some(food_desire),
+                Some(military_desire),
+                food_tip,
+                military_tip,
+            )
         } else {
             (
                 None,
@@ -1213,15 +1537,27 @@ fn rebuild_factions_cache(
             );
             (Some(gd), tip)
         } else {
-            (None, "Not applicable: desire metrics are only computed for AI factions.".to_string())
+            (
+                None,
+                "Not applicable: desire metrics are only computed for AI factions.".to_string(),
+            )
         };
 
         // Economy desire = 1 - slot_fullness = empty_slots / total_slots (mirrors ai_player.rs).
         let (economy_desire, economy_desire_tip) = if personality.is_some() {
-            let (empty, total, fullness) = factions.town_grids.grids.iter()
+            let (empty, total, fullness) = factions
+                .town_grids
+                .grids
+                .iter()
                 .find(|tg| tg.town_data_idx == tdi)
                 .map(|tg| {
-                    let empty = crate::world::empty_slots(tg, center, &factions.world_grid, &factions.entity_map).len();
+                    let empty = crate::world::empty_slots(
+                        tg,
+                        center,
+                        &factions.world_grid,
+                        &factions.entity_map,
+                    )
+                    .len();
                     let (min_r, max_r, min_c, max_c) = crate::world::build_bounds(tg);
                     let total = ((max_r - min_r + 1) * (max_c - min_c + 1) - 1) as f32;
                     (empty, total, 1.0 - empty as f32 / total.max(1.0))
@@ -1234,11 +1570,21 @@ fn rebuild_factions_cache(
             );
             (Some(ed), tip)
         } else {
-            (None, "Not applicable: desire metrics are only computed for AI factions.".to_string())
+            (
+                None,
+                "Not applicable: desire metrics are only computed for AI factions.".to_string(),
+            )
         };
 
-        let ai_player = factions.ai_state.players.iter().find(|p| p.town_data_idx == tdi);
-        let squads = squad_state.squads.iter().enumerate()
+        let ai_player = factions
+            .ai_state
+            .players
+            .iter()
+            .find(|p| p.town_data_idx == tdi);
+        let squads = squad_state
+            .squads
+            .iter()
+            .enumerate()
             .filter_map(|(si, squad)| {
                 let owned = match squad.owner {
                     SquadOwner::Player => faction == 0,
@@ -1304,7 +1650,20 @@ fn rebuild_factions_cache(
 
     // Include player faction (faction 0) in Factions view.
     if let Some(player_tdi) = world_data.towns.iter().position(|t| t.faction == 0) {
-        push_snapshot(factions, squad_state, world_data, entity_map, policies, mining_policy, cache, player_tdi, "Player", "Human", None, Vec::new());
+        push_snapshot(
+            factions,
+            squad_state,
+            world_data,
+            entity_map,
+            policies,
+            mining_policy,
+            cache,
+            player_tdi,
+            "Player",
+            "Human",
+            None,
+            Vec::new(),
+        );
     }
 
     for player in factions.ai_state.players.iter() {
@@ -1315,7 +1674,8 @@ fn rebuild_factions_cache(
             AiKind::Raider => "Raider",
         };
 
-        let last_actions: Vec<(String, i32, i32)> = player.last_actions.iter().rev().cloned().collect();
+        let last_actions: Vec<(String, i32, i32)> =
+            player.last_actions.iter().rev().cloned().collect();
         push_snapshot(
             factions,
             squad_state,
@@ -1337,7 +1697,11 @@ fn build_faction_debug_string(snap: &AiSnapshot) -> String {
     use std::fmt::Write;
     let mut s = String::with_capacity(2048);
 
-    let _ = writeln!(s, "=== F{} {} [{} {}] ===", snap.faction, snap.town_name, snap.personality_name, snap.kind_name);
+    let _ = writeln!(
+        s,
+        "=== F{} {} [{} {}] ===",
+        snap.faction, snap.town_name, snap.personality_name, snap.kind_name
+    );
     let _ = writeln!(s, "Center: ({:.0}, {:.0})", snap.center.x, snap.center.y);
 
     let _ = writeln!(s, "\n--- Resources ---");
@@ -1345,13 +1709,25 @@ fn build_faction_debug_string(snap: &AiSnapshot) -> String {
     let _ = writeln!(s, "Gold: {}", snap.gold);
 
     let _ = writeln!(s, "\n--- Desires ---");
-    let fd = snap.food_desire.map(|v| format!("{:.0}%", v * 100.0)).unwrap_or("-".into());
+    let fd = snap
+        .food_desire
+        .map(|v| format!("{:.0}%", v * 100.0))
+        .unwrap_or("-".into());
     let _ = writeln!(s, "Food: {} — {}", fd, snap.food_desire_tip);
-    let md = snap.military_desire.map(|v| format!("{:.0}%", v * 100.0)).unwrap_or("-".into());
+    let md = snap
+        .military_desire
+        .map(|v| format!("{:.0}%", v * 100.0))
+        .unwrap_or("-".into());
     let _ = writeln!(s, "Military: {} — {}", md, snap.military_desire_tip);
-    let gd = snap.gold_desire.map(|v| format!("{:.0}%", v * 100.0)).unwrap_or("-".into());
+    let gd = snap
+        .gold_desire
+        .map(|v| format!("{:.0}%", v * 100.0))
+        .unwrap_or("-".into());
     let _ = writeln!(s, "Gold: {} — {}", gd, snap.gold_desire_tip);
-    let ed = snap.economy_desire.map(|v| format!("{:.0}%", v * 100.0)).unwrap_or("-".into());
+    let ed = snap
+        .economy_desire
+        .map(|v| format!("{:.0}%", v * 100.0))
+        .unwrap_or("-".into());
     let _ = writeln!(s, "Economy: {} — {}", ed, snap.economy_desire_tip);
 
     let _ = writeln!(s, "\n--- Buildings ---");
@@ -1369,12 +1745,20 @@ fn build_faction_debug_string(snap: &AiSnapshot) -> String {
     }
 
     let _ = writeln!(s, "\n--- Population ---");
-    let _ = writeln!(s, "Alive: {}  Dead: {}  Kills: {}", snap.alive, snap.dead, snap.kills);
+    let _ = writeln!(
+        s,
+        "Alive: {}  Dead: {}  Kills: {}",
+        snap.alive, snap.dead, snap.kills
+    );
 
     let _ = writeln!(s, "\n--- Mining ---");
     let _ = writeln!(s, "Radius: {:.0}px", snap.mining_radius);
     let _ = writeln!(s, "Mines in radius: {}", snap.mines_in_radius);
-    let _ = writeln!(s, "Discovered: {}  Enabled: {}", snap.mines_discovered, snap.mines_enabled);
+    let _ = writeln!(
+        s,
+        "Discovered: {}  Enabled: {}",
+        snap.mines_discovered, snap.mines_enabled
+    );
 
     let _ = writeln!(s, "\n--- Upgrades ---");
     for (idx, &level) in snap.upgrades.iter().enumerate() {
@@ -1388,7 +1772,11 @@ fn build_faction_debug_string(snap: &AiSnapshot) -> String {
         let _ = writeln!(s, "(none)");
     }
     if let Some(next) = &snap.next_upgrade {
-        let _ = writeln!(s, "Next: {} (cost: {}, affordable: {})", next.label, next.cost, next.affordable);
+        let _ = writeln!(
+            s,
+            "Next: {} (cost: {}, affordable: {})",
+            next.label, next.cost, next.affordable
+        );
     }
 
     let _ = writeln!(s, "\n--- Squads ---");
@@ -1398,10 +1786,15 @@ fn build_faction_debug_string(snap: &AiSnapshot) -> String {
         let mut squads = snap.squads.clone();
         squads.sort_by_key(|sq| sq.squad_idx);
         for (i, sq) in squads.iter().enumerate() {
-            let role = if snap.faction == 0 { "MANUAL" }
-                else if i == 0 { "DEF" }
-                else if sq.target_size == 0 { "IDLE" }
-                else { "ATK" };
+            let role = if snap.faction == 0 {
+                "MANUAL"
+            } else if i == 0 {
+                "DEF"
+            } else if sq.target_size == 0 {
+                "IDLE"
+            } else {
+                "ATK"
+            };
             let target = if let Some(uid) = sq.commander_uid {
                 format!("uid#{}", uid.0)
             } else if sq.target.is_some() {
@@ -1410,8 +1803,18 @@ fn build_faction_debug_string(snap: &AiSnapshot) -> String {
                 "None".into()
             };
             let cd = sq.commander_cooldown.unwrap_or(0.0).max(0.0);
-            let _ = writeln!(s, "#{} [{}]: {}/{} target={} cd={:.1}s patrol={} rest={}",
-                sq.squad_idx + 1, role, sq.members, sq.target_size, target, cd, sq.patrol_enabled, sq.rest_when_tired);
+            let _ = writeln!(
+                s,
+                "#{} [{}]: {}/{} target={} cd={:.1}s patrol={} rest={}",
+                sq.squad_idx + 1,
+                role,
+                sq.members,
+                sq.target_size,
+                target,
+                cd,
+                sq.patrol_enabled,
+                sq.rest_when_tired
+            );
         }
     }
 
@@ -1428,40 +1831,65 @@ fn build_faction_debug_string(snap: &AiSnapshot) -> String {
     let lv = &snap.upgrades;
     let _ = writeln!(s, "\n--- Stat Multipliers ---");
     for &(unit, stats) in &[
-        ("Archer", &["Hp", "Attack", "Range", "MoveSpeed", "AttackSpeed", "Alert", "Dodge"] as &[&str]),
-        ("Fighter", &["Hp", "Attack", "MoveSpeed", "AttackSpeed", "Dodge"]),
-        ("Crossbow", &["Hp", "Attack", "Range", "MoveSpeed", "AttackSpeed"]),
+        (
+            "Archer",
+            &[
+                "Hp",
+                "Attack",
+                "Range",
+                "MoveSpeed",
+                "AttackSpeed",
+                "Alert",
+                "Dodge",
+            ] as &[&str],
+        ),
+        (
+            "Fighter",
+            &["Hp", "Attack", "MoveSpeed", "AttackSpeed", "Dodge"],
+        ),
+        (
+            "Crossbow",
+            &["Hp", "Attack", "Range", "MoveSpeed", "AttackSpeed"],
+        ),
         ("Farmer", &["Hp", "MoveSpeed", "Yield"]),
         ("Miner", &["Hp", "MoveSpeed", "Yield"]),
         ("Town", &["Healing", "FountainRange", "Expansion"]),
     ] {
-        let mults: Vec<String> = stats.iter().filter_map(|stat_name| {
-            let kind = match *stat_name {
-                "Hp" => UpgradeStatKind::Hp,
-                "Attack" => UpgradeStatKind::Attack,
-                "Range" => UpgradeStatKind::Range,
-                "MoveSpeed" => UpgradeStatKind::MoveSpeed,
-                "AttackSpeed" => UpgradeStatKind::AttackSpeed,
-                "Alert" => UpgradeStatKind::Alert,
-                "Dodge" => UpgradeStatKind::Dodge,
-                "Yield" => UpgradeStatKind::Yield,
-                "Healing" => UpgradeStatKind::Healing,
-                "FountainRange" => UpgradeStatKind::FountainRange,
-                "Expansion" => UpgradeStatKind::Expansion,
-                _ => return None,
-            };
-            let val = UPGRADES.stat_mult(lv, unit, kind);
-            if (val - 1.0).abs() > 0.001 || matches!(kind, UpgradeStatKind::Expansion | UpgradeStatKind::FountainRange) {
-                let level = UPGRADES.stat_level(lv, unit, kind);
-                if level > 0 || (val - 1.0).abs() > 0.001 {
-                    Some(format!("{}={:.2}x", stat_name, val))
+        let mults: Vec<String> = stats
+            .iter()
+            .filter_map(|stat_name| {
+                let kind = match *stat_name {
+                    "Hp" => UpgradeStatKind::Hp,
+                    "Attack" => UpgradeStatKind::Attack,
+                    "Range" => UpgradeStatKind::Range,
+                    "MoveSpeed" => UpgradeStatKind::MoveSpeed,
+                    "AttackSpeed" => UpgradeStatKind::AttackSpeed,
+                    "Alert" => UpgradeStatKind::Alert,
+                    "Dodge" => UpgradeStatKind::Dodge,
+                    "Yield" => UpgradeStatKind::Yield,
+                    "Healing" => UpgradeStatKind::Healing,
+                    "FountainRange" => UpgradeStatKind::FountainRange,
+                    "Expansion" => UpgradeStatKind::Expansion,
+                    _ => return None,
+                };
+                let val = UPGRADES.stat_mult(lv, unit, kind);
+                if (val - 1.0).abs() > 0.001
+                    || matches!(
+                        kind,
+                        UpgradeStatKind::Expansion | UpgradeStatKind::FountainRange
+                    )
+                {
+                    let level = UPGRADES.stat_level(lv, unit, kind);
+                    if level > 0 || (val - 1.0).abs() > 0.001 {
+                        Some(format!("{}={:.2}x", stat_name, val))
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
-            } else {
-                None
-            }
-        }).collect();
+            })
+            .collect();
         if !mults.is_empty() {
             let _ = writeln!(s, "{}: {}", unit, mults.join(", "));
         }
@@ -1486,7 +1914,15 @@ fn factions_content(
     // Rebuild cache every 30 frames
     cache.frame_counter += 1;
     if cache.frame_counter % 30 == 1 || cache.snapshots.is_empty() {
-        rebuild_factions_cache(factions, squad_state, world_data, &factions.entity_map, policies, mining_policy, cache);
+        rebuild_factions_cache(
+            factions,
+            squad_state,
+            world_data,
+            &factions.entity_map,
+            policies,
+            mining_policy,
+            cache,
+        );
     }
 
     if cache.snapshots.is_empty() {
@@ -1510,11 +1946,17 @@ fn factions_content(
         egui::ComboBox::from_id_salt("intel_faction_select")
             .selected_text({
                 let s = &cache.snapshots[cache.selected_idx];
-                format!("F{} {} [{} {}]", s.faction, s.town_name, s.personality_name, s.kind_name)
+                format!(
+                    "F{} {} [{} {}]",
+                    s.faction, s.town_name, s.personality_name, s.kind_name
+                )
             })
             .show_ui(ui, |ui| {
                 for (i, s) in cache.snapshots.iter().enumerate() {
-                    let label = format!("F{} {} [{} {}]", s.faction, s.town_name, s.personality_name, s.kind_name);
+                    let label = format!(
+                        "F{} {} [{} {}]",
+                        s.faction, s.town_name, s.personality_name, s.kind_name
+                    );
                     ui.selectable_value(&mut cache.selected_idx, i, label);
                 }
             });
@@ -1527,7 +1969,13 @@ fn factions_content(
         "Builder" => egui::Color32::from_rgb(80, 180, 255),
         _ => egui::Color32::from_rgb(220, 80, 80),
     };
-    ui.colored_label(kind_color, format!("F{} {} [{} {}]", snap.faction, snap.town_name, snap.personality_name, snap.kind_name));
+    ui.colored_label(
+        kind_color,
+        format!(
+            "F{} {} [{} {}]",
+            snap.faction, snap.town_name, snap.personality_name, snap.kind_name
+        ),
+    );
 
     // Compact header: buttons + resources + population
     ui.horizontal(|ui| {
@@ -1541,11 +1989,17 @@ fn factions_content(
         ui.separator();
         ui.label(format!("Gold: {}", snap.gold));
         ui.separator();
-        ui.label(format!("Alive: {}  Dead: {}  Kills: {}", snap.alive, snap.dead, snap.kills));
+        ui.label(format!(
+            "Alive: {}  Dead: {}  Kills: {}",
+            snap.alive, snap.dead, snap.kills
+        ));
     });
     ui.separator();
 
-    let fmt_desire = |v: Option<f32>| v.map(|v| format!("{:.0}%", v * 100.0)).unwrap_or_else(|| "-".into());
+    let fmt_desire = |v: Option<f32>| {
+        v.map(|v| format!("{:.0}%", v * 100.0))
+            .unwrap_or_else(|| "-".into())
+    };
 
     // -- Desires --
     egui::CollapsingHeader::new("Desires")
@@ -1556,19 +2010,25 @@ fn factions_content(
                 .striped(true)
                 .show(ui, |ui| {
                     ui.label("Food Desire").on_hover_text(&snap.food_desire_tip);
-                    ui.label(fmt_desire(snap.food_desire)).on_hover_text(&snap.food_desire_tip);
+                    ui.label(fmt_desire(snap.food_desire))
+                        .on_hover_text(&snap.food_desire_tip);
                     ui.end_row();
 
-                    ui.label("Military Desire").on_hover_text(&snap.military_desire_tip);
-                    ui.label(fmt_desire(snap.military_desire)).on_hover_text(&snap.military_desire_tip);
+                    ui.label("Military Desire")
+                        .on_hover_text(&snap.military_desire_tip);
+                    ui.label(fmt_desire(snap.military_desire))
+                        .on_hover_text(&snap.military_desire_tip);
                     ui.end_row();
 
                     ui.label("Gold Desire").on_hover_text(&snap.gold_desire_tip);
-                    ui.label(fmt_desire(snap.gold_desire)).on_hover_text(&snap.gold_desire_tip);
+                    ui.label(fmt_desire(snap.gold_desire))
+                        .on_hover_text(&snap.gold_desire_tip);
                     ui.end_row();
 
-                    ui.label("Economy Desire").on_hover_text(&snap.economy_desire_tip);
-                    ui.label(fmt_desire(snap.economy_desire)).on_hover_text(&snap.economy_desire_tip);
+                    ui.label("Economy Desire")
+                        .on_hover_text(&snap.economy_desire_tip);
+                    ui.label(fmt_desire(snap.economy_desire))
+                        .on_hover_text(&snap.economy_desire_tip);
                     ui.end_row();
 
                     ui.label("Reserve Food");
@@ -1586,7 +2046,18 @@ fn factions_content(
                         } else {
                             egui::Color32::from_rgb(210, 95, 95)
                         };
-                        ui.colored_label(afford_color, format!("{} ({})", next.cost, if next.affordable { "affordable" } else { "too expensive" }));
+                        ui.colored_label(
+                            afford_color,
+                            format!(
+                                "{} ({})",
+                                next.cost,
+                                if next.affordable {
+                                    "affordable"
+                                } else {
+                                    "too expensive"
+                                }
+                            ),
+                        );
                         ui.end_row();
                     } else {
                         ui.label("Next Upgrade");
@@ -1604,12 +2075,20 @@ fn factions_content(
     egui::CollapsingHeader::new("Economy")
         .default_open(true)
         .show(ui, |ui| {
-            let econ_spawners: Vec<_> = BUILDING_REGISTRY.iter()
+            let econ_spawners: Vec<_> = BUILDING_REGISTRY
+                .iter()
                 .filter(|d| d.display == DisplayCategory::Economy && d.spawner.is_some())
                 .collect();
             let workforce: usize = econ_spawners.iter().map(|d| npc(d.kind)).sum();
-            let parts: Vec<String> = econ_spawners.iter()
-                .map(|d| format!("{} {}", npc(d.kind), npc_def(Job::from_i32(d.spawner.unwrap().job)).label_plural))
+            let parts: Vec<String> = econ_spawners
+                .iter()
+                .map(|d| {
+                    format!(
+                        "{} {}",
+                        npc(d.kind),
+                        npc_def(Job::from_i32(d.spawner.unwrap().job)).label_plural
+                    )
+                })
                 .collect();
             ui.label(format!("Workforce: {} ({})", workforce, parts.join(" + ")));
             for def in &econ_spawners {
@@ -1619,7 +2098,10 @@ fn factions_content(
             ui.separator();
 
             ui.label("Buildings");
-            for def in BUILDING_REGISTRY.iter().filter(|d| d.display == DisplayCategory::Economy) {
+            for def in BUILDING_REGISTRY
+                .iter()
+                .filter(|d| d.display == DisplayCategory::Economy)
+            {
                 ui.label(format!("{}: {}", def.label, bld(def.kind)));
             }
             ui.separator();
@@ -1628,7 +2110,10 @@ fn factions_content(
             ui.label(format!("Radius: {:.0}px", snap.mining_radius));
             ui.label(format!("Reserve Food: {}", snap.reserve_food));
             ui.label(format!("Mines in Radius: {}", snap.mines_in_radius));
-            ui.label(format!("Discovered: {}  Enabled: {}", snap.mines_discovered, snap.mines_enabled));
+            ui.label(format!(
+                "Discovered: {}  Enabled: {}",
+                snap.mines_discovered, snap.mines_enabled
+            ));
         });
 
     // -- Policies --
@@ -1647,7 +2132,11 @@ fn factions_content(
                         ui.end_row();
 
                         ui.label("Prioritize Healing");
-                        ui.label(if policy.prioritize_healing { "Yes" } else { "No" });
+                        ui.label(if policy.prioritize_healing {
+                            "Yes"
+                        } else {
+                            "No"
+                        });
                         ui.end_row();
 
                         ui.label("Recovery HP");
@@ -1655,7 +2144,11 @@ fn factions_content(
                         ui.end_row();
 
                         ui.label("Archer Aggressive");
-                        ui.label(if policy.archer_aggressive { "Yes" } else { "No" });
+                        ui.label(if policy.archer_aggressive {
+                            "Yes"
+                        } else {
+                            "No"
+                        });
                         ui.end_row();
 
                         ui.label("Archer Leash");
@@ -1675,7 +2168,11 @@ fn factions_content(
                         ui.end_row();
 
                         ui.label("Farmer Fight Back");
-                        ui.label(if policy.farmer_fight_back { "Yes" } else { "No" });
+                        ui.label(if policy.farmer_fight_back {
+                            "Yes"
+                        } else {
+                            "No"
+                        });
                         ui.end_row();
 
                         ui.label("Farmer Flee HP");
@@ -1703,12 +2200,20 @@ fn factions_content(
     egui::CollapsingHeader::new("Military")
         .default_open(true)
         .show(ui, |ui| {
-            let mil_spawners: Vec<_> = BUILDING_REGISTRY.iter()
+            let mil_spawners: Vec<_> = BUILDING_REGISTRY
+                .iter()
                 .filter(|d| d.display == DisplayCategory::Military && d.spawner.is_some())
                 .collect();
             let total_mil: usize = mil_spawners.iter().map(|d| npc(d.kind)).sum();
-            let parts: Vec<String> = mil_spawners.iter()
-                .map(|d| format!("{} {}", npc(d.kind), npc_def(Job::from_i32(d.spawner.unwrap().job)).label_plural))
+            let parts: Vec<String> = mil_spawners
+                .iter()
+                .map(|d| {
+                    format!(
+                        "{} {}",
+                        npc(d.kind),
+                        npc_def(Job::from_i32(d.spawner.unwrap().job)).label_plural
+                    )
+                })
                 .collect();
             ui.label(format!("Force: {} ({})", total_mil, parts.join(" + ")));
             for def in &mil_spawners {
@@ -1718,7 +2223,10 @@ fn factions_content(
             ui.separator();
 
             ui.label("Buildings");
-            for def in BUILDING_REGISTRY.iter().filter(|d| d.display == DisplayCategory::Military) {
+            for def in BUILDING_REGISTRY
+                .iter()
+                .filter(|d| d.display == DisplayCategory::Military)
+            {
                 ui.label(format!("{}: {}", def.label, bld(def.kind)));
             }
         });
@@ -1740,54 +2248,91 @@ fn factions_content(
     let miner_speed_mult = UPGRADES.stat_mult(lv, "Miner", UpgradeStatKind::MoveSpeed);
     let gold_yield_mult = UPGRADES.stat_mult(lv, "Miner", UpgradeStatKind::Yield);
     let healing_mult = UPGRADES.stat_mult(lv, "Town", UpgradeStatKind::Healing);
-    let fountain_bonus = UPGRADES.stat_level(lv, "Town", UpgradeStatKind::FountainRange) as f32 * 24.0;
+    let fountain_bonus =
+        UPGRADES.stat_level(lv, "Town", UpgradeStatKind::FountainRange) as f32 * 24.0;
     let tower = resolve_town_tower_stats(lv);
 
     egui::CollapsingHeader::new("Economy Stats")
         .default_open(false)
         .show(ui, |ui| {
-            egui::Grid::new(format!("intel_economy_stats_grid_{}_{}", snap.faction, cache.selected_idx))
-                .num_columns(2)
-                .striped(true)
-                .show(ui, |ui| {
-                    if let Some(base) = farmer_base {
-                        ui.label("Farmer HP");
-                        ui.label(format!("{:.0} -> {:.0}", base.max_health, base.max_health * farmer_hp_mult));
-                        ui.end_row();
-                        ui.label("Farmer Speed");
-                        ui.label(format!("{:.0} -> {:.0}", base.speed, base.speed * farmer_speed_mult));
-                        ui.end_row();
-                    }
-                    if let Some(base) = miner_base {
-                        ui.label("Miner HP");
-                        ui.label(format!("{:.0} -> {:.0}", base.max_health, base.max_health * miner_hp_mult));
-                        ui.end_row();
-                        ui.label("Miner Speed");
-                        ui.label(format!("{:.0} -> {:.0}", base.speed, base.speed * miner_speed_mult));
-                        ui.end_row();
-                    }
-                    ui.label("Food Yield");
-                    ui.label(format!("{:.0}% of base", farm_yield_mult * 100.0));
+            egui::Grid::new(format!(
+                "intel_economy_stats_grid_{}_{}",
+                snap.faction, cache.selected_idx
+            ))
+            .num_columns(2)
+            .striped(true)
+            .show(ui, |ui| {
+                if let Some(base) = farmer_base {
+                    ui.label("Farmer HP");
+                    ui.label(format!(
+                        "{:.0} -> {:.0}",
+                        base.max_health,
+                        base.max_health * farmer_hp_mult
+                    ));
                     ui.end_row();
-                    ui.label("Gold Yield");
-                    ui.label(format!("{:.0}% of base", gold_yield_mult * 100.0));
+                    ui.label("Farmer Speed");
+                    ui.label(format!(
+                        "{:.0} -> {:.0}",
+                        base.speed,
+                        base.speed * farmer_speed_mult
+                    ));
                     ui.end_row();
-                    ui.label("Healing Rate");
-                    ui.label(format!("{:.1}/s -> {:.1}/s", factions.combat_config.heal_rate, factions.combat_config.heal_rate * healing_mult));
+                }
+                if let Some(base) = miner_base {
+                    ui.label("Miner HP");
+                    ui.label(format!(
+                        "{:.0} -> {:.0}",
+                        base.max_health,
+                        base.max_health * miner_hp_mult
+                    ));
                     ui.end_row();
-                    ui.label("Tower/Heal Radius");
-                    ui.label(format!("{:.0}px -> {:.0}px", factions.combat_config.heal_radius, factions.combat_config.heal_radius + fountain_bonus));
+                    ui.label("Miner Speed");
+                    ui.label(format!(
+                        "{:.0} -> {:.0}",
+                        base.speed,
+                        base.speed * miner_speed_mult
+                    ));
                     ui.end_row();
-                    ui.label("Fountain Cooldown");
-                    ui.label(format!("{:.2}s -> {:.2}s", FOUNTAIN_TOWER.cooldown, tower.cooldown));
-                    ui.end_row();
-                    ui.label("Fountain Projectile Life");
-                    ui.label(format!("{:.2}s -> {:.2}s", FOUNTAIN_TOWER.proj_lifetime, tower.proj_lifetime));
-                    ui.end_row();
-                    ui.label("Build Area Expansion");
-                    ui.label(format!("+{}", UPGRADES.stat_level(lv, "Town", UpgradeStatKind::Expansion)));
-                    ui.end_row();
-                });
+                }
+                ui.label("Food Yield");
+                ui.label(format!("{:.0}% of base", farm_yield_mult * 100.0));
+                ui.end_row();
+                ui.label("Gold Yield");
+                ui.label(format!("{:.0}% of base", gold_yield_mult * 100.0));
+                ui.end_row();
+                ui.label("Healing Rate");
+                ui.label(format!(
+                    "{:.1}/s -> {:.1}/s",
+                    factions.combat_config.heal_rate,
+                    factions.combat_config.heal_rate * healing_mult
+                ));
+                ui.end_row();
+                ui.label("Tower/Heal Radius");
+                ui.label(format!(
+                    "{:.0}px -> {:.0}px",
+                    factions.combat_config.heal_radius,
+                    factions.combat_config.heal_radius + fountain_bonus
+                ));
+                ui.end_row();
+                ui.label("Fountain Cooldown");
+                ui.label(format!(
+                    "{:.2}s -> {:.2}s",
+                    FOUNTAIN_TOWER.cooldown, tower.cooldown
+                ));
+                ui.end_row();
+                ui.label("Fountain Projectile Life");
+                ui.label(format!(
+                    "{:.2}s -> {:.2}s",
+                    FOUNTAIN_TOWER.proj_lifetime, tower.proj_lifetime
+                ));
+                ui.end_row();
+                ui.label("Build Area Expansion");
+                ui.label(format!(
+                    "+{}",
+                    UPGRADES.stat_level(lv, "Town", UpgradeStatKind::Expansion)
+                ));
+                ui.end_row();
+            });
         });
 
     // -- Military Stats (collapsed by default) --
@@ -1812,85 +2357,159 @@ fn factions_content(
     egui::CollapsingHeader::new("Military Stats")
         .default_open(false)
         .show(ui, |ui| {
-            egui::Grid::new(format!("intel_military_stats_grid_{}_{}", snap.faction, cache.selected_idx))
-                .num_columns(2)
-                .striped(true)
-                .show(ui, |ui| {
-                    if let Some(base) = archer_base {
-                        ui.label("HP (Archer)");
-                        ui.label(format!("{:.0} -> {:.0}", base.max_health, base.max_health * archer_hp_mult));
-                        ui.end_row();
-                        ui.label("Damage (Archer)");
-                        ui.label(format!("{:.1} -> {:.1}", base.damage, base.damage * archer_dmg_mult));
-                        ui.end_row();
-                        ui.label("Move Speed (Archer)");
-                        ui.label(format!("{:.0} -> {:.0}", base.speed, base.speed * archer_speed_mult));
-                        ui.end_row();
-                    }
-                    if let Some(base) = ranged_base {
-                        ui.label("Detection Range (Archer)");
-                        ui.label(format!("{:.0} -> {:.0}", base.range, base.range * archer_range_mult));
-                        ui.end_row();
-                        ui.label("Attack Cooldown (Archer)");
-                        ui.label(format!("{:.2}s -> {:.2}s ({:.0}% faster)", base.cooldown, base.cooldown * archer_cd_mult, archer_cd_reduction));
-                        ui.end_row();
-                    }
-                    ui.label("Alert (Archer)");
-                    ui.label(format!("{:.0}% of base", archer_alert_mult * 100.0));
+            egui::Grid::new(format!(
+                "intel_military_stats_grid_{}_{}",
+                snap.faction, cache.selected_idx
+            ))
+            .num_columns(2)
+            .striped(true)
+            .show(ui, |ui| {
+                if let Some(base) = archer_base {
+                    ui.label("HP (Archer)");
+                    ui.label(format!(
+                        "{:.0} -> {:.0}",
+                        base.max_health,
+                        base.max_health * archer_hp_mult
+                    ));
                     ui.end_row();
-                    ui.label("Dodge (Archer)");
-                    ui.label(if UPGRADES.stat_level(lv, "Archer", UpgradeStatKind::Dodge) > 0 { "Unlocked" } else { "Locked" });
+                    ui.label("Damage (Archer)");
+                    ui.label(format!(
+                        "{:.1} -> {:.1}",
+                        base.damage,
+                        base.damage * archer_dmg_mult
+                    ));
                     ui.end_row();
+                    ui.label("Move Speed (Archer)");
+                    ui.label(format!(
+                        "{:.0} -> {:.0}",
+                        base.speed,
+                        base.speed * archer_speed_mult
+                    ));
+                    ui.end_row();
+                }
+                if let Some(base) = ranged_base {
+                    ui.label("Detection Range (Archer)");
+                    ui.label(format!(
+                        "{:.0} -> {:.0}",
+                        base.range,
+                        base.range * archer_range_mult
+                    ));
+                    ui.end_row();
+                    ui.label("Attack Cooldown (Archer)");
+                    ui.label(format!(
+                        "{:.2}s -> {:.2}s ({:.0}% faster)",
+                        base.cooldown,
+                        base.cooldown * archer_cd_mult,
+                        archer_cd_reduction
+                    ));
+                    ui.end_row();
+                }
+                ui.label("Alert (Archer)");
+                ui.label(format!("{:.0}% of base", archer_alert_mult * 100.0));
+                ui.end_row();
+                ui.label("Dodge (Archer)");
+                ui.label(
+                    if UPGRADES.stat_level(lv, "Archer", UpgradeStatKind::Dodge) > 0 {
+                        "Unlocked"
+                    } else {
+                        "Locked"
+                    },
+                );
+                ui.end_row();
 
-                    ui.separator();
-                    ui.separator();
-                    ui.end_row();
+                ui.separator();
+                ui.separator();
+                ui.end_row();
 
-                    if let Some(base) = fighter_base {
-                        ui.label("HP (Fighter)");
-                        ui.label(format!("{:.0} -> {:.0}", base.max_health, base.max_health * fighter_hp_mult));
-                        ui.end_row();
-                        ui.label("Damage (Fighter)");
-                        ui.label(format!("{:.1} -> {:.1}", base.damage, base.damage * fighter_dmg_mult));
-                        ui.end_row();
-                        ui.label("Move Speed (Fighter)");
-                        ui.label(format!("{:.0} -> {:.0}", base.speed, base.speed * fighter_speed_mult));
-                        ui.end_row();
-                    }
-                    if let Some(base) = melee_base {
-                        ui.label("Attack Cooldown (Fighter)");
-                        ui.label(format!("{:.2}s -> {:.2}s ({:.0}% faster)", base.cooldown, base.cooldown * fighter_cd_mult, fighter_cd_reduction));
-                        ui.end_row();
-                    }
-                    ui.label("Dodge (Fighter)");
-                    ui.label(if UPGRADES.stat_level(lv, "Fighter", UpgradeStatKind::Dodge) > 0 { "Unlocked" } else { "Locked" });
+                if let Some(base) = fighter_base {
+                    ui.label("HP (Fighter)");
+                    ui.label(format!(
+                        "{:.0} -> {:.0}",
+                        base.max_health,
+                        base.max_health * fighter_hp_mult
+                    ));
                     ui.end_row();
-
-                    ui.separator();
-                    ui.separator();
+                    ui.label("Damage (Fighter)");
+                    ui.label(format!(
+                        "{:.1} -> {:.1}",
+                        base.damage,
+                        base.damage * fighter_dmg_mult
+                    ));
                     ui.end_row();
+                    ui.label("Move Speed (Fighter)");
+                    ui.label(format!(
+                        "{:.0} -> {:.0}",
+                        base.speed,
+                        base.speed * fighter_speed_mult
+                    ));
+                    ui.end_row();
+                }
+                if let Some(base) = melee_base {
+                    ui.label("Attack Cooldown (Fighter)");
+                    ui.label(format!(
+                        "{:.2}s -> {:.2}s ({:.0}% faster)",
+                        base.cooldown,
+                        base.cooldown * fighter_cd_mult,
+                        fighter_cd_reduction
+                    ));
+                    ui.end_row();
+                }
+                ui.label("Dodge (Fighter)");
+                ui.label(
+                    if UPGRADES.stat_level(lv, "Fighter", UpgradeStatKind::Dodge) > 0 {
+                        "Unlocked"
+                    } else {
+                        "Locked"
+                    },
+                );
+                ui.end_row();
 
-                    if let Some(base) = crossbow_base {
-                        ui.label("HP (Crossbow)");
-                        ui.label(format!("{:.0} -> {:.0}", base.max_health, base.max_health * xbow_hp_mult));
-                        ui.end_row();
-                        ui.label("Damage (Crossbow)");
-                        ui.label(format!("{:.1} -> {:.1}", base.damage, base.damage * xbow_dmg_mult));
-                        ui.end_row();
-                        ui.label("Move Speed (Crossbow)");
-                        ui.label(format!("{:.0} -> {:.0}", base.speed, base.speed * xbow_speed_mult));
-                        ui.end_row();
-                    }
-                    if let Some(base) = crossbow_atk {
-                        ui.label("Detection Range (Crossbow)");
-                        ui.label(format!("{:.0} -> {:.0}", base.range, base.range * xbow_range_mult));
-                        ui.end_row();
-                        ui.label("Attack Cooldown (Crossbow)");
-                        let xbow_cd_red = (1.0 - xbow_cd_mult) * 100.0;
-                        ui.label(format!("{:.2}s -> {:.2}s ({:.0}% faster)", base.cooldown, base.cooldown * xbow_cd_mult, xbow_cd_red));
-                        ui.end_row();
-                    }
-                });
+                ui.separator();
+                ui.separator();
+                ui.end_row();
+
+                if let Some(base) = crossbow_base {
+                    ui.label("HP (Crossbow)");
+                    ui.label(format!(
+                        "{:.0} -> {:.0}",
+                        base.max_health,
+                        base.max_health * xbow_hp_mult
+                    ));
+                    ui.end_row();
+                    ui.label("Damage (Crossbow)");
+                    ui.label(format!(
+                        "{:.1} -> {:.1}",
+                        base.damage,
+                        base.damage * xbow_dmg_mult
+                    ));
+                    ui.end_row();
+                    ui.label("Move Speed (Crossbow)");
+                    ui.label(format!(
+                        "{:.0} -> {:.0}",
+                        base.speed,
+                        base.speed * xbow_speed_mult
+                    ));
+                    ui.end_row();
+                }
+                if let Some(base) = crossbow_atk {
+                    ui.label("Detection Range (Crossbow)");
+                    ui.label(format!(
+                        "{:.0} -> {:.0}",
+                        base.range,
+                        base.range * xbow_range_mult
+                    ));
+                    ui.end_row();
+                    ui.label("Attack Cooldown (Crossbow)");
+                    let xbow_cd_red = (1.0 - xbow_cd_mult) * 100.0;
+                    ui.label(format!(
+                        "{:.2}s -> {:.2}s ({:.0}% faster)",
+                        base.cooldown,
+                        base.cooldown * xbow_cd_mult,
+                        xbow_cd_red
+                    ));
+                    ui.end_row();
+                }
+            });
         });
 
     // -- Squad Commander --
@@ -2034,8 +2653,12 @@ fn profiler_content(
                 cache.engine_entries.push((name.clone(), ms));
             }
         }
-        cache.game_entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        cache.engine_entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        cache
+            .game_entries
+            .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        cache
+            .engine_entries
+            .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         cache.game_sum = cache.game_entries.iter().map(|(_, ms)| ms).sum();
         cache.engine_sum = cache.engine_entries.iter().map(|(_, ms)| ms).sum();
         cache.game_entries.truncate(10);
@@ -2043,15 +2666,28 @@ fn profiler_content(
 
         let render_timings = timings.get_timings();
         cache.render_entries.clear();
-        cache.render_entries.extend(render_timings.iter().map(|(&n, &v)| (n.to_string(), v)));
-        cache.render_entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        cache
+            .render_entries
+            .extend(render_timings.iter().map(|(&n, &v)| (n.to_string(), v)));
+        cache
+            .render_entries
+            .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         let flips = target_thrash.top_offenders(8);
         cache.total_changes = flips.iter().map(|(_, c, _, _, _, _)| *c as u32).sum();
         cache.sink_window_key = target_thrash.sink_window_key;
-        cache.top_flips = flips.into_iter()
+        cache.top_flips = flips
+            .into_iter()
             .map(|(idx, c, pp, rf, w, r)| (idx, c, pp, rf, w, r.to_string()))
             .collect();
+
+        // Extract dirty counts from atomic globals
+        use crate::messages::{DC_COUNT, DC_NAMES, EXTRACT_DIRTY_COUNTS};
+        cache.dirty_counts.clear();
+        for i in 0..DC_COUNT {
+            let v = EXTRACT_DIRTY_COUNTS[i].load(std::sync::atomic::Ordering::Relaxed);
+            cache.dirty_counts.push((DC_NAMES[i].to_string(), v));
+        }
     }
 
     ui.label(egui::RichText::new(format!("Frame: {:.2} ms", cache.frame_ms)).strong());
@@ -2062,7 +2698,10 @@ fn profiler_content(
         .default_open(false)
         .show(ui, |ui| {
             let prev_terrain = user_settings.show_terrain_sprites;
-            ui.checkbox(&mut user_settings.show_terrain_sprites, "Show Terrain Sprites");
+            ui.checkbox(
+                &mut user_settings.show_terrain_sprites,
+                "Show Terrain Sprites",
+            );
             if prev_terrain != user_settings.show_terrain_sprites {
                 settings::save_settings(user_settings);
             }
@@ -2073,7 +2712,11 @@ fn profiler_content(
                 migration.debug_spawn = true;
             }
             if has_active {
-                let count = migration.active.as_ref().map(|g| g.member_slots.len()).unwrap_or(0);
+                let count = migration
+                    .active
+                    .as_ref()
+                    .map(|g| g.member_slots.len())
+                    .unwrap_or(0);
                 ui.label(format!("Migration active: {} raiders", count));
             }
         });
@@ -2123,20 +2766,40 @@ fn profiler_content(
         return;
     }
 
-    ui.label(egui::RichText::new("(cpu sums include parallel overlap)").weak().small());
+    ui.label(
+        egui::RichText::new("(cpu sums include parallel overlap)")
+            .weak()
+            .small(),
+    );
 
     if ui.button("Copy Top 10").clicked() {
-        let top_game: String = cache.game_entries.iter()
+        let top_game: String = cache
+            .game_entries
+            .iter()
             .map(|(name, ms)| format!("{}: {:.3} ms", name, ms))
             .collect::<Vec<_>>()
             .join("\n");
-        let top_engine: String = cache.engine_entries.iter()
+        let top_engine: String = cache
+            .engine_entries
+            .iter()
             .map(|(name, ms)| format!("{}: {:.3} ms", name, ms))
             .collect::<Vec<_>>()
             .join("\n");
+        let render: String = cache
+            .render_entries
+            .iter()
+            .map(|(name, ms)| format!("{}: {:.3} ms", name, ms))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let dirty: String = cache
+            .dirty_counts
+            .iter()
+            .map(|(name, count)| format!("{name}={count}"))
+            .collect::<Vec<_>>()
+            .join(" ");
         ui.ctx().copy_text(format!(
-            "Frame: {:.2} ms\n\nGame Systems (cpu sum: {:.2} ms)\n{}\n\nEngine Systems (cpu sum: {:.2} ms)\n{}",
-            cache.frame_ms, cache.game_sum, top_game, cache.engine_sum, top_engine
+            "Frame: {:.2} ms\n\nGame Systems (cpu sum: {:.2} ms)\n{}\n\nEngine Systems (cpu sum: {:.2} ms)\n{}\n\nRender Pipeline\n{}\n\nExtract dirty: {}",
+            cache.frame_ms, cache.game_sum, top_game, cache.engine_sum, top_engine, render, dirty
         ));
     }
     ui.separator();
@@ -2146,18 +2809,21 @@ fn profiler_content(
         .id_salt("prof_game")
         .default_open(true)
         .show(ui, |ui| {
-            egui::Grid::new("prof_game_grid").num_columns(2).striped(true).show(ui, |ui| {
-                ui.label(egui::RichText::new("system").strong());
-                ui.label(egui::RichText::new("ms").strong());
-                ui.end_row();
-                for (name, ms) in &cache.game_entries {
-                    ui.label(name.as_str());
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(egui::RichText::new(format!("{:.3}", ms)).monospace());
-                    });
+            egui::Grid::new("prof_game_grid")
+                .num_columns(2)
+                .striped(true)
+                .show(ui, |ui| {
+                    ui.label(egui::RichText::new("system").strong());
+                    ui.label(egui::RichText::new("ms").strong());
                     ui.end_row();
-                }
-            });
+                    for (name, ms) in &cache.game_entries {
+                        ui.label(name.as_str());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(egui::RichText::new(format!("{:.3}", ms)).monospace());
+                        });
+                        ui.end_row();
+                    }
+                });
         });
 
     // Engine systems (top 10, pre-sorted)
@@ -2165,18 +2831,21 @@ fn profiler_content(
         .id_salt("prof_engine")
         .default_open(false)
         .show(ui, |ui| {
-            egui::Grid::new("prof_engine_grid").num_columns(2).striped(true).show(ui, |ui| {
-                ui.label(egui::RichText::new("system").strong());
-                ui.label(egui::RichText::new("ms").strong());
-                ui.end_row();
-                for (name, ms) in &cache.engine_entries {
-                    ui.label(name.as_str());
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(egui::RichText::new(format!("{:.3}", ms)).monospace());
-                    });
+            egui::Grid::new("prof_engine_grid")
+                .num_columns(2)
+                .striped(true)
+                .show(ui, |ui| {
+                    ui.label(egui::RichText::new("system").strong());
+                    ui.label(egui::RichText::new("ms").strong());
                     ui.end_row();
-                }
-            });
+                    for (name, ms) in &cache.engine_entries {
+                        ui.label(name.as_str());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(egui::RichText::new(format!("{:.3}", ms)).monospace());
+                        });
+                        ui.end_row();
+                    }
+                });
         });
     ui.separator();
 
@@ -2186,18 +2855,54 @@ fn profiler_content(
             .id_salt("prof_render")
             .default_open(false)
             .show(ui, |ui| {
-                egui::Grid::new("prof_render_grid").num_columns(2).striped(true).show(ui, |ui| {
-                    ui.label(egui::RichText::new("stage").strong());
-                    ui.label(egui::RichText::new("ms").strong());
-                    ui.end_row();
-                    for (name, ms) in &cache.render_entries {
-                        ui.label(name.as_str());
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(egui::RichText::new(format!("{:.3}", ms)).monospace());
-                        });
+                egui::Grid::new("prof_render_grid")
+                    .num_columns(2)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new("stage").strong());
+                        ui.label(egui::RichText::new("ms").strong());
                         ui.end_row();
-                    }
-                });
+                        for (name, ms) in &cache.render_entries {
+                            ui.label(name.as_str());
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.label(egui::RichText::new(format!("{:.3}", ms)).monospace());
+                                },
+                            );
+                            ui.end_row();
+                        }
+                    });
+            });
+    }
+
+    // Extract dirty counts
+    if !cache.dirty_counts.is_empty() {
+        ui.separator();
+        egui::CollapsingHeader::new(egui::RichText::new("Extract Dirty Counts").strong())
+            .id_salt("prof_dirty")
+            .default_open(true)
+            .show(ui, |ui| {
+                let total: u32 = cache.dirty_counts.iter().map(|(_, v)| v).sum();
+                ui.label(format!("Total dirty indices: {total}"));
+                egui::Grid::new("prof_dirty_grid")
+                    .num_columns(2)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new("buffer").strong());
+                        ui.label(egui::RichText::new("dirty").strong());
+                        ui.end_row();
+                        for (name, count) in &cache.dirty_counts {
+                            ui.label(name.as_str());
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.label(egui::RichText::new(format!("{count}")).monospace());
+                                },
+                            );
+                            ui.end_row();
+                        }
+                    });
             });
     }
 }
@@ -2253,4 +2958,3 @@ fn help_content(ui: &mut egui::Ui) {
             });
     });
 }
-

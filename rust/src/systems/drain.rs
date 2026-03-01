@@ -17,6 +17,14 @@ pub fn drain_game_config(mut config: ResMut<crate::resources::GameConfig>) {
 /// Drain CombatLogMsg messages into the CombatLog resource for UI display.
 pub fn drain_combat_log(mut msgs: MessageReader<CombatLogMsg>, mut log: ResMut<CombatLog>) {
     for msg in msgs.read() {
-        log.push_at(msg.kind, msg.faction, msg.day, msg.hour, msg.minute, msg.message.clone(), msg.location);
+        log.push_at(
+            msg.kind,
+            msg.faction,
+            msg.day,
+            msg.hour,
+            msg.minute,
+            msg.message.clone(),
+            msg.location,
+        );
     }
 }

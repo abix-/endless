@@ -1,24 +1,31 @@
-//! Save/Load system — quicksave (F5) / quickload (F9) with JSON serialization.
+//! Save/Load system with quicksave/quickload shortcuts and JSON serialization.
 //! Save format is self-contained: dedicated serde structs decouple from ECS types.
 
 use bevy::prelude::*;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::components::*;
-use crate::constants::{MAX_SQUADS, ItemKind};
+use crate::constants::{ItemKind, MAX_SQUADS};
 use crate::messages::GpuUpdateMsg;
 use crate::resources::*;
-use crate::systems::stats::{TownUpgrades, CombatConfig, decode_upgrade_levels, decode_auto_upgrade_flags};
+use crate::settings::{ControlAction, UserSettings};
 use crate::systems::AiPlayerState;
-use crate::systems::spawn::{materialize_npc, NpcSpawnOverrides};
-use crate::world::{self, WorldData, WorldGrid, WorldCell, TownGrids};
+use crate::systems::spawn::{NpcSpawnOverrides, materialize_npc};
+use crate::systems::stats::{
+    CombatConfig, TownUpgrades, decode_auto_upgrade_flags, decode_upgrade_levels,
+};
+use crate::world::{self, TownGrids, WorldCell, WorldData, WorldGrid};
 
 // ============================================================================
 // VEC2 HELPERS
 // ============================================================================
 
-fn v2(v: Vec2) -> [f32; 2] { [v.x, v.y] }
-fn to_vec2(a: [f32; 2]) -> Vec2 { Vec2::new(a[0], a[1]) }
+fn v2(v: Vec2) -> [f32; 2] {
+    [v.x, v.y]
+}
+fn to_vec2(a: [f32; 2]) -> Vec2 {
+    Vec2::new(a[0], a[1])
+}
 
 // ============================================================================
 // GRID BUILDING SAVE COMPAT
@@ -29,20 +36,47 @@ fn to_vec2(a: [f32; 2]) -> Vec2 { Vec2::new(a[0], a[1]) }
 #[derive(Deserialize)]
 #[allow(dead_code)]
 enum LegacyBuilding {
-    Fountain { town_idx: u32 },
-    Farm { town_idx: u32 },
-    Bed { town_idx: u32 },
+    Fountain {
+        town_idx: u32,
+    },
+    Farm {
+        town_idx: u32,
+    },
+    Bed {
+        town_idx: u32,
+    },
     #[serde(alias = "GuardPost")]
-    Waypoint { town_idx: u32, #[serde(default)] patrol_order: u32 },
-    Camp { town_idx: u32 },
+    Waypoint {
+        town_idx: u32,
+        #[serde(default)]
+        patrol_order: u32,
+    },
+    Camp {
+        town_idx: u32,
+    },
     GoldMine,
-    MinerHome { town_idx: u32 },
-    FarmerHome { town_idx: u32 },
-    ArcherHome { town_idx: u32 },
-    CrossbowHome { town_idx: u32 },
-    FighterHome { town_idx: u32 },
-    Tent { town_idx: u32 },
-    Home { kind: world::BuildingKind, town_idx: u32 },
+    MinerHome {
+        town_idx: u32,
+    },
+    FarmerHome {
+        town_idx: u32,
+    },
+    ArcherHome {
+        town_idx: u32,
+    },
+    CrossbowHome {
+        town_idx: u32,
+    },
+    FighterHome {
+        town_idx: u32,
+    },
+    Tent {
+        town_idx: u32,
+    },
+    Home {
+        kind: world::BuildingKind,
+        town_idx: u32,
+    },
 }
 
 impl LegacyBuilding {
@@ -72,17 +106,21 @@ fn deserialize_grid_buildings<'de, D: serde::Deserializer<'de>>(
 ) -> Result<Vec<Option<(world::BuildingKind, u32)>>, D::Error> {
     // Try new format first (Vec<Option<(BuildingKind, u32)>>), fall back to legacy
     let raw: Vec<Option<serde_json::Value>> = Deserialize::deserialize(deserializer)?;
-    Ok(raw.into_iter().map(|opt| {
-        opt.and_then(|v| {
-            // Try new tuple format: [kind, town_idx]
-            if let Ok(tuple) = serde_json::from_value::<(world::BuildingKind, u32)>(v.clone()) {
-                return Some(tuple);
-            }
-            // Fall back to legacy enum format: {"Farm": {"town_idx": 0}}
-            serde_json::from_value::<LegacyBuilding>(v).ok()
-                .map(|lb| lb.to_grid_building())
+    Ok(raw
+        .into_iter()
+        .map(|opt| {
+            opt.and_then(|v| {
+                // Try new tuple format: [kind, town_idx]
+                if let Ok(tuple) = serde_json::from_value::<(world::BuildingKind, u32)>(v.clone()) {
+                    return Some(tuple);
+                }
+                // Fall back to legacy enum format: {"Farm": {"town_idx": 0}}
+                serde_json::from_value::<LegacyBuilding>(v)
+                    .ok()
+                    .map(|lb| lb.to_grid_building())
+            })
         })
-    }).collect())
+        .collect())
 }
 
 // ============================================================================
@@ -102,9 +140,9 @@ pub struct SaveData {
     pub grid_width: usize,
     pub grid_height: usize,
     pub grid_cell_size: f32,
-    pub terrain: Vec<u8>,                     // Biome as u8
+    pub terrain: Vec<u8>, // Biome as u8
     #[serde(deserialize_with = "deserialize_grid_buildings")]
-    pub buildings: Vec<Option<(world::BuildingKind, u32)>>,  // parallel to terrain
+    pub buildings: Vec<Option<(world::BuildingKind, u32)>>, // parallel to terrain
 
     // Town grids (area_level + town_data_idx)
     pub town_grids: Vec<TownGridSave>,
@@ -207,7 +245,7 @@ pub struct SpawnerSave {
     pub town_idx: i32,
     pub position: [f32; 2],
     #[serde(alias = "npc_slot")]
-    pub npc_gpu_slot: i32,  // Legacy: kept for old save compat, derived from npc_uid
+    pub npc_gpu_slot: i32, // Legacy: kept for old save compat, derived from npc_uid
     pub respawn_timer: f32,
     #[serde(default)]
     pub npc_uid: Option<u64>,
@@ -215,7 +253,7 @@ pub struct SpawnerSave {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SquadSave {
-    pub members: Vec<usize>,  // Legacy: kept for old save compat, derived from member_uids
+    pub members: Vec<usize>, // Legacy: kept for old save compat, derived from member_uids
     pub target: Option<[f32; 2]>,
     pub target_size: usize,
     pub patrol_enabled: bool,
@@ -245,15 +283,17 @@ pub struct FactionStatSave {
 pub struct AiPlayerSave {
     pub town_data_idx: usize,
     pub grid_idx: usize,
-    pub kind: u8,         // 0=Raider, 1=Builder
-    pub personality: u8,  // 0=Aggressive, 1=Balanced, 2=Economic
+    pub kind: u8,        // 0=Raider, 1=Builder
+    pub personality: u8, // 0=Aggressive, 1=Balanced, 2=Economic
     #[serde(default = "default_road_style")]
-    pub road_style: u8,   // 0=None, 1=Cardinal, 2=Grid4, 3=Grid5
+    pub road_style: u8, // 0=None, 1=Cardinal, 2=Grid4, 3=Grid5
     #[serde(default = "default_true")]
     pub active: bool,
 }
 
-fn default_road_style() -> u8 { 2 } // Grid4 for old saves
+fn default_road_style() -> u8 {
+    2
+} // Grid4 for old saves
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct MigrationSave {
@@ -275,9 +315,15 @@ pub struct MigrationSave {
     pub starting_gold: i32,
 }
 
-fn default_true() -> bool { true }
-fn default_wave_retreat_below_pct() -> usize { 50 }
-fn default_endless_strength() -> f32 { 0.75 }
+fn default_true() -> bool {
+    true
+}
+fn default_wave_retreat_below_pct() -> usize {
+    50
+}
+fn default_endless_strength() -> f32 {
+    0.75
+}
 
 // Building save (mirrors world::Building)
 
@@ -335,17 +381,25 @@ impl ActivitySave {
         match a {
             Activity::Idle => Self::Idle,
             Activity::Working => Self::Working,
-            Activity::OnDuty { ticks_waiting } => Self::OnDuty { ticks_waiting: *ticks_waiting },
+            Activity::OnDuty { ticks_waiting } => Self::OnDuty {
+                ticks_waiting: *ticks_waiting,
+            },
             Activity::Patrolling => Self::Patrolling,
             Activity::GoingToWork => Self::GoingToWork,
             Activity::GoingToRest => Self::GoingToRest,
             Activity::Resting => Self::Resting,
             Activity::GoingToHeal => Self::GoingToHeal,
-            Activity::HealingAtFountain { recover_until } => Self::HealingAtFountain { recover_until: *recover_until },
+            Activity::HealingAtFountain { recover_until } => Self::HealingAtFountain {
+                recover_until: *recover_until,
+            },
             Activity::Wandering => Self::Wandering,
-            Activity::Raiding { target } => Self::Raiding { target: v2(*target) },
+            Activity::Raiding { target } => Self::Raiding {
+                target: v2(*target),
+            },
             Activity::Returning { loot } => Self::Returning { loot: loot.clone() },
-            Activity::Mining { mine_pos } => Self::Mining { mine_pos: v2(*mine_pos) },
+            Activity::Mining { mine_pos } => Self::Mining {
+                mine_pos: v2(*mine_pos),
+            },
             Activity::MiningAtMine => Self::MiningAtMine,
         }
     }
@@ -354,17 +408,25 @@ impl ActivitySave {
         match self {
             Self::Idle => Activity::Idle,
             Self::Working => Activity::Working,
-            Self::OnDuty { ticks_waiting } => Activity::OnDuty { ticks_waiting: *ticks_waiting },
+            Self::OnDuty { ticks_waiting } => Activity::OnDuty {
+                ticks_waiting: *ticks_waiting,
+            },
             Self::Patrolling => Activity::Patrolling,
             Self::GoingToWork => Activity::GoingToWork,
             Self::GoingToRest => Activity::GoingToRest,
             Self::Resting => Activity::Resting,
             Self::GoingToHeal => Activity::GoingToHeal,
-            Self::HealingAtFountain { recover_until } => Activity::HealingAtFountain { recover_until: *recover_until },
+            Self::HealingAtFountain { recover_until } => Activity::HealingAtFountain {
+                recover_until: *recover_until,
+            },
             Self::Wandering => Activity::Wandering,
-            Self::Raiding { target } => Activity::Raiding { target: to_vec2(*target) },
+            Self::Raiding { target } => Activity::Raiding {
+                target: to_vec2(*target),
+            },
             Self::Returning { loot } => Activity::Returning { loot: loot.clone() },
-            Self::Mining { mine_pos } => Activity::Mining { mine_pos: to_vec2(*mine_pos) },
+            Self::Mining { mine_pos } => Activity::Mining {
+                mine_pos: to_vec2(*mine_pos),
+            },
             Self::MiningAtMine => Activity::MiningAtMine,
         }
     }
@@ -381,7 +443,9 @@ impl CombatStateSave {
     fn from_combat_state(cs: &CombatState) -> Self {
         match cs {
             CombatState::None => Self::None,
-            CombatState::Fighting { origin } => Self::Fighting { origin: v2(*origin) },
+            CombatState::Fighting { origin } => Self::Fighting {
+                origin: v2(*origin),
+            },
             CombatState::Fleeing => Self::Fleeing,
         }
     }
@@ -389,7 +453,9 @@ impl CombatStateSave {
     fn to_combat_state(&self) -> CombatState {
         match self {
             Self::None => CombatState::None,
-            Self::Fighting { origin } => CombatState::Fighting { origin: to_vec2(*origin) },
+            Self::Fighting { origin } => CombatState::Fighting {
+                origin: to_vec2(*origin),
+            },
             Self::Fleeing => CombatState::Fleeing,
         }
     }
@@ -397,7 +463,7 @@ impl CombatStateSave {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct TraitSave {
-    pub kind: u8,       // 0=Brave, 1=Tough, 2=Swift, 3=Focused
+    pub kind: u8, // 0=Brave, 1=Tough, 2=Swift, 3=Focused
     pub magnitude: f32,
 }
 
@@ -411,7 +477,10 @@ impl PersonalitySave {
     fn from_personality(p: &Personality) -> Self {
         let map_trait = |t: &TraitInstance| -> TraitSave {
             let kind = t.kind.to_id();
-            TraitSave { kind: kind as u8, magnitude: t.magnitude }
+            TraitSave {
+                kind: kind as u8,
+                magnitude: t.magnitude,
+            }
         };
         Self {
             trait1: p.trait1.as_ref().map(map_trait),
@@ -422,7 +491,10 @@ impl PersonalitySave {
     fn to_personality(&self) -> Personality {
         let map_trait = |t: &TraitSave| -> TraitInstance {
             let kind = TraitKind::from_id(t.kind as i32).unwrap_or(TraitKind::Focused);
-            TraitInstance { kind, magnitude: t.magnitude }
+            TraitInstance {
+                kind,
+                magnitude: t.magnitude,
+            }
         };
         Personality {
             trait1: self.trait1.as_ref().map(map_trait),
@@ -463,7 +535,10 @@ fn save_dir() -> Option<std::path::PathBuf> {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .ok()?;
-    let dir = std::path::PathBuf::from(home).join("Documents").join("Endless").join("saves");
+    let dir = std::path::PathBuf::from(home)
+        .join("Documents")
+        .join("Endless")
+        .join("saves");
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir)
 }
@@ -511,43 +586,66 @@ pub fn collect_save_data(
     }
 
     // Building vecs — serialized from EntityMap instances
-    let mut building_data: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
-    building_data.insert("towns".to_string(), serde_json::to_value(&world_data.towns).unwrap());
+    let mut building_data: std::collections::HashMap<String, serde_json::Value> =
+        std::collections::HashMap::new();
+    building_data.insert(
+        "towns".to_string(),
+        serde_json::to_value(&world_data.towns).unwrap(),
+    );
     for def in crate::constants::BUILDING_REGISTRY.iter() {
         let Some(key) = def.save_key else { continue };
         let mut insts: Vec<_> = entity_map.iter_kind(def.kind).collect();
         insts.sort_by_key(|i| i.slot);
-        let placed: Vec<world::PlacedBuilding> = insts.iter().map(|inst| world::PlacedBuilding {
-            position: inst.position, town_idx: inst.town_idx,
-            patrol_order: inst.patrol_order, assigned_mine: inst.assigned_mine,
-            manual_mine: inst.manual_mine, wall_level: inst.wall_level,
-        }).collect();
+        let placed: Vec<world::PlacedBuilding> = insts
+            .iter()
+            .map(|inst| world::PlacedBuilding {
+                position: inst.position,
+                town_idx: inst.town_idx,
+                patrol_order: inst.patrol_order,
+                assigned_mine: inst.assigned_mine,
+                manual_mine: inst.manual_mine,
+                wall_level: inst.wall_level,
+            })
+            .collect();
         building_data.insert(key.to_string(), serde_json::to_value(&placed).unwrap());
     }
 
     // Town grids
-    let town_grids_save: Vec<TownGridSave> = town_grids.grids.iter().map(|g| TownGridSave {
-        town_data_idx: g.town_data_idx, area_level: g.area_level,
-    }).collect();
+    let town_grids_save: Vec<TownGridSave> = town_grids
+        .grids
+        .iter()
+        .map(|g| TownGridSave {
+            town_data_idx: g.town_data_idx,
+            area_level: g.area_level,
+        })
+        .collect();
 
     // Farm growth (serialized from BuildingInstance growth fields)
-    let farm_growth: Vec<FarmGrowthSave> = entity_map.iter_kind(crate::world::BuildingKind::Farm)
+    let farm_growth: Vec<FarmGrowthSave> = entity_map
+        .iter_kind(crate::world::BuildingKind::Farm)
         .map(|i| FarmGrowthSave {
             state: if i.growth_ready { 1 } else { 0 },
             progress: i.growth_progress,
-        }).collect();
+        })
+        .collect();
 
     // Spawners (serialized from EntityMap spawner instances)
-    let spawners: Vec<SpawnerSave> = entity_map.iter_instances()
+    let spawners: Vec<SpawnerSave> = entity_map
+        .iter_instances()
         .filter(|i| crate::constants::building_def(i.kind).spawner.is_some())
         .map(|i| SpawnerSave {
             building_kind: crate::constants::tileset_index(i.kind) as i32,
             town_idx: i.town_idx as i32,
             position: v2(i.position),
-            npc_gpu_slot: i.npc_uid.and_then(|uid| entity_map.slot_for_uid(uid)).map(|s| s as i32).unwrap_or(-1),
+            npc_gpu_slot: i
+                .npc_uid
+                .and_then(|uid| entity_map.slot_for_uid(uid))
+                .map(|s| s as i32)
+                .unwrap_or(-1),
             respawn_timer: i.respawn_timer,
             npc_uid: i.npc_uid.map(|uid| uid.0),
-        }).collect();
+        })
+        .collect();
 
     let building_hp_save = building_hp;
 
@@ -558,46 +656,67 @@ pub fn collect_save_data(
     let auto_upgrades_save: Vec<Vec<bool>> = auto_upgrade.flags.clone();
 
     // Squads
-    let squads: Vec<SquadSave> = squad_state.squads.iter().map(|s| SquadSave {
-        members: s.members.iter().filter_map(|uid| entity_map.slot_for_uid(*uid)).collect(),
-        target: s.target.map(v2),
-        target_size: s.target_size,
-        patrol_enabled: s.patrol_enabled,
-        rest_when_tired: s.rest_when_tired,
-        wave_active: s.wave_active,
-        wave_start_count: s.wave_start_count,
-        wave_min_start: s.wave_min_start,
-        wave_retreat_below_pct: s.wave_retreat_below_pct,
-        owner: s.owner,
-        member_uids: Some(s.members.iter().map(|uid| uid.0).collect()),
-    }).collect();
+    let squads: Vec<SquadSave> = squad_state
+        .squads
+        .iter()
+        .map(|s| SquadSave {
+            members: s
+                .members
+                .iter()
+                .filter_map(|uid| entity_map.slot_for_uid(*uid))
+                .collect(),
+            target: s.target.map(v2),
+            target_size: s.target_size,
+            patrol_enabled: s.patrol_enabled,
+            rest_when_tired: s.rest_when_tired,
+            wave_active: s.wave_active,
+            wave_start_count: s.wave_start_count,
+            wave_min_start: s.wave_min_start,
+            wave_retreat_below_pct: s.wave_retreat_below_pct,
+            owner: s.owner,
+            member_uids: Some(s.members.iter().map(|uid| uid.0).collect()),
+        })
+        .collect();
 
     // Faction stats
-    let faction_stats_save: Vec<FactionStatSave> = faction_stats.stats.iter().map(|s| FactionStatSave {
-        alive: s.alive, dead: s.dead, kills: s.kills,
-    }).collect();
+    let faction_stats_save: Vec<FactionStatSave> = faction_stats
+        .stats
+        .iter()
+        .map(|s| FactionStatSave {
+            alive: s.alive,
+            dead: s.dead,
+            kills: s.kills,
+        })
+        .collect();
 
     // AI players
-    let ai_players: Vec<AiPlayerSave> = ai_state.players.iter().map(|p| {
-        use crate::systems::ai_player::*;
-        AiPlayerSave {
-            town_data_idx: p.town_data_idx,
-            grid_idx: p.grid_idx,
-            kind: match p.kind { AiKind::Raider => 0, AiKind::Builder => 1 },
-            personality: match p.personality {
-                AiPersonality::Aggressive => 0,
-                AiPersonality::Balanced => 1,
-                AiPersonality::Economic => 2,
-            },
-            road_style: match p.road_style {
-                RoadStyle::None => 0,
-                RoadStyle::Cardinal => 1,
-                RoadStyle::Grid4 => 2,
-                RoadStyle::Grid5 => 3,
-            },
-            active: p.active,
-        }
-    }).collect();
+    let ai_players: Vec<AiPlayerSave> = ai_state
+        .players
+        .iter()
+        .map(|p| {
+            use crate::systems::ai_player::*;
+            AiPlayerSave {
+                town_data_idx: p.town_data_idx,
+                grid_idx: p.grid_idx,
+                kind: match p.kind {
+                    AiKind::Raider => 0,
+                    AiKind::Builder => 1,
+                },
+                personality: match p.personality {
+                    AiPersonality::Aggressive => 0,
+                    AiPersonality::Balanced => 1,
+                    AiPersonality::Economic => 2,
+                },
+                road_style: match p.road_style {
+                    RoadStyle::None => 0,
+                    RoadStyle::Cardinal => 1,
+                    RoadStyle::Grid4 => 2,
+                    RoadStyle::Grid5 => 3,
+                },
+                active: p.active,
+            }
+        })
+        .collect();
 
     SaveData {
         version: SAVE_VERSION,
@@ -614,11 +733,13 @@ pub fn collect_save_data(
         food: food_storage.food.clone(),
         gold: gold_storage.gold.clone(),
         farm_growth,
-        mine_growth: entity_map.iter_kind(crate::world::BuildingKind::GoldMine)
+        mine_growth: entity_map
+            .iter_kind(crate::world::BuildingKind::GoldMine)
             .map(|i| FarmGrowthSave {
                 state: if i.growth_ready { 1 } else { 0 },
                 progress: i.growth_progress,
-            }).collect(),
+            })
+            .collect(),
         spawners,
         building_hp: building_hp_save,
         upgrades: upgrades_save,
@@ -633,7 +754,9 @@ pub fn collect_save_data(
         kill_stats: [kill_stats.archer_kills, kill_stats.villager_kills],
         npcs,
         ai_players,
-        migration: migration_state.active.as_ref()
+        migration: migration_state
+            .active
+            .as_ref()
             .filter(|g| g.boat_slot.is_none()) // don't save boat phase — transient
             .map(|g| MigrationSave {
                 town_data_idx: g.town_data_idx,
@@ -681,8 +804,12 @@ pub struct SaveFileInfo {
 
 /// List all save files in the save directory, sorted newest first.
 pub fn list_saves() -> Vec<SaveFileInfo> {
-    let Some(dir) = save_dir() else { return Vec::new() };
-    let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
+    let Some(dir) = save_dir() else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
     let mut saves: Vec<SaveFileInfo> = entries
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().is_some_and(|ext| ext == "json"))
@@ -701,10 +828,14 @@ pub fn list_saves() -> Vec<SaveFileInfo> {
 
 /// Read SaveData from an arbitrary path.
 pub fn read_save_from(path: &std::path::Path) -> Result<SaveData, String> {
-    let json = std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    let json =
+        std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let data: SaveData = serde_json::from_str(&json).map_err(|e| format!("deserialize: {e}"))?;
     if data.version > SAVE_VERSION {
-        return Err(format!("save version {} > supported {}", data.version, SAVE_VERSION));
+        return Err(format!(
+            "save version {} > supported {}",
+            data.version, SAVE_VERSION
+        ));
     }
     if data.version < SAVE_VERSION {
         info!("Migrating save from v{} to v{}", data.version, SAVE_VERSION);
@@ -750,10 +881,13 @@ pub fn apply_save(
     grid.width = save.grid_width;
     grid.height = save.grid_height;
     grid.cell_size = save.grid_cell_size;
-    grid.cells = save.terrain.iter()
+    grid.cells = save
+        .terrain
+        .iter()
         .map(|&t| WorldCell {
             terrain: u8_to_biome(t),
-        }).collect();
+        })
+        .collect();
 
     // Towns
     if let Some(val) = save.building_data.get("towns") {
@@ -761,11 +895,15 @@ pub fn apply_save(
     }
 
     // Town grids
-    town_grids.grids = save.town_grids.iter().map(|g| {
-        let mut tg = world::TownGrid::new_base(g.town_data_idx);
-        tg.area_level = g.area_level;
-        tg
-    }).collect();
+    town_grids.grids = save
+        .town_grids
+        .iter()
+        .map(|g| {
+            let mut tg = world::TownGrid::new_base(g.town_data_idx);
+            tg.area_level = g.area_level;
+            tg
+        })
+        .collect();
     world::sync_town_grid_world_caps(grid, &world_data.towns, town_grids);
 
     // Game time
@@ -784,27 +922,39 @@ pub fn apply_save(
     // Growth states + spawner state are rebuilt in load_building_instances_from_save
 
     // Upgrades
-    upgrades.levels = save.upgrades.iter().map(|v| {
-        decode_upgrade_levels(v)
-    }).collect();
+    upgrades.levels = save
+        .upgrades
+        .iter()
+        .map(|v| decode_upgrade_levels(v))
+        .collect();
 
     // Policies
     let num_towns = world_data.towns.len();
     policies.policies = save.policies.clone();
-    policies.policies.resize(num_towns.max(16), PolicySet::default());
+    policies
+        .policies
+        .resize(num_towns.max(16), PolicySet::default());
 
     // Auto-upgrades
-    auto_upgrade.flags = save.auto_upgrades.iter().map(|v| {
-        decode_auto_upgrade_flags(v)
-    }).collect();
+    auto_upgrade.flags = save
+        .auto_upgrades
+        .iter()
+        .map(|v| decode_auto_upgrade_flags(v))
+        .collect();
     auto_upgrade.ensure_towns(num_towns.max(16));
 
     // Squads — load all saved squads (player + AI).
     // First MAX_SQUADS are player-reserved; extras are AI squads.
     squad_state.squads.clear();
     for ss in save.squads.iter() {
-        let members = ss.member_uids.as_ref()
-            .map(|uids| uids.iter().map(|&u| crate::components::EntityUid(u)).collect())
+        let members = ss
+            .member_uids
+            .as_ref()
+            .map(|uids| {
+                uids.iter()
+                    .map(|&u| crate::components::EntityUid(u))
+                    .collect()
+            })
             .unwrap_or_default(); // old saves: empty until post-spawn fixup
         squad_state.squads.push(Squad {
             members,
@@ -833,9 +983,15 @@ pub fn apply_save(
     raider_state.forage_timers = save.raider_forage_timers.clone();
 
     // Faction stats
-    faction_stats.stats = save.faction_stats.iter().map(|s| FactionStat {
-        alive: s.alive, dead: s.dead, kills: s.kills,
-    }).collect();
+    faction_stats.stats = save
+        .faction_stats
+        .iter()
+        .map(|s| FactionStat {
+            alive: s.alive,
+            dead: s.dead,
+            kills: s.kills,
+        })
+        .collect();
 
     // Kill stats
     kill_stats.archer_kills = save.kill_stats[0];
@@ -845,26 +1001,34 @@ pub fn apply_save(
     {
         use crate::systems::ai_player::*;
         use std::collections::VecDeque;
-        ai_state.players = save.ai_players.iter().map(|p| AiPlayer {
-            town_data_idx: p.town_data_idx,
-            grid_idx: p.grid_idx,
-            kind: if p.kind == 0 { AiKind::Raider } else { AiKind::Builder },
-            personality: match p.personality {
-                0 => AiPersonality::Aggressive,
-                2 => AiPersonality::Economic,
-                _ => AiPersonality::Balanced,
-            },
-            road_style: match p.road_style {
-                0 => RoadStyle::None,
-                1 => RoadStyle::Cardinal,
-                3 => RoadStyle::Grid5,
-                _ => RoadStyle::Grid4,
-            },
-            last_actions: VecDeque::new(),
-            active: p.active,
-            squad_indices: Vec::new(),
-            squad_cmd: std::collections::HashMap::new(),
-        }).collect();
+        ai_state.players = save
+            .ai_players
+            .iter()
+            .map(|p| AiPlayer {
+                town_data_idx: p.town_data_idx,
+                grid_idx: p.grid_idx,
+                kind: if p.kind == 0 {
+                    AiKind::Raider
+                } else {
+                    AiKind::Builder
+                },
+                personality: match p.personality {
+                    0 => AiPersonality::Aggressive,
+                    2 => AiPersonality::Economic,
+                    _ => AiPersonality::Balanced,
+                },
+                road_style: match p.road_style {
+                    0 => RoadStyle::None,
+                    1 => RoadStyle::Cardinal,
+                    3 => RoadStyle::Grid5,
+                    _ => RoadStyle::Grid4,
+                },
+                last_actions: VecDeque::new(),
+                active: p.active,
+                squad_indices: Vec::new(),
+                squad_cmd: std::collections::HashMap::new(),
+            })
+            .collect();
         // Rebuild AI squad indices by scanning SquadState ownership (authoritative).
         for player in ai_state.players.iter_mut() {
             rebuild_squad_indices(player, &squad_state.squads);
@@ -956,7 +1120,8 @@ pub fn named_save_path(name: &str) -> Option<std::path::PathBuf> {
     if trimmed.is_empty() {
         return None;
     }
-    let safe: String = trimmed.chars()
+    let safe: String = trimmed
+        .chars()
         .map(|ch| {
             if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
                 ch
@@ -1004,33 +1169,72 @@ pub fn collect_npc_data(
 ) -> Vec<NpcSaveData> {
     let mut npcs = Vec::new();
     for npc in entity_map.iter_npcs() {
-        if npc.dead { continue; }
+        if npc.dead {
+            continue;
+        }
         let idx = npc.slot;
         let meta = &npc_meta.0[idx];
 
         npcs.push(NpcSaveData {
             slot: idx,
-            position: position_q.get(npc.entity).map(|p| [p.x, p.y]).unwrap_or([0.0, 0.0]),
+            position: position_q
+                .get(npc.entity)
+                .map(|p| [p.x, p.y])
+                .unwrap_or([0.0, 0.0]),
             job: match npc.job {
-                Job::Farmer => 0, Job::Archer => 1, Job::Raider => 2,
-                Job::Fighter => 3, Job::Miner => 4, Job::Crossbow => 5,
+                Job::Farmer => 0,
+                Job::Archer => 1,
+                Job::Raider => 2,
+                Job::Fighter => 3,
+                Job::Miner => 4,
+                Job::Crossbow => 5,
             },
             faction: npc.faction,
             town_id: npc.town_idx,
             health: health_q.get(npc.entity).map(|h| h.0).unwrap_or(100.0),
             uid: entity_map.uid_for_slot(idx).map(|u| u.0),
-            energy: if has_energy_q.get(npc.entity).is_ok() { energy_q.get(npc.entity).map(|e| e.0).unwrap_or(100.0) } else { 100.0 },
-            activity: activity_q.get(npc.entity).map(|a| ActivitySave::from_activity(a)).unwrap_or(ActivitySave::Idle),
-            combat_state: combat_state_q.get(npc.entity).map(|cs| CombatStateSave::from_combat_state(cs)).unwrap_or(CombatStateSave::None),
-            personality: personality_q.get(npc.entity).map(|p| PersonalitySave::from_personality(p)).unwrap_or_default(),
+            energy: if has_energy_q.get(npc.entity).is_ok() {
+                energy_q.get(npc.entity).map(|e| e.0).unwrap_or(100.0)
+            } else {
+                100.0
+            },
+            activity: activity_q
+                .get(npc.entity)
+                .map(|a| ActivitySave::from_activity(a))
+                .unwrap_or(ActivitySave::Idle),
+            combat_state: combat_state_q
+                .get(npc.entity)
+                .map(|cs| CombatStateSave::from_combat_state(cs))
+                .unwrap_or(CombatStateSave::None),
+            personality: personality_q
+                .get(npc.entity)
+                .map(|p| PersonalitySave::from_personality(p))
+                .unwrap_or_default(),
             name: meta.name.clone(),
             level: meta.level,
             xp: meta.xp,
-            attack_type: match attack_type_q.get(npc.entity).copied().unwrap_or(BaseAttackType::Melee) { BaseAttackType::Melee => 0, BaseAttackType::Ranged => 1 },
-            home: home_q.get(npc.entity).map(|h| [h.0.x, h.0.y]).unwrap_or([0.0, 0.0]),
-            work_position: work_state_q.get(npc.entity).ok().and_then(|ws| ws.work_target_building).and_then(|uid| entity_map.instance_by_uid(uid).map(|i| v2(i.position))),
+            attack_type: match attack_type_q
+                .get(npc.entity)
+                .copied()
+                .unwrap_or(BaseAttackType::Melee)
+            {
+                BaseAttackType::Melee => 0,
+                BaseAttackType::Ranged => 1,
+            },
+            home: home_q
+                .get(npc.entity)
+                .map(|h| [h.0.x, h.0.y])
+                .unwrap_or([0.0, 0.0]),
+            work_position: work_state_q
+                .get(npc.entity)
+                .ok()
+                .and_then(|ws| ws.work_target_building)
+                .and_then(|uid| entity_map.instance_by_uid(uid).map(|i| v2(i.position))),
             squad_id: squad_id_q.get(npc.entity).ok().map(|s| s.0),
-            carried_gold: carried_gold_q.get(npc.entity).ok().and_then(|g| if g.0 > 0 { Some(g.0) } else { None }),
+            carried_gold: carried_gold_q
+                .get(npc.entity)
+                .ok()
+                .and_then(|g| if g.0 > 0 { Some(g.0) } else { None }),
             weapon: weapon_q.get(npc.entity).ok().map(|w| [w.0, w.1]),
             helmet: helmet_q.get(npc.entity).ok().map(|h| [h.0, h.1]),
             armor: armor_q.get(npc.entity).ok().map(|a| [a.0, a.1]),
@@ -1126,14 +1330,20 @@ fn collect_building_hp(
     }
     let mut map: HashMap<String, Vec<f32>> = HashMap::new();
     for def in crate::constants::BUILDING_REGISTRY {
-        let key = if def.kind == world::BuildingKind::Fountain { "towns" } else {
-            match def.save_key { Some(k) => k, None => continue }
+        let key = if def.kind == world::BuildingKind::Fountain {
+            "towns"
+        } else {
+            match def.save_key {
+                Some(k) => k,
+                None => continue,
+            }
         };
         let mut insts: Vec<_> = entity_map.iter_kind(def.kind).collect();
         insts.sort_by_key(|i| i.slot);
-        let hps: Vec<f32> = insts.iter().map(|inst| {
-            slot_hp.get(&inst.slot).copied().unwrap_or(0.0)
-        }).collect();
+        let hps: Vec<f32> = insts
+            .iter()
+            .map(|inst| slot_hp.get(&inst.slot).copied().unwrap_or(0.0))
+            .collect();
         map.insert(key.into(), hps);
     }
     map
@@ -1147,7 +1357,11 @@ pub fn convert_building_hp_to_slots(
 ) -> std::collections::HashMap<usize, f32> {
     let mut result = std::collections::HashMap::new();
     for def in crate::constants::BUILDING_REGISTRY {
-        let key = if def.kind == world::BuildingKind::Fountain { Some("towns") } else { def.save_key };
+        let key = if def.kind == world::BuildingKind::Fountain {
+            Some("towns")
+        } else {
+            def.save_key
+        };
         let Some(key) = key else { continue };
         let Some(hps) = old_hp.get(key) else { continue };
         // by_kind preserves insertion order, which matches save-file ordinal order
@@ -1179,28 +1393,55 @@ pub fn load_building_instances_from_save(
 
     // Fountain instances from towns
     for (i, town) in world_data.towns.iter().enumerate() {
-        if !world::is_alive(town.center) { continue; }
+        if !world::is_alive(town.center) {
+            continue;
+        }
         world::place_building_instance(
-            slot_alloc, entity_map,
-            world::BuildingKind::Fountain, town.center, i as u32, town.faction, 0, 0,
-            uid_alloc, None,
+            slot_alloc,
+            entity_map,
+            world::BuildingKind::Fountain,
+            town.center,
+            i as u32,
+            town.faction,
+            0,
+            0,
+            uid_alloc,
+            None,
         );
     }
 
     // All other kinds from building_data
     for def in BUILDING_REGISTRY {
         let Some(key) = def.save_key else { continue };
-        let Some(val) = save.building_data.get(key) else { continue };
-        let buildings: Vec<world::PlacedBuilding> = serde_json::from_value(val.clone()).unwrap_or_default();
+        let Some(val) = save.building_data.get(key) else {
+            continue;
+        };
+        let buildings: Vec<world::PlacedBuilding> =
+            serde_json::from_value(val.clone()).unwrap_or_default();
         for b in &buildings {
-            if !world::is_alive(b.position) { continue; }
-            let faction = if def.kind == world::BuildingKind::GoldMine { FACTION_NEUTRAL }
-                else { world_data.towns.get(b.town_idx as usize).map(|t| t.faction).unwrap_or(0) };
+            if !world::is_alive(b.position) {
+                continue;
+            }
+            let faction = if def.kind == world::BuildingKind::GoldMine {
+                FACTION_NEUTRAL
+            } else {
+                world_data
+                    .towns
+                    .get(b.town_idx as usize)
+                    .map(|t| t.faction)
+                    .unwrap_or(0)
+            };
             world::place_building_instance(
-                slot_alloc, entity_map,
-                def.kind, b.position, b.town_idx, faction,
-                b.patrol_order, b.wall_level,
-                uid_alloc, None,
+                slot_alloc,
+                entity_map,
+                def.kind,
+                b.position,
+                b.town_idx,
+                faction,
+                b.patrol_order,
+                b.wall_level,
+                uid_alloc,
+                None,
             );
             // Restore miner home fields
             if def.kind == world::BuildingKind::MinerHome {
@@ -1221,18 +1462,19 @@ pub fn load_building_instances_from_save(
         }
     }
 
-    info!("Loaded {} building instances from save", entity_map.building_count());
+    info!(
+        "Loaded {} building instances from save",
+        entity_map.building_count()
+    );
 }
 
 /// Rebuild growth states from EntityMap instances + save data.
-pub fn restore_growth_from_save(
-    save: &SaveData,
-    entity_map: &mut EntityMap,
-) {
-
+pub fn restore_growth_from_save(save: &SaveData, entity_map: &mut EntityMap) {
     // Farms — sort by slot to match save order
-    let mut farm_slots: Vec<usize> = entity_map.iter_kind(world::BuildingKind::Farm)
-        .map(|i| i.slot).collect();
+    let mut farm_slots: Vec<usize> = entity_map
+        .iter_kind(world::BuildingKind::Farm)
+        .map(|i| i.slot)
+        .collect();
     farm_slots.sort();
     let farm_growth = if save.version < 2 {
         &save.farm_growth[..farm_slots.len().min(save.farm_growth.len())]
@@ -1249,8 +1491,10 @@ pub fn restore_growth_from_save(
     }
 
     // Mines — sort by slot to match save order
-    let mut mine_slots: Vec<usize> = entity_map.iter_kind(world::BuildingKind::GoldMine)
-        .map(|i| i.slot).collect();
+    let mut mine_slots: Vec<usize> = entity_map
+        .iter_kind(world::BuildingKind::GoldMine)
+        .map(|i| i.slot)
+        .collect();
     mine_slots.sort();
     for (i, &slot) in mine_slots.iter().enumerate() {
         if let Some(inst) = entity_map.get_instance_mut(slot) {
@@ -1266,16 +1510,21 @@ pub fn restore_growth_from_save(
 // BEVY SYSTEMS
 // ============================================================================
 
-/// F5 = save, F9 = load. Emits save/load messages.
+/// Keyboard quick save/load shortcuts. Emits save/load messages.
 pub fn save_load_input_system(
     keys: Res<ButtonInput<KeyCode>>,
+    ui_state: Res<UiState>,
+    settings: Res<UserSettings>,
     mut save_msgs: MessageWriter<SaveGameMsg>,
     mut load_msgs: MessageWriter<LoadGameMsg>,
 ) {
-    if keys.just_pressed(KeyCode::F5) {
+    if ui_state.pause_menu_open {
+        return;
+    }
+    if keys.just_pressed(settings.key_for_action(ControlAction::QuickSave)) {
         save_msgs.write(SaveGameMsg);
     }
-    if keys.just_pressed(KeyCode::F9) {
+    if keys.just_pressed(settings.key_for_action(ControlAction::QuickLoad)) {
         load_msgs.write(LoadGameMsg);
     }
 }
@@ -1293,16 +1542,50 @@ pub fn save_game_system(
     nq: SaveNpcQueries,
     uid_alloc: Res<NextEntityUid>,
 ) {
-    if save_msgs.read().next().is_none() { return; }
+    if save_msgs.read().next().is_none() {
+        return;
+    }
 
-    let npcs = collect_npc_data(&entity_map, &npc_meta, &nq.squad_id_q, &nq.activity_q, &nq.position_q, &nq.health_q, &nq.energy_q, &nq.combat_state_q, &nq.attack_type_q, &nq.personality_q, &nq.home_q, &nq.work_state_q, &nq.carried_gold_q, &nq.weapon_q, &nq.helmet_q, &nq.armor_q, &nq.has_energy_q);
+    let npcs = collect_npc_data(
+        &entity_map,
+        &npc_meta,
+        &nq.squad_id_q,
+        &nq.activity_q,
+        &nq.position_q,
+        &nq.health_q,
+        &nq.energy_q,
+        &nq.combat_state_q,
+        &nq.attack_type_q,
+        &nq.personality_q,
+        &nq.home_q,
+        &nq.work_state_q,
+        &nq.carried_gold_q,
+        &nq.weapon_q,
+        &nq.helmet_q,
+        &nq.armor_q,
+        &nq.has_energy_q,
+    );
     let building_hp = collect_building_hp(&building_query, &entity_map);
     let data = collect_save_data(
-        &ws.grid, &ws.world_data, &entity_map, &ws.town_grids, &ws.game_time,
-        &ws.food_storage, &ws.gold_storage,
-        building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
-        &ws.squad_state, &fs.raider_state, &fs.faction_stats,
-        &fs.kill_stats, &fs.ai_state, &fs.migration_state, &fs.endless, npcs,
+        &ws.grid,
+        &ws.world_data,
+        &entity_map,
+        &ws.town_grids,
+        &ws.game_time,
+        &ws.food_storage,
+        &ws.gold_storage,
+        building_hp,
+        &ws.upgrades,
+        &ws.policies,
+        &ws.auto_upgrade,
+        &ws.squad_state,
+        &fs.raider_state,
+        &fs.faction_stats,
+        &fs.kill_stats,
+        &fs.ai_state,
+        &fs.migration_state,
+        &fs.endless,
+        npcs,
         &uid_alloc,
     );
 
@@ -1337,25 +1620,63 @@ pub fn autosave_system(
     nq: SaveNpcQueries,
     uid_alloc: Res<NextEntityUid>,
 ) {
-    if request.autosave_hours <= 0 || !ws.game_time.hour_ticked { return; }
+    if request.autosave_hours <= 0 || !ws.game_time.hour_ticked {
+        return;
+    }
 
     let current_hour = ws.game_time.total_hours();
-    if current_hour - request.autosave_last_hour < request.autosave_hours { return; }
+    if current_hour - request.autosave_last_hour < request.autosave_hours {
+        return;
+    }
     request.autosave_last_hour = current_hour;
 
     let slot = request.autosave_slot;
     request.autosave_slot = (slot + 1) % 3;
 
-    let Some(path) = autosave_path(slot) else { return };
+    let Some(path) = autosave_path(slot) else {
+        return;
+    };
 
-    let npcs = collect_npc_data(&entity_map, &npc_meta, &nq.squad_id_q, &nq.activity_q, &nq.position_q, &nq.health_q, &nq.energy_q, &nq.combat_state_q, &nq.attack_type_q, &nq.personality_q, &nq.home_q, &nq.work_state_q, &nq.carried_gold_q, &nq.weapon_q, &nq.helmet_q, &nq.armor_q, &nq.has_energy_q);
+    let npcs = collect_npc_data(
+        &entity_map,
+        &npc_meta,
+        &nq.squad_id_q,
+        &nq.activity_q,
+        &nq.position_q,
+        &nq.health_q,
+        &nq.energy_q,
+        &nq.combat_state_q,
+        &nq.attack_type_q,
+        &nq.personality_q,
+        &nq.home_q,
+        &nq.work_state_q,
+        &nq.carried_gold_q,
+        &nq.weapon_q,
+        &nq.helmet_q,
+        &nq.armor_q,
+        &nq.has_energy_q,
+    );
     let building_hp = collect_building_hp(&building_query, &entity_map);
     let data = collect_save_data(
-        &ws.grid, &ws.world_data, &entity_map, &ws.town_grids, &ws.game_time,
-        &ws.food_storage, &ws.gold_storage,
-        building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
-        &ws.squad_state, &fs.raider_state, &fs.faction_stats,
-        &fs.kill_stats, &fs.ai_state, &fs.migration_state, &fs.endless, npcs,
+        &ws.grid,
+        &ws.world_data,
+        &entity_map,
+        &ws.town_grids,
+        &ws.game_time,
+        &ws.food_storage,
+        &ws.gold_storage,
+        building_hp,
+        &ws.upgrades,
+        &ws.policies,
+        &ws.auto_upgrade,
+        &ws.squad_state,
+        &fs.raider_state,
+        &fs.faction_stats,
+        &fs.kill_stats,
+        &fs.ai_state,
+        &fs.migration_state,
+        &fs.endless,
+        npcs,
         &uid_alloc,
     );
 
@@ -1406,15 +1727,34 @@ pub fn spawn_npcs_from_save(
         };
 
         // Patrol units always get starting_post=0 on load (patrol route rebuilt from world)
-        let starting_post = if crate::constants::npc_def(Job::from_i32(npc.job as i32)).is_patrol_unit { 0 } else { -1 };
+        let starting_post =
+            if crate::constants::npc_def(Job::from_i32(npc.job as i32)).is_patrol_unit {
+                0
+            } else {
+                -1
+            };
 
         materialize_npc(
-            npc.slot, npc.position[0], npc.position[1],
-            npc.job as i32, npc.faction, npc.town_id,
-            npc.home, npc.work_position, starting_post, npc.attack_type as i32,
+            npc.slot,
+            npc.position[0],
+            npc.position[1],
+            npc.job as i32,
+            npc.faction,
+            npc.town_id,
+            npc.home,
+            npc.work_position,
+            starting_post,
+            npc.attack_type as i32,
             &overrides,
-            commands, entity_map, pop_stats, npc_meta,
-            npcs_by_town, gpu_updates, world_data, combat_config, upgrades,
+            commands,
+            entity_map,
+            pop_stats,
+            npc_meta,
+            npcs_by_town,
+            gpu_updates,
+            world_data,
+            combat_config,
+            upgrades,
             uid_alloc,
         );
     }
@@ -1502,7 +1842,9 @@ pub fn restore_world_from_save(
     // Old-save fixup: convert legacy squad member slots to UIDs (NPCs are now spawned)
     for (si, ss) in save.squads.iter().enumerate() {
         if ss.member_uids.is_none() && si < ws.squad_state.squads.len() {
-            ws.squad_state.squads[si].members = ss.members.iter()
+            ws.squad_state.squads[si].members = ss
+                .members
+                .iter()
                 .filter_map(|&slot| entity_map.uid_for_slot(slot))
                 .collect();
         }
@@ -1527,7 +1869,9 @@ pub fn load_game_system(
     marker_query: Query<Entity, With<FarmReadyMarker>>,
     mut uid_alloc: ResMut<NextEntityUid>,
 ) {
-    if load_msgs.read().next().is_none() { return; }
+    if load_msgs.read().next().is_none() {
+        return;
+    }
 
     // Read save file (from explicit path or quicksave)
     let save = match if let Some(path) = request.load_path.take() {
@@ -1544,9 +1888,17 @@ pub fn load_game_system(
         }
     };
 
-    let town_count = save.building_data.get("towns")
-        .and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
-    info!("Loading save: {} NPCs, {} towns", save.npcs.len(), town_count);
+    let town_count = save
+        .building_data
+        .get("towns")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    info!(
+        "Loading save: {} NPCs, {} towns",
+        save.npcs.len(),
+        town_count
+    );
 
     // 1. Despawn all NPC entities + farm markers
     for entity in npc_query.iter() {
@@ -1568,17 +1920,13 @@ pub fn load_game_system(
         &mut uid_alloc,
     );
 
-
     toast.message = format!("Game Loaded ({} NPCs)", save.npcs.len());
     toast.timer = 2.0;
     info!("Load complete: {} NPCs restored", save.npcs.len());
 }
 
 /// Tick down toast timer.
-pub fn save_toast_tick_system(
-    time: Res<Time>,
-    mut toast: ResMut<SaveToast>,
-) {
+pub fn save_toast_tick_system(time: Res<Time>, mut toast: ResMut<SaveToast>) {
     if toast.timer > 0.0 {
         toast.timer -= time.delta_secs();
     }

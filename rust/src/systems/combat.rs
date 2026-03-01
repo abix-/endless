@@ -1,12 +1,15 @@
 //! Combat systems - Attack processing using GPU targeting results
 
-use bevy::prelude::*;
 use crate::components::*;
-use crate::messages::{DamageMsg, ProjGpuUpdate, ProjGpuUpdateMsg};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TowerState, GameTime, EntityMap, MovementIntents, MovementPriority};
-use crate::systems::stats::{TownUpgrades, resolve_town_tower_stats};
 use crate::gpu::ProjBufferWrites;
-use crate::world::{WorldData, BuildingKind, is_alive};
+use crate::messages::{DamageMsg, ProjGpuUpdate, ProjGpuUpdateMsg};
+use crate::resources::{
+    CombatDebug, EntityMap, GameTime, GpuReadState, MovementIntents, MovementPriority,
+    ProjHitState, ProjSlotAllocator, TowerState,
+};
+use crate::systems::stats::{TownUpgrades, resolve_town_tower_stats};
+use crate::world::{BuildingKind, WorldData, is_alive};
+use bevy::prelude::*;
 
 /// ECS queries for attack_system (bundled to stay under 16-param limit).
 #[derive(bevy::ecs::system::SystemParam)]
@@ -58,11 +61,23 @@ pub fn attack_system(
     mut commands: Commands,
     game_time: Res<GameTime>,
     mut aq: AttackQueries,
-    npc_q: Query<(Entity, &GpuSlot, &Job, &Faction, &CachedStats, &Activity,
-                  Option<&SquadId>, Option<&ManualTarget>),
-                 (Without<Building>, Without<Dead>)>,
+    npc_q: Query<
+        (
+            Entity,
+            &GpuSlot,
+            &Job,
+            &Faction,
+            &CachedStats,
+            &Activity,
+            Option<&SquadId>,
+            Option<&ManualTarget>,
+        ),
+        (Without<Building>, Without<Dead>),
+    >,
 ) {
-    if game_time.is_paused() { return; }
+    if game_time.is_paused() {
+        return;
+    }
     let positions = &gpu_state.positions;
     let combat_targets = &gpu_state.combat_targets;
 
@@ -78,7 +93,9 @@ pub fn attack_system(
     let mut timer_ready_count = 0usize;
     let mut sample_timer = -1.0f32;
 
-    for (entity, slot, job, faction, stats, activity, squad_id_opt, manual_target_opt) in npc_q.iter() {
+    for (entity, slot, job, faction, stats, activity, squad_id_opt, manual_target_opt) in
+        npc_q.iter()
+    {
         let i = slot.0;
         let faction_id = faction.0;
         let job = *job;
@@ -89,18 +106,26 @@ pub fn attack_system(
         let cached_proj_lifetime = stats.projectile_lifetime;
         let activity_skip = matches!(
             *activity,
-            Activity::Returning { .. } | Activity::GoingToRest | Activity::Resting
-                | Activity::GoingToHeal | Activity::HealingAtFountain { .. }
+            Activity::Returning { .. }
+                | Activity::GoingToRest
+                | Activity::Resting
+                | Activity::GoingToHeal
+                | Activity::HealingAtFountain { .. }
         );
         let squad_id_val = squad_id_opt.map(|s| s.0);
-        let is_fighting = aq.combat_state_q.get(entity).is_ok_and(|cs| cs.is_fighting());
+        let is_fighting = aq
+            .combat_state_q
+            .get(entity)
+            .is_ok_and(|cs| cs.is_fighting());
 
         attackers += 1;
 
         // Don't auto-engage while NPC is in survival/transit states.
         if activity_skip {
             if is_fighting {
-                if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) { *cs = CombatState::None; }
+                if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) {
+                    *cs = CombatState::None;
+                }
             }
             continue;
         }
@@ -122,9 +147,14 @@ pub fn attack_system(
                 }
             }
         } else {
-            let hold = squad_id_val.and_then(|sid| squad_state.squads.get(sid as usize))
+            let hold = squad_id_val
+                .and_then(|sid| squad_state.squads.get(sid as usize))
                 .map_or(false, |sq| sq.hold_fire);
-            if hold { -1 } else { combat_targets.get(i).copied().unwrap_or(-1) }
+            if hold {
+                -1
+            } else {
+                combat_targets.get(i).copied().unwrap_or(-1)
+            }
         };
 
         // Sticky building target
@@ -140,10 +170,16 @@ pub fn attack_system(
             }
         }
 
-        if attackers == 1 { sample_target = target_idx; }
+        if attackers == 1 {
+            sample_target = target_idx;
+        }
 
         if target_idx < 0 {
-            if is_fighting { if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) { *cs = CombatState::None; } }
+            if is_fighting {
+                if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) {
+                    *cs = CombatState::None;
+                }
+            }
             continue;
         }
 
@@ -151,19 +187,34 @@ pub fn attack_system(
         targets_found += 1;
 
         if ti == i {
-            if is_fighting { if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) { *cs = CombatState::None; } }
+            if is_fighting {
+                if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) {
+                    *cs = CombatState::None;
+                }
+            }
             continue;
         }
 
-        if i * 2 + 1 >= positions.len() { bounds_failures += 1; continue; }
+        if i * 2 + 1 >= positions.len() {
+            bounds_failures += 1;
+            continue;
+        }
         let (x, y) = (positions[i * 2], positions[i * 2 + 1]);
-        if x < -9000.0 { continue; }
+        if x < -9000.0 {
+            continue;
+        }
 
         // ── Building target ──
         if let Some(inst) = entity_map.get_instance(ti) {
-            if inst.kind == BuildingKind::Road { continue; }
-            if !matches!(job, Job::Archer | Job::Crossbow | Job::Raider) { continue; }
-            if inst.faction == faction_id { continue; }
+            if inst.kind == BuildingKind::Road {
+                continue;
+            }
+            if !matches!(job, Job::Archer | Job::Crossbow | Job::Raider) {
+                continue;
+            }
+            if inst.faction == faction_id {
+                continue;
+            }
 
             let dx = inst.position.x - x;
             let dy = inst.position.y - y;
@@ -172,7 +223,12 @@ pub fn attack_system(
 
             let close_chase_radius = cached_range + 120.0;
             if dist <= cached_range {
-                intents.submit(entity, Vec2::new(x, y), MovementPriority::Combat, "combat:hold_building");
+                intents.submit(
+                    entity,
+                    Vec2::new(x, y),
+                    MovementPriority::Combat,
+                    "combat:hold_building",
+                );
                 in_range_count += 1;
                 let timer = aq.timer_q.get(entity).map(|t| t.0).unwrap_or(0.0);
                 if timer <= 0.0 {
@@ -182,23 +238,37 @@ pub fn attack_system(
                             let dir_x = dx / dist;
                             let dir_y = dy / dist;
                             proj_updates.write(ProjGpuUpdateMsg(ProjGpuUpdate::Spawn {
-                                idx: proj_slot, x, y,
-                                vx: dir_x * cached_proj_speed, vy: dir_y * cached_proj_speed,
-                                damage: cached_damage, faction: faction_id,
-                                shooter: i as i32, lifetime: cached_proj_lifetime,
+                                idx: proj_slot,
+                                x,
+                                y,
+                                vx: dir_x * cached_proj_speed,
+                                vy: dir_y * cached_proj_speed,
+                                damage: cached_damage,
+                                faction: faction_id,
+                                shooter: i as i32,
+                                lifetime: cached_proj_lifetime,
                             }));
                         }
                     } else {
                         damage_events.write(DamageMsg {
-                            entity_idx: ti, amount: cached_damage,
-                            attacker: i as i32, attacker_faction: faction_id,
+                            entity_idx: ti,
+                            amount: cached_damage,
+                            attacker: i as i32,
+                            attacker_faction: faction_id,
                         });
                     }
                     attacks += 1;
-                    if let Ok(mut t) = aq.timer_q.get_mut(entity) { t.0 = cached_cooldown; }
+                    if let Ok(mut t) = aq.timer_q.get_mut(entity) {
+                        t.0 = cached_cooldown;
+                    }
                 }
             } else if dist <= close_chase_radius {
-                intents.submit(entity, inst_pos, MovementPriority::Combat, "combat:chase_building");
+                intents.submit(
+                    entity,
+                    inst_pos,
+                    MovementPriority::Combat,
+                    "combat:chase_building",
+                );
                 chases += 1;
             }
             continue;
@@ -206,33 +276,55 @@ pub fn attack_system(
 
         // ── NPC target ──
         if entity_map.get_npc(ti).is_none() {
-            if is_fighting { if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) { *cs = CombatState::None; } }
+            if is_fighting {
+                if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) {
+                    *cs = CombatState::None;
+                }
+            }
             continue;
         }
         // Use ECS faction as source-of-truth for NPC targets.
         // GPU faction readback is throttled and can be temporarily stale (-1),
         // which would incorrectly suppress valid combat in tests/gameplay.
-        let target_faction = entity_map.get_npc(ti)
+        let target_faction = entity_map
+            .get_npc(ti)
             .map(|n| n.faction)
             .unwrap_or_else(|| gpu_state.factions.get(ti).copied().unwrap_or(-1));
         if target_faction < 0 || target_faction == faction_id {
-            if is_fighting { if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) { *cs = CombatState::None; } }
+            if is_fighting {
+                if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) {
+                    *cs = CombatState::None;
+                }
+            }
             continue;
         }
         if gpu_state.health.get(ti).copied().unwrap_or(0.0) <= 0.0 {
-            if is_fighting { if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) { *cs = CombatState::None; } }
+            if is_fighting {
+                if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) {
+                    *cs = CombatState::None;
+                }
+            }
             continue;
         }
-        if ti * 2 + 1 >= positions.len() { bounds_failures += 1; continue; }
+        if ti * 2 + 1 >= positions.len() {
+            bounds_failures += 1;
+            continue;
+        }
 
         if !is_fighting {
-            if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) { *cs = CombatState::Fighting { origin: Vec2::new(x, y) }; }
+            if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) {
+                *cs = CombatState::Fighting {
+                    origin: Vec2::new(x, y),
+                };
+            }
             in_combat_added += 1;
         }
         let (tx, ty) = (positions[ti * 2], positions[ti * 2 + 1]);
 
         if tx < -9000.0 {
-            if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) { *cs = CombatState::None; }
+            if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) {
+                *cs = CombatState::None;
+            }
             continue;
         }
 
@@ -240,13 +332,22 @@ pub fn attack_system(
         let dy = ty - y;
         let dist = (dx * dx + dy * dy).sqrt();
 
-        if attackers == 1 { sample_dist = dist; }
+        if attackers == 1 {
+            sample_dist = dist;
+        }
 
         if dist <= cached_range {
-            intents.submit(entity, Vec2::new(x, y), MovementPriority::Combat, "combat:hold_npc");
+            intents.submit(
+                entity,
+                Vec2::new(x, y),
+                MovementPriority::Combat,
+                "combat:hold_npc",
+            );
             in_range_count += 1;
             let timer = aq.timer_q.get(entity).map(|t| t.0).unwrap_or(0.0);
-            if in_range_count == 1 { sample_timer = timer; }
+            if in_range_count == 1 {
+                sample_timer = timer;
+            }
             if timer <= 0.0 {
                 timer_ready_count += 1;
                 if dist > 1.0 {
@@ -254,23 +355,37 @@ pub fn attack_system(
                         let dir_x = dx / dist;
                         let dir_y = dy / dist;
                         proj_updates.write(ProjGpuUpdateMsg(ProjGpuUpdate::Spawn {
-                            idx: proj_slot, x, y,
-                            vx: dir_x * cached_proj_speed, vy: dir_y * cached_proj_speed,
-                            damage: cached_damage, faction: faction_id,
-                            shooter: i as i32, lifetime: cached_proj_lifetime,
+                            idx: proj_slot,
+                            x,
+                            y,
+                            vx: dir_x * cached_proj_speed,
+                            vy: dir_y * cached_proj_speed,
+                            damage: cached_damage,
+                            faction: faction_id,
+                            shooter: i as i32,
+                            lifetime: cached_proj_lifetime,
                         }));
                     }
                 } else {
                     damage_events.write(DamageMsg {
-                        entity_idx: ti, amount: cached_damage,
-                        attacker: i as i32, attacker_faction: faction_id,
+                        entity_idx: ti,
+                        amount: cached_damage,
+                        attacker: i as i32,
+                        attacker_faction: faction_id,
                     });
                 }
                 attacks += 1;
-                if let Ok(mut t) = aq.timer_q.get_mut(entity) { t.0 = cached_cooldown; }
+                if let Ok(mut t) = aq.timer_q.get_mut(entity) {
+                    t.0 = cached_cooldown;
+                }
             }
         } else {
-            intents.submit(entity, Vec2::new(tx, ty), MovementPriority::Combat, "combat:chase_npc");
+            intents.submit(
+                entity,
+                Vec2::new(tx, ty),
+                MovementPriority::Combat,
+                "combat:chase_npc",
+            );
             chases += 1;
         }
     }
@@ -377,12 +492,16 @@ pub fn building_tower_system(
     }
 
     for (i, town) in world_data.towns.iter().enumerate() {
-        if i >= tower.town.attack_enabled.len() || !tower.town.attack_enabled[i] { continue; }
+        if i >= tower.town.attack_enabled.len() || !tower.town.attack_enabled[i] {
+            continue;
+        }
 
         // Decrement cooldown
         if i < tower.town.timers.len() && tower.town.timers[i] > 0.0 {
             tower.town.timers[i] = (tower.town.timers[i] - dt).max(0.0);
-            if tower.town.timers[i] > 0.0 { continue; }
+            if tower.town.timers[i] > 0.0 {
+                continue;
+            }
         }
 
         let stats = resolve_town_tower_stats(&upgrades.town_levels(i));
@@ -390,26 +509,47 @@ pub fn building_tower_system(
         let faction = town.faction;
 
         // Look up tower building slot via EntityMap (one Fountain per town)
-        debug_assert!(entity_map.iter_kind_for_town(BuildingKind::Fountain, i as u32).count() <= 1,
-            "multiple fountains in town {i}");
-        let bld_slot = entity_map.iter_kind_for_town(BuildingKind::Fountain, i as u32)
-            .next().map(|inst| inst.slot);
+        debug_assert!(
+            entity_map
+                .iter_kind_for_town(BuildingKind::Fountain, i as u32)
+                .count()
+                <= 1,
+            "multiple fountains in town {i}"
+        );
+        let bld_slot = entity_map
+            .iter_kind_for_town(BuildingKind::Fountain, i as u32)
+            .next()
+            .map(|inst| inst.slot);
         let Some(bld_slot) = bld_slot else { continue };
 
         // Read GPU combat_targets for this tower's entity index (unified slot)
-        let target = gpu_state.combat_targets.get(bld_slot).copied().unwrap_or(-1);
-        if target < 0 || entity_map.get_instance(target as usize).is_some() { continue; } // only target NPCs
+        let target = gpu_state
+            .combat_targets
+            .get(bld_slot)
+            .copied()
+            .unwrap_or(-1);
+        if target < 0 || entity_map.get_instance(target as usize).is_some() {
+            continue;
+        } // only target NPCs
 
         let ti = target as usize;
         let tx = gpu_state.positions.get(ti * 2).copied().unwrap_or(-9999.0);
-        let ty = gpu_state.positions.get(ti * 2 + 1).copied().unwrap_or(-9999.0);
-        if tx < -9000.0 { continue; }
+        let ty = gpu_state
+            .positions
+            .get(ti * 2 + 1)
+            .copied()
+            .unwrap_or(-9999.0);
+        if tx < -9000.0 {
+            continue;
+        }
 
         let dx = tx - pos.x;
         let dy = ty - pos.y;
         let dist = (dx * dx + dy * dy).sqrt();
 
-        if dist > stats.range { continue; } // out of range
+        if dist > stats.range {
+            continue;
+        } // out of range
 
         if dist > 1.0 {
             if let Some(proj_slot) = proj_alloc.alloc() {
@@ -417,7 +557,8 @@ pub fn building_tower_system(
                 let dir_y = dy / dist;
                 proj_updates.write(ProjGpuUpdateMsg(ProjGpuUpdate::Spawn {
                     idx: proj_slot,
-                    x: pos.x, y: pos.y,
+                    x: pos.x,
+                    y: pos.y,
                     vx: dir_x * stats.proj_speed,
                     vy: dir_y * stats.proj_speed,
                     damage: stats.damage,
@@ -444,9 +585,13 @@ pub fn sync_building_hp_render(
     let positions = &gpu_state.positions;
     for (building, npc_idx, health) in query.iter() {
         let max_hp = crate::constants::building_def(building.kind).hp;
-        if health.0 <= 0.0 || health.0 >= max_hp { continue; }
+        if health.0 <= 0.0 || health.0 >= max_hp {
+            continue;
+        }
         let idx = npc_idx.0;
-        if idx * 2 + 1 >= positions.len() { continue; }
+        if idx * 2 + 1 >= positions.len() {
+            continue;
+        }
         let x = positions[idx * 2];
         let y = positions[idx * 2 + 1];
         render.positions.push(Vec2::new(x, y));

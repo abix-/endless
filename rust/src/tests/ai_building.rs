@@ -3,15 +3,15 @@
 //! Phase 1: egui personality picker (Economic default).
 //! Phase 2: auto-passes, scene runs indefinitely for observation.
 
-use bevy::prelude::*;
 use bevy::ecs::system::SystemParam;
+use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
 use crate::resources::*;
-use crate::systems::{AiPlayerState, AiPlayerConfig, AiPersonality};
+use crate::systems::{AiPersonality, AiPlayerConfig, AiPlayerState};
 use crate::world::{self, WorldGenStyle};
 
-use super::{TestState, BuildingInitParams};
+use super::{BuildingInitParams, TestState};
 
 #[derive(SystemParam)]
 pub(super) struct AiBuildingSetupState<'w> {
@@ -51,12 +51,15 @@ pub(super) fn setup(
 
     let (npc_msgs, ai_players) = world::setup_world(
         &config,
-        &mut world_grid, &mut world_data,
+        &mut world_grid,
+        &mut world_data,
         &mut town_grids,
         &mut slot_alloc,
         &mut bld.entity_map,
-        &mut food_storage, &mut gold_storage,
-        &mut faction_stats, &mut state.raider_state,
+        &mut food_storage,
+        &mut gold_storage,
+        &mut faction_stats,
+        &mut state.raider_state,
         &mut uid_alloc,
     );
     world::materialize_generated_world(
@@ -71,8 +74,12 @@ pub(super) fn setup(
     // Give AI town massive resources
     for player in &state.ai_state.players {
         let ti = player.town_data_idx;
-        if let Some(f) = food_storage.food.get_mut(ti) { *f = 100_000; }
-        if let Some(g) = gold_storage.gold.get_mut(ti) { *g = 100_000; }
+        if let Some(f) = food_storage.food.get_mut(ti) {
+            *f = 100_000;
+        }
+        if let Some(g) = gold_storage.gold.get_mut(ti) {
+            *g = 100_000;
+        }
     }
 
     state.ai_config.decision_interval = 1.0;
@@ -86,17 +93,18 @@ pub(super) fn setup(
         }
     }
     state.test_state.phase_name = "Pick personality...".into();
-    info!("ai-building: setup — {} towns, 1 AI, 100K food+gold, 1s interval",
-        world_data.towns.len());
+    info!(
+        "ai-building: setup — {} towns, 1 AI, 100K food+gold, 1s interval",
+        world_data.towns.len()
+    );
 }
 
 /// Egui UI — runs in EguiPrimaryContextPass so buttons actually receive clicks.
 /// Only shows personality picker (phase 1). Use Factions tab (I key) for AI stats.
-pub fn ui(
-    mut contexts: EguiContexts,
-    mut test: ResMut<TestState>,
-) -> Result {
-    if test.phase != 1 { return Ok(()); }
+pub fn ui(mut contexts: EguiContexts, mut test: ResMut<TestState>) -> Result {
+    if test.phase != 1 {
+        return Ok(());
+    }
 
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("AI Personality")
@@ -120,12 +128,10 @@ pub fn ui(
 }
 
 /// Tick — non-UI logic: phase transitions and AI personality assignment.
-pub fn tick(
-    mut ai_state: ResMut<AiPlayerState>,
-    time: Res<Time>,
-    mut test: ResMut<TestState>,
-) {
-    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
+pub fn tick(mut ai_state: ResMut<AiPlayerState>, time: Res<Time>, mut test: ResMut<TestState>) {
+    let Some(elapsed) = test.tick_elapsed(&time) else {
+        return;
+    };
 
     match test.phase {
         1 => {
@@ -145,7 +151,10 @@ pub fn tick(
         2 => {
             let ai_count = ai_state.players.iter().filter(|p| p.active).count();
             if ai_count > 0 {
-                test.pass_phase(elapsed, format!("{} active AI player(s), observing...", ai_count));
+                test.pass_phase(
+                    elapsed,
+                    format!("{} active AI player(s), observing...", ai_count),
+                );
                 test.complete(elapsed);
             } else if elapsed > 3.0 {
                 test.fail_phase(elapsed, "no active AI players");

@@ -2,17 +2,14 @@
 //! Validates: Idle → Mining (walk to mine) → MiningAtMine (tend) → harvest gold → Returning →
 //! deliver gold at home → energy drain → rest → wake.
 
-use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::ENERGY_WAKE_THRESHOLD;
 use crate::resources::*;
+use bevy::prelude::*;
 
-use super::{TestState, TestSetupParams};
+use super::{TestSetupParams, TestState};
 
-pub fn setup(
-    mut params: TestSetupParams,
-    mut gold_storage: ResMut<GoldStorage>,
-) {
+pub fn setup(mut params: TestSetupParams, mut gold_storage: ResMut<GoldStorage>) {
     params.add_town("MinerTown");
     params.add_bed(400.0, 450.0);
     params.init_economy(1);
@@ -29,10 +26,15 @@ pub fn setup(
     let slot = params.slot_alloc.alloc().expect("slot alloc");
     params.spawn_events.write(crate::messages::SpawnNpcMsg {
         slot_idx: slot,
-        x: 400.0, y: 400.0,
-        job: 4, faction: 0, town_idx: 0,
-        home_x: 380.0, home_y: 400.0,
-        work_x: 400.0, work_y: 300.0,
+        x: 400.0,
+        y: 400.0,
+        job: 4,
+        faction: 0,
+        town_idx: 0,
+        home_x: 380.0,
+        home_y: 400.0,
+        work_x: 400.0,
+        work_y: 300.0,
         starting_post: -1,
         attack_type: 0,
         uid_override: None,
@@ -51,27 +53,95 @@ pub fn tick(
     activity_q: Query<&Activity>,
     mut energy_q: Query<&mut Energy>,
 ) {
-    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
-    let miner_count = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner).count();
-    if !test.require_entity(miner_count, elapsed, "miner") { return; }
+    let Some(elapsed) = test.tick_elapsed(&time) else {
+        return;
+    };
+    let miner_count = entity_map
+        .iter_npcs()
+        .filter(|n| !n.dead && n.job == Job::Miner)
+        .count();
+    if !test.require_entity(miner_count, elapsed, "miner") {
+        return;
+    }
 
-    let energy = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Miner)
-        .and_then(|n| energy_q.get(n.entity).ok()).map(|e| e.0).unwrap_or(100.0);
+    let energy = entity_map
+        .iter_npcs()
+        .find(|n| !n.dead && n.job == Job::Miner)
+        .and_then(|n| energy_q.get(n.entity).ok())
+        .map(|e| e.0)
+        .unwrap_or(100.0);
     let gold = gold_storage.gold.first().copied().unwrap_or(0);
 
-    let mining = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Mining { .. }))).count();
-    let mining_at_mine = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::MiningAtMine))).count();
-    let returning = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Returning { .. }))).count();
-    let idle = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Idle))).count();
-    let going_rest = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::GoingToRest))).count();
-    let resting = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner && activity_q.get(n.entity).is_ok_and(|a| matches!(*a, Activity::Resting))).count();
+    let mining = entity_map
+        .iter_npcs()
+        .filter(|n| {
+            !n.dead
+                && n.job == Job::Miner
+                && activity_q
+                    .get(n.entity)
+                    .is_ok_and(|a| matches!(*a, Activity::Mining { .. }))
+        })
+        .count();
+    let mining_at_mine = entity_map
+        .iter_npcs()
+        .filter(|n| {
+            !n.dead
+                && n.job == Job::Miner
+                && activity_q
+                    .get(n.entity)
+                    .is_ok_and(|a| matches!(*a, Activity::MiningAtMine))
+        })
+        .count();
+    let returning = entity_map
+        .iter_npcs()
+        .filter(|n| {
+            !n.dead
+                && n.job == Job::Miner
+                && activity_q
+                    .get(n.entity)
+                    .is_ok_and(|a| matches!(*a, Activity::Returning { .. }))
+        })
+        .count();
+    let idle = entity_map
+        .iter_npcs()
+        .filter(|n| {
+            !n.dead
+                && n.job == Job::Miner
+                && activity_q
+                    .get(n.entity)
+                    .is_ok_and(|a| matches!(*a, Activity::Idle))
+        })
+        .count();
+    let going_rest = entity_map
+        .iter_npcs()
+        .filter(|n| {
+            !n.dead
+                && n.job == Job::Miner
+                && activity_q
+                    .get(n.entity)
+                    .is_ok_and(|a| matches!(*a, Activity::GoingToRest))
+        })
+        .count();
+    let resting = entity_map
+        .iter_npcs()
+        .filter(|n| {
+            !n.dead
+                && n.job == Job::Miner
+                && activity_q
+                    .get(n.entity)
+                    .is_ok_and(|a| matches!(*a, Activity::Resting))
+        })
+        .count();
 
     match test.phase {
         // Phase 1: Miner starts heading to mine
         1 => {
             test.phase_name = format!("mining={} at_mine={}", mining, mining_at_mine);
             if mining > 0 || mining_at_mine > 0 {
-                test.pass_phase(elapsed, format!("mining={} at_mine={}", mining, mining_at_mine));
+                test.pass_phase(
+                    elapsed,
+                    format!("mining={} at_mine={}", mining, mining_at_mine),
+                );
             } else if elapsed > 5.0 {
                 test.fail_phase(elapsed, "no Mining activity");
             }
@@ -87,7 +157,10 @@ pub fn tick(
         }
         // Phase 3: Mine becomes Ready → miner harvests → Returning with gold
         3 => {
-            test.phase_name = format!("returning={} gold={} at_mine={}", returning, gold, mining_at_mine);
+            test.phase_name = format!(
+                "returning={} gold={} at_mine={}",
+                returning, gold, mining_at_mine
+            );
             if returning > 0 {
                 test.pass_phase(elapsed, format!("Returning with gold"));
             } else if elapsed > 15.0 {
@@ -100,8 +173,13 @@ pub fn tick(
             if gold > 0 {
                 test.pass_phase(elapsed, format!("Delivered {} gold", gold));
                 // Now set energy low so tired→rest happens within test window
-                for npc in entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Miner) {
-                    if let Ok(mut en) = energy_q.get_mut(npc.entity) { en.0 = 35.0; }
+                for npc in entity_map
+                    .iter_npcs()
+                    .filter(|n| !n.dead && n.job == Job::Miner)
+                {
+                    if let Ok(mut en) = energy_q.get_mut(npc.entity) {
+                        en.0 = 35.0;
+                    }
                 }
             } else if elapsed > 20.0 {
                 test.fail_phase(elapsed, format!("gold=0 returning={}", returning));
@@ -109,12 +187,17 @@ pub fn tick(
         }
         // Phase 5: Energy drains → rests → wakes up
         5 => {
-            test.phase_name = format!("e={:.0} resting={} going_rest={}", energy, resting, going_rest);
+            test.phase_name = format!(
+                "e={:.0} resting={} going_rest={}",
+                energy, resting, going_rest
+            );
             if test.get_flag("was_resting") && resting == 0 && energy >= ENERGY_WAKE_THRESHOLD {
                 test.pass_phase(elapsed, format!("Woke up (energy={:.0})", energy));
                 test.complete(elapsed);
             } else {
-                if resting > 0 || going_rest > 0 { test.set_flag("was_resting", true); }
+                if resting > 0 || going_rest > 0 {
+                    test.set_flag("was_resting", true);
+                }
                 if elapsed > 30.0 {
                     test.fail_phase(elapsed, format!("energy={:.0} resting={}", energy, resting));
                 }

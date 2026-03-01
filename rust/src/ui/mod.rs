@@ -1,9 +1,9 @@
 //! UI module — main menu, game startup, in-game HUD, and gameplay panels.
 
-pub mod main_menu;
-pub mod game_hud;
 pub mod build_menu;
+pub mod game_hud;
 pub mod left_panel;
+pub mod main_menu;
 pub mod tutorial;
 
 use bevy::audio::Volume;
@@ -12,10 +12,11 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContextSettings, EguiPrimaryContextPass, egui};
 
 use crate::AppState;
-use crate::constants::TOWN_GRID_SPACING;
 use crate::components::*;
+use crate::constants::TOWN_GRID_SPACING;
 use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
+use crate::settings::{self, ControlAction, ControlGroup, UserSettings};
 use crate::systemparams::WorldState;
 use crate::systems::{AiPlayerState, TownUpgrades};
 use crate::world::{self, BuildingKind, WorldGenConfig};
@@ -23,15 +24,21 @@ use crate::world::{self, BuildingKind, WorldGenConfig};
 /// Render a small "?" button (frameless) that shows help text on hover.
 pub fn help_tip(ui: &mut egui::Ui, catalog: &HelpCatalog, key: &str) {
     if let Some(text) = catalog.0.get(key) {
-        ui.add(egui::Button::new(
-            egui::RichText::new("?").color(egui::Color32::from_rgb(120, 120, 180)).small()
-        ).frame(false))
+        ui.add(
+            egui::Button::new(
+                egui::RichText::new("?")
+                    .color(egui::Color32::from_rgb(120, 120, 180))
+                    .small(),
+            )
+            .frame(false),
+        )
         .on_hover_text(*text);
     }
 }
 /// Render a label that shows a tooltip on hover (frameless button trick).
 pub fn tipped(ui: &mut egui::Ui, text: impl Into<egui::WidgetText>, tip: &str) -> egui::Response {
-    ui.add(egui::Button::new(text).frame(false)).on_hover_text(tip)
+    ui.add(egui::Button::new(text).frame(false))
+        .on_hover_text(tip)
 }
 
 /// Stable display name for a gold mine index used across all inspectors/policies.
@@ -44,7 +51,9 @@ fn apply_ui_scale(
     settings: Res<crate::settings::UserSettings>,
     mut egui_settings: Query<&mut EguiContextSettings>,
 ) {
-    if !settings.is_changed() { return; }
+    if !settings.is_changed() {
+        return;
+    }
     for mut s in egui_settings.iter_mut() {
         s.scale_factor = settings.ui_scale;
     }
@@ -64,11 +73,24 @@ fn apply_interface_text_size(
 
     let ctx = contexts.ctx_mut()?;
     let mut style = (*ctx.style()).clone();
-    style.text_styles.insert(egui::TextStyle::Heading, egui::FontId::proportional(size + 4.0));
-    style.text_styles.insert(egui::TextStyle::Body, egui::FontId::proportional(size));
-    style.text_styles.insert(egui::TextStyle::Button, egui::FontId::proportional(size));
-    style.text_styles.insert(egui::TextStyle::Monospace, egui::FontId::monospace((size - 1.0).max(9.0)));
-    style.text_styles.insert(egui::TextStyle::Small, egui::FontId::proportional((size - 2.0).max(8.0)));
+    style.text_styles.insert(
+        egui::TextStyle::Heading,
+        egui::FontId::proportional(size + 4.0),
+    );
+    style
+        .text_styles
+        .insert(egui::TextStyle::Body, egui::FontId::proportional(size));
+    style
+        .text_styles
+        .insert(egui::TextStyle::Button, egui::FontId::proportional(size));
+    style.text_styles.insert(
+        egui::TextStyle::Monospace,
+        egui::FontId::monospace((size - 1.0).max(9.0)),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Small,
+        egui::FontId::proportional((size - 2.0).max(8.0)),
+    );
     ctx.set_style(style);
 
     *initialized = true;
@@ -84,52 +106,73 @@ pub fn register_ui(app: &mut App) {
     app.add_systems(EguiPrimaryContextPass, game_hud::jukebox_ui_system);
 
     // Main menu (egui)
-    app.add_systems(EguiPrimaryContextPass,
-        main_menu::main_menu_system.run_if(in_state(AppState::MainMenu)));
+    app.add_systems(
+        EguiPrimaryContextPass,
+        main_menu::main_menu_system.run_if(in_state(AppState::MainMenu)),
+    );
 
     // Game startup: load from save (if requested) then world gen (if not loaded) then tutorial init
-    app.add_systems(OnEnter(AppState::Playing), (game_load_system, game_startup_system, tutorial_init_system).chain());
+    app.add_systems(
+        OnEnter(AppState::Playing),
+        (game_load_system, game_startup_system, tutorial_init_system).chain(),
+    );
 
     // Egui panels — ordered so top bar claims height first, then side panels, then bottom.
     // Top bar → left panel → bottom panel (inspector+log) + overlay → windows → pause overlay.
-    app.add_systems(EguiPrimaryContextPass, (
-        game_hud::top_bar_system,
-        left_panel::left_panel_system,
+    app.add_systems(
+        EguiPrimaryContextPass,
         (
-            game_hud::bottom_panel_system,
-            game_hud::combat_log_system,
-            game_hud::target_overlay_system,
-            game_hud::squad_overlay_system,
-            game_hud::faction_squad_overlay_system,
-        ),
-        build_menu::build_menu_system,
-        pause_menu_system,
-        game_hud::save_toast_system,
-        tutorial::tutorial_ui_system,
-    ).chain().run_if(in_state(AppState::Playing)));
+            game_hud::top_bar_system,
+            left_panel::left_panel_system,
+            (
+                game_hud::bottom_panel_system,
+                game_hud::combat_log_system,
+                game_hud::target_overlay_system,
+                game_hud::squad_overlay_system,
+                game_hud::faction_squad_overlay_system,
+            ),
+            build_menu::build_menu_system,
+            pause_menu_system,
+            game_hud::save_toast_system,
+            tutorial::tutorial_ui_system,
+        )
+            .chain()
+            .run_if(in_state(AppState::Playing)),
+    );
 
     // Panel toggle keyboard shortcuts + ESC
-    app.add_systems(Update, (
-        ui_toggle_system,
-        game_escape_system,
-    ).run_if(in_state(AppState::Playing)));
+    app.add_systems(
+        Update,
+        (ui_toggle_system, game_escape_system).run_if(in_state(AppState::Playing)),
+    );
 
     // Escape + settings + inspector in test scenes
-    app.add_systems(Update, game_escape_system.run_if(in_state(AppState::Running)));
-    app.add_systems(EguiPrimaryContextPass, (
-        game_hud::bottom_panel_system,
-        game_hud::target_overlay_system,
-        pause_menu_system,
-    ).run_if(in_state(AppState::Running)));
+    app.add_systems(
+        Update,
+        game_escape_system.run_if(in_state(AppState::Running)),
+    );
+    app.add_systems(
+        EguiPrimaryContextPass,
+        (
+            game_hud::bottom_panel_system,
+            game_hud::target_overlay_system,
+            pause_menu_system,
+        )
+            .run_if(in_state(AppState::Running)),
+    );
 
     // Building slot click detection + visual indicators + ghost
-    app.add_systems(Update, (
-        build_place_click_system,
-        slot_right_click_system,
-        build_ghost_system,
-        draw_slot_indicators,
-        process_destroy_system,
-    ).run_if(in_state(AppState::Playing)));
+    app.add_systems(
+        Update,
+        (
+            build_place_click_system,
+            slot_right_click_system,
+            build_ghost_system,
+            draw_slot_indicators,
+            process_destroy_system,
+        )
+            .run_if(in_state(AppState::Playing)),
+    );
 
     // Cleanup when leaving Playing
     app.add_systems(OnExit(AppState::Playing), game_cleanup_system);
@@ -138,53 +181,55 @@ pub fn register_ui(app: &mut App) {
 /// Keyboard shortcuts for toggling UI panels.
 pub fn ui_toggle_system(
     keys: Res<ButtonInput<KeyCode>>,
+    settings: Res<UserSettings>,
     mut ui_state: ResMut<UiState>,
     mut follow: ResMut<FollowSelected>,
     mut squad_state: ResMut<SquadState>,
     mut build_ctx: ResMut<BuildMenuContext>,
 ) {
-    if keys.just_pressed(KeyCode::KeyR) {
+    if ui_state.pause_menu_open {
+        return;
+    }
+
+    if keys.just_pressed(settings.key_for_action(ControlAction::ToggleRoster)) {
         ui_state.toggle_left_tab(LeftPanelTab::Roster);
     }
-    if keys.just_pressed(KeyCode::KeyB) {
+    if keys.just_pressed(settings.key_for_action(ControlAction::ToggleBuildMenu)) {
         ui_state.build_menu_open = !ui_state.build_menu_open;
     }
-    if keys.just_pressed(KeyCode::KeyU) {
+    if keys.just_pressed(settings.key_for_action(ControlAction::ToggleUpgrades)) {
         ui_state.toggle_left_tab(LeftPanelTab::Upgrades);
     }
-    if keys.just_pressed(KeyCode::KeyP) {
+    if keys.just_pressed(settings.key_for_action(ControlAction::TogglePolicies)) {
         ui_state.toggle_left_tab(LeftPanelTab::Policies);
     }
-    if keys.just_pressed(KeyCode::KeyT) {
+    if keys.just_pressed(settings.key_for_action(ControlAction::TogglePatrols)) {
         ui_state.toggle_left_tab(LeftPanelTab::Patrols);
     }
-    if keys.just_pressed(KeyCode::KeyQ) {
+    if keys.just_pressed(settings.key_for_action(ControlAction::ToggleSquads)) {
         ui_state.toggle_left_tab(LeftPanelTab::Squads);
     }
-    if keys.just_pressed(KeyCode::KeyI) {
+    if keys.just_pressed(settings.key_for_action(ControlAction::ToggleFactions)) {
         ui_state.toggle_left_tab(LeftPanelTab::Factions);
     }
-    if keys.just_pressed(KeyCode::KeyH) {
+    if keys.just_pressed(settings.key_for_action(ControlAction::ToggleHelp)) {
         ui_state.toggle_left_tab(LeftPanelTab::Help);
     }
-    if keys.just_pressed(KeyCode::KeyL) {
+    if keys.just_pressed(settings.key_for_action(ControlAction::ToggleCombatLog)) {
         ui_state.combat_log_visible = !ui_state.combat_log_visible;
     }
-    if keys.just_pressed(KeyCode::KeyF) {
+    if keys.just_pressed(settings.key_for_action(ControlAction::ToggleFollow)) {
         follow.0 = !follow.0;
     }
-    // Squad target hotkeys: 1-9,0 => squads 1-10 and enter set-target mode.
-    let squad_hotkey = if keys.just_pressed(KeyCode::Digit1) { Some(0) }
-        else if keys.just_pressed(KeyCode::Digit2) { Some(1) }
-        else if keys.just_pressed(KeyCode::Digit3) { Some(2) }
-        else if keys.just_pressed(KeyCode::Digit4) { Some(3) }
-        else if keys.just_pressed(KeyCode::Digit5) { Some(4) }
-        else if keys.just_pressed(KeyCode::Digit6) { Some(5) }
-        else if keys.just_pressed(KeyCode::Digit7) { Some(6) }
-        else if keys.just_pressed(KeyCode::Digit8) { Some(7) }
-        else if keys.just_pressed(KeyCode::Digit9) { Some(8) }
-        else if keys.just_pressed(KeyCode::Digit0) { Some(9) }
-        else { None };
+    // Squad target hotkeys: defaults are 1-9,0 => squads 1-10.
+    let squad_hotkey =
+        settings::SQUAD_TARGET_ACTIONS
+            .iter()
+            .enumerate()
+            .find_map(|(idx, action)| {
+                keys.just_pressed(settings.key_for_action(*action))
+                    .then_some(idx)
+            });
     if let Some(si) = squad_hotkey {
         if si < squad_state.squads.len() {
             build_ctx.selected_build = None;
@@ -195,9 +240,17 @@ pub fn ui_toggle_system(
             squad_state.placing_target = true;
         }
     }
-    // WASD cancels follow — user wants manual control
-    if follow.0 && (keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::KeyA)
-        || keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::KeyD)) {
+    // Manual pan keys cancel follow mode.
+    let pan_up = settings.key_for_action(ControlAction::PanUp);
+    let pan_down = settings.key_for_action(ControlAction::PanDown);
+    let pan_left = settings.key_for_action(ControlAction::PanLeft);
+    let pan_right = settings.key_for_action(ControlAction::PanRight);
+    if follow.0
+        && (keys.pressed(pan_up)
+            || keys.pressed(pan_left)
+            || keys.pressed(pan_down)
+            || keys.pressed(pan_right))
+    {
         follow.0 = false;
     }
 }
@@ -234,7 +287,9 @@ fn game_load_system(
     mut mining_policy: ResMut<MiningPolicy>,
     mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
 ) {
-    if !save_request.load_on_enter { return; }
+    if !save_request.load_on_enter {
+        return;
+    }
     save_request.load_on_enter = false;
 
     let save = match if let Some(path) = save_request.load_path.take() {
@@ -251,9 +306,17 @@ fn game_load_system(
         }
     };
 
-    let town_count = save.building_data.get("towns")
-        .and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
-    info!("Loading save from menu: {} NPCs, {} towns", save.npcs.len(), town_count);
+    let town_count = save
+        .building_data
+        .get("towns")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    info!(
+        "Loading save from menu: {} NPCs, {} towns",
+        save.npcs.len(),
+        town_count
+    );
 
     crate::save::restore_world_from_save(
         &save,
@@ -310,12 +373,15 @@ fn game_startup_system(
     // Full world setup: terrain, towns, resources, buildings, spawners, NPCs, AI players
     let (npc_msgs, ai_players) = world::setup_world(
         &config,
-        &mut world_state.grid, &mut world_state.world_data,
+        &mut world_state.grid,
+        &mut world_state.world_data,
         &mut world_state.town_grids,
         &mut world_state.entity_slots,
         &mut world_state.entity_map,
-        &mut food_storage, &mut extra.gold_storage,
-        &mut faction_stats, &mut raider_state,
+        &mut food_storage,
+        &mut extra.gold_storage,
+        &mut faction_stats,
+        &mut raider_state,
         &mut world_state.uid_alloc,
     );
     let total = world::materialize_generated_world(
@@ -329,11 +395,20 @@ fn game_startup_system(
     *extra.mining_policy = MiningPolicy::default();
     let num_towns = world_state.world_data.towns.len();
     extra.npcs_by_town.0.resize(num_towns, Vec::new());
-    game_config.npc_counts = config.npc_counts.iter().map(|(&job, &count)| (job, count as i32)).collect();
+    game_config.npc_counts = config
+        .npc_counts
+        .iter()
+        .map(|(&job, &count)| (job, count as i32))
+        .collect();
     *game_time = GameTime::default();
     // Load saved policies + auto-upgrade flags for player's town
     let saved = crate::settings::load_settings();
-    let town_idx = world_state.world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
+    let town_idx = world_state
+        .world_data
+        .towns
+        .iter()
+        .position(|t| t.faction == 0)
+        .unwrap_or(0);
     if town_idx < extra.policies.policies.len() {
         extra.policies.policies[town_idx] = saved.policy;
     }
@@ -347,11 +422,26 @@ fn game_startup_system(
         if let Some(policy) = extra.policies.policies.get_mut(player.town_data_idx) {
             *policy = player.personality.default_policies();
             if let Some(town) = world_state.world_data.towns.get(player.town_data_idx) {
-                policy.mining_radius = crate::systems::ai_player::initial_mining_radius(&world_state.entity_map, town.center);
+                policy.mining_radius = crate::systems::ai_player::initial_mining_radius(
+                    &world_state.entity_map,
+                    town.center,
+                );
             }
         }
         if let Some(town) = world_state.world_data.towns.get(player.town_data_idx) {
-            extra.combat_log.write(crate::messages::CombatLogMsg { kind: CombatEventKind::Ai, faction: -1, day: 1, hour: 6, minute: 0, message: format!("{} [{}] joined the game", town.name, player.personality.name()), location: None });
+            extra.combat_log.write(crate::messages::CombatLogMsg {
+                kind: CombatEventKind::Ai,
+                faction: -1,
+                day: 1,
+                hour: 6,
+                minute: 0,
+                message: format!(
+                    "{} [{}] joined the game",
+                    town.name,
+                    player.personality.name()
+                ),
+                location: None,
+            });
         }
     }
     extra.ai_state.players = ai_players;
@@ -366,8 +456,10 @@ fn game_startup_system(
 
     world_state.dirty_writers.emit_all();
 
-    info!("Game startup complete: {} NPCs spawned across {} towns",
-        total, config.num_towns);
+    info!(
+        "Game startup complete: {} NPCs spawned across {} towns",
+        total, config.num_towns
+    );
 }
 
 // ============================================================================
@@ -394,7 +486,11 @@ fn tutorial_init_system(
         return;
     }
 
-    let player_town = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
+    let player_town = world_data
+        .towns
+        .iter()
+        .position(|t| t.faction == 0)
+        .unwrap_or(0);
 
     // Snapshot initial building counts for completion checks
     let pt = player_town as u32;
@@ -411,25 +507,30 @@ fn tutorial_init_system(
 
     tutorial.start_time = time.elapsed_secs_f64();
     tutorial.step = 1;
-    info!("Tutorial started (farms={}, farmer_homes={}, waypoints={}, archer_homes={}, miner_homes={})",
-        tutorial.initial_farms, tutorial.initial_farmer_homes,
-        tutorial.initial_waypoints, tutorial.initial_archer_homes, tutorial.initial_miner_homes);
+    info!(
+        "Tutorial started (farms={}, farmer_homes={}, waypoints={}, archer_homes={}, miner_homes={})",
+        tutorial.initial_farms,
+        tutorial.initial_farmer_homes,
+        tutorial.initial_waypoints,
+        tutorial.initial_archer_homes,
+        tutorial.initial_miner_homes
+    );
 }
 
 // ============================================================================
 // GAME EXIT
 // ============================================================================
 
-/// ESC toggles pause menu. Space/+/- control time (only when menu closed).
+/// Pause key toggles pause menu. Pause/speed controls only run when menu is closed.
 fn game_escape_system(
     keys: Res<ButtonInput<KeyCode>>,
     mut ui_state: ResMut<UiState>,
     mut game_time: ResMut<GameTime>,
     mut squad_state: ResMut<SquadState>,
     mut build_ctx: ResMut<BuildMenuContext>,
-    settings: Res<crate::settings::UserSettings>,
+    settings: Res<UserSettings>,
 ) {
-    if keys.just_pressed(KeyCode::Escape) {
+    if keys.just_pressed(settings.key_for_action(ControlAction::PauseMenu)) {
         // Cancel box-select or squad target placement first
         if squad_state.box_selecting || squad_state.drag_start.is_some() {
             squad_state.box_selecting = false;
@@ -465,7 +566,7 @@ fn game_escape_system(
     }
     // Time controls only when pause menu is closed
     if !ui_state.pause_menu_open {
-        if keys.just_pressed(KeyCode::Space) {
+        if keys.just_pressed(settings.key_for_action(ControlAction::TogglePause)) {
             if game_time.is_paused() {
                 if game_time.time_scale <= 0.0 {
                     game_time.time_scale = 1.0;
@@ -475,14 +576,14 @@ fn game_escape_system(
                 game_time.paused = true;
             }
         }
-        if keys.just_pressed(KeyCode::Equal) {
+        if keys.just_pressed(settings.key_for_action(ControlAction::SpeedUp)) {
             if game_time.time_scale <= 0.0 {
                 game_time.time_scale = 0.25;
             } else {
                 game_time.time_scale = (game_time.time_scale * 2.0).min(128.0);
             }
         }
-        if keys.just_pressed(KeyCode::Minus) {
+        if keys.just_pressed(settings.key_for_action(ControlAction::SpeedDown)) {
             if game_time.time_scale <= 0.25 {
                 game_time.time_scale = 0.0;
             } else {
@@ -495,10 +596,11 @@ fn game_escape_system(
 /// Pause menu overlay — Resume, Settings, Exit to Main Menu.
 fn pause_menu_system(
     mut contexts: bevy_egui::EguiContexts,
+    keys: Res<ButtonInput<KeyCode>>,
     mut ui_state: ResMut<UiState>,
     mut game_time: ResMut<GameTime>,
     mut next_state: ResMut<NextState<AppState>>,
-    mut settings: ResMut<crate::settings::UserSettings>,
+    mut settings: ResMut<UserSettings>,
     mut save_request: ResMut<crate::save::SaveLoadRequest>,
     mut save_game_msgs: MessageWriter<crate::save::SaveGameMsg>,
     mut load_game_msgs: MessageWriter<crate::save::LoadGameMsg>,
@@ -507,8 +609,12 @@ fn pause_menu_system(
     mut music_sinks: Query<&mut AudioSink, With<crate::resources::MusicTrack>>,
     mut manual_save_name: Local<String>,
     mut manual_load_name: Local<String>,
+    mut rebinding_action: Local<Option<ControlAction>>,
 ) -> Result {
-    if !ui_state.pause_menu_open { return Ok(()); }
+    if !ui_state.pause_menu_open {
+        *rebinding_action = None;
+        return Ok(());
+    }
 
     let ctx = contexts.ctx_mut()?;
     let mut save_game_requested = false;
@@ -516,6 +622,17 @@ fn pause_menu_system(
     let mut save_requested = false;
     let mut reload_requested = false;
     let mut reset_requested = false;
+    if let Some(action) = *rebinding_action {
+        if let Some(bound_key) = keys
+            .get_just_pressed()
+            .copied()
+            .find(|key| settings::is_rebindable_key(*key))
+        {
+            settings.set_key_for_action(action, bound_key);
+            *rebinding_action = None;
+            save_requested = true;
+        }
+    }
     if manual_save_name.is_empty() {
         *manual_save_name = "save1".to_string();
     }
@@ -572,6 +689,11 @@ fn pause_menu_system(
                     );
                     ui.selectable_value(
                         &mut ui_state.pause_settings_tab,
+                        PauseSettingsTab::Controls,
+                        egui::RichText::new("Controls").size(18.0),
+                    );
+                    ui.selectable_value(
+                        &mut ui_state.pause_settings_tab,
                         PauseSettingsTab::Audio,
                         egui::RichText::new("Audio").size(18.0),
                     );
@@ -604,6 +726,7 @@ fn pause_menu_system(
                     let (title, subtitle) = match ui_state.pause_settings_tab {
                         PauseSettingsTab::Interface => ("Interface", "UI size, text readability, and display behavior."),
                         PauseSettingsTab::Camera => ("Camera", "Panning, zoom speed, and sprite-detail transitions."),
+                        PauseSettingsTab::Controls => ("Controls", "View and rebind keyboard shortcuts."),
                         PauseSettingsTab::Audio => ("Audio", "Music and sound effect levels."),
                         PauseSettingsTab::Logs => ("Logs", "Control what gets written to combat and activity logs."),
                         PauseSettingsTab::Debug => ("Debug", "Developer visibility and diagnostics toggles."),
@@ -683,6 +806,50 @@ fn pause_menu_system(
                                     ui.add(egui::Slider::new(&mut settings.lod_transition, 0.1..=2.0).text("LOD Transition"))
                                         .on_hover_text("Below this zoom level, sprites render as flat rectangles.");
                                     ui.small("Lower values keep detailed sprites visible longer.");
+                                }
+                                PauseSettingsTab::Controls => {
+                                    if let Some(action) = *rebinding_action {
+                                        ui.horizontal_wrapped(|ui| {
+                                            ui.label(format!("Press a key for {}.", action.label()));
+                                            if ui.button("Cancel").clicked() {
+                                                *rebinding_action = None;
+                                            }
+                                        });
+                                    } else {
+                                        ui.small("Click any key button below to rebind that action.");
+                                    }
+                                    ui.add_space(8.0);
+
+                                    for group in ControlGroup::ALL {
+                                        ui.strong(group.label());
+                                        ui.add_space(4.0);
+
+                                        for action in settings::control_actions_for_group(group) {
+                                            ui.horizontal(|ui| {
+                                                ui.label(action.label());
+                                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                    let waiting = *rebinding_action == Some(*action);
+                                                    let key_label = if waiting {
+                                                        "Press key...".to_string()
+                                                    } else {
+                                                        settings.key_label_for_action(*action)
+                                                    };
+                                                    if ui.add_sized([140.0, 24.0], egui::Button::new(key_label)).clicked() {
+                                                        *rebinding_action = Some(*action);
+                                                    }
+                                                });
+                                            });
+                                            ui.small(action.help_text());
+                                            ui.add_space(4.0);
+                                        }
+                                        ui.add_space(8.0);
+                                    }
+
+                                    if ui.button("Reset Controls to Defaults").clicked() {
+                                        settings.reset_key_bindings();
+                                        *rebinding_action = None;
+                                        save_requested = true;
+                                    }
                                 }
                                 PauseSettingsTab::Audio => {
                                     let prev_music = settings.music_volume;
@@ -851,13 +1018,14 @@ fn pause_menu_system(
         load_game_msgs.write(crate::save::LoadGameMsg);
     }
     if reset_requested {
+        *rebinding_action = None;
         *settings = crate::settings::UserSettings::default();
         winit_settings.unfocused_mode = if settings.background_fps {
             bevy::winit::UpdateMode::Continuous
         } else {
-            bevy::winit::UpdateMode::reactive_low_power(
-                std::time::Duration::from_secs_f64(1.0 / 60.0),
-            )
+            bevy::winit::UpdateMode::reactive_low_power(std::time::Duration::from_secs_f64(
+                1.0 / 60.0,
+            ))
         };
         audio.music_volume = settings.music_volume;
         audio.sfx_volume = settings.sfx_volume;
@@ -866,14 +1034,15 @@ fn pause_menu_system(
         }
         crate::settings::save_settings(&settings);
     } else if reload_requested {
+        *rebinding_action = None;
         let loaded = crate::settings::load_settings();
         *settings = loaded;
         winit_settings.unfocused_mode = if settings.background_fps {
             bevy::winit::UpdateMode::Continuous
         } else {
-            bevy::winit::UpdateMode::reactive_low_power(
-                std::time::Duration::from_secs_f64(1.0 / 60.0),
-            )
+            bevy::winit::UpdateMode::reactive_low_power(std::time::Duration::from_secs_f64(
+                1.0 / 60.0,
+            ))
         };
         audio.music_volume = settings.music_volume;
         audio.sfx_volume = settings.sfx_volume;
@@ -919,14 +1088,28 @@ fn slots_on_line(start: (i32, i32), end: (i32, i32)) -> Vec<(i32, i32)> {
     let (r1, c1) = end;
     let dr = (r1 - r0).abs();
     let dc = (c1 - c0).abs();
-    let sr = if r0 < r1 { 1 } else if r0 > r1 { -1 } else { 0 };
-    let sc = if c0 < c1 { 1 } else if c0 > c1 { -1 } else { 0 };
+    let sr = if r0 < r1 {
+        1
+    } else if r0 > r1 {
+        -1
+    } else {
+        0
+    };
+    let sc = if c0 < c1 {
+        1
+    } else if c0 > c1 {
+        -1
+    } else {
+        0
+    };
     let mut err = dr - dc;
 
     let mut out = Vec::new();
     loop {
         out.push((r0, c0));
-        if r0 == r1 && c0 == c1 { break; }
+        if r0 == r1 && c0 == c1 {
+            break;
+        }
         let e2 = 2 * err;
         if e2 > -dc {
             err -= dc;
@@ -945,7 +1128,9 @@ fn slot_right_click_system(
     mouse: Res<ButtonInput<MouseButton>>,
     mut build_ctx: ResMut<BuildMenuContext>,
 ) {
-    if !mouse.just_pressed(MouseButton::Right) { return; }
+    if !mouse.just_pressed(MouseButton::Right) {
+        return;
+    }
     build_ctx.selected_build = None;
     build_ctx.destroy_mode = false;
     build_ctx.clear_drag();
@@ -967,26 +1152,40 @@ fn build_place_click_system(
     game_time: Res<GameTime>,
     _difficulty: Res<Difficulty>,
 ) {
-    if build_ctx.selected_build.is_none() && !build_ctx.destroy_mode { return; }
+    if build_ctx.selected_build.is_none() && !build_ctx.destroy_mode {
+        return;
+    }
     let just_pressed = mouse.just_pressed(MouseButton::Left);
     let pressed = mouse.pressed(MouseButton::Left);
     let just_released = mouse.just_released(MouseButton::Left);
-    if !just_pressed && !pressed && !just_released { return; }
+    if !just_pressed && !pressed && !just_released {
+        return;
+    }
 
     if let Ok(ctx) = egui_contexts.ctx_mut() {
         if ctx.wants_pointer_input() || ctx.is_pointer_over_area() {
-            if just_released { build_ctx.clear_drag(); }
+            if just_released {
+                build_ctx.clear_drag();
+            }
             return;
         }
     }
 
-    let Some(town_data_idx) = build_ctx.town_data_idx else { return };
-    let Some(town) = world_state.world_data.towns.get(town_data_idx) else { return };
+    let Some(town_data_idx) = build_ctx.town_data_idx else {
+        return;
+    };
+    let Some(town) = world_state.world_data.towns.get(town_data_idx) else {
+        return;
+    };
     let center = town.center;
     let town_name = town.name.clone();
     let Ok(window) = windows.single() else { return };
-    let Some(cursor_pos) = window.cursor_position() else { return };
-    let Ok((transform, projection)) = camera_query.single() else { return };
+    let Some(cursor_pos) = window.cursor_position() else {
+        return;
+    };
+    let Ok((transform, projection)) = camera_query.single() else {
+        return;
+    };
     let world_pos = screen_to_world(cursor_pos, transform, projection, window);
     let (row, col) = world::world_to_town_grid(center, world_pos);
     let slot_pos = world::town_grid_to_world(center, row, col);
@@ -996,13 +1195,24 @@ fn build_place_click_system(
 
     // Destroy mode: remove building at clicked cell (player-owned only)
     if build_ctx.destroy_mode {
-        if !just_pressed { return; }
+        if !just_pressed {
+            return;
+        }
         build_ctx.clear_drag();
         let (building_gpu_slot, bld_kind) = {
             let inst = match world_state.entity_map.get_at_grid(gc as i32, gr as i32) {
-                Some(inst) if !matches!(inst.kind, world::BuildingKind::Fountain | world::BuildingKind::GoldMine)
-                    && world_state.world_data.towns.get(inst.town_idx as usize).map_or(false, |t| t.faction == 0)
-                    => inst,
+                Some(inst)
+                    if !matches!(
+                        inst.kind,
+                        world::BuildingKind::Fountain | world::BuildingKind::GoldMine
+                    ) && world_state
+                        .world_data
+                        .towns
+                        .get(inst.town_idx as usize)
+                        .map_or(false, |t| t.faction == 0) =>
+                {
+                    inst
+                }
                 _ => return,
             };
             (inst.slot, inst.kind)
@@ -1016,8 +1226,11 @@ fn build_place_click_system(
             attacker_faction: 0,
         });
         let _ = world_state.destroy_building(
-            &mut combat_log, &game_time,
-            row, col, center,
+            &mut combat_log,
+            &game_time,
+            row,
+            col,
+            center,
             &format!("Destroyed building at ({},{}) in {}", row, col, town_name),
             &mut gpu_updates,
         );
@@ -1029,14 +1242,33 @@ fn build_place_click_system(
 
     // Waypoint: single-click placement
     if kind == BuildingKind::Waypoint {
-        if !just_pressed { return; }
+        if !just_pressed {
+            return;
+        }
         build_ctx.clear_drag();
         let cost = crate::constants::building_cost(kind);
-        if world_state.place_building(
-            &mut food_storage, kind, town_data_idx, world_pos, cost, &mut gpu_updates, &mut commands,
-        ).is_ok() {
+        if world_state
+            .place_building(
+                &mut food_storage,
+                kind,
+                town_data_idx,
+                world_pos,
+                cost,
+                &mut gpu_updates,
+                &mut commands,
+            )
+            .is_ok()
+        {
             let label = crate::constants::building_def(kind).label;
-            combat_log.write(crate::messages::CombatLogMsg { kind: CombatEventKind::Harvest, faction: 0, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("Built {} in {}", label.to_lowercase(), town_name), location: None });
+            combat_log.write(crate::messages::CombatLogMsg {
+                kind: CombatEventKind::Harvest,
+                faction: 0,
+                day: game_time.day(),
+                hour: game_time.hour(),
+                minute: game_time.minute(),
+                message: format!("Built {} in {}", label.to_lowercase(), town_name),
+                location: None,
+            });
         }
         return;
     }
@@ -1050,26 +1282,58 @@ fn build_place_click_system(
         } else if pressed && build_ctx.drag_start_slot.is_some() {
             build_ctx.drag_current_slot = Some((gr as i32, gc as i32));
         }
-        if !just_released { return; }
+        if !just_released {
+            return;
+        }
 
-        let start = build_ctx.drag_start_slot.take().unwrap_or((gr as i32, gc as i32));
-        let end = build_ctx.drag_current_slot.take().unwrap_or((gr as i32, gc as i32));
+        let start = build_ctx
+            .drag_start_slot
+            .take()
+            .unwrap_or((gr as i32, gc as i32));
+        let end = build_ctx
+            .drag_current_slot
+            .take()
+            .unwrap_or((gr as i32, gc as i32));
         let cost = crate::constants::building_cost(kind);
         let mut placed = 0usize;
         for (sr, sc) in slots_on_line(start, end) {
             let cell_pos = world_state.grid.grid_to_world(sc as usize, sr as usize);
-            if world_state.place_building(
-                &mut food_storage, kind, town_data_idx, cell_pos, cost, &mut gpu_updates, &mut commands,
-            ).is_ok() { placed += 1; }
+            if world_state
+                .place_building(
+                    &mut food_storage,
+                    kind,
+                    town_data_idx,
+                    cell_pos,
+                    cost,
+                    &mut gpu_updates,
+                    &mut commands,
+                )
+                .is_ok()
+            {
+                placed += 1;
+            }
         }
         if placed > 0 {
             let label = crate::constants::building_def(kind).label;
             let msg = if placed == 1 {
                 format!("Built {} in {}", label.to_lowercase(), town_name)
             } else {
-                format!("Built {} {}s in {}", placed, label.to_lowercase(), town_name)
+                format!(
+                    "Built {} {}s in {}",
+                    placed,
+                    label.to_lowercase(),
+                    town_name
+                )
             };
-            combat_log.write(crate::messages::CombatLogMsg { kind: CombatEventKind::Harvest, faction: 0, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: msg, location: None });
+            combat_log.write(crate::messages::CombatLogMsg {
+                kind: CombatEventKind::Harvest,
+                faction: 0,
+                day: game_time.day(),
+                hour: game_time.hour(),
+                minute: game_time.minute(),
+                message: msg,
+                location: None,
+            });
         }
         return;
     }
@@ -1078,15 +1342,34 @@ fn build_place_click_system(
     let label = crate::constants::building_def(kind).label;
 
     let mut try_place_at_slot = |slot_row: i32, slot_col: i32| -> bool {
-        let Some(town_grid) = world_state.town_grids.grids.iter().find(|tg| tg.town_data_idx == town_data_idx) else { return false };
-        if !world::is_slot_buildable(town_grid, slot_row, slot_col) { return false; }
-        if slot_row == 0 && slot_col == 0 { return false; }
+        let Some(town_grid) = world_state
+            .town_grids
+            .grids
+            .iter()
+            .find(|tg| tg.town_data_idx == town_data_idx)
+        else {
+            return false;
+        };
+        if !world::is_slot_buildable(town_grid, slot_row, slot_col) {
+            return false;
+        }
+        if slot_row == 0 && slot_col == 0 {
+            return false;
+        }
         let pos = world::town_grid_to_world(center, slot_row, slot_col);
         let cost = crate::constants::building_cost(kind);
 
-        world_state.place_building(
-            &mut food_storage, kind, town_data_idx, pos, cost, &mut gpu_updates, &mut commands,
-        ).is_ok()
+        world_state
+            .place_building(
+                &mut food_storage,
+                kind,
+                town_data_idx,
+                pos,
+                cost,
+                &mut gpu_updates,
+                &mut commands,
+            )
+            .is_ok()
     };
 
     if just_pressed {
@@ -1096,7 +1379,9 @@ fn build_place_click_system(
         build_ctx.drag_current_slot = Some((row, col));
     }
 
-    if !just_released { return; }
+    if !just_released {
+        return;
+    }
 
     let start = build_ctx.drag_start_slot.take().unwrap_or((row, col));
     let end = build_ctx.drag_current_slot.take().unwrap_or((row, col));
@@ -1104,17 +1389,37 @@ fn build_place_click_system(
     let mut first_placed: Option<(i32, i32)> = None;
     for (sr, sc) in slots_on_line(start, end) {
         if try_place_at_slot(sr, sc) {
-            if first_placed.is_none() { first_placed = Some((sr, sc)); }
+            if first_placed.is_none() {
+                first_placed = Some((sr, sc));
+            }
             placed += 1;
         }
     }
-    if placed == 0 { return; }
+    if placed == 0 {
+        return;
+    }
 
     if placed == 1 {
         let (pr, pc) = first_placed.unwrap_or((row, col));
-        combat_log.write(crate::messages::CombatLogMsg { kind: CombatEventKind::Harvest, faction: 0, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("Built {} at ({},{}) in {}", label, pr, pc, town_name), location: None });
+        combat_log.write(crate::messages::CombatLogMsg {
+            kind: CombatEventKind::Harvest,
+            faction: 0,
+            day: game_time.day(),
+            hour: game_time.hour(),
+            minute: game_time.minute(),
+            message: format!("Built {} at ({},{}) in {}", label, pr, pc, town_name),
+            location: None,
+        });
     } else {
-        combat_log.write(crate::messages::CombatLogMsg { kind: CombatEventKind::Harvest, faction: 0, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("Built {} {}s in {} (drag line)", placed, label, town_name), location: None });
+        combat_log.write(crate::messages::CombatLogMsg {
+            kind: CombatEventKind::Harvest,
+            faction: 0,
+            day: game_time.day(),
+            hour: game_time.hour(),
+            minute: game_time.minute(),
+            message: format!("Built {} {}s in {} (drag line)", placed, label, town_name),
+            location: None,
+        });
     }
 }
 
@@ -1142,7 +1447,14 @@ fn build_ghost_system(
     town_grids: Res<world::TownGrids>,
     food_storage: Res<FoodStorage>,
     entity_map: Res<EntityMap>,
-    mut ghost_query: Query<(Entity, &mut Transform, &mut Sprite), (With<BuildGhost>, Without<BuildGhostTrail>, Without<crate::render::MainCamera>)>,
+    mut ghost_query: Query<
+        (Entity, &mut Transform, &mut Sprite),
+        (
+            With<BuildGhost>,
+            Without<BuildGhostTrail>,
+            Without<crate::render::MainCamera>,
+        ),
+    >,
     trail_query: Query<Entity, With<BuildGhostTrail>>,
 ) {
     let has_selection = build_ctx.selected_build.is_some() || build_ctx.destroy_mode;
@@ -1161,7 +1473,9 @@ fn build_ghost_system(
 
     // Get cursor world position
     let Ok(window) = windows.single() else { return };
-    let Some(cursor_pos) = window.cursor_position() else { return };
+    let Some(cursor_pos) = window.cursor_position() else {
+        return;
+    };
 
     // Don't show ghost when hovering UI
     if let Ok(ctx) = egui_contexts.ctx_mut() {
@@ -1177,7 +1491,9 @@ fn build_ghost_system(
         }
     }
 
-    let Ok((cam_transform, projection)) = camera_query.single() else { return };
+    let Ok((cam_transform, projection)) = camera_query.single() else {
+        return;
+    };
     let world_pos = screen_to_world(cursor_pos, cam_transform, projection, window);
 
     // Destroy mode: snap to town grid, show red ghost over destructible buildings
@@ -1185,8 +1501,12 @@ fn build_ghost_system(
         for entity in trail_query.iter() {
             commands.entity(entity).despawn();
         }
-        let Some(town_data_idx) = build_ctx.town_data_idx else { return };
-        let Some(town) = world_data.towns.get(town_data_idx) else { return };
+        let Some(town_data_idx) = build_ctx.town_data_idx else {
+            return;
+        };
+        let Some(town) = world_data.towns.get(town_data_idx) else {
+            return;
+        };
         let center = town.center;
         let (row, col) = world::world_to_town_grid(center, world_pos);
         let slot_pos = world::town_grid_to_world(center, row, col);
@@ -1195,11 +1515,20 @@ fn build_ghost_system(
         let grid_inst = entity_map.get_at_grid(gc as i32, gr as i32);
         let has_building = grid_inst.is_some();
         let is_fountain = grid_inst
-            .map(|inst| matches!(inst.kind, world::BuildingKind::Fountain | world::BuildingKind::GoldMine))
+            .map(|inst| {
+                matches!(
+                    inst.kind,
+                    world::BuildingKind::Fountain | world::BuildingKind::GoldMine
+                )
+            })
             .unwrap_or(false);
         let valid = has_building && !is_fountain;
         build_ctx.show_cursor_hint = true;
-        let color = if valid { Color::srgba(0.8, 0.2, 0.2, 0.6) } else { Color::NONE };
+        let color = if valid {
+            Color::srgba(0.8, 0.2, 0.2, 0.6)
+        } else {
+            Color::NONE
+        };
         let snapped = grid.grid_to_world(gc, gr);
         let ghost_z = 0.5;
         if let Some((_, mut transform, mut sprite)) = ghost_query.iter_mut().next() {
@@ -1208,7 +1537,12 @@ fn build_ghost_system(
             sprite.image = Handle::default();
         } else {
             commands.spawn((
-                Sprite { color, image: Handle::default(), custom_size: Some(Vec2::splat(TOWN_GRID_SPACING)), ..default() },
+                Sprite {
+                    color,
+                    image: Handle::default(),
+                    custom_size: Some(Vec2::splat(TOWN_GRID_SPACING)),
+                    ..default()
+                },
                 Transform::from_xyz(snapped.x, snapped.y, ghost_z),
                 BuildGhost,
             ));
@@ -1235,11 +1569,17 @@ fn build_ghost_system(
         let cost = crate::constants::building_cost(kind);
         let town_idx = build_ctx.town_data_idx.unwrap_or(0);
         let mut budget = food_storage.food.get(town_idx).copied().unwrap_or(0);
-        let ghost_image = build_ctx.ghost_sprites.get(&kind).cloned().unwrap_or_default();
+        let ghost_image = build_ctx
+            .ghost_sprites
+            .get(&kind)
+            .cloned()
+            .unwrap_or_default();
         let ghost_z = 0.5;
 
         // Despawn old trail, rebuild (same pattern as town-grid lines 1118-1142)
-        for entity in trail_query.iter() { commands.entity(entity).despawn(); }
+        for entity in trail_query.iter() {
+            commands.entity(entity).despawn();
+        }
 
         let mut cursor_valid = false;
         for (idx, &(sr, sc)) in path.iter().enumerate() {
@@ -1247,9 +1587,13 @@ fn build_ghost_system(
             let (cgc, cgr) = grid.world_to_grid(cell_world);
             let cell = grid.cell(cgc, cgr);
             let empty = !entity_map.has_building_at(cgc as i32, cgr as i32);
-            let not_water = cell.map(|c| c.terrain != world::Biome::Water).unwrap_or(false);
+            let not_water = cell
+                .map(|c| c.terrain != world::Biome::Water)
+                .unwrap_or(false);
             let valid = empty && not_water && budget >= cost;
-            if valid { budget -= cost; }
+            if valid {
+                budget -= cost;
+            }
 
             if idx == path.len() - 1 {
                 cursor_valid = valid;
@@ -1260,10 +1604,15 @@ fn build_ghost_system(
                     Color::srgba(0.8, 0.2, 0.2, 0.35)
                 };
                 commands.spawn((
-                    Sprite { color, image: ghost_image.clone(),
-                        custom_size: Some(Vec2::splat(TOWN_GRID_SPACING)), ..default() },
+                    Sprite {
+                        color,
+                        image: ghost_image.clone(),
+                        custom_size: Some(Vec2::splat(TOWN_GRID_SPACING)),
+                        ..default()
+                    },
                     Transform::from_xyz(cell_world.x, cell_world.y, ghost_z),
-                    BuildGhost, BuildGhostTrail,
+                    BuildGhost,
+                    BuildGhostTrail,
                 ));
             }
         }
@@ -1280,8 +1629,12 @@ fn build_ghost_system(
             sprite.image = ghost_image;
         } else {
             commands.spawn((
-                Sprite { color, image: ghost_image,
-                    custom_size: Some(Vec2::splat(TOWN_GRID_SPACING)), ..default() },
+                Sprite {
+                    color,
+                    image: ghost_image,
+                    custom_size: Some(Vec2::splat(TOWN_GRID_SPACING)),
+                    ..default()
+                },
                 Transform::from_xyz(snapped.x, snapped.y, ghost_z),
                 BuildGhost,
             ));
@@ -1299,7 +1652,9 @@ fn build_ghost_system(
         build_ctx.hover_world_pos = snapped;
         let cell = grid.cell(gc, gr);
         let empty = !entity_map.has_building_at(gc as i32, gr as i32);
-        let not_water = cell.map(|c| c.terrain != world::Biome::Water).unwrap_or(false);
+        let not_water = cell
+            .map(|c| c.terrain != world::Biome::Water)
+            .unwrap_or(false);
         let valid = empty && not_water;
         build_ctx.show_cursor_hint = !valid;
 
@@ -1308,7 +1663,11 @@ fn build_ghost_system(
         } else {
             Color::srgba(0.8, 0.2, 0.2, 0.5)
         };
-        let ghost_image = build_ctx.ghost_sprites.get(&kind).cloned().unwrap_or_default();
+        let ghost_image = build_ctx
+            .ghost_sprites
+            .get(&kind)
+            .cloned()
+            .unwrap_or_default();
         let ghost_z = 0.5;
 
         if let Some((_, mut transform, mut sprite)) = ghost_query.iter_mut().next() {
@@ -1331,8 +1690,12 @@ fn build_ghost_system(
     }
 
     // Snap to town grid (non-waypoint buildings)
-    let Some(town_data_idx) = build_ctx.town_data_idx else { return };
-    let Some(town) = world_data.towns.get(town_data_idx) else { return };
+    let Some(town_data_idx) = build_ctx.town_data_idx else {
+        return;
+    };
+    let Some(town) = world_data.towns.get(town_data_idx) else {
+        return;
+    };
     let center = town.center;
     let (row, col) = world::world_to_town_grid(center, world_pos);
     let slot_pos = world::town_grid_to_world(center, row, col);
@@ -1341,7 +1704,10 @@ fn build_ghost_system(
     // Determine validity
     let (gc, gr) = grid.world_to_grid(slot_pos);
     let has_building = entity_map.has_building_at(gc as i32, gr as i32);
-    let town_grid = town_grids.grids.iter().find(|tg| tg.town_data_idx == town_data_idx);
+    let town_grid = town_grids
+        .grids
+        .iter()
+        .find(|tg| tg.town_data_idx == town_data_idx);
     let in_bounds = town_grid
         .map(|tg| world::is_slot_buildable(tg, row, col))
         .unwrap_or(false);
@@ -1387,7 +1753,10 @@ fn build_ghost_system(
         if let Some((_, _, v, vis)) = current {
             (v, vis)
         } else {
-            (in_bounds && !is_center && !has_building, in_bounds && !is_center)
+            (
+                in_bounds && !is_center && !has_building,
+                in_bounds && !is_center,
+            )
         }
     };
     // Hide mouse-follow sprite when we're snapped to a valid build slot.
@@ -1403,7 +1772,11 @@ fn build_ghost_system(
 
     let snapped = grid.grid_to_world(gc, gr);
     let ghost_z = 0.5;
-    let ghost_image = build_ctx.ghost_sprites.get(&kind).cloned().unwrap_or_default();
+    let ghost_image = build_ctx
+        .ghost_sprites
+        .get(&kind)
+        .cloned()
+        .unwrap_or_default();
 
     // Rebuild drag trail each frame (all slots except the cursor slot).
     for entity in trail_query.iter() {
@@ -1467,7 +1840,9 @@ fn draw_slot_indicators(
     build_ctx: Res<BuildMenuContext>,
 ) {
     // Only rebuild when grid state changes or build selection changes
-    if !town_grids.is_changed() && !grid.is_changed() && !build_ctx.is_changed() { return; }
+    if !town_grids.is_changed() && !grid.is_changed() && !build_ctx.is_changed() {
+        return;
+    }
 
     // Despawn old indicators
     for entity in existing.iter() {
@@ -1475,12 +1850,18 @@ fn draw_slot_indicators(
     }
 
     // Only show indicators when a build type is selected (not destroy mode)
-    if build_ctx.selected_build.is_none() || build_ctx.destroy_mode { return; }
+    if build_ctx.selected_build.is_none() || build_ctx.destroy_mode {
+        return;
+    }
 
     // Only show indicators for the player's villager town (first grid)
-    let Some(town_grid) = town_grids.grids.first() else { return };
+    let Some(town_grid) = town_grids.grids.first() else {
+        return;
+    };
     let town_data_idx = town_grid.town_data_idx;
-    let Some(town) = world_data.towns.get(town_data_idx) else { return };
+    let Some(town) = world_data.towns.get(town_data_idx) else {
+        return;
+    };
     let center = town.center;
 
     let green = Color::srgba(0.3, 0.7, 0.3, 0.5);
@@ -1492,7 +1873,9 @@ fn draw_slot_indicators(
     let (min_row, max_row, min_col, max_col) = world::build_bounds(town_grid);
     for row in min_row..=max_row {
         for col in min_col..=max_col {
-            if row == 0 && col == 0 { continue; }
+            if row == 0 && col == 0 {
+                continue;
+            }
 
             let raw_pos = world::town_grid_to_world(center, row, col);
             let (gc, gr) = grid.world_to_grid(raw_pos);
@@ -1503,13 +1886,21 @@ fn draw_slot_indicators(
             if !has_building {
                 // Horizontal bar
                 commands.spawn((
-                    Sprite { color: green, custom_size: Some(Vec2::new(line_len, line_w)), ..default() },
+                    Sprite {
+                        color: green,
+                        custom_size: Some(Vec2::new(line_len, line_w)),
+                        ..default()
+                    },
                     Transform::from_xyz(slot_pos.x, slot_pos.y, indicator_z),
                     SlotIndicator,
                 ));
                 // Vertical bar
                 commands.spawn((
-                    Sprite { color: green, custom_size: Some(Vec2::new(line_w, line_len)), ..default() },
+                    Sprite {
+                        color: green,
+                        custom_size: Some(Vec2::new(line_w, line_len)),
+                        ..default()
+                    },
                     Transform::from_xyz(slot_pos.x, slot_pos.y, indicator_z),
                     SlotIndicator,
                 ));
@@ -1533,17 +1924,32 @@ fn process_destroy_system(
 
         let (building_gpu_slot, bld_kind, town_idx) = {
             let inst = match world_state.entity_map.get_at_grid(col as i32, row as i32) {
-                Some(inst) if !matches!(inst.kind, world::BuildingKind::Fountain | world::BuildingKind::GoldMine)
-                    && world_state.world_data.towns.get(inst.town_idx as usize).map_or(false, |t| t.faction == 0)
-                    => inst,
+                Some(inst)
+                    if !matches!(
+                        inst.kind,
+                        world::BuildingKind::Fountain | world::BuildingKind::GoldMine
+                    ) && world_state
+                        .world_data
+                        .towns
+                        .get(inst.town_idx as usize)
+                        .map_or(false, |t| t.faction == 0) =>
+                {
+                    inst
+                }
                 _ => continue,
             };
             (inst.slot, inst.kind, inst.town_idx as usize)
         };
-        let center = world_state.world_data.towns.get(town_idx)
+        let center = world_state
+            .world_data
+            .towns
+            .get(town_idx)
             .map(|t| t.center)
             .unwrap_or_default();
-        let town_name = world_state.world_data.towns.get(town_idx)
+        let town_name = world_state
+            .world_data
+            .towns
+            .get(town_idx)
             .map(|t| t.name.clone())
             .unwrap_or_default();
 
@@ -1558,12 +1964,18 @@ fn process_destroy_system(
             attacker_faction: 0,
         });
 
-        if world_state.destroy_building(
-            &mut combat_log, &game_time,
-            trow, tcol, center,
-            &format!("Destroyed building in {}", town_name),
-            &mut gpu_updates,
-        ).is_ok() {
+        if world_state
+            .destroy_building(
+                &mut combat_log,
+                &game_time,
+                trow,
+                tcol,
+                center,
+                &format!("Destroyed building in {}", town_name),
+                &mut gpu_updates,
+            )
+            .is_ok()
+        {
             selected_building.active = false;
             world_state.dirty_writers.mark_building_changed(bld_kind);
         }

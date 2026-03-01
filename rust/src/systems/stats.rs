@@ -2,14 +2,17 @@
 //! Stage 8: CombatConfig + resolve_combat_stats + CachedStats.
 //! Stage 9: UpgradeQueue + process_upgrades_system.
 
-use std::collections::HashMap;
-use std::sync::LazyLock;
-use bevy::prelude::*;
-use crate::components::{Job, BaseAttackType, CachedStats, Personality};
-use crate::constants::{FOUNTAIN_TOWER, TowerStats, NPC_REGISTRY, npc_def, AttackTypeStats, UpgradeStatKind, UpgradeStatDef, ResourceKind, EffectDisplay, TOWN_UPGRADES};
+use crate::components::{BaseAttackType, CachedStats, Job, Personality};
+use crate::constants::{
+    AttackTypeStats, EffectDisplay, FOUNTAIN_TOWER, NPC_REGISTRY, ResourceKind, TOWN_UPGRADES,
+    TowerStats, UpgradeStatDef, UpgradeStatKind, npc_def,
+};
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::resources::{NpcMetaCache, NpcsByTownCache};
 use crate::systemparams::{EconomyState, WorldState};
+use bevy::prelude::*;
+use std::collections::HashMap;
+use std::sync::LazyLock;
 
 // ============================================================================
 // COMBAT CONFIG (replaces scattered constants)
@@ -37,22 +40,42 @@ impl Default for CombatConfig {
     fn default() -> Self {
         let mut jobs = HashMap::new();
         for def in NPC_REGISTRY {
-            jobs.insert(def.job, JobStats {
-                max_health: def.base_hp,
-                damage: def.base_damage,
-                speed: def.base_speed,
-            });
+            jobs.insert(
+                def.job,
+                JobStats {
+                    max_health: def.base_hp,
+                    damage: def.base_damage,
+                    speed: def.base_speed,
+                },
+            );
         }
 
         let mut attacks = HashMap::new();
-        attacks.insert(BaseAttackType::Melee, AttackTypeStats {
-            range: 50.0, cooldown: 1.0, projectile_speed: 200.0, projectile_lifetime: 0.5,
-        });
-        attacks.insert(BaseAttackType::Ranged, AttackTypeStats {
-            range: 100.0, cooldown: 1.5, projectile_speed: 100.0, projectile_lifetime: 1.5,
-        });
+        attacks.insert(
+            BaseAttackType::Melee,
+            AttackTypeStats {
+                range: 50.0,
+                cooldown: 1.0,
+                projectile_speed: 200.0,
+                projectile_lifetime: 0.5,
+            },
+        );
+        attacks.insert(
+            BaseAttackType::Ranged,
+            AttackTypeStats {
+                range: 100.0,
+                cooldown: 1.5,
+                projectile_speed: 100.0,
+                projectile_lifetime: 1.5,
+            },
+        );
 
-        Self { jobs, attacks, heal_rate: 5.0, heal_radius: 150.0 }
+        Self {
+            jobs,
+            attacks,
+            heal_rate: 5.0,
+            heal_radius: 150.0,
+        }
     }
 }
 
@@ -80,7 +103,7 @@ pub struct UpgradeNode {
 /// A branch in the upgrade tree UI.
 pub struct UpgradeBranch {
     pub label: &'static str,
-    pub section: &'static str, // "Economy" or "Military"
+    pub section: &'static str,     // "Economy" or "Military"
     pub entries: Vec<(usize, u8)>, // (node_index, depth)
 }
 
@@ -94,15 +117,18 @@ pub struct UpgradeRegistry {
 
 impl UpgradeRegistry {
     /// Number of upgrade slots.
-    pub fn count(&self) -> usize { self.nodes.len() }
+    pub fn count(&self) -> usize {
+        self.nodes.len()
+    }
 
     /// Look up index for a (category, stat_kind) pair. Returns None if not found.
     pub fn index(&self, category: &str, kind: UpgradeStatKind) -> Option<usize> {
-        self.index_map.get(&(category, kind)).copied()
-            .or_else(|| {
-                // Fallback: linear scan for categories with non-static lifetime
-                self.nodes.iter().position(|n| n.category == category && n.stat_kind == kind)
-            })
+        self.index_map.get(&(category, kind)).copied().or_else(|| {
+            // Fallback: linear scan for categories with non-static lifetime
+            self.nodes
+                .iter()
+                .position(|n| n.category == category && n.stat_kind == kind)
+        })
     }
 
     /// Get the multiplier for a (category, stat) at a town's upgrade levels.
@@ -165,9 +191,15 @@ fn build_upgrade_registry() -> UpgradeRegistry {
             let idx = nodes.len();
             index_map.insert((category, def.kind), idx);
             nodes.push(UpgradeNode {
-                label: def.label, short: def.short, tooltip: def.tooltip,
-                category, stat_kind: def.kind, pct: def.pct, cost: def.cost,
-                display: def.display, prereqs: Vec::new(),
+                label: def.label,
+                short: def.short,
+                tooltip: def.tooltip,
+                category,
+                stat_kind: def.kind,
+                pct: def.pct,
+                cost: def.cost,
+                display: def.display,
+                prereqs: Vec::new(),
                 is_combat_stat: def.is_combat_stat,
                 invalidates_healing: def.invalidates_healing,
                 triggers_expansion: def.triggers_expansion,
@@ -179,7 +211,9 @@ fn build_upgrade_registry() -> UpgradeRegistry {
         for (i, def) in stat_defs.iter().enumerate() {
             if let Some(prereq_kind) = def.prereq_stat {
                 if let Some(&prereq_idx) = index_map.get(&(category, prereq_kind)) {
-                    nodes[branch_start + i].prereqs.push((prereq_idx, def.prereq_level));
+                    nodes[branch_start + i]
+                        .prereqs
+                        .push((prereq_idx, def.prereq_level));
                 }
             }
         }
@@ -188,12 +222,19 @@ fn build_upgrade_registry() -> UpgradeRegistry {
         let mut entries: Vec<(usize, u8)> = Vec::new();
         // Compute depth: root (no prereqs) = 0, child of root = 1, grandchild = 2
         fn compute_depth(nodes: &[UpgradeNode], idx: usize, visited: &mut Vec<usize>) -> u8 {
-            if visited.contains(&idx) { return 0; }
+            if visited.contains(&idx) {
+                return 0;
+            }
             visited.push(idx);
-            if nodes[idx].prereqs.is_empty() { return 0; }
-            let max_parent = nodes[idx].prereqs.iter()
+            if nodes[idx].prereqs.is_empty() {
+                return 0;
+            }
+            let max_parent = nodes[idx]
+                .prereqs
+                .iter()
                 .map(|&(pi, _)| compute_depth(nodes, pi, visited))
-                .max().unwrap_or(0);
+                .max()
+                .unwrap_or(0);
             max_parent + 1
         }
 
@@ -207,8 +248,17 @@ fn build_upgrade_registry() -> UpgradeRegistry {
         }
 
         // Build tree-ordered list: for each root node, emit it then its children (DFS)
-        fn emit_tree(idx: usize, depth: u8, nodes: &[UpgradeNode], all: &[(usize, u8)], entries: &mut Vec<(usize, u8)>, emitted: &mut Vec<usize>) {
-            if emitted.contains(&idx) { return; }
+        fn emit_tree(
+            idx: usize,
+            depth: u8,
+            nodes: &[UpgradeNode],
+            all: &[(usize, u8)],
+            entries: &mut Vec<(usize, u8)>,
+            emitted: &mut Vec<usize>,
+        ) {
+            if emitted.contains(&idx) {
+                return;
+            }
             emitted.push(idx);
             entries.push((idx, depth));
             // Find children of this node (nodes that have this idx as a prereq)
@@ -228,11 +278,16 @@ fn build_upgrade_registry() -> UpgradeRegistry {
         }
 
         // Derive section from the first NPC in this category
-        let section = NPC_REGISTRY.iter()
+        let section = NPC_REGISTRY
+            .iter()
             .find(|n| n.upgrade_category == Some(category))
             .map(|n| if n.is_military { "Military" } else { "Economy" })
             .unwrap_or("Economy");
-        branches.push(UpgradeBranch { label: category, section, entries });
+        branches.push(UpgradeBranch {
+            label: category,
+            section,
+            entries,
+        });
     }
 
     // Town upgrades (appended as final branch)
@@ -242,9 +297,15 @@ fn build_upgrade_registry() -> UpgradeRegistry {
             let idx = nodes.len();
             index_map.insert(("Town", def.kind), idx);
             nodes.push(UpgradeNode {
-                label: def.label, short: def.short, tooltip: def.tooltip,
-                category: "Town", stat_kind: def.kind, pct: def.pct, cost: def.cost,
-                display: def.display, prereqs: Vec::new(),
+                label: def.label,
+                short: def.short,
+                tooltip: def.tooltip,
+                category: "Town",
+                stat_kind: def.kind,
+                pct: def.pct,
+                cost: def.cost,
+                display: def.display,
+                prereqs: Vec::new(),
                 is_combat_stat: def.is_combat_stat,
                 invalidates_healing: def.invalidates_healing,
                 triggers_expansion: def.triggers_expansion,
@@ -255,7 +316,9 @@ fn build_upgrade_registry() -> UpgradeRegistry {
         for (i, def) in TOWN_UPGRADES.iter().enumerate() {
             if let Some(prereq_kind) = def.prereq_stat {
                 if let Some(&prereq_idx) = index_map.get(&("Town", prereq_kind)) {
-                    nodes[branch_start + i].prereqs.push((prereq_idx, def.prereq_level));
+                    nodes[branch_start + i]
+                        .prereqs
+                        .push((prereq_idx, def.prereq_level));
                 }
             }
         }
@@ -264,16 +327,30 @@ fn build_upgrade_registry() -> UpgradeRegistry {
         let mut by_depth: Vec<(usize, u8)> = Vec::new();
         for i in 0..TOWN_UPGRADES.len() {
             let idx = branch_start + i;
-            let depth = if nodes[idx].prereqs.is_empty() { 0 } else {
-                let max_p = nodes[idx].prereqs.iter()
+            let depth = if nodes[idx].prereqs.is_empty() {
+                0
+            } else {
+                let max_p = nodes[idx]
+                    .prereqs
+                    .iter()
                     .map(|&(pi, _)| if nodes[pi].prereqs.is_empty() { 0u8 } else { 1 })
-                    .max().unwrap_or(0);
+                    .max()
+                    .unwrap_or(0);
                 max_p + 1
             };
             by_depth.push((idx, depth));
         }
-        fn emit_town_tree(idx: usize, depth: u8, nodes: &[UpgradeNode], all: &[(usize, u8)], entries: &mut Vec<(usize, u8)>, emitted: &mut Vec<usize>) {
-            if emitted.contains(&idx) { return; }
+        fn emit_town_tree(
+            idx: usize,
+            depth: u8,
+            nodes: &[UpgradeNode],
+            all: &[(usize, u8)],
+            entries: &mut Vec<(usize, u8)>,
+            emitted: &mut Vec<usize>,
+        ) {
+            if emitted.contains(&idx) {
+                return;
+            }
             emitted.push(idx);
             entries.push((idx, depth));
             for &(child_idx, child_depth) in all {
@@ -288,31 +365,47 @@ fn build_upgrade_registry() -> UpgradeRegistry {
                 emit_town_tree(idx, depth, &nodes, &by_depth, &mut entries, &mut emitted);
             }
         }
-        branches.push(UpgradeBranch { label: "Town", section: "Economy", entries });
+        branches.push(UpgradeBranch {
+            label: "Town",
+            section: "Economy",
+            entries,
+        });
     }
 
-    UpgradeRegistry { nodes, branches, index_map }
+    UpgradeRegistry {
+        nodes,
+        branches,
+        index_map,
+    }
 }
 
 /// Global upgrade registry, built once from NPC_REGISTRY + TOWN_UPGRADES.
 pub static UPGRADES: LazyLock<UpgradeRegistry> = LazyLock::new(build_upgrade_registry);
 
 /// Number of upgrade slots in the current registry.
-pub fn upgrade_count() -> usize { UPGRADES.count() }
+pub fn upgrade_count() -> usize {
+    UPGRADES.count()
+}
 
 /// Look up upgrade node by index.
-pub fn upgrade_node(idx: usize) -> &'static UpgradeNode { &UPGRADES.nodes[idx] }
+pub fn upgrade_node(idx: usize) -> &'static UpgradeNode {
+    &UPGRADES.nodes[idx]
+}
 
 /// True if this town has unlocked projectile dodge (any NPC category that has Dodge).
 pub fn dodge_unlocked(levels: &[u8]) -> bool {
     // Check all categories that have a Dodge upgrade
-    UPGRADES.nodes.iter().enumerate()
-        .any(|(i, n)| n.stat_kind == UpgradeStatKind::Dodge && levels.get(i).copied().unwrap_or(0) > 0)
+    UPGRADES.nodes.iter().enumerate().any(|(i, n)| {
+        n.stat_kind == UpgradeStatKind::Dodge && levels.get(i).copied().unwrap_or(0) > 0
+    })
 }
 
 /// Sum of upgrade levels for all nodes in a given category.
 pub fn branch_total(levels: &[u8], category: &str) -> u32 {
-    UPGRADES.nodes.iter().enumerate()
+    UPGRADES
+        .nodes
+        .iter()
+        .enumerate()
         .filter(|(_, n)| n.category == category)
         .map(|(i, _)| levels.get(i).copied().unwrap_or(0) as u32)
         .sum()
@@ -327,12 +420,18 @@ pub fn upgrade_effect_summary(idx: usize, level: u8) -> (String, String) {
 
     match node.display {
         EffectDisplay::Percentage => {
-            let now = if level == 0 { "-".to_string() } else { format!("+{:.0}%", lv * pct * 100.0) };
+            let now = if level == 0 {
+                "-".to_string()
+            } else {
+                format!("+{:.0}%", lv * pct * 100.0)
+            };
             let next = format!("+{:.0}%", (lv + 1.0) * pct * 100.0);
             (now, next)
         }
         EffectDisplay::CooldownReduction => {
-            let now = if level == 0 { "-".to_string() } else {
+            let now = if level == 0 {
+                "-".to_string()
+            } else {
                 let reduction = (1.0 - 1.0 / (1.0 + lv * pct)) * 100.0;
                 format!("-{:.0}%", reduction)
             };
@@ -341,17 +440,33 @@ pub fn upgrade_effect_summary(idx: usize, level: u8) -> (String, String) {
             (now, next)
         }
         EffectDisplay::Unlock => {
-            let now = if level == 0 { "Locked".to_string() } else { "Unlocked".to_string() };
-            let next = if level == 0 { "Unlocks".to_string() } else { "Unlocked".to_string() };
+            let now = if level == 0 {
+                "Locked".to_string()
+            } else {
+                "Unlocked".to_string()
+            };
+            let next = if level == 0 {
+                "Unlocks".to_string()
+            } else {
+                "Unlocked".to_string()
+            };
             (now, next)
         }
         EffectDisplay::FlatPixels(px_per_level) => {
-            let now = if level == 0 { "-".to_string() } else { format!("+{}px", level as i32 * px_per_level) };
+            let now = if level == 0 {
+                "-".to_string()
+            } else {
+                format!("+{}px", level as i32 * px_per_level)
+            };
             let next = format!("+{}px", (level as i32 + 1) * px_per_level);
             (now, next)
         }
         EffectDisplay::Discrete => {
-            let now = if level == 0 { "-".to_string() } else { format!("+{}", level) };
+            let now = if level == 0 {
+                "-".to_string()
+            } else {
+                format!("+{}", level)
+            };
             let next = format!("+{}", level + 1);
             (now, next)
         }
@@ -367,7 +482,8 @@ pub struct TownUpgrades {
 impl TownUpgrades {
     pub fn town_levels(&self, town_idx: usize) -> Vec<u8> {
         let count = upgrade_count();
-        self.levels.get(town_idx)
+        self.levels
+            .get(town_idx)
             .map(|v| {
                 let mut r = v.clone();
                 r.resize(count, 0);
@@ -392,7 +508,9 @@ impl TownUpgrades {
 impl Default for TownUpgrades {
     fn default() -> Self {
         let count = upgrade_count();
-        Self { levels: vec![vec![0; count]; 16] }
+        Self {
+            levels: vec![vec![0; count]; 16],
+        }
     }
 }
 
@@ -432,7 +550,9 @@ pub fn decode_auto_upgrade_flags(raw: &[bool]) -> Vec<bool> {
 
 /// Derive level from XP: level = floor(sqrt(xp / 100))
 pub fn level_from_xp(xp: i32) -> i32 {
-    if xp <= 0 { return 0; }
+    if xp <= 0 {
+        return 0;
+    }
     (xp as f32 / 100.0).sqrt().floor() as i32
 }
 
@@ -451,7 +571,10 @@ pub fn expansion_cost(level: u8) -> (i32, i32) {
 
 /// Check if all prerequisites for an upgrade are met.
 pub fn upgrade_unlocked(levels: &[u8], idx: usize) -> bool {
-    UPGRADES.nodes[idx].prereqs.iter().all(|&(pi, min_lv)| levels.get(pi).copied().unwrap_or(0) >= min_lv)
+    UPGRADES.nodes[idx]
+        .prereqs
+        .iter()
+        .all(|&(pi, min_lv)| levels.get(pi).copied().unwrap_or(0) >= min_lv)
 }
 
 /// Full purchasability check: prereqs met AND can afford all costs.
@@ -499,11 +622,17 @@ pub fn deduct_upgrade_cost(idx: usize, level: u8, food: &mut i32, gold: &mut i32
 
 /// Format missing prereqs as human-readable string.
 pub fn missing_prereqs(levels: &[u8], idx: usize) -> Option<String> {
-    let missing: Vec<_> = UPGRADES.nodes[idx].prereqs.iter()
+    let missing: Vec<_> = UPGRADES.nodes[idx]
+        .prereqs
+        .iter()
         .filter(|&&(pi, min_lv)| levels.get(pi).copied().unwrap_or(0) < min_lv)
         .map(|&(pi, min_lv)| format!("{} Lv{}", UPGRADES.nodes[pi].label, min_lv))
         .collect();
-    if missing.is_empty() { None } else { Some(format!("Requires: {}", missing.join(", "))) }
+    if missing.is_empty() {
+        None
+    } else {
+        Some(format!("Requires: {}", missing.join(", ")))
+    }
 }
 
 /// Format cost for UI display (e.g. "10+10g").
@@ -514,7 +643,8 @@ pub fn format_upgrade_cost(idx: usize, level: u8) -> String {
         return format!("{fc}+{gc}g");
     }
     let scale = upgrade_cost(level);
-    node.cost.iter()
+    node.cost
+        .iter()
         .map(|&(kind, base)| {
             let total = base * scale;
             match kind {
@@ -565,12 +695,19 @@ pub fn resolve_combat_stats(
 ) -> CachedStats {
     let job_base = config.jobs.get(&job).expect("missing job stats");
     let def = npc_def(job);
-    let default_atk = config.attacks.get(&attack_type).expect("missing attack type stats");
+    let default_atk = config
+        .attacks
+        .get(&attack_type)
+        .expect("missing attack type stats");
     let atk_base = def.attack_override.as_ref().unwrap_or(default_atk);
     let (trait_damage, trait_hp, trait_speed, _trait_yield) = personality.get_stat_multipliers();
     let level_mult = 1.0 + level as f32 * 0.01;
 
-    let town_idx_usize = if town_idx >= 0 { town_idx as usize } else { usize::MAX };
+    let town_idx_usize = if town_idx >= 0 {
+        town_idx as usize
+    } else {
+        usize::MAX
+    };
     let town = upgrades.town_levels(town_idx_usize);
     let reg = &*UPGRADES;
 
@@ -618,72 +755,133 @@ pub fn process_upgrades_system(
     let count = upgrade_count();
     for msg in queue.read() {
         let (town_idx, upgrade_idx) = (msg.town_idx, msg.upgrade_idx);
-        if upgrade_idx >= count { continue; }
-        if town_idx >= upgrades.levels.len() { continue; }
+        if upgrade_idx >= count {
+            continue;
+        }
+        if town_idx >= upgrades.levels.len() {
+            continue;
+        }
         // Ensure upgrade vec is long enough
         upgrades.levels[town_idx].resize(count, 0);
 
         // Prereq + affordability gate
         let levels = upgrades.town_levels(town_idx);
-        let mut food = economy.food_storage.food.get(town_idx).copied().unwrap_or(0);
-        let mut gold = economy.gold_storage.gold.get(town_idx).copied().unwrap_or(0);
-        if !upgrade_available(&levels, upgrade_idx, food, gold) { continue; }
+        let mut food = economy
+            .food_storage
+            .food
+            .get(town_idx)
+            .copied()
+            .unwrap_or(0);
+        let mut gold = economy
+            .gold_storage
+            .gold
+            .get(town_idx)
+            .copied()
+            .unwrap_or(0);
+        if !upgrade_available(&levels, upgrade_idx, food, gold) {
+            continue;
+        }
 
         // Deduct cost and increment level
         let level = levels[upgrade_idx];
         deduct_upgrade_cost(upgrade_idx, level, &mut food, &mut gold);
-        if let Some(f) = economy.food_storage.food.get_mut(town_idx) { *f = food; }
-        if let Some(g) = economy.gold_storage.gold.get_mut(town_idx) { *g = gold; }
+        if let Some(f) = economy.food_storage.food.get_mut(town_idx) {
+            *f = food;
+        }
+        if let Some(g) = economy.gold_storage.gold.get_mut(town_idx) {
+            *g = gold;
+        }
         upgrades.levels[town_idx][upgrade_idx] = level.saturating_add(1);
 
         let node = &UPGRADES.nodes[upgrade_idx];
 
         // Invalidate healing zone cache on radius/rate upgrades
         if node.invalidates_healing {
-            world_state.dirty_writers.healing_zones.write(crate::messages::HealingZonesDirtyMsg);
+            world_state
+                .dirty_writers
+                .healing_zones
+                .write(crate::messages::HealingZonesDirtyMsg);
         }
 
         if node.triggers_expansion {
-            if let Some(grid_idx) = world_state.town_grids.grids.iter().position(|g| g.town_data_idx == town_idx) {
+            if let Some(grid_idx) = world_state
+                .town_grids
+                .grids
+                .iter()
+                .position(|g| g.town_data_idx == town_idx)
+            {
                 let _ = crate::world::expand_town_build_area(
                     &mut world_state.grid,
                     &world_state.world_data.towns,
                     &mut world_state.town_grids,
                     grid_idx,
                 );
-                world_state.dirty_writers.terrain.write(crate::messages::TerrainDirtyMsg);
+                world_state
+                    .dirty_writers
+                    .terrain
+                    .write(crate::messages::TerrainDirtyMsg);
             }
             continue;
         }
 
         // Re-resolve NPC stats if this is a combat-affecting upgrade
-        if !is_combat_upgrade(upgrade_idx) { continue; }
+        if !is_combat_upgrade(upgrade_idx) {
+            continue;
+        }
 
-        let Some(npc_slots) = npcs_by_town.0.get(town_idx) else { continue };
+        let Some(npc_slots) = npcs_by_town.0.get(town_idx) else {
+            continue;
+        };
         let slots: Vec<usize> = npc_slots.clone();
         for slot in slots {
-            let Some(npc) = world_state.entity_map.get_npc(slot) else { continue };
+            let Some(npc) = world_state.entity_map.get_npc(slot) else {
+                continue;
+            };
             let entity = npc.entity;
 
             let npc_level = meta_cache.0[slot].level;
-            let old_max = cached_stats_q.get(entity).map(|s| s.max_health).unwrap_or(100.0);
+            let old_max = cached_stats_q
+                .get(entity)
+                .map(|s| s.max_health)
+                .unwrap_or(100.0);
             let pers = personality_q.get(entity).cloned().unwrap_or_default();
-            let atk_type = attack_type_q.get(entity).copied().unwrap_or(crate::components::BaseAttackType::Melee);
-            let new_cached = resolve_combat_stats(npc.job, atk_type, town_idx as i32, npc_level, &pers, &config, &upgrades);
+            let atk_type = attack_type_q
+                .get(entity)
+                .copied()
+                .unwrap_or(crate::components::BaseAttackType::Melee);
+            let new_cached = resolve_combat_stats(
+                npc.job,
+                atk_type,
+                town_idx as i32,
+                npc_level,
+                &pers,
+                &config,
+                &upgrades,
+            );
             let new_speed = new_cached.speed;
             let new_max = new_cached.max_health;
-            if let Ok(mut cs) = cached_stats_q.get_mut(entity) { *cs = new_cached; }
-            if let Ok(mut spd) = speed_q.get_mut(entity) { spd.0 = new_speed; }
+            if let Ok(mut cs) = cached_stats_q.get_mut(entity) {
+                *cs = new_cached;
+            }
+            if let Ok(mut spd) = speed_q.get_mut(entity) {
+                spd.0 = new_speed;
+            }
 
             // Rescale HP proportionally
             if old_max > 0.0 && (new_max - old_max).abs() > 0.01 {
                 if let Ok(mut hp) = health_q.get_mut(entity) {
                     hp.0 = hp.0 * new_max / old_max;
-                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: hp.0 }));
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth {
+                        idx: slot,
+                        health: hp.0,
+                    }));
                 }
             }
 
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: slot, speed: new_speed }));
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed {
+                idx: slot,
+                speed: new_speed,
+            }));
         }
     }
 }
@@ -701,7 +899,9 @@ pub fn auto_upgrade_system(
     gold_storage: Res<crate::resources::GoldStorage>,
     mut queue: MessageWriter<UpgradeMsg>,
 ) {
-    if !game_time.hour_ticked { return; }
+    if !game_time.hour_ticked {
+        return;
+    }
 
     let count = upgrade_count();
     for (town_idx, flags) in auto.flags.iter().enumerate() {
@@ -709,9 +909,14 @@ pub fn auto_upgrade_system(
         let food = food_storage.food.get(town_idx).copied().unwrap_or(0);
         let gold = gold_storage.gold.get(town_idx).copied().unwrap_or(0);
         for i in 0..count.min(flags.len()) {
-            if !flags[i] { continue; }
+            if !flags[i] {
+                continue;
+            }
             if upgrade_available(&levels, i, food, gold) {
-                queue.write(UpgradeMsg { town_idx, upgrade_idx: i });
+                queue.write(UpgradeMsg {
+                    town_idx,
+                    upgrade_idx: i,
+                });
             }
         }
     }
@@ -719,4 +924,3 @@ pub fn auto_upgrade_system(
 
 // ============================================================================
 // XP grant + NPC kill loot logic moved to unified death_system (health.rs)
-

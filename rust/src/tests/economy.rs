@@ -5,12 +5,9 @@ use bevy::prelude::*;
 
 use crate::resources::*;
 
-use super::{TestState, TestSetupParams};
+use super::{TestSetupParams, TestState};
 
-pub fn setup(
-    mut params: TestSetupParams,
-    mut raider_state: ResMut<RaiderState>,
-) {
+pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>) {
     // Villager town
     params.add_town("EcoTown");
     // Raider raider town
@@ -32,7 +29,10 @@ pub fn setup(
     raider_state.init(1, 5);
     // Tent spawner so a raider can spawn via spawner_respawn_system
     params.add_building(crate::world::BuildingKind::Tent, 400.0, 100.0, 1);
-    if let Some(inst) = params.entity_map.find_by_position_mut(Vec2::new(400.0, 100.0)) {
+    if let Some(inst) = params
+        .entity_map
+        .find_by_position_mut(Vec2::new(400.0, 100.0))
+    {
         inst.respawn_timer = 0.0;
     }
     params.game_time.time_scale = 1.0;
@@ -41,10 +41,15 @@ pub fn setup(
     let slot = params.slot_alloc.alloc().expect("slot alloc");
     params.spawn_events.write(crate::messages::SpawnNpcMsg {
         slot_idx: slot,
-        x: 400.0, y: 380.0,
-        job: 0, faction: 0, town_idx: 0,
-        home_x: 400.0, home_y: 450.0,
-        work_x: 400.0, work_y: 350.0,
+        x: 400.0,
+        y: 380.0,
+        job: 0,
+        faction: 0,
+        town_idx: 0,
+        home_x: 400.0,
+        home_y: 450.0,
+        work_x: 400.0,
+        work_y: 350.0,
         starting_post: -1,
         attack_type: 0,
         uid_override: None,
@@ -61,9 +66,13 @@ pub fn tick(
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
-    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
+    let Some(elapsed) = test.tick_elapsed(&time) else {
+        return;
+    };
 
-    let farm_inst = entity_map.iter_kind(crate::world::BuildingKind::Farm).next();
+    let farm_inst = entity_map
+        .iter_kind(crate::world::BuildingKind::Farm)
+        .next();
     let farm_ready = farm_inst.map(|i| i.growth_ready).unwrap_or(false);
     let farm_progress = farm_inst.map(|i| i.growth_progress).unwrap_or(0.0);
     let town_food = food_storage.food.first().copied().unwrap_or(0);
@@ -85,7 +94,10 @@ pub fn tick(
             if farm_ready {
                 test.pass_phase(elapsed, format!("Ready!"));
             } else if elapsed > 30.0 {
-                test.fail_phase(elapsed, format!("ready={} progress={:.2}", farm_ready, farm_progress));
+                test.fail_phase(
+                    elapsed,
+                    format!("ready={} progress={:.2}", farm_ready, farm_progress),
+                );
             }
         }
         // Phase 3: Farmer harvests → town food increases
@@ -106,7 +118,10 @@ pub fn tick(
             } else if elapsed > 30.0 {
                 // Raider town may have spent food on respawn — just pass if raider town exists with food
                 if raider_food >= 0 {
-                    test.pass_phase(elapsed, format!("raider_food={} (may have respawned)", raider_food));
+                    test.pass_phase(
+                        elapsed,
+                        format!("raider_food={} (may have respawned)", raider_food),
+                    );
                 } else {
                     test.fail_phase(elapsed, format!("raider_food={}", raider_food));
                 }
@@ -114,14 +129,23 @@ pub fn tick(
         }
         // Phase 5: Raider respawns when raider town has food
         5 => {
-            let raiders = entity_map.iter_npcs().filter(|n| !n.dead && n.job == crate::components::Job::Raider).count();
+            let raiders = entity_map
+                .iter_npcs()
+                .filter(|n| !n.dead && n.job == crate::components::Job::Raider)
+                .count();
             test.phase_name = format!("raiders={} raider_food={}", raiders, raider_food);
             if raiders > 0 {
-                test.pass_phase(elapsed, format!("raiders={} raider_food={}", raiders, raider_food));
+                test.pass_phase(
+                    elapsed,
+                    format!("raiders={} raider_food={}", raiders, raider_food),
+                );
                 test.complete(elapsed);
             } else if elapsed > 60.0 {
                 let total = entity_map.iter_npcs().filter(|n| !n.dead).count();
-                test.fail_phase(elapsed, format!("raiders=0 total={} raider_food={}", total, raider_food));
+                test.fail_phase(
+                    elapsed,
+                    format!("raiders=0 total={} raider_food={}", total, raider_food),
+                );
             }
         }
         _ => {}

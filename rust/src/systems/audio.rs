@@ -1,9 +1,9 @@
 //! Audio systems — music jukebox and SFX playback.
 
+use crate::resources::{GameAudio, MusicTrack, PlaySfxMsg};
 use bevy::audio::Volume;
 use bevy::prelude::*;
 use rand::Rng;
-use crate::resources::{GameAudio, MusicTrack, PlaySfxMsg};
 
 /// All music track paths (embedded in release binary via bevy_embedded_assets).
 /// Add/remove entries here when the soundtrack changes.
@@ -34,11 +34,14 @@ const MUSIC_TRACKS: &[&str] = &[
 ];
 
 /// Number of available tracks.
-pub fn track_count() -> usize { MUSIC_TRACKS.len() }
+pub fn track_count() -> usize {
+    MUSIC_TRACKS.len()
+}
 
 /// Human-readable track name from index (strips path + extension).
 pub fn track_display_name(idx: usize) -> &'static str {
-    MUSIC_TRACKS.get(idx)
+    MUSIC_TRACKS
+        .get(idx)
         .and_then(|p| p.rsplit('/').next())
         .and_then(|f| f.strip_suffix(".ogg"))
         .unwrap_or("Unknown")
@@ -54,11 +57,15 @@ pub fn load_music(mut audio: ResMut<GameAudio>, server: Res<AssetServer>) {
 /// Pick a random track index, avoiding the last played track.
 fn pick_track(audio: &GameAudio) -> usize {
     let len = audio.tracks.len();
-    if len <= 1 { return 0; }
+    if len <= 1 {
+        return 0;
+    }
     let mut rng = rand::rng();
     loop {
         let idx = rng.random_range(0..len);
-        if Some(idx) != audio.last_track { return idx; }
+        if Some(idx) != audio.last_track {
+            return idx;
+        }
     }
 }
 
@@ -71,12 +78,16 @@ pub fn start_music(
     audio.music_volume = settings.music_volume;
     audio.sfx_volume = settings.sfx_volume;
     audio.music_speed = settings.music_speed;
-    if audio.tracks.is_empty() { return; }
+    if audio.tracks.is_empty() {
+        return;
+    }
     let idx = pick_track(&audio);
     audio.last_track = Some(idx);
     commands.spawn((
         AudioPlayer::new(audio.tracks[idx].clone()),
-        PlaybackSettings::DESPAWN.with_volume(Volume::Linear(audio.music_volume)).with_speed(audio.music_speed),
+        PlaybackSettings::DESPAWN
+            .with_volume(Volume::Linear(audio.music_volume))
+            .with_speed(audio.music_speed),
         MusicTrack,
     ));
 }
@@ -87,7 +98,9 @@ pub fn jukebox_system(
     query: Query<(), With<MusicTrack>>,
     mut audio: ResMut<GameAudio>,
 ) {
-    if !query.is_empty() || audio.tracks.is_empty() { return; }
+    if !query.is_empty() || audio.tracks.is_empty() {
+        return;
+    }
     let idx = if let Some(next) = audio.play_next.take() {
         next
     } else if audio.loop_current {
@@ -98,7 +111,9 @@ pub fn jukebox_system(
     audio.last_track = Some(idx);
     commands.spawn((
         AudioPlayer::new(audio.tracks[idx].clone()),
-        PlaybackSettings::DESPAWN.with_volume(Volume::Linear(audio.music_volume)).with_speed(audio.music_speed),
+        PlaybackSettings::DESPAWN
+            .with_volume(Volume::Linear(audio.music_volume))
+            .with_speed(audio.music_speed),
         MusicTrack,
     ));
 }

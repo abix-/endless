@@ -58,7 +58,8 @@ pub fn setup(
         0,
         &mut uid_alloc,
         None,
-    ).expect("archer home A slot alloc");
+    )
+    .expect("archer home A slot alloc");
     let _home_b = world::place_building_instance(
         &mut slot_alloc,
         &mut entity_map,
@@ -70,7 +71,8 @@ pub fn setup(
         0,
         &mut uid_alloc,
         None,
-    ).expect("archer home B slot alloc");
+    )
+    .expect("archer home B slot alloc");
 
     let tent_slot = world::place_building_instance(
         &mut slot_alloc,
@@ -83,8 +85,11 @@ pub fn setup(
         0,
         &mut uid_alloc,
         None,
-    ).expect("tent slot alloc");
-    test_state.counters.insert("tent_slot".into(), tent_slot as u32);
+    )
+    .expect("tent slot alloc");
+    test_state
+        .counters
+        .insert("tent_slot".into(), tent_slot as u32);
 
     if let Ok(mut cam) = camera_query.single_mut() {
         cam.translation.x = 490.0;
@@ -96,7 +101,13 @@ pub fn setup(
     test_state.counters.insert("first_damage_tenths".into(), 0);
     info!(
         "archer-tent-reliability: setup homes@({:.0},{:.0})+({:.0},{:.0}) tent@({:.0},{:.0}) slot={}",
-        ARCHER_HOME_A.x, ARCHER_HOME_A.y, ARCHER_HOME_B.x, ARCHER_HOME_B.y, TENT_POS.x, TENT_POS.y, tent_slot
+        ARCHER_HOME_A.x,
+        ARCHER_HOME_A.y,
+        ARCHER_HOME_B.x,
+        ARCHER_HOME_B.y,
+        TENT_POS.x,
+        TENT_POS.y,
+        tent_slot
     );
 }
 
@@ -108,7 +119,9 @@ pub fn tick(
     mut test: ResMut<TestState>,
     building_q: Query<(&GpuSlot, &Building, &Health), Without<Dead>>,
 ) {
-    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
+    let Some(elapsed) = test.tick_elapsed(&time) else {
+        return;
+    };
 
     let Some(&tent_slot_u32) = test.counters.get("tent_slot") else {
         test.fail_phase(elapsed, "missing tent slot in test state");
@@ -116,13 +129,17 @@ pub fn tick(
     };
     let tent_slot = tent_slot_u32 as usize;
 
-    let tent_hp = building_q.iter()
+    let tent_hp = building_q
+        .iter()
         .find(|(slot, b, _)| slot.0 == tent_slot && b.kind == BuildingKind::Tent)
         .map(|(_, _, h)| h.0)
         .unwrap_or(-1.0);
     let max_hp = crate::constants::building_def(BuildingKind::Tent).hp;
     if tent_hp < 0.0 {
-        test.fail_phase(elapsed, format!("tent entity missing for slot {}", tent_slot));
+        test.fail_phase(
+            elapsed,
+            format!("tent entity missing for slot {}", tent_slot),
+        );
         return;
     }
     let hp_x10 = (tent_hp * 10.0).round() as u32;
@@ -134,29 +151,64 @@ pub fn tick(
         test.counters.insert("last_hp_x10".into(), hp_x10);
     }
 
-    if tent_hp < max_hp && test.counters.get("first_damage_tenths").copied().unwrap_or(0) == 0 {
-        test.counters.insert("first_damage_tenths".into(), (elapsed * 10.0).round() as u32);
+    if tent_hp < max_hp
+        && test
+            .counters
+            .get("first_damage_tenths")
+            .copied()
+            .unwrap_or(0)
+            == 0
+    {
+        test.counters.insert(
+            "first_damage_tenths".into(),
+            (elapsed * 10.0).round() as u32,
+        );
     }
 
-    let archer_count = entity_map.iter_npcs()
+    let archer_count = entity_map
+        .iter_npcs()
         .filter(|n| !n.dead && n.job == Job::Archer && n.faction == 0)
         .count();
 
     match test.phase {
         // Phase 1: archer spawners produced units and targeting started
         1 => {
-            test.phase_name = format!("archers={} targets_found={}", archer_count, combat_debug.targets_found);
+            test.phase_name = format!(
+                "archers={} targets_found={}",
+                archer_count, combat_debug.targets_found
+            );
             if archer_count >= 2 && combat_debug.targets_found > 0 {
-                test.pass_phase(elapsed, format!("archers={} targets_found={}", archer_count, combat_debug.targets_found));
+                test.pass_phase(
+                    elapsed,
+                    format!(
+                        "archers={} targets_found={}",
+                        archer_count, combat_debug.targets_found
+                    ),
+                );
             } else if elapsed > 80.0 {
-                test.fail_phase(elapsed, format!("archers={} targets_found={}", archer_count, combat_debug.targets_found));
+                test.fail_phase(
+                    elapsed,
+                    format!(
+                        "archers={} targets_found={}",
+                        archer_count, combat_debug.targets_found
+                    ),
+                );
             }
         }
         // Phase 2: projectile activity observed
         2 => {
-            test.phase_name = format!("proj_next={} attacks={}", proj_alloc.next, combat_debug.attacks_made);
+            test.phase_name = format!(
+                "proj_next={} attacks={}",
+                proj_alloc.next, combat_debug.attacks_made
+            );
             if proj_alloc.next > 0 || combat_debug.attacks_made > 0 {
-                test.pass_phase(elapsed, format!("proj_next={} attacks={}", proj_alloc.next, combat_debug.attacks_made));
+                test.pass_phase(
+                    elapsed,
+                    format!(
+                        "proj_next={} attacks={}",
+                        proj_alloc.next, combat_debug.attacks_made
+                    ),
+                );
             } else if elapsed > 20.0 {
                 test.fail_phase(elapsed, "no projectile activity");
             }
@@ -165,7 +217,10 @@ pub fn tick(
         3 => {
             test.phase_name = format!("tent_hp={:.1}/{:.1}", tent_hp, max_hp);
             if tent_hp < max_hp {
-                test.pass_phase(elapsed, format!("tent damaged {:.1}->{:.1}", max_hp, tent_hp));
+                test.pass_phase(
+                    elapsed,
+                    format!("tent damaged {:.1}->{:.1}", max_hp, tent_hp),
+                );
             } else if elapsed > 25.0 {
                 test.fail_phase(elapsed, "tent never took damage");
             }
@@ -175,9 +230,18 @@ pub fn tick(
             let drops = test.count("hp_drop_events");
             test.phase_name = format!("tent_hp={:.1}/{:.1} hp_drops={}", tent_hp, max_hp, drops);
             if tent_hp <= max_hp - 25.0 || drops >= 2 {
-                test.pass_phase(elapsed, format!("sustained damage tent_hp={:.1} drops={}", tent_hp, drops));
+                test.pass_phase(
+                    elapsed,
+                    format!("sustained damage tent_hp={:.1} drops={}", tent_hp, drops),
+                );
             } else if elapsed > 35.0 {
-                test.fail_phase(elapsed, format!("damage too inconsistent tent_hp={:.1} drops={}", tent_hp, drops));
+                test.fail_phase(
+                    elapsed,
+                    format!(
+                        "damage too inconsistent tent_hp={:.1} drops={}",
+                        tent_hp, drops
+                    ),
+                );
             }
         }
         // Phase 5: eventual kill expected in this lane setup

@@ -1,6 +1,6 @@
 //! Constants - Tuning parameters for the NPC system
 
-use crate::components::{Job, BaseAttackType};
+use crate::components::{BaseAttackType, Job};
 use crate::world::BuildingKind;
 
 /// Maximum NPCs the system can handle. NPC GPU buffers are pre-allocated to this size.
@@ -26,17 +26,32 @@ pub const ENTITY_FLAG_UNTARGETABLE: u32 = 4;
 
 /// Resource types used in upgrade costs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum ResourceKind { Food, Gold }
+pub enum ResourceKind {
+    Food,
+    Gold,
+}
 
 /// Which stat an upgrade improves.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum UpgradeStatKind {
     // Core NPC stats
-    Hp, Attack, Range, AttackSpeed, MoveSpeed,
+    Hp,
+    Attack,
+    Range,
+    AttackSpeed,
+    MoveSpeed,
     // Special NPC stats
-    Yield, Alert, Dodge, ProjectileSpeed, ProjectileLifetime,
+    Yield,
+    Alert,
+    Dodge,
+    ProjectileSpeed,
+    ProjectileLifetime,
     // Town-only stats (not NPC-driven)
-    Healing, FountainRange, FountainAttackSpeed, FountainProjectileLife, Expansion,
+    Healing,
+    FountainRange,
+    FountainAttackSpeed,
+    FountainProjectileLife,
+    Expansion,
 }
 
 /// How an upgrade's effect is displayed in the UI.
@@ -81,95 +96,372 @@ use ResourceKind::{Food as F, Gold as G};
 use UpgradeStatKind as USK;
 
 // Helper for concise UpgradeStatDef construction
-const fn usd(kind: UpgradeStatKind, pct: f32, cost: &'static [(ResourceKind, i32)], label: &'static str, short: &'static str, tooltip: &'static str, display: EffectDisplay) -> UpgradeStatDef {
+const fn usd(
+    kind: UpgradeStatKind,
+    pct: f32,
+    cost: &'static [(ResourceKind, i32)],
+    label: &'static str,
+    short: &'static str,
+    tooltip: &'static str,
+    display: EffectDisplay,
+) -> UpgradeStatDef {
     UpgradeStatDef {
-        kind, pct, cost, label, short, tooltip, display,
-        prereq_stat: None, prereq_level: 1, is_combat_stat: true,
-        invalidates_healing: false, triggers_expansion: false, custom_cost: false,
+        kind,
+        pct,
+        cost,
+        label,
+        short,
+        tooltip,
+        display,
+        prereq_stat: None,
+        prereq_level: 1,
+        is_combat_stat: true,
+        invalidates_healing: false,
+        triggers_expansion: false,
+        custom_cost: false,
     }
 }
 
-const fn usd_noncombat(kind: UpgradeStatKind, pct: f32, cost: &'static [(ResourceKind, i32)], label: &'static str, short: &'static str, tooltip: &'static str, display: EffectDisplay) -> UpgradeStatDef {
+const fn usd_noncombat(
+    kind: UpgradeStatKind,
+    pct: f32,
+    cost: &'static [(ResourceKind, i32)],
+    label: &'static str,
+    short: &'static str,
+    tooltip: &'static str,
+    display: EffectDisplay,
+) -> UpgradeStatDef {
     UpgradeStatDef {
-        kind, pct, cost, label, short, tooltip, display,
-        prereq_stat: None, prereq_level: 1, is_combat_stat: false,
-        invalidates_healing: false, triggers_expansion: false, custom_cost: false,
+        kind,
+        pct,
+        cost,
+        label,
+        short,
+        tooltip,
+        display,
+        prereq_stat: None,
+        prereq_level: 1,
+        is_combat_stat: false,
+        invalidates_healing: false,
+        triggers_expansion: false,
+        custom_cost: false,
     }
 }
 
-const fn usd_req(kind: UpgradeStatKind, pct: f32, cost: &'static [(ResourceKind, i32)], label: &'static str, short: &'static str, tooltip: &'static str, display: EffectDisplay, prereq: UpgradeStatKind, prereq_lv: u8) -> UpgradeStatDef {
+const fn usd_req(
+    kind: UpgradeStatKind,
+    pct: f32,
+    cost: &'static [(ResourceKind, i32)],
+    label: &'static str,
+    short: &'static str,
+    tooltip: &'static str,
+    display: EffectDisplay,
+    prereq: UpgradeStatKind,
+    prereq_lv: u8,
+) -> UpgradeStatDef {
     UpgradeStatDef {
-        kind, pct, cost, label, short, tooltip, display,
-        prereq_stat: Some(prereq), prereq_level: prereq_lv, is_combat_stat: true,
-        invalidates_healing: false, triggers_expansion: false, custom_cost: false,
+        kind,
+        pct,
+        cost,
+        label,
+        short,
+        tooltip,
+        display,
+        prereq_stat: Some(prereq),
+        prereq_level: prereq_lv,
+        is_combat_stat: true,
+        invalidates_healing: false,
+        triggers_expansion: false,
+        custom_cost: false,
     }
 }
 
 // Military upgrade stat defs
 const MILITARY_RANGED_UPGRADES: &[UpgradeStatDef] = &[
-    usd(USK::Hp, 0.10, &[(F, 1)], "HP", "HP", "+10% HP per level", EffectDisplay::Percentage),
-    usd(USK::Attack, 0.10, &[(F, 1)], "Attack", "Atk", "+10% damage per level", EffectDisplay::Percentage),
-    usd(USK::Range, 0.05, &[(G, 1)], "Detection Range", "Det", "+5% detection range per level", EffectDisplay::Percentage),
-    usd(USK::AttackSpeed, 0.08, &[(F, 1)], "Attack Speed", "AtkSpd", "-8% attack cooldown per level", EffectDisplay::CooldownReduction),
-    usd(USK::MoveSpeed, 0.05, &[(F, 1)], "Move Speed", "MvSpd", "+5% movement speed per level", EffectDisplay::Percentage),
-    usd_req(USK::Alert, 0.10, &[(G, 1)], "Alert", "Alert", "+10% alert radius per level", EffectDisplay::Percentage, USK::MoveSpeed, 1),
-    usd_req(USK::Dodge, 0.0, &[(G, 20)], "Dodge", "Dodge", "Unlocks projectile dodging", EffectDisplay::Unlock, USK::MoveSpeed, 5),
-    usd(USK::ProjectileSpeed, 0.08, &[(G, 1)], "Arrow Speed", "ASpd", "+8% arrow speed per level", EffectDisplay::Percentage),
-    usd(USK::ProjectileLifetime, 0.08, &[(G, 1)], "Arrow Range", "ARng", "+8% arrow flight distance per level", EffectDisplay::Percentage),
+    usd(
+        USK::Hp,
+        0.10,
+        &[(F, 1)],
+        "HP",
+        "HP",
+        "+10% HP per level",
+        EffectDisplay::Percentage,
+    ),
+    usd(
+        USK::Attack,
+        0.10,
+        &[(F, 1)],
+        "Attack",
+        "Atk",
+        "+10% damage per level",
+        EffectDisplay::Percentage,
+    ),
+    usd(
+        USK::Range,
+        0.05,
+        &[(G, 1)],
+        "Detection Range",
+        "Det",
+        "+5% detection range per level",
+        EffectDisplay::Percentage,
+    ),
+    usd(
+        USK::AttackSpeed,
+        0.08,
+        &[(F, 1)],
+        "Attack Speed",
+        "AtkSpd",
+        "-8% attack cooldown per level",
+        EffectDisplay::CooldownReduction,
+    ),
+    usd(
+        USK::MoveSpeed,
+        0.05,
+        &[(F, 1)],
+        "Move Speed",
+        "MvSpd",
+        "+5% movement speed per level",
+        EffectDisplay::Percentage,
+    ),
+    usd_req(
+        USK::Alert,
+        0.10,
+        &[(G, 1)],
+        "Alert",
+        "Alert",
+        "+10% alert radius per level",
+        EffectDisplay::Percentage,
+        USK::MoveSpeed,
+        1,
+    ),
+    usd_req(
+        USK::Dodge,
+        0.0,
+        &[(G, 20)],
+        "Dodge",
+        "Dodge",
+        "Unlocks projectile dodging",
+        EffectDisplay::Unlock,
+        USK::MoveSpeed,
+        5,
+    ),
+    usd(
+        USK::ProjectileSpeed,
+        0.08,
+        &[(G, 1)],
+        "Arrow Speed",
+        "ASpd",
+        "+8% arrow speed per level",
+        EffectDisplay::Percentage,
+    ),
+    usd(
+        USK::ProjectileLifetime,
+        0.08,
+        &[(G, 1)],
+        "Arrow Range",
+        "ARng",
+        "+8% arrow flight distance per level",
+        EffectDisplay::Percentage,
+    ),
 ];
 
 const MILITARY_MELEE_UPGRADES: &[UpgradeStatDef] = &[
-    usd(USK::Hp, 0.10, &[(F, 1)], "HP", "HP", "+10% HP per level", EffectDisplay::Percentage),
-    usd(USK::Attack, 0.10, &[(F, 1)], "Attack", "Atk", "+10% damage per level", EffectDisplay::Percentage),
-    usd(USK::AttackSpeed, 0.08, &[(F, 1)], "Attack Speed", "AtkSpd", "-8% attack cooldown per level", EffectDisplay::CooldownReduction),
-    usd(USK::MoveSpeed, 0.05, &[(F, 1)], "Move Speed", "MvSpd", "+5% movement speed per level", EffectDisplay::Percentage),
-    usd_req(USK::Alert, 0.10, &[(G, 1)], "Alert", "Alert", "+10% alert radius per level", EffectDisplay::Percentage, USK::MoveSpeed, 1),
-    usd_req(USK::Dodge, 0.0, &[(G, 20)], "Dodge", "Dodge", "Unlocks projectile dodging", EffectDisplay::Unlock, USK::MoveSpeed, 5),
+    usd(
+        USK::Hp,
+        0.10,
+        &[(F, 1)],
+        "HP",
+        "HP",
+        "+10% HP per level",
+        EffectDisplay::Percentage,
+    ),
+    usd(
+        USK::Attack,
+        0.10,
+        &[(F, 1)],
+        "Attack",
+        "Atk",
+        "+10% damage per level",
+        EffectDisplay::Percentage,
+    ),
+    usd(
+        USK::AttackSpeed,
+        0.08,
+        &[(F, 1)],
+        "Attack Speed",
+        "AtkSpd",
+        "-8% attack cooldown per level",
+        EffectDisplay::CooldownReduction,
+    ),
+    usd(
+        USK::MoveSpeed,
+        0.05,
+        &[(F, 1)],
+        "Move Speed",
+        "MvSpd",
+        "+5% movement speed per level",
+        EffectDisplay::Percentage,
+    ),
+    usd_req(
+        USK::Alert,
+        0.10,
+        &[(G, 1)],
+        "Alert",
+        "Alert",
+        "+10% alert radius per level",
+        EffectDisplay::Percentage,
+        USK::MoveSpeed,
+        1,
+    ),
+    usd_req(
+        USK::Dodge,
+        0.0,
+        &[(G, 20)],
+        "Dodge",
+        "Dodge",
+        "Unlocks projectile dodging",
+        EffectDisplay::Unlock,
+        USK::MoveSpeed,
+        5,
+    ),
 ];
 
 const FARMER_UPGRADES: &[UpgradeStatDef] = &[
-    usd(USK::Yield, 0.15, &[(F, 1)], "Yield", "Yield", "+15% food production per level", EffectDisplay::Percentage),
-    usd(USK::Hp, 0.20, &[(F, 1)], "HP", "HP", "+20% farmer HP per level", EffectDisplay::Percentage),
-    usd(USK::MoveSpeed, 0.05, &[(F, 1)], "Move Speed", "MvSpd", "+5% farmer speed per level", EffectDisplay::Percentage),
+    usd(
+        USK::Yield,
+        0.15,
+        &[(F, 1)],
+        "Yield",
+        "Yield",
+        "+15% food production per level",
+        EffectDisplay::Percentage,
+    ),
+    usd(
+        USK::Hp,
+        0.20,
+        &[(F, 1)],
+        "HP",
+        "HP",
+        "+20% farmer HP per level",
+        EffectDisplay::Percentage,
+    ),
+    usd(
+        USK::MoveSpeed,
+        0.05,
+        &[(F, 1)],
+        "Move Speed",
+        "MvSpd",
+        "+5% farmer speed per level",
+        EffectDisplay::Percentage,
+    ),
 ];
 
 const MINER_UPGRADES: &[UpgradeStatDef] = &[
-    usd(USK::Hp, 0.20, &[(F, 1)], "HP", "HP", "+20% miner HP per level", EffectDisplay::Percentage),
-    usd(USK::MoveSpeed, 0.05, &[(F, 1)], "Move Speed", "MvSpd", "+5% miner speed per level", EffectDisplay::Percentage),
-    usd_noncombat(USK::Yield, 0.15, &[(G, 1)], "Yield", "Yield", "+15% gold yield per level", EffectDisplay::Percentage),
+    usd(
+        USK::Hp,
+        0.20,
+        &[(F, 1)],
+        "HP",
+        "HP",
+        "+20% miner HP per level",
+        EffectDisplay::Percentage,
+    ),
+    usd(
+        USK::MoveSpeed,
+        0.05,
+        &[(F, 1)],
+        "Move Speed",
+        "MvSpd",
+        "+5% miner speed per level",
+        EffectDisplay::Percentage,
+    ),
+    usd_noncombat(
+        USK::Yield,
+        0.15,
+        &[(G, 1)],
+        "Yield",
+        "Yield",
+        "+15% gold yield per level",
+        EffectDisplay::Percentage,
+    ),
 ];
 
 // Town upgrades (not NPC-driven, appended to registry as "Town" branch)
 pub const TOWN_UPGRADES: &[UpgradeStatDef] = &[
     UpgradeStatDef {
-        kind: USK::Healing, pct: 0.20, cost: &[(F, 1)], label: "Healing", short: "Heal",
-        tooltip: "+20% HP regen at fountain", display: EffectDisplay::Percentage,
-        prereq_stat: None, prereq_level: 1, is_combat_stat: false,
-        invalidates_healing: true, triggers_expansion: false, custom_cost: false,
+        kind: USK::Healing,
+        pct: 0.20,
+        cost: &[(F, 1)],
+        label: "Healing",
+        short: "Heal",
+        tooltip: "+20% HP regen at fountain",
+        display: EffectDisplay::Percentage,
+        prereq_stat: None,
+        prereq_level: 1,
+        is_combat_stat: false,
+        invalidates_healing: true,
+        triggers_expansion: false,
+        custom_cost: false,
     },
     UpgradeStatDef {
-        kind: USK::FountainRange, pct: 0.0, cost: &[(G, 1)], label: "Fountain Range", short: "FRng",
-        tooltip: "+24px fountain range per level", display: EffectDisplay::FlatPixels(24),
-        prereq_stat: Some(USK::Healing), prereq_level: 1, is_combat_stat: false,
-        invalidates_healing: true, triggers_expansion: false, custom_cost: false,
+        kind: USK::FountainRange,
+        pct: 0.0,
+        cost: &[(G, 1)],
+        label: "Fountain Range",
+        short: "FRng",
+        tooltip: "+24px fountain range per level",
+        display: EffectDisplay::FlatPixels(24),
+        prereq_stat: Some(USK::Healing),
+        prereq_level: 1,
+        is_combat_stat: false,
+        invalidates_healing: true,
+        triggers_expansion: false,
+        custom_cost: false,
     },
     UpgradeStatDef {
-        kind: USK::FountainAttackSpeed, pct: 0.08, cost: &[(G, 1)], label: "Fountain Atk Speed", short: "FAS",
-        tooltip: "-8% fountain cooldown per level", display: EffectDisplay::CooldownReduction,
-        prereq_stat: Some(USK::FountainRange), prereq_level: 1, is_combat_stat: false,
-        invalidates_healing: false, triggers_expansion: false, custom_cost: false,
+        kind: USK::FountainAttackSpeed,
+        pct: 0.08,
+        cost: &[(G, 1)],
+        label: "Fountain Atk Speed",
+        short: "FAS",
+        tooltip: "-8% fountain cooldown per level",
+        display: EffectDisplay::CooldownReduction,
+        prereq_stat: Some(USK::FountainRange),
+        prereq_level: 1,
+        is_combat_stat: false,
+        invalidates_healing: false,
+        triggers_expansion: false,
+        custom_cost: false,
     },
     UpgradeStatDef {
-        kind: USK::FountainProjectileLife, pct: 0.08, cost: &[(G, 1)], label: "Fountain Proj Life", short: "FPL",
-        tooltip: "+8% fountain projectile life per level", display: EffectDisplay::Percentage,
-        prereq_stat: Some(USK::FountainRange), prereq_level: 1, is_combat_stat: false,
-        invalidates_healing: false, triggers_expansion: false, custom_cost: false,
+        kind: USK::FountainProjectileLife,
+        pct: 0.08,
+        cost: &[(G, 1)],
+        label: "Fountain Proj Life",
+        short: "FPL",
+        tooltip: "+8% fountain projectile life per level",
+        display: EffectDisplay::Percentage,
+        prereq_stat: Some(USK::FountainRange),
+        prereq_level: 1,
+        is_combat_stat: false,
+        invalidates_healing: false,
+        triggers_expansion: false,
+        custom_cost: false,
     },
     UpgradeStatDef {
-        kind: USK::Expansion, pct: 0.0, cost: &[(F, 1), (G, 1)], label: "Expansion", short: "Area",
-        tooltip: "+1 buildable radius per level", display: EffectDisplay::Discrete,
-        prereq_stat: None, prereq_level: 1, is_combat_stat: false,
-        invalidates_healing: false, triggers_expansion: true, custom_cost: true,
+        kind: USK::Expansion,
+        pct: 0.0,
+        cost: &[(F, 1), (G, 1)],
+        label: "Expansion",
+        short: "Area",
+        tooltip: "+1 buildable radius per level",
+        display: EffectDisplay::Discrete,
+        prereq_stat: None,
+        prereq_level: 1,
+        is_combat_stat: false,
+        invalidates_healing: false,
+        triggers_expansion: true,
+        custom_cost: true,
     },
 ];
 
@@ -206,7 +498,10 @@ pub struct AttackTypeStats {
 
 /// What kind of item an NPC can carry or drop.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub enum ItemKind { Food, Gold }
+pub enum ItemKind {
+    Food,
+    Gold,
+}
 
 /// Loot dropped when an NPC dies.
 #[derive(Clone, Copy, Debug)]
@@ -259,90 +554,231 @@ pub struct NpcDef {
 
 pub const NPC_REGISTRY: &[NpcDef] = &[
     NpcDef {
-        job: Job::Farmer, label: "Farmer", label_plural: "Farmers",
-        sprite: (1.0, 6.0), color: (0.0, 1.0, 0.0, 1.0),
-        base_hp: 100.0, base_damage: 0.0, base_speed: 100.0,
-        default_attack_type: BaseAttackType::Melee, attack_override: None,
-        is_patrol_unit: false, is_military: false,
-        has_energy: true, has_attack_timer: false,
-        weapon: None, helmet: None, stealer: false, leash_range: None,
-        ui_color: (80, 200, 80),
-        home_building: BuildingKind::FarmerHome, is_raider_unit: false, default_count: 2,
-        upgrade_category: Some("Farmer"), upgrade_stats: FARMER_UPGRADES,
-        loot_drop: &[LootDrop { item: ItemKind::Food, min: 1, max: 2 }],
-    },
-    NpcDef {
-        job: Job::Archer, label: "Archer", label_plural: "Archers",
-        sprite: (0.0, 0.0), color: (0.0, 0.0, 1.0, 1.0),
-        base_hp: 100.0, base_damage: 15.0, base_speed: 100.0,
-        default_attack_type: BaseAttackType::Ranged, attack_override: None,
-        is_patrol_unit: true, is_military: true,
-        has_energy: true, has_attack_timer: true,
-        weapon: Some(EQUIP_SWORD), helmet: Some(EQUIP_HELMET), stealer: false, leash_range: None,
-        ui_color: (80, 100, 220),
-        home_building: BuildingKind::ArcherHome, is_raider_unit: false, default_count: 4,
-        upgrade_category: Some("Archer"), upgrade_stats: MILITARY_RANGED_UPGRADES,
-        loot_drop: &[LootDrop { item: ItemKind::Food, min: 1, max: 2 }, LootDrop { item: ItemKind::Gold, min: 0, max: 1 }],
-    },
-    NpcDef {
-        job: Job::Raider, label: "Raider", label_plural: "Raiders",
-        sprite: (0.0, 6.0), color: (1.0, 0.0, 0.0, 1.0),
-        base_hp: 100.0, base_damage: 15.0, base_speed: 100.0,
-        default_attack_type: BaseAttackType::Melee, attack_override: None,
-        is_patrol_unit: false, is_military: true,
-        has_energy: true, has_attack_timer: true,
-        weapon: Some(EQUIP_SWORD), helmet: None, stealer: true, leash_range: Some(400.0),
-        ui_color: (220, 80, 80),
-        home_building: BuildingKind::Tent, is_raider_unit: true, default_count: 1,
-        upgrade_category: None, upgrade_stats: &[],
-        loot_drop: &[LootDrop { item: ItemKind::Food, min: 1, max: 2 }, LootDrop { item: ItemKind::Gold, min: 0, max: 1 }],
-    },
-    NpcDef {
-        job: Job::Fighter, label: "Fighter", label_plural: "Fighters",
-        sprite: (1.0, 9.0), color: (1.0, 1.0, 0.0, 1.0),
-        base_hp: 100.0, base_damage: 22.5, base_speed: 100.0,
+        job: Job::Farmer,
+        label: "Farmer",
+        label_plural: "Farmers",
+        sprite: (1.0, 6.0),
+        color: (0.0, 1.0, 0.0, 1.0),
+        base_hp: 100.0,
+        base_damage: 0.0,
+        base_speed: 100.0,
         default_attack_type: BaseAttackType::Melee,
         attack_override: None,
-        is_patrol_unit: true, is_military: true,
-        has_energy: true, has_attack_timer: true,
-        weapon: None, helmet: None, stealer: false, leash_range: None,
-        ui_color: (220, 220, 80),
-        home_building: BuildingKind::FighterHome, is_raider_unit: false, default_count: 0,
-        upgrade_category: Some("Fighter"), upgrade_stats: MILITARY_MELEE_UPGRADES,
-        loot_drop: &[LootDrop { item: ItemKind::Food, min: 1, max: 2 }, LootDrop { item: ItemKind::Gold, min: 0, max: 1 }],
+        is_patrol_unit: false,
+        is_military: false,
+        has_energy: true,
+        has_attack_timer: false,
+        weapon: None,
+        helmet: None,
+        stealer: false,
+        leash_range: None,
+        ui_color: (80, 200, 80),
+        home_building: BuildingKind::FarmerHome,
+        is_raider_unit: false,
+        default_count: 2,
+        upgrade_category: Some("Farmer"),
+        upgrade_stats: FARMER_UPGRADES,
+        loot_drop: &[LootDrop {
+            item: ItemKind::Food,
+            min: 1,
+            max: 2,
+        }],
     },
     NpcDef {
-        job: Job::Miner, label: "Miner", label_plural: "Miners",
-        sprite: (1.0, 6.0), color: (0.6, 0.4, 0.2, 1.0),
-        base_hp: 100.0, base_damage: 0.0, base_speed: 110.0,
-        default_attack_type: BaseAttackType::Melee, attack_override: None,
-        is_patrol_unit: false, is_military: false,
-        has_energy: true, has_attack_timer: false,
-        weapon: None, helmet: None, stealer: false, leash_range: None,
-        ui_color: (160, 110, 60),
-        home_building: BuildingKind::MinerHome, is_raider_unit: false, default_count: 0,
-        upgrade_category: Some("Miner"), upgrade_stats: MINER_UPGRADES,
-        loot_drop: &[LootDrop { item: ItemKind::Gold, min: 1, max: 2 }],
-    },
-    NpcDef {
-        job: Job::Crossbow, label: "Crossbow", label_plural: "Crossbows",
-        sprite: (0.0, 0.0), color: (0.4, 0.0, 0.8, 1.0),
-        base_hp: 100.0, base_damage: 25.0, base_speed: 100.0,
+        job: Job::Archer,
+        label: "Archer",
+        label_plural: "Archers",
+        sprite: (0.0, 0.0),
+        color: (0.0, 0.0, 1.0, 1.0),
+        base_hp: 100.0,
+        base_damage: 15.0,
+        base_speed: 100.0,
         default_attack_type: BaseAttackType::Ranged,
-        attack_override: Some(AttackTypeStats { range: 150.0, cooldown: 2.0, projectile_speed: 150.0, projectile_lifetime: 1.5 }),
-        is_patrol_unit: true, is_military: true,
-        has_energy: true, has_attack_timer: true,
-        weapon: Some(EQUIP_SWORD), helmet: Some(EQUIP_HELMET), stealer: false, leash_range: None,
+        attack_override: None,
+        is_patrol_unit: true,
+        is_military: true,
+        has_energy: true,
+        has_attack_timer: true,
+        weapon: Some(EQUIP_SWORD),
+        helmet: Some(EQUIP_HELMET),
+        stealer: false,
+        leash_range: None,
+        ui_color: (80, 100, 220),
+        home_building: BuildingKind::ArcherHome,
+        is_raider_unit: false,
+        default_count: 4,
+        upgrade_category: Some("Archer"),
+        upgrade_stats: MILITARY_RANGED_UPGRADES,
+        loot_drop: &[
+            LootDrop {
+                item: ItemKind::Food,
+                min: 1,
+                max: 2,
+            },
+            LootDrop {
+                item: ItemKind::Gold,
+                min: 0,
+                max: 1,
+            },
+        ],
+    },
+    NpcDef {
+        job: Job::Raider,
+        label: "Raider",
+        label_plural: "Raiders",
+        sprite: (0.0, 6.0),
+        color: (1.0, 0.0, 0.0, 1.0),
+        base_hp: 100.0,
+        base_damage: 15.0,
+        base_speed: 100.0,
+        default_attack_type: BaseAttackType::Melee,
+        attack_override: None,
+        is_patrol_unit: false,
+        is_military: true,
+        has_energy: true,
+        has_attack_timer: true,
+        weapon: Some(EQUIP_SWORD),
+        helmet: None,
+        stealer: true,
+        leash_range: Some(400.0),
+        ui_color: (220, 80, 80),
+        home_building: BuildingKind::Tent,
+        is_raider_unit: true,
+        default_count: 1,
+        upgrade_category: None,
+        upgrade_stats: &[],
+        loot_drop: &[
+            LootDrop {
+                item: ItemKind::Food,
+                min: 1,
+                max: 2,
+            },
+            LootDrop {
+                item: ItemKind::Gold,
+                min: 0,
+                max: 1,
+            },
+        ],
+    },
+    NpcDef {
+        job: Job::Fighter,
+        label: "Fighter",
+        label_plural: "Fighters",
+        sprite: (1.0, 9.0),
+        color: (1.0, 1.0, 0.0, 1.0),
+        base_hp: 100.0,
+        base_damage: 22.5,
+        base_speed: 100.0,
+        default_attack_type: BaseAttackType::Melee,
+        attack_override: None,
+        is_patrol_unit: true,
+        is_military: true,
+        has_energy: true,
+        has_attack_timer: true,
+        weapon: None,
+        helmet: None,
+        stealer: false,
+        leash_range: None,
+        ui_color: (220, 220, 80),
+        home_building: BuildingKind::FighterHome,
+        is_raider_unit: false,
+        default_count: 0,
+        upgrade_category: Some("Fighter"),
+        upgrade_stats: MILITARY_MELEE_UPGRADES,
+        loot_drop: &[
+            LootDrop {
+                item: ItemKind::Food,
+                min: 1,
+                max: 2,
+            },
+            LootDrop {
+                item: ItemKind::Gold,
+                min: 0,
+                max: 1,
+            },
+        ],
+    },
+    NpcDef {
+        job: Job::Miner,
+        label: "Miner",
+        label_plural: "Miners",
+        sprite: (1.0, 6.0),
+        color: (0.6, 0.4, 0.2, 1.0),
+        base_hp: 100.0,
+        base_damage: 0.0,
+        base_speed: 110.0,
+        default_attack_type: BaseAttackType::Melee,
+        attack_override: None,
+        is_patrol_unit: false,
+        is_military: false,
+        has_energy: true,
+        has_attack_timer: false,
+        weapon: None,
+        helmet: None,
+        stealer: false,
+        leash_range: None,
+        ui_color: (160, 110, 60),
+        home_building: BuildingKind::MinerHome,
+        is_raider_unit: false,
+        default_count: 0,
+        upgrade_category: Some("Miner"),
+        upgrade_stats: MINER_UPGRADES,
+        loot_drop: &[LootDrop {
+            item: ItemKind::Gold,
+            min: 1,
+            max: 2,
+        }],
+    },
+    NpcDef {
+        job: Job::Crossbow,
+        label: "Crossbow",
+        label_plural: "Crossbows",
+        sprite: (0.0, 0.0),
+        color: (0.4, 0.0, 0.8, 1.0),
+        base_hp: 100.0,
+        base_damage: 25.0,
+        base_speed: 100.0,
+        default_attack_type: BaseAttackType::Ranged,
+        attack_override: Some(AttackTypeStats {
+            range: 150.0,
+            cooldown: 2.0,
+            projectile_speed: 150.0,
+            projectile_lifetime: 1.5,
+        }),
+        is_patrol_unit: true,
+        is_military: true,
+        has_energy: true,
+        has_attack_timer: true,
+        weapon: Some(EQUIP_SWORD),
+        helmet: Some(EQUIP_HELMET),
+        stealer: false,
+        leash_range: None,
         ui_color: (140, 60, 220),
-        home_building: BuildingKind::CrossbowHome, is_raider_unit: false, default_count: 0,
-        upgrade_category: Some("Crossbow"), upgrade_stats: MILITARY_RANGED_UPGRADES,
-        loot_drop: &[LootDrop { item: ItemKind::Food, min: 1, max: 2 }, LootDrop { item: ItemKind::Gold, min: 0, max: 1 }],
+        home_building: BuildingKind::CrossbowHome,
+        is_raider_unit: false,
+        default_count: 0,
+        upgrade_category: Some("Crossbow"),
+        upgrade_stats: MILITARY_RANGED_UPGRADES,
+        loot_drop: &[
+            LootDrop {
+                item: ItemKind::Food,
+                min: 1,
+                max: 2,
+            },
+            LootDrop {
+                item: ItemKind::Gold,
+                min: 0,
+                max: 1,
+            },
+        ],
     },
 ];
 
 /// Look up NPC definition by job. Panics if job not in registry.
 pub fn npc_def(job: Job) -> &'static NpcDef {
-    NPC_REGISTRY.iter().find(|d| d.job == job)
+    NPC_REGISTRY
+        .iter()
+        .find(|d| d.job == job)
         .unwrap_or_else(|| panic!("no NpcDef for {:?}", job))
 }
 
@@ -361,16 +797,16 @@ pub const HEAL_SPRITE: (f32, f32) = (23.0, 0.0);
 
 // Distinct colors for raider factions (warm/aggressive palette)
 pub const RAIDER_COLORS: [(f32, f32, f32); 10] = [
-    (1.0, 0.0, 0.0),   // Red
-    (1.0, 0.5, 0.0),   // Orange
-    (1.0, 0.0, 1.0),   // Magenta
-    (0.5, 0.0, 1.0),   // Purple
-    (1.0, 1.0, 0.0),   // Yellow
-    (0.6, 0.3, 0.0),   // Brown
-    (1.0, 0.4, 0.7),   // Pink
-    (0.7, 0.0, 0.0),   // Dark red
-    (1.0, 0.8, 0.0),   // Gold
-    (0.6, 0.0, 0.4),   // Dark magenta
+    (1.0, 0.0, 0.0), // Red
+    (1.0, 0.5, 0.0), // Orange
+    (1.0, 0.0, 1.0), // Magenta
+    (0.5, 0.0, 1.0), // Purple
+    (1.0, 1.0, 0.0), // Yellow
+    (0.6, 0.3, 0.0), // Brown
+    (1.0, 0.4, 0.7), // Pink
+    (0.7, 0.0, 0.0), // Dark red
+    (1.0, 0.8, 0.0), // Gold
+    (0.6, 0.0, 0.4), // Dark magenta
 ];
 
 /// Get RGBA color for a raider faction (cycles through palette).
@@ -450,7 +886,7 @@ pub const MAX_PROJECTILES: usize = 50000;
 
 /// Oriented rectangle hitbox for arrow projectiles.
 pub const PROJECTILE_HIT_HALF_LENGTH: f32 = 12.0; // along travel direction
-pub const PROJECTILE_HIT_HALF_WIDTH: f32 = 4.0;   // perpendicular to travel
+pub const PROJECTILE_HIT_HALF_WIDTH: f32 = 4.0; // perpendicular to travel
 
 /// Per-entity hitbox half-sizes (added to projectile hitbox via Minkowski sum).
 /// NPC body is ~16x16 centered in 32x32 tile; buildings fill the full 32x32 tile.
@@ -549,7 +985,11 @@ pub struct TowerStats {
 }
 
 pub const FOUNTAIN_TOWER: TowerStats = TowerStats {
-    range: 400.0, damage: 15.0, cooldown: 1.5, proj_speed: 350.0, proj_lifetime: 1.5,
+    range: 400.0,
+    damage: 15.0,
+    cooldown: 1.5,
+    proj_speed: 350.0,
+    proj_lifetime: 1.5,
 };
 
 // ============================================================================
@@ -574,15 +1014,15 @@ pub const ROAD_SPEED_MULT: f32 = 1.5;
 
 /// Tile flags bitfield (1 u32 per world grid cell in tile_flags GPU buffer).
 /// Terrain bits (0-4): base terrain from Biome, set every rebuild.
-pub const TILE_GRASS: u32 = 1;   // bit 0
-pub const TILE_FOREST: u32 = 2;  // bit 1
-pub const TILE_WATER: u32 = 4;   // bit 2
-pub const TILE_ROCK: u32 = 8;    // bit 3
-pub const TILE_DIRT: u32 = 16;   // bit 4
+pub const TILE_GRASS: u32 = 1; // bit 0
+pub const TILE_FOREST: u32 = 2; // bit 1
+pub const TILE_WATER: u32 = 4; // bit 2
+pub const TILE_ROCK: u32 = 8; // bit 3
+pub const TILE_DIRT: u32 = 16; // bit 4
 /// Building bits (5+): OR'd on top of terrain.
-pub const TILE_ROAD: u32 = 32;   // bit 5 — 1.5x NPC speed
-pub const TILE_WALL: u32 = 64;   // bit 6 — blocks enemy faction NPCs
-pub const WALL_FACTION_SHIFT: u32 = 8;  // bits 8-11 encode wall owner faction
+pub const TILE_ROAD: u32 = 32; // bit 5 — 1.5x NPC speed
+pub const TILE_WALL: u32 = 64; // bit 6 — blocks enemy faction NPCs
+pub const WALL_FACTION_SHIFT: u32 = 8; // bits 8-11 encode wall owner faction
 pub const WALL_FACTION_MASK: u32 = 0xF; // 4 bits = 16 factions
 
 /// Per-tier wall HP values (indexed by wall_level - 1).
@@ -591,8 +1031,8 @@ pub const WALL_TIER_HP: [f32; 3] = [80.0, 200.0, 400.0];
 pub const WALL_TIER_NAMES: [&str; 3] = ["Wooden Palisade", "Stone Wall", "Fortified Wall"];
 /// Cost to upgrade wall from tier N to tier N+1: (tier_index, &[(resource, amount)]).
 pub const WALL_UPGRADE_COSTS: [&[(ResourceKind, i32)]; 2] = [
-    &[(F, 2), (G, 1)],   // wooden → stone
-    &[(F, 4), (G, 2)],   // stone → fortified
+    &[(F, 2), (G, 1)], // wooden → stone
+    &[(F, 4), (G, 2)], // stone → fortified
 ];
 /// Extra atlas layers for wall auto-tile variants (N-S, 4 corners) appended after base E-W layer.
 pub const WALL_EXTRA_LAYERS: usize = 10;
@@ -606,9 +1046,9 @@ pub const WALL_TL: u16 = 5; // TR(270°) → TL on screen
 pub const WALL_BL: u16 = 2; // BR src(0°) → BL on screen
 pub const WALL_BR: u16 = 3; // BL(90°) → BR on screen
 pub const WALL_CROSS: u16 = 6; // junction/cross sprite (4 neighbors)
-pub const WALL_T_OPEN_N: u16 = 7;  // T src(0°) → open north on screen
-pub const WALL_T_OPEN_W: u16 = 8;  // T(90°) → open west on screen
-pub const WALL_T_OPEN_S: u16 = 9;  // T(180°) → open south on screen
+pub const WALL_T_OPEN_N: u16 = 7; // T src(0°) → open north on screen
+pub const WALL_T_OPEN_W: u16 = 8; // T(90°) → open west on screen
+pub const WALL_T_OPEN_S: u16 = 9; // T(180°) → open south on screen
 pub const WALL_T_OPEN_E: u16 = 10; // T(270°) → open east on screen
 
 /// Tended growth rate for mines (per game-hour). 0.25 = 4 hours to full when miner is working.
@@ -621,7 +1061,9 @@ pub const MINE_WORK_RADIUS: f32 = 40.0;
 /// 1 miner = 1.0×, 2 = 1.5×, 3 = 1.83×, 4 = 2.08×.
 pub fn mine_productivity_mult(worker_count: i32) -> f32 {
     let mut mult = 0.0_f32;
-    for k in 1..=worker_count { mult += 1.0 / k as f32; }
+    for k in 1..=worker_count {
+        mult += 1.0 / k as f32;
+    }
     mult
 }
 
@@ -685,14 +1127,18 @@ pub enum SpawnBehavior {
 /// NPC spawner definition — what kind of NPC a building produces.
 #[derive(Clone, Copy, Debug)]
 pub struct SpawnerDef {
-    pub job: i32,           // Job::from_i32 index (0=Farmer, 1=Archer, 2=Raider, 4=Miner, 5=Crossbow)
-    pub attack_type: i32,   // 0=melee, 1=ranged bow, 2=ranged xbow
+    pub job: i32, // Job::from_i32 index (0=Farmer, 1=Archer, 2=Raider, 4=Miner, 5=Crossbow)
+    pub attack_type: i32, // 0=melee, 1=ranged bow, 2=ranged xbow
     pub behavior: SpawnBehavior,
 }
 
 /// Factions tab column assignment for building display.
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub enum DisplayCategory { Hidden, Economy, Military }
+pub enum DisplayCategory {
+    Hidden,
+    Economy,
+    Military,
+}
 
 /// Complete building definition — one entry per BuildingKind.
 /// Index in BUILDING_REGISTRY = tileset index for GPU rendering.
@@ -724,7 +1170,11 @@ impl BuildingDef {
     pub fn loot_drop(&self) -> Option<LootDrop> {
         let amount = self.cost / 2;
         if amount > 0 {
-            Some(LootDrop { item: ItemKind::Food, min: amount, max: amount })
+            Some(LootDrop {
+                item: ItemKind::Food,
+                min: amount,
+                max: amount,
+            })
         } else {
             None
         }
@@ -736,185 +1186,285 @@ impl BuildingDef {
 pub const BUILDING_REGISTRY: &[BuildingDef] = &[
     // 0: Fountain (town center, auto-shoots)
     BuildingDef {
-        kind: BuildingKind::Fountain, display: DisplayCategory::Hidden,
+        kind: BuildingKind::Fountain,
+        display: DisplayCategory::Hidden,
         tile: TileSpec::Single(50, 9),
-        hp: 500.0, cost: 0,
-        label: "Fountain", help: "Town center", tooltip: "",
-        player_buildable: false, raider_buildable: false,
+        hp: 500.0,
+        cost: 0,
+        label: "Fountain",
+        help: "Town center",
+        tooltip: "",
+        player_buildable: false,
+        raider_buildable: false,
         placement: PlacementMode::Wilderness,
-        is_tower: true, tower_stats: Some(FOUNTAIN_TOWER),
-        on_place: OnPlace::None, spawner: None,
+        is_tower: true,
+        tower_stats: Some(FOUNTAIN_TOWER),
+        on_place: OnPlace::None,
+        spawner: None,
         save_key: None,
         is_unit_home: false,
     },
     // 1: Bed
     BuildingDef {
-        kind: BuildingKind::Bed, display: DisplayCategory::Hidden,
+        kind: BuildingKind::Bed,
+        display: DisplayCategory::Hidden,
         tile: TileSpec::Single(15, 2),
-        hp: 50.0, cost: 0,
-        label: "Bed", help: "NPC rest spot", tooltip: "",
-        player_buildable: false, raider_buildable: false,
+        hp: 50.0,
+        cost: 0,
+        label: "Bed",
+        help: "NPC rest spot",
+        tooltip: "",
+        player_buildable: false,
+        raider_buildable: false,
         placement: PlacementMode::TownGrid,
-        is_tower: false, tower_stats: None,
-        on_place: OnPlace::None, spawner: None,
+        is_tower: false,
+        tower_stats: None,
+        on_place: OnPlace::None,
+        spawner: None,
         save_key: Some("beds"),
         is_unit_home: false,
     },
     // 2: Waypoint
     BuildingDef {
-        kind: BuildingKind::Waypoint, display: DisplayCategory::Military,
+        kind: BuildingKind::Waypoint,
+        display: DisplayCategory::Military,
         tile: TileSpec::External("sprites/waypoint.png"),
-        hp: 200.0, cost: 1,
-        label: "Waypoint", help: "Patrol waypoint",
+        hp: 200.0,
+        cost: 1,
+        label: "Waypoint",
+        help: "Patrol waypoint",
         tooltip: "Archers patrol between waypoints to guard\nyour territory. Place outside town to extend\npatrol coverage. HP: 200",
-        player_buildable: true, raider_buildable: false,
+        player_buildable: true,
+        raider_buildable: false,
         placement: PlacementMode::Wilderness,
-        is_tower: false, tower_stats: None,
-        on_place: OnPlace::None, spawner: None,
+        is_tower: false,
+        tower_stats: None,
+        on_place: OnPlace::None,
+        spawner: None,
         save_key: Some("waypoints"),
         is_unit_home: false,
     },
     // 3: Farm
     BuildingDef {
-        kind: BuildingKind::Farm, display: DisplayCategory::Economy,
+        kind: BuildingKind::Farm,
+        display: DisplayCategory::Economy,
         tile: TileSpec::Quad([(2, 15), (4, 15), (2, 17), (4, 17)]),
-        hp: 80.0, cost: 2,
-        label: "Farm", help: "Grows food over time",
+        hp: 80.0,
+        cost: 2,
+        label: "Farm",
+        help: "Grows food over time",
         tooltip: "Grows food passively (0.08/hr). Farmers tend\nit 3x faster (0.25/hr). Harvest yields 1 food.\nBuild near Farmer Homes for fast delivery. HP: 80",
-        player_buildable: true, raider_buildable: false,
+        player_buildable: true,
+        raider_buildable: false,
         placement: PlacementMode::TownGrid,
-        is_tower: false, tower_stats: None,
-        on_place: OnPlace::InitFarmGrowth, spawner: None,
+        is_tower: false,
+        tower_stats: None,
+        on_place: OnPlace::InitFarmGrowth,
+        spawner: None,
         save_key: Some("farms"),
         is_unit_home: false,
     },
     // 5: Farmer Home
     BuildingDef {
-        kind: BuildingKind::FarmerHome, display: DisplayCategory::Economy,
+        kind: BuildingKind::FarmerHome,
+        display: DisplayCategory::Economy,
         tile: TileSpec::External("sprites/house.png"),
-        hp: 100.0, cost: 2,
-        label: "Farmer Home", help: "Spawns 1 farmer",
+        hp: 100.0,
+        cost: 2,
+        label: "Farmer Home",
+        help: "Spawns 1 farmer",
         tooltip: "Trains 1 farmer who tends farms and carries\nfood home. 100 HP, speed 100. Respawns 12 hrs\nafter death. Build near farms for short trips.",
-        player_buildable: true, raider_buildable: false,
+        player_buildable: true,
+        raider_buildable: false,
         placement: PlacementMode::TownGrid,
-        is_tower: false, tower_stats: None,
+        is_tower: false,
+        tower_stats: None,
         on_place: OnPlace::None,
-        spawner: Some(SpawnerDef { job: 0, attack_type: 0, behavior: SpawnBehavior::FindNearestFarm }),
+        spawner: Some(SpawnerDef {
+            job: 0,
+            attack_type: 0,
+            behavior: SpawnBehavior::FindNearestFarm,
+        }),
         save_key: Some("farmer_homes"),
         is_unit_home: true,
     },
     // 6: Archer Home
     BuildingDef {
-        kind: BuildingKind::ArcherHome, display: DisplayCategory::Military,
+        kind: BuildingKind::ArcherHome,
+        display: DisplayCategory::Military,
         tile: TileSpec::External("sprites/barracks.png"),
-        hp: 150.0, cost: 4,
-        label: "Archer Home", help: "Spawns 1 archer",
+        hp: 150.0,
+        cost: 4,
+        label: "Archer Home",
+        help: "Spawns 1 archer",
         tooltip: "Trains 1 archer — ranged defender. 100 HP,\n15 dmg, range 100, 1.5s cooldown. Patrols\nbetween waypoints. Respawns 12 hrs after death.",
-        player_buildable: true, raider_buildable: false,
+        player_buildable: true,
+        raider_buildable: false,
         placement: PlacementMode::TownGrid,
-        is_tower: false, tower_stats: None,
+        is_tower: false,
+        tower_stats: None,
         on_place: OnPlace::None,
-        spawner: Some(SpawnerDef { job: 1, attack_type: 1, behavior: SpawnBehavior::FindNearestWaypoint }),
+        spawner: Some(SpawnerDef {
+            job: 1,
+            attack_type: 1,
+            behavior: SpawnBehavior::FindNearestWaypoint,
+        }),
         save_key: Some("archer_homes"),
         is_unit_home: true,
     },
     // 7: Tent (raider spawner)
     BuildingDef {
-        kind: BuildingKind::Tent, display: DisplayCategory::Military,
+        kind: BuildingKind::Tent,
+        display: DisplayCategory::Military,
         tile: TileSpec::Quad([(48, 10), (49, 10), (48, 11), (49, 11)]),
-        hp: 100.0, cost: 3,
-        label: "Tent", help: "Spawns 1 raider", tooltip: "",
-        player_buildable: false, raider_buildable: true,
+        hp: 100.0,
+        cost: 3,
+        label: "Tent",
+        help: "Spawns 1 raider",
+        tooltip: "",
+        player_buildable: false,
+        raider_buildable: true,
         placement: PlacementMode::TownGrid,
-        is_tower: false, tower_stats: None,
+        is_tower: false,
+        tower_stats: None,
         on_place: OnPlace::None,
-        spawner: Some(SpawnerDef { job: 2, attack_type: 0, behavior: SpawnBehavior::Raider }),
+        spawner: Some(SpawnerDef {
+            job: 2,
+            attack_type: 0,
+            behavior: SpawnBehavior::Raider,
+        }),
         save_key: Some("tents"),
         is_unit_home: true,
     },
     // 8: Gold Mine
     BuildingDef {
-        kind: BuildingKind::GoldMine, display: DisplayCategory::Hidden,
+        kind: BuildingKind::GoldMine,
+        display: DisplayCategory::Hidden,
         tile: TileSpec::Single(43, 11),
-        hp: 200.0, cost: 0,
-        label: "Gold Mine", help: "Source of gold", tooltip: "",
-        player_buildable: false, raider_buildable: false,
+        hp: 200.0,
+        cost: 0,
+        label: "Gold Mine",
+        help: "Source of gold",
+        tooltip: "",
+        player_buildable: false,
+        raider_buildable: false,
         placement: PlacementMode::Wilderness,
-        is_tower: false, tower_stats: None,
-        on_place: OnPlace::None, spawner: None,
+        is_tower: false,
+        tower_stats: None,
+        on_place: OnPlace::None,
+        spawner: None,
         save_key: Some("gold_mines"),
         is_unit_home: false,
     },
     // 9: Miner Home
     BuildingDef {
-        kind: BuildingKind::MinerHome, display: DisplayCategory::Economy,
+        kind: BuildingKind::MinerHome,
+        display: DisplayCategory::Economy,
         tile: TileSpec::External("sprites/miner_house.png"),
-        hp: 100.0, cost: 4,
-        label: "Miner Home", help: "Spawns 1 miner",
+        hp: 100.0,
+        cost: 4,
+        label: "Miner Home",
+        help: "Spawns 1 miner",
         tooltip: "Trains 1 miner who extracts gold from mines.\n5 gold per harvest (4 hr cycle). 100 HP, speed\n110. Gold funds upgrades. Respawns 12 hrs.",
-        player_buildable: true, raider_buildable: false,
+        player_buildable: true,
+        raider_buildable: false,
         placement: PlacementMode::TownGrid,
-        is_tower: false, tower_stats: None,
+        is_tower: false,
+        tower_stats: None,
         on_place: OnPlace::None,
-        spawner: Some(SpawnerDef { job: 4, attack_type: 0, behavior: SpawnBehavior::Miner }),
+        spawner: Some(SpawnerDef {
+            job: 4,
+            attack_type: 0,
+            behavior: SpawnBehavior::Miner,
+        }),
         save_key: Some("miner_homes"),
         is_unit_home: false,
     },
     // 10: Crossbow Home
     BuildingDef {
-        kind: BuildingKind::CrossbowHome, display: DisplayCategory::Military,
+        kind: BuildingKind::CrossbowHome,
+        display: DisplayCategory::Military,
         tile: TileSpec::External("sprites/barracks.png"),
-        hp: 150.0, cost: 8,
-        label: "Crossbow Home", help: "Spawns 1 crossbow",
+        hp: 150.0,
+        cost: 8,
+        label: "Crossbow Home",
+        help: "Spawns 1 crossbow",
         tooltip: "Trains 1 crossbow — elite ranged unit. 100 HP,\n25 dmg, range 150, 2s cooldown. Highest DPS\nranged unit. Patrols waypoints. Respawns 12 hrs.",
-        player_buildable: true, raider_buildable: false,
+        player_buildable: true,
+        raider_buildable: false,
         placement: PlacementMode::TownGrid,
-        is_tower: false, tower_stats: None,
+        is_tower: false,
+        tower_stats: None,
         on_place: OnPlace::None,
-        spawner: Some(SpawnerDef { job: 5, attack_type: 2, behavior: SpawnBehavior::FindNearestWaypoint }),
+        spawner: Some(SpawnerDef {
+            job: 5,
+            attack_type: 2,
+            behavior: SpawnBehavior::FindNearestWaypoint,
+        }),
         save_key: Some("crossbow_homes"),
         is_unit_home: true,
     },
     // 11: Fighter Home
     BuildingDef {
-        kind: BuildingKind::FighterHome, display: DisplayCategory::Military,
+        kind: BuildingKind::FighterHome,
+        display: DisplayCategory::Military,
         tile: TileSpec::External("sprites/fighter_home.png"),
-        hp: 150.0, cost: 5,
-        label: "Fighter Home", help: "Spawns 1 fighter",
+        hp: 150.0,
+        cost: 5,
+        label: "Fighter Home",
+        help: "Spawns 1 fighter",
         tooltip: "Trains 1 fighter — melee combatant. 100 HP,\n22.5 dmg, range 50, 1s cooldown. High melee\nDPS, engages up close. Patrols waypoints.\nRespawns 12 hrs.",
-        player_buildable: true, raider_buildable: false,
+        player_buildable: true,
+        raider_buildable: false,
         placement: PlacementMode::TownGrid,
-        is_tower: false, tower_stats: None,
+        is_tower: false,
+        tower_stats: None,
         on_place: OnPlace::None,
-        spawner: Some(SpawnerDef { job: 3, attack_type: 0, behavior: SpawnBehavior::FindNearestWaypoint }),
+        spawner: Some(SpawnerDef {
+            job: 3,
+            attack_type: 0,
+            behavior: SpawnBehavior::FindNearestWaypoint,
+        }),
         save_key: Some("fighter_homes"),
         is_unit_home: true,
     },
     // 12: Road
     BuildingDef {
-        kind: BuildingKind::Road, display: DisplayCategory::Economy,
+        kind: BuildingKind::Road,
+        display: DisplayCategory::Economy,
         tile: TileSpec::Single(8, 16),
-        hp: 30.0, cost: 1,
-        label: "Road", help: "1.5x NPC speed",
+        hp: 30.0,
+        cost: 1,
+        label: "Road",
+        help: "1.5x NPC speed",
         tooltip: "NPCs move 50% faster on roads. Click-drag to\nbuild lines. Connect farms, mines, and town\ncenter for faster supply chains. HP: 30",
-        player_buildable: true, raider_buildable: true,
+        player_buildable: true,
+        raider_buildable: true,
         placement: PlacementMode::Wilderness,
-        is_tower: false, tower_stats: None,
-        on_place: OnPlace::None, spawner: None,
+        is_tower: false,
+        tower_stats: None,
+        on_place: OnPlace::None,
+        spawner: None,
         save_key: Some("roads"),
         is_unit_home: false,
     },
     // 13: Wall
     BuildingDef {
-        kind: BuildingKind::Wall, display: DisplayCategory::Military,
+        kind: BuildingKind::Wall,
+        display: DisplayCategory::Military,
         tile: TileSpec::External("sprites/wood_walls_131x32.png"),
-        hp: 80.0, cost: 1,
-        label: "Wall", help: "Blocks enemy movement",
+        hp: 80.0,
+        cost: 1,
+        label: "Wall",
+        help: "Blocks enemy movement",
         tooltip: "Defensive wall — blocks enemy NPCs from\npassing through. Click to upgrade tier.\nWooden: 80 HP, Stone: 200, Fortified: 400.",
-        player_buildable: true, raider_buildable: false,
+        player_buildable: true,
+        raider_buildable: false,
         placement: PlacementMode::TownGrid,
-        is_tower: false, tower_stats: None,
-        on_place: OnPlace::None, spawner: None,
+        is_tower: false,
+        tower_stats: None,
+        on_place: OnPlace::None,
+        spawner: None,
         save_key: Some("walls"),
         is_unit_home: false,
     },
@@ -922,13 +1472,17 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
 
 /// Look up a building definition by kind. Panics if kind is not in registry.
 pub fn building_def(kind: BuildingKind) -> &'static BuildingDef {
-    BUILDING_REGISTRY.iter().find(|d| d.kind == kind)
+    BUILDING_REGISTRY
+        .iter()
+        .find(|d| d.kind == kind)
         .unwrap_or_else(|| panic!("no BuildingDef for {:?}", kind))
 }
 
 /// Look up the tileset index for a BuildingKind (its position in BUILDING_REGISTRY).
 pub fn tileset_index(kind: BuildingKind) -> u16 {
-    BUILDING_REGISTRY.iter().position(|d| d.kind == kind)
+    BUILDING_REGISTRY
+        .iter()
+        .position(|d| d.kind == kind)
         .unwrap_or_else(|| panic!("no tileset index for {:?}", kind)) as u16
 }
 

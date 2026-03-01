@@ -1,17 +1,24 @@
 //! Health systems - Damage, death detection, cleanup, healing aura
 
-use bevy::prelude::*;
-use bevy::ecs::system::SystemParam;
 use crate::components::*;
 use crate::constants::STARVING_HP_CAP;
-use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, DirtyWriters};
 use crate::messages::CombatLogMsg;
-use crate::resources::{EntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, GpuSlotPool, GpuReadState, FactionStats, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SelectedBuilding, HealingZoneCache, BuildingHealState, ActiveHealingSlots, EndlessMode, SquadState, FoodStorage, GoldStorage};
+use crate::messages::{DamageMsg, DirtyWriters, GpuUpdate, GpuUpdateMsg};
+use crate::resources::{
+    ActiveHealingSlots, BuildingHealState, CombatEventKind, EndlessMode, EntityMap, FactionStats,
+    FoodStorage, GameTime, GoldStorage, GpuReadState, GpuSlotPool, HealingZoneCache, HealthDebug,
+    KillStats, NpcMetaCache, NpcsByTownCache, PopulationStats, SelectedBuilding, SelectedNpc,
+    SquadState,
+};
+use bevy::ecs::system::SystemParam;
+use bevy::prelude::*;
 
-use crate::systems::stats::{CombatConfig, TownUpgrades, UPGRADES, level_from_xp, resolve_combat_stats};
-use crate::constants::{UpgradeStatKind, ItemKind, building_def, npc_def};
+use crate::constants::{ItemKind, UpgradeStatKind, building_def, npc_def};
 use crate::systems::economy::*;
-use crate::world::{WorldData, WorldGrid, TownGrids, BuildingKind};
+use crate::systems::stats::{
+    CombatConfig, TownUpgrades, UPGRADES, level_from_xp, resolve_combat_stats,
+};
+use crate::world::{BuildingKind, TownGrids, WorldData, WorldGrid};
 
 /// Bundled resources for death_system — merged from CleanupResources + WorldState + BuildingDeathExtra.
 #[derive(SystemParam)]
@@ -63,26 +70,53 @@ pub fn damage_system(
 
         if let Some(npc) = entity_map.get_npc(idx) {
             // NPC damage
-            if npc.dead { continue; }
-            let Ok(mut health) = npc_health_q.get_mut(npc.entity) else { continue };
+            if npc.dead {
+                continue;
+            }
+            let Ok(mut health) = npc_health_q.get_mut(npc.entity) else {
+                continue;
+            };
             health.0 = (health.0 - event.amount).max(0.0);
             if event.attacker >= 0 {
                 if let Ok(mut ec) = commands.get_entity(npc.entity) {
                     ec.insert(LastHitBy(event.attacker));
                 }
             }
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: health.0 }));
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetDamageFlash { idx, intensity: 1.0 }));
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth {
+                idx,
+                health: health.0,
+            }));
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetDamageFlash {
+                idx,
+                intensity: 1.0,
+            }));
         } else if let Some(inst) = entity_map.get_instance(idx) {
             // Building damage
-            if matches!(inst.kind, crate::world::BuildingKind::GoldMine | crate::world::BuildingKind::Road) { continue; }
-            let Some(&entity) = entity_map.entities.get(&idx) else { continue };
-            let Ok(mut health) = building_query.get_mut(entity) else { continue };
-            if health.0 <= 0.0 { continue; }
+            if matches!(
+                inst.kind,
+                crate::world::BuildingKind::GoldMine | crate::world::BuildingKind::Road
+            ) {
+                continue;
+            }
+            let Some(&entity) = entity_map.entities.get(&idx) else {
+                continue;
+            };
+            let Ok(mut health) = building_query.get_mut(entity) else {
+                continue;
+            };
+            if health.0 <= 0.0 {
+                continue;
+            }
 
             health.0 = (health.0 - event.amount).max(0.0);
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: health.0 }));
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetDamageFlash { idx, intensity: 1.0 }));
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth {
+                idx,
+                health: health.0,
+            }));
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetDamageFlash {
+                idx,
+                intensity: 1.0,
+            }));
 
             if health.0 > 0.0 {
                 heal_state.needs_healing = true;
@@ -106,13 +140,23 @@ pub fn damage_system(
     }
 }
 
-fn hide_npc(idx: usize, entity_map: &mut EntityMap, slots: &mut GpuSlotPool, gpu: &mut MessageWriter<GpuUpdateMsg>) {
+fn hide_npc(
+    idx: usize,
+    entity_map: &mut EntityMap,
+    slots: &mut GpuSlotPool,
+    gpu: &mut MessageWriter<GpuUpdateMsg>,
+) {
     entity_map.unregister_npc(idx);
     gpu.write(GpuUpdateMsg(GpuUpdate::Hide { idx }));
     slots.free(idx);
 }
 
-fn hide_building(idx: usize, entity_map: &mut EntityMap, alloc: &mut GpuSlotPool, gpu: &mut MessageWriter<GpuUpdateMsg>) {
+fn hide_building(
+    idx: usize,
+    entity_map: &mut EntityMap,
+    alloc: &mut GpuSlotPool,
+    gpu: &mut MessageWriter<GpuUpdateMsg>,
+) {
     entity_map.remove_by_slot(idx);
     gpu.write(GpuUpdateMsg(GpuUpdate::Hide { idx }));
     gpu.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: 0.0 }));
@@ -125,8 +169,17 @@ fn hide_building(idx: usize, entity_map: &mut EntityMap, alloc: &mut GpuSlotPool
 pub fn death_system(
     mut commands: Commands,
     building_mark_query: Query<(Entity, &Health), (With<Building>, Without<Dead>)>,
-    building_dead_query: Query<(Entity, &GpuSlot, &Faction, &TownId,
-        &Building, Option<&LastHitBy>), With<Dead>>,
+    building_dead_query: Query<
+        (
+            Entity,
+            &GpuSlot,
+            &Faction,
+            &TownId,
+            &Building,
+            Option<&LastHitBy>,
+        ),
+        With<Dead>,
+    >,
     mut res: DeathResources,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut combat_log: MessageWriter<CombatLogMsg>,
@@ -140,13 +193,19 @@ pub fn death_system(
     config: Res<CombatConfig>,
     mut intents: ResMut<crate::resources::MovementIntents>,
 ) {
-
     // Phase 1a: Mark newly dead NPCs (immediate — processed same frame)
     let mut death_count = 0;
     {
-        let dead_slots: Vec<usize> = res.entity_map.iter_npcs()
+        let dead_slots: Vec<usize> = res
+            .entity_map
+            .iter_npcs()
             .filter(|n| !n.dead)
-            .filter(|n| res.health_q.get(n.entity).map(|h| h.0 <= 0.0).unwrap_or(false))
+            .filter(|n| {
+                res.health_q
+                    .get(n.entity)
+                    .map(|h| h.0 <= 0.0)
+                    .unwrap_or(false)
+            })
             .map(|n| n.slot)
             .collect();
         for slot in dead_slots {
@@ -172,18 +231,25 @@ pub fn death_system(
     let mut despawn_count = 0;
     let has_dead_buildings = !building_dead_query.is_empty();
     // Collect dead NPC slots for Phase 2b (avoids borrow conflict with killer processing)
-    let dead_npc_slots: Vec<usize> = res.entity_map.iter_npcs()
+    let dead_npc_slots: Vec<usize> = res
+        .entity_map
+        .iter_npcs()
         .filter(|n| n.dead)
         .map(|n| n.slot)
         .collect();
 
     if has_dead_buildings || !dead_npc_slots.is_empty() {
-        res.dirty_writers.squads.write(crate::messages::SquadsDirtyMsg);
+        res.dirty_writers
+            .squads
+            .write(crate::messages::SquadsDirtyMsg);
     }
 
-    for (entity, npc_idx, _faction, _town_id, _building, last_hit_by) in building_dead_query.iter() {
+    for (entity, npc_idx, _faction, _town_id, _building, last_hit_by) in building_dead_query.iter()
+    {
         let idx = npc_idx.0;
-        if selected.0 == idx as i32 { selected.0 = -1; }
+        if selected.0 == idx as i32 {
+            selected.0 = -1;
+        }
         commands.entity(entity).despawn();
         despawn_count += 1;
 
@@ -195,19 +261,45 @@ pub fn death_system(
             let pos = inst.position;
             let town_idx = inst.town_idx as usize;
 
-            let town_name = res.world_data.towns.get(town_idx)
-                .map(|t| t.name.clone()).unwrap_or_default();
-            let center = res.world_data.towns.get(town_idx)
-                .map(|t| t.center).unwrap_or_default();
+            let town_name = res
+                .world_data
+                .towns
+                .get(town_idx)
+                .map(|t| t.name.clone())
+                .unwrap_or_default();
+            let center = res
+                .world_data
+                .towns
+                .get(town_idx)
+                .map(|t| t.center)
+                .unwrap_or_default();
             let (trow, tcol) = crate::world::world_to_town_grid(center, pos);
-            let defender_faction = res.world_data.towns.get(town_idx).map(|t| t.faction).unwrap_or(0);
+            let defender_faction = res
+                .world_data
+                .towns
+                .get(town_idx)
+                .map(|t| t.faction)
+                .unwrap_or(0);
 
-            combat_log.write(CombatLogMsg { kind: CombatEventKind::BuildingDamage, faction: defender_faction, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{:?} destroyed in {}", kind, town_name), location: None });
+            combat_log.write(CombatLogMsg {
+                kind: CombatEventKind::BuildingDamage,
+                faction: defender_faction,
+                day: game_time.day(),
+                hour: game_time.hour(),
+                minute: game_time.minute(),
+                message: format!("{:?} destroyed in {}", kind, town_name),
+                location: None,
+            });
 
             let _ = crate::world::destroy_building(
-                &mut res.grid, &res.world_data,
-                &mut res.entity_map, &mut combat_log, &game_time,
-                trow, tcol, center,
+                &mut res.grid,
+                &res.world_data,
+                &mut res.entity_map,
+                &mut combat_log,
+                &game_time,
+                trow,
+                tcol,
+                center,
                 &format!("{:?} destroyed in {}", kind, town_name),
                 &mut gpu_updates,
             );
@@ -215,64 +307,134 @@ pub fn death_system(
 
             // Fountain destroyed → deactivate AI player
             if matches!(kind, BuildingKind::Fountain) {
-                if let Some(player) = res.ai_state.players.iter_mut().find(|p| p.town_data_idx == town_idx) {
+                if let Some(player) = res
+                    .ai_state
+                    .players
+                    .iter_mut()
+                    .find(|p| p.town_data_idx == town_idx)
+                {
                     player.active = false;
                 }
-                combat_log.write(CombatLogMsg { kind: CombatEventKind::Raid, faction: defender_faction, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{} has been defeated!", town_name), location: None });
-                info!("{} (town_idx={}) defeated — AI deactivated", town_name, town_idx);
+                combat_log.write(CombatLogMsg {
+                    kind: CombatEventKind::Raid,
+                    faction: defender_faction,
+                    day: game_time.day(),
+                    hour: game_time.hour(),
+                    minute: game_time.minute(),
+                    message: format!("{} has been defeated!", town_name),
+                    location: None,
+                });
+                info!(
+                    "{} (town_idx={}) defeated — AI deactivated",
+                    town_name, town_idx
+                );
 
                 // Endless mode: queue replacement AI scaled to player strength
                 if res.endless.enabled {
-                    let is_raider = res.world_data.towns.get(town_idx)
-                        .map(|t| t.sprite_type == 1).unwrap_or(true);
-                    let player_town = res.world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
+                    let is_raider = res
+                        .world_data
+                        .towns
+                        .get(town_idx)
+                        .map(|t| t.sprite_type == 1)
+                        .unwrap_or(true);
+                    let player_town = res
+                        .world_data
+                        .towns
+                        .iter()
+                        .position(|t| t.faction == 0)
+                        .unwrap_or(0);
                     let player_levels = upgrades.town_levels(player_town);
                     let frac = res.endless.strength_fraction;
-                    let scaled_levels: Vec<u8> = player_levels.iter()
+                    let scaled_levels: Vec<u8> = player_levels
+                        .iter()
                         .map(|&lv| (lv as f32 * frac).round() as u8)
                         .collect();
-                    let starting_food = (food_storage.food.get(player_town).copied().unwrap_or(0) as f32 * frac) as i32;
-                    let starting_gold = (gold_storage.gold.get(player_town).copied().unwrap_or(0) as f32 * frac) as i32;
-                    res.endless.pending_spawns.push(crate::resources::PendingAiSpawn {
-                        delay_remaining: crate::constants::ENDLESS_RESPAWN_DELAY_HOURS,
+                    let starting_food = (food_storage.food.get(player_town).copied().unwrap_or(0)
+                        as f32
+                        * frac) as i32;
+                    let starting_gold = (gold_storage.gold.get(player_town).copied().unwrap_or(0)
+                        as f32
+                        * frac) as i32;
+                    res.endless
+                        .pending_spawns
+                        .push(crate::resources::PendingAiSpawn {
+                            delay_remaining: crate::constants::ENDLESS_RESPAWN_DELAY_HOURS,
+                            is_raider,
+                            upgrade_levels: scaled_levels,
+                            starting_food,
+                            starting_gold,
+                        });
+                    info!(
+                        "Endless mode: queued replacement AI (is_raider={}, delay={}h, strength={:.0}%)",
                         is_raider,
-                        upgrade_levels: scaled_levels,
-                        starting_food,
-                        starting_gold,
-                    });
-                    info!("Endless mode: queued replacement AI (is_raider={}, delay={}h, strength={:.0}%)",
-                        is_raider, crate::constants::ENDLESS_RESPAWN_DELAY_HOURS, frac * 100.0);
+                        crate::constants::ENDLESS_RESPAWN_DELAY_HOURS,
+                        frac * 100.0
+                    );
                 }
             }
 
             // Loot: attacker picks up building loot and returns home
             if let Some(drop) = building_def(kind).loot_drop() {
-                let amount = if drop.min == drop.max { drop.min } else {
+                let amount = if drop.min == drop.max {
+                    drop.min
+                } else {
                     drop.min + ((idx as i32) % (drop.max - drop.min + 1))
                 };
                 if amount > 0 && attacker >= 0 {
                     let attacker_slot = attacker as usize;
                     if let Some(atk) = res.entity_map.get_npc(attacker_slot) {
-                        let dc_keep_fighting = res.npc_flags_q.get(atk.entity).map(|f| f.direct_control).unwrap_or(false) && squad_state.dc_no_return;
+                        let dc_keep_fighting = res
+                            .npc_flags_q
+                            .get(atk.entity)
+                            .map(|f| f.direct_control)
+                            .unwrap_or(false)
+                            && squad_state.dc_no_return;
                         if let Ok(mut act) = res.activity_q.get_mut(atk.entity) {
                             if matches!(*act, Activity::Returning { .. }) {
                                 act.add_loot(drop.item, amount);
                             } else {
-                                *act = Activity::Returning { loot: vec![(drop.item, amount)] };
+                                *act = Activity::Returning {
+                                    loot: vec![(drop.item, amount)],
+                                };
                             }
-                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: attacker_slot }));
+                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty {
+                                idx: attacker_slot,
+                            }));
                         }
                         let atk_entity = atk.entity;
-                        let atk_home = res.home_q.get(atk_entity).map(|h| h.0).unwrap_or(Vec2::ZERO);
+                        let atk_home = res
+                            .home_q
+                            .get(atk_entity)
+                            .map(|h| h.0)
+                            .unwrap_or(Vec2::ZERO);
                         let atk_faction = atk.faction;
                         let atk_slot = atk.slot;
                         if !dc_keep_fighting {
-                            intents.submit(atk_entity, Vec2::new(atk_home.x, atk_home.y), crate::resources::MovementPriority::Survival, "loot:return");
+                            intents.submit(
+                                atk_entity,
+                                Vec2::new(atk_home.x, atk_home.y),
+                                crate::resources::MovementPriority::Survival,
+                                "loot:return",
+                            );
                         }
-                        let item_name = match drop.item { ItemKind::Food => "food", ItemKind::Gold => "gold" };
+                        let item_name = match drop.item {
+                            ItemKind::Food => "food",
+                            ItemKind::Gold => "gold",
+                        };
                         let killer_name = &npc_meta.0[atk_slot].name;
                         let killer_job = crate::job_name(npc_meta.0[atk_slot].job);
-                        combat_log.write(CombatLogMsg { kind: CombatEventKind::Loot, faction: atk_faction, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{} '{}' looted {} {} from {:?}", killer_job, killer_name, amount, item_name, kind), location: None });
+                        combat_log.write(CombatLogMsg {
+                            kind: CombatEventKind::Loot,
+                            faction: atk_faction,
+                            day: game_time.day(),
+                            hour: game_time.hour(),
+                            minute: game_time.minute(),
+                            message: format!(
+                                "{} '{}' looted {} {} from {:?}",
+                                killer_job, killer_name, amount, item_name, kind
+                            ),
+                            location: None,
+                        });
                     }
                 }
             }
@@ -289,16 +451,42 @@ pub fn death_system(
     for &slot in &dead_npc_slots {
         // Extract dead NPC data (immutable borrow ends before killer mutation)
         let (entity, faction, town_idx, job, activity, occupied_slot, work_target, last_hit_by) = {
-            let Some(npc) = res.entity_map.get_npc(slot) else { continue };
-            let activity = res.activity_q.get(npc.entity).map(|a| a.clone()).unwrap_or_default();
+            let Some(npc) = res.entity_map.get_npc(slot) else {
+                continue;
+            };
+            let activity = res
+                .activity_q
+                .get(npc.entity)
+                .map(|a| a.clone())
+                .unwrap_or_default();
             let lhb = res.last_hit_by_q.get(npc.entity).map(|h| h.0).unwrap_or(-1);
-            let ws = res.work_state_q.get(npc.entity).ok().copied().unwrap_or_default();
-            let occ_slot = ws.occupied_building.and_then(|uid| res.entity_map.slot_for_uid(uid));
-            let wt_slot = ws.work_target_building.and_then(|uid| res.entity_map.slot_for_uid(uid));
-            (npc.entity, npc.faction, npc.town_idx, npc.job, activity, occ_slot, wt_slot, lhb)
+            let ws = res
+                .work_state_q
+                .get(npc.entity)
+                .ok()
+                .copied()
+                .unwrap_or_default();
+            let occ_slot = ws
+                .occupied_building
+                .and_then(|uid| res.entity_map.slot_for_uid(uid));
+            let wt_slot = ws
+                .work_target_building
+                .and_then(|uid| res.entity_map.slot_for_uid(uid));
+            (
+                npc.entity,
+                npc.faction,
+                npc.town_idx,
+                npc.job,
+                activity,
+                occ_slot,
+                wt_slot,
+                lhb,
+            )
         };
 
-        if selected.0 == slot as i32 { selected.0 = -1; }
+        if selected.0 == slot as i32 {
+            selected.0 = -1;
+        }
         commands.entity(entity).despawn();
         despawn_count += 1;
 
@@ -320,54 +508,118 @@ pub fn death_system(
                 meta.level = new_level;
 
                 if new_level > old_level {
-                    let old_max = res.cached_stats_q.get(k_entity).map(|s| s.max_health).unwrap_or(100.0);
+                    let old_max = res
+                        .cached_stats_q
+                        .get(k_entity)
+                        .map(|s| s.max_health)
+                        .unwrap_or(100.0);
                     let pers = res.personality_q.get(k_entity).cloned().unwrap_or_default();
-                    let attack_type = res.attack_type_q.get(k_entity).copied().unwrap_or(BaseAttackType::Melee);
-                    let new_cached = resolve_combat_stats(killer.job, attack_type, killer.town_idx, new_level, &pers, &config, &upgrades);
+                    let attack_type = res
+                        .attack_type_q
+                        .get(k_entity)
+                        .copied()
+                        .unwrap_or(BaseAttackType::Melee);
+                    let new_cached = resolve_combat_stats(
+                        killer.job,
+                        attack_type,
+                        killer.town_idx,
+                        new_level,
+                        &pers,
+                        &config,
+                        &upgrades,
+                    );
                     let new_speed = new_cached.speed;
                     let new_max = new_cached.max_health;
-                    if let Ok(mut cs) = res.cached_stats_q.get_mut(k_entity) { *cs = new_cached; }
-                    if let Ok(mut spd) = res.speed_q.get_mut(k_entity) { spd.0 = new_speed; }
+                    if let Ok(mut cs) = res.cached_stats_q.get_mut(k_entity) {
+                        *cs = new_cached;
+                    }
+                    if let Ok(mut spd) = res.speed_q.get_mut(k_entity) {
+                        spd.0 = new_speed;
+                    }
                     if old_max > 0.0 {
                         if let Ok(mut hp) = res.health_q.get_mut(k_entity) {
                             hp.0 = hp.0 * new_max / old_max;
-                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: k_slot, health: hp.0 }));
+                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth {
+                                idx: k_slot,
+                                health: hp.0,
+                            }));
                         }
                     }
-                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: k_slot, speed: new_speed }));
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed {
+                        idx: k_slot,
+                        speed: new_speed,
+                    }));
 
                     let name = &meta.name;
                     let job_str = crate::job_name(meta.job);
-                    combat_log.write(CombatLogMsg { kind: CombatEventKind::LevelUp, faction: k_faction, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{} '{}' reached Lv.{}", job_str, name, new_level), location: None });
+                    combat_log.write(CombatLogMsg {
+                        kind: CombatEventKind::LevelUp,
+                        faction: k_faction,
+                        day: game_time.day(),
+                        hour: game_time.hour(),
+                        minute: game_time.minute(),
+                        message: format!("{} '{}' reached Lv.{}", job_str, name, new_level),
+                        location: None,
+                    });
                 }
 
                 // NPC kill loot
                 let drops = npc_def(job).loot_drop;
                 let drop = &drops[(meta.xp as usize) % drops.len()];
-                let amount = if drop.min == drop.max { drop.min } else {
+                let amount = if drop.min == drop.max {
+                    drop.min
+                } else {
                     drop.min + (meta.xp as i32 % (drop.max - drop.min + 1))
                 };
                 if amount > 0 {
-                    let dc_keep_fighting = res.npc_flags_q.get(k_entity).map(|f| f.direct_control).unwrap_or(false) && squad_state.dc_no_return;
+                    let dc_keep_fighting = res
+                        .npc_flags_q
+                        .get(k_entity)
+                        .map(|f| f.direct_control)
+                        .unwrap_or(false)
+                        && squad_state.dc_no_return;
                     if !dc_keep_fighting {
-                        if let Ok(mut cs) = res.combat_state_q.get_mut(k_entity) { *cs = CombatState::None; }
+                        if let Ok(mut cs) = res.combat_state_q.get_mut(k_entity) {
+                            *cs = CombatState::None;
+                        }
                     }
                     if let Ok(mut act) = res.activity_q.get_mut(k_entity) {
                         if matches!(*act, Activity::Returning { .. }) {
                             act.add_loot(drop.item, amount);
                         } else {
-                            *act = Activity::Returning { loot: vec![(drop.item, amount)] };
+                            *act = Activity::Returning {
+                                loot: vec![(drop.item, amount)],
+                            };
                         }
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: k_slot }));
                     }
                     if !dc_keep_fighting {
-                        intents.submit(k_entity, Vec2::new(k_home.x, k_home.y), crate::resources::MovementPriority::Survival, "loot:return");
+                        intents.submit(
+                            k_entity,
+                            Vec2::new(k_home.x, k_home.y),
+                            crate::resources::MovementPriority::Survival,
+                            "loot:return",
+                        );
                     }
 
-                    let item_name = match drop.item { ItemKind::Food => "food", ItemKind::Gold => "gold" };
+                    let item_name = match drop.item {
+                        ItemKind::Food => "food",
+                        ItemKind::Gold => "gold",
+                    };
                     let killer_name = &npc_meta.0[k_slot].name;
                     let killer_job = crate::job_name(npc_meta.0[k_slot].job);
-                    combat_log.write(CombatLogMsg { kind: CombatEventKind::Loot, faction: k_faction, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: format!("{} '{}' looted {} {}", killer_job, killer_name, amount, item_name), location: None });
+                    combat_log.write(CombatLogMsg {
+                        kind: CombatEventKind::Loot,
+                        faction: k_faction,
+                        day: game_time.day(),
+                        hour: game_time.hour(),
+                        minute: game_time.minute(),
+                        message: format!(
+                            "{} '{}' looted {} {}",
+                            killer_job, killer_name, amount, item_name
+                        ),
+                        location: None,
+                    });
                 }
             }
         }
@@ -388,7 +640,9 @@ pub fn death_system(
             }
         }
         if job == Job::Miner {
-            res.dirty_writers.mining.write(crate::messages::MiningDirtyMsg);
+            res.dirty_writers
+                .mining
+                .write(crate::messages::MiningDirtyMsg);
         }
 
         if faction == 0 {
@@ -405,7 +659,15 @@ pub fn death_system(
         } else {
             format!("{} '{}' Lv.{} died", job_str, meta.name, meta.level)
         };
-        combat_log.write(CombatLogMsg { kind: CombatEventKind::Kill, faction, day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(), message: msg, location: None });
+        combat_log.write(CombatLogMsg {
+            kind: CombatEventKind::Kill,
+            faction,
+            day: game_time.day(),
+            hour: game_time.hour(),
+            minute: game_time.minute(),
+            message: msg,
+            location: None,
+        });
 
         res.faction_stats.dec_alive(faction);
         res.faction_stats.inc_dead(faction);
@@ -431,15 +693,24 @@ pub fn update_healing_zone_cache(
     combat_config: Res<CombatConfig>,
     upgrades: Res<TownUpgrades>,
 ) {
-    if healing_dirty.read().count() == 0 { return; }
+    if healing_dirty.read().count() == 0 {
+        return;
+    }
 
-    let max_faction = world_data.towns.iter().map(|t| t.faction).max().unwrap_or(0);
+    let max_faction = world_data
+        .towns
+        .iter()
+        .map(|t| t.faction)
+        .max()
+        .unwrap_or(0);
     let faction_count = (max_faction + 1).max(0) as usize;
     cache.by_faction.clear();
     cache.by_faction.resize_with(faction_count, Vec::new);
 
     for (town_idx, town) in world_data.towns.iter().enumerate() {
-        if town.faction < 0 { continue; }
+        if town.faction < 0 {
+            continue;
+        }
         let town_levels = upgrades.town_levels(town_idx);
         let heal_mult = UPGRADES.stat_mult(&town_levels, "Town", UpgradeStatKind::Healing);
         let radius_lvl = UPGRADES.stat_level(&town_levels, "Town", UpgradeStatKind::FountainRange);
@@ -458,14 +729,20 @@ pub fn update_healing_zone_cache(
     }
 
     #[cfg(debug_assertions)]
-    info!("Healing zone cache rebuilt: {} factions", cache.by_faction.len());
+    info!(
+        "Healing zone cache rebuilt: {} factions",
+        cache.by_faction.len()
+    );
 }
 
 /// Candidate-driven healing: enter-check (cadenced) + sustain-check (every frame).
 /// Replaces full 50k NPC iteration with O(active_healing + sampled_candidates).
 /// Starving HP cap moved to starvation_system (economy.rs).
 pub fn healing_system(
-    mut npc_q: Query<(&GpuSlot, &mut Health, &CachedStats, &mut NpcFlags, &Faction), (Without<Building>, Without<Dead>)>,
+    mut npc_q: Query<
+        (&GpuSlot, &mut Health, &CachedStats, &mut NpcFlags, &Faction),
+        (Without<Building>, Without<Dead>),
+    >,
     mut building_query: Query<(&GpuSlot, &mut Health, &Faction, &Building), Without<Dead>>,
     gpu_state: Res<GpuReadState>,
     entity_gpu_state: Res<crate::gpu::EntityGpuState>,
@@ -500,13 +777,17 @@ pub fn healing_system(
 
         // Stale/dead slot cleanup
         let Some(npc) = entity_map.get_npc(slot) else {
-            if slot < active.mark.len() { active.mark[slot] = 0; }
+            if slot < active.mark.len() {
+                active.mark[slot] = 0;
+            }
             active.slots.swap_remove(i);
             exit_count += 1;
             continue;
         };
         if npc.dead {
-            if slot < active.mark.len() { active.mark[slot] = 0; }
+            if slot < active.mark.len() {
+                active.mark[slot] = 0;
+            }
             active.slots.swap_remove(i);
             exit_count += 1;
             continue;
@@ -515,7 +796,9 @@ pub fn healing_system(
         // Position + exit check
         let base = slot * 2;
         if base + 1 >= positions.len() {
-            if slot < active.mark.len() { active.mark[slot] = 0; }
+            if slot < active.mark.len() {
+                active.mark[slot] = 0;
+            }
             active.slots.swap_remove(i);
             exit_count += 1;
             continue;
@@ -527,7 +810,11 @@ pub fn healing_system(
         let fac = npc.faction;
         let mut in_zone = false;
         let mut zone_heal_rate = 0.0;
-        if let Some(zones) = if fac >= 0 { cache.by_faction.get(fac as usize) } else { None } {
+        if let Some(zones) = if fac >= 0 {
+            cache.by_faction.get(fac as usize)
+        } else {
+            None
+        } {
             for zone in zones.iter() {
                 let dx = px - zone.center.x;
                 let dy = py - zone.center.y;
@@ -549,7 +836,10 @@ pub fn healing_system(
                 let was_healing = flags.healing;
                 if health.0 < hp_cap {
                     health.0 = (health.0 + zone_heal_rate * dt).min(hp_cap);
-                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: health.0 }));
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth {
+                        idx: slot,
+                        health: health.0,
+                    }));
                     healed_count += 1;
                 }
                 let should_heal = health.0 < hp_cap;
@@ -567,7 +857,9 @@ pub fn healing_system(
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: slot }));
                 }
             }
-            if slot < active.mark.len() { active.mark[slot] = 0; }
+            if slot < active.mark.len() {
+                active.mark[slot] = 0;
+            }
             active.slots.swap_remove(i);
             exit_count += 1;
         }
@@ -580,20 +872,35 @@ pub fn healing_system(
 
     for (town_idx, _town) in world_data.towns.iter().enumerate() {
         for npc in entity_map.npcs_for_town(town_idx as i32) {
-            if npc.dead { continue; }
+            if npc.dead {
+                continue;
+            }
             let slot = npc.slot;
-            if slot % 4 != bucket { continue; }
-            if slot < active.mark.len() && active.mark[slot] == 1 { continue; }
+            if slot % 4 != bucket {
+                continue;
+            }
+            if slot < active.mark.len() && active.mark[slot] == 1 {
+                continue;
+            }
 
             enter_checks += 1;
 
             let base = slot * 2;
-            if base + 1 >= positions.len() { continue; }
+            if base + 1 >= positions.len() {
+                continue;
+            }
             let px = positions[base];
             let py = positions[base + 1];
 
             // Check all same-faction zones using enter_radius_sq
-            if let Some(zones) = { let f = npc.faction; if f >= 0 { cache.by_faction.get(f as usize) } else { None } } {
+            if let Some(zones) = {
+                let f = npc.faction;
+                if f >= 0 {
+                    cache.by_faction.get(f as usize)
+                } else {
+                    None
+                }
+            } {
                 for zone in zones.iter() {
                     let dx = px - zone.center.x;
                     let dy = py - zone.center.y;
@@ -637,14 +944,27 @@ pub fn healing_system(
         let mut any_damaged = false;
         for (npc_idx, mut health, faction, building) in building_query.iter_mut() {
             let max_hp = crate::constants::building_def(building.kind).hp;
-            if health.0 <= 0.0 || health.0 >= max_hp { continue; }
+            if health.0 <= 0.0 || health.0 >= max_hp {
+                continue;
+            }
             any_damaged = true;
             let idx = npc_idx.0;
-            if idx * 2 + 1 >= bld_positions.len() { continue; }
+            if idx * 2 + 1 >= bld_positions.len() {
+                continue;
+            }
             let x = bld_positions[idx * 2];
             let y = bld_positions[idx * 2 + 1];
-            if faction.0 < 0 { continue; }
-            if let Some(zones) = { let f = faction.0; if f >= 0 { cache.by_faction.get(f as usize) } else { None } } {
+            if faction.0 < 0 {
+                continue;
+            }
+            if let Some(zones) = {
+                let f = faction.0;
+                if f >= 0 {
+                    cache.by_faction.get(f as usize)
+                } else {
+                    None
+                }
+            } {
                 let mut zone_heal_rate = 0.0f32;
                 for zone in zones.iter() {
                     let dx = x - zone.center.x;
@@ -656,11 +976,16 @@ pub fn healing_system(
                 }
                 if zone_heal_rate > 0.0 {
                     health.0 = (health.0 + zone_heal_rate * dt).min(max_hp);
-                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: health.0 }));
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth {
+                        idx,
+                        health: health.0,
+                    }));
                 }
             }
         }
-        if !any_damaged { heal_state.needs_healing = false; }
+        if !any_damaged {
+            heal_state.needs_healing = false;
+        }
     }
 
     // Update debug stats

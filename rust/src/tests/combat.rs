@@ -22,7 +22,9 @@ pub fn setup(
 ) {
     // Keep this test deterministic even after user/debug squad interactions.
     for squad in squad_state.squads.iter_mut() {
-        if !squad.is_player() { continue; }
+        if !squad.is_player() {
+            continue;
+        }
         squad.members.clear();
         squad.target = None;
         squad.target_size = 0;
@@ -61,10 +63,15 @@ pub fn setup(
     let slot0 = slot_alloc.alloc().expect("slot alloc");
     spawn_events.write(SpawnNpcMsg {
         slot_idx: slot0,
-        x: 400.0, y: 310.0,
-        job: 1, faction: 0, town_idx: 0,
-        home_x: 400.0, home_y: 400.0,
-        work_x: -1.0, work_y: -1.0,
+        x: 400.0,
+        y: 310.0,
+        job: 1,
+        faction: 0,
+        town_idx: 0,
+        home_x: 400.0,
+        home_y: 400.0,
+        work_x: -1.0,
+        work_y: -1.0,
         starting_post: -1, // no patrol — just stands there
         attack_type: 0,
         uid_override: None,
@@ -72,10 +79,15 @@ pub fn setup(
     let slot1 = slot_alloc.alloc().expect("slot alloc");
     spawn_events.write(SpawnNpcMsg {
         slot_idx: slot1,
-        x: 400.0, y: 290.0,
-        job: 2, faction: 1, town_idx: 1,
-        home_x: 400.0, home_y: 200.0,
-        work_x: -1.0, work_y: -1.0,
+        x: 400.0,
+        y: 290.0,
+        job: 2,
+        faction: 1,
+        town_idx: 1,
+        home_x: 400.0,
+        home_y: 200.0,
+        work_x: -1.0,
+        work_y: -1.0,
         starting_post: -1,
         attack_type: 0,
         uid_override: None,
@@ -100,17 +112,33 @@ pub fn tick(
     mut test: ResMut<TestState>,
     combat_state_q: Query<&crate::components::CombatState>,
 ) {
-    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
+    let Some(elapsed) = test.tick_elapsed(&time) else {
+        return;
+    };
 
     let alive = entity_map.iter_npcs().filter(|n| !n.dead).count();
-    let in_combat = entity_map.iter_npcs().filter(|n| !n.dead && combat_state_q.get(n.entity).is_ok_and(|cs| cs.is_fighting())).count();
+    let in_combat = entity_map
+        .iter_npcs()
+        .filter(|n| {
+            !n.dead
+                && combat_state_q
+                    .get(n.entity)
+                    .is_ok_and(|cs| cs.is_fighting())
+        })
+        .count();
 
     match test.phase {
         // Phase 1: GPU targeting finds enemy
         1 => {
-            test.phase_name = format!("targets_found={} alive={}", combat_debug.targets_found, alive);
+            test.phase_name = format!(
+                "targets_found={} alive={}",
+                combat_debug.targets_found, alive
+            );
             if combat_debug.targets_found > 0 {
-                test.pass_phase(elapsed, format!("targets_found={}", combat_debug.targets_found));
+                test.pass_phase(
+                    elapsed,
+                    format!("targets_found={}", combat_debug.targets_found),
+                );
             } else if elapsed > 10.0 {
                 test.fail_phase(elapsed, format!("targets_found=0 alive={}", alive));
             }
@@ -121,14 +149,26 @@ pub fn tick(
             if in_combat > 0 {
                 test.pass_phase(elapsed, format!("in_combat={}", in_combat));
             } else if elapsed > 15.0 {
-                test.fail_phase(elapsed, format!("in_combat=0 targets={}", combat_debug.targets_found));
+                test.fail_phase(
+                    elapsed,
+                    format!("in_combat=0 targets={}", combat_debug.targets_found),
+                );
             }
         }
         // Phase 3: Damage dealt
         3 => {
-            test.phase_name = format!("damage={} attacks={}", health_debug.damage_processed, combat_debug.attacks_made);
+            test.phase_name = format!(
+                "damage={} attacks={}",
+                health_debug.damage_processed, combat_debug.attacks_made
+            );
             if health_debug.damage_processed > 0 || combat_debug.attacks_made > 0 {
-                test.pass_phase(elapsed, format!("damage={} attacks={}", health_debug.damage_processed, combat_debug.attacks_made));
+                test.pass_phase(
+                    elapsed,
+                    format!(
+                        "damage={} attacks={}",
+                        health_debug.damage_processed, combat_debug.attacks_made
+                    ),
+                );
             } else if elapsed > 20.0 {
                 test.fail_phase(elapsed, format!("damage=0 attacks=0"));
             }
@@ -146,9 +186,15 @@ pub fn tick(
         }
         // Phase 5: NPC dies
         5 => {
-            test.phase_name = format!("alive={}/2 deaths={}", alive, health_debug.deaths_this_frame);
+            test.phase_name = format!(
+                "alive={}/2 deaths={}",
+                alive, health_debug.deaths_this_frame
+            );
             if alive < 2 || health_debug.deaths_this_frame > 0 {
-                test.pass_phase(elapsed, format!("alive={} deaths={}", alive, health_debug.deaths_this_frame));
+                test.pass_phase(
+                    elapsed,
+                    format!("alive={} deaths={}", alive, health_debug.deaths_this_frame),
+                );
             } else if elapsed > 45.0 {
                 test.fail_phase(elapsed, format!("alive={} (no deaths)", alive));
             }

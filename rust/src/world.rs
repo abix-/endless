@@ -4,13 +4,13 @@
 
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 
 /// Serialize Vec2 as [f32; 2] for save file backwards compat.
 pub mod vec2_as_array {
     use bevy::prelude::Vec2;
-    use serde::{Serialize, Deserialize, Serializer, Deserializer};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
     pub fn serialize<S: Serializer>(v: &Vec2, s: S) -> Result<S::Ok, S::Error> {
         [v.x, v.y].serialize(s)
     }
@@ -23,7 +23,7 @@ pub mod vec2_as_array {
 /// Serialize Option<Vec2> as Option<[f32; 2]>.
 mod opt_vec2_as_array {
     use bevy::prelude::Vec2;
-    use serde::{Serializer, Deserializer, Serialize, Deserialize};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
     pub fn serialize<S: Serializer>(v: &Option<Vec2>, s: S) -> Result<S::Ok, S::Error> {
         v.map(|v| [v.x, v.y]).serialize(s)
     }
@@ -33,26 +33,31 @@ mod opt_vec2_as_array {
 }
 
 use crate::components::Job;
-use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID_EXTENT, NPC_REGISTRY};
-use crate::resources::{FoodStorage, GoldStorage, FactionStats, RaiderState, EntityMap, CombatEventKind, GameTime, GpuSlotPool};
-use crate::messages::{DirtyWriters, BuildingGridDirtyMsg};
-use crate::messages::{GpuUpdate, GpuUpdateMsg, CombatLogMsg};
+use crate::constants::{
+    BASE_GRID_MAX, BASE_GRID_MIN, MAX_GRID_EXTENT, NPC_REGISTRY, TOWN_GRID_SPACING,
+};
+use crate::messages::{BuildingGridDirtyMsg, DirtyWriters};
+use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg};
+use crate::resources::{
+    CombatEventKind, EntityMap, FactionStats, FoodStorage, GameTime, GoldStorage, GpuSlotPool,
+    RaiderState,
+};
 
 /// True if a position has not been tombstoned (i.e. the entity still exists).
 /// Tombstoned entities have position.x = -99999.0; this checks > -9000.0.
 #[inline]
-pub fn is_alive(pos: Vec2) -> bool { pos.x > -9000.0 }
-
+pub fn is_alive(pos: Vec2) -> bool {
+    pos.x > -9000.0
+}
 
 // ============================================================================
 // SPRITE DEFINITIONS (from roguelikeSheet_transparent.png)
 // ============================================================================
 
 /// Sprite sheet constants
-pub const CELL: f32 = crate::render::WORLD_CELL;  // 16px sprite + 1px margin
+pub const CELL: f32 = crate::render::WORLD_CELL; // 16px sprite + 1px margin
 pub const SPRITE_SIZE: f32 = crate::render::WORLD_SPRITE_SIZE;
 pub const SHEET_SIZE: (f32, f32) = crate::render::WORLD_SHEET_SIZE;
-
 
 // ============================================================================
 // WORLD DATA STRUCTS
@@ -64,8 +69,8 @@ pub struct Town {
     pub name: String,
     #[serde(with = "vec2_as_array")]
     pub center: Vec2,
-    pub faction: i32,       // 0=Villager, 1+=Raider factions
-    pub sprite_type: i32,   // 0=fountain, 1=tent
+    pub faction: i32,     // 0=Villager, 1+=Raider factions
+    pub sprite_type: i32, // 0=fountain, 1=tent
 }
 
 /// Unified placed-building record. All building kinds (except Town) use this struct.
@@ -92,13 +97,26 @@ pub struct PlacedBuilding {
 
 impl PlacedBuilding {
     pub fn new(position: Vec2, town_idx: u32) -> Self {
-        Self { position, town_idx, patrol_order: 0, assigned_mine: None, manual_mine: false, wall_level: 0 }
+        Self {
+            position,
+            town_idx,
+            patrol_order: 0,
+            assigned_mine: None,
+            manual_mine: false,
+            wall_level: 0,
+        }
     }
     pub fn new_wall(position: Vec2, town_idx: u32) -> Self {
-        Self { position, town_idx, patrol_order: 0, assigned_mine: None, manual_mine: false, wall_level: 1 }
+        Self {
+            position,
+            town_idx,
+            patrol_order: 0,
+            assigned_mine: None,
+            manual_mine: false,
+            wall_level: 1,
+        }
     }
 }
-
 
 // ============================================================================
 // WORLD RESOURCES
@@ -163,7 +181,9 @@ pub struct TownGrids {
 /// Recompute world-edge caps for all town grids.
 pub fn sync_town_grid_world_caps(grid: &WorldGrid, towns: &[Town], town_grids: &mut TownGrids) {
     for tg in &mut town_grids.grids {
-        let Some(town) = towns.get(tg.town_data_idx) else { continue };
+        let Some(town) = towns.get(tg.town_data_idx) else {
+            continue;
+        };
         tg.recompute_world_caps(town.center, grid);
     }
 }
@@ -200,10 +220,19 @@ pub fn is_slot_buildable(grid: &TownGrid, row: i32, col: i32) -> bool {
 }
 
 /// Returns true if world_pos falls inside any town's build area OTHER than own_town_idx.
-pub fn in_foreign_build_area(pos: Vec2, own_town_idx: usize, towns: &[Town], town_grids: &TownGrids) -> bool {
+pub fn in_foreign_build_area(
+    pos: Vec2,
+    own_town_idx: usize,
+    towns: &[Town],
+    town_grids: &TownGrids,
+) -> bool {
     for tg in &town_grids.grids {
-        if tg.town_data_idx == own_town_idx { continue; }
-        let Some(town) = towns.get(tg.town_data_idx) else { continue };
+        if tg.town_data_idx == own_town_idx {
+            continue;
+        }
+        let Some(town) = towns.get(tg.town_data_idx) else {
+            continue;
+        };
         let (row, col) = world_to_town_grid(town.center, pos);
         if is_slot_buildable(tg, row, col) {
             return true;
@@ -213,12 +242,19 @@ pub fn in_foreign_build_area(pos: Vec2, own_town_idx: usize, towns: &[Town], tow
 }
 
 /// All empty buildable slots in a town grid (excludes center 0,0).
-pub fn empty_slots(tg: &TownGrid, center: Vec2, grid: &WorldGrid, entity_map: &crate::resources::EntityMap) -> Vec<(i32, i32)> {
+pub fn empty_slots(
+    tg: &TownGrid,
+    center: Vec2,
+    grid: &WorldGrid,
+    entity_map: &crate::resources::EntityMap,
+) -> Vec<(i32, i32)> {
     let (min_row, max_row, min_col, max_col) = build_bounds(tg);
     let mut out = Vec::new();
     for r in min_row..=max_row {
         for c in min_col..=max_col {
-            if r == 0 && c == 0 { continue; }
+            if r == 0 && c == 0 {
+                continue;
+            }
             let pos = town_grid_to_world(center, r, c);
             let (gc, gr) = grid.world_to_grid(pos);
             if grid.cell(gc, gr).is_some() && !entity_map.has_building_at(gc as _, gr as _) {
@@ -231,14 +267,12 @@ pub fn empty_slots(tg: &TownGrid, center: Vec2, grid: &WorldGrid, entity_map: &c
 
 /// Find which town has a buildable slot matching the given grid coords.
 /// Returns the grid index and town data index.
-pub fn find_town_slot(
-    world_pos: Vec2,
-    towns: &[Town],
-    grids: &TownGrids,
-) -> Option<TownSlotInfo> {
+pub fn find_town_slot(world_pos: Vec2, towns: &[Town], grids: &TownGrids) -> Option<TownSlotInfo> {
     for (grid_idx, town_grid) in grids.grids.iter().enumerate() {
         let town_data_idx = town_grid.town_data_idx;
-        if town_data_idx >= towns.len() { continue; }
+        if town_data_idx >= towns.len() {
+            continue;
+        }
         let town = &towns[town_data_idx];
 
         let (row, col) = world_to_town_grid(town.center, world_pos);
@@ -246,13 +280,16 @@ pub fn find_town_slot(
         // Check click is within reasonable range of this grid's slots
         let slot_pos = town_grid_to_world(town.center, row, col);
         let click_radius = TOWN_GRID_SPACING * 0.7;
-        if world_pos.distance(slot_pos) > click_radius { continue; }
+        if world_pos.distance(slot_pos) > click_radius {
+            continue;
+        }
 
         if is_slot_buildable(town_grid, row, col) {
             return Some(TownSlotInfo {
                 grid_idx,
                 town_data_idx,
-                row, col,
+                row,
+                col,
             });
         }
     }
@@ -261,8 +298,8 @@ pub fn find_town_slot(
 
 /// Info about a clicked town grid slot.
 pub struct TownSlotInfo {
-    pub grid_idx: usize,       // Index into TownGrids.grids
-    pub town_data_idx: usize,  // Index into WorldData.towns
+    pub grid_idx: usize,      // Index into TownGrids.grids
+    pub town_data_idx: usize, // Index into WorldData.towns
     pub row: i32,
     pub col: i32,
 }
@@ -296,8 +333,12 @@ pub(crate) fn place_building(
 
     // Validate: cell exists, empty, not water
     let cell = grid.cell(gc, gr).ok_or("cell out of bounds")?;
-    if entity_map.has_building_at(gc as i32, gr as i32) { return Err("cell already has a building"); }
-    if cell.terrain == Biome::Water { return Err("cannot build on water"); }
+    if entity_map.has_building_at(gc as i32, gr as i32) {
+        return Err("cell already has a building");
+    }
+    if cell.terrain == Biome::Water {
+        return Err("cannot build on water");
+    }
 
     // Reject placement inside another faction's build area
     if in_foreign_build_area(snapped, town_data_idx, &world_data.towns, town_grids) {
@@ -305,38 +346,68 @@ pub(crate) fn place_building(
     }
 
     // Deduct food
-    let food = food_storage.food.get_mut(town_data_idx).ok_or("invalid town")?;
-    if *food < cost { return Err("not enough food"); }
+    let food = food_storage
+        .food
+        .get_mut(town_data_idx)
+        .ok_or("invalid town")?;
+    if *food < cost {
+        return Err("not enough food");
+    }
     *food -= cost;
 
     let def = crate::constants::building_def(kind);
-    let faction = world_data.towns.get(town_data_idx).map(|t| t.faction).unwrap_or(0);
+    let faction = world_data
+        .towns
+        .get(town_data_idx)
+        .map(|t| t.faction)
+        .unwrap_or(0);
 
     // Allocate GPU slot + create instance + register spawner
     let patrol_order = if kind == BuildingKind::Waypoint {
         entity_map.count_for_town(BuildingKind::Waypoint, town_idx) as u32
-    } else { 0 };
+    } else {
+        0
+    };
     let wall_level = if kind == BuildingKind::Wall { 1 } else { 0 };
-    let Some(slot) = place_building_instance(slot_alloc, entity_map, kind, snapped, town_idx, faction, patrol_order, wall_level, uid_alloc, None) else {
+    let Some(slot) = place_building_instance(
+        slot_alloc,
+        entity_map,
+        kind,
+        snapped,
+        town_idx,
+        faction,
+        patrol_order,
+        wall_level,
+        uid_alloc,
+        None,
+    ) else {
         return Err("no GPU slots available");
     };
 
     // Spawn building entity
     {
         use crate::components::*;
-        let entity = commands.spawn((
-            GpuSlot(slot),
-            Position::new(snapped.x, snapped.y),
-            Health(def.hp),
-            Faction(faction),
-            TownId(town_data_idx as i32),
-            Building { kind },
-        )).id();
+        let entity = commands
+            .spawn((
+                GpuSlot(slot),
+                Position::new(snapped.x, snapped.y),
+                Health(def.hp),
+                Faction(faction),
+                TownId(town_data_idx as i32),
+                Building { kind },
+            ))
+            .id();
         entity_map.entities.insert(slot, entity);
     }
     push_building_gpu_updates(
-        slot, kind, snapped, faction, def.hp,
-        crate::constants::tileset_index(kind), def.is_tower, gpu_updates,
+        slot,
+        kind,
+        snapped,
+        faction,
+        def.hp,
+        crate::constants::tileset_index(kind),
+        def.is_tower,
+        gpu_updates,
     );
 
     // Wall auto-tile: update sprites for new wall + neighbors
@@ -352,7 +423,8 @@ pub(crate) fn place_building(
 
 /// Check if a grid cell contains a wall building.
 fn is_wall_at(entity_map: &EntityMap, col: usize, row: usize) -> bool {
-    entity_map.get_at_grid(col as i32, row as i32)
+    entity_map
+        .get_at_grid(col as i32, row as i32)
         .is_some_and(|inst| inst.kind == BuildingKind::Wall)
 }
 
@@ -366,21 +438,21 @@ pub fn wall_autotile_variant(entity_map: &EntityMap, col: usize, row: usize) -> 
     let w = col > 0 && is_wall_at(entity_map, col - 1, row);
     use crate::constants::*;
     match (n, s, e, w) {
-        (false, false, true, true)  => WALL_EW,
+        (false, false, true, true) => WALL_EW,
         (false, false, true, false) => WALL_EW,
         (false, false, false, true) => WALL_EW,
-        (true, true, false, false)  => WALL_NS,
+        (true, true, false, false) => WALL_NS,
         (true, false, false, false) => WALL_NS,
         (false, true, false, false) => WALL_NS,
-        (true, false, true, false)  => WALL_TR,
-        (true, false, false, true)  => WALL_TL,
-        (false, true, false, true)  => WALL_BL,
-        (false, true, true, false)  => WALL_BR,
-        (true, false, true, true)   => WALL_T_OPEN_N,  // 3 neighbors, open north
-        (true, true, true, false)   => WALL_T_OPEN_W,  // 3 neighbors, open west
-        (false, true, true, true)   => WALL_T_OPEN_S,  // 3 neighbors, open south
-        (true, true, false, true)   => WALL_T_OPEN_E,  // 3 neighbors, open east
-        (true, true, true, true)    => WALL_CROSS,      // 4-way
+        (true, false, true, false) => WALL_TR,
+        (true, false, false, true) => WALL_TL,
+        (false, true, false, true) => WALL_BL,
+        (false, true, true, false) => WALL_BR,
+        (true, false, true, true) => WALL_T_OPEN_N, // 3 neighbors, open north
+        (true, true, true, false) => WALL_T_OPEN_W, // 3 neighbors, open west
+        (false, true, true, true) => WALL_T_OPEN_S, // 3 neighbors, open south
+        (true, true, false, true) => WALL_T_OPEN_E, // 3 neighbors, open east
+        (true, true, true, true) => WALL_CROSS,     // 4-way
         _ => WALL_EW,
     }
 }
@@ -390,7 +462,8 @@ pub fn wall_autotile_variant(entity_map: &EntityMap, col: usize, row: usize) -> 
 pub fn update_wall_sprites_around(
     grid: &WorldGrid,
     entity_map: &EntityMap,
-    col: usize, row: usize,
+    col: usize,
+    row: usize,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
 ) {
     let wall_base = crate::constants::tileset_index(BuildingKind::Wall) as f32;
@@ -398,14 +471,20 @@ pub fn update_wall_sprites_around(
     for (dc, dr) in offsets {
         let c = col as i32 + dc;
         let r = row as i32 + dr;
-        if c < 0 || r < 0 { continue; }
+        if c < 0 || r < 0 {
+            continue;
+        }
         let (c, r) = (c as usize, r as usize);
-        if !is_wall_at(entity_map, c, r) { continue; }
+        if !is_wall_at(entity_map, c, r) {
+            continue;
+        }
         let variant = wall_autotile_variant(entity_map, c, r);
         let pos = grid.grid_to_world(c, r);
         if let Some(inst) = entity_map.find_by_position(pos) {
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
-                idx: inst.slot, col: wall_base + variant as f32, row: 0.0,
+                idx: inst.slot,
+                col: wall_base + variant as f32,
+                row: 0.0,
                 atlas: crate::constants::ATLAS_BUILDING,
             }));
         }
@@ -423,7 +502,9 @@ pub fn update_all_wall_sprites(
         let (gc, gr) = grid.world_to_grid(inst.position);
         let variant = wall_autotile_variant(entity_map, gc, gr);
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
-            idx: inst.slot, col: wall_base + variant as f32, row: 0.0,
+            idx: inst.slot,
+            col: wall_base + variant as f32,
+            row: 0.0,
             atlas: crate::constants::ATLAS_BUILDING,
         }));
     }
@@ -436,17 +517,42 @@ pub fn resolve_spawner_npc(
     inst: &crate::resources::BuildingInstance,
     towns: &[Town],
     entity_map: &crate::resources::EntityMap,
-) -> (i32, i32, f32, f32, i32, i32, &'static str, &'static str, Option<usize>) {
-    use crate::constants::{SpawnBehavior, building_def, npc_def};
+) -> (
+    i32,
+    i32,
+    f32,
+    f32,
+    i32,
+    i32,
+    &'static str,
+    &'static str,
+    Option<usize>,
+) {
     use crate::components::Job;
+    use crate::constants::{SpawnBehavior, building_def, npc_def};
 
-    let town_faction = towns.get(inst.town_idx as usize)
-        .map(|t| t.faction).unwrap_or(0);
+    let town_faction = towns
+        .get(inst.town_idx as usize)
+        .map(|t| t.faction)
+        .unwrap_or(0);
 
     let def = building_def(inst.kind);
     let Some(ref spawner) = def.spawner else {
-        let raider_faction = towns.get(inst.town_idx as usize).map(|t| t.faction).unwrap_or(1);
-        return (2, raider_faction, -1.0, -1.0, -1, 0, "Raider", "Unknown", None);
+        let raider_faction = towns
+            .get(inst.town_idx as usize)
+            .map(|t| t.faction)
+            .unwrap_or(1);
+        return (
+            2,
+            raider_faction,
+            -1.0,
+            -1.0,
+            -1,
+            0,
+            "Raider",
+            "Unknown",
+            None,
+        );
     };
 
     let npc_label = npc_def(Job::from_i32(spawner.job)).label;
@@ -454,35 +560,86 @@ pub fn resolve_spawner_npc(
     match spawner.behavior {
         SpawnBehavior::FindNearestFarm => {
             let found = find_nearest_free(
-                inst.position, entity_map, BuildingKind::Farm, Some(inst.town_idx),
+                inst.position,
+                entity_map,
+                BuildingKind::Farm,
+                Some(inst.town_idx),
             );
-            let (work_slot, farm) = found.map(|(s, p)| (Some(s), p)).unwrap_or((None, inst.position));
-            (spawner.job, town_faction, farm.x, farm.y, -1, spawner.attack_type, npc_label, def.label, work_slot)
+            let (work_slot, farm) = found
+                .map(|(s, p)| (Some(s), p))
+                .unwrap_or((None, inst.position));
+            (
+                spawner.job,
+                town_faction,
+                farm.x,
+                farm.y,
+                -1,
+                spawner.attack_type,
+                npc_label,
+                def.label,
+                work_slot,
+            )
         }
         SpawnBehavior::FindNearestWaypoint => {
             let post_idx = find_location_within_radius(
-                inst.position, entity_map, LocationKind::Waypoint, f32::MAX,
-            ).map(|(idx, _)| idx as i32).unwrap_or(-1);
-            (spawner.job, town_faction, -1.0, -1.0, post_idx, spawner.attack_type, npc_label, def.label, None)
+                inst.position,
+                entity_map,
+                LocationKind::Waypoint,
+                f32::MAX,
+            )
+            .map(|(idx, _)| idx as i32)
+            .unwrap_or(-1);
+            (
+                spawner.job,
+                town_faction,
+                -1.0,
+                -1.0,
+                post_idx,
+                spawner.attack_type,
+                npc_label,
+                def.label,
+                None,
+            )
         }
         SpawnBehavior::Raider => {
-            let raider_faction = towns.get(inst.town_idx as usize)
-                .map(|t| t.faction).unwrap_or(1);
-            (spawner.job, raider_faction, -1.0, -1.0, -1, spawner.attack_type, npc_label, def.label, None)
+            let raider_faction = towns
+                .get(inst.town_idx as usize)
+                .map(|t| t.faction)
+                .unwrap_or(1);
+            (
+                spawner.job,
+                raider_faction,
+                -1.0,
+                -1.0,
+                -1,
+                spawner.attack_type,
+                npc_label,
+                def.label,
+                None,
+            )
         }
         SpawnBehavior::Miner => {
             let (work_slot, mine) = if let Some(pos) = inst.assigned_mine {
                 (entity_map.slot_at_position(pos), pos)
             } else {
-                find_nearest_free(
-                    inst.position, entity_map, BuildingKind::GoldMine, None,
-                ).map(|(s, p)| (Some(s), p)).unwrap_or((None, inst.position))
+                find_nearest_free(inst.position, entity_map, BuildingKind::GoldMine, None)
+                    .map(|(s, p)| (Some(s), p))
+                    .unwrap_or((None, inst.position))
             };
-            (spawner.job, town_faction, mine.x, mine.y, -1, spawner.attack_type, npc_label, def.label, work_slot)
+            (
+                spawner.job,
+                town_faction,
+                mine.x,
+                mine.y,
+                -1,
+                spawner.attack_type,
+                npc_label,
+                def.label,
+                work_slot,
+            )
         }
     }
 }
-
 
 /// Push GPU updates for a building slot (position, faction, health, sprite).
 fn push_building_gpu_updates(
@@ -502,14 +659,31 @@ fn push_building_gpu_updates(
     } else {
         crate::constants::ENTITY_FLAG_BUILDING
     };
-    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition { idx: slot, x: pos.x, y: pos.y }));
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition {
+        idx: slot,
+        x: pos.x,
+        y: pos.y,
+    }));
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFaction { idx: slot, faction }));
-    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: max_hp }));
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth {
+        idx: slot,
+        health: max_hp,
+    }));
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFlags { idx: slot, flags }));
-    let half = if kind == BuildingKind::Road { [0.0, 0.0] } else { crate::constants::BUILDING_HITBOX_HALF };
-    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHalfSize { idx: slot, half_w: half[0], half_h: half[1] }));
+    let half = if kind == BuildingKind::Road {
+        [0.0, 0.0]
+    } else {
+        crate::constants::BUILDING_HITBOX_HALF
+    };
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHalfSize {
+        idx: slot,
+        half_w: half[0],
+        half_h: half[1],
+    }));
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
-        idx: slot, col: tileset_idx as f32, row: 0.0,
+        idx: slot,
+        col: tileset_idx as f32,
+        row: 0.0,
         atlas: crate::constants::ATLAS_BUILDING,
     }));
 }
@@ -537,8 +711,15 @@ pub fn place_building_instance(
     let uid = uid_override.unwrap_or_else(|| uid_alloc.next());
     let has_spawner = def.spawner.is_some();
     entity_map.add_instance(crate::resources::BuildingInstance {
-        kind, position: pos, town_idx, slot, faction,
-        patrol_order, assigned_mine: None, manual_mine: false, wall_level,
+        kind,
+        position: pos,
+        town_idx,
+        slot,
+        faction,
+        patrol_order,
+        assigned_mine: None,
+        manual_mine: false,
+        wall_level,
         npc_uid: None,
         respawn_timer: if has_spawner { 0.0 } else { -2.0 },
         growth_ready: false,
@@ -549,8 +730,6 @@ pub fn place_building_instance(
     entity_map.register_uid_slot_only(slot, uid);
     Some(slot)
 }
-
-
 
 /// Spawn ECS entities for all building instances in EntityMap.
 /// Reads instances (which have Entity::PLACEHOLDER), spawns real entities, updates the map.
@@ -568,10 +747,16 @@ pub fn spawn_building_entities(
     let slots: Vec<usize> = entity_map.all_entity_slots().collect();
     let mut count = 0usize;
     for slot in slots {
-        let Some(inst) = entity_map.get_instance(slot) else { continue };
+        let Some(inst) = entity_map.get_instance(slot) else {
+            continue;
+        };
         let def = building_def(inst.kind);
-        let hp = loaded_hp.and_then(|m| m.get(&slot).copied()).unwrap_or(def.hp);
-        if hp <= 0.0 { continue; }
+        let hp = loaded_hp
+            .and_then(|m| m.get(&slot).copied())
+            .unwrap_or(def.hp);
+        if hp <= 0.0 {
+            continue;
+        }
         let pos = inst.position;
         let faction = inst.faction;
         let town_idx = inst.town_idx;
@@ -593,7 +778,16 @@ pub fn spawn_building_entities(
         if let Some(u) = uid {
             entity_map.bind_uid_entity(u, entity);
         }
-        push_building_gpu_updates(slot, kind, pos, faction, hp, tileset_index(kind), def.is_tower, gpu_updates);
+        push_building_gpu_updates(
+            slot,
+            kind,
+            pos,
+            faction,
+            hp,
+            tileset_index(kind),
+            def.is_tower,
+            gpu_updates,
+        );
         count += 1;
     }
     info!("Spawned {} building entities", count);
@@ -605,23 +799,36 @@ fn create_ai_players(
     world_data: &WorldData,
     town_grids: &TownGrids,
 ) -> Vec<crate::systems::AiPlayer> {
-    use crate::systems::{AiKind, AiPlayer, AiPersonality};
     use crate::systems::ai_player::RoadStyle;
+    use crate::systems::{AiKind, AiPersonality, AiPlayer};
     use rand::Rng;
-    let personalities = [AiPersonality::Aggressive, AiPersonality::Balanced, AiPersonality::Economic];
+    let personalities = [
+        AiPersonality::Aggressive,
+        AiPersonality::Balanced,
+        AiPersonality::Economic,
+    ];
     let mut rng = rand::rng();
     let mut players = Vec::new();
     for (grid_idx, tg) in town_grids.grids.iter().enumerate() {
         let tdi = tg.town_data_idx;
         if let Some(town) = world_data.towns.get(tdi) {
             if town.faction > 0 {
-                let kind = if town.sprite_type == 1 { AiKind::Raider } else { AiKind::Builder };
+                let kind = if town.sprite_type == 1 {
+                    AiKind::Raider
+                } else {
+                    AiKind::Builder
+                };
                 let personality = personalities[rng.random_range(0..personalities.len())];
                 let road_style = RoadStyle::random(&mut rng);
                 players.push(AiPlayer {
-                    town_data_idx: tdi, grid_idx, kind, personality, road_style,
+                    town_data_idx: tdi,
+                    grid_idx,
+                    kind,
+                    personality,
+                    road_style,
                     last_actions: std::collections::VecDeque::new(),
-                    active: true, squad_indices: Vec::new(),
+                    active: true,
+                    squad_indices: Vec::new(),
                     squad_cmd: std::collections::HashMap::new(),
                 });
             }
@@ -644,10 +851,15 @@ pub fn setup_world(
     faction_stats: &mut FactionStats,
     raider_state: &mut RaiderState,
     uid_alloc: &mut crate::resources::NextEntityUid,
-) -> (Vec<crate::messages::SpawnNpcMsg>, Vec<crate::systems::AiPlayer>) {
+) -> (
+    Vec<crate::messages::SpawnNpcMsg>,
+    Vec<crate::systems::AiPlayer>,
+) {
     town_grids.grids.clear();
     entity_map.clear_buildings();
-    generate_world(config, grid, world_data, town_grids, slot_alloc, entity_map, uid_alloc);
+    generate_world(
+        config, grid, world_data, town_grids, slot_alloc, entity_map, uid_alloc,
+    );
     entity_map.init_spatial(grid.width as f32 * grid.cell_size);
 
     let n = world_data.towns.len();
@@ -706,7 +918,10 @@ pub fn expand_town_build_area(
 
     for row in new_min_row..=new_max_row {
         for col in new_min_col..=new_max_col {
-            let is_old = row >= old_min_row && row <= old_max_row && col >= old_min_col && col <= old_max_col;
+            let is_old = row >= old_min_row
+                && row <= old_max_row
+                && col >= old_min_col
+                && col <= old_max_col;
             if is_old {
                 continue;
             }
@@ -721,7 +936,6 @@ pub fn expand_town_build_area(
     Ok(())
 }
 
-
 /// Consolidated building destruction: grid clear + growth tombstone + HP zero + combat log.
 /// Grid cleanup for building removal: clears grid cell, updates wall auto-tile, logs combat event.
 /// Does NOT mark the entity as Dead — callers send DamageMsg for that (single Dead writer: death_system).
@@ -731,7 +945,8 @@ pub(crate) fn destroy_building(
     entity_map: &mut EntityMap,
     combat_log: &mut MessageWriter<CombatLogMsg>,
     game_time: &GameTime,
-    row: i32, col: i32,
+    row: i32,
+    col: i32,
     town_center: Vec2,
     reason: &str,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
@@ -739,7 +954,8 @@ pub(crate) fn destroy_building(
     let world_pos = town_grid_to_world(town_center, row, col);
     let (gc, gr) = grid.world_to_grid(world_pos);
 
-    let inst = entity_map.get_at_grid(gc as i32, gr as i32)
+    let inst = entity_map
+        .get_at_grid(gc as i32, gr as i32)
         .ok_or("no building")?;
     let kind = inst.kind;
     let bld_town_idx = inst.town_idx;
@@ -751,19 +967,26 @@ pub(crate) fn destroy_building(
 
     // Combat log — derive faction from building's town_idx
     let bld_town = bld_town_idx as usize;
-    let faction = world_data.towns.get(bld_town).map(|t| t.faction).unwrap_or(0);
+    let faction = world_data
+        .towns
+        .get(bld_town)
+        .map(|t| t.faction)
+        .unwrap_or(0);
     combat_log.write(CombatLogMsg {
-        kind: CombatEventKind::Harvest, faction,
-        day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(),
-        message: reason.to_string(), location: None,
+        kind: CombatEventKind::Harvest,
+        faction,
+        day: game_time.day(),
+        hour: game_time.hour(),
+        minute: game_time.minute(),
+        message: reason.to_string(),
+        location: None,
     });
 
     Ok(())
 }
 
 /// Location types for find_nearest_location.
-#[derive(Clone, Copy, Debug)]
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LocationKind {
     Farm,
     Waypoint,
@@ -772,7 +995,11 @@ pub enum LocationKind {
 }
 
 /// Find nearest location of a given kind (no radius limit, position only).
-pub fn find_nearest_location(from: Vec2, entity_map: &crate::resources::EntityMap, kind: LocationKind) -> Option<Vec2> {
+pub fn find_nearest_location(
+    from: Vec2,
+    entity_map: &crate::resources::EntityMap,
+    kind: LocationKind,
+) -> Option<Vec2> {
     find_location_within_radius(from, entity_map, kind, f32::MAX).map(|(_, pos)| pos)
 }
 
@@ -799,7 +1026,9 @@ pub fn find_location_within_radius(
         } else {
             inst.kind == bkind
         };
-        if !matches { return; }
+        if !matches {
+            return;
+        }
         let dx = inst.position.x - from.x;
         let dy = inst.position.y - from.y;
         let d2 = dx * dx + dy * dy;
@@ -824,8 +1053,12 @@ pub trait Worksite {
 }
 
 impl Worksite for PlacedBuilding {
-    fn position(&self) -> Vec2 { self.position }
-    fn town_idx(&self) -> u32 { self.town_idx }
+    fn position(&self) -> Vec2 {
+        self.position
+    }
+    fn town_idx(&self) -> u32 {
+        self.town_idx
+    }
 }
 
 /// Find nearest unoccupied building of `kind`, optionally filtered by town.
@@ -844,11 +1077,17 @@ pub fn find_nearest_free(
     let mut result: Option<(usize, Vec2)> = None;
     loop {
         entity_map.for_each_nearby(from, radius, |inst| {
-            if inst.kind != kind { return; }
-            if let Some(tid) = town_idx {
-                if inst.town_idx != tid { return; }
+            if inst.kind != kind {
+                return;
             }
-            if inst.occupants >= 1 { return; }
+            if let Some(tid) = town_idx {
+                if inst.town_idx != tid {
+                    return;
+                }
+            }
+            if inst.occupants >= 1 {
+                return;
+            }
             let dx = inst.position.x - from.x;
             let dy = inst.position.y - from.y;
             let d2 = dx * dx + dy * dy;
@@ -858,7 +1097,9 @@ pub fn find_nearest_free(
             }
         });
         // Found one within this ring, or searched the whole world
-        if result.is_some() || radius >= max_radius { break; }
+        if result.is_some() || radius >= max_radius {
+            break;
+        }
         radius *= 2.0;
     }
     result
@@ -876,7 +1117,9 @@ pub fn find_within_radius(
     let mut best_d2 = f32::MAX;
     let mut result: Option<(usize, Vec2)> = None;
     entity_map.for_each_nearby(from, radius, |inst| {
-        if inst.kind != kind || inst.town_idx != town_idx { return; }
+        if inst.kind != kind || inst.town_idx != town_idx {
+            return;
+        }
         let dx = inst.position.x - from.x;
         let dy = inst.position.y - from.y;
         let d2 = dx * dx + dy * dy;
@@ -899,7 +1142,21 @@ pub fn find_by_pos<W: Worksite>(sites: &[W], pos: Vec2) -> Option<usize> {
 // ============================================================================
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum BuildingKind { Fountain, Bed, Waypoint, Farm, FarmerHome, ArcherHome, Tent, GoldMine, MinerHome, CrossbowHome, FighterHome, Road, Wall }
+pub enum BuildingKind {
+    Fountain,
+    Bed,
+    Waypoint,
+    Farm,
+    FarmerHome,
+    ArcherHome,
+    Tent,
+    GoldMine,
+    MinerHome,
+    CrossbowHome,
+    FighterHome,
+    Road,
+    Wall,
+}
 
 /// Rebuild building spatial grid. Only runs when BuildingGridDirtyMsg is received.
 pub fn rebuild_building_grid_system(
@@ -907,7 +1164,9 @@ pub fn rebuild_building_grid_system(
     mut grid_dirty: MessageReader<BuildingGridDirtyMsg>,
     grid: Res<WorldGrid>,
 ) {
-    if grid.width == 0 || grid_dirty.read().count() == 0 { return; }
+    if grid.width == 0 || grid_dirty.read().count() == 0 {
+        return;
+    }
     let world_size_px = grid.width as f32 * grid.cell_size;
     entity_map.init_spatial(world_size_px);
     entity_map.rebuild_spatial();
@@ -933,7 +1192,13 @@ impl Biome {
     /// Grass alternates 0/1, Forest cycles 2-7, Water=8, Rock=9, Dirt=10.
     pub fn tileset_index(self, cell_index: usize) -> u16 {
         match self {
-            Biome::Grass => if cell_index % 2 == 0 { 0 } else { 1 },
+            Biome::Grass => {
+                if cell_index % 2 == 0 {
+                    0
+                } else {
+                    1
+                }
+            }
             Biome::Forest => 2 + (cell_index % 6) as u16,
             Biome::Water => 8,
             Biome::Rock => 9,
@@ -947,30 +1212,33 @@ pub use crate::constants::TileSpec;
 
 /// Atlas (col, row) positions for the 11 terrain tiles used in the TilemapChunk tileset.
 pub const TERRAIN_TILES: [TileSpec; 11] = [
-    TileSpec::Single(3, 16),  // 0: Grass A
-    TileSpec::Single(3, 13),  // 1: Grass B
-    TileSpec::Single(13, 9),  // 2: Forest A
-    TileSpec::Single(14, 9),  // 3: Forest B
-    TileSpec::Single(15, 9),  // 4: Forest C
-    TileSpec::Single(16, 9),  // 5: Forest D
-    TileSpec::Single(17, 9),  // 6: Forest E
-    TileSpec::Single(18, 9),  // 7: Forest F
-    TileSpec::Single(3, 1),   // 8: Water
-    TileSpec::Quad([(7, 15), (9, 15), (7, 17), (9, 17)]),  // 9: Rock
-    TileSpec::Single(8, 10),  // 10: Dirt
+    TileSpec::Single(3, 16),                              // 0: Grass A
+    TileSpec::Single(3, 13),                              // 1: Grass B
+    TileSpec::Single(13, 9),                              // 2: Forest A
+    TileSpec::Single(14, 9),                              // 3: Forest B
+    TileSpec::Single(15, 9),                              // 4: Forest C
+    TileSpec::Single(16, 9),                              // 5: Forest D
+    TileSpec::Single(17, 9),                              // 6: Forest E
+    TileSpec::Single(18, 9),                              // 7: Forest F
+    TileSpec::Single(3, 1),                               // 8: Water
+    TileSpec::Quad([(7, 15), (9, 15), (7, 17), (9, 17)]), // 9: Rock
+    TileSpec::Single(8, 10),                              // 10: Dirt
 ];
 
 /// Build the BUILDING_TILES array from the registry (for atlas construction).
 pub fn building_tiles() -> Vec<crate::constants::TileSpec> {
-    crate::constants::BUILDING_REGISTRY.iter().map(|d| d.tile).collect()
+    crate::constants::BUILDING_REGISTRY
+        .iter()
+        .map(|d| d.tile)
+        .collect()
 }
 
 /// Composite tiles into a vertical strip buffer (32 x 32*layers).
 /// Core logic shared by tilemap tileset and building atlas.
 fn build_tile_strip(atlas: &Image, tiles: &[TileSpec], extra: &[&Image]) -> (Vec<u8>, u32) {
-    let sprite = SPRITE_SIZE as u32;    // 16
-    let out_size = sprite * 2;          // 32
-    let cell_size = CELL as u32;        // 17
+    let sprite = SPRITE_SIZE as u32; // 16
+    let out_size = sprite * 2; // 32
+    let cell_size = CELL as u32; // 17
     let atlas_width = atlas.width();
     let layers = tiles.len() as u32;
 
@@ -984,7 +1252,8 @@ fn build_tile_strip(atlas: &Image, tiles: &[TileSpec], extra: &[&Image]) -> (Vec
         for ty in 0..sprite {
             for tx in 0..sprite {
                 let si = ((src_y + ty) * atlas_width + (src_x + tx)) as usize * 4;
-                let di = (layer * out_size * out_size + (dy + ty) * out_size + (dx + tx)) as usize * 4;
+                let di =
+                    (layer * out_size * out_size + (dy + ty) * out_size + (dx + tx)) as usize * 4;
                 data[di..di + 4].copy_from_slice(&atlas_data[si..si + 4]);
             }
         }
@@ -1005,7 +1274,9 @@ fn build_tile_strip(atlas: &Image, tiles: &[TileSpec], extra: &[&Image]) -> (Vec
                             for ox in 0..2u32 {
                                 let di = (l * out_size * out_size
                                     + (ty * 2 + oy) * out_size
-                                    + (tx * 2 + ox)) as usize * 4;
+                                    + (tx * 2 + ox))
+                                    as usize
+                                    * 4;
                                 data[di..di + 4].copy_from_slice(&atlas_data[si..si + 4]);
                             }
                         }
@@ -1013,13 +1284,15 @@ fn build_tile_strip(atlas: &Image, tiles: &[TileSpec], extra: &[&Image]) -> (Vec
                 }
             }
             TileSpec::Quad(q) => {
-                blit(&mut data, l, q[0].0, q[0].1, 0, 0);              // TL
-                blit(&mut data, l, q[1].0, q[1].1, sprite, 0);         // TR
-                blit(&mut data, l, q[2].0, q[2].1, 0, sprite);         // BL
-                blit(&mut data, l, q[3].0, q[3].1, sprite, sprite);    // BR
+                blit(&mut data, l, q[0].0, q[0].1, 0, 0); // TL
+                blit(&mut data, l, q[1].0, q[1].1, sprite, 0); // TR
+                blit(&mut data, l, q[2].0, q[2].1, 0, sprite); // BL
+                blit(&mut data, l, q[3].0, q[3].1, sprite, sprite); // BR
             }
             TileSpec::External(_path) => {
-                let Some(ext) = extra.get(ext_counter).copied() else { continue; };
+                let Some(ext) = extra.get(ext_counter).copied() else {
+                    continue;
+                };
                 ext_counter += 1;
                 let ext_data = ext.data.as_ref().expect("external image has no data");
                 let layer_offset = (l * out_size * out_size * 4) as usize;
@@ -1055,7 +1328,12 @@ fn build_tile_strip(atlas: &Image, tiles: &[TileSpec], extra: &[&Image]) -> (Vec
 }
 
 /// Tilemap: strip -> texture_2d_array (for TilemapChunk).
-pub fn build_tileset(atlas: &Image, tiles: &[TileSpec], extra: &[&Image], images: &mut Assets<Image>) -> Handle<Image> {
+pub fn build_tileset(
+    atlas: &Image,
+    tiles: &[TileSpec],
+    extra: &[&Image],
+    images: &mut Assets<Image>,
+) -> Handle<Image> {
     let (data, layers) = build_tile_strip(atlas, tiles, extra);
     let out_size = SPRITE_SIZE as u32 * 2;
     let mut image = Image::new(
@@ -1069,7 +1347,9 @@ pub fn build_tileset(atlas: &Image, tiles: &[TileSpec], extra: &[&Image], images
         TextureFormat::Rgba8UnormSrgb,
         Default::default(),
     );
-    image.reinterpret_stacked_2d_as_array(layers).expect("tileset reinterpret failed");
+    image
+        .reinterpret_stacked_2d_as_array(layers)
+        .expect("tileset reinterpret failed");
     images.add(image)
 }
 
@@ -1105,7 +1385,12 @@ pub fn extract_sprite_32(img: &Image, src_x: u32) -> Vec<u8> {
 
 /// Building atlas: strip as texture_2d (for NPC instanced shader).
 /// Appends wall auto-tile variant layers (rotated E-W and corner sprites).
-pub fn build_building_atlas(atlas: &Image, tiles: &[TileSpec], extra: &[&Image], images: &mut Assets<Image>) -> Handle<Image> {
+pub fn build_building_atlas(
+    atlas: &Image,
+    tiles: &[TileSpec],
+    extra: &[&Image],
+    images: &mut Assets<Image>,
+) -> Handle<Image> {
     let (mut data, base_layers) = build_tile_strip(atlas, tiles, extra);
     let out_size = SPRITE_SIZE as u32 * 2; // 32
     let layer_bytes = (out_size * out_size * 4) as usize;
@@ -1117,10 +1402,14 @@ pub fn build_building_atlas(atlas: &Image, tiles: &[TileSpec], extra: &[&Image],
         let mut found = None;
         for def in crate::constants::BUILDING_REGISTRY {
             if def.kind == BuildingKind::Wall {
-                if matches!(def.tile, crate::constants::TileSpec::External(_)) { found = Some(idx); }
+                if matches!(def.tile, crate::constants::TileSpec::External(_)) {
+                    found = Some(idx);
+                }
                 break;
             }
-            if matches!(def.tile, crate::constants::TileSpec::External(_)) { idx += 1; }
+            if matches!(def.tile, crate::constants::TileSpec::External(_)) {
+                idx += 1;
+            }
         }
         found
     };
@@ -1139,10 +1428,10 @@ pub fn build_building_atlas(atlas: &Image, tiles: &[TileSpec], extra: &[&Image],
             }
 
             // Generate rotated variants
-            let ns_sprite = rotate_90_cw(&ew_sprite, out_size);  // N-S straight
-            let bl_sprite = rotate_90_cw(&br_sprite, out_size);  // BL corner
-            let tl_sprite = rotate_90_cw(&bl_sprite, out_size);  // TL corner (180°)
-            let tr_sprite = rotate_90_cw(&tl_sprite, out_size);  // TR corner (270°)
+            let ns_sprite = rotate_90_cw(&ew_sprite, out_size); // N-S straight
+            let bl_sprite = rotate_90_cw(&br_sprite, out_size); // BL corner
+            let tl_sprite = rotate_90_cw(&bl_sprite, out_size); // TL corner (180°)
+            let tr_sprite = rotate_90_cw(&tl_sprite, out_size); // TR corner (270°)
 
             // Extract junction/cross sprite at x=33, T-junction at x=99
             let cross_sprite = extract_sprite_32(wall_img, 33);
@@ -1158,10 +1447,10 @@ pub fn build_building_atlas(atlas: &Image, tiles: &[TileSpec], extra: &[&Image],
             data.extend_from_slice(&tl_sprite);
             data.extend_from_slice(&tr_sprite);
             data.extend_from_slice(&cross_sprite);
-            data.extend_from_slice(&t_sprite);  // open N on screen
-            data.extend_from_slice(&t_90);      // open W on screen
-            data.extend_from_slice(&t_180);     // open S on screen
-            data.extend_from_slice(&t_270);     // open E on screen
+            data.extend_from_slice(&t_sprite); // open N on screen
+            data.extend_from_slice(&t_90); // open W on screen
+            data.extend_from_slice(&t_180); // open S on screen
+            data.extend_from_slice(&t_270); // open E on screen
 
             base_layers + crate::constants::WALL_EXTRA_LAYERS as u32
         } else {
@@ -1212,7 +1501,11 @@ pub fn build_extras_atlas(sprites: &[Image], images: &mut Assets<Image>) -> Hand
     }
 
     images.add(Image::new(
-        Extent3d { width: cell * count, height: cell, depth_or_array_layers: 1 },
+        Extent3d {
+            width: cell * count,
+            height: cell,
+            depth_or_array_layers: 1,
+        },
         TextureDimension::D2,
         data,
         TextureFormat::Rgba8UnormSrgb,
@@ -1269,7 +1562,10 @@ impl WorldGrid {
     pub fn world_to_grid(&self, pos: Vec2) -> (usize, usize) {
         let col = (pos.x / self.cell_size).floor().max(0.0) as usize;
         let row = (pos.y / self.cell_size).floor().max(0.0) as usize;
-        (col.min(self.width.saturating_sub(1)), row.min(self.height.saturating_sub(1)))
+        (
+            col.min(self.width.saturating_sub(1)),
+            row.min(self.height.saturating_sub(1)),
+        )
     }
 
     /// Convert grid coordinates to world position (center of cell).
@@ -1325,15 +1621,29 @@ impl Default for WorldGenConfig {
             grid_spacing: 34.0,
             raider_distance: 3500.0,
             farms_per_town: 2,
-            npc_counts: NPC_REGISTRY.iter().map(|d| (d.job, d.default_count)).collect(),
+            npc_counts: NPC_REGISTRY
+                .iter()
+                .map(|d| (d.job, d.default_count))
+                .collect(),
             ai_towns: 1,
             raider_towns: 1,
             gold_mines_per_town: 2,
             town_names: vec![
-                "Miami".into(), "Orlando".into(), "Tampa".into(), "Jacksonville".into(),
-                "Tallahassee".into(), "Gainesville".into(), "Pensacola".into(), "Sarasota".into(),
-                "Naples".into(), "Daytona".into(), "Lakeland".into(), "Ocala".into(),
-                "Boca Raton".into(), "Key West".into(), "Fort Myers".into(),
+                "Miami".into(),
+                "Orlando".into(),
+                "Tampa".into(),
+                "Jacksonville".into(),
+                "Tallahassee".into(),
+                "Gainesville".into(),
+                "Pensacola".into(),
+                "Sarasota".into(),
+                "Naples".into(),
+                "Daytona".into(),
+                "Lakeland".into(),
+                "Ocala".into(),
+                "Boca Raton".into(),
+                "Key West".into(),
+                "Fort Myers".into(),
             ],
         }
     }
@@ -1396,9 +1706,14 @@ pub fn generate_world(
         // Continents: reject Water cells
         if is_continents {
             let (gc, gr) = grid.world_to_grid(pos);
-            if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) { continue; }
+            if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) {
+                continue;
+            }
         }
-        if all_positions.iter().all(|e| pos.distance(*e) >= config.min_town_distance) {
+        if all_positions
+            .iter()
+            .all(|e| pos.distance(*e) >= config.min_town_distance)
+        {
             // Snap to grid cell center so fountain sprite aligns with its grid cell
             let (gc, gr) = grid.world_to_grid(pos);
             let pos = grid.grid_to_world(gc, gr);
@@ -1408,21 +1723,44 @@ pub fn generate_world(
     }
 
     if player_positions.len() < config.num_towns {
-        warn!("generate_world: only placed {}/{} player towns", player_positions.len(), config.num_towns);
+        warn!(
+            "generate_world: only placed {}/{} player towns",
+            player_positions.len(),
+            config.num_towns
+        );
     }
 
     // Register player towns
     for &center in &player_positions {
-        let name = names.get(name_idx).cloned().unwrap_or_else(|| format!("Town {}", name_idx));
+        let name = names
+            .get(name_idx)
+            .cloned()
+            .unwrap_or_else(|| format!("Town {}", name_idx));
         name_idx += 1;
-        world_data.towns.push(Town { name, center, faction: 0, sprite_type: 0 });
+        world_data.towns.push(Town {
+            name,
+            center,
+            faction: 0,
+            sprite_type: 0,
+        });
         let town_data_idx = world_data.towns.len() - 1;
         let town_idx = town_data_idx as u32;
         let mut tg = TownGrid::new_base(town_data_idx);
         tg.recompute_world_caps(center, grid);
         town_grids.grids.push(tg);
         let gi = town_grids.grids.len() - 1;
-        place_buildings(grid, world_data, center, town_idx, config,&mut town_grids.grids[gi], false, slot_alloc, entity_map, uid_alloc);
+        place_buildings(
+            grid,
+            world_data,
+            center,
+            town_idx,
+            config,
+            &mut town_grids.grids[gi],
+            false,
+            slot_alloc,
+            entity_map,
+            uid_alloc,
+        );
     }
 
     // Step 3: Place AI town centers (Builder AI, each gets unique faction)
@@ -1435,9 +1773,14 @@ pub fn generate_world(
         let pos = Vec2::new(x, y);
         if is_continents {
             let (gc, gr) = grid.world_to_grid(pos);
-            if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) { continue; }
+            if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) {
+                continue;
+            }
         }
-        if all_positions.iter().all(|e| pos.distance(*e) >= config.min_town_distance) {
+        if all_positions
+            .iter()
+            .all(|e| pos.distance(*e) >= config.min_town_distance)
+        {
             let (gc, gr) = grid.world_to_grid(pos);
             let pos = grid.grid_to_world(gc, gr);
             ai_town_positions.push(pos);
@@ -1446,18 +1789,37 @@ pub fn generate_world(
     }
 
     for &center in &ai_town_positions {
-        let name = names.get(name_idx).cloned().unwrap_or_else(|| format!("AI Town {}", name_idx));
+        let name = names
+            .get(name_idx)
+            .cloned()
+            .unwrap_or_else(|| format!("AI Town {}", name_idx));
         name_idx += 1;
         let faction = next_faction;
         next_faction += 1;
-        world_data.towns.push(Town { name, center, faction, sprite_type: 0 });
+        world_data.towns.push(Town {
+            name,
+            center,
+            faction,
+            sprite_type: 0,
+        });
         let town_data_idx = world_data.towns.len() - 1;
         let town_idx = town_data_idx as u32;
         let mut tg = TownGrid::new_base(town_data_idx);
         tg.recompute_world_caps(center, grid);
         town_grids.grids.push(tg);
         let gi = town_grids.grids.len() - 1;
-        place_buildings(grid, world_data, center, town_idx, config,&mut town_grids.grids[gi], false, slot_alloc, entity_map, uid_alloc);
+        place_buildings(
+            grid,
+            world_data,
+            center,
+            town_idx,
+            config,
+            &mut town_grids.grids[gi],
+            false,
+            slot_alloc,
+            entity_map,
+            uid_alloc,
+        );
     }
 
     // Step 4: Place raider town centers (Raider AI, each gets unique faction)
@@ -1470,9 +1832,14 @@ pub fn generate_world(
         let pos = Vec2::new(x, y);
         if is_continents {
             let (gc, gr) = grid.world_to_grid(pos);
-            if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) { continue; }
+            if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) {
+                continue;
+            }
         }
-        if all_positions.iter().all(|e| pos.distance(*e) >= config.min_town_distance) {
+        if all_positions
+            .iter()
+            .all(|e| pos.distance(*e) >= config.min_town_distance)
+        {
             let (gc, gr) = grid.world_to_grid(pos);
             let pos = grid.grid_to_world(gc, gr);
             raider_positions.push(pos);
@@ -1483,14 +1850,30 @@ pub fn generate_world(
     for &center in &raider_positions {
         let faction = next_faction;
         next_faction += 1;
-        world_data.towns.push(Town { name: "Raider Town".into(), center, faction, sprite_type: 1 });
+        world_data.towns.push(Town {
+            name: "Raider Town".into(),
+            center,
+            faction,
+            sprite_type: 1,
+        });
         let town_data_idx = world_data.towns.len() - 1;
         let town_idx = town_data_idx as u32;
         let mut tg = TownGrid::new_base(town_data_idx);
         tg.recompute_world_caps(center, grid);
         town_grids.grids.push(tg);
         let gi = town_grids.grids.len() - 1;
-        place_buildings(grid, world_data, center, town_idx, config,&mut town_grids.grids[gi], true, slot_alloc, entity_map, uid_alloc);
+        place_buildings(
+            grid,
+            world_data,
+            center,
+            town_idx,
+            config,
+            &mut town_grids.grids[gi],
+            true,
+            slot_alloc,
+            entity_map,
+            uid_alloc,
+        );
     }
 
     // Step 5: Generate terrain
@@ -1513,27 +1896,59 @@ pub fn generate_world(
         // Not on water
         if is_continents {
             let (gc, gr) = grid.world_to_grid(pos);
-            if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) { continue; }
+            if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) {
+                continue;
+            }
         }
         // Min distance from settlements
-        if all_positions.iter().any(|s| pos.distance(*s) < crate::constants::MINE_MIN_SETTLEMENT_DIST) {
+        if all_positions
+            .iter()
+            .any(|s| pos.distance(*s) < crate::constants::MINE_MIN_SETTLEMENT_DIST)
+        {
             continue;
         }
         // Min distance from other mines
-        if mine_positions.iter().any(|m| pos.distance(*m) < crate::constants::MINE_MIN_SPACING) {
+        if mine_positions
+            .iter()
+            .any(|m| pos.distance(*m) < crate::constants::MINE_MIN_SPACING)
+        {
             continue;
         }
         // Snap to grid and place
         let (gc, gr) = grid.world_to_grid(pos);
-        if entity_map.has_building_at(gc as i32, gr as i32) { continue; }
+        if entity_map.has_building_at(gc as i32, gr as i32) {
+            continue;
+        }
         let snapped = grid.grid_to_world(gc, gr);
-        place_building_instance(slot_alloc, entity_map, BuildingKind::GoldMine, snapped, 0, crate::constants::FACTION_NEUTRAL, 0, 0, uid_alloc, None);
+        place_building_instance(
+            slot_alloc,
+            entity_map,
+            BuildingKind::GoldMine,
+            snapped,
+            0,
+            crate::constants::FACTION_NEUTRAL,
+            0,
+            0,
+            uid_alloc,
+            None,
+        );
         mine_positions.push(snapped);
     }
 
-    info!("generate_world: {} player towns, {} AI towns, {} raider towns, {} gold mines, grid {}x{} ({})",
-        player_positions.len(), ai_town_positions.len(), raider_positions.len(), mine_positions.len(), w, h,
-        if is_continents { "continents" } else { "classic" });
+    info!(
+        "generate_world: {} player towns, {} AI towns, {} raider towns, {} gold mines, grid {}x{} ({})",
+        player_positions.len(),
+        ai_town_positions.len(),
+        raider_positions.len(),
+        mine_positions.len(),
+        w,
+        h,
+        if is_continents {
+            "continents"
+        } else {
+            "classic"
+        }
+    );
 }
 
 /// Place buildings for a town. Unified builder for both AI kinds:
@@ -1552,10 +1967,19 @@ pub fn place_buildings(
     uid_alloc: &mut crate::resources::NextEntityUid,
 ) {
     let mut occupied = HashSet::new();
-    let faction = world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
+    let faction = world_data
+        .towns
+        .get(town_idx as usize)
+        .map(|t| t.faction)
+        .unwrap_or(0);
 
     // Helper: place building at town grid (row, col), return snapped world position
-    let place = |row: i32, col: i32, _kind: BuildingKind, _ti: u32, occ: &mut HashSet<(i32, i32)>| -> Vec2 {
+    let place = |row: i32,
+                 col: i32,
+                 _kind: BuildingKind,
+                 _ti: u32,
+                 occ: &mut HashSet<(i32, i32)>|
+     -> Vec2 {
         let world_pos = town_grid_to_world(center, row, col);
         let (gc, gr) = grid.world_to_grid(world_pos);
         let snapped_pos = grid.grid_to_world(gc, gr);
@@ -1566,10 +1990,22 @@ pub fn place_buildings(
     // Center building at (0, 0) — Fountain
     let center_kind = BuildingKind::Fountain;
     place(0, 0, center_kind, town_idx, &mut occupied);
-    place_building_instance(slot_alloc, entity_map, center_kind, center, town_idx, faction, 0, 0, uid_alloc, None);
+    place_building_instance(
+        slot_alloc,
+        entity_map,
+        center_kind,
+        center,
+        town_idx,
+        faction,
+        0,
+        0,
+        uid_alloc,
+        None,
+    );
 
     // Count NPC homes needed (raider units for raider towns, village units for builder towns)
-    let homes: usize = NPC_REGISTRY.iter()
+    let homes: usize = NPC_REGISTRY
+        .iter()
         .filter(|d| d.is_raider_unit == is_raider)
         .map(|d| config.npc_counts.get(&d.job).copied().unwrap_or(0))
         .sum();
@@ -1579,18 +2015,47 @@ pub fn place_buildings(
 
     // Farms (towns only)
     for _ in 0..farms_count {
-        let Some((row, col)) = slot_iter.next() else { break };
+        let Some((row, col)) = slot_iter.next() else {
+            break;
+        };
         let pos = place(row, col, BuildingKind::Farm, town_idx, &mut occupied);
-        place_building_instance(slot_alloc, entity_map, BuildingKind::Farm, pos, town_idx, faction, 0, 0, uid_alloc, None);
+        place_building_instance(
+            slot_alloc,
+            entity_map,
+            BuildingKind::Farm,
+            pos,
+            town_idx,
+            faction,
+            0,
+            0,
+            uid_alloc,
+            None,
+        );
     }
 
     // NPC homes from registry (filtered by is_raider_unit matching is_raider)
-    for def in NPC_REGISTRY.iter().filter(|d| d.is_raider_unit == is_raider) {
+    for def in NPC_REGISTRY
+        .iter()
+        .filter(|d| d.is_raider_unit == is_raider)
+    {
         let count = config.npc_counts.get(&def.job).copied().unwrap_or(0);
         for _ in 0..count {
-            let Some((row, col)) = slot_iter.next() else { break };
+            let Some((row, col)) = slot_iter.next() else {
+                break;
+            };
             let pos = place(row, col, def.home_building, town_idx, &mut occupied);
-            place_building_instance(slot_alloc, entity_map, def.home_building, pos, town_idx, faction, 0, 0, uid_alloc, None);
+            place_building_instance(
+                slot_alloc,
+                entity_map,
+                def.home_building,
+                pos,
+                town_idx,
+                faction,
+                0,
+                0,
+                uid_alloc,
+                None,
+            );
         }
     }
 
@@ -1598,7 +2063,9 @@ pub fn place_buildings(
     if !is_raider {
         let (min_row, max_row, min_col, max_col) = occupied.iter().fold(
             (i32::MAX, i32::MIN, i32::MAX, i32::MIN),
-            |(rmin, rmax, cmin, cmax), &(r, c)| (rmin.min(r), rmax.max(r), cmin.min(c), cmax.max(c)),
+            |(rmin, rmax, cmin, cmax), &(r, c)| {
+                (rmin.min(r), rmax.max(r), cmin.min(c), cmax.max(c))
+            },
         );
         let corners = [
             (max_row + 1, min_col - 1), // TL (top-left)
@@ -1608,7 +2075,18 @@ pub fn place_buildings(
         ];
         for (order, (row, col)) in corners.into_iter().enumerate() {
             let post_pos = place(row, col, BuildingKind::Waypoint, town_idx, &mut occupied);
-            place_building_instance(slot_alloc, entity_map, BuildingKind::Waypoint, post_pos, town_idx, faction, order as u32, 0, uid_alloc, None);
+            place_building_instance(
+                slot_alloc,
+                entity_map,
+                BuildingKind::Waypoint,
+                post_pos,
+                town_idx,
+                faction,
+                order as u32,
+                0,
+                uid_alloc,
+                None,
+            );
         }
     }
 
@@ -1626,60 +2104,81 @@ fn spiral_slots(occupied: &HashSet<(i32, i32)>, count: usize) -> Vec<(i32, i32)>
     let mut result = Vec::with_capacity(count);
     // Walk rings outward: ring 1 = distance 1 from center, ring 2 = distance 2, etc.
     for ring in 1..=MAX_GRID_EXTENT {
-        if result.len() >= count { break; }
+        if result.len() >= count {
+            break;
+        }
         // Top edge: row = -ring, col = -ring..ring
         for col in -ring..=ring {
-            if result.len() >= count { break; }
+            if result.len() >= count {
+                break;
+            }
             let pos = (-ring, col);
-            if !occupied.contains(&pos) { result.push(pos); }
+            if !occupied.contains(&pos) {
+                result.push(pos);
+            }
         }
         // Right edge: row = -ring+1..ring, col = ring
         for row in (-ring + 1)..=ring {
-            if result.len() >= count { break; }
+            if result.len() >= count {
+                break;
+            }
             let pos = (row, ring);
-            if !occupied.contains(&pos) { result.push(pos); }
+            if !occupied.contains(&pos) {
+                result.push(pos);
+            }
         }
         // Bottom edge: row = ring, col = ring-1..-ring
         for col in (-ring..ring).rev() {
-            if result.len() >= count { break; }
+            if result.len() >= count {
+                break;
+            }
             let pos = (ring, col);
-            if !occupied.contains(&pos) { result.push(pos); }
+            if !occupied.contains(&pos) {
+                result.push(pos);
+            }
         }
         // Left edge: row = ring..-ring+1, col = -ring
         for row in ((-ring + 1)..ring).rev() {
-            if result.len() >= count { break; }
+            if result.len() >= count {
+                break;
+            }
             let pos = (row, -ring);
-            if !occupied.contains(&pos) { result.push(pos); }
+            if !occupied.contains(&pos) {
+                result.push(pos);
+            }
         }
     }
     result
 }
 
 /// Fill grid terrain using simplex noise, with Dirt override near towns.
-fn generate_terrain(
-    grid: &mut WorldGrid,
-    town_positions: &[Vec2],
-    raider_positions: &[Vec2],
-) {
+fn generate_terrain(grid: &mut WorldGrid, town_positions: &[Vec2], raider_positions: &[Vec2]) {
     use noise::{NoiseFn, Simplex};
 
     let noise = Simplex::new(rand::random::<u32>());
     let frequency = 0.003;
     let town_clear_radius = 6.0 * grid.cell_size; // ~192px
-    let raider_clear_radius = 5.0 * grid.cell_size;  // ~160px
+    let raider_clear_radius = 5.0 * grid.cell_size; // ~160px
 
     for row in 0..grid.height {
         for col in 0..grid.width {
             let world_pos = grid.grid_to_world(col, row);
 
             // Check proximity to towns → Dirt
-            let near_town = town_positions.iter().any(|tc| world_pos.distance(*tc) < town_clear_radius);
-            let near_raider = raider_positions.iter().any(|cp| world_pos.distance(*cp) < raider_clear_radius);
+            let near_town = town_positions
+                .iter()
+                .any(|tc| world_pos.distance(*tc) < town_clear_radius);
+            let near_raider = raider_positions
+                .iter()
+                .any(|cp| world_pos.distance(*cp) < raider_clear_radius);
 
             let biome = if near_town || near_raider {
                 Biome::Dirt
             } else {
-                let n = noise.get([world_pos.x as f64 * frequency as f64, world_pos.y as f64 * frequency as f64]);
+                let n = noise.get([
+                    world_pos.x as f64 * frequency as f64,
+                    world_pos.y as f64 * frequency as f64,
+                ]);
                 if n < -0.3 {
                     Biome::Water
                 } else if n < 0.1 {
@@ -1703,7 +2202,10 @@ pub fn stamp_dirt(grid: &mut WorldGrid, positions: &[Vec2]) {
     for row in 0..grid.height {
         for col in 0..grid.width {
             let world_pos = grid.grid_to_world(col, row);
-            if positions.iter().any(|p| world_pos.distance(*p) < clear_radius) {
+            if positions
+                .iter()
+                .any(|p| world_pos.distance(*p) < clear_radius)
+            {
                 grid.cells[row * grid.width + col].terrain = Biome::Dirt;
             }
         }

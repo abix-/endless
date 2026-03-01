@@ -1,17 +1,14 @@
 //! Raider Raid Cycle Test (5 phases)
 //! Validates: raiders dispatched → arrive at farm → steal food → returning → deliver to raider town.
 
-use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::ItemKind;
 use crate::resources::*;
+use bevy::prelude::*;
 
-use super::{TestState, TestSetupParams};
+use super::{TestSetupParams, TestState};
 
-pub fn setup(
-    mut params: TestSetupParams,
-    mut raider_state: ResMut<RaiderState>,
-) {
+pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>) {
     // Villager town (faction 0) with farms
     params.add_town("FarmVille");
     // Raider raider town (faction 1)
@@ -32,7 +29,7 @@ pub fn setup(
     }
     params.init_economy(2);
     params.food_storage.food[0] = 10; // villager food
-    params.food_storage.food[1] = 0;  // raider raider town starts empty
+    params.food_storage.food[1] = 0; // raider raider town starts empty
     raider_state.init(1, 5);
     params.game_time.time_scale = 1.0;
 
@@ -41,10 +38,15 @@ pub fn setup(
         let slot = params.slot_alloc.alloc().expect("slot alloc");
         params.spawn_events.write(crate::messages::SpawnNpcMsg {
             slot_idx: slot,
-            x: 380.0 + (i as f32 * 20.0), y: 100.0,
-            job: 2, faction: 1, town_idx: 1,
-            home_x: 400.0, home_y: 100.0,
-            work_x: -1.0, work_y: -1.0,
+            x: 380.0 + (i as f32 * 20.0),
+            y: 100.0,
+            job: 2,
+            faction: 1,
+            town_idx: 1,
+            home_x: 400.0,
+            home_y: 100.0,
+            work_x: -1.0,
+            work_y: -1.0,
             starting_post: -1,
             attack_type: 0,
             uid_override: None,
@@ -63,19 +65,31 @@ pub fn tick(
     mut test: ResMut<TestState>,
     activity_q: Query<&Activity>,
 ) {
-    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
-    let alive = entity_map.iter_npcs().filter(|n| !n.dead && n.job == crate::components::Job::Raider).count();
-    if !test.require_entity(alive, elapsed, "raider") { return; }
+    let Some(elapsed) = test.tick_elapsed(&time) else {
+        return;
+    };
+    let alive = entity_map
+        .iter_npcs()
+        .filter(|n| !n.dead && n.job == crate::components::Job::Raider)
+        .count();
+    if !test.require_entity(alive, elapsed, "raider") {
+        return;
+    }
 
     let mut raiding = 0;
     let mut returning = 0;
     let mut carrying = 0;
-    for npc in entity_map.iter_npcs().filter(|n| !n.dead && n.job == crate::components::Job::Raider) {
+    for npc in entity_map
+        .iter_npcs()
+        .filter(|n| !n.dead && n.job == crate::components::Job::Raider)
+    {
         match activity_q.get(npc.entity).ok().as_deref() {
             Some(Activity::Raiding { .. }) => raiding += 1,
             Some(Activity::Returning { loot }) => {
                 returning += 1;
-                if loot.iter().any(|(k, a)| *k == ItemKind::Food && *a > 0) { carrying += 1; }
+                if loot.iter().any(|(k, a)| *k == ItemKind::Food && *a > 0) {
+                    carrying += 1;
+                }
             }
             _ => {}
         }
@@ -94,9 +108,15 @@ pub fn tick(
         }
         // Phase 2: Raiders arrive at farm (transitions to Returning with food)
         2 => {
-            test.phase_name = format!("raiding={} returning={} carrying={}", raiding, returning, carrying);
+            test.phase_name = format!(
+                "raiding={} returning={} carrying={}",
+                raiding, returning, carrying
+            );
             if returning > 0 || carrying > 0 {
-                test.pass_phase(elapsed, format!("returning={} carrying={}", returning, carrying));
+                test.pass_phase(
+                    elapsed,
+                    format!("returning={} carrying={}", returning, carrying),
+                );
             } else if elapsed > 30.0 {
                 test.fail_phase(elapsed, format!("raiding={} returning=0", raiding));
             }
@@ -107,16 +127,25 @@ pub fn tick(
             if carrying > 0 {
                 test.pass_phase(elapsed, format!("carrying={}", carrying));
             } else if returning > 0 {
-                test.pass_phase(elapsed, format!("returning={} (already delivered?)", returning));
+                test.pass_phase(
+                    elapsed,
+                    format!("returning={} (already delivered?)", returning),
+                );
             } else if elapsed > 35.0 {
                 test.fail_phase(elapsed, format!("carrying=0 returning=0"));
             }
         }
         // Phase 4: Raiders returning home
         4 => {
-            test.phase_name = format!("returning={} carrying={} raider_food={}", returning, carrying, raider_food);
+            test.phase_name = format!(
+                "returning={} carrying={} raider_food={}",
+                returning, carrying, raider_food
+            );
             if returning > 0 || raider_food > 0 {
-                test.pass_phase(elapsed, format!("returning={} raider_food={}", returning, raider_food));
+                test.pass_phase(
+                    elapsed,
+                    format!("returning={} raider_food={}", returning, raider_food),
+                );
             } else if elapsed > 40.0 {
                 test.fail_phase(elapsed, format!("returning=0 raider_food=0"));
             }

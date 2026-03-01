@@ -9,13 +9,13 @@
 //! overhead when the profiler is disabled.
 
 use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
 use std::sync::atomic::Ordering;
+use std::sync::{LazyLock, Mutex};
 use std::time::Instant;
 
+use tracing::Subscriber;
 use tracing::field::{Field, Visit};
 use tracing::span::{Attributes, Id};
-use tracing::Subscriber;
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 
@@ -54,7 +54,9 @@ pub struct SystemTimingLayer;
 impl<S: Subscriber + for<'a> LookupSpan<'a>> tracing_subscriber::Layer<S> for SystemTimingLayer {
     fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
         // Store the system name at span creation time (happens once per system at startup)
-        if attrs.metadata().name() != "system" { return; }
+        if attrs.metadata().name() != "system" {
+            return;
+        }
         let mut visitor = NameExtractor(None);
         attrs.values().record(&mut visitor);
         if let Some(name) = visitor.0 {
@@ -65,7 +67,9 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> tracing_subscriber::Layer<S> for Sy
     }
 
     fn on_enter(&self, id: &Id, ctx: Context<'_, S>) {
-        if !RENDER_PROFILING.load(Ordering::Relaxed) { return; }
+        if !RENDER_PROFILING.load(Ordering::Relaxed) {
+            return;
+        }
         if let Some(span) = ctx.span(id) {
             // Only time spans that have a SpanName (i.e. "system" spans)
             if span.extensions().get::<SpanName>().is_some() {
@@ -75,7 +79,9 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> tracing_subscriber::Layer<S> for Sy
     }
 
     fn on_exit(&self, id: &Id, ctx: Context<'_, S>) {
-        if !RENDER_PROFILING.load(Ordering::Relaxed) { return; }
+        if !RENDER_PROFILING.load(Ordering::Relaxed) {
+            return;
+        }
         let Some(span) = ctx.span(id) else { return };
         let ext = span.extensions();
         let (Some(name), Some(start)) = (ext.get::<SpanName>(), ext.get::<SpanStart>()) else {

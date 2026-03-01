@@ -35,7 +35,18 @@ pub fn setup(
     faction_stats.init(2);
 
     // Create fountain instance directly
-    world::place_building_instance(&mut slot_alloc, &mut entity_map, world::BuildingKind::Fountain, Vec2::new(400.0, 400.0), 0, 0, 0, 0, &mut uid_alloc, None);
+    world::place_building_instance(
+        &mut slot_alloc,
+        &mut entity_map,
+        world::BuildingKind::Fountain,
+        Vec2::new(400.0, 400.0),
+        0,
+        0,
+        0,
+        0,
+        &mut uid_alloc,
+        None,
+    );
 
     // One enemy NPC in fountain range; keep this NPC pinned in tick so tower fires repeatedly.
     let building_gpu_slot = slot_alloc.alloc().expect("slot alloc for target");
@@ -60,7 +71,9 @@ pub fn setup(
         cam.translation.y = 400.0;
     }
     test_state.phase_name = "Waiting for first tower projectile...".into();
-    test_state.counters.insert("building_gpu_slot".into(), building_gpu_slot as u32);
+    test_state
+        .counters
+        .insert("building_gpu_slot".into(), building_gpu_slot as u32);
     test_state.counters.insert("tower_spawns".into(), 0);
     test_state.counters.insert("mismatch_total".into(), 0);
     test_state.counters.insert("odd_mismatch".into(), 0);
@@ -84,12 +97,17 @@ pub fn tick(
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut test: ResMut<TestState>,
 ) {
-    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
+    let Some(elapsed) = test.tick_elapsed(&time) else {
+        return;
+    };
 
     // Pin target so the tower keeps shooting in a stable lane.
     let building_gpu_slot = test.count("building_gpu_slot") as usize;
     let (tx, ty) = if building_gpu_slot * 2 + 1 < gpu_state.positions.len() {
-        (gpu_state.positions[building_gpu_slot * 2], gpu_state.positions[building_gpu_slot * 2 + 1])
+        (
+            gpu_state.positions[building_gpu_slot * 2],
+            gpu_state.positions[building_gpu_slot * 2 + 1],
+        )
     } else {
         (ENEMY_START_X, ENEMY_START_Y)
     };
@@ -101,7 +119,6 @@ pub fn tick(
 
     // Analyze only new tower projectile spawns this frame (tower shots have shooter == building slot).
     for &idx in &writes.spawn_dirty_indices {
-
         let spawn_order = test.count("tower_spawns") + 1;
         test.inc("tower_spawns");
 
@@ -152,15 +169,20 @@ pub fn tick(
         1 => {
             test.phase_name = format!(
                 "attacks={} tower_spawns={}",
-                combat_debug.attacks_made,
-                spawns
+                combat_debug.attacks_made, spawns
             );
             if spawns >= 1 {
-                test.pass_phase(elapsed, format!("first tower spawn seen (spawns={})", spawns));
+                test.pass_phase(
+                    elapsed,
+                    format!("first tower spawn seen (spawns={})", spawns),
+                );
             } else if elapsed > 20.0 {
                 test.fail_phase(
                     elapsed,
-                    format!("no tower projectile spawn (attacks={})", combat_debug.attacks_made),
+                    format!(
+                        "no tower projectile spawn (attacks={})",
+                        combat_debug.attacks_made
+                    ),
                 );
             }
         }
@@ -211,4 +233,3 @@ pub fn tick(
         _ => {}
     }
 }
-

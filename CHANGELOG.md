@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-03-01a
+
+- **configurable controls + keybinding persistence** — added `ControlAction`/`ControlGroup` model in `settings.rs`, persisted `key_bindings` map in `UserSettings`, settings migration to `SETTINGS_VERSION=11`, and helpers for default/fallback/rebind-safe key parsing
+- **new Controls settings tab** — pause menu settings now includes `PauseSettingsTab::Controls` with grouped action list, click-to-rebind flow, and reset-to-defaults button (`ESC > Settings > Controls`)
+- **runtime input wiring to settings bindings** — replaced hardcoded keyboard checks in camera pan, panel toggles, squad target hotkeys, pause/time controls, and quick save/load with keybinding-driven lookups from `UserSettings`
+- **docs sync for controls and settings tabs** — updated game README controls section and architecture docs to reflect default-vs-rebindable keys and the new Controls tab
+
 ## 2026-02-28n
 
 - **fix projectiles hitting roads** — roads had `BUILDING_HITBOX_HALF = [16.0, 16.0]` and player faction, so enemy arrows collided with them despite `ENTITY_FLAG_UNTARGETABLE`; fix: zero half-size for roads in `push_building_gpu_updates`, and bind `entity_flags` buffer to projectile compute shader (new binding 17) with UNTARGETABLE skip in collision loop

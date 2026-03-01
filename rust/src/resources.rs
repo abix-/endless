@@ -1,10 +1,10 @@
 //! ECS Resources - Shared state accessible by all systems
 
+use crate::constants::{MAX_ENTITIES, MAX_NPC_COUNT, MAX_PROJECTILES};
 use bevy::prelude::*;
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
-use crate::constants::{MAX_NPC_COUNT, MAX_ENTITIES, MAX_PROJECTILES};
 
 /// Profiling resource: frame timing + render-world timing drain + tracing capture.
 /// Auto-capture via SystemTimingLayer handles all main-world systems.
@@ -82,7 +82,9 @@ pub struct DeltaTime(pub f32);
 pub struct NextEntityUid(pub u64);
 
 impl Default for NextEntityUid {
-    fn default() -> Self { Self(1) }
+    fn default() -> Self {
+        Self(1)
+    }
 }
 
 impl NextEntityUid {
@@ -102,7 +104,12 @@ pub struct NpcDecisionConfig {
 }
 
 impl Default for NpcDecisionConfig {
-    fn default() -> Self { Self { interval: 2.0, max_decisions_per_frame: 300 } }
+    fn default() -> Self {
+        Self {
+            interval: 2.0,
+            max_decisions_per_frame: 300,
+        }
+    }
 }
 
 /// Unified entity registry — ALL entities (NPCs + buildings) slot→entity mapping,
@@ -220,22 +227,43 @@ impl EntityMap {
 
     /// Look up a building instance by UID (resolves UID→slot→instance).
     pub fn instance_by_uid(&self, uid: crate::components::EntityUid) -> Option<&BuildingInstance> {
-        self.uid_to_slot.get(&uid).and_then(|&slot| self.instances.get(&slot))
+        self.uid_to_slot
+            .get(&uid)
+            .and_then(|&slot| self.instances.get(&slot))
     }
 
     #[cfg(debug_assertions)]
     fn debug_assert_uid_bijection(&self) {
-        debug_assert_eq!(self.uid_to_slot.len(), self.slot_to_uid.len(),
-            "UID↔slot map length mismatch: {} vs {}", self.uid_to_slot.len(), self.slot_to_uid.len());
-        debug_assert_eq!(self.uid_to_entity.len(), self.entity_to_uid.len(),
-            "UID↔entity map length mismatch: {} vs {}", self.uid_to_entity.len(), self.entity_to_uid.len());
+        debug_assert_eq!(
+            self.uid_to_slot.len(),
+            self.slot_to_uid.len(),
+            "UID↔slot map length mismatch: {} vs {}",
+            self.uid_to_slot.len(),
+            self.slot_to_uid.len()
+        );
+        debug_assert_eq!(
+            self.uid_to_entity.len(),
+            self.entity_to_uid.len(),
+            "UID↔entity map length mismatch: {} vs {}",
+            self.uid_to_entity.len(),
+            self.entity_to_uid.len()
+        );
         for (&uid, &slot) in &self.uid_to_slot {
-            debug_assert_eq!(self.slot_to_uid.get(&slot), Some(&uid),
-                "UID→slot→UID round-trip failed for uid={:?} slot={}", uid, slot);
+            debug_assert_eq!(
+                self.slot_to_uid.get(&slot),
+                Some(&uid),
+                "UID→slot→UID round-trip failed for uid={:?} slot={}",
+                uid,
+                slot
+            );
         }
         for (&uid, &entity) in &self.uid_to_entity {
-            debug_assert_eq!(self.entity_to_uid.get(&entity), Some(&uid),
-                "UID→entity→UID round-trip failed for uid={:?}", uid);
+            debug_assert_eq!(
+                self.entity_to_uid.get(&entity),
+                Some(&uid),
+                "UID→entity→UID round-trip failed for uid={:?}",
+                uid
+            );
         }
     }
 
@@ -290,7 +318,10 @@ impl EntityMap {
             self.spatial_remove(slot, old.position);
         }
         self.by_kind.entry(kind).or_default().push(slot);
-        self.by_kind_town.entry((kind, inst.town_idx)).or_default().push(slot);
+        self.by_kind_town
+            .entry((kind, inst.town_idx))
+            .or_default()
+            .push(slot);
         let gc = (inst.position.x / 32.0).floor() as i32;
         let gr = (inst.position.y / 32.0).floor() as i32;
         self.by_grid_cell.insert((gc, gr), slot);
@@ -334,16 +365,29 @@ impl EntityMap {
         self.instances.values_mut()
     }
 
-    pub fn iter_kind(&self, kind: crate::world::BuildingKind) -> impl Iterator<Item = &BuildingInstance> {
+    pub fn iter_kind(
+        &self,
+        kind: crate::world::BuildingKind,
+    ) -> impl Iterator<Item = &BuildingInstance> {
         let slots = self.by_kind.get(&kind);
         let instances = &self.instances;
-        slots.into_iter().flat_map(|v| v.iter()).filter_map(move |&s| instances.get(&s))
+        slots
+            .into_iter()
+            .flat_map(|v| v.iter())
+            .filter_map(move |&s| instances.get(&s))
     }
 
-    pub fn iter_kind_for_town(&self, kind: crate::world::BuildingKind, town_idx: u32) -> impl Iterator<Item = &BuildingInstance> {
+    pub fn iter_kind_for_town(
+        &self,
+        kind: crate::world::BuildingKind,
+        town_idx: u32,
+    ) -> impl Iterator<Item = &BuildingInstance> {
         let slots = self.by_kind_town.get(&(kind, town_idx));
         let instances = &self.instances;
-        slots.into_iter().flat_map(|v| v.iter()).filter_map(move |&s| instances.get(&s))
+        slots
+            .into_iter()
+            .flat_map(|v| v.iter())
+            .filter_map(move |&s| instances.get(&s))
     }
 
     pub fn count_for_town(&self, kind: crate::world::BuildingKind, town_idx: u32) -> usize {
@@ -353,8 +397,17 @@ impl EntityMap {
     pub fn building_counts(&self, town_idx: u32) -> HashMap<crate::world::BuildingKind, usize> {
         let mut counts = HashMap::new();
         for (kind, slots) in &self.by_kind {
-            let count = slots.iter().filter(|&&s| self.instances.get(&s).is_some_and(|i| i.town_idx == town_idx)).count();
-            if count > 0 { counts.insert(*kind, count); }
+            let count = slots
+                .iter()
+                .filter(|&&s| {
+                    self.instances
+                        .get(&s)
+                        .is_some_and(|i| i.town_idx == town_idx)
+                })
+                .count();
+            if count > 0 {
+                counts.insert(*kind, count);
+            }
         }
         counts
     }
@@ -369,7 +422,9 @@ impl EntityMap {
     pub fn find_by_position(&self, pos: Vec2) -> Option<&BuildingInstance> {
         let gc = (pos.x / 32.0).floor() as i32;
         let gr = (pos.y / 32.0).floor() as i32;
-        self.by_grid_cell.get(&(gc, gr)).and_then(|&s| self.instances.get(&s))
+        self.by_grid_cell
+            .get(&(gc, gr))
+            .and_then(|&s| self.instances.get(&s))
     }
 
     pub fn find_by_position_mut(&mut self, pos: Vec2) -> Option<&mut BuildingInstance> {
@@ -380,19 +435,23 @@ impl EntityMap {
     }
 
     pub fn find_farm_at(&self, pos: Vec2) -> Option<&BuildingInstance> {
-        self.find_by_position(pos).filter(|i| i.kind == crate::world::BuildingKind::Farm)
+        self.find_by_position(pos)
+            .filter(|i| i.kind == crate::world::BuildingKind::Farm)
     }
 
     pub fn find_farm_at_mut(&mut self, pos: Vec2) -> Option<&mut BuildingInstance> {
-        self.find_by_position_mut(pos).filter(|i| i.kind == crate::world::BuildingKind::Farm)
+        self.find_by_position_mut(pos)
+            .filter(|i| i.kind == crate::world::BuildingKind::Farm)
     }
 
     pub fn find_mine_at(&self, pos: Vec2) -> Option<&BuildingInstance> {
-        self.find_by_position(pos).filter(|i| i.kind == crate::world::BuildingKind::GoldMine)
+        self.find_by_position(pos)
+            .filter(|i| i.kind == crate::world::BuildingKind::GoldMine)
     }
 
     pub fn find_mine_at_mut(&mut self, pos: Vec2) -> Option<&mut BuildingInstance> {
-        self.find_by_position_mut(pos).filter(|i| i.kind == crate::world::BuildingKind::GoldMine)
+        self.find_by_position_mut(pos)
+            .filter(|i| i.kind == crate::world::BuildingKind::GoldMine)
     }
 
     pub fn iter_growable(&self) -> impl Iterator<Item = &BuildingInstance> {
@@ -411,17 +470,23 @@ impl EntityMap {
     }
 
     pub fn get_at_grid(&self, gc: i32, gr: i32) -> Option<&BuildingInstance> {
-        self.by_grid_cell.get(&(gc, gr)).and_then(|&s| self.instances.get(&s))
+        self.by_grid_cell
+            .get(&(gc, gr))
+            .and_then(|&s| self.instances.get(&s))
     }
 
     // ── Occupancy ─────────────────────────────────────────────────────
 
     pub fn claim(&mut self, slot: usize) {
-        if let Some(inst) = self.instances.get_mut(&slot) { inst.occupants += 1; }
+        if let Some(inst) = self.instances.get_mut(&slot) {
+            inst.occupants += 1;
+        }
     }
 
     pub fn release(&mut self, slot: usize) {
-        if let Some(inst) = self.instances.get_mut(&slot) { inst.occupants = inst.occupants.saturating_sub(1); }
+        if let Some(inst) = self.instances.get_mut(&slot) {
+            inst.occupants = inst.occupants.saturating_sub(1);
+        }
     }
 
     pub fn occupant_count(&self, slot: usize) -> i32 {
@@ -435,16 +500,41 @@ impl EntityMap {
     // ── NPC instance API ───────────────────────────────────────────────
 
     /// Register an NPC slot→entity mapping (index-only, no gameplay state).
-    pub fn register_npc(&mut self, slot: usize, entity: Entity, job: crate::components::Job, faction: i32, town_idx: i32) {
-        debug_assert!(!self.npcs.contains_key(&slot), "duplicate NPC slot {}", slot);
+    pub fn register_npc(
+        &mut self,
+        slot: usize,
+        entity: Entity,
+        job: crate::components::Job,
+        faction: i32,
+        town_idx: i32,
+    ) {
+        debug_assert!(
+            !self.npcs.contains_key(&slot),
+            "duplicate NPC slot {}",
+            slot
+        );
         self.entities.insert(slot, entity);
         self.npc_by_town.entry(town_idx).or_default().push(slot);
-        self.npcs.insert(slot, NpcEntry { slot, entity, job, faction, town_idx, dead: false });
+        self.npcs.insert(
+            slot,
+            NpcEntry {
+                slot,
+                entity,
+                job,
+                faction,
+                town_idx,
+                dead: false,
+            },
+        );
     }
 
     /// Unregister an NPC slot. Removes entity mapping, UID mapping, and NPC entry.
     pub fn unregister_npc(&mut self, slot: usize) -> Option<NpcEntry> {
-        debug_assert!(self.npcs.contains_key(&slot), "removing absent NPC slot {}", slot);
+        debug_assert!(
+            self.npcs.contains_key(&slot),
+            "removing absent NPC slot {}",
+            slot
+        );
         self.entities.remove(&slot);
         self.unregister_uid(slot);
         if let Some(entry) = self.npcs.remove(&slot) {
@@ -471,7 +561,8 @@ impl EntityMap {
 
     pub fn npcs_for_town(&self, town_idx: i32) -> impl Iterator<Item = &NpcEntry> {
         let npcs = &self.npcs;
-        self.npc_by_town.get(&town_idx)
+        self.npc_by_town
+            .get(&town_idx)
             .into_iter()
             .flat_map(|v| v.iter())
             .filter_map(move |&s| npcs.get(&s))
@@ -511,11 +602,17 @@ impl EntityMap {
     }
 
     pub fn rebuild_spatial(&mut self) {
-        for cell in &mut self.spatial_cells { cell.clear(); }
+        for cell in &mut self.spatial_cells {
+            cell.clear();
+        }
         self.spatial_kind_town.clear();
         self.spatial_kind_cell.clear();
         self.spatial_bucket_idx.clear();
-        let slots: Vec<(usize, Vec2)> = self.instances.values().map(|i| (i.slot, i.position)).collect();
+        let slots: Vec<(usize, Vec2)> = self
+            .instances
+            .values()
+            .map(|i| (i.slot, i.position))
+            .collect();
         for (slot, pos) in slots {
             self.spatial_insert(slot, pos);
         }
@@ -524,7 +621,9 @@ impl EntityMap {
     }
 
     fn spatial_insert(&mut self, slot: usize, pos: Vec2) {
-        if self.spatial_width == 0 { return; }
+        if self.spatial_width == 0 {
+            return;
+        }
         let cx = (pos.x / self.spatial_cell_size) as usize;
         let cy = (pos.y / self.spatial_cell_size) as usize;
         if cx < self.spatial_width && cy < self.spatial_width {
@@ -536,7 +635,10 @@ impl EntityMap {
                 let kind = inst.kind;
                 let town = inst.town_idx;
 
-                let kt_bucket = self.spatial_kind_town.entry((kind, town, cell_idx)).or_default();
+                let kt_bucket = self
+                    .spatial_kind_town
+                    .entry((kind, town, cell_idx))
+                    .or_default();
                 let kt_pos = kt_bucket.len();
                 kt_bucket.push(slot);
 
@@ -544,15 +646,24 @@ impl EntityMap {
                 let kc_pos = kc_bucket.len();
                 kc_bucket.push(slot);
 
-                self.spatial_bucket_idx.insert(slot, SpatialBucketRef {
-                    kind, town_idx: town, cell_idx, kind_town_pos: kt_pos, kind_cell_pos: kc_pos,
-                });
+                self.spatial_bucket_idx.insert(
+                    slot,
+                    SpatialBucketRef {
+                        kind,
+                        town_idx: town,
+                        cell_idx,
+                        kind_town_pos: kt_pos,
+                        kind_cell_pos: kc_pos,
+                    },
+                );
             }
         }
     }
 
     fn spatial_remove(&mut self, slot: usize, pos: Vec2) {
-        if self.spatial_width == 0 { return; }
+        if self.spatial_width == 0 {
+            return;
+        }
         let cx = (pos.x / self.spatial_cell_size) as usize;
         let cy = (pos.y / self.spatial_cell_size) as usize;
         if cx < self.spatial_width && cy < self.spatial_width {
@@ -576,7 +687,9 @@ impl EntityMap {
                         }
                     }
                 }
-                if kt_bucket.is_empty() { self.spatial_kind_town.remove(&kt_key); }
+                if kt_bucket.is_empty() {
+                    self.spatial_kind_town.remove(&kt_key);
+                }
             }
 
             // Remove from kind+cell bucket
@@ -592,15 +705,21 @@ impl EntityMap {
                         }
                     }
                 }
-                if kc_bucket.is_empty() { self.spatial_kind_cell.remove(&kc_key); }
+                if kc_bucket.is_empty() {
+                    self.spatial_kind_cell.remove(&kc_key);
+                }
             }
         }
     }
 
-    pub fn spatial_cell_size(&self) -> f32 { self.spatial_cell_size }
+    pub fn spatial_cell_size(&self) -> f32 {
+        self.spatial_cell_size
+    }
 
     pub fn for_each_nearby(&self, pos: Vec2, radius: f32, mut f: impl FnMut(&BuildingInstance)) {
-        if self.spatial_width == 0 { return; }
+        if self.spatial_width == 0 {
+            return;
+        }
         let cs = self.spatial_cell_size;
         let min_cx = ((pos.x - radius).max(0.0) / cs) as usize;
         let max_cx = (((pos.x + radius) / cs) as usize).min(self.spatial_width - 1);
@@ -622,17 +741,24 @@ impl EntityMap {
 
     /// Convert pixel radius to cell radius from a center cell.
     fn cell_radius(&self, px_radius: f32) -> usize {
-        if self.spatial_cell_size <= 0.0 { return 0; }
+        if self.spatial_cell_size <= 0.0 {
+            return 0;
+        }
         (px_radius / self.spatial_cell_size).ceil() as usize
     }
 
     /// Iterate buildings of a specific kind+town in cells within radius of pos.
     pub fn for_each_nearby_kind_town(
-        &self, pos: Vec2, radius: f32,
-        kind: crate::world::BuildingKind, town_idx: u32,
+        &self,
+        pos: Vec2,
+        radius: f32,
+        kind: crate::world::BuildingKind,
+        town_idx: u32,
         mut f: impl FnMut(&BuildingInstance),
     ) {
-        if self.spatial_width == 0 { return; }
+        if self.spatial_width == 0 {
+            return;
+        }
         let cs = self.spatial_cell_size;
         let min_cx = ((pos.x - radius).max(0.0) / cs) as usize;
         let max_cx = (((pos.x + radius) / cs) as usize).min(self.spatial_width - 1);
@@ -654,11 +780,15 @@ impl EntityMap {
 
     /// Iterate buildings of a specific kind (any town) in cells within radius of pos.
     pub fn for_each_nearby_kind(
-        &self, pos: Vec2, radius: f32,
+        &self,
+        pos: Vec2,
+        radius: f32,
         kind: crate::world::BuildingKind,
         mut f: impl FnMut(&BuildingInstance),
     ) {
-        if self.spatial_width == 0 { return; }
+        if self.spatial_width == 0 {
+            return;
+        }
         let cs = self.spatial_cell_size;
         let min_cx = ((pos.x - radius).max(0.0) / cs) as usize;
         let max_cx = (((pos.x + radius) / cs) as usize).min(self.spatial_width - 1);
@@ -682,11 +812,17 @@ impl EntityMap {
     /// inner_cell_r=0, outer_cell_r=0 visits only the center cell.
     /// Each cell is visited exactly once across successive ring expansions.
     pub fn for_each_ring_kind_town(
-        &self, pos: Vec2, inner_cell_r: usize, outer_cell_r: usize,
-        kind: crate::world::BuildingKind, town_idx: u32,
+        &self,
+        pos: Vec2,
+        inner_cell_r: usize,
+        outer_cell_r: usize,
+        kind: crate::world::BuildingKind,
+        town_idx: u32,
         mut f: impl FnMut(&BuildingInstance),
     ) {
-        if self.spatial_width == 0 { return; }
+        if self.spatial_width == 0 {
+            return;
+        }
         let cs = self.spatial_cell_size;
         let center_cx = (pos.x / cs) as usize;
         let center_cy = (pos.y / cs) as usize;
@@ -702,8 +838,16 @@ impl EntityMap {
             for cx in min_cx..=max_cx {
                 // Skip cells in the inner region (already visited)
                 if inner_cell_r > 0 {
-                    let dx = if cx >= center_cx { cx - center_cx } else { center_cx - cx };
-                    let dy = if cy >= center_cy { cy - center_cy } else { center_cy - cy };
+                    let dx = if cx >= center_cx {
+                        cx - center_cx
+                    } else {
+                        center_cx - cx
+                    };
+                    let dy = if cy >= center_cy {
+                        cy - center_cy
+                    } else {
+                        center_cy - cy
+                    };
                     if dx < inner_cell_r && dy < inner_cell_r {
                         continue;
                     }
@@ -722,11 +866,16 @@ impl EntityMap {
 
     /// Cell-ring query: iterate kind buildings (any town) only in cells between inner and outer radii.
     pub fn for_each_ring_kind(
-        &self, pos: Vec2, inner_cell_r: usize, outer_cell_r: usize,
+        &self,
+        pos: Vec2,
+        inner_cell_r: usize,
+        outer_cell_r: usize,
         kind: crate::world::BuildingKind,
         mut f: impl FnMut(&BuildingInstance),
     ) {
-        if self.spatial_width == 0 { return; }
+        if self.spatial_width == 0 {
+            return;
+        }
         let cs = self.spatial_cell_size;
         let center_cx = (pos.x / cs) as usize;
         let center_cy = (pos.y / cs) as usize;
@@ -741,8 +890,16 @@ impl EntityMap {
         for cy in min_cy..=max_cy {
             for cx in min_cx..=max_cx {
                 if inner_cell_r > 0 {
-                    let dx = if cx >= center_cx { cx - center_cx } else { center_cx - cx };
-                    let dy = if cy >= center_cy { cy - center_cy } else { center_cy - cy };
+                    let dx = if cx >= center_cx {
+                        cx - center_cx
+                    } else {
+                        center_cx - cx
+                    };
+                    let dy = if cy >= center_cy {
+                        cy - center_cy
+                    } else {
+                        center_cy - cy
+                    };
                     if dx < inner_cell_r && dy < inner_cell_r {
                         continue;
                     }
@@ -789,9 +946,15 @@ impl EntityMap {
                     }
                 }
             });
-            if best.is_some() || cell_r >= max_cell_r { break; }
+            if best.is_some() || cell_r >= max_cell_r {
+                break;
+            }
             prev_r = cell_r + 1;
-            cell_r = if cell_r == 0 { 1 } else { (cell_r * 2).min(max_cell_r) };
+            cell_r = if cell_r == 0 {
+                1
+            } else {
+                (cell_r * 2).min(max_cell_r)
+            };
         }
 
         // AnyTown fallback
@@ -806,9 +969,15 @@ impl EntityMap {
                         }
                     }
                 });
-                if best.is_some() || cell_r >= max_cell_r { break; }
+                if best.is_some() || cell_r >= max_cell_r {
+                    break;
+                }
                 prev_r = cell_r + 1;
-                cell_r = if cell_r == 0 { 1 } else { (cell_r * 2).min(max_cell_r) };
+                cell_r = if cell_r == 0 {
+                    1
+                } else {
+                    (cell_r * 2).min(max_cell_r)
+                };
             }
         }
 
@@ -836,7 +1005,10 @@ impl EntityMap {
         if valid {
             let inst = self.instances.get_mut(&slot).unwrap();
             inst.occupants += 1;
-            Some(ClaimedWorksite { slot, position: inst.position })
+            Some(ClaimedWorksite {
+                slot,
+                position: inst.position,
+            })
         } else {
             None
         }
@@ -850,37 +1022,75 @@ impl EntityMap {
         // Every slot in bucket_idx must exist in both corresponding buckets
         for (&slot, bref) in &self.spatial_bucket_idx {
             let kt_key = (bref.kind, bref.town_idx, bref.cell_idx);
-            let kt_bucket = self.spatial_kind_town.get(&kt_key)
-                .unwrap_or_else(|| panic!("spatial_bucket_idx slot {} references missing kind_town bucket {:?}", slot, kt_key));
-            assert!(bref.kind_town_pos < kt_bucket.len(),
-                "slot {} kind_town_pos {} >= bucket len {}", slot, bref.kind_town_pos, kt_bucket.len());
-            assert_eq!(kt_bucket[bref.kind_town_pos], slot,
-                "slot {} kind_town_pos {} points to slot {}", slot, bref.kind_town_pos, kt_bucket[bref.kind_town_pos]);
+            let kt_bucket = self.spatial_kind_town.get(&kt_key).unwrap_or_else(|| {
+                panic!(
+                    "spatial_bucket_idx slot {} references missing kind_town bucket {:?}",
+                    slot, kt_key
+                )
+            });
+            assert!(
+                bref.kind_town_pos < kt_bucket.len(),
+                "slot {} kind_town_pos {} >= bucket len {}",
+                slot,
+                bref.kind_town_pos,
+                kt_bucket.len()
+            );
+            assert_eq!(
+                kt_bucket[bref.kind_town_pos], slot,
+                "slot {} kind_town_pos {} points to slot {}",
+                slot, bref.kind_town_pos, kt_bucket[bref.kind_town_pos]
+            );
 
             let kc_key = (bref.kind, bref.cell_idx);
-            let kc_bucket = self.spatial_kind_cell.get(&kc_key)
-                .unwrap_or_else(|| panic!("spatial_bucket_idx slot {} references missing kind_cell bucket {:?}", slot, kc_key));
-            assert!(bref.kind_cell_pos < kc_bucket.len(),
-                "slot {} kind_cell_pos {} >= bucket len {}", slot, bref.kind_cell_pos, kc_bucket.len());
-            assert_eq!(kc_bucket[bref.kind_cell_pos], slot,
-                "slot {} kind_cell_pos {} points to slot {}", slot, bref.kind_cell_pos, kc_bucket[bref.kind_cell_pos]);
+            let kc_bucket = self.spatial_kind_cell.get(&kc_key).unwrap_or_else(|| {
+                panic!(
+                    "spatial_bucket_idx slot {} references missing kind_cell bucket {:?}",
+                    slot, kc_key
+                )
+            });
+            assert!(
+                bref.kind_cell_pos < kc_bucket.len(),
+                "slot {} kind_cell_pos {} >= bucket len {}",
+                slot,
+                bref.kind_cell_pos,
+                kc_bucket.len()
+            );
+            assert_eq!(
+                kc_bucket[bref.kind_cell_pos], slot,
+                "slot {} kind_cell_pos {} points to slot {}",
+                slot, bref.kind_cell_pos, kc_bucket[bref.kind_cell_pos]
+            );
         }
 
         // Every slot in every bucket must have a back-index entry
         for (key, bucket) in &self.spatial_kind_town {
             for (pos, &slot) in bucket.iter().enumerate() {
-                let bref = self.spatial_bucket_idx.get(&slot)
-                    .unwrap_or_else(|| panic!("kind_town bucket {:?} pos {} slot {} has no back-index", key, pos, slot));
-                assert_eq!(bref.kind_town_pos, pos,
-                    "slot {} back-index kind_town_pos {} != actual pos {}", slot, bref.kind_town_pos, pos);
+                let bref = self.spatial_bucket_idx.get(&slot).unwrap_or_else(|| {
+                    panic!(
+                        "kind_town bucket {:?} pos {} slot {} has no back-index",
+                        key, pos, slot
+                    )
+                });
+                assert_eq!(
+                    bref.kind_town_pos, pos,
+                    "slot {} back-index kind_town_pos {} != actual pos {}",
+                    slot, bref.kind_town_pos, pos
+                );
             }
         }
         for (key, bucket) in &self.spatial_kind_cell {
             for (pos, &slot) in bucket.iter().enumerate() {
-                let bref = self.spatial_bucket_idx.get(&slot)
-                    .unwrap_or_else(|| panic!("kind_cell bucket {:?} pos {} slot {} has no back-index", key, pos, slot));
-                assert_eq!(bref.kind_cell_pos, pos,
-                    "slot {} back-index kind_cell_pos {} != actual pos {}", slot, bref.kind_cell_pos, pos);
+                let bref = self.spatial_bucket_idx.get(&slot).unwrap_or_else(|| {
+                    panic!(
+                        "kind_cell bucket {:?} pos {} slot {} has no back-index",
+                        key, pos, slot
+                    )
+                });
+                assert_eq!(
+                    bref.kind_cell_pos, pos,
+                    "slot {} back-index kind_cell_pos {} != actual pos {}",
+                    slot, bref.kind_cell_pos, pos
+                );
             }
         }
     }
@@ -930,7 +1140,10 @@ pub struct GameConfig {
 impl Default for GameConfig {
     fn default() -> Self {
         Self {
-            npc_counts: crate::constants::NPC_REGISTRY.iter().map(|d| (d.job, d.default_count as i32)).collect(),
+            npc_counts: crate::constants::NPC_REGISTRY
+                .iter()
+                .map(|d| (d.job, d.default_count as i32))
+                .collect(),
             spawn_interval_hours: 4,
             food_per_work_hour: 1,
         }
@@ -941,13 +1154,13 @@ impl Default for GameConfig {
 /// Only total_seconds is mutable. Day/hour/minute are derived on demand.
 #[derive(Resource)]
 pub struct GameTime {
-    pub total_seconds: f32,        // Only mutable state - accumulates from PhysicsDelta
-    pub seconds_per_hour: f32,     // Game speed: 5.0 = 1 game-hour per 5 real seconds
-    pub start_hour: i32,           // Hour at game start (6 = 6am)
-    pub time_scale: f32,           // 1.0 = normal, 2.0 = 2x speed
+    pub total_seconds: f32, // Only mutable state - accumulates from PhysicsDelta
+    pub seconds_per_hour: f32, // Game speed: 5.0 = 1 game-hour per 5 real seconds
+    pub start_hour: i32,    // Hour at game start (6 = 6am)
+    pub time_scale: f32,    // 1.0 = normal, 2.0 = 2x speed
     pub paused: bool,
-    pub last_hour: i32,            // Previous hour (for detecting hour ticks)
-    pub hour_ticked: bool,         // True if hour just changed this frame
+    pub last_hour: i32,    // Previous hour (for detecting hour ticks)
+    pub hour_ticked: bool, // True if hour just changed this frame
 }
 
 impl GameTime {
@@ -959,7 +1172,11 @@ impl GameTime {
 
     /// Gameplay-scaled delta. Zero when paused, multiplied by time_scale otherwise.
     pub fn delta(&self, time: &Time) -> f32 {
-        if self.is_paused() { 0.0 } else { time.delta_secs() * self.time_scale }
+        if self.is_paused() {
+            0.0
+        } else {
+            time.delta_secs() * self.time_scale
+        }
     }
 
     pub fn total_hours(&self) -> i32 {
@@ -1006,14 +1223,18 @@ impl Default for GameTime {
 /// Kill statistics for UI display.
 #[derive(Resource, Clone, Default)]
 pub struct KillStats {
-    pub archer_kills: i32,      // Raiders killed by archers
-    pub villager_kills: i32,   // Villagers (farmers/archers) killed by raiders
+    pub archer_kills: i32,   // Raiders killed by archers
+    pub villager_kills: i32, // Villagers (farmers/archers) killed by raiders
 }
 
 /// Currently selected NPC index (-1 = none).
 #[derive(Resource)]
 pub struct SelectedNpc(pub i32);
-impl Default for SelectedNpc { fn default() -> Self { Self(-1) } }
+impl Default for SelectedNpc {
+    fn default() -> Self {
+        Self(-1)
+    }
+}
 
 /// Currently selected building (grid cell). `active = false` means no building selected.
 #[derive(Resource, Default)]
@@ -1172,7 +1393,8 @@ impl NpcTargetThrashDebug {
         let q = (x.round() as i32, y.round() as i32);
         let last_q = self.last_target_q[idx];
         if last_q != (0, 0) && last_q != q {
-            self.target_changes_this_minute[idx] = self.target_changes_this_minute[idx].saturating_add(1);
+            self.target_changes_this_minute[idx] =
+                self.target_changes_this_minute[idx].saturating_add(1);
             if self.prev_target_q[idx] == q {
                 self.ping_pong_this_minute[idx] = self.ping_pong_this_minute[idx].saturating_add(1);
             }
@@ -1182,7 +1404,8 @@ impl NpcTargetThrashDebug {
 
         if self.last_reason[idx] != reason {
             if !self.last_reason[idx].is_empty() {
-                self.reason_flips_this_minute[idx] = self.reason_flips_this_minute[idx].saturating_add(1);
+                self.reason_flips_this_minute[idx] =
+                    self.reason_flips_this_minute[idx].saturating_add(1);
             }
             self.last_reason[idx].clear();
             self.last_reason[idx].push_str(reason);
@@ -1204,10 +1427,12 @@ impl NpcTargetThrashDebug {
             let last = self.sink_last_target[idx];
             // Tiny epsilon to avoid float jitter noise while still catching visible flips.
             if Self::target_delta_sq(last, curr) > 0.01 {
-                self.sink_target_changes_this_minute[idx] = self.sink_target_changes_this_minute[idx].saturating_add(1);
+                self.sink_target_changes_this_minute[idx] =
+                    self.sink_target_changes_this_minute[idx].saturating_add(1);
                 let prev = self.sink_prev_target[idx];
                 if Self::target_delta_sq(prev, curr) <= 0.01 {
-                    self.sink_ping_pong_this_minute[idx] = self.sink_ping_pong_this_minute[idx].saturating_add(1);
+                    self.sink_ping_pong_this_minute[idx] =
+                        self.sink_ping_pong_this_minute[idx].saturating_add(1);
                 }
             }
             self.sink_prev_target[idx] = last;
@@ -1218,7 +1443,8 @@ impl NpcTargetThrashDebug {
     }
 
     pub fn top_offenders(&self, top_n: usize) -> Vec<(usize, u16, u16, u16, u16, &str)> {
-        let mut rows: Vec<(usize, u16, u16, u16, u16, &str)> = self.sink_target_changes_this_minute
+        let mut rows: Vec<(usize, u16, u16, u16, u16, &str)> = self
+            .sink_target_changes_this_minute
             .iter()
             .enumerate()
             .filter_map(|(idx, &sink_changes)| {
@@ -1226,7 +1452,11 @@ impl NpcTargetThrashDebug {
                     return None;
                 }
                 let reason_flips = self.reason_flips_this_minute.get(idx).copied().unwrap_or(0);
-                let ping_pong = self.sink_ping_pong_this_minute.get(idx).copied().unwrap_or(0);
+                let ping_pong = self
+                    .sink_ping_pong_this_minute
+                    .get(idx)
+                    .copied()
+                    .unwrap_or(0);
                 let writes = self.sink_writes_this_minute.get(idx).copied().unwrap_or(0);
                 let reason = self.last_reason.get(idx).map(|s| s.as_str()).unwrap_or("");
                 Some((idx, sink_changes, ping_pong, reason_flips, writes, reason))
@@ -1319,15 +1549,29 @@ pub struct MovementIntents {
 impl MovementIntents {
     /// Submit a movement intent. Keeps the highest-priority intent per entity.
     #[inline]
-    pub fn submit(&mut self, entity: Entity, target: Vec2, priority: MovementPriority, source: &'static str) {
+    pub fn submit(
+        &mut self,
+        entity: Entity,
+        target: Vec2,
+        priority: MovementPriority,
+        source: &'static str,
+    ) {
         match self.intents.entry(entity) {
             std::collections::hash_map::Entry::Occupied(mut e) => {
                 if priority > e.get().priority {
-                    *e.get_mut() = MovementIntent { target, priority, source };
+                    *e.get_mut() = MovementIntent {
+                        target,
+                        priority,
+                        source,
+                    };
                 }
             }
             std::collections::hash_map::Entry::Vacant(e) => {
-                e.insert(MovementIntent { target, priority, source });
+                e.insert(MovementIntent {
+                    target,
+                    priority,
+                    source,
+                });
             }
         }
     }
@@ -1429,23 +1673,40 @@ impl NpcLogCache {
 
     /// Push a log message for an NPC with timestamp.
     /// Filtered by current mode — early-returns for NPCs outside the active scope.
-    pub fn push(&mut self, idx: usize, day: i32, hour: i32, minute: i32, message: impl Into<Cow<'static, str>>) {
-        if idx >= MAX_NPC_COUNT { return; }
+    pub fn push(
+        &mut self,
+        idx: usize,
+        day: i32,
+        hour: i32,
+        minute: i32,
+        message: impl Into<Cow<'static, str>>,
+    ) {
+        if idx >= MAX_NPC_COUNT {
+            return;
+        }
 
         // Gate by mode
         match self.mode {
             crate::settings::NpcLogMode::SelectedOnly => {
-                if self.selected < 0 || idx != self.selected as usize { return; }
+                if self.selected < 0 || idx != self.selected as usize {
+                    return;
+                }
             }
             crate::settings::NpcLogMode::Faction => {
-                if idx < self.slot_factions.len() && self.slot_factions[idx] != self.player_faction {
+                if idx < self.slot_factions.len() && self.slot_factions[idx] != self.player_faction
+                {
                     return;
                 }
             }
             crate::settings::NpcLogMode::All => {}
         }
 
-        let entry = NpcLogEntry { day, hour, minute, message: message.into() };
+        let entry = NpcLogEntry {
+            day,
+            hour,
+            minute,
+            message: message.into(),
+        };
         if let Some(log) = self.logs.get_mut(idx) {
             if log.len() >= NPC_LOG_CAPACITY {
                 log.pop_front();
@@ -1454,7 +1715,6 @@ impl NpcLogCache {
         }
     }
 }
-
 
 // ============================================================================
 // PHASE 11.7: RESOURCES REPLACING STATICS
@@ -1468,7 +1728,13 @@ pub struct SlotPool {
 }
 
 impl SlotPool {
-    pub fn new(max: usize) -> Self { Self { next: 0, max, free: Vec::new() } }
+    pub fn new(max: usize) -> Self {
+        Self {
+            next: 0,
+            max,
+            free: Vec::new(),
+        }
+    }
     pub fn alloc(&mut self) -> Option<usize> {
         self.free.pop().or_else(|| {
             if self.next < self.max {
@@ -1480,12 +1746,21 @@ impl SlotPool {
             }
         })
     }
-    pub fn free(&mut self, slot: usize) { self.free.push(slot); }
+    pub fn free(&mut self, slot: usize) {
+        self.free.push(slot);
+    }
     /// High-water mark: max slot index ever allocated. Use for GPU dispatch bounds.
-    pub fn count(&self) -> usize { self.next }
+    pub fn count(&self) -> usize {
+        self.next
+    }
     /// Currently alive: allocated minus freed. Use for UI display counts.
-    pub fn alive(&self) -> usize { self.next - self.free.len() }
-    pub fn reset(&mut self) { self.next = 0; self.free.clear(); }
+    pub fn alive(&self) -> usize {
+        self.next - self.free.len()
+    }
+    pub fn reset(&mut self) {
+        self.next = 0;
+        self.free.clear();
+    }
 }
 
 /// Unified entity slot allocator. NPCs and buildings share the same slot namespace.
@@ -1494,16 +1769,22 @@ impl SlotPool {
 pub struct GpuSlotPool(pub SlotPool);
 
 impl Default for GpuSlotPool {
-    fn default() -> Self { Self(SlotPool::new(MAX_ENTITIES)) }
+    fn default() -> Self {
+        Self(SlotPool::new(MAX_ENTITIES))
+    }
 }
 
 impl std::ops::Deref for GpuSlotPool {
     type Target = SlotPool;
-    fn deref(&self) -> &SlotPool { &self.0 }
+    fn deref(&self) -> &SlotPool {
+        &self.0
+    }
 }
 
 impl std::ops::DerefMut for GpuSlotPool {
-    fn deref_mut(&mut self) -> &mut SlotPool { &mut self.0 }
+    fn deref_mut(&mut self) -> &mut SlotPool {
+        &mut self.0
+    }
 }
 
 /// Projectile slot allocator. Wraps SlotPool like GpuSlotPool.
@@ -1511,27 +1792,32 @@ impl std::ops::DerefMut for GpuSlotPool {
 pub struct ProjSlotAllocator(pub SlotPool);
 
 impl Default for ProjSlotAllocator {
-    fn default() -> Self { Self(SlotPool::new(MAX_PROJECTILES)) }
+    fn default() -> Self {
+        Self(SlotPool::new(MAX_PROJECTILES))
+    }
 }
 
 impl std::ops::Deref for ProjSlotAllocator {
     type Target = SlotPool;
-    fn deref(&self) -> &SlotPool { &self.0 }
+    fn deref(&self) -> &SlotPool {
+        &self.0
+    }
 }
 
 impl std::ops::DerefMut for ProjSlotAllocator {
-    fn deref_mut(&mut self) -> &mut SlotPool { &mut self.0 }
+    fn deref_mut(&mut self) -> &mut SlotPool {
+        &mut self.0
+    }
 }
-
 
 /// GPU readback state. Populated by ReadbackComplete observers, read by main-world Bevy systems.
 #[derive(Resource)]
 pub struct GpuReadState {
-    pub positions: Vec<f32>,       // [x0, y0, x1, y1, ...]
-    pub combat_targets: Vec<i32>,  // target index per NPC (-1 = none)
+    pub positions: Vec<f32>,      // [x0, y0, x1, y1, ...]
+    pub combat_targets: Vec<i32>, // target index per NPC (-1 = none)
     pub health: Vec<f32>,
     pub factions: Vec<i32>,
-    pub threat_counts: Vec<u32>,   // packed (enemies << 16 | allies) per NPC
+    pub threat_counts: Vec<u32>, // packed (enemies << 16 | allies) per NPC
     pub npc_count: usize,
 }
 
@@ -1561,7 +1847,7 @@ pub struct ProjPositionState(pub Vec<f32>);
 /// Food storage per location. Replaces FOOD_STORAGE static.
 #[derive(Resource, Default)]
 pub struct FoodStorage {
-    pub food: Vec<i32>,  // One entry per clan/location
+    pub food: Vec<i32>, // One entry per clan/location
 }
 
 impl FoodStorage {
@@ -1581,7 +1867,6 @@ impl GoldStorage {
         self.gold = vec![0; count];
     }
 }
-
 
 /// Per-faction statistics.
 #[derive(Clone, Default)]
@@ -1681,6 +1966,7 @@ pub enum PauseSettingsTab {
     #[default]
     Interface,
     Camera,
+    Controls,
     Audio,
     Logs,
     Debug,
@@ -1825,11 +2111,28 @@ pub struct CombatLog {
 }
 
 impl CombatLog {
-    pub fn push(&mut self, kind: CombatEventKind, faction: i32, day: i32, hour: i32, minute: i32, message: String) {
+    pub fn push(
+        &mut self,
+        kind: CombatEventKind,
+        faction: i32,
+        day: i32,
+        hour: i32,
+        minute: i32,
+        message: String,
+    ) {
         self.push_at(kind, faction, day, hour, minute, message, None);
     }
 
-    pub fn push_at(&mut self, kind: CombatEventKind, faction: i32, day: i32, hour: i32, minute: i32, message: String, location: Option<bevy::math::Vec2>) {
+    pub fn push_at(
+        &mut self,
+        kind: CombatEventKind,
+        faction: i32,
+        day: i32,
+        hour: i32,
+        minute: i32,
+        message: String,
+        location: Option<bevy::math::Vec2>,
+    ) {
         let (target, cap) = if matches!(kind, CombatEventKind::Raid | CombatEventKind::Ai) {
             (&mut self.priority_entries, COMBAT_LOG_PRIORITY_MAX)
         } else {
@@ -1838,7 +2141,15 @@ impl CombatLog {
         if target.len() >= cap {
             target.pop_front();
         }
-        target.push_back(CombatLogEntry { day, hour, minute, kind, faction, message, location });
+        target.push_back(CombatLogEntry {
+            day,
+            hour,
+            minute,
+            kind,
+            faction,
+            message,
+            location,
+        });
     }
 
     pub fn iter_all(&self) -> impl Iterator<Item = &CombatLogEntry> {
@@ -1878,21 +2189,23 @@ pub struct BuildingInstance {
     pub slot: usize,
     pub faction: i32,
     // Kind-specific fields (zero/None for non-applicable kinds)
-    pub patrol_order: u32,           // Waypoint only
-    pub assigned_mine: Option<Vec2>, // MinerHome only
-    pub manual_mine: bool,           // MinerHome only
-    pub wall_level: u8,              // Wall only
+    pub patrol_order: u32,                             // Waypoint only
+    pub assigned_mine: Option<Vec2>,                   // MinerHome only
+    pub manual_mine: bool,                             // MinerHome only
+    pub wall_level: u8,                                // Wall only
     pub npc_uid: Option<crate::components::EntityUid>, // Spawner buildings only (None = no NPC alive)
-    pub respawn_timer: f32,          // Spawner buildings only (-1.0 = not respawning)
-    pub growth_ready: bool,             // Farm/Mine only (false = growing, true = ready to harvest)
-    pub growth_progress: f32,            // Farm/Mine only (0.0 to 1.0)
-    pub occupants: i16,                  // Farm/Mine only — number of NPCs working here
+    pub respawn_timer: f32,   // Spawner buildings only (-1.0 = not respawning)
+    pub growth_ready: bool,   // Farm/Mine only (false = growing, true = ready to harvest)
+    pub growth_progress: f32, // Farm/Mine only (0.0 to 1.0)
+    pub occupants: i16,       // Farm/Mine only — number of NPCs working here
 }
 
 impl BuildingInstance {
     /// Harvest a Ready farm/mine. Resets to Growing, returns yield (farm=1 food, mine=MINE_EXTRACT_PER_CYCLE gold). Returns 0 if not Ready.
     pub fn harvest(&mut self) -> i32 {
-        if !self.growth_ready { return 0; }
+        if !self.growth_ready {
+            return 0;
+        }
         self.growth_ready = false;
         self.growth_progress = 0.0;
         match self.kind {
@@ -1905,13 +2218,17 @@ impl BuildingInstance {
     /// Log message for a harvest event.
     pub fn harvest_log_msg(&self, yield_amount: i32) -> String {
         match self.kind {
-            crate::world::BuildingKind::Farm => format!("Farm harvested at ({:.0},{:.0})", self.position.x, self.position.y),
-            crate::world::BuildingKind::GoldMine => format!("Mine harvested ({} gold)", yield_amount),
+            crate::world::BuildingKind::Farm => format!(
+                "Farm harvested at ({:.0},{:.0})",
+                self.position.x, self.position.y
+            ),
+            crate::world::BuildingKind::GoldMine => {
+                format!("Mine harvested ({} gold)", yield_amount)
+            }
             _ => String::new(),
         }
     }
 }
-
 
 /// Per-NPC runtime state. All NPC data lives here — no ECS components except GpuSlot.
 /// Parallel to BuildingInstance: both live in EntityMap, shared slot namespace.
@@ -1958,7 +2275,9 @@ impl AutoUpgrade {
 impl Default for AutoUpgrade {
     fn default() -> Self {
         let count = crate::systems::stats::upgrade_count();
-        Self { flags: vec![vec![false; count]; 16] }
+        Self {
+            flags: vec![vec![false; count]; 16],
+        }
     }
 }
 
@@ -1982,7 +2301,9 @@ pub enum OffDutyBehavior {
     WanderTown,
 }
 
-fn default_policy_mining_radius() -> f32 { crate::constants::DEFAULT_MINING_RADIUS }
+fn default_policy_mining_radius() -> f32 {
+    crate::constants::DEFAULT_MINING_RADIUS
+}
 
 /// Per-town behavior configuration. Controls flee thresholds, work schedules, off-duty behavior.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -1994,10 +2315,10 @@ pub struct PolicySet {
     pub archer_leash: bool,
     pub farmer_fight_back: bool,
     pub prioritize_healing: bool,
-    pub farmer_flee_hp: f32,     // 0.0-1.0 percentage
+    pub farmer_flee_hp: f32, // 0.0-1.0 percentage
     #[serde(alias = "guard_flee_hp")]
     pub archer_flee_hp: f32,
-    pub recovery_hp: f32,        // 0.0-1.0 — go rest/heal when below this
+    pub recovery_hp: f32, // 0.0-1.0 — go rest/heal when below this
     pub farmer_schedule: WorkSchedule,
     #[serde(alias = "guard_schedule")]
     pub archer_schedule: WorkSchedule,
@@ -2054,7 +2375,9 @@ pub struct DifficultyPreset {
 }
 
 /// Game difficulty — scales building costs. Selected on main menu, immutable during play.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Resource, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Default, Resource, serde::Serialize, serde::Deserialize,
+)]
 pub enum Difficulty {
     Easy,
     #[default]
@@ -2076,18 +2399,53 @@ impl Difficulty {
     /// World gen presets. Overrides listed explicitly; unlisted jobs reset to NPC_REGISTRY defaults.
     pub fn presets(self) -> DifficultyPreset {
         use crate::components::Job;
-        let (farms, ai_towns, raider_towns, gold_mines, endless_mode, endless_strength, overrides) = match self {
-            Difficulty::Easy   => (4, 2, 2, 3, false, 0.5,  vec![(Job::Farmer, 4), (Job::Archer, 8), (Job::Raider, 0)]),
-            Difficulty::Normal => (2, 5, 5, 2, true,  0.75, vec![(Job::Farmer, 2), (Job::Archer, 4), (Job::Raider, 1)]),
-            Difficulty::Hard   => (1, 10, 10, 1, true, 1.25, vec![(Job::Farmer, 0), (Job::Archer, 2), (Job::Raider, 2)]),
-        };
+        let (farms, ai_towns, raider_towns, gold_mines, endless_mode, endless_strength, overrides) =
+            match self {
+                Difficulty::Easy => (
+                    4,
+                    2,
+                    2,
+                    3,
+                    false,
+                    0.5,
+                    vec![(Job::Farmer, 4), (Job::Archer, 8), (Job::Raider, 0)],
+                ),
+                Difficulty::Normal => (
+                    2,
+                    5,
+                    5,
+                    2,
+                    true,
+                    0.75,
+                    vec![(Job::Farmer, 2), (Job::Archer, 4), (Job::Raider, 1)],
+                ),
+                Difficulty::Hard => (
+                    1,
+                    10,
+                    10,
+                    1,
+                    true,
+                    1.25,
+                    vec![(Job::Farmer, 0), (Job::Archer, 2), (Job::Raider, 2)],
+                ),
+            };
         // Start from registry defaults, then apply preset overrides
         let mut npc_counts: std::collections::BTreeMap<Job, usize> = crate::constants::NPC_REGISTRY
-            .iter().map(|d| (d.job, d.default_count as usize)).collect();
+            .iter()
+            .map(|d| (d.job, d.default_count as usize))
+            .collect();
         for (job, count) in overrides {
             npc_counts.insert(job, count);
         }
-        DifficultyPreset { farms, ai_towns, raider_towns, gold_mines, npc_counts, endless_mode, endless_strength }
+        DifficultyPreset {
+            farms,
+            ai_towns,
+            raider_towns,
+            gold_mines,
+            npc_counts,
+            endless_mode,
+            endless_strength,
+        }
     }
 
     /// Migration group scaling: extra raiders per N player villagers.
@@ -2108,7 +2466,9 @@ pub struct TownPolicies {
 
 impl Default for TownPolicies {
     fn default() -> Self {
-        Self { policies: vec![PolicySet::default(); 16] }
+        Self {
+            policies: vec![PolicySet::default(); 16],
+        }
     }
 }
 
@@ -2160,7 +2520,9 @@ pub struct Squad {
 }
 
 impl Squad {
-    pub fn is_player(&self) -> bool { self.owner == SquadOwner::Player }
+    pub fn is_player(&self) -> bool {
+        self.owner == SquadOwner::Player
+    }
 }
 
 impl Default for Squad {
@@ -2200,7 +2562,9 @@ pub struct SquadState {
 impl Default for SquadState {
     fn default() -> Self {
         Self {
-            squads: (0..crate::constants::MAX_SQUADS).map(|_| Squad::default()).collect(),
+            squads: (0..crate::constants::MAX_SQUADS)
+                .map(|_| Squad::default())
+                .collect(),
             selected: 0,
             placing_target: false,
             drag_start: None,
@@ -2214,13 +2578,18 @@ impl SquadState {
     /// Allocate a new squad with the given owner. Returns the squad index.
     pub fn alloc_squad(&mut self, owner: SquadOwner) -> usize {
         let idx = self.squads.len();
-        self.squads.push(Squad { owner, ..Default::default() });
+        self.squads.push(Squad {
+            owner,
+            ..Default::default()
+        });
         idx
     }
 
     /// Iterate squads owned by a specific AI town.
     pub fn squads_for_town(&self, tdi: usize) -> impl Iterator<Item = (usize, &Squad)> {
-        self.squads.iter().enumerate()
+        self.squads
+            .iter()
+            .enumerate()
             .filter(move |(_, s)| s.owner == SquadOwner::Town(tdi))
     }
 }
@@ -2245,31 +2614,67 @@ impl HelpCatalog {
         m.insert("farmers", "Each Farmer Home spawns 1 farmer who works at the nearest free farm. Build farms first, then Farmer Homes to staff them.");
         m.insert("archers", "Each Archer Home spawns 1 archer who patrols waypoints. Build Waypoints to create a patrol route, then Archer Homes to staff them.");
         m.insert("raiders", "Enemy raiders steal food from your farms. Build archers and waypoints near farms to defend them.");
-        m.insert("time", "Space = pause/unpause. +/- = speed up/slow down (0x, 0.25x to 128x). 0x behaves as pause. Day/Night affects work schedules set in Policies (P key).");
+        m.insert("time", "Default: Space = pause/unpause. +/- = speed up/slow down (0x, 0.25x to 128x). 0x behaves as pause. Rebind in ESC > Settings > Controls.");
 
         // Left panel tabs
         m.insert("tab_roster", "Filter, sort, click to inspect. F to follow.");
         m.insert("tab_upgrades", "Spend food and gold on permanent upgrades.");
-        m.insert("tab_policies", "Work schedules, off-duty behavior, flee and aggro settings.");
-        m.insert("tab_patrols", "Guard post patrol order. Use arrows to reorder.");
-        m.insert("tab_squads", "Set squad sizes and map targets. 1-9 hotkeys.");
-        m.insert("tab_profiler", "Per-system timings. Enable in ESC > Settings > Debug.");
+        m.insert(
+            "tab_policies",
+            "Work schedules, off-duty behavior, flee and aggro settings.",
+        );
+        m.insert(
+            "tab_patrols",
+            "Guard post patrol order. Use arrows to reorder.",
+        );
+        m.insert("tab_squads", "Set squad sizes and map targets. Default hotkeys are 1-9/0 (rebind in ESC > Settings > Controls).");
+        m.insert(
+            "tab_profiler",
+            "Per-system timings. Enable in ESC > Settings > Debug.",
+        );
 
         // Build menu
-        m.insert("build_farm", "Grows food over time. Build a Farmer Home nearby to assign a farmer to harvest it.");
-        m.insert("build_farmer_home", "Spawns 1 farmer. Farmer works at the nearest free farm. Build farms first!");
-        m.insert("build_archer_home", "Spawns 1 archer. Archer patrols nearby waypoints and fights enemies.");
-        m.insert("build_waypoint", "Patrol waypoint for guards. Guards patrol between nearby waypoints and fight enemies.");
-        m.insert("build_tent", "Spawns 1 raider. Raiders steal food from enemy farms and bring it back to their town.");
-        m.insert("build_miner_home", "Spawns 1 miner. Miner works at the nearest gold mine.");
-        m.insert("unlock_slot", "Pay food to unlock this grid slot. Then right-click it again to build.");
-        m.insert("destroy", "Remove this building. Its NPC dies and the slot becomes empty.");
+        m.insert(
+            "build_farm",
+            "Grows food over time. Build a Farmer Home nearby to assign a farmer to harvest it.",
+        );
+        m.insert(
+            "build_farmer_home",
+            "Spawns 1 farmer. Farmer works at the nearest free farm. Build farms first!",
+        );
+        m.insert(
+            "build_archer_home",
+            "Spawns 1 archer. Archer patrols nearby waypoints and fights enemies.",
+        );
+        m.insert(
+            "build_waypoint",
+            "Patrol waypoint for guards. Guards patrol between nearby waypoints and fight enemies.",
+        );
+        m.insert(
+            "build_tent",
+            "Spawns 1 raider. Raiders steal food from enemy farms and bring it back to their town.",
+        );
+        m.insert(
+            "build_miner_home",
+            "Spawns 1 miner. Miner works at the nearest gold mine.",
+        );
+        m.insert(
+            "unlock_slot",
+            "Pay food to unlock this grid slot. Then right-click it again to build.",
+        );
+        m.insert(
+            "destroy",
+            "Remove this building. Its NPC dies and the slot becomes empty.",
+        );
 
         // Inspector (NPC)
         m.insert("npc_state", "What this NPC is currently doing. Working = at their job. Resting = recovering energy at home. Fighting = in combat.");
         m.insert("npc_energy", "Energy drains while active, recovers while resting at home. NPCs go rest when energy drops below 50, resume at 80.");
         m.insert("npc_trait", "Personality trait. 40% of NPCs spawn with one. Brave = never flees. Swift = +25% speed. Hardy = +25% HP.");
-        m.insert("npc_level", "Archers level up from kills. +1% all stats per level. XP needed = (level+1)^2 x 100.");
+        m.insert(
+            "npc_level",
+            "Archers level up from kills. +1% all stats per level. XP needed = (level+1)^2 x 100.",
+        );
 
         // Getting started
         m.insert("getting_started", "Welcome! Right-click green '+' slots to build.\n- Build Farms + Farmer Homes for food\n- Build Waypoints + Archer Homes for defense\n- Raiders will attack your farms\nKeys: R=roster, U=upgrades, P=policies, T=patrols, Q=squads, H=help");
@@ -2368,7 +2773,11 @@ pub struct EndlessMode {
 
 impl Default for EndlessMode {
     fn default() -> Self {
-        Self { enabled: false, strength_fraction: 0.75, pending_spawns: Vec::new() }
+        Self {
+            enabled: false,
+            strength_fraction: 0.75,
+            pending_spawns: Vec::new(),
+        }
     }
 }
 
@@ -2432,7 +2841,15 @@ pub struct GameAudio {
 
 impl Default for GameAudio {
     fn default() -> Self {
-        Self { music_volume: 0.3, sfx_volume: 0.5, tracks: Vec::new(), last_track: None, loop_current: false, play_next: None, music_speed: 1.0 }
+        Self {
+            music_volume: 0.3,
+            sfx_volume: 0.5,
+            tracks: Vec::new(),
+            last_track: None,
+            loop_current: false,
+            play_next: None,
+            music_speed: 1.0,
+        }
     }
 }
 
@@ -2442,7 +2859,14 @@ pub struct MusicTrack;
 
 /// Sound effect categories (scaffold for future SFX).
 #[derive(Clone, Copy)]
-pub enum SfxKind { ArrowShoot, Hit, Death, Build, Click, Upgrade }
+pub enum SfxKind {
+    ArrowShoot,
+    Hit,
+    Death,
+    Build,
+    Click,
+    Upgrade,
+}
 
 /// Fire-and-forget SFX trigger message.
 #[derive(Message, Clone)]

@@ -11,7 +11,7 @@ use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::render::MainCamera;
 use crate::resources::EntityMap;
 
-use super::{TestState, TestSetupParams};
+use super::{TestSetupParams, TestState};
 
 // Grid layout
 const GRID_X_START: f32 = 200.0;
@@ -37,7 +37,9 @@ const ROW_FIGHTER: usize = 3;
 const NUM_ROWS: usize = 4;
 
 const ROW_LABELS: [&str; NUM_ROWS] = ["Archer", "Farmer", "Raider", "Fighter"];
-const COL_LABELS: [&str; NUM_COLS] = ["Body", "+Weapon", "+Helmet", "Item", "Sleep", "Heal", "Full"];
+const COL_LABELS: [&str; NUM_COLS] = [
+    "Body", "+Weapon", "+Helmet", "Item", "Sleep", "Heal", "Full",
+];
 const ROW_JOBS: [i32; NUM_ROWS] = [1, 0, 2, 3]; // Archer, Farmer, Raider, Fighter
 
 fn grid_pos(row: usize, col: usize) -> Vec2 {
@@ -67,9 +69,17 @@ pub fn setup(mut params: TestSetupParams) {
         }
     }
 
-    params.test_state.counters.insert("first_slot".into(), first_slot as u32);
+    params
+        .test_state
+        .counters
+        .insert("first_slot".into(), first_slot as u32);
     params.test_state.phase_name = "Waiting for NPCs...".into();
-    info!("npc-visuals: setup — {} NPCs in {}x{} grid", NUM_ROWS * NUM_COLS, NUM_ROWS, NUM_COLS);
+    info!(
+        "npc-visuals: setup — {} NPCs in {}x{} grid",
+        NUM_ROWS * NUM_COLS,
+        NUM_ROWS,
+        NUM_COLS
+    );
 }
 
 pub fn tick(
@@ -85,7 +95,9 @@ pub fn tick(
     weapon_q: Query<&EquippedWeapon>,
     helmet_q: Query<&EquippedHelmet>,
 ) {
-    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
+    let Some(elapsed) = test.tick_elapsed(&time) else {
+        return;
+    };
 
     let first_slot = test.count("first_slot") as usize;
     let total = NUM_ROWS * NUM_COLS;
@@ -93,7 +105,9 @@ pub fn tick(
     // Phase 1: Wait for all NPCs to spawn, then modify components
     if test.phase == 1 && !*modified {
         // Check all NPCs exist
-        let found = (0..total).filter(|i| entity_map.entities.contains_key(&(first_slot + i))).count();
+        let found = (0..total)
+            .filter(|i| entity_map.entities.contains_key(&(first_slot + i)))
+            .count();
         if found < total {
             test.phase_name = format!("Spawning {}/{}...", found, total);
             if elapsed > 5.0 {
@@ -121,38 +135,84 @@ pub fn tick(
                 let slot = first_slot + row * NUM_COLS + col;
 
                 // Stop movement
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: slot, speed: 0.0 }));
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed {
+                    idx: slot,
+                    speed: 0.0,
+                }));
 
-                let Some(npc) = entity_map.get_npc(slot) else { continue };
+                let Some(npc) = entity_map.get_npc(slot) else {
+                    continue;
+                };
                 let e = npc.entity;
 
                 match col {
                     COL_BODY => {
-                        commands.entity(e).remove::<EquippedWeapon>().remove::<EquippedHelmet>().remove::<EquippedArmor>();
+                        commands
+                            .entity(e)
+                            .remove::<EquippedWeapon>()
+                            .remove::<EquippedHelmet>()
+                            .remove::<EquippedArmor>();
                     }
                     COL_WEAPON => {
-                        commands.entity(e).remove::<EquippedHelmet>().remove::<EquippedArmor>();
+                        commands
+                            .entity(e)
+                            .remove::<EquippedHelmet>()
+                            .remove::<EquippedArmor>();
                         if weapon_q.get(e).is_err() {
-                            commands.entity(e).insert(EquippedWeapon(EQUIP_SWORD.0, EQUIP_SWORD.1));
+                            commands
+                                .entity(e)
+                                .insert(EquippedWeapon(EQUIP_SWORD.0, EQUIP_SWORD.1));
                         }
                     }
                     COL_HELMET => {
-                        commands.entity(e).remove::<EquippedWeapon>().remove::<EquippedArmor>();
+                        commands
+                            .entity(e)
+                            .remove::<EquippedWeapon>()
+                            .remove::<EquippedArmor>();
                         if helmet_q.get(e).is_err() {
-                            commands.entity(e).insert(EquippedHelmet(EQUIP_HELMET.0, EQUIP_HELMET.1));
+                            commands
+                                .entity(e)
+                                .insert(EquippedHelmet(EQUIP_HELMET.0, EQUIP_HELMET.1));
                         }
                     }
                     COL_ITEM => {
-                        commands.entity(e).remove::<EquippedWeapon>().remove::<EquippedHelmet>().remove::<EquippedArmor>();
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx: slot, col: FOOD_SPRITE.0, row: FOOD_SPRITE.1, atlas: 1.0 }));
+                        commands
+                            .entity(e)
+                            .remove::<EquippedWeapon>()
+                            .remove::<EquippedHelmet>()
+                            .remove::<EquippedArmor>();
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
+                            idx: slot,
+                            col: FOOD_SPRITE.0,
+                            row: FOOD_SPRITE.1,
+                            atlas: 1.0,
+                        }));
                     }
                     COL_SLEEP => {
-                        commands.entity(e).remove::<EquippedWeapon>().remove::<EquippedHelmet>().remove::<EquippedArmor>();
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx: slot, col: SLEEP_SPRITE.0, row: SLEEP_SPRITE.1, atlas: 0.0 }));
+                        commands
+                            .entity(e)
+                            .remove::<EquippedWeapon>()
+                            .remove::<EquippedHelmet>()
+                            .remove::<EquippedArmor>();
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
+                            idx: slot,
+                            col: SLEEP_SPRITE.0,
+                            row: SLEEP_SPRITE.1,
+                            atlas: 0.0,
+                        }));
                     }
                     COL_HEAL => {
-                        commands.entity(e).remove::<EquippedWeapon>().remove::<EquippedHelmet>().remove::<EquippedArmor>();
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx: slot, col: HEAL_SPRITE.0, row: HEAL_SPRITE.1, atlas: 0.0 }));
+                        commands
+                            .entity(e)
+                            .remove::<EquippedWeapon>()
+                            .remove::<EquippedHelmet>()
+                            .remove::<EquippedArmor>();
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
+                            idx: slot,
+                            col: HEAL_SPRITE.0,
+                            row: HEAL_SPRITE.1,
+                            atlas: 0.0,
+                        }));
                     }
                     COL_FULL => {
                         // Full: keep all equipment as spawned
@@ -170,8 +230,12 @@ pub fn tick(
     // Egui overlay: labels at world positions
     let Ok(ctx) = contexts.ctx_mut() else { return };
     let Ok(window) = windows.single() else { return };
-    let Ok((cam_transform, cam_projection)) = camera_query.single() else { return };
-    let Projection::Orthographic(ref ortho) = *cam_projection else { return };
+    let Ok((cam_transform, cam_projection)) = camera_query.single() else {
+        return;
+    };
+    let Projection::Orthographic(ref ortho) = *cam_projection else {
+        return;
+    };
 
     let zoom = 1.0 / ortho.scale;
     let cam_pos = cam_transform.translation.truncate();
@@ -179,10 +243,7 @@ pub fn tick(
 
     let world_to_screen = |world_pos: Vec2| -> egui::Pos2 {
         let offset = (world_pos - cam_pos) * zoom;
-        egui::Pos2::new(
-            offset.x + viewport.x / 2.0,
-            viewport.y / 2.0 - offset.y,
-        )
+        egui::Pos2::new(offset.x + viewport.x / 2.0, viewport.y / 2.0 - offset.y)
     };
 
     // Column headers (above top row)
@@ -194,7 +255,12 @@ pub fn tick(
             .pivot(egui::Align2::CENTER_BOTTOM)
             .interactable(false)
             .show(ctx, |ui| {
-                ui.label(egui::RichText::new(COL_LABELS[col]).strong().size(12.0).color(egui::Color32::WHITE));
+                ui.label(
+                    egui::RichText::new(COL_LABELS[col])
+                        .strong()
+                        .size(12.0)
+                        .color(egui::Color32::WHITE),
+                );
             });
     }
 
@@ -214,7 +280,12 @@ pub fn tick(
                     ROW_FIGHTER => egui::Color32::from_rgb(255, 255, 102),
                     _ => egui::Color32::WHITE,
                 };
-                ui.label(egui::RichText::new(ROW_LABELS[row]).strong().size(14.0).color(color));
+                ui.label(
+                    egui::RichText::new(ROW_LABELS[row])
+                        .strong()
+                        .size(14.0)
+                        .color(color),
+                );
             });
     }
 
@@ -250,7 +321,11 @@ pub fn tick(
                 .pivot(egui::Align2::CENTER_TOP)
                 .interactable(false)
                 .show(ctx, |ui| {
-                    ui.label(egui::RichText::new(info).size(10.0).color(egui::Color32::GRAY));
+                    ui.label(
+                        egui::RichText::new(info)
+                            .size(10.0)
+                            .color(egui::Color32::GRAY),
+                    );
                 });
         }
     }

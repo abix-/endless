@@ -1,12 +1,12 @@
 //! Energy System Test (3 phases)
 //! Validates: energy starts at 100, drains over time, reaches ENERGY_HUNGRY threshold.
 
-use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::ENERGY_HUNGRY;
 use crate::resources::EntityMap;
+use bevy::prelude::*;
 
-use super::{TestState, TestSetupParams};
+use super::{TestSetupParams, TestState};
 
 pub fn setup(mut params: TestSetupParams) {
     params.add_town("TestTown");
@@ -17,10 +17,15 @@ pub fn setup(mut params: TestSetupParams) {
     let slot = params.slot_alloc.alloc().expect("slot alloc");
     params.spawn_events.write(crate::messages::SpawnNpcMsg {
         slot_idx: slot,
-        x: 400.0, y: 400.0,
-        job: 0, faction: 0, town_idx: 0,
-        home_x: -1.0, home_y: -1.0,
-        work_x: -1.0, work_y: -1.0,
+        x: 400.0,
+        y: 400.0,
+        job: 0,
+        faction: 0,
+        town_idx: 0,
+        home_x: -1.0,
+        home_y: -1.0,
+        work_x: -1.0,
+        work_y: -1.0,
         starting_post: -1,
         attack_type: 0,
         uid_override: None,
@@ -35,16 +40,30 @@ pub fn tick(
     mut test: ResMut<TestState>,
     mut energy_q: Query<&mut Energy>,
 ) {
-    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
+    let Some(elapsed) = test.tick_elapsed(&time) else {
+        return;
+    };
 
-    let farmer_count = entity_map.iter_npcs().filter(|n| !n.dead && n.job == Job::Farmer).count();
-    if !test.require_entity(farmer_count, elapsed, "farmer") { return; }
-    let Some(farmer) = entity_map.iter_npcs().find(|n| !n.dead && n.job == Job::Farmer) else { return; };
+    let farmer_count = entity_map
+        .iter_npcs()
+        .filter(|n| !n.dead && n.job == Job::Farmer)
+        .count();
+    if !test.require_entity(farmer_count, elapsed, "farmer") {
+        return;
+    }
+    let Some(farmer) = entity_map
+        .iter_npcs()
+        .find(|n| !n.dead && n.job == Job::Farmer)
+    else {
+        return;
+    };
     let farmer_entity = farmer.entity;
 
     // Start energy near threshold so drain completes within 30s at time_scale=1
     if !test.get_flag("energy_set") {
-        if let Ok(mut en) = energy_q.get_mut(farmer_entity) { en.0 = 55.0; }
+        if let Ok(mut en) = energy_q.get_mut(farmer_entity) {
+            en.0 = 55.0;
+        }
         test.set_flag("energy_set", true);
     }
 
@@ -76,7 +95,10 @@ pub fn tick(
                 test.pass_phase(elapsed, format!("energy={:.1} < {:.0}", e, ENERGY_HUNGRY));
                 test.complete(elapsed);
             } else if elapsed > 20.0 {
-                test.fail_phase(elapsed, format!("energy={:.1} (expected <{:.0})", e, ENERGY_HUNGRY));
+                test.fail_phase(
+                    elapsed,
+                    format!("energy={:.1} (expected <{:.0})", e, ENERGY_HUNGRY),
+                );
             }
         }
         _ => {}

@@ -1,7 +1,7 @@
 //! ECS Components - Bevy entities have these attached
 
-use bevy::prelude::*;
 use crate::constants::ItemKind;
+use bevy::prelude::*;
 
 // ============================================================================
 // CORE COMPONENTS
@@ -92,7 +92,7 @@ pub struct Speed(pub f32);
 
 impl Default for Speed {
     fn default() -> Self {
-        Self(100.0)  // 100 pixels/second base speed
+        Self(100.0) // 100 pixels/second base speed
     }
 }
 
@@ -149,7 +149,6 @@ pub struct NpcWorkState {
 #[derive(Component, Clone, Copy, Default)]
 pub struct CarriedGold(pub i32);
 
-
 // ============================================================================
 // NPC STATE — Two orthogonal enums (Activity × CombatState)
 // ============================================================================
@@ -162,17 +161,27 @@ pub enum Activity {
     #[default]
     Idle,
     Working,
-    OnDuty { ticks_waiting: u32 },
+    OnDuty {
+        ticks_waiting: u32,
+    },
     Patrolling,
     GoingToWork,
     GoingToRest,
     Resting,
     GoingToHeal,
-    HealingAtFountain { recover_until: f32 },
+    HealingAtFountain {
+        recover_until: f32,
+    },
     Wandering,
-    Raiding { target: Vec2 },
-    Returning { loot: Vec<(ItemKind, i32)> },
-    Mining { mine_pos: Vec2 },
+    Raiding {
+        target: Vec2,
+    },
+    Returning {
+        loot: Vec<(ItemKind, i32)>,
+    },
+    Mining {
+        mine_pos: Vec2,
+    },
     MiningAtMine,
 }
 
@@ -190,9 +199,17 @@ impl Activity {
 
     /// Is this NPC moving toward a destination?
     pub fn is_transit(&self) -> bool {
-        matches!(self, Self::Patrolling | Self::GoingToWork | Self::GoingToRest
-            | Self::GoingToHeal | Self::Wandering | Self::Raiding { .. } | Self::Returning { .. }
-            | Self::Mining { .. })
+        matches!(
+            self,
+            Self::Patrolling
+                | Self::GoingToWork
+                | Self::GoingToRest
+                | Self::GoingToHeal
+                | Self::Wandering
+                | Self::Raiding { .. }
+                | Self::Returning { .. }
+                | Self::Mining { .. }
+        )
     }
 
     /// Visual key for dirty tracking: same key = same visual representation.
@@ -201,9 +218,13 @@ impl Activity {
         match self {
             Self::Resting => 1,
             Self::Returning { loot } => {
-                if loot.iter().any(|(k, a)| *k == ItemKind::Gold && *a > 0) { 2 }
-                else if loot.iter().any(|(k, a)| *k == ItemKind::Food && *a > 0) { 3 }
-                else { 4 }
+                if loot.iter().any(|(k, a)| *k == ItemKind::Gold && *a > 0) {
+                    2
+                } else if loot.iter().any(|(k, a)| *k == ItemKind::Food && *a > 0) {
+                    3
+                } else {
+                    4
+                }
             }
             _ => 0,
         }
@@ -223,8 +244,16 @@ impl Activity {
             Self::HealingAtFountain { .. } => "Healing",
             Self::Wandering => "Wandering",
             Self::Raiding { .. } => "Raiding",
-            Self::Returning { loot } if loot.iter().any(|(k, a)| *k == ItemKind::Gold && *a > 0) => "Returning (gold)",
-            Self::Returning { loot } if loot.iter().any(|(k, a)| *k == ItemKind::Food && *a > 0) => "Returning (food)",
+            Self::Returning { loot }
+                if loot.iter().any(|(k, a)| *k == ItemKind::Gold && *a > 0) =>
+            {
+                "Returning (gold)"
+            }
+            Self::Returning { loot }
+                if loot.iter().any(|(k, a)| *k == ItemKind::Food && *a > 0) =>
+            {
+                "Returning (food)"
+            }
             Self::Returning { .. } => "Returning",
             Self::Mining { .. } => "Mining",
             Self::MiningAtMine => "Mining",
@@ -238,7 +267,9 @@ impl Activity {
 pub enum CombatState {
     #[default]
     None,
-    Fighting { origin: Vec2 },
+    Fighting {
+        origin: Vec2,
+    },
     Fleeing,
 }
 
@@ -281,7 +312,6 @@ pub struct NpcFlags {
 /// Squad assignment for military NPCs. Optional component — only present when recruited.
 #[derive(Component, Clone, Copy)]
 pub struct SquadId(pub i32);
-
 
 /// NPC is dead and pending removal.
 #[derive(Component)]
@@ -342,7 +372,6 @@ impl Faction {
     }
 }
 
-
 /// Cooldown timer for attacks. When > 0, NPC can't attack.
 #[derive(Component, Default, Clone, Copy)]
 pub struct AttackTimer(pub f32);
@@ -362,8 +391,17 @@ pub struct HasEnergy;
 /// Equipment rendering layer index.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
-pub enum EquipLayer { Armor = 0, Helmet = 1, Weapon = 2, Item = 3, Status = 4, Healing = 5 }
-impl EquipLayer { pub const COUNT: usize = 6; }
+pub enum EquipLayer {
+    Armor = 0,
+    Helmet = 1,
+    Weapon = 2,
+    Item = 3,
+    Status = 4,
+    Healing = 5,
+}
+impl EquipLayer {
+    pub const COUNT: usize = 6;
+}
 
 /// Equipped weapon sprite (col, row in atlas). Presence = has weapon.
 #[derive(Component, Clone, Copy)]
