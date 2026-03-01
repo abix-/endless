@@ -1969,6 +1969,36 @@ pub enum PauseSettingsTab {
     LoadGame,
 }
 
+impl PauseSettingsTab {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Interface => "Interface",
+            Self::Video => "Video",
+            Self::Camera => "Camera",
+            Self::Controls => "Controls",
+            Self::Audio => "Audio",
+            Self::Logs => "Logs",
+            Self::Debug => "Debug",
+            Self::SaveGame => "Save Game",
+            Self::LoadGame => "Load Game",
+        }
+    }
+
+    pub fn title_subtitle(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Interface => ("Interface", "UI size, text readability, and display behavior."),
+            Self::Video => ("Video", "Window resolution, vsync, and display behavior."),
+            Self::Camera => ("Camera", "Panning, zoom speed, and sprite-detail transitions."),
+            Self::Controls => ("Controls", "View and rebind keyboard shortcuts."),
+            Self::Audio => ("Audio", "Music and sound effect levels."),
+            Self::Logs => ("Logs", "Control what gets written to combat and activity logs."),
+            Self::Debug => ("Debug", "Developer visibility and diagnostics toggles."),
+            Self::SaveGame => ("Save Game", "Quicksave instantly or save manually by filename."),
+            Self::LoadGame => ("Load Game", "Quickload or load a named/manual save file."),
+        }
+    }
+}
+
 /// Which UI panels are open. Toggled by keyboard shortcuts and HUD buttons.
 #[derive(Resource)]
 pub struct UiState {
@@ -2401,7 +2431,7 @@ impl Difficulty {
                     2,
                     2,
                     3,
-                    false,
+                    true,
                     0.5,
                     vec![(Job::Farmer, 4), (Job::Archer, 8), (Job::Raider, 0)],
                 ),

@@ -82,13 +82,20 @@ pub fn start_music(
     if audio.tracks.is_empty() {
         return;
     }
-    let idx = pick_track(&audio);
+    let idx = settings
+        .jukebox_track
+        .filter(|&t| t < audio.tracks.len())
+        .unwrap_or_else(|| pick_track(&audio));
     audio.last_track = Some(idx);
+    let mut playback = PlaybackSettings::DESPAWN
+        .with_volume(Volume::Linear(audio.music_volume))
+        .with_speed(audio.music_speed);
+    if settings.jukebox_paused {
+        playback.paused = true;
+    }
     commands.spawn((
         AudioPlayer::new(audio.tracks[idx].clone()),
-        PlaybackSettings::DESPAWN
-            .with_volume(Volume::Linear(audio.music_volume))
-            .with_speed(audio.music_speed),
+        playback,
         MusicTrack,
     ));
 }

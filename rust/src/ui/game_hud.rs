@@ -3077,6 +3077,11 @@ pub fn jukebox_ui_system(
     let Some(track_idx) = audio.last_track else {
         return Ok(());
     };
+    // Persist track when auto-advance changes it
+    if settings.jukebox_track != Some(track_idx) {
+        settings.jukebox_track = Some(track_idx);
+        crate::settings::save_settings(&settings);
+    }
 
     let frame = egui::Frame::new()
         .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 35, 220))
@@ -3105,6 +3110,8 @@ pub fn jukebox_ui_system(
                     // Switch track if user picked a different one
                     if selected != track_idx {
                         audio.play_next = Some(selected);
+                        settings.jukebox_track = Some(selected);
+                        crate::settings::save_settings(&settings);
                         if let Ok((entity, _)) = music_query.single() {
                             commands.entity(entity).despawn();
                         }
@@ -3114,6 +3121,8 @@ pub fn jukebox_ui_system(
                         let paused = sink.is_paused();
                         if ui.small_button(if paused { "▶" } else { "⏸" }).clicked() {
                             if paused { sink.play() } else { sink.pause() }
+                            settings.jukebox_paused = !paused;
+                            crate::settings::save_settings(&settings);
                         }
                         if ui.small_button("⏭").clicked() {
                             commands.entity(entity).despawn();

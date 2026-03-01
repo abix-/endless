@@ -46,6 +46,374 @@ pub fn gold_mine_name(mine_idx: usize) -> String {
     format!("Gold Mine {}", mine_idx + 1)
 }
 
+// ============================================================================
+// SHARED SETTINGS PANEL
+// ============================================================================
+
+/// Response from the shared settings panel UI.
+pub struct SettingsResponse {
+    pub reset_requested: bool,
+    pub save_requested: bool,
+    pub load_requested: bool,
+    /// If save was "Save As", this is the named path.
+    pub save_path: Option<std::path::PathBuf>,
+    /// If load was by name or from list, this is the path.
+    pub load_path: Option<std::path::PathBuf>,
+}
+
+/// Render the full settings panel (tab sidebar + content area).
+/// Called from both pause menu and main menu.
+pub fn settings_panel_ui(
+    ui: &mut egui::Ui,
+    settings: &mut UserSettings,
+    tab: &mut PauseSettingsTab,
+    rebinding_action: &mut Option<ControlAction>,
+    // Save/Load tab state — None hides those tabs
+    manual_save_name: Option<&mut String>,
+    manual_load_name: Option<&mut String>,
+) -> SettingsResponse {
+    let mut resp = SettingsResponse {
+        reset_requested: false,
+        save_requested: false,
+        load_requested: false,
+        save_path: None,
+        load_path: None,
+    };
+    let show_save_load = manual_save_name.is_some();
+
+    ui.horizontal(|ui| {
+        ui.set_min_height(390.0);
+        ui.set_max_height(390.0);
+
+        // Tab sidebar
+        ui.vertical(|ui| {
+            ui.set_min_width(180.0);
+            ui.add_space(8.0);
+            for &tab_val in &[
+                PauseSettingsTab::Interface,
+                PauseSettingsTab::Video,
+                PauseSettingsTab::Camera,
+                PauseSettingsTab::Controls,
+                PauseSettingsTab::Audio,
+                PauseSettingsTab::Logs,
+                PauseSettingsTab::Debug,
+            ] {
+                ui.selectable_value(
+                    tab,
+                    tab_val,
+                    egui::RichText::new(tab_val.label()).size(18.0),
+                );
+            }
+            if show_save_load {
+                ui.selectable_value(
+                    tab,
+                    PauseSettingsTab::SaveGame,
+                    egui::RichText::new("Save Game").size(18.0),
+                );
+                ui.selectable_value(
+                    tab,
+                    PauseSettingsTab::LoadGame,
+                    egui::RichText::new("Load Game").size(18.0),
+                );
+            }
+        });
+
+        ui.separator();
+
+        // Content area
+        ui.vertical(|ui| {
+            ui.set_min_width(580.0);
+            let (title, subtitle) = tab.title_subtitle();
+            ui.heading(title);
+            ui.small(subtitle);
+            ui.separator();
+
+            egui::ScrollArea::vertical()
+                .max_height(340.0)
+                .show(ui, |ui| {
+                    match *tab {
+                        PauseSettingsTab::Interface => {
+                            ui.add(egui::Slider::new(&mut settings.ui_scale, 0.8..=2.5).text("UI Scale"))
+                                .on_hover_text("Scales all UI windows and controls.");
+                            ui.small("Higher values make every panel larger.");
+                            ui.add_space(6.0);
+
+                            ui.add(egui::Slider::new(&mut settings.interface_text_size, 10.0..=28.0).text("Interface Text Size"))
+                                .on_hover_text("Base font size for menus, buttons, and panel text.");
+                            ui.small("Increase this to make settings and interface text easier to read.");
+                            ui.add_space(6.0);
+
+                            ui.add(egui::Slider::new(&mut settings.help_text_size, 8.0..=24.0).text("Help Text Size"))
+                                .on_hover_text("Font size for inline tips and help text.");
+                            ui.small("Increase for better readability.");
+                            ui.add_space(6.0);
+
+                            ui.add(egui::Slider::new(&mut settings.build_menu_text_scale, 0.7..=2.0).text("Build Menu Text Scale"))
+                                .on_hover_text("Extra scaling for build-menu labels.");
+                            ui.small("Useful when build entries feel cramped.");
+                            ui.add_space(6.0);
+
+                            ui.checkbox(&mut settings.background_fps, "Full FPS in Background")
+                                .on_hover_text("Keep full update/render speed when the game window is unfocused.");
+                            ui.small("Disable to reduce CPU/GPU usage while tabbed out.");
+                        }
+                        PauseSettingsTab::Video => {
+                            const RESOLUTIONS: &[(u32, u32)] = &[
+                                (1280, 720),
+                                (1600, 900),
+                                (1920, 1080),
+                                (2560, 1440),
+                                (3840, 2160),
+                            ];
+
+                            ui.checkbox(&mut settings.fullscreen, "Fullscreen")
+                                .on_hover_text("Borderless fullscreen on the current monitor.");
+                            ui.add_space(6.0);
+
+                            ui.add_enabled_ui(!settings.fullscreen, |ui| {
+                                ui.label("Resolution");
+                                let current_label = format!(
+                                    "{} x {}",
+                                    settings.window_width, settings.window_height
+                                );
+                                egui::ComboBox::from_id_salt("settings_resolution")
+                                    .selected_text(&current_label)
+                                    .show_ui(ui, |ui| {
+                                        for &(w, h) in RESOLUTIONS {
+                                            let label = format!("{w} x {h}");
+                                            if ui.selectable_label(
+                                                settings.window_width == w
+                                                    && settings.window_height == h,
+                                                &label,
+                                            ).clicked() {
+                                                settings.window_width = w;
+                                                settings.window_height = h;
+                                            }
+                                        }
+                                    });
+                                ui.add_space(6.0);
+
+                                ui.checkbox(&mut settings.window_maximized, "Start Maximized")
+                                    .on_hover_text("Open in maximized mode on launch.");
+                            });
+                            ui.add_space(6.0);
+
+                            ui.checkbox(&mut settings.vsync, "VSync")
+                                .on_hover_text("Reduces tearing by syncing frame presentation to refresh rate.");
+                        }
+                        PauseSettingsTab::Camera => {
+                            ui.add(egui::Slider::new(&mut settings.scroll_speed, 100.0..=2000.0).text("Scroll Speed"))
+                                .on_hover_text("Camera pan speed for keyboard and edge scrolling.");
+                            ui.small("Higher values move the camera faster.");
+                            ui.add_space(6.0);
+
+                            ui.add(egui::Slider::new(&mut settings.zoom_speed, 0.02..=0.5).text("Zoom Speed"))
+                                .on_hover_text("How quickly mouse-wheel zoom changes.");
+                            ui.small("Lower values are smoother; higher values are snappier.");
+                            ui.add_space(6.0);
+
+                            ui.add(egui::Slider::new(&mut settings.zoom_min, 0.01..=0.5).text("Min Zoom"))
+                                .on_hover_text("Closest allowed camera zoom.");
+                            ui.small("Prevents zooming in too far.");
+                            ui.add_space(6.0);
+
+                            ui.add(egui::Slider::new(&mut settings.zoom_max, 1.0..=10.0).text("Max Zoom"))
+                                .on_hover_text("Farthest allowed camera zoom.");
+                            ui.small("Increase to see more of the world at once.");
+                            ui.add_space(6.0);
+
+                            if settings.zoom_min > settings.zoom_max {
+                                std::mem::swap(&mut settings.zoom_min, &mut settings.zoom_max);
+                            }
+
+                            ui.add(egui::Slider::new(&mut settings.lod_transition, 0.1..=2.0).text("LOD Transition"))
+                                .on_hover_text("Below this zoom level, sprites render as flat rectangles.");
+                            ui.small("Lower values keep detailed sprites visible longer.");
+                        }
+                        PauseSettingsTab::Controls => {
+                            if let Some(action) = *rebinding_action {
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.label(format!("Press a key for {}.", action.label()));
+                                    if ui.button("Cancel").clicked() {
+                                        *rebinding_action = None;
+                                    }
+                                });
+                            } else {
+                                ui.small("Click any key button below to rebind that action.");
+                            }
+                            ui.add_space(8.0);
+
+                            for group in ControlGroup::ALL {
+                                ui.strong(group.label());
+                                ui.add_space(4.0);
+
+                                for action in crate::settings::control_actions_for_group(group) {
+                                    ui.horizontal(|ui| {
+                                        ui.label(action.label());
+                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                            let waiting = *rebinding_action == Some(*action);
+                                            let key_label = if waiting {
+                                                "Press key...".to_string()
+                                            } else {
+                                                settings.key_label_for_action(*action)
+                                            };
+                                            if ui.add_sized([140.0, 24.0], egui::Button::new(key_label)).clicked() {
+                                                *rebinding_action = Some(*action);
+                                            }
+                                        });
+                                    });
+                                    ui.small(action.help_text());
+                                    ui.add_space(4.0);
+                                }
+                                ui.add_space(8.0);
+                            }
+
+                            if ui.button("Reset Controls to Defaults").clicked() {
+                                settings.reset_key_bindings();
+                                *rebinding_action = None;
+                                crate::settings::save_settings(settings);
+                            }
+                        }
+                        PauseSettingsTab::Audio => {
+                            ui.add(egui::Slider::new(&mut settings.music_volume, 0.0..=1.0).text("Music Volume"))
+                                .on_hover_text("Master volume for background music.");
+                            ui.small("Applied immediately to currently playing tracks.");
+                            ui.add_space(6.0);
+
+                            ui.add(egui::Slider::new(&mut settings.sfx_volume, 0.0..=1.0).text("SFX Volume"))
+                                .on_hover_text("Master volume for UI and gameplay sound effects.");
+                            ui.small("Affects new sound effects as they play.");
+                        }
+                        PauseSettingsTab::Logs => {
+                            ui.checkbox(&mut settings.log_kills, "Log Kills");
+                            ui.small("Include NPC and building kills in the combat log.");
+                            ui.checkbox(&mut settings.log_spawns, "Log Spawns");
+                            ui.small("Show spawn events as units enter the world.");
+                            ui.checkbox(&mut settings.log_raids, "Log Raids");
+                            ui.small("Report raid starts and major raid activity.");
+                            ui.checkbox(&mut settings.log_harvests, "Log Harvests");
+                            ui.small("Show farming and resource-harvest events.");
+                            ui.checkbox(&mut settings.log_levelups, "Log Level Ups");
+                            ui.small("Show experience level gains.");
+                            ui.checkbox(&mut settings.log_npc_activity, "Log NPC Activity");
+                            ui.small("Enable task/activity messages generated by NPC behavior.");
+                            ui.checkbox(&mut settings.log_ai, "Log AI Actions");
+                            ui.small("Show AI-player planning and action decisions.");
+                            ui.add_space(10.0);
+
+                            ui.label("NPC Activity Scope");
+                            let mode = &mut settings.npc_log_mode;
+                            ui.horizontal(|ui| {
+                                use crate::settings::NpcLogMode;
+                                if ui.selectable_label(*mode == NpcLogMode::SelectedOnly, "Selected Only").clicked() { *mode = NpcLogMode::SelectedOnly; }
+                                if ui.selectable_label(*mode == NpcLogMode::Faction, "My Faction").clicked() { *mode = NpcLogMode::Faction; }
+                                if ui.selectable_label(*mode == NpcLogMode::All, "All NPCs").clicked() { *mode = NpcLogMode::All; }
+                            });
+                            match settings.npc_log_mode {
+                                crate::settings::NpcLogMode::SelectedOnly => { ui.small("Only logs the selected NPC. Best performance."); }
+                                crate::settings::NpcLogMode::Faction => { ui.small("Logs your faction's NPCs only."); }
+                                crate::settings::NpcLogMode::All => { ui.small("Logs all NPCs. Highest memory use."); }
+                            }
+                        }
+                        PauseSettingsTab::Debug => {
+                            ui.checkbox(&mut settings.debug_coordinates, "NPC Coordinates");
+                            ui.small("Show world coordinates for selected NPCs.");
+                            ui.checkbox(&mut settings.debug_all_npcs, "All NPCs in Roster");
+                            ui.small("Force all NPCs visible in roster/debug lists.");
+                            ui.checkbox(&mut settings.debug_readback, "GPU Readback");
+                            ui.small("Enable render readback diagnostics.");
+                            ui.checkbox(&mut settings.debug_combat, "Combat Logging");
+                            ui.small("Verbose combat internals in the log.");
+                            ui.checkbox(&mut settings.debug_spawns, "Spawn Logging");
+                            ui.small("Verbose spawn diagnostics.");
+                            ui.checkbox(&mut settings.debug_behavior, "Behavior Logging");
+                            ui.small("Verbose behavior-tree/task diagnostics.");
+                            ui.checkbox(&mut settings.debug_profiler, "System Profiler");
+                            ui.small("Enable per-system timing overlays/logging.");
+                            ui.checkbox(&mut settings.debug_ai_decisions, "AI Decision Logging");
+                            ui.small("Log AI player action selection details.");
+                            ui.checkbox(&mut settings.show_terrain_sprites, "Show Terrain Sprites");
+                            ui.small("Toggle sprite-vs-plain rendering for terrain.");
+                            ui.checkbox(&mut settings.show_all_faction_squad_lines, "Show All Faction Squad Lines");
+                            ui.small("Draw squad path lines for all factions.");
+                        }
+                        PauseSettingsTab::SaveGame => {
+                            if let Some(save_name) = manual_save_name {
+                                ui.label("Quick save");
+                                ui.small("Writes to quicksave.json.");
+                                ui.add_space(10.0);
+                                if ui.button("Save Game (Quicksave)").clicked() {
+                                    resp.save_requested = true;
+                                }
+
+                                ui.add_space(12.0);
+                                ui.separator();
+                                ui.add_space(8.0);
+                                ui.label("Manual save");
+                                ui.small("Creates Documents/Endless/saves/<name>.json");
+                                ui.horizontal(|ui| {
+                                    ui.label("Name:");
+                                    ui.text_edit_singleline(save_name);
+                                });
+                                if ui.button("Save Game As...").clicked() {
+                                    resp.save_path = crate::save::named_save_path(save_name.as_str());
+                                    resp.save_requested = true;
+                                }
+                            }
+                        }
+                        PauseSettingsTab::LoadGame => {
+                            if let Some(load_name) = manual_load_name {
+                                ui.label("Quick load");
+                                let has_quicksave = crate::save::has_quicksave();
+                                if ui.add_enabled(has_quicksave, egui::Button::new("Load Game (Quicksave)")).clicked() {
+                                    resp.load_requested = true;
+                                }
+                                if !has_quicksave {
+                                    ui.small("No quicksave found yet.");
+                                }
+
+                                ui.add_space(12.0);
+                                ui.separator();
+                                ui.add_space(8.0);
+                                ui.label("Manual load");
+                                ui.small("Loads Documents/Endless/saves/<name>.json");
+                                ui.horizontal(|ui| {
+                                    ui.label("Name:");
+                                    ui.text_edit_singleline(load_name);
+                                });
+                                if ui.button("Load Game By Name").clicked() {
+                                    resp.load_path = crate::save::named_save_path(load_name.as_str());
+                                    resp.load_requested = true;
+                                }
+
+                                ui.add_space(10.0);
+                                ui.label("Existing saves");
+                                for save_info in crate::save::list_saves() {
+                                    let label = save_info.filename.trim_end_matches(".json").to_string();
+                                    if ui.button(label).clicked() {
+                                        resp.load_path = Some(save_info.path);
+                                        resp.load_requested = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+        });
+    });
+
+    ui.separator();
+    ui.vertical_centered(|ui| {
+        ui.add_space(4.0);
+        if ui.button("Reset Defaults").clicked() {
+            resp.reset_requested = true;
+        }
+        ui.add_space(8.0);
+    });
+
+    resp
+}
+
 /// Apply user's UI scale to all egui contexts via EguiContextSettings.
 fn apply_ui_scale(
     settings: Res<crate::settings::UserSettings>,
@@ -618,8 +986,6 @@ fn pause_menu_system(
     }
 
     let ctx = contexts.ctx_mut()?;
-    let mut save_game_requested = false;
-    let mut load_game_requested = false;
     let mut reset_requested = false;
     if let Some(action) = *rebinding_action {
         if let Some(bound_key) = keys
@@ -642,6 +1008,9 @@ fn pause_menu_system(
     let prev_window_height = settings.window_height;
     let prev_window_maximized = settings.window_maximized;
     let prev_vsync = settings.vsync;
+    let prev_fullscreen = settings.fullscreen;
+    let prev_bg_fps = settings.background_fps;
+    let prev_music_vol = settings.music_volume;
 
     // Dim background
     let screen = ctx.content_rect();
@@ -654,405 +1023,52 @@ fn pause_menu_system(
         });
 
     // Centered window
-    egui::Window::new("Paused")
+    let window_resp = egui::Window::new("Paused")
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .min_width(820.0)
         .min_height(520.0)
         .show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.set_min_height(390.0);
-                ui.set_max_height(390.0);
+            let resp = settings_panel_ui(
+                ui,
+                &mut settings,
+                &mut ui_state.pause_settings_tab,
+                &mut rebinding_action,
+                Some(&mut manual_save_name),
+                Some(&mut manual_load_name),
+            );
 
-                ui.vertical(|ui| {
-                    ui.set_min_width(180.0);
-                    ui.add_space(8.0);
-                    ui.selectable_value(
-                        &mut ui_state.pause_settings_tab,
-                        PauseSettingsTab::Interface,
-                        egui::RichText::new("Interface").size(18.0),
-                    );
-                    ui.selectable_value(
-                        &mut ui_state.pause_settings_tab,
-                        PauseSettingsTab::Video,
-                        egui::RichText::new("Video").size(18.0),
-                    );
-                    ui.selectable_value(
-                        &mut ui_state.pause_settings_tab,
-                        PauseSettingsTab::Camera,
-                        egui::RichText::new("Camera").size(18.0),
-                    );
-                    ui.selectable_value(
-                        &mut ui_state.pause_settings_tab,
-                        PauseSettingsTab::Controls,
-                        egui::RichText::new("Controls").size(18.0),
-                    );
-                    ui.selectable_value(
-                        &mut ui_state.pause_settings_tab,
-                        PauseSettingsTab::Audio,
-                        egui::RichText::new("Audio").size(18.0),
-                    );
-                    ui.selectable_value(
-                        &mut ui_state.pause_settings_tab,
-                        PauseSettingsTab::Logs,
-                        egui::RichText::new("Logs").size(18.0),
-                    );
-                    ui.selectable_value(
-                        &mut ui_state.pause_settings_tab,
-                        PauseSettingsTab::Debug,
-                        egui::RichText::new("Debug").size(18.0),
-                    );
-                    ui.selectable_value(
-                        &mut ui_state.pause_settings_tab,
-                        PauseSettingsTab::SaveGame,
-                        egui::RichText::new("Save Game").size(18.0),
-                    );
-                    ui.selectable_value(
-                        &mut ui_state.pause_settings_tab,
-                        PauseSettingsTab::LoadGame,
-                        egui::RichText::new("Load Game").size(18.0),
-                    );
-                });
+            if ui.button("Resume").clicked() {
+                ui_state.pause_menu_open = false;
+                game_time.paused = false;
+                crate::settings::save_settings(&settings);
+            }
+            if ui.button("Exit to Main Menu").clicked() {
+                ui_state.pause_menu_open = false;
+                crate::settings::save_settings(&settings);
+                next_state.set(AppState::MainMenu);
+            }
+            ui.add_space(8.0);
 
-                ui.separator();
-
-                ui.vertical(|ui| {
-                    ui.set_min_width(580.0);
-                    let (title, subtitle) = match ui_state.pause_settings_tab {
-                        PauseSettingsTab::Interface => ("Interface", "UI size, text readability, and display behavior."),
-                        PauseSettingsTab::Video => ("Video", "Window resolution, vsync, and display behavior."),
-                        PauseSettingsTab::Camera => ("Camera", "Panning, zoom speed, and sprite-detail transitions."),
-                        PauseSettingsTab::Controls => ("Controls", "View and rebind keyboard shortcuts."),
-                        PauseSettingsTab::Audio => ("Audio", "Music and sound effect levels."),
-                        PauseSettingsTab::Logs => ("Logs", "Control what gets written to combat and activity logs."),
-                        PauseSettingsTab::Debug => ("Debug", "Developer visibility and diagnostics toggles."),
-                        PauseSettingsTab::SaveGame => ("Save Game", "Quicksave instantly or save manually by filename."),
-                        PauseSettingsTab::LoadGame => ("Load Game", "Quickload or load a named/manual save file."),
-                    };
-                    ui.heading(title);
-                    ui.small(subtitle);
-                    ui.separator();
-
-                    egui::ScrollArea::vertical()
-                        .max_height(340.0)
-                        .show(ui, |ui| {
-                            match ui_state.pause_settings_tab {
-                                PauseSettingsTab::Interface => {
-                                    ui.add(egui::Slider::new(&mut settings.ui_scale, 0.8..=2.5).text("UI Scale"))
-                                        .on_hover_text("Scales all UI windows and controls.");
-                                    ui.small("Higher values make every panel larger.");
-                                    ui.add_space(6.0);
-
-                                    ui.add(egui::Slider::new(&mut settings.interface_text_size, 10.0..=28.0).text("Interface Text Size"))
-                                        .on_hover_text("Base font size for menus, buttons, and panel text.");
-                                    ui.small("Increase this to make settings and interface text easier to read.");
-                                    ui.add_space(6.0);
-
-                                    ui.add(egui::Slider::new(&mut settings.help_text_size, 8.0..=24.0).text("Help Text Size"))
-                                        .on_hover_text("Font size for inline tips and help text.");
-                                    ui.small("Increase for better readability.");
-                                    ui.add_space(6.0);
-
-                                    ui.add(egui::Slider::new(&mut settings.build_menu_text_scale, 0.7..=2.0).text("Build Menu Text Scale"))
-                                        .on_hover_text("Extra scaling for build-menu labels.");
-                                    ui.small("Useful when build entries feel cramped.");
-                                    ui.add_space(6.0);
-
-                                    let prev_bg_fps = settings.background_fps;
-                                    ui.checkbox(&mut settings.background_fps, "Full FPS in Background")
-                                        .on_hover_text("Keep full update/render speed when the game window is unfocused.");
-                                    ui.small("Disable to reduce CPU/GPU usage while tabbed out.");
-                                    if settings.background_fps != prev_bg_fps {
-                                        winit_settings.unfocused_mode = if settings.background_fps {
-                                            bevy::winit::UpdateMode::Continuous
-                                        } else {
-                                            bevy::winit::UpdateMode::reactive_low_power(
-                                                std::time::Duration::from_secs_f64(1.0 / 60.0),
-                                            )
-                                        };
-                                    }
-                                }
-                                PauseSettingsTab::Video => {
-                                    const RESOLUTIONS: &[(u32, u32)] = &[
-                                        (1280, 720),
-                                        (1600, 900),
-                                        (1920, 1080),
-                                        (2560, 1440),
-                                        (3840, 2160),
-                                    ];
-
-                                    ui.checkbox(&mut settings.fullscreen, "Fullscreen")
-                                        .on_hover_text("Borderless fullscreen on the current monitor.");
-                                    ui.add_space(6.0);
-
-                                    ui.add_enabled_ui(!settings.fullscreen, |ui| {
-                                        ui.label("Resolution");
-                                        let current_label = format!(
-                                            "{} x {}",
-                                            settings.window_width, settings.window_height
-                                        );
-                                        egui::ComboBox::from_id_salt("resolution")
-                                            .selected_text(&current_label)
-                                            .show_ui(ui, |ui| {
-                                                for &(w, h) in RESOLUTIONS {
-                                                    let label = format!("{w} x {h}");
-                                                    if ui.selectable_label(
-                                                        settings.window_width == w
-                                                            && settings.window_height == h,
-                                                        &label,
-                                                    ).clicked() {
-                                                        settings.window_width = w;
-                                                        settings.window_height = h;
-                                                    }
-                                                }
-                                            });
-                                        ui.add_space(6.0);
-
-                                        ui.checkbox(&mut settings.window_maximized, "Start Maximized")
-                                            .on_hover_text("Open in maximized mode on launch.");
-                                    });
-                                    ui.add_space(6.0);
-
-                                    ui.checkbox(&mut settings.vsync, "VSync")
-                                        .on_hover_text("Reduces tearing by syncing frame presentation to refresh rate.");
-                                }
-                                PauseSettingsTab::Camera => {
-                                    ui.add(egui::Slider::new(&mut settings.scroll_speed, 100.0..=2000.0).text("Scroll Speed"))
-                                        .on_hover_text("Camera pan speed for keyboard and edge scrolling.");
-                                    ui.small("Higher values move the camera faster.");
-                                    ui.add_space(6.0);
-
-                                    ui.add(egui::Slider::new(&mut settings.zoom_speed, 0.02..=0.5).text("Zoom Speed"))
-                                        .on_hover_text("How quickly mouse-wheel zoom changes.");
-                                    ui.small("Lower values are smoother; higher values are snappier.");
-                                    ui.add_space(6.0);
-
-                                    ui.add(egui::Slider::new(&mut settings.zoom_min, 0.01..=0.5).text("Min Zoom"))
-                                        .on_hover_text("Closest allowed camera zoom.");
-                                    ui.small("Prevents zooming in too far.");
-                                    ui.add_space(6.0);
-
-                                    ui.add(egui::Slider::new(&mut settings.zoom_max, 1.0..=10.0).text("Max Zoom"))
-                                        .on_hover_text("Farthest allowed camera zoom.");
-                                    ui.small("Increase to see more of the world at once.");
-                                    ui.add_space(6.0);
-
-                                    if settings.zoom_min > settings.zoom_max {
-                                        let tmp = settings.zoom_min;
-                                        settings.zoom_min = settings.zoom_max;
-                                        settings.zoom_max = tmp;
-                                    }
-
-                                    ui.add(egui::Slider::new(&mut settings.lod_transition, 0.1..=2.0).text("LOD Transition"))
-                                        .on_hover_text("Below this zoom level, sprites render as flat rectangles.");
-                                    ui.small("Lower values keep detailed sprites visible longer.");
-                                }
-                                PauseSettingsTab::Controls => {
-                                    if let Some(action) = *rebinding_action {
-                                        ui.horizontal_wrapped(|ui| {
-                                            ui.label(format!("Press a key for {}.", action.label()));
-                                            if ui.button("Cancel").clicked() {
-                                                *rebinding_action = None;
-                                            }
-                                        });
-                                    } else {
-                                        ui.small("Click any key button below to rebind that action.");
-                                    }
-                                    ui.add_space(8.0);
-
-                                    for group in ControlGroup::ALL {
-                                        ui.strong(group.label());
-                                        ui.add_space(4.0);
-
-                                        for action in settings::control_actions_for_group(group) {
-                                            ui.horizontal(|ui| {
-                                                ui.label(action.label());
-                                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                    let waiting = *rebinding_action == Some(*action);
-                                                    let key_label = if waiting {
-                                                        "Press key...".to_string()
-                                                    } else {
-                                                        settings.key_label_for_action(*action)
-                                                    };
-                                                    if ui.add_sized([140.0, 24.0], egui::Button::new(key_label)).clicked() {
-                                                        *rebinding_action = Some(*action);
-                                                    }
-                                                });
-                                            });
-                                            ui.small(action.help_text());
-                                            ui.add_space(4.0);
-                                        }
-                                        ui.add_space(8.0);
-                                    }
-
-                                    if ui.button("Reset Controls to Defaults").clicked() {
-                                        settings.reset_key_bindings();
-                                        *rebinding_action = None;
-                                        crate::settings::save_settings(&settings);
-                                    }
-                                }
-                                PauseSettingsTab::Audio => {
-                                    let prev_music = settings.music_volume;
-                                    ui.add(egui::Slider::new(&mut settings.music_volume, 0.0..=1.0).text("Music Volume"))
-                                        .on_hover_text("Master volume for background music.");
-                                    ui.small("Applied immediately to currently playing tracks.");
-                                    if (settings.music_volume - prev_music).abs() > f32::EPSILON {
-                                        audio.music_volume = settings.music_volume;
-                                        for mut sink in &mut music_sinks {
-                                            sink.set_volume(Volume::Linear(settings.music_volume));
-                                        }
-                                    }
-                                    ui.add_space(6.0);
-
-                                    ui.add(egui::Slider::new(&mut settings.sfx_volume, 0.0..=1.0).text("SFX Volume"))
-                                        .on_hover_text("Master volume for UI and gameplay sound effects.");
-                                    ui.small("Affects new sound effects as they play.");
-                                    audio.sfx_volume = settings.sfx_volume;
-                                }
-                                PauseSettingsTab::Logs => {
-                                    ui.checkbox(&mut settings.log_kills, "Log Kills");
-                                    ui.small("Include NPC and building kills in the combat log.");
-                                    ui.checkbox(&mut settings.log_spawns, "Log Spawns");
-                                    ui.small("Show spawn events as units enter the world.");
-                                    ui.checkbox(&mut settings.log_raids, "Log Raids");
-                                    ui.small("Report raid starts and major raid activity.");
-                                    ui.checkbox(&mut settings.log_harvests, "Log Harvests");
-                                    ui.small("Show farming and resource-harvest events.");
-                                    ui.checkbox(&mut settings.log_levelups, "Log Level Ups");
-                                    ui.small("Show experience level gains.");
-                                    ui.checkbox(&mut settings.log_npc_activity, "Log NPC Activity");
-                                    ui.small("Enable task/activity messages generated by NPC behavior.");
-                                    ui.checkbox(&mut settings.log_ai, "Log AI Actions");
-                                    ui.small("Show AI-player planning and action decisions.");
-                                    ui.add_space(10.0);
-
-                                    ui.label("NPC Activity Scope");
-                                    let mode = &mut settings.npc_log_mode;
-                                    ui.horizontal(|ui| {
-                                        use crate::settings::NpcLogMode;
-                                        if ui.selectable_label(*mode == NpcLogMode::SelectedOnly, "Selected Only").clicked() { *mode = NpcLogMode::SelectedOnly; }
-                                        if ui.selectable_label(*mode == NpcLogMode::Faction, "My Faction").clicked() { *mode = NpcLogMode::Faction; }
-                                        if ui.selectable_label(*mode == NpcLogMode::All, "All NPCs").clicked() { *mode = NpcLogMode::All; }
-                                    });
-                                    match settings.npc_log_mode {
-                                        crate::settings::NpcLogMode::SelectedOnly => { ui.small("Only logs the selected NPC. Best performance."); }
-                                        crate::settings::NpcLogMode::Faction => { ui.small("Logs your faction's NPCs only."); }
-                                        crate::settings::NpcLogMode::All => { ui.small("Logs all NPCs. Highest memory use."); }
-                                    }
-                                }
-                                PauseSettingsTab::Debug => {
-                                    ui.checkbox(&mut settings.debug_coordinates, "NPC Coordinates");
-                                    ui.small("Show world coordinates for selected NPCs.");
-                                    ui.checkbox(&mut settings.debug_all_npcs, "All NPCs in Roster");
-                                    ui.small("Force all NPCs visible in roster/debug lists.");
-                                    ui.checkbox(&mut settings.debug_readback, "GPU Readback");
-                                    ui.small("Enable render readback diagnostics.");
-                                    ui.checkbox(&mut settings.debug_combat, "Combat Logging");
-                                    ui.small("Verbose combat internals in the log.");
-                                    ui.checkbox(&mut settings.debug_spawns, "Spawn Logging");
-                                    ui.small("Verbose spawn diagnostics.");
-                                    ui.checkbox(&mut settings.debug_behavior, "Behavior Logging");
-                                    ui.small("Verbose behavior-tree/task diagnostics.");
-                                    ui.checkbox(&mut settings.debug_profiler, "System Profiler");
-                                    ui.small("Enable per-system timing overlays/logging.");
-                                    ui.checkbox(&mut settings.debug_ai_decisions, "AI Decision Logging");
-                                    ui.small("Log AI player action selection details.");
-                                    ui.checkbox(&mut settings.show_terrain_sprites, "Show Terrain Sprites");
-                                    ui.small("Toggle sprite-vs-plain rendering for terrain.");
-                                    ui.checkbox(&mut settings.show_all_faction_squad_lines, "Show All Faction Squad Lines");
-                                    ui.small("Draw squad path lines for all factions.");
-                                }
-                                PauseSettingsTab::SaveGame => {
-                                    ui.label("Quick save");
-                                    ui.small("Writes to quicksave.json.");
-                                    ui.add_space(10.0);
-                                    if ui.button("Save Game (Quicksave)").clicked() {
-                                        save_game_requested = true;
-                                    }
-
-                                    ui.add_space(12.0);
-                                    ui.separator();
-                                    ui.add_space(8.0);
-                                    ui.label("Manual save");
-                                    ui.small("Creates Documents/Endless/saves/<name>.json");
-                                    ui.horizontal(|ui| {
-                                        ui.label("Name:");
-                                        ui.text_edit_singleline(&mut *manual_save_name);
-                                    });
-                                    if ui.button("Save Game As...").clicked() {
-                                        if let Some(path) = crate::save::named_save_path(manual_save_name.as_str()) {
-                                            save_request.save_path = Some(path);
-                                            save_game_requested = true;
-                                        }
-                                    }
-                                }
-                                PauseSettingsTab::LoadGame => {
-                                    ui.label("Quick load");
-                                    let has_quicksave = crate::save::has_quicksave();
-                                    if ui.add_enabled(has_quicksave, egui::Button::new("Load Game (Quicksave)")).clicked() {
-                                        load_game_requested = true;
-                                    }
-                                    if !has_quicksave {
-                                        ui.small("No quicksave found yet.");
-                                    }
-
-                                    ui.add_space(12.0);
-                                    ui.separator();
-                                    ui.add_space(8.0);
-                                    ui.label("Manual load");
-                                    ui.small("Loads Documents/Endless/saves/<name>.json");
-                                    ui.horizontal(|ui| {
-                                        ui.label("Name:");
-                                        ui.text_edit_singleline(&mut *manual_load_name);
-                                    });
-                                    if ui.button("Load Game By Name").clicked() {
-                                        if let Some(path) = crate::save::named_save_path(manual_load_name.as_str()) {
-                                            save_request.load_path = Some(path);
-                                            load_game_requested = true;
-                                        }
-                                    }
-
-                                    ui.add_space(10.0);
-                                    ui.label("Existing saves");
-                                    for save_info in crate::save::list_saves() {
-                                        let label = save_info.filename.trim_end_matches(".json").to_string();
-                                        if ui.button(label).clicked() {
-                                            save_request.load_path = Some(save_info.path);
-                                            load_game_requested = true;
-                                        }
-                                    }
-                                }
-                            }
-                        });
-                });
-            });
-
-            ui.separator();
-            ui.vertical_centered(|ui| {
-                ui.add_space(4.0);
-                if ui.button("Reset Defaults").clicked() {
-                    reset_requested = true;
-                }
-                if ui.button("Resume").clicked() {
-                    ui_state.pause_menu_open = false;
-                    game_time.paused = false;
-                    crate::settings::save_settings(&settings);
-                }
-                if ui.button("Exit to Main Menu").clicked() {
-                    ui_state.pause_menu_open = false;
-                    crate::settings::save_settings(&settings);
-                    next_state.set(AppState::MainMenu);
-                }
-                ui.add_space(8.0);
-            });
+            resp
         });
 
-    if save_game_requested {
-        save_game_msgs.write(crate::save::SaveGameMsg);
-    }
-    if load_game_requested {
-        load_game_msgs.write(crate::save::LoadGameMsg);
+    // Apply side effects from settings panel
+    if let Some(inner) = window_resp.and_then(|r| r.inner) {
+        if inner.save_requested {
+            if let Some(path) = inner.save_path {
+                save_request.save_path = Some(path);
+            }
+            save_game_msgs.write(crate::save::SaveGameMsg);
+        }
+        if inner.load_requested {
+            if let Some(path) = inner.load_path {
+                save_request.load_path = Some(path);
+            }
+            load_game_msgs.write(crate::save::LoadGameMsg);
+        }
+        reset_requested = inner.reset_requested;
     }
     if reset_requested {
         *rebinding_action = None;
@@ -1071,16 +1087,36 @@ fn pause_menu_system(
         }
         crate::settings::save_settings(&settings);
     }
+    // Apply video changes
     if settings.window_width != prev_window_width
         || settings.window_height != prev_window_height
         || settings.window_maximized != prev_window_maximized
         || settings.vsync != prev_vsync
+        || settings.fullscreen != prev_fullscreen
     {
         settings.clamp_video_settings();
         if let Ok(mut window) = windows.single_mut() {
             crate::settings::apply_video_settings_to_window(&mut window, &settings);
         }
     }
+    // Apply background FPS change
+    if settings.background_fps != prev_bg_fps {
+        winit_settings.unfocused_mode = if settings.background_fps {
+            bevy::winit::UpdateMode::Continuous
+        } else {
+            bevy::winit::UpdateMode::reactive_low_power(std::time::Duration::from_secs_f64(
+                1.0 / 60.0,
+            ))
+        };
+    }
+    // Apply audio volume changes
+    if (settings.music_volume - prev_music_vol).abs() > f32::EPSILON {
+        audio.music_volume = settings.music_volume;
+        for mut sink in &mut music_sinks {
+            sink.set_volume(Volume::Linear(settings.music_volume));
+        }
+    }
+    audio.sfx_volume = settings.sfx_volume;
 
     Ok(())
 }

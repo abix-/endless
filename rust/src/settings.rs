@@ -632,6 +632,10 @@ pub struct UserSettings {
     #[serde(default)]
     pub jukebox_loop: bool,
     #[serde(default)]
+    pub jukebox_track: Option<usize>,
+    #[serde(default)]
+    pub jukebox_paused: bool,
+    #[serde(default)]
     pub tutorial_completed: bool,
     // Endless mode
     #[serde(default)]
@@ -650,6 +654,12 @@ pub struct UserSettings {
     /// Which NPCs get activity-logged (perf: fewer = less allocation in hot loop).
     #[serde(default)]
     pub npc_log_mode: NpcLogMode,
+    /// Last active left-panel tab (stored as string for serde without derives on enum).
+    #[serde(default)]
+    pub left_panel_tab: String,
+    /// Section names the user has explicitly collapsed in the left panel.
+    #[serde(default)]
+    pub collapsed_sections: Vec<String>,
 }
 
 fn default_endless_strength() -> f32 {
@@ -786,15 +796,19 @@ impl Default for UserSettings {
             sfx_volume: 0.5,
             music_speed: 1.0,
             jukebox_loop: false,
+            jukebox_track: None,
+            jukebox_paused: false,
             tutorial_completed: false,
             upgrade_expanded: Vec::new(),
-            endless_mode: false,
+            endless_mode: true,
             endless_strength: 0.75,
             zoom_speed: 0.1,
             zoom_min: 0.02,
             zoom_max: 4.0,
             lod_transition: 0.25,
             npc_log_mode: NpcLogMode::default(),
+            left_panel_tab: String::new(),
+            collapsed_sections: Vec::new(),
         }
     }
 }

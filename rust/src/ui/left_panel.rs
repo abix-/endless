@@ -212,8 +212,93 @@ pub struct FactionsCache {
 }
 
 // ============================================================================
+// TAB STRING CONVERSION & COLLAPSING SECTION PERSISTENCE
+// ============================================================================
+
+/// All collapsing section names we track for persistence.
+/// Each entry is (name, default_open).
+const TRACKED_SECTIONS: &[(&str, bool)] = &[
+    ("Desires", true),
+    ("Economy", true),
+    ("Policies", false),
+    ("Military", true),
+    ("Economy Stats", false),
+    ("Military Stats", false),
+    ("Squad Commander", true),
+    ("Recent Actions", true),
+    ("Debug Actions", false),
+    ("NPC Target Thrash (sink, 1s window)", true),
+];
+
+/// Read current collapsed state from egui and store in settings.
+fn snapshot_collapsed_sections(ctx: &egui::Context, settings: &mut UserSettings) {
+    settings.collapsed_sections.clear();
+    for &(name, default_open) in TRACKED_SECTIONS {
+        let id = egui::Id::new(name);
+        let open = egui::collapsing_header::CollapsingState::load_with_default_open(
+            ctx, id, default_open,
+        )
+        .is_open();
+        if !open {
+            settings.collapsed_sections.push(name.to_string());
+        }
+    }
+}
+
+/// Apply saved collapsed state to egui collapsing headers.
+fn restore_collapsed_sections(ctx: &egui::Context, settings: &UserSettings) {
+    for &(name, default_open) in TRACKED_SECTIONS {
+        let id = egui::Id::new(name);
+        let should_open = if settings.collapsed_sections.contains(&name.to_string()) {
+            false
+        } else {
+            default_open
+        };
+        let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
+            ctx, id, should_open,
+        );
+        state.set_open(should_open);
+        state.store(ctx);
+    }
+}
+
+fn tab_to_str(tab: LeftPanelTab) -> &'static str {
+    match tab {
+        LeftPanelTab::Roster => "Roster",
+        LeftPanelTab::Upgrades => "Upgrades",
+        LeftPanelTab::Policies => "Policies",
+        LeftPanelTab::Patrols => "Patrols",
+        LeftPanelTab::Squads => "Squads",
+        LeftPanelTab::Factions => "Factions",
+        LeftPanelTab::Profiler => "Profiler",
+        LeftPanelTab::Help => "Help",
+    }
+}
+
+fn str_to_tab(s: &str) -> LeftPanelTab {
+    match s {
+        "Roster" => LeftPanelTab::Roster,
+        "Upgrades" => LeftPanelTab::Upgrades,
+        "Policies" => LeftPanelTab::Policies,
+        "Patrols" => LeftPanelTab::Patrols,
+        "Squads" => LeftPanelTab::Squads,
+        "Factions" => LeftPanelTab::Factions,
+        "Profiler" => LeftPanelTab::Profiler,
+        "Help" => LeftPanelTab::Help,
+        _ => LeftPanelTab::Roster,
+    }
+}
+
+// ============================================================================
 // MAIN SYSTEM
 // ============================================================================
+
+/// Tracks previous-frame state for detecting panel open/close and tab changes.
+#[derive(Default)]
+pub struct PanelState {
+    was_open: bool,
+    prev_tab: LeftPanelTab,
+}
 
 pub fn left_panel_system(
     mut contexts: bevy_egui::EguiContexts,
@@ -229,20 +314,35 @@ pub fn left_panel_system(
     mut factions_cache: Local<FactionsCache>,
     mut settings: ResMut<UserSettings>,
     catalog: Res<HelpCatalog>,
-    mut prev_tab: Local<LeftPanelTab>,
+    mut panel_state: Local<PanelState>,
     mut profiler_cache: Local<ProfilerCache>,
     mut dirty_writers: crate::messages::DirtyWriters,
 ) -> Result {
+    let ctx = contexts.ctx_mut()?;
+
+    // Detect panel close → snapshot collapsed state + save all to disk once
     if !ui_state.left_panel_open {
+        if panel_state.was_open {
+            panel_state.was_open = false;
+            snapshot_collapsed_sections(ctx, &mut settings);
+            save_left_panel_state(&ui_state, &settings, &policies, &world_data);
+        }
         ui_state.factions_overlay_faction = None;
-        *prev_tab = LeftPanelTab::Roster;
+        panel_state.prev_tab = LeftPanelTab::Roster;
         return Ok(());
+    }
+    if !panel_state.was_open {
+        panel_state.was_open = true;
+        // Restore saved tab and collapsed sections
+        if !settings.left_panel_tab.is_empty() {
+            ui_state.left_panel_tab = str_to_tab(&settings.left_panel_tab);
+        }
+        restore_collapsed_sections(ctx, &settings);
     }
     if ui_state.left_panel_tab != LeftPanelTab::Factions {
         ui_state.factions_overlay_faction = None;
     }
 
-    let ctx = contexts.ctx_mut()?;
     let debug_all = settings.debug_all_npcs;
     let help_text_size = settings.help_text_size;
 
@@ -374,28 +474,38 @@ pub fn left_panel_system(
         ui_state.left_panel_open = false;
     }
 
-    // Save policies when leaving Policies tab or closing panel
-    let was_policies = *prev_tab == LeftPanelTab::Policies;
-    let is_policies = ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Policies;
-    if was_policies && !is_policies {
-        let town_idx = world_data
-            .towns
-            .iter()
-            .position(|t| t.faction == 0)
-            .unwrap_or(0);
-        if town_idx < policies.policies.len() {
-            let mut saved = settings::load_settings();
-            saved.policy = policies.policies[town_idx].clone();
-            settings::save_settings(&saved);
-        }
-    }
-    *prev_tab = if ui_state.left_panel_open {
+    panel_state.prev_tab = if ui_state.left_panel_open {
         ui_state.left_panel_tab
     } else {
         LeftPanelTab::Roster
     };
 
     Ok(())
+}
+
+/// Save all left-panel state to settings file in a single write.
+fn save_left_panel_state(
+    ui_state: &UiState,
+    settings: &UserSettings,
+    policies: &TownPolicies,
+    world_data: &WorldData,
+) {
+    let mut saved = settings::load_settings();
+    saved.left_panel_tab = tab_to_str(ui_state.left_panel_tab).to_string();
+    saved.upgrade_expanded = settings.upgrade_expanded.clone();
+    saved.auto_upgrades = settings.auto_upgrades.clone();
+    saved.show_terrain_sprites = settings.show_terrain_sprites;
+    saved.collapsed_sections = settings.collapsed_sections.clone();
+    // Save policies from player town
+    let town_idx = world_data
+        .towns
+        .iter()
+        .position(|t| t.faction == 0)
+        .unwrap_or(0);
+    if town_idx < policies.policies.len() {
+        saved.policy = policies.policies[town_idx].clone();
+    }
+    settings::save_settings(&saved);
 }
 
 // ============================================================================
@@ -774,9 +884,7 @@ fn upgrade_content(
                         ui.add_enabled(unlocked, egui::Checkbox::new(auto_flag, ""))
                             .on_hover_text("Auto-buy each game hour");
                         if *auto_flag != prev_auto {
-                            let mut saved = settings::load_settings();
-                            saved.auto_upgrades = upgrade.auto.flags[town_idx].clone();
-                            settings::save_settings(&saved);
+                            settings.auto_upgrades = upgrade.auto.flags[town_idx].clone();
                         }
 
                         // Label (dimmed when locked)
@@ -833,7 +941,6 @@ fn upgrade_content(
                 } else {
                     settings.upgrade_expanded.retain(|s| s != branch.label);
                 }
-                settings::save_settings(settings);
             }
         }
     }
@@ -2697,14 +2804,10 @@ fn profiler_content(
     egui::CollapsingHeader::new(egui::RichText::new("Debug Actions").strong())
         .default_open(false)
         .show(ui, |ui| {
-            let prev_terrain = user_settings.show_terrain_sprites;
             ui.checkbox(
                 &mut user_settings.show_terrain_sprites,
                 "Show Terrain Sprites",
             );
-            if prev_terrain != user_settings.show_terrain_sprites {
-                settings::save_settings(user_settings);
-            }
             ui.separator();
             let has_active = migration.active.is_some();
             let btn = ui.add_enabled(!has_active, egui::Button::new("Spawn Migration Group"));

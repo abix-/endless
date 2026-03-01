@@ -4,9 +4,12 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use std::collections::BTreeMap;
 
+use bevy::audio::Volume;
+
 use crate::AppState;
 use crate::components::Job;
 use crate::constants::NPC_REGISTRY;
+use crate::resources::{GameAudio, MusicTrack, PauseSettingsTab};
 use crate::settings;
 use crate::systems::AiPlayerConfig;
 use crate::world::{WorldGenConfig, WorldGenStyle};
@@ -29,6 +32,9 @@ pub struct MenuState {
     pub prev_difficulty: crate::resources::Difficulty,
     pub autosave_hours: i32,
     pub show_load_menu: bool,
+    pub show_settings: bool,
+    pub settings_tab: PauseSettingsTab,
+    pub rebinding_action: Option<settings::ControlAction>,
     pub initialized: bool,
     pub endless_mode: bool,
     pub endless_strength: f32,
@@ -76,6 +82,11 @@ pub fn main_menu_system(
     mut npc_config: ResMut<crate::resources::NpcDecisionConfig>,
     mut user_settings: ResMut<settings::UserSettings>,
     mut save_request: ResMut<crate::save::SaveLoadRequest>,
+    mut windows: Query<&mut Window>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut audio: ResMut<GameAudio>,
+    mut music_sinks: Query<&mut AudioSink, With<MusicTrack>>,
+    mut winit_settings: ResMut<bevy::winit::WinitSettings>,
     mut state: Local<MenuState>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
@@ -264,18 +275,6 @@ pub fn main_menu_system(
 
             ui.add_space(4.0);
 
-            // Endless mode (part of difficulty)
-            ui.checkbox(&mut state.endless_mode, "Endless Mode")
-                .on_hover_text("Destroyed AI towns (builder and raider) are replaced by new, stronger ones.");
-            if state.endless_mode {
-                ui.horizontal(|ui| {
-                    ui.label("Replacement Strength:").on_hover_text("Strength of replacement towns relative to the player. Higher = harder.");
-                    ui.add(egui::Slider::new(&mut state.endless_strength, 0.25..=1.5)
-                        .step_by(0.05)
-                        .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)));
-                });
-            }
-
             ui.add_space(8.0);
 
             // ── Options ────────────────────────────
@@ -333,7 +332,7 @@ pub fn main_menu_system(
 
                 commands.insert_resource(state.difficulty);
                 commands.insert_resource(crate::resources::EndlessMode {
-                    enabled: state.endless_mode,
+                    enabled: true,
                     strength_fraction: state.endless_strength,
                     pending_spawns: Vec::new(),
                 });
@@ -351,6 +350,12 @@ pub fn main_menu_system(
                 });
             } else if ui.button(egui::RichText::new("Load Game").size(18.0)).clicked() {
                 state.show_load_menu = !state.show_load_menu;
+            }
+
+            ui.add_space(8.0);
+
+            if ui.button(egui::RichText::new("Settings").size(18.0)).clicked() {
+                state.show_settings = !state.show_settings;
             }
 
             ui.add_space(8.0);
@@ -446,6 +451,92 @@ pub fn main_menu_system(
                 });
         });
     });
+
+    // Settings window — shared with pause menu (minus Save/Load)
+    if state.show_settings {
+        let prev_fullscreen = user_settings.fullscreen;
+        let prev_vsync = user_settings.vsync;
+        let prev_width = user_settings.window_width;
+        let prev_height = user_settings.window_height;
+        let prev_maximized = user_settings.window_maximized;
+        let prev_bg_fps = user_settings.background_fps;
+        let prev_music_vol = user_settings.music_volume;
+
+        // Handle key rebinding
+        if let Some(action) = state.rebinding_action {
+            if let Some(bound_key) = keys
+                .get_just_pressed()
+                .copied()
+                .find(|key| settings::is_rebindable_key(*key))
+            {
+                user_settings.set_key_for_action(action, bound_key);
+                state.rebinding_action = None;
+                settings::save_settings(&user_settings);
+            }
+        }
+
+        let mut open = true;
+        let window_resp = egui::Window::new("Settings")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .min_width(820.0)
+            .min_height(520.0)
+            .show(ctx, |ui| {
+                let MenuState { ref mut settings_tab, ref mut rebinding_action, .. } = *state;
+                crate::ui::settings_panel_ui(
+                    ui,
+                    &mut user_settings,
+                    settings_tab,
+                    rebinding_action,
+                    None, // no save
+                    None, // no load
+                )
+            });
+        if !open {
+            state.show_settings = false;
+            state.rebinding_action = None;
+        }
+
+        if let Some(inner) = window_resp.and_then(|r| r.inner) {
+            if inner.reset_requested {
+                state.rebinding_action = None;
+                *user_settings = settings::UserSettings::default();
+            }
+        }
+
+        // Apply side effects
+        if user_settings.fullscreen != prev_fullscreen
+            || user_settings.vsync != prev_vsync
+            || user_settings.window_width != prev_width
+            || user_settings.window_height != prev_height
+            || user_settings.window_maximized != prev_maximized
+        {
+            user_settings.clamp_video_settings();
+            if let Ok(mut window) = windows.single_mut() {
+                settings::apply_video_settings_to_window(&mut window, &user_settings);
+            }
+        }
+        if user_settings.background_fps != prev_bg_fps {
+            winit_settings.unfocused_mode = if user_settings.background_fps {
+                bevy::winit::UpdateMode::Continuous
+            } else {
+                bevy::winit::UpdateMode::reactive_low_power(std::time::Duration::from_secs_f64(
+                    1.0 / 60.0,
+                ))
+            };
+        }
+        if (user_settings.music_volume - prev_music_vol).abs() > f32::EPSILON {
+            audio.music_volume = user_settings.music_volume;
+            for mut sink in &mut music_sinks {
+                sink.set_volume(Volume::Linear(user_settings.music_volume));
+            }
+        }
+        audio.sfx_volume = user_settings.sfx_volume;
+
+        settings::save_settings(&user_settings);
+    }
 
     // Load Game window — shown when show_load_menu is true
     if state.show_load_menu {

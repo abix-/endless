@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-03-01e
+
+- **shared settings panel** — extracted `settings_panel_ui()` in `mod.rs` with `SettingsResponse` return struct; both pause menu and main menu call the same function; `PauseSettingsTab` gained `label()`/`title_subtitle()` methods; pause menu passes `Some(save/load names)` to show Save/Load tabs, main menu passes `None` to hide them
+- **main menu settings** — added Settings button that opens floating window with full settings panel (Interface/Video/Camera/Controls/Audio/Logs/Debug); video/audio/winit side effects applied via pre/post snapshot comparison
+- **fullscreen live toggle** — added `fullscreen` to pause menu change detection guard so toggling takes effect immediately without restart
+- **jukebox state persistence** — added `jukebox_track`/`jukebox_paused` to UserSettings; `start_music` restores saved track and paused state on startup
+- **left panel persistence** — added `left_panel_tab` (string) and `collapsed_sections` (Vec<String>) to UserSettings; `TRACKED_SECTIONS` list + `snapshot_collapsed_sections`/`restore_collapsed_sections` helpers; `tab_to_str`/`str_to_tab` converters
+
 ## 2026-03-01d
 
 - **wire inspector NPC link action** — `inspector_content` now returns `Option<InspectorAction>` and bubbles up from `building_inspector_content`; `bottom_panel_system` calls `apply_inspector_action` to select NPC + jump camera on click; `SelectedBuilding` upgraded to `ResMut` in `BuildingInspectorData`
