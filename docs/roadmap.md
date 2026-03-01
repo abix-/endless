@@ -31,7 +31,7 @@ Recent move: left panel UI state persistence (active tab + collapsed sections in
 
 ## Stages
 
-Stages 1-13, 19: [x] Complete (see [completed.md](completed.md))
+Stages 1-13: [x] Complete (see [completed.md](completed.md))
 
 **Stage 14: Tension**
 
@@ -42,16 +42,13 @@ Stages 1-13, 19: [x] Complete (see [completed.md](completed.md))
 - [x] Loss condition: all town NPCs dead + no spawners -> game over screen
 - [x] Building construction time: 10s at 1x game speed (scales with time_scale), building is inert during construction
 
-**Stage 15: Logistics & Flow**
+**Stage 15: Close-Out**
 
-*Done when: player builds a road from town to gold mine, zooms out, and watches farmers carrying food and miners carrying gold streaming along the road — visible supply chains on infrastructure the player designed.*
+*Done when: remaining single-item stages from logistics, buildings-as-entities, and AI expansion are finished.*
 
-Farmer delivery and core roads complete (see [completed.md](completed.md)).
-
-Roads (remaining):
-- [ ] Road connects visually to adjacent road tiles (auto-tiling: straight, corner, T-junction, crossroads — 4-bit neighbor mask → tileset index lookup)
-
-Road collision bypass, road speed bonus, road attraction, and AI road building complete (see [completed.md](completed.md)).
+- [ ] Road auto-tiling: road connects visually to adjacent road tiles (straight, corner, T-junction, crossroads — 4-bit neighbor mask → tileset index lookup)
+- [ ] `WorldGrid.cells[].building` stores `Option<Entity>` (was Stage 16.5; see [specs/buildings-as-entities.md](specs/buildings-as-entities.md))
+- [ ] AI patrol routes automatically cover placed waypoints (PatrolRoute rebuild already handles this via `build_patrol_route`)
 
 **Stage 16: Performance**
 
@@ -104,25 +101,7 @@ SystemParam bundle consolidation (code quality, not runtime perf):
 - [ ] [Low] Move/replace remaining ad-hoc bundles in `systems/behavior.rs` (keep only bundles with genuine local-only value; shared bundles live in `resources.rs`).
 - [ ] [Low] Keep bundles flat (no nested `SystemParam` bundles inside other bundles) unless required to break Bevy param-count limits.
 
-**Stage 16.5: Buildings as ECS Entities** (see [specs/buildings-as-entities.md](specs/buildings-as-entities.md))
-
-*Done when: `EntityMap` is the sole source of truth for building infrastructure (`WorldData.buildings`, `PlacedBuilding`, tombstone guards are no longer active paths).*
-
-Phases 1-2, EntityMap migration, WorldData deletion, GPU building buffers, and unified entity collision complete (see [completed.md](completed.md)).
-
-Remaining:
-- [ ] `WorldGrid.cells[].building` stores `Option<Entity>`
-
-**Stage 17: AI Expansion & Mine Control**
-
-*Done when: AI towns grow beyond their starting 7×7 grid, compete for gold mines via patrol routes, and a passive AI that doesn't expand gets outcompeted and dies.*
-
-Chunks 1-3 complete (see [completed.md](completed.md)).
-
-Remaining:
-- [ ] AI patrol routes automatically cover placed waypoints (PatrolRoute rebuild already handles this via `build_patrol_route`)
-
-**Stage 18: Generic Growth & Contestable Mines**
+**Stage 17: Generic Growth & Contestable Mines**
 
 *Done when: mines grow gold like farms grow food (tended-only, 4-hour cycle), any faction's miner can harvest a ready mine, and growth is unified on BuildingInstance for both farms and mines.*
 
@@ -135,7 +114,7 @@ Remaining:
 - [ ] Mine progress bar rendered at mine position (atlas_id=6.0, gold color) via EntityMap misc instance buffer — not on the miner
 - [ ] Delete: `MineStates`, `MiningProgress`, `MinerProgressRender`, `sync_miner_progress_render`, `mine_regen_system`, `MINE_MAX_GOLD`, `MINE_REGEN_RATE`, `MINE_WORK_HOURS`
 
-**Stage 20: Combat Depth**
+**Stage 18: Combat Depth**
 
 *Done when: two archers with different traits fight the same raider noticeably differently - one flees early, the other berserks at low HP.*
 
@@ -147,39 +126,7 @@ Remaining:
 - [ ] When "Ignore Patrol" is enabled, archers with `SquadId` must never enter `OnDuty`/patrol route flow; they only follow squad target (or squad-idle behavior) while still respecting survival rules (combat/flee/rest/heal)
 - [ ] Eliminate guard target oscillation between squad targets and patrol route posts (`OnDuty`/`Patrolling` conflict): enforce squad-target precedence, add no-spam target writes, and verify via `NpcTargetThrashDebug` sink counters (`SinkTargetChanges/s`, `SinkPingPong/s`)
 
-**Stage 21: NPC Skills & Proficiency** (see [specs/npc-skills.md](specs/npc-skills.md))
-
-*Done when: two NPCs with the same job but different proficiencies produce measurably different outcomes (farm output, combat effectiveness, dodge/survival), and those differences are visible in UI.*
-
-- [ ] Add per-NPC skill set with proficiency values (0-100) keyed by role/action
-- [ ] Skill growth from doing the work (farming raises farming, combat raises combat, dodging raises dodge)
-- [ ] Proficiency modifies effectiveness:
-- [ ] Farming proficiency affects farm growth/harvest efficiency
-- [ ] Combat proficiency affects attack efficiency (accuracy/damage/cooldown contribution)
-- [ ] Dodge proficiency affects projectile avoidance / survival in combat
-- [ ] Render skill/proficiency details in inspector + roster sorting/filtering support
-- [ ] Keep base-role identity intact (job still determines behavior class; proficiency scales effectiveness)
-
-**Stage 22: Walls & Defenses**
-
-*Done when: player builds a stone wall perimeter with a gate, raiders path around it or attack through it, chokepoints make guard placement strategic.*
-
-Core wall system complete (see [completed.md](completed.md)).
-
-Remaining:
-- [ ] Wall auto-tiling (connect adjacent walls visually: straight, corner, T-junction, crossroads)
-- [ ] Gate building (walls with a passthrough that friendlies use, raiders must breach)
-- [ ] Pathfinding update: raiders route around walls to find openings, attack walls when no path exists
-- [ ] Guard towers (upgrade from guard post - elevated, +range, requires wall adjacency)
-
-**Stage 23: Save/Load**
-
-*Done when: player builds up a town for 20 minutes, quits, relaunches, and continues exactly where they left off - NPCs in the same positions, same HP, same upgrades, same food.*
-
-Core save/load shipped (see [completed.md](completed.md)).
-- [ ] Save slot selection (3 slots)
-
-**Stage 24: Loot & Equipment**
+**Stage 19: Loot & Equipment**
 
 *Done when: raider dies -> drops loot bag -> archer picks it up -> item appears in town inventory -> player equips it on an archer -> archer's stats increase and sprite changes.*
 
@@ -190,7 +137,38 @@ Core save/load shipped (see [completed.md](completed.md)).
 - [ ] `Equipment` component: weapon + armor slots, feeds into `resolve_combat_stats()`
 - [ ] Equipped items reflected in NPC equipment sprite layers
 
-**Stage 25: Tech Trees** (see [specs/tech-tree.md](specs/tech-tree.md))
+**Stage 20: Pathfinding**
+
+*Done when: NPCs navigate around obstacles using A\* or flow fields instead of pure boids steering. Raiders path around walls to find openings. Placing a building that would fully block access is rejected.*
+
+- [ ] A* or flow field pathfinding on the world grid
+- [ ] NPC pathfinding integration: raiders route around walls, all NPCs use paths for long-distance navigation
+- [ ] Path recalculation on building place/remove (incremental update, not full rebuild)
+- [ ] Path validation: reject building placements that fully block access to critical locations
+
+Prerequisite for Stage 21 (wall gates) and Stage 26 (tower defense maze).
+
+**Stage 21: Walls & Defenses**
+
+*Done when: player builds a stone wall perimeter with a gate, raiders path around it or attack through it, chokepoints make guard placement strategic.*
+
+Core wall system complete (see [completed.md](completed.md)).
+
+Remaining:
+- [ ] Wall auto-tiling (connect adjacent walls visually: straight, corner, T-junction, crossroads)
+- [ ] Gate building (walls with a passthrough that friendlies use, raiders must breach)
+- [ ] Pathfinding integration: raiders route around walls to find openings, attack walls when no path exists (uses Stage 20 pathfinding)
+- [ ] Guard towers (upgrade from guard post - elevated, +range, requires wall adjacency)
+
+**Stage 22: Economy Depth**
+
+*Done when: player must choose between feeding NPCs and buying upgrades - food is a constraint, not a score.*
+
+- [ ] HP regen tiers (1x idle, 3x sleeping, 10x fountain)
+- [ ] FoodEfficiency upgrade wired into `decision_system` eat logic
+- [ ] Economy pressure: upgrades cost more food, NPCs consume more as population grows
+
+**Stage 23: Tech Trees** (see [specs/tech-tree.md](specs/tech-tree.md))
 
 *Done when: player spends Food or Gold to buy tech-tree upgrades with prerequisites (no research building), and branch progression visibly unlocks stronger nodes (e.g., ArcherHome Lv2 unlock path, Military damage tier path).*
 
@@ -208,25 +186,55 @@ Chunk 4: Player AI Manager
 - [ ] Reuse `AiKind::Builder` decision logic for faction 0 town, gated by unlock + toggle
 - [ ] UI: hidden until unlocked, then show enable toggle + build/upgrade toggles + status label
 
-**Stage 26: Economy Depth**
+**Stage 24: NPC Skills & Proficiency** (see [specs/npc-skills.md](specs/npc-skills.md))
 
-*Done when: player must choose between feeding NPCs and buying upgrades - food is a constraint, not a score.*
+*Done when: two NPCs with the same job but different proficiencies produce measurably different outcomes (farm output, combat effectiveness, dodge/survival), and those differences are visible in UI.*
 
-- [ ] HP regen tiers (1x idle, 3x sleeping, 10x fountain)
-- [ ] FoodEfficiency upgrade wired into `decision_system` eat logic
-- [ ] Economy pressure: upgrades cost more food, NPCs consume more as population grows
+- [ ] Add per-NPC skill set with proficiency values (0-100) keyed by role/action
+- [ ] Skill growth from doing the work (farming raises farming, combat raises combat, dodging raises dodge)
+- [ ] Proficiency modifies effectiveness:
+- [ ] Farming proficiency affects farm growth/harvest efficiency
+- [ ] Combat proficiency affects attack efficiency (accuracy/damage/cooldown contribution)
+- [ ] Dodge proficiency affects projectile avoidance / survival in combat
+- [ ] Render skill/proficiency details in inspector + roster sorting/filtering support
+- [ ] Keep base-role identity intact (job still determines behavior class; proficiency scales effectiveness)
 
-**Stage 27: Diplomacy**
+**Stage 25: Save Slots**
 
-*Done when: a raider town sends a messenger offering a truce for 3 food/hour tribute - accepting stops raids, refusing triggers an immediate attack wave.*
+*Done when: player builds up a town for 20 minutes, quits, relaunches, and continues exactly where they left off - NPCs in the same positions, same HP, same upgrades, same food.*
 
-- [ ] Town reputation system (hostile -> neutral -> friendly, based on food tribute and combat history)
-- [ ] Tribute offers: raider towns propose truces at reputation thresholds
-- [ ] Trade routes between player towns (send food caravan from surplus town to deficit town)
-- [ ] Allied raider towns stop raiding, may send fighters during large attacks
-- [ ] Betrayal: allied raider towns can turn hostile if tribute stops or player is weak
+Core save/load shipped (see [completed.md](completed.md)).
+- [ ] Save slot selection (3 slots)
 
-**Stage 28: Resources & Jobs**
+**Stage 26: Tower Defense (Wintermaul Wars-inspired)**
+
+*Done when: player builds towers in a maze layout to shape enemy pathing, towers have elemental types with rock-paper-scissors counters, income accrues with interest, and towers upgrade/evolve into advanced forms.*
+
+Chunk 1 — Maze & Pathing (depends on Stage 20 Pathfinding):
+- [ ] Open-field tower placement on a grid (towers block pathing, enemies path around them)
+- [ ] Maze validation — path from spawn to goal must always exist (reject placements that fully block)
+- [ ] Visual path preview (show calculated enemy route through current maze)
+
+Chunk 2 — Tower Upgrades & Evolution:
+- [ ] Multi-tier upgrade path (Lv1 -> Lv2 -> Lv3, increasing stats + visual change)
+- [ ] At max tier, evolve into specialized variants (e.g. Fire Lv3 -> Inferno AoE or Sniper Flame)
+- [ ] Evolved towers get unique abilities (slow, DoT, chain lightning, lifesteal)
+
+Chunk 3 — Elements & Waves:
+- [ ] `Element` enum: Fire, Ice, Nature, Lightning, Arcane, Dark (6 elements)
+- [ ] Element weakness matrix (Fire->Nature->Lightning->Ice->Fire, Arcane<->Dark)
+- [ ] Creep waves carry an element - weak-element towers deal 2x, strong-element towers deal 0.5x
+- [ ] Tower/creep element shown via tint or icon overlay
+
+Chunk 4 — Economy & Sending:
+- [ ] Per-wave gold income (base + bonus for no leaks)
+- [ ] Interest on banked gold each wave (5% per round, capped)
+- [ ] Leak penalty - lives lost per creep that reaches the goal
+- [ ] Spend gold to send extra creeps into opponent's lane
+- [ ] Send menu with creep tiers (cheap/fast, tanky, elemental, boss)
+- [ ] Income bonus from sending (reward aggressive play)
+
+**Stage 27: Resources & Jobs**
 
 *Done when: player builds a lumber mill near Forest tiles, assigns a woodcutter, collects wood, and builds a stone wall using wood + stone instead of food - multi-resource economy with job specialization.*
 
@@ -234,10 +242,10 @@ Chunk 4: Player AI Manager
 - [ ] Harvester buildings: lumber mill, quarry (same spawner pattern as FarmerHome/ArcherHome, 1 worker each)
 - [ ] Resource storage per town (like FoodStorage but for each type - gold already done via GoldStorage)
 - [ ] Building costs use mixed resources (walls=stone, archer homes=wood+stone, upgrades=food+iron, etc.)
-- [ ] Crafting: blacksmith building consumes iron -> produces weapons/armor (feeds into Stage 24 loot system)
+- [ ] Crafting: blacksmith building consumes iron -> produces weapons/armor (feeds into Stage 19 loot system)
 - [ ] Villager job assignment UI (drag workers between roles - farming, woodcutting, mining, smithing, military)
 
-**Stage 29: Armies & Marching**
+**Stage 28: Armies & Marching**
 
 *Done when: player recruits 15 archers into an army, gives a march order to a neighboring raider town, and the army walks across the map as a formation - arriving ready to fight.*
 
@@ -247,7 +255,7 @@ Chunk 4: Player AI Manager
 - [ ] Army supply: marching armies consume food from origin town's storage, starve without supply
 - [ ] Field battles: two armies in proximity -> combat triggers (existing combat system handles it)
 
-**Stage 30: Conquest**
+**Stage 29: Conquest**
 
 *Done when: player marches an army to a raider town, defeats defenders, and claims the town - raider town converts to player-owned town with buildings intact, player now manages two towns.*
 
@@ -256,6 +264,16 @@ Chunk 4: Player AI Manager
 - [ ] Town capture: all defenders dead + town center HP -> 0 = captured -> converts to player town
 - [ ] AI expansion: AI players can attack each other and the player (not just raid - full conquest attempts)
 - [ ] Victory condition: control all settlements on the map
+
+**Stage 30: Diplomacy**
+
+*Done when: a raider town sends a messenger offering a truce for 3 food/hour tribute - accepting stops raids, refusing triggers an immediate attack wave.*
+
+- [ ] Town reputation system (hostile -> neutral -> friendly, based on food tribute and combat history)
+- [ ] Tribute offers: raider towns propose truces at reputation thresholds
+- [ ] Trade routes between player towns (send food caravan from surplus town to deficit town)
+- [ ] Allied raider towns stop raiding, may send fighters during large attacks
+- [ ] Betrayal: allied raider towns can turn hostile if tribute stops or player is weak
 
 **Stage 31: World Map**
 
@@ -266,43 +284,12 @@ Chunk 4: Player AI Manager
 - [ ] Persistent bonuses between regions (tech carries over, starting resources from tribute)
 - [ ] "Country" = set of regions. "World" = set of countries. Campaign arc.
 
-**Stage 32: Tower Defense (Wintermaul Wars-inspired)**
-
-*Done when: player builds towers in a maze layout to shape enemy pathing, towers have elemental types with rock-paper-scissors counters, income accrues with interest, and towers upgrade/evolve into advanced forms.*
-
-Maze building:
-- [ ] Open-field tower placement on a grid (towers block pathing, enemies path around them)
-- [ ] Pathfinding recalculation on tower place/remove (A* or flow field on grid)
-- [ ] Maze validation - path from spawn to goal must always exist (reject placements that fully block)
-- [ ] Visual path preview (show calculated enemy route through current maze)
-
-Elemental rock-paper-scissors:
-- [ ] `Element` enum: Fire, Ice, Nature, Lightning, Arcane, Dark (6 elements)
-- [ ] Element weakness matrix (Fire->Nature->Lightning->Ice->Fire, Arcane<->Dark)
-- [ ] Creep waves carry an element - weak-element towers deal 2x, strong-element towers deal 0.5x
-- [ ] Tower/creep element shown via tint or icon overlay
-
-Income & interest:
-- [ ] Per-wave gold income (base + bonus for no leaks)
-- [ ] Interest on banked gold each wave (5% per round, capped)
-- [ ] Leak penalty - lives lost per creep that reaches the goal
-
-Sending creeps:
-- [ ] Spend gold to send extra creeps into opponent's lane
-- [ ] Send menu with creep tiers (cheap/fast, tanky, elemental, boss)
-- [ ] Income bonus from sending (reward aggressive play)
-
-Tower upgrades & evolution:
-- [ ] Multi-tier upgrade path (Lv1 -> Lv2 -> Lv3, increasing stats + visual change)
-- [ ] At max tier, evolve into specialized variants (e.g. Fire Lv3 -> Inferno AoE or Sniper Flame)
-- [ ] Evolved towers get unique abilities (slow, DoT, chain lightning, lifesteal)
-
-Sound (bevy_audio) should be woven into stages as they're built - not deferred to a dedicated stage.
+Sound (bevy_audio) should be woven into stages as they're built - not deferred to a dedicated stage. Minimum SFX per tier: arrow impact + building place + NPC death (Stages 14-15); tower fire + wall hit + loot pickup (Stages 18-21); element sounds + wave horn (Stage 26).
 
 ## Backlog
 
 ### Bugs
-- [ ] `add_instance` spatial index ordering: `spatial_insert` is called before `instances.insert`, so `spatial_insert`'s `self.instances.get(&slot)` returns `None` — kind-filtered buckets (`spatial_kind_town`, `spatial_kind_cell`, `spatial_bucket_idx`) are never populated for new buildings until `rebuild_spatial()`. Fix: swap insert order in `resources.rs:add_instance`.
+- [x] `add_instance` spatial index ordering: fixed in 2026-02-27k (swap insert order in `resources.rs:add_instance`)
 
 ### DRY & Single Source of Truth
 - [ ] Replace hardcoded town indices in HUD with faction/town lookup helpers
@@ -325,8 +312,8 @@ Implementation guides for upcoming stages. After delivery, spec content rolls in
 | Spec | Stage | File |
 |---|---|---|
 | Chunked Tilemap | 16 | [specs/chunked-tilemap.md](specs/chunked-tilemap.md) |
-| Tech Tree (Chunks 3-4) | 25 | [specs/tech-tree.md](specs/tech-tree.md) |
-| NPC Skills & Proficiency | 21 | [specs/npc-skills.md](specs/npc-skills.md) |
+| Tech Tree (Chunks 3-4) | 23 | [specs/tech-tree.md](specs/tech-tree.md) |
+| NPC Skills & Proficiency | 24 | [specs/npc-skills.md](specs/npc-skills.md) |
 
 ## Performance
 
