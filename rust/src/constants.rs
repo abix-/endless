@@ -993,11 +993,11 @@ pub const FOUNTAIN_TOWER: TowerStats = TowerStats {
 };
 
 pub const TOWER_STATS: TowerStats = TowerStats {
-    range: 250.0,
-    damage: 10.0,
-    cooldown: 2.0,
-    proj_speed: 300.0,
-    proj_lifetime: 1.2,
+    range: 100.0,
+    damage: 15.0,
+    cooldown: 1.5,
+    proj_speed: 100.0,
+    proj_lifetime: 1.5,
 };
 
 // ============================================================================
@@ -1523,10 +1523,10 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         display: DisplayCategory::Tower,
         tile: TileSpec::External("sprites/tower-1.png"),
         hp: 1000.0,
-        cost: 50,
+        cost: 40,
         label: "Tower",
         help: "Auto-attacks nearby enemies",
-        tooltip: "Defensive tower — auto-shoots nearest enemy\nwithin 250px. 10 dmg, 2s cooldown. HP: 1000",
+        tooltip: "Defensive tower — auto-shoots nearest enemy.\nSame range/damage as archer. 15 dmg, 1.5s cooldown. HP: 1000",
         player_buildable: true,
         raider_buildable: false,
         placement: PlacementMode::TownGrid,
