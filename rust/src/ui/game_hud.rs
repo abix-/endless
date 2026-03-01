@@ -352,7 +352,7 @@ pub struct BottomPanelData<'w> {
 /// Bundled resources for building inspector.
 #[derive(SystemParam)]
 pub struct BuildingInspectorData<'w, 's> {
-    selected_building: Res<'w, SelectedBuilding>,
+    selected_building: ResMut<'w, SelectedBuilding>,
     grid: Res<'w, WorldGrid>,
     entity_slots: Res<'w, GpuSlotPool>,
     food_storage: ResMut<'w, FoodStorage>,
@@ -437,6 +437,7 @@ pub fn bottom_panel_system(
     mut world_data: ResMut<WorldData>,
     gpu_state: Res<GpuReadState>,
     buffer_writes: Res<EntityGpuState>,
+    visual_upload: Res<crate::gpu::NpcVisualUpload>,
     mut follow: ResMut<FollowSelected>,
     settings: Res<UserSettings>,
     catalog: Res<HelpCatalog>,
@@ -520,9 +521,9 @@ pub fn bottom_panel_system(
                 }
 
                 let show_npc = has_npc && (!has_building || inspector_state.tabs.show_npc);
-                inspector_content(
+                let action = inspector_content(
                     ui,
-                    &data,
+                    &mut data,
                     &mut meta_cache,
                     &mut inspector_state.rename,
                     &mut bld_data,
@@ -541,6 +542,17 @@ pub fn bottom_panel_system(
                     &mut panel_state.faction_select,
                     dc_count,
                 );
+                if let Some(action) = action {
+                    apply_inspector_action(
+                        action,
+                        &mut data.selected,
+                        &mut bld_data.selected_building,
+                        &gpu_state,
+                        &bld_data.entity_map,
+                        &bld_data.grid,
+                        &mut camera_query,
+                    );
+                }
                 // Destroy button for selected player-owned buildings (not fountains/mines)
                 let show_building = has_building && (!has_npc || !show_npc);
                 if show_building {
@@ -889,7 +901,7 @@ fn dc_group_inspector(
 /// Render inspector content into a ui region (left side of bottom panel).
 fn inspector_content(
     ui: &mut egui::Ui,
-    data: &BottomPanelData,
+    data: &mut BottomPanelData,
     meta_cache: &mut NpcMetaCache,
     rename_state: &mut InspectorRenameState,
     bld_data: &mut BuildingInspectorData,
@@ -907,12 +919,12 @@ fn inspector_content(
     squad_state: &mut SquadState,
     faction_select: &mut MessageWriter<crate::messages::SelectFactionMsg>,
     dc_count: usize,
-) {
+) -> Option<InspectorAction> {
     if !show_npc {
         rename_state.slot = -1;
         rename_state.text.clear();
         if bld_data.selected_building.active {
-            building_inspector_content(
+            return building_inspector_content(
                 ui,
                 bld_data,
                 world_data,
@@ -928,7 +940,6 @@ fn inspector_content(
                 buffer_writes,
                 faction_select,
             );
-            return;
         }
         if dc_count > 0 {
             dc_group_inspector(
@@ -939,10 +950,10 @@ fn inspector_content(
                 &bld_data.npc_health_q,
                 &bld_data.cached_stats_q,
             );
-            return;
+            return None;
         }
         ui.label("Click an NPC or building to inspect");
-        return;
+        return None;
     }
 
     let sel = data.selected.0;
@@ -950,7 +961,7 @@ fn inspector_content(
         rename_state.slot = -1;
         rename_state.text.clear();
         if bld_data.selected_building.active {
-            building_inspector_content(
+            return building_inspector_content(
                 ui,
                 bld_data,
                 world_data,
@@ -966,7 +977,6 @@ fn inspector_content(
                 buffer_writes,
                 faction_select,
             );
-            return;
         }
         if dc_count > 0 {
             dc_group_inspector(
@@ -977,20 +987,20 @@ fn inspector_content(
                 &bld_data.npc_health_q,
                 &bld_data.cached_stats_q,
             );
-            return;
+            return None;
         }
         ui.label("Click an NPC or building to inspect");
-        return;
+        return None;
     }
     let idx = sel as usize;
     if idx >= meta_cache.0.len() {
-        return;
+        return None;
     }
     if bld_data.entity_map.get_npc(idx).is_none() {
         rename_state.slot = -1;
         rename_state.text.clear();
         if bld_data.selected_building.active {
-            building_inspector_content(
+            return building_inspector_content(
                 ui,
                 bld_data,
                 world_data,
@@ -1009,7 +1019,7 @@ fn inspector_content(
         } else {
             ui.label("Click an NPC or building to inspect");
         }
-        return;
+        return None;
     }
 
     if rename_state.slot != sel {
@@ -1710,6 +1720,7 @@ fn inspector_content(
             *copy_text = Some(info);
         }
     }
+    None
 }
 
 // ============================================================================

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-03-01d
+
+- **wire inspector NPC link action** — `inspector_content` now returns `Option<InspectorAction>` and bubbles up from `building_inspector_content`; `bottom_panel_system` calls `apply_inspector_action` to select NPC + jump camera on click; `SelectedBuilding` upgraded to `ResMut` in `BuildingInspectorData`
+
 ## 2026-03-01c
 
 - **fix cross-town mine occupancy** — added `town_scoped` field to `WorksiteDef` (Farm=true, GoldMine=false); mine arrival, Priority 5 town validation, and claim repair now skip town check for non-town-scoped worksites; fixes miners being rejected from cross-town mines with "Mine full" despite no occupants
