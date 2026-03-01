@@ -46,7 +46,7 @@ Stages 1-13: [x] Complete (see [completed.md](completed.md))
 
 *Done when: remaining single-item stages from logistics, buildings-as-entities, and AI expansion are finished.*
 
-- [ ] Road auto-tiling: road connects visually to adjacent road tiles (straight, corner, T-junction, crossroads — 4-bit neighbor mask → tileset index lookup)
+- [x] Road auto-tiling: road connects visually to adjacent road tiles (straight, corner, T-junction, crossroads — 4-bit neighbor mask → tileset index lookup)
 - [x] AI patrol routes automatically cover placed waypoints (PatrolRoute rebuild already handles this via `build_patrol_route`)
 
 **Stage 16: Performance**
@@ -159,7 +159,7 @@ Prerequisite for Stage 21 (wall gates) and Stage 26 (tower defense maze).
 Core wall system complete (see [completed.md](completed.md)).
 
 Remaining:
-- [ ] Wall auto-tiling (connect adjacent walls visually: straight, corner, T-junction, crossroads)
+- [x] Wall auto-tiling (connect adjacent walls visually: straight, corner, T-junction, crossroads)
 - [ ] Gate building (walls with a passthrough that friendlies use, raiders must breach)
 - [ ] Pathfinding integration: raiders route around walls to find openings, attack walls when no path exists (uses Stage 20 pathfinding)
 - [ ] Guard towers (upgrade from guard post - elevated, +range, requires wall adjacency)
