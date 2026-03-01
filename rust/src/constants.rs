@@ -1147,6 +1147,7 @@ pub struct WorksiteDef {
     pub drift_radius: f32,
     pub upgrade_job: &'static str,
     pub harvest_item: ItemKind,
+    pub town_scoped: bool,
 }
 
 /// Complete building definition — one entry per BuildingKind.
@@ -1282,6 +1283,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
             drift_radius: 20.0,
             upgrade_job: "Farmer",
             harvest_item: ItemKind::Food,
+            town_scoped: true,
         }),
     },
     // 5: Farmer Home
@@ -1383,6 +1385,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
             drift_radius: MINE_WORK_RADIUS,
             upgrade_job: "Miner",
             harvest_item: ItemKind::Gold,
+            town_scoped: false,
         }),
     },
     // 9: Miner Home

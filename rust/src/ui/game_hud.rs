@@ -21,6 +21,85 @@ use crate::ui::tipped;
 use crate::world::{BuildingKind, WorldData, WorldGrid};
 
 // ============================================================================
+// INSPECTOR LINK HELPERS
+// ============================================================================
+
+/// Action returned by inspector UI when user clicks an entity link.
+enum InspectorAction {
+    SelectNpc(i32),
+    SelectBuilding(usize),
+}
+
+/// Render an NPC name as a clickable link. Returns action if clicked.
+fn npc_link(ui: &mut egui::Ui, meta_cache: &NpcMetaCache, slot: usize) -> Option<InspectorAction> {
+    if slot < meta_cache.0.len() {
+        let meta = &meta_cache.0[slot];
+        if ui
+            .link(format!("{} (Lv.{})", meta.name, meta.level))
+            .clicked()
+        {
+            return Some(InspectorAction::SelectNpc(slot as i32));
+        }
+    }
+    None
+}
+
+/// Render a building name as a clickable link. Returns action if clicked.
+fn building_link(ui: &mut egui::Ui, label: &str, slot: usize) -> Option<InspectorAction> {
+    if ui.link(label).clicked() {
+        Some(InspectorAction::SelectBuilding(slot))
+    } else {
+        None
+    }
+}
+
+/// Apply an inspector action: select entity, deselect the other, jump camera.
+fn apply_inspector_action(
+    action: InspectorAction,
+    selected_npc: &mut SelectedNpc,
+    selected_building: &mut SelectedBuilding,
+    gpu_state: &GpuReadState,
+    entity_map: &EntityMap,
+    grid: &WorldGrid,
+    camera_query: &mut Query<&mut Transform, With<MainCamera>>,
+) {
+    match action {
+        InspectorAction::SelectNpc(slot) => {
+            selected_npc.0 = slot;
+            selected_building.active = false;
+            selected_building.slot = None;
+            selected_building.kind = None;
+            let idx = slot as usize;
+            if idx * 2 + 1 < gpu_state.positions.len() {
+                let x = gpu_state.positions[idx * 2];
+                let y = gpu_state.positions[idx * 2 + 1];
+                if let Ok(mut t) = camera_query.single_mut() {
+                    t.translation.x = x;
+                    t.translation.y = y;
+                }
+            }
+        }
+        InspectorAction::SelectBuilding(slot) => {
+            selected_npc.0 = -1;
+            if let Some(inst) = entity_map.get_instance(slot) {
+                let (col, row) = grid.world_to_grid(inst.position);
+                *selected_building = SelectedBuilding {
+                    col,
+                    row,
+                    active: true,
+                    slot: Some(slot),
+                    kind: Some(inst.kind),
+                };
+                if let Ok(mut t) = camera_query.single_mut() {
+                    t.translation.x = inst.position.x;
+                    t.translation.y = inst.position.y;
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
 // TOP RESOURCE BAR
 // ============================================================================
 
@@ -264,7 +343,7 @@ pub fn top_bar_system(
 pub struct BottomPanelData<'w> {
     game_time: Res<'w, GameTime>,
     npc_logs: Res<'w, NpcLogCache>,
-    selected: Res<'w, SelectedNpc>,
+    selected: ResMut<'w, SelectedNpc>,
     combat_log: Res<'w, CombatLog>,
     target_thrash: Res<'w, NpcTargetThrashDebug>,
     policies: Res<'w, TownPolicies>,
@@ -352,7 +431,7 @@ pub struct InspectorUiState {
 /// Bottom panel: NPC/building inspector.
 pub fn bottom_panel_system(
     mut contexts: EguiContexts,
-    data: BottomPanelData,
+    mut data: BottomPanelData,
     mut meta_cache: ResMut<NpcMetaCache>,
     mut bld_data: BuildingInspectorData,
     mut world_data: ResMut<WorldData>,
@@ -363,6 +442,7 @@ pub fn bottom_panel_system(
     catalog: Res<HelpCatalog>,
     mut panel_state: BottomPanelUiState,
     mut inspector_state: Local<InspectorUiState>,
+    mut camera_query: Query<&mut Transform, With<MainCamera>>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
 
@@ -1732,11 +1812,11 @@ fn building_inspector_content(
     gpu_state: &GpuReadState,
     buffer_writes: &EntityGpuState,
     faction_select: &mut MessageWriter<crate::messages::SelectFactionMsg>,
-) {
+) -> Option<InspectorAction> {
     let Some((kind, bld_town_idx, world_pos, col, row)) =
         selected_building_info(&bld.selected_building, &bld.grid, &bld.entity_map)
     else {
-        return;
+        return None;
     };
 
     let def = building_def(kind);
@@ -1996,9 +2076,8 @@ fn building_inspector_content(
                     ui.label(format!("Spawns: {}", spawns_label));
                     if let Some(npc_uid) = inst.npc_uid {
                         if let Some(slot) = bld.entity_map.slot_for_uid(npc_uid) {
-                            if slot < meta_cache.0.len() {
-                                let meta = &meta_cache.0[slot];
-                                ui.label(format!("NPC: {} (Lv.{})", meta.name, meta.level));
+                            if let Some(action) = npc_link(ui, meta_cache, slot) {
+                                return Some(action);
                             }
                             ui.colored_label(egui::Color32::from_rgb(80, 200, 80), "Alive");
                             if let Some(npc) = bld.entity_map.get_npc(slot) {
@@ -2516,6 +2595,7 @@ fn building_inspector_content(
             *copy_text = Some(info);
         }
     }
+    None
 }
 
 // ============================================================================

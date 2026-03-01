@@ -950,11 +950,12 @@ pub fn decision_system(
                             } else if let Some(ms) = mine_slot {
                                 // Mine still growing — claim occupancy and tend it
                                 let ws = building_def(BuildingKind::GoldMine).worksite.unwrap();
+                                let town_arg = if ws.town_scoped { Some(town_idx_i32 as u32) } else { None };
                                 if entity_map
                                     .try_claim_worksite(
                                         ms,
                                         BuildingKind::GoldMine,
-                                        Some(town_idx_i32 as u32),
+                                        town_arg,
                                         ws.max_occupants,
                                     )
                                     .is_none()
@@ -1535,8 +1536,8 @@ pub fn decision_system(
                     break 'decide;
                 };
 
-                // Validate: kind + town match
-                if inst_town != town_idx_i32 as u32 {
+                // Validate: town match (only for town-scoped worksites like farms)
+                if ws.town_scoped && inst_town != town_idx_i32 as u32 {
                     if let Some(ob) = occupied_building.take() {
                         entity_map.release(ob);
                     }
@@ -1584,11 +1585,12 @@ pub fn decision_system(
                 // Claim repair: if we don't have a claim, try to get one
                 if occupied_building.is_none() {
                     let already_occupied = entity_map.occupant_count(slot) >= 1;
+                    let town_arg = if ws.town_scoped { Some(town_idx_i32 as u32) } else { None };
                     let claimed = entity_map
                         .try_claim_worksite(
                             slot,
                             kind,
-                            Some(town_idx_i32 as u32),
+                            town_arg,
                             ws.max_occupants,
                         )
                         .is_some();

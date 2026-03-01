@@ -307,7 +307,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let u = in.quad_uv.x;
         let v = in.quad_uv.y;
         let bracket_len = 0.35;
-        let bracket_w = 0.08;
+        let bracket_w = 0.05;
         let in_tl = (u < bracket_len && v < bracket_w) || (u < bracket_w && v < bracket_len);
         let in_tr = (u > 1.0 - bracket_len && v < bracket_w) || (u > 1.0 - bracket_w && v < bracket_len);
         let in_bl = (u < bracket_len && v > 1.0 - bracket_w) || (u < bracket_w && v > 1.0 - bracket_len);

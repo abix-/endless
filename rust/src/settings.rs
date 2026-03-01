@@ -583,6 +583,8 @@ pub struct UserSettings {
     #[serde(default = "default_true")]
     pub vsync: bool,
     #[serde(default)]
+    pub fullscreen: bool,
+    #[serde(default)]
     pub background_fps: bool,
     // World gen style (0=Classic, 1=Continents)
     #[serde(default)]
@@ -715,7 +717,7 @@ fn default_zoom_max() -> f32 {
     4.0
 }
 fn default_lod_transition() -> f32 {
-    0.5
+    0.25
 }
 
 const MIN_WINDOW_WIDTH: u32 = 800;
@@ -754,6 +756,7 @@ impl Default for UserSettings {
             window_height: default_window_height(),
             window_maximized: true,
             vsync: true,
+            fullscreen: false,
             background_fps: false,
             debug_coordinates: false,
             debug_all_npcs: false,
@@ -790,7 +793,7 @@ impl Default for UserSettings {
             zoom_speed: 0.1,
             zoom_min: 0.02,
             zoom_max: 4.0,
-            lod_transition: 0.5,
+            lod_transition: 0.25,
             npc_log_mode: NpcLogMode::default(),
         }
     }
@@ -848,7 +851,14 @@ pub fn apply_video_settings_to_window(window: &mut bevy::window::Window, setting
     } else {
         bevy::window::PresentMode::AutoNoVsync
     };
-    window.set_maximized(settings.window_maximized);
+    if settings.fullscreen {
+        window.mode = bevy::window::WindowMode::BorderlessFullscreen(
+            bevy::window::MonitorSelection::Current,
+        );
+    } else {
+        window.mode = bevy::window::WindowMode::Windowed;
+        window.set_maximized(settings.window_maximized);
+    }
 }
 
 fn settings_path() -> Option<PathBuf> {

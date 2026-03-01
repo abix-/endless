@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-03-01c
+
+- **fix cross-town mine occupancy** — added `town_scoped` field to `WorksiteDef` (Farm=true, GoldMine=false); mine arrival, Priority 5 town validation, and claim repair now skip town check for non-town-scoped worksites; fixes miners being rejected from cross-town mines with "Mine full" despite no occupants
+- **inspector clickable NPC links** — added `InspectorAction` enum + `npc_link`/`building_link`/`apply_inspector_action` helpers; building inspector spawner NPC name is now a clickable link that selects the NPC and jumps the camera; `BottomPanelData.selected` upgraded to `ResMut` for selection writes
+- **fullscreen + video settings** — added `fullscreen: bool` to `UserSettings` with borderless fullscreen mode; new Video settings tab with resolution dropdown (disabled in fullscreen) + fullscreen checkbox; selection bracket width reduced (0.08→0.05); default lod_transition changed to 0.25
+
 ## 2026-03-01b
 
 - **unified worksite occupancy (farm + mine)** — added `WorksiteDef` to `BuildingDef` in `BUILDING_REGISTRY` with `max_occupants`/`drift_radius`/`upgrade_job`/`harvest_item`; merged separate Working and MiningAtMine decision blocks into a single Priority 5 block driven by registry config; renamed `assigned_farm` → `occupied_building`, `work_position` → `target_building` throughout decision_system for clarity; mine arrival now uses `try_claim_worksite()` with max=5 cap (previously raw `claim()` with no occupancy check); flee/leash cleanup releases `occupied_building` for both farm and mine workers; removed unused `EntityMap.claim()` method

@@ -774,53 +774,48 @@ fn pause_menu_system(
                                     }
                                 }
                                 PauseSettingsTab::Video => {
-                                    const VIDEO_PRESETS: &[(u32, u32, &str)] = &[
-                                        (1280, 720, "1280 x 720"),
-                                        (1600, 900, "1600 x 900"),
-                                        (1920, 1080, "1920 x 1080"),
-                                        (2560, 1440, "2560 x 1440"),
-                                        (3840, 2160, "3840 x 2160"),
+                                    const RESOLUTIONS: &[(u32, u32)] = &[
+                                        (1280, 720),
+                                        (1600, 900),
+                                        (1920, 1080),
+                                        (2560, 1440),
+                                        (3840, 2160),
                                     ];
 
-                                    ui.label("Resolution");
-                                    ui.horizontal(|ui| {
-                                        ui.label("Width");
-                                        ui.add(
-                                            egui::DragValue::new(&mut settings.window_width)
-                                                .range(800..=7680)
-                                                .speed(8),
-                                        );
-                                        ui.label("Height");
-                                        ui.add(
-                                            egui::DragValue::new(&mut settings.window_height)
-                                                .range(600..=4320)
-                                                .speed(8),
-                                        );
-                                    });
-                                    ui.small("Applies immediately while this menu is open.");
+                                    ui.checkbox(&mut settings.fullscreen, "Fullscreen")
+                                        .on_hover_text("Borderless fullscreen on the current monitor.");
                                     ui.add_space(6.0);
 
-                                    ui.label("Presets");
-                                    ui.horizontal_wrapped(|ui| {
-                                        for (width, height, label) in VIDEO_PRESETS {
-                                            let selected = settings.window_width == *width
-                                                && settings.window_height == *height;
-                                            if ui.selectable_label(selected, *label).clicked() {
-                                                settings.window_width = *width;
-                                                settings.window_height = *height;
-                                            }
-                                        }
-                                    });
-                                    ui.add_space(6.0);
+                                    ui.add_enabled_ui(!settings.fullscreen, |ui| {
+                                        ui.label("Resolution");
+                                        let current_label = format!(
+                                            "{} x {}",
+                                            settings.window_width, settings.window_height
+                                        );
+                                        egui::ComboBox::from_id_salt("resolution")
+                                            .selected_text(&current_label)
+                                            .show_ui(ui, |ui| {
+                                                for &(w, h) in RESOLUTIONS {
+                                                    let label = format!("{w} x {h}");
+                                                    if ui.selectable_label(
+                                                        settings.window_width == w
+                                                            && settings.window_height == h,
+                                                        &label,
+                                                    ).clicked() {
+                                                        settings.window_width = w;
+                                                        settings.window_height = h;
+                                                    }
+                                                }
+                                            });
+                                        ui.add_space(6.0);
 
-                                    ui.checkbox(&mut settings.window_maximized, "Start Maximized")
-                                        .on_hover_text("Open in maximized mode on launch and when changed here.");
-                                    ui.small("Disable to use the selected window size directly.");
+                                        ui.checkbox(&mut settings.window_maximized, "Start Maximized")
+                                            .on_hover_text("Open in maximized mode on launch.");
+                                    });
                                     ui.add_space(6.0);
 
                                     ui.checkbox(&mut settings.vsync, "VSync")
                                         .on_hover_text("Reduces tearing by syncing frame presentation to refresh rate.");
-                                    ui.small("Disable for uncapped presentation.");
                                 }
                                 PauseSettingsTab::Camera => {
                                     ui.add(egui::Slider::new(&mut settings.scroll_speed, 100.0..=2000.0).text("Scroll Speed"))
