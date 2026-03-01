@@ -252,7 +252,7 @@ pub(crate) fn build_menu_system(
                         (egui::Color32::from_rgb(35, 35, 40), egui::Color32::from_rgb(140, 140, 140))
                     };
                     let btn = egui::Button::new(
-                        egui::RichText::new(label).size(13.0).color(text_color),
+                        egui::RichText::new(label).size(16.0).color(text_color),
                     )
                     .fill(fill)
                     .corner_radius(egui::CornerRadius { nw: 4, ne: 4, sw: 0, se: 0 });
