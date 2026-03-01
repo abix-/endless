@@ -275,19 +275,7 @@ fn tab_to_str(tab: LeftPanelTab) -> &'static str {
     }
 }
 
-fn str_to_tab(s: &str) -> LeftPanelTab {
-    match s {
-        "Roster" => LeftPanelTab::Roster,
-        "Upgrades" => LeftPanelTab::Upgrades,
-        "Policies" => LeftPanelTab::Policies,
-        "Patrols" => LeftPanelTab::Patrols,
-        "Squads" => LeftPanelTab::Squads,
-        "Factions" => LeftPanelTab::Factions,
-        "Profiler" => LeftPanelTab::Profiler,
-        "Help" => LeftPanelTab::Help,
-        _ => LeftPanelTab::Roster,
-    }
-}
+
 
 // ============================================================================
 // MAIN SYSTEM
@@ -333,10 +321,6 @@ pub fn left_panel_system(
     }
     if !panel_state.was_open {
         panel_state.was_open = true;
-        // Restore saved tab and collapsed sections
-        if !settings.left_panel_tab.is_empty() {
-            ui_state.left_panel_tab = str_to_tab(&settings.left_panel_tab);
-        }
         restore_collapsed_sections(ctx, &settings);
     }
     if ui_state.left_panel_tab != LeftPanelTab::Factions {

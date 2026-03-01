@@ -47,6 +47,7 @@ pub enum UpgradeStatKind {
     Dodge,
     ProjectileSpeed,
     ProjectileLifetime,
+    HpRegen,
     // Town-only stats (not NPC-driven)
     Healing,
     FountainRange,
@@ -275,6 +276,15 @@ const MILITARY_RANGED_UPGRADES: &[UpgradeStatDef] = &[
         "+8% arrow flight distance per level",
         EffectDisplay::Percentage,
     ),
+    usd_noncombat(
+        USK::HpRegen,
+        0.0,
+        &[(G, 2)],
+        "HP Regen",
+        "Regen",
+        "+0.5 HP/s passive regen per level",
+        EffectDisplay::Discrete,
+    ),
 ];
 
 const MILITARY_MELEE_UPGRADES: &[UpgradeStatDef] = &[
@@ -346,6 +356,15 @@ const MILITARY_MELEE_UPGRADES: &[UpgradeStatDef] = &[
         EffectDisplay::Unlock,
         USK::MoveSpeed,
         5,
+    ),
+    usd_noncombat(
+        USK::HpRegen,
+        0.0,
+        &[(G, 2)],
+        "HP Regen",
+        "Regen",
+        "+0.5 HP/s passive regen per level",
+        EffectDisplay::Discrete,
     ),
 ];
 
@@ -428,6 +447,73 @@ const MINER_UPGRADES: &[UpgradeStatDef] = &[
         "Yield",
         "+15% gold yield per level",
         EffectDisplay::Percentage,
+    ),
+];
+
+/// Per-tower-instance upgrades (purchasable on each tower individually).
+pub const TOWER_UPGRADES: &[UpgradeStatDef] = &[
+    usd(
+        USK::Hp,
+        0.10,
+        &[(F, 1)],
+        "HP",
+        "HP",
+        "+10% tower HP per level",
+        EffectDisplay::Percentage,
+    ),
+    usd(
+        USK::Attack,
+        0.10,
+        &[(F, 1)],
+        "Attack",
+        "Atk",
+        "+10% tower damage per level",
+        EffectDisplay::Percentage,
+    ),
+    usd(
+        USK::Range,
+        0.05,
+        &[(G, 1)],
+        "Range",
+        "Rng",
+        "+5% tower range per level",
+        EffectDisplay::Percentage,
+    ),
+    usd(
+        USK::AttackSpeed,
+        0.08,
+        &[(F, 1)],
+        "Attack Speed",
+        "AtkSpd",
+        "-8% tower cooldown per level",
+        EffectDisplay::CooldownReduction,
+    ),
+    usd(
+        USK::ProjectileSpeed,
+        0.08,
+        &[(G, 1)],
+        "Proj Speed",
+        "PSpd",
+        "+8% projectile speed per level",
+        EffectDisplay::Percentage,
+    ),
+    usd(
+        USK::ProjectileLifetime,
+        0.08,
+        &[(G, 1)],
+        "Proj Range",
+        "PRng",
+        "+8% projectile range per level",
+        EffectDisplay::Percentage,
+    ),
+    usd_noncombat(
+        USK::HpRegen,
+        0.0,
+        &[(G, 2)],
+        "HP Regen",
+        "Regen",
+        "+2 HP/s passive regen per level",
+        EffectDisplay::Discrete,
     ),
 ];
 
@@ -1067,6 +1153,8 @@ pub struct TowerStats {
     pub cooldown: f32,
     pub proj_speed: f32,
     pub proj_lifetime: f32,
+    pub hp_regen: f32,
+    pub max_hp: f32,
 }
 
 pub const FOUNTAIN_TOWER: TowerStats = TowerStats {
@@ -1075,6 +1163,8 @@ pub const FOUNTAIN_TOWER: TowerStats = TowerStats {
     cooldown: 1.5,
     proj_speed: 350.0,
     proj_lifetime: 1.5,
+    hp_regen: 0.0,
+    max_hp: 5000.0,
 };
 
 pub const TOWER_STATS: TowerStats = TowerStats {
@@ -1083,6 +1173,8 @@ pub const TOWER_STATS: TowerStats = TowerStats {
     cooldown: 1.5,
     proj_speed: 100.0,
     proj_lifetime: 1.5,
+    hp_regen: 0.0,
+    max_hp: 1000.0,
 };
 
 // ============================================================================

@@ -1124,3 +1124,18 @@ pub fn healing_system(
     debug.healing_enter_checks = enter_checks;
     debug.healing_exits = exit_count;
 }
+
+/// Passive HP regen for NPCs with hp_regen upgrade (outside fountain healing).
+pub fn npc_regen_system(
+    mut npc_q: Query<(&mut Health, &CachedStats), (Without<Building>, Without<Dead>)>,
+    time: Res<Time>,
+    game_time: Res<GameTime>,
+) {
+    let dt = game_time.delta(&time);
+    if dt <= 0.0 { return; }
+    for (mut health, stats) in &mut npc_q {
+        if stats.hp_regen > 0.0 && health.0 < stats.max_health {
+            health.0 = (health.0 + stats.hp_regen * dt).min(stats.max_health);
+        }
+    }
+}

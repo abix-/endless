@@ -4,8 +4,8 @@
 
 use crate::components::{BaseAttackType, CachedStats, Job, Personality};
 use crate::constants::{
-    AttackTypeStats, EffectDisplay, FOUNTAIN_TOWER, NPC_REGISTRY, ResourceKind, TOWN_UPGRADES,
-    TowerStats, UpgradeStatDef, UpgradeStatKind, npc_def,
+    AttackTypeStats, EffectDisplay, FOUNTAIN_TOWER, NPC_REGISTRY, ResourceKind, TOWER_STATS,
+    TOWN_UPGRADES, TowerStats, UpgradeStatDef, UpgradeStatKind, npc_def,
 };
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::resources::{NpcMetaCache, NpcsByTownCache};
@@ -673,6 +673,40 @@ pub fn resolve_town_tower_stats(levels: &[u8]) -> TowerStats {
         cooldown: FOUNTAIN_TOWER.cooldown * cooldown_mult,
         proj_speed: FOUNTAIN_TOWER.proj_speed,
         proj_lifetime: FOUNTAIN_TOWER.proj_lifetime * proj_life_mult,
+        hp_regen: FOUNTAIN_TOWER.hp_regen,
+        max_hp: FOUNTAIN_TOWER.max_hp,
+    }
+}
+
+/// Resolve per-tower-instance stats from base + XP level + per-instance upgrade levels.
+pub fn resolve_tower_instance_stats(level: i32, upgrade_levels: &[u8]) -> TowerStats {
+    let level_mult = 1.0 + level as f32 * 0.01;
+    let upgrades = &*crate::constants::TOWER_UPGRADES;
+    let get = |kind: UpgradeStatKind| -> f32 {
+        for (i, def) in upgrades.iter().enumerate() {
+            if def.kind == kind {
+                let lv = upgrade_levels.get(i).copied().unwrap_or(0) as f32;
+                if def.display == EffectDisplay::CooldownReduction {
+                    return 1.0 / (1.0 + lv * def.pct);
+                }
+                return 1.0 + lv * def.pct;
+            }
+        }
+        1.0
+    };
+    let regen_level = upgrades.iter().enumerate()
+        .find(|(_, d)| d.kind == UpgradeStatKind::HpRegen)
+        .map(|(i, _)| upgrade_levels.get(i).copied().unwrap_or(0) as f32)
+        .unwrap_or(0.0);
+
+    TowerStats {
+        range: TOWER_STATS.range * get(UpgradeStatKind::Range) * level_mult,
+        damage: TOWER_STATS.damage * get(UpgradeStatKind::Attack) * level_mult,
+        cooldown: TOWER_STATS.cooldown * get(UpgradeStatKind::AttackSpeed),
+        proj_speed: TOWER_STATS.proj_speed * get(UpgradeStatKind::ProjectileSpeed),
+        proj_lifetime: TOWER_STATS.proj_lifetime * get(UpgradeStatKind::ProjectileLifetime),
+        hp_regen: regen_level * 2.0,
+        max_hp: TOWER_STATS.max_hp * get(UpgradeStatKind::Hp) * level_mult,
     }
 }
 
@@ -724,6 +758,7 @@ pub fn resolve_combat_stats(
     let upgrade_proj_speed = reg.stat_mult(&town, cat, UpgradeStatKind::ProjectileSpeed);
     let upgrade_proj_life = reg.stat_mult(&town, cat, UpgradeStatKind::ProjectileLifetime);
     let stamina_mult = reg.stat_mult(&town, cat, UpgradeStatKind::Stamina);
+    let hp_regen_level = reg.stat_level(&town, cat, UpgradeStatKind::HpRegen) as f32;
 
     CachedStats {
         damage: job_base.damage * upgrade_dmg * trait_damage * level_mult,
@@ -734,6 +769,7 @@ pub fn resolve_combat_stats(
         max_health: job_base.max_health * upgrade_hp * trait_hp * level_mult,
         speed: job_base.speed * upgrade_speed * trait_speed,
         stamina: stamina_mult,
+        hp_regen: hp_regen_level * 0.5,
     }
 }
 
@@ -926,6 +962,76 @@ pub fn auto_upgrade_system(
                     town_idx,
                     upgrade_idx: i,
                 });
+            }
+        }
+    }
+}
+
+/// Auto-buy cheapest tower upgrade each game-hour for towers with auto_upgrade enabled.
+pub fn auto_tower_upgrade_system(
+    game_time: Res<crate::resources::GameTime>,
+    mut entity_map: ResMut<crate::resources::EntityMap>,
+    mut food_storage: ResMut<crate::resources::FoodStorage>,
+    mut gold_storage: ResMut<crate::resources::GoldStorage>,
+) {
+    if !game_time.hour_ticked {
+        return;
+    }
+    let tower_upgrades = &*crate::constants::TOWER_UPGRADES;
+    // Collect tower data to avoid borrow conflict on entity_map
+    let towers: Vec<(usize, u32, Vec<u8>)> = entity_map
+        .iter_kind(crate::world::BuildingKind::Tower)
+        .filter(|i| i.auto_upgrade)
+        .map(|i| (i.slot, i.town_idx, i.upgrade_levels.clone()))
+        .collect();
+
+    for (slot, town_idx, upgrade_levels) in towers {
+        let ti = town_idx as usize;
+        let food = food_storage.food.get(ti).copied().unwrap_or(0);
+        let gold = gold_storage.gold.get(ti).copied().unwrap_or(0);
+
+        // Find cheapest affordable upgrade
+        let mut best: Option<(i32, usize)> = None; // (total_cost, index)
+        for (i, upg) in tower_upgrades.iter().enumerate() {
+            let lv = upgrade_levels.get(i).copied().unwrap_or(0);
+            let cost_mult = upgrade_cost(lv);
+            let can_afford = upg.cost.iter().all(|(res, base)| {
+                let total = base * cost_mult;
+                match res {
+                    crate::constants::ResourceKind::Food => food >= total,
+                    crate::constants::ResourceKind::Gold => gold >= total,
+                }
+            });
+            if can_afford {
+                let total: i32 = upg.cost.iter().map(|(_, base)| base * cost_mult).sum();
+                if best.is_none() || total < best.unwrap().0 {
+                    best = Some((total, i));
+                }
+            }
+        }
+
+        if let Some((_, idx)) = best {
+            let upg = &tower_upgrades[idx];
+            let lv = upgrade_levels.get(idx).copied().unwrap_or(0);
+            let cost_mult = upgrade_cost(lv);
+            // Deduct resources
+            for (res, base) in upg.cost {
+                let total = base * cost_mult;
+                match res {
+                    crate::constants::ResourceKind::Food => {
+                        if let Some(f) = food_storage.food.get_mut(ti) { *f -= total; }
+                    }
+                    crate::constants::ResourceKind::Gold => {
+                        if let Some(g) = gold_storage.gold.get_mut(ti) { *g -= total; }
+                    }
+                }
+            }
+            // Increment upgrade level
+            if let Some(inst) = entity_map.get_instance_mut(slot) {
+                while inst.upgrade_levels.len() <= idx {
+                    inst.upgrade_levels.push(0);
+                }
+                inst.upgrade_levels[idx] += 1;
             }
         }
     }

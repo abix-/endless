@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-03-01v
+
+- **per-tower upgrades** — each tower now has its own `upgrade_levels: Vec<u8>` and `auto_upgrade: bool` on `BuildingInstance`; tower inspector shows resolved per-instance stats (HP, Attack, Range, AtkSpd, ProjSpd, ProjLife, HpRegen) with upgrade buttons and auto-buy checkbox; `resolve_tower_instance_stats()` applies XP level bonus (+1%/level) and per-stat upgrade multipliers from `TOWER_UPGRADES`; `auto_tower_upgrade_system` runs each game-hour for auto-buy towers; `PlacedBuilding` saves/loads upgrade_levels and auto_upgrade with serde default for backward compat
+- **HP regen upgrade** — `UpgradeStatKind::HpRegen` added to `MILITARY_RANGED_UPGRADES`, `MILITARY_MELEE_UPGRADES`, and `TOWER_UPGRADES`; `CachedStats.hp_regen` field wired through `resolve_combat_stats` (+0.5 HP/s per level for NPCs); `npc_regen_system` heals NPCs with hp_regen > 0 each frame; towers get +2.0 HP/s per level via `building_tower_system` regen tick
+- **SFX spatial margin zero** — SFX viewport margin reduced from 200 to 0 world units; only onscreen events play sounds
+
 ## 2026-03-01u
 
 - **initial mining radius fix** — `initial_mining_radius()` now sets radius to nearest mine distance + 50px margin (exactly 1 mine in range) instead of rounding up to 300px steps with a 2000px floor; returns 0 if no mines exist; applies to both player and AI towns at world gen

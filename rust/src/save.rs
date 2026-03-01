@@ -622,6 +622,8 @@ pub fn collect_save_data(
                 wall_level: inst.wall_level,
                 kills: inst.kills,
                 xp: inst.xp,
+                upgrade_levels: inst.upgrade_levels.clone(),
+                auto_upgrade: inst.auto_upgrade,
             })
             .collect();
         building_data.insert(key.to_string(), serde_json::to_value(&placed).unwrap());
@@ -1480,11 +1482,13 @@ pub fn load_building_instances_from_save(
                     inst.manual_mine = b.manual_mine;
                 }
             }
-            // Restore tower kills/xp
-            if b.kills > 0 || b.xp > 0 {
+            // Restore tower kills/xp/upgrades
+            if b.kills > 0 || b.xp > 0 || !b.upgrade_levels.is_empty() || b.auto_upgrade {
                 if let Some(inst) = entity_map.find_by_position_mut(b.position) {
                     inst.kills = b.kills;
                     inst.xp = b.xp;
+                    inst.upgrade_levels = b.upgrade_levels.clone();
+                    inst.auto_upgrade = b.auto_upgrade;
                 }
             }
         }

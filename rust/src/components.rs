@@ -353,6 +353,7 @@ pub struct CachedStats {
     pub max_health: f32,
     pub speed: f32,
     pub stamina: f32,
+    pub hp_regen: f32,
 }
 
 // ============================================================================

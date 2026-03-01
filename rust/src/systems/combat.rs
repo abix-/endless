@@ -1,7 +1,6 @@
 //! Combat systems - Attack processing using GPU targeting results
 
 use crate::components::*;
-use crate::constants::TOWER_STATS;
 use crate::gpu::ProjBufferWrites;
 use crate::messages::{DamageMsg, ProjGpuUpdate, ProjGpuUpdateMsg};
 use crate::resources::{
@@ -504,6 +503,7 @@ pub fn building_tower_system(
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     mut proj_updates: MessageWriter<ProjGpuUpdateMsg>,
     mut sfx_writer: MessageWriter<crate::resources::PlaySfxMsg>,
+    mut building_health: Query<&mut Health, (With<Building>, Without<Dead>)>,
 ) {
     let dt = game_time.delta(&time);
     // --- Towns: sync state, refresh enabled from sprite_type == 0 (fountain) every tick ---
@@ -595,18 +595,25 @@ pub fn building_tower_system(
             .is_some_and(|i| i.kind == BuildingKind::Tower)
     });
 
-    for inst in entity_map.iter_kind(BuildingKind::Tower) {
-        let slot = inst.slot;
-        let timer = tower.tower_cooldowns.entry(slot).or_insert(0.0);
+    // Collect tower data (slot, position, faction, level, upgrade_levels) to avoid borrow conflicts
+    let towers: Vec<_> = entity_map.iter_kind(BuildingKind::Tower)
+        .map(|inst| (inst.slot, inst.position, inst.faction, inst.xp, inst.upgrade_levels.clone()))
+        .collect();
+
+    for (slot, src, faction, xp, upgrade_levels) in &towers {
+        let timer = tower.tower_cooldowns.entry(*slot).or_insert(0.0);
         if *timer > 0.0 {
             *timer = (*timer - dt).max(0.0);
             if *timer > 0.0 {
                 continue;
             }
         }
+        let level = crate::systems::stats::level_from_xp(*xp);
+        let stats = crate::systems::stats::resolve_tower_instance_stats(level, upgrade_levels);
+
         let target = gpu_state
             .combat_targets
-            .get(slot)
+            .get(*slot)
             .copied()
             .unwrap_or(-1);
         if target < 0 || entity_map.get_instance(target as usize).is_some() {
@@ -623,16 +630,28 @@ pub fn building_tower_system(
             continue;
         }
         let target_pos = Vec2::new(tx, ty);
-        let src = inst.position;
-        if src.distance(target_pos) > TOWER_STATS.range {
+        if src.distance(target_pos) > stats.range {
             continue;
         }
         if fire_projectile(
-            src, target_pos,
-            TOWER_STATS.damage, TOWER_STATS.proj_speed, TOWER_STATS.proj_lifetime,
-            inst.faction, slot as i32, &mut proj_alloc, &mut proj_updates, &mut sfx_writer,
+            *src, target_pos,
+            stats.damage, stats.proj_speed, stats.proj_lifetime,
+            *faction, *slot as i32, &mut proj_alloc, &mut proj_updates, &mut sfx_writer,
         ) {
-            *timer = TOWER_STATS.cooldown;
+            *timer = stats.cooldown;
+        }
+    }
+
+    // Tower HP regen: heal towers with hp_regen upgrade
+    for (slot, _, _, xp, upgrade_levels) in &towers {
+        let level = crate::systems::stats::level_from_xp(*xp);
+        let stats = crate::systems::stats::resolve_tower_instance_stats(level, upgrade_levels);
+        if stats.hp_regen > 0.0 {
+            if let Some(&entity) = entity_map.entities.get(slot) {
+                if let Ok(mut health) = building_health.get_mut(entity) {
+                    health.0 = (health.0 + stats.hp_regen * dt).min(stats.max_hp);
+                }
+            }
         }
     }
 }

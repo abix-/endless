@@ -2299,6 +2299,8 @@ pub struct BuildingInstance {
     pub under_construction: f32, // Seconds remaining; 0.0 = complete, >0 = constructing
     pub kills: i32,              // Tower/Fountain only — kill counter
     pub xp: i32,                 // Tower/Fountain only — XP (same scale as NPC: +100 per kill)
+    pub upgrade_levels: Vec<u8>, // Tower only — per-stat upgrade levels (indices match TOWER_UPGRADES)
+    pub auto_upgrade: bool,      // Tower only — auto-buy cheapest upgrade each game-hour
 }
 
 impl BuildingInstance {

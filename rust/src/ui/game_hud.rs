@@ -7,16 +7,18 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
 use crate::components::*;
-use crate::constants::UpgradeStatKind;
 use crate::constants::{
-    ItemKind, ResourceKind, TOWER_STATS, WALL_TIER_HP, WALL_TIER_NAMES, WALL_UPGRADE_COSTS,
-    building_def, npc_def,
+    EffectDisplay, ItemKind, ResourceKind, TOWER_STATS, UpgradeStatKind, WALL_TIER_HP,
+    WALL_TIER_NAMES, WALL_UPGRADE_COSTS, building_def, npc_def,
 };
 use crate::gpu::EntityGpuState;
 use crate::render::MainCamera;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
-use crate::systems::stats::{CombatConfig, TownUpgrades, UPGRADES, level_from_xp, resolve_town_tower_stats};
+use crate::systems::stats::{
+    CombatConfig, TownUpgrades, UPGRADES, level_from_xp, resolve_tower_instance_stats,
+    resolve_town_tower_stats,
+};
 use crate::ui::tipped;
 use crate::world::{BuildingKind, WorldData, WorldGrid};
 
@@ -1954,10 +1956,12 @@ fn building_inspector_content(
             // Kills / XP / Level
             if let Some(slot) = bld.entity_map.slot_at_position(world_pos) {
                 if let Some(inst) = bld.entity_map.get_instance(slot) {
-                    if inst.kills > 0 {
-                        let level = level_from_xp(inst.xp);
-                        ui.label(format!("Kills: {}  Lv.{} ({}xp)", inst.kills, level, inst.xp));
-                    }
+                    let level = level_from_xp(inst.xp);
+                    let xp_next = (level + 1) * (level + 1) * 100;
+                    ui.label(format!(
+                        "Kills: {}  Lv.{}  XP: {}/{}",
+                        inst.kills, level, inst.xp, xp_next
+                    ));
                 }
             }
 
@@ -2135,40 +2139,140 @@ fn building_inspector_content(
         }
 
         BuildingKind::Tower => {
-            // Tower combat stats
-            ui.label(format!("Range: {:.0}px", TOWER_STATS.range));
-            ui.label(format!("Damage: {:.1}", TOWER_STATS.damage));
-            ui.label(format!("Cooldown: {:.2}s", TOWER_STATS.cooldown));
+            // Resolve per-instance stats
+            let (level, upgrade_levels_clone, slot) = bld.entity_map.find_by_position(world_pos)
+                .map(|inst| (level_from_xp(inst.xp), inst.upgrade_levels.clone(), inst.slot))
+                .unwrap_or((0, Vec::new(), usize::MAX));
+            let stats = resolve_tower_instance_stats(level, &upgrade_levels_clone);
+
+            // Tower combat stats (resolved)
+            ui.label(format!("Range: {:.0}px", stats.range));
+            ui.label(format!("Damage: {:.1}", stats.damage));
+            ui.label(format!("Cooldown: {:.2}s", stats.cooldown));
+            if stats.hp_regen > 0.0 {
+                ui.label(format!("HP Regen: {:.1}/s", stats.hp_regen));
+            }
 
             // HP bar
-            if let Some(inst) = bld.entity_map.find_by_position(world_pos) {
-                if let Some(&entity) = bld.entity_map.entities.get(&inst.slot) {
-                    if let Ok(health) = bld.building_health.get(entity) {
-                        let max_hp = def.hp;
-                        let pct = health.0 / max_hp;
-                        let color = if pct > 0.5 {
-                            egui::Color32::from_rgb(80, 200, 80)
-                        } else {
-                            egui::Color32::from_rgb(200, 80, 80)
-                        };
-                        ui.horizontal(|ui| {
-                            ui.label("HP:");
-                            ui.add(
-                                egui::ProgressBar::new(pct)
-                                    .text(format!("{:.0}/{:.0}", health.0, max_hp))
-                                    .fill(color),
-                            );
-                        });
-                    }
+            if let Some(&entity) = bld.entity_map.entities.get(&slot) {
+                if let Ok(health) = bld.building_health.get(entity) {
+                    let max_hp = stats.max_hp;
+                    let pct = health.0 / max_hp;
+                    let color = if pct > 0.5 {
+                        egui::Color32::from_rgb(80, 200, 80)
+                    } else {
+                        egui::Color32::from_rgb(200, 80, 80)
+                    };
+                    ui.horizontal(|ui| {
+                        ui.label("HP:");
+                        ui.add(
+                            egui::ProgressBar::new(pct)
+                                .text(format!("{:.0}/{:.0}", health.0, max_hp))
+                                .fill(color),
+                        );
+                    });
                 }
             }
 
             // Kills / XP / Level
             if let Some(inst) = bld.entity_map.find_by_position(world_pos) {
-                if inst.kills > 0 {
-                    let level = level_from_xp(inst.xp);
-                    ui.label(format!("Kills: {}  Lv.{} ({}xp)", inst.kills, level, inst.xp));
+                let xp_next = (level + 1) * (level + 1) * 100;
+                ui.label(format!(
+                    "Kills: {}  Lv.{}  XP: {}/{}",
+                    inst.kills, level, inst.xp, xp_next
+                ));
+            }
+
+            ui.separator();
+            ui.label(egui::RichText::new("Upgrades").strong());
+
+            // Auto-upgrade toggle
+            let auto_upgrade = bld.entity_map.find_by_position(world_pos)
+                .map(|i| i.auto_upgrade).unwrap_or(false);
+            let mut auto = auto_upgrade;
+            if ui.checkbox(&mut auto, "Auto-buy").on_hover_text("Auto-buy cheapest upgrade each game-hour").changed() {
+                if let Some(inst) = bld.entity_map.find_by_position_mut(world_pos) {
+                    inst.auto_upgrade = auto;
                 }
+            }
+
+            // Per-stat upgrade buttons
+            let food = bld.food_storage.food.get(town_idx).copied().unwrap_or(0);
+            let gold = bld.gold_storage.gold.get(town_idx).copied().unwrap_or(0);
+            let tower_upgrades = &*crate::constants::TOWER_UPGRADES;
+
+            for (i, upg) in tower_upgrades.iter().enumerate() {
+                let lv = upgrade_levels_clone.get(i).copied().unwrap_or(0);
+                let cost = crate::systems::stats::upgrade_cost(lv);
+                let can_afford = upg.cost.iter().all(|(res, base)| {
+                    let total = base * cost;
+                    match res {
+                        crate::constants::ResourceKind::Food => food >= total,
+                        crate::constants::ResourceKind::Gold => gold >= total,
+                    }
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label(format!("Lv{}", lv));
+                    ui.label(upg.label);
+
+                    // Effect summary
+                    let effect = match upg.display {
+                        EffectDisplay::Percentage => format!("+{}%", (lv as f32 * upg.pct * 100.0) as i32),
+                        EffectDisplay::CooldownReduction => {
+                            let reduction = (1.0 - 1.0 / (1.0 + lv as f32 * upg.pct)) * 100.0;
+                            format!("-{:.0}%", reduction)
+                        }
+                        EffectDisplay::Discrete => {
+                            if upg.kind == UpgradeStatKind::HpRegen {
+                                format!("+{:.1}/s", lv as f32 * 2.0)
+                            } else {
+                                format!("+{}", lv)
+                            }
+                        }
+                        _ => format!("Lv{}", lv),
+                    };
+                    ui.label(egui::RichText::new(effect).small().weak());
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let cost_parts: Vec<String> = upg.cost.iter().map(|(res, base)| {
+                            let total = base * cost;
+                            match res {
+                                crate::constants::ResourceKind::Food => format!("{}F", total),
+                                crate::constants::ResourceKind::Gold => format!("{}G", total),
+                            }
+                        }).collect();
+                        let cost_text = cost_parts.join(" ");
+
+                        let response = ui.add_enabled(can_afford, egui::Button::new(&cost_text));
+                        let response = response.on_hover_text(upg.tooltip);
+                        if response.clicked() {
+                            // Deduct resources
+                            for (res, base) in upg.cost {
+                                let total = base * cost;
+                                match res {
+                                    crate::constants::ResourceKind::Food => {
+                                        if let Some(f) = bld.food_storage.food.get_mut(town_idx) {
+                                            *f -= total;
+                                        }
+                                    }
+                                    crate::constants::ResourceKind::Gold => {
+                                        if let Some(g) = bld.gold_storage.gold.get_mut(town_idx) {
+                                            *g -= total;
+                                        }
+                                    }
+                                }
+                            }
+                            // Increment upgrade level
+                            if let Some(inst) = bld.entity_map.find_by_position_mut(world_pos) {
+                                while inst.upgrade_levels.len() <= i {
+                                    inst.upgrade_levels.push(0);
+                                }
+                                inst.upgrade_levels[i] += 1;
+                            }
+                        }
+                    });
+                });
             }
         }
 
@@ -2731,13 +2835,24 @@ fn building_inspector_content(
                     }
                 }
                 BuildingKind::Tower => {
-                    info.push_str(&format!("Range: {:.0}px\n", TOWER_STATS.range));
-                    info.push_str(&format!("Damage: {:.1}\n", TOWER_STATS.damage));
-                    info.push_str(&format!("Cooldown: {:.2}s\n", TOWER_STATS.cooldown));
-                    info.push_str(&format!(
-                        "Projectile life: {:.2}s\n",
-                        TOWER_STATS.proj_lifetime
-                    ));
+                    if let Some(inst) = bld.entity_map.find_by_position(world_pos) {
+                        let level = level_from_xp(inst.xp);
+                        let stats = resolve_tower_instance_stats(level, &inst.upgrade_levels);
+                        info.push_str(&format!("Lv.{} ({} kills, {}xp)\n", level, inst.kills, inst.xp));
+                        info.push_str(&format!("Range: {:.0}px\n", stats.range));
+                        info.push_str(&format!("Damage: {:.1}\n", stats.damage));
+                        info.push_str(&format!("Cooldown: {:.2}s\n", stats.cooldown));
+                        info.push_str(&format!("Proj life: {:.2}s\n", stats.proj_lifetime));
+                        if stats.hp_regen > 0.0 {
+                            info.push_str(&format!("HP Regen: {:.1}/s\n", stats.hp_regen));
+                        }
+                        info.push_str(&format!("Upgrades: {:?}\n", inst.upgrade_levels));
+                        info.push_str(&format!("Auto: {}\n", inst.auto_upgrade));
+                    } else {
+                        info.push_str(&format!("Range: {:.0}px\n", TOWER_STATS.range));
+                        info.push_str(&format!("Damage: {:.1}\n", TOWER_STATS.damage));
+                        info.push_str(&format!("Cooldown: {:.2}s\n", TOWER_STATS.cooldown));
+                    }
                 }
                 _ => {}
             }
