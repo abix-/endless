@@ -310,17 +310,20 @@ migration_settle_system (every frame, early-returns if no active migration)
         └─ Clear MigrationState.active
            Combat log: "A raider band has settled nearby!"
 
-        ▼ WIPEOUT: count == 0 but member_slots not empty (all NPCs dead)
+        ▼ WIPEOUT: count == 0 AND found > 0 (all spawned NPCs dead)
         ├─ Queue replacement PendingAiSpawn (same strength/resources, 4h delay)
         ├─ Combat log: "The migrating {kind} was wiped out!"
         └─ Clear MigrationState.active (unblock pipeline for next migration)
+        │
+        ▼ NOT SPAWNED YET: count == 0 AND found == 0 (SpawnNpcMsg not processed)
+        └─ Early return — wait for spawn_npc_system to process messages next frame
 ```
 
 **Movement**: Migration group spawns a boat entity (building slot with `ATLAS_BOAT` sprite) at the map edge nearest to the settle target. The boat sails toward `settle_target` at `BOAT_SPEED` (150px/s). When the boat reaches land (non-water terrain), NPCs disembark — spawned at the boat position with `Migrating` component, boat slot freed. NPCs then walk toward `settle_target` using the existing `Home` component + `Action::Wander` behavior.
 
 **Settlement site selection**: `pick_settle_site()` samples 100 random land positions and picks the one farthest from all existing towns — ensures new settlements spread across the map rather than clustering. The verified `settle_target` position is used for all placement (town center, buildings, dirt stamp, NPC homes, combat log) — never the NPC centroid `avg_pos` (which could be over water).
 
-**Migration wipeout**: If all NPCs in the group die before settling (`count == 0` but `member_slots` not empty), the migration is cleared and a replacement `PendingAiSpawn` is queued with `ENDLESS_RESPAWN_DELAY_HOURS` (4h) delay. The replacement inherits the original group's `upgrade_levels`, `starting_food`, and `starting_gold`. This ensures the target number of AI towns is eventually reached — it's endless.
+**Migration wipeout**: If all spawned NPCs in the group die before settling (`count == 0` and `found > 0` — distinguishes "all dead" from "not spawned yet"), the migration is cleared and a replacement `PendingAiSpawn` is queued with `ENDLESS_RESPAWN_DELAY_HOURS` (4h) delay. When `found == 0` (SpawnNpcMsg not yet processed by `spawn_npc_system`), the system waits rather than declaring wipeout. The replacement inherits the original group's `upgrade_levels`, `starting_food`, and `starting_gold`. This ensures the target number of AI towns is eventually reached — it's endless.
 
 **Save/load**: `MigrationState` serialized as `Option<MigrationSave>` in `SaveData`. On load, `Migrating` component re-attached to saved member slot entities.
 

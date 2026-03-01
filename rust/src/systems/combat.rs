@@ -274,12 +274,14 @@ pub fn attack_system(
                         cached_damage, cached_proj_speed, cached_proj_lifetime,
                         faction_id, i as i32, &mut proj_alloc, &mut proj_updates,
                     ) {
-                        damage_events.write(DamageMsg {
-                            entity_idx: ti,
-                            amount: cached_damage,
-                            attacker: i as i32,
-                            attacker_faction: faction_id,
-                        });
+                        if let Some(target_uid) = entity_map.uid_for_slot(ti) {
+                            damage_events.write(DamageMsg {
+                                target: target_uid,
+                                amount: cached_damage,
+                                attacker: i as i32,
+                                attacker_faction: faction_id,
+                            });
+                        }
                     }
                     attacks += 1;
                     if let Ok(mut t) = aq.timer_q.get_mut(entity) {
@@ -379,12 +381,14 @@ pub fn attack_system(
                     cached_damage, cached_proj_speed, cached_proj_lifetime,
                     faction_id, i as i32, &mut proj_alloc, &mut proj_updates,
                 ) {
-                    damage_events.write(DamageMsg {
-                        entity_idx: ti,
-                        amount: cached_damage,
-                        attacker: i as i32,
-                        attacker_faction: faction_id,
-                    });
+                    if let Some(target_uid) = entity_map.uid_for_slot(ti) {
+                        damage_events.write(DamageMsg {
+                            target: target_uid,
+                            amount: cached_damage,
+                            attacker: i as i32,
+                            attacker_faction: faction_id,
+                        });
+                    }
                 }
                 attacks += 1;
                 if let Ok(mut t) = aq.timer_q.get_mut(entity) {
@@ -436,6 +440,7 @@ pub fn process_proj_hits(
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     proj_writes: Res<ProjBufferWrites>,
     mut hit_state: ResMut<ProjHitState>,
+    entity_map: Res<crate::resources::EntityMap>,
 ) {
     let max_slot = proj_alloc.next.min(hit_state.0.len());
     for (slot, hit) in hit_state.0[..max_slot].iter().enumerate() {
@@ -460,12 +465,14 @@ pub fn process_proj_hits(
                     -1
                 };
                 let attacker_faction = proj_writes.factions.get(slot).copied().unwrap_or(-1);
-                damage_events.write(DamageMsg {
-                    entity_idx: hit_idx as usize,
-                    amount: damage,
-                    attacker: shooter,
-                    attacker_faction,
-                });
+                if let Some(target_uid) = entity_map.uid_for_slot(hit_idx as usize) {
+                    damage_events.write(DamageMsg {
+                        target: target_uid,
+                        amount: damage,
+                        attacker: shooter,
+                        attacker_faction,
+                    });
+                }
             }
 
             proj_alloc.free(slot);

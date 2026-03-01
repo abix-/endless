@@ -27,10 +27,10 @@ pub struct SpawnNpcMsg {
 }
 
 /// Unified damage message for both NPCs and buildings.
-/// entity_idx = unified slot (same as GPU index). Routes to NPC or building via EntityMap.
+/// Target identified by EntityUid (stable identity). damage_system resolves UID → slot.
 #[derive(Message, Clone)]
 pub struct DamageMsg {
-    pub entity_idx: usize,
+    pub target: crate::components::EntityUid,
     pub amount: f32,
     pub attacker: i32,         // NPC slot of attacker (-1 = tower/unknown)
     pub attacker_faction: i32, // for combat log attribution

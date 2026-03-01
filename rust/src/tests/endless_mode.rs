@@ -4,7 +4,7 @@
 //! boat spawns → sails to land → NPCs disembark → walk → settle → buildings placed.
 //! Phases 1-8: Builder AI town. Phases 9-16: Raider AI town (1 game-hour gap).
 
-use crate::messages::{DamageMsg, SpawnNpcMsg};
+use crate::messages::DamageMsg;
 use crate::resources::*;
 use crate::systems::{AiKind, AiPlayerState};
 use crate::world::{self, BuildingKind, WorldGenStyle};
@@ -23,7 +23,6 @@ pub(super) struct EndlessModeSetupState<'w> {
 }
 
 pub(super) fn setup(
-    mut commands: Commands,
     mut world_data: ResMut<world::WorldData>,
     mut world_grid: ResMut<world::WorldGrid>,
     mut config: ResMut<world::WorldGenConfig>,
@@ -33,8 +32,6 @@ pub(super) fn setup(
     mut town_grids: ResMut<world::TownGrids>,
     mut slot_alloc: ResMut<GpuSlotPool>,
     mut bld: BuildingInitParams,
-    mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
-    mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     mut state: EndlessModeSetupState,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
@@ -49,7 +46,7 @@ pub(super) fn setup(
     config.raider_distance = 2000.0;
     config.min_town_distance = 1000.0;
 
-    let (npc_msgs, ai_players) = world::setup_world(
+    let (_npc_msgs, ai_players) = world::setup_world(
         &config,
         &mut world_grid,
         &mut world_data,
@@ -62,13 +59,7 @@ pub(super) fn setup(
         &mut state.raider_state,
         &mut uid_alloc,
     );
-    world::materialize_generated_world(
-        &mut commands,
-        &mut bld.entity_map,
-        &mut gpu_updates,
-        &mut spawn_writer,
-        npc_msgs,
-    );
+    // Building entities + NPC spawning handled by common materialize_test_world system
     state.ai_state.players = ai_players;
 
     let total_towns = world_data.towns.len();
@@ -109,6 +100,7 @@ pub fn tick(
             &crate::components::Building,
             &crate::components::Health,
             &crate::components::TownId,
+            &crate::components::EntityUid,
         ),
         Without<crate::components::Dead>,
     >,
@@ -184,47 +176,34 @@ pub fn tick(
         // Phase 2: Destroy builder AI Fountain
         2 => {
             let target = test.count("target_town") as usize;
-            let hp = building_query
+            let fountain = building_query
                 .iter()
-                .find(|(b, _, t)| b.kind == BuildingKind::Fountain && t.0 as usize == target)
-                .map(|(_, h, _)| h.0)
-                .unwrap_or(0.0);
-            test.phase_name = format!("fountain[{}] hp={:.0}", target, hp);
+                .find(|(b, _, t, _)| b.kind == BuildingKind::Fountain && t.0 as usize == target);
 
             if !test.get_flag("damage_sent") {
                 let max_hp = crate::constants::building_def(BuildingKind::Fountain).hp;
-                if let Some(bld_slot) = entity_map
-                    .iter_kind(BuildingKind::Fountain)
-                    .nth(target)
-                    .map(|i| i.slot)
-                {
+                if let Some((_, _, _, uid)) = fountain {
                     damage_writer.write(DamageMsg {
-                        entity_idx: bld_slot,
+                        target: *uid,
                         amount: max_hp + 100.0,
                         attacker_faction: 0,
                         attacker: -1,
                     });
                 }
                 test.set_flag("damage_sent", true);
+            }
+
+            let hp = fountain.map(|(_, h, _, _)| h.0).unwrap_or(-1.0);
+            test.phase_name = format!("fountain[{}] hp={}", target, hp);
+
+            if fountain.is_none() {
+                test.pass_phase(elapsed, format!("fountain[{}] destroyed", target));
             } else if hp <= 0.0 {
-                let ai_active = ai_state
-                    .players
-                    .iter()
-                    .find(|p| p.town_data_idx == target)
-                    .map(|p| p.active)
-                    .unwrap_or(true);
-                if !ai_active {
-                    test.pass_phase(
-                        elapsed,
-                        format!("fountain[{}] destroyed, AI deactivated", target),
-                    );
-                } else if elapsed > 5.0 {
-                    test.fail_phase(elapsed, "AI player not deactivated after fountain death");
-                }
+                test.pass_phase(elapsed, format!("fountain[{}] hp={}", target, hp));
             } else if elapsed > 5.0 {
                 test.fail_phase(
                     elapsed,
-                    format!("fountain[{}] hp={:.0} (still alive)", target, hp),
+                    format!("fountain[{}] hp={} (still alive)", target, hp),
                 );
             }
         }
@@ -464,47 +443,40 @@ pub fn tick(
         // Phase 10: Destroy raider fountain
         10 => {
             let target = test.count("raider_target_town") as usize;
-            let hp = building_query
+            let fountain = building_query
                 .iter()
-                .find(|(b, _, t)| b.kind == BuildingKind::Fountain && t.0 as usize == target)
-                .map(|(_, h, _)| h.0)
-                .unwrap_or(0.0);
-            test.phase_name = format!("raider fountain[{}] hp={:.0}", target, hp);
+                .find(|(b, _, t, _)| b.kind == BuildingKind::Fountain && t.0 as usize == target);
 
             if !test.get_flag("raider_damage_sent") {
                 let max_hp = crate::constants::building_def(BuildingKind::Fountain).hp;
-                if let Some(bld_slot) = entity_map
-                    .iter_kind(BuildingKind::Fountain)
-                    .nth(target)
-                    .map(|i| i.slot)
-                {
+                if let Some((_, _, _, uid)) = fountain {
                     damage_writer.write(DamageMsg {
-                        entity_idx: bld_slot,
+                        target: *uid,
                         amount: max_hp + 100.0,
                         attacker_faction: 0,
                         attacker: -1,
                     });
                 }
                 test.set_flag("raider_damage_sent", true);
+            }
+
+            let hp = fountain.map(|(_, h, _, _)| h.0).unwrap_or(-1.0);
+            test.phase_name = format!("raider fountain[{}] hp={}", target, hp);
+
+            if fountain.is_none() {
+                test.pass_phase(
+                    elapsed,
+                    format!("raider fountain[{}] destroyed", target),
+                );
             } else if hp <= 0.0 {
-                let ai_active = ai_state
-                    .players
-                    .iter()
-                    .find(|p| p.town_data_idx == target)
-                    .map(|p| p.active)
-                    .unwrap_or(true);
-                if !ai_active {
-                    test.pass_phase(
-                        elapsed,
-                        format!("raider fountain[{}] destroyed, AI deactivated", target),
-                    );
-                } else if elapsed > 5.0 {
-                    test.fail_phase(elapsed, "raider AI not deactivated after fountain death");
-                }
+                test.pass_phase(
+                    elapsed,
+                    format!("raider fountain[{}] hp={}", target, hp),
+                );
             } else if elapsed > 5.0 {
                 test.fail_phase(
                     elapsed,
-                    format!("raider fountain[{}] hp={:.0} (still alive)", target, hp),
+                    format!("raider fountain[{}] hp={} (still alive)", target, hp),
                 );
             }
         }

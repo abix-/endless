@@ -1444,8 +1444,11 @@ fn build_place_click_system(
         };
 
         // Send lethal damage so death_system handles despawn (single Dead writer)
+        let Some(uid) = world_state.entity_map.uid_for_slot(building_gpu_slot) else {
+            return;
+        };
         damage_writer.write(crate::messages::DamageMsg {
-            entity_idx: building_gpu_slot,
+            target: uid,
             amount: f32::MAX,
             attacker: -1,
             attacker_faction: 0,
@@ -2182,8 +2185,11 @@ fn process_destroy_system(
         let (trow, tcol) = world::world_to_town_grid(center, world_pos);
 
         // Send lethal damage so death_system handles despawn (single Dead writer)
+        let Some(uid) = world_state.entity_map.uid_for_slot(building_gpu_slot) else {
+            return;
+        };
         damage_writer.write(crate::messages::DamageMsg {
-            entity_idx: building_gpu_slot,
+            target: uid,
             amount: f32::MAX,
             attacker: -1,
             attacker_faction: 0,

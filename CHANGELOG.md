@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-03-01n
+
+- **DamageMsg EntityUid migration** — `DamageMsg.entity_idx: usize` replaced with `DamageMsg.target: EntityUid` for stable identity; `damage_system` resolves UID→slot via `entity_map.slot_for_uid()`; all 7 sender sites updated (combat.rs attack_system/process_proj_hits, ai_player.rs waypoint prune, ui/mod.rs demolish/debug destroy, test); `process_proj_hits` now takes `Res<EntityMap>` parameter; eliminates class of bugs where raw slot disagrees with entity identity after slot recycling
+- **NPC stat differentiation** — each NPC type now has unique base HP and speed instead of uniform 100/100: Farmer 60hp, Crossbow 70hp/85spd, Archer 80hp, Miner 80hp, Raider 120hp/115spd, Fighter 150hp/85spd; creates meaningful combat roles (glass-cannon ranged, tanky melee, fast raiders)
+- **endless-mode test fix (double materialization)** — test setup no longer calls `materialize_generated_world` directly; common `materialize_test_world` system handles it once, preventing duplicate ECS building entities that caused Phase 2 to see full-HP ghost fountains
+- **migration disembark race fix** — `endless_system` SETTLE check now distinguishes "NPCs not spawned yet" (`found == 0`) from "all NPCs dead" (`found > 0, count == 0`); prevents false wipeout declaration on the same frame as disembark when `SpawnNpcMsg` hasn't been processed by `spawn_npc_system` yet
+
 ## 2026-03-01m
 
 - **gpu slot allocator lifecycle** — `GpuSlotPool` now owns full GPU state lifecycle: `alloc_reset()` queues pending resets (all 9 GPU fields zeroed to safe defaults), `free()` queues pending frees (hide + health/speed/flags zeroed); `populate_gpu_state` drains both queues before processing `GpuUpdateMsg` events; removed Deref/DerefMut to inner SlotPool, all access through explicit methods; eliminates stale GPU state on slot reuse (root cause: buildings on reused NPC slots inherited speed=100.0, causing phantom movement)

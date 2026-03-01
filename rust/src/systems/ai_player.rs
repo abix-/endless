@@ -1233,10 +1233,13 @@ fn sync_town_perimeter_waypoints(
         let Some(building_gpu_slot) = building_gpu_slot else {
             continue;
         };
+        let Some(uid) = world.entity_map.uid_for_slot(building_gpu_slot) else {
+            continue;
+        };
 
         // Send lethal damage so death_system handles despawn (single Dead writer)
         damage_writer.write(crate::messages::DamageMsg {
-            entity_idx: building_gpu_slot,
+            target: uid,
             amount: f32::MAX,
             attacker: -1,
             attacker_faction: 0,

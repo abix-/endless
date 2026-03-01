@@ -55,7 +55,7 @@ Each piece of NPC data has exactly one authoritative owner.
 | Message | Fields | Pattern |
 |---------|--------|---------|
 | SpawnNpcMsg | slot_idx, x, y, job, faction, town_idx, home_x/y, work_x/y, starting_post, attack_type | MessageWriter → MessageReader |
-| DamageMsg | entity_idx (usize), amount (f32), attacker (i32, -1=tower/unknown), attacker_faction (i32) | process_proj_hits / attack_system → damage_system |
+| DamageMsg | target (EntityUid), amount (f32), attacker (i32, -1=tower/unknown), attacker_faction (i32) | process_proj_hits / attack_system → damage_system |
 | GpuUpdateMsg | GpuUpdate enum (see below) | MessageWriter → populate_gpu_state |
 | CombatLogMsg | kind, faction, day, hour, minute, message, location | 18+ writers → drain_combat_log |
 | SaveGameMsg | none | save_load_input_system → save_game_system |

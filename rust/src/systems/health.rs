@@ -66,7 +66,9 @@ pub fn damage_system(
     let mut damage_count = 0;
     for event in events.read() {
         damage_count += 1;
-        let idx = event.entity_idx;
+        let Some(idx) = entity_map.slot_for_uid(event.target) else {
+            continue;
+        };
 
         if let Some(npc) = entity_map.get_npc(idx) {
             // NPC damage

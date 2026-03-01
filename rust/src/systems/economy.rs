@@ -1021,8 +1021,10 @@ pub fn endless_system(
         let mut sum_x = 0.0f32;
         let mut sum_y = 0.0f32;
         let mut count = 0u32;
+        let mut found = 0u32;
         for &slot in &mg.member_slots {
             if let Some(npc) = world_state.entity_map.get_npc(slot) {
+                found += 1;
                 let is_migrating = res
                     .npc_flags_q
                     .get(npc.entity)
@@ -1038,8 +1040,12 @@ pub fn endless_system(
             }
         }
         if count == 0 {
-            if !mg.member_slots.is_empty() {
-                // All members dead — migration wiped out, queue replacement
+            // found == 0 means NPCs haven't spawned yet (SpawnNpcMsg not processed) — wait
+            if found == 0 && !mg.member_slots.is_empty() {
+                return;
+            }
+            if found > 0 {
+                // All spawned members are dead — migration wiped out, queue replacement
                 let is_raider = mg.is_raider;
                 let kind_str = if is_raider {
                     "raider band"

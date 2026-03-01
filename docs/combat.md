@@ -24,13 +24,13 @@ GPU combat_target_buffer (from compute shader)
                                                       │
                                                       ▼
 DamageMsg (from process_proj_hits)             GPU movement
-        │  (unified: entity_idx is unified slot, routes via EntityMap.get_instance() presence check)
+        │  (target: EntityUid — resolved to slot via entity_map.slot_for_uid(), then routes via EntityMap.get_instance() presence check)
         ▼
   damage_system
-  ├─ Building (entity_idx in EntityMap):
+  ├─ Building (slot in EntityMap):
   │   apply to Health, SetHealth, SetDamageFlash
   │   insert LastHitBy (for loot attribution)
-  └─ NPC (entity_idx in EntityMap):
+  └─ NPC (slot in EntityMap):
       apply to Health, sync GPU, insert LastHitBy, SetDamageFlash
         │
         ▼
@@ -64,7 +64,7 @@ attack_system emits `ProjGpuUpdateMsg` when in range, or applies point-blank dam
 
 | Component | Type | Purpose |
 |-----------|------|---------|
-| Health | `f32` | Current HP (default 100.0) |
+| Health | `f32` | Current HP (per-type: Farmer 60, Crossbow 70, Archer/Miner 80, Raider 120, Fighter 150) |
 | Dead | marker | Inserted when health <= 0 |
 | LastHitBy | `i32` | NPC slot index of last attacker (-1 = no attacker). Inserted by damage_system, read by death_system for XP grant + loot attribution. |
 | Faction | `struct(i32)` | Faction ID (-1=Neutral, 0=Player, 1+=AI settlements). NPCs attack different factions. Neutral (-1) is treated as same-faction by GPU combat targeting and projectile collision. |
@@ -109,9 +109,10 @@ Execution order is **chained** — each system completes before the next starts.
 
 ### 3. damage_system (health.rs)
 - Drains unified `DamageMsg` events from Bevy MessageReader
-- Routes by `entity_idx`: checks `entity_map.get_instance(entity_idx)` — if found, it's a building; otherwise, it's an NPC (both share one `EntityMap`)
-- **Building damage** (entity_idx has instance in `EntityMap`):
-  - O(1) lookup via `entity_map.get_instance(entity_idx)` + `entity_map.entities.get(&entity_idx)`
+- Resolves `event.target` (EntityUid) to slot via `entity_map.slot_for_uid()` — skips if UID no longer valid
+- Routes by slot: checks `entity_map.get_instance(idx)` — if found, it's a building; otherwise, it's an NPC (both share one `EntityMap`)
+- **Building damage** (slot has instance in `EntityMap`):
+  - O(1) lookup via `entity_map.get_instance(idx)` + `entity_map.entities.get(&idx)`
   - Skips indestructible buildings (GoldMine, Road) and already-dead buildings
   - Subtracts damage, pushes `GpuUpdate::SetHealth` + `GpuUpdate::SetDamageFlash`
   - If HP > 0: sets `BuildingHealState.needs_healing` for healing_system
@@ -202,7 +203,7 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 | CPU → GPU | Building HP sync | `damage_system` writes entity `Health` + `GpuUpdate::SetHealth` to sync building HP in `EntityGpuState` |
 | CPU → GPU | Building damage flash | `damage_system` writes `GpuUpdate::SetDamageFlash` (intensity 1.0, decays at 5.0/s) |
 | GPU → CPU | Tower targeting | `building_tower_system` reads `GpuReadState.combat_targets[bld_slot]` — unified slot IS GPU index (same as NPC targeting) |
-| GPU → CPU | Projectile hits | `process_proj_hits`: unified `DamageMsg` for all hits (entity_idx routes NPC vs building in damage_system) |
+| GPU → CPU | Projectile hits | `process_proj_hits`: unified `DamageMsg` for all hits (EntityUid target resolved to slot in damage_system) |
 | GPU → CPU | Building targeting | `attack_system` reads `combat_targets[i]` — GPU returns building indices (`>= npc_count`) when buildings are nearest enemy |
 
 ## Debug
@@ -219,7 +220,7 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 
 ## Known Issues / Limitations
 
-- **No generational indices**: Stale references to recycled slots would silently alias. Currently safe due to chained execution, but would break if damage messages span frames.
+- **No generational indices on slots**: Stale slot references could silently alias. Mitigated by DamageMsg using EntityUid (stable identity) instead of raw slots — damage_system resolves UID→slot, skipping if the UID is no longer valid. Chained execution within Step::Combat provides additional safety.
 - **No friendly fire**: Faction check prevents same-faction damage. No way to enable it selectively.
 - **CombatState::Fighting blocks behavior decisions**: While fighting, decision_system skips the NPC. However, Activity is preserved through combat — when combat ends (`CombatState::None`), the NPC resumes its previous activity.
 - **KillStats faction-attributed**: `archer_kills` counts enemy NPCs killed by player faction (killer_faction == 0, victim != 0); `villager_kills` counts player NPCs killed by enemies (killer_faction != 0, victim == 0). Attribution uses `last_hit_by` slot → faction lookup via EntityMap (NPC or building).
