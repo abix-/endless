@@ -183,7 +183,7 @@ pub(crate) fn build_menu_system(
 
     // Bottom-center Build toggle button (always visible)
     let btn_offset = if ui_state.build_menu_open {
-        -100.0
+        -140.0
     } else {
         0.0
     };
@@ -245,7 +245,18 @@ pub(crate) fn build_menu_system(
                         DisplayCategory::Military => "Military",
                         _ => unreachable!(),
                     };
-                    if ui.selectable_label(build_ctx.build_tab == cat, label).clicked() {
+                    let active = build_ctx.build_tab == cat;
+                    let (fill, text_color) = if active {
+                        (egui::Color32::from_rgb(60, 70, 90), egui::Color32::WHITE)
+                    } else {
+                        (egui::Color32::from_rgb(35, 35, 40), egui::Color32::from_rgb(140, 140, 140))
+                    };
+                    let btn = egui::Button::new(
+                        egui::RichText::new(label).size(13.0).color(text_color),
+                    )
+                    .fill(fill)
+                    .corner_radius(egui::CornerRadius { nw: 4, ne: 4, sw: 0, se: 0 });
+                    if ui.add(btn).clicked() {
                         build_ctx.build_tab = cat;
                         if let Some(kind) = build_ctx.selected_build {
                             if crate::constants::building_def(kind).display != cat {
