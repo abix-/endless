@@ -309,52 +309,50 @@ pub struct TownSlotInfo {
 // ============================================================================
 
 
-/// Check if a grid cell contains a wall building.
-fn is_wall_at(entity_map: &EntityMap, col: usize, row: usize) -> bool {
+/// Check if a grid cell contains a building of the given kind.
+fn is_kind_at(entity_map: &EntityMap, col: usize, row: usize, kind: BuildingKind) -> bool {
     entity_map
         .get_at_grid(col as i32, row as i32)
-        .is_some_and(|inst| inst.kind == BuildingKind::Wall)
+        .is_some_and(|inst| inst.kind == kind)
 }
 
-/// Compute auto-tile variant offset (0-5) for a wall at grid (col, row).
-/// Atlas layers: 0=E-W, 1=N-S, 2=TL, 3=BL, 4=BR, 5=TR (screen-space corners).
-/// Note: row-1 = south (lower Y), row+1 = north (higher Y) in Bevy's Y-up coords.
-pub fn wall_autotile_variant(entity_map: &EntityMap, col: usize, row: usize) -> u16 {
-    let n = row > 0 && is_wall_at(entity_map, col, row - 1);
-    let s = is_wall_at(entity_map, col, row + 1);
-    let e = is_wall_at(entity_map, col + 1, row);
-    let w = col > 0 && is_wall_at(entity_map, col - 1, row);
+/// Compute auto-tile variant (0-10) for a building at grid (col, row).
+/// Uses 4-neighbor NSEW matching. Works for any autotile-enabled building kind.
+pub fn autotile_variant(entity_map: &EntityMap, col: usize, row: usize, kind: BuildingKind) -> u16 {
+    let n = row > 0 && is_kind_at(entity_map, col, row - 1, kind);
+    let s = is_kind_at(entity_map, col, row + 1, kind);
+    let e = is_kind_at(entity_map, col + 1, row, kind);
+    let w = col > 0 && is_kind_at(entity_map, col - 1, row, kind);
     use crate::constants::*;
     match (n, s, e, w) {
-        (false, false, true, true) => WALL_EW,
-        (false, false, true, false) => WALL_EW,
-        (false, false, false, true) => WALL_EW,
-        (true, true, false, false) => WALL_NS,
-        (true, false, false, false) => WALL_NS,
-        (false, true, false, false) => WALL_NS,
-        (true, false, true, false) => WALL_TR,
-        (true, false, false, true) => WALL_TL,
-        (false, true, false, true) => WALL_BL,
-        (false, true, true, false) => WALL_BR,
-        (true, false, true, true) => WALL_T_OPEN_N, // 3 neighbors, open north
-        (true, true, true, false) => WALL_T_OPEN_W, // 3 neighbors, open west
-        (false, true, true, true) => WALL_T_OPEN_S, // 3 neighbors, open south
-        (true, true, false, true) => WALL_T_OPEN_E, // 3 neighbors, open east
-        (true, true, true, true) => WALL_CROSS,     // 4-way
-        _ => WALL_EW,
+        (false, false, true, true) => AUTOTILE_EW,
+        (false, false, true, false) => AUTOTILE_EW,
+        (false, false, false, true) => AUTOTILE_EW,
+        (true, true, false, false) => AUTOTILE_NS,
+        (true, false, false, false) => AUTOTILE_NS,
+        (false, true, false, false) => AUTOTILE_NS,
+        (true, false, true, false) => AUTOTILE_TR,
+        (true, false, false, true) => AUTOTILE_TL,
+        (false, true, false, true) => AUTOTILE_BL,
+        (false, true, true, false) => AUTOTILE_BR,
+        (true, false, true, true) => AUTOTILE_T_OPEN_N,
+        (true, true, true, false) => AUTOTILE_T_OPEN_W,
+        (false, true, true, true) => AUTOTILE_T_OPEN_S,
+        (true, true, false, true) => AUTOTILE_T_OPEN_E,
+        (true, true, true, true) => AUTOTILE_CROSS,
+        _ => AUTOTILE_EW,
     }
 }
 
-/// Recompute wall auto-tile sprites for the wall at (col, row) and its 4 neighbors.
-/// Pushes GPU SetSpriteFrame updates for each wall found.
-pub fn update_wall_sprites_around(
+/// Recompute auto-tile sprites for the building at (col, row) and its 4 neighbors.
+pub fn update_autotile_around(
     grid: &WorldGrid,
     entity_map: &EntityMap,
     col: usize,
     row: usize,
+    kind: BuildingKind,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
 ) {
-    let wall_base = crate::constants::tileset_index(BuildingKind::Wall) as f32;
     let offsets: [(i32, i32); 5] = [(0, 0), (0, -1), (0, 1), (1, 0), (-1, 0)];
     for (dc, dr) in offsets {
         let c = col as i32 + dc;
@@ -363,15 +361,15 @@ pub fn update_wall_sprites_around(
             continue;
         }
         let (c, r) = (c as usize, r as usize);
-        if !is_wall_at(entity_map, c, r) {
+        if !is_kind_at(entity_map, c, r, kind) {
             continue;
         }
-        let variant = wall_autotile_variant(entity_map, c, r);
+        let variant = autotile_variant(entity_map, c, r, kind);
         let pos = grid.grid_to_world(c, r);
         if let Some(inst) = entity_map.find_by_position(pos) {
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
                 idx: inst.slot,
-                col: wall_base + variant as f32,
+                col: crate::constants::autotile_col(kind, variant),
                 row: 0.0,
                 atlas: crate::constants::ATLAS_BUILDING,
             }));
@@ -379,19 +377,19 @@ pub fn update_wall_sprites_around(
     }
 }
 
-/// Set auto-tile sprites for all walls in the world. Call after building instances are created.
-pub fn update_all_wall_sprites(
+/// Set auto-tile sprites for all buildings of a given kind. Call after building instances are created.
+pub fn update_all_autotile(
     grid: &WorldGrid,
     entity_map: &EntityMap,
+    kind: BuildingKind,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
 ) {
-    let wall_base = crate::constants::tileset_index(BuildingKind::Wall) as f32;
-    for inst in entity_map.iter_kind(BuildingKind::Wall) {
+    for inst in entity_map.iter_kind(kind) {
         let (gc, gr) = grid.world_to_grid(inst.position);
-        let variant = wall_autotile_variant(entity_map, gc, gr);
+        let variant = autotile_variant(entity_map, gc, gr, kind);
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
             idx: inst.slot,
-            col: wall_base + variant as f32,
+            col: crate::constants::autotile_col(kind, variant),
             row: 0.0,
             atlas: crate::constants::ATLAS_BUILDING,
         }));
@@ -553,6 +551,10 @@ fn push_building_gpu_updates(
         y: pos.y,
     }));
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFaction { idx: slot, faction }));
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetMaxHealth {
+        idx: slot,
+        max_health: max_hp,
+    }));
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth {
         idx: slot,
         health: max_hp,
@@ -712,10 +714,10 @@ pub fn place_building(
         gpu_updates,
     );
 
-    // Runtime: wall auto-tile + dirty signals
+    // Runtime: auto-tile + dirty signals
     if let Some(ctx) = ctx {
-        if kind == BuildingKind::Wall {
-            update_wall_sprites_around(ctx.grid, entity_map, gc, gr, gpu_updates);
+        if crate::constants::building_def(kind).autotile {
+            update_autotile_around(ctx.grid, entity_map, gc, gr, kind, gpu_updates);
         }
     }
     if let Some(dw) = dirty_writers {
@@ -873,9 +875,9 @@ pub(crate) fn destroy_building(
     let kind = inst.kind;
     let bld_town_idx = inst.town_idx;
 
-    // Wall auto-tile: update neighbor sprites after wall removed
-    if kind == BuildingKind::Wall {
-        update_wall_sprites_around(grid, entity_map, gc, gr, gpu_updates);
+    // Auto-tile: update neighbor sprites after removal
+    if crate::constants::building_def(kind).autotile {
+        update_autotile_around(grid, entity_map, gc, gr, kind, gpu_updates);
     }
 
     // Combat log — derive faction from building's town_idx
@@ -1298,7 +1300,7 @@ pub fn extract_sprite_32(img: &Image, src_x: u32) -> Vec<u8> {
 }
 
 /// Building atlas: strip as texture_2d (for NPC instanced shader).
-/// Appends wall auto-tile variant layers (rotated E-W and corner sprites).
+/// Appends auto-tile variant layers for all autotile-enabled building kinds.
 pub fn build_building_atlas(
     atlas: &Image,
     tiles: &[TileSpec],
@@ -1309,71 +1311,74 @@ pub fn build_building_atlas(
     let out_size = SPRITE_SIZE as u32 * 2; // 32
     let layer_bytes = (out_size * out_size * 4) as usize;
 
-    // Find wall strip image: it's the External image for the Wall registry entry.
-    // Count External entries before Wall to find its index in the extra slice.
-    let wall_ext_idx = {
-        let mut idx = 0usize;
-        let mut found = None;
-        for def in crate::constants::BUILDING_REGISTRY {
-            if def.kind == BuildingKind::Wall {
-                if matches!(def.tile, crate::constants::TileSpec::External(_)) {
-                    found = Some(idx);
+    // For each autotile-enabled building, find its External sprite strip,
+    // extract/rotate variants, overwrite the base layer, and append 10 extra layers.
+    let mut extra_count = 0u32;
+    for def in crate::constants::BUILDING_REGISTRY {
+        if !def.autotile {
+            continue;
+        }
+        // Find this kind's External image index in the extra slice
+        let ext_idx = {
+            let mut idx = 0usize;
+            let mut found = None;
+            for d in crate::constants::BUILDING_REGISTRY {
+                if d.kind == def.kind {
+                    if matches!(d.tile, crate::constants::TileSpec::External(_)) {
+                        found = Some(idx);
+                    }
+                    break;
                 }
-                break;
+                if matches!(d.tile, crate::constants::TileSpec::External(_)) {
+                    idx += 1;
+                }
             }
-            if matches!(def.tile, crate::constants::TileSpec::External(_)) {
-                idx += 1;
-            }
+            found
+        };
+
+        let Some(ext_idx) = ext_idx else { continue };
+        let Some(strip_img) = extra.get(ext_idx) else { continue };
+
+        // Extract source sprites: E-W at x=0, BR corner at x=66
+        let ew_sprite = extract_sprite_32(strip_img, 0);
+        let br_sprite = extract_sprite_32(strip_img, 66);
+
+        // Overwrite base layer with clean E-W sprite (strip was stretched)
+        let kind_base = crate::constants::tileset_index(def.kind) as usize;
+        let base_offset = kind_base * layer_bytes;
+        if base_offset + layer_bytes <= data.len() {
+            data[base_offset..base_offset + layer_bytes].copy_from_slice(&ew_sprite);
         }
-        found
-    };
 
-    let total_layers = if let Some(ext_idx) = wall_ext_idx {
-        if let Some(wall_img) = extra.get(ext_idx) {
-            // Extract source sprites: sprite 0 (E-W) at x=0, sprite 2 (BR corner) at x=66
-            let ew_sprite = extract_sprite_32(wall_img, 0);
-            let br_sprite = extract_sprite_32(wall_img, 66);
+        // Generate rotated variants
+        let ns_sprite = rotate_90_cw(&ew_sprite, out_size);
+        let bl_sprite = rotate_90_cw(&br_sprite, out_size);
+        let tl_sprite = rotate_90_cw(&bl_sprite, out_size);
+        let tr_sprite = rotate_90_cw(&tl_sprite, out_size);
 
-            // Overwrite wall's base layer (External path stretched the full 98x32 strip)
-            let wall_base = crate::constants::tileset_index(BuildingKind::Wall) as usize;
-            let base_offset = wall_base * layer_bytes;
-            if base_offset + layer_bytes <= data.len() {
-                data[base_offset..base_offset + layer_bytes].copy_from_slice(&ew_sprite);
-            }
+        // Extract junction/cross at x=33, T-junction at x=99
+        let cross_sprite = extract_sprite_32(strip_img, 33);
+        let t_sprite = extract_sprite_32(strip_img, 99);
+        let t_90 = rotate_90_cw(&t_sprite, out_size);
+        let t_180 = rotate_90_cw(&t_90, out_size);
+        let t_270 = rotate_90_cw(&t_180, out_size);
 
-            // Generate rotated variants
-            let ns_sprite = rotate_90_cw(&ew_sprite, out_size); // N-S straight
-            let bl_sprite = rotate_90_cw(&br_sprite, out_size); // BL corner
-            let tl_sprite = rotate_90_cw(&bl_sprite, out_size); // TL corner (180°)
-            let tr_sprite = rotate_90_cw(&tl_sprite, out_size); // TR corner (270°)
+        // Append 10 extra layers: NS, BR, BL, TL, TR, Cross, T×4
+        data.extend_from_slice(&ns_sprite);
+        data.extend_from_slice(&br_sprite);
+        data.extend_from_slice(&bl_sprite);
+        data.extend_from_slice(&tl_sprite);
+        data.extend_from_slice(&tr_sprite);
+        data.extend_from_slice(&cross_sprite);
+        data.extend_from_slice(&t_sprite);
+        data.extend_from_slice(&t_90);
+        data.extend_from_slice(&t_180);
+        data.extend_from_slice(&t_270);
 
-            // Extract junction/cross sprite at x=33, T-junction at x=99
-            let cross_sprite = extract_sprite_32(wall_img, 33);
-            let t_sprite = extract_sprite_32(wall_img, 99);
-            let t_90 = rotate_90_cw(&t_sprite, out_size);
-            let t_180 = rotate_90_cw(&t_90, out_size);
-            let t_270 = rotate_90_cw(&t_180, out_size);
+        extra_count += crate::constants::AUTOTILE_EXTRA_PER_KIND as u32;
+    }
 
-            // Append 10 extra layers: N-S, BR, BL, TL, TR, Cross, T×4
-            data.extend_from_slice(&ns_sprite);
-            data.extend_from_slice(&br_sprite);
-            data.extend_from_slice(&bl_sprite);
-            data.extend_from_slice(&tl_sprite);
-            data.extend_from_slice(&tr_sprite);
-            data.extend_from_slice(&cross_sprite);
-            data.extend_from_slice(&t_sprite); // open N on screen
-            data.extend_from_slice(&t_90); // open W on screen
-            data.extend_from_slice(&t_180); // open S on screen
-            data.extend_from_slice(&t_270); // open E on screen
-
-            base_layers + crate::constants::WALL_EXTRA_LAYERS as u32
-        } else {
-            base_layers
-        }
-    } else {
-        base_layers
-    };
-
+    let total_layers = base_layers + extra_count;
     let mut img = Image::new(
         Extent3d {
             width: out_size,
@@ -1431,6 +1436,8 @@ pub fn build_extras_atlas(sprites: &[Image], images: &mut Assets<Image>) -> Hand
 #[derive(Clone, Debug, Default)]
 pub struct WorldCell {
     pub terrain: Biome,
+    /// Terrain before stamp_dirt overwrote it. Used to restore on fountain destruction.
+    pub original_terrain: Biome,
 }
 
 /// World-wide grid covering the entire map. Each cell has terrain + optional building.
@@ -2058,9 +2065,7 @@ fn generate_terrain(grid: &mut WorldGrid, town_positions: &[Vec2], raider_positi
                 .iter()
                 .any(|cp| world_pos.distance(*cp) < raider_clear_radius);
 
-            let biome = if near_town || near_raider {
-                Biome::Dirt
-            } else {
+            let natural = {
                 let n = noise.get([
                     world_pos.x as f64 * frequency as f64,
                     world_pos.y as f64 * frequency as f64,
@@ -2076,8 +2081,16 @@ fn generate_terrain(grid: &mut WorldGrid, town_positions: &[Vec2], raider_positi
                 }
             };
 
+            let biome = if near_town || near_raider {
+                Biome::Dirt
+            } else {
+                natural
+            };
+
             let idx = row * grid.width + col;
-            grid.cells[idx].terrain = biome;
+            let cell = &mut grid.cells[idx];
+            cell.terrain = biome;
+            cell.original_terrain = natural;
         }
     }
 }
@@ -2093,6 +2106,48 @@ pub fn stamp_dirt(grid: &mut WorldGrid, positions: &[Vec2]) {
                 .any(|p| world_pos.distance(*p) < clear_radius)
             {
                 grid.cells[row * grid.width + col].terrain = Biome::Dirt;
+            }
+        }
+    }
+}
+
+/// Remove all roads belonging to a town and restore dirt cells to original terrain.
+/// Called when a town's fountain is destroyed.
+pub fn clear_town_roads_and_dirt(
+    grid: &mut WorldGrid,
+    entity_map: &mut EntityMap,
+    slot_alloc: &mut crate::resources::GpuSlotPool,
+    town_center: Vec2,
+    town_idx: u32,
+    commands: &mut Commands,
+) {
+    // Collect road slots for this town (can't mutate while iterating)
+    let road_slots: Vec<usize> = entity_map
+        .iter_kind_for_town(BuildingKind::Road, town_idx)
+        .map(|inst| inst.slot)
+        .collect();
+
+    for slot in road_slots {
+        // Despawn ECS entity
+        if let Some(&entity) = entity_map.entities.get(&slot) {
+            commands.entity(entity).despawn();
+        }
+        // Remove from EntityMap + free GPU slot
+        entity_map.remove_by_slot(slot);
+        slot_alloc.free(slot);
+    }
+
+    // Restore dirt → original terrain within stamp_dirt radius of town center
+    let clear_radius = 6.0 * grid.cell_size;
+    for row in 0..grid.height {
+        for col in 0..grid.width {
+            let world_pos = grid.grid_to_world(col, row);
+            if world_pos.distance(town_center) < clear_radius {
+                let idx = row * grid.width + col;
+                let cell = &mut grid.cells[idx];
+                if cell.terrain == Biome::Dirt {
+                    cell.terrain = cell.original_terrain;
+                }
             }
         }
     }
@@ -2145,7 +2200,9 @@ fn generate_terrain_continents(grid: &mut WorldGrid) {
                 Biome::Forest
             };
 
-            grid.cells[row * grid.width + col].terrain = biome;
+            let cell = &mut grid.cells[row * grid.width + col];
+            cell.terrain = biome;
+            cell.original_terrain = biome;
         }
     }
 }

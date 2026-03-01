@@ -437,10 +437,12 @@ pub fn attack_system(
 pub fn process_proj_hits(
     mut damage_events: MessageWriter<DamageMsg>,
     mut proj_updates: MessageWriter<ProjGpuUpdateMsg>,
+    mut sfx_writer: MessageWriter<crate::resources::PlaySfxMsg>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     proj_writes: Res<ProjBufferWrites>,
     mut hit_state: ResMut<ProjHitState>,
     entity_map: Res<crate::resources::EntityMap>,
+    gpu_read: Res<crate::resources::GpuReadState>,
 ) {
     let max_slot = proj_alloc.next.min(hit_state.0.len());
     for (slot, hit) in hit_state.0[..max_slot].iter().enumerate() {
@@ -471,6 +473,18 @@ pub fn process_proj_hits(
                         amount: damage,
                         attacker: shooter,
                         attacker_faction,
+                    });
+                    let hit_pos = {
+                        let pi = hit_idx as usize * 2;
+                        if pi + 1 < gpu_read.positions.len() {
+                            Some(Vec2::new(gpu_read.positions[pi], gpu_read.positions[pi + 1]))
+                        } else {
+                            None
+                        }
+                    };
+                    sfx_writer.write(crate::resources::PlaySfxMsg {
+                        kind: crate::resources::SfxKind::Hit,
+                        position: hit_pos,
                     });
                 }
             }

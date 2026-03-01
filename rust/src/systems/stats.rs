@@ -871,6 +871,10 @@ pub fn process_upgrades_system(
             if old_max > 0.0 && (new_max - old_max).abs() > 0.01 {
                 if let Ok(mut hp) = health_q.get_mut(entity) {
                     hp.0 = hp.0 * new_max / old_max;
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetMaxHealth {
+                        idx: slot,
+                        max_health: new_max,
+                    }));
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth {
                         idx: slot,
                         health: hp.0,

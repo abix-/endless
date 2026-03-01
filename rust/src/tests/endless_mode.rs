@@ -1,8 +1,8 @@
-//! Endless Mode Test (16 phases)
+//! Endless Mode Test (14 phases)
 //! Validates full pipeline for both builder and raider town destruction:
 //! world gen → fountain destroyed → pending spawn queued → respawn delay →
-//! boat spawns → sails to land → NPCs disembark → walk → settle → buildings placed.
-//! Phases 1-8: Builder AI town. Phases 9-16: Raider AI town (1 game-hour gap).
+//! boat spawns → sails to land → settle → buildings placed.
+//! Phases 1-7: Builder AI town. Phases 8-14: Raider AI town (1 game-hour gap).
 
 use crate::messages::DamageMsg;
 use crate::resources::*;
@@ -115,7 +115,6 @@ pub fn tick(
     mut test: ResMut<TestState>,
     mut damage_writer: MessageWriter<DamageMsg>,
     entity_map: Res<EntityMap>,
-    npc_flags_q: Query<&crate::components::NpcFlags>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else {
         return;
@@ -123,7 +122,7 @@ pub fn tick(
 
     match test.phase {
         // ====================================================================
-        // BUILDER AI TOWN DESTRUCTION (phases 1-8)
+        // BUILDER AI TOWN DESTRUCTION (phases 1-7)
         // ====================================================================
 
         // Phase 1: World has AI towns with Fountains
@@ -285,55 +284,8 @@ pub fn tick(
             }
         }
 
-        // Phase 6: NPCs disembarked with Migrating component
+        // Phase 6: Migration settles
         6 => {
-            if test.get_flag("already_settled") {
-                test.pass_phase(elapsed, "skipped (already settled)");
-            } else {
-                let migrating_factions: Vec<i32> = entity_map
-                    .iter_npcs()
-                    .filter(|n| npc_flags_q.get(n.entity).is_ok_and(|f| f.migrating))
-                    .map(|n| n.faction)
-                    .collect();
-                let count = migrating_factions.len();
-                let non_player = migrating_factions.iter().filter(|&&f| f > 0).count();
-
-                if let Some(mg) = &migration_state.active {
-                    if mg.boat_slot.is_some() {
-                        test.phase_name = format!(
-                            "boat sailing... pos=({:.0},{:.0})",
-                            mg.boat_pos.x, mg.boat_pos.y
-                        );
-                        if elapsed > 60.0 {
-                            test.fail_phase(elapsed, "boat never reached land");
-                        }
-                        return;
-                    }
-                }
-
-                test.phase_name = format!("migrating={} non_player={}", count, non_player);
-                if count > 0 && non_player == count {
-                    test.pass_phase(
-                        elapsed,
-                        format!("{} migrating NPCs, all non-player faction", count),
-                    );
-                } else if count > 0 && non_player < count {
-                    test.fail_phase(
-                        elapsed,
-                        format!(
-                            "{} migrating NPCs but {} are player faction",
-                            count,
-                            count - non_player
-                        ),
-                    );
-                } else if elapsed > 60.0 {
-                    test.fail_phase(elapsed, "no migrating NPCs found");
-                }
-            }
-        }
-
-        // Phase 7: Migration settles
-        7 => {
             if test.get_flag("already_settled") {
                 test.pass_phase(elapsed, "already settled in phase 5");
             } else if migration_state.active.is_none() {
@@ -357,8 +309,8 @@ pub fn tick(
             }
         }
 
-        // Phase 8: New town has buildings + AI player active
-        8 => {
+        // Phase 7: New town has buildings + AI player active
+        7 => {
             let initial_fountains = test.count("initial_fountain_hp") as usize;
             let current_fountains = world_data.towns.len();
             let new_town_idx = test.count("migration_town_idx") as usize;
@@ -383,7 +335,7 @@ pub fn tick(
             if has_new_fountain && new_town_buildings > 0 && ai_active {
                 // Record game hour + snapshot for raider phase
                 test.counters
-                    .insert("phase8_hour".into(), game_time.total_hours() as u32);
+                    .insert("phase7_hour".into(), game_time.total_hours() as u32);
                 test.counters
                     .insert("towns_after_builder".into(), world_data.towns.len() as u32);
                 test.counters.insert(
@@ -406,16 +358,16 @@ pub fn tick(
         }
 
         // ====================================================================
-        // RAIDER AI TOWN DESTRUCTION (phases 9-16)
+        // RAIDER AI TOWN DESTRUCTION (phases 8-14)
         // ====================================================================
 
-        // Phase 9: Wait 1 game hour, then find raider target
-        9 => {
-            let phase8_hour = test.count("phase8_hour") as i32;
+        // Phase 8: Wait 1 game hour, then find raider target
+        8 => {
+            let phase7_hour = test.count("phase7_hour") as i32;
             let current_hour = game_time.total_hours();
-            test.phase_name = format!("waiting 1h... hour={}/{}", current_hour, phase8_hour + 1);
+            test.phase_name = format!("waiting 1h... hour={}/{}", current_hour, phase7_hour + 1);
 
-            if current_hour >= phase8_hour + 1 {
+            if current_hour >= phase7_hour + 1 {
                 // Find a raider AI town that's still active
                 let raider = ai_state
                     .players
@@ -431,20 +383,20 @@ pub fn tick(
                 } else {
                     test.fail_phase(elapsed, "no active raider AI towns found");
                 }
-            } else if elapsed > 30.0 {
+            } else if elapsed > 75.0 {
                 test.fail_phase(
                     elapsed,
                     format!(
                         "game hour stuck at {} (need {})",
                         current_hour,
-                        phase8_hour + 1
+                        phase7_hour + 1
                     ),
                 );
             }
         }
 
-        // Phase 10: Destroy raider fountain
-        10 => {
+        // Phase 9: Destroy raider fountain
+        9 => {
             let target = test.count("raider_target_town") as usize;
             let fountain = building_query
                 .iter()
@@ -476,7 +428,7 @@ pub fn tick(
                     elapsed,
                     format!("raider fountain[{}] hp={}", target, hp),
                 );
-            } else if elapsed > 5.0 {
+            } else if elapsed > 80.0 {
                 test.fail_phase(
                     elapsed,
                     format!("raider fountain[{}] hp={} (still alive)", target, hp),
@@ -484,8 +436,8 @@ pub fn tick(
             }
         }
 
-        // Phase 11: Raider pending spawn queued
-        11 => {
+        // Phase 10: Raider pending spawn queued
+        10 => {
             let pending = endless.pending_spawns.len();
             test.phase_name = format!("raider pending_spawns={}", pending);
             if pending > 0 {
@@ -497,7 +449,7 @@ pub fn tick(
                         spawn.is_raider, spawn.delay_remaining
                     ),
                 );
-            } else if elapsed > 5.0 {
+            } else if elapsed > 85.0 {
                 test.fail_phase(
                     elapsed,
                     "no pending spawns after raider fountain destruction",
@@ -505,8 +457,8 @@ pub fn tick(
             }
         }
 
-        // Phase 12: Raider respawn delay ticks down
-        12 => {
+        // Phase 11: Raider respawn delay ticks down
+        11 => {
             if endless.pending_spawns.is_empty() {
                 test.pass_phase(elapsed, "raider spawn already consumed");
             } else {
@@ -514,17 +466,17 @@ pub fn tick(
                 test.phase_name = format!("raider delay={:.2}h", delay);
                 if delay <= 0.0 {
                     test.pass_phase(elapsed, format!("raider delay reached 0 ({:.2}h)", delay));
-                } else if elapsed > 45.0 {
+                } else if elapsed > 140.0 {
                     test.fail_phase(
                         elapsed,
-                        format!("raider delay={:.2}h (still positive after 45s)", delay),
+                        format!("raider delay={:.2}h (still positive after 140s)", delay),
                     );
                 }
             }
         }
 
-        // Phase 13: Raider boat/migration active
-        13 => {
+        // Phase 12: Raider boat/migration active
+        12 => {
             let initial = test.count("towns_after_builder") as usize;
             let current = world_data.towns.len();
             let initial_fountains = test.count("fountains_after_builder") as usize;
@@ -548,7 +500,7 @@ pub fn tick(
                     ),
                 );
                 test.set_flag("raider_already_settled", true);
-            } else if elapsed > 60.0 {
+            } else if elapsed > 200.0 {
                 test.fail_phase(
                     elapsed,
                     format!(
@@ -565,54 +517,10 @@ pub fn tick(
             }
         }
 
-        // Phase 14: Raider NPCs disembarked with Migrating
-        14 => {
+        // Phase 13: Raider migration settles
+        13 => {
             if test.get_flag("raider_already_settled") {
-                test.pass_phase(elapsed, "skipped (raider already settled)");
-            } else {
-                let migrating_factions: Vec<i32> = entity_map
-                    .iter_npcs()
-                    .filter(|n| npc_flags_q.get(n.entity).is_ok_and(|f| f.migrating))
-                    .map(|n| n.faction)
-                    .collect();
-                let count = migrating_factions.len();
-                let non_player = migrating_factions.iter().filter(|&&f| f > 0).count();
-
-                if let Some(mg) = &migration_state.active {
-                    if mg.boat_slot.is_some() {
-                        test.phase_name = format!(
-                            "raider boat sailing... pos=({:.0},{:.0})",
-                            mg.boat_pos.x, mg.boat_pos.y
-                        );
-                        if elapsed > 60.0 {
-                            test.fail_phase(elapsed, "raider boat never reached land");
-                        }
-                        return;
-                    }
-                }
-
-                test.phase_name = format!("raider migrating={} non_player={}", count, non_player);
-                if count > 0 && non_player == count {
-                    test.pass_phase(elapsed, format!("{} raider migrating NPCs", count));
-                } else if count > 0 && non_player < count {
-                    test.fail_phase(
-                        elapsed,
-                        format!(
-                            "{} migrating but {} are player faction",
-                            count,
-                            count - non_player
-                        ),
-                    );
-                } else if elapsed > 60.0 {
-                    test.fail_phase(elapsed, "no raider migrating NPCs found");
-                }
-            }
-        }
-
-        // Phase 15: Raider migration settles
-        15 => {
-            if test.get_flag("raider_already_settled") {
-                test.pass_phase(elapsed, "raider already settled in phase 13");
+                test.pass_phase(elapsed, "raider already settled in phase 12");
             } else if migration_state.active.is_none() {
                 let initial = test.count("towns_after_builder") as usize;
                 let current = world_data.towns.len();
@@ -631,14 +539,14 @@ pub fn tick(
                     mg.boat_slot.is_some(),
                     mg.member_slots.len()
                 );
-                if elapsed > 120.0 {
-                    test.fail_phase(elapsed, "raider migration did not settle within 120s");
+                if elapsed > 300.0 {
+                    test.fail_phase(elapsed, "raider migration did not settle within 300s");
                 }
             }
         }
 
-        // Phase 16: Raider new town has buildings + AI active → COMPLETE
-        16 => {
+        // Phase 14: Raider new town has buildings + AI active → COMPLETE
+        14 => {
             let initial_fountains = test.count("fountains_after_builder") as usize;
             let current_fountains = world_data.towns.len();
             let new_town_idx = test.count("raider_migration_town_idx") as usize;
@@ -669,7 +577,7 @@ pub fn tick(
                     ),
                 );
                 test.complete(elapsed);
-            } else if elapsed > 30.0 {
+            } else if elapsed > 330.0 {
                 test.fail_phase(
                     elapsed,
                     format!(

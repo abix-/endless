@@ -1764,7 +1764,7 @@ fn prepare_npc_camera_bind_group(
         entity_count: config.map(|c| c.npc.count).unwrap_or(0),
         viewport: camera_state.viewport,
         bldg_layers: (crate::constants::BUILDING_REGISTRY.len()
-            + crate::constants::WALL_EXTRA_LAYERS) as f32,
+            + crate::constants::autotile_total_extra_layers()) as f32,
         extras_cols: 4.0,
         lod_zoom: camera_state.lod_zoom,
         _pad: 0,

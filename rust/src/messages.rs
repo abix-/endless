@@ -175,7 +175,9 @@ pub enum GpuUpdate {
     Hide { idx: usize },
     /// Set faction (usually at spawn only)
     SetFaction { idx: usize, faction: i32 },
-    /// Set health directly (spawn/reset)
+    /// Set max health for normalization (send before SetHealth)
+    SetMaxHealth { idx: usize, max_health: f32 },
+    /// Set health directly (spawn/reset) — stored normalized by max_health
     SetHealth { idx: usize, health: f32 },
     /// Set position directly (spawn/teleport)
     SetPosition { idx: usize, x: f32, y: f32 },

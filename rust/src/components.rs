@@ -45,10 +45,11 @@ pub enum Job {
     Fighter,
     Miner,
     Crossbow,
+    Boat,
 }
 
 impl Job {
-    /// Convert from integer (0=Farmer, 1=Archer, 2=Raider, 3=Fighter, 4=Miner, 5=Crossbow)
+    /// Convert from integer (0=Farmer, 1=Archer, 2=Raider, 3=Fighter, 4=Miner, 5=Crossbow, 6=Boat)
     pub fn from_i32(v: i32) -> Self {
         match v {
             1 => Job::Archer,
@@ -56,6 +57,7 @@ impl Job {
             3 => Job::Fighter,
             4 => Job::Miner,
             5 => Job::Crossbow,
+            6 => Job::Boat,
             _ => Job::Farmer,
         }
     }

@@ -834,7 +834,7 @@ pub fn register_tests(app: &mut App) {
         name: "endless-mode".into(),
         description: "Builder + raider fountain destroyed → spawn queued → migration → settle"
             .into(),
-        phase_count: 16,
+        phase_count: 14,
         time_scale: 1.0,
     });
     app.add_systems(

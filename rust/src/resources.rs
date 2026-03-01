@@ -2941,6 +2941,8 @@ pub struct GameAudio {
     pub play_next: Option<usize>,
     /// Playback speed multiplier (0.25-2.0, default 1.0).
     pub music_speed: f32,
+    /// SFX variant handles keyed by kind — multiple variants per kind for random selection.
+    pub sfx_handles: std::collections::HashMap<SfxKind, Vec<Handle<AudioSource>>>,
 }
 
 impl Default for GameAudio {
@@ -2953,6 +2955,7 @@ impl Default for GameAudio {
             loop_current: false,
             play_next: None,
             music_speed: 1.0,
+            sfx_handles: std::collections::HashMap::new(),
         }
     }
 }
@@ -2961,8 +2964,8 @@ impl Default for GameAudio {
 #[derive(Component)]
 pub struct MusicTrack;
 
-/// Sound effect categories (scaffold for future SFX).
-#[derive(Clone, Copy)]
+/// Sound effect categories.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SfxKind {
     ArrowShoot,
     Hit,
@@ -2972,8 +2975,11 @@ pub enum SfxKind {
     Upgrade,
 }
 
-/// Fire-and-forget SFX trigger message.
+/// Fire-and-forget SFX trigger message. Position enables spatial culling (None = always play).
 #[derive(Message, Clone)]
-pub struct PlaySfxMsg(pub SfxKind);
+pub struct PlaySfxMsg {
+    pub kind: SfxKind,
+    pub position: Option<Vec2>,
+}
 
 // Test12 relocated to src/tests/vertical_slice.rs — uses shared TestState resource.

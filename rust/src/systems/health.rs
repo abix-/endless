@@ -329,6 +329,22 @@ pub fn death_system(
                     town_name, town_idx
                 );
 
+                // Remove roads + restore dirt to natural terrain
+                crate::world::clear_town_roads_and_dirt(
+                    &mut res.grid,
+                    &mut res.entity_map,
+                    &mut res.slots,
+                    center,
+                    town_idx as u32,
+                    &mut commands,
+                );
+                res.dirty_writers
+                    .terrain
+                    .write(crate::messages::TerrainDirtyMsg);
+                res.dirty_writers
+                    .building_grid
+                    .write(crate::messages::BuildingGridDirtyMsg);
+
                 // Player fountain destroyed → trigger game over screen
                 if defender_faction == 0 {
                     ui_state.game_over = true;
@@ -545,6 +561,10 @@ pub fn death_system(
                     if old_max > 0.0 {
                         if let Ok(mut hp) = res.health_q.get_mut(k_entity) {
                             hp.0 = hp.0 * new_max / old_max;
+                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetMaxHealth {
+                                idx: k_slot,
+                                max_health: new_max,
+                            }));
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth {
                                 idx: k_slot,
                                 health: hp.0,

@@ -1087,7 +1087,7 @@ pub fn decision_system(
                             p.map(|p| p.farmer_flee_hp).unwrap_or(0.30)
                         }
                     }
-                    Job::Fighter => 0.0,
+                    Job::Fighter | Job::Boat => 0.0,
                 };
                 if flee_pct > 0.0 {
                     let should_check_threat = (frame + idx) % CHECK_INTERVAL == 0;
@@ -1828,7 +1828,7 @@ pub fn decision_system(
                     Job::Farmer => true, // dynamically find farms (same as Miner)
                     Job::Miner => true,  // miners always have work (find nearest mine dynamically)
                     Job::Archer | Job::Crossbow | Job::Fighter => has_patrol,
-                    Job::Raider => false, // squad-driven, not idle-scored
+                    Job::Raider | Job::Boat => false, // squad-driven / non-behavioral
                 };
             if can_work {
                 let hp_pct = health / max_hp;
@@ -2106,6 +2106,7 @@ pub fn decision_system(
                                 );
                             }
                         }
+                        Job::Boat => {} // CPU-driven movement, no behavior
                     }
                 }
                 Action::Wander => {

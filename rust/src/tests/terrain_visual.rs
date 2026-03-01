@@ -51,7 +51,8 @@ pub fn setup(
     grid.cell_size = 32.0;
     grid.cells = vec![
         WorldCell {
-            terrain: Biome::Dirt
+            terrain: Biome::Dirt,
+            original_terrain: Biome::Dirt,
         };
         GRID_COLS * GRID_ROWS
     ];

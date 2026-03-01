@@ -133,8 +133,10 @@ pub struct EntityGpuState {
     pub speeds: Vec<f32>,
     /// Faction buffer: one i32 per NPC
     pub factions: Vec<i32>,
-    /// Health buffer: one f32 per NPC
+    /// Health buffer: one f32 per NPC (normalized 0.0–1.0)
     pub healths: Vec<f32>,
+    /// Max health per slot (CPU-only, used to normalize SetHealth values)
+    pub max_healths: Vec<f32>,
     /// Arrival flags: one i32 per NPC (0 = moving, 1 = settled)
     pub arrivals: Vec<i32>,
     // --- Visual state (sprite frames + flash, updated by messages) ---
@@ -205,6 +207,7 @@ impl Default for EntityGpuState {
             speeds: vec![0.0; max],
             factions: vec![-1; max],
             healths: vec![0.0; max],
+            max_healths: vec![100.0; max],
             arrivals: vec![0; max],
             sprite_indices: vec![0.0; max * 4],
             flash_values: vec![0.0; max],
@@ -266,15 +269,22 @@ impl EntityGpuState {
                     self.faction_dirty_indices.push(*idx);
                 }
             }
+            GpuUpdate::SetMaxHealth { idx, max_health } => {
+                if *idx < self.max_healths.len() {
+                    self.max_healths[*idx] = *max_health;
+                }
+            }
             GpuUpdate::SetHealth { idx, health } => {
                 if *idx < self.healths.len() {
-                    self.healths[*idx] = *health;
+                    let max = self.max_healths.get(*idx).copied().unwrap_or(100.0).max(1.0);
+                    self.healths[*idx] = *health / max;
                     self.health_dirty_indices.push(*idx);
                 }
             }
             GpuUpdate::ApplyDamage { idx, amount } => {
                 if *idx < self.healths.len() {
-                    self.healths[*idx] = (self.healths[*idx] - amount).max(0.0);
+                    let max = self.max_healths.get(*idx).copied().unwrap_or(100.0).max(1.0);
+                    self.healths[*idx] = (self.healths[*idx] - amount / max).max(0.0);
                     self.health_dirty_indices.push(*idx);
                 }
             }

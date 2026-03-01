@@ -220,7 +220,7 @@ fn vertex_npc(in: NpcVertexInput) -> VertexOutput {
         atlas_id = vis.atlas_id;
         flash = vis.flash;
         color = vec4<f32>(vis.r, vis.g, vis.b, vis.a);
-        health = clamp(npc_healths[slot] / 100.0, 0.0, 1.0);
+        health = clamp(npc_healths[slot], 0.0, 1.0);
     } else {
         // Layers 1..6 are equipment/overlay sprites.
         let eq = npc_equip[slot * 6u + (layer - 1u)];

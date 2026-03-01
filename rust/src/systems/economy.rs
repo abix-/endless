@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use crate::components::*;
 use crate::constants::UpgradeStatKind;
 use crate::constants::{
-    ATLAS_BOAT, BOAT_SPEED, ENDLESS_RESPAWN_DELAY_HOURS, FARM_BASE_GROWTH_RATE,
+    BOAT_SPEED, ENDLESS_RESPAWN_DELAY_HOURS, FARM_BASE_GROWTH_RATE,
     FARM_TENDED_GROWTH_RATE, MIGRATION_BASE_SIZE, RAIDER_FORAGE_RATE, RAIDER_SETTLE_RADIUS,
     SPAWNER_RESPAWN_HOURS, STARVING_HP_CAP, STARVING_SPEED_MULT, TOWN_GRID_SPACING,
 };
@@ -882,7 +882,6 @@ pub fn endless_system(
     mut ai_state: ResMut<AiPlayerState>,
     mut upgrades: ResMut<TownUpgrades>,
     mut combat_log: MessageWriter<CombatLogMsg>,
-    mut tilemap_spawned: ResMut<crate::render::TilemapSpawned>,
     game_time: Res<GameTime>,
     time: Res<Time>,
     config: Res<world::WorldGenConfig>,
@@ -973,7 +972,11 @@ pub fn endless_system(
                 }
                 mg.faction = next_faction;
 
-                // Free boat slot (allocator handles GPU hide)
+                // Despawn boat entity and free GPU slot
+                if let Some(npc) = world_state.entity_map.get_npc(boat_slot) {
+                    commands.entity(npc.entity).despawn();
+                }
+                world_state.entity_map.unregister_npc(boat_slot);
                 world_state.entity_slots.free(boat_slot);
                 mg.boat_slot = None;
 
@@ -1159,7 +1162,10 @@ pub fn endless_system(
             .dirty_writers
             .building_grid
             .write(crate::messages::BuildingGridDirtyMsg);
-        tilemap_spawned.0 = false;
+        world_state
+            .dirty_writers
+            .terrain
+            .write(crate::messages::TerrainDirtyMsg);
 
         let kind_str = if is_raider {
             "raider band"
@@ -1228,38 +1234,24 @@ pub fn endless_system(
         (world_w - 50.0, rng.random_range(0.0..world_h), "east")
     };
 
-    // Allocate boat GPU slot
+    // Spawn boat as a proper NPC entity (Job::Boat = 6)
     let boat_slot = world_state.entity_slots.alloc_reset();
     if let Some(bs) = boat_slot {
-        res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition {
-            idx: bs,
+        spawn_writer.write(SpawnNpcMsg {
+            slot_idx: bs,
             x: spawn_x,
             y: spawn_y,
-        }));
-        res.gpu_updates
-            .write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
-                idx: bs,
-                col: 0.0,
-                row: 0.0,
-                atlas: ATLAS_BOAT,
-            }));
-        res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed {
-            idx: bs,
-            speed: BOAT_SPEED,
-        }));
-        res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-            idx: bs,
-            x: settle_target.x,
-            y: settle_target.y,
-        }));
-        res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth {
-            idx: bs,
-            health: 100.0,
-        }));
-        res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFaction {
-            idx: bs,
+            job: 6, // Job::Boat
             faction: 0,
-        }));
+            town_idx: -1,
+            home_x: settle_target.x,
+            home_y: settle_target.y,
+            work_x: -1.0,
+            work_y: -1.0,
+            starting_post: -1,
+            attack_type: 0,
+            uid_override: None,
+        });
     }
 
     migration_state.active = Some(MigrationGroup {

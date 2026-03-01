@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-03-01p
+
+- **boat as proper NPC entity** — boat is now spawned via `SpawnNpcMsg` with `Job::Boat` (index 6) instead of raw GPU slot writes; registered in `entity_map` so `build_visual_upload` renders it correctly; proper cleanup at disembark (entity despawn + unregister_npc + free slot); `NpcDef` gained `atlas: f32` field (0.0 for character NPCs, `ATLAS_BOAT` for boat); `materialize_npc` uses `def.atlas` instead of hardcoded `0.0`
+- **normalized GPU health buffer** — GPU health buffer now stores normalized 0.0–1.0 values instead of raw HP; `SetMaxHealth` message sets per-slot max health for normalization; `SetHealth` and `ApplyDamage` divide by `max_healths[idx]`; render shader no longer divides by 100.0; `materialize_npc` and `place_building` emit `SetMaxHealth` before `SetHealth`; upgrade and death HP-scaling paths emit `SetMaxHealth` for correct normalization after max HP changes
+- **hit SFX** — projectile impacts play random wood-impact sound variants (5 variants from kenney impact sounds); `play_sfx_system` with spatial camera culling (viewport margin check, zoom suppression at scale > 2.0), max 1 per SfxKind per frame via discriminant dedup; `load_sfx` startup system loads variant handles into `GameAudio.sfx_handles`; `PlaySfxMsg` gained `position: Option<Vec2>` field
+- **generalized auto-tile** — wall-specific auto-tile system replaced with kind-agnostic `autotile_variant`/`update_autotile_around`/`update_all_autotile` functions; `BuildingDef` gained `autotile: bool` field; Road now uses auto-tile (`TileSpec::External` sprite strip + `autotile: true`); constants renamed `WALL_*` → `AUTOTILE_*`; `autotile_col`/`autotile_order`/`autotile_total_extra_layers` helpers for atlas column computation; `build_building_atlas` loops over all autotile-enabled kinds
+- **town destruction cleanup** — fountain death now removes all roads belonging to the town and restores dirt cells to original terrain via `clear_town_roads_and_dirt`; `WorldCell` gained `original_terrain: Biome` field (natural terrain before `stamp_dirt`); saved/loaded with backward compat (old saves fallback to current terrain)
+- **endless-mode test simplification** — deleted phases 6 and 14 (migrating-flag checks on transient NPC state), renumbered 16 → 14 phases; removed `disembarked` field from `MigrationGroup`; bumped raider phase timeouts for cumulative elapsed time
+- **migration settlement terrain signal** — replaced `TilemapSpawned = false` hack with proper `TerrainDirtyMsg` + `BuildingGridDirtyMsg` dirty signals on migration settlement
+
 ## 2026-03-01o
 
 - **unified place_building** — merged `place_building` (runtime), `place_building_instance` (data-only), `spawn_building_entities` (batch ECS+GPU), and `materialize_generated_world` into a single `place_building` function with optional `BuildContext` parameter; `ctx: Some(BuildContext)` enables runtime validation (cell checks, cost deduction, construction timer, wall auto-tile, dirty signals); `ctx: None` creates buildings at full HP for world-gen, save/load, migration, and tests; every code path now creates GPU slot + BuildingInstance + ECS entity + GPU updates in one call

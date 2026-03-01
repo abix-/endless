@@ -518,6 +518,8 @@ pub struct NpcDef {
     pub label: &'static str,
     pub label_plural: &'static str,
     pub sprite: (f32, f32),
+    /// Sprite atlas ID (0.0 = character atlas, ATLAS_BOAT = boat atlas, etc.)
+    pub atlas: f32,
     pub color: (f32, f32, f32, f32),
     // Base combat stats
     pub base_hp: f32,
@@ -558,6 +560,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         label: "Farmer",
         label_plural: "Farmers",
         sprite: (1.0, 6.0),
+        atlas: 0.0,
         color: (0.0, 1.0, 0.0, 1.0),
         base_hp: 60.0,
         base_damage: 0.0,
@@ -589,6 +592,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         label: "Archer",
         label_plural: "Archers",
         sprite: (0.0, 0.0),
+        atlas: 0.0,
         color: (0.0, 0.0, 1.0, 1.0),
         base_hp: 80.0,
         base_damage: 15.0,
@@ -627,6 +631,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         label: "Raider",
         label_plural: "Raiders",
         sprite: (0.0, 6.0),
+        atlas: 0.0,
         color: (1.0, 0.0, 0.0, 1.0),
         base_hp: 120.0,
         base_damage: 15.0,
@@ -665,6 +670,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         label: "Fighter",
         label_plural: "Fighters",
         sprite: (1.0, 9.0),
+        atlas: 0.0,
         color: (1.0, 1.0, 0.0, 1.0),
         base_hp: 150.0,
         base_damage: 22.5,
@@ -703,6 +709,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         label: "Miner",
         label_plural: "Miners",
         sprite: (1.0, 6.0),
+        atlas: 0.0,
         color: (0.6, 0.4, 0.2, 1.0),
         base_hp: 80.0,
         base_damage: 0.0,
@@ -734,6 +741,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         label: "Crossbow",
         label_plural: "Crossbows",
         sprite: (0.0, 0.0),
+        atlas: 0.0,
         color: (0.4, 0.0, 0.8, 1.0),
         base_hp: 70.0,
         base_damage: 25.0,
@@ -771,6 +779,34 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
                 max: 1,
             },
         ],
+    },
+    NpcDef {
+        job: Job::Boat,
+        label: "Boat",
+        label_plural: "Boats",
+        sprite: (0.0, 0.0),
+        atlas: ATLAS_BOAT,
+        color: (1.0, 1.0, 1.0, 1.0),
+        base_hp: 100.0,
+        base_damage: 0.0,
+        base_speed: BOAT_SPEED,
+        default_attack_type: BaseAttackType::Melee,
+        attack_override: None,
+        is_patrol_unit: false,
+        is_military: false,
+        has_energy: false,
+        has_attack_timer: false,
+        weapon: None,
+        helmet: None,
+        stealer: false,
+        leash_range: None,
+        ui_color: (180, 140, 80),
+        home_building: BuildingKind::Fountain,
+        is_raider_unit: false,
+        default_count: 0,
+        upgrade_category: None,
+        upgrade_stats: &[],
+        loot_drop: &[],
     },
 ];
 
@@ -1045,22 +1081,61 @@ pub const WALL_UPGRADE_COSTS: [&[(ResourceKind, i32)]; 2] = [
     &[(F, 2), (G, 1)], // wooden → stone
     &[(F, 4), (G, 2)], // stone → fortified
 ];
-/// Extra atlas layers for wall auto-tile variants (N-S, 4 corners) appended after base E-W layer.
-pub const WALL_EXTRA_LAYERS: usize = 10;
-/// Wall auto-tile atlas offsets. Appended in build_building_atlas as:
-/// 0=E-W base, 1=N-S(90°), 2=BR src(0°), 3=BL(90°), 4=TL(180°), 5=TR(270°).
-/// Bevy Y-flip inverts on screen: src BR renders as TR, etc.
-pub const WALL_EW: u16 = 0; // base layer
-pub const WALL_NS: u16 = 1; // rotate_90(E-W)
-pub const WALL_TR: u16 = 4; // TL(180°) → TR on screen
-pub const WALL_TL: u16 = 5; // TR(270°) → TL on screen
-pub const WALL_BL: u16 = 2; // BR src(0°) → BL on screen
-pub const WALL_BR: u16 = 3; // BL(90°) → BR on screen
-pub const WALL_CROSS: u16 = 6; // junction/cross sprite (4 neighbors)
-pub const WALL_T_OPEN_N: u16 = 7; // T src(0°) → open north on screen
-pub const WALL_T_OPEN_W: u16 = 8; // T(90°) → open west on screen
-pub const WALL_T_OPEN_S: u16 = 9; // T(180°) → open south on screen
-pub const WALL_T_OPEN_E: u16 = 10; // T(270°) → open east on screen
+/// Extra atlas layers per auto-tile kind (NS, 4 corners, cross, 4 T-junctions = 10).
+pub const AUTOTILE_EXTRA_PER_KIND: usize = 10;
+
+/// Auto-tile variant indices (0 = base/E-W layer at tileset_index, 1-10 = appended extras).
+pub const AUTOTILE_EW: u16 = 0;
+pub const AUTOTILE_NS: u16 = 1;
+pub const AUTOTILE_BL: u16 = 2;  // BR src(0°) → BL on screen
+pub const AUTOTILE_BR: u16 = 3;  // BL(90°) → BR on screen
+pub const AUTOTILE_TR: u16 = 4;  // TL(180°) → TR on screen
+pub const AUTOTILE_TL: u16 = 5;  // TR(270°) → TL on screen
+pub const AUTOTILE_CROSS: u16 = 6;
+pub const AUTOTILE_T_OPEN_N: u16 = 7;
+pub const AUTOTILE_T_OPEN_W: u16 = 8;
+pub const AUTOTILE_T_OPEN_S: u16 = 9;
+pub const AUTOTILE_T_OPEN_E: u16 = 10;
+
+/// Number of building kinds with autotile enabled.
+pub fn autotile_kind_count() -> usize {
+    BUILDING_REGISTRY.iter().filter(|d| d.autotile).count()
+}
+
+/// Total extra atlas layers for all auto-tiled kinds.
+pub fn autotile_total_extra_layers() -> usize {
+    autotile_kind_count() * AUTOTILE_EXTRA_PER_KIND
+}
+
+/// Get the autotile order index (0, 1, 2...) for a building kind among all autotile kinds.
+/// Returns None if the kind doesn't use autotile.
+pub fn autotile_order(kind: BuildingKind) -> Option<usize> {
+    let mut order = 0;
+    for def in BUILDING_REGISTRY {
+        if def.kind == kind {
+            return if def.autotile { Some(order) } else { None };
+        }
+        if def.autotile {
+            order += 1;
+        }
+    }
+    None
+}
+
+/// Compute the atlas column for an auto-tile variant.
+/// Variant 0 (E-W) uses the building's base tileset index.
+/// Variants 1-10 use appended extra layers.
+pub fn autotile_col(kind: BuildingKind, variant: u16) -> f32 {
+    if variant == 0 {
+        return tileset_index(kind) as f32;
+    }
+    let order = autotile_order(kind).unwrap_or(0);
+    let extra_base = BUILDING_REGISTRY.len() + order * AUTOTILE_EXTRA_PER_KIND;
+    (extra_base as u16 + variant - 1) as f32
+}
+
+// Legacy aliases for wall constants (used in save.rs wall_level sprite updates)
+pub const WALL_EXTRA_LAYERS: usize = AUTOTILE_EXTRA_PER_KIND;
 
 /// Tended growth rate for mines (per game-hour). 0.25 = 4 hours to full when miner is working.
 pub const MINE_TENDED_GROWTH_RATE: f32 = 0.25;
@@ -1187,6 +1262,8 @@ pub struct BuildingDef {
     pub is_unit_home: bool,
     /// Worksite config (None = not a worksite NPCs can occupy).
     pub worksite: Option<WorksiteDef>,
+    /// True = uses 4-neighbor auto-tiling (requires TileSpec::External sprite strip).
+    pub autotile: bool,
 }
 
 impl BuildingDef {
@@ -1228,6 +1305,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         save_key: None,
         is_unit_home: false,
         worksite: None,
+        autotile: false,
     },
     // 1: Bed
     BuildingDef {
@@ -1249,6 +1327,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         save_key: Some("beds"),
         is_unit_home: false,
         worksite: None,
+        autotile: false,
     },
     // 2: Waypoint
     BuildingDef {
@@ -1270,6 +1349,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         save_key: Some("waypoints"),
         is_unit_home: false,
         worksite: None,
+        autotile: false,
     },
     // 3: Farm
     BuildingDef {
@@ -1297,6 +1377,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
             harvest_item: ItemKind::Food,
             town_scoped: true,
         }),
+        autotile: false,
     },
     // 5: Farmer Home
     BuildingDef {
@@ -1322,6 +1403,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         save_key: Some("farmer_homes"),
         is_unit_home: true,
         worksite: None,
+        autotile: false,
     },
     // 6: Archer Home
     BuildingDef {
@@ -1347,6 +1429,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         save_key: Some("archer_homes"),
         is_unit_home: true,
         worksite: None,
+        autotile: false,
     },
     // 7: Tent (raider spawner)
     BuildingDef {
@@ -1372,6 +1455,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         save_key: Some("tents"),
         is_unit_home: true,
         worksite: None,
+        autotile: false,
     },
     // 8: Gold Mine
     BuildingDef {
@@ -1399,6 +1483,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
             harvest_item: ItemKind::Gold,
             town_scoped: false,
         }),
+        autotile: false,
     },
     // 9: Miner Home
     BuildingDef {
@@ -1424,6 +1509,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         save_key: Some("miner_homes"),
         is_unit_home: false,
         worksite: None,
+        autotile: false,
     },
     // 10: Crossbow Home
     BuildingDef {
@@ -1449,6 +1535,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         save_key: Some("crossbow_homes"),
         is_unit_home: true,
         worksite: None,
+        autotile: false,
     },
     // 11: Fighter Home
     BuildingDef {
@@ -1474,12 +1561,13 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         save_key: Some("fighter_homes"),
         is_unit_home: true,
         worksite: None,
+        autotile: false,
     },
     // 12: Road
     BuildingDef {
         kind: BuildingKind::Road,
         display: DisplayCategory::Economy,
-        tile: TileSpec::Single(8, 16),
+        tile: TileSpec::External("sprites/dirt_roads_131_32.png"),
         hp: 30.0,
         cost: 1,
         label: "Road",
@@ -1495,6 +1583,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         save_key: Some("roads"),
         is_unit_home: false,
         worksite: None,
+        autotile: true,
     },
     // 13: Wall
     BuildingDef {
@@ -1516,6 +1605,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         save_key: Some("walls"),
         is_unit_home: false,
         worksite: None,
+        autotile: true,
     },
     // 14: Tower (auto-shoots enemies)
     BuildingDef {
@@ -1537,6 +1627,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         save_key: Some("towers"),
         is_unit_home: false,
         worksite: None,
+        autotile: false,
     },
 ];
 

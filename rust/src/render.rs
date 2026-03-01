@@ -1021,7 +1021,7 @@ fn spawn_world_tilemap(
     if let Some(img) = images.get(&building_atlas) {
         assert_eq!(
             img.height(),
-            32 * (btiles.len() + crate::constants::WALL_EXTRA_LAYERS) as u32,
+            32 * (btiles.len() + crate::constants::autotile_total_extra_layers()) as u32,
             "building atlas height mismatch"
         );
     }

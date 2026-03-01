@@ -141,6 +141,8 @@ pub struct SaveData {
     pub grid_height: usize,
     pub grid_cell_size: f32,
     pub terrain: Vec<u8>, // Biome as u8
+    #[serde(default)]
+    pub original_terrain: Vec<u8>, // Biome as u8, pre-stamp_dirt terrain
     #[serde(deserialize_with = "deserialize_grid_buildings")]
     pub buildings: Vec<Option<(world::BuildingKind, u32)>>, // parallel to terrain
 
@@ -580,6 +582,11 @@ pub fn collect_save_data(
 ) -> SaveData {
     // Terrain + buildings
     let terrain: Vec<u8> = grid.cells.iter().map(|c| biome_to_u8(c.terrain)).collect();
+    let original_terrain: Vec<u8> = grid
+        .cells
+        .iter()
+        .map(|c| biome_to_u8(c.original_terrain))
+        .collect();
     let mut buildings: Vec<Option<(world::BuildingKind, u32)>> = vec![None; grid.cells.len()];
     for inst in entity_map.iter_instances() {
         let (gc, gr) = grid.world_to_grid(inst.position);
@@ -730,6 +737,7 @@ pub fn collect_save_data(
         grid_height: grid.height,
         grid_cell_size: grid.cell_size,
         terrain,
+        original_terrain,
         buildings,
         building_data,
         town_grids: town_grids_save,
@@ -891,8 +899,18 @@ pub fn apply_save(
     grid.cells = save
         .terrain
         .iter()
-        .map(|&t| WorldCell {
-            terrain: u8_to_biome(t),
+        .enumerate()
+        .map(|(i, &t)| {
+            let biome = u8_to_biome(t);
+            let orig = save
+                .original_terrain
+                .get(i)
+                .map(|&o| u8_to_biome(o))
+                .unwrap_or(biome); // old saves: copy terrain as fallback
+            WorldCell {
+                terrain: biome,
+                original_terrain: orig,
+            }
         })
         .collect();
 
@@ -1195,6 +1213,7 @@ pub fn collect_npc_data(
                 Job::Fighter => 3,
                 Job::Miner => 4,
                 Job::Crossbow => 5,
+                Job::Boat => 6,
             },
             faction: npc.faction,
             town_id: npc.town_idx,
@@ -1825,7 +1844,11 @@ pub fn restore_world_from_save(
         commands,
         gpu_updates,
     );
-    world::update_all_wall_sprites(&ws.grid, entity_map, gpu_updates);
+    for def in crate::constants::BUILDING_REGISTRY {
+        if def.autotile {
+            world::update_all_autotile(&ws.grid, entity_map, def.kind, gpu_updates);
+        }
+    }
     restore_growth_from_save(save, entity_map);
 
     // Rebuild NPCs from save payload.

@@ -135,6 +135,11 @@ Remaining:
 - [ ] `TownInventory` resource, inventory UI tab
 - [ ] `Equipment` component: weapon + armor slots, feeds into `resolve_combat_stats()`
 - [ ] Equipped items reflected in NPC equipment sprite layers
+- [ ] `BuildingKind::Merchant` — placeable building (1 per town), gold-sink gambling mechanic
+- [ ] `MerchantInventory`: rotating stock of 3-5 random `LootItem`s, refreshed every N game-hours
+- [ ] Rarity-weighted rolls: Common 60%, Uncommon 25%, Rare 12%, Epic 3% — gold cost scales with rarity tier
+- [ ] Merchant UI tab: available items with stats + cost, "Buy" button, "Reroll" button (costs gold to refresh early)
+- [ ] Purchased items go into `TownInventory` (same flow as loot pickup)
 
 **Stage 20: Pathfinding**
 

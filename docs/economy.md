@@ -276,7 +276,7 @@ migration_spawn_system (hourly check)
         │   Group size: MIGRATION_BASE_SIZE (3) + player_alive / difficulty.migration_scaling()
         │   (Easy=6, Normal=4, Hard=2), capped at 20
         ├─ pick_settle_site() selects target position (farthest from existing towns)
-        ├─ Spawn boat entity at map edge (building slot with ATLAS_BOAT sprite)
+        ├─ Spawn boat as proper NPC entity via SpawnNpcMsg (Job::Boat = 6, ATLAS_BOAT sprite)
         └─ Store MigrationGroup in MigrationState resource
            Combat log: "A raider band approaches from the {direction}!"
 
@@ -288,7 +288,8 @@ migration_attach_system (after Step::Spawn, before Step::Combat)
 migration_settle_system (every frame, early-returns if no active migration)
         │
         ▼ BOAT phase: sail boat toward settle_target at BOAT_SPEED
-        │ when boat reaches land → disembark NPCs (SpawnNpcMsg), free boat slot
+        │ when boat reaches land → disembark NPCs (SpawnNpcMsg), despawn boat entity
+        │ (entity despawn + unregister_npc + free slot)
         │
         ▼ ATTACH phase: insert Migrating component on spawned entities
         │ (bridges 1-frame gap between SpawnNpcMsg and entity creation)
@@ -306,7 +307,7 @@ migration_settle_system (every frame, early-returns if no active migration)
         ├─ stamp_dirt() around town
         ├─ Activate AiPlayer (active = true)
         ├─ Remove Migrating from members, update Home to settle_target
-        ├─ Force tilemap rebuild (TilemapSpawned = false)
+        ├─ Emit TerrainDirtyMsg + BuildingGridDirtyMsg for tilemap rebuild
         └─ Clear MigrationState.active
            Combat log: "A raider band has settled nearby!"
 
@@ -319,7 +320,7 @@ migration_settle_system (every frame, early-returns if no active migration)
         └─ Early return — wait for spawn_npc_system to process messages next frame
 ```
 
-**Movement**: Migration group spawns a boat entity (building slot with `ATLAS_BOAT` sprite) at the map edge nearest to the settle target. The boat sails toward `settle_target` at `BOAT_SPEED` (150px/s). When the boat reaches land (non-water terrain), NPCs disembark — spawned at the boat position with `Migrating` component, boat slot freed. NPCs then walk toward `settle_target` using the existing `Home` component + `Action::Wander` behavior.
+**Movement**: Migration group spawns a boat as a proper NPC entity (`Job::Boat`) via `SpawnNpcMsg` at the map edge nearest to the settle target. The boat uses `ATLAS_BOAT` sprite (set via `NpcDef.atlas` field). The boat sails toward `settle_target` at `BOAT_SPEED` (150px/s) with CPU-driven position updates. When the boat reaches land (non-water terrain), NPCs disembark — spawned at the boat position with `Migrating` component. Boat entity is properly cleaned up: ECS entity despawned, `entity_map.unregister_npc()`, GPU slot freed. NPCs then walk toward `settle_target` using the existing `Home` component + `Action::Wander` behavior.
 
 **Settlement site selection**: `pick_settle_site()` samples 100 random land positions and picks the one farthest from all existing towns — ensures new settlements spread across the map rather than clustering. The verified `settle_target` position is used for all placement (town center, buildings, dirt stamp, NPC homes, combat log) — never the NPC centroid `avg_pos` (which could be over water).
 

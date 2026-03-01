@@ -1,9 +1,10 @@
 //! Audio systems — music jukebox and SFX playback.
 
-use crate::resources::{GameAudio, MusicTrack, PlaySfxMsg};
+use crate::resources::{GameAudio, MusicTrack, PlaySfxMsg, SfxKind};
 use bevy::audio::Volume;
 use bevy::prelude::*;
 use rand::Rng;
+use std::collections::HashSet;
 
 /// All music track paths (embedded in release binary via bevy_embedded_assets).
 /// Add/remove entries here when the soundtrack changes.
@@ -133,8 +134,74 @@ pub fn stop_music(mut commands: Commands, query: Query<Entity, With<MusicTrack>>
     }
 }
 
-/// Drain SFX messages (placeholder — no .ogg files wired yet).
-pub fn play_sfx_system(mut events: MessageReader<PlaySfxMsg>) {
-    // Drain to prevent unbounded accumulation. Actual playback added when SFX assets arrive.
-    for _event in events.read() {}
+/// Load SFX variant handles at startup (alongside load_music).
+pub fn load_sfx(mut audio: ResMut<GameAudio>, server: Res<AssetServer>) {
+    audio.sfx_handles.insert(
+        SfxKind::Hit,
+        (0..=4)
+            .map(|i| {
+                server.load(format!(
+                    "sounds/sfx/kenney-impact-sounds/impactWood_light_{i:03}.ogg"
+                ))
+            })
+            .collect(),
+    );
+}
+
+/// Play SFX on message receipt — random variant, max 1 per SfxKind per frame, camera-culled.
+pub fn play_sfx_system(
+    mut commands: Commands,
+    mut events: MessageReader<PlaySfxMsg>,
+    audio: Res<GameAudio>,
+    camera_q: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
+    windows: Query<&Window>,
+) {
+    let mut played = HashSet::new();
+    let cam = camera_q.single().ok();
+    // Compute world-space camera info for spatial culling
+    let cam_info = cam.and_then(|(transform, projection)| {
+        let scale = match projection {
+            Projection::Orthographic(ortho) => ortho.scale,
+            _ => return None,
+        };
+        let win = windows.single().ok()?;
+        Some((
+            transform.translation.truncate(),
+            win.width() * scale / 2.0,
+            win.height() * scale / 2.0,
+            scale,
+        ))
+    });
+    for event in events.read() {
+        if audio.sfx_volume <= 0.0 || !played.insert(std::mem::discriminant(&event.kind)) {
+            continue;
+        }
+        // Spatial cull: skip positioned sounds when zoomed out or outside viewport
+        if event.position.is_some() {
+            if let Some((cam_pos, half_w, half_h, scale)) = cam_info {
+                // Zoomed out too far — suppress combat SFX at strategic view (zoom < 0.5)
+                if scale > 2.0 {
+                    continue;
+                }
+                if let Some(pos) = event.position {
+                    let margin = 200.0 * half_w / 960.0;
+                    if (pos.x - cam_pos.x).abs() > half_w + margin
+                        || (pos.y - cam_pos.y).abs() > half_h + margin
+                    {
+                        continue;
+                    }
+                }
+            }
+        }
+        if let Some(variants) = audio.sfx_handles.get(&event.kind) {
+            if variants.is_empty() {
+                continue;
+            }
+            let handle = &variants[rand::random_range(0..variants.len())];
+            commands.spawn((
+                AudioPlayer::new(handle.clone()),
+                PlaybackSettings::DESPAWN.with_volume(Volume::Linear(audio.sfx_volume)),
+            ));
+        }
+    }
 }

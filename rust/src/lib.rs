@@ -270,6 +270,7 @@ pub fn build_app(app: &mut App) {
         // Startup
         .add_systems(Startup, startup_system)
         .add_systems(Startup, systems::audio::load_music)
+        .add_systems(Startup, systems::audio::load_sfx)
         // Music lifecycle
         .add_systems(OnEnter(AppState::Playing), systems::audio::start_music)
         .add_systems(OnExit(AppState::Playing), systems::audio::stop_music)

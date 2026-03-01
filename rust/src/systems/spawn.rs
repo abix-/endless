@@ -33,6 +33,7 @@ fn generate_name(job: Job, slot: usize) -> String {
         Job::Fighter => "Fighter",
         Job::Miner => MINER_NOUNS[(slot / ADJECTIVES.len()) % MINER_NOUNS.len()],
         Job::Crossbow => CROSSBOW_NOUNS[(slot / ADJECTIVES.len()) % CROSSBOW_NOUNS.len()],
+        Job::Boat => "Boat",
     };
     format!("{} {}", adj, noun)
 }
@@ -202,12 +203,13 @@ pub fn materialize_npc(
         idx,
         faction: faction_id,
     }));
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetMaxHealth { idx, max_health: cached.max_health }));
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health }));
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
         idx,
         col: sprite_col,
         row: sprite_row,
-        atlas: 0.0,
+        atlas: def.atlas,
     }));
     let combat_flags = if job.is_military() { 1u32 } else { 0u32 };
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFlags {
