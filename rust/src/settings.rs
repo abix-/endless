@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use crate::resources::PolicySet;
 
-const SETTINGS_VERSION: u32 = 12;
+const SETTINGS_VERSION: u32 = 13;
 
 /// Controls which NPCs have their activity logged in `NpcLogCache`.
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug)]
@@ -608,8 +608,8 @@ pub struct UserSettings {
     pub help_text_size: f32,
     #[serde(default = "default_build_menu_text_scale")]
     pub build_menu_text_scale: f32,
-    #[serde(default)]
-    pub raider_passive_forage: bool,
+    #[serde(default = "default_raider_forage_hours")]
+    pub raider_forage_hours: f32,
     // Per-upgrade auto-buy flags (player town only)
     #[serde(default)]
     pub auto_upgrades: Vec<bool>,
@@ -705,6 +705,9 @@ fn default_window_width() -> u32 {
 fn default_window_height() -> u32 {
     1080
 }
+fn default_raider_forage_hours() -> f32 {
+    6.0
+}
 fn default_autosave_hours() -> i32 {
     12
 }
@@ -788,7 +791,7 @@ impl Default for UserSettings {
             interface_text_size: 16.0,
             help_text_size: 14.0,
             build_menu_text_scale: 1.2,
-            raider_passive_forage: false,
+            raider_forage_hours: default_raider_forage_hours(),
             auto_upgrades: Vec::new(),
             difficulty: crate::resources::Difficulty::Normal,
             autosave_hours: 12,

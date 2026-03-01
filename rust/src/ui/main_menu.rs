@@ -27,7 +27,7 @@ pub struct MenuState {
     pub ai_interval: f32,
     pub npc_interval: f32,
     pub gold_mines: f32,
-    pub raider_passive_forage: bool,
+    pub raider_forage_hours: f32,
     pub difficulty: crate::resources::Difficulty,
     pub prev_difficulty: crate::resources::Difficulty,
     pub autosave_hours: i32,
@@ -113,7 +113,7 @@ pub fn main_menu_system(
         state.ai_interval = saved.ai_interval;
         state.npc_interval = saved.npc_interval;
         state.gold_mines = saved.gold_mines_per_town as f32;
-        state.raider_passive_forage = saved.raider_passive_forage;
+        state.raider_forage_hours = saved.raider_forage_hours;
         state.difficulty = saved.difficulty;
         state.prev_difficulty = saved.difficulty;
         state.autosave_hours = saved.autosave_hours;
@@ -133,6 +133,7 @@ pub fn main_menu_system(
         state.gold_mines = preset.gold_mines as f32;
         state.endless_mode = preset.endless_mode;
         state.endless_strength = preset.endless_strength;
+        state.raider_forage_hours = preset.raider_forage_hours;
         for (&job, &count) in &preset.npc_counts {
             state.npc_counts.insert(job, count as f32);
         }
@@ -272,13 +273,15 @@ pub fn main_menu_system(
                         }
                     });
                 }
-                ui.checkbox(&mut state.raider_passive_forage, "Passive Forage")
-                    .on_hover_text("Raiders passively gather food even when not actively raiding.");
+                ui.horizontal(|ui| {
+                    ui.label("Forage:");
+                    ui.add(egui::Slider::new(&mut state.raider_forage_hours, 0.0..=24.0)
+                        .step_by(1.0)
+                        .show_value(false));
+                    let label = if state.raider_forage_hours == 0.0 { "Off".to_string() } else { format!("{}h/food", state.raider_forage_hours as i32) };
+                    ui.label(label);
+                }).response.on_hover_text("Hours for each raider town to passively forage 1 food. 0 = disabled.");
             });
-
-            ui.add_space(4.0);
-
-            ui.add_space(8.0);
 
             ui.add_space(20.0);
 
@@ -311,13 +314,13 @@ pub fn main_menu_system(
                 saved.npc_interval = state.npc_interval;
                 saved.gen_style = 1;
                 saved.gold_mines_per_town = state.gold_mines as usize;
-                saved.raider_passive_forage = state.raider_passive_forage;
+                saved.raider_forage_hours = state.raider_forage_hours;
                 saved.difficulty = state.difficulty;
                 saved.autosave_hours = state.autosave_hours;
                 saved.endless_mode = state.endless_mode;
                 saved.endless_strength = state.endless_strength;
                 settings::save_settings(&saved);
-                user_settings.raider_passive_forage = state.raider_passive_forage;
+                user_settings.raider_forage_hours = state.raider_forage_hours;
 
                 commands.insert_resource(state.difficulty);
                 commands.insert_resource(crate::resources::EndlessMode {
@@ -346,71 +349,18 @@ pub fn main_menu_system(
             if ui.button(egui::RichText::new("Settings").size(18.0)).clicked() {
                 state.show_settings = !state.show_settings;
             }
-            if ui.button(egui::RichText::new("Debug Tests").size(14.0)).clicked() {
+            if ui.button(egui::RichText::new("Debug Tests").size(18.0)).clicked() {
                 next_state.set(AppState::TestMenu);
             }
-            if ui.button(egui::RichText::new("Exit").size(14.0)).clicked() {
-                exit.write(AppExit::Success);
-            }
-
-            ui.add_space(8.0);
-
             if user_settings.tutorial_completed {
-                if ui.button(egui::RichText::new("Restart Tutorial").size(14.0)).clicked() {
+                if ui.button(egui::RichText::new("Restart Tutorial").size(18.0)).clicked() {
                     user_settings.tutorial_completed = false;
                     settings::save_settings(&user_settings);
                 }
             }
-
-            ui.add_space(20.0);
-
-            // Debug options — collapsed by default
-            egui::CollapsingHeader::new("Debug Options")
-                .default_open(false)
-                .show(ui, |ui| {
-                    // NPC total — computed from registry grouping
-                    let towns = state.towns as i32 + state.ai_towns as i32;
-                    let raiders = state.raider_towns as i32;
-                    let village_per_town: i32 = NPC_REGISTRY.iter()
-                        .filter(|d| !d.is_raider_unit)
-                        .map(|d| *state.npc_counts.get(&d.job).unwrap_or(&0.0) as i32)
-                        .sum();
-                    let raider_per_town: i32 = NPC_REGISTRY.iter()
-                        .filter(|d| d.is_raider_unit)
-                        .map(|d| *state.npc_counts.get(&d.job).unwrap_or(&0.0) as i32)
-                        .sum();
-                    let total = towns * village_per_town + raiders * raider_per_town;
-                    ui.label(format!("~{} NPCs total", total));
-
-                    ui.add_space(12.0);
-
-                    ui.horizontal(|ui| {
-                        if ui.button(egui::RichText::new("Reset Defaults").size(14.0)).clicked() {
-                            let defaults = settings::UserSettings::default();
-                            state.world_size = defaults.world_size;
-                            state.towns = defaults.towns as f32;
-                            state.farms = defaults.farms as f32;
-                        for def in NPC_REGISTRY {
-                            let key = format!("{:?}", def.job);
-                            let count = defaults.npc_counts.get(&key).copied().unwrap_or(def.default_count);
-                            state.npc_counts.insert(def.job, count as f32);
-                        }
-                            state.ai_towns = defaults.ai_towns as f32;
-                            state.raider_towns = defaults.raider_towns as f32;
-                            state.ai_interval = defaults.ai_interval;
-                            state.npc_interval = defaults.npc_interval;
-                            state.gold_mines = defaults.gold_mines_per_town as f32;
-                            state.raider_passive_forage = defaults.raider_passive_forage;
-                            state.difficulty = defaults.difficulty;
-                            state.autosave_hours = defaults.autosave_hours;
-                        state.endless_mode = defaults.endless_mode;
-                        state.endless_strength = defaults.endless_strength;
-                        strip_disabled_home_jobs(&mut state.npc_counts);
-                        clamp_player_menu_caps(&mut state);
-                        settings::save_settings(&defaults);
-                    }
-                });
-                });
+            if ui.button(egui::RichText::new("Exit").size(18.0)).clicked() {
+                exit.write(AppExit::Success);
+            }
         });
     });
 

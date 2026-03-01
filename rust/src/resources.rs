@@ -2397,6 +2397,7 @@ pub struct DifficultyPreset {
     pub npc_counts: std::collections::BTreeMap<crate::components::Job, usize>,
     pub endless_mode: bool,
     pub endless_strength: f32,
+    pub raider_forage_hours: f32,
 }
 
 /// Game difficulty — scales building costs. Selected on main menu, immutable during play.
@@ -2424,7 +2425,7 @@ impl Difficulty {
     /// World gen presets. Overrides listed explicitly; unlisted jobs reset to NPC_REGISTRY defaults.
     pub fn presets(self) -> DifficultyPreset {
         use crate::components::Job;
-        let (farms, ai_towns, raider_towns, gold_mines, endless_mode, endless_strength, overrides) =
+        let (farms, ai_towns, raider_towns, gold_mines, endless_mode, endless_strength, raider_forage_hours, overrides) =
             match self {
                 Difficulty::Easy => (
                     4,
@@ -2433,6 +2434,7 @@ impl Difficulty {
                     3,
                     true,
                     0.5,
+                    12.0,
                     vec![(Job::Farmer, 4), (Job::Archer, 8), (Job::Raider, 0)],
                 ),
                 Difficulty::Normal => (
@@ -2442,6 +2444,7 @@ impl Difficulty {
                     2,
                     true,
                     0.75,
+                    6.0,
                     vec![(Job::Farmer, 2), (Job::Archer, 4), (Job::Raider, 1)],
                 ),
                 Difficulty::Hard => (
@@ -2451,6 +2454,7 @@ impl Difficulty {
                     1,
                     true,
                     1.25,
+                    3.0,
                     vec![(Job::Farmer, 0), (Job::Archer, 2), (Job::Raider, 2)],
                 ),
             };
@@ -2470,6 +2474,7 @@ impl Difficulty {
             npc_counts,
             endless_mode,
             endless_strength,
+            raider_forage_hours,
         }
     }
 

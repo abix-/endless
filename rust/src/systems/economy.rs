@@ -159,22 +159,29 @@ pub fn growth_system(
 // RAIDER FORAGING SYSTEM
 // ============================================================================
 
-/// Raider foraging: each raider town gains RAIDER_FORAGE_RATE food per hour.
-/// Only runs when game_time.hour_ticked is true.
+/// Raider foraging: each raider town accumulates hours and gains 1 food per
+/// `raider_forage_hours` game hours. 0 = disabled. Only ticks when hour_ticked.
 pub fn raider_forage_system(
     game_time: Res<GameTime>,
     mut economy: EconomyState,
     world_data: Res<WorldData>,
     user_settings: Res<crate::settings::UserSettings>,
+    mut raider_state: ResMut<crate::resources::RaiderState>,
 ) {
-    if !game_time.hour_ticked || !user_settings.raider_passive_forage {
+    let interval = user_settings.raider_forage_hours;
+    if !game_time.hour_ticked || interval <= 0.0 {
         return;
     }
 
-    // Add foraging food to each raider town (faction > 0)
     for (town_idx, town) in world_data.towns.iter().enumerate() {
         if town.faction > 0 && town_idx < economy.food_storage.food.len() {
-            economy.food_storage.food[town_idx] += RAIDER_FORAGE_RATE;
+            if town_idx < raider_state.forage_timers.len() {
+                raider_state.forage_timers[town_idx] += 1.0;
+                if raider_state.forage_timers[town_idx] >= interval {
+                    raider_state.forage_timers[town_idx] -= interval;
+                    economy.food_storage.food[town_idx] += RAIDER_FORAGE_RATE;
+                }
+            }
         }
     }
 }

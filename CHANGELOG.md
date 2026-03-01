@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-03-01h
+
+- **raider forage hours slider** — replaced `raider_passive_forage` boolean checkbox with `raider_forage_hours` f32 slider (0=off, 1–24 hours per 1 food); difficulty presets set Easy=12h, Normal=6h, Hard=3h; `raider_forage_system` now timer-based using `RaiderState.forage_timers` accumulation instead of flat hourly rate; SETTINGS_VERSION bumped to 13
+
 ## 2026-03-01g
 
 - **default video settings** — changed default resolution from 1280x720 to 1920x1080 and default fullscreen from off to on
