@@ -18,7 +18,7 @@ Your AI rivals do the same — each with a distinct strategy
 
 ## Controls
 
-| Key               | Action                                          |
+| Default Key       | Action                                          |
 | ----------------- | ----------------------------------------------- |
 | WASD              | Move camera                                     |
 | Scroll            | Zoom                                            |
@@ -29,11 +29,14 @@ Your AI rivals do the same — each with a distinct strategy
 | Space             | Pause                                           |
 | +/-               | Time speed (`0x`, `0.25x`-`128x`)               |
 | R / U / P / T / Q | Roster / Upgrades / Policies / Patrols / Squads |
+| 1-9 / 0           | Squad 1-10 target mode                          |
 | F5                | Quicksave                                       |
 | F9                | Quickload                                       |
 | L                 | Toggle combat log                               |
 | F                 | Follow selected NPC                             |
-| ESC               | Settings                                        |
+| ESC               | Pause / Settings                                |
+
+All keyboard shortcuts are rebindable in `ESC > Settings > Controls`.
 
 ## Inspirations
 
@@ -56,4 +59,3 @@ Built with [Bevy 0.18](https://bevyengine.org/) ECS + GPU compute shaders (WGSL)
 - Engine: [Bevy 0.18](https://bevyengine.org/)
 - Sprites: [Kenney Roguelike RPG Pack](https://kenney.nl/assets/roguelike-rpg-pack)
 - Music: [Not Jam Music Pack](https://not-jam.itch.io/not-jam-music-pack)
-
