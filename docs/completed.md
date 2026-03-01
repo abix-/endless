@@ -441,6 +441,11 @@ Completed items moved from roadmap for readability.
 - [x] NPC rename in Bevy UI (inspector/roster edit of `NpcMetaCache.name`)
 - [x] Persist auto-upgrade checkbox state in `UserSettings` (settings v2 `auto_upgrades`)
 
+### Roadmap Migration (Stage 14, Backlog)
+- [x] Stage 14: building construction time — 10s build period at 1x speed (scales with `time_scale`), `under_construction: f32` on `BuildingInstance`, `construction_tick_system` counts down, spawner dormant during construction, growth system skips, sprite clip reveal via shader health < 1.0, world-gen buildings instant, save/load persists state
+- [x] Stage 14: loss condition — fountain destruction triggers `UiState.game_over` with dimmed overlay, session stats (days, NPCs, kills, food, gold), Play Again / Keep Watching / Exit to Main Menu
+- [x] Backlog UI: left panel persistence — `left_panel_tab` + `collapsed_sections` in `UserSettings`, `TRACKED_SECTIONS` list, snapshot/restore helpers, tab string converters
+
 ### Intentional Removals
 - [x] Sprite atlas browser tool — intentional removal (Godot dev tool, not needed in Bevy)
 - [x] World-space town labels — intentional removal (Godot scenes, not ported)

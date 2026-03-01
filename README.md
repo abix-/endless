@@ -12,9 +12,9 @@ Your AI rivals do the same — each with a distinct strategy
 
 ## Download
 
-- **Windows:** [endless-windows-v0.1.4.zip](https://github.com/abix-/endless/releases/download/v0.1.4/endless-windows-v0.1.4.zip) — extract, run `endless.exe`
-- **macOS:** [endless-macos-v0.1.4.zip](https://github.com/abix-/endless/releases/download/v0.1.4/endless-macos-v0.1.4.zip) — extract, run `endless`
-- **Linux:** [endless-linux-v0.1.4.zip](https://github.com/abix-/endless/releases/download/v0.1.4/endless-linux-v0.1.4.zip) — extract, run `endless`
+- **Windows:** [endless-windows-v0.1.5.zip](https://github.com/abix-/endless/releases/download/v0.1.5/endless-windows-v0.1.5.zip) — extract, run `endless.exe`
+- **macOS:** [endless-macos-v0.1.5.zip](https://github.com/abix-/endless/releases/download/v0.1.5/endless-macos-v0.1.5.zip) — extract, run `endless`
+- **Linux:** [endless-linux-v0.1.5.zip](https://github.com/abix-/endless/releases/download/v0.1.5/endless-linux-v0.1.5.zip) — extract, run `endless`
 
 ## Controls
 

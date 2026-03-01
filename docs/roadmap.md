@@ -20,6 +20,8 @@ Recent move: farmer farm-claim fairness now preserves incumbent `Working` claima
 Recent move: pause-menu settings are now a categorized two-pane layout (left category list, right detail panel) with inline descriptions and explicit Save/Reload controls.
 Recent move: interface typography now has a dedicated global `interface_text_size` setting with a larger default.
 Recent move: NPC selection overlay anchoring now prefers ECS `Position` and uses screen-stable bracket sizing to prevent zoom wobble/drift.
+Recent move: Stage 14 building construction time (10s build period, sprite clip reveal, spawner dormancy) and loss condition (game over screen on fountain destruction).
+Recent move: left panel UI state persistence (active tab + collapsed sections in UserSettings).
 
 ## Done Soon (Authority Safety)
 
@@ -37,18 +39,8 @@ Stages 1-13, 19: [x] Complete (see [completed.md](completed.md))
 
 - [ ] Raid escalation: wave size and stats increase every N game-hours
 - [ ] Differentiate job base stats (raiders hit harder, archers are tankier, farmers are fragile)
-- [ ] Loss condition: all town NPCs dead + no spawners -> game over screen
-- [ ] Building construction time: 10s at 1x game speed (scales with time_scale), building is inert during construction
-  - `ConstructionQueue` resource with `ConstructionEntry` (position, total/remaining secs, spawner_idx)
-  - `place_building()` passes `respawn_timer = -1.0` (dormant) and pushes a `ConstructionEntry`
-  - `construction_tick_system` (every frame): count down `remaining -= delta * time_scale`, on completion set spawner timer to `0.0` / unfreeze farm growth
-  - Farms: add `under_construction: bool` to `BuildingInstance`, skip in `growth_system` when true
-  - Spawner buildings (homes/tents): NPC doesn't spawn until construction completes (spawner stays dormant at `-1.0`)
-  - Guard post turrets already start disabled — no extra suppression needed
-  - Blue progress bar above building during construction via `ExtractResource` render data (same pattern as `BuildingHpRender`)
-  - Render in `npc_render.rs` prepare function as misc instances (`atlas_id: 6.0`, blue tint, `health` = progress pct)
-  - AI builds (`ai_player.rs`) use same `place_building()` path — construction delay applies to AI too
-  - Files: `constants.rs` (BUILDING_CONSTRUCT_SECS), `resources.rs` (ConstructionQueue + BuildingInstance.under_construction), `world.rs` (place_building param), `systems/economy.rs` (new system + growth_system guard), `ui/mod.rs` + `systems/ai_player.rs` (pass queue), `lib.rs` + `gpu.rs` (register + extract), `npc_render.rs` (render bars)
+- [x] Loss condition: all town NPCs dead + no spawners -> game over screen
+- [x] Building construction time: 10s at 1x game speed (scales with time_scale), building is inert during construction
 
 **Stage 15: Logistics & Flow**
 
@@ -102,8 +94,8 @@ Remaining performance items at 50k NPC + 50k buildings (sorted by criticality, t
     Expected saving: correctness only, no direct runtime reduction.
 
 Scale remediation plan (50k NPC + 50k buildings):
-- Items 1-2: GPU pipeline + decision budgeting (Critical) — next
-- Items 3-4: Entity sleeping + healing pre-filter (High)
+- Items 1-2: GPU pipeline + decision budgeting (Critical) — done
+- Items 3-4: Entity sleeping (High, next) + healing pre-filter (done)
 - Items 5-9: Cache locality + allocations + every-frame queries + anti-patterns (Medium)
 - Items 10-15: Log pressure + terrain chunks + mutex + infrastructure (Low)
 
@@ -317,7 +309,7 @@ Sound (bevy_audio) should be woven into stages as they're built - not deferred t
 - [ ] Add regression tests that enforce no behavior drift between player and AI build flows, startup and respawn flows, and both destroy entry points
 
 ### UI & UX
-- [ ] Persist left panel UI state (active tab + expanded/collapsed sections) in `UserSettings`
+- [x] Persist left panel UI state (active tab + expanded/collapsed sections) in `UserSettings`
 - [ ] Add `show_active_radius` debug toggle in Bevy UI
 - [ ] Upgrade tab town snapshot: show `farmers/archers/farms/next spawn` summary
 - [ ] Combat log window sizing: allow resize + persist width/height in `UserSettings`
@@ -350,8 +342,8 @@ Implementation guides for upcoming stages. After delivery, spec content rolls in
 | Worksite indexing + occupancy | 30,000 | 30,000 | 60+ | [x] done |
 | Query-first + log gating + sub-profiling | 30,000 | 30,000 | 60+ | [x] done |
 | Visual upload + targets dirty tracking | 30,000 | 30,000 | 60+ | [x] done |
-| GPU iter + decision budgeting (items 1-2) | 50,000 | 50,000 | 60+ | [ ] next |
-| Entity sleeping + healing (items 3-4) | 50,000 | 50,000 | 60+ | [ ] planned |
+| GPU iter + decision budgeting (items 1-2) | 50,000 | 50,000 | 60+ | [x] done |
+| Entity sleeping + healing (items 3-4) | 50,000 | 50,000 | 60+ | healing done, sleeping planned |
 | Future (chunked tilemap) | 50,000+ | 50,000+ | 60+ | Planned |
 
 ## References
