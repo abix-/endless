@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-03-01g
+
+- **default video settings** — changed default resolution from 1280x720 to 1920x1080 and default fullscreen from off to on
+- **main menu exit button** — added Exit button to main menu; moved Debug Tests button next to it
+- **autosave in settings** — moved autosave slider from main menu Options section to shared settings panel Interface tab; pause menu syncs `autosave_hours` to `SaveLoadRequest` live
+
 ## 2026-03-01f
 
 - **endless mode always enabled** — removed endless mode checkbox and replacement strength slider from main menu; all difficulty presets now have `endless_mode: true`; save load forces `endless.enabled = true`; default settings `endless_mode` changed to `true`

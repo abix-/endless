@@ -156,6 +156,17 @@ pub fn settings_panel_ui(
                             ui.checkbox(&mut settings.background_fps, "Full FPS in Background")
                                 .on_hover_text("Keep full update/render speed when the game window is unfocused.");
                             ui.small("Disable to reduce CPU/GPU usage while tabbed out.");
+                            ui.add_space(6.0);
+
+                            ui.horizontal(|ui| {
+                                ui.label("Autosave:");
+                                ui.add(egui::Slider::new(&mut settings.autosave_hours, 0..=48)
+                                    .step_by(1.0)
+                                    .show_value(false));
+                                let label = if settings.autosave_hours == 0 { "Off".to_string() } else { format!("{}h", settings.autosave_hours) };
+                                ui.label(label);
+                            });
+                            ui.small("Auto-save interval in game hours. 0 = disabled.");
                         }
                         PauseSettingsTab::Video => {
                             const RESOLUTIONS: &[(u32, u32)] = &[
@@ -1141,9 +1152,10 @@ fn pause_menu_system(
         }
     }
     audio.sfx_volume = settings.sfx_volume;
-    // Sync think intervals to runtime configs
+    // Sync think intervals + autosave to runtime configs
     ai_config.decision_interval = settings.ai_interval;
     npc_config.interval = settings.npc_interval;
+    save_request.autosave_hours = settings.autosave_hours;
 
     Ok(())
 }

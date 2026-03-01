@@ -88,6 +88,7 @@ pub fn main_menu_system(
     mut music_sinks: Query<&mut AudioSink, With<MusicTrack>>,
     mut winit_settings: ResMut<bevy::winit::WinitSettings>,
     mut state: Local<MenuState>,
+    mut exit: MessageWriter<AppExit>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
 
@@ -279,20 +280,6 @@ pub fn main_menu_system(
 
             ui.add_space(8.0);
 
-            // ── Options ────────────────────────────
-            ui.separator();
-            ui.label(egui::RichText::new("Options").strong());
-            ui.add_space(4.0);
-
-            ui.horizontal(|ui| {
-                ui.label("Autosave:").on_hover_text("Auto-save interval in game hours. 0 = disabled.");
-                ui.add(egui::Slider::new(&mut state.autosave_hours, 0..=48)
-                    .step_by(1.0)
-                    .show_value(false));
-                let label = if state.autosave_hours == 0 { "Off".to_string() } else { format!("{}h", state.autosave_hours) };
-                ui.label(label);
-            });
-
             ui.add_space(20.0);
 
             // Play button
@@ -359,6 +346,12 @@ pub fn main_menu_system(
             if ui.button(egui::RichText::new("Settings").size(18.0)).clicked() {
                 state.show_settings = !state.show_settings;
             }
+            if ui.button(egui::RichText::new("Debug Tests").size(14.0)).clicked() {
+                next_state.set(AppState::TestMenu);
+            }
+            if ui.button(egui::RichText::new("Exit").size(14.0)).clicked() {
+                exit.write(AppExit::Success);
+            }
 
             ui.add_space(8.0);
 
@@ -392,10 +385,6 @@ pub fn main_menu_system(
                     ui.add_space(12.0);
 
                     ui.horizontal(|ui| {
-                        if ui.button(egui::RichText::new("Debug Tests").size(14.0)).clicked() {
-                            next_state.set(AppState::TestMenu);
-                        }
-
                         if ui.button(egui::RichText::new("Reset Defaults").size(14.0)).clicked() {
                             let defaults = settings::UserSettings::default();
                             state.world_size = defaults.world_size;

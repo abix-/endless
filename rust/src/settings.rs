@@ -700,10 +700,10 @@ fn default_build_menu_text_scale() -> f32 {
     1.2
 }
 fn default_window_width() -> u32 {
-    1280
+    1920
 }
 fn default_window_height() -> u32 {
-    720
+    1080
 }
 fn default_autosave_hours() -> i32 {
     12
@@ -766,7 +766,7 @@ impl Default for UserSettings {
             window_height: default_window_height(),
             window_maximized: true,
             vsync: true,
-            fullscreen: false,
+            fullscreen: true,
             background_fps: false,
             debug_coordinates: false,
             debug_all_npcs: false,
