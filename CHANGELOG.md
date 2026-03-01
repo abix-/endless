@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-03-01i
+
+- **build menu category tabs** — added Economy/Military tabs to build bar using `DisplayCategory` from `BUILDING_REGISTRY`; `BuildMenuContext` gained `build_tab` field; tab switch clears selection if selected building belongs to other category; Economy shows Farm/Farmer Home/Miner Home/Road, Military shows Waypoint/Archer Home/Crossbow Home/Fighter Home/Wall
+- **hard difficulty 20 towns** — increased Hard preset from 10 to 20 AI builder and raider towns
+- **ai builder tooltip fix** — changed "friendly" to "rival" in AI Builder Towns tooltip
+
 ## 2026-03-01h
 
 - **raider forage hours slider** — replaced `raider_passive_forage` boolean checkbox with `raider_forage_hours` f32 slider (0=off, 1–24 hours per 1 food); difficulty presets set Easy=12h, Normal=6h, Hard=3h; `raider_forage_system` now timer-based using `RaiderState.forage_timers` accumulation instead of flat hourly rate; SETTINGS_VERSION bumped to 13

@@ -780,7 +780,7 @@ impl Default for UserSettings {
             debug_profiler: false,
             debug_ai_decisions: false,
             show_terrain_sprites: true,
-            show_all_faction_squad_lines: false,
+            show_all_faction_squad_lines: true,
             policy: PolicySet::default(),
             ai_towns: 5,
             raider_towns: 5,

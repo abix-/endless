@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiTextureHandle, egui};
 use std::collections::HashMap;
 
-use crate::constants::{BUILDING_REGISTRY, TileSpec};
+use crate::constants::{BUILDING_REGISTRY, DisplayCategory, TileSpec};
 use crate::render::SpriteAssets;
 use crate::resources::*;
 use crate::settings::UserSettings;
@@ -239,13 +239,31 @@ pub(crate) fn build_menu_system(
         .frame(frame)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
+                for &cat in &[DisplayCategory::Economy, DisplayCategory::Military] {
+                    let label = match cat {
+                        DisplayCategory::Economy => "Economy",
+                        DisplayCategory::Military => "Military",
+                        _ => unreachable!(),
+                    };
+                    if ui.selectable_label(build_ctx.build_tab == cat, label).clicked() {
+                        build_ctx.build_tab = cat;
+                        if let Some(kind) = build_ctx.selected_build {
+                            if crate::constants::building_def(kind).display != cat {
+                                build_ctx.selected_build = None;
+                                build_ctx.clear_drag();
+                            }
+                        }
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
                 for def in BUILDING_REGISTRY {
                     let show = if is_raider {
                         def.raider_buildable
                     } else {
                         def.player_buildable
                     };
-                    if !show {
+                    if !show || def.display != build_ctx.build_tab {
                         continue;
                     }
 

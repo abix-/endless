@@ -2070,6 +2070,8 @@ pub struct BuildMenuContext {
     pub show_cursor_hint: bool,
     /// Bevy image handles for ghost preview sprites (populated by build_menu init).
     pub ghost_sprites: std::collections::HashMap<crate::world::BuildingKind, Handle<Image>>,
+    /// Active build menu category tab.
+    pub build_tab: crate::constants::DisplayCategory,
 }
 
 impl Default for BuildMenuContext {
@@ -2083,6 +2085,7 @@ impl Default for BuildMenuContext {
             drag_current_slot: None,
             show_cursor_hint: true,
             ghost_sprites: std::collections::HashMap::new(),
+            build_tab: crate::constants::DisplayCategory::Economy,
         }
     }
 }
