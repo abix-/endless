@@ -183,7 +183,7 @@ pub fn death_system(
     mut res: DeathResources,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut combat_log: MessageWriter<CombatLogMsg>,
-    game_time: Res<GameTime>,
+    mut game_time: ResMut<GameTime>,
     mut npc_meta: ResMut<NpcMetaCache>,
     mut selected: ResMut<SelectedNpc>,
     squad_state: Res<SquadState>,
@@ -192,6 +192,7 @@ pub fn death_system(
     gold_storage: Res<GoldStorage>,
     config: Res<CombatConfig>,
     mut intents: ResMut<crate::resources::MovementIntents>,
+    mut ui_state: ResMut<crate::resources::UiState>,
 ) {
     // Phase 1a: Mark newly dead NPCs (immediate — processed same frame)
     let mut death_count = 0;
@@ -328,6 +329,12 @@ pub fn death_system(
                     "{} (town_idx={}) defeated — AI deactivated",
                     town_name, town_idx
                 );
+
+                // Player fountain destroyed → trigger game over screen
+                if defender_faction == 0 {
+                    ui_state.game_over = true;
+                    game_time.paused = true;
+                }
 
                 // Endless mode: queue replacement AI scaled to player strength
                 if res.endless.enabled {

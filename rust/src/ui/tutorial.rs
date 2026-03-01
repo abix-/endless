@@ -5,33 +5,44 @@ use bevy_egui::{EguiContexts, egui};
 
 use crate::render::MainCamera;
 use crate::resources::*;
-use crate::settings::{self, UserSettings};
+use crate::settings::{self, ControlAction, UserSettings};
 use crate::world::{BuildingKind, WorldData};
 
-const STEP_COUNT: u8 = 20;
+const STEP_COUNT: u8 = 24;
 
-const STEPS: [&str; STEP_COUNT as usize] = [
-    "Camera: right-drag, WASD, or screen edge. Scroll = zoom",
-    "B = build menu",
-    "Build a Farm",
-    "Build a Farmer Home - spawns 1 farmer who works the nearest farm",
-    "Each building = 1 NPC. NPC dies -> respawns after 12 hours\nBuilding destroyed -> NPC lives on but won't respawn",
-    "Click an NPC to select them - see their stats in the bottom panel",
-    "F = follow selected NPC. Press F again or WASD to stop",
-    "Food incoming - top bar shows your stockpile",
-    "NPCs eat 1 food when low on energy\nNo food -> starvation (half HP, half speed)",
-    "Build a Waypoint - archers patrol between them in order",
-    "Build an Archer Home - spawns 1 archer",
-    "U = upgrades - spend food and gold to buff your NPCs",
-    "Upgrades cost food and gold. Miners extract gold from mines",
-    "Expansion upgrade = +1 build range per level (starts 8x8)",
-    "Build a Miner Home - spawns 1 miner who works the nearest gold mine",
-    "P = policies - control NPC behavior (schedules, flee HP, aggression)",
-    "T = patrol order - reorder waypoints to set the archer patrol route",
-    "Q = squads - group archers into squads",
-    "1-9 = select squad + click map to send them. 0 = squad 10",
-    "R = roster, I = factions, L = combat log, H = help",
-];
+/// Build step text with the player's actual keybindings interpolated.
+fn step_text(step: u8, s: &UserSettings) -> String {
+    let k = |a: ControlAction| s.key_label_for_action(a);
+    match step {
+        1 => "Camera: right-drag, WASD, or screen edge. Scroll = zoom".into(),
+        2 => format!("{} = build menu. Use Economy/Military tabs to find buildings", k(ControlAction::ToggleBuildMenu)),
+        3 => "Build a Farm".into(),
+        4 => "Build a Farmer Home - spawns 1 farmer who works the nearest farm".into(),
+        5 => "Each building = 1 NPC. NPC dies -> respawns after 12 hours\nBuilding destroyed -> NPC lives on but won't respawn".into(),
+        6 => "Click an NPC to select them - see their stats in the bottom panel".into(),
+        7 => format!("{} = follow selected NPC. Press {} again or WASD to stop", k(ControlAction::ToggleFollow), k(ControlAction::ToggleFollow)),
+        8 => "Food incoming - top bar shows your stockpile".into(),
+        9 => "NPCs eat 1 food when low on energy\nNo food -> starvation (half HP, half speed)".into(),
+        10 => "Build a Waypoint - archers patrol between them in order".into(),
+        11 => "Build an Archer Home - spawns 1 archer".into(),
+        12 => "Build Walls around your town to block enemies\nClick a wall to upgrade its tier".into(),
+        13 => format!("{} = upgrades - spend food and gold to buff your NPCs", k(ControlAction::ToggleUpgrades)),
+        14 => "Upgrades cost food and gold. Miners extract gold from mines".into(),
+        15 => "Build Roads between buildings for a 1.5x NPC speed boost".into(),
+        16 => "Expansion upgrade = +1 build range per level (starts 8x8)".into(),
+        17 => "Build a Miner Home - spawns 1 miner who works the nearest gold mine".into(),
+        18 => format!("{} = policies - control NPC behavior (schedules, flee HP, aggression)", k(ControlAction::TogglePolicies)),
+        19 => format!("{} = patrol order - reorder waypoints to set the archer patrol route", k(ControlAction::TogglePatrols)),
+        20 => format!("{} = squads - group archers into squads", k(ControlAction::ToggleSquads)),
+        21 => "1-9 = select squad + click map to send them. 0 = squad 10".into(),
+        22 => format!("{} = quicksave, {} = quickload\nESC > Save/Load for named saves", k(ControlAction::QuickSave), k(ControlAction::QuickLoad)),
+        23 => "All keys are rebindable in ESC > Settings > Controls".into(),
+        24 => format!("{} = roster, {} = factions, {} = combat log, {} = help",
+            k(ControlAction::ToggleRoster), k(ControlAction::ToggleFactions),
+            k(ControlAction::ToggleCombatLog), k(ControlAction::ToggleHelp)),
+        _ => String::new(),
+    }
+}
 
 /// Check if the current step's completion condition is met.
 fn step_complete(
@@ -58,11 +69,11 @@ fn step_complete(
             entity_map.count_for_town(BuildingKind::FarmerHome, pt as u32)
                 > tutorial.initial_farmer_homes
         }
-        5 => false, // info-only — user clicks Next
+        5 => false,  // info-only
         6 => selected_npc.0 >= 0,
         7 => follow.0,
         8 => pt < food_storage.food.len() && food_storage.food[pt] > 0,
-        9 => false, // info-only — user clicks Next
+        9 => false,  // info-only
         10 => {
             entity_map.count_for_town(BuildingKind::Waypoint, pt as u32)
                 > tutorial.initial_waypoints
@@ -71,18 +82,22 @@ fn step_complete(
             entity_map.count_for_town(BuildingKind::ArcherHome, pt as u32)
                 > tutorial.initial_archer_homes
         }
-        12 => ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Upgrades,
-        13 => false, // info-only — user clicks Next
-        14 => false, // info-only — user clicks Next
-        15 => {
+        12 => false, // info-only (walls)
+        13 => ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Upgrades,
+        14 => false, // info-only
+        15 => false, // info-only (roads)
+        16 => false, // info-only
+        17 => {
             entity_map.count_for_town(BuildingKind::MinerHome, pt as u32)
                 > tutorial.initial_miner_homes
         }
-        16 => ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Policies,
-        17 => ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Patrols,
-        18 => ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Squads,
-        19 => false, // info-only — user clicks Next
-        20 => false, // info-only — user clicks Next
+        18 => ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Policies,
+        19 => ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Patrols,
+        20 => ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Squads,
+        21 => false, // info-only
+        22 => false, // info-only (save/load)
+        23 => false, // info-only (controls)
+        24 => false, // info-only (hotkeys)
         _ => true,
     }
 }
@@ -144,11 +159,13 @@ pub fn tutorial_ui_system(
     }
 
     // Render current step
-    let step_idx = (tutorial.step - 1) as usize;
-    if step_idx >= STEPS.len() {
+    if tutorial.step > STEP_COUNT {
         return Ok(());
     }
-    let text = STEPS[step_idx];
+    let text = step_text(tutorial.step, &settings);
+    if text.is_empty() {
+        return Ok(());
+    }
 
     let mut skip_all = false;
     let mut skip_step = false;
@@ -164,7 +181,7 @@ pub fn tutorial_ui_system(
                     ui.set_max_width(500.0);
                     ui.vertical(|ui| {
                         ui.label(
-                            egui::RichText::new(text)
+                            egui::RichText::new(&text)
                                 .size(15.0)
                                 .color(egui::Color32::from_rgb(230, 230, 210)),
                         );

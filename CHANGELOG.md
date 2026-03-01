@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-03-01j
+
+- **tutorial update** — expanded from 20 to 24 steps: added Walls, Roads, Save/Load, and Controls rebinding steps; replaced hardcoded key names with dynamic `key_label_for_action()` so tutorial text reflects player's actual keybindings; step 2 mentions build menu Economy/Military tabs
+- **game over screen** — player fountain destruction triggers `UiState.game_over` flag via `death_system`; pauses game and shows dimmed overlay with "Defeated" window displaying session stats (days survived, NPCs alive/lost, kills, food, gold); Play Again / Keep Watching / Exit to Main Menu buttons
+- **inspector cleanup** — removed DirectControl toggle button and dead `atk_type` code from NPC inspector; moved Faction/Home links above Loot/CarriedGold for better layout; mine assignment UI returns `InspectorAction` so clicking assigned mine navigates to the mine building
+- **restart tutorial moved** — moved Restart Tutorial button from main menu to Settings panel Interface tab (accessible from both pause menu and main menu settings)
+
 ## 2026-03-01i
 
 - **build menu category tabs** — added Economy/Military tabs to build bar using `DisplayCategory` from `BUILDING_REGISTRY`; `BuildMenuContext` gained `build_tab` field; tab switch clears selection if selected building belongs to other category; Economy shows Farm/Farmer Home/Miner Home/Road, Military shows Waypoint/Archer Home/Crossbow Home/Fighter Home/Wall

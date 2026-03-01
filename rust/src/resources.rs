@@ -2016,6 +2016,8 @@ pub struct UiState {
     pub inspector_prefer_npc: bool,
     /// Monotonic click counter for inspector tab auto-focus application.
     pub inspector_click_seq: u64,
+    /// True when the player's fountain has been destroyed — shows lose screen.
+    pub game_over: bool,
 }
 
 impl Default for UiState {
@@ -2031,6 +2033,7 @@ impl Default for UiState {
             factions_overlay_faction: None,
             inspector_prefer_npc: true,
             inspector_click_seq: 0,
+            game_over: false,
         }
     }
 }

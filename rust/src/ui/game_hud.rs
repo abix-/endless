@@ -1135,14 +1135,9 @@ fn inspector_content(
     }
 
     // Equipment + status from EntityMap + ECS
+    let mut squad_id: Option<i32> = None;
+    let mut carried_gold = 0;
     if let Some(npc) = bld_data.entity_map.get_npc(idx) {
-        let atk_type = bld_data
-            .cached_stats_q
-            .get(npc.entity)
-            .map(|_| ())
-            .ok()
-            .and_then(|_| None::<BaseAttackType>); // attack_type from separate query not yet in SystemParam
-        let _ = atk_type;
         let mut equip_parts: Vec<&str> = Vec::new();
         if bld_data.weapon_q.get(npc.entity).is_ok() {
             equip_parts.push("Weapon");
@@ -1168,41 +1163,12 @@ fn inspector_content(
         {
             ui.colored_label(egui::Color32::from_rgb(200, 60, 60), "Starving");
         }
-        if let Some(sq) = bld_data.squad_id_q.get(npc.entity).ok().map(|s| s.0) {
-            ui.label(format!("Squad: {}", sq));
-        }
-        let gold_val = bld_data
+        squad_id = bld_data.squad_id_q.get(npc.entity).ok().map(|s| s.0);
+        carried_gold = bld_data
             .carried_gold_q
             .get(npc.entity)
             .map(|g| g.0)
             .unwrap_or(0);
-        ui.label(format!("CarriedGold: {}", gold_val));
-    }
-    // DirectControl toggle (separate borrow scope)
-    {
-        let entity = bld_data.entity_map.get_npc(idx).map(|n| n.entity);
-        let is_dc = entity
-            .and_then(|e| bld_data.npc_flags_q.get(e).ok())
-            .is_some_and(|f| f.direct_control);
-        ui.horizontal(|ui| {
-            let label = if is_dc {
-                "Direct Control: ON"
-            } else {
-                "Direct Control: OFF"
-            };
-            let color = if is_dc {
-                egui::Color32::from_rgb(80, 220, 80)
-            } else {
-                egui::Color32::GRAY
-            };
-            if ui.button(egui::RichText::new(label).color(color)).clicked() {
-                if let Some(e) = entity {
-                    if let Ok(mut flags) = bld_data.npc_flags_q.get_mut(e) {
-                        flags.direct_control = !is_dc;
-                    }
-                }
-            }
-        });
     }
 
     // Town name
@@ -1260,6 +1226,31 @@ fn inspector_content(
         format!("State: {}", state_str),
         catalog.0.get("npc_state").unwrap_or(&""),
     );
+    let home_action = ui.horizontal(|ui| {
+        if let Some(fid) = faction_id {
+            if ui.link(format!("Faction: {}", faction_str)).clicked() {
+                ui_state.left_panel_open = true;
+                ui_state.left_panel_tab = LeftPanelTab::Factions;
+                faction_select.write(crate::messages::SelectFactionMsg(fid));
+            }
+        } else {
+            ui.label(format!("Faction: {}", faction_str));
+        }
+        if let Some(slot) = home_slot {
+            building_link(ui, &format!("Home: {}", home_str), slot)
+        } else {
+            ui.label(format!("Home: {}", home_str));
+            None
+        }
+    }).inner;
+    if let Some(action) = home_action {
+        return Some(action);
+    }
+    if let Some(sq) = squad_id {
+        ui.label(format!("Squad: {}", sq));
+    }
+
+    // Loot + gold (grouped)
     {
         let loot_str = if carried_loot.is_empty() {
             "none".to_string()
@@ -1287,26 +1278,7 @@ fn inspector_content(
         };
         ui.label(format!("Loot: {}", loot_str));
     }
-    let home_action = ui.horizontal(|ui| {
-        if let Some(fid) = faction_id {
-            if ui.link(format!("Faction: {}", faction_str)).clicked() {
-                ui_state.left_panel_open = true;
-                ui_state.left_panel_tab = LeftPanelTab::Factions;
-                faction_select.write(crate::messages::SelectFactionMsg(fid));
-            }
-        } else {
-            ui.label(format!("Faction: {}", faction_str));
-        }
-        if let Some(slot) = home_slot {
-            building_link(ui, &format!("Home: {}", home_str), slot)
-        } else {
-            ui.label(format!("Home: {}", home_str));
-            None
-        }
-    }).inner;
-    if let Some(action) = home_action {
-        return Some(action);
-    }
+    ui.label(format!("Carried Gold: {}", carried_gold));
 
     // Mine assignment for miners (same UI as MinerHome building inspector)
     if meta.job == 4 {
@@ -1318,7 +1290,7 @@ fn inspector_content(
                 .map(|i| i.slot);
             if let Some(mh_slot) = mh_slot {
                 ui.separator();
-                mine_assignment_ui(
+                if let Some(action) = mine_assignment_ui(
                     ui,
                     world_data,
                     &mut bld_data.entity_map,
@@ -1326,7 +1298,9 @@ fn inspector_content(
                     hp,
                     dirty_writers,
                     ui_state,
-                );
+                ) {
+                    return Some(action);
+                }
                 // Show mine productivity when actively mining
                 if is_mining_at_mine {
                     let mine_pos = bld_data
@@ -1353,12 +1327,38 @@ fn inspector_content(
         }
     }
 
-    // Follow toggle
+    // Controls: Follow + Direct Control (near bottom)
+    ui.separator();
     ui.horizontal(|ui| {
         if ui.selectable_label(follow.0, "Follow (F)").clicked() {
             follow.0 = !follow.0;
         }
     });
+    {
+        let entity = bld_data.entity_map.get_npc(idx).map(|n| n.entity);
+        let is_dc = entity
+            .and_then(|e| bld_data.npc_flags_q.get(e).ok())
+            .is_some_and(|f| f.direct_control);
+        ui.horizontal(|ui| {
+            let label = if is_dc {
+                "Direct Control: ON"
+            } else {
+                "Direct Control: OFF"
+            };
+            let color = if is_dc {
+                egui::Color32::from_rgb(80, 220, 80)
+            } else {
+                egui::Color32::GRAY
+            };
+            if ui.button(egui::RichText::new(label).color(color)).clicked() {
+                if let Some(e) = entity {
+                    if let Ok(mut flags) = bld_data.npc_flags_q.get_mut(e) {
+                        flags.direct_control = !is_dc;
+                    }
+                }
+            }
+        });
+    }
 
     // Debug: coordinates, copy button
     if settings.debug_coordinates {
@@ -1776,24 +1776,24 @@ fn mine_assignment_ui(
     ref_pos: Vec2,
     dirty_writers: &mut crate::messages::DirtyWriters,
     ui_state: &mut UiState,
-) {
+) -> Option<InspectorAction> {
     let (assigned, manual) = entity_map
         .get_instance(mh_slot)
         .map(|inst| (inst.assigned_mine, inst.manual_mine))
         .unwrap_or((None, false));
+    let mut action = None;
     if let Some(mine_pos) = assigned {
         let dist = mine_pos.distance(ref_pos);
-        if let Some(mine_idx) = entity_map.gold_mine_index(mine_pos) {
-            ui.label(format!(
-                "Mine: {} - {:.0}px",
-                crate::ui::gold_mine_name(mine_idx),
-                dist
-            ));
+        let mine_slot = entity_map.slot_at_position(mine_pos);
+        let label = if let Some(mine_idx) = entity_map.gold_mine_index(mine_pos) {
+            format!("Mine: {} - {:.0}px", crate::ui::gold_mine_name(mine_idx), dist)
         } else {
-            ui.label(format!(
-                "Mine: ({:.0}, {:.0}) - {:.0}px",
-                mine_pos.x, mine_pos.y, dist
-            ));
+            format!("Mine: ({:.0}, {:.0}) - {:.0}px", mine_pos.x, mine_pos.y, dist)
+        };
+        if let Some(slot) = mine_slot {
+            action = building_link(ui, &label, slot);
+        } else {
+            ui.label(label);
         }
     } else {
         ui.label("Mine: Auto (nearest)");
@@ -1821,6 +1821,7 @@ fn mine_assignment_ui(
             }
         }
     });
+    action
 }
 
 /// Render building inspector content when a building cell is selected.
@@ -2167,7 +2168,7 @@ fn building_inspector_content(
                         .filter(|i| i.kind == BuildingKind::MinerHome)
                         .map(|i| i.slot);
                     if let Some(mh_slot) = mh_slot {
-                        mine_assignment_ui(
+                        if let Some(action) = mine_assignment_ui(
                             ui,
                             world_data,
                             &mut bld.entity_map,
@@ -2175,7 +2176,9 @@ fn building_inspector_content(
                             world_pos,
                             dirty_writers,
                             ui_state,
-                        );
+                        ) {
+                            return Some(action);
+                        }
                     }
                 }
             }

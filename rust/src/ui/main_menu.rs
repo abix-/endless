@@ -352,12 +352,6 @@ pub fn main_menu_system(
             if ui.button(egui::RichText::new("Debug Tests").size(18.0)).clicked() {
                 next_state.set(AppState::TestMenu);
             }
-            if user_settings.tutorial_completed {
-                if ui.button(egui::RichText::new("Restart Tutorial").size(18.0)).clicked() {
-                    user_settings.tutorial_completed = false;
-                    settings::save_settings(&user_settings);
-                }
-            }
             if ui.button(egui::RichText::new("Exit").size(18.0)).clicked() {
                 exit.write(AppExit::Success);
             }

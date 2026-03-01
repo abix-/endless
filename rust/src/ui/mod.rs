@@ -167,6 +167,13 @@ pub fn settings_panel_ui(
                                 ui.label(label);
                             });
                             ui.small("Auto-save interval in game hours. 0 = disabled.");
+                            ui.add_space(6.0);
+
+                            if settings.tutorial_completed {
+                                if ui.button("Restart Tutorial").clicked() {
+                                    settings.tutorial_completed = false;
+                                }
+                            }
                         }
                         PauseSettingsTab::Video => {
                             const RESOLUTIONS: &[(u32, u32)] = &[
@@ -527,6 +534,7 @@ pub fn register_ui(app: &mut App) {
             ),
             build_menu::build_menu_system,
             pause_menu_system,
+            game_over_system,
             game_hud::save_toast_system,
             tutorial::tutorial_ui_system,
         )
@@ -1014,7 +1022,7 @@ fn pause_menu_system(
     mut ai_config: ResMut<crate::systems::ai_player::AiPlayerConfig>,
     mut npc_config: ResMut<crate::resources::NpcDecisionConfig>,
 ) -> Result {
-    if !ui_state.pause_menu_open {
+    if !ui_state.pause_menu_open || ui_state.game_over {
         locals.rebinding = None;
         return Ok(());
     }
@@ -1156,6 +1164,124 @@ fn pause_menu_system(
     ai_config.decision_interval = settings.ai_interval;
     npc_config.interval = settings.npc_interval;
     save_request.autosave_hours = settings.autosave_hours;
+
+    Ok(())
+}
+
+// ============================================================================
+// GAME OVER SCREEN
+// ============================================================================
+
+fn game_over_system(
+    mut contexts: bevy_egui::EguiContexts,
+    mut ui_state: ResMut<UiState>,
+    mut game_time: ResMut<GameTime>,
+    mut next_state: ResMut<NextState<AppState>>,
+    faction_stats: Res<FactionStats>,
+    kill_stats: Res<crate::resources::KillStats>,
+    food_storage: Res<FoodStorage>,
+    gold_storage: Res<GoldStorage>,
+    world_data: Res<crate::world::WorldData>,
+) -> Result {
+    if !ui_state.game_over {
+        return Ok(());
+    }
+
+    let ctx = contexts.ctx_mut()?;
+
+    // Dimmed background
+    let screen = ctx.content_rect();
+    egui::Area::new(egui::Id::new("game_over_dim"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(screen.min)
+        .show(ctx, |ui| {
+            let (response, painter) = ui.allocate_painter(screen.size(), egui::Sense::hover());
+            painter.rect_filled(response.rect, 0.0, egui::Color32::from_black_alpha(180));
+        });
+
+    // Centered window
+    egui::Window::new("Defeated")
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .min_width(400.0)
+        .show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(8.0);
+                ui.label(egui::RichText::new("Your kingdom has fallen!").size(22.0).color(egui::Color32::from_rgb(220, 60, 60)));
+                ui.add_space(12.0);
+            });
+
+            // Statistics
+            ui.separator();
+            ui.add_space(4.0);
+
+            let player_town = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
+            let days_survived = game_time.day();
+            let (alive, dead, kills) = faction_stats
+                .stats
+                .first()
+                .map(|s| (s.alive, s.dead, s.kills))
+                .unwrap_or((0, 0, 0));
+            let food = food_storage.food.get(player_town).copied().unwrap_or(0);
+            let gold = gold_storage.gold.get(player_town).copied().unwrap_or(0);
+
+            egui::Grid::new("game_over_stats").num_columns(2).spacing([20.0, 4.0]).show(ui, |ui| {
+                ui.label("Survived:");
+                ui.label(format!("{} days", days_survived));
+                ui.end_row();
+
+                ui.label("NPCs alive:");
+                ui.label(format!("{}", alive));
+                ui.end_row();
+
+                ui.label("NPCs lost:");
+                ui.label(format!("{}", dead));
+                ui.end_row();
+
+                ui.label("Kills:");
+                ui.label(format!("{}", kills));
+                ui.end_row();
+
+                ui.label("Raiders killed:");
+                ui.label(format!("{}", kill_stats.archer_kills));
+                ui.end_row();
+
+                ui.label("Villagers lost:");
+                ui.label(format!("{}", kill_stats.villager_kills));
+                ui.end_row();
+
+                ui.label("Food:");
+                ui.label(format!("{}", food));
+                ui.end_row();
+
+                ui.label("Gold:");
+                ui.label(format!("{}", gold));
+                ui.end_row();
+            });
+
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(8.0);
+
+            ui.vertical_centered(|ui| {
+                if ui.button(egui::RichText::new("  Play Again  ").size(16.0)).clicked() {
+                    ui_state.game_over = false;
+                    next_state.set(AppState::Playing);
+                }
+                ui.add_space(4.0);
+                if ui.button(egui::RichText::new("  Keep Watching  ").size(16.0)).clicked() {
+                    ui_state.game_over = false;
+                    game_time.paused = false;
+                }
+                ui.add_space(4.0);
+                if ui.button(egui::RichText::new("  Exit to Main Menu  ").size(16.0)).clicked() {
+                    ui_state.game_over = false;
+                    next_state.set(AppState::MainMenu);
+                }
+                ui.add_space(8.0);
+            });
+        });
 
     Ok(())
 }
