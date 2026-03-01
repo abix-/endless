@@ -1192,7 +1192,7 @@ fn game_over_system(
     // Dimmed background
     let screen = ctx.content_rect();
     egui::Area::new(egui::Id::new("game_over_dim"))
-        .order(egui::Order::Foreground)
+        .order(egui::Order::Background)
         .fixed_pos(screen.min)
         .show(ctx, |ui| {
             let (response, painter) = ui.allocate_painter(screen.size(), egui::Sense::hover());
@@ -1200,20 +1200,12 @@ fn game_over_system(
         });
 
     // Centered window
-    egui::Window::new("Defeated")
+    egui::Window::new("Game Over")
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .min_width(400.0)
         .show(ctx, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.add_space(8.0);
-                ui.label(egui::RichText::new("Your kingdom has fallen!").size(22.0).color(egui::Color32::from_rgb(220, 60, 60)));
-                ui.add_space(12.0);
-            });
-
-            // Statistics
-            ui.separator();
             ui.add_space(4.0);
 
             let player_town = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
