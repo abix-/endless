@@ -23,6 +23,7 @@ fn fire_projectile(
     shooter: i32,
     proj_alloc: &mut ProjSlotAllocator,
     proj_updates: &mut MessageWriter<ProjGpuUpdateMsg>,
+    sfx_writer: &mut MessageWriter<crate::resources::PlaySfxMsg>,
 ) -> bool {
     let delta = target_pos - src;
     let dist = delta.length();
@@ -42,6 +43,10 @@ fn fire_projectile(
             shooter,
             lifetime,
         }));
+        sfx_writer.write(crate::resources::PlaySfxMsg {
+            kind: crate::resources::SfxKind::ArrowShoot,
+            position: Some(src),
+        });
         return true;
     }
     false
@@ -88,6 +93,7 @@ pub fn attack_system(
     mut intents: ResMut<MovementIntents>,
     mut proj_updates: MessageWriter<ProjGpuUpdateMsg>,
     mut damage_events: MessageWriter<DamageMsg>,
+    mut sfx_writer: MessageWriter<crate::resources::PlaySfxMsg>,
     mut debug: ResMut<CombatDebug>,
     gpu_state: Res<GpuReadState>,
     npc_gpu: Res<crate::gpu::EntityGpuState>,
@@ -272,7 +278,7 @@ pub fn attack_system(
                     if !fire_projectile(
                         Vec2::new(x, y), inst_pos,
                         cached_damage, cached_proj_speed, cached_proj_lifetime,
-                        faction_id, i as i32, &mut proj_alloc, &mut proj_updates,
+                        faction_id, i as i32, &mut proj_alloc, &mut proj_updates, &mut sfx_writer,
                     ) {
                         if let Some(target_uid) = entity_map.uid_for_slot(ti) {
                             damage_events.write(DamageMsg {
@@ -379,7 +385,7 @@ pub fn attack_system(
                 if !fire_projectile(
                     Vec2::new(x, y), Vec2::new(tx, ty),
                     cached_damage, cached_proj_speed, cached_proj_lifetime,
-                    faction_id, i as i32, &mut proj_alloc, &mut proj_updates,
+                    faction_id, i as i32, &mut proj_alloc, &mut proj_updates, &mut sfx_writer,
                 ) {
                     if let Some(target_uid) = entity_map.uid_for_slot(ti) {
                         damage_events.write(DamageMsg {
@@ -437,12 +443,10 @@ pub fn attack_system(
 pub fn process_proj_hits(
     mut damage_events: MessageWriter<DamageMsg>,
     mut proj_updates: MessageWriter<ProjGpuUpdateMsg>,
-    mut sfx_writer: MessageWriter<crate::resources::PlaySfxMsg>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     proj_writes: Res<ProjBufferWrites>,
     mut hit_state: ResMut<ProjHitState>,
     entity_map: Res<crate::resources::EntityMap>,
-    gpu_read: Res<crate::resources::GpuReadState>,
 ) {
     let max_slot = proj_alloc.next.min(hit_state.0.len());
     for (slot, hit) in hit_state.0[..max_slot].iter().enumerate() {
@@ -474,18 +478,6 @@ pub fn process_proj_hits(
                         attacker: shooter,
                         attacker_faction,
                     });
-                    let hit_pos = {
-                        let pi = hit_idx as usize * 2;
-                        if pi + 1 < gpu_read.positions.len() {
-                            Some(Vec2::new(gpu_read.positions[pi], gpu_read.positions[pi + 1]))
-                        } else {
-                            None
-                        }
-                    };
-                    sfx_writer.write(crate::resources::PlaySfxMsg {
-                        kind: crate::resources::SfxKind::Hit,
-                        position: hit_pos,
-                    });
                 }
             }
 
@@ -511,6 +503,7 @@ pub fn building_tower_system(
     mut tower: ResMut<TowerState>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     mut proj_updates: MessageWriter<ProjGpuUpdateMsg>,
+    mut sfx_writer: MessageWriter<crate::resources::PlaySfxMsg>,
 ) {
     let dt = game_time.delta(&time);
     // --- Towns: sync state, refresh enabled from sprite_type == 0 (fountain) every tick ---
@@ -587,7 +580,7 @@ pub fn building_tower_system(
         if fire_projectile(
             pos, Vec2::new(tx, ty),
             stats.damage, stats.proj_speed, stats.proj_lifetime,
-            faction, bld_slot as i32, &mut proj_alloc, &mut proj_updates,
+            faction, bld_slot as i32, &mut proj_alloc, &mut proj_updates, &mut sfx_writer,
         ) {
             if i < tower.town.timers.len() {
                 tower.town.timers[i] = stats.cooldown;
@@ -637,7 +630,7 @@ pub fn building_tower_system(
         if fire_projectile(
             src, target_pos,
             TOWER_STATS.damage, TOWER_STATS.proj_speed, TOWER_STATS.proj_lifetime,
-            inst.faction, slot as i32, &mut proj_alloc, &mut proj_updates,
+            inst.faction, slot as i32, &mut proj_alloc, &mut proj_updates, &mut sfx_writer,
         ) {
             *timer = TOWER_STATS.cooldown;
         }

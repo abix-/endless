@@ -2968,7 +2968,6 @@ pub struct MusicTrack;
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SfxKind {
     ArrowShoot,
-    Hit,
     Death,
     Build,
     Click,

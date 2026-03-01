@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-03-01r
+
+- **arrow shoot SFX** — `fire_projectile` emits `PlaySfxMsg::ArrowShoot` with shooter position on successful fire; covers all 4 call sites (NPC→building, NPC→NPC, fountain tower, player tower) with zero duplication; `attack_system` and `building_tower_system` pass `sfx_writer` through
+- **removed hit SFX** — deleted `SfxKind::Hit` variant and kenney wood impact sounds; `process_proj_hits` no longer emits SFX or reads `GpuReadState`; removed `assets/sounds/sfx/kenney-impact-sounds/`
+
 ## 2026-03-01q
 
 - **boat loot_drop crash fix** — `Job::Boat` had `loot_drop: &[]` (empty), causing `% drops.len()` division by zero in `death_system` when something killed a boat; added food loot drop (1-3) so boats drop salvage when destroyed
