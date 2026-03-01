@@ -40,6 +40,7 @@ pub enum UpgradeStatKind {
     Range,
     AttackSpeed,
     MoveSpeed,
+    Stamina,
     // Special NPC stats
     Yield,
     Alert,
@@ -235,6 +236,17 @@ const MILITARY_RANGED_UPGRADES: &[UpgradeStatDef] = &[
         1,
     ),
     usd_req(
+        USK::Stamina,
+        0.10,
+        &[(F, 1)],
+        "Stamina",
+        "Stam",
+        "-10% energy drain per level",
+        EffectDisplay::CooldownReduction,
+        USK::MoveSpeed,
+        1,
+    ),
+    usd_req(
         USK::Dodge,
         0.0,
         &[(G, 20)],
@@ -314,6 +326,17 @@ const MILITARY_MELEE_UPGRADES: &[UpgradeStatDef] = &[
         1,
     ),
     usd_req(
+        USK::Stamina,
+        0.10,
+        &[(F, 1)],
+        "Stamina",
+        "Stam",
+        "-10% energy drain per level",
+        EffectDisplay::CooldownReduction,
+        USK::MoveSpeed,
+        1,
+    ),
+    usd_req(
         USK::Dodge,
         0.0,
         &[(G, 20)],
@@ -354,6 +377,17 @@ const FARMER_UPGRADES: &[UpgradeStatDef] = &[
         "+5% farmer speed per level",
         EffectDisplay::Percentage,
     ),
+    usd_req(
+        USK::Stamina,
+        0.10,
+        &[(F, 1)],
+        "Stamina",
+        "Stam",
+        "-10% energy drain per level",
+        EffectDisplay::CooldownReduction,
+        USK::MoveSpeed,
+        1,
+    ),
 ];
 
 const MINER_UPGRADES: &[UpgradeStatDef] = &[
@@ -374,6 +408,17 @@ const MINER_UPGRADES: &[UpgradeStatDef] = &[
         "MvSpd",
         "+5% miner speed per level",
         EffectDisplay::Percentage,
+    ),
+    usd_req(
+        USK::Stamina,
+        0.10,
+        &[(F, 1)],
+        "Stamina",
+        "Stam",
+        "-10% energy drain per level",
+        EffectDisplay::CooldownReduction,
+        USK::MoveSpeed,
+        1,
     ),
     usd_noncombat(
         USK::Yield,

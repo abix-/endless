@@ -820,6 +820,8 @@ fn create_ai_town(
         road_style,
         last_actions: std::collections::VecDeque::new(),
         active: false,
+        build_enabled: true,
+        upgrade_enabled: true,
         squad_indices: Vec::new(),
         squad_cmd: HashMap::new(),
     });

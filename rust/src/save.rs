@@ -295,6 +295,10 @@ pub struct AiPlayerSave {
     pub road_style: u8, // 0=None, 1=Cardinal, 2=Grid4, 3=Grid5
     #[serde(default = "default_true")]
     pub active: bool,
+    #[serde(default = "default_true")]
+    pub build_enabled: bool,
+    #[serde(default = "default_true")]
+    pub upgrade_enabled: bool,
 }
 
 fn default_road_style() -> u8 {
@@ -727,6 +731,8 @@ pub fn collect_save_data(
                     RoadStyle::Grid5 => 3,
                 },
                 active: p.active,
+                build_enabled: p.build_enabled,
+                upgrade_enabled: p.upgrade_enabled,
             }
         })
         .collect();
@@ -1050,6 +1056,8 @@ pub fn apply_save(
                 },
                 last_actions: VecDeque::new(),
                 active: p.active,
+                build_enabled: p.build_enabled,
+                upgrade_enabled: p.upgrade_enabled,
                 squad_indices: Vec::new(),
                 squad_cmd: std::collections::HashMap::new(),
             })

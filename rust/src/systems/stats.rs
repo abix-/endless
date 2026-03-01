@@ -720,6 +720,7 @@ pub fn resolve_combat_stats(
     let cooldown_mult = reg.stat_mult(&town, cat, UpgradeStatKind::AttackSpeed);
     let upgrade_proj_speed = reg.stat_mult(&town, cat, UpgradeStatKind::ProjectileSpeed);
     let upgrade_proj_life = reg.stat_mult(&town, cat, UpgradeStatKind::ProjectileLifetime);
+    let stamina_mult = reg.stat_mult(&town, cat, UpgradeStatKind::Stamina);
 
     CachedStats {
         damage: job_base.damage * upgrade_dmg * trait_damage * level_mult,
@@ -729,6 +730,7 @@ pub fn resolve_combat_stats(
         projectile_lifetime: atk_base.projectile_lifetime * upgrade_proj_life,
         max_health: job_base.max_health * upgrade_hp * trait_hp * level_mult,
         speed: job_base.speed * upgrade_speed * trait_speed,
+        stamina: stamina_mult,
     }
 }
 

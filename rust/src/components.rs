@@ -352,6 +352,7 @@ pub struct CachedStats {
     pub projectile_lifetime: f32,
     pub max_health: f32,
     pub speed: f32,
+    pub stamina: f32,
 }
 
 // ============================================================================

@@ -11,7 +11,7 @@ use crate::constants::{BUILDING_REGISTRY, DisplayCategory, FOUNTAIN_TOWER, npc_d
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
 use crate::systems::ai_player::{
-    AiPersonality, cheapest_gold_upgrade_cost, debug_food_military_desire,
+    AiPersonality, RoadStyle, cheapest_gold_upgrade_cost, debug_food_military_desire,
 };
 use crate::systems::stats::{
     CombatConfig, TownUpgrades, UPGRADES, UpgradeMsg, branch_total, format_upgrade_cost,
@@ -137,7 +137,7 @@ pub struct SquadParams<'w> {
 
 #[derive(SystemParam)]
 pub struct FactionsParams<'w, 's> {
-    ai_state: Res<'w, AiPlayerState>,
+    ai_state: ResMut<'w, AiPlayerState>,
     food_storage: Res<'w, FoodStorage>,
     gold_storage: Res<'w, GoldStorage>,
     faction_stats: Res<'w, FactionStats>,
@@ -404,6 +404,7 @@ pub fn left_panel_system(
                     &mut profiler.mining_policy,
                     &mut dirty_writers,
                     &mut jump_target,
+                    &mut factions.ai_state,
                 ),
                 LeftPanelTab::Patrols => {
                     patrol_swap =
@@ -958,6 +959,7 @@ fn policies_content(
     mining_policy: &mut MiningPolicy,
     dirty_writers: &mut crate::messages::DirtyWriters,
     jump_target: &mut Option<Vec2>,
+    ai_state: &mut AiPlayerState,
 ) {
     let town_idx = world_data
         .towns
@@ -1142,6 +1144,55 @@ fn policies_content(
                 }
                 ui.small(format!("{:.0}px, {} assigned", dist, assigned_here));
             });
+        }
+    }
+
+    // -- AI Manager --
+    ui.add_space(8.0);
+    ui.label(egui::RichText::new("AI Manager").strong());
+
+    if let Some(player) = ai_state
+        .players
+        .iter_mut()
+        .find(|p| p.town_data_idx == town_idx)
+    {
+        ui.checkbox(&mut player.active, "Enable AI Manager")
+            .on_hover_text("AI automatically builds and upgrades your town");
+
+        if player.active {
+            ui.checkbox(&mut player.build_enabled, "Auto-Build")
+                .on_hover_text("AI places buildings");
+            ui.checkbox(&mut player.upgrade_enabled, "Auto-Upgrade")
+                .on_hover_text("AI purchases upgrades");
+
+            let personalities = ["Aggressive", "Balanced", "Economic"];
+            let mut idx = player.personality as usize;
+            ui.horizontal(|ui| {
+                ui.label("Strategy:");
+                egui::ComboBox::from_id_salt("ai_personality")
+                    .selected_text(personalities[idx])
+                    .show_index(ui, &mut idx, personalities.len(), |i| personalities[i]);
+            });
+            player.personality = match idx {
+                0 => AiPersonality::Aggressive,
+                2 => AiPersonality::Economic,
+                _ => AiPersonality::Balanced,
+            };
+
+            let road_styles = ["None", "Cardinal", "Grid 4", "Grid 5"];
+            let mut rs_idx = player.road_style as usize;
+            ui.horizontal(|ui| {
+                ui.label("Roads:");
+                egui::ComboBox::from_id_salt("ai_road_style")
+                    .selected_text(road_styles[rs_idx])
+                    .show_index(ui, &mut rs_idx, road_styles.len(), |i| road_styles[i]);
+            });
+            player.road_style = match rs_idx {
+                0 => RoadStyle::None,
+                1 => RoadStyle::Cardinal,
+                3 => RoadStyle::Grid5,
+                _ => RoadStyle::Grid4,
+            };
         }
     }
 }

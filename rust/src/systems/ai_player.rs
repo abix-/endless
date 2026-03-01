@@ -504,9 +504,9 @@ impl AiPersonality {
         match kind {
             AiKind::Raider => {
                 // Raiders upgrade Archer + Fighter stats
-                let (hp, atk, rng, aspd, mspd, exp) = match self {
-                    Self::Economic => (4., 4., 0., 4., 6., 2.),
-                    _ => (4., 6., 2., 6., 4., 2.),
+                let (hp, atk, rng, aspd, mspd, stam, exp) = match self {
+                    Self::Economic => (4., 4., 0., 4., 6., 3., 2.),
+                    _ => (4., 6., 2., 6., 4., 3., 2.),
                 };
                 for cat in ["Archer", "Fighter"] {
                     set(cat, UpgradeStatKind::Hp, hp);
@@ -514,16 +514,17 @@ impl AiPersonality {
                     set(cat, UpgradeStatKind::Range, rng);
                     set(cat, UpgradeStatKind::AttackSpeed, aspd);
                     set(cat, UpgradeStatKind::MoveSpeed, mspd);
+                    set(cat, UpgradeStatKind::Stamina, stam);
                 }
                 set("Town", UpgradeStatKind::Expansion, exp);
             }
             AiKind::Builder => {
                 // Builder AI upgrades everything
                 let (aggr, bal, econ) = (
-                    // Archer/Fighter
-                    (6., 8., 4., 6., 4., 3., 3.),
-                    (5., 5., 2., 4., 3., 2., 2.),
-                    (3., 2., 1., 2., 2., 1., 1.),
+                    // Archer/Fighter: hp, atk, rng, aspd, mspd, pspd, plife, stam
+                    (6., 8., 4., 6., 4., 3., 3., 3.),
+                    (5., 5., 2., 4., 3., 2., 2., 4.),
+                    (3., 2., 1., 2., 2., 1., 1., 2.),
                 );
                 let m = match self {
                     Self::Aggressive => aggr,
@@ -538,39 +539,43 @@ impl AiPersonality {
                     set(cat, UpgradeStatKind::MoveSpeed, m.4);
                     set(cat, UpgradeStatKind::ProjectileSpeed, m.5);
                     set(cat, UpgradeStatKind::ProjectileLifetime, m.6);
+                    set(cat, UpgradeStatKind::Stamina, m.7);
                 }
 
-                // Crossbow
+                // Crossbow: hp, atk, rng, aspd, mspd, stam
                 let x = match self {
-                    Self::Aggressive => (5., 7., 3., 5., 3.),
-                    Self::Balanced => (4., 4., 2., 3., 2.),
-                    Self::Economic => (2., 2., 1., 1., 1.),
+                    Self::Aggressive => (5., 7., 3., 5., 3., 3.),
+                    Self::Balanced => (4., 4., 2., 3., 2., 3.),
+                    Self::Economic => (2., 2., 1., 1., 1., 1.),
                 };
                 set("Crossbow", UpgradeStatKind::Hp, x.0);
                 set("Crossbow", UpgradeStatKind::Attack, x.1);
                 set("Crossbow", UpgradeStatKind::Range, x.2);
                 set("Crossbow", UpgradeStatKind::AttackSpeed, x.3);
                 set("Crossbow", UpgradeStatKind::MoveSpeed, x.4);
+                set("Crossbow", UpgradeStatKind::Stamina, x.5);
 
-                // Farmer
+                // Farmer: yield, hp, mspd, stam
                 let f = match self {
-                    Self::Aggressive => (2., 1., 0.),
-                    Self::Balanced => (5., 3., 1.),
-                    Self::Economic => (8., 5., 2.),
+                    Self::Aggressive => (2., 1., 0., 1.),
+                    Self::Balanced => (5., 3., 1., 3.),
+                    Self::Economic => (8., 5., 2., 5.),
                 };
                 set("Farmer", UpgradeStatKind::Yield, f.0);
                 set("Farmer", UpgradeStatKind::Hp, f.1);
                 set("Farmer", UpgradeStatKind::MoveSpeed, f.2);
+                set("Farmer", UpgradeStatKind::Stamina, f.3);
 
-                // Miner
+                // Miner: hp, mspd, yield, stam
                 let mn = match self {
-                    Self::Aggressive => (1., 0., 1.),
-                    Self::Balanced => (3., 1., 2.),
-                    Self::Economic => (5., 2., 4.),
+                    Self::Aggressive => (1., 0., 1., 0.),
+                    Self::Balanced => (3., 1., 2., 2.),
+                    Self::Economic => (5., 2., 4., 3.),
                 };
                 set("Miner", UpgradeStatKind::Hp, mn.0);
                 set("Miner", UpgradeStatKind::MoveSpeed, mn.1);
                 set("Miner", UpgradeStatKind::Yield, mn.2);
+                set("Miner", UpgradeStatKind::Stamina, mn.3);
 
                 // Town
                 let t = match self {
@@ -776,6 +781,8 @@ pub struct AiPlayer {
     pub road_style: RoadStyle,
     pub last_actions: VecDeque<(String, i32, i32)>,
     pub active: bool,
+    pub build_enabled: bool,
+    pub upgrade_enabled: bool,
     /// Indices into SquadState.squads owned by this AI.
     pub squad_indices: Vec<usize>,
     /// Per-squad command state keyed by squad index.
@@ -1474,6 +1481,8 @@ pub fn ai_decision_system(
         let tdi = player.town_data_idx;
         let personality = player.personality;
         let road_style = player.road_style;
+        let build_enabled = player.build_enabled;
+        let upgrade_enabled = player.upgrade_enabled;
         let kind = player.kind;
         let grid_idx = player.grid_idx;
         let _ = player; // end immutable borrow — mutable access needed later
@@ -1688,9 +1697,12 @@ pub fn ai_decision_system(
             }
         }
 
+        let debug = settings.debug_ai_decisions;
+
         // ================================================================
         // Phase 1: Score and execute a BUILDING action
         // ================================================================
+        if build_enabled {
         let mut build_scores: Vec<(AiAction, f32)> = Vec::with_capacity(8);
 
         match kind {
@@ -1807,7 +1819,6 @@ pub fn ai_decision_system(
             }
         }
 
-        let debug = settings.debug_ai_decisions;
         // Retry loop: if picked action fails, remove it and re-pick from remaining.
         let mut build_succeeded = false;
         loop {
@@ -1871,9 +1882,12 @@ pub fn ai_decision_system(
             }
         }
 
+        } // build_enabled
+
         // ================================================================
         // Phase 2: Score and execute an UPGRADE action (if food/gold remain)
         // ================================================================
+        if upgrade_enabled {
         let food_after = res.food_storage.food.get(tdi).copied().unwrap_or(0);
         let gold_after = gold_storage.gold.get(tdi).copied().unwrap_or(0);
         // Gold reservation: when no empty slots, reserve gold for expansion upgrade.
@@ -2003,6 +2017,7 @@ pub fn ai_decision_system(
                 }
             }
         }
+        } // upgrade_enabled
     }
 }
 

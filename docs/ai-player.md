@@ -1,6 +1,6 @@
 # AI Player System
 
-Autonomous opponents that build, upgrade, and fight like the player. Each AI settlement gets a personality that drives all decisions through weighted random scoring — same pattern as NPC behavior.
+Autonomous opponents that build, upgrade, and fight like the player. Each AI settlement gets a personality that drives all decisions through weighted random scoring — same pattern as NPC behavior. The player's own town can also be managed by this system via the AI Manager toggle in the Policies tab.
 
 **Source**: `rust/src/systems/ai_player.rs` (decisions, building, squads), `rust/src/systems/economy.rs` (migration)
 
@@ -8,7 +8,7 @@ Autonomous opponents that build, upgrade, and fight like the player. Each AI set
 
 | Kind | Spawned By | Buildings | NPCs |
 |------|-----------|-----------|------|
-| **Builder** | World gen (AI towns) | Farms, farmer homes, archer homes, crossbow homes, fighter homes, miner homes, waypoints | Farmers, archers, crossbows, fighters, miners |
+| **Builder** | World gen (AI towns + player town via AI Manager) | Farms, farmer homes, archer homes, crossbow homes, fighter homes, miner homes, waypoints | Farmers, archers, crossbows, fighters, miners |
 | **Raider** | Migration system (dynamic raider towns) | Tents | Raiders |
 
 ## Personalities
@@ -325,3 +325,25 @@ Group size capped at 20 raiders. Random personality assigned at spawn.
 | Fighter Home | 5 |
 | Waypoint | 1 |
 | Tent | 3 |
+
+## Player AI Manager
+
+The player's town (faction 0) gets an `AiPlayer` registered at world gen with `active: false`, `AiKind::Builder`, `AiPersonality::Balanced`, `RoadStyle::Grid4`. The existing `ai_decision_system` loop checks `player.active` — toggling it on via the Policies tab enables the full AI builder for the player's town.
+
+### Controls (Policies Tab → AI Manager)
+
+| Control | Effect |
+|---------|--------|
+| **Enable AI Manager** | Toggles `player.active` — when on, the AI decision loop runs for the player's town |
+| **Auto-Build** | Gates Phase 1 (building placement). When off, only upgrades are purchased |
+| **Auto-Upgrade** | Gates Phase 2 (upgrade purchasing). When off, only buildings are placed |
+| **Strategy** | Personality picker (Aggressive/Balanced/Economic) — drives all building/upgrade/squad decisions |
+| **Roads** | Road style picker (None/Cardinal/Grid 4/Grid 5) |
+
+### Implementation
+
+- `AiPlayer` has `build_enabled` and `upgrade_enabled` fields (default `true` for all AI towns)
+- Phase 1 (building scoring + execution, line ~1703) is wrapped in `if build_enabled { }`
+- Phase 2 (upgrade scoring + execution, line ~1889) is wrapped in `if upgrade_enabled { }`
+- Both fields are persisted in `AiPlayerSave` with `#[serde(default = "default_true")]` for backward compat
+- `FactionsParams.ai_state` is `ResMut<AiPlayerState>` (upgraded from `Res`) to allow mutation from the Policies tab

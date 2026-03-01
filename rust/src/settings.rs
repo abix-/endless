@@ -715,7 +715,7 @@ fn default_music_volume() -> f32 {
     0.3
 }
 fn default_sfx_volume() -> f32 {
-    0.5
+    0.15
 }
 fn default_music_speed() -> f32 {
     1.0
@@ -796,7 +796,7 @@ impl Default for UserSettings {
             difficulty: crate::resources::Difficulty::Normal,
             autosave_hours: 12,
             music_volume: 0.3,
-            sfx_volume: 0.5,
+            sfx_volume: 0.15,
             music_speed: 1.0,
             jukebox_loop: false,
             jukebox_track: None,

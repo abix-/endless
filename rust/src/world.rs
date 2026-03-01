@@ -763,6 +763,23 @@ fn create_ai_players(
                     road_style,
                     last_actions: std::collections::VecDeque::new(),
                     active: true,
+                    build_enabled: true,
+                    upgrade_enabled: true,
+                    squad_indices: Vec::new(),
+                    squad_cmd: std::collections::HashMap::new(),
+                });
+            } else {
+                // Player town — inactive by default, controllable from Policies tab
+                players.push(AiPlayer {
+                    town_data_idx: tdi,
+                    grid_idx,
+                    kind: AiKind::Builder,
+                    personality: AiPersonality::Balanced,
+                    road_style: RoadStyle::Grid4,
+                    last_actions: std::collections::VecDeque::new(),
+                    active: false,
+                    build_enabled: true,
+                    upgrade_enabled: true,
                     squad_indices: Vec::new(),
                     squad_cmd: std::collections::HashMap::new(),
                 });

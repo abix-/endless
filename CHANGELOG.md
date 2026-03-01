@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-03-01s
+
+- **stamina upgrades** — `UpgradeStatKind::Stamina` added to all 4 job upgrade arrays (military ranged, military melee, farmer, miner) with MoveSpeed level 1 prereq; `-10% energy drain per level` using CooldownReduction formula `1/(1+lv*0.10)`; `CachedStats.stamina` field wired through `resolve_combat_stats` → `energy_system` drain multiplier; AI weights per personality (economic AI values stamina most for farmers/miners)
+- **player AI manager** — faction 0 town gets an `AiPlayer` registered at world gen with `active: false`; Policies tab → AI Manager section with enable toggle, auto-build/auto-upgrade checkboxes, personality picker, road style picker; `build_enabled`/`upgrade_enabled` flags gate Phase 1 (building) and Phase 2 (upgrade) independently in `ai_decision_system`; `AiPlayerSave` persists new fields with `default_true` for backward compat; `FactionsParams.ai_state` upgraded from `Res` to `ResMut`
+- **SFX dedup fix** — spatial camera culling now runs BEFORE per-kind dedup in `play_sfx_system`; previously off-screen events consumed the dedup slot, causing on-screen sounds to be silenced
+- **SFX volume default** — default `sfx_volume` reduced from 0.5 to 0.15
+
 ## 2026-03-01r
 
 - **arrow shoot SFX** — `fire_projectile` emits `PlaySfxMsg::ArrowShoot` with shooter position on successful fire; covers all 4 call sites (NPC→building, NPC→NPC, fountain tower, player tower) with zero duplication; `attack_system` and `building_tower_system` pass `sfx_writer` through

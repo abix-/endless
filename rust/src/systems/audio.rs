@@ -178,18 +178,17 @@ pub fn play_sfx_system(
         ))
     });
     for event in events.read() {
-        if audio.sfx_volume <= 0.0 || !played.insert(std::mem::discriminant(&event.kind)) {
+        if audio.sfx_volume <= 0.0 {
             continue;
         }
-        // Spatial cull: skip positioned sounds when zoomed out or outside viewport
+        // Spatial cull FIRST — don't let off-screen events consume dedup slots
         if event.position.is_some() {
             if let Some((cam_pos, half_w, half_h, scale)) = cam_info {
-                // Zoomed out too far — suppress combat SFX at strategic view (zoom < 0.5)
                 if scale > 2.0 {
                     continue;
                 }
                 if let Some(pos) = event.position {
-                    let margin = 200.0 * half_w / 960.0;
+                    let margin = 0.0;
                     if (pos.x - cam_pos.x).abs() > half_w + margin
                         || (pos.y - cam_pos.y).abs() > half_h + margin
                     {
@@ -197,6 +196,10 @@ pub fn play_sfx_system(
                     }
                 }
             }
+        }
+        // Dedup AFTER cull — only on-screen events count
+        if !played.insert(std::mem::discriminant(&event.kind)) {
+            continue;
         }
         if let Some(variants) = audio.sfx_handles.get(&event.kind) {
             if variants.is_empty() {
