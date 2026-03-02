@@ -113,7 +113,7 @@ pub struct RosterParams<'w, 's> {
 #[derive(SystemParam)]
 pub struct UpgradeParams<'w> {
     food_storage: Res<'w, FoodStorage>,
-    gold_storage: Res<'w, GoldStorage>,
+    gold_storage: ResMut<'w, GoldStorage>,
     faction_stats: Res<'w, FactionStats>,
     upgrades: Res<'w, TownUpgrades>,
     queue: MessageWriter<'w, UpgradeMsg>,
@@ -139,7 +139,8 @@ pub struct SquadParams<'w> {
 pub struct FactionsParams<'w, 's> {
     ai_state: ResMut<'w, AiPlayerState>,
     food_storage: Res<'w, FoodStorage>,
-    gold_storage: Res<'w, GoldStorage>,
+    gold_storage: ResMut<'w, GoldStorage>,
+    reputation: ResMut<'w, Reputation>,
     faction_stats: Res<'w, FactionStats>,
     upgrades: Res<'w, TownUpgrades>,
     combat_config: Res<'w, CombatConfig>,
@@ -271,6 +272,7 @@ fn tab_to_str(tab: LeftPanelTab) -> &'static str {
         LeftPanelTab::Squads => "Squads",
         LeftPanelTab::Inventory => "Inventory",
         LeftPanelTab::Factions => "Factions",
+        LeftPanelTab::Blackjack => "Blackjack",
         LeftPanelTab::Profiler => "Profiler",
         LeftPanelTab::Help => "Help",
     }
@@ -300,6 +302,7 @@ pub struct InventoryParams<'w, 's> {
 pub struct PanelState {
     was_open: bool,
     prev_tab: LeftPanelTab,
+    pub blackjack: crate::ui::blackjack::BlackjackState,
 }
 
 pub fn left_panel_system(
@@ -352,6 +355,7 @@ pub fn left_panel_system(
         LeftPanelTab::Squads => "Squads",
         LeftPanelTab::Inventory => "Inventory",
         LeftPanelTab::Factions => "Factions",
+        LeftPanelTab::Blackjack => "Blackjack",
         LeftPanelTab::Profiler => "Profiler",
         LeftPanelTab::Help => "Help",
     };
@@ -365,6 +369,7 @@ pub fn left_panel_system(
         LeftPanelTab::Squads => "tab_squads",
         LeftPanelTab::Inventory => "tab_inventory",
         LeftPanelTab::Factions => "tab_factions",
+        LeftPanelTab::Blackjack => "tab_blackjack",
         LeftPanelTab::Profiler => "tab_profiler",
         LeftPanelTab::Help => "tab_help",
     };
@@ -437,6 +442,15 @@ pub fn left_panel_system(
                     &mut copy_text,
                     requested_faction,
                 ),
+                LeftPanelTab::Blackjack => {
+                    crate::ui::blackjack::blackjack_content(
+                        ui,
+                        &mut panel_state.blackjack,
+                        &mut factions.gold_storage,
+                        &mut factions.reputation,
+                        &world_data,
+                    );
+                }
                 LeftPanelTab::Profiler => profiler_content(
                     ui,
                     &profiler.timings,

@@ -71,6 +71,7 @@ pub enum ControlAction {
     ToggleSquads,
     ToggleInventory,
     ToggleFactions,
+    ToggleBlackjack,
     ToggleHelp,
     ToggleCombatLog,
     ToggleFollow,
@@ -93,7 +94,7 @@ pub enum ControlAction {
 }
 
 impl ControlAction {
-    pub const ALL: [Self; 31] = [
+    pub const ALL: [Self; 32] = [
         Self::PanUp,
         Self::PanDown,
         Self::PanLeft,
@@ -106,6 +107,7 @@ impl ControlAction {
         Self::ToggleSquads,
         Self::ToggleInventory,
         Self::ToggleFactions,
+        Self::ToggleBlackjack,
         Self::ToggleHelp,
         Self::ToggleCombatLog,
         Self::ToggleFollow,
@@ -141,6 +143,7 @@ impl ControlAction {
             Self::ToggleSquads => "toggle_squads",
             Self::ToggleInventory => "toggle_inventory",
             Self::ToggleFactions => "toggle_factions",
+            Self::ToggleBlackjack => "toggle_blackjack",
             Self::ToggleHelp => "toggle_help",
             Self::ToggleCombatLog => "toggle_combat_log",
             Self::ToggleFollow => "toggle_follow",
@@ -177,6 +180,7 @@ impl ControlAction {
             Self::ToggleSquads => "Squads Tab",
             Self::ToggleInventory => "Inventory Tab",
             Self::ToggleFactions => "Factions Tab",
+            Self::ToggleBlackjack => "Blackjack Tab",
             Self::ToggleHelp => "Help Tab",
             Self::ToggleCombatLog => "Combat Log",
             Self::ToggleFollow => "Follow Selected",
@@ -212,6 +216,7 @@ impl ControlAction {
             | Self::ToggleSquads
             | Self::ToggleInventory
             | Self::ToggleFactions
+            | Self::ToggleBlackjack
             | Self::ToggleHelp
             | Self::ToggleCombatLog
             | Self::ToggleFollow => "In-game panel and HUD shortcuts.",
@@ -243,6 +248,7 @@ impl ControlAction {
             | Self::ToggleSquads
             | Self::ToggleInventory
             | Self::ToggleFactions
+            | Self::ToggleBlackjack
             | Self::ToggleHelp
             | Self::ToggleCombatLog
             | Self::ToggleFollow => ControlGroup::Panels,
@@ -277,6 +283,7 @@ impl ControlAction {
             Self::ToggleSquads => KeyCode::KeyQ,
             Self::ToggleInventory => KeyCode::KeyI,
             Self::ToggleFactions => KeyCode::KeyG,
+            Self::ToggleBlackjack => KeyCode::KeyJ,
             Self::ToggleHelp => KeyCode::KeyH,
             Self::ToggleCombatLog => KeyCode::KeyL,
             Self::ToggleFollow => KeyCode::KeyF,

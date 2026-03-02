@@ -1,5 +1,6 @@
 //! UI module — main menu, game startup, in-game HUD, and gameplay panels.
 
+pub mod blackjack;
 pub mod build_menu;
 pub mod game_hud;
 pub mod left_panel;
@@ -620,6 +621,9 @@ pub fn ui_toggle_system(
     if keys.just_pressed(settings.key_for_action(ControlAction::ToggleFactions)) {
         ui_state.toggle_left_tab(LeftPanelTab::Factions);
     }
+    if keys.just_pressed(settings.key_for_action(ControlAction::ToggleBlackjack)) {
+        ui_state.toggle_left_tab(LeftPanelTab::Blackjack);
+    }
     if keys.just_pressed(settings.key_for_action(ControlAction::ToggleHelp)) {
         ui_state.toggle_left_tab(LeftPanelTab::Help);
     }
@@ -675,6 +679,7 @@ struct StartupExtra<'w> {
     ai_state: ResMut<'w, AiPlayerState>,
     combat_log: MessageWriter<'w, crate::messages::CombatLogMsg>,
     gold_storage: ResMut<'w, GoldStorage>,
+    reputation: ResMut<'w, Reputation>,
     auto_upgrade: ResMut<'w, AutoUpgrade>,
     mining_policy: ResMut<'w, MiningPolicy>,
 }
@@ -789,6 +794,7 @@ fn game_startup_system(
         &mut food_storage,
         &mut extra.gold_storage,
         &mut faction_stats,
+        &mut extra.reputation,
         &mut raider_state,
         &mut world_state.uid_alloc,
         &mut commands,

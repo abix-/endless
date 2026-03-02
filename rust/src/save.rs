@@ -228,6 +228,10 @@ pub struct SaveData {
     #[serde(default)]
     pub merchant_stocks: Vec<crate::resources::MerchantStock>,
 
+    // Reputation per faction (blackjack diplomacy)
+    #[serde(default)]
+    pub reputation: Vec<f32>,
+
     // Building vecs + towns — registry-driven via #[serde(flatten)]
     // Captures: towns, farms, beds, waypoints, farmer_homes, archer_homes,
     // crossbow_homes, fighter_homes, tents, miner_homes, gold_mines
@@ -599,6 +603,7 @@ pub fn collect_save_data(
     squad_state: &SquadState,
     raider_state: &RaiderState,
     faction_stats: &FactionStats,
+    reputation: &crate::resources::Reputation,
     kill_stats: &KillStats,
     ai_state: &AiPlayerState,
     migration_state: &MigrationState,
@@ -801,6 +806,7 @@ pub fn collect_save_data(
         raider_forage_timers: raider_state.forage_timers.clone(),
         raider_max_pop: raider_state.max_pop.clone(),
         faction_stats: faction_stats_save,
+        reputation: reputation.values.clone(),
         kill_stats: [kill_stats.archer_kills, kill_stats.villager_kills],
         npcs,
         ai_players,
@@ -921,6 +927,7 @@ pub fn apply_save(
     squad_state: &mut SquadState,
     raider_state: &mut RaiderState,
     faction_stats: &mut FactionStats,
+    reputation: &mut crate::resources::Reputation,
     kill_stats: &mut KillStats,
     ai_state: &mut AiPlayerState,
     migration_state: &mut MigrationState,
@@ -1058,6 +1065,14 @@ pub fn apply_save(
             kills: s.kills,
         })
         .collect();
+
+    // Reputation
+    reputation.values = save.reputation.clone();
+    // Pad to faction count if save is from before reputation existed
+    let n_factions = faction_stats.stats.len();
+    if reputation.values.len() < n_factions {
+        reputation.values.resize(n_factions, 0.0);
+    }
 
     // Kill stats
     kill_stats.archer_kills = save.kill_stats[0];
@@ -1351,6 +1366,7 @@ pub struct SaveWorldState<'w> {
 pub struct SaveFactionState<'w> {
     pub raider_state: ResMut<'w, RaiderState>,
     pub faction_stats: ResMut<'w, FactionStats>,
+    pub reputation: ResMut<'w, crate::resources::Reputation>,
     pub kill_stats: ResMut<'w, KillStats>,
     pub ai_state: ResMut<'w, AiPlayerState>,
     pub migration_state: ResMut<'w, MigrationState>,
@@ -1667,6 +1683,7 @@ pub fn save_game_system(
         &ws.squad_state,
         &fs.raider_state,
         &fs.faction_stats,
+        &fs.reputation,
         &fs.kill_stats,
         &fs.ai_state,
         &fs.migration_state,
@@ -1759,6 +1776,7 @@ pub fn autosave_system(
         &ws.squad_state,
         &fs.raider_state,
         &fs.faction_stats,
+        &fs.reputation,
         &fs.kill_stats,
         &fs.ai_state,
         &fs.migration_state,
@@ -1891,6 +1909,7 @@ pub fn restore_world_from_save(
         &mut ws.squad_state,
         &mut fs.raider_state,
         &mut fs.faction_stats,
+        &mut fs.reputation,
         &mut fs.kill_stats,
         &mut fs.ai_state,
         &mut fs.migration_state,

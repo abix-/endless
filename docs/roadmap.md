@@ -137,7 +137,7 @@ Replace 3 fragmented carry mechanisms with 1. Currently: (1) `Activity::Returnin
 **Chunk 6: Save/load + test**
 
 - [x] Save/load: CarriedLoot, NpcEquipment, TownInventory, MerchantInventory, NextLootItemId — all `#[serde(default)]`
-- [ ] `loot-cycle` integration test: spawn → kill → verify carry → return → deposit → equip → verify stats
+- [x] `loot-cycle` integration test: spawn → kill → verify carry → return → deposit → equip → verify stats
 
 Key files: `components.rs` (CarriedLoot, NpcEquipment, simplified Activity::Returning), `constants.rs` (EquipmentSlot, Rarity, LootItem, NpcDef fields, roll_loot_item), `resources.rs` (TownInventory, MerchantInventory, NextLootItemId, LeftPanelTab::Inventory), `systems/health.rs` (equipment drops, carried loot transfer), `systems/behavior.rs` (carry migration, loot threshold), `systems/stats.rs` (equipment in resolve_combat_stats, equip messages), `systems/spawn.rs` (insert CarriedLoot + NpcEquipment), `systems/economy.rs` (merchant refresh, arrival deposit), `gpu.rs` (NpcEquipment query), `ui/left_panel.rs` (inventory tab), `ui/game_hud.rs` (merchant + equipment inspectors), `save.rs` (persistence), `world.rs` (BuildingKind::Merchant)
 

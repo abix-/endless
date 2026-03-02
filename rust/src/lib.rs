@@ -34,7 +34,7 @@ use messages::{
 };
 use resources::{
     ActiveHealingSlots, AutoUpgrade, BuildMenuContext, BuildingHealState, CombatDebug, CombatLog,
-    DebugFlags, Difficulty, EndlessMode, EntityMap, FactionStats, FollowSelected, FoodStorage,
+    DebugFlags, Difficulty, EndlessMode, EntityMap, FactionStats, FollowSelected, FoodStorage, Reputation,
     GameAudio, GameConfig, GameTime, GoldStorage, GpuReadState, GpuSlotPool, HealingZoneCache,
     HealthDebug, HelpCatalog, KillStats, MigrationState, MiningPolicy, MovementIntents,
     NextEntityUid, NextLootItemId, NpcLogCache, NpcMetaCache, NpcTargetThrashDebug, NpcsByTownCache, PlaySfxMsg,
@@ -226,6 +226,7 @@ pub fn build_app(app: &mut App) {
         .init_resource::<FoodStorage>()
         .init_resource::<GoldStorage>()
         .init_resource::<FactionStats>()
+        .init_resource::<Reputation>()
         .init_resource::<RaiderState>()
         .init_resource::<BuildingHealState>()
         .init_resource::<ActiveHealingSlots>()

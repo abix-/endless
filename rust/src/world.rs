@@ -822,6 +822,7 @@ pub fn setup_world(
     food_storage: &mut FoodStorage,
     gold_storage: &mut GoldStorage,
     faction_stats: &mut FactionStats,
+    reputation: &mut crate::resources::Reputation,
     raider_state: &mut RaiderState,
     uid_alloc: &mut crate::resources::NextEntityUid,
     commands: &mut Commands,
@@ -839,6 +840,7 @@ pub fn setup_world(
     food_storage.init(n);
     gold_storage.init(n);
     faction_stats.init(n);
+    reputation.init(n);
     raider_state.init(n, 10);
 
     create_ai_players(world_data, town_grids)

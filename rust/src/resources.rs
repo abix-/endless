@@ -2005,6 +2005,19 @@ pub struct FactionStats {
     pub stats: Vec<FactionStat>,
 }
 
+/// Per-faction reputation from the player's perspective. 0.0 = neutral, range -100..100.
+/// Positive = friendly (player lost gold to them), negative = hostile (player won gold from them).
+#[derive(Resource, Default)]
+pub struct Reputation {
+    pub values: Vec<f32>,
+}
+
+impl Reputation {
+    pub fn init(&mut self, count: usize) {
+        self.values = vec![0.0; count];
+    }
+}
+
 /// Raider town state for respawning and foraging.
 /// Faction 1+ are raider towns. Index 0 in this struct = faction 1.
 #[derive(Resource, Default)]
@@ -2080,6 +2093,7 @@ pub enum LeftPanelTab {
     Squads,
     Inventory,
     Factions,
+    Blackjack,
     Profiler,
     Help,
 }

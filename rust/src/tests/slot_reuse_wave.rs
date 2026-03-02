@@ -85,6 +85,7 @@ pub fn setup(
         &mut food_storage,
         &mut gold_storage,
         &mut faction_stats,
+        &mut crate::resources::Reputation::default(),
         &mut state.raider_state,
         &mut uid_alloc,
         &mut commands,

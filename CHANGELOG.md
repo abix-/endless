@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-03-02f
+
+- **loot-cycle integration test** — 6-phase test: spawn archer+raiders → raider dies → archer carries equipment → returns home → deposits to TownInventory → equip item → verify stats change. Handles RNG edge case (no drops) gracefully. Also added TownInventory/MerchantInventory/NextLootItemId to test cleanup.
+
 ## 2026-03-02e
 
 - **merchant building** — `BuildingKind::Merchant` (Economy, 50g, 200 HP, TownGrid), 1-per-town enforcement in build menu + `place_building()`. `MerchantInventory` resource with per-town `MerchantStock` (4-6 random items, 12h refresh timer). `merchant_tick_system` auto-refreshes stock. Inspector UI: rarity-colored stock with Buy buttons, Sell from TownInventory at half price, Reroll (50g). Save/load persisted via `#[serde(default)]`.

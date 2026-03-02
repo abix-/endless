@@ -17,6 +17,7 @@ pub mod fountain_shot_stale;
 pub mod friendly_fire_buildings;
 pub mod heal_visual;
 pub mod healing;
+pub mod loot_cycle;
 pub mod miner_cycle;
 pub mod movement;
 pub mod npc_visuals;
@@ -80,6 +81,9 @@ pub struct CleanupEndless<'w> {
     pub npcs_by_town: ResMut<'w, crate::resources::NpcsByTownCache>,
     pub policies: ResMut<'w, crate::resources::TownPolicies>,
     pub combat_log: ResMut<'w, crate::resources::CombatLog>,
+    pub town_inventory: ResMut<'w, crate::resources::TownInventory>,
+    pub merchant_inv: ResMut<'w, crate::resources::MerchantInventory>,
+    pub next_loot_id: ResMut<'w, crate::resources::NextLootItemId>,
 }
 
 // ============================================================================
@@ -951,6 +955,25 @@ pub fn register_tests(app: &mut App) {
             .after(Step::Behavior),
     );
 
+    // loot-cycle
+    registry.tests.push(TestEntry {
+        name: "loot-cycle".into(),
+        description: "Kill raider → carry loot → deposit → equip → stats increase".into(),
+        phase_count: 6,
+        time_scale: 1.0,
+    });
+    app.add_systems(
+        OnEnter(AppState::Running),
+        loot_cycle::setup.run_if(test_is("loot-cycle")),
+    );
+    app.add_systems(
+        Update,
+        loot_cycle::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("loot-cycle"))
+            .after(Step::Behavior),
+    );
+
     // Common test-world materialization:
     app.insert_resource(registry);
 }
@@ -1283,6 +1306,9 @@ fn cleanup_test_world(
     *endless_cleanup.npcs_by_town = Default::default();
     *endless_cleanup.policies = Default::default();
     *endless_cleanup.combat_log = Default::default();
+    *endless_cleanup.town_inventory = Default::default();
+    *endless_cleanup.merchant_inv = Default::default();
+    *endless_cleanup.next_loot_id = Default::default();
 
     info!(
         "Test cleanup: despawned {} NPCs + {} tilemap chunks, reset resources",
