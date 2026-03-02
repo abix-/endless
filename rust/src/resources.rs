@@ -2064,6 +2064,8 @@ pub struct UiState {
     pub inspector_click_seq: u64,
     /// True when the player's fountain has been destroyed — shows lose screen.
     pub game_over: bool,
+    /// Tower upgrade popup — Some(slot) when open for a specific tower.
+    pub tower_upgrade_slot: Option<usize>,
 }
 
 impl Default for UiState {
@@ -2080,6 +2082,7 @@ impl Default for UiState {
             inspector_prefer_npc: true,
             inspector_click_seq: 0,
             game_over: false,
+            tower_upgrade_slot: None,
         }
     }
 }
@@ -2300,7 +2303,7 @@ pub struct BuildingInstance {
     pub kills: i32,              // Tower/Fountain only — kill counter
     pub xp: i32,                 // Tower/Fountain only — XP (same scale as NPC: +100 per kill)
     pub upgrade_levels: Vec<u8>, // Tower only — per-stat upgrade levels (indices match TOWER_UPGRADES)
-    pub auto_upgrade: bool,      // Tower only — auto-buy cheapest upgrade each game-hour
+    pub auto_upgrade_flags: Vec<bool>, // Tower only — per-stat auto-buy flags (indices match TOWER_UPGRADES)
 }
 
 impl BuildingInstance {

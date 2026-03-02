@@ -349,9 +349,11 @@ pub fn main_menu_system(
             if ui.button(egui::RichText::new("Settings").size(18.0)).clicked() {
                 state.show_settings = !state.show_settings;
             }
+            ui.add_space(8.0);
             if ui.button(egui::RichText::new("Debug Tests").size(18.0)).clicked() {
                 next_state.set(AppState::TestMenu);
             }
+            ui.add_space(8.0);
             if ui.button(egui::RichText::new("Exit").size(18.0)).clicked() {
                 exit.write(AppExit::Success);
             }

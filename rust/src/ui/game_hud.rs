@@ -596,6 +596,9 @@ pub fn bottom_panel_system(
             });
     }
 
+    // Tower upgrade popup window
+    tower_upgrade_window(ctx, &mut bld_data, &mut panel_state.ui_state);
+
     // Handle clipboard copy (must be outside egui closure)
     if let Some(text) = copy_text {
         info!("Copy button clicked, {} bytes", text.len());
@@ -609,6 +612,184 @@ pub fn bottom_panel_system(
     }
 
     Ok(())
+}
+
+/// Tower upgrade popup — big buttons, explanations, per-stat auto-buy.
+fn tower_upgrade_window(
+    ctx: &egui::Context,
+    bld: &mut BuildingInspectorData,
+    ui_state: &mut UiState,
+) {
+    let Some(slot) = ui_state.tower_upgrade_slot else {
+        return;
+    };
+
+    // Auto-close if selected building changed or tower no longer exists
+    let inst_exists = bld.entity_map.get_instance(slot)
+        .is_some_and(|i| i.kind == BuildingKind::Tower);
+    if !inst_exists {
+        ui_state.tower_upgrade_slot = None;
+        return;
+    }
+
+    // Read tower data (clone to avoid borrow conflict)
+    let (level, upgrade_levels, auto_flags, town_idx) = {
+        let inst = bld.entity_map.get_instance(slot).unwrap();
+        (
+            level_from_xp(inst.xp),
+            inst.upgrade_levels.clone(),
+            inst.auto_upgrade_flags.clone(),
+            inst.town_idx as usize,
+        )
+    };
+
+    let food = bld.food_storage.food.get(town_idx).copied().unwrap_or(0);
+    let gold = bld.gold_storage.gold.get(town_idx).copied().unwrap_or(0);
+    let tower_upgrades = &*crate::constants::TOWER_UPGRADES;
+
+    let mut open = true;
+    egui::Window::new("Tower Upgrades")
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(false)
+        .default_width(400.0)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            ui.label(
+                egui::RichText::new(format!("Level {} Tower", level))
+                    .heading()
+                    .strong(),
+            );
+            ui.add_space(4.0);
+
+            for (i, upg) in tower_upgrades.iter().enumerate() {
+                let lv = upgrade_levels.get(i).copied().unwrap_or(0);
+                let cost_mult = crate::systems::stats::upgrade_cost(lv);
+
+                let can_afford = upg.cost.iter().all(|(res, base)| {
+                    let total = base * cost_mult;
+                    match res {
+                        ResourceKind::Food => food >= total,
+                        ResourceKind::Gold => gold >= total,
+                    }
+                });
+
+                egui::Frame::new()
+                    .fill(egui::Color32::from_rgba_unmultiplied(40, 40, 50, 200))
+                    .inner_margin(egui::Margin::same(8))
+                    .corner_radius(4.0)
+                    .show(ui, |ui| {
+                        // Row 1: Auto checkbox + label + level
+                        ui.horizontal(|ui| {
+                            let mut auto = auto_flags.get(i).copied().unwrap_or(false);
+                            if ui
+                                .checkbox(&mut auto, "Auto")
+                                .on_hover_text("Auto-buy this upgrade each game-hour")
+                                .changed()
+                            {
+                                if let Some(inst) = bld.entity_map.get_instance_mut(slot) {
+                                    while inst.auto_upgrade_flags.len() <= i {
+                                        inst.auto_upgrade_flags.push(false);
+                                    }
+                                    inst.auto_upgrade_flags[i] = auto;
+                                }
+                            }
+                            ui.label(egui::RichText::new(upg.label).heading());
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.label(
+                                        egui::RichText::new(format!("Lv {}", lv))
+                                            .strong()
+                                            .size(16.0),
+                                    );
+                                },
+                            );
+                        });
+
+                        // Row 2: Description
+                        ui.label(egui::RichText::new(upg.tooltip).weak());
+
+                        // Row 3: Current → next effect
+                        let current = tower_upgrade_effect(upg, lv);
+                        let next = tower_upgrade_effect(upg, lv + 1);
+                        ui.label(format!("Current: {}    Next: {}", current, next));
+
+                        // Row 4: Buy button (full width)
+                        let cost_parts: Vec<String> = upg
+                            .cost
+                            .iter()
+                            .map(|(res, base)| {
+                                let total = base * cost_mult;
+                                match res {
+                                    ResourceKind::Food => format!("{} food", total),
+                                    ResourceKind::Gold => format!("{} gold", total),
+                                }
+                            })
+                            .collect();
+                        let cost_text = format!("Buy: {}", cost_parts.join(", "));
+
+                        let btn = egui::Button::new(
+                            egui::RichText::new(&cost_text).size(14.0),
+                        )
+                        .min_size(egui::vec2(ui.available_width(), 28.0));
+
+                        if ui.add_enabled(can_afford, btn).clicked() {
+                            // Deduct resources
+                            for (res, base) in upg.cost {
+                                let total = base * cost_mult;
+                                match res {
+                                    ResourceKind::Food => {
+                                        if let Some(f) = bld.food_storage.food.get_mut(town_idx) {
+                                            *f -= total;
+                                        }
+                                    }
+                                    ResourceKind::Gold => {
+                                        if let Some(g) = bld.gold_storage.gold.get_mut(town_idx) {
+                                            *g -= total;
+                                        }
+                                    }
+                                }
+                            }
+                            // Increment upgrade level
+                            if let Some(inst) = bld.entity_map.get_instance_mut(slot) {
+                                while inst.upgrade_levels.len() <= i {
+                                    inst.upgrade_levels.push(0);
+                                }
+                                inst.upgrade_levels[i] += 1;
+                            }
+                        }
+                    });
+                ui.add_space(2.0);
+            }
+        });
+
+    if !open {
+        ui_state.tower_upgrade_slot = None;
+    }
+}
+
+/// Format a tower upgrade effect string for a given level.
+fn tower_upgrade_effect(upg: &crate::constants::UpgradeStatDef, lv: u8) -> String {
+    match upg.display {
+        EffectDisplay::Percentage => format!("+{}%", (lv as f32 * upg.pct * 100.0) as i32),
+        EffectDisplay::CooldownReduction => {
+            if lv == 0 {
+                "0%".to_string()
+            } else {
+                let reduction = (1.0 - 1.0 / (1.0 + lv as f32 * upg.pct)) * 100.0;
+                format!("-{:.0}%", reduction)
+            }
+        }
+        EffectDisplay::Discrete => {
+            if upg.kind == UpgradeStatKind::HpRegen {
+                format!("+{:.1}/s", lv as f32 * 2.0)
+            } else {
+                format!("+{}", lv)
+            }
+        }
+        _ => format!("Lv{}", lv),
+    }
 }
 
 /// Combat log window anchored at bottom-right.
@@ -2183,96 +2364,9 @@ fn building_inspector_content(
                 ));
             }
 
-            ui.separator();
-            ui.label(egui::RichText::new("Upgrades").strong());
-
-            // Auto-upgrade toggle
-            let auto_upgrade = bld.entity_map.find_by_position(world_pos)
-                .map(|i| i.auto_upgrade).unwrap_or(false);
-            let mut auto = auto_upgrade;
-            if ui.checkbox(&mut auto, "Auto-buy").on_hover_text("Auto-buy cheapest upgrade each game-hour").changed() {
-                if let Some(inst) = bld.entity_map.find_by_position_mut(world_pos) {
-                    inst.auto_upgrade = auto;
-                }
-            }
-
-            // Per-stat upgrade buttons
-            let food = bld.food_storage.food.get(town_idx).copied().unwrap_or(0);
-            let gold = bld.gold_storage.gold.get(town_idx).copied().unwrap_or(0);
-            let tower_upgrades = &*crate::constants::TOWER_UPGRADES;
-
-            for (i, upg) in tower_upgrades.iter().enumerate() {
-                let lv = upgrade_levels_clone.get(i).copied().unwrap_or(0);
-                let cost = crate::systems::stats::upgrade_cost(lv);
-                let can_afford = upg.cost.iter().all(|(res, base)| {
-                    let total = base * cost;
-                    match res {
-                        crate::constants::ResourceKind::Food => food >= total,
-                        crate::constants::ResourceKind::Gold => gold >= total,
-                    }
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label(format!("Lv{}", lv));
-                    ui.label(upg.label);
-
-                    // Effect summary
-                    let effect = match upg.display {
-                        EffectDisplay::Percentage => format!("+{}%", (lv as f32 * upg.pct * 100.0) as i32),
-                        EffectDisplay::CooldownReduction => {
-                            let reduction = (1.0 - 1.0 / (1.0 + lv as f32 * upg.pct)) * 100.0;
-                            format!("-{:.0}%", reduction)
-                        }
-                        EffectDisplay::Discrete => {
-                            if upg.kind == UpgradeStatKind::HpRegen {
-                                format!("+{:.1}/s", lv as f32 * 2.0)
-                            } else {
-                                format!("+{}", lv)
-                            }
-                        }
-                        _ => format!("Lv{}", lv),
-                    };
-                    ui.label(egui::RichText::new(effect).small().weak());
-
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let cost_parts: Vec<String> = upg.cost.iter().map(|(res, base)| {
-                            let total = base * cost;
-                            match res {
-                                crate::constants::ResourceKind::Food => format!("{}F", total),
-                                crate::constants::ResourceKind::Gold => format!("{}G", total),
-                            }
-                        }).collect();
-                        let cost_text = cost_parts.join(" ");
-
-                        let response = ui.add_enabled(can_afford, egui::Button::new(&cost_text));
-                        let response = response.on_hover_text(upg.tooltip);
-                        if response.clicked() {
-                            // Deduct resources
-                            for (res, base) in upg.cost {
-                                let total = base * cost;
-                                match res {
-                                    crate::constants::ResourceKind::Food => {
-                                        if let Some(f) = bld.food_storage.food.get_mut(town_idx) {
-                                            *f -= total;
-                                        }
-                                    }
-                                    crate::constants::ResourceKind::Gold => {
-                                        if let Some(g) = bld.gold_storage.gold.get_mut(town_idx) {
-                                            *g -= total;
-                                        }
-                                    }
-                                }
-                            }
-                            // Increment upgrade level
-                            if let Some(inst) = bld.entity_map.find_by_position_mut(world_pos) {
-                                while inst.upgrade_levels.len() <= i {
-                                    inst.upgrade_levels.push(0);
-                                }
-                                inst.upgrade_levels[i] += 1;
-                            }
-                        }
-                    });
-                });
+            // Upgrade button — opens popup window
+            if ui.button(egui::RichText::new("Upgrades").strong()).clicked() {
+                ui_state.tower_upgrade_slot = Some(slot);
             }
         }
 
@@ -2847,7 +2941,7 @@ fn building_inspector_content(
                             info.push_str(&format!("HP Regen: {:.1}/s\n", stats.hp_regen));
                         }
                         info.push_str(&format!("Upgrades: {:?}\n", inst.upgrade_levels));
-                        info.push_str(&format!("Auto: {}\n", inst.auto_upgrade));
+                        info.push_str(&format!("Auto: {:?}\n", inst.auto_upgrade_flags));
                     } else {
                         info.push_str(&format!("Range: {:.0}px\n", TOWER_STATS.range));
                         info.push_str(&format!("Damage: {:.1}\n", TOWER_STATS.damage));

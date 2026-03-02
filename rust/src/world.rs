@@ -100,7 +100,7 @@ pub struct PlacedBuilding {
     #[serde(default)]
     pub upgrade_levels: Vec<u8>,
     #[serde(default)]
-    pub auto_upgrade: bool,
+    pub auto_upgrade_flags: Vec<bool>,
 }
 
 impl PlacedBuilding {
@@ -115,7 +115,7 @@ impl PlacedBuilding {
             kills: 0,
             xp: 0,
             upgrade_levels: Vec::new(),
-            auto_upgrade: false,
+            auto_upgrade_flags: Vec::new(),
         }
     }
     pub fn new_wall(position: Vec2, town_idx: u32) -> Self {
@@ -129,7 +129,7 @@ impl PlacedBuilding {
             kills: 0,
             xp: 0,
             upgrade_levels: Vec::new(),
-            auto_upgrade: false,
+            auto_upgrade_flags: Vec::new(),
         }
     }
 }
@@ -692,7 +692,7 @@ pub fn place_building(
         kills: 0,
         xp: 0,
         upgrade_levels: Vec::new(),
-        auto_upgrade: false,
+        auto_upgrade_flags: Vec::new(),
     });
     entity_map.register_uid_slot_only(slot, uid);
 

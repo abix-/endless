@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-03-01w
+
+- **per-stat tower auto-buy** — `auto_upgrade: bool` replaced with `auto_upgrade_flags: Vec<bool>` for per-stat auto-buy control; tower upgrade popup window (`tower_upgrade_window`) with per-stat upgrade buttons and individual auto-buy checkboxes; `auto_tower_upgrade_system` only buys flagged stats
+- **tower/fountain inspector** — kills/xp/level always shown (was hidden when kills==0); XP-to-next displayed like NPCs (`XP: 0/100`)
+- **gold mine name consistency** — gold mine inspector and hover now use `gold_mine_name()` display names matching policy panel (was showing raw slot numbers)
+- **main menu spacing** — uniform 8px vertical spacing between all menu buttons
+
 ## 2026-03-01v
 
 - **per-tower upgrades** — each tower now has its own `upgrade_levels: Vec<u8>` and `auto_upgrade: bool` on `BuildingInstance`; tower inspector shows resolved per-instance stats (HP, Attack, Range, AtkSpd, ProjSpd, ProjLife, HpRegen) with upgrade buttons and auto-buy checkbox; `resolve_tower_instance_stats()` applies XP level bonus (+1%/level) and per-stat upgrade multipliers from `TOWER_UPGRADES`; `auto_tower_upgrade_system` runs each game-hour for auto-buy towers; `PlacedBuilding` saves/loads upgrade_levels and auto_upgrade with serde default for backward compat

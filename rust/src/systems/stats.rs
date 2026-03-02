@@ -979,20 +979,23 @@ pub fn auto_tower_upgrade_system(
     }
     let tower_upgrades = &*crate::constants::TOWER_UPGRADES;
     // Collect tower data to avoid borrow conflict on entity_map
-    let towers: Vec<(usize, u32, Vec<u8>)> = entity_map
+    let towers: Vec<(usize, u32, Vec<u8>, Vec<bool>)> = entity_map
         .iter_kind(crate::world::BuildingKind::Tower)
-        .filter(|i| i.auto_upgrade)
-        .map(|i| (i.slot, i.town_idx, i.upgrade_levels.clone()))
+        .filter(|i| i.auto_upgrade_flags.iter().any(|&f| f))
+        .map(|i| (i.slot, i.town_idx, i.upgrade_levels.clone(), i.auto_upgrade_flags.clone()))
         .collect();
 
-    for (slot, town_idx, upgrade_levels) in towers {
+    for (slot, town_idx, upgrade_levels, auto_flags) in towers {
         let ti = town_idx as usize;
         let food = food_storage.food.get(ti).copied().unwrap_or(0);
         let gold = gold_storage.gold.get(ti).copied().unwrap_or(0);
 
-        // Find cheapest affordable upgrade
+        // Find cheapest affordable upgrade among auto-flagged stats
         let mut best: Option<(i32, usize)> = None; // (total_cost, index)
         for (i, upg) in tower_upgrades.iter().enumerate() {
+            if !auto_flags.get(i).copied().unwrap_or(false) {
+                continue;
+            }
             let lv = upgrade_levels.get(i).copied().unwrap_or(0);
             let cost_mult = upgrade_cost(lv);
             let can_afford = upg.cost.iter().all(|(res, base)| {
