@@ -2022,3 +2022,162 @@ pub fn building_cost(kind: BuildingKind) -> i32 {
 
 pub const ATLAS_BUILDING: f32 = 7.0;
 pub const ATLAS_BOAT: f32 = 8.0;
+
+// ============================================================================
+// UNIT TESTS
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::components::Job;
+    use crate::world::BuildingKind;
+
+    // -- roll_loot_item ------------------------------------------------------
+
+    #[test]
+    fn roll_loot_item_deterministic() {
+        let a = roll_loot_item(1, 42);
+        let b = roll_loot_item(1, 42);
+        assert_eq!(a.slot, b.slot);
+        assert_eq!(a.rarity, b.rarity);
+        assert!((a.stat_bonus - b.stat_bonus).abs() < f32::EPSILON);
+        assert_eq!(a.name, b.name);
+    }
+
+    #[test]
+    fn roll_loot_item_different_seeds_differ() {
+        let a = roll_loot_item(1, 42);
+        let b = roll_loot_item(1, 9999);
+        // Different seeds should produce different items (extremely unlikely to collide)
+        assert!(a.slot != b.slot || a.rarity != b.rarity || a.name != b.name,
+            "different seeds should usually produce different items");
+    }
+
+    #[test]
+    fn roll_loot_item_stat_bonus_in_rarity_range() {
+        for seed in 0..100 {
+            let item = roll_loot_item(1, seed);
+            let (min, max) = item.rarity.stat_range();
+            assert!(item.stat_bonus >= min && item.stat_bonus <= max,
+                "seed {seed}: bonus {} outside [{min}, {max}] for {:?}", item.stat_bonus, item.rarity);
+        }
+    }
+
+    // -- Rarity --------------------------------------------------------------
+
+    #[test]
+    fn rarity_stat_ranges_ordered() {
+        let rarities = [Rarity::Common, Rarity::Uncommon, Rarity::Rare, Rarity::Epic];
+        for w in rarities.windows(2) {
+            let (_, max_lower) = w[0].stat_range();
+            let (min_upper, _) = w[1].stat_range();
+            assert!(min_upper >= max_lower,
+                "{:?} max {} should be <= {:?} min {}", w[0], max_lower, w[1], min_upper);
+        }
+    }
+
+    #[test]
+    fn rarity_gold_costs_increase() {
+        let rarities = [Rarity::Common, Rarity::Uncommon, Rarity::Rare, Rarity::Epic];
+        for w in rarities.windows(2) {
+            assert!(w[1].gold_cost() > w[0].gold_cost(),
+                "{:?} cost {} should be > {:?} cost {}", w[1], w[1].gold_cost(), w[0], w[0].gold_cost());
+        }
+    }
+
+    #[test]
+    fn rarity_labels_non_empty() {
+        for r in [Rarity::Common, Rarity::Uncommon, Rarity::Rare, Rarity::Epic] {
+            assert!(!r.label().is_empty());
+        }
+    }
+
+    // -- mine_productivity_mult ----------------------------------------------
+
+    #[test]
+    fn mine_productivity_zero_workers() {
+        // 0 workers = 0.0 (harmonic series sum of 0 terms)
+        assert!((mine_productivity_mult(0) - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn mine_productivity_one_worker() {
+        assert!((mine_productivity_mult(1) - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn mine_productivity_diminishing_returns() {
+        // Each additional worker adds less than the previous
+        let m2 = mine_productivity_mult(2);
+        let m3 = mine_productivity_mult(3);
+        let m4 = mine_productivity_mult(4);
+        let gain_2 = m2 - mine_productivity_mult(1);
+        let gain_3 = m3 - m2;
+        let gain_4 = m4 - m3;
+        assert!(gain_3 < gain_2, "3rd worker should add less than 2nd");
+        assert!(gain_4 < gain_3, "4th worker should add less than 3rd");
+    }
+
+    // -- npc_def (registry coverage) -----------------------------------------
+
+    #[test]
+    fn all_jobs_have_npc_def() {
+        let jobs = [Job::Farmer, Job::Archer, Job::Raider, Job::Fighter, Job::Miner, Job::Crossbow, Job::Boat];
+        for job in jobs {
+            let def = npc_def(job);
+            assert!(def.base_hp > 0.0, "{:?} should have positive base HP", job);
+            assert!(def.base_speed > 0.0, "{:?} should have positive base speed", job);
+        }
+    }
+
+    // -- building_def (registry coverage) ------------------------------------
+
+    #[test]
+    fn all_building_kinds_have_def() {
+        let kinds = [
+            BuildingKind::Fountain, BuildingKind::Waypoint, BuildingKind::Farm,
+            BuildingKind::FarmerHome, BuildingKind::ArcherHome, BuildingKind::Tent,
+            BuildingKind::GoldMine, BuildingKind::MinerHome, BuildingKind::CrossbowHome,
+            BuildingKind::FighterHome, BuildingKind::Road, BuildingKind::Wall,
+            BuildingKind::Tower, BuildingKind::Merchant, BuildingKind::Casino,
+        ];
+        for kind in kinds {
+            let def = building_def(kind);
+            assert!(!def.label.is_empty(), "{:?} should have a label", kind);
+        }
+    }
+
+    // -- raider_faction_color ------------------------------------------------
+
+    #[test]
+    fn raider_faction_color_wraps() {
+        let c1 = raider_faction_color(1);
+        let c11 = raider_faction_color(11); // should wrap to same as 1
+        assert_eq!(c1, c11);
+    }
+
+    #[test]
+    fn raider_faction_color_no_panic_edge_cases() {
+        raider_faction_color(0);
+        raider_faction_color(-1);
+        raider_faction_color(100);
+    }
+
+    // -- autotile helpers ----------------------------------------------------
+
+    #[test]
+    fn autotile_kind_count_positive() {
+        assert!(autotile_kind_count() > 0);
+    }
+
+    #[test]
+    fn autotile_order_wall_exists() {
+        assert!(autotile_order(BuildingKind::Wall).is_some());
+    }
+
+    #[test]
+    fn autotile_order_farm_none() {
+        assert!(autotile_order(BuildingKind::Farm).is_none(), "farms don't autotile");
+    }
+}

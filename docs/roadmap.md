@@ -219,6 +219,11 @@ Sound (bevy_audio) woven into stages. Done: arrow shoot SFX, NPC death SFX (24 v
 - [ ] Replace hardcoded town indices in HUD with faction/town lookup helpers
 - [ ] Add regression tests that enforce no behavior drift between player and AI build flows, startup and respawn flows, and both destroy entry points
 
+### Testing
+- [x] Unit test infrastructure: `#[cfg(test)]` modules in stats.rs, constants.rs, components.rs (65 tests via `cargo test`)
+- [ ] System-level tests: headless `App::new()` tests for spawn, damage, economy systems
+- [ ] CI pipeline: `cargo test` + `cargo clippy` in GitHub Actions
+
 ### UI & UX
 - [ ] Add `show_active_radius` debug toggle in Bevy UI
 - [ ] Upgrade tab town snapshot: show `farmers/archers/farms/next spawn` summary

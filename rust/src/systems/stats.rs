@@ -1204,3 +1204,345 @@ pub fn auto_tower_upgrade_system(
 
 // ============================================================================
 // XP grant + NPC kill loot logic moved to unified death_system (health.rs)
+
+// ============================================================================
+// UNIT TESTS
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::components::{BaseAttackType, Job, Personality, TraitKind, TraitInstance};
+
+    // -- level_from_xp -------------------------------------------------------
+
+    #[test]
+    fn level_from_xp_zero() {
+        assert_eq!(level_from_xp(0), 0);
+    }
+
+    #[test]
+    fn level_from_xp_negative() {
+        assert_eq!(level_from_xp(-100), 0);
+    }
+
+    #[test]
+    fn level_from_xp_just_below_threshold() {
+        // level 1 = sqrt(100/100) = 1 → need xp=100 for level 1
+        assert_eq!(level_from_xp(99), 0);
+    }
+
+    #[test]
+    fn level_from_xp_at_threshold() {
+        assert_eq!(level_from_xp(100), 1);
+    }
+
+    #[test]
+    fn level_from_xp_level_2() {
+        // level 2 = sqrt(400/100) = 2
+        assert_eq!(level_from_xp(400), 2);
+    }
+
+    #[test]
+    fn level_from_xp_between_levels() {
+        assert_eq!(level_from_xp(300), 1); // sqrt(3) = 1.73 → floor = 1
+    }
+
+    // -- upgrade_cost --------------------------------------------------------
+
+    #[test]
+    fn upgrade_cost_level_0() {
+        assert_eq!(upgrade_cost(0), 10);
+    }
+
+    #[test]
+    fn upgrade_cost_level_1() {
+        assert_eq!(upgrade_cost(1), 20);
+    }
+
+    #[test]
+    fn upgrade_cost_level_2() {
+        assert_eq!(upgrade_cost(2), 40);
+    }
+
+    #[test]
+    fn upgrade_cost_doubles_each_level() {
+        for lv in 0..20 {
+            assert_eq!(upgrade_cost(lv), 10 * (1 << lv as i32));
+        }
+    }
+
+    #[test]
+    fn upgrade_cost_caps_at_20() {
+        // levels above 20 should be clamped
+        assert_eq!(upgrade_cost(21), upgrade_cost(20));
+        assert_eq!(upgrade_cost(255), upgrade_cost(20));
+    }
+
+    // -- expansion_cost ------------------------------------------------------
+
+    #[test]
+    fn expansion_cost_level_0() {
+        assert_eq!(expansion_cost(0), (24, 24));
+    }
+
+    #[test]
+    fn expansion_cost_level_1() {
+        assert_eq!(expansion_cost(1), (32, 32));
+    }
+
+    #[test]
+    fn expansion_cost_scales_linearly() {
+        let (f, g) = expansion_cost(5);
+        assert_eq!(f, 24 + 8 * 5);
+        assert_eq!(f, g);
+    }
+
+    // -- decode_upgrade_levels -----------------------------------------------
+
+    #[test]
+    fn decode_upgrade_levels_pads_short_input() {
+        let result = decode_upgrade_levels(&[1, 2]);
+        assert_eq!(result.len(), upgrade_count());
+        assert_eq!(result[0], 1);
+        assert_eq!(result[1], 2);
+        // rest should be 0
+        assert!(result[2..].iter().all(|&v| v == 0));
+    }
+
+    #[test]
+    fn decode_upgrade_levels_empty() {
+        let result = decode_upgrade_levels(&[]);
+        assert_eq!(result.len(), upgrade_count());
+        assert!(result.iter().all(|&v| v == 0));
+    }
+
+    // -- upgrade_unlocked / upgrade_available --------------------------------
+
+    #[test]
+    fn upgrade_unlocked_no_prereqs() {
+        // First upgrade in each branch typically has no prereqs
+        let levels = vec![0u8; upgrade_count()];
+        // Index 0 should have no prereqs (it's the first node)
+        let node = &UPGRADES.nodes[0];
+        if node.prereqs.is_empty() {
+            assert!(upgrade_unlocked(&levels, 0));
+        }
+    }
+
+    #[test]
+    fn upgrade_unlocked_with_unmet_prereqs() {
+        let levels = vec![0u8; upgrade_count()];
+        // Find a node that has prereqs
+        for (idx, node) in UPGRADES.nodes.iter().enumerate() {
+            if !node.prereqs.is_empty() {
+                assert!(!upgrade_unlocked(&levels, idx), "node {idx} should be locked with all-zero levels");
+                break;
+            }
+        }
+    }
+
+    #[test]
+    fn upgrade_unlocked_with_met_prereqs() {
+        let mut levels = vec![0u8; upgrade_count()];
+        // Find a node with prereqs and satisfy them
+        for (idx, node) in UPGRADES.nodes.iter().enumerate() {
+            if !node.prereqs.is_empty() {
+                for &(pi, min_lv) in &node.prereqs {
+                    levels[pi] = min_lv;
+                }
+                assert!(upgrade_unlocked(&levels, idx), "node {idx} should be unlocked after satisfying prereqs");
+                break;
+            }
+        }
+    }
+
+    #[test]
+    fn upgrade_available_needs_resources() {
+        let mut levels = vec![0u8; upgrade_count()];
+        // Find first node with no prereqs
+        let idx = UPGRADES.nodes.iter().position(|n| n.prereqs.is_empty()).unwrap();
+        // Ensure prereqs met but no resources
+        for &(pi, min_lv) in &UPGRADES.nodes[idx].prereqs {
+            levels[pi] = min_lv;
+        }
+        assert!(!upgrade_available(&levels, idx, 0, 0));
+        // With abundant resources
+        assert!(upgrade_available(&levels, idx, 100_000, 100_000));
+    }
+
+    // -- deduct_upgrade_cost -------------------------------------------------
+
+    #[test]
+    fn deduct_upgrade_cost_decrements() {
+        let idx = UPGRADES.nodes.iter().position(|n| n.prereqs.is_empty()).unwrap();
+        let mut food = 100_000;
+        let mut gold = 100_000;
+        let food_before = food;
+        let gold_before = gold;
+        deduct_upgrade_cost(idx, 0, &mut food, &mut gold);
+        assert!(food <= food_before, "food should decrease or stay same");
+        assert!(gold <= gold_before, "gold should decrease or stay same");
+        assert!(food < food_before || gold < gold_before, "at least one resource should decrease");
+    }
+
+    // -- format_upgrade_cost -------------------------------------------------
+
+    #[test]
+    fn format_upgrade_cost_contains_resource_label() {
+        let idx = 0;
+        let s = format_upgrade_cost(idx, 0);
+        assert!(s.contains("food") || s.contains("gold"), "cost string should mention resource: {s}");
+    }
+
+    // -- missing_prereqs -----------------------------------------------------
+
+    #[test]
+    fn missing_prereqs_none_when_satisfied() {
+        let idx = UPGRADES.nodes.iter().position(|n| n.prereqs.is_empty()).unwrap();
+        let levels = vec![0u8; upgrade_count()];
+        assert!(missing_prereqs(&levels, idx).is_none());
+    }
+
+    #[test]
+    fn missing_prereqs_returns_string_when_unsatisfied() {
+        let levels = vec![0u8; upgrade_count()];
+        for (idx, node) in UPGRADES.nodes.iter().enumerate() {
+            if !node.prereqs.is_empty() {
+                let msg = missing_prereqs(&levels, idx);
+                assert!(msg.is_some(), "should have missing prereqs for node {idx}");
+                assert!(msg.unwrap().contains("Requires:"));
+                break;
+            }
+        }
+    }
+
+    // -- resolve_combat_stats ------------------------------------------------
+
+    fn default_config() -> CombatConfig {
+        CombatConfig::default()
+    }
+
+    fn empty_upgrades() -> TownUpgrades {
+        TownUpgrades { levels: vec![vec![0u8; upgrade_count()]] }
+    }
+
+    #[test]
+    fn resolve_combat_stats_archer_defaults() {
+        let config = default_config();
+        let upgrades = empty_upgrades();
+        let personality = Personality::default();
+        let stats = resolve_combat_stats(
+            Job::Archer, BaseAttackType::Ranged, 0, 0,
+            &personality, &config, &upgrades, 0.0, 0.0,
+        );
+        let job_stats = config.jobs.get(&Job::Archer).unwrap();
+        // With no upgrades, no level, no equipment, no traits:
+        // damage = base_damage * 1.0 * 1.0 * 1.0 * 1.0
+        assert!((stats.damage - job_stats.damage).abs() < 0.01, "damage: {} vs {}", stats.damage, job_stats.damage);
+        assert!((stats.max_health - job_stats.max_health).abs() < 0.01, "hp: {} vs {}", stats.max_health, job_stats.max_health);
+        assert!((stats.speed - job_stats.speed).abs() < 0.01, "speed: {} vs {}", stats.speed, job_stats.speed);
+        assert_eq!(stats.berserk_bonus, 0.0);
+    }
+
+    #[test]
+    fn resolve_combat_stats_level_scaling() {
+        let config = default_config();
+        let upgrades = empty_upgrades();
+        let personality = Personality::default();
+        let stats_lv0 = resolve_combat_stats(
+            Job::Archer, BaseAttackType::Ranged, 0, 0,
+            &personality, &config, &upgrades, 0.0, 0.0,
+        );
+        let stats_lv10 = resolve_combat_stats(
+            Job::Archer, BaseAttackType::Ranged, 0, 10,
+            &personality, &config, &upgrades, 0.0, 0.0,
+        );
+        // level 10 = 1.10x multiplier on damage and hp
+        assert!(stats_lv10.damage > stats_lv0.damage);
+        let expected_ratio = 1.10;
+        let actual_ratio = stats_lv10.damage / stats_lv0.damage;
+        assert!((actual_ratio - expected_ratio).abs() < 0.01, "ratio: {actual_ratio}");
+    }
+
+    #[test]
+    fn resolve_combat_stats_equipment_bonus() {
+        let config = default_config();
+        let upgrades = empty_upgrades();
+        let personality = Personality::default();
+        let base = resolve_combat_stats(
+            Job::Archer, BaseAttackType::Ranged, 0, 0,
+            &personality, &config, &upgrades, 0.0, 0.0,
+        );
+        let with_weapon = resolve_combat_stats(
+            Job::Archer, BaseAttackType::Ranged, 0, 0,
+            &personality, &config, &upgrades, 0.5, 0.0,
+        );
+        let with_armor = resolve_combat_stats(
+            Job::Archer, BaseAttackType::Ranged, 0, 0,
+            &personality, &config, &upgrades, 0.0, 0.5,
+        );
+        // 50% weapon bonus → 1.5x damage
+        assert!((with_weapon.damage / base.damage - 1.5).abs() < 0.01);
+        // 50% armor bonus → 1.5x max_health
+        assert!((with_armor.max_health / base.max_health - 1.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn resolve_combat_stats_berserk_from_ferocity() {
+        let config = default_config();
+        let upgrades = empty_upgrades();
+        let personality = Personality {
+            trait1: Some(TraitInstance { kind: TraitKind::Ferocity, magnitude: 1.0 }),
+            trait2: None,
+        };
+        let stats = resolve_combat_stats(
+            Job::Archer, BaseAttackType::Ranged, 0, 0,
+            &personality, &config, &upgrades, 0.0, 0.0,
+        );
+        // Ferocity m=1.0 → berserk_bonus = 0.50 * 1.0 = 0.50
+        assert!((stats.berserk_bonus - 0.5).abs() < 0.01, "berserk: {}", stats.berserk_bonus);
+    }
+
+    #[test]
+    fn resolve_combat_stats_timid_negative_berserk() {
+        let config = default_config();
+        let upgrades = empty_upgrades();
+        let personality = Personality {
+            trait1: Some(TraitInstance { kind: TraitKind::Ferocity, magnitude: -1.0 }),
+            trait2: None,
+        };
+        let stats = resolve_combat_stats(
+            Job::Archer, BaseAttackType::Ranged, 0, 0,
+            &personality, &config, &upgrades, 0.0, 0.0,
+        );
+        assert!(stats.berserk_bonus < 0.0, "timid should have negative berserk: {}", stats.berserk_bonus);
+    }
+
+    // -- resolve_tower_instance_stats ----------------------------------------
+
+    #[test]
+    fn resolve_tower_instance_stats_level_0_defaults() {
+        let stats = resolve_tower_instance_stats(0, &[]);
+        assert!((stats.range - TOWER_STATS.range).abs() < 0.01);
+        assert!((stats.damage - TOWER_STATS.damage).abs() < 0.01);
+        assert!((stats.cooldown - TOWER_STATS.cooldown).abs() < 0.01);
+    }
+
+    #[test]
+    fn resolve_tower_instance_stats_level_scales() {
+        let stats_lv0 = resolve_tower_instance_stats(0, &[]);
+        let stats_lv10 = resolve_tower_instance_stats(10, &[]);
+        assert!(stats_lv10.damage > stats_lv0.damage);
+        assert!(stats_lv10.range > stats_lv0.range);
+    }
+
+    // -- UpgradeRegistry::stat_mult ------------------------------------------
+
+    #[test]
+    fn stat_mult_zero_levels_returns_1() {
+        let levels = vec![0u8; upgrade_count()];
+        let mult = UPGRADES.stat_mult(&levels, "Military (Ranged)", UpgradeStatKind::Attack);
+        assert!((mult - 1.0).abs() < 0.001, "zero upgrade should give 1.0x mult, got {mult}");
+    }
+}

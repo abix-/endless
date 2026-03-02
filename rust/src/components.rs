@@ -794,3 +794,161 @@ impl Personality {
         mods
     }
 }
+
+// ============================================================================
+// UNIT TESTS
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn neutral() -> Personality {
+        Personality::default()
+    }
+
+    fn with_trait(kind: TraitKind, magnitude: f32) -> Personality {
+        Personality {
+            trait1: Some(TraitInstance { kind, magnitude }),
+            trait2: None,
+        }
+    }
+
+    // -- Neutral personality (no traits) -------------------------------------
+
+    #[test]
+    fn neutral_stat_mods_all_one() {
+        let mods = neutral().get_stat_mods();
+        assert_eq!(mods.damage, 1.0);
+        assert_eq!(mods.hp, 1.0);
+        assert_eq!(mods.speed, 1.0);
+        assert_eq!(mods.range, 1.0);
+        assert_eq!(mods.cooldown, 1.0);
+        assert_eq!(mods.work_yield, 1.0);
+        assert_eq!(mods.berserk_bonus, 0.0);
+    }
+
+    #[test]
+    fn neutral_behavior_mods_all_one() {
+        let mods = neutral().get_behavior_mods();
+        assert_eq!(mods.fight, 1.0);
+        assert_eq!(mods.flee, 1.0);
+        assert_eq!(mods.rest, 1.0);
+        assert_eq!(mods.eat, 1.0);
+        assert_eq!(mods.work, 1.0);
+        assert_eq!(mods.wander, 1.0);
+        assert!(!mods.never_flees);
+        assert_eq!(mods.flee_threshold_add, 0.0);
+    }
+
+    // -- Courage axis --------------------------------------------------------
+
+    #[test]
+    fn brave_never_flees() {
+        let mods = with_trait(TraitKind::Courage, 1.0).get_behavior_mods();
+        assert!(mods.never_flees);
+    }
+
+    #[test]
+    fn coward_flees_earlier() {
+        let mods = with_trait(TraitKind::Courage, -1.0).get_behavior_mods();
+        assert!(!mods.never_flees);
+        assert!(mods.flee_threshold_add > 0.0, "coward should increase flee threshold");
+    }
+
+    #[test]
+    fn courage_no_stat_effect() {
+        let mods = with_trait(TraitKind::Courage, 1.0).get_stat_mods();
+        assert_eq!(mods.damage, 1.0);
+        assert_eq!(mods.hp, 1.0);
+    }
+
+    // -- Ferocity axis -------------------------------------------------------
+
+    #[test]
+    fn berserker_positive_berserk_bonus() {
+        let mods = with_trait(TraitKind::Ferocity, 1.0).get_stat_mods();
+        assert!((mods.berserk_bonus - 0.5).abs() < 0.01, "expected 0.5, got {}", mods.berserk_bonus);
+    }
+
+    #[test]
+    fn timid_negative_berserk_bonus() {
+        let mods = with_trait(TraitKind::Ferocity, -1.0).get_stat_mods();
+        assert!((mods.berserk_bonus - (-0.5)).abs() < 0.01, "expected -0.5, got {}", mods.berserk_bonus);
+    }
+
+    #[test]
+    fn berserker_increases_fight_decreases_flee() {
+        let mods = with_trait(TraitKind::Ferocity, 1.0).get_behavior_mods();
+        assert!(mods.fight > 1.0);
+        assert!(mods.flee < 1.0);
+    }
+
+    // -- Power axis ----------------------------------------------------------
+
+    #[test]
+    fn strong_increases_damage() {
+        let mods = with_trait(TraitKind::Power, 1.0).get_stat_mods();
+        assert!(mods.damage > 1.0, "strong should increase damage");
+    }
+
+    #[test]
+    fn weak_decreases_damage() {
+        let mods = with_trait(TraitKind::Power, -1.0).get_stat_mods();
+        assert!(mods.damage < 1.0, "weak should decrease damage");
+    }
+
+    // -- Vitality axis -------------------------------------------------------
+
+    #[test]
+    fn hardy_increases_hp() {
+        let mods = with_trait(TraitKind::Vitality, 1.0).get_stat_mods();
+        assert!(mods.hp > 1.0, "hardy should increase HP");
+    }
+
+    // -- Agility axis --------------------------------------------------------
+
+    #[test]
+    fn swift_increases_speed() {
+        let mods = with_trait(TraitKind::Agility, 1.0).get_stat_mods();
+        assert!(mods.speed > 1.0);
+    }
+
+    // -- Diligence axis ------------------------------------------------------
+
+    #[test]
+    fn efficient_increases_work_yield() {
+        let mods = with_trait(TraitKind::Diligence, 1.0).get_stat_mods();
+        assert!(mods.work_yield > 1.0);
+    }
+
+    #[test]
+    fn efficient_increases_work_behavior() {
+        let mods = with_trait(TraitKind::Diligence, 1.0).get_behavior_mods();
+        assert!(mods.work > 1.0);
+    }
+
+    // -- trait_summary -------------------------------------------------------
+
+    #[test]
+    fn trait_summary_empty_for_neutral() {
+        assert_eq!(neutral().trait_summary(), "");
+    }
+
+    #[test]
+    fn trait_summary_one_trait() {
+        let p = with_trait(TraitKind::Courage, 1.0);
+        let s = p.trait_summary();
+        assert!(!s.is_empty());
+        assert!(!s.contains("+"), "one trait should not have separator");
+    }
+
+    #[test]
+    fn trait_summary_two_traits() {
+        let p = Personality {
+            trait1: Some(TraitInstance { kind: TraitKind::Courage, magnitude: 1.0 }),
+            trait2: Some(TraitInstance { kind: TraitKind::Power, magnitude: 1.0 }),
+        };
+        assert!(p.trait_summary().contains(" + "));
+    }
+}
