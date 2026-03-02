@@ -2352,3 +2352,123 @@ pub fn rebuild_patrol_routes_system(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::components::{Activity, Building, CombatState, Dead};
+    use crate::resources::GameTime;
+    use bevy::time::TimeUpdateStrategy;
+
+    // ========================================================================
+    // on_duty_tick_system tests
+    // ========================================================================
+
+    fn setup_on_duty_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(GameTime::default());
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.add_systems(FixedUpdate, on_duty_tick_system);
+        app.update();
+        app.update();
+        app
+    }
+
+    #[test]
+    fn on_duty_increments_ticks_waiting() {
+        let mut app = setup_on_duty_app();
+        let npc = app.world_mut().spawn((
+            Activity::OnDuty { ticks_waiting: 0 },
+            CombatState::None,
+        )).id();
+
+        app.update();
+        let activity = app.world().get::<Activity>(npc).unwrap();
+        if let Activity::OnDuty { ticks_waiting } = activity {
+            assert!(*ticks_waiting > 0, "ticks_waiting should increment: {ticks_waiting}");
+        } else {
+            panic!("activity should still be OnDuty");
+        }
+    }
+
+    #[test]
+    fn on_duty_fighting_skipped() {
+        let mut app = setup_on_duty_app();
+        let npc = app.world_mut().spawn((
+            Activity::OnDuty { ticks_waiting: 0 },
+            CombatState::Fighting { origin: Vec2::ZERO },
+        )).id();
+
+        app.update();
+        let activity = app.world().get::<Activity>(npc).unwrap();
+        if let Activity::OnDuty { ticks_waiting } = activity {
+            assert_eq!(*ticks_waiting, 0, "fighting NPCs should not increment ticks");
+        } else {
+            panic!("activity should still be OnDuty");
+        }
+    }
+
+    #[test]
+    fn on_duty_paused_no_change() {
+        let mut app = setup_on_duty_app();
+        app.world_mut().resource_mut::<GameTime>().paused = true;
+        let npc = app.world_mut().spawn((
+            Activity::OnDuty { ticks_waiting: 5 },
+            CombatState::None,
+        )).id();
+
+        app.update();
+        let activity = app.world().get::<Activity>(npc).unwrap();
+        if let Activity::OnDuty { ticks_waiting } = activity {
+            assert_eq!(*ticks_waiting, 5, "paused should not increment: {ticks_waiting}");
+        }
+    }
+
+    #[test]
+    fn on_duty_dead_excluded() {
+        let mut app = setup_on_duty_app();
+        let npc = app.world_mut().spawn((
+            Activity::OnDuty { ticks_waiting: 0 },
+            CombatState::None,
+            Dead,
+        )).id();
+
+        app.update();
+        let activity = app.world().get::<Activity>(npc).unwrap();
+        if let Activity::OnDuty { ticks_waiting } = activity {
+            assert_eq!(*ticks_waiting, 0, "dead NPC should not increment");
+        }
+    }
+
+    #[test]
+    fn on_duty_buildings_excluded() {
+        let mut app = setup_on_duty_app();
+        let bld = app.world_mut().spawn((
+            Activity::OnDuty { ticks_waiting: 0 },
+            CombatState::None,
+            Building { kind: crate::world::BuildingKind::Tower },
+        )).id();
+
+        app.update();
+        let activity = app.world().get::<Activity>(bld).unwrap();
+        if let Activity::OnDuty { ticks_waiting } = activity {
+            assert_eq!(*ticks_waiting, 0, "buildings should not increment");
+        }
+    }
+
+    #[test]
+    fn non_on_duty_activity_unchanged() {
+        let mut app = setup_on_duty_app();
+        let npc = app.world_mut().spawn((
+            Activity::Working,
+            CombatState::None,
+        )).id();
+
+        app.update();
+        let activity = app.world().get::<Activity>(npc).unwrap();
+        assert!(matches!(activity, Activity::Working), "non-OnDuty activity should not change");
+    }
+}

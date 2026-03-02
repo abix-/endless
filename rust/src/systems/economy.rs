@@ -1677,4 +1677,250 @@ mod tests {
         let key = (Job::Miner as i32, 1);
         assert_eq!(stats.0[&key].working, 1);
     }
+
+    // ========================================================================
+    // raider_forage_system tests
+    // ========================================================================
+
+    fn setup_forage_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(GameTime::default());
+        app.insert_resource(FoodStorage { food: vec![0, 0] });
+        app.insert_resource(GoldStorage { gold: vec![0, 0] });
+        app.insert_resource(PopulationStats::default());
+        app.insert_resource(TownInventory::default());
+        app.insert_resource(WorldData {
+            towns: vec![
+                crate::world::Town { name: "Player".into(), center: Vec2::ZERO, faction: 0, sprite_type: 0 },
+                crate::world::Town { name: "Raider".into(), center: Vec2::new(1000.0, 0.0), faction: 1, sprite_type: 1 },
+            ],
+        });
+        app.insert_resource(crate::settings::UserSettings::default());
+        app.insert_resource(RaiderState { max_pop: vec![5, 5], respawn_timers: vec![0.0, 0.0], forage_timers: vec![0.0, 0.0] });
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.add_systems(FixedUpdate, raider_forage_system);
+        app.update();
+        app.update();
+        app
+    }
+
+    #[test]
+    fn raider_forage_adds_food_on_hour_tick() {
+        let mut app = setup_forage_app();
+        app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
+        // Set forage timer for raider town (index 1) to threshold
+        let interval = app.world().resource::<crate::settings::UserSettings>().raider_forage_hours;
+        app.world_mut().resource_mut::<RaiderState>().forage_timers[1] = interval - 1.0;
+
+        app.update();
+        let food = app.world().resource::<FoodStorage>().food[1];
+        assert!(food > 0, "raider town should gain food from foraging: {food}");
+    }
+
+    #[test]
+    fn raider_forage_skips_without_hour_tick() {
+        let mut app = setup_forage_app();
+        app.world_mut().resource_mut::<GameTime>().hour_ticked = false;
+
+        app.update();
+        let food = app.world().resource::<FoodStorage>().food[1];
+        assert_eq!(food, 0, "no foraging without hour tick");
+    }
+
+    #[test]
+    fn raider_forage_player_town_unaffected() {
+        let mut app = setup_forage_app();
+        app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
+        let interval = app.world().resource::<crate::settings::UserSettings>().raider_forage_hours;
+        app.world_mut().resource_mut::<RaiderState>().forage_timers[1] = interval - 1.0;
+
+        app.update();
+        let food = app.world().resource::<FoodStorage>().food[0];
+        assert_eq!(food, 0, "player town should not get raider forage food");
+    }
+
+    // ========================================================================
+    // growth_system tests
+    // ========================================================================
+
+    fn setup_growth_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(GameTime::default());
+        app.insert_resource(EntityMap::default());
+        app.insert_resource(crate::systems::stats::TownUpgrades { levels: vec![vec![0; crate::systems::stats::upgrade_count()]] });
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.add_systems(FixedUpdate, growth_system);
+        app.update();
+        app.update();
+        app
+    }
+
+    fn add_farm(app: &mut App, slot: usize, tended: bool) {
+        let mut inst = test_building_instance(slot, BuildingKind::Farm, 0.0);
+        inst.occupants = if tended { 1 } else { 0 };
+        inst.growth_progress = 0.0;
+        inst.growth_ready = false;
+        app.world_mut().resource_mut::<EntityMap>().add_instance(inst);
+    }
+
+    #[test]
+    fn farm_grows_when_tended() {
+        let mut app = setup_growth_app();
+        add_farm(&mut app, 0, true);
+
+        app.update();
+        let inst = app.world().resource::<EntityMap>().get_instance(0).unwrap();
+        assert!(inst.growth_progress > 0.0, "tended farm should grow: {}", inst.growth_progress);
+    }
+
+    #[test]
+    fn farm_grows_untended_at_base_rate() {
+        let mut app = setup_growth_app();
+        add_farm(&mut app, 0, false);
+
+        app.update();
+        let inst = app.world().resource::<EntityMap>().get_instance(0).unwrap();
+        assert!(inst.growth_progress > 0.0, "untended farm should still grow at base rate: {}", inst.growth_progress);
+    }
+
+    #[test]
+    fn tended_farm_grows_faster() {
+        let mut app = setup_growth_app();
+        add_farm(&mut app, 0, false);
+        add_farm(&mut app, 1, true);
+
+        app.update();
+        let untended = app.world().resource::<EntityMap>().get_instance(0).unwrap().growth_progress;
+        let tended = app.world().resource::<EntityMap>().get_instance(1).unwrap().growth_progress;
+        assert!(tended > untended, "tended should grow faster: tended={tended}, untended={untended}");
+    }
+
+    #[test]
+    fn farm_becomes_ready() {
+        let mut app = setup_growth_app();
+        let mut inst = test_building_instance(0, BuildingKind::Farm, 0.0);
+        inst.occupants = 1;
+        inst.growth_progress = 0.99;
+        app.world_mut().resource_mut::<EntityMap>().add_instance(inst);
+
+        for _ in 0..50 {
+            app.update();
+        }
+        let inst = app.world().resource::<EntityMap>().get_instance(0).unwrap();
+        assert!(inst.growth_ready, "farm should become ready");
+        assert!((inst.growth_progress - 1.0).abs() < f32::EPSILON, "progress should cap at 1.0");
+    }
+
+    #[test]
+    fn growth_paused_no_change() {
+        let mut app = setup_growth_app();
+        app.world_mut().resource_mut::<GameTime>().paused = true;
+        add_farm(&mut app, 0, true);
+
+        app.update();
+        let inst = app.world().resource::<EntityMap>().get_instance(0).unwrap();
+        assert!(inst.growth_progress < f32::EPSILON, "paused: farm should not grow");
+    }
+
+    #[test]
+    fn mine_grows_only_when_tended() {
+        let mut app = setup_growth_app();
+        let mut inst = test_building_instance(0, BuildingKind::GoldMine, 0.0);
+        inst.occupants = 0;
+        app.world_mut().resource_mut::<EntityMap>().add_instance(inst);
+
+        app.update();
+        let progress = app.world().resource::<EntityMap>().get_instance(0).unwrap().growth_progress;
+        assert!(progress < f32::EPSILON, "mine with 0 workers should not grow: {progress}");
+    }
+
+    #[test]
+    fn mine_grows_with_workers() {
+        let mut app = setup_growth_app();
+        let mut inst = test_building_instance(0, BuildingKind::GoldMine, 0.0);
+        inst.occupants = 2;
+        app.world_mut().resource_mut::<EntityMap>().add_instance(inst);
+
+        app.update();
+        let progress = app.world().resource::<EntityMap>().get_instance(0).unwrap().growth_progress;
+        assert!(progress > 0.0, "mine with workers should grow: {progress}");
+    }
+
+    // ========================================================================
+    // merchant_tick_system tests
+    // ========================================================================
+
+    fn setup_merchant_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(GameTime::default());
+        app.insert_resource(EntityMap::default());
+        app.insert_resource(MerchantInventory::default());
+        app.insert_resource(NextLootItemId::default());
+        app.insert_resource(WorldData {
+            towns: vec![
+                crate::world::Town { name: "Town".into(), center: Vec2::ZERO, faction: 0, sprite_type: 0 },
+            ],
+        });
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.add_systems(FixedUpdate, merchant_tick_system);
+        app.update();
+        app.update();
+        app
+    }
+
+    #[test]
+    fn merchant_no_building_no_tick() {
+        let mut app = setup_merchant_app();
+
+        for _ in 0..50 {
+            app.update();
+        }
+        let inv = app.world().resource::<MerchantInventory>();
+        // Without a Merchant building, stocks should remain empty
+        assert!(inv.stocks.is_empty() || inv.stocks[0].items.is_empty(),
+                "no merchant building = no items");
+    }
+
+    #[test]
+    fn merchant_ticks_with_building() {
+        let mut app = setup_merchant_app();
+        // Add a merchant building to town 0
+        let mut inst = test_building_instance(0, BuildingKind::Merchant, 0.0);
+        inst.town_idx = 0;
+        app.world_mut().resource_mut::<EntityMap>().add_instance(inst);
+
+        // Run enough updates for refresh timer to expire
+        for _ in 0..100 {
+            app.update();
+        }
+        let inv = app.world().resource::<MerchantInventory>();
+        // Should have stocked items after refresh
+        assert!(!inv.stocks.is_empty(), "merchant should have stocks");
+        if !inv.stocks.is_empty() {
+            assert!(!inv.stocks[0].items.is_empty(), "merchant should have items after refresh");
+        }
+    }
+
+    #[test]
+    fn merchant_paused_no_tick() {
+        let mut app = setup_merchant_app();
+        app.world_mut().resource_mut::<GameTime>().paused = true;
+        let mut inst = test_building_instance(0, BuildingKind::Merchant, 0.0);
+        inst.town_idx = 0;
+        app.world_mut().resource_mut::<EntityMap>().add_instance(inst);
+
+        app.update();
+        let inv = app.world().resource::<MerchantInventory>();
+        assert!(inv.stocks.is_empty() || inv.stocks[0].items.is_empty(),
+                "paused: merchant should not tick");
+    }
 }
