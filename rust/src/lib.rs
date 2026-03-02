@@ -40,7 +40,7 @@ use resources::{
     NextEntityUid, NextLootItemId, NpcLogCache, NpcMetaCache, NpcTargetThrashDebug, NpcsByTownCache, PlaySfxMsg,
     PopulationStats, ProjHitState, ProjPositionState, ProjSlotAllocator, RaiderState,
     SelectedBuilding, SelectedNpc, SquadState, SystemTimings, TowerState, TownPolicies,
-    TownInventory, TutorialState, UiState,
+    TownInventory, MerchantInventory, TutorialState, UiState,
 };
 use systems::*;
 use systems::{AiPlayerConfig, AiPlayerState};
@@ -264,6 +264,7 @@ pub fn build_app(app: &mut App) {
         .init_resource::<GameAudio>()
         .init_resource::<NextLootItemId>()
         .init_resource::<TownInventory>()
+        .init_resource::<MerchantInventory>()
         .add_message::<PlaySfxMsg>()
         .insert_resource(settings::load_settings())
         // Plugins
@@ -386,6 +387,7 @@ pub fn build_app(app: &mut App) {
                 .in_set(Step::Behavior),
         )
         .add_systems(Update, sync_building_hp_render.in_set(Step::Behavior))
+        .add_systems(Update, merchant_tick_system.in_set(Step::Behavior))
         // Movement intent resolution — single owner of SetTarget, runs after all intent producers
         .add_systems(
             Update,

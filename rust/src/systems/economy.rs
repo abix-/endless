@@ -1286,3 +1286,43 @@ pub fn endless_system(
     });
     info!("Endless: boat spawned from {} edge", direction);
 }
+
+// ============================================================================
+// MERCHANT TICK SYSTEM
+// ============================================================================
+
+/// Countdown merchant refresh timers. When <=0 and town has a Merchant building, refresh stock.
+pub fn merchant_tick_system(
+    time: Res<Time>,
+    game_time: Res<GameTime>,
+    entity_map: Res<EntityMap>,
+    mut merchant_inv: ResMut<MerchantInventory>,
+    mut next_id: ResMut<NextLootItemId>,
+    world_data: Res<WorldData>,
+) {
+    if game_time.is_paused() {
+        return;
+    }
+    let hours_elapsed = game_time.delta(&time) / game_time.seconds_per_hour;
+    if hours_elapsed <= 0.0 {
+        return;
+    }
+
+    // Ensure stocks vec is sized
+    let town_count = world_data.towns.len();
+    if merchant_inv.stocks.len() < town_count {
+        merchant_inv.stocks.resize_with(town_count, MerchantStock::default);
+    }
+
+    for town_idx in 0..town_count {
+        // Only tick if this town has a merchant building
+        if entity_map.count_for_town(BuildingKind::Merchant, town_idx as u32) == 0 {
+            continue;
+        }
+        let stock = &mut merchant_inv.stocks[town_idx];
+        stock.refresh_timer -= hours_elapsed;
+        if stock.refresh_timer <= 0.0 {
+            merchant_inv.refresh(town_idx, &mut next_id);
+        }
+    }
+}

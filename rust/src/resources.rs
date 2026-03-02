@@ -1951,6 +1951,46 @@ impl TownInventory {
     }
 }
 
+/// Per-town merchant stock (items for sale + refresh timer).
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct MerchantStock {
+    pub items: Vec<crate::constants::LootItem>,
+    /// Game-hours until next stock refresh. <=0 means needs refresh.
+    pub refresh_timer: f32,
+}
+
+/// Merchant inventory per town.
+#[derive(Resource, Default, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MerchantInventory {
+    pub stocks: Vec<MerchantStock>,
+}
+
+impl MerchantInventory {
+    pub fn init(&mut self, town_count: usize) {
+        self.stocks.resize_with(town_count, MerchantStock::default);
+    }
+
+    pub fn refresh(&mut self, town_idx: usize, next_id: &mut NextLootItemId) {
+        if town_idx >= self.stocks.len() {
+            self.stocks.resize_with(town_idx + 1, MerchantStock::default);
+        }
+        let stock = &mut self.stocks[town_idx];
+        stock.items.clear();
+        let count = 4 + (next_id.next as usize % 3); // 4-6 items
+        for _ in 0..count {
+            let id = next_id.alloc();
+            stock.items.push(crate::constants::roll_loot_item(id, id as u32));
+        }
+        stock.refresh_timer = 12.0; // 12 game-hours
+    }
+
+    pub fn remove(&mut self, town_idx: usize, item_id: u64) -> Option<crate::constants::LootItem> {
+        let stock = self.stocks.get_mut(town_idx)?;
+        let pos = stock.items.iter().position(|i| i.id == item_id)?;
+        Some(stock.items.swap_remove(pos))
+    }
+}
+
 /// Per-faction statistics.
 #[derive(Clone, Default)]
 pub struct FactionStat {

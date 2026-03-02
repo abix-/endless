@@ -30,6 +30,12 @@ impl WorldState<'_> {
         gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
         commands: &mut Commands,
     ) -> Result<(), &'static str> {
+        // 1-per-town limit
+        if kind == crate::world::BuildingKind::Merchant
+            && self.entity_map.count_for_town(kind, town_data_idx as u32) >= 1
+        {
+            return Err("Only one Merchant per town");
+        }
         let faction = self
             .world_data
             .towns

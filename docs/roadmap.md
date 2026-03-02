@@ -127,15 +127,16 @@ Replace 3 fragmented carry mechanisms with 1. Currently: (1) `Activity::Returnin
 
 **Chunk 5: Merchant building**
 
-- [ ] `BuildingKind::Merchant` — Economy category, player_buildable, 50 gold, External sprite, TownGrid placement
-- [ ] 1-per-town enforcement in `place_building()`
-- [ ] `MerchantInventory` resource: per-town `MerchantStock { items: Vec<LootItem>, refresh_timer: f32 }`
-- [ ] Merchant refresh system: initial stock on placement, refresh every 12 game-hours
-- [ ] Merchant inspector UI: items with gold costs, Buy button, Reroll button (50g)
+- [x] `BuildingKind::Merchant` — Economy category, player_buildable, 50 gold, TownGrid placement
+- [x] 1-per-town enforcement in `place_building()` + build menu
+- [x] `MerchantInventory` resource: per-town `MerchantStock { items: Vec<LootItem>, refresh_timer: f32 }`
+- [x] Merchant refresh system: initial stock on placement, refresh every 12 game-hours
+- [x] Merchant inspector UI: stock with buy buttons, sell from inventory, reroll (50g)
+- [x] Save/load: MerchantInventory persisted in save data
 
 **Chunk 6: Save/load + test**
 
-- [ ] Save/load: CarriedLoot, NpcEquipment, TownInventory, MerchantInventory, NextLootItemId — all `#[serde(default)]`
+- [x] Save/load: CarriedLoot, NpcEquipment, TownInventory, MerchantInventory, NextLootItemId — all `#[serde(default)]`
 - [ ] `loot-cycle` integration test: spawn → kill → verify carry → return → deposit → equip → verify stats
 
 Key files: `components.rs` (CarriedLoot, NpcEquipment, simplified Activity::Returning), `constants.rs` (EquipmentSlot, Rarity, LootItem, NpcDef fields, roll_loot_item), `resources.rs` (TownInventory, MerchantInventory, NextLootItemId, LeftPanelTab::Inventory), `systems/health.rs` (equipment drops, carried loot transfer), `systems/behavior.rs` (carry migration, loot threshold), `systems/stats.rs` (equipment in resolve_combat_stats, equip messages), `systems/spawn.rs` (insert CarriedLoot + NpcEquipment), `systems/economy.rs` (merchant refresh, arrival deposit), `gpu.rs` (NpcEquipment query), `ui/left_panel.rs` (inventory tab), `ui/game_hud.rs` (merchant + equipment inspectors), `save.rs` (persistence), `world.rs` (BuildingKind::Merchant)

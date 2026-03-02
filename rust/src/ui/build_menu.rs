@@ -164,6 +164,7 @@ pub(crate) fn build_menu_system(
     mut build_ctx: ResMut<BuildMenuContext>,
     world_data: Res<world::WorldData>,
     food_storage: Res<FoodStorage>,
+    entity_map: Res<EntityMap>,
     user_settings: Res<UserSettings>,
     _difficulty: Res<Difficulty>,
     sprites: Res<SpriteAssets>,
@@ -277,6 +278,13 @@ pub(crate) fn build_menu_system(
                     };
                     if !show || def.display != build_ctx.build_tab {
                         continue;
+                    }
+                    // 1-per-town limit for Merchant
+                    if def.kind == BuildingKind::Merchant {
+                        let tidx = build_ctx.town_data_idx.unwrap_or(0);
+                        if entity_map.count_for_town(BuildingKind::Merchant, tidx as u32) >= 1 {
+                            continue;
+                        }
                     }
 
                     let cost = def.cost;

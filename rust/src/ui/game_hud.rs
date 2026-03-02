@@ -389,6 +389,9 @@ pub struct BuildingInspectorData<'w, 's> {
     pub carried_loot_q: Query<'w, 's, &'static CarriedLoot>,
     pub patrol_route_q: Query<'w, 's, &'static PatrolRoute>,
     pub last_hit_by_q: Query<'w, 's, &'static LastHitBy>,
+    pub merchant_inv: ResMut<'w, MerchantInventory>,
+    pub town_inventory: ResMut<'w, TownInventory>,
+    pub next_loot_id: ResMut<'w, NextLootItemId>,
 }
 
 #[derive(SystemParam)]
@@ -2350,6 +2353,96 @@ fn building_inspector_content(
             // Upgrade button — opens popup window
             if ui.button(egui::RichText::new("Upgrades").strong()).clicked() {
                 ui_state.tower_upgrade_slot = Some(slot);
+            }
+        }
+
+        BuildingKind::Merchant => {
+            let tidx = town_idx;
+            let stock = bld.merchant_inv.stocks.get(tidx);
+            let stock_count = stock.map(|s| s.items.len()).unwrap_or(0);
+            let timer = stock.map(|s| s.refresh_timer).unwrap_or(0.0);
+            ui.label(format!("Stock ({} items) — refresh in {:.1}h", stock_count, timer));
+            ui.separator();
+
+            // List stock items with Buy buttons
+            let mut buy_id: Option<u64> = None;
+            if let Some(stock) = bld.merchant_inv.stocks.get(tidx) {
+                for item in &stock.items {
+                    let (r, g, b) = item.rarity.color();
+                    let cost = item.rarity.gold_cost();
+                    let gold = bld.gold_storage.gold.get(tidx).copied().unwrap_or(0);
+                    let can_afford = gold >= cost;
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(&item.name)
+                                .color(egui::Color32::from_rgb(r, g, b)),
+                        );
+                        ui.label(format!("{:?} +{:.0}%", item.slot, item.stat_bonus * 100.0));
+                        let btn = ui.add_enabled(
+                            can_afford,
+                            egui::Button::new(format!("Buy {}g", cost)),
+                        );
+                        if btn.clicked() && can_afford {
+                            buy_id = Some(item.id);
+                        }
+                    });
+                }
+            }
+            // Process buy
+            if let Some(id) = buy_id {
+                if let Some(item) = bld.merchant_inv.remove(tidx, id) {
+                    let cost = item.rarity.gold_cost();
+                    if let Some(g) = bld.gold_storage.gold.get_mut(tidx) {
+                        *g -= cost;
+                    }
+                    bld.town_inventory.add(tidx, item);
+                }
+            }
+
+            // Sell section — items from TownInventory
+            ui.separator();
+            ui.label("Sell from inventory:");
+            let mut sell_id: Option<u64> = None;
+            if let Some(items) = bld.town_inventory.items.get(tidx) {
+                for item in items {
+                    let (r, g, b) = item.rarity.color();
+                    let sell_price = item.rarity.gold_cost() / 2;
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(&item.name)
+                                .color(egui::Color32::from_rgb(r, g, b)),
+                        );
+                        ui.label(format!("{:?}", item.slot));
+                        if ui.button(format!("Sell {}g", sell_price)).clicked() {
+                            sell_id = Some(item.id);
+                        }
+                    });
+                }
+            }
+            // Process sell
+            if let Some(id) = sell_id {
+                if let Some(item) = bld.town_inventory.remove(tidx, id) {
+                    let sell_price = item.rarity.gold_cost() / 2;
+                    if let Some(g) = bld.gold_storage.gold.get_mut(tidx) {
+                        *g += sell_price;
+                    }
+                }
+            }
+
+            // Reroll button
+            ui.separator();
+            let reroll_cost = 50;
+            let gold = bld.gold_storage.gold.get(tidx).copied().unwrap_or(0);
+            let can_reroll = gold >= reroll_cost;
+            let btn = ui.add_enabled(
+                can_reroll,
+                egui::Button::new(format!("Reroll Stock ({}g)", reroll_cost)),
+            );
+            if btn.clicked() && can_reroll {
+                if let Some(g) = bld.gold_storage.gold.get_mut(tidx) {
+                    *g -= reroll_cost;
+                }
+                bld.merchant_inv.refresh(tidx, &mut bld.next_loot_id);
             }
         }
 

@@ -225,6 +225,8 @@ pub struct SaveData {
     pub next_loot_item_id: u64,
     #[serde(default)]
     pub town_inventory: Vec<Vec<crate::constants::LootItem>>,
+    #[serde(default)]
+    pub merchant_stocks: Vec<crate::resources::MerchantStock>,
 
     // Building vecs + towns — registry-driven via #[serde(flatten)]
     // Captures: towns, farms, beds, waypoints, farmer_homes, archer_homes,
@@ -605,6 +607,7 @@ pub fn collect_save_data(
     uid_alloc: &NextEntityUid,
     next_loot_id: &crate::resources::NextLootItemId,
     town_inventory: &crate::resources::TownInventory,
+    merchant_inv: &crate::resources::MerchantInventory,
 ) -> SaveData {
     // Terrain + buildings
     let terrain: Vec<u8> = grid.cells.iter().map(|c| biome_to_u8(c.terrain)).collect();
@@ -819,6 +822,7 @@ pub fn collect_save_data(
         next_entity_uid: Some(uid_alloc.0),
         next_loot_item_id: next_loot_id.next,
         town_inventory: town_inventory.items.clone(),
+        merchant_stocks: merchant_inv.stocks.clone(),
         endless_mode: endless.enabled,
         endless_strength: endless.strength_fraction,
         endless_pending: endless.pending_spawns.clone(),
@@ -925,6 +929,7 @@ pub fn apply_save(
     slots: &mut GpuSlotPool,
     next_loot_id: &mut crate::resources::NextLootItemId,
     town_inventory: &mut crate::resources::TownInventory,
+    merchant_inv: &mut crate::resources::MerchantInventory,
 ) {
     info!("Applying save version {}", save.version);
 
@@ -1126,6 +1131,7 @@ pub fn apply_save(
     // Loot system
     next_loot_id.next = save.next_loot_item_id;
     town_inventory.items = save.town_inventory.clone();
+    merchant_inv.stocks = save.merchant_stocks.clone();
 
     // NPC tracking
     npcs_by_town.0 = vec![Vec::new(); num_towns];
@@ -1351,6 +1357,7 @@ pub struct SaveFactionState<'w> {
     pub endless: ResMut<'w, EndlessMode>,
     pub next_loot_id: ResMut<'w, crate::resources::NextLootItemId>,
     pub town_inventory: ResMut<'w, crate::resources::TownInventory>,
+    pub merchant_inv: ResMut<'w, crate::resources::MerchantInventory>,
 }
 
 /// NPC queries for save (collect_npc_data).
@@ -1668,6 +1675,7 @@ pub fn save_game_system(
         &uid_alloc,
         &fs.next_loot_id,
         &fs.town_inventory,
+        &fs.merchant_inv,
     );
 
     let result = if let Some(path) = request.save_path.take() {
@@ -1759,6 +1767,7 @@ pub fn autosave_system(
         &uid_alloc,
         &fs.next_loot_id,
         &fs.town_inventory,
+        &fs.merchant_inv,
     );
 
     match write_save_to(&data, &path) {
@@ -1890,6 +1899,7 @@ pub fn restore_world_from_save(
         &mut tracking.slots,
         &mut fs.next_loot_id,
         &mut fs.town_inventory,
+        &mut fs.merchant_inv,
     );
 
     // Rebuild buildings from save payload.

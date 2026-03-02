@@ -1109,6 +1109,7 @@ pub enum BuildingKind {
     Road,
     Wall,
     Tower,
+    Merchant,
 }
 
 /// Rebuild building spatial grid. Only runs when BuildingGridDirtyMsg is received.

@@ -1976,6 +1976,28 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
     },
+    // 15: Merchant (buy/sell equipment)
+    BuildingDef {
+        kind: BuildingKind::Merchant,
+        display: DisplayCategory::Economy,
+        tile: TileSpec::Single(49, 9),
+        hp: 200.0,
+        cost: 50,
+        label: "Merchant",
+        help: "Buy and sell equipment",
+        tooltip: "Merchant — buy gear with gold, sell unwanted items.\nStock refreshes every 12 game-hours. 1 per town. HP: 200",
+        player_buildable: true,
+        raider_buildable: false,
+        placement: PlacementMode::TownGrid,
+        is_tower: false,
+        tower_stats: None,
+        on_place: OnPlace::None,
+        spawner: None,
+        save_key: Some("merchants"),
+        is_unit_home: false,
+        worksite: None,
+        autotile: false,
+    },
 ];
 
 /// Look up a building definition by kind. Panics if kind is not in registry.

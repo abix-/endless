@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-03-02e
+
+- **merchant building** — `BuildingKind::Merchant` (Economy, 50g, 200 HP, TownGrid), 1-per-town enforcement in build menu + `place_building()`. `MerchantInventory` resource with per-town `MerchantStock` (4-6 random items, 12h refresh timer). `merchant_tick_system` auto-refreshes stock. Inspector UI: rarity-colored stock with Buy buttons, Sell from TownInventory at half price, Reroll (50g). Save/load persisted via `#[serde(default)]`.
+
 ## 2026-03-02d
 
 - **inventory UI tab** — `LeftPanelTab::Inventory` with `I` keybind (Factions moved `I`→`G`), `ControlAction::ToggleInventory`, top bar button, `InventoryParams` SystemParam. Tab shows selected NPC's D2 equipment slots with rarity-colored names + stat bonuses + Unequip buttons, and scrollable town inventory list with Equip buttons. Help catalog entry added.
