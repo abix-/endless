@@ -17,13 +17,7 @@ The system uses **SystemParam bundles** for farm and economy parameters:
 - `DecisionExtras`: npc logs, combat log, policies, squad state, town upgrades
 - `Res<EntityMap>`: sole source of truth for all building instance lookups (farms, waypoints, towns, gold mines)
 
-Priority order (first match wins), with two-cadence top-of-loop bucket gating via `NpcDecisionConfig.interval`:
-
-**Top-of-loop bucket gate**: Every NPC is gated at the top of the decision loop before any queries or state reads. Two cadences based on combat state:
-- **Fighting NPCs**: gated every `COMBAT_BUCKET` (16) frames (~267ms at 60fps) — fast enough for flee/leash reactions
-- **Non-fighting NPCs**: gated by `think_buckets = max(interval × 60fps, npc_count / max_decisions_per_frame)` — adaptive bucketing with frame budget cap
-
-This reduces per-frame ECS lookups from `queries × npc_count` to `queries × (npc_count / bucket_count)`. At 10K NPCs with 120 buckets: ~83 NPCs processed per frame instead of 10K. Position is hoisted once per NPC into `npc_pos: Option<Vec2>` after the bucket gate, replacing all scattered position reads.
+Priority order (first match wins), with two-cadence top-of-loop bucket gating (see [performance.md](performance.md#bucket-gated-decision-system) for formulas and scaling numbers):
 
 **DirectControl skip** (before all priorities): NPCs with `direct_control` flag skip the entire decision system — no autonomous behavior whatsoever. The system clears `AtDestination` if present to prevent stale arrival flags. DC NPCs may accumulate loot in `Activity::Returning` while fighting (via `dc_no_return` toggle) — the Returning activity is inert while DC is active. When a DC right-click move/attack command is issued (`click_to_select_system` in render.rs), resting NPCs (`GoingToRest`/`Resting`) are woken to `Idle` so they respond to the command instead of sliding while asleep.
 
@@ -43,8 +37,6 @@ This reduces per-frame ECS lookups from `queries × npc_count` to `queries × (n
 5. Working + tired? → Stop work
 6. OnDuty + time_to_patrol? → Patrol
 7. Idle → Score Eat/Rest/Work/Wander (wounded → fountain, tired → home)
-
-Bucketing uses `(idx + frame) % bucket_count`. The adaptive floor ensures per-frame decisions never exceed `max_decisions_per_frame` (default 300) regardless of population. At 50K NPCs: 167 buckets (~300/frame, effective interval ~2.8s). At low NPC counts the interval-based bucket count dominates.
 
 All checks are **policy-driven per town**. Flee thresholds come from `TownPolicies` resource (indexed by `TownId`), not per-entity `FleeThreshold` components. Raiders use a hardcoded 0.50 threshold. `archer_aggressive` and `farmer_fight_back` policies disable flee entirely for their respective jobs.
 
@@ -186,8 +178,7 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 ### decision_system (Unified Priority Cascade)
 - Iterates a focused ECS query `(Entity, &GpuSlot, &Job, &TownId, &Faction)` with `Without<Building>, Without<Dead>` filters for the outer NPC loop. Reads/writes mutable NPC state via `DecisionNpcState` + `NpcDataQueries` SystemParam bundles (`get_mut(entity)` per NPC). Skips `direct_control` NPCs entirely, skips NPCs in transit (`activity.is_transit()`). Work state managed via always-present `NpcWorkState` component (no `Commands` needed — no archetype churn). Patrol route data read inline at usage sites (no per-NPC Vec clone). **Conditional writeback**: captures original values at loop top, compares at end — only calls `get_mut()` for changed fields (most NPCs exit early via `break 'decide`). `EntityMap` retained for building instance lookups (farms, waypoints, mines, occupancy)
 - Uses **SystemParam bundles** for farm and economy parameters (see Overview)
-- Reads `NpcDecisionConfig` for bucket count: `max(interval × 60fps, npc_count / max_decisions_per_frame)` — adaptive floor caps per-frame spike at `max_decisions_per_frame` (default 300)
-- Two-cadence top-of-loop bucket gate: fighting NPCs every 16 frames (~267ms), everything else adaptively bucketed; position hoisted into `npc_pos: Option<Vec2>` after gate
+- Bucket-gated: two-cadence top-of-loop gate (see [performance.md](performance.md#bucket-gated-decision-system))
 - Matches on Activity and CombatState enums in priority order:
 
 **Squad policy hard gate** (before combat, after arrivals):
@@ -266,12 +257,10 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 - All state transitions (wake-up, stop working) are handled in decision_system to keep decisions centralized
 
 ### healing_system
-Candidate-driven pipeline replacing full 50k NPC iteration with O(active_healing + sampled_candidates).
-
-**Architecture**: Two-loop approach with `ActiveHealingSlots` resource tracking currently-healing NPCs:
-- **Sustain-check (every frame)**: iterates only `ActiveHealingSlots.slots`, rechecks position against `exit_radius_sq` (10% hysteresis over enter radius), applies healing with starving HP cap, clears stale/dead slots
-- **Enter-check (cadenced, 1/4 NPCs per frame)**: iterates `npcs_for_town()` per town, bucket-filtered by `slot % 4`, checks position against `enter_radius_sq`, collects candidates then activates in one mutation pass with dedup
-- **Building healing** (unchanged): gated behind `BuildingHealState.needs_healing`, iterates only damaged buildings
+Candidate-driven pipeline (see [performance.md](performance.md#candidate-driven-healing) for scaling details). Two-loop approach with `ActiveHealingSlots` resource:
+- **Sustain-check (every frame)**: iterates only active slots, rechecks position with hysteresis radii, applies healing with starving HP cap, clears stale/dead slots
+- **Enter-check (cadenced)**: bucket-filtered per town, collects candidates then activates in one mutation pass with dedup
+- **Building healing**: gated behind `BuildingHealState.needs_healing`, iterates only damaged buildings
 
 **Zone lookup**: Precomputes `HashMap<i32, Vec<&HealingZone>>` once per frame from `HealingZoneCache.by_faction` for safe negative/sparse faction indexing.
 

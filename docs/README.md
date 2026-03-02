@@ -59,6 +59,7 @@ UI-selectable integration tests run inside the full Bevy app via a bevy_egui men
 | `slot-reuse-wave` | 5 | AI wave vs destroyed building: EntityUid prevents ABA slot reuse (wave correctly ends) |
 | `coalesce-movement` | 2 | GPU-authoritative position safety: SetPosition on foreign slot doesn't teleport other NPCs |
 | `coalesce-arrival` | 2 | GPU-authoritative arrival safety: arrived NPC stays stable after unrelated SetTarget |
+| `sandbox` | 1 | Human player sandbox: 1 player + 1 AI town, 100K food+gold, no raiders — auto-completes for free play |
 
 ## System Map
 
@@ -123,7 +124,7 @@ Frame execution order ───────────────────�
 | [rendering.md](rendering.md) | TilemapChunk terrain, GPU instanced buildings/NPCs/equipment, 4-atlas pipeline (char/world/extras/building), explicit sort-key pass ordering, RenderCommand pattern, camera controls, health bars | 8/10 |
 | [combat.md](combat.md) | Attack → damage → death → XP grant → cleanup, slot recycling | 8/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation, DRY save-load via materialize_npc | 8/10 |
-| [behavior.md](behavior.md) | Decision system, utility AI, state machine, energy, patrol, flee/leash | 8/10 |
+| [behavior.md](behavior.md) | Decision system, utility AI, state machine, energy, patrol, flee/leash (bucketing formulas → performance.md) | 8/10 |
 | [ai-player.md](ai-player.md) | AI decision loop, hunger system, building scoring, slot placement, squad commander, migration | 8/10 |
 | [economy.md](economy.md) | Farm growth, food theft, starvation, raider foraging, spawner respawn (BuildingInstance fields), dynamic raider town migration (spawn→boat→disembark→walk→settle) | 8/10 |
 | [messages.md](messages.md) | Message flow, GpuUpdateMsg, GAME_CONFIG_STAGING, readback resources (authority → [authority.md](authority.md)) | 7/10 |

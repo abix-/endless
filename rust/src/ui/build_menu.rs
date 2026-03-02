@@ -286,10 +286,10 @@ pub(crate) fn build_menu_system(
                     if !show || def.display != build_ctx.build_tab {
                         continue;
                     }
-                    // 1-per-town limit for Merchant
-                    if def.kind == BuildingKind::Merchant {
+                    // 1-per-town limit for Merchant and Casino
+                    if matches!(def.kind, BuildingKind::Merchant | BuildingKind::Casino) {
                         let tidx = build_ctx.town_data_idx.unwrap_or(0);
-                        if entity_map.count_for_town(BuildingKind::Merchant, tidx as u32) >= 1 {
+                        if entity_map.count_for_town(def.kind, tidx as u32) >= 1 {
                             continue;
                         }
                     }

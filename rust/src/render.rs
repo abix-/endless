@@ -730,6 +730,11 @@ fn click_to_select_system(
                 }
             }
         }
+
+        // Double-click casino -> open blackjack popup.
+        if is_double && kind == crate::world::BuildingKind::Casino {
+            click.ui_state.casino_open = true;
+        }
     } else {
         click.selected_building.active = false;
         click.selected_building.slot = None;

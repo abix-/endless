@@ -201,8 +201,8 @@ pub fn death_system(
 ) {
     // Phase 1a: Mark newly dead NPCs (immediate — processed same frame)
     let mut death_count = 0;
-    {
-        let dead_slots: Vec<usize> = res
+    let dead_npc_slots: Vec<usize> = {
+        let newly_dead: Vec<usize> = res
             .entity_map
             .iter_npcs()
             .filter(|n| !n.dead)
@@ -214,13 +214,14 @@ pub fn death_system(
             })
             .map(|n| n.slot)
             .collect();
-        for slot in dead_slots {
+        for &slot in &newly_dead {
             if let Some(npc) = res.entity_map.get_npc_mut(slot) {
                 npc.dead = true;
                 death_count += 1;
             }
         }
-    }
+        newly_dead
+    };
 
     // Phase 1b: Mark newly dead buildings (deferred — processed next frame)
     for (entity, health) in building_mark_query.iter() {
@@ -236,13 +237,8 @@ pub fn death_system(
     // Phase 2a: Process dead buildings (from previous frame, via ECS Dead query)
     let mut despawn_count = 0;
     let has_dead_buildings = !building_dead_query.is_empty();
-    // Collect dead NPC slots for Phase 2b (avoids borrow conflict with killer processing)
-    let dead_npc_slots: Vec<usize> = res
-        .entity_map
-        .iter_npcs()
-        .filter(|n| n.dead)
-        .map(|n| n.slot)
-        .collect();
+    // Reuse Phase 1a's dead_npc_slots — death_system processes all dead NPCs every frame,
+    // so no dead NPCs persist across frames. Eliminates a second O(n) iter_npcs() scan.
 
     if has_dead_buildings || !dead_npc_slots.is_empty() {
         res.dirty_writers

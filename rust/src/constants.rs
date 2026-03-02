@@ -1998,6 +1998,28 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
     },
+    // 16: Casino (blackjack minigame, 1 per town)
+    BuildingDef {
+        kind: BuildingKind::Casino,
+        display: DisplayCategory::Economy,
+        tile: TileSpec::Single(51, 9),
+        hp: 200.0,
+        cost: 80,
+        label: "Casino",
+        help: "Play blackjack",
+        tooltip: "Casino — play blackjack against AI factions for gold.\n1 per town. HP: 200",
+        player_buildable: true,
+        raider_buildable: false,
+        placement: PlacementMode::TownGrid,
+        is_tower: false,
+        tower_stats: None,
+        on_place: OnPlace::None,
+        spawner: None,
+        save_key: Some("casinos"),
+        is_unit_home: false,
+        worksite: None,
+        autotile: false,
+    },
 ];
 
 /// Look up a building definition by kind. Panics if kind is not in registry.

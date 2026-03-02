@@ -180,7 +180,7 @@ impl ControlAction {
             Self::ToggleSquads => "Squads Tab",
             Self::ToggleInventory => "Inventory Tab",
             Self::ToggleFactions => "Factions Tab",
-            Self::ToggleBlackjack => "Blackjack Tab",
+            Self::ToggleBlackjack => "Casino",
             Self::ToggleHelp => "Help Tab",
             Self::ToggleCombatLog => "Combat Log",
             Self::ToggleFollow => "Follow Selected",

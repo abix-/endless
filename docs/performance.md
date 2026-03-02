@@ -9,13 +9,28 @@ Single source of truth for achieving maximum performance in this codebase. All o
 | DOD / Parallel arrays | Object overhead, cache misses | Contiguous `Vec<f32>` arrays (`EntityGpuState`) |
 | Spatial grid | O(n²) neighbor search | O(n×k) cell lookup (GPU 256×256 grid, CPU `EntityMap` spatial buckets) |
 | GPU compute | CPU bottleneck for movement/targeting | Parallel compute shader for all NPCs every frame |
-| Instanced rendering | Draw call overhead (16K entities = 16K draw calls) | 1 entity per batch, storage buffer path, one `draw_indexed` per layer |
+| Instanced rendering | Draw call overhead (16K entities = 16K draw calls) | 1 `NpcBatch` entity for NPC storage-buffer path; buildings/overlays/projectiles use instance buffers. One `draw_indexed` per layer |
 | Pipelined rendering | CPU/GPU sync stalls | Parallel main + render worlds, extract barrier once per frame |
 | GPU readback avoidance | PCIe transfer stalls pipeline | Render reads GPU buffers directly; CPU readback async + throttled |
 | Dirty-index uploads | Bulk buffer writes waste bandwidth | Per-dirty-index `write_buffer` (typically <1KB vs ~4MB bulk at 30K entities) |
 | Coalesced writes | Many small GPU writes | Adjacent dirty indices merged into range writes (strict for GPU-authoritative, gap-based for CPU-authoritative) |
 | Cadenced processing | Per-frame CPU spikes at scale | Bucket-gated systems spread NPC processing across frames |
 | Event-driven updates | Redundant per-frame rebuilds | Dirty flags + message-driven triggers (visual upload, terrain sync, building grid) |
+
+## Performance Targets
+
+| Metric | 10K NPCs | 30K NPCs | 50K NPCs |
+|--------|----------|----------|----------|
+| UPS (FixedUpdate) | 60 | 60 | 60 |
+| FPS (render) | 60 | 60 | 45-60 |
+| Frame budget (FixedUpdate) | <8ms | <12ms | <16ms |
+| Decision system | <1ms | <3ms | <5ms |
+| GPU compute dispatch | <2ms | <3ms | <4ms |
+| Visual upload (steady) | <0.1ms | <0.1ms | <0.1ms |
+
+Reference hardware: mid-range discrete GPU (GTX 1060 / RX 580 class), 4-core CPU.
+
+Benchmark: manual profiler via `SystemTimings` (enable `debug_profiler` in settings). No `cargo bench` harness yet.
 
 ## Hybrid Data Access Rule
 
@@ -35,6 +50,7 @@ Treat `slot` as the canonical foreign key between ECS and `EntityMap`.
 3. Required bridge: `slot <-> Entity` mapping stays synchronized.
 4. Uniqueness rule: NPCs and buildings share one slot namespace; a slot value cannot be owned by both at the same time.
 5. Secondary indexes are allowed for performance (`Entity -> slot`, grid cell, kind+town, spatial buckets), but all must resolve to the same canonical `slot`.
+6. Invariants enforced via `debug_assert` in `resources.rs`: UID bijection (`uid_to_slot` / `slot_to_uid` stay synchronized on every register/unregister), slot uniqueness (cannot register two entities to same slot), town index validity (`town_idx != u32::MAX`). Debug builds only — zero cost in release. Invariant failure = slot lifecycle bug.
 
 ## Scope
 
@@ -51,7 +67,7 @@ Apply the hybrid rule to any runtime path that is expected to scale with populat
 GPU→CPU readback stalls the pipeline. Rules:
 - Render pipeline reads GPU buffers directly (positions/health via bind group 2) — no readback needed for rendering.
 - CPU readback is async via Bevy's `ReadbackComplete` observers — never blocks.
-- Throttle expensive readbacks: `factions` every 60 frames, `threat_counts` every 30 frames.
+- Throttle expensive readbacks: `factions` and `threat_counts` at cadences listed in Current Tunings.
 - Size readback buffers to actual entity count, not MAX.
 - See [authority.md](authority.md) for which readback fields are authoritative.
 
@@ -59,7 +75,7 @@ GPU→CPU readback stalls the pipeline. Rules:
 
 `EntityGpuState` tracks per-field dirty indices. `extract_npc_data` uploads only changed slots:
 - **Strict coalescing** (GPU-authoritative: positions, arrivals): merges only exactly-adjacent dirty indices. Stale CPU values would teleport NPCs.
-- **Gap-based coalescing** (CPU-authoritative: targets, speeds, factions, healths, flags): merges nearby dirty indices with configurable gap thresholds (up to ~24KB wasted per gap). 40% window fallback to bulk offset write.
+- **Gap-based coalescing** (CPU-authoritative: targets, speeds, factions, healths, flags): merges nearby dirty indices with configurable gap thresholds. Waste budget and fallback threshold in Current Tunings.
 - **Visual/equip**: gap-based coalescing via `visual_uploaded_indices` / `equip_uploaded_indices`. Flash-only slots skip equip entirely.
 - Full rebuild only on startup/load (`visual_full_rebuild` flag).
 
@@ -77,21 +93,21 @@ Custom pipeline replaces Bevy's per-entity sprite renderer:
 
 At 10K+ NPCs, running `decision_system` for every NPC every frame is too expensive. Solution: bucket gating.
 
-- **Fighting NPCs**: `COMBAT_BUCKET` = 16 frames (~267ms at 60 UPS) — fast enough for flee/leash reactions.
-- **Non-fighting NPCs**: `think_buckets = max(interval × 60, npc_count / max_decisions_per_frame)` — adaptive bucketing with frame budget cap (default 300 decisions/frame).
+- **Fighting NPCs**: `COMBAT_BUCKET` — fast enough for flee/leash reactions (see Current Tunings for value).
+- **Non-fighting NPCs**: `think_buckets = max(interval × 60, npc_count / max_decisions_per_frame)` — adaptive bucketing with frame budget cap (see Current Tunings for `max_decisions_per_frame`).
 - At 10K NPCs with 120 buckets: ~83 NPCs processed per frame instead of 10K.
 - Position hoisted once per NPC into `npc_pos` after bucket gate — eliminates scattered position reads.
-- Conditional writeback: captures original values, compares at end — only calls `get_mut()` for changed fields.
+- Conditional writeback: captures original values, compares at end — only calls `get_mut()` for changed fields. Optimal for `decision_system` where most NPCs exit early via `break 'decide` — avoids unnecessary borrow-mut for unchanged entities.
 
 ### Candidate-Driven Healing
 
 Replaced full 50K NPC iteration with O(active_healing + sampled_candidates):
 - **Sustain-check (every frame)**: iterates only `ActiveHealingSlots.slots` (active set). O(1) membership via `mark[slot]`.
-- **Enter-check (cadenced, 1/4 NPCs per frame)**: `slot % 4` bucketing per town. Hysteresis radii prevent oscillation.
+- **Enter-check (cadenced)**: `slot % N` bucketing per town (see Current Tunings). Hysteresis radii prevent oscillation.
 
 ### Fixed-Cadence Systems
 
-- `farm_visual_system`: runs every 4th frame (crop state changes slowly).
+- `farm_visual_system`: cadenced (crop state changes slowly; see Current Tunings).
 - `spawner_respawn_system`: timer-based per spawner (no per-frame iteration).
 - `raider_forage_system`: hourly timer accumulation per raider town.
 
@@ -128,7 +144,28 @@ With 5,000 NPCs, that's 12.5 million distance checks per frame. Your 60 UPS simu
 3. Sample: check 100 random pairs instead of all pairs.
 4. **If your metric is O(n²) or worse, it needs a toggle.**
 
-Profiler UI (`SystemTimings`) itself is cadenced: `Local<ProfilerCache>` refreshes every 15 frames, renders top 10 per section.
+Profiler UI (`SystemTimings`) itself is cadenced: `Local<ProfilerCache>` refresh rate and render limits in Current Tunings.
+
+## Current Tunings
+
+All volatile numeric constants in one place. Policy sections above describe *why*; this table tracks *what value*.
+
+| Tuning | Value | Location |
+|--------|-------|----------|
+| `COMBAT_BUCKET` | 16 frames (~267ms @ 60 UPS) | `behavior.rs:369` |
+| `max_decisions_per_frame` | 300 | `resources.rs:110` |
+| `CHECK_INTERVAL` (threat recheck) | 30 frames | `behavior.rs:353` |
+| `HEAL_DRIFT_RADIUS` | 100.0 | `behavior.rs:355` |
+| `ARCHER_PATROL_WAIT` | 60 ticks | `constants.rs:1207` |
+| `ENERGY_TIRED_THRESHOLD` | 30.0 | `constants.rs:1213` |
+| `ENERGY_WAKE_THRESHOLD` | 90.0 | `constants.rs:1210` |
+| Faction readback throttle | 60 frames | `gpu.rs` |
+| Threat readback throttle | 30 frames | `gpu.rs` |
+| Farm visual cadence | every 4th frame | `behavior.rs` |
+| ProfilerCache refresh | 15 frames, top 10 | `ui/game_hud.rs` |
+| Healing enter-check cadence | 1/4 NPCs per frame | `health.rs` |
+| Gap coalescing waste budget | ~24KB total across all buffers | `gpu.rs` |
+| Visual upload fallback | 40% window → bulk offset write | `gpu.rs` |
 
 ## Migration Templates
 
@@ -222,7 +259,7 @@ for npc in entity_map.iter_npcs() {
 3. Avoid rebuilding the same derived data multiple times in one pass.
 4. Avoid per-item expensive string work (`format!`, allocation-heavy debug text) in hot loops unless debug-gated.
 5. Avoid full-list dedupe scans in overlays/logical render loops when keyed dedupe is possible.
-6. Do not use `entity_map.iter_npcs()` plus per-item ECS `Query.get(...)` in per-frame/per-tick hot loops; use query-first iteration over ECS components instead.
+6. Do not use `entity_map.iter_npcs()` plus per-item ECS `Query.get(...)` in per-frame/per-tick hot loops; use query-first iteration over ECS components instead. Exception: cold paths (save) and event-driven systems (visual upload) may use `iter_npcs()` when NpcInstance fields are the primary data source. See Known Exceptions.
 7. In hot decision/combat loops, avoid clone-local-then-writeback patterns for large component state; mutate query-owned components directly where possible.
 8. Use mutable query types only when mutation is required (`Query<&T>` over `Query<&mut T>` for read-only paths) to reduce borrow/scheduling contention.
 
@@ -268,8 +305,10 @@ for npc in entity_map.iter_npcs() {
 
 ## Benchmark/Guardrail Expectations
 
+Current benchmark tool: `SystemTimings` in-game profiler (enable `debug_profiler` in settings). No `cargo bench` harness yet — adding one is tracked as aspirational.
+
 1. Add microbenchmarks for hotspot helpers when introducing or changing their logic.
-2. Keep baseline numbers for representative counts (small, medium, stress).
+2. Keep baseline numbers for representative counts (small, medium, stress) against Performance Targets.
 3. Fail CI on material regressions (for example, >20 percent for benchmarked hotspots).
 4. Document benchmark command and expected range in the PR.
 
@@ -279,5 +318,15 @@ for npc in entity_map.iter_npcs() {
 - Squad/selection flows using `Vec::contains` within nested loops.
 - Overlay target dedupe using per-target linear scans.
 - Cleanup/reassignment systems scanning full queries repeatedly instead of pre-indexing.
-- Decision system uses clone-local-then-conditional-writeback: captures original values at loop top, compares at end, only calls `get_mut()` for changed fields. Most NPCs exit early via `break 'decide` with no state changes, skipping all writeback. Work state uses always-present `NpcWorkState` (no archetype churn from insert/remove). Patrol route data read inline (no Vec clone). Remaining overhead: per-NPC component reads at loop top for ~10 fields.
-- `game_hud.rs` and `health.rs` death detection still use `entity_map.iter_npcs()` due to SystemParam borrow conflicts with existing bundles (`BuildingInspectorData`, `DeathResources`).
+- Decision system conditional writeback: captures original values at loop top, compares at end, only calls `get_mut()` for changed fields. Most NPCs exit early via `break 'decide` with no state changes, skipping all writeback. Remaining overhead: per-NPC component reads at loop top for ~10 fields.
+
+## Known Exceptions
+
+Legitimate violations of the rules above, tracked with exit criteria.
+
+| Exception | Rule violated | Reason | Cost | Exit criteria |
+|-----------|-------------|--------|------|---------------|
+| `health.rs` death detection uses `iter_npcs()` | Hot Path #6 | Need EntityMap `dead` flag + Health component in same loop | O(n) per frame (1 scan) | Add Dead marker to NPCs for query-based detection |
+| `save.rs` uses `iter_npcs()` | Hot Path #6 | Save is cold path (F5 only) | N/A | None needed |
+| `npc_render.rs` `build_visual_upload` uses `iter_npcs()` | Hot Path #6 | Needs NpcInstance fields not in ECS; event-driven dirty-only | Acceptable | None — correct pattern |
+| `roster_panel.rs` / `left_panel.rs` use `iter_npcs()` | Hot Path #6 | UI roster display needs full NPC list | 30-frame cadence cache | Add pagination or virtual scroll |

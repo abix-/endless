@@ -23,6 +23,7 @@ pub mod movement;
 pub mod npc_visuals;
 pub mod projectiles;
 pub mod raider_cycle;
+pub mod sandbox;
 pub mod sleep_visual;
 pub mod slot_reuse_wave;
 pub mod spawning;
@@ -952,6 +953,25 @@ pub fn register_tests(app: &mut App) {
         coalesce_safety::tick_arrival
             .run_if(in_state(AppState::Running))
             .run_if(test_is("coalesce-arrival"))
+            .after(Step::Behavior),
+    );
+
+    // sandbox
+    registry.tests.push(TestEntry {
+        name: "sandbox".into(),
+        description: "Human player sandbox: 1 town, 100K food+gold, no AI/raiders".into(),
+        phase_count: 1,
+        time_scale: 1.0,
+    });
+    app.add_systems(
+        OnEnter(AppState::Running),
+        sandbox::setup.run_if(test_is("sandbox")),
+    );
+    app.add_systems(
+        FixedUpdate,
+        sandbox::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("sandbox"))
             .after(Step::Behavior),
     );
 

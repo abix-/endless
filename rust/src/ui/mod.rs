@@ -567,6 +567,7 @@ pub fn register_ui(app: &mut App) {
                 game_hud::faction_squad_overlay_system,
             ),
             build_menu::build_menu_system,
+            blackjack::blackjack_window_system,
             pause_menu_system,
             game_over_system,
             game_hud::save_toast_system,
@@ -652,7 +653,7 @@ pub fn ui_toggle_system(
         ui_state.toggle_left_tab(LeftPanelTab::Factions);
     }
     if keys.just_pressed(settings.key_for_action(ControlAction::ToggleBlackjack)) {
-        ui_state.toggle_left_tab(LeftPanelTab::Blackjack);
+        ui_state.casino_open = !ui_state.casino_open;
     }
     if keys.just_pressed(settings.key_for_action(ControlAction::ToggleHelp)) {
         ui_state.toggle_left_tab(LeftPanelTab::Help);

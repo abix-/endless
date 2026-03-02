@@ -32,7 +32,7 @@ game_time_system (every frame)
     ├─ sync_miner_progress_render (every frame)
     │   └─ Populates MinerProgressRender from miners with MiningProgress (positions + progress for GPU bar rendering)
     │
-    ├─ farm_visual_system (every 4th frame, cadenced)
+    ├─ farm_visual_system (cadenced, see performance.md)
     │   └─ BuildingInstance Growing→Ready: spawn FarmReadyMarker; Ready→Growing: despawn
     │
     ├─ ai_decision_system (real-time interval, default 5s)
@@ -137,7 +137,7 @@ Farms have a growth cycle instead of infinite food:
 
 **Farm destruction**: Building removal from `EntityMap` handles cleanup. Tombstoned position (x < -9000) causes render pipeline to skip the crop sprite and `growth_system` to skip growth.
 
-**Visual feedback**: `farm_visual_system` watches `EntityMap` Farm instances for state transitions and spawns/despawns `FarmReadyMarker` entities (keyed by `farm_slot: usize` — building slot). Uses `Local<HashMap<usize, bool>>` to detect transitions without extra resources. Cadenced to run every 4th frame (crop state changes slowly). `!ready → ready` spawns a marker; `ready → !ready` (harvest) despawns it.
+**Visual feedback**: `farm_visual_system` watches `EntityMap` Farm instances for state transitions and spawns/despawns `FarmReadyMarker` entities (keyed by `farm_slot: usize` — building slot). Uses `Local<HashMap<usize, bool>>` to detect transitions without extra resources. Cadenced (see [performance.md](performance.md#fixed-cadence-systems)). `!ready → ready` spawns a marker; `ready → !ready` (harvest) despawns it.
 
 ## Starvation
 

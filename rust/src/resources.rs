@@ -2101,7 +2101,6 @@ pub enum LeftPanelTab {
     Squads,
     Inventory,
     Factions,
-    Blackjack,
     Profiler,
     Help,
 }
@@ -2172,6 +2171,8 @@ pub struct UiState {
     pub game_over: bool,
     /// Tower upgrade popup — Some(slot) when open for a specific tower.
     pub tower_upgrade_slot: Option<usize>,
+    /// Casino blackjack popup open.
+    pub casino_open: bool,
 }
 
 impl Default for UiState {
@@ -2189,6 +2190,7 @@ impl Default for UiState {
             inspector_click_seq: 0,
             game_over: false,
             tower_upgrade_slot: None,
+            casino_open: false,
         }
     }
 }
