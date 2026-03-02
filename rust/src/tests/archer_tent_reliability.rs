@@ -31,7 +31,7 @@ pub fn setup(
     // are composited and sampled correctly in this test scene.
     world_grid.width = 40;
     world_grid.height = 30;
-    world_grid.cell_size = 32.0;
+    world_grid.cell_size = crate::constants::TOWN_GRID_SPACING;
     world_grid.cells = vec![WorldCell::default(); world_grid.width * world_grid.height];
 
     world_data.towns.push(world::Town {

@@ -113,7 +113,6 @@ pub struct RosterParams<'w, 's> {
 #[derive(SystemParam)]
 pub struct UpgradeParams<'w> {
     food_storage: Res<'w, FoodStorage>,
-    gold_storage: ResMut<'w, GoldStorage>,
     faction_stats: Res<'w, FactionStats>,
     upgrades: Res<'w, TownUpgrades>,
     queue: MessageWriter<'w, UpgradeMsg>,
@@ -139,6 +138,7 @@ pub struct SquadParams<'w> {
 pub struct FactionsParams<'w, 's> {
     ai_state: ResMut<'w, AiPlayerState>,
     food_storage: Res<'w, FoodStorage>,
+    gold_storage: ResMut<'w, GoldStorage>,
     reputation: ResMut<'w, Reputation>,
     faction_stats: Res<'w, FactionStats>,
     upgrades: Res<'w, TownUpgrades>,
@@ -398,7 +398,7 @@ pub fn left_panel_system(
                     roster_content(ui, &mut roster, &mut roster_state, debug_all)
                 }
                 LeftPanelTab::Upgrades => {
-                    upgrade_content(ui, &mut upgrade, &world_data, &mut settings)
+                    upgrade_content(ui, &mut upgrade, &factions.gold_storage, &world_data, &mut settings)
                 }
                 LeftPanelTab::Policies => policies_content(
                     ui,
@@ -431,7 +431,7 @@ pub fn left_panel_system(
                 LeftPanelTab::Factions => factions_content(
                     ui,
                     &factions,
-                    &upgrade.gold_storage,
+                    &factions.gold_storage,
                     &squad.squad_state,
                     &world_data,
                     &policies,
@@ -446,7 +446,7 @@ pub fn left_panel_system(
                     crate::ui::blackjack::blackjack_content(
                         ui,
                         &mut panel_state.blackjack,
-                        &mut upgrade.gold_storage,
+                        &mut factions.gold_storage,
                         &mut factions.reputation,
                         &world_data,
                     );
@@ -816,6 +816,7 @@ fn roster_content(
 fn upgrade_content(
     ui: &mut egui::Ui,
     upgrade: &mut UpgradeParams,
+    gold_storage: &GoldStorage,
     world_data: &WorldData,
     settings: &mut UserSettings,
 ) {
@@ -830,8 +831,7 @@ fn upgrade_content(
         .get(town_idx)
         .copied()
         .unwrap_or(0);
-    let gold = upgrade
-        .gold_storage
+    let gold = gold_storage
         .gold
         .get(town_idx)
         .copied()

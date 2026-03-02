@@ -61,14 +61,14 @@ fn clamp_player_menu_caps(state: &mut MenuState) {
 
 fn size_name(size: f32) -> &'static str {
     match size as i32 {
-        4000 => "Tiny",
-        8000 => "Small",
-        12000 => "Medium",
-        16000 => "Large",
-        20000 => "Huge",
-        24000 => "Massive",
-        28000 => "Epic",
-        32000 => "Endless",
+        8000 => "Tiny",
+        16000 => "Small",
+        24000 => "Medium",
+        32000 => "Large",
+        40000 => "Huge",
+        48000 => "Massive",
+        56000 => "Epic",
+        64000 => "Endless",
         _ => "Custom",
     }
 }
@@ -161,14 +161,14 @@ pub fn main_menu_system(
 
             ui.horizontal(|ui| {
                 ui.label("World Size:").on_hover_text("Total world size in pixels. Larger worlds take longer to generate.");
-                ui.add(egui::Slider::new(&mut state.world_size, 4000.0..=32000.0)
-                    .step_by(500.0)
+                ui.add(egui::Slider::new(&mut state.world_size, 8000.0..=64000.0)
+                    .step_by(1000.0)
                     .show_value(false));
                 let mut ws = state.world_size as i32;
-                if ui.add(egui::DragValue::new(&mut ws).range(4000..=32000).speed(500)).changed() {
+                if ui.add(egui::DragValue::new(&mut ws).range(8000..=64000).speed(1000)).changed() {
                     state.world_size = ws as f32;
                 }
-                let tiles = state.world_size as i32 / 32;
+                let tiles = state.world_size as i32 / 64;
                 ui.label(format!("{} ({}x{})", size_name(state.world_size), tiles, tiles));
             });
 

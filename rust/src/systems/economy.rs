@@ -915,7 +915,7 @@ pub fn endless_system(
     if let Some(mg) = &mut migration_state.active {
         if let Some(boat_slot) = mg.boat_slot {
             let dir = (mg.settle_target - mg.boat_pos).normalize_or_zero();
-            mg.boat_pos += dir * BOAT_SPEED * time.delta_secs();
+            mg.boat_pos += dir * BOAT_SPEED * game_time.delta(&time);
 
             res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition {
                 idx: boat_slot,
@@ -1227,13 +1227,13 @@ pub fn endless_system(
 
     let mut rng = rand::rng();
     let (spawn_x, spawn_y, direction) = if min_dist == dist_north {
-        (rng.random_range(0.0..world_w), 50.0, "north")
+        (rng.random_range(0.0..world_w), 100.0, "north")
     } else if min_dist == dist_south {
-        (rng.random_range(0.0..world_w), world_h - 50.0, "south")
+        (rng.random_range(0.0..world_w), world_h - 100.0, "south")
     } else if min_dist == dist_west {
-        (50.0, rng.random_range(0.0..world_h), "west")
+        (100.0, rng.random_range(0.0..world_h), "west")
     } else {
-        (world_w - 50.0, rng.random_range(0.0..world_h), "east")
+        (world_w - 100.0, rng.random_range(0.0..world_h), "east")
     };
 
     // Spawn boat as a proper NPC entity (Job::Boat = 6)

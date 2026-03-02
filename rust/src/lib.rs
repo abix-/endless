@@ -40,7 +40,7 @@ use resources::{
     NextEntityUid, NextLootItemId, NpcLogCache, NpcMetaCache, NpcTargetThrashDebug, NpcsByTownCache, PlaySfxMsg,
     PopulationStats, ProjHitState, ProjPositionState, ProjSlotAllocator, RaiderState,
     SelectedBuilding, SelectedNpc, SquadState, SystemTimings, TowerState, TownPolicies,
-    TownInventory, MerchantInventory, TutorialState, UiState,
+    TownInventory, MerchantInventory, TutorialState, UiState, UpsCounter,
 };
 use systems::*;
 use systems::{AiPlayerConfig, AiPlayerState};
@@ -89,6 +89,10 @@ pub enum Step {
     Spawn,
     Combat,
     Behavior,
+}
+
+fn ups_tick(mut ups: ResMut<UpsCounter>) {
+    ups.ticks_this_second += 1;
 }
 
 fn frame_timer_start(timings: Res<SystemTimings>, time: Res<Time>) {
@@ -232,6 +236,7 @@ pub fn build_app(app: &mut App) {
         .init_resource::<ActiveHealingSlots>()
         .init_resource::<HealingZoneCache>()
         .init_resource::<SystemTimings>()
+        .init_resource::<UpsCounter>()
         .init_resource::<world::WorldGrid>()
         .init_resource::<world::WorldGenConfig>()
         .init_resource::<UiState>()
@@ -268,6 +273,8 @@ pub fn build_app(app: &mut App) {
         .init_resource::<MerchantInventory>()
         .add_message::<PlaySfxMsg>()
         .insert_resource(settings::load_settings())
+        // Fixed 60 UPS game loop (Factorio model)
+        .insert_resource(Time::<Fixed>::from_hz(60.0))
         // Plugins
         .add_plugins(bevy_egui::EguiPlugin::default())
         .add_plugins(gpu::GpuComputePlugin)
@@ -288,21 +295,22 @@ pub fn build_app(app: &mut App) {
             Update,
             systems::audio::play_sfx_system.run_if(game_active.clone()),
         )
-        // System sets — game systems only run during AppState::Running
+        // System sets — game systems run at fixed 60 UPS
         .configure_sets(
-            Update,
+            FixedUpdate,
             (Step::Drain, Step::Spawn, Step::Combat, Step::Behavior)
                 .chain()
                 .run_if(game_active.clone()),
         )
+        .add_systems(FixedUpdate, ups_tick)
         .add_systems(
-            Update,
+            FixedUpdate,
             frame_timer_start
                 .before(Step::Drain)
                 .run_if(game_active.clone()),
         )
         .add_systems(
-            Update,
+            FixedUpdate,
             ApplyDeferred
                 .after(Step::Spawn)
                 .before(Step::Combat)
@@ -310,22 +318,22 @@ pub fn build_app(app: &mut App) {
         )
         // Drain
         .add_systems(
-            Update,
+            FixedUpdate,
             (drain_game_config, drain_combat_log).in_set(Step::Drain),
         )
         // GPU→ECS position readback
         .add_systems(
-            Update,
+            FixedUpdate,
             gpu_position_readback
                 .after(Step::Drain)
                 .before(Step::Spawn)
                 .run_if(game_active.clone()),
         )
         // Spawn
-        .add_systems(Update, spawn_npc_system.in_set(Step::Spawn))
+        .add_systems(FixedUpdate, spawn_npc_system.in_set(Step::Spawn))
         // Combat
         .add_systems(
-            Update,
+            FixedUpdate,
             (
                 process_proj_hits,
                 cooldown_system,
@@ -339,7 +347,7 @@ pub fn build_app(app: &mut App) {
         )
         // Behavior
         .add_systems(
-            Update,
+            FixedUpdate,
             (
                 world::rebuild_building_grid_system
                     .before(decision_system)
@@ -369,36 +377,36 @@ pub fn build_app(app: &mut App) {
                 .in_set(Step::Behavior),
         )
         .add_systems(
-            Update,
+            FixedUpdate,
             systems::ai_player::perimeter_dirty_drain_system
                 .before(sync_patrol_perimeter_system)
                 .in_set(Step::Behavior),
         )
         .add_systems(
-            Update,
+            FixedUpdate,
             sync_patrol_perimeter_system
                 .before(rebuild_patrol_routes_system)
                 .in_set(Step::Behavior),
         )
         .add_systems(
-            Update,
+            FixedUpdate,
             ai_squad_commander_system
                 .after(ai_decision_system)
                 .before(decision_system)
                 .in_set(Step::Behavior),
         )
-        .add_systems(Update, sync_building_hp_render.in_set(Step::Behavior))
-        .add_systems(Update, merchant_tick_system.in_set(Step::Behavior))
+        .add_systems(FixedUpdate, sync_building_hp_render.in_set(Step::Behavior))
+        .add_systems(FixedUpdate, merchant_tick_system.in_set(Step::Behavior))
         // Movement intent resolution — single owner of SetTarget, runs after all intent producers
         .add_systems(
-            Update,
+            FixedUpdate,
             resolve_movement_system
                 .after(Step::Behavior)
                 .run_if(game_active.clone()),
         )
         // Debug settings sync + tick logging
         .add_systems(
-            Update,
+            FixedUpdate,
             (sync_debug_settings, debug_tick_system).run_if(game_active.clone()),
         )
         // Save/Load — F5/F9 input + save + load + toast

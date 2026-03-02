@@ -11,34 +11,40 @@ use crate::resources::*;
 use crate::settings::UserSettings;
 use crate::world::{self, BuildingKind, CELL, SPRITE_SIZE};
 
-/// Extract a single 32x32 image from the world atlas for a Quad tile spec.
+/// Extract a single ATLAS_CELL image from the world atlas for a Quad tile spec.
 fn extract_quad_tile(atlas: &Image, quad: [(u32, u32); 4]) -> Image {
     let sprite = SPRITE_SIZE as u32; // 16
-    let out_size = sprite * 2; // 32
+    let out_size = world::ATLAS_CELL; // 64
+    let half = out_size / 2; // 32 per quadrant
     let cell_size = CELL as u32; // 17
     let atlas_width = atlas.width();
     let atlas_data = atlas.data.as_ref().expect("atlas image has no data");
 
     let mut data = vec![0u8; (out_size * out_size * 4) as usize];
 
-    let blit = |data: &mut [u8], col: u32, row: u32, dx: u32, dy: u32| {
+    // 2x upscale each 16px quadrant into a 32px slot
+    let blit_2x = |data: &mut [u8], col: u32, row: u32, dx: u32, dy: u32| {
         let src_x = col * cell_size;
         let src_y = row * cell_size;
         for ty in 0..sprite {
             for tx in 0..sprite {
                 let si = ((src_y + ty) * atlas_width + (src_x + tx)) as usize * 4;
-                let di = ((dy + ty) * out_size + (dx + tx)) as usize * 4;
-                if si + 4 <= atlas_data.len() && di + 4 <= data.len() {
-                    data[di..di + 4].copy_from_slice(&atlas_data[si..si + 4]);
+                for oy in 0..2u32 {
+                    for ox in 0..2u32 {
+                        let di = ((dy + ty * 2 + oy) * out_size + (dx + tx * 2 + ox)) as usize * 4;
+                        if si + 4 <= atlas_data.len() && di + 4 <= data.len() {
+                            data[di..di + 4].copy_from_slice(&atlas_data[si..si + 4]);
+                        }
+                    }
                 }
             }
         }
     };
 
-    blit(&mut data, quad[0].0, quad[0].1, 0, 0); // TL
-    blit(&mut data, quad[1].0, quad[1].1, sprite, 0); // TR
-    blit(&mut data, quad[2].0, quad[2].1, 0, sprite); // BL
-    blit(&mut data, quad[3].0, quad[3].1, sprite, sprite); // BR
+    blit_2x(&mut data, quad[0].0, quad[0].1, 0, 0); // TL
+    blit_2x(&mut data, quad[1].0, quad[1].1, half, 0); // TR
+    blit_2x(&mut data, quad[2].0, quad[2].1, 0, half); // BL
+    blit_2x(&mut data, quad[3].0, quad[3].1, half, half); // BR
 
     Image::new(
         bevy::render::render_resource::Extent3d {
@@ -110,14 +116,15 @@ fn init_sprite_cache(
         let handle = match def.tile {
             TileSpec::External(path) => {
                 let ext_h = external_handle(path, sprites).unwrap();
-                // Wall: extract just the first 32x32 sprite from the strip
+                // Wall: extract just the first sprite from the strip
                 if def.kind == BuildingKind::Wall {
                     if let Some(ext_img) = images.get(ext_h) {
-                        let sprite = crate::world::extract_sprite_32(ext_img, 0);
+                        let sprite = crate::world::extract_sprite(ext_img, 0, 32);
+                        let cell = crate::world::ATLAS_CELL;
                         let img = Image::new(
                             bevy::render::render_resource::Extent3d {
-                                width: 32,
-                                height: 32,
+                                width: cell,
+                                height: cell,
                                 depth_or_array_layers: 1,
                             },
                             bevy::render::render_resource::TextureDimension::D2,

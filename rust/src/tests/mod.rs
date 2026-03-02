@@ -128,7 +128,7 @@ impl TestSetupParams<'_, '_> {
         if self.world_grid.width == 0 {
             self.world_grid.width = 25;
             self.world_grid.height = 25;
-            self.world_grid.cell_size = 32.0;
+            self.world_grid.cell_size = crate::constants::TOWN_GRID_SPACING;
             self.world_grid.cells = vec![world::WorldCell::default(); 25 * 25];
         }
         if self.entity_map.spatial_cell_size() <= 0.0 {
@@ -445,7 +445,7 @@ pub fn register_tests(app: &mut App) {
 
     // Test completion detection (returns to menu or starts next test)
     app.add_systems(
-        Update,
+        FixedUpdate,
         test_completion_system
             .run_if(in_state(AppState::Running))
             .after(Step::Behavior),
@@ -466,7 +466,7 @@ pub fn register_tests(app: &mut App) {
         vertical_slice::setup.run_if(test_is("vertical-slice")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         vertical_slice::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("vertical-slice"))
@@ -485,7 +485,7 @@ pub fn register_tests(app: &mut App) {
         spawning::setup.run_if(test_is("spawning")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         spawning::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("spawning"))
@@ -504,7 +504,7 @@ pub fn register_tests(app: &mut App) {
         energy::setup.run_if(test_is("energy")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         energy::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("energy"))
@@ -523,7 +523,7 @@ pub fn register_tests(app: &mut App) {
         movement::setup.run_if(test_is("movement")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         movement::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("movement"))
@@ -542,7 +542,7 @@ pub fn register_tests(app: &mut App) {
         archer_patrol::setup.run_if(test_is("archer-patrol")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         archer_patrol::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("archer-patrol"))
@@ -561,7 +561,7 @@ pub fn register_tests(app: &mut App) {
         farmer_cycle::setup.run_if(test_is("farmer-cycle")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         farmer_cycle::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("farmer-cycle"))
@@ -580,7 +580,7 @@ pub fn register_tests(app: &mut App) {
         raider_cycle::setup.run_if(test_is("raider-cycle")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         raider_cycle::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("raider-cycle"))
@@ -599,7 +599,7 @@ pub fn register_tests(app: &mut App) {
         combat::setup.run_if(test_is("combat")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         combat::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("combat"))
@@ -618,7 +618,7 @@ pub fn register_tests(app: &mut App) {
         projectiles::setup.run_if(test_is("projectiles")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         projectiles::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("projectiles"))
@@ -637,7 +637,7 @@ pub fn register_tests(app: &mut App) {
         archer_tent_reliability::setup.run_if(test_is("archer-tent-reliability")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         archer_tent_reliability::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("archer-tent-reliability"))
@@ -657,7 +657,7 @@ pub fn register_tests(app: &mut App) {
         fountain_shot_stale::setup.run_if(test_is("fountain-shot-stale")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         fountain_shot_stale::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("fountain-shot-stale"))
@@ -677,7 +677,7 @@ pub fn register_tests(app: &mut App) {
         friendly_fire_buildings::setup.run_if(test_is("friendly-fire-buildings")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         friendly_fire_buildings::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("friendly-fire-buildings"))
@@ -696,7 +696,7 @@ pub fn register_tests(app: &mut App) {
         healing::setup.run_if(test_is("healing")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         healing::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("healing"))
@@ -715,7 +715,7 @@ pub fn register_tests(app: &mut App) {
         economy::setup.run_if(test_is("economy")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         economy::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("economy"))
@@ -734,7 +734,7 @@ pub fn register_tests(app: &mut App) {
         world_gen::setup.run_if(test_is("world-gen")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         world_gen::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("world-gen"))
@@ -753,7 +753,7 @@ pub fn register_tests(app: &mut App) {
         sleep_visual::setup.run_if(test_is("sleep-visual")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         sleep_visual::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("sleep-visual")),
@@ -771,7 +771,7 @@ pub fn register_tests(app: &mut App) {
         farm_visual::setup.run_if(test_is("farm-visual")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         farm_visual::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("farm-visual"))
@@ -790,7 +790,7 @@ pub fn register_tests(app: &mut App) {
         heal_visual::setup.run_if(test_is("heal-visual")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         heal_visual::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("heal-visual")),
@@ -808,7 +808,7 @@ pub fn register_tests(app: &mut App) {
         npc_visuals::setup.run_if(test_is("npc-visuals")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         npc_visuals::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("npc-visuals")),
@@ -826,7 +826,7 @@ pub fn register_tests(app: &mut App) {
         terrain_visual::setup.run_if(test_is("terrain-visual")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         terrain_visual::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("terrain-visual"))
@@ -846,7 +846,7 @@ pub fn register_tests(app: &mut App) {
         endless_mode::setup.run_if(test_is("endless-mode")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         endless_mode::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("endless-mode"))
@@ -872,7 +872,7 @@ pub fn register_tests(app: &mut App) {
             .run_if(test_is("ai-building")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         ai_building::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("ai-building"))
@@ -891,7 +891,7 @@ pub fn register_tests(app: &mut App) {
         miner_cycle::setup.run_if(test_is("miner-cycle")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         miner_cycle::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("miner-cycle"))
@@ -910,7 +910,7 @@ pub fn register_tests(app: &mut App) {
         slot_reuse_wave::setup.run_if(test_is("slot-reuse-wave")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         slot_reuse_wave::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("slot-reuse-wave"))
@@ -929,7 +929,7 @@ pub fn register_tests(app: &mut App) {
         coalesce_safety::setup_movement.run_if(test_is("coalesce-movement")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         coalesce_safety::tick_movement
             .run_if(in_state(AppState::Running))
             .run_if(test_is("coalesce-movement"))
@@ -948,7 +948,7 @@ pub fn register_tests(app: &mut App) {
         coalesce_safety::setup_arrival.run_if(test_is("coalesce-arrival")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         coalesce_safety::tick_arrival
             .run_if(in_state(AppState::Running))
             .run_if(test_is("coalesce-arrival"))
@@ -967,7 +967,7 @@ pub fn register_tests(app: &mut App) {
         loot_cycle::setup.run_if(test_is("loot-cycle")),
     );
     app.add_systems(
-        Update,
+        FixedUpdate,
         loot_cycle::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("loot-cycle"))

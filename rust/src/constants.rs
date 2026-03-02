@@ -602,13 +602,13 @@ pub const FACTION_NEUTRAL: i32 = -1;
 // Spatial grid lives on GPU only — see gpu.rs (256×256 cells × 128px = 32,768px coverage).
 
 /// Minimum distance NPCs try to maintain from each other.
-pub const SEPARATION_RADIUS: f32 = 20.0;
+pub const SEPARATION_RADIUS: f32 = 40.0;
 
 /// How strongly NPCs push away from neighbors.
-pub const SEPARATION_STRENGTH: f32 = 50.0;
+pub const SEPARATION_STRENGTH: f32 = 100.0;
 
 /// Distance from target at which an NPC is considered "arrived".
-pub const ARRIVAL_THRESHOLD: f32 = 20.0;
+pub const ARRIVAL_THRESHOLD: f32 = 40.0;
 
 /// Floats per NPC instance in the MultiMesh buffer.
 /// Transform2D (8) + Color (4) + CustomData (4) = 16
@@ -887,7 +887,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         color: (0.0, 1.0, 0.0, 1.0),
         base_hp: 60.0,
         base_damage: 0.0,
-        base_speed: 100.0,
+        base_speed: 200.0,
         default_attack_type: BaseAttackType::Melee,
         attack_override: None,
         is_patrol_unit: false,
@@ -921,7 +921,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         color: (0.0, 0.0, 1.0, 1.0),
         base_hp: 80.0,
         base_damage: 15.0,
-        base_speed: 100.0,
+        base_speed: 200.0,
         default_attack_type: BaseAttackType::Ranged,
         attack_override: None,
         is_patrol_unit: true,
@@ -962,7 +962,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         color: (1.0, 0.0, 0.0, 1.0),
         base_hp: 120.0,
         base_damage: 15.0,
-        base_speed: 115.0,
+        base_speed: 230.0,
         default_attack_type: BaseAttackType::Melee,
         attack_override: None,
         is_patrol_unit: false,
@@ -972,7 +972,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         weapon: Some(EQUIP_SWORD),
         helmet: None,
         stealer: true,
-        leash_range: Some(400.0),
+        leash_range: Some(800.0),
         ui_color: (220, 80, 80),
         home_building: BuildingKind::Tent,
         is_raider_unit: true,
@@ -1003,7 +1003,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         color: (1.0, 1.0, 0.0, 1.0),
         base_hp: 150.0,
         base_damage: 22.5,
-        base_speed: 85.0,
+        base_speed: 170.0,
         default_attack_type: BaseAttackType::Melee,
         attack_override: None,
         is_patrol_unit: true,
@@ -1044,7 +1044,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         color: (0.6, 0.4, 0.2, 1.0),
         base_hp: 80.0,
         base_damage: 0.0,
-        base_speed: 100.0,
+        base_speed: 200.0,
         default_attack_type: BaseAttackType::Melee,
         attack_override: None,
         is_patrol_unit: false,
@@ -1078,12 +1078,12 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         color: (0.4, 0.0, 0.8, 1.0),
         base_hp: 70.0,
         base_damage: 25.0,
-        base_speed: 85.0,
+        base_speed: 170.0,
         default_attack_type: BaseAttackType::Ranged,
         attack_override: Some(AttackTypeStats {
-            range: 150.0,
+            range: 300.0,
             cooldown: 2.0,
-            projectile_speed: 150.0,
+            projectile_speed: 300.0,
             projectile_lifetime: 1.5,
         }),
         is_patrol_unit: true,
@@ -1262,13 +1262,13 @@ pub const MAX_FARMS: usize = 500;
 pub const MAX_PROJECTILES: usize = 50000;
 
 /// Oriented rectangle hitbox for arrow projectiles.
-pub const PROJECTILE_HIT_HALF_LENGTH: f32 = 12.0; // along travel direction
-pub const PROJECTILE_HIT_HALF_WIDTH: f32 = 4.0; // perpendicular to travel
+pub const PROJECTILE_HIT_HALF_LENGTH: f32 = 24.0; // along travel direction
+pub const PROJECTILE_HIT_HALF_WIDTH: f32 = 8.0; // perpendicular to travel
 
 /// Per-entity hitbox half-sizes (added to projectile hitbox via Minkowski sum).
-/// NPC body is ~16x16 centered in 32x32 tile; buildings fill the full 32x32 tile.
-pub const NPC_HITBOX_HALF: [f32; 2] = [8.0, 8.0];
-pub const BUILDING_HITBOX_HALF: [f32; 2] = [16.0, 16.0];
+/// NPC body is ~32x32 centered in 64x64 tile; buildings fill the full 64x64 tile.
+pub const NPC_HITBOX_HALF: [f32; 2] = [16.0, 16.0];
+pub const BUILDING_HITBOX_HALF: [f32; 2] = [32.0, 32.0];
 
 /// Floats per projectile instance in MultiMesh buffer.
 pub const PROJ_FLOATS_PER_INSTANCE: usize = 12;
@@ -1312,7 +1312,7 @@ pub const MAX_RAIDER_TOWNS: usize = 20;
 pub const RAIDER_SETTLE_RADIUS: f32 = 500.0;
 
 /// Boat movement speed (px/s) — faster than NPC walk (100px/s).
-pub const BOAT_SPEED: f32 = 150.0;
+pub const BOAT_SPEED: f32 = 300.0;
 
 /// Minimum raiders in a migrating group.
 pub const MIGRATION_BASE_SIZE: usize = 3;
@@ -1338,7 +1338,7 @@ pub const STARVING_SPEED_MULT: f32 = 0.5;
 pub const SPAWNER_RESPAWN_HOURS: f32 = 12.0;
 
 /// Town building grid spacing in pixels (matches WorldGrid cell_size for 1:1 alignment).
-pub const TOWN_GRID_SPACING: f32 = 32.0;
+pub const TOWN_GRID_SPACING: f32 = 64.0;
 
 /// Base grid extent: rows/cols from -4 to +3 = 8x8 starting area.
 pub const BASE_GRID_MIN: i32 = -4;
@@ -1364,20 +1364,20 @@ pub struct TowerStats {
 }
 
 pub const FOUNTAIN_TOWER: TowerStats = TowerStats {
-    range: 400.0,
+    range: 800.0,
     damage: 15.0,
     cooldown: 1.5,
-    proj_speed: 350.0,
+    proj_speed: 700.0,
     proj_lifetime: 1.5,
     hp_regen: 0.0,
     max_hp: 5000.0,
 };
 
 pub const TOWER_STATS: TowerStats = TowerStats {
-    range: 100.0,
+    range: 200.0,
     damage: 15.0,
     cooldown: 1.5,
-    proj_speed: 100.0,
+    proj_speed: 200.0,
     proj_lifetime: 1.5,
     hp_regen: 0.0,
     max_hp: 1000.0,
@@ -1702,7 +1702,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
     BuildingDef {
         kind: BuildingKind::Farm,
         display: DisplayCategory::Economy,
-        tile: TileSpec::Quad([(2, 15), (4, 15), (2, 17), (4, 17)]),
+        tile: TileSpec::External("sprites/farm_64x64.png"),
         hp: 80.0,
         cost: 2,
         label: "Farm",
@@ -1730,7 +1730,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
     BuildingDef {
         kind: BuildingKind::FarmerHome,
         display: DisplayCategory::Economy,
-        tile: TileSpec::External("sprites/house.png"),
+        tile: TileSpec::External("sprites/farmer_home_64x64.png"),
         hp: 100.0,
         cost: 2,
         label: "Farmer Home",
@@ -1756,7 +1756,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
     BuildingDef {
         kind: BuildingKind::ArcherHome,
         display: DisplayCategory::Military,
-        tile: TileSpec::External("sprites/barracks.png"),
+        tile: TileSpec::External("sprites/archer_home_64x64.png"),
         hp: 150.0,
         cost: 4,
         label: "Archer Home",
@@ -1836,7 +1836,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
     BuildingDef {
         kind: BuildingKind::MinerHome,
         display: DisplayCategory::Economy,
-        tile: TileSpec::External("sprites/miner_house.png"),
+        tile: TileSpec::External("sprites/miner_home_64x64.png"),
         hp: 100.0,
         cost: 4,
         label: "Miner Home",
@@ -1862,7 +1862,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
     BuildingDef {
         kind: BuildingKind::CrossbowHome,
         display: DisplayCategory::Military,
-        tile: TileSpec::External("sprites/barracks.png"),
+        tile: TileSpec::External("sprites/crossbowman_home_64x64.png"),
         hp: 150.0,
         cost: 8,
         label: "Crossbow Home",
@@ -1888,7 +1888,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
     BuildingDef {
         kind: BuildingKind::FighterHome,
         display: DisplayCategory::Military,
-        tile: TileSpec::External("sprites/fighter_home.png"),
+        tile: TileSpec::External("sprites/fighter_home_64x64.png"),
         hp: 150.0,
         cost: 5,
         label: "Fighter Home",
@@ -1980,7 +1980,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
     BuildingDef {
         kind: BuildingKind::Merchant,
         display: DisplayCategory::Economy,
-        tile: TileSpec::Single(49, 9),
+        tile: TileSpec::External("sprites/merchant_64x64.png"),
         hp: 200.0,
         cost: 50,
         label: "Merchant",

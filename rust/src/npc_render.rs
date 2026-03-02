@@ -737,7 +737,7 @@ fn build_building_body_instances(
             color: [r, g, b, a],
             health,
             flash,
-            scale: 32.0,
+            scale: 64.0,
             atlas_id: atlas,
             rotation: 0.0,
         });
@@ -773,19 +773,19 @@ fn build_overlay_instances(
                     color,
                     health: inst.growth_progress.clamp(0.0, 1.0),
                     flash: 0.0,
-                    scale: 16.0,
+                    scale: 32.0,
                     atlas_id: 1.0,
                     rotation: 0.0,
                 });
             }
             crate::world::BuildingKind::GoldMine => {
                 overlay.0.push(InstanceData {
-                    position: [pos.x, pos.y + 12.0],
+                    position: [pos.x, pos.y + 24.0],
                     sprite: [0.0, 0.0],
                     color: [1.0, 0.85, 0.0, 1.0],
                     health: inst.growth_progress.clamp(0.0, 1.0),
                     flash: 0.0,
-                    scale: 12.0,
+                    scale: 24.0,
                     atlas_id: 6.0,
                     rotation: 0.0,
                 });
@@ -805,7 +805,7 @@ fn build_overlay_instances(
             color: [1.0, 1.0, 1.0, 1.0],
             health: building_hp.health_pcts[i],
             flash: 0.0,
-            scale: 32.0,
+            scale: 64.0,
             atlas_id: 5.0,
             rotation: 0.0,
         });
@@ -828,7 +828,7 @@ fn build_selection_overlay(
         instances.0.push(SelectionInstance {
             slot: sel_slot as u32,
             color: [0.39, 0.78, 1.0, 0.86],
-            scale: 20.0,
+            scale: 40.0,
             y_offset: 0.0,
             _pad: 0.0,
         });
@@ -840,8 +840,8 @@ fn build_selection_overlay(
             instances.0.push(SelectionInstance {
                 slot: slot as u32,
                 color: [1.0, 0.86, 0.35, 0.90],
-                scale: 36.0,
-                y_offset: 2.0,
+                scale: 72.0,
+                y_offset: 4.0,
                 _pad: 0.0,
             });
         }
@@ -865,7 +865,7 @@ fn build_selection_overlay(
         instances.0.push(SelectionInstance {
             slot: npc.slot as u32,
             color: [0.31, 0.86, 0.31, 0.70],
-            scale: 20.0,
+            scale: 40.0,
             y_offset: 0.0,
             _pad: 0.0,
         });
@@ -1535,7 +1535,7 @@ fn extract_proj_data(
             color: [cr, cg, cb, 1.0],
             health: 1.0,
             flash: 0.0,
-            scale: 16.0,
+            scale: 32.0,
             atlas_id: 4.0,
             rotation: angle,
         });

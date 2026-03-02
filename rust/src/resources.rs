@@ -1210,6 +1210,14 @@ impl Default for GameTime {
     }
 }
 
+/// Tracks actual updates-per-second (UPS). Incremented each FixedUpdate tick,
+/// sampled by the HUD once per wall-clock second.
+#[derive(Resource, Default)]
+pub struct UpsCounter {
+    pub ticks_this_second: u32,
+    pub display_ups: u32,
+}
+
 // ============================================================================
 // UI STATE RESOURCES
 // ============================================================================

@@ -119,6 +119,8 @@ pub fn top_bar_system(
     catalog: Res<HelpCatalog>,
     time: Res<Time>,
     mut avg_fps: Local<f32>,
+    mut ups: ResMut<UpsCounter>,
+    mut ups_elapsed: Local<f32>,
     settings: Res<crate::settings::UserSettings>,
     mut camera_query: Query<&mut Transform, With<MainCamera>>,
 ) -> Result {
@@ -277,7 +279,7 @@ pub fn top_bar_system(
 
                 // RIGHT: stats pushed to the right edge
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // FPS (far right)
+                    // FPS + UPS (far right)
                     let dt = time.delta_secs();
                     if dt > 0.0 {
                         let fps = 1.0 / dt;
@@ -287,8 +289,20 @@ pub fn top_bar_system(
                             *avg_fps * 0.95 + fps * 0.05
                         };
                     }
+                    // Sample UPS once per wall-clock second
+                    *ups_elapsed += dt;
+                    if *ups_elapsed >= 1.0 {
+                        ups.display_ups = ups.ticks_this_second;
+                        ups.ticks_this_second = 0;
+                        *ups_elapsed -= 1.0;
+                    }
                     ui.label(
                         egui::RichText::new(format!("FPS: {:.0}", *avg_fps))
+                            .size(12.0)
+                            .strong(),
+                    );
+                    ui.label(
+                        egui::RichText::new(format!("UPS: {}", ups.display_ups))
                             .size(12.0)
                             .strong(),
                     );

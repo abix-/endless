@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-03-02h
+
+- **fixed 60 UPS game loop (Factorio model)** — all game systems (Drain → Spawn → Combat → Behavior → movement resolution → GPU data update) moved from `Update` (variable dt) to `FixedUpdate` at 60 Hz (16.67ms/tick). Deterministic simulation: `time.delta_secs()` in FixedUpdate always returns 1/60s, `GameTime::delta()` returns `(1/60) * time_scale`. Test tick systems (28 registrations) also moved to FixedUpdate; UI/save/audio/camera stay on Update. `UpsCounter` resource tracks actual ticks/second — FixedUpdate increments counter, HUD samples per wall-clock second. UPS displayed in top bar alongside FPS.
+- **blackjack GoldStorage crash fix** — `UpgradeParams` and `FactionsParams` both accessed `GoldStorage` in `left_panel_system`, causing Bevy SystemParam conflict panic on launch. Fixed by consolidating `GoldStorage` into `FactionsParams` only, passing read-only ref to `upgrade_content()`.
+- **boat_pos economy fix** — merchant boat position update changed from raw `time.delta_secs()` (frame-rate dependent) to `game_time.delta(&time)` (deterministic under FixedUpdate).
+
+## 2026-03-02g
+
+- **atlas 64px upscaling** — sprite atlas cell size doubled from 32px to 64px with 2x blit upscaling (`blit_2x`); world scale 2x→4x; building/overlay scales doubled to match; shader updated for 64px cell alignment
+- **NPC speed doubling** — all NPC base speeds doubled (Farmer 100→200, Archer 100→200, Raider 115→230, Fighter 85→170, Miner 100→200, Crossbow 85→170) to match 64px atlas scale; separation radius 20→40, separation strength 50→100, arrival threshold 20→40; raider leash ranges doubled (400→800, 600→1200)
+
 ## 2026-03-02f
 
 - **loot-cycle integration test** — 6-phase test: spawn archer+raiders → raider dies → archer carries equipment → returns home → deposits to TownInventory → equip item → verify stats change. Handles RNG edge case (no drops) gracefully. Also added TownInventory/MerchantInventory/NextLootItemId to test cleanup.

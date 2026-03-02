@@ -759,7 +759,7 @@ impl Default for UserSettings {
     fn default() -> Self {
         Self {
             version: SETTINGS_VERSION,
-            world_size: 8000.0,
+            world_size: 16000.0,
             towns: 1,
             farms: 2,
             farmers: 0,

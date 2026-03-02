@@ -86,8 +86,8 @@ impl Default for EntityGpuData {
     fn default() -> Self {
         Self {
             count: 0,
-            separation_radius: 20.0,
-            separation_strength: 100.0,
+            separation_radius: 40.0,
+            separation_strength: 200.0,
             delta: 0.016,
             grid_width: GRID_WIDTH,
             grid_height: GRID_HEIGHT,
@@ -98,10 +98,10 @@ impl Default for EntityGpuData {
             combat_range: 400.0,
             proj_max_per_cell: MAX_PER_CELL,
             dodge_unlocked: 0,
-            threat_radius: 200.0,
+            threat_radius: 400.0,
             tile_grid_width: 0,
             tile_grid_height: 0,
-            tile_cell_size: 32.0,
+            tile_cell_size: 64.0,
             entity_count: 0,
         }
     }
@@ -1217,7 +1217,7 @@ impl Plugin for GpuComputePlugin {
             .init_resource::<ProjBufferWrites>()
             .init_resource::<ReadbackState>()
             .add_systems(
-                Update,
+                FixedUpdate,
                 (
                     update_gpu_data,
                     update_proj_gpu_data,

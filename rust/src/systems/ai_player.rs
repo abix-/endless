@@ -795,7 +795,7 @@ const BALANCED_RETARGET_COOLDOWN: f32 = 25.0;
 const ECONOMIC_RETARGET_COOLDOWN: f32 = 40.0;
 const RETARGET_JITTER: f32 = 2.0;
 // Search radius for enemy buildings from town center.
-const AI_ATTACK_SEARCH_RADIUS: f32 = 5000.0;
+const AI_ATTACK_SEARCH_RADIUS: f32 = 10000.0;
 
 #[derive(Resource, Default)]
 pub struct AiPlayerState {

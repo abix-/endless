@@ -48,7 +48,7 @@ pub fn setup(
     // Populate a small grid
     grid.width = GRID_COLS;
     grid.height = GRID_ROWS;
-    grid.cell_size = 32.0;
+    grid.cell_size = crate::constants::TOWN_GRID_SPACING;
     grid.cells = vec![
         WorldCell {
             terrain: Biome::Dirt,

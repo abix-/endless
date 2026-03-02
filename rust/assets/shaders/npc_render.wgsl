@@ -17,7 +17,7 @@ struct VertexInput {
     @location(4) color: vec4<f32>,
     @location(5) health: f32,            // 0.0-1.0 normalized
     @location(6) flash: f32,             // 0.0-1.0 damage flash intensity
-    @location(7) scale: f32,             // world-space quad size (16=NPC, 32=terrain)
+    @location(7) scale: f32,             // world-space quad size (32=NPC, 64=building)
     @location(8) atlas_id: f32,          // 0=character, 1=world, 2=heal halo, 3=sleep icon, 4=arrow
     @location(9) rotation: f32,          // radians, 0=no rotation (used for projectile orientation)
 };
@@ -56,11 +56,11 @@ struct VertexOutput {
 @group(0) @binding(2) var world_texture: texture_2d<f32>;
 @group(0) @binding(3) var world_sampler: sampler;
 
-// Building atlas (bind group 0, bindings 4-5) — vertical strip, 32x32 per tile
+// Building atlas (bind group 0, bindings 4-5) — vertical strip, 64x64 per tile
 @group(0) @binding(4) var building_texture: texture_2d<f32>;
 @group(0) @binding(5) var building_sampler: sampler;
 
-// Extras atlas (bind group 0, bindings 6-7) — horizontal grid of 32x32 cells
+// Extras atlas (bind group 0, bindings 6-7) — horizontal grid of 64x64 cells
 // Sprites: col 0=heal, 1=sleep, 2=arrow, 3=boat (mapped from atlas_id in calc_uv)
 @group(0) @binding(6) var extras_texture: texture_2d<f32>;
 @group(0) @binding(7) var extras_sampler: sampler;
@@ -125,11 +125,11 @@ fn calc_uv(sprite_col: f32, sprite_row: f32, atlas_id: f32, quad_uv: vec2<f32>) 
     if is_building_atlas(atlas_id) {
         // Building atlas: vertical strip, sprite_col selects tile layer
         // Inset by half a pixel to avoid sampling at layer boundaries
-        let inset = 0.5 / (camera.bldg_layers * 32.0);
+        let inset = 0.5 / (camera.bldg_layers * 64.0);
         let v = (sprite_col + clamp(quad_uv.y, inset, 1.0 - inset)) / camera.bldg_layers;
         return vec2<f32>(quad_uv.x, v);
     } else if atlas_id >= 1.5 {
-        // Extras atlas: horizontal grid of 32x32 cells, atlas_id maps to column
+        // Extras atlas: horizontal grid of 64x64 cells, atlas_id maps to column
         var col: f32 = 0.0;
         if atlas_id >= 7.5 { col = 3.0; }       // boat (atlas 8)
         else if atlas_id >= 3.5 { col = 2.0; }  // arrow (atlas 4)
@@ -210,7 +210,7 @@ fn vertex_npc(in: NpcVertexInput) -> VertexOutput {
     let vis = npc_visual_buf[slot];
     var sprite_col: f32; var sprite_row: f32;
     var atlas_id: f32; var flash: f32;
-    var color: vec4<f32>; var scale: f32 = 16.0; var health: f32;
+    var color: vec4<f32>; var scale: f32 = 32.0; var health: f32;
 
     if layer == 0u {
         // Layer 0 is the base body sprite.
@@ -235,7 +235,7 @@ fn vertex_npc(in: NpcVertexInput) -> VertexOutput {
         if atlas_id >= 2.5 {
             color = vec4<f32>(1.0, 1.0, 1.0, 1.0);            // sleep icon: white
         } else if atlas_id >= 1.5 {
-            scale = 20.0;
+            scale = 40.0;
             color = vec4<f32>(1.0, 0.9, 0.2, 1.0);            // heal halo: larger, yellow
         } else if atlas_id >= 0.5 {
             color = vec4<f32>(1.0, 1.0, 1.0, 1.0);            // carried item: white
@@ -257,7 +257,7 @@ fn vertex_npc(in: NpcVertexInput) -> VertexOutput {
 
     // Building sprites use larger scale and bypass NPC HP bar logic.
     if is_building_atlas(atlas_id) {
-        scale = 32.0;
+        scale = 64.0;
         health = 1.0; // suppress NPC HP bar; BuildingHpRender handles via atlas_id=5
     }
 
@@ -336,7 +336,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         }
         // Building textured path.
         // Snap V to texel center to prevent cross-layer bleeding after interpolation
-        let tex_h = camera.bldg_layers * 32.0;
+        let tex_h = camera.bldg_layers * 64.0;
         let snapped_v = (floor(in.uv.y * tex_h) + 0.5) / tex_h;
         let tex_color = textureSample(building_texture, building_sampler, vec2<f32>(in.uv.x, snapped_v));
         if tex_color.a < 0.1 { discard; }

@@ -545,7 +545,7 @@ fn click_to_select_system(
                 }
             } else {
                 // Hit-test enemy building (nearest within 24px)
-                let building_radius = 24.0_f32;
+                let building_radius = 48.0_f32;
                 let mut best_bdist = building_radius;
                 let mut best_bpos: Option<Vec2> = None;
                 for inst in click.entity_map.iter_instances() {
@@ -656,8 +656,8 @@ fn click_to_select_system(
     // - NPCs use GPU readback positions (movement is GPU-driven).
     // - Buildings use authoritative EntityMap positions (deterministic placement).
     let positions = &gpu_state.positions;
-    let npc_select_radius = 20.0_f32;
-    let building_select_radius = 24.0_f32;
+    let npc_select_radius = 40.0_f32;
+    let building_select_radius = 48.0_f32;
     let mut best_npc_dist = npc_select_radius;
     let mut best_idx: i32 = -1;
     let mut best_building_dist = building_select_radius;
@@ -1021,7 +1021,7 @@ fn spawn_world_tilemap(
     if let Some(img) = images.get(&building_atlas) {
         assert_eq!(
             img.height(),
-            32 * (btiles.len() + crate::constants::autotile_total_extra_layers()) as u32,
+            crate::world::ATLAS_CELL * (btiles.len() + crate::constants::autotile_total_extra_layers()) as u32,
             "building atlas height mismatch"
         );
     }

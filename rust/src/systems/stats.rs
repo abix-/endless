@@ -54,18 +54,18 @@ impl Default for CombatConfig {
         attacks.insert(
             BaseAttackType::Melee,
             AttackTypeStats {
-                range: 50.0,
+                range: 100.0,
                 cooldown: 1.0,
-                projectile_speed: 200.0,
+                projectile_speed: 400.0,
                 projectile_lifetime: 0.5,
             },
         );
         attacks.insert(
             BaseAttackType::Ranged,
             AttackTypeStats {
-                range: 100.0,
+                range: 200.0,
                 cooldown: 1.5,
-                projectile_speed: 100.0,
+                projectile_speed: 200.0,
                 projectile_lifetime: 1.5,
             },
         );
@@ -74,7 +74,7 @@ impl Default for CombatConfig {
             jobs,
             attacks,
             heal_rate: 5.0,
-            heal_radius: 150.0,
+            heal_radius: 300.0,
         }
     }
 }

@@ -2,14 +2,18 @@
 
 ## Overview
 
-Pure Bevy application. `App::run()` drives ECS game logic in the main world and GPU compute + rendering in the parallel render world. The two worlds synchronize once per frame at the extract barrier.
+Pure Bevy application with a **Factorio-style fixed 60 UPS game loop**. All game logic runs on Bevy's `FixedUpdate` schedule at exactly 60 ticks/second (16.67ms/tick). `Time.delta_secs()` in FixedUpdate always returns `1/60`. Rendering and UI run on `Update` (per render frame). The main and render worlds synchronize once per frame at the extract barrier.
 
-## Per-Frame Execution Order
+`GameTime::delta()` multiplies the fixed dt by `time_scale` — the simulation is deterministic regardless of frame rate. `UpsCounter` resource tracks actual ticks/second for the HUD (incremented in FixedUpdate, sampled per frame in the top bar).
+
+## Execution Order
 
 ```
-MAIN WORLD — Bevy Update Schedule (game systems gated on AppState::Running)
+MAIN WORLD — Bevy FixedUpdate Schedule (60 Hz, game systems gated on AppState::Running)
 │
-├─ bevy_timer_start
+├─ ups_tick (UpsCounter — always runs)
+│
+├─ frame_timer_start
 │
 ├─ Step::Drain
 │     drain_game_config, drain_combat_log
@@ -36,7 +40,16 @@ MAIN WORLD — Bevy Update Schedule (game systems gated on AppState::Running)
 ├─ resolve_movement_system (after Step::Behavior)
 │     MovementIntents → single GpuUpdate::SetTarget per NPC (priority arbitration)
 │
-├─ bevy_timer_end
+├─ sync_debug_settings, debug_tick_system
+│
+├─ GPU data update (FixedUpdate)
+│     update_gpu_data (sync npc_count + delta → NpcGpuData; delta=fixed_dt*time_scale, 0 when paused)
+│     update_proj_gpu_data, populate_tile_flags, sync_readback_ranges
+│
+MAIN WORLD — Bevy Update Schedule (per render frame)
+│
+├─ UI systems (EguiPrimaryContextPass): top_bar, left_panel, combat_log, pause_menu, build_menu
+├─ Save/load systems, audio systems, camera movement
 │
 ├─ PostUpdate (chained)
 │     populate_gpu_state
@@ -45,8 +58,6 @@ MAIN WORLD — Bevy Update Schedule (game systems gated on AppState::Running)
 │       ECS query + NpcGpuState → NpcVisualUpload (GPU-ready packed visual + equip)
 │     build_overlay_instances
 │       GrowthStates + BuildingHpRender + MinerProgressRender → OverlayInstances
-│
-├─ update_gpu_data (sync npc_count + delta → NpcGpuData; delta=0 when paused)
 │
 ╞══════════════════════════════════════════════════════════════
 │  EXTRACT BARRIER — zero-clone reads + clones to render world
