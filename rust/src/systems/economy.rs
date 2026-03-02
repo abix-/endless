@@ -1533,4 +1533,148 @@ mod tests {
         let final_hour = app.world().resource::<GameTime>().last_hour;
         assert!(final_hour > initial, "last_hour should increase over time: initial={initial}, final={final_hour}");
     }
+
+    // ========================================================================
+    // construction_tick_system tests
+    // ========================================================================
+
+    use crate::resources::BuildingInstance;
+    use crate::world::BuildingKind;
+
+    fn setup_construction_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(GameTime::default());
+        app.insert_resource(EntityMap::default());
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.add_message::<GpuUpdateMsg>();
+        app.add_systems(FixedUpdate, construction_tick_system);
+        app.update();
+        app.update();
+        app
+    }
+
+    fn test_building_instance(slot: usize, kind: BuildingKind, under_construction: f32) -> BuildingInstance {
+        BuildingInstance {
+            kind,
+            position: Vec2::ZERO,
+            town_idx: 0,
+            slot,
+            faction: 0,
+            patrol_order: 0,
+            assigned_mine: None,
+            manual_mine: false,
+            wall_level: 0,
+            npc_uid: None,
+            respawn_timer: -1.0,
+            growth_ready: false,
+            growth_progress: 0.0,
+            occupants: 0,
+            under_construction,
+            kills: 0,
+            xp: 0,
+            upgrade_levels: vec![],
+            auto_upgrade_flags: vec![],
+        }
+    }
+
+    fn spawn_constructing_building(app: &mut App, slot: usize, kind: BuildingKind, secs_left: f32) -> Entity {
+        let entity = app.world_mut().spawn((
+            GpuSlot(slot),
+            Health(0.01),
+            Building { kind },
+        )).id();
+        let mut entity_map = app.world_mut().resource_mut::<EntityMap>();
+        entity_map.entities.insert(slot, entity);
+        entity_map.add_instance(test_building_instance(slot, kind, secs_left));
+        entity
+    }
+
+    #[test]
+    fn construction_ticks_down() {
+        let mut app = setup_construction_app();
+        spawn_constructing_building(&mut app, 0, BuildingKind::Tower, 10.0);
+
+        app.update();
+        let inst = app.world().resource::<EntityMap>().get_instance(0).unwrap();
+        assert!(inst.under_construction < 10.0, "construction timer should tick down: {}", inst.under_construction);
+        assert!(inst.under_construction > 0.0, "should not be complete yet");
+    }
+
+    #[test]
+    fn construction_completes() {
+        let mut app = setup_construction_app();
+        let entity = spawn_constructing_building(&mut app, 0, BuildingKind::Tower, 0.1);
+
+        // Run enough updates for 0.1s to elapse
+        for _ in 0..5 {
+            app.update();
+        }
+        let inst = app.world().resource::<EntityMap>().get_instance(0).unwrap();
+        assert!(inst.under_construction <= 0.0, "construction should complete: {}", inst.under_construction);
+
+        // Health should be set to full building HP
+        let hp = app.world().get::<Health>(entity).unwrap().0;
+        let expected = crate::constants::building_def(BuildingKind::Tower).hp;
+        assert!((hp - expected).abs() < 0.1, "completed building HP should be {expected}: {hp}");
+    }
+
+    #[test]
+    fn construction_paused_no_progress() {
+        let mut app = setup_construction_app();
+        app.world_mut().resource_mut::<GameTime>().paused = true;
+        spawn_constructing_building(&mut app, 0, BuildingKind::Farm, 5.0);
+
+        app.update();
+        let inst = app.world().resource::<EntityMap>().get_instance(0).unwrap();
+        assert!((inst.under_construction - 5.0).abs() < f32::EPSILON, "paused: construction should not progress: {}", inst.under_construction);
+    }
+
+    #[test]
+    fn construction_hp_scales_with_progress() {
+        let mut app = setup_construction_app();
+        let entity = spawn_constructing_building(&mut app, 0, BuildingKind::Tower, 10.0);
+
+        app.update();
+        let hp = app.world().get::<Health>(entity).unwrap().0;
+        // Should be between 0.01 and full HP (partial progress)
+        let full_hp = crate::constants::building_def(BuildingKind::Tower).hp;
+        assert!(hp > 0.0 && hp < full_hp, "HP should scale with progress: {hp} (full={full_hp})");
+    }
+
+    // ========================================================================
+    // population tracking pure function tests
+    // ========================================================================
+
+    #[test]
+    fn pop_alive_inc_dec() {
+        let mut stats = PopulationStats::default();
+        super::pop_inc_alive(&mut stats, Job::Archer, 0);
+        super::pop_inc_alive(&mut stats, Job::Archer, 0);
+        let key = (Job::Archer as i32, 0);
+        assert_eq!(stats.0[&key].alive, 2);
+        super::pop_dec_alive(&mut stats, Job::Archer, 0);
+        assert_eq!(stats.0[&key].alive, 1);
+    }
+
+    #[test]
+    fn pop_dec_alive_floors_at_zero() {
+        let mut stats = PopulationStats::default();
+        super::pop_dec_alive(&mut stats, Job::Farmer, 0);
+        // Should not panic, and if entry exists, alive should be 0
+        let key = (Job::Farmer as i32, 0);
+        if let Some(entry) = stats.0.get(&key) {
+            assert!(entry.alive >= 0, "alive should not go negative");
+        }
+    }
+
+    #[test]
+    fn pop_working_increments() {
+        let mut stats = PopulationStats::default();
+        super::pop_inc_working(&mut stats, Job::Miner, 1);
+        let key = (Job::Miner as i32, 1);
+        assert_eq!(stats.0[&key].working, 1);
+    }
 }

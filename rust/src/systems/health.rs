@@ -1340,4 +1340,199 @@ mod tests {
         let hp = app.world().get::<Health>(npc).unwrap().0;
         assert!((hp - 50.0).abs() < f32::EPSILON, "paused game should not regen: {hp}");
     }
+
+    // ========================================================================
+    // damage_system tests
+    // ========================================================================
+
+    use crate::components::EntityUid;
+    use crate::messages::DamageMsg;
+    use crate::resources::{BuildingHealState, EntityMap, HealthDebug};
+
+    /// Helper system that sends a DamageMsg once, then drains the queue.
+    /// Must drain to avoid re-sending on subsequent FixedUpdate sub-ticks.
+    fn send_damage(
+        mut writer: MessageWriter<DamageMsg>,
+        mut pending: ResMut<PendingDamage>,
+    ) {
+        for msg in pending.0.drain(..) {
+            writer.write(msg);
+        }
+    }
+
+    /// Resource to hold damage events to be sent by the helper system.
+    #[derive(Resource, Default)]
+    struct PendingDamage(Vec<DamageMsg>);
+
+    fn setup_damage_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(GameTime::default());
+        app.insert_resource(EntityMap::default());
+        app.insert_resource(HealthDebug::default());
+        app.insert_resource(BuildingHealState::default());
+        app.insert_resource(PendingDamage::default());
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.add_message::<DamageMsg>();
+        app.add_message::<GpuUpdateMsg>();
+        // send_damage runs first, then damage_system reads the messages
+        app.add_systems(FixedUpdate, (send_damage, damage_system).chain());
+        app.update();
+        app.update();
+        app
+    }
+
+    /// Spawn an NPC entity and register it in EntityMap with a UID.
+    fn spawn_damageable_npc(app: &mut App, slot: usize, uid: u64, hp: f32) -> Entity {
+        let entity = app.world_mut().spawn((
+            GpuSlot(slot),
+            Health(hp),
+        )).id();
+        let mut entity_map = app.world_mut().resource_mut::<EntityMap>();
+        entity_map.register_npc(slot, entity, crate::components::Job::Archer, 0, 0);
+        entity_map.register_uid(slot, EntityUid(uid), entity);
+        entity
+    }
+
+    #[test]
+    fn damage_reduces_npc_health() {
+        let mut app = setup_damage_app();
+        let npc = spawn_damageable_npc(&mut app, 0, 1, 100.0);
+        app.world_mut().resource_mut::<PendingDamage>().0.push(DamageMsg {
+            target: EntityUid(1),
+            amount: 30.0,
+            attacker: -1,
+            attacker_faction: 0,
+        });
+
+        app.update();
+        let hp = app.world().get::<Health>(npc).unwrap().0;
+        assert!((hp - 70.0).abs() < 0.01, "damage should reduce HP from 100 to 70: {hp}");
+    }
+
+    #[test]
+    fn damage_floors_at_zero() {
+        let mut app = setup_damage_app();
+        let npc = spawn_damageable_npc(&mut app, 0, 1, 10.0);
+        app.world_mut().resource_mut::<PendingDamage>().0.push(DamageMsg {
+            target: EntityUid(1),
+            amount: 50.0,
+            attacker: -1,
+            attacker_faction: 0,
+        });
+
+        app.update();
+        let hp = app.world().get::<Health>(npc).unwrap().0;
+        assert!(hp >= 0.0, "HP should not go negative: {hp}");
+        assert!(hp < 0.01, "HP should be at zero: {hp}");
+    }
+
+    #[test]
+    fn damage_to_unknown_uid_ignored() {
+        let mut app = setup_damage_app();
+        let npc = spawn_damageable_npc(&mut app, 0, 1, 100.0);
+        // Send damage to a UID that doesn't exist
+        app.world_mut().resource_mut::<PendingDamage>().0.push(DamageMsg {
+            target: EntityUid(999),
+            amount: 50.0,
+            attacker: -1,
+            attacker_faction: 0,
+        });
+
+        app.update();
+        let hp = app.world().get::<Health>(npc).unwrap().0;
+        assert!((hp - 100.0).abs() < 0.01, "NPC should not take damage from mismatched UID: {hp}");
+    }
+
+    #[test]
+    fn damage_updates_debug_entity_count() {
+        let mut app = setup_damage_app();
+        spawn_damageable_npc(&mut app, 0, 1, 100.0);
+
+        app.update();
+        let debug = app.world().resource::<HealthDebug>();
+        // bevy_entity_count is updated every tick (not just when damage occurs)
+        assert_eq!(debug.bevy_entity_count, 1, "debug should track entity count");
+    }
+
+    #[test]
+    fn multiple_damage_events_stack() {
+        let mut app = setup_damage_app();
+        let npc = spawn_damageable_npc(&mut app, 0, 1, 100.0);
+        let pending = &mut app.world_mut().resource_mut::<PendingDamage>().0;
+        pending.push(DamageMsg { target: EntityUid(1), amount: 20.0, attacker: -1, attacker_faction: 0 });
+        pending.push(DamageMsg { target: EntityUid(1), amount: 15.0, attacker: -1, attacker_faction: 0 });
+
+        app.update();
+        let hp = app.world().get::<Health>(npc).unwrap().0;
+        assert!((hp - 65.0).abs() < 0.01, "two damage events (20+15) should reduce to 65: {hp}");
+    }
+
+    #[test]
+    fn damage_dead_npc_ignored() {
+        let mut app = setup_damage_app();
+        let npc = spawn_damageable_npc(&mut app, 0, 1, 100.0);
+        // Mark NPC as dead in EntityMap
+        app.world_mut().resource_mut::<EntityMap>().get_npc_mut(0).unwrap().dead = true;
+        app.world_mut().resource_mut::<PendingDamage>().0.push(DamageMsg {
+            target: EntityUid(1),
+            amount: 50.0,
+            attacker: -1,
+            attacker_faction: 0,
+        });
+
+        app.update();
+        let hp = app.world().get::<Health>(npc).unwrap().0;
+        assert!((hp - 100.0).abs() < 0.01, "dead NPC should not take damage: {hp}");
+    }
+
+    #[test]
+    fn damage_building_reduces_health() {
+        let mut app = setup_damage_app();
+        let slot = 0usize;
+        let uid = 1u64;
+        let entity = app.world_mut().spawn((
+            GpuSlot(slot),
+            Health(200.0),
+            Building { kind: BuildingKind::Tower },
+        )).id();
+        // Register as building instance in EntityMap
+        let mut entity_map = app.world_mut().resource_mut::<EntityMap>();
+        entity_map.entities.insert(slot, entity);
+        entity_map.add_instance(crate::resources::BuildingInstance {
+            kind: BuildingKind::Tower,
+            position: Vec2::ZERO,
+            town_idx: 0,
+            slot,
+            faction: 0,
+            patrol_order: 0,
+            assigned_mine: None,
+            manual_mine: false,
+            wall_level: 0,
+            npc_uid: None,
+            respawn_timer: -1.0,
+            growth_ready: false,
+            growth_progress: 0.0,
+            occupants: 0,
+            under_construction: 0.0,
+            kills: 0,
+            xp: 0,
+            upgrade_levels: vec![],
+            auto_upgrade_flags: vec![],
+        });
+        entity_map.register_uid(slot, EntityUid(uid), entity);
+
+        app.world_mut().resource_mut::<PendingDamage>().0.push(DamageMsg {
+            target: EntityUid(uid),
+            amount: 75.0,
+            attacker: -1,
+            attacker_faction: 1,
+        });
+
+        app.update();
+        let hp = app.world().get::<Health>(entity).unwrap().0;
+        assert!((hp - 125.0).abs() < 0.01, "building should take 75 damage from 200: {hp}");
+    }
 }
