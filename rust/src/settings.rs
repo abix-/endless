@@ -627,6 +627,8 @@ pub struct UserSettings {
     pub music_volume: f32,
     #[serde(default = "default_sfx_volume")]
     pub sfx_volume: f32,
+    #[serde(default)]
+    pub sfx_shoot_enabled: bool,
     #[serde(default = "default_music_speed")]
     pub music_speed: f32,
     #[serde(default)]
@@ -797,6 +799,7 @@ impl Default for UserSettings {
             autosave_hours: 12,
             music_volume: 0.3,
             sfx_volume: 0.15,
+            sfx_shoot_enabled: false,
             music_speed: 1.0,
             jukebox_loop: false,
             jukebox_track: None,

@@ -140,9 +140,9 @@ GPU readback data is written directly to Bevy resources by `ReadbackComplete` ob
 |-------|------|--------|-----------|
 | entity_count | usize | GpuSlotPool.count() | gpu_position_readback |
 | positions | Vec\<f32\> | ReadbackComplete (npc_positions buffer) | attack_system, healing_system, click_to_select_system |
-| combat_targets | Vec\<i32\> | ReadbackComplete (combat_targets buffer) | attack_system (target selection) |
-| health | Vec\<f32\> | ReadbackComplete (npc_health buffer) | (available for queries) |
-| factions | Vec\<i32\> | ReadbackComplete (npc_factions buffer, throttled) | (available for queries) |
+| combat_targets | Vec\<i32\> | ReadbackComplete (combat_targets buffer) | attack_system, building_tower_system (candidate selection — re-validated via ECS) |
+| health | Vec\<f32\> | ReadbackComplete (npc_health buffer) | advisory only — ECS Health is authoritative (see [authority.md](authority.md)) |
+| factions | Vec\<i32\> | ReadbackComplete (npc_factions buffer, throttled) | advisory/debug only — throttled, never use as hard gate (see [authority.md](authority.md)) |
 | threat_counts | Vec\<u32\> | ReadbackComplete (threat_counts buffer, throttled) | behavior_system (flee threshold calculations), AI threat checks |
 
 ## Slot Management

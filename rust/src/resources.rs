@@ -2950,6 +2950,8 @@ pub struct GameAudio {
     pub music_speed: f32,
     /// SFX variant handles keyed by kind — multiple variants per kind for random selection.
     pub sfx_handles: std::collections::HashMap<SfxKind, Vec<Handle<AudioSource>>>,
+    /// Whether arrow shoot SFX plays (disabled by default — the sound is rough).
+    pub sfx_shoot_enabled: bool,
 }
 
 impl Default for GameAudio {
@@ -2963,6 +2965,7 @@ impl Default for GameAudio {
             play_next: None,
             music_speed: 1.0,
             sfx_handles: std::collections::HashMap::new(),
+            sfx_shoot_enabled: false,
         }
     }
 }

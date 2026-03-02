@@ -64,7 +64,7 @@ Static world data, immutable after initialization.
 | BuildingHealState | `needs_healing: bool` | Persistent flag (not a message): set by `building_damage_system` on hits, cleared by `healing_system` when no damaged buildings remain |
 | ActiveHealingSlots | `slots: Vec<usize>`, `mark: Vec<u8>` (sized to MAX_ENTITIES) | Tracks NPC slots currently in healing zones. Sustain-check iterates only these. `mark[slot]` = O(1) membership. Reset on load/cleanup. |
 | TownGrids | `Vec<TownGrid>` — one per town (villager + raider) | Per-town building slot unlock tracking |
-| GameAudio | `music_volume: f32`, `sfx_volume: f32`, `music_speed: f32`, `tracks: Vec<Handle<AudioSource>>`, `last_track: Option<usize>`, `loop_current: bool`, `play_next: Option<usize>` | Runtime audio state; tracks loaded at Startup, jukebox picks random no-repeat track; `loop_current` repeats same track on finish; `play_next` set by UI for explicit track selection; volume + speed synced from UserSettings |
+| GameAudio | `music_volume: f32`, `sfx_volume: f32`, `sfx_shoot_enabled: bool`, `music_speed: f32`, `tracks: Vec<Handle<AudioSource>>`, `last_track: Option<usize>`, `loop_current: bool`, `play_next: Option<usize>` | Runtime audio state; tracks loaded at Startup, jukebox picks random no-repeat track; `loop_current` repeats same track on finish; `play_next` set by UI for explicit track selection; volume + speed synced from UserSettings; `sfx_shoot_enabled` gates ArrowShoot SFX (default off) |
 
 ### WorldData Structs
 
@@ -350,5 +350,5 @@ Buildings are ECS entities with `Building` marker component + `Health` component
 
 ## Known Issues
 
-- **Health dual ownership**: CPU-authoritative but synced to GPU via messages. Could diverge if sync fails.
+- **Health dual ownership**: CPU-authoritative (ECS `Health` component). GPU mirror is advisory — combat systems validate liveness via ECS, not GPU readback. Bounded 1-frame divergence.
 - **No external API**: All state is internal Bevy Resources. No query interface for external tools or UI frameworks.

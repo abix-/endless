@@ -138,7 +138,7 @@ One thread per entity (`entity_count`). Entity type determined by `entity_flags`
 
 **Buildings without combat** (`entity_flags & ENTITY_BUILDING` set, `entity_flags & ENTITY_FLAG_COMBAT` unset — farms, beds, etc.): Early return. Writes `combat_targets[i] = -1`, `threat_counts[i] = 0`. No movement, no targeting.
 
-**Towers** (`entity_flags & ENTITY_BUILDING` + `entity_flags & ENTITY_FLAG_COMBAT` — fountains): Skip movement (speed=0), run combat targeting scan. `combat_targets[i]` set to nearest enemy NPC. CPU reads this via readback to fire projectiles.
+**Towers** (`entity_flags & ENTITY_BUILDING` + `entity_flags & ENTITY_FLAG_COMBAT` — fountains): Skip movement (speed=0), run combat targeting scan. `combat_targets[i]` set to nearest enemy NPC. CPU reads this via readback as candidate target; re-validates via ECS (exists, !dead, enemy faction) before firing. See [authority.md](authority.md).
 
 **Non-combatant NPCs** (`entity_flags` bit 0 = 0, farmers/miners): Full separation + movement. Threat scan uses `threat_radius` (7×7=49 cells). Skips the expensive combat targeting scan (9×9=81 cells). Writes `combat_targets[i] = -1`.
 

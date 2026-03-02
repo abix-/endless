@@ -104,7 +104,7 @@ Bevy ECS (lib.rs build_app)
     │   ├─ Behavior systems ───────────────▶ [behavior.md]
     │   ├─ Economy systems ────────────────▶ [economy.md]
     │   ├─ AI player system ─────────────▶ [ai-player.md]
-    │   └─ Audio (systems/audio.rs) ───▶ music jukebox (22 tracks, random no-repeat, speed control), SFX (ArrowShoot + Death, random variant selection, spatial camera culling, max 1 per SfxKind per frame)
+    │   └─ Audio (systems/audio.rs) ───▶ music jukebox (22 tracks, random no-repeat, speed control), SFX (ArrowShoot + Death, random variant selection, spatial camera culling, max 1 per SfxKind per frame, ArrowShoot gated by `sfx_shoot_enabled`)
     │
     └─ Test Framework (tests/)
         ├─ bevy_egui menu (EguiPrimaryContextPass)

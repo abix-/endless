@@ -103,7 +103,7 @@ Execution order is **chained** — each system completes before the next starts.
   - Out of range but within close chase radius (range + 120px): chases building (`SetTarget` to building position)
   - Beyond close chase radius: ignores building (prevents cross-map pursuit of distant enemy buildings)
 - **NPC targets** (target has no building instance):
-  - Validates via `entity_map.get_npc()` lookup; **faction check uses ECS faction** from EntityMap (not GPU readback, which can be stale/-1 on throttled frames); health check via GPU readback
+  - Validates via `entity_map.get_npc()` lookup; **faction check uses ECS faction** from EntityMap (not GPU readback, which can be stale/-1 on throttled frames); liveness check via ECS (`EntityMap.get_npc().dead`)
   - Sets `CombatState::Fighting { origin }` (stores current position)
   - **In range**: submits `MovementIntents` at `Combat` priority to own position (stand ground — stops GPU movement, NPC holds position while shooting). Projectile dodge from GPU shader provides evasion.
   - **In range + cooldown ready**: resets `AttackTimer`, fires projectile or applies point-blank damage
@@ -168,7 +168,7 @@ Tower auto-attack using GPU spatial grid targeting. Towers are in the unified en
 - **Player-built Towers**: base `TOWER_STATS` (range=250, damage=10, cooldown=2.0s, proj_speed=300, proj_lifetime=1.2s, max_hp=1000). Buildable on TownGrid, 50 food cost, 1000 HP. Iterates via `EntityMap.iter_kind(Tower)`, per-slot cooldown in `tower_cooldowns` HashMap. Stale entries cleaned up via `retain()`.
 - **Per-tower upgrades**: each tower has its own `upgrade_levels: Vec<u8>` and `auto_upgrade: bool` on `BuildingInstance`. `resolve_tower_instance_stats(level, upgrade_levels) -> TowerStats` applies XP level bonus (+1%/level to range/damage/max_hp) and per-stat upgrade multipliers from `TOWER_UPGRADES` (7 stats: HP, Attack, Range, AtkSpd, ProjSpd, ProjLife, HpRegen). Tower inspector shows resolved stats, per-stat upgrade buttons with cost/effect, and auto-buy checkbox. `auto_tower_upgrade_system` runs each game-hour for towers with `auto_upgrade = true`, buys cheapest affordable upgrade.
 - **Tower HP regen**: towers with `hp_regen > 0` (from HpRegen upgrades, +2.0 HP/s per level) heal each frame in `building_tower_system`, capped at resolved `max_hp`.
-- **GPU-side targeting**: Reads `GpuReadState.combat_targets[bld_slot]` from readback buffer (building slot IS the GPU index — unified namespace, no offset). Only NPC targets are valid (towers skip building targets via `EntityMap` check).
+- **GPU-side targeting**: Reads `GpuReadState.combat_targets[bld_slot]` from readback buffer (building slot IS the GPU index — unified namespace, no offset). Only NPC targets are valid (towers skip building targets via `EntityMap` check). Target re-validated via ECS: must exist in EntityMap, not dead, and enemy faction (per [authority.md](authority.md) — `combat_targets` is candidate-only).
 - **Projectile spawn**: Both fountain and tower loops call `fire_projectile()` with `shooter: bld_slot` (building's unified entity slot — enables GPU self-collision skip).
 
 

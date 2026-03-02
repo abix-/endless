@@ -65,8 +65,13 @@ Completed items moved from roadmap for readability.
 - [x] Stage 16.5: growth_states/mine_enabled decoupled from sequential WorldData indices (re-keyed by slot/position)
 - [x] Stage 16.5: building instances serialized from `BuildingEntityMap`, `WorldData.buildings` + legacy accessors deleted
 - [x] Stage 16.5: `BUILDING_REGISTRY` fn pointers stripped (keep only static definition fields)
-- [x] Stage 18: `GrowthStates` resource deleted — `growth_ready`/`growth_progress` fields on `BuildingInstance`
-- [x] Stage 18: mine growth uses same `BuildingInstance` fields (`FarmGrowthState` enum deleted → `growth_ready: bool`)
+- [x] Stage 17: `GrowthStates` resource deleted — `growth_ready`/`growth_progress` fields on `BuildingInstance`
+- [x] Stage 17: mine growth uses same `BuildingInstance` fields (`FarmGrowthState` enum deleted → `growth_ready: bool`)
+- [x] Stage 17: `harvest()` generalized — Farm returns 1 food, GoldMine returns `MINE_EXTRACT_PER_CYCLE` gold; worksite block uses `ws.harvest_item`
+- [x] Stage 17: `growth_system` unified — handles Farm (passive+tended) and GoldMine (tended-only, `MINE_TENDED_GROWTH_RATE`); old `farm_growth_system`/`mine_regen_system` deleted
+- [x] Stage 17: miner behavior cycle — `Activity::Mining`→claim→`MiningAtMine`→harvest→`Returning` via unified worksite block
+- [x] Stage 17: mine progress bar — GoldMine overlay at `atlas_id=6.0`, gold color, `health=growth_progress` for progress bar
+- [x] Stage 17: deleted `MineStates`, `MiningProgress`, `MinerProgressRender`, `sync_miner_progress_render`, `mine_regen_system`, `MINE_MAX_GOLD`, `MINE_REGEN_RATE`, `MINE_WORK_HOURS`
 - [x] Stage 22: wall building type (town grid placement, blocks enemy NPCs via GPU tile_flags bit 6 + faction bits)
 - [x] Stage 22: wall HP + raiders attack walls via building attack fallback
 - [x] Stage 22: per-wall tier upgrade (Wooden Palisade 80HP → Stone Wall 200HP → Fortified Wall 400HP)
@@ -463,6 +468,11 @@ Completed items moved from roadmap for readability.
 - [x] Sound: SFX system — `play_sfx_system` with spatial camera culling, `GameAudio.sfx_handles`, `PlaySfxMsg` with position
 - [x] Endless-mode test hardening — deleted transient-state phases 6/14, renumbered to 14 phases, removed `disembarked` field from `MigrationGroup`
 - [x] Migration settlement terrain signal — replaced `TilemapSpawned = false` with proper `TerrainDirtyMsg` + `BuildingGridDirtyMsg`
+
+### Authority Safety Hardening
+- [x] Combat authority hardening: `attack_system` liveness check migrated from `gpu_state.health` to `entity_map.get_npc().dead` (ECS authoritative); `ManualTarget::Npc` dead check also migrated
+- [x] Tower authority hardening: `building_tower_system` re-validates GPU `combat_targets` candidates via ECS (exists, !dead, enemy faction) before spawning projectiles
+- [x] Authority contract enforcement: docs aligned to authority.md — corrected stale claims in combat.md, concepts.md, gpu-compute.md, messages.md, resources.md
 
 ### Intentional Removals
 - [x] Sprite atlas browser tool — intentional removal (Godot dev tool, not needed in Bevy)

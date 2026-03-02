@@ -253,7 +253,7 @@ The render pipeline reads directly from GPU buffers (or from the same CPU-side a
 - Read asynchronously if possible (don't block on result)
 - Batch reads (one large read beats many small ones)
 
-Used in: Current design avoids readback entirely. `GpuReadState` exists for future readback but is unpopulated.
+Used in: `GpuReadState` is populated via Bevy async Readback (positions, combat_targets always-on; factions/threat_counts throttled). See [authority.md](authority.md) for which fields are authoritative vs advisory.
 
 ---
 

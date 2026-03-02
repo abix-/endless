@@ -181,6 +181,9 @@ pub fn play_sfx_system(
         if audio.sfx_volume <= 0.0 {
             continue;
         }
+        if matches!(event.kind, SfxKind::ArrowShoot) && !audio.sfx_shoot_enabled {
+            continue;
+        }
         // Spatial cull FIRST — don't let off-screen events consume dedup slots
         if event.position.is_some() {
             if let Some((cam_pos, half_w, half_h, scale)) = cam_info {

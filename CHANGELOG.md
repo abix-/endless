@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-03-02a
+
+- **authority safety hardening** — `attack_system` liveness check changed from `gpu_state.health` (GPU readback, can be 1+ frames stale) to `entity_map.get_npc().dead` (ECS authoritative); `ManualTarget::Npc` dead check also migrated to ECS; eliminated redundant double `get_npc` lookup. `building_tower_system` (fountain + player towers) now re-validates GPU `combat_targets` candidates via ECS: target must exist in EntityMap, not dead, and enemy faction. All docs aligned to authority.md contract — corrected stale claims in combat.md, concepts.md, gpu-compute.md, messages.md, resources.md
+- **roadmap cleanup** — completed stages 17 (Generic Growth) and 23 (Tech Trees) moved to completed.md; remaining stages renumbered 17-29 with cross-references updated
+- **arrow shoot SFX toggle** — `sfx_shoot_enabled` setting (default off) gates ArrowShoot SFX; checkbox in pause menu Audio tab; persisted in UserSettings
+
 ## 2026-03-01w
 
 - **per-stat tower auto-buy** — `auto_upgrade: bool` replaced with `auto_upgrade_flags: Vec<bool>` for per-stat auto-buy control; tower upgrade popup window (`tower_upgrade_window`) with per-stat upgrade buttons and individual auto-buy checkboxes; `auto_tower_upgrade_system` only buys flagged stats

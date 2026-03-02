@@ -175,7 +175,7 @@ pub fn attack_system(
         let mut target_idx = if let Some(mt) = manual_target_opt {
             match mt {
                 ManualTarget::Npc(t) => {
-                    let dead = gpu_state.health.get(*t).map_or(true, |&h| h <= 0.0);
+                    let dead = entity_map.get_npc(*t).map_or(true, |n| n.dead);
                     if dead {
                         commands.entity(entity).remove::<ManualTarget>();
                         combat_targets.get(i).copied().unwrap_or(-1)
@@ -306,7 +306,8 @@ pub fn attack_system(
         }
 
         // ── NPC target ──
-        if entity_map.get_npc(ti).is_none() {
+        let target_npc = entity_map.get_npc(ti);
+        if target_npc.map_or(true, |n| n.dead) {
             if is_fighting {
                 if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) {
                     *cs = CombatState::None;
@@ -317,19 +318,10 @@ pub fn attack_system(
         // Use ECS faction as source-of-truth for NPC targets.
         // GPU faction readback is throttled and can be temporarily stale (-1),
         // which would incorrectly suppress valid combat in tests/gameplay.
-        let target_faction = entity_map
-            .get_npc(ti)
+        let target_faction = target_npc
             .map(|n| n.faction)
             .unwrap_or_else(|| gpu_state.factions.get(ti).copied().unwrap_or(-1));
         if target_faction < 0 || target_faction == faction_id {
-            if is_fighting {
-                if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) {
-                    *cs = CombatState::None;
-                }
-            }
-            continue;
-        }
-        if gpu_state.health.get(ti).copied().unwrap_or(0.0) <= 0.0 {
             if is_fighting {
                 if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) {
                     *cs = CombatState::None;
@@ -557,8 +549,11 @@ pub fn building_tower_system(
         if target < 0 || entity_map.get_instance(target as usize).is_some() {
             continue;
         } // only target NPCs
-
         let ti = target as usize;
+        if !entity_map.get_npc(ti).is_some_and(|n| !n.dead && n.faction != faction) {
+            continue;
+        }
+
         let tx = gpu_state.positions.get(ti * 2).copied().unwrap_or(-9999.0);
         let ty = gpu_state
             .positions
@@ -620,6 +615,9 @@ pub fn building_tower_system(
             continue;
         }
         let ti = target as usize;
+        if !entity_map.get_npc(ti).is_some_and(|n| !n.dead && n.faction != *faction) {
+            continue;
+        }
         let tx = gpu_state.positions.get(ti * 2).copied().unwrap_or(-9999.0);
         let ty = gpu_state
             .positions

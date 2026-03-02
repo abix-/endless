@@ -301,6 +301,9 @@ pub fn settings_panel_ui(
                             ui.add(egui::Slider::new(&mut settings.sfx_volume, 0.0..=1.0).text("SFX Volume"))
                                 .on_hover_text("Master volume for UI and gameplay sound effects.");
                             ui.small("Affects new sound effects as they play.");
+                            ui.add_space(6.0);
+                            ui.checkbox(&mut settings.sfx_shoot_enabled, "Arrow Shoot SFX")
+                                .on_hover_text("Play arrow/projectile firing sounds.");
                         }
                         PauseSettingsTab::Logs => {
                             ui.checkbox(&mut settings.log_kills, "Log Kills");
@@ -1124,6 +1127,7 @@ fn pause_menu_system(
         };
         audio.music_volume = settings.music_volume;
         audio.sfx_volume = settings.sfx_volume;
+        audio.sfx_shoot_enabled = settings.sfx_shoot_enabled;
         for mut sink in &mut music_sinks {
             sink.set_volume(Volume::Linear(settings.music_volume));
         }
@@ -1159,6 +1163,7 @@ fn pause_menu_system(
         }
     }
     audio.sfx_volume = settings.sfx_volume;
+    audio.sfx_shoot_enabled = settings.sfx_shoot_enabled;
     // Sync think intervals + autosave to runtime configs
     ai_config.decision_interval = settings.ai_interval;
     npc_config.interval = settings.npc_interval;
