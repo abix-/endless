@@ -39,7 +39,7 @@ pub struct DeathResources<'w, 's> {
     pub endless: ResMut<'w, EndlessMode>,
     pub npc_flags_q: Query<'w, 's, &'static mut crate::components::NpcFlags>,
     pub activity_q: Query<'w, 's, &'static mut crate::components::Activity>,
-    pub health_q: Query<'w, 's, &'static mut crate::components::Health, Without<Building>>,
+    pub health_q: Query<'w, 's, (Entity, &'static mut crate::components::Health, &'static GpuSlot), (Without<Building>, Without<Dead>)>,
     pub combat_state_q: Query<'w, 's, &'static mut crate::components::CombatState>,
     pub cached_stats_q: Query<'w, 's, &'static mut crate::components::CachedStats>,
     pub attack_type_q: Query<'w, 's, &'static crate::components::BaseAttackType>,
@@ -199,21 +199,18 @@ pub fn death_system(
     mut intents: ResMut<crate::resources::MovementIntents>,
     mut ui_state: ResMut<crate::resources::UiState>,
 ) {
-    // Phase 1a: Mark newly dead NPCs (immediate — processed same frame)
+    // Phase 1a: Mark newly dead NPCs via ECS query (no iter_npcs scan)
     let mut death_count = 0;
     let dead_npc_slots: Vec<usize> = {
-        let newly_dead: Vec<usize> = res
-            .entity_map
-            .iter_npcs()
-            .filter(|n| !n.dead)
-            .filter(|n| {
-                res.health_q
-                    .get(n.entity)
-                    .map(|h| h.0 <= 0.0)
-                    .unwrap_or(false)
-            })
-            .map(|n| n.slot)
-            .collect();
+        let mut newly_dead = Vec::new();
+        for (entity, health, gpu_slot) in res.health_q.iter() {
+            if health.0 <= 0.0 {
+                newly_dead.push(gpu_slot.0);
+                if let Ok(mut ec) = commands.get_entity(entity) {
+                    ec.insert(Dead);
+                }
+            }
+        }
         for &slot in &newly_dead {
             if let Some(npc) = res.entity_map.get_npc_mut(slot) {
                 npc.dead = true;
@@ -584,7 +581,7 @@ pub fn death_system(
                         spd.0 = new_speed;
                     }
                     if old_max > 0.0 {
-                        if let Ok(mut hp) = res.health_q.get_mut(k_entity) {
+                        if let Ok((_entity, mut hp, _slot)) = res.health_q.get_mut(k_entity) {
                             hp.0 = hp.0 * new_max / old_max;
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetMaxHealth {
                                 idx: k_slot,

@@ -1596,7 +1596,7 @@ pub struct NpcMeta {
     pub name: String,
     pub level: i32,
     pub xp: i32,
-    pub trait_id: i32,
+    pub trait_display: String,
     pub town_id: i32,
     pub job: i32,
 }

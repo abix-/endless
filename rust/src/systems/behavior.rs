@@ -1099,6 +1099,13 @@ pub fn decision_system(
                     }
                     Job::Fighter | Job::Boat => 0.0,
                 };
+                // Personality modifies flee threshold (Brave: never flees, Coward: flees sooner)
+                let flee_mods = personality.get_behavior_mods();
+                let flee_pct = if flee_mods.never_flees {
+                    0.0
+                } else {
+                    (flee_pct + flee_mods.flee_threshold_add).clamp(0.0, 1.0)
+                };
                 if flee_pct > 0.0 {
                     let should_check_threat = (frame + idx) % CHECK_INTERVAL == 0;
                     let effective_threshold = if should_check_threat {
@@ -1801,8 +1808,11 @@ pub fn decision_system(
             // Priority 8: Idle -> Score Eat/Rest/Work/Wander (policy-aware)
             // ====================================================================
             let en = energy;
-            let (_fight_m, _flee_m, rest_m, eat_m, work_m, wander_m) =
-                personality.get_multipliers();
+            let behavior_mods = personality.get_behavior_mods();
+            let rest_m = behavior_mods.rest;
+            let eat_m = behavior_mods.eat;
+            let work_m = behavior_mods.work;
+            let wander_m = behavior_mods.wander;
 
             let town_idx = town_idx_i32 as usize;
             let policy = policies.policies.get(town_idx);

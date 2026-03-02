@@ -79,7 +79,7 @@ pub fn roster_panel_system(
                 hp: health_q.get(npc.entity).map(|h| h.0).unwrap_or(0.0),
                 max_hp: cached_stats_q.get(npc.entity).map(|s| s.max_health).unwrap_or(100.0),
                 state: state_str,
-                trait_name: crate::trait_name(meta.trait_id).to_string(),
+                trait_name: meta.trait_display.clone(),
             });
         }
 

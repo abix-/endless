@@ -347,19 +347,17 @@ Used in: `GpuComputePlugin` (NpcGpuData + NpcComputeParams via ExtractResourcePl
 
 ## Personality Traits
 
-40% of NPCs spawn with a trait. Effects:
+NPCs spawn with 0-2 spectrum traits (7 axes, 14 names). Each axis has signed magnitude (±0.5 to ±1.5); sign determines the pole.
 
-| Trait | Effect |
-|-------|--------|
-| Brave | Never flees |
-| Coward | Flees at +20% higher HP threshold |
-| Efficient | +25% farm yield, -25% attack cooldown |
-| Hardy | +25% max HP |
-| Lazy | -20% farm yield, +20% attack cooldown |
-| Strong | +25% damage |
-| Swift | +25% move speed |
-| Sharpshot | +25% attack range |
-| Berserker | +50% damage below 50% HP |
+| Axis | + Pole | - Pole | Stat Effect | Behavior Effect |
+|------|--------|--------|-------------|-----------------|
+| Courage | Brave | Coward | — | +: never flees / -: flee threshold +20% |
+| Diligence | Efficient | Lazy | ±25% yield, ∓25% cooldown | +: work↑ / -: work↓ wander↑ |
+| Vitality | Hardy | Frail | ±25% HP | +: rest↓ eat↓ / -: rest↑ eat↑ |
+| Power | Strong | Weak | ±25% damage | +: fight↑ / -: fight↓ |
+| Agility | Swift | Slow | ±25% speed | +: wander↑ / -: wander↓ |
+| Precision | Sharpshot | Myopic | ±25% range | — |
+| Ferocity | Berserker | Timid | ±50% damage <50% HP | +: fight↑ flee↓ / -: fight↓ flee↑ |
 
 ---
 

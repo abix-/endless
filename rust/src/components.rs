@@ -351,6 +351,7 @@ pub struct CachedStats {
     pub speed: f32,
     pub stamina: f32,
     pub hp_regen: f32,
+    pub berserk_bonus: f32, // damage multiplier when HP <50% (from Ferocity axis)
 }
 
 // ============================================================================
@@ -563,57 +564,136 @@ pub struct WoundedThreshold {
 // PERSONALITY SYSTEM (Utility AI)
 // ============================================================================
 
-/// Trait types that affect both stats and behavior weights.
+/// 7 spectrum axes. Magnitude sign determines pole (+Brave/-Coward, etc).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TraitKind {
-    /// +damage, fights more, flees less
-    Brave,
-    /// +HP, rests/eats less (pushes through)
-    Tough,
-    /// +speed, wanders more
-    Swift,
-    /// +yield, works more, wanders less
-    Focused,
+    Courage,    // +Brave / -Coward
+    Diligence,  // +Efficient / -Lazy
+    Vitality,   // +Hardy / -Frail
+    Power,      // +Strong / -Weak
+    Agility,    // +Swift / -Slow
+    Precision,  // +Sharpshot / -Myopic
+    Ferocity,   // +Berserker / -Timid
 }
 
+pub const TRAIT_COUNT: usize = 7;
+
 impl TraitKind {
+    pub const ALL: [TraitKind; TRAIT_COUNT] = [
+        TraitKind::Courage,
+        TraitKind::Diligence,
+        TraitKind::Vitality,
+        TraitKind::Power,
+        TraitKind::Agility,
+        TraitKind::Precision,
+        TraitKind::Ferocity,
+    ];
+
     pub fn from_id(id: i32) -> Option<Self> {
         match id {
-            0 => Some(TraitKind::Brave),
-            1 => Some(TraitKind::Tough),
-            2 => Some(TraitKind::Swift),
-            3 => Some(TraitKind::Focused),
+            0 => Some(TraitKind::Courage),
+            1 => Some(TraitKind::Diligence),
+            2 => Some(TraitKind::Vitality),
+            3 => Some(TraitKind::Power),
+            4 => Some(TraitKind::Agility),
+            5 => Some(TraitKind::Precision),
+            6 => Some(TraitKind::Ferocity),
+            _ => None,
+        }
+    }
+
+    /// Map old save trait IDs (0-3) to new axes.
+    pub fn from_legacy_id(id: i32) -> Option<Self> {
+        match id {
+            0 => Some(TraitKind::Courage),   // was Brave
+            1 => Some(TraitKind::Vitality),  // was Tough
+            2 => Some(TraitKind::Agility),   // was Swift
+            3 => Some(TraitKind::Diligence), // was Focused
             _ => None,
         }
     }
 
     pub fn to_id(self) -> i32 {
         match self {
-            TraitKind::Brave => 0,
-            TraitKind::Tough => 1,
-            TraitKind::Swift => 2,
-            TraitKind::Focused => 3,
+            TraitKind::Courage => 0,
+            TraitKind::Diligence => 1,
+            TraitKind::Vitality => 2,
+            TraitKind::Power => 3,
+            TraitKind::Agility => 4,
+            TraitKind::Precision => 5,
+            TraitKind::Ferocity => 6,
         }
     }
 
-    pub fn name(self) -> &'static str {
-        match self {
-            TraitKind::Brave => "Brave",
-            TraitKind::Tough => "Tough",
-            TraitKind::Swift => "Swift",
-            TraitKind::Focused => "Focused",
+    /// Display name based on magnitude sign.
+    pub fn name(self, magnitude: f32) -> &'static str {
+        if magnitude >= 0.0 {
+            match self {
+                TraitKind::Courage => "Brave",
+                TraitKind::Diligence => "Efficient",
+                TraitKind::Vitality => "Hardy",
+                TraitKind::Power => "Strong",
+                TraitKind::Agility => "Swift",
+                TraitKind::Precision => "Sharpshot",
+                TraitKind::Ferocity => "Berserker",
+            }
+        } else {
+            match self {
+                TraitKind::Courage => "Coward",
+                TraitKind::Diligence => "Lazy",
+                TraitKind::Vitality => "Frail",
+                TraitKind::Power => "Weak",
+                TraitKind::Agility => "Slow",
+                TraitKind::Precision => "Myopic",
+                TraitKind::Ferocity => "Timid",
+            }
         }
     }
 }
 
-/// A trait with its magnitude (0.5 = weak, 1.0 = normal, 1.5 = strong).
+/// A trait axis with signed magnitude (-1.5..+1.5). Sign = pole, abs = strength.
 #[derive(Clone, Copy, Debug)]
 pub struct TraitInstance {
     pub kind: TraitKind,
     pub magnitude: f32,
 }
 
-/// NPC personality: 0-2 traits that modify stats and decision weights.
+/// Stat modifiers computed from personality traits.
+pub struct TraitStatMods {
+    pub damage: f32,
+    pub hp: f32,
+    pub speed: f32,
+    pub work_yield: f32,
+    pub range: f32,
+    pub cooldown: f32,
+    pub berserk_bonus: f32, // applied when HP <50%: damage *= (1 + berserk_bonus)
+}
+
+impl Default for TraitStatMods {
+    fn default() -> Self {
+        Self { damage: 1.0, hp: 1.0, speed: 1.0, work_yield: 1.0, range: 1.0, cooldown: 1.0, berserk_bonus: 0.0 }
+    }
+}
+
+/// Behavior modifiers computed from personality traits.
+pub struct TraitBehaviorMods {
+    pub fight: f32,
+    pub flee: f32,
+    pub rest: f32,
+    pub eat: f32,
+    pub work: f32,
+    pub wander: f32,
+    pub never_flees: bool,
+    pub flee_threshold_add: f32,
+}
+
+impl Default for TraitBehaviorMods {
+    fn default() -> Self {
+        Self { fight: 1.0, flee: 1.0, rest: 1.0, eat: 1.0, work: 1.0, wander: 1.0, never_flees: false, flee_threshold_add: 0.0 }
+    }
+}
+
+/// NPC personality: 0-2 spectrum traits that modify stats and decision weights.
 #[derive(Component, Clone, Debug, Default)]
 pub struct Personality {
     pub trait1: Option<TraitInstance>,
@@ -625,64 +705,92 @@ impl Personality {
     pub fn trait_summary(&self) -> String {
         let mut names: Vec<&'static str> = Vec::new();
         if let Some(t) = self.trait1 {
-            names.push(t.kind.name());
+            names.push(t.kind.name(t.magnitude));
         }
         if let Some(t) = self.trait2 {
-            names.push(t.kind.name());
+            names.push(t.kind.name(t.magnitude));
         }
         names.join(" + ")
     }
 
-    /// Get behavior multipliers: (fight, flee, rest, eat, work, wander)
-    pub fn get_multipliers(&self) -> (f32, f32, f32, f32, f32, f32) {
-        let mut fight = 1.0;
-        let mut flee = 1.0;
-        let mut rest = 1.0;
-        let mut eat = 1.0;
-        let mut work = 1.0;
-        let mut wander = 1.0;
+    /// Compute behavior modifiers from traits.
+    pub fn get_behavior_mods(&self) -> TraitBehaviorMods {
+        let mut mods = TraitBehaviorMods::default();
+        for t in [self.trait1, self.trait2].iter().flatten() {
+            let m = t.magnitude;
+            let a = m.abs();
+            match t.kind {
+                TraitKind::Courage => {
+                    if m > 0.0 {
+                        mods.never_flees = true;
+                    } else {
+                        mods.flee_threshold_add += 0.20 * a;
+                    }
+                }
+                TraitKind::Diligence => {
+                    if m > 0.0 {
+                        mods.work *= 1.0 + a;
+                    } else {
+                        mods.work *= 1.0 / (1.0 + a);
+                        mods.wander *= 1.0 + a;
+                    }
+                }
+                TraitKind::Vitality => {
+                    if m > 0.0 {
+                        mods.rest *= 1.0 / (1.0 + a);
+                        mods.eat *= 1.0 / (1.0 + a);
+                    } else {
+                        mods.rest *= 1.0 + a;
+                        mods.eat *= 1.0 + a;
+                    }
+                }
+                TraitKind::Power => {
+                    if m > 0.0 {
+                        mods.fight *= 1.0 + a;
+                    } else {
+                        mods.fight *= 1.0 / (1.0 + a);
+                    }
+                }
+                TraitKind::Agility => {
+                    if m > 0.0 {
+                        mods.wander *= 1.0 + a;
+                    } else {
+                        mods.wander *= 1.0 / (1.0 + a);
+                    }
+                }
+                TraitKind::Precision => {} // no behavior effect
+                TraitKind::Ferocity => {
+                    if m > 0.0 {
+                        mods.fight *= 1.0 + a;
+                        mods.flee *= 1.0 / (1.0 + a);
+                    } else {
+                        mods.fight *= 1.0 / (1.0 + a);
+                        mods.flee *= 1.0 + a;
+                    }
+                }
+            }
+        }
+        mods
+    }
 
+    /// Compute stat modifiers from traits.
+    pub fn get_stat_mods(&self) -> TraitStatMods {
+        let mut mods = TraitStatMods::default();
         for t in [self.trait1, self.trait2].iter().flatten() {
             let m = t.magnitude;
             match t.kind {
-                TraitKind::Brave => {
-                    fight *= 1.0 + m;
-                    flee *= 1.0 / (1.0 + m);
+                TraitKind::Courage => {}    // no stat effect
+                TraitKind::Diligence => {
+                    mods.work_yield *= 1.0 + 0.25 * m;
+                    mods.cooldown *= 1.0 - 0.25 * m;
                 }
-                TraitKind::Tough => {
-                    rest *= 1.0 / (1.0 + m);
-                    eat *= 1.0 / (1.0 + m);
-                }
-                TraitKind::Swift => {
-                    wander *= 1.0 + m;
-                }
-                TraitKind::Focused => {
-                    work *= 1.0 + m;
-                    wander *= 1.0 / (1.0 + m);
-                }
+                TraitKind::Vitality => { mods.hp *= 1.0 + 0.25 * m; }
+                TraitKind::Power => { mods.damage *= 1.0 + 0.25 * m; }
+                TraitKind::Agility => { mods.speed *= 1.0 + 0.25 * m; }
+                TraitKind::Precision => { mods.range *= 1.0 + 0.25 * m; }
+                TraitKind::Ferocity => { mods.berserk_bonus += 0.50 * m; }
             }
         }
-
-        (fight, flee, rest, eat, work, wander)
-    }
-
-    /// Get stat multipliers: (damage, hp, speed, yield)
-    pub fn get_stat_multipliers(&self) -> (f32, f32, f32, f32) {
-        let mut damage = 1.0;
-        let mut hp = 1.0;
-        let mut speed = 1.0;
-        let mut work_yield = 1.0;
-
-        for t in [self.trait1, self.trait2].iter().flatten() {
-            let bonus = 0.25 * t.magnitude;
-            match t.kind {
-                TraitKind::Brave => damage += bonus,
-                TraitKind::Tough => hp += bonus,
-                TraitKind::Swift => speed += bonus,
-                TraitKind::Focused => work_yield += bonus,
-            }
-        }
-
-        (damage, hp, speed, work_yield)
+        mods
     }
 }

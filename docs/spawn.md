@@ -103,7 +103,7 @@ Sprite assignments: Farmer=(1,6), Archer=(0,11), Crossbow=(0,0) (placeholder, pu
 
 ### Personality Generation
 
-Deterministic based on slot index (reproducible). Each NPC gets 0-2 traits from [Brave, Tough, Swift, Focused] with 30% chance each, magnitude 0.5-1.5.
+Deterministic based on slot index (reproducible). Each NPC gets 0-2 spectrum traits from 7 axes (Courage, Diligence, Vitality, Power, Agility, Precision, Ferocity) with 20% chance each, signed magnitude ±0.5 to ±1.5.
 
 ### Name Generation
 

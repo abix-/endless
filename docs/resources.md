@@ -38,7 +38,7 @@ Pre-computed per-NPC data for UI queries, indexed by slot.
 
 `NpcLogCache.push(idx, day, hour, minute, message)` adds timestamped entries. Oldest evicted at capacity.
 
-NPC state is derived at query time from ECS components (Activity, CombatState, Personality) via entity lookup from `NpcEntry.entity`, not cached. Trait display reads from the `Personality` ECS component via `trait_summary()` at query time (not cached in meta). NPC rename edits `NpcMetaCache` directly from inspector UI.
+NPC state is derived at query time from ECS components (Activity, CombatState, Personality) via entity lookup from `NpcEntry.entity`, not cached. Trait display is cached in `NpcMeta.trait_display` at spawn time and also queried from `Personality` ECS component via `trait_summary()` in some UI panels. NPC rename edits `NpcMetaCache` directly from inspector UI.
 
 ## Population & Kill Stats
 

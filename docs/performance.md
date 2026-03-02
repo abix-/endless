@@ -326,7 +326,6 @@ Legitimate violations of the rules above, tracked with exit criteria.
 
 | Exception | Rule violated | Reason | Cost | Exit criteria |
 |-----------|-------------|--------|------|---------------|
-| `health.rs` death detection uses `iter_npcs()` | Hot Path #6 | Need EntityMap `dead` flag + Health component in same loop | O(n) per frame (1 scan) | Add Dead marker to NPCs for query-based detection |
 | `save.rs` uses `iter_npcs()` | Hot Path #6 | Save is cold path (F5 only) | N/A | None needed |
 | `npc_render.rs` `build_visual_upload` uses `iter_npcs()` | Hot Path #6 | Needs NpcInstance fields not in ECS; event-driven dirty-only | Acceptable | None — correct pattern |
 | `roster_panel.rs` / `left_panel.rs` use `iter_npcs()` | Hot Path #6 | UI roster display needs full NPC list | 30-frame cadence cache | Add pagination or virtual scroll |

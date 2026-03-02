@@ -757,7 +757,7 @@ pub fn resolve_combat_stats(
         .get(&attack_type)
         .expect("missing attack type stats");
     let atk_base = def.attack_override.as_ref().unwrap_or(default_atk);
-    let (trait_damage, trait_hp, trait_speed, _trait_yield) = personality.get_stat_multipliers();
+    let trait_mods = personality.get_stat_mods();
     let level_mult = 1.0 + level as f32 * 0.01;
 
     let town_idx_usize = if town_idx >= 0 {
@@ -781,15 +781,16 @@ pub fn resolve_combat_stats(
     let hp_regen_level = reg.stat_level(&town, cat, UpgradeStatKind::HpRegen) as f32;
 
     CachedStats {
-        damage: job_base.damage * upgrade_dmg * trait_damage * level_mult * (1.0 + weapon_bonus),
-        range: atk_base.range * upgrade_range,
-        cooldown: atk_base.cooldown * cooldown_mult,
+        damage: job_base.damage * upgrade_dmg * trait_mods.damage * level_mult * (1.0 + weapon_bonus),
+        range: atk_base.range * upgrade_range * trait_mods.range,
+        cooldown: atk_base.cooldown * cooldown_mult * trait_mods.cooldown,
         projectile_speed: atk_base.projectile_speed * upgrade_proj_speed,
         projectile_lifetime: atk_base.projectile_lifetime * upgrade_proj_life,
-        max_health: job_base.max_health * upgrade_hp * trait_hp * level_mult * (1.0 + armor_bonus),
-        speed: job_base.speed * upgrade_speed * trait_speed,
+        max_health: job_base.max_health * upgrade_hp * trait_mods.hp * level_mult * (1.0 + armor_bonus),
+        speed: job_base.speed * upgrade_speed * trait_mods.speed,
         stamina: stamina_mult,
         hp_regen: hp_regen_level * 0.5,
+        berserk_bonus: trait_mods.berserk_bonus,
     }
 }
 

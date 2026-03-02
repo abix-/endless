@@ -93,9 +93,9 @@ pub enum BlackjackPhase {
     Result,
 }
 
-const SHOE_DECKS: usize = 3;
+const SHOE_DECKS: usize = 1;
 const SHOE_SIZE: usize = SHOE_DECKS * 52;
-const CUT_CARD: usize = 39;
+const CUT_CARD: usize = 13;
 const REPUTATION_PER_GOLD: f32 = 0.1;
 
 // Card visual constants
@@ -474,7 +474,20 @@ fn render_table(ui: &mut egui::Ui, state: &BlackjackState, hide_hole: bool) {
 // ============================================================================
 
 fn betting_ui(ui: &mut egui::Ui, state: &mut BlackjackState, player_gold: i32, opponent_gold: i32) {
-    ui.add_space(20.0);
+    ui.add_space(8.0);
+    let rules_color = egui::Color32::from_rgb(160, 170, 150);
+    egui::CollapsingHeader::new(egui::RichText::new("Rules").color(rules_color).size(12.0))
+        .default_open(false)
+        .show(ui, |ui| {
+            let txt = "Single deck, reshuffled at 75%. Beat the dealer without going over 21.\n\
+                       Cards 2-10 = face value, J/Q/K = 10, Ace = 1 or 11.\n\
+                       Blackjack (Ace + 10-card) pays 3:2. Dealer stands on 17.\n\
+                       Double: double bet, receive exactly one more card.\n\
+                       Split: matching cards become two hands at original bet each.\n\
+                       Push (tie) returns your bet. Winning costs the opponent gold and reputation.";
+            ui.label(egui::RichText::new(txt).color(rules_color).size(11.0));
+        });
+    ui.add_space(8.0);
     ui.label(egui::RichText::new("Place your bet").color(egui::Color32::from_rgb(220, 220, 180)).size(16.0));
     ui.add_space(8.0);
 

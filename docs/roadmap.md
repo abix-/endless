@@ -60,8 +60,8 @@ SystemParam bundle consolidation (code quality, not runtime perf):
 Trait combinations, squad ignore-patrol, and target oscillation fix complete (see [completed.md](completed.md)).
 
 Remaining:
-- [ ] Unify `TraitKind` (4 variants) and `trait_name()` (9 names) into single 9-trait Personality system
-- [ ] All 9 traits affect both `resolve_combat_stats()` and `decision_system` behavior weights
+- [x] Unify `TraitKind` into 7-axis spectrum personality (14 trait names, signed magnitude)
+- [x] All 7 axes affect both `resolve_combat_stats()` and `decision_system` behavior weights
 - [ ] Target switching (prefer non-fleeing enemies, prioritize low-HP targets)
 - [ ] Terrain combat modifiers — biome at target's position affects incoming damage:
   - Forest cover: 25% miss chance on projectile hits (roll in `process_proj_hits` or `damage_system` using target position → `WorldGrid` cell → `Biome::Forest`)

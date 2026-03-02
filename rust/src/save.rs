@@ -499,37 +499,48 @@ impl CombatStateSave {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct TraitSave {
-    pub kind: u8, // 0=Brave, 1=Tough, 2=Swift, 3=Focused
-    pub magnitude: f32,
+    pub kind: u8, // 0-6 = TraitKind axis ID. Legacy: 0=Courage,1=Vitality,2=Agility,3=Diligence
+    pub magnitude: f32, // signed: + = positive pole, - = negative pole
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct PersonalitySave {
     pub trait1: Option<TraitSave>,
     pub trait2: Option<TraitSave>,
+    /// 0 = legacy (4-trait), 1 = spectrum (7-axis). Missing in old saves → 0.
+    #[serde(default)]
+    pub version: u8,
 }
 
 impl PersonalitySave {
     fn from_personality(p: &Personality) -> Self {
         let map_trait = |t: &TraitInstance| -> TraitSave {
-            let kind = t.kind.to_id();
             TraitSave {
-                kind: kind as u8,
+                kind: t.kind.to_id() as u8,
                 magnitude: t.magnitude,
             }
         };
         Self {
             trait1: p.trait1.as_ref().map(map_trait),
             trait2: p.trait2.as_ref().map(map_trait),
+            version: 1,
         }
     }
 
     fn to_personality(&self) -> Personality {
+        let is_legacy = self.version == 0;
         let map_trait = |t: &TraitSave| -> TraitInstance {
-            let kind = TraitKind::from_id(t.kind as i32).unwrap_or(TraitKind::Focused);
+            let kind = if is_legacy {
+                // Legacy: 0=Brave→Courage, 1=Tough→Vitality, 2=Swift→Agility, 3=Focused→Diligence
+                TraitKind::from_legacy_id(t.kind as i32)
+                    .unwrap_or(TraitKind::Diligence)
+            } else {
+                TraitKind::from_id(t.kind as i32)
+                    .unwrap_or(TraitKind::Diligence)
+            };
             TraitInstance {
                 kind,
-                magnitude: t.magnitude,
+                magnitude: t.magnitude, // legacy saves had positive-only, which maps to positive pole
             }
         };
         Personality {

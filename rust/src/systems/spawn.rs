@@ -38,47 +38,34 @@ fn generate_name(job: Job, slot: usize) -> String {
     format!("{} {}", adj, noun)
 }
 
-/// Generate a random personality with 0-2 traits.
-/// Each trait has 30% chance, magnitude 0.5-1.5.
+/// Generate a random personality with 0-2 spectrum traits.
+/// Each of 7 axes has ~20% chance. Magnitude ±0.5 to ±1.5 (sign = pole).
 fn generate_personality(slot: usize) -> Personality {
-    // Simple deterministic "random" based on slot for reproducibility
-    let seed = slot as u32;
-    let r1 = ((seed.wrapping_mul(1103515245).wrapping_add(12345)) >> 16) & 0x7fff;
-    let r2 = ((seed
-        .wrapping_mul(1103515245)
-        .wrapping_add(12345)
-        .wrapping_mul(1103515245)
-        .wrapping_add(12345))
-        >> 16)
-        & 0x7fff;
-    let r3 = (r1.wrapping_mul(1103515245).wrapping_add(12345) >> 16) & 0x7fff;
-    let r4 = (r2.wrapping_mul(1103515245).wrapping_add(12345) >> 16) & 0x7fff;
+    // Deterministic LCG chain seeded by slot index
+    let mut s = slot as u32;
+    let mut next = || -> u32 {
+        s = s.wrapping_mul(1103515245).wrapping_add(12345);
+        (s >> 16) & 0x7fff
+    };
 
     let mut traits = Vec::new();
 
-    // 30% chance for each trait
-    let kinds = [
-        TraitKind::Brave,
-        TraitKind::Tough,
-        TraitKind::Swift,
-        TraitKind::Focused,
-    ];
-    let randoms = [r1, r2, r3, r4];
-
-    for (i, &kind) in kinds.iter().enumerate() {
-        if randoms[i] % 100 < 30 {
-            // Magnitude 0.5 to 1.5
-            let mag = 0.5 + ((randoms[i] % 1000) as f32 / 1000.0);
+    // 20% chance per axis, cap at 2
+    for &kind in &TraitKind::ALL {
+        if traits.len() >= 2 { break; }
+        let r = next();
+        if r % 100 < 20 {
+            let mag = 0.5 + ((r % 1000) as f32 / 1000.0); // 0.5..1.5
+            let sign = if next() % 2 == 0 { 1.0 } else { -1.0 };
             traits.push(TraitInstance {
                 kind,
-                magnitude: mag,
+                magnitude: sign * mag,
             });
         }
     }
 
-    // Keep at most 2
     Personality {
-        trait1: traits.get(0).copied(),
+        trait1: traits.first().copied(),
         trait2: traits.get(1).copied(),
     }
 }
@@ -228,12 +215,7 @@ pub fn materialize_npc(
     let activity = overrides.activity.clone().unwrap_or_default();
     let combat_state = overrides.combat_state.clone().unwrap_or_default();
 
-    let trait_id_cache = personality
-        .trait1
-        .as_ref()
-        .or(personality.trait2.as_ref())
-        .map(|t| t.kind.to_id())
-        .unwrap_or(-1);
+    let trait_display = personality.trait_summary();
 
     // Patrol route
     let patrol_route = if def.is_patrol_unit && starting_post >= 0 {
@@ -342,7 +324,7 @@ pub fn materialize_npc(
                 .unwrap_or_else(|| generate_name(job, idx)),
             level,
             xp: overrides.xp.unwrap_or(0),
-            trait_id: trait_id_cache,
+            trait_display,
             town_id: town_idx,
             job: job_id,
         };

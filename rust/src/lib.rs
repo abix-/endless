@@ -71,12 +71,6 @@ pub fn job_name(job: i32) -> &'static str {
     components::Job::from_i32(job).label()
 }
 
-/// Get trait name from trait ID.
-pub fn trait_name(trait_id: i32) -> &'static str {
-    components::TraitKind::from_id(trait_id)
-        .map(|t| t.name())
-        .unwrap_or("")
-}
 
 // ============================================================================
 // BEVY APP

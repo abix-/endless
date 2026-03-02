@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-03-02p
+
+- **7-axis spectrum personality** — replaced 4-trait system (Brave/Tough/Swift/Focused) with 7 spectrum axes (Courage/Diligence/Vitality/Power/Agility/Precision/Ferocity), each with signed magnitude (±0.5 to ±1.5). Positive pole = beneficial (Brave, Efficient, Hardy, Strong, Swift, Sharpshot, Berserker), negative = detrimental (Coward, Lazy, Frail, Weak, Slow, Myopic, Timid). All 7 axes affect both stats (`resolve_combat_stats` via `TraitStatMods`) and behavior weights (`decision_system` via `TraitBehaviorMods`). Personality generation: 20% per axis, cap at 2 traits, deterministic LCG. Save compat: `PersonalitySave.version` (0=legacy 4-trait, 1=spectrum) with `from_legacy_id()` migration.
+- **berserk damage system** — `CachedStats.berserk_bonus` from Ferocity axis. `attack_system` applies damage multiplier `(1 + berserk_bonus)` when HP <50%. Berserker trait: +50%×m damage bonus; Timid: -50%×|m| penalty.
+- **personality-modified flee** — Brave trait: `never_flees = true` (ignores flee threshold). Coward trait: `flee_threshold_add = +0.20 × |m|` (flees earlier). Applied in `decision_system` after policy flee_pct calculation.
+- **query-first death detection** — `death_system` Phase 1a now uses ECS query `(Entity, &Health, &GpuSlot), Without<Dead>` instead of `iter_npcs()`. Inserts `Dead` marker component. Eliminates last hot-path `iter_npcs()` violation in health.rs.
+- **blackjack: single deck + rules** — shoe changed from 3 decks to 1, cut card 39→13. Added collapsible "Rules" section in betting UI.
+- **NpcMeta.trait_display** — replaced `trait_id: i32` with `trait_display: String` (pre-formatted at spawn). Roster panel reads cached string instead of calling `trait_name()`. Removed `lib::trait_name()`.
+
 ## 2026-03-02o
 
 - **dead code cleanup: constants.rs** — removed 16 unused constants: `SEPARATION_RADIUS/STRENGTH` (gpu.rs hardcodes values), `ENERGY_RESTED`, `SCORE_FIGHT_BASE`, `SCORE_FLEE_MULT`, `ROAD_SPEED_MULT`, `WALL_EXTRA_LAYERS`, `BUILDING_HIT_RADIUS`, `WAYPOINT_COVER_RADIUS`, and 7 `ATLAS_*` constants (CHAR/WORLD/HEAL/SLEEP/ARROW/BUILDING_HP/MINING_BAR — all bypassed with magic literals in npc_render.rs). Kept `ATLAS_BUILDING` and `ATLAS_BOAT` (referenced in registries).

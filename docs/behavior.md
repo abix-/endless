@@ -42,20 +42,23 @@ All checks are **policy-driven per town**. Flee thresholds come from `TownPolici
 
 ## Utility AI (Weighted Random Decisions)
 
-**Idle NPCs** use utility AI for decisions. Instead of rigid rules (if tired→rest, else work), actions are scored and selected via weighted random. This creates lifelike, emergent behavior — a tired farmer with Focused trait might still choose Work over Rest sometimes.
+**Idle NPCs** use utility AI for decisions. Instead of rigid rules (if tired→rest, else work), actions are scored and selected via weighted random. This creates lifelike, emergent behavior — a tired farmer with the Efficient trait might still choose Work over Rest sometimes.
 
 The priority cascade (flee > leash > recovery > tired > patrol > wake > raid) handles **state checks** — deterministic "what state am I in" logic. Utility AI only kicks in at the end for NPCs with no active state.
 
 ### Personality Component
 
-Each NPC has a `Personality` with 0-2 traits, each with a magnitude (0.5-1.5):
+Each NPC has a `Personality` with 0-2 spectrum traits. Each trait is an axis with signed magnitude (±0.5 to ±1.5); sign determines the pole (e.g. +Brave/-Coward):
 
-| Trait | Stat Effect | Behavior Effect |
-|-------|-------------|-----------------|
-| Brave(m) | +25% × m damage | Fight ×(1+m), Flee ×(1/(1+m)) |
-| Tough(m) | +25% × m HP | Rest ×(1/(1+m)), Eat ×(1/(1+m)) |
-| Swift(m) | +25% × m speed | Wander ×(1+m) |
-| Focused(m) | +25% × m yield | Work ×(1+m), Wander ×(1/(1+m)) |
+| Axis | + / - | Stat Effect | Behavior Effect |
+|------|-------|-------------|-----------------|
+| Courage | Brave / Coward | — | +: never flees / -: flee threshold +20%×\|m\| |
+| Diligence | Efficient / Lazy | +25%×m yield, -25%×m cooldown | +: work↑ / -: work↓ wander↑ |
+| Vitality | Hardy / Frail | +25%×m HP | +: rest↓ eat↓ / -: rest↑ eat↑ |
+| Power | Strong / Weak | +25%×m damage | +: fight↑ / -: fight↓ |
+| Agility | Swift / Slow | +25%×m speed | +: wander↑ / -: wander↓ |
+| Precision | Sharpshot / Myopic | +25%×m range | — |
+| Ferocity | Berserker / Timid | +50%×m damage when <50% HP | +: fight↑ flee↓ / -: fight↓ flee↑ |
 
 ### Action Scoring
 
@@ -77,7 +80,7 @@ Each NPC has a `Personality` with 0-2 traits, each with a magnitude (0.5-1.5):
 Scores are multiplied by personality multipliers, then weighted random selects an action:
 
 ```
-Example: Energy=40, Tough(1.0) + Focused(1.0)
+Example: Energy=40, Hardy(1.0) + Efficient(1.0)
   Eat:    60 × 0.5 = 30
   Rest:   60 × 0.5 = 30
   Work:   40 × 2.0 = 80
@@ -162,7 +165,7 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 | Component | Type | Purpose |
 |-----------|------|---------|
 | Energy | `f32` | 0-100, drains while active, recovers while resting |
-| Personality | `{ trait1, trait2 }` | 0-2 traits with magnitude affecting stats and decisions |
+| Personality | `{ trait1, trait2 }` | 0-2 spectrum traits (7 axes, signed magnitude) affecting stats and decisions |
 | NpcWorkState | `{ occupied_building: Option<EntityUid>, work_target_building: Option<EntityUid> }` | Always-present — building being occupied (released on death/stop) + building being walked to (navigation target). UID-based for ABA safety. Used by both farms and mines. |
 | NpcFlags | `{ healing, starving, direct_control, migrating, at_destination }` | High-churn booleans bundled to avoid archetype moves |
 | CachedStats | `{ max_health, damage, range, ... }` | Resolved combat stats |

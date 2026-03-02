@@ -110,6 +110,7 @@ pub fn attack_system(
             &Faction,
             &CachedStats,
             &Activity,
+            &Health,
             Option<&SquadId>,
             Option<&ManualTarget>,
         ),
@@ -134,14 +135,19 @@ pub fn attack_system(
     let mut timer_ready_count = 0usize;
     let mut sample_timer = -1.0f32;
 
-    for (entity, slot, job, faction, stats, activity, squad_id_opt, manual_target_opt) in
+    for (entity, slot, job, faction, stats, activity, health, squad_id_opt, manual_target_opt) in
         npc_q.iter()
     {
         let i = slot.0;
         let faction_id = faction.0;
         let job = *job;
         let cached_range = stats.range;
-        let cached_damage = stats.damage;
+        // Berserker/Timid: damage modifier when below 50% HP
+        let cached_damage = if stats.berserk_bonus != 0.0 && stats.max_health > 0.0 && health.0 / stats.max_health < 0.5 {
+            (stats.damage * (1.0 + stats.berserk_bonus)).max(0.0)
+        } else {
+            stats.damage
+        };
         let cached_cooldown = stats.cooldown;
         let cached_proj_speed = stats.projectile_speed;
         let cached_proj_lifetime = stats.projectile_lifetime;
