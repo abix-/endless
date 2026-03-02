@@ -684,3 +684,108 @@ pub fn sync_building_hp_render(
         render.health_pcts.push(health.0 / max_hp);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::components::{AttackTimer, Building, Dead, GpuSlot};
+    use crate::resources::{CombatDebug, GameTime};
+    use bevy::time::TimeUpdateStrategy;
+
+    fn setup_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(GameTime::default());
+        app.insert_resource(CombatDebug::default());
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.add_systems(FixedUpdate, cooldown_system);
+        app.update();
+        app.update();
+        app
+    }
+
+    fn spawn_attacker(app: &mut App, timer: f32) -> Entity {
+        app.world_mut().spawn((
+            GpuSlot(0),
+            AttackTimer(timer),
+        )).id()
+    }
+
+    #[test]
+    fn cooldown_decrements_timer() {
+        let mut app = setup_app();
+        let npc = spawn_attacker(&mut app, 2.0);
+
+        app.update();
+        let timer = app.world().get::<AttackTimer>(npc).unwrap().0;
+        assert!(timer < 2.0, "timer should decrement: {timer}");
+    }
+
+    #[test]
+    fn cooldown_floors_at_zero() {
+        let mut app = setup_app();
+        let npc = spawn_attacker(&mut app, 0.01);
+
+        for _ in 0..100 {
+            app.update();
+        }
+        let timer = app.world().get::<AttackTimer>(npc).unwrap().0;
+        assert!(timer >= 0.0, "timer should never go negative: {timer}");
+        assert!(timer < f32::EPSILON, "timer should be at zero: {timer}");
+    }
+
+    #[test]
+    fn cooldown_zero_timer_unchanged() {
+        let mut app = setup_app();
+        let npc = spawn_attacker(&mut app, 0.0);
+
+        app.update();
+        let timer = app.world().get::<AttackTimer>(npc).unwrap().0;
+        assert!(timer.abs() < f32::EPSILON, "zero timer should stay zero: {timer}");
+    }
+
+    #[test]
+    fn cooldown_dead_excluded() {
+        let mut app = setup_app();
+        let npc = app.world_mut().spawn((
+            GpuSlot(0),
+            AttackTimer(5.0),
+            Dead,
+        )).id();
+
+        app.update();
+        let timer = app.world().get::<AttackTimer>(npc).unwrap().0;
+        assert!((timer - 5.0).abs() < f32::EPSILON, "dead entity timer should not change: {timer}");
+    }
+
+    #[test]
+    fn cooldown_buildings_excluded() {
+        let mut app = setup_app();
+        let building = app.world_mut().spawn((
+            GpuSlot(0),
+            AttackTimer(5.0),
+            Building { kind: crate::world::BuildingKind::Tower },
+        )).id();
+
+        app.update();
+        let timer = app.world().get::<AttackTimer>(building).unwrap().0;
+        assert!((timer - 5.0).abs() < f32::EPSILON, "building timer should not change: {timer}");
+    }
+
+    #[test]
+    fn cooldown_updates_debug() {
+        let mut app = setup_app();
+        spawn_attacker(&mut app, 3.0);
+
+        app.update();
+        let debug = app.world().resource::<CombatDebug>();
+        assert_eq!(debug.cooldown_entities, 1, "should count 1 entity");
+        assert!(debug.frame_delta > 0.0, "frame_delta should be positive: {}", debug.frame_delta);
+        // sample_timer captures pre-decrement value on first tick, but FixedUpdate
+        // runs many sub-ticks per app.update(), so later ticks see partially decremented values
+        assert!(debug.sample_timer > 0.0 && debug.sample_timer <= 3.0,
+                "sample_timer should reflect timer value: {}", debug.sample_timer);
+    }
+}

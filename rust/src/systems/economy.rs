@@ -1455,4 +1455,82 @@ mod tests {
         let flags = app.world().get::<NpcFlags>(building).unwrap();
         assert!(!flags.starving, "buildings should be excluded from starvation");
     }
+
+    // ========================================================================
+    // game_time_system tests
+    // ========================================================================
+
+    fn setup_game_time_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(GameTime::default());
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.add_systems(FixedUpdate, game_time_system);
+        app.update();
+        app.update();
+        app
+    }
+
+    #[test]
+    fn game_time_advances() {
+        let mut app = setup_game_time_app();
+
+        let before = app.world().resource::<GameTime>().total_seconds;
+        app.update();
+        let after = app.world().resource::<GameTime>().total_seconds;
+        assert!(after > before, "total_seconds should advance: before={before}, after={after}");
+    }
+
+    #[test]
+    fn game_time_paused_no_advance() {
+        let mut app = setup_game_time_app();
+        app.world_mut().resource_mut::<GameTime>().paused = true;
+
+        let before = app.world().resource::<GameTime>().total_seconds;
+        app.update();
+        let after = app.world().resource::<GameTime>().total_seconds;
+        assert!((after - before).abs() < f32::EPSILON, "paused game time should not advance: {before} -> {after}");
+    }
+
+    #[test]
+    fn game_time_hour_ticked_resets_each_frame() {
+        let mut app = setup_game_time_app();
+        app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
+
+        app.update();
+        let ticked = app.world().resource::<GameTime>().hour_ticked;
+        // game_time_system resets hour_ticked to false each frame before checking
+        // Whether it's true after depends on whether an hour boundary was crossed,
+        // but it should NOT still be true from the manual set above (it resets first)
+        // With default seconds_per_hour=5.0, 1s delta = 0.2 hours, so no hour boundary
+        assert!(!ticked, "hour_ticked should reset each frame when no hour boundary crossed");
+    }
+
+    #[test]
+    fn game_time_hour_ticks_after_enough_time() {
+        let mut app = setup_game_time_app();
+        // default: seconds_per_hour = 5.0, time_scale = 1.0
+        // FixedUpdate has a max substeps cap (~16), so each app.update() adds ~0.25s
+        // Need total_seconds > 5.0 to cross first hour boundary → ~25 updates
+        for _ in 0..25 {
+            app.update();
+        }
+        let gt = app.world().resource::<GameTime>();
+        assert!(gt.last_hour >= 1, "last_hour should increment after enough time: last_hour={}, total_seconds={}", gt.last_hour, gt.total_seconds);
+    }
+
+    #[test]
+    fn game_time_last_hour_tracks() {
+        let mut app = setup_game_time_app();
+        let initial = app.world().resource::<GameTime>().last_hour;
+
+        // Run many updates to cross multiple hour boundaries
+        for _ in 0..20 {
+            app.update();
+        }
+        let final_hour = app.world().resource::<GameTime>().last_hour;
+        assert!(final_hour > initial, "last_hour should increase over time: initial={initial}, final={final_hour}");
+    }
 }

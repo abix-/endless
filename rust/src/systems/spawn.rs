@@ -429,3 +429,61 @@ pub(crate) fn build_patrol_route(entity_map: &EntityMap, town_idx: u32) -> Vec<V
     posts.sort_by_key(|(order, _)| *order);
     posts.into_iter().map(|(_, pos)| pos).collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generate_name_deterministic() {
+        let a = generate_name(Job::Archer, 42);
+        let b = generate_name(Job::Archer, 42);
+        assert_eq!(a, b, "same job+slot should produce same name");
+    }
+
+    #[test]
+    fn generate_name_different_slots() {
+        let names: Vec<String> = (0..50).map(|s| generate_name(Job::Archer, s)).collect();
+        let unique: std::collections::HashSet<&String> = names.iter().collect();
+        assert!(unique.len() > 1, "different slots should produce different names");
+    }
+
+    #[test]
+    fn generate_name_all_jobs() {
+        let jobs = [Job::Farmer, Job::Archer, Job::Raider, Job::Fighter, Job::Miner, Job::Crossbow, Job::Boat];
+        for job in jobs {
+            let name = generate_name(job, 0);
+            assert!(!name.is_empty(), "job {:?} should produce a non-empty name", job);
+            assert!(name.contains(' '), "name should be 'Adj Noun': {name}");
+        }
+    }
+
+    #[test]
+    fn generate_personality_deterministic() {
+        let a = generate_personality(42);
+        let b = generate_personality(42);
+        assert_eq!(a.trait1.map(|t| (t.kind, t.magnitude.to_bits())),
+                   b.trait1.map(|t| (t.kind, t.magnitude.to_bits())),
+                   "same slot should produce same personality");
+    }
+
+    #[test]
+    fn generate_personality_some_have_traits() {
+        let with_traits = (0..100)
+            .filter(|&s| generate_personality(s).trait1.is_some())
+            .count();
+        assert!(with_traits > 0, "at least some personalities should have traits");
+        assert!(with_traits < 100, "not all personalities should have traits (20% chance per axis)");
+    }
+
+    #[test]
+    fn generate_personality_max_two_traits() {
+        for slot in 0..1000 {
+            let p = generate_personality(slot);
+            if p.trait2.is_some() {
+                assert!(p.trait1.is_some(), "trait2 without trait1 at slot {slot}");
+            }
+            // No trait3 field exists — struct enforces max 2 by design
+        }
+    }
+}

@@ -221,7 +221,8 @@ Sound (bevy_audio) woven into stages. Done: arrow shoot SFX, NPC death SFX (24 v
 
 ### Testing
 - [x] Unit test infrastructure: `#[cfg(test)]` modules in stats.rs, constants.rs, components.rs (65 pure function tests via `cargo test`)
-- [x] System-level tests: headless `App::new()` + `FixedUpdate` tests for energy, regen, starvation systems (21 tests)
+- [x] System-level tests: headless `App::new()` + `FixedUpdate` tests for energy, regen, starvation, game_time, cooldown systems (32 tests)
+- [x] Pure function tests: generate_name, generate_personality in spawn.rs (6 tests)
 - [ ] CI pipeline: `cargo test` + `cargo clippy` in GitHub Actions
 
 ### UI & UX
