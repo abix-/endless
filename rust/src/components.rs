@@ -404,17 +404,118 @@ impl EquipLayer {
     pub const COUNT: usize = 6;
 }
 
-/// Equipped weapon sprite (col, row in atlas). Presence = has weapon.
-#[derive(Component, Clone, Copy)]
-pub struct EquippedWeapon(pub f32, pub f32);
+/// Unified equipment component — always present on NPCs with equip_slots.
+/// Replaces EquippedWeapon, EquippedArmor, EquippedHelmet.
+#[derive(Component, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct NpcEquipment {
+    pub helm: Option<crate::constants::LootItem>,
+    pub armor: Option<crate::constants::LootItem>,
+    pub weapon: Option<crate::constants::LootItem>,
+    pub shield: Option<crate::constants::LootItem>,
+    pub gloves: Option<crate::constants::LootItem>,
+    pub boots: Option<crate::constants::LootItem>,
+    pub belt: Option<crate::constants::LootItem>,
+    pub amulet: Option<crate::constants::LootItem>,
+    pub ring1: Option<crate::constants::LootItem>,
+    pub ring2: Option<crate::constants::LootItem>,
+}
 
-/// Equipped helmet sprite (col, row in atlas). Presence = has helmet.
-#[derive(Component, Clone, Copy)]
-pub struct EquippedHelmet(pub f32, pub f32);
+impl NpcEquipment {
+    /// Weapon sprite: loot item sprite → NpcDef default weapon → sentinel.
+    pub fn weapon_sprite(&self, job: Job) -> (f32, f32) {
+        self.weapon
+            .as_ref()
+            .map(|i| i.sprite)
+            .or(crate::constants::npc_def(job).weapon)
+            .unwrap_or((-1.0, 0.0))
+    }
 
-/// Equipped armor sprite (col, row in atlas). Presence = has armor.
-#[derive(Component, Clone, Copy)]
-pub struct EquippedArmor(pub f32, pub f32);
+    /// Helm sprite: loot item sprite → NpcDef default helmet → sentinel.
+    pub fn helm_sprite(&self, job: Job) -> (f32, f32) {
+        self.helm
+            .as_ref()
+            .map(|i| i.sprite)
+            .or(crate::constants::npc_def(job).helmet)
+            .unwrap_or((-1.0, 0.0))
+    }
+
+    /// Armor sprite: loot item sprite → sentinel (no NpcDef default for armor).
+    pub fn armor_sprite(&self) -> (f32, f32) {
+        self.armor
+            .as_ref()
+            .map(|i| i.sprite)
+            .unwrap_or((-1.0, 0.0))
+    }
+
+    /// Shield sprite: loot item sprite → sentinel.
+    pub fn shield_sprite(&self) -> (f32, f32) {
+        self.shield
+            .as_ref()
+            .map(|i| i.sprite)
+            .unwrap_or((-1.0, 0.0))
+    }
+
+    /// Get slot by enum.
+    pub fn slot(&self, slot: crate::constants::EquipmentSlot) -> &Option<crate::constants::LootItem> {
+        use crate::constants::EquipmentSlot::*;
+        match slot {
+            Helm => &self.helm,
+            Armor => &self.armor,
+            Weapon => &self.weapon,
+            Shield => &self.shield,
+            Gloves => &self.gloves,
+            Boots => &self.boots,
+            Belt => &self.belt,
+            Amulet => &self.amulet,
+            Ring => &self.ring1,
+        }
+    }
+
+    /// Get mutable slot by enum.
+    pub fn slot_mut(&mut self, slot: crate::constants::EquipmentSlot) -> &mut Option<crate::constants::LootItem> {
+        use crate::constants::EquipmentSlot::*;
+        match slot {
+            Helm => &mut self.helm,
+            Armor => &mut self.armor,
+            Weapon => &mut self.weapon,
+            Shield => &mut self.shield,
+            Gloves => &mut self.gloves,
+            Boots => &mut self.boots,
+            Belt => &mut self.belt,
+            Amulet => &mut self.amulet,
+            Ring => &mut self.ring1,
+        }
+    }
+
+    fn item_bonus(item: &Option<crate::constants::LootItem>) -> f32 {
+        item.as_ref().map(|i| i.stat_bonus).unwrap_or(0.0)
+    }
+
+    /// Total damage bonus from weapon + gloves + half(amulet + rings).
+    pub fn total_weapon_bonus(&self) -> f32 {
+        Self::item_bonus(&self.weapon)
+            + Self::item_bonus(&self.gloves)
+            + 0.5 * (Self::item_bonus(&self.amulet) + Self::item_bonus(&self.ring1) + Self::item_bonus(&self.ring2))
+    }
+
+    /// Total HP bonus from armor + helm + shield + half(amulet + rings).
+    pub fn total_armor_bonus(&self) -> f32 {
+        Self::item_bonus(&self.armor)
+            + Self::item_bonus(&self.helm)
+            + Self::item_bonus(&self.shield)
+            + 0.5 * (Self::item_bonus(&self.amulet) + Self::item_bonus(&self.ring1) + Self::item_bonus(&self.ring2))
+    }
+
+    /// Speed bonus from boots.
+    pub fn total_speed_bonus(&self) -> f32 {
+        Self::item_bonus(&self.boots)
+    }
+
+    /// Stamina bonus from belt.
+    pub fn total_stamina_bonus(&self) -> f32 {
+        Self::item_bonus(&self.belt)
+    }
+}
 
 /// Tracks the NPC/building slot of the last attacker (for XP on kill).
 #[derive(Component)]

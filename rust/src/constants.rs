@@ -649,9 +649,31 @@ pub struct LootDrop {
 /// Equipment slot on an NPC.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum EquipmentSlot {
-    Weapon,
+    // Sprite-visible slots
+    Helm,
     Armor,
+    Weapon,
+    Shield,
+    // Stat-only slots
+    Gloves,
+    Boots,
+    Belt,
+    Amulet,
+    Ring,
 }
+
+/// All equipment slot variants for iteration.
+pub const ALL_EQUIPMENT_SLOTS: &[EquipmentSlot] = &[
+    EquipmentSlot::Helm,
+    EquipmentSlot::Armor,
+    EquipmentSlot::Weapon,
+    EquipmentSlot::Shield,
+    EquipmentSlot::Gloves,
+    EquipmentSlot::Boots,
+    EquipmentSlot::Belt,
+    EquipmentSlot::Amulet,
+    EquipmentSlot::Ring,
+];
 
 /// Rarity tier for loot items.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -722,26 +744,37 @@ pub struct LootItem {
     pub name: String,
 }
 
-/// Weapon sprite options for loot items (atlas col, row).
-const WEAPON_SPRITES: &[(f32, f32)] = &[
-    (45.0, 6.0),  // sword
-    (46.0, 6.0),  // axe
-    (47.0, 6.0),  // spear
-    (44.0, 6.0),  // mace
-];
+/// Sprite options per slot (atlas col, row). Visible slots have distinct sprites.
+const WEAPON_SPRITES: &[(f32, f32)] = &[(45.0, 6.0), (46.0, 6.0), (47.0, 6.0), (44.0, 6.0)];
+const ARMOR_SPRITES: &[(f32, f32)] = &[(40.0, 0.0), (41.0, 0.0), (42.0, 0.0)];
+const HELM_SPRITES: &[(f32, f32)] = &[(28.0, 0.0), (29.0, 0.0), (30.0, 0.0)];
+const SHIELD_SPRITES: &[(f32, f32)] = &[(43.0, 6.0), (44.0, 7.0), (45.0, 7.0)];
 
-/// Armor sprite options for loot items (atlas col, row).
-const ARMOR_SPRITES: &[(f32, f32)] = &[
-    (40.0, 0.0), // chainmail
-    (41.0, 0.0), // plate
-    (42.0, 0.0), // leather
-];
-
-/// Weapon name parts for random name generation.
-const WEAPON_PREFIXES: &[&str] = &["Iron", "Steel", "Bronze", "Silver", "Dark"];
+/// Name generation tables per slot.
+const ITEM_PREFIXES: &[&str] = &["Iron", "Steel", "Bronze", "Silver", "Dark", "Ancient", "Blessed"];
 const WEAPON_NAMES: &[&str] = &["Sword", "Axe", "Spear", "Mace", "Blade"];
-const ARMOR_PREFIXES: &[&str] = &["Iron", "Steel", "Bronze", "Silver", "Dark"];
 const ARMOR_NAMES: &[&str] = &["Chainmail", "Plate", "Leather", "Brigandine", "Cuirass"];
+const HELM_NAMES: &[&str] = &["Helm", "Crown", "Circlet", "Coif", "Casque"];
+const SHIELD_NAMES: &[&str] = &["Shield", "Buckler", "Kite Shield", "Pavise", "Targe"];
+const GLOVE_NAMES: &[&str] = &["Gauntlets", "Bracers", "Grips", "Wraps", "Vambraces"];
+const BOOT_NAMES: &[&str] = &["Greaves", "Boots", "Sabatons", "Treads", "Striders"];
+const BELT_NAMES: &[&str] = &["Belt", "Sash", "Girdle", "Cord", "Binding"];
+const AMULET_NAMES: &[&str] = &["Amulet", "Pendant", "Talisman", "Charm", "Medallion"];
+const RING_NAMES: &[&str] = &["Ring", "Band", "Signet", "Loop", "Circle"];
+
+fn slot_names(slot: EquipmentSlot) -> &'static [&'static str] {
+    match slot {
+        EquipmentSlot::Weapon => WEAPON_NAMES,
+        EquipmentSlot::Armor => ARMOR_NAMES,
+        EquipmentSlot::Helm => HELM_NAMES,
+        EquipmentSlot::Shield => SHIELD_NAMES,
+        EquipmentSlot::Gloves => GLOVE_NAMES,
+        EquipmentSlot::Boots => BOOT_NAMES,
+        EquipmentSlot::Belt => BELT_NAMES,
+        EquipmentSlot::Amulet => AMULET_NAMES,
+        EquipmentSlot::Ring => RING_NAMES,
+    }
+}
 
 /// Roll a random loot item using deterministic seed.
 pub fn roll_loot_item(id: u64, seed: u32) -> LootItem {
@@ -757,13 +790,9 @@ pub fn roll_loot_item(id: u64, seed: u32) -> LootItem {
         }
     }
 
-    // Slot roll (50/50 weapon/armor)
+    // Slot roll (uniform across all 9 slot types)
     let slot_seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
-    let slot = if slot_seed % 2 == 0 {
-        EquipmentSlot::Weapon
-    } else {
-        EquipmentSlot::Armor
-    };
+    let slot = ALL_EQUIPMENT_SLOTS[slot_seed as usize % ALL_EQUIPMENT_SLOTS.len()];
 
     // Stat bonus within rarity range
     let stat_seed = slot_seed.wrapping_mul(1103515245).wrapping_add(12345);
@@ -771,31 +800,22 @@ pub fn roll_loot_item(id: u64, seed: u32) -> LootItem {
     let t = (stat_seed % 1000) as f32 / 1000.0;
     let stat_bonus = min_stat + t * (max_stat - min_stat);
 
-    // Sprite from curated list
+    // Sprite from curated list (visible slots) or sentinel (stat-only slots)
     let sprite_seed = stat_seed.wrapping_mul(1103515245).wrapping_add(12345);
     let sprite = match slot {
-        EquipmentSlot::Weapon => {
-            WEAPON_SPRITES[sprite_seed as usize % WEAPON_SPRITES.len()]
-        }
-        EquipmentSlot::Armor => {
-            ARMOR_SPRITES[sprite_seed as usize % ARMOR_SPRITES.len()]
-        }
+        EquipmentSlot::Weapon => WEAPON_SPRITES[sprite_seed as usize % WEAPON_SPRITES.len()],
+        EquipmentSlot::Armor => ARMOR_SPRITES[sprite_seed as usize % ARMOR_SPRITES.len()],
+        EquipmentSlot::Helm => HELM_SPRITES[sprite_seed as usize % HELM_SPRITES.len()],
+        EquipmentSlot::Shield => SHIELD_SPRITES[sprite_seed as usize % SHIELD_SPRITES.len()],
+        _ => (-1.0, 0.0), // stat-only slots have no sprite
     };
 
     // Name
     let name_seed = sprite_seed.wrapping_mul(1103515245).wrapping_add(12345);
-    let name = match slot {
-        EquipmentSlot::Weapon => {
-            let prefix = WEAPON_PREFIXES[name_seed as usize % WEAPON_PREFIXES.len()];
-            let base = WEAPON_NAMES[(name_seed >> 8) as usize % WEAPON_NAMES.len()];
-            format!("{} {}", prefix, base)
-        }
-        EquipmentSlot::Armor => {
-            let prefix = ARMOR_PREFIXES[name_seed as usize % ARMOR_PREFIXES.len()];
-            let base = ARMOR_NAMES[(name_seed >> 8) as usize % ARMOR_NAMES.len()];
-            format!("{} {}", prefix, base)
-        }
-    };
+    let names = slot_names(slot);
+    let prefix = ITEM_PREFIXES[name_seed as usize % ITEM_PREFIXES.len()];
+    let base = names[(name_seed >> 8) as usize % names.len()];
+    let name = format!("{} {}", prefix, base);
 
     LootItem {
         id,
@@ -931,7 +951,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
             },
         ],
         equipment_drop_rate: 0.0,
-        equip_slots: &[EquipmentSlot::Weapon, EquipmentSlot::Armor],
+        equip_slots: ALL_EQUIPMENT_SLOTS,
     },
     NpcDef {
         job: Job::Raider,
@@ -972,7 +992,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
             },
         ],
         equipment_drop_rate: 0.30,
-        equip_slots: &[EquipmentSlot::Weapon, EquipmentSlot::Armor],
+        equip_slots: ALL_EQUIPMENT_SLOTS,
     },
     NpcDef {
         job: Job::Fighter,
@@ -1013,7 +1033,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
             },
         ],
         equipment_drop_rate: 0.0,
-        equip_slots: &[EquipmentSlot::Weapon, EquipmentSlot::Armor],
+        equip_slots: ALL_EQUIPMENT_SLOTS,
     },
     NpcDef {
         job: Job::Miner,
@@ -1093,7 +1113,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
             },
         ],
         equipment_drop_rate: 0.0,
-        equip_slots: &[EquipmentSlot::Weapon, EquipmentSlot::Armor],
+        equip_slots: ALL_EQUIPMENT_SLOTS,
     },
     NpcDef {
         job: Job::Boat,

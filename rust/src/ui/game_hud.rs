@@ -375,9 +375,7 @@ pub struct BuildingInspectorData<'w, 's> {
     pub personality_q: Query<'w, 's, &'static Personality>,
     pub home_q: Query<'w, 's, &'static Home>,
     pub work_state_q: Query<'w, 's, &'static NpcWorkState>,
-    pub weapon_q: Query<'w, 's, &'static EquippedWeapon>,
-    pub helmet_q: Query<'w, 's, &'static EquippedHelmet>,
-    pub armor_q: Query<'w, 's, &'static EquippedArmor>,
+    pub equipment_q: Query<'w, 's, &'static NpcEquipment>,
     pub carried_loot_q: Query<'w, 's, &'static CarriedLoot>,
     pub patrol_route_q: Query<'w, 's, &'static PatrolRoute>,
     pub last_hit_by_q: Query<'w, 's, &'static LastHitBy>,
@@ -1321,20 +1319,21 @@ fn inspector_content(
     // Equipment + status from EntityMap + ECS
     let mut squad_id: Option<i32> = None;
     if let Some(npc) = bld_data.entity_map.get_npc(idx) {
-        let mut equip_parts: Vec<&str> = Vec::new();
-        if bld_data.weapon_q.get(npc.entity).is_ok() {
-            equip_parts.push("Weapon");
-        }
-        if bld_data.helmet_q.get(npc.entity).is_ok() {
-            equip_parts.push("Helmet");
-        }
-        if bld_data.armor_q.get(npc.entity).is_ok() {
-            equip_parts.push("Armor");
-        }
-        let equip_str = if equip_parts.is_empty() {
-            "None".to_string()
+        let equip_str = if let Ok(eq) = bld_data.equipment_q.get(npc.entity) {
+            let mut parts: Vec<&str> = Vec::new();
+            if eq.weapon.is_some() { parts.push("Weapon"); }
+            if eq.helm.is_some() { parts.push("Helm"); }
+            if eq.armor.is_some() { parts.push("Armor"); }
+            if eq.shield.is_some() { parts.push("Shield"); }
+            if eq.gloves.is_some() { parts.push("Gloves"); }
+            if eq.boots.is_some() { parts.push("Boots"); }
+            if eq.belt.is_some() { parts.push("Belt"); }
+            if eq.amulet.is_some() { parts.push("Amulet"); }
+            if eq.ring1.is_some() { parts.push("Ring"); }
+            if eq.ring2.is_some() { parts.push("Ring"); }
+            if parts.is_empty() { "None".to_string() } else { parts.join(" + ") }
         } else {
-            equip_parts.join(" + ")
+            "None".to_string()
         };
         ui.label(equip_str);
 
@@ -1630,20 +1629,15 @@ fn inspector_content(
                 ));
             }
             if let Some(npc) = bld_data.entity_map.get_npc(idx) {
-                let mut equip_parts: Vec<&str> = Vec::new();
-                if bld_data.weapon_q.get(npc.entity).is_ok() {
-                    equip_parts.push("Weapon");
-                }
-                if bld_data.helmet_q.get(npc.entity).is_ok() {
-                    equip_parts.push("Helmet");
-                }
-                if bld_data.armor_q.get(npc.entity).is_ok() {
-                    equip_parts.push("Armor");
-                }
-                let equip_str = if equip_parts.is_empty() {
-                    "None".to_string()
+                let equip_str = if let Ok(eq) = bld_data.equipment_q.get(npc.entity) {
+                    let mut parts: Vec<&str> = Vec::new();
+                    if eq.weapon.is_some() { parts.push("Weapon"); }
+                    if eq.helm.is_some() { parts.push("Helm"); }
+                    if eq.armor.is_some() { parts.push("Armor"); }
+                    if eq.shield.is_some() { parts.push("Shield"); }
+                    if parts.is_empty() { "None".to_string() } else { parts.join(" + ") }
                 } else {
-                    equip_parts.join(" + ")
+                    "None".to_string()
                 };
                 info.push_str(&format!("{}\n", equip_str));
                 if let Ok(flags) = bld_data.npc_flags_q.get(npc.entity) {

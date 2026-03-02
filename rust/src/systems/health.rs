@@ -54,6 +54,7 @@ pub struct DeathResources<'w, 's> {
     pub gpu_state: Res<'w, crate::gpu::EntityGpuState>,
     pub next_loot_id: ResMut<'w, crate::resources::NextLootItemId>,
     pub town_inventory: ResMut<'w, crate::resources::TownInventory>,
+    pub equipment_q: Query<'w, 's, &'static crate::components::NpcEquipment>,
 }
 
 /// Unified damage system: applies damage to both NPCs and buildings.
@@ -564,6 +565,9 @@ pub fn death_system(
                         .get(k_entity)
                         .copied()
                         .unwrap_or(BaseAttackType::Melee);
+                    let (wb, ab) = res.equipment_q.get(k_entity).map(|eq| {
+                        (eq.total_weapon_bonus(), eq.total_armor_bonus())
+                    }).unwrap_or((0.0, 0.0));
                     let new_cached = resolve_combat_stats(
                         killer.job,
                         attack_type,
@@ -572,6 +576,8 @@ pub fn death_system(
                         &pers,
                         &config,
                         &upgrades,
+                        wb,
+                        ab,
                     );
                     let new_speed = new_cached.speed;
                     let new_max = new_cached.max_health;

@@ -373,8 +373,14 @@ pub struct NpcSaveData {
     pub carried_gold: Option<i32>,
     #[serde(default)]
     pub carried_equipment: Vec<crate::constants::LootItem>,
+    #[serde(default)]
+    pub equipment: NpcEquipment,
+    // Legacy fields for backward compat (old saves)
+    #[serde(default)]
     pub weapon: Option<[f32; 2]>,
+    #[serde(default)]
     pub helmet: Option<[f32; 2]>,
+    #[serde(default)]
     pub armor: Option<[f32; 2]>,
 }
 
@@ -1223,9 +1229,7 @@ pub fn collect_npc_data(
     home_q: &Query<&Home>,
     work_state_q: &Query<&NpcWorkState>,
     carried_loot_q: &Query<&CarriedLoot>,
-    weapon_q: &Query<&EquippedWeapon>,
-    helmet_q: &Query<&EquippedHelmet>,
-    armor_q: &Query<&EquippedArmor>,
+    equipment_q: &Query<&NpcEquipment>,
     has_energy_q: &Query<&HasEnergy>,
 ) -> Vec<NpcSaveData> {
     let mut npcs = Vec::new();
@@ -1305,9 +1309,10 @@ pub fn collect_npc_data(
                 .get(npc.entity)
                 .map(|cl| cl.equipment.clone())
                 .unwrap_or_default(),
-            weapon: weapon_q.get(npc.entity).ok().map(|w| [w.0, w.1]),
-            helmet: helmet_q.get(npc.entity).ok().map(|h| [h.0, h.1]),
-            armor: armor_q.get(npc.entity).ok().map(|a| [a.0, a.1]),
+            equipment: equipment_q.get(npc.entity).cloned().unwrap_or_default(),
+            weapon: None,
+            helmet: None,
+            armor: None,
         });
     }
     npcs
@@ -1362,9 +1367,7 @@ pub struct SaveNpcQueries<'w, 's> {
     pub home_q: Query<'w, 's, &'static Home>,
     pub work_state_q: Query<'w, 's, &'static NpcWorkState>,
     pub carried_loot_q: Query<'w, 's, &'static CarriedLoot>,
-    pub weapon_q: Query<'w, 's, &'static EquippedWeapon>,
-    pub helmet_q: Query<'w, 's, &'static EquippedHelmet>,
-    pub armor_q: Query<'w, 's, &'static EquippedArmor>,
+    pub equipment_q: Query<'w, 's, &'static NpcEquipment>,
     pub has_energy_q: Query<'w, 's, &'static HasEnergy>,
 }
 
@@ -1638,9 +1641,7 @@ pub fn save_game_system(
         &nq.home_q,
         &nq.work_state_q,
         &nq.carried_loot_q,
-        &nq.weapon_q,
-        &nq.helmet_q,
-        &nq.armor_q,
+        &nq.equipment_q,
         &nq.has_energy_q,
     );
     let building_hp = collect_building_hp(&building_query, &entity_map);
@@ -1731,9 +1732,7 @@ pub fn autosave_system(
         &nq.home_q,
         &nq.work_state_q,
         &nq.carried_loot_q,
-        &nq.weapon_q,
-        &nq.helmet_q,
-        &nq.armor_q,
+        &nq.equipment_q,
         &nq.has_energy_q,
     );
     let building_hp = collect_building_hp(&building_query, &entity_map);
@@ -1800,9 +1799,7 @@ pub fn spawn_npcs_from_save(
             name: Some(npc.name.clone()),
             level: Some(npc.level),
             xp: Some(npc.xp),
-            weapon: npc.weapon,
-            helmet: npc.helmet,
-            armor: npc.armor,
+            equipment: npc.equipment.clone(),
             carried_food: npc.carried_food,
             carried_gold: npc.carried_gold,
             carried_equipment: npc.carried_equipment.clone(),

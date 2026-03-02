@@ -368,9 +368,7 @@ fn write_npc_visual(
     upload: &mut NpcVisualUpload,
     activity_q: &Query<&crate::components::Activity>,
     npc_flags_q: &Query<&crate::components::NpcFlags>,
-    armor_q: &Query<&crate::components::EquippedArmor>,
-    helmet_q: &Query<&crate::components::EquippedHelmet>,
-    weapon_q: &Query<&crate::components::EquippedWeapon>,
+    equipment_q: &Query<(&crate::components::NpcEquipment, &crate::components::Job)>,
     carried_loot_q: &Query<&crate::components::CarriedLoot>,
 ) {
     let base = idx * 8;
@@ -405,40 +403,41 @@ fn write_npc_visual(
     upload.visual_data[base + 6] = b;
     upload.visual_data[base + 7] = a;
 
-    // Equip data: 6 layers × [col, row, atlas, pad]
-    let eq = idx * 24;
+    // Equip data: 7 layers × [col, row, atlas, pad]
+    let eq = idx * 28;
 
+    // Layers 0-3: equipment sprites from NpcEquipment (armor, helm, weapon, shield)
+    let (ac, ar, hc, hr, wc, wr, sc_eq, sr_eq) = if let Ok((npc_eq, eq_job)) = equipment_q.get(entity) {
+        let a = npc_eq.armor_sprite();
+        let h = npc_eq.helm_sprite(*eq_job);
+        let w = npc_eq.weapon_sprite(*eq_job);
+        let s = npc_eq.shield_sprite();
+        (a.0, a.1, h.0, h.1, w.0, w.1, s.0, s.1)
+    } else {
+        (-1.0, 0.0, -1.0, 0.0, -1.0, 0.0, -1.0, 0.0)
+    };
     // Layer 0: Armor
-    let (ac, ar) = armor_q
-        .get(entity)
-        .map(|a| (a.0, a.1))
-        .unwrap_or((-1.0, 0.0));
     upload.equip_data[eq] = ac;
     upload.equip_data[eq + 1] = ar;
     upload.equip_data[eq + 2] = 0.0;
     upload.equip_data[eq + 3] = 0.0;
-
     // Layer 1: Helmet
-    let (hc, hr) = helmet_q
-        .get(entity)
-        .map(|h| (h.0, h.1))
-        .unwrap_or((-1.0, 0.0));
     upload.equip_data[eq + 4] = hc;
     upload.equip_data[eq + 5] = hr;
     upload.equip_data[eq + 6] = 0.0;
     upload.equip_data[eq + 7] = 0.0;
-
     // Layer 2: Weapon
-    let (wc, wr) = weapon_q
-        .get(entity)
-        .map(|w| (w.0, w.1))
-        .unwrap_or((-1.0, 0.0));
     upload.equip_data[eq + 8] = wc;
     upload.equip_data[eq + 9] = wr;
     upload.equip_data[eq + 10] = 0.0;
     upload.equip_data[eq + 11] = 0.0;
+    // Layer 3: Shield
+    upload.equip_data[eq + 12] = sc_eq;
+    upload.equip_data[eq + 13] = sr_eq;
+    upload.equip_data[eq + 14] = 0.0;
+    upload.equip_data[eq + 15] = 0.0;
 
-    // Layer 3: Item (carried loot — gold takes display priority)
+    // Layer 4: Item (carried loot — gold takes display priority)
     let npc_activity = activity_q.get(entity).ok();
     let (ic, ir, ia) = if let Some(cl) = carried_loot_q.get(entity).ok() {
         if cl.gold > 0 {
@@ -451,29 +450,29 @@ fn write_npc_visual(
     } else {
         (-1.0, 0.0, 0.0)
     };
-    upload.equip_data[eq + 12] = ic;
-    upload.equip_data[eq + 13] = ir;
-    upload.equip_data[eq + 14] = ia;
-    upload.equip_data[eq + 15] = 0.0;
+    upload.equip_data[eq + 16] = ic;
+    upload.equip_data[eq + 17] = ir;
+    upload.equip_data[eq + 18] = ia;
+    upload.equip_data[eq + 19] = 0.0;
 
-    // Layer 4: Status (sleep icon)
+    // Layer 5: Status (sleep icon)
     let (sc, sr, sa) = if npc_activity.is_some_and(|a| matches!(*a, Activity::Resting)) {
         (0.0, 0.0, 3.0)
     } else {
         (-1.0, 0.0, 0.0)
     };
-    upload.equip_data[eq + 16] = sc;
-    upload.equip_data[eq + 17] = sr;
-    upload.equip_data[eq + 18] = sa;
-    upload.equip_data[eq + 19] = 0.0;
+    upload.equip_data[eq + 20] = sc;
+    upload.equip_data[eq + 21] = sr;
+    upload.equip_data[eq + 22] = sa;
+    upload.equip_data[eq + 23] = 0.0;
 
-    // Layer 5: Healing (heal halo)
+    // Layer 6: Healing (heal halo)
     let is_healing = npc_flags_q.get(entity).is_ok_and(|f| f.healing);
     let (hlc, hla) = if is_healing { (0.0, 2.0) } else { (-1.0, 0.0) };
-    upload.equip_data[eq + 20] = hlc;
-    upload.equip_data[eq + 21] = 0.0;
-    upload.equip_data[eq + 22] = hla;
-    upload.equip_data[eq + 23] = 0.0;
+    upload.equip_data[eq + 24] = hlc;
+    upload.equip_data[eq + 25] = 0.0;
+    upload.equip_data[eq + 26] = hla;
+    upload.equip_data[eq + 27] = 0.0;
 }
 
 /// Write building visual data for a single slot into upload buffers.
@@ -497,9 +496,9 @@ fn write_building_visual(idx: usize, gpu_state: &EntityGpuState, upload: &mut Np
     upload.visual_data[base + 6] = 1.0; // b
     upload.visual_data[base + 7] = 1.0; // a
     // Wipe stale NPC equip overlays on building slots
-    let eq = idx * 24;
-    if eq + 23 < upload.equip_data.len() {
-        upload.equip_data[eq..eq + 24].fill(-1.0);
+    let eq = idx * 28;
+    if eq + 27 < upload.equip_data.len() {
+        upload.equip_data[eq..eq + 28].fill(-1.0);
     }
 }
 
@@ -510,9 +509,9 @@ fn clear_visual_slot(idx: usize, upload: &mut NpcVisualUpload) {
     if vbase + 7 < upload.visual_data.len() {
         upload.visual_data[vbase..vbase + 8].fill(-1.0);
     }
-    let ebase = idx * 24;
-    if ebase + 23 < upload.equip_data.len() {
-        upload.equip_data[ebase..ebase + 24].fill(-1.0);
+    let ebase = idx * 28;
+    if ebase + 27 < upload.equip_data.len() {
+        upload.equip_data[ebase..ebase + 28].fill(-1.0);
     }
 }
 
@@ -526,9 +525,7 @@ pub fn build_visual_upload(
     entity_map: Res<crate::resources::EntityMap>,
     activity_q: Query<&crate::components::Activity>,
     npc_flags_q: Query<&crate::components::NpcFlags>,
-    armor_q: Query<&crate::components::EquippedArmor>,
-    helmet_q: Query<&crate::components::EquippedHelmet>,
-    weapon_q: Query<&crate::components::EquippedWeapon>,
+    equipment_q: Query<(&crate::components::NpcEquipment, &crate::components::Job)>,
     carried_loot_q: Query<&crate::components::CarriedLoot>,
     npc_q: Query<(Entity, &GpuSlot, &Job, &Faction), (Without<Building>, Without<Dead>)>,
     building_q: Query<&GpuSlot, (With<Building>, Without<Dead>)>,
@@ -538,7 +535,7 @@ pub fn build_visual_upload(
 
     // Resize (reuses allocation if already large enough), new tail gets sentinels
     upload.visual_data.resize(entity_count * 8, -1.0);
-    upload.equip_data.resize(entity_count * 24, -1.0);
+    upload.equip_data.resize(entity_count * 28, -1.0);
 
     // Clear hidden slots (despawned entities)
     for &idx in &gpu_state.hidden_indices {
@@ -557,9 +554,7 @@ pub fn build_visual_upload(
                 &mut upload,
                 &activity_q,
                 &npc_flags_q,
-                &armor_q,
-                &helmet_q,
-                &weapon_q,
+                &equipment_q,
                 &carried_loot_q,
             );
         }
@@ -590,9 +585,7 @@ pub fn build_visual_upload(
                     &mut upload,
                     &activity_q,
                     &npc_flags_q,
-                    &armor_q,
-                    &helmet_q,
-                    &weapon_q,
+                    &equipment_q,
                     &carried_loot_q,
                 );
             } else if entity_map.get_instance(idx).is_some() {

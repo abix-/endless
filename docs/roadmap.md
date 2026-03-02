@@ -106,13 +106,16 @@ Replace 3 fragmented carry mechanisms with 1. Currently: (1) `Activity::Returnin
 - [ ] When killed NPC carried equipment (`CarriedLoot.equipment` not empty): killer is NPC → 50% per item transfers to killer's carry (failed = destroyed); killer is tower/fountain → items deposit directly to tower's town `TownInventory`
 - [ ] Loot threshold in `decision_system` (Priority ~4.5): if `carried_loot.equipment.len() >= LOOT_CARRY_THRESHOLD` AND not in combat → `Activity::Returning`. Only for NPCs with `npc_def(job).equip_slots` non-empty.
 
-**Chunk 3: NpcEquipment + stat integration (replaces EquippedWeapon/EquippedArmor)**
+**Chunk 3: NpcEquipment (D2 slots) + stat integration + DRY consolidation**
 
-- [ ] `NpcEquipment` component (always-present on military NPCs): `weapon: Option<LootItem>`, `armor: Option<LootItem>` — `weapon_sprite()` returns item sprite or NpcDef default weapon sprite or (-1,0) sentinel; same for `armor_sprite()`
-- [ ] Remove `EquippedWeapon`, `EquippedArmor` components — NpcEquipment replaces both (keep `EquippedHelmet`)
-- [ ] Update `write_npc_visual()` in gpu.rs: read weapon/armor from `NpcEquipment` (1 query replaces 2)
-- [ ] Update `materialize_npc()`: insert `NpcEquipment` with NpcDef defaults + `CarriedLoot::default()`
-- [ ] Modify `resolve_combat_stats()`: new `equipment: &NpcEquipment` param — weapon: `damage *= 1.0 + weapon.stat_bonus`, armor: `max_health *= 1.0 + armor.stat_bonus`. Update all call sites.
+- [x] `EquipmentSlot` expanded to 9 D2 variants: Helm/Armor/Weapon/Shield (sprite-visible) + Gloves/Boots/Belt/Amulet/Ring (stat-only)
+- [x] `NpcEquipment` component (10 slots, always-present): weapon/helm/armor/shield sprites with NpcDef fallback, total_weapon_bonus/total_armor_bonus/total_speed_bonus/total_stamina_bonus
+- [x] Remove `EquippedWeapon`, `EquippedArmor`, `EquippedHelmet` — all replaced by NpcEquipment
+- [x] GPU: 3 equipment queries → 1 NpcEquipment query, stride 24→28, LAYER_COUNT 7→8, shield layer added, shader slot*6u→slot*7u
+- [x] `resolve_combat_stats()`: weapon_bonus/armor_bonus params, damage *= (1+weapon_bonus), max_health *= (1+armor_bonus). All 3 call sites updated with real equipment bonuses.
+- [x] `materialize_npc()`: inserts NpcEquipment from overrides, removed conditional Equipped* inserts
+- [x] Save/load: NpcEquipment in NpcSaveData + NpcSpawnOverrides, backward compat with legacy weapon/helmet/armor fields
+- [x] Dead code cleanup: behavior.rs weapon_q/helmet_q/armor_q removed, game_hud shows all D2 slots
 - [ ] `EquipItemMsg`/`UnequipItemMsg` messages + `process_equip_system`: moves item between TownInventory ↔ NpcEquipment, re-resolves CachedStats + MarkVisualDirty
 
 **Chunk 4: Inventory UI tab**

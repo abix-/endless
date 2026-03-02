@@ -729,6 +729,8 @@ pub fn resolve_combat_stats(
     personality: &Personality,
     config: &CombatConfig,
     upgrades: &TownUpgrades,
+    weapon_bonus: f32,
+    armor_bonus: f32,
 ) -> CachedStats {
     let job_base = config.jobs.get(&job).expect("missing job stats");
     let def = npc_def(job);
@@ -761,12 +763,12 @@ pub fn resolve_combat_stats(
     let hp_regen_level = reg.stat_level(&town, cat, UpgradeStatKind::HpRegen) as f32;
 
     CachedStats {
-        damage: job_base.damage * upgrade_dmg * trait_damage * level_mult,
+        damage: job_base.damage * upgrade_dmg * trait_damage * level_mult * (1.0 + weapon_bonus),
         range: atk_base.range * upgrade_range,
         cooldown: atk_base.cooldown * cooldown_mult,
         projectile_speed: atk_base.projectile_speed * upgrade_proj_speed,
         projectile_lifetime: atk_base.projectile_lifetime * upgrade_proj_life,
-        max_health: job_base.max_health * upgrade_hp * trait_hp * level_mult,
+        max_health: job_base.max_health * upgrade_hp * trait_hp * level_mult * (1.0 + armor_bonus),
         speed: job_base.speed * upgrade_speed * trait_speed,
         stamina: stamina_mult,
         hp_regen: hp_regen_level * 0.5,
@@ -792,6 +794,7 @@ pub fn process_upgrades_system(
     mut health_q: Query<&mut crate::components::Health, Without<crate::components::Building>>,
     attack_type_q: Query<&crate::components::BaseAttackType>,
     personality_q: Query<&crate::components::Personality>,
+    equipment_q: Query<&crate::components::NpcEquipment>,
 ) {
     let count = upgrade_count();
     for msg in queue.read() {
@@ -890,6 +893,9 @@ pub fn process_upgrades_system(
                 .get(entity)
                 .copied()
                 .unwrap_or(crate::components::BaseAttackType::Melee);
+            let (wb, ab) = equipment_q.get(entity).map(|eq| {
+                (eq.total_weapon_bonus(), eq.total_armor_bonus())
+            }).unwrap_or((0.0, 0.0));
             let new_cached = resolve_combat_stats(
                 npc.job,
                 atk_type,
@@ -898,6 +904,8 @@ pub fn process_upgrades_system(
                 &pers,
                 &config,
                 &upgrades,
+                wb,
+                ab,
             );
             let new_speed = new_cached.speed;
             let new_max = new_cached.max_health;

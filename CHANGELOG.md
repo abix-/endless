@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-03-02b
+
+- **NpcEquipment (D2 slots) + DRY consolidation** — replaced 3 separate components (`EquippedWeapon`/`EquippedArmor`/`EquippedHelmet`) with unified `NpcEquipment` component (10 slots: helm/armor/weapon/shield/gloves/boots/belt/amulet/ring×2). `EquipmentSlot` expanded to 9 D2 variants; sprite-visible slots (helm/armor/weapon/shield) with GPU layers, stat-only slots (gloves/boots/belt/amulet/ring) with bonus aggregation. GPU equip stride 24→28, LAYER_COUNT 7→8, shader slot*6u→slot*7u for shield layer. `resolve_combat_stats()` now takes weapon_bonus/armor_bonus and applies damage/max_health multipliers. 3 equipment queries → 1 across gpu.rs, save.rs, game_hud.rs. Save/load backward compat with legacy weapon/helmet/armor fields.
+
 ## 2026-03-02a
 
 - **authority safety hardening** — `attack_system` liveness check changed from `gpu_state.health` (GPU readback, can be 1+ frames stale) to `entity_map.get_npc().dead` (ECS authoritative); `ManualTarget::Npc` dead check also migrated to ECS; eliminated redundant double `get_npc` lookup. `building_tower_system` (fountain + player towers) now re-validates GPU `combat_targets` candidates via ECS: target must exist in EntityMap, not dead, and enemy faction. All docs aligned to authority.md contract — corrected stale claims in combat.md, concepts.md, gpu-compute.md, messages.md, resources.md

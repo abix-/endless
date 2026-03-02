@@ -54,9 +54,6 @@ pub struct NpcDataQueries<'w, 's> {
     pub carried_loot_q: Query<'w, 's, &'static mut CarriedLoot>,
     pub stealer_q: Query<'w, 's, &'static Stealer>,
     pub has_energy_q: Query<'w, 's, &'static HasEnergy>,
-    pub weapon_q: Query<'w, 's, &'static EquippedWeapon>,
-    pub helmet_q: Query<'w, 's, &'static EquippedHelmet>,
-    pub armor_q: Query<'w, 's, &'static EquippedArmor>,
 }
 
 /// NPC combat/state queries for decision_system (bundled to stay under 16 params)

@@ -97,9 +97,7 @@ pub struct NpcSpawnOverrides {
     pub name: Option<String>,
     pub level: Option<i32>,
     pub xp: Option<i32>,
-    pub weapon: Option<[f32; 2]>,
-    pub helmet: Option<[f32; 2]>,
-    pub armor: Option<[f32; 2]>,
+    pub equipment: NpcEquipment,
     pub carried_food: Option<i32>,
     pub carried_gold: Option<i32>,
     pub carried_equipment: Vec<crate::constants::LootItem>,
@@ -119,9 +117,7 @@ impl Default for NpcSpawnOverrides {
             name: None,
             level: None,
             xp: None,
-            weapon: None,
-            helmet: None,
-            armor: None,
+            equipment: NpcEquipment::default(),
             carried_food: None,
             carried_gold: None,
             carried_equipment: Vec::new(),
@@ -177,6 +173,8 @@ pub fn materialize_npc(
         &personality,
         combat_config,
         upgrades,
+        overrides.equipment.total_weapon_bonus(),
+        overrides.equipment.total_armor_bonus(),
     );
 
     // GPU init
@@ -272,14 +270,7 @@ pub fn materialize_npc(
     };
 
     // Equipment
-    let weapon = def.weapon.map(|w_default| {
-        let w = overrides.weapon.unwrap_or([w_default.0, w_default.1]);
-        (w[0], w[1])
-    });
-    let helmet = def.helmet.map(|h_default| {
-        let h = overrides.helmet.unwrap_or([h_default.0, h_default.1]);
-        (h[0], h[1])
-    });
+    let npc_equipment = overrides.equipment.clone();
 
     // Spawn ECS entity with all NPC components
     let energy_val = if def.has_energy {
@@ -325,15 +316,7 @@ pub fn materialize_npc(
     if let Some(pr) = patrol_route {
         ecmds.insert(pr);
     }
-    if let Some((wc, wr)) = weapon {
-        ecmds.insert(EquippedWeapon(wc, wr));
-    }
-    if let Some((hc, hr)) = helmet {
-        ecmds.insert(EquippedHelmet(hc, hr));
-    }
-    if let Some(a) = overrides.armor.map(|a| (a[0], a[1])) {
-        ecmds.insert(EquippedArmor(a.0, a.1));
-    }
+    ecmds.insert(npc_equipment);
     if let Some(lr) = def.leash_range {
         ecmds.insert(LeashRange(lr));
     }

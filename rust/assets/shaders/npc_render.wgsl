@@ -222,8 +222,8 @@ fn vertex_npc(in: NpcVertexInput) -> VertexOutput {
         color = vec4<f32>(vis.r, vis.g, vis.b, vis.a);
         health = clamp(npc_healths[slot], 0.0, 1.0);
     } else {
-        // Layers 1..6 are equipment/overlay sprites.
-        let eq = npc_equip[slot * 6u + (layer - 1u)];
+        // Layers 1..7 are equipment/overlay sprites.
+        let eq = npc_equip[slot * 7u + (layer - 1u)];
         if eq.col < 0.0 { out.clip_position = HIDDEN; return out; }
         sprite_col = eq.col;
         sprite_row = eq.row;

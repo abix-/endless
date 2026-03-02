@@ -92,8 +92,7 @@ pub fn tick(
     mut contexts: EguiContexts,
     windows: Query<&Window>,
     mut commands: Commands,
-    weapon_q: Query<&EquippedWeapon>,
-    helmet_q: Query<&EquippedHelmet>,
+    _equipment_q: Query<&NpcEquipment>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else {
         return;
@@ -145,42 +144,38 @@ pub fn tick(
                 };
                 let e = npc.entity;
 
+                // Build NpcEquipment override based on column
+                let clear_eq = NpcEquipment::default();
                 match col {
                     COL_BODY => {
-                        commands
-                            .entity(e)
-                            .remove::<EquippedWeapon>()
-                            .remove::<EquippedHelmet>()
-                            .remove::<EquippedArmor>();
+                        commands.entity(e).insert(clear_eq);
                     }
                     COL_WEAPON => {
-                        commands
-                            .entity(e)
-                            .remove::<EquippedHelmet>()
-                            .remove::<EquippedArmor>();
-                        if weapon_q.get(e).is_err() {
-                            commands
-                                .entity(e)
-                                .insert(EquippedWeapon(EQUIP_SWORD.0, EQUIP_SWORD.1));
-                        }
+                        let mut eq = clear_eq;
+                        eq.weapon = Some(crate::constants::LootItem {
+                            id: 0,
+                            slot: crate::constants::EquipmentSlot::Weapon,
+                            rarity: crate::constants::Rarity::Common,
+                            name: "Sword".into(),
+                            sprite: EQUIP_SWORD,
+                            stat_bonus: 0.0,
+                        });
+                        commands.entity(e).insert(eq);
                     }
                     COL_HELMET => {
-                        commands
-                            .entity(e)
-                            .remove::<EquippedWeapon>()
-                            .remove::<EquippedArmor>();
-                        if helmet_q.get(e).is_err() {
-                            commands
-                                .entity(e)
-                                .insert(EquippedHelmet(EQUIP_HELMET.0, EQUIP_HELMET.1));
-                        }
+                        let mut eq = clear_eq;
+                        eq.helm = Some(crate::constants::LootItem {
+                            id: 0,
+                            slot: crate::constants::EquipmentSlot::Helm,
+                            rarity: crate::constants::Rarity::Common,
+                            name: "Helmet".into(),
+                            sprite: EQUIP_HELMET,
+                            stat_bonus: 0.0,
+                        });
+                        commands.entity(e).insert(eq);
                     }
                     COL_ITEM => {
-                        commands
-                            .entity(e)
-                            .remove::<EquippedWeapon>()
-                            .remove::<EquippedHelmet>()
-                            .remove::<EquippedArmor>();
+                        commands.entity(e).insert(clear_eq);
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
                             idx: slot,
                             col: FOOD_SPRITE.0,
@@ -189,11 +184,7 @@ pub fn tick(
                         }));
                     }
                     COL_SLEEP => {
-                        commands
-                            .entity(e)
-                            .remove::<EquippedWeapon>()
-                            .remove::<EquippedHelmet>()
-                            .remove::<EquippedArmor>();
+                        commands.entity(e).insert(clear_eq);
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
                             idx: slot,
                             col: SLEEP_SPRITE.0,
@@ -202,11 +193,7 @@ pub fn tick(
                         }));
                     }
                     COL_HEAL => {
-                        commands
-                            .entity(e)
-                            .remove::<EquippedWeapon>()
-                            .remove::<EquippedHelmet>()
-                            .remove::<EquippedArmor>();
+                        commands.entity(e).insert(clear_eq);
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
                             idx: slot,
                             col: HEAL_SPRITE.0,

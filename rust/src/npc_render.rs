@@ -54,8 +54,8 @@ use crate::render::{CameraState, MainCamera};
 // MARKER COMPONENT
 // =============================================================================
 
-/// Layer count: body + 4 equipment layers + status + healing.
-pub const LAYER_COUNT: usize = 7;
+/// Layer count: body + 4 equipment layers (armor/helm/weapon/shield) + item + status + healing.
+pub const LAYER_COUNT: usize = 8;
 
 // =============================================================================
 // RENDER ORDER CONTRACT
