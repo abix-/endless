@@ -1996,4 +1996,113 @@ mod tests {
         let count = count_farm_markers(&mut app);
         assert_eq!(count, 0, "marker should be despawned when growth_ready becomes false");
     }
+
+    // -- spawner_respawn_system ----------------------------------------------
+
+    #[derive(Resource, Default)]
+    struct CollectedSpawns(Vec<usize>); // slot indices from SpawnNpcMsg
+
+    fn collect_spawns(
+        mut reader: MessageReader<SpawnNpcMsg>,
+        mut collected: ResMut<CollectedSpawns>,
+    ) {
+        for msg in reader.read() {
+            collected.0.push(msg.slot_idx);
+        }
+    }
+
+    /// Reset hour_ticked after spawner runs to prevent re-processing on subsequent sub-ticks.
+    /// In the real game, game_time_system manages this flag, but in tests we set it manually.
+    fn reset_hour_ticked(mut game_time: ResMut<GameTime>) {
+        game_time.hour_ticked = false;
+    }
+
+    fn setup_spawner_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(GameTime::default());
+        app.insert_resource(EntityMap::default());
+        app.insert_resource(GpuSlotPool::default());
+        app.insert_resource(crate::resources::NextEntityUid::default());
+        app.insert_resource(CollectedSpawns::default());
+        app.insert_resource(WorldData {
+            towns: vec![crate::world::Town {
+                name: "TestTown".to_string(),
+                center: Vec2::new(500.0, 500.0),
+                faction: 0,
+                sprite_type: 0,
+            }],
+        });
+        // Register all message types needed by DirtyWriters + system
+        app.add_message::<SpawnNpcMsg>();
+        app.add_message::<CombatLogMsg>();
+        app.add_message::<crate::messages::BuildingGridDirtyMsg>();
+        app.add_message::<crate::messages::TerrainDirtyMsg>();
+        app.add_message::<crate::messages::PatrolsDirtyMsg>();
+        app.add_message::<crate::messages::PatrolPerimeterDirtyMsg>();
+        app.add_message::<crate::messages::HealingZonesDirtyMsg>();
+        app.add_message::<crate::messages::SquadsDirtyMsg>();
+        app.add_message::<crate::messages::MiningDirtyMsg>();
+        app.add_message::<crate::messages::PatrolSwapMsg>();
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.add_systems(FixedUpdate, (spawner_respawn_system, collect_spawns, reset_hour_ticked).chain());
+        app.update();
+        app.update();
+        app
+    }
+
+    fn add_spawner_building(app: &mut App, slot: usize, kind: BuildingKind, respawn_timer: f32) {
+        let mut inst = test_building_instance(slot, kind, 0.0);
+        inst.respawn_timer = respawn_timer;
+        inst.npc_uid = None;
+        app.world_mut().resource_mut::<EntityMap>().add_instance(inst);
+    }
+
+    #[test]
+    fn spawner_skips_without_hour_tick() {
+        let mut app = setup_spawner_app();
+        add_spawner_building(&mut app, 5000, BuildingKind::ArcherHome, 0.0);
+        // Don't set hour_ticked
+        app.update();
+        let spawns = app.world().resource::<CollectedSpawns>();
+        assert!(spawns.0.is_empty(), "should not spawn without hour_ticked");
+    }
+
+    #[test]
+    fn spawner_counts_down_timer() {
+        let mut app = setup_spawner_app();
+        // Use a high timer so it won't reach 0 even with multiple FixedUpdate sub-ticks
+        add_spawner_building(&mut app, 5000, BuildingKind::ArcherHome, 50.0);
+        app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
+        app.update();
+        let em = app.world().resource::<EntityMap>();
+        let timer = em.get_instance(5000).unwrap().respawn_timer;
+        assert!(timer < 50.0, "timer should decrement, got {timer}");
+        assert!(timer >= 0.0, "timer should not go negative, got {timer}");
+    }
+
+    #[test]
+    fn spawner_spawns_when_timer_reaches_zero() {
+        let mut app = setup_spawner_app();
+        // Timer at 1.0 → decrements to 0.0 → triggers spawn
+        add_spawner_building(&mut app, 5000, BuildingKind::ArcherHome, 1.0);
+        app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
+        app.update();
+        let spawns = app.world().resource::<CollectedSpawns>();
+        assert!(!spawns.0.is_empty(), "should spawn an NPC when timer reaches 0");
+    }
+
+    #[test]
+    fn spawner_assigns_uid_after_spawn() {
+        let mut app = setup_spawner_app();
+        add_spawner_building(&mut app, 5000, BuildingKind::ArcherHome, 1.0);
+        app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
+        app.update();
+        let em = app.world().resource::<EntityMap>();
+        let inst = em.get_instance(5000).unwrap();
+        assert!(inst.npc_uid.is_some(), "building should have npc_uid after spawn");
+        assert!((inst.respawn_timer - (-1.0)).abs() < 0.01, "timer should reset to -1.0");
+    }
 }
