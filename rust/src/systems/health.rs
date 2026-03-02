@@ -1226,3 +1226,118 @@ pub fn npc_regen_system(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::time::TimeUpdateStrategy;
+
+    fn stats_with_regen(hp_regen: f32) -> CachedStats {
+        CachedStats {
+            damage: 15.0, range: 200.0, cooldown: 1.5,
+            projectile_speed: 200.0, projectile_lifetime: 1.5,
+            max_health: 100.0, speed: 200.0, stamina: 1.0,
+            hp_regen, berserk_bonus: 0.0,
+        }
+    }
+
+    fn setup_regen_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(GameTime::default());
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.add_systems(FixedUpdate, npc_regen_system);
+        // Two priming updates: first inits Time, second accumulates FixedUpdate delta
+        app.update();
+        app.update();
+        app
+    }
+
+    #[test]
+    fn regen_heals_damaged_npc() {
+        let mut app = setup_regen_app();
+        let npc = app.world_mut().spawn((
+            Health(50.0), stats_with_regen(5.0),
+        )).id();
+
+        app.update();
+        let hp = app.world().get::<Health>(npc).unwrap().0;
+        assert!(hp > 50.0, "regen should heal: {hp}");
+    }
+
+    #[test]
+    fn regen_capped_at_max_health() {
+        let mut app = setup_regen_app();
+        let npc = app.world_mut().spawn((
+            Health(99.9), stats_with_regen(100.0),
+        )).id();
+
+        app.update();
+        let hp = app.world().get::<Health>(npc).unwrap().0;
+        assert!(hp <= 100.0, "regen should not exceed max_health: {hp}");
+    }
+
+    #[test]
+    fn zero_regen_no_heal() {
+        let mut app = setup_regen_app();
+        let npc = app.world_mut().spawn((
+            Health(50.0), stats_with_regen(0.0),
+        )).id();
+
+        app.update();
+        let hp = app.world().get::<Health>(npc).unwrap().0;
+        assert!((hp - 50.0).abs() < f32::EPSILON, "zero regen should not heal: {hp}");
+    }
+
+    #[test]
+    fn full_health_no_regen() {
+        let mut app = setup_regen_app();
+        let npc = app.world_mut().spawn((
+            Health(100.0), stats_with_regen(5.0),
+        )).id();
+
+        app.update();
+        let hp = app.world().get::<Health>(npc).unwrap().0;
+        assert!((hp - 100.0).abs() < f32::EPSILON, "full HP should not regen: {hp}");
+    }
+
+    #[test]
+    fn dead_npcs_dont_regen() {
+        let mut app = setup_regen_app();
+        let npc = app.world_mut().spawn((
+            Health(10.0), stats_with_regen(5.0), Dead,
+        )).id();
+
+        app.update();
+        let hp = app.world().get::<Health>(npc).unwrap().0;
+        assert!((hp - 10.0).abs() < f32::EPSILON, "dead NPC should not regen: {hp}");
+    }
+
+    #[test]
+    fn buildings_excluded_from_regen() {
+        let mut app = setup_regen_app();
+        let building = app.world_mut().spawn((
+            Health(50.0), stats_with_regen(5.0),
+            Building { kind: crate::world::BuildingKind::Tower },
+        )).id();
+
+        app.update();
+        let hp = app.world().get::<Health>(building).unwrap().0;
+        assert!((hp - 50.0).abs() < f32::EPSILON, "buildings should not use npc_regen: {hp}");
+    }
+
+    #[test]
+    fn regen_paused_no_change() {
+        let mut app = setup_regen_app();
+        app.world_mut().resource_mut::<GameTime>().paused = true;
+        let npc = app.world_mut().spawn((
+            Health(50.0), stats_with_regen(5.0),
+        )).id();
+
+        app.update();
+        let hp = app.world().get::<Health>(npc).unwrap().0;
+        assert!((hp - 50.0).abs() < f32::EPSILON, "paused game should not regen: {hp}");
+    }
+}

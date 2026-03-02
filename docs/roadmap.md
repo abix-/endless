@@ -220,8 +220,8 @@ Sound (bevy_audio) woven into stages. Done: arrow shoot SFX, NPC death SFX (24 v
 - [ ] Add regression tests that enforce no behavior drift between player and AI build flows, startup and respawn flows, and both destroy entry points
 
 ### Testing
-- [x] Unit test infrastructure: `#[cfg(test)]` modules in stats.rs, constants.rs, components.rs (65 tests via `cargo test`)
-- [ ] System-level tests: headless `App::new()` tests for spawn, damage, economy systems
+- [x] Unit test infrastructure: `#[cfg(test)]` modules in stats.rs, constants.rs, components.rs (65 pure function tests via `cargo test`)
+- [x] System-level tests: headless `App::new()` + `FixedUpdate` tests for energy, regen, starvation systems (21 tests)
 - [ ] CI pipeline: `cargo test` + `cargo clippy` in GitHub Actions
 
 ### UI & UX

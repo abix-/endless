@@ -1326,3 +1326,133 @@ pub fn merchant_tick_system(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::components::{Building, CachedStats, Dead, Energy, GpuSlot, Health, NpcFlags};
+    use crate::messages::GpuUpdateMsg;
+    use crate::resources::GameTime;
+    use bevy::time::TimeUpdateStrategy;
+
+    fn test_cached_stats() -> CachedStats {
+        CachedStats {
+            damage: 15.0, range: 200.0, cooldown: 1.5,
+            projectile_speed: 200.0, projectile_lifetime: 1.5,
+            max_health: 100.0, speed: 200.0, stamina: 1.0,
+            hp_regen: 0.0, berserk_bonus: 0.0,
+        }
+    }
+
+    fn setup_starvation_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(GameTime::default());
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.add_message::<GpuUpdateMsg>();
+        app.add_systems(FixedUpdate, starvation_system);
+        // Prime FixedUpdate time
+        app.update();
+        app.update();
+        app
+    }
+
+    fn spawn_starving_npc(app: &mut App, energy: f32, health: f32) -> Entity {
+        app.world_mut().spawn((
+            GpuSlot(0),
+            Energy(energy),
+            test_cached_stats(),
+            NpcFlags::default(),
+            Health(health),
+        )).id()
+    }
+
+    #[test]
+    fn starvation_flags_set_when_energy_zero() {
+        let mut app = setup_starvation_app();
+        let npc = spawn_starving_npc(&mut app, 0.0, 100.0);
+        app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
+
+        app.update();
+        let flags = app.world().get::<NpcFlags>(npc).unwrap();
+        assert!(flags.starving, "NPC with 0 energy should be starving");
+    }
+
+    #[test]
+    fn starvation_clears_when_energy_restored() {
+        let mut app = setup_starvation_app();
+        let npc = app.world_mut().spawn((
+            GpuSlot(0),
+            Energy(50.0),
+            test_cached_stats(),
+            NpcFlags { starving: true, ..Default::default() },
+            Health(100.0),
+        )).id();
+        app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
+
+        app.update();
+        let flags = app.world().get::<NpcFlags>(npc).unwrap();
+        assert!(!flags.starving, "NPC with energy should not be starving");
+    }
+
+    #[test]
+    fn starvation_caps_hp() {
+        let mut app = setup_starvation_app();
+        let npc = spawn_starving_npc(&mut app, 0.0, 100.0);
+        app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
+
+        app.update();
+        let hp = app.world().get::<Health>(npc).unwrap().0;
+        let cap = 100.0 * STARVING_HP_CAP;
+        assert!(hp <= cap + 0.01, "starving NPC HP should be capped at {cap}: {hp}");
+    }
+
+    #[test]
+    fn starvation_skips_when_no_hour_tick() {
+        let mut app = setup_starvation_app();
+        let npc = spawn_starving_npc(&mut app, 0.0, 100.0);
+        app.world_mut().resource_mut::<GameTime>().hour_ticked = false;
+
+        app.update();
+        let flags = app.world().get::<NpcFlags>(npc).unwrap();
+        assert!(!flags.starving, "should not process starvation without hour tick");
+    }
+
+    #[test]
+    fn dead_npcs_excluded_from_starvation() {
+        let mut app = setup_starvation_app();
+        let npc = app.world_mut().spawn((
+            GpuSlot(0),
+            Energy(0.0),
+            test_cached_stats(),
+            NpcFlags::default(),
+            Health(100.0),
+            Dead,
+        )).id();
+        app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
+
+        app.update();
+        let flags = app.world().get::<NpcFlags>(npc).unwrap();
+        assert!(!flags.starving, "dead NPC should be excluded from starvation");
+    }
+
+    #[test]
+    fn buildings_excluded_from_starvation() {
+        let mut app = setup_starvation_app();
+        let building = app.world_mut().spawn((
+            GpuSlot(0),
+            Energy(0.0),
+            test_cached_stats(),
+            NpcFlags::default(),
+            Health(100.0),
+            Building { kind: crate::world::BuildingKind::Tower },
+        )).id();
+        app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
+
+        app.update();
+        let flags = app.world().get::<NpcFlags>(building).unwrap();
+        assert!(!flags.starving, "buildings should be excluded from starvation");
+    }
+}
