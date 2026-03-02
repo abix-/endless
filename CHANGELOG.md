@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-03-02o
+
+- **dead code cleanup: constants.rs** — removed 16 unused constants: `SEPARATION_RADIUS/STRENGTH` (gpu.rs hardcodes values), `ENERGY_RESTED`, `SCORE_FIGHT_BASE`, `SCORE_FLEE_MULT`, `ROAD_SPEED_MULT`, `WALL_EXTRA_LAYERS`, `BUILDING_HIT_RADIUS`, `WAYPOINT_COVER_RADIUS`, and 7 `ATLAS_*` constants (CHAR/WORLD/HEAL/SLEEP/ARROW/BUILDING_HP/MINING_BAR — all bypassed with magic literals in npc_render.rs). Kept `ATLAS_BUILDING` and `ATLAS_BOAT` (referenced in registries).
+
 ## 2026-03-02n
 
 - **casino building + blackjack popup** — new `BuildingKind::Casino` (1 per town, 80 gold, Economy category). Blackjack minigame moved from left panel tab to standalone popup window (`UiState.casino_open`). Open via double-click on Casino building, inspector "Open Casino" button, or keybind. Full-window card rendering with visual card layout.

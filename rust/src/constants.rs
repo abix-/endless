@@ -1222,9 +1222,6 @@ pub const SCORE_EAT_MULT: f32 = 1.5;
 /// Multiplier for rest score (energy-based).
 pub const SCORE_REST_MULT: f32 = 1.0;
 
-/// Multiplier for flee score (hp-based).
-pub const SCORE_FLEE_MULT: f32 = 1.0;
-
 // ============================================================================
 // FARM GROWTH CONSTANTS
 // ============================================================================
@@ -1391,9 +1388,6 @@ pub const MINE_EXTRACT_PER_CYCLE: i32 = 5;
 /// Seconds (at 1x speed) for a newly placed building to finish construction.
 pub const BUILDING_CONSTRUCT_SECS: f32 = 10.0;
 
-/// Speed multiplier for NPCs walking on road tiles.
-pub const ROAD_SPEED_MULT: f32 = 1.5;
-
 /// Tile flags bitfield (1 u32 per world grid cell in tile_flags GPU buffer).
 /// Terrain bits (0-4): base terrain from Biome, set every rebuild.
 pub const TILE_GRASS: u32 = 1; // bit 0
@@ -1469,9 +1463,6 @@ pub fn autotile_col(kind: BuildingKind, variant: u16) -> f32 {
     (extra_base as u16 + variant - 1) as f32
 }
 
-// Legacy aliases for wall constants (used in save.rs wall_level sprite updates)
-pub const WALL_EXTRA_LAYERS: usize = AUTOTILE_EXTRA_PER_KIND;
-
 /// Tended growth rate for mines (per game-hour). 0.25 = 4 hours to full when miner is working.
 pub const MINE_TENDED_GROWTH_RATE: f32 = 0.25;
 
@@ -1496,12 +1487,6 @@ pub const MINE_MIN_SPACING: f32 = 400.0;
 
 /// Default town policy radius (pixels) for auto-mining discovery around fountain.
 pub const DEFAULT_MINING_RADIUS: f32 = 2000.0;
-
-/// Distance within which a waypoint "covers" a gold mine (AI territory logic).
-pub const WAYPOINT_COVER_RADIUS: f32 = 200.0;
-
-/// Radius for projectile-vs-building collision detection on CPU.
-pub const BUILDING_HIT_RADIUS: f32 = 20.0;
 
 // ============================================================================
 // BUILDING REGISTRY — single source of truth for all building definitions
@@ -2035,12 +2020,5 @@ pub fn building_cost(kind: BuildingKind) -> i32 {
 // ATLAS IDS (shared between gpu.rs, render.rs, and npc_render.wgsl)
 // ============================================================================
 
-pub const ATLAS_CHAR: f32 = 0.0;
-pub const ATLAS_WORLD: f32 = 1.0;
-pub const ATLAS_HEAL: f32 = 2.0;
-pub const ATLAS_SLEEP: f32 = 3.0;
-pub const ATLAS_ARROW: f32 = 4.0;
-pub const ATLAS_BUILDING_HP: f32 = 5.0;
-pub const ATLAS_MINING_BAR: f32 = 6.0;
 pub const ATLAS_BUILDING: f32 = 7.0;
 pub const ATLAS_BOAT: f32 = 8.0;
