@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use crate::components::*;
 use crate::constants::UpgradeStatKind;
-use crate::constants::{BUILDING_REGISTRY, DisplayCategory, FOUNTAIN_TOWER, npc_def};
+use crate::constants::{ALL_EQUIPMENT_SLOTS, BUILDING_REGISTRY, DisplayCategory, EquipmentSlot, FOUNTAIN_TOWER, Rarity, npc_def};
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
 use crate::systems::ai_player::{
@@ -269,6 +269,7 @@ fn tab_to_str(tab: LeftPanelTab) -> &'static str {
         LeftPanelTab::Policies => "Policies",
         LeftPanelTab::Patrols => "Patrols",
         LeftPanelTab::Squads => "Squads",
+        LeftPanelTab::Inventory => "Inventory",
         LeftPanelTab::Factions => "Factions",
         LeftPanelTab::Profiler => "Profiler",
         LeftPanelTab::Help => "Help",
@@ -276,6 +277,19 @@ fn tab_to_str(tab: LeftPanelTab) -> &'static str {
 }
 
 
+
+// ============================================================================
+// INVENTORY PARAMS
+// ============================================================================
+
+#[derive(SystemParam)]
+pub struct InventoryParams<'w, 's> {
+    pub town_inventory: Res<'w, TownInventory>,
+    pub equipment_q: Query<'w, 's, (&'static NpcEquipment, &'static Job, &'static TownId)>,
+    pub equip_writer: MessageWriter<'w, crate::systems::stats::EquipItemMsg>,
+    pub unequip_writer: MessageWriter<'w, crate::systems::stats::UnequipItemMsg>,
+    pub catalog: Res<'w, HelpCatalog>,
+}
 
 // ============================================================================
 // MAIN SYSTEM
@@ -301,7 +315,7 @@ pub fn left_panel_system(
     mut roster_state: Local<RosterState>,
     mut factions_cache: Local<FactionsCache>,
     mut settings: ResMut<UserSettings>,
-    catalog: Res<HelpCatalog>,
+    mut inventory: InventoryParams,
     mut panel_state: Local<PanelState>,
     mut profiler_cache: Local<ProfilerCache>,
     mut dirty_writers: crate::messages::DirtyWriters,
@@ -336,6 +350,7 @@ pub fn left_panel_system(
         LeftPanelTab::Policies => "Policies",
         LeftPanelTab::Patrols => "Patrols",
         LeftPanelTab::Squads => "Squads",
+        LeftPanelTab::Inventory => "Inventory",
         LeftPanelTab::Factions => "Factions",
         LeftPanelTab::Profiler => "Profiler",
         LeftPanelTab::Help => "Help",
@@ -348,6 +363,7 @@ pub fn left_panel_system(
         LeftPanelTab::Policies => "tab_policies",
         LeftPanelTab::Patrols => "tab_patrols",
         LeftPanelTab::Squads => "tab_squads",
+        LeftPanelTab::Inventory => "tab_inventory",
         LeftPanelTab::Factions => "tab_factions",
         LeftPanelTab::Profiler => "tab_profiler",
         LeftPanelTab::Help => "tab_help",
@@ -368,7 +384,7 @@ pub fn left_panel_system(
         .anchor(egui::Align2::LEFT_TOP, [4.0, 30.0])
         .show(ctx, |ui| {
             // Inline help text at the top of every tab
-            if let Some(tip) = catalog.0.get(tab_help_key) {
+            if let Some(tip) = inventory.catalog.0.get(tab_help_key) {
                 ui.label(egui::RichText::new(*tip).size(help_text_size));
                 ui.separator();
             }
@@ -400,6 +416,13 @@ pub fn left_panel_system(
                     &roster.meta_cache,
                     &world_data,
                     &mut dirty_writers,
+                ),
+                LeftPanelTab::Inventory => inventory_content(
+                    ui,
+                    &mut inventory,
+                    &roster.selected,
+                    &roster.meta_cache,
+                    &factions.entity_map,
                 ),
                 LeftPanelTab::Factions => factions_content(
                     ui,
@@ -3096,4 +3119,184 @@ fn help_content(ui: &mut egui::Ui) {
                 ui.label("- Upgrade Fountain Radius early for faster healing.");
             });
     });
+}
+
+// ============================================================================
+// INVENTORY TAB
+// ============================================================================
+
+fn rarity_color(rarity: Rarity) -> egui::Color32 {
+    let (r, g, b) = rarity.color();
+    egui::Color32::from_rgb(r, g, b)
+}
+
+fn slot_label(slot: EquipmentSlot) -> &'static str {
+    match slot {
+        EquipmentSlot::Helm => "Helm",
+        EquipmentSlot::Armor => "Armor",
+        EquipmentSlot::Weapon => "Weapon",
+        EquipmentSlot::Shield => "Shield",
+        EquipmentSlot::Gloves => "Gloves",
+        EquipmentSlot::Boots => "Boots",
+        EquipmentSlot::Belt => "Belt",
+        EquipmentSlot::Amulet => "Amulet",
+        EquipmentSlot::Ring => "Ring",
+    }
+}
+
+fn inventory_content(
+    ui: &mut egui::Ui,
+    inv: &mut InventoryParams,
+    selected_npc: &SelectedNpc,
+    meta_cache: &NpcMetaCache,
+    entity_map: &EntityMap,
+) {
+    let town_idx: usize = 0; // player town
+
+    // --- Selected NPC equipment section ---
+    let sel = selected_npc.0;
+    if sel >= 0 {
+        if let Some(npc) = entity_map.get_npc(sel as usize) {
+            if let Ok((equip, job, _town_id)) = inv.equipment_q.get(npc.entity) {
+                let def = npc_def(*job);
+                let name = meta_cache.0.get(sel as usize)
+                    .map(|m| m.name.as_str())
+                    .unwrap_or("NPC");
+                ui.label(
+                    egui::RichText::new(format!("{} — {:?}", name, job))
+                        .strong()
+                        .size(14.0),
+                );
+
+                if def.equip_slots.is_empty() {
+                    ui.label("(non-military — cannot equip)");
+                } else {
+                    for &slot in ALL_EQUIPMENT_SLOTS {
+                        if slot == EquipmentSlot::Ring {
+                            for (ring_idx, ring) in
+                                [&equip.ring1, &equip.ring2].iter().enumerate()
+                            {
+                                ui.horizontal(|ui| {
+                                    let label = format!("Ring {}", ring_idx + 1);
+                                    if let Some(item) = ring {
+                                        ui.label(format!("{}:", label));
+                                        ui.label(
+                                            egui::RichText::new(&item.name)
+                                                .color(rarity_color(item.rarity)),
+                                        );
+                                        ui.label(format!(
+                                            "(+{:.0}%)",
+                                            item.stat_bonus * 100.0
+                                        ));
+                                        if ui.small_button("Unequip").clicked() {
+                                            inv.unequip_writer.write(
+                                                crate::systems::stats::UnequipItemMsg {
+                                                    npc_entity: npc.entity,
+                                                    slot,
+                                                    ring_index: ring_idx as u8,
+                                                },
+                                            );
+                                        }
+                                    } else {
+                                        ui.label(format!("{}: —", label));
+                                    }
+                                });
+                            }
+                        } else {
+                            ui.horizontal(|ui| {
+                                let item_opt = equip.slot(slot);
+                                ui.label(format!("{}:", slot_label(slot)));
+                                if let Some(item) = item_opt {
+                                    ui.label(
+                                        egui::RichText::new(&item.name)
+                                            .color(rarity_color(item.rarity)),
+                                    );
+                                    ui.label(format!("(+{:.0}%)", item.stat_bonus * 100.0));
+                                    if ui.small_button("Unequip").clicked() {
+                                        inv.unequip_writer.write(
+                                            crate::systems::stats::UnequipItemMsg {
+                                                npc_entity: npc.entity,
+                                                slot,
+                                                ring_index: 0,
+                                            },
+                                        );
+                                    }
+                                } else {
+                                    ui.label("—");
+                                }
+                            });
+                        }
+                    }
+                }
+                ui.separator();
+            }
+        }
+    } else {
+        ui.label("Select a military NPC to equip items.");
+        ui.separator();
+    }
+
+    // --- Town inventory list ---
+    let items = inv
+        .town_inventory
+        .items
+        .get(town_idx)
+        .map(|v| v.as_slice())
+        .unwrap_or(&[]);
+
+    ui.label(
+        egui::RichText::new(format!("Town Inventory ({} items)", items.len()))
+            .strong()
+            .size(14.0),
+    );
+
+    if items.is_empty() {
+        ui.label("No unequipped items. Defeat raiders to collect loot.");
+        return;
+    }
+
+    // Can equip if a valid military NPC from player town is selected
+    let npc_entity = if sel >= 0 {
+        entity_map.get_npc(sel as usize).and_then(|npc| {
+            inv.equipment_q.get(npc.entity).ok().and_then(|(_, job, tid)| {
+                let def = npc_def(*job);
+                if tid.0 == town_idx as i32 && !def.equip_slots.is_empty() {
+                    Some(npc.entity)
+                } else {
+                    None
+                }
+            })
+        })
+    } else {
+        None
+    };
+
+    egui::ScrollArea::vertical()
+        .max_height(400.0)
+        .show(ui, |ui| {
+            for item in items {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(&item.name)
+                            .color(rarity_color(item.rarity)),
+                    );
+                    ui.label(format!(
+                        "{} +{:.0}%",
+                        slot_label(item.slot),
+                        item.stat_bonus * 100.0
+                    ));
+                    if let Some(ent) = npc_entity {
+                        if ui.small_button("Equip").clicked() {
+                            inv.equip_writer.write(
+                                crate::systems::stats::EquipItemMsg {
+                                    npc_entity: ent,
+                                    item_id: item.id,
+                                    town_idx,
+                                },
+                            );
+                        }
+                    }
+                });
+            }
+        });
 }

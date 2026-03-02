@@ -184,6 +184,16 @@ pub fn top_bar_system(
                 if ui
                     .selectable_label(
                         ui_state.left_panel_open
+                            && ui_state.left_panel_tab == LeftPanelTab::Inventory,
+                        "Inventory",
+                    )
+                    .clicked()
+                {
+                    ui_state.toggle_left_tab(LeftPanelTab::Inventory);
+                }
+                if ui
+                    .selectable_label(
+                        ui_state.left_panel_open
                             && ui_state.left_panel_tab == LeftPanelTab::Factions,
                         "Factions",
                     )

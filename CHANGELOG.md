@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-03-02d
+
+- **inventory UI tab** — `LeftPanelTab::Inventory` with `I` keybind (Factions moved `I`→`G`), `ControlAction::ToggleInventory`, top bar button, `InventoryParams` SystemParam. Tab shows selected NPC's D2 equipment slots with rarity-colored names + stat bonuses + Unequip buttons, and scrollable town inventory list with Equip buttons. Help catalog entry added.
+
 ## 2026-03-02c
 
 - **equip/unequip system** — `EquipItemMsg`/`UnequipItemMsg` messages + `process_equip_system`: moves items between TownInventory and NpcEquipment, handles ring slot preference (empty ring1 first), swaps occupied slots back to inventory, re-resolves stats via `re_resolve_npc_stats()` helper with proportional HP rescaling + GPU visual dirty

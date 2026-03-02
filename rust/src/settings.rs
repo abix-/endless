@@ -69,6 +69,7 @@ pub enum ControlAction {
     TogglePolicies,
     TogglePatrols,
     ToggleSquads,
+    ToggleInventory,
     ToggleFactions,
     ToggleHelp,
     ToggleCombatLog,
@@ -92,7 +93,7 @@ pub enum ControlAction {
 }
 
 impl ControlAction {
-    pub const ALL: [Self; 30] = [
+    pub const ALL: [Self; 31] = [
         Self::PanUp,
         Self::PanDown,
         Self::PanLeft,
@@ -103,6 +104,7 @@ impl ControlAction {
         Self::TogglePolicies,
         Self::TogglePatrols,
         Self::ToggleSquads,
+        Self::ToggleInventory,
         Self::ToggleFactions,
         Self::ToggleHelp,
         Self::ToggleCombatLog,
@@ -137,6 +139,7 @@ impl ControlAction {
             Self::TogglePolicies => "toggle_policies",
             Self::TogglePatrols => "toggle_patrols",
             Self::ToggleSquads => "toggle_squads",
+            Self::ToggleInventory => "toggle_inventory",
             Self::ToggleFactions => "toggle_factions",
             Self::ToggleHelp => "toggle_help",
             Self::ToggleCombatLog => "toggle_combat_log",
@@ -172,6 +175,7 @@ impl ControlAction {
             Self::TogglePolicies => "Policies Tab",
             Self::TogglePatrols => "Patrols Tab",
             Self::ToggleSquads => "Squads Tab",
+            Self::ToggleInventory => "Inventory Tab",
             Self::ToggleFactions => "Factions Tab",
             Self::ToggleHelp => "Help Tab",
             Self::ToggleCombatLog => "Combat Log",
@@ -206,6 +210,7 @@ impl ControlAction {
             | Self::TogglePolicies
             | Self::TogglePatrols
             | Self::ToggleSquads
+            | Self::ToggleInventory
             | Self::ToggleFactions
             | Self::ToggleHelp
             | Self::ToggleCombatLog
@@ -236,6 +241,7 @@ impl ControlAction {
             | Self::TogglePolicies
             | Self::TogglePatrols
             | Self::ToggleSquads
+            | Self::ToggleInventory
             | Self::ToggleFactions
             | Self::ToggleHelp
             | Self::ToggleCombatLog
@@ -269,7 +275,8 @@ impl ControlAction {
             Self::TogglePolicies => KeyCode::KeyP,
             Self::TogglePatrols => KeyCode::KeyT,
             Self::ToggleSquads => KeyCode::KeyQ,
-            Self::ToggleFactions => KeyCode::KeyI,
+            Self::ToggleInventory => KeyCode::KeyI,
+            Self::ToggleFactions => KeyCode::KeyG,
             Self::ToggleHelp => KeyCode::KeyH,
             Self::ToggleCombatLog => KeyCode::KeyL,
             Self::ToggleFollow => KeyCode::KeyF,
@@ -300,13 +307,14 @@ pub const CAMERA_ACTIONS: [ControlAction; 4] = [
     ControlAction::PanRight,
 ];
 
-pub const PANEL_ACTIONS: [ControlAction; 10] = [
+pub const PANEL_ACTIONS: [ControlAction; 11] = [
     ControlAction::ToggleRoster,
     ControlAction::ToggleBuildMenu,
     ControlAction::ToggleUpgrades,
     ControlAction::TogglePolicies,
     ControlAction::TogglePatrols,
     ControlAction::ToggleSquads,
+    ControlAction::ToggleInventory,
     ControlAction::ToggleFactions,
     ControlAction::ToggleHelp,
     ControlAction::ToggleCombatLog,

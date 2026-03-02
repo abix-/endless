@@ -2038,6 +2038,7 @@ pub enum LeftPanelTab {
     Policies,
     Patrols,
     Squads,
+    Inventory,
     Factions,
     Profiler,
     Help,
@@ -2782,6 +2783,7 @@ impl HelpCatalog {
             "Guard post patrol order. Use arrows to reorder.",
         );
         m.insert("tab_squads", "Set squad sizes and map targets. Default hotkeys are 1-9/0 (rebind in ESC > Settings > Controls).");
+        m.insert("tab_inventory", "Equipment from defeated raiders. Select a military NPC, then click Equip.");
         m.insert(
             "tab_profiler",
             "Per-system timings. Enable in ESC > Settings > Debug.",
