@@ -139,7 +139,6 @@ pub struct SquadParams<'w> {
 pub struct FactionsParams<'w, 's> {
     ai_state: ResMut<'w, AiPlayerState>,
     food_storage: Res<'w, FoodStorage>,
-    gold_storage: ResMut<'w, GoldStorage>,
     reputation: ResMut<'w, Reputation>,
     faction_stats: Res<'w, FactionStats>,
     upgrades: Res<'w, TownUpgrades>,
@@ -432,6 +431,7 @@ pub fn left_panel_system(
                 LeftPanelTab::Factions => factions_content(
                     ui,
                     &factions,
+                    &upgrade.gold_storage,
                     &squad.squad_state,
                     &world_data,
                     &policies,
@@ -446,7 +446,7 @@ pub fn left_panel_system(
                     crate::ui::blackjack::blackjack_content(
                         ui,
                         &mut panel_state.blackjack,
-                        &mut factions.gold_storage,
+                        &mut upgrade.gold_storage,
                         &mut factions.reputation,
                         &world_data,
                     );
@@ -1511,6 +1511,7 @@ fn squads_content(
 
 fn rebuild_factions_cache(
     factions: &FactionsParams,
+    gold_storage: &GoldStorage,
     squad_state: &SquadState,
     world_data: &WorldData,
     entity_map: &EntityMap,
@@ -1520,6 +1521,7 @@ fn rebuild_factions_cache(
 ) {
     fn push_snapshot(
         factions: &FactionsParams,
+        gold_storage: &GoldStorage,
         squad_state: &SquadState,
         world_data: &WorldData,
         entity_map: &EntityMap,
@@ -1562,7 +1564,7 @@ fn rebuild_factions_cache(
                 .collect();
 
         let food = factions.food_storage.food.get(tdi).copied().unwrap_or(0);
-        let gold = factions.gold_storage.gold.get(tdi).copied().unwrap_or(0);
+        let gold = gold_storage.gold.get(tdi).copied().unwrap_or(0);
         let (alive, dead, kills) = factions
             .faction_stats
             .stats
@@ -1832,6 +1834,7 @@ fn rebuild_factions_cache(
     if let Some(player_tdi) = world_data.towns.iter().position(|t| t.faction == 0) {
         push_snapshot(
             factions,
+            gold_storage,
             squad_state,
             world_data,
             entity_map,
@@ -1858,6 +1861,7 @@ fn rebuild_factions_cache(
             player.last_actions.iter().rev().cloned().collect();
         push_snapshot(
             factions,
+            gold_storage,
             squad_state,
             world_data,
             entity_map,
@@ -2081,6 +2085,7 @@ fn build_faction_debug_string(snap: &AiSnapshot) -> String {
 fn factions_content(
     ui: &mut egui::Ui,
     factions: &FactionsParams,
+    gold_storage: &GoldStorage,
     squad_state: &SquadState,
     world_data: &WorldData,
     policies: &TownPolicies,
@@ -2096,6 +2101,7 @@ fn factions_content(
     if cache.frame_counter % 30 == 1 || cache.snapshots.is_empty() {
         rebuild_factions_cache(
             factions,
+            gold_storage,
             squad_state,
             world_data,
             &factions.entity_map,
