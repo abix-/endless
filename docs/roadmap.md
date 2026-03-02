@@ -17,7 +17,7 @@ See [completed.md](completed.md) for completed work moved out of active stages.
 
 ## Stages
 
-Stages 1-15, 17, 23: [x] Complete (see [completed.md](completed.md))
+Stages 1-15, 18: [x] Complete (see [completed.md](completed.md))
 
 **Stage 16: Performance**
 
@@ -57,11 +57,9 @@ SystemParam bundle consolidation (code quality, not runtime perf):
 
 *Done when: two archers with different traits fight the same raider noticeably differently - one flees early, the other berserks at low HP.*
 
-Trait combinations, squad ignore-patrol, and target oscillation fix complete (see [completed.md](completed.md)).
+Trait combinations, squad ignore-patrol, target oscillation fix, 7-axis spectrum personality, and behavior weight integration complete (see [completed.md](completed.md)).
 
 Remaining:
-- [x] Unify `TraitKind` into 7-axis spectrum personality (14 trait names, signed magnitude)
-- [x] All 7 axes affect both `resolve_combat_stats()` and `decision_system` behavior weights
 - [ ] Target switching (prefer non-fleeing enemies, prioritize low-HP targets)
 - [ ] Terrain combat modifiers — biome at target's position affects incoming damage:
   - Forest cover: 25% miss chance on projectile hits (roll in `process_proj_hits` or `damage_system` using target position → `WorldGrid` cell → `Biome::Forest`)
@@ -75,71 +73,7 @@ Remaining:
 
 Design: no loot bags on the ground. Kill → loot goes directly into killer's `CarriedLoot` component → NPC keeps fighting → carry threshold triggers return home → deposit food/gold to storage + equipment to `TownInventory` → player equips via UI → stat bonus + sprite change.
 
-**Chunk 0: Unified CarriedLoot** (refactor — prerequisite for all other chunks)
-
-Replace 3 fragmented carry mechanisms with 1. Currently: (1) `Activity::Returning { loot: Vec<(ItemKind, i32)> }` for food/gold from kills/theft, (2) `CarriedGold(i32)` for miners, (3) loot stacking in Activity::Returning while NPC keeps fighting. All replaced by single `CarriedLoot` component.
-
-- [x] New `CarriedLoot` component (always-present on ALL NPCs, like NpcWorkState): `{ food: i32, gold: i32, equipment: Vec<LootItem> }` with `is_empty()`, `total_items()`, `visual_key() -> u8`
-- [x] Remove `CarriedGold` component — absorbed into `CarriedLoot.gold`
-- [x] Simplify `Activity::Returning` — remove the `loot` payload (just means "going home", loot lives in CarriedLoot)
-- [x] Migrate all loot-write sites: `death_system` NPC-killer/building-killer loot → `CarriedLoot.food/.gold`, farm theft → `CarriedLoot.food`, miner gold harvest → `CarriedLoot.gold`, farm harvest delivery → `CarriedLoot.food`
-- [x] Refactor `arrival_system`: read `CarriedLoot`, deposit food/gold/equipment to town storage, drain to zero after deposit. Equipment items → `TownInventory` (from Chunk 1)
-- [x] Move loot-based `visual_key()` from `Activity` to `CarriedLoot` for GPU dirty tracking
-- [x] Update NPC inspector to read from `CarriedLoot` instead of `Activity::Returning.loot` + `CarriedGold`
-- [x] Save/load: `NpcSaveData` gets `carried_food: i32, carried_gold: i32` fields (replaces inline loot in activity serialization). `#[serde(default)]` for backward compat.
-- [x] Run ALL existing tests after Chunk 0 — arrival, raider-cycle, miner-cycle, combat, vertical-slice must pass
-
-**Chunk 1: LootItem data types + NPC registry + TownInventory**
-
-- [x] `EquipmentSlot` enum: expanded to 9 D2 variants (Helm/Armor/Weapon/Shield/Gloves/Boots/Belt/Amulet/Ring)
-- [x] `Rarity` enum: Common (60%), Uncommon (25%), Rare (12%), Epic (3%) — `gold_cost()` 25/75/200/500, `color()` white/green/blue/purple, `stat_range()` 5-10%/10-20%/20-35%/35-50%
-- [x] `LootItem` struct: `id: u64`, `slot: EquipmentSlot`, `rarity: Rarity`, `stat_bonus: f32`, `sprite: (f32, f32)`, `name: String` (Clone, Debug, Serialize, Deserialize)
-- [x] New NpcDef fields in NPC_REGISTRY: `equipment_drop_rate: f32` (raiders: 0.30, others: 0.0), `equip_slots: &'static [EquipmentSlot]`
-- [x] `NextLootItemId` resource: u64 counter
-- [x] `roll_loot_item()` helper: rarity-weighted random → LootItem with atlas sprites from curated list
-- [x] `TownInventory` resource: `Vec<Vec<LootItem>>` indexed by town — `add(town_idx, item)`, `remove(town_idx, item_id) -> Option<LootItem>`
-
-**Chunk 2: Equipment drop on kill + carry accumulation**
-
-- [x] In `death_system` NPC-killer branch: after food/gold, check `npc_def(dead_job).equipment_drop_rate` → roll → `roll_loot_item()` → push to killer's `CarriedLoot.equipment`
-- [x] Combat log `CombatEventKind::Loot` with rarity-labeled message (reuses existing Loot event kind)
-- [x] When killed NPC carried equipment (`CarriedLoot.equipment` not empty): killer is NPC → 50% per item transfers to killer's carry (failed = destroyed); killer is tower/fountain → items deposit directly to tower's town `TownInventory`
-- [x] Loot threshold in `decision_system` (Priority ~4.5): if `carried_loot.equipment.len() >= LOOT_CARRY_THRESHOLD` AND not in combat → `Activity::Returning`. Only for NPCs with `npc_def(job).equip_slots` non-empty.
-
-**Chunk 3: NpcEquipment (D2 slots) + stat integration + DRY consolidation**
-
-- [x] `EquipmentSlot` expanded to 9 D2 variants: Helm/Armor/Weapon/Shield (sprite-visible) + Gloves/Boots/Belt/Amulet/Ring (stat-only)
-- [x] `NpcEquipment` component (10 slots, always-present): weapon/helm/armor/shield sprites with NpcDef fallback, total_weapon_bonus/total_armor_bonus/total_speed_bonus/total_stamina_bonus
-- [x] Remove `EquippedWeapon`, `EquippedArmor`, `EquippedHelmet` — all replaced by NpcEquipment
-- [x] GPU: 3 equipment queries → 1 NpcEquipment query, stride 24→28, LAYER_COUNT 7→8, shield layer added, shader slot*6u→slot*7u
-- [x] `resolve_combat_stats()`: weapon_bonus/armor_bonus params, damage *= (1+weapon_bonus), max_health *= (1+armor_bonus). All 3 call sites updated with real equipment bonuses.
-- [x] `materialize_npc()`: inserts NpcEquipment from overrides, removed conditional Equipped* inserts
-- [x] Save/load: NpcEquipment in NpcSaveData + NpcSpawnOverrides, backward compat with legacy weapon/helmet/armor fields
-- [x] Dead code cleanup: behavior.rs weapon_q/helmet_q/armor_q removed, game_hud shows all D2 slots
-- [x] `EquipItemMsg`/`UnequipItemMsg` messages + `process_equip_system`: moves item between TownInventory ↔ NpcEquipment, re-resolves CachedStats + MarkVisualDirty
-- [x] `re_resolve_npc_stats()` helper: shared stat re-resolution + GPU update (used by equip, unequip, upgrades)
-
-**Chunk 4: Inventory UI tab**
-
-- [x] `LeftPanelTab::Inventory` — keybind: `I` (Factions moved to `G`)
-- [x] Inventory tab: scrollable list, rarity-colored, equip/unequip buttons, selected NPC equipment display
-- [x] NPC inspector: rarity-colored equipment display with stat bonuses, carried equipment count
-
-**Chunk 5: Merchant building**
-
-- [x] `BuildingKind::Merchant` — Economy category, player_buildable, 50 gold, TownGrid placement
-- [x] 1-per-town enforcement in `place_building()` + build menu
-- [x] `MerchantInventory` resource: per-town `MerchantStock { items: Vec<LootItem>, refresh_timer: f32 }`
-- [x] Merchant refresh system: initial stock on placement, refresh every 12 game-hours
-- [x] Merchant inspector UI: stock with buy buttons, sell from inventory, reroll (50g)
-- [x] Save/load: MerchantInventory persisted in save data
-
-**Chunk 6: Save/load + test**
-
-- [x] Save/load: CarriedLoot, NpcEquipment, TownInventory, MerchantInventory, NextLootItemId — all `#[serde(default)]`
-- [x] `loot-cycle` integration test: spawn → kill → verify carry → return → deposit → equip → verify stats
-
-Key files: `components.rs` (CarriedLoot, NpcEquipment, simplified Activity::Returning), `constants.rs` (EquipmentSlot, Rarity, LootItem, NpcDef fields, roll_loot_item), `resources.rs` (TownInventory, MerchantInventory, NextLootItemId, LeftPanelTab::Inventory), `systems/health.rs` (equipment drops, carried loot transfer), `systems/behavior.rs` (carry migration, loot threshold), `systems/stats.rs` (equipment in resolve_combat_stats, equip messages), `systems/spawn.rs` (insert CarriedLoot + NpcEquipment), `systems/economy.rs` (merchant refresh, arrival deposit), `gpu.rs` (NpcEquipment query), `ui/left_panel.rs` (inventory tab), `ui/game_hud.rs` (merchant + equipment inspectors), `save.rs` (persistence), `world.rs` (BuildingKind::Merchant)
+All 6 chunks complete (see [completed.md](completed.md)): unified CarriedLoot, LootItem/Rarity/EquipmentSlot types, equipment drops + carry accumulation, NpcEquipment (9 D2 slots) + stat integration, Inventory UI tab (I key), Merchant building (buy/sell/reroll), save/load persistence + loot-cycle test.
 
 **Stage 19: Pathfinding**
 
@@ -318,7 +252,7 @@ Implementation guides for upcoming stages. After delivery, spec content rolls in
 | Query-first + log gating + sub-profiling | 30,000 | 30,000 | 60+ | [x] done |
 | Visual upload + targets dirty tracking | 30,000 | 30,000 | 60+ | [x] done |
 | GPU iter + decision budgeting (items 1-2) | 50,000 | 50,000 | 60+ | [x] done |
-| Entity sleeping + healing (items 3-4) | 50,000 | 50,000 | 60+ | healing done, sleeping planned |
+| Entity sleeping + healing (items 3-4) | 50,000 | 50,000 | 60+ | healing done, sleeping TBD |
 | Future (chunked tilemap) | 50,000+ | 50,000+ | 60+ | Planned |
 
 ## References

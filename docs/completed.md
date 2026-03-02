@@ -306,7 +306,7 @@ Completed items moved from roadmap for readability.
 - [x] `attack_system` reads `&CachedStats` instead of `&AttackStats`
 - [x] `healing_system` reads `CombatConfig.heal_rate`/`heal_radius` instead of local constants
 - [x] `MaxHealth` component removed — `CachedStats.max_health` is single source of truth
-- [x] `Personality` (4 traits: Brave/Tough/Swift/Focused) wired into `resolve_combat_stats()`. Display `trait_id` uses separate 9-name list — unification in Stage 16
+- [x] `Personality` (7-axis spectrum, see Stage 17 section) wired into `resolve_combat_stats()` via `TraitStatMods`
 - [x] Init values match hardcoded values: archer/raider damage=15, speeds=100, max_health=100, heal_rate=5, heal_radius=150
 - [x] Stage 8 parity checks verified stats matched hardcoded values (removed in Stage 9)
 
@@ -468,6 +468,19 @@ Completed items moved from roadmap for readability.
 - [x] Sound: SFX system — `play_sfx_system` with spatial camera culling, `GameAudio.sfx_handles`, `PlaySfxMsg` with position
 - [x] Endless-mode test hardening — deleted transient-state phases 6/14, renumbered to 14 phases, removed `disembarked` field from `MigrationGroup`
 - [x] Migration settlement terrain signal — replaced `TilemapSpawned = false` with proper `TerrainDirtyMsg` + `BuildingGridDirtyMsg`
+
+### Stage 17: Combat Depth (Personality)
+- [x] 7-axis spectrum personality: `TraitKind` expanded from 4 traits (Brave/Tough/Swift/Focused) to 7 bipolar axes (Courage/Diligence/Vitality/Power/Agility/Precision/Ferocity) with signed magnitude (±0.5 to ±1.5). `TraitStatMods` + `TraitBehaviorMods` structs replace tuples. `PersonalitySave.version` field for legacy save migration.
+- [x] All 7 axes wired into `resolve_combat_stats()` (damage/HP/speed/range/cooldown/berserk via `TraitStatMods`) + `decision_system` behavior weights (fight/flee/rest/eat/work/wander via `TraitBehaviorMods`). Berserk damage: `CachedStats.berserk_bonus` applied in `attack_system` when HP <50%. Personality-modified flee: Brave = never flees, Coward = +20%×|m| threshold.
+
+### Stage 18: Loot & Equipment
+- [x] Chunk 0: Unified `CarriedLoot` component (always-present, replaces `Activity::Returning` loot payload + `CarriedGold`). Food/gold/equipment fields, `visual_key()` for GPU dirty tracking.
+- [x] Chunk 1: `LootItem`/`Rarity`/`EquipmentSlot` types (9 D2 slots), `NPC_REGISTRY` drop rates, `TownInventory` per-town resource, `roll_loot_item()` helper.
+- [x] Chunk 2: Equipment drop on kill via `death_system`, carry accumulation, loot threshold triggers `Activity::Returning` in `decision_system`.
+- [x] Chunk 3: `NpcEquipment` component (replaces 3 separate Equipped* components), 9 D2 slots with sprite-visible + stat-only split, integrated into `resolve_combat_stats()` + GPU equip pipeline (stride 28, 7 layers).
+- [x] Chunk 4: `LeftPanelTab::Inventory` (keybind I, Factions moved to G), scrollable rarity-colored list, equip/unequip buttons, inspector equipment display.
+- [x] Chunk 5: `BuildingKind::Merchant` (1 per town, 50 gold, Economy), `MerchantInventory` with 12-hour refresh, buy/sell/reroll inspector UI.
+- [x] Chunk 6: Save/load persistence (CarriedLoot, NpcEquipment, TownInventory, MerchantInventory, NextLootItemId), `loot-cycle` integration test.
 
 ### Authority Safety Hardening
 - [x] Combat authority hardening: `attack_system` liveness check migrated from `gpu_state.health` to `entity_map.get_npc().dead` (ECS authoritative); `ManualTarget::Npc` dead check also migrated
