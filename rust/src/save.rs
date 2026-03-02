@@ -220,6 +220,12 @@ pub struct SaveData {
     #[serde(default)]
     pub endless_pending: Vec<PendingAiSpawn>,
 
+    // Loot system
+    #[serde(default)]
+    pub next_loot_item_id: u64,
+    #[serde(default)]
+    pub town_inventory: Vec<Vec<crate::constants::LootItem>>,
+
     // Building vecs + towns — registry-driven via #[serde(flatten)]
     // Captures: towns, farms, beds, waypoints, farmer_homes, archer_homes,
     // crossbow_homes, fighter_homes, tents, miner_homes, gold_mines
@@ -365,6 +371,8 @@ pub struct NpcSaveData {
     #[serde(default)]
     pub carried_food: Option<i32>,
     pub carried_gold: Option<i32>,
+    #[serde(default)]
+    pub carried_equipment: Vec<crate::constants::LootItem>,
     pub weapon: Option<[f32; 2]>,
     pub helmet: Option<[f32; 2]>,
     pub armor: Option<[f32; 2]>,
@@ -589,6 +597,8 @@ pub fn collect_save_data(
     endless: &EndlessMode,
     npcs: Vec<NpcSaveData>,
     uid_alloc: &NextEntityUid,
+    next_loot_id: &crate::resources::NextLootItemId,
+    town_inventory: &crate::resources::TownInventory,
 ) -> SaveData {
     // Terrain + buildings
     let terrain: Vec<u8> = grid.cells.iter().map(|c| biome_to_u8(c.terrain)).collect();
@@ -801,6 +811,8 @@ pub fn collect_save_data(
                 starting_gold: g.starting_gold,
             }),
         next_entity_uid: Some(uid_alloc.0),
+        next_loot_item_id: next_loot_id.next,
+        town_inventory: town_inventory.items.clone(),
         endless_mode: endless.enabled,
         endless_strength: endless.strength_fraction,
         endless_pending: endless.pending_spawns.clone(),
@@ -905,6 +917,8 @@ pub fn apply_save(
     endless: &mut EndlessMode,
     npcs_by_town: &mut NpcsByTownCache,
     slots: &mut GpuSlotPool,
+    next_loot_id: &mut crate::resources::NextLootItemId,
+    town_inventory: &mut crate::resources::TownInventory,
 ) {
     info!("Applying save version {}", save.version);
 
@@ -1103,6 +1117,10 @@ pub fn apply_save(
     endless.strength_fraction = save.endless_strength;
     endless.pending_spawns = save.endless_pending.clone();
 
+    // Loot system
+    next_loot_id.next = save.next_loot_item_id;
+    town_inventory.items = save.town_inventory.clone();
+
     // NPC tracking
     npcs_by_town.0 = vec![Vec::new(); num_towns];
 
@@ -1283,6 +1301,10 @@ pub fn collect_npc_data(
                 .get(npc.entity)
                 .ok()
                 .and_then(|cl| if cl.gold > 0 { Some(cl.gold) } else { None }),
+            carried_equipment: carried_loot_q
+                .get(npc.entity)
+                .map(|cl| cl.equipment.clone())
+                .unwrap_or_default(),
             weapon: weapon_q.get(npc.entity).ok().map(|w| [w.0, w.1]),
             helmet: helmet_q.get(npc.entity).ok().map(|h| [h.0, h.1]),
             armor: armor_q.get(npc.entity).ok().map(|a| [a.0, a.1]),
@@ -1322,6 +1344,8 @@ pub struct SaveFactionState<'w> {
     pub ai_state: ResMut<'w, AiPlayerState>,
     pub migration_state: ResMut<'w, MigrationState>,
     pub endless: ResMut<'w, EndlessMode>,
+    pub next_loot_id: ResMut<'w, crate::resources::NextLootItemId>,
+    pub town_inventory: ResMut<'w, crate::resources::TownInventory>,
 }
 
 /// NPC queries for save (collect_npc_data).
@@ -1641,6 +1665,8 @@ pub fn save_game_system(
         &fs.endless,
         npcs,
         &uid_alloc,
+        &fs.next_loot_id,
+        &fs.town_inventory,
     );
 
     let result = if let Some(path) = request.save_path.take() {
@@ -1732,6 +1758,8 @@ pub fn autosave_system(
         &fs.endless,
         npcs,
         &uid_alloc,
+        &fs.next_loot_id,
+        &fs.town_inventory,
     );
 
     match write_save_to(&data, &path) {
@@ -1777,6 +1805,7 @@ pub fn spawn_npcs_from_save(
             armor: npc.armor,
             carried_food: npc.carried_food,
             carried_gold: npc.carried_gold,
+            carried_equipment: npc.carried_equipment.clone(),
             squad_id: npc.squad_id,
             uid_override,
         };
@@ -1862,6 +1891,8 @@ pub fn restore_world_from_save(
         &mut fs.endless,
         &mut tracking.npcs_by_town,
         &mut tracking.slots,
+        &mut fs.next_loot_id,
+        &mut fs.town_inventory,
     );
 
     // Rebuild buildings from save payload.

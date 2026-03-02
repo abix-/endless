@@ -105,4 +105,5 @@ pub struct EconomyState<'w> {
     pub food_storage: ResMut<'w, FoodStorage>,
     pub gold_storage: ResMut<'w, GoldStorage>,
     pub pop_stats: ResMut<'w, PopulationStats>,
+    pub town_inventory: ResMut<'w, crate::resources::TownInventory>,
 }

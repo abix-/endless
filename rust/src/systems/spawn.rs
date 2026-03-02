@@ -102,6 +102,7 @@ pub struct NpcSpawnOverrides {
     pub armor: Option<[f32; 2]>,
     pub carried_food: Option<i32>,
     pub carried_gold: Option<i32>,
+    pub carried_equipment: Vec<crate::constants::LootItem>,
     pub squad_id: Option<i32>,
     /// Explicit UID for save/load. None = allocate fresh from NextEntityUid.
     pub uid_override: Option<EntityUid>,
@@ -123,6 +124,7 @@ impl Default for NpcSpawnOverrides {
             armor: None,
             carried_food: None,
             carried_gold: None,
+            carried_equipment: Vec::new(),
             squad_id: None,
             uid_override: None,
         }
@@ -309,6 +311,7 @@ pub fn materialize_npc(
         CarriedLoot {
             food: overrides.carried_food.unwrap_or(0),
             gold: overrides.carried_gold.unwrap_or(0),
+            equipment: overrides.carried_equipment.clone(),
         },
         // Work state (always present)
         NpcWorkState {

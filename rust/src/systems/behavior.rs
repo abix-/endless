@@ -166,6 +166,19 @@ pub fn arrival_system(
                     format!("Delivered {} gold", loot.gold),
                 );
             }
+            if !loot.equipment.is_empty() {
+                let count = loot.equipment.len();
+                for item in loot.equipment.drain(..) {
+                    economy.town_inventory.add(town_idx, item);
+                }
+                npc_logs.push(
+                    idx,
+                    game_time.day(),
+                    game_time.hour(),
+                    game_time.minute(),
+                    format!("Delivered {} equipment", count),
+                );
+            }
             loot.food = 0;
             loot.gold = 0;
         }
@@ -1495,6 +1508,34 @@ pub fn decision_system(
                 } else {
                     break 'decide; // still resting
                 }
+            }
+
+            // ====================================================================
+            // Priority 4c: Loot threshold — too much equipment, return home
+            // ====================================================================
+            if !npc_def(job).equip_slots.is_empty()
+                && carried_loot.equipment.len() >= crate::constants::LOOT_CARRY_THRESHOLD
+                && !matches!(activity, Activity::Returning)
+                && matches!(combat_state, CombatState::None)
+            {
+                activity = Activity::Returning;
+                intents.submit(
+                    entity,
+                    home,
+                    MovementPriority::JobRoute,
+                    "loot:threshold",
+                );
+                npc_logs.push(
+                    idx,
+                    game_time.day(),
+                    game_time.hour(),
+                    game_time.minute(),
+                    format!(
+                        "Carrying {} equipment, returning home",
+                        carried_loot.equipment.len()
+                    ),
+                );
+                break 'decide;
             }
 
             // ====================================================================

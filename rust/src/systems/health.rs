@@ -52,6 +52,8 @@ pub struct DeathResources<'w, 's> {
     pub carried_loot_q: Query<'w, 's, &'static mut crate::components::CarriedLoot>,
     pub sfx_writer: MessageWriter<'w, crate::resources::PlaySfxMsg>,
     pub gpu_state: Res<'w, crate::gpu::EntityGpuState>,
+    pub next_loot_id: ResMut<'w, crate::resources::NextLootItemId>,
+    pub town_inventory: ResMut<'w, crate::resources::TownInventory>,
 }
 
 /// Unified damage system: applies damage to both NPCs and buildings.
@@ -478,7 +480,7 @@ pub fn death_system(
     // Phase 2b: Process dead NPCs (immediate — same frame as marking)
     for &slot in &dead_npc_slots {
         // Extract dead NPC data (immutable borrow ends before killer mutation)
-        let (entity, faction, town_idx, job, activity, occupied_slot, work_target, last_hit_by) = {
+        let (entity, faction, town_idx, job, activity, occupied_slot, work_target, last_hit_by, dead_carried_equip) = {
             let Some(npc) = res.entity_map.get_npc(slot) else {
                 continue;
             };
@@ -500,6 +502,11 @@ pub fn death_system(
             let wt_slot = ws
                 .work_target_building
                 .and_then(|uid| res.entity_map.slot_for_uid(uid));
+            let carried_equip: Vec<crate::constants::LootItem> = res
+                .carried_loot_q
+                .get(npc.entity)
+                .map(|cl| cl.equipment.clone())
+                .unwrap_or_default();
             (
                 npc.entity,
                 npc.faction,
@@ -509,6 +516,7 @@ pub fn death_system(
                 occ_slot,
                 wt_slot,
                 lhb,
+                carried_equip,
             )
         };
 
@@ -665,6 +673,46 @@ pub fn death_system(
                         location: None,
                     });
                 }
+
+                // Equipment drop from victim's NpcDef
+                let equip_rate = npc_def(job).equipment_drop_rate;
+                if equip_rate > 0.0 {
+                    let roll = ((slot as u32).wrapping_mul(2654435761) % 1000) as f32 / 1000.0;
+                    if roll < equip_rate {
+                        let id = res.next_loot_id.alloc();
+                        let item = crate::constants::roll_loot_item(id, slot as u32);
+                        let rarity_label = item.rarity.label();
+                        let item_name = item.name.clone();
+                        if let Ok(mut cl) = res.carried_loot_q.get_mut(k_entity) {
+                            cl.equipment.push(item);
+                        }
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: k_slot }));
+                        let killer_name = &npc_meta.0[k_slot].name;
+                        let killer_job = crate::job_name(npc_meta.0[k_slot].job);
+                        combat_log.write(CombatLogMsg {
+                            kind: CombatEventKind::Loot,
+                            faction: k_faction,
+                            day: game_time.day(),
+                            hour: game_time.hour(),
+                            minute: game_time.minute(),
+                            message: format!(
+                                "{} '{}' looted {} {}",
+                                killer_job, killer_name, rarity_label, item_name
+                            ),
+                            location: None,
+                        });
+                    }
+                }
+
+                // Transfer victim's carried equipment (50% per item)
+                for carried_item in dead_carried_equip.iter() {
+                    let transfer_roll = (carried_item.id.wrapping_mul(2654435761) % 100) as f32;
+                    if transfer_roll < 50.0 {
+                        if let Ok(mut cl) = res.carried_loot_q.get_mut(k_entity) {
+                            cl.equipment.push(carried_item.clone());
+                        }
+                    }
+                }
             } else if res
                 .entity_map
                 .get_instance(killer_slot)
@@ -740,6 +788,39 @@ pub fn death_system(
                         message: format!("{} looted {} {}", kind_name, amount, item_name),
                         location: None,
                     });
+                }
+
+                // Equipment drop from victim → TownInventory (towers can't carry)
+                let equip_rate = npc_def(job).equipment_drop_rate;
+                if equip_rate > 0.0 {
+                    let roll = ((slot as u32).wrapping_mul(2654435761) % 1000) as f32 / 1000.0;
+                    if roll < equip_rate {
+                        let id = res.next_loot_id.alloc();
+                        let item = crate::constants::roll_loot_item(id, slot as u32);
+                        let rarity_label = item.rarity.label();
+                        let item_name = item.name.clone();
+                        res.town_inventory.add(tower_town, item);
+                        combat_log.write(CombatLogMsg {
+                            kind: CombatEventKind::Loot,
+                            faction: tower_faction,
+                            day: game_time.day(),
+                            hour: game_time.hour(),
+                            minute: game_time.minute(),
+                            message: format!(
+                                "{} deposited {} {} to inventory",
+                                kind_name, rarity_label, item_name
+                            ),
+                            location: None,
+                        });
+                    }
+                }
+
+                // Victim's carried equipment → TownInventory
+                for carried_item in dead_carried_equip.iter() {
+                    let transfer_roll = (carried_item.id.wrapping_mul(2654435761) % 100) as f32;
+                    if transfer_roll < 50.0 {
+                        res.town_inventory.add(tower_town, carried_item.clone());
+                    }
                 }
             }
         }

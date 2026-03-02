@@ -153,16 +153,23 @@ pub struct NpcWorkState {
 pub struct CarriedLoot {
     pub food: i32,
     pub gold: i32,
+    pub equipment: Vec<crate::constants::LootItem>,
 }
 
 impl CarriedLoot {
     pub fn is_empty(&self) -> bool {
-        self.food <= 0 && self.gold <= 0
+        self.food <= 0 && self.gold <= 0 && self.equipment.is_empty()
+    }
+
+    pub fn total_items(&self) -> usize {
+        (self.food > 0) as usize + (self.gold > 0) as usize + self.equipment.len()
     }
 
     /// Visual key for GPU dirty tracking: same key = same visual overlay.
     pub fn visual_key(&self) -> u8 {
-        if self.gold > 0 {
+        if !self.equipment.is_empty() {
+            4
+        } else if self.gold > 0 {
             2
         } else if self.food > 0 {
             3
