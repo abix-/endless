@@ -1908,6 +1908,49 @@ impl GoldStorage {
     }
 }
 
+/// Monotonic counter for unique loot item IDs.
+#[derive(Resource, Default)]
+pub struct NextLootItemId {
+    pub next: u64,
+}
+
+impl NextLootItemId {
+    pub fn alloc(&mut self) -> u64 {
+        let id = self.next;
+        self.next += 1;
+        id
+    }
+}
+
+/// Per-town equipment inventory (unequipped items stored in town).
+#[derive(Resource, Default, Clone)]
+pub struct TownInventory {
+    pub items: Vec<Vec<crate::constants::LootItem>>,
+}
+
+impl TownInventory {
+    pub fn init(&mut self, town_count: usize) {
+        self.items.resize_with(town_count, Vec::new);
+    }
+
+    pub fn add(&mut self, town_idx: usize, item: crate::constants::LootItem) {
+        if town_idx >= self.items.len() {
+            self.items.resize_with(town_idx + 1, Vec::new);
+        }
+        self.items[town_idx].push(item);
+    }
+
+    pub fn remove(&mut self, town_idx: usize, item_id: u64) -> Option<crate::constants::LootItem> {
+        let inv = self.items.get_mut(town_idx)?;
+        let pos = inv.iter().position(|i| i.id == item_id)?;
+        Some(inv.swap_remove(pos))
+    }
+
+    pub fn items(&self, town_idx: usize) -> &[crate::constants::LootItem] {
+        self.items.get(town_idx).map(|v| v.as_slice()).unwrap_or(&[])
+    }
+}
+
 /// Per-faction statistics.
 #[derive(Clone, Default)]
 pub struct FactionStat {

@@ -642,6 +642,174 @@ pub struct LootDrop {
     pub max: i32,
 }
 
+// ============================================================================
+// EQUIPMENT & LOOT TYPES
+// ============================================================================
+
+/// Equipment slot on an NPC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum EquipmentSlot {
+    Weapon,
+    Armor,
+}
+
+/// Rarity tier for loot items.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum Rarity {
+    Common,
+    Uncommon,
+    Rare,
+    Epic,
+}
+
+impl Rarity {
+    pub fn gold_cost(self) -> i32 {
+        match self {
+            Self::Common => 25,
+            Self::Uncommon => 75,
+            Self::Rare => 200,
+            Self::Epic => 500,
+        }
+    }
+
+    pub fn color(self) -> (u8, u8, u8) {
+        match self {
+            Self::Common => (255, 255, 255),
+            Self::Uncommon => (30, 200, 30),
+            Self::Rare => (60, 120, 255),
+            Self::Epic => (180, 60, 255),
+        }
+    }
+
+    /// Stat bonus range (min%, max%) for this rarity.
+    pub fn stat_range(self) -> (f32, f32) {
+        match self {
+            Self::Common => (0.05, 0.10),
+            Self::Uncommon => (0.10, 0.20),
+            Self::Rare => (0.20, 0.35),
+            Self::Epic => (0.35, 0.50),
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Common => "Common",
+            Self::Uncommon => "Uncommon",
+            Self::Rare => "Rare",
+            Self::Epic => "Epic",
+        }
+    }
+}
+
+/// Rarity roll weights (out of 100).
+const RARITY_WEIGHTS: [(Rarity, u32); 4] = [
+    (Rarity::Common, 60),
+    (Rarity::Uncommon, 25),
+    (Rarity::Rare, 12),
+    (Rarity::Epic, 3),
+];
+
+/// A concrete equipment item with stats.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct LootItem {
+    pub id: u64,
+    pub slot: EquipmentSlot,
+    pub rarity: Rarity,
+    /// Fractional stat bonus (e.g. 0.15 = +15% damage or HP).
+    pub stat_bonus: f32,
+    /// Atlas sprite (col, row).
+    pub sprite: (f32, f32),
+    pub name: String,
+}
+
+/// Weapon sprite options for loot items (atlas col, row).
+const WEAPON_SPRITES: &[(f32, f32)] = &[
+    (45.0, 6.0),  // sword
+    (46.0, 6.0),  // axe
+    (47.0, 6.0),  // spear
+    (44.0, 6.0),  // mace
+];
+
+/// Armor sprite options for loot items (atlas col, row).
+const ARMOR_SPRITES: &[(f32, f32)] = &[
+    (40.0, 0.0), // chainmail
+    (41.0, 0.0), // plate
+    (42.0, 0.0), // leather
+];
+
+/// Weapon name parts for random name generation.
+const WEAPON_PREFIXES: &[&str] = &["Iron", "Steel", "Bronze", "Silver", "Dark"];
+const WEAPON_NAMES: &[&str] = &["Sword", "Axe", "Spear", "Mace", "Blade"];
+const ARMOR_PREFIXES: &[&str] = &["Iron", "Steel", "Bronze", "Silver", "Dark"];
+const ARMOR_NAMES: &[&str] = &["Chainmail", "Plate", "Leather", "Brigandine", "Cuirass"];
+
+/// Roll a random loot item using deterministic seed.
+pub fn roll_loot_item(id: u64, seed: u32) -> LootItem {
+    // Rarity roll
+    let rarity_roll = seed % 100;
+    let mut cumulative = 0u32;
+    let mut rarity = Rarity::Common;
+    for &(r, weight) in &RARITY_WEIGHTS {
+        cumulative += weight;
+        if rarity_roll < cumulative {
+            rarity = r;
+            break;
+        }
+    }
+
+    // Slot roll (50/50 weapon/armor)
+    let slot_seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
+    let slot = if slot_seed % 2 == 0 {
+        EquipmentSlot::Weapon
+    } else {
+        EquipmentSlot::Armor
+    };
+
+    // Stat bonus within rarity range
+    let stat_seed = slot_seed.wrapping_mul(1103515245).wrapping_add(12345);
+    let (min_stat, max_stat) = rarity.stat_range();
+    let t = (stat_seed % 1000) as f32 / 1000.0;
+    let stat_bonus = min_stat + t * (max_stat - min_stat);
+
+    // Sprite from curated list
+    let sprite_seed = stat_seed.wrapping_mul(1103515245).wrapping_add(12345);
+    let sprite = match slot {
+        EquipmentSlot::Weapon => {
+            WEAPON_SPRITES[sprite_seed as usize % WEAPON_SPRITES.len()]
+        }
+        EquipmentSlot::Armor => {
+            ARMOR_SPRITES[sprite_seed as usize % ARMOR_SPRITES.len()]
+        }
+    };
+
+    // Name
+    let name_seed = sprite_seed.wrapping_mul(1103515245).wrapping_add(12345);
+    let name = match slot {
+        EquipmentSlot::Weapon => {
+            let prefix = WEAPON_PREFIXES[name_seed as usize % WEAPON_PREFIXES.len()];
+            let base = WEAPON_NAMES[(name_seed >> 8) as usize % WEAPON_NAMES.len()];
+            format!("{} {}", prefix, base)
+        }
+        EquipmentSlot::Armor => {
+            let prefix = ARMOR_PREFIXES[name_seed as usize % ARMOR_PREFIXES.len()];
+            let base = ARMOR_NAMES[(name_seed >> 8) as usize % ARMOR_NAMES.len()];
+            format!("{} {}", prefix, base)
+        }
+    };
+
+    LootItem {
+        id,
+        slot,
+        rarity,
+        stat_bonus,
+        sprite,
+        name,
+    }
+}
+
+/// Maximum equipment items an NPC carries before returning home.
+pub const LOOT_CARRY_THRESHOLD: usize = 3;
+
 /// Complete NPC type definition — one entry per Job variant.
 #[derive(Clone, Copy, Debug)]
 pub struct NpcDef {
@@ -683,6 +851,10 @@ pub struct NpcDef {
     pub upgrade_stats: &'static [UpgradeStatDef],
     /// Possible loot drops when killed — one is picked deterministically per death.
     pub loot_drop: &'static [LootDrop],
+    /// Chance (0.0–1.0) this NPC type drops equipment when killed.
+    pub equipment_drop_rate: f32,
+    /// Which equipment slots this NPC type can equip (military: Weapon+Armor, others: none).
+    pub equip_slots: &'static [EquipmentSlot],
 }
 
 pub const NPC_REGISTRY: &[NpcDef] = &[
@@ -717,6 +889,8 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
             min: 1,
             max: 2,
         }],
+        equipment_drop_rate: 0.0,
+        equip_slots: &[],
     },
     NpcDef {
         job: Job::Archer,
@@ -756,6 +930,8 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
                 max: 1,
             },
         ],
+        equipment_drop_rate: 0.0,
+        equip_slots: &[EquipmentSlot::Weapon, EquipmentSlot::Armor],
     },
     NpcDef {
         job: Job::Raider,
@@ -795,6 +971,8 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
                 max: 1,
             },
         ],
+        equipment_drop_rate: 0.30,
+        equip_slots: &[EquipmentSlot::Weapon, EquipmentSlot::Armor],
     },
     NpcDef {
         job: Job::Fighter,
@@ -834,6 +1012,8 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
                 max: 1,
             },
         ],
+        equipment_drop_rate: 0.0,
+        equip_slots: &[EquipmentSlot::Weapon, EquipmentSlot::Armor],
     },
     NpcDef {
         job: Job::Miner,
@@ -866,6 +1046,8 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
             min: 1,
             max: 2,
         }],
+        equipment_drop_rate: 0.0,
+        equip_slots: &[],
     },
     NpcDef {
         job: Job::Crossbow,
@@ -910,6 +1092,8 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
                 max: 1,
             },
         ],
+        equipment_drop_rate: 0.0,
+        equip_slots: &[EquipmentSlot::Weapon, EquipmentSlot::Armor],
     },
     NpcDef {
         job: Job::Boat,
@@ -942,6 +1126,8 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
             min: 1,
             max: 3,
         }],
+        equipment_drop_rate: 0.0,
+        equip_slots: &[],
     },
 ];
 
