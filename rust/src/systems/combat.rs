@@ -788,4 +788,69 @@ mod tests {
         assert!(debug.sample_timer > 0.0 && debug.sample_timer <= 3.0,
                 "sample_timer should reflect timer value: {}", debug.sample_timer);
     }
+
+    // -- sync_building_hp_render ---------------------------------------------
+
+    fn setup_hp_render_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(crate::gpu::EntityGpuState::default());
+        app.insert_resource(crate::resources::BuildingHpRender::default());
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.add_systems(FixedUpdate, sync_building_hp_render);
+        app.update();
+        app.update();
+        app
+    }
+
+    #[test]
+    fn hp_render_shows_damaged_building() {
+        let mut app = setup_hp_render_app();
+        // Spawn a building at slot 0 with 50% HP
+        // Fountain has hp=500 (from building_def)
+        app.world_mut().spawn((
+            Building { kind: crate::world::BuildingKind::Fountain },
+            GpuSlot(0),
+            crate::components::Health(250.0),
+        ));
+        // Fill GPU positions
+        app.world_mut().resource_mut::<crate::gpu::EntityGpuState>().positions = vec![100.0, 200.0];
+        app.update();
+        let render = app.world().resource::<crate::resources::BuildingHpRender>();
+        assert_eq!(render.positions.len(), 1, "should have 1 damaged building");
+        assert!((render.positions[0].x - 100.0).abs() < 0.1);
+        assert!(render.health_pcts[0] > 0.0 && render.health_pcts[0] < 1.0,
+                "health pct should be between 0 and 1: {}", render.health_pcts[0]);
+    }
+
+    #[test]
+    fn hp_render_skips_full_hp_building() {
+        let mut app = setup_hp_render_app();
+        let max_hp = crate::constants::building_def(crate::world::BuildingKind::Fountain).hp;
+        app.world_mut().spawn((
+            Building { kind: crate::world::BuildingKind::Fountain },
+            GpuSlot(0),
+            crate::components::Health(max_hp),
+        ));
+        app.world_mut().resource_mut::<crate::gpu::EntityGpuState>().positions = vec![100.0, 200.0];
+        app.update();
+        let render = app.world().resource::<crate::resources::BuildingHpRender>();
+        assert!(render.positions.is_empty(), "full HP building should not appear in render");
+    }
+
+    #[test]
+    fn hp_render_skips_dead_building() {
+        let mut app = setup_hp_render_app();
+        app.world_mut().spawn((
+            Building { kind: crate::world::BuildingKind::Fountain },
+            GpuSlot(0),
+            crate::components::Health(0.0),
+        ));
+        app.world_mut().resource_mut::<crate::gpu::EntityGpuState>().positions = vec![100.0, 200.0];
+        app.update();
+        let render = app.world().resource::<crate::resources::BuildingHpRender>();
+        assert!(render.positions.is_empty(), "dead building (hp=0) should not appear in render");
+    }
 }

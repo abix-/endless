@@ -1535,4 +1535,111 @@ mod tests {
         let hp = app.world().get::<Health>(entity).unwrap().0;
         assert!((hp - 125.0).abs() < 0.01, "building should take 75 damage from 200: {hp}");
     }
+
+    // -- update_healing_zone_cache -------------------------------------------
+
+    #[derive(Resource, Default)]
+    struct SendHealingDirty(bool);
+
+    fn send_healing_dirty(
+        mut writer: MessageWriter<crate::messages::HealingZonesDirtyMsg>,
+        mut flag: ResMut<SendHealingDirty>,
+    ) {
+        if flag.0 {
+            writer.write(crate::messages::HealingZonesDirtyMsg);
+            flag.0 = false;
+        }
+    }
+
+    fn setup_healing_cache_app() -> App {
+        use crate::world::{Town, WorldData};
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(crate::resources::HealingZoneCache::default());
+        app.insert_resource(WorldData {
+            towns: vec![Town {
+                name: "TestTown".to_string(),
+                center: Vec2::new(500.0, 500.0),
+                faction: 0,
+                sprite_type: 0,
+            }],
+        });
+        app.insert_resource(CombatConfig::default());
+        app.insert_resource(TownUpgrades::default());
+        app.insert_resource(SendHealingDirty(false));
+        app.add_message::<crate::messages::HealingZonesDirtyMsg>();
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.add_systems(
+            FixedUpdate,
+            (send_healing_dirty, update_healing_zone_cache).chain(),
+        );
+        app.update();
+        app.update();
+        app
+    }
+
+    #[test]
+    fn healing_cache_empty_without_dirty() {
+        let mut app = setup_healing_cache_app();
+        app.update();
+        let cache = app.world().resource::<crate::resources::HealingZoneCache>();
+        assert!(cache.by_faction.is_empty(), "cache should stay empty without dirty msg");
+    }
+
+    #[test]
+    fn healing_cache_rebuilds_on_dirty() {
+        let mut app = setup_healing_cache_app();
+        app.insert_resource(SendHealingDirty(true));
+        app.update();
+        let cache = app.world().resource::<crate::resources::HealingZoneCache>();
+        assert!(!cache.by_faction.is_empty(), "cache should have factions after dirty");
+        assert!(!cache.by_faction[0].is_empty(), "faction 0 should have a healing zone");
+        let zone = &cache.by_faction[0][0];
+        assert!((zone.center.x - 500.0).abs() < 0.1, "zone center should match town center");
+        assert!(zone.heal_rate > 0.0, "heal_rate should be positive");
+        assert!(zone.enter_radius_sq > 0.0, "enter_radius_sq should be positive");
+    }
+
+    #[test]
+    fn healing_cache_skips_negative_faction() {
+        use crate::world::{Town, WorldData};
+        let mut app = setup_healing_cache_app();
+        // Replace towns with one negative faction
+        app.insert_resource(WorldData {
+            towns: vec![Town {
+                name: "Abandoned".to_string(),
+                center: Vec2::ZERO,
+                faction: -1,
+                sprite_type: 0,
+            }],
+        });
+        app.insert_resource(SendHealingDirty(true));
+        app.update();
+        let cache = app.world().resource::<crate::resources::HealingZoneCache>();
+        // With faction -1, max_faction < 0 so no factions
+        assert!(
+            cache.by_faction.is_empty() || cache.by_faction.iter().all(|v| v.is_empty()),
+            "negative faction towns should not produce healing zones"
+        );
+    }
+
+    #[test]
+    fn healing_cache_multiple_towns() {
+        use crate::world::{Town, WorldData};
+        let mut app = setup_healing_cache_app();
+        app.insert_resource(WorldData {
+            towns: vec![
+                Town { name: "A".to_string(), center: Vec2::new(100.0, 100.0), faction: 0, sprite_type: 0 },
+                Town { name: "B".to_string(), center: Vec2::new(900.0, 900.0), faction: 1, sprite_type: 1 },
+            ],
+        });
+        app.insert_resource(SendHealingDirty(true));
+        app.update();
+        let cache = app.world().resource::<crate::resources::HealingZoneCache>();
+        assert!(cache.by_faction.len() >= 2, "should have at least 2 faction entries");
+        assert!(!cache.by_faction[0].is_empty(), "faction 0 should have a zone");
+        assert!(!cache.by_faction[1].is_empty(), "faction 1 should have a zone");
+    }
 }
