@@ -1923,4 +1923,77 @@ mod tests {
         assert!(inv.stocks.is_empty() || inv.stocks[0].items.is_empty(),
                 "paused: merchant should not tick");
     }
+
+    // -- farm_visual_system --------------------------------------------------
+
+    fn setup_farm_visual_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(EntityMap::default());
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.add_systems(FixedUpdate, farm_visual_system);
+        app.update();
+        app.update();
+        app
+    }
+
+    fn add_farm_visual(app: &mut App, slot: usize, growth_ready: bool) {
+        let mut inst = test_building_instance(slot, BuildingKind::Farm, 0.0);
+        inst.growth_ready = growth_ready;
+        app.world_mut().resource_mut::<EntityMap>().add_instance(inst);
+    }
+
+    fn count_farm_markers(app: &mut App) -> usize {
+        app.world_mut()
+            .query::<&crate::components::FarmReadyMarker>()
+            .iter(app.world())
+            .count()
+    }
+
+    #[test]
+    fn farm_visual_spawns_marker_when_ready() {
+        let mut app = setup_farm_visual_app();
+        add_farm_visual(&mut app, 5000, true);
+        // Run 4 updates to hit the frame_count % 4 == 0 cadence
+        for _ in 0..4 {
+            app.update();
+        }
+        let count = count_farm_markers(&mut app);
+        assert!(count > 0, "should spawn FarmReadyMarker when growth_ready=true");
+    }
+
+    #[test]
+    fn farm_visual_no_marker_when_not_ready() {
+        let mut app = setup_farm_visual_app();
+        add_farm_visual(&mut app, 5000, false);
+        for _ in 0..4 {
+            app.update();
+        }
+        let count = count_farm_markers(&mut app);
+        assert_eq!(count, 0, "should not spawn marker when growth_ready=false");
+    }
+
+    #[test]
+    fn farm_visual_despawns_marker_when_no_longer_ready() {
+        let mut app = setup_farm_visual_app();
+        add_farm_visual(&mut app, 5000, true);
+        // Spawn the marker
+        for _ in 0..4 {
+            app.update();
+        }
+        assert!(count_farm_markers(&mut app) > 0, "precondition: marker exists");
+        // Set growth_ready to false
+        app.world_mut()
+            .resource_mut::<EntityMap>()
+            .get_instance_mut(5000)
+            .unwrap()
+            .growth_ready = false;
+        for _ in 0..4 {
+            app.update();
+        }
+        let count = count_farm_markers(&mut app);
+        assert_eq!(count, 0, "marker should be despawned when growth_ready becomes false");
+    }
 }

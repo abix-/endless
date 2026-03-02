@@ -1212,6 +1212,7 @@ pub fn auto_tower_upgrade_system(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::time::TimeUpdateStrategy;
     use crate::components::{BaseAttackType, Job, Personality, TraitKind, TraitInstance};
 
     // -- level_from_xp -------------------------------------------------------
@@ -1544,5 +1545,211 @@ mod tests {
         let levels = vec![0u8; upgrade_count()];
         let mult = UPGRADES.stat_mult(&levels, "Military (Ranged)", UpgradeStatKind::Attack);
         assert!((mult - 1.0).abs() < 0.001, "zero upgrade should give 1.0x mult, got {mult}");
+    }
+
+    // -- auto_upgrade_system -------------------------------------------------
+
+    #[derive(Resource, Default)]
+    struct CollectedUpgrades(Vec<(usize, usize)>); // (town_idx, upgrade_idx)
+
+    fn collect_upgrades(
+        mut reader: MessageReader<UpgradeMsg>,
+        mut collected: ResMut<CollectedUpgrades>,
+    ) {
+        for msg in reader.read() {
+            collected.0.push((msg.town_idx, msg.upgrade_idx));
+        }
+    }
+
+    fn setup_auto_upgrade_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(crate::resources::GameTime::default());
+        app.insert_resource(TownUpgrades::default());
+        app.insert_resource(crate::resources::AutoUpgrade::default());
+        app.insert_resource(crate::resources::FoodStorage { food: vec![0] });
+        app.insert_resource(crate::resources::GoldStorage { gold: vec![0] });
+        app.insert_resource(CollectedUpgrades::default());
+        app.add_message::<UpgradeMsg>();
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.add_systems(FixedUpdate, (auto_upgrade_system, collect_upgrades).chain());
+        app.update();
+        app.update();
+        app
+    }
+
+    #[test]
+    fn auto_upgrade_skips_without_hour_tick() {
+        let mut app = setup_auto_upgrade_app();
+        // Enable auto for upgrade 0 but don't tick hour
+        {
+            let mut auto = app.world_mut().resource_mut::<crate::resources::AutoUpgrade>();
+            auto.ensure_towns(1);
+            auto.flags[0][0] = true;
+        }
+        // Give plenty of resources
+        app.world_mut().resource_mut::<crate::resources::FoodStorage>().food = vec![999999];
+        app.world_mut().resource_mut::<crate::resources::GoldStorage>().gold = vec![999999];
+        app.update();
+        let collected = app.world().resource::<CollectedUpgrades>();
+        assert!(collected.0.is_empty(), "no upgrades should fire without hour_ticked");
+    }
+
+    #[test]
+    fn auto_upgrade_fires_on_hour_tick() {
+        let mut app = setup_auto_upgrade_app();
+        {
+            let mut auto = app.world_mut().resource_mut::<crate::resources::AutoUpgrade>();
+            auto.ensure_towns(1);
+            auto.flags[0][0] = true;
+        }
+        app.world_mut().resource_mut::<crate::resources::FoodStorage>().food = vec![999999];
+        app.world_mut().resource_mut::<crate::resources::GoldStorage>().gold = vec![999999];
+        app.world_mut().resource_mut::<crate::resources::GameTime>().hour_ticked = true;
+        app.update();
+        let collected = app.world().resource::<CollectedUpgrades>();
+        assert!(!collected.0.is_empty(), "should fire at least one upgrade on hour tick with resources and auto enabled");
+        assert_eq!(collected.0[0].0, 0, "town_idx should be 0");
+        assert_eq!(collected.0[0].1, 0, "upgrade_idx should be 0");
+    }
+
+    #[test]
+    fn auto_upgrade_skips_disabled_flags() {
+        let mut app = setup_auto_upgrade_app();
+        // All flags default to false
+        app.world_mut().resource_mut::<crate::resources::FoodStorage>().food = vec![999999];
+        app.world_mut().resource_mut::<crate::resources::GoldStorage>().gold = vec![999999];
+        app.world_mut().resource_mut::<crate::resources::GameTime>().hour_ticked = true;
+        app.update();
+        let collected = app.world().resource::<CollectedUpgrades>();
+        assert!(collected.0.is_empty(), "no upgrades should fire when all flags are false");
+    }
+
+    #[test]
+    fn auto_upgrade_skips_unaffordable() {
+        let mut app = setup_auto_upgrade_app();
+        {
+            let mut auto = app.world_mut().resource_mut::<crate::resources::AutoUpgrade>();
+            auto.ensure_towns(1);
+            auto.flags[0][0] = true;
+        }
+        // Zero resources — can't afford anything
+        app.world_mut().resource_mut::<crate::resources::GameTime>().hour_ticked = true;
+        app.update();
+        let collected = app.world().resource::<CollectedUpgrades>();
+        assert!(collected.0.is_empty(), "no upgrades should fire with zero resources");
+    }
+
+    // -- auto_tower_upgrade_system -------------------------------------------
+
+    fn setup_auto_tower_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(crate::resources::GameTime::default());
+        app.insert_resource(crate::resources::EntityMap::default());
+        app.insert_resource(crate::resources::FoodStorage { food: vec![100] });
+        app.insert_resource(crate::resources::GoldStorage { gold: vec![100] });
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.add_systems(FixedUpdate, auto_tower_upgrade_system);
+        app.update();
+        app.update();
+        app
+    }
+
+    fn add_tower(app: &mut App, slot: usize, auto_flags: Vec<bool>) {
+        use crate::resources::BuildingInstance;
+        use crate::world::BuildingKind;
+        let inst = BuildingInstance {
+            kind: BuildingKind::Tower,
+            position: bevy::math::Vec2::ZERO,
+            town_idx: 0,
+            slot,
+            faction: 0,
+            patrol_order: 0,
+            assigned_mine: None,
+            manual_mine: false,
+            wall_level: 0,
+            npc_uid: None,
+            respawn_timer: -1.0,
+            growth_ready: false,
+            growth_progress: 0.0,
+            occupants: 0,
+            under_construction: 0.0,
+            kills: 0,
+            xp: 0,
+            upgrade_levels: vec![0; auto_flags.len()],
+            auto_upgrade_flags: auto_flags,
+        };
+        app.world_mut()
+            .resource_mut::<crate::resources::EntityMap>()
+            .add_instance(inst);
+    }
+
+    #[test]
+    fn auto_tower_upgrade_skips_without_hour_tick() {
+        let mut app = setup_auto_tower_app();
+        let num_tower_upgrades = crate::constants::TOWER_UPGRADES.len();
+        add_tower(&mut app, 5000, vec![true; num_tower_upgrades]);
+        app.update();
+        let em = app.world().resource::<crate::resources::EntityMap>();
+        let inst = em.get_instance(5000).unwrap();
+        assert!(
+            inst.upgrade_levels.iter().all(|&l| l == 0),
+            "no upgrades should apply without hour_ticked"
+        );
+    }
+
+    #[test]
+    fn auto_tower_upgrade_buys_cheapest_on_hour_tick() {
+        let mut app = setup_auto_tower_app();
+        let num_tower_upgrades = crate::constants::TOWER_UPGRADES.len();
+        add_tower(&mut app, 5000, vec![true; num_tower_upgrades]);
+        app.world_mut()
+            .resource_mut::<crate::resources::GameTime>()
+            .hour_ticked = true;
+        app.update();
+        let em = app.world().resource::<crate::resources::EntityMap>();
+        let inst = em.get_instance(5000).unwrap();
+        let total_upgrades: u8 = inst.upgrade_levels.iter().sum();
+        assert!(
+            total_upgrades > 0,
+            "should buy at least one tower upgrade on hour tick"
+        );
+    }
+
+    #[test]
+    fn auto_tower_upgrade_deducts_resources() {
+        let mut app = setup_auto_tower_app();
+        let num_tower_upgrades = crate::constants::TOWER_UPGRADES.len();
+        add_tower(&mut app, 5000, vec![true; num_tower_upgrades]);
+        app.world_mut()
+            .resource_mut::<crate::resources::GameTime>()
+            .hour_ticked = true;
+        app.update();
+        let food = app.world().resource::<crate::resources::FoodStorage>().food[0];
+        let gold = app.world().resource::<crate::resources::GoldStorage>().gold[0];
+        assert!(
+            food < 100 || gold < 100,
+            "resources should be deducted after purchase, food={food} gold={gold}"
+        );
+    }
+
+    #[test]
+    fn auto_tower_upgrade_skips_disabled_flags() {
+        let mut app = setup_auto_tower_app();
+        let num_tower_upgrades = crate::constants::TOWER_UPGRADES.len();
+        add_tower(&mut app, 5000, vec![false; num_tower_upgrades]);
+        app.world_mut()
+            .resource_mut::<crate::resources::GameTime>()
+            .hour_ticked = true;
+        app.update();
+        let em = app.world().resource::<crate::resources::EntityMap>();
+        let inst = em.get_instance(5000).unwrap();
+        let total_upgrades: u8 = inst.upgrade_levels.iter().sum();
+        assert_eq!(total_upgrades, 0, "should not upgrade when all flags are false");
     }
 }
