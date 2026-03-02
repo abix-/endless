@@ -583,17 +583,36 @@ pub fn register_ui(app: &mut App) {
         (ui_toggle_system, game_escape_system).run_if(in_state(AppState::Playing)),
     );
 
-    // Escape + settings + inspector in test scenes
+    // Escape + settings + keyboard toggles in test scenes
     app.add_systems(
         Update,
-        game_escape_system.run_if(in_state(AppState::Running)),
+        (game_escape_system, ui_toggle_system).run_if(in_state(AppState::Running)),
     );
+    // Test scene UI: bottom panel + overlays + build menu + pause
+    // (top_bar, left_panel, combat_log already registered in tests/mod.rs)
     app.add_systems(
         EguiPrimaryContextPass,
         (
             game_hud::bottom_panel_system,
             game_hud::target_overlay_system,
+            game_hud::squad_overlay_system,
+            game_hud::faction_squad_overlay_system,
+            build_menu::build_menu_system,
+            blackjack::blackjack_window_system,
             pause_menu_system,
+            game_hud::save_toast_system,
+        )
+            .run_if(in_state(AppState::Running)),
+    );
+    // Building placement + ghost preview in test scenes
+    app.add_systems(
+        Update,
+        (
+            build_place_click_system,
+            slot_right_click_system,
+            build_ghost_system,
+            draw_slot_indicators,
+            process_destroy_system,
         )
             .run_if(in_state(AppState::Running)),
     );
