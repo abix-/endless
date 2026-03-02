@@ -37,10 +37,10 @@ use resources::{
     DebugFlags, Difficulty, EndlessMode, EntityMap, FactionStats, FollowSelected, FoodStorage,
     GameAudio, GameConfig, GameTime, GoldStorage, GpuReadState, GpuSlotPool, HealingZoneCache,
     HealthDebug, HelpCatalog, KillStats, MigrationState, MiningPolicy, MovementIntents,
-    NextEntityUid, NpcLogCache, NpcMetaCache, NpcTargetThrashDebug, NpcsByTownCache, PlaySfxMsg,
+    NextEntityUid, NextLootItemId, NpcLogCache, NpcMetaCache, NpcTargetThrashDebug, NpcsByTownCache, PlaySfxMsg,
     PopulationStats, ProjHitState, ProjPositionState, ProjSlotAllocator, RaiderState,
     SelectedBuilding, SelectedNpc, SquadState, SystemTimings, TowerState, TownPolicies,
-    TutorialState, UiState,
+    TownInventory, TutorialState, UiState,
 };
 use systems::*;
 use systems::{AiPlayerConfig, AiPlayerState};
@@ -260,6 +260,8 @@ pub fn build_app(app: &mut App) {
         .init_resource::<save::SaveLoadRequest>()
         .init_resource::<save::SaveToast>()
         .init_resource::<GameAudio>()
+        .init_resource::<NextLootItemId>()
+        .init_resource::<TownInventory>()
         .add_message::<PlaySfxMsg>()
         .insert_resource(settings::load_settings())
         // Plugins
