@@ -601,12 +601,6 @@ pub const FACTION_NEUTRAL: i32 = -1;
 
 // Spatial grid lives on GPU only — see gpu.rs (256×256 cells × 128px = 32,768px coverage).
 
-/// Minimum distance NPCs try to maintain from each other.
-pub const SEPARATION_RADIUS: f32 = 40.0;
-
-/// How strongly NPCs push away from neighbors.
-pub const SEPARATION_STRENGTH: f32 = 100.0;
-
 /// Distance from target at which an NPC is considered "arrived".
 pub const ARRIVAL_THRESHOLD: f32 = 40.0;
 
@@ -1200,9 +1194,6 @@ pub fn raider_faction_color(faction: i32) -> (f32, f32, f32, f32) {
 /// Energy threshold below which NPCs go rest.
 pub const ENERGY_HUNGRY: f32 = 50.0;
 
-/// Energy threshold above which NPCs resume activity.
-pub const ENERGY_RESTED: f32 = 80.0;
-
 /// Ticks an archer waits at a post before moving to next.
 pub const ARCHER_PATROL_WAIT: u32 = 60;
 
@@ -1218,9 +1209,6 @@ pub const ENERGY_EAT_THRESHOLD: f32 = 10.0;
 // ============================================================================
 // UTILITY AI ACTION SCORES
 // ============================================================================
-
-/// Base score for fighting when in combat.
-pub const SCORE_FIGHT_BASE: f32 = 50.0;
 
 /// Base score for working (doing job).
 pub const SCORE_WORK_BASE: f32 = 40.0;

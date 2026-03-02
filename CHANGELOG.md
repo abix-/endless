@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-03-02n
+
+- **casino building + blackjack popup** — new `BuildingKind::Casino` (1 per town, 80 gold, Economy category). Blackjack minigame moved from left panel tab to standalone popup window (`UiState.casino_open`). Open via double-click on Casino building, inspector "Open Casino" button, or keybind. Full-window card rendering with visual card layout.
+- **perf: dc_slots() helper** — `game_hud.rs` replaced 3× `iter_npcs()` O(n) scans for direct-control NPCs with `dc_slots()` helper that iterates selected squad members O(squad_size). Squad size typically <100 vs 50K NPCs.
+- **perf: death_system single scan** — `health.rs` Phase 1a marks newly dead NPCs and collects their slots; Phase 2b reuses that vec instead of re-scanning all NPCs. Eliminates redundant O(n) `iter_npcs()` call.
+- **sandbox test** — human player sandbox scene: 1 player + 1 AI builder town, 100K food+gold, no raiders. Auto-completes for free play.
+- **performance.md updates** — added SLO targets table, Current Tunings reference table, Known Exceptions table (4 tracked violations with exit criteria), slot invariant documentation, scoped rule claims. behavior.md and economy.md now reference performance.md for bucketing/cadence formulas instead of duplicating them.
+
 ## 2026-03-02l
 
 - **performance doc consolidation** — `performance-review.md` → `performance.md`, now single authority for all perf patterns. Added: core principles table, GPU perf patterns (readback minimization, dirty-index uploads, coalescing, instanced rendering), CPU cadencing patterns (bucket-gated decisions, candidate-driven healing, fixed-cadence systems, event-driven systems), debug overhead rules with O(n²) example. Slimmed `concepts.md` — removed GPU Readback Avoidance, Debug Mode Overhead, Staggered Processing, LOD Intervals sections (all moved to performance.md), trimmed summary table perf rows.
