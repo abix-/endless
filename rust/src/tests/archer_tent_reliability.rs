@@ -10,9 +10,9 @@ use crate::world::{self, BuildingKind, WorldCell};
 
 use super::TestState;
 
-const TENT_POS: Vec2 = Vec2::new(560.0, 300.0);
-const ARCHER_HOME_A: Vec2 = Vec2::new(400.0, 300.0);
-const ARCHER_HOME_B: Vec2 = Vec2::new(432.0, 300.0);
+const TENT_POS: Vec2 = Vec2::new(576.0, 320.0);
+const ARCHER_HOME_A: Vec2 = Vec2::new(384.0, 320.0);
+const ARCHER_HOME_B: Vec2 = Vec2::new(448.0, 320.0);
 
 pub fn setup(
     mut slot_alloc: ResMut<GpuSlotPool>,
@@ -36,13 +36,13 @@ pub fn setup(
 
     world_data.towns.push(world::Town {
         name: "Archers".into(),
-        center: Vec2::new(400.0, 300.0),
+        center: Vec2::new(384.0, 320.0),
         faction: 0,
         sprite_type: 0,
     });
     world_data.towns.push(world::Town {
         name: "TentTown".into(),
-        center: Vec2::new(500.0, 300.0),
+        center: Vec2::new(576.0, 320.0),
         faction: 1,
         sprite_type: 1,
     });
@@ -70,8 +70,8 @@ pub fn setup(
         .insert("tent_slot".into(), tent_slot as u32);
 
     if let Ok(mut cam) = camera_query.single_mut() {
-        cam.translation.x = 490.0;
-        cam.translation.y = 300.0;
+        cam.translation.x = 512.0;
+        cam.translation.y = 320.0;
     }
 
     test_state.phase_name = "Waiting for tent target lock...".into();

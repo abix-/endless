@@ -9,8 +9,8 @@ use crate::world;
 
 use super::TestState;
 
-const ENEMY_START_X: f32 = 540.0;
-const ENEMY_START_Y: f32 = 400.0;
+const ENEMY_START_X: f32 = 512.0;
+const ENEMY_START_Y: f32 = 384.0;
 const MISMATCH_EPSILON: f32 = 8.0;
 
 pub fn setup(
@@ -29,7 +29,7 @@ pub fn setup(
     // One town with a fountain tower.
     world_data.towns.push(world::Town {
         name: "FountainTown".into(),
-        center: Vec2::new(400.0, 400.0),
+        center: Vec2::new(384.0, 384.0),
         faction: 0,
         sprite_type: 0,
     });
@@ -39,7 +39,7 @@ pub fn setup(
     // Create fountain instance directly
     let _ = world::place_building(
         &mut slot_alloc, &mut entity_map, &mut uid_alloc, &mut commands, &mut gpu_updates,
-        world::BuildingKind::Fountain, Vec2::new(400.0, 400.0), 0, 0, 0, 0,
+        world::BuildingKind::Fountain, Vec2::new(384.0, 384.0), 0, 0, 0, 0,
         None, None, None, None,
     );
 
@@ -62,8 +62,8 @@ pub fn setup(
     });
 
     if let Ok(mut cam) = camera_query.single_mut() {
-        cam.translation.x = 400.0;
-        cam.translation.y = 400.0;
+        cam.translation.x = 384.0;
+        cam.translation.y = 384.0;
     }
     test_state.phase_name = "Waiting for first tower projectile...".into();
     test_state

@@ -34,7 +34,7 @@ pub fn setup(
     params.add_town("LootTown");
     params.world_data.towns.push(crate::world::Town {
         name: "RaiderCamp".into(),
-        center: Vec2::new(400.0, 100.0),
+        center: Vec2::new(384.0, 128.0),
         faction: 1,
         sprite_type: 1,
     });
@@ -49,20 +49,17 @@ pub fn setup(
     town_inventory.init(2);
     next_loot_id.next = 1;
 
-    // Add a bed so the archer has a home to return to
-    params.add_bed(400.0, 400.0);
-
     // Spawn 1 strong archer (faction 0) — will kill the raider
     let archer_slot = params.slot_alloc.alloc_reset().expect("slot alloc");
     params.spawn_events.write(crate::messages::SpawnNpcMsg {
         slot_idx: archer_slot,
-        x: 400.0,
-        y: 310.0,
+        x: 384.0,
+        y: 320.0,
         job: 1, // Archer
         faction: 0,
         town_idx: 0,
-        home_x: 400.0,
-        home_y: 400.0,
+        home_x: 384.0,
+        home_y: 384.0,
         work_x: -1.0,
         work_y: -1.0,
         starting_post: -1,
@@ -76,13 +73,13 @@ pub fn setup(
         let slot = params.slot_alloc.alloc_reset().expect("slot alloc");
         params.spawn_events.write(crate::messages::SpawnNpcMsg {
             slot_idx: slot,
-            x: 390.0 + (i as f32 * 5.0),
-            y: 290.0,
+            x: 384.0 + (i as f32 * 5.0),
+            y: 256.0,
             job: 2, // Raider
             faction: 1,
             town_idx: 1,
-            home_x: 400.0,
-            home_y: 100.0,
+            home_x: 384.0,
+            home_y: 128.0,
             work_x: -1.0,
             work_y: -1.0,
             starting_post: -1,
@@ -91,7 +88,7 @@ pub fn setup(
         });
     }
 
-    params.focus_camera(400.0, 350.0);
+    params.focus_camera(384.0, 320.0);
     params.test_state.phase_name = "Waiting for spawns...".into();
     info!("loot-cycle: setup — 1 archer vs 5 raiders, testing equipment drop + carry + deposit + equip");
 }

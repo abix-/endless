@@ -10,14 +10,13 @@ use super::{TestSetupParams, TestState};
 
 pub fn setup(mut params: TestSetupParams) {
     params.add_town("HealVisTown");
-    params.add_bed(400.0, 410.0);
     params.init_economy(1);
     params.food_storage.food[0] = 10; // enough food to prevent starvation
     params.game_time.time_scale = 1.0;
-    params.focus_camera(400.0, 400.0);
+    params.focus_camera(384.0, 384.0);
 
     // Spawn farmer at town center (inside healing radius)
-    params.spawn_npc(0, 400.0, 400.0, 400.0, 410.0);
+    params.spawn_npc(0, 384.0, 384.0, 384.0, 384.0);
 
     params.test_state.phase_name = "Waiting for spawn...".into();
     info!("heal-visual: setup — 1 farmer at town center");
@@ -79,7 +78,7 @@ pub fn tick(
             test.phase_name = format!("hp={:.0} healing_idx={:?}", hp, healing_idx);
 
             if let Some(idx) = healing_idx {
-                let eq_base = idx * 24 + 20; // layer 5 = healing
+                let eq_base = idx * 28 + 20; // layer 5 = healing (7 layers × 4 floats = 28)
                 let col = upload.equip_data.get(eq_base).copied().unwrap_or(-1.0);
                 let atlas = upload.equip_data.get(eq_base + 2).copied().unwrap_or(0.0);
                 if col >= 0.0 && atlas == 2.0 {
@@ -116,7 +115,7 @@ pub fn tick(
                 if hp >= 90.0 {
                     let col = upload
                         .equip_data
-                        .get(idx * 24 + 20)
+                        .get(idx * 28 + 20)
                         .copied()
                         .unwrap_or(-1.0);
                     if col == -1.0 {
@@ -127,7 +126,7 @@ pub fn tick(
                             elapsed,
                             format!(
                                 "Healed but equip[{}]={:.1}, expected -1",
-                                idx * 24 + 20,
+                                idx * 28 + 20,
                                 col
                             ),
                         );

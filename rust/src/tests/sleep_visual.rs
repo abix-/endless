@@ -9,25 +9,25 @@ use bevy::prelude::*;
 
 pub fn setup(mut params: TestSetupParams) {
     params.add_town("SleepTown");
-    params.add_bed(380.0, 420.0);
-    params.add_building(crate::world::BuildingKind::Farm, 450.0, 400.0, 0);
+    params.add_building(crate::world::BuildingKind::FarmerHome, 384.0, 448.0, 0);
+    params.add_building(crate::world::BuildingKind::Farm, 448.0, 384.0, 0);
     params.init_economy(1);
     params.game_time.time_scale = 1.0;
-    params.focus_camera(400.0, 400.0);
+    params.focus_camera(384.0, 384.0);
 
-    // Spawn 1 farmer with work position at farm
+    // Spawn 1 farmer with work position at farm, home at FarmerHome
     let slot = params.slot_alloc.alloc_reset().expect("slot alloc");
     params.spawn_events.write(crate::messages::SpawnNpcMsg {
         slot_idx: slot,
-        x: 450.0,
-        y: 400.0,
+        x: 448.0,
+        y: 384.0,
         job: 0,
         faction: 0,
         town_idx: 0,
-        home_x: 380.0,
-        home_y: 420.0,
-        work_x: 450.0,
-        work_y: 400.0,
+        home_x: 384.0,
+        home_y: 448.0,
+        work_x: 448.0,
+        work_y: 384.0,
         starting_post: -1,
         attack_type: 0,
         uid_override: None,
@@ -100,7 +100,7 @@ pub fn tick(
             test.phase_name = format!("e={:.0} resting={}", energy, resting.is_some());
 
             if let Some(idx) = resting {
-                let eq_base = idx * 24 + 16; // layer 4 = status
+                let eq_base = idx * 28 + 16; // layer 4 = status
                 let col = upload.equip_data.get(eq_base).copied().unwrap_or(-1.0);
                 let atlas = upload.equip_data.get(eq_base + 2).copied().unwrap_or(0.0);
                 if col >= 0.0 && atlas >= 2.5 {
@@ -142,7 +142,7 @@ pub fn tick(
                 if energy >= 80.0 {
                     let col = upload
                         .equip_data
-                        .get(idx * 24 + 16)
+                        .get(idx * 28 + 16)
                         .copied()
                         .unwrap_or(-1.0);
                     if col == -1.0 {
@@ -154,7 +154,7 @@ pub fn tick(
                     } else {
                         test.fail_phase(
                             elapsed,
-                            format!("Awake but equip[{}]={:.1}, expected -1", idx * 24 + 16, col),
+                            format!("Awake but equip[{}]={:.1}, expected -1", idx * 28 + 16, col),
                         );
                     }
                 }

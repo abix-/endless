@@ -12,11 +12,11 @@ use crate::world::{self, WorldCell};
 
 use super::TestState;
 
-const FARM_WALL_X: f32 = 500.0;
-const FARM_WALL_Y: [f32; 10] = [
-    230.0, 250.0, 270.0, 290.0, 310.0, 330.0, 350.0, 370.0, 390.0, 410.0,
+const FARM_WALL_X: f32 = 512.0;
+const FARM_WALL_Y: [f32; 7] = [
+    192.0, 256.0, 320.0, 384.0, 448.0, 512.0, 576.0,
 ];
-const TARGET_X: f32 = 555.0;
+const TARGET_X: f32 = 576.0;
 const TARGET_Y: f32 = 320.0;
 
 pub fn setup(
@@ -41,13 +41,13 @@ pub fn setup(
 
     world_data.towns.push(world::Town {
         name: "Blue".into(),
-        center: Vec2::new(320.0, 320.0),
+        center: Vec2::new(384.0, 384.0),
         faction: 0,
         sprite_type: 0,
     });
     world_data.towns.push(world::Town {
         name: "Red".into(),
-        center: Vec2::new(780.0, 320.0),
+        center: Vec2::new(768.0, 320.0),
         faction: 1,
         sprite_type: 1,
     });
@@ -67,13 +67,13 @@ pub fn setup(
     let shooter = slot_alloc.alloc_reset().expect("slot alloc");
     spawn_events.write(SpawnNpcMsg {
         slot_idx: shooter,
-        x: 425.0,
+        x: 448.0,
         y: 320.0,
         job: 3, // fighter
         faction: 0,
         town_idx: 0,
-        home_x: 320.0,
-        home_y: 320.0,
+        home_x: 384.0,
+        home_y: 384.0,
         work_x: -1.0,
         work_y: -1.0,
         starting_post: -1,
@@ -90,7 +90,7 @@ pub fn setup(
         job: 0, // farmer (not dedicated ranged combat)
         faction: 1,
         town_idx: 1,
-        home_x: 780.0,
+        home_x: 768.0,
         home_y: 320.0,
         work_x: -1.0,
         work_y: -1.0,
@@ -101,14 +101,14 @@ pub fn setup(
 
     if let Ok(mut cam) = camera_query.single_mut() {
         // Center on the shooter/farm/target lane so test behavior is visible immediately.
-        cam.translation.x = 500.0;
+        cam.translation.x = 512.0;
         cam.translation.y = 320.0;
     }
 
     test_state.phase_name = "Waiting for shooter target lock...".into();
     test_state.set_flag("damage_seen", false);
     info!(
-        "friendly-fire-buildings: setup complete shooter->target lane through {}-farm vertical wall at x={:.0}",
+        "friendly-fire-buildings: setup complete shooter->target through {}-farm wall at x={:.0}",
         FARM_WALL_Y.len(),
         FARM_WALL_X
     );

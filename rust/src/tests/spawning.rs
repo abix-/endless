@@ -15,14 +15,14 @@ pub fn setup(mut params: TestSetupParams) {
     for i in 0..5 {
         params.spawn_npc(
             0,
-            300.0 + (i as f32 * 40.0),
-            400.0,
-            300.0 + (i as f32 * 40.0),
-            450.0,
+            192.0 + (i as f32 * 64.0),
+            384.0,
+            192.0 + (i as f32 * 64.0),
+            448.0,
         );
     }
 
-    params.focus_camera(400.0, 400.0);
+    params.focus_camera(384.0, 384.0);
     params.test_state.phase_name = "Waiting for 5 NPCs...".into();
     info!("spawning: setup — 5 farmers");
 }
@@ -102,13 +102,13 @@ pub fn tick(
                 test.counters.insert("new_slot".into(), new_slot as u32);
                 spawn_events.write(crate::messages::SpawnNpcMsg {
                     slot_idx: new_slot,
-                    x: 400.0,
-                    y: 400.0,
+                    x: 384.0,
+                    y: 384.0,
                     job: 0,
                     faction: 0,
                     town_idx: 0,
-                    home_x: 400.0,
-                    home_y: 450.0,
+                    home_x: 384.0,
+                    home_y: 448.0,
                     work_x: -1.0,
                     work_y: -1.0,
                     starting_post: -1,

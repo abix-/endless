@@ -14,10 +14,10 @@ use crate::resources::EntityMap;
 use super::{TestSetupParams, TestState};
 
 // Grid layout
-const GRID_X_START: f32 = 200.0;
-const GRID_Y_START: f32 = 480.0;
-const COL_SPACING: f32 = 80.0;
-const ROW_SPACING: f32 = 80.0;
+const GRID_X_START: f32 = 192.0;
+const GRID_Y_START: f32 = 448.0;
+const COL_SPACING: f32 = 64.0;
+const ROW_SPACING: f32 = 64.0;
 
 // Column indices
 const COL_BODY: usize = 0;
@@ -51,8 +51,7 @@ fn grid_pos(row: usize, col: usize) -> Vec2 {
 
 pub fn setup(mut params: TestSetupParams) {
     params.add_town("VisualTown");
-    params.add_bed(380.0, 420.0);
-    params.add_building(crate::world::BuildingKind::Farm, 450.0, 400.0, 0);
+    params.add_building(crate::world::BuildingKind::Farm, 448.0, 384.0, 0);
     params.init_economy(1);
     params.game_time.time_scale = 0.0;
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-03-02j
+
+- **fix ghost character sprites on buildings** — `build_visual_upload` sized buffers from `RenderFrameConfig.npc.count` (stale FixedUpdate copy) instead of live `GpuSlotPool.count()`. On frames where FixedUpdate hadn't ticked (especially startup/OnEnter), count was 0, truncating visual buffers and silently dropping dirty writes. Building slots never got visual_data populated, causing uninitialized data to render as character sprites on top of buildings. Fixed by reading live allocator count directly.
+- **fix 64px grid alignment in 20 test files** — all test building/NPC positions snapped to 64px-aligned coordinates, `slots.alive()` replaced with `entity_map.iter_npcs()` count, equip stride 24→28, obsolete Bed buildings removed, default town center 400→384.
+- **building inspector equip debug** — "Copy Debug Info" now dumps all 7 equip layers (col/row/atlas) for building slots, enabling diagnosis of stale equip buffer issues.
+- **authority doc: entity count rules** — added entity slot count, NPC count, and building count authority to `docs/authority.md` with hard rules #6 (main-world systems must read GpuSlotPool directly) and #7 (use EntityMap for type-specific counts).
+
 ## 2026-03-02i
 
 - **fix building overlap (64px grid)** — `EntityMap` grid cell lookups in `resources.rs` used hardcoded `/ 32.0` instead of `TOWN_GRID_SPACING` (now 64.0), causing `has_building_at()` to check wrong grid cells. AI would stack buildings at the same position. All 12 occurrences replaced with `TOWN_GRID_SPACING`.

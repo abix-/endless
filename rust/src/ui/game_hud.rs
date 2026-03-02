@@ -2678,6 +2678,17 @@ fn building_inspector_content(
                     vd[0], vd[1], vd[2], vd[3], vd[4], vd[5], vd[6], vd[7]
                 ));
             }
+            let ebase = slot * 28;
+            if ebase + 27 < visual_upload.equip_data.len() {
+                let ed = &visual_upload.equip_data[ebase..ebase + 28];
+                for layer in 0..7u32 {
+                    let o = layer as usize * 4;
+                    ui.label(format!(
+                        "Equip L{}: col={:.1} row={:.1} atlas={:.1} _={:.1}",
+                        layer, ed[o], ed[o+1], ed[o+2], ed[o+3]
+                    ));
+                }
+            }
 
             let free_hits = bld.entity_slots.free_list().iter().filter(|&&s| s == slot).count();
             ui.label(format!(
@@ -2860,6 +2871,17 @@ fn building_inspector_content(
                         "Visual upload: col={:.1} row={:.1} atlas={:.1} flash={:.2} rgba=({:.2},{:.2},{:.2},{:.2})\n",
                         vd[0], vd[1], vd[2], vd[3], vd[4], vd[5], vd[6], vd[7]
                     ));
+                }
+                let ebase = slot * 28;
+                if ebase + 27 < visual_upload.equip_data.len() {
+                    let ed = &visual_upload.equip_data[ebase..ebase + 28];
+                    for layer in 0..7u32 {
+                        let o = layer as usize * 4;
+                        info.push_str(&format!(
+                            "Equip L{}: col={:.1} row={:.1} atlas={:.1} _={:.1}\n",
+                            layer, ed[o], ed[o+1], ed[o+2], ed[o+3]
+                        ));
+                    }
                 }
 
                 let free_hits = bld.entity_slots.free_list().iter().filter(|&&s| s == slot).count();

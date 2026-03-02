@@ -10,33 +10,38 @@ use super::{TestSetupParams, TestState};
 
 // --- movement-coalesce: SetPosition on one NPC must not teleport another ---
 
-const HOME_Y: f32 = 600.0;
-const FARM_Y: f32 = 200.0;
+const HOME_Y: f32 = 576.0;
+const FARM_Y: f32 = 192.0;
 
 pub fn setup_movement(mut params: TestSetupParams) {
     params.add_town("CoalesceTown");
-    params.add_building(crate::world::BuildingKind::Farm, 400.0, FARM_Y, 0);
-    if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(400.0, FARM_Y)) {
+    params.world_data.towns[0].center = Vec2::new(384.0, 384.0);
+    params.add_building(crate::world::BuildingKind::Farm, 384.0, FARM_Y, 0);
+    if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(384.0, FARM_Y)) {
         inst.growth_ready = true;
         inst.growth_progress = 1.0;
     }
-    params.add_building(crate::world::BuildingKind::Farm, 500.0, FARM_Y, 0);
-    if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(500.0, FARM_Y)) {
+    params.add_building(crate::world::BuildingKind::Farm, 512.0, FARM_Y, 0);
+    if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(512.0, FARM_Y)) {
         inst.growth_ready = true;
         inst.growth_progress = 1.0;
     }
-    params.add_building(crate::world::BuildingKind::FarmerHome, 400.0, HOME_Y, 0);
-    params.add_building(crate::world::BuildingKind::FarmerHome, 500.0, HOME_Y, 0);
+    params.add_building(crate::world::BuildingKind::FarmerHome, 384.0, HOME_Y, 0);
+    params.add_building(crate::world::BuildingKind::FarmerHome, 512.0, HOME_Y, 0);
     params.init_economy(1);
-    params.focus_camera(450.0, 400.0);
+    params.focus_camera(448.0, 384.0);
     params.test_state.phase_name = "Waiting for spawns + movement...".into();
     info!("coalesce-movement: setup — 2 farmers, homes@{HOME_Y}, farms@{FARM_Y}");
+}
+
+/// Count live (non-dead) NPCs via EntityMap.
+fn alive_npcs(entity_map: &EntityMap) -> usize {
+    entity_map.iter_npcs().filter(|n| !n.dead).count()
 }
 
 pub fn tick_movement(
     entity_map: Res<EntityMap>,
     gpu_read: Res<GpuReadState>,
-    slots: Res<GpuSlotPool>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
@@ -45,10 +50,12 @@ pub fn tick_movement(
         return;
     };
 
+    let npc_count = alive_npcs(&entity_map);
+
     match test.phase {
         // Phase 1: Wait for 2 farmers to move away from spawn
         1 => {
-            if slots.alive() < 2 {
+            if npc_count < 2 {
                 return;
             }
             let positions = &gpu_read.positions;
@@ -65,7 +72,7 @@ pub fn tick_movement(
                     }
                 }
             }
-            test.phase_name = format!("moved={moved}/2 alive={}", slots.alive());
+            test.phase_name = format!("moved={moved}/2 npcs={}", npc_count);
             if moved >= 2 {
                 test.pass_phase(elapsed, format!("2 farmers moving south"));
             }
@@ -135,19 +142,19 @@ pub fn tick_movement(
 
 pub fn setup_arrival(mut params: TestSetupParams) {
     params.add_town("ArrivalTown");
-    params.add_waypoint(400.0, 400.0, 0, 0);
-    params.add_building(crate::world::BuildingKind::ArcherHome, 410.0, 410.0, 0);
-    params.add_waypoint(300.0, 300.0, 0, 1);
-    params.add_building(crate::world::BuildingKind::ArcherHome, 300.0, 600.0, 0);
+    params.world_data.towns[0].center = Vec2::new(384.0, 384.0);
+    params.add_waypoint(384.0, 384.0, 0, 0);
+    params.add_building(crate::world::BuildingKind::ArcherHome, 448.0, 384.0, 0);
+    params.add_waypoint(256.0, 256.0, 0, 1);
+    params.add_building(crate::world::BuildingKind::ArcherHome, 256.0, 576.0, 0);
     params.init_economy(1);
-    params.focus_camera(350.0, 400.0);
+    params.focus_camera(384.0, 384.0);
     params.test_state.phase_name = "Waiting for archers...".into();
     info!("coalesce-arrival: setup — 2 archers, one near waypoint, one far");
 }
 
 pub fn tick_arrival(
     entity_map: Res<EntityMap>,
-    slots: Res<GpuSlotPool>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
     npc_flags_q: Query<&NpcFlags>,
@@ -157,17 +164,19 @@ pub fn tick_arrival(
         return;
     };
 
+    let npc_count = alive_npcs(&entity_map);
+
     match test.phase {
         // Phase 1: Wait for at least one archer to arrive
         1 => {
-            if slots.alive() < 2 {
+            if npc_count < 2 {
                 return;
             }
             let arrived = entity_map
                 .iter_npcs()
                 .filter(|n| !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| f.at_destination))
                 .count();
-            test.phase_name = format!("arrived={arrived}/2 alive={}", slots.alive());
+            test.phase_name = format!("arrived={arrived}/2 npcs={}", npc_count);
             if arrived >= 1 {
                 for npc in entity_map.iter_npcs() {
                     if npc.dead {

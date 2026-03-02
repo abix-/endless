@@ -106,7 +106,7 @@ NPC rendering uses GPU storage buffers instead of per-instance vertex attributes
 | 2 | `npc_visual_buf` | `NpcVisualBuffers.visual` (CPU upload) | 32B ([f32;8]) |
 | 3 | `npc_equip` | `NpcVisualBuffers.equip` (CPU upload) | 112B (7×[f32;4]) |
 
-**Visual buffer layout** (`[f32; 8]` per slot): `[sprite_col, sprite_row, body_atlas, flash, r, g, b, a]`. Built by `build_visual_upload` from `EntityGpuState.sprite_indices`, `.flash_values`, and ECS Faction/Job components. Hidden slots cleared via `hidden_indices` pre-pass (event-driven, not full-array fill). New capacity initialized to `-1.0` via `resize()`. Building slots filled by `iter_instances()` loop. Phantom slots stay hidden via `sprite_col < 0`.
+**Visual buffer layout** (`[f32; 8]` per slot): `[sprite_col, sprite_row, body_atlas, flash, r, g, b, a]`. Built by `build_visual_upload` (reads live `GpuSlotPool.count()` for buffer sizing — not the stale `RenderFrameConfig` copy) from `EntityGpuState.sprite_indices`, `.flash_values`, and ECS Faction/Job components. Hidden slots cleared via `hidden_indices` pre-pass (event-driven, not full-array fill). New capacity initialized to `-1.0` via `resize()`. Building slots filled by `iter_instances()` loop. Phantom slots stay hidden via `sprite_col < 0`.
 
 **Equipment buffer layout** (`[f32; 28]` per slot = 7 layers × `[col, row, atlas, _pad]`): Built by `build_visual_upload` from ECS components (NpcEquipment armor/helm/weapon/shield, CarriedLoot, Activity for sleep, NpcFlags for healing). Building slots get equip block wiped to `-1.0` sentinels. `col < 0` means unequipped/inactive.
 
@@ -118,13 +118,13 @@ let layer = in.instance_index / camera.entity_count;
 
 **Layer 0 (body):** reads `npc_visual_buf[slot]` for sprite/color/flash, `npc_healths[slot] / 100.0` for health bar. Hidden: `pos.x < -9000.0` or `sprite_col < 0`.
 
-**Layers 1-6 (equipment):** reads `npc_equip[slot * 6u + (layer - 1u)]`. Color/scale by atlas type (all in shader):
-- `atlas >= 2.5` (sleep icon, extras atlas): scale=16, color=white — preserves sprite's natural blue Zz
-- `atlas >= 1.5` (heal halo, extras atlas): scale=20, color=yellow [1.0, 0.9, 0.2]
-- `atlas >= 0.5` (carried item/world atlas): scale=16, color=white
-- `atlas < 0.5` (character atlas equipment): scale=16, color=NPC job color from `npc_visual_buf`
+**Layers 1-7 (equipment):** reads `npc_equip[slot * 7u + (layer - 1u)]`. Color/scale by atlas type (all in shader):
+- `atlas >= 2.5` (sleep icon, extras atlas): scale=32, color=white — preserves sprite's natural blue Zz
+- `atlas >= 1.5` (heal halo, extras atlas): scale=40, color=yellow [1.0, 0.9, 0.2]
+- `atlas >= 0.5` (carried item/world atlas): scale=32, color=white
+- `atlas < 0.5` (character atlas equipment): scale=32, color=NPC job color from `npc_visual_buf`
 
-Equipment sprites derived by `build_visual_upload` from ECS components (`EquippedWeapon`, `EquippedHelmet`, `EquippedArmor`, `Activity`, `Healing`) each frame. NPC can show sleep AND healing simultaneously (independent layers).
+Equipment sprites derived by `build_visual_upload` from ECS `NpcEquipment` (armor/helm/weapon/shield), `CarriedLoot`, `Activity` (sleep), and `NpcFlags` (healing) each frame. NPC can show sleep AND healing simultaneously (independent layers).
 
 ## Instance Data (Misc/Projectile Path)
 
@@ -462,24 +462,19 @@ fn world_to_clip(world_pos: vec2<f32>) -> vec4<f32> {
 
 ## Equipment Layers
 
-Multi-layer rendering uses `NpcVisualUpload.equip_data` (packed by `build_visual_upload` each frame):
+Multi-layer rendering uses `NpcVisualUpload.equip_data` (packed by `build_visual_upload` each frame, 7 layers × 4 floats = 28 floats per slot):
 
 | Layer | Index | ECS Source | Equip Offset | Sentinel | Set By |
 |-------|-------|-----------|-------------|----------|--------|
-| Armor | 1 | `EquippedArmor` | idx*24+0 | col < 0 | build_visual_upload |
-| Helmet | 2 | `EquippedHelmet` | idx*24+4 | col < 0 | build_visual_upload |
-| Weapon | 3 | `EquippedWeapon` | idx*24+8 | col < 0 | build_visual_upload |
-| Item | 4 | `CarriedItem` | idx*24+12 | col < 0 | build_visual_upload |
-| Status | 5 | `Activity::Resting` | idx*24+16 | col < 0 | build_visual_upload |
-| Healing | 6 | `Healing` marker | idx*24+20 | col < 0 | build_visual_upload |
+| Armor | 1 | `NpcEquipment.armor_sprite()` | idx*28+0 | col < 0 | build_visual_upload |
+| Helmet | 2 | `NpcEquipment.helm_sprite()` | idx*28+4 | col < 0 | build_visual_upload |
+| Weapon | 3 | `NpcEquipment.weapon_sprite()` | idx*28+8 | col < 0 | build_visual_upload |
+| Shield | 4 | `NpcEquipment.shield_sprite()` | idx*28+12 | col < 0 | build_visual_upload |
+| Item | 5 | `CarriedLoot` | idx*28+16 | col < 0 | build_visual_upload |
+| Status | 6 | `Activity::Resting` | idx*28+20 | col < 0 | build_visual_upload |
+| Healing | 7 | `NpcFlags.healing` | idx*28+24 | col < 0 | build_visual_upload |
 
-All overlay layers are packed by `build_visual_upload` each frame from ECS components. Dead NPCs are skipped by the renderer (position < -9000). Each layer stores atlas_id alongside sprite coordinates so items can reference either atlas.
-
-Current equipment assignments:
-- **Guards**: Weapon (45, 6) + Helmet (28, 0) — character atlas
-- **Raiders**: Weapon (45, 6) — character atlas
-- **Carried food**: Item layer (24, 9) — world atlas, set when raider steals food, cleared on delivery
-- **Carried gold**: Item layer (41, 11) — world atlas, set when miner returns with gold, cleared on delivery
+All overlay layers are packed by `build_visual_upload` each frame from ECS components. Dead NPCs are skipped by the renderer (position < -9000). Each layer stores atlas_id alongside sprite coordinates so items can reference either atlas. Building slots get all 28 floats wiped to -1.0 sentinels.
 
 ## World Tilemap (Terrain Only)
 

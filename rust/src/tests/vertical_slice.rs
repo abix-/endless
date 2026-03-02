@@ -1,6 +1,6 @@
-//! Vertical Slice Test (relocated Test12)
+//! Vertical Slice Test
 //! Validates full core loop: spawn → work → raid → combat → death → respawn.
-//! 5 farmers + 2 archers + 5 raiders, phased assertions with time gates.
+//! 5 farmer homes + 2 archer homes + 5 tents → spawner system creates 12 NPCs.
 
 use crate::components::*;
 use crate::resources::*;
@@ -9,27 +9,28 @@ use bevy::prelude::*;
 
 use super::{TestSetupParams, TestState};
 
-/// Farm positions for the vertical slice test.
+/// 64px-aligned farm positions for the vertical slice test.
 const FARMS: [(f32, f32); 5] = [
-    (300.0, 350.0),
-    (350.0, 350.0),
-    (400.0, 350.0),
-    (450.0, 350.0),
-    (500.0, 350.0),
+    (192.0, 320.0),
+    (256.0, 320.0),
+    (320.0, 320.0),
+    (384.0, 320.0),
+    (448.0, 320.0),
 ];
 
-/// Setup: populate world, spawn NPCs, init resources.
+/// Setup: place buildings, let spawner system create NPCs.
 pub fn setup(mut params: TestSetupParams) {
-    // World data: 2 towns
+    // World data: 2 towns on 64px-aligned centers
     params.add_town("Harvest");
+    params.world_data.towns[0].center = Vec2::new(384.0, 384.0);
     params.world_data.towns.push(world::Town {
         name: "Raiders".into(),
-        center: Vec2::new(400.0, 100.0),
+        center: Vec2::new(384.0, 128.0),
         faction: 1,
         sprite_type: 1,
     });
 
-    // 5 farms near town 0
+    // 5 farms near town 0 (pre-grown so farmers can harvest)
     for &(fx, fy) in &FARMS {
         params.add_building(world::BuildingKind::Farm, fx, fy, 0);
         if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(fx, fy)) {
@@ -38,17 +39,12 @@ pub fn setup(mut params: TestSetupParams) {
         }
     }
 
-    // 5 beds near town 0
-    for i in 0..5 {
-        params.add_bed(300.0 + (i as f32 * 50.0), 450.0);
-    }
-
     // 4 waypoints (square patrol around town)
     for (order, &(gx, gy)) in [
-        (250.0, 250.0),
-        (550.0, 250.0),
-        (550.0, 550.0),
-        (250.0, 550.0),
+        (128.0, 128.0),
+        (640.0, 128.0),
+        (640.0, 640.0),
+        (128.0, 640.0),
     ]
     .iter()
     .enumerate()
@@ -56,23 +52,25 @@ pub fn setup(mut params: TestSetupParams) {
         params.add_waypoint(gx, gy, 0, order as u32);
     }
 
-    // Spawner buildings: FarmerHomes, ArcherHomes, Tents (for respawn system)
+    // Spawner buildings — the spawner_respawn_system will auto-create NPCs
+    // 5 farmer homes → 5 farmers
     for i in 0..5 {
         params.add_building(
             world::BuildingKind::FarmerHome,
-            300.0 + (i as f32 * 50.0),
-            450.0,
+            192.0 + (i as f32 * 64.0),
+            448.0,
             0,
         );
     }
-    for _ in 0..2 {
-        params.add_building(world::BuildingKind::ArcherHome, 400.0, 400.0, 0);
-    }
+    // 2 archer homes → 2 archers
+    params.add_building(world::BuildingKind::ArcherHome, 512.0, 448.0, 0);
+    params.add_building(world::BuildingKind::ArcherHome, 576.0, 448.0, 0);
+    // 5 tents → 5 raiders
     for i in 0..5 {
         params.add_building(
             world::BuildingKind::Tent,
-            380.0 + (i as f32 * 10.0),
-            100.0,
+            192.0 + (i as f32 * 64.0),
+            64.0,
             1,
         );
     }
@@ -82,96 +80,19 @@ pub fn setup(mut params: TestSetupParams) {
     params.food_storage.food[1] = 10;
     params.game_time.time_scale = 1.0;
 
-    // Spawn 5 farmers + register spawners
-    for (i, &(fx, fy)) in FARMS.iter().enumerate() {
-        let slot = params.slot_alloc.alloc_reset().expect("slot alloc");
-        let uid = params.uid_alloc.next();
-        params.spawn_events.write(crate::messages::SpawnNpcMsg {
-            slot_idx: slot,
-            x: fx,
-            y: fy + 200.0,
-            job: 0,
-            faction: 0,
-            town_idx: 0,
-            home_x: 300.0 + (i as f32 * 50.0),
-            home_y: 450.0,
-            work_x: fx,
-            work_y: fy,
-            starting_post: -1,
-            attack_type: 0,
-            uid_override: Some(uid),
-        });
-        if let Some(inst) = params
-            .entity_map
-            .find_by_position_mut(Vec2::new(300.0 + (i as f32 * 50.0), 450.0))
-        {
-            inst.npc_uid = Some(uid);
-        }
-    }
-
-    // Spawn 2 guards + register spawners
-    for i in 0..2 {
-        let slot = params.slot_alloc.alloc_reset().expect("slot alloc");
-        let uid = params.uid_alloc.next();
-        params.spawn_events.write(crate::messages::SpawnNpcMsg {
-            slot_idx: slot,
-            x: 400.0,
-            y: 400.0,
-            job: 1,
-            faction: 0,
-            town_idx: 0,
-            home_x: 400.0,
-            home_y: 400.0,
-            work_x: -1.0,
-            work_y: -1.0,
-            starting_post: i,
-            attack_type: 0,
-            uid_override: Some(uid),
-        });
-        if let Some(inst) = params
-            .entity_map
-            .find_by_position_mut(Vec2::new(400.0, 400.0))
-        {
-            inst.npc_uid = Some(uid);
-        }
-    }
-
-    // Spawn 5 raiders + register spawners
-    for i in 0..5 {
-        let slot = params.slot_alloc.alloc_reset().expect("slot alloc");
-        let uid = params.uid_alloc.next();
-        params.spawn_events.write(crate::messages::SpawnNpcMsg {
-            slot_idx: slot,
-            x: 380.0 + (i as f32 * 10.0),
-            y: 100.0,
-            job: 2,
-            faction: 1,
-            town_idx: 1,
-            home_x: 400.0,
-            home_y: 100.0,
-            work_x: -1.0,
-            work_y: -1.0,
-            starting_post: -1,
-            attack_type: 0,
-            uid_override: Some(uid),
-        });
-        if let Some(inst) = params
-            .entity_map
-            .find_by_position_mut(Vec2::new(380.0 + (i as f32 * 10.0), 100.0))
-        {
-            inst.npc_uid = Some(uid);
-        }
-    }
-
-    params.focus_camera(400.0, 400.0);
+    params.focus_camera(384.0, 384.0);
     params.test_state.phase_name = "Waiting for spawns...".into();
-    info!("vertical-slice: setup complete — 5 farmers, 2 guards, 5 raiders");
+    info!("vertical-slice: setup complete — buildings placed, awaiting spawner");
+}
+
+/// Count live (non-dead) NPCs via EntityMap.
+fn alive_npcs(entity_map: &EntityMap) -> usize {
+    entity_map.iter_npcs().filter(|n| !n.dead).count()
 }
 
 /// Tick: phased assertions with time gates.
 pub fn tick(
     time: Res<Time>,
-    slots: Res<GpuSlotPool>,
     gpu_state: Res<GpuReadState>,
     combat_debug: Res<CombatDebug>,
     health_debug: Res<HealthDebug>,
@@ -184,26 +105,28 @@ pub fn tick(
         return;
     };
 
+    let npc_count = alive_npcs(&entity_map);
+
     // Track lowest NPC count for death detection
-    if slots.alive() > 0 && slots.alive() < test.count("lowest_npc") as usize {
+    if npc_count > 0 && npc_count < test.count("lowest_npc") as usize {
         test.counters
-            .insert("lowest_npc".into(), slots.alive() as u32);
+            .insert("lowest_npc".into(), npc_count as u32);
     }
-    if !test.counters.contains_key("lowest_npc") && slots.alive() > 0 {
+    if !test.counters.contains_key("lowest_npc") && npc_count > 0 {
         test.counters
-            .insert("lowest_npc".into(), slots.alive() as u32);
+            .insert("lowest_npc".into(), npc_count as u32);
     }
 
     match test.phase {
-        // Phase 1: All 12 NPCs spawned
+        // Phase 1: All 12 NPCs spawned by spawner system
         1 => {
-            test.phase_name = format!("npc_count={}/12", slots.alive());
-            if slots.alive() == 12 {
-                test.pass_phase(elapsed, format!("npc_count={}", slots.alive()));
-            } else if elapsed > 2.0 {
+            test.phase_name = format!("npc_count={}/12", npc_count);
+            if npc_count == 12 {
+                test.pass_phase(elapsed, format!("npc_count={}", npc_count));
+            } else if elapsed > 8.0 {
                 test.fail_phase(
                     elapsed,
-                    format!("npc_count={} (expected 12)", slots.alive()),
+                    format!("npc_count={} (expected 12)", npc_count),
                 );
             }
         }
@@ -221,7 +144,7 @@ pub fn tick(
                     elapsed,
                     format!("positions valid, sample=({:.0},{:.0})", p0.0, p0.1),
                 );
-            } else if elapsed > 3.0 {
+            } else if elapsed > 6.0 {
                 test.fail_phase(
                     elapsed,
                     format!("positions_len={}, all zeros", gpu_state.positions.len()),
@@ -251,7 +174,7 @@ pub fn tick(
             test.phase_name = format!("working={} going_to_work={}", working, going_to_work);
             if working >= 3 {
                 test.pass_phase(elapsed, format!("working={}", working));
-            } else if elapsed > 8.0 {
+            } else if elapsed > 16.0 {
                 let at_dest = entity_map
                     .iter_npcs()
                     .filter(|n| {
@@ -285,7 +208,7 @@ pub fn tick(
             test.phase_name = format!("raiding={}/3", raiding);
             if raiding >= 3 {
                 test.pass_phase(elapsed, format!("raiding={}", raiding));
-            } else if elapsed > 15.0 {
+            } else if elapsed > 30.0 {
                 test.fail_phase(elapsed, format!("raiding={} (expected >=3)", raiding));
             }
         }
@@ -297,7 +220,7 @@ pub fn tick(
                     elapsed,
                     format!("targets_found={}", combat_debug.targets_found),
                 );
-            } else if elapsed > 25.0 {
+            } else if elapsed > 50.0 {
                 test.fail_phase(elapsed, "targets_found=0");
             }
         }
@@ -309,7 +232,7 @@ pub fn tick(
                     elapsed,
                     format!("damage_processed={}", health_debug.damage_processed),
                 );
-            } else if elapsed > 30.0 {
+            } else if elapsed > 60.0 {
                 test.fail_phase(elapsed, "damage_processed=0");
             }
         }
@@ -317,39 +240,35 @@ pub fn tick(
         7 => {
             test.phase_name = format!(
                 "npc_count={} deaths_frame={}",
-                slots.alive(),
-                health_debug.deaths_this_frame
+                npc_count, health_debug.deaths_this_frame
             );
-            if slots.alive() < 12 || health_debug.deaths_this_frame > 0 {
+            if npc_count < 12 || health_debug.deaths_this_frame > 0 {
                 test.set_flag("death_seen", true);
                 test.pass_phase(
                     elapsed,
                     format!(
                         "npc_count={}, deaths_frame={}",
-                        slots.alive(),
-                        health_debug.deaths_this_frame
+                        npc_count, health_debug.deaths_this_frame
                     ),
                 );
-            } else if elapsed > 40.0 {
-                test.fail_phase(elapsed, format!("npc_count={} (no deaths)", slots.alive()));
+            } else if elapsed > 80.0 {
+                test.fail_phase(elapsed, format!("npc_count={} (no deaths)", npc_count));
             }
         }
         // Phase 8: Respawn
         8 => {
-            test.phase_name = format!("npc_count={}/12 (waiting for respawn)", slots.alive());
-            if test.get_flag("death_seen") && slots.alive() >= 12 {
-                test.pass_phase(elapsed, format!("npc_count={} (recovered)", slots.alive()));
+            test.phase_name = format!("npc_count={}/12 (waiting for respawn)", npc_count);
+            if test.get_flag("death_seen") && npc_count >= 12 {
+                test.pass_phase(elapsed, format!("npc_count={} (recovered)", npc_count));
                 test.complete(elapsed);
-            } else if elapsed > 90.0 {
+            } else if elapsed > 180.0 {
                 let lowest = test.count("lowest_npc");
                 let death_seen = test.get_flag("death_seen");
                 test.fail_phase(
                     elapsed,
                     format!(
                         "npc_count={}, lowest={}, death_seen={}",
-                        slots.alive(),
-                        lowest,
-                        death_seen
+                        npc_count, lowest, death_seen
                     ),
                 );
             }

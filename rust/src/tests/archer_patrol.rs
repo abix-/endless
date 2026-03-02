@@ -10,12 +10,13 @@ use super::{TestSetupParams, TestState};
 
 pub fn setup(mut params: TestSetupParams) {
     params.add_town("ArcherTown");
+    params.world_data.towns[0].center = Vec2::new(384.0, 384.0);
     // 4 waypoints (square patrol)
     for (order, &(gx, gy)) in [
-        (300.0, 300.0),
-        (500.0, 300.0),
-        (500.0, 500.0),
-        (300.0, 500.0),
+        (256.0, 256.0),
+        (512.0, 256.0),
+        (512.0, 512.0),
+        (256.0, 512.0),
     ]
     .iter()
     .enumerate()
@@ -25,17 +26,17 @@ pub fn setup(mut params: TestSetupParams) {
 
     // Archer homes drive spawning in test scenes just like normal gameplay.
     for (x, y) in [
-        (360.0, 420.0),
-        (400.0, 420.0),
-        (440.0, 420.0),
-        (480.0, 420.0),
+        (320.0, 448.0),
+        (384.0, 448.0),
+        (448.0, 448.0),
+        (512.0, 448.0),
     ] {
         params.add_building(crate::world::BuildingKind::ArcherHome, x, y, 0);
     }
 
     params.init_economy(1);
     params.game_time.time_scale = 1.0;
-    params.focus_camera(400.0, 400.0);
+    params.focus_camera(384.0, 384.0);
 
     params.test_state.phase_name = "Waiting for archer home spawns...".into();
     info!("archer-patrol: setup - 4 archer homes, 4 waypoints");

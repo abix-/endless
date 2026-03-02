@@ -17,6 +17,9 @@ This contract prevents that class of bug.
 | `factions` | ECS/CPU (`Faction`, `EntityMap` NPC metadata) | Throttled readback (every 60 frames) | No hard gates; debug/advisory only |
 | `threat_counts` | GPU compute derived metric | Throttled readback (every 30 frames) | Heuristic input only; never identity/ownership truth |
 | Slot identity (`slot -> entity`) | ECS/CPU (`GpuSlotPool`, `EntityMap`) | N/A | Authoritative for routing and ownership checks |
+| Entity slot count (high-water mark) | `GpuSlotPool.count()` | `RenderFrameConfig.npc.count` (FixedUpdate copy, render world only) | GPU buffer sizing, dispatch bounds. Main-world systems MUST read `GpuSlotPool` directly. |
+| Live NPC count | `EntityMap.npc_count()` | None | Gameplay logic, UI, test assertions |
+| Live building count | `EntityMap.building_count()` | None | Gameplay logic, UI, test assertions |
 
 ## Hard Rules
 
@@ -25,6 +28,8 @@ This contract prevents that class of bug.
 3. Treat `combat_targets` as "candidate index only"; re-validate in ECS before applying gameplay effects.
 4. If GPU and ECS disagree on identity or ownership, ECS wins.
 5. Readback is asynchronous; stale values are expected, not exceptional.
+6. Main-world systems that size buffers or iterate entity slots must read `GpuSlotPool.count()` directly. `RenderFrameConfig.npc.count` is a render-world convenience copy updated in FixedUpdate — it lags behind allocations in OnEnter/Update.
+7. For live NPC/building counts, use `EntityMap` methods (`npc_count()`, `building_count()`, `iter_npcs()`, `iter_instances()`). Never use `GpuSlotPool.alive()` for NPC-only or building-only counts — it's the combined total of both.
 
 ## Practical Pattern
 
@@ -42,7 +47,13 @@ For combat target validation:
 - `threat_counts` readback is intentionally throttled to every 30 frames.
 - Throttled readback also has async delay (spawn at frame N, consumed later).
 
+## Slot Namespace
+
+NPCs and buildings share one `GpuSlotPool` namespace.
+- `GpuSlotPool.count()` = high-water mark of all slots (NPCs + buildings). Use for buffer sizing.
+- `GpuSlotPool.alive()` = allocated minus freed (combined). Don't use for NPC-only or building-only counts.
+- `EntityMap.npc_count()` / `EntityMap.building_count()` = type-specific live counts.
+
 See:
-- `rust/src/gpu.rs` (`sync_readback_ranges`)
-- `rust/src/resources.rs` (`GpuReadState`)
-- `docs/messages.md` (message + readback flow)
+- `rust/src/gpu.rs` (`sync_readback_ranges`, `build_visual_upload`)
+- `rust/src/resources.rs` (`GpuSlotPool`, `GpuReadState`, `EntityMap`)

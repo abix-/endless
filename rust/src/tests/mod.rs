@@ -137,7 +137,7 @@ impl TestSetupParams<'_, '_> {
         }
         self.world_data.towns.push(world::Town {
             name: name.into(),
-            center: Vec2::new(400.0, 400.0),
+            center: Vec2::new(384.0, 384.0),
             faction: 0,
             sprite_type: 0,
         });

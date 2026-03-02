@@ -13,25 +13,24 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
     // Raider raider town
     params.world_data.towns.push(crate::world::Town {
         name: "EcoRaider".into(),
-        center: Vec2::new(400.0, 100.0),
+        center: Vec2::new(384.0, 128.0),
         faction: 1,
         sprite_type: 1,
     });
     // 1 farm near town — starts Growing at 95%
-    params.add_building(crate::world::BuildingKind::Farm, 400.0, 350.0, 0);
-    if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(400.0, 350.0)) {
+    params.add_building(crate::world::BuildingKind::Farm, 384.0, 320.0, 0);
+    if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(384.0, 320.0)) {
         inst.growth_progress = 0.95;
     }
-    params.add_bed(400.0, 450.0);
 
     params.init_economy(2);
     params.food_storage.food[1] = 10; // raider town has food
     raider_state.init(1, 5);
     // Tent spawner so a raider can spawn via spawner_respawn_system
-    params.add_building(crate::world::BuildingKind::Tent, 400.0, 100.0, 1);
+    params.add_building(crate::world::BuildingKind::Tent, 384.0, 128.0, 1);
     if let Some(inst) = params
         .entity_map
-        .find_by_position_mut(Vec2::new(400.0, 100.0))
+        .find_by_position_mut(Vec2::new(384.0, 128.0))
     {
         inst.respawn_timer = 0.0;
     }
@@ -41,21 +40,21 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
     let slot = params.slot_alloc.alloc_reset().expect("slot alloc");
     params.spawn_events.write(crate::messages::SpawnNpcMsg {
         slot_idx: slot,
-        x: 400.0,
-        y: 380.0,
+        x: 384.0,
+        y: 384.0,
         job: 0,
         faction: 0,
         town_idx: 0,
-        home_x: 400.0,
-        home_y: 450.0,
-        work_x: 400.0,
-        work_y: 350.0,
+        home_x: 384.0,
+        home_y: 384.0,
+        work_x: 384.0,
+        work_y: 320.0,
         starting_post: -1,
         attack_type: 0,
         uid_override: None,
     });
 
-    params.focus_camera(400.0, 400.0);
+    params.focus_camera(384.0, 384.0);
     params.test_state.phase_name = "Waiting for farmer...".into();
     info!("economy: setup — 1 farmer, 1 farm at 95%, raider town with 10 food");
 }

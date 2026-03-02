@@ -9,29 +9,28 @@ use super::{TestSetupParams, TestState};
 
 pub fn setup(mut params: TestSetupParams) {
     params.add_town("FarmVisTown");
-    params.add_building(crate::world::BuildingKind::Farm, 400.0, 350.0, 0);
+    params.add_building(crate::world::BuildingKind::Farm, 384.0, 320.0, 0);
     // Set progress near ready so transition happens within 30s
-    if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(400.0, 350.0)) {
+    if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(384.0, 320.0)) {
         inst.growth_progress = 0.95;
     }
-    params.add_bed(400.0, 450.0);
     params.init_economy(1);
     params.game_time.time_scale = 1.0;
-    params.focus_camera(400.0, 400.0);
+    params.focus_camera(384.0, 384.0);
 
     // Spawn 1 farmer to tend the farm (speeds growth to Ready)
     let slot = params.slot_alloc.alloc_reset().expect("slot alloc");
     params.spawn_events.write(crate::messages::SpawnNpcMsg {
         slot_idx: slot,
-        x: 400.0,
-        y: 350.0,
+        x: 384.0,
+        y: 320.0,
         job: 0,
         faction: 0,
         town_idx: 0,
-        home_x: 400.0,
-        home_y: 450.0,
-        work_x: 400.0,
-        work_y: 350.0,
+        home_x: 384.0,
+        home_y: 384.0,
+        work_x: 384.0,
+        work_y: 320.0,
         starting_post: 0,
         attack_type: 0,
         uid_override: None,

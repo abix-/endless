@@ -12,13 +12,13 @@ pub fn setup(mut params: TestSetupParams) {
     params.add_town("TestTown");
     params.init_economy(1);
     params.game_time.time_scale = 1.0;
-    params.focus_camera(400.0, 400.0);
+    params.focus_camera(384.0, 384.0);
     // No home → farmer can't rest → energy only drains
     let slot = params.slot_alloc.alloc_reset().expect("slot alloc");
     params.spawn_events.write(crate::messages::SpawnNpcMsg {
         slot_idx: slot,
-        x: 400.0,
-        y: 400.0,
+        x: 384.0,
+        y: 384.0,
         job: 0,
         faction: 0,
         town_idx: 0,

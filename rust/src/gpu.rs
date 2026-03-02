@@ -520,7 +520,7 @@ fn clear_visual_slot(idx: usize, upload: &mut NpcVisualUpload) {
 /// Runs in PostUpdate after populate_gpu_state (chained).
 pub fn build_visual_upload(
     mut gpu_state: ResMut<EntityGpuState>,
-    config: Res<RenderFrameConfig>,
+    slots: Res<GpuSlotPool>,
     mut upload: ResMut<NpcVisualUpload>,
     entity_map: Res<crate::resources::EntityMap>,
     activity_q: Query<&crate::components::Activity>,
@@ -530,7 +530,8 @@ pub fn build_visual_upload(
     npc_q: Query<(Entity, &GpuSlot, &Job, &Faction), (Without<Building>, Without<Dead>)>,
     building_q: Query<&GpuSlot, (With<Building>, Without<Dead>)>,
 ) {
-    let entity_count = config.npc.count as usize;
+    // Read live count from authoritative source — not the stale RenderFrameConfig copy
+    let entity_count = slots.count();
     upload.entity_count = entity_count;
 
     // Resize (reuses allocation if already large enough), new tail gets sentinels

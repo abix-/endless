@@ -10,19 +10,20 @@ use super::{TestSetupParams, TestState};
 
 pub fn setup(mut params: TestSetupParams) {
     params.add_town("FarmTown");
+    params.world_data.towns[0].center = Vec2::new(384.0, 384.0);
 
     // Two farms = 2 available work slots.
-    params.add_building(BuildingKind::Farm, 350.0, 340.0, 0);
-    params.add_building(BuildingKind::Farm, 450.0, 340.0, 0);
+    params.add_building(BuildingKind::Farm, 320.0, 320.0, 0);
+    params.add_building(BuildingKind::Farm, 448.0, 320.0, 0);
 
     // Three farmer homes should produce 3 farmers via spawner_respawn_system.
-    params.add_building(BuildingKind::FarmerHome, 300.0, 460.0, 0);
-    params.add_building(BuildingKind::FarmerHome, 400.0, 460.0, 0);
-    params.add_building(BuildingKind::FarmerHome, 500.0, 460.0, 0);
+    params.add_building(BuildingKind::FarmerHome, 256.0, 448.0, 0);
+    params.add_building(BuildingKind::FarmerHome, 384.0, 448.0, 0);
+    params.add_building(BuildingKind::FarmerHome, 512.0, 448.0, 0);
 
     params.init_economy(1);
     params.game_time.time_scale = 1.0;
-    params.focus_camera(400.0, 400.0);
+    params.focus_camera(384.0, 384.0);
     params.test_state.phase_name = "Waiting for farmer-home spawns...".into();
     info!("farmer-cycle: setup - 3 farmer homes, 2 farms");
 }

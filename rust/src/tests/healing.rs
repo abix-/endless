@@ -9,11 +9,10 @@ use super::{TestSetupParams, TestState};
 
 pub fn setup(mut params: TestSetupParams) {
     params.add_town("HealTown");
-    params.add_bed(400.0, 410.0);
     params.init_economy(1);
     params.game_time.time_scale = 1.0;
-    params.focus_camera(400.0, 400.0);
-    params.spawn_npc(0, 400.0, 400.0, 400.0, 410.0);
+    params.focus_camera(384.0, 384.0);
+    params.spawn_npc(0, 384.0, 384.0, 384.0, 384.0);
     params.test_state.phase_name = "Waiting for spawn...".into();
     info!("healing: setup — 1 farmer at town center");
 }

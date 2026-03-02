@@ -11,36 +11,35 @@ use super::{TestSetupParams, TestState};
 
 pub fn setup(mut params: TestSetupParams, mut gold_storage: ResMut<GoldStorage>) {
     params.add_town("MinerTown");
-    params.add_bed(400.0, 450.0);
     params.init_economy(1);
     gold_storage.init(1);
     params.game_time.time_scale = 1.0;
 
-    // Place MinerHome building at (380,400)
-    params.add_building(crate::world::BuildingKind::MinerHome, 380.0, 400.0, 0);
+    // Place MinerHome building at (384,384)
+    params.add_building(crate::world::BuildingKind::MinerHome, 384.0, 384.0, 0);
 
-    // Place GoldMine building at (400,300)
-    params.add_building(crate::world::BuildingKind::GoldMine, 400.0, 300.0, 0);
+    // Place GoldMine building at (384,256)
+    params.add_building(crate::world::BuildingKind::GoldMine, 384.0, 256.0, 0);
 
     // Spawn miner (job=4) at town center, home at MinerHome
     let slot = params.slot_alloc.alloc_reset().expect("slot alloc");
     params.spawn_events.write(crate::messages::SpawnNpcMsg {
         slot_idx: slot,
-        x: 400.0,
-        y: 400.0,
+        x: 384.0,
+        y: 384.0,
         job: 4,
         faction: 0,
         town_idx: 0,
-        home_x: 380.0,
-        home_y: 400.0,
-        work_x: 400.0,
-        work_y: 300.0,
+        home_x: 384.0,
+        home_y: 384.0,
+        work_x: 384.0,
+        work_y: 256.0,
         starting_post: -1,
         attack_type: 0,
         uid_override: None,
     });
 
-    params.focus_camera(400.0, 350.0);
+    params.focus_camera(384.0, 320.0);
     params.test_state.phase_name = "Waiting for miner...".into();
     info!("miner-cycle: setup — 1 miner, 1 gold mine");
 }

@@ -41,13 +41,13 @@ pub fn setup(
     // Two opposing towns
     world_data.towns.push(world::Town {
         name: "Town".into(),
-        center: Vec2::new(400.0, 400.0),
+        center: Vec2::new(384.0, 384.0),
         faction: 0,
         sprite_type: 0,
     });
     world_data.towns.push(world::Town {
         name: "Raider Town".into(),
-        center: Vec2::new(400.0, 200.0),
+        center: Vec2::new(384.0, 192.0),
         faction: 1,
         sprite_type: 1,
     });
@@ -63,13 +63,13 @@ pub fn setup(
     let slot0 = slot_alloc.alloc_reset().expect("slot alloc");
     spawn_events.write(SpawnNpcMsg {
         slot_idx: slot0,
-        x: 400.0,
-        y: 310.0,
+        x: 384.0,
+        y: 320.0,
         job: 1,
         faction: 0,
         town_idx: 0,
-        home_x: 400.0,
-        home_y: 400.0,
+        home_x: 384.0,
+        home_y: 384.0,
         work_x: -1.0,
         work_y: -1.0,
         starting_post: -1, // no patrol — just stands there
@@ -79,13 +79,13 @@ pub fn setup(
     let slot1 = slot_alloc.alloc_reset().expect("slot alloc");
     spawn_events.write(SpawnNpcMsg {
         slot_idx: slot1,
-        x: 400.0,
-        y: 290.0,
+        x: 384.0,
+        y: 256.0,
         job: 2,
         faction: 1,
         town_idx: 1,
-        home_x: 400.0,
-        home_y: 200.0,
+        home_x: 384.0,
+        home_y: 192.0,
         work_x: -1.0,
         work_y: -1.0,
         starting_post: -1,
@@ -95,8 +95,8 @@ pub fn setup(
 
     // Focus the camera on the combat setup so this test is immediately visible.
     if let Ok(mut cam) = camera_query.single_mut() {
-        cam.translation.x = 400.0;
-        cam.translation.y = 300.0;
+        cam.translation.x = 384.0;
+        cam.translation.y = 320.0;
     }
 
     test_state.phase_name = "Waiting for spawns...".into();

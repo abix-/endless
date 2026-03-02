@@ -13,15 +13,15 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
     // Raider raider town (faction 1)
     params.world_data.towns.push(crate::world::Town {
         name: "RaiderTown".into(),
-        center: Vec2::new(400.0, 100.0),
+        center: Vec2::new(384.0, 128.0),
         faction: 1,
         sprite_type: 1,
     });
     // 3 farms near villager town — all Ready so raiders can steal
     for i in 0..3 {
-        let fx = 350.0 + (i as f32 * 50.0);
-        params.add_building(crate::world::BuildingKind::Farm, fx, 350.0, 0);
-        if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(fx, 350.0)) {
+        let fx = 320.0 + (i as f32 * 64.0);
+        params.add_building(crate::world::BuildingKind::Farm, fx, 320.0, 0);
+        if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(fx, 320.0)) {
             inst.growth_ready = true;
             inst.growth_progress = 1.0;
         }
@@ -37,13 +37,13 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
         let slot = params.slot_alloc.alloc_reset().expect("slot alloc");
         params.spawn_events.write(crate::messages::SpawnNpcMsg {
             slot_idx: slot,
-            x: 380.0 + (i as f32 * 20.0),
-            y: 100.0,
+            x: 384.0 + (i as f32 * 20.0),
+            y: 128.0,
             job: 2,
             faction: 1,
             town_idx: 1,
-            home_x: 400.0,
-            home_y: 100.0,
+            home_x: 384.0,
+            home_y: 128.0,
             work_x: -1.0,
             work_y: -1.0,
             starting_post: -1,
@@ -52,7 +52,7 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
         });
     }
 
-    params.focus_camera(400.0, 250.0);
+    params.focus_camera(384.0, 256.0);
     params.test_state.phase_name = "Waiting for raiders...".into();
     info!("raider-cycle: setup — 3 raiders, 3 ready farms");
 }
