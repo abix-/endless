@@ -63,28 +63,90 @@ Remaining:
 - [ ] Unify `TraitKind` (4 variants) and `trait_name()` (9 names) into single 9-trait Personality system
 - [ ] All 9 traits affect both `resolve_combat_stats()` and `decision_system` behavior weights
 - [ ] Target switching (prefer non-fleeing enemies, prioritize low-HP targets)
+- [ ] Terrain combat modifiers — biome at target's position affects incoming damage:
+  - Forest cover: 25% miss chance on projectile hits (roll in `process_proj_hits` or `damage_system` using target position → `WorldGrid` cell → `Biome::Forest`)
+  - Rock high ground: +20% attack range for NPCs standing on Rock tiles (apply as runtime multiplier in GPU targeting `combat_range` check, or adjust `CachedStats.range` dynamically)
+  - Grass/Dirt/Water: no combat modifier
+  - Implementation: target position already known from `EntityMap`; convert to grid coords, read `WorldCell.terrain` — no new components needed
 
 **Stage 18: Loot & Equipment**
 
-*Done when: raider dies -> drops loot bag -> archer picks it up -> item appears in town inventory -> player equips it on an archer -> archer's stats increase and sprite changes.*
+*Done when: raider dies → loot auto-acquired to killer's carry → NPC keeps fighting → threshold triggers return home → deposit to town inventory → player equips item on NPC → stats increase and sprite changes.*
 
-- [ ] `LootItem` struct: slot (Weapon/Armor), stat bonus (damage% or armor%)
-- [ ] Raider death -> chance to drop `LootBag` entity at death position (30% base rate)
-- [ ] Archers detect and collect nearby loot bags (priority above patrol, below combat)
-- [ ] `TownInventory` resource, inventory UI tab
-- [ ] `Equipment` component: weapon + armor slots, feeds into `resolve_combat_stats()`
-- [ ] Equipped items reflected in NPC equipment sprite layers
-- [ ] `BuildingKind::Merchant` — placeable building (1 per town), gold-sink gambling mechanic
-- [ ] `MerchantInventory`: rotating stock of 3-5 random `LootItem`s, refreshed every N game-hours
-- [ ] Rarity-weighted rolls: Common 60%, Uncommon 25%, Rare 12%, Epic 3% — gold cost scales with rarity tier
-- [ ] Merchant UI tab: available items with stats + cost, "Buy" button, "Reroll" button (costs gold to refresh early)
-- [ ] Purchased items go into `TownInventory` (same flow as loot pickup)
+Design: no loot bags on the ground. Kill → loot goes directly into killer's `CarriedLoot` component → NPC keeps fighting → carry threshold triggers return home → deposit food/gold to storage + equipment to `TownInventory` → player equips via UI → stat bonus + sprite change.
+
+**Chunk 0: Unified CarriedLoot** (refactor — prerequisite for all other chunks)
+
+Replace 3 fragmented carry mechanisms with 1. Currently: (1) `Activity::Returning { loot: Vec<(ItemKind, i32)> }` for food/gold from kills/theft, (2) `CarriedGold(i32)` for miners, (3) loot stacking in Activity::Returning while NPC keeps fighting. All replaced by single `CarriedLoot` component.
+
+- [ ] New `CarriedLoot` component (always-present on ALL NPCs, like NpcWorkState): `{ food: i32, gold: i32, equipment: Vec<LootItem> }` with `is_empty()`, `total_items()`, `visual_key() -> u8`
+- [ ] Remove `CarriedGold` component — absorbed into `CarriedLoot.gold`
+- [ ] Simplify `Activity::Returning` — remove the `loot` payload (just means "going home", loot lives in CarriedLoot)
+- [ ] Migrate all loot-write sites: `death_system` NPC-killer/building-killer loot → `CarriedLoot.food/.gold`, farm theft → `CarriedLoot.food`, miner gold harvest → `CarriedLoot.gold`, farm harvest delivery → `CarriedLoot.food`
+- [ ] Refactor `arrival_system`: read `CarriedLoot`, deposit food/gold/equipment to town storage, drain to zero after deposit. Equipment items → `TownInventory` (from Chunk 1)
+- [ ] Move loot-based `visual_key()` from `Activity` to `CarriedLoot` for GPU dirty tracking
+- [ ] Update NPC inspector to read from `CarriedLoot` instead of `Activity::Returning.loot` + `CarriedGold`
+- [ ] Save/load: `NpcSaveData` gets `carried_food: i32, carried_gold: i32` fields (replaces inline loot in activity serialization). `#[serde(default)]` for backward compat.
+- [ ] Run ALL existing tests after Chunk 0 — arrival, raider-cycle, miner-cycle, combat, vertical-slice must pass
+
+**Chunk 1: LootItem data types + NPC registry + TownInventory**
+
+- [ ] `EquipmentSlot` enum: `Weapon`, `Armor`
+- [ ] `Rarity` enum: Common (60%), Uncommon (25%), Rare (12%), Epic (3%) — `gold_cost()` 25/75/200/500, `color()` white/green/blue/purple, `stat_range()` 5-10%/10-20%/20-35%/35-50%
+- [ ] `LootItem` struct: `id: u64`, `slot: EquipmentSlot`, `rarity: Rarity`, `stat_bonus: f32`, `sprite: (f32, f32)`, `name: String` (Clone, Debug, Serialize, Deserialize)
+- [ ] New NpcDef fields in NPC_REGISTRY: `equipment_drop_rate: f32` (raiders: 0.30, others: 0.0), `equip_slots: &'static [EquipmentSlot]` (military: `[Weapon, Armor]`, non-military: `[]`)
+- [ ] `NextLootItemId` resource: u64 counter
+- [ ] `roll_loot_item()` helper: rarity-weighted random → LootItem with atlas sprites from curated list
+- [ ] `TownInventory` resource: `Vec<Vec<LootItem>>` indexed by town — `add(town_idx, item)`, `remove(town_idx, item_id) -> Option<LootItem>`, `items(town_idx) -> &[LootItem]`
+
+**Chunk 2: Equipment drop on kill + carry accumulation**
+
+- [ ] In `death_system` NPC-killer branch: after food/gold, check `npc_def(dead_job).equipment_drop_rate` → roll → `roll_loot_item()` → push to killer's `CarriedLoot.equipment`
+- [ ] Combat log `CombatEventKind::LootEquipment` with rarity-colored message, `SfxKind::LootPickup`
+- [ ] When killed NPC carried equipment (`CarriedLoot.equipment` not empty): killer is NPC → 50% per item transfers to killer's carry (failed = destroyed); killer is tower/fountain → items deposit directly to tower's town `TownInventory`
+- [ ] Loot threshold in `decision_system` (Priority ~4.5): if `carried_loot.equipment.len() >= LOOT_CARRY_THRESHOLD` AND not in combat → `Activity::Returning`. Only for NPCs with `npc_def(job).equip_slots` non-empty.
+
+**Chunk 3: NpcEquipment + stat integration (replaces EquippedWeapon/EquippedArmor)**
+
+- [ ] `NpcEquipment` component (always-present on military NPCs): `weapon: Option<LootItem>`, `armor: Option<LootItem>` — `weapon_sprite()` returns item sprite or NpcDef default weapon sprite or (-1,0) sentinel; same for `armor_sprite()`
+- [ ] Remove `EquippedWeapon`, `EquippedArmor` components — NpcEquipment replaces both (keep `EquippedHelmet`)
+- [ ] Update `write_npc_visual()` in gpu.rs: read weapon/armor from `NpcEquipment` (1 query replaces 2)
+- [ ] Update `materialize_npc()`: insert `NpcEquipment` with NpcDef defaults + `CarriedLoot::default()`
+- [ ] Modify `resolve_combat_stats()`: new `equipment: &NpcEquipment` param — weapon: `damage *= 1.0 + weapon.stat_bonus`, armor: `max_health *= 1.0 + armor.stat_bonus`. Update all call sites.
+- [ ] `EquipItemMsg`/`UnequipItemMsg` messages + `process_equip_system`: moves item between TownInventory ↔ NpcEquipment, re-resolves CachedStats + MarkVisualDirty
+
+**Chunk 4: Inventory UI tab**
+
+- [ ] `LeftPanelTab::Inventory` — keybind: `L`
+- [ ] Inventory tab: scrollable list, rarity-colored, equip button → NPC picker
+- [ ] NPC inspector: show equipped weapon/armor with rarity + stat bonus, "Unequip" button, carried equipment count
+
+**Chunk 5: Merchant building**
+
+- [ ] `BuildingKind::Merchant` — Economy category, player_buildable, 50 gold, External sprite, TownGrid placement
+- [ ] 1-per-town enforcement in `place_building()`
+- [ ] `MerchantInventory` resource: per-town `MerchantStock { items: Vec<LootItem>, refresh_timer: f32 }`
+- [ ] Merchant refresh system: initial stock on placement, refresh every 12 game-hours
+- [ ] Merchant inspector UI: items with gold costs, Buy button, Reroll button (50g)
+
+**Chunk 6: Save/load + test**
+
+- [ ] Save/load: CarriedLoot, NpcEquipment, TownInventory, MerchantInventory, NextLootItemId — all `#[serde(default)]`
+- [ ] `loot-cycle` integration test: spawn → kill → verify carry → return → deposit → equip → verify stats
+
+Key files: `components.rs` (CarriedLoot, NpcEquipment, simplified Activity::Returning), `constants.rs` (EquipmentSlot, Rarity, LootItem, NpcDef fields, roll_loot_item), `resources.rs` (TownInventory, MerchantInventory, NextLootItemId, LeftPanelTab::Inventory), `systems/health.rs` (equipment drops, carried loot transfer), `systems/behavior.rs` (carry migration, loot threshold), `systems/stats.rs` (equipment in resolve_combat_stats, equip messages), `systems/spawn.rs` (insert CarriedLoot + NpcEquipment), `systems/economy.rs` (merchant refresh, arrival deposit), `gpu.rs` (NpcEquipment query), `ui/left_panel.rs` (inventory tab), `ui/game_hud.rs` (merchant + equipment inspectors), `save.rs` (persistence), `world.rs` (BuildingKind::Merchant)
 
 **Stage 19: Pathfinding**
 
 *Done when: NPCs navigate around obstacles using A\* or flow fields instead of pure boids steering. Raiders path around walls to find openings. Placing a building that would fully block access is rejected.*
 
 - [ ] A* or flow field pathfinding on the world grid
+- [ ] Terrain movement costs — biome affects GPU movement speed via existing `tile_flags` pattern:
+  - Cost table: Grass/Dirt=1.0x (base), Road=1.5x (already done), Forest=0.7x, Rock=0.5x, Water=impassable
+  - GPU shader (`npc_compute.wgsl`): after the existing `TILE_ROAD` speed check (~line 169), add `TILE_FOREST`/`TILE_ROCK` branches that multiply `speed` by 0.7/0.5. `TILE_WATER` blocks entry (same wall-collision pattern as `TILE_WALL`)
+  - Tile flag constants already exist in `constants.rs`: `TILE_GRASS=1, TILE_FOREST=2, TILE_WATER=4, TILE_ROCK=8, TILE_DIRT=16`
+  - `populate_tile_flags()` in `gpu.rs` already writes biome → flag bits per cell — no Rust-side changes needed for the flag data
+  - A* cost function should use the same multipliers so pathfinding agrees with GPU movement
 - [ ] NPC pathfinding integration: raiders route around walls, all NPCs use paths for long-distance navigation
 - [ ] Path recalculation on building place/remove (incremental update, not full rebuild)
 - [ ] Path validation: reject building placements that fully block access to critical locations

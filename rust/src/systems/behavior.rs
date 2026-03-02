@@ -51,7 +51,7 @@ pub struct NpcDataQueries<'w, 's> {
     pub leash_range_q: Query<'w, 's, &'static LeashRange>,
     pub work_state_q: Query<'w, 's, &'static mut NpcWorkState>,
     pub patrol_route_q: Query<'w, 's, &'static mut PatrolRoute>,
-    pub carried_gold_q: Query<'w, 's, &'static mut CarriedGold>,
+    pub carried_loot_q: Query<'w, 's, &'static mut CarriedLoot>,
     pub stealer_q: Query<'w, 's, &'static Stealer>,
     pub has_energy_q: Query<'w, 's, &'static HasEnergy>,
     pub weapon_q: Query<'w, 's, &'static EquippedWeapon>,
@@ -87,7 +87,7 @@ pub struct DecisionExtras<'w> {
 
 /// Arrival system: proximity-based delivery for Returning NPCs.
 ///
-/// When a Returning NPC is within delivery radius of home, deposit loot and go Idle.
+/// When a Returning NPC is within delivery radius of home, deposit CarriedLoot and go Idle.
 /// Arrival detection (transit -> AtDestination) is handled by gpu_position_readback.
 /// Farm occupancy and harvest are handled exclusively by decision_system.
 pub fn arrival_system(
@@ -96,6 +96,7 @@ pub fn arrival_system(
     game_time: Res<GameTime>,
     mut npc_logs: ResMut<NpcLogCache>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    mut carried_loot_q: Query<&mut CarriedLoot>,
     mut npc_q: Query<
         (
             Entity,
@@ -118,13 +119,12 @@ pub fn arrival_system(
     // ========================================================================
     // 1. Proximity-based delivery for all Returning NPCs
     // ========================================================================
-    // Collect (slot, entity, loot, home, town_idx) for returning NPCs near home.
-    let mut deliveries: Vec<(usize, Entity, Vec<(ItemKind, i32)>, usize)> = Vec::new();
+    // Collect (slot, entity, town_idx) for returning NPCs near home.
+    let mut deliveries: Vec<(usize, Entity, usize)> = Vec::new();
     for (entity, slot, _job, town_id, activity, home, _work_state) in npc_q.iter() {
-        let loot = match &*activity {
-            Activity::Returning { loot } => loot,
-            _ => continue,
-        };
+        if !matches!(*activity, Activity::Returning) {
+            continue;
+        }
         let idx = slot.0;
         if idx * 2 + 1 >= positions.len() {
             continue;
@@ -135,41 +135,39 @@ pub fn arrival_system(
         let dy = y - home.0.y;
         let dist = (dx * dx + dy * dy).sqrt();
         if dist <= DELIVERY_RADIUS {
-            deliveries.push((idx, entity, loot.clone(), town_id.0 as usize));
+            deliveries.push((idx, entity, town_id.0 as usize));
         }
     }
 
-    for (idx, entity, loot, town_idx) in deliveries {
-        for &(item, amount) in &loot {
-            if amount <= 0 {
-                continue;
-            }
-            match item {
-                ItemKind::Food => {
-                    if town_idx < economy.food_storage.food.len() {
-                        economy.food_storage.food[town_idx] += amount;
-                    }
-                    npc_logs.push(
-                        idx,
-                        game_time.day(),
-                        game_time.hour(),
-                        game_time.minute(),
-                        format!("Delivered {} food", amount),
-                    );
+    for (idx, entity, town_idx) in deliveries {
+        // Read and drain CarriedLoot
+        if let Ok(mut loot) = carried_loot_q.get_mut(entity) {
+            if loot.food > 0 {
+                if town_idx < economy.food_storage.food.len() {
+                    economy.food_storage.food[town_idx] += loot.food;
                 }
-                ItemKind::Gold => {
-                    if town_idx < economy.gold_storage.gold.len() {
-                        economy.gold_storage.gold[town_idx] += amount;
-                    }
-                    npc_logs.push(
-                        idx,
-                        game_time.day(),
-                        game_time.hour(),
-                        game_time.minute(),
-                        format!("Delivered {} gold", amount),
-                    );
-                }
+                npc_logs.push(
+                    idx,
+                    game_time.day(),
+                    game_time.hour(),
+                    game_time.minute(),
+                    format!("Delivered {} food", loot.food),
+                );
             }
+            if loot.gold > 0 {
+                if town_idx < economy.gold_storage.gold.len() {
+                    economy.gold_storage.gold[town_idx] += loot.gold;
+                }
+                npc_logs.push(
+                    idx,
+                    game_time.day(),
+                    game_time.hour(),
+                    game_time.minute(),
+                    format!("Delivered {} gold", loot.gold),
+                );
+            }
+            loot.food = 0;
+            loot.gold = 0;
         }
         if let Ok((_, slot, _, _, mut act, _, _)) = npc_q.get_mut(entity) {
             *act = Activity::Idle;
@@ -442,10 +440,15 @@ pub fn decision_system(
         } else {
             None
         };
+        let mut carried_loot = npc_data
+            .carried_loot_q
+            .get(entity)
+            .map(|cl| cl.clone())
+            .unwrap_or_default();
 
         // Capture originals for conditional writeback
         let orig_activity = std::mem::discriminant(&activity);
-        let orig_visual_key = activity.visual_key();
+        let orig_visual_key = (activity.visual_key(), carried_loot.visual_key());
         let orig_energy = energy;
         let orig_combat_state = std::mem::discriminant(&combat_state);
         let orig_at_destination = at_destination;
@@ -693,9 +696,8 @@ pub fn decision_system(
                                             message: log_msg,
                                             location: None,
                                         });
-                                        activity = Activity::Returning {
-                                            loot: vec![(ItemKind::Food, food)],
-                                        };
+                                        carried_loot.food += food;
+                                        activity = Activity::Returning;
                                         submit_intent(
                                             &mut intents,
                                             entity,
@@ -827,9 +829,8 @@ pub fn decision_system(
                                     })
                                     .unwrap_or(0);
 
-                                activity = Activity::Returning {
-                                    loot: vec![(ItemKind::Food, food.max(1))],
-                                };
+                                carried_loot.food += food.max(1);
+                                activity = Activity::Returning;
                                 submit_intent(
                                     &mut intents,
                                     entity,
@@ -882,7 +883,7 @@ pub fn decision_system(
                                         "Farm not ready, seeking another",
                                     );
                                 } else {
-                                    activity = Activity::Returning { loot: vec![] };
+                                    activity = Activity::Returning;
                                     submit_intent(
                                         &mut intents,
                                         entity,
@@ -929,9 +930,8 @@ pub fn decision_system(
                                     });
                                 }
                                 let gold_amount = ((base_gold as f32) * yield_mult).round() as i32;
-                                activity = Activity::Returning {
-                                    loot: vec![(ItemKind::Gold, gold_amount)],
-                                };
+                                carried_loot.gold += gold_amount;
+                                activity = Activity::Returning;
                                 submit_intent(
                                     &mut intents,
                                     entity,
@@ -1011,7 +1011,7 @@ pub fn decision_system(
                             "-> Idle",
                         );
                     }
-                    Activity::Returning { .. } => {
+                    Activity::Returning => {
                         // May have arrived at wrong place (e.g. after DC removal) — redirect home
                         if home != Vec2::ZERO {
                             submit_intent(
@@ -1109,8 +1109,8 @@ pub fn decision_system(
                             target_building = None;
                         }
                         combat_state = CombatState::None;
-                        if !matches!(&activity, Activity::Returning { .. }) {
-                            activity = Activity::Returning { loot: vec![] };
+                        if !matches!(activity, Activity::Returning) {
+                            activity = Activity::Returning;
                         }
                         submit_intent(
                             &mut intents,
@@ -1182,8 +1182,8 @@ pub fn decision_system(
                                     target_building = None;
                                 }
                                 combat_state = CombatState::None;
-                                if !matches!(&activity, Activity::Returning { .. }) {
-                                    activity = Activity::Returning { loot: vec![] };
+                                if !matches!(activity, Activity::Returning) {
+                                    activity = Activity::Returning;
                                 }
                                 submit_intent(
                                     &mut intents,
@@ -1297,7 +1297,7 @@ pub fn decision_system(
                             | Activity::Resting
                             | Activity::GoingToHeal
                             | Activity::HealingAtFountain { .. }
-                            | Activity::Returning { .. } => {
+                            | Activity::Returning => {
                                 // Already heading to target, resting, healing, or carrying loot — no redirect
                             }
                             _ => {
@@ -1662,9 +1662,11 @@ pub fn decision_system(
                             entity_map.release(ob);
                         }
                         target_building = None;
-                        activity = Activity::Returning {
-                            loot: vec![(ws.harvest_item, final_yield)],
-                        };
+                        match ws.harvest_item {
+                            ItemKind::Food => carried_loot.food += final_yield,
+                            ItemKind::Gold => carried_loot.gold += final_yield,
+                        }
+                        activity = Activity::Returning;
                         submit_intent(
                             &mut intents,
                             entity,
@@ -2158,10 +2160,24 @@ pub fn decision_system(
         }
 
         // Conditional writeback: skip unchanged NPCs (most exit early via break 'decide)
-        let new_visual_key = activity.visual_key();
+        let new_visual_key = (activity.visual_key(), carried_loot.visual_key());
         if std::mem::discriminant(&activity) != orig_activity {
             if let Ok(mut act) = npc_state.activity_q.get_mut(entity) {
                 *act = activity;
+            }
+        }
+        // Write back carried loot if changed
+        {
+            let orig_cl = npc_data
+                .carried_loot_q
+                .get(entity)
+                .ok();
+            let changed = orig_cl.as_ref().map_or(true, |cl| cl.food != carried_loot.food || cl.gold != carried_loot.gold);
+            if changed {
+                if let Ok(mut cl) = npc_data.carried_loot_q.get_mut(entity) {
+                    cl.food = carried_loot.food;
+                    cl.gold = carried_loot.gold;
+                }
             }
         }
         if new_visual_key != orig_visual_key {

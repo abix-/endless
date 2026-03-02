@@ -49,6 +49,7 @@ pub struct DeathResources<'w, 's> {
     pub home_q: Query<'w, 's, &'static crate::components::Home>,
     pub personality_q: Query<'w, 's, &'static crate::components::Personality>,
     pub work_state_q: Query<'w, 's, &'static crate::components::NpcWorkState>,
+    pub carried_loot_q: Query<'w, 's, &'static mut crate::components::CarriedLoot>,
     pub sfx_writer: MessageWriter<'w, crate::resources::PlaySfxMsg>,
     pub gpu_state: Res<'w, crate::gpu::EntityGpuState>,
 }
@@ -413,13 +414,16 @@ pub fn death_system(
                             .map(|f| f.direct_control)
                             .unwrap_or(false)
                             && squad_state.dc_no_return;
+                        // Add loot to attacker's CarriedLoot
+                        if let Ok(mut cl) = res.carried_loot_q.get_mut(atk.entity) {
+                            match drop.item {
+                                ItemKind::Food => cl.food += amount,
+                                ItemKind::Gold => cl.gold += amount,
+                            }
+                        }
                         if let Ok(mut act) = res.activity_q.get_mut(atk.entity) {
-                            if matches!(*act, Activity::Returning { .. }) {
-                                act.add_loot(drop.item, amount);
-                            } else {
-                                *act = Activity::Returning {
-                                    loot: vec![(drop.item, amount)],
-                                };
+                            if !matches!(*act, Activity::Returning) {
+                                *act = Activity::Returning;
                             }
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty {
                                 idx: attacker_slot,
@@ -620,13 +624,16 @@ pub fn death_system(
                             *cs = CombatState::None;
                         }
                     }
+                    // Add loot to killer's CarriedLoot
+                    if let Ok(mut cl) = res.carried_loot_q.get_mut(k_entity) {
+                        match drop.item {
+                            ItemKind::Food => cl.food += amount,
+                            ItemKind::Gold => cl.gold += amount,
+                        }
+                    }
                     if let Ok(mut act) = res.activity_q.get_mut(k_entity) {
-                        if matches!(*act, Activity::Returning { .. }) {
-                            act.add_loot(drop.item, amount);
-                        } else {
-                            *act = Activity::Returning {
-                                loot: vec![(drop.item, amount)],
-                            };
+                        if !matches!(*act, Activity::Returning) {
+                            *act = Activity::Returning;
                         }
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: k_slot }));
                     }

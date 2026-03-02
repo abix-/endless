@@ -33,7 +33,7 @@ use std::borrow::Cow;
 
 use crate::components::{Activity, Building, Dead, Faction, GpuSlot, Job};
 use crate::constants::{
-    FOOD_SPRITE, GOLD_SPRITE, ItemKind, MAX_ENTITIES, MAX_NPC_COUNT,
+    FOOD_SPRITE, GOLD_SPRITE, MAX_ENTITIES, MAX_NPC_COUNT,
     MAX_PROJECTILES as MAX_PROJECTILE_COUNT, PROJECTILE_HIT_HALF_LENGTH, PROJECTILE_HIT_HALF_WIDTH,
 };
 use crate::messages::{GpuUpdate, GpuUpdateMsg, ProjGpuUpdate, ProjGpuUpdateMsg};
@@ -371,6 +371,7 @@ fn write_npc_visual(
     armor_q: &Query<&crate::components::EquippedArmor>,
     helmet_q: &Query<&crate::components::EquippedHelmet>,
     weapon_q: &Query<&crate::components::EquippedWeapon>,
+    carried_loot_q: &Query<&crate::components::CarriedLoot>,
 ) {
     let base = idx * 8;
     if base + 7 >= upload.visual_data.len() {
@@ -439,10 +440,10 @@ fn write_npc_visual(
 
     // Layer 3: Item (carried loot — gold takes display priority)
     let npc_activity = activity_q.get(entity).ok();
-    let (ic, ir, ia) = if let Some(Activity::Returning { loot }) = npc_activity.as_deref() {
-        if loot.iter().any(|(k, a)| *k == ItemKind::Gold && *a > 0) {
+    let (ic, ir, ia) = if let Some(cl) = carried_loot_q.get(entity).ok() {
+        if cl.gold > 0 {
             (GOLD_SPRITE.0, GOLD_SPRITE.1, 1.0)
-        } else if loot.iter().any(|(k, a)| *k == ItemKind::Food && *a > 0) {
+        } else if cl.food > 0 {
             (FOOD_SPRITE.0, FOOD_SPRITE.1, 1.0)
         } else {
             (-1.0, 0.0, 0.0)
@@ -528,6 +529,7 @@ pub fn build_visual_upload(
     armor_q: Query<&crate::components::EquippedArmor>,
     helmet_q: Query<&crate::components::EquippedHelmet>,
     weapon_q: Query<&crate::components::EquippedWeapon>,
+    carried_loot_q: Query<&crate::components::CarriedLoot>,
     npc_q: Query<(Entity, &GpuSlot, &Job, &Faction), (Without<Building>, Without<Dead>)>,
     building_q: Query<&GpuSlot, (With<Building>, Without<Dead>)>,
 ) {
@@ -558,6 +560,7 @@ pub fn build_visual_upload(
                 &armor_q,
                 &helmet_q,
                 &weapon_q,
+                &carried_loot_q,
             );
         }
         for es in building_q.iter() {
@@ -590,6 +593,7 @@ pub fn build_visual_upload(
                     &armor_q,
                     &helmet_q,
                     &weapon_q,
+                    &carried_loot_q,
                 );
             } else if entity_map.get_instance(idx).is_some() {
                 write_building_visual(idx, &gpu_state, &mut upload);

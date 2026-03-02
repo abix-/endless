@@ -8,7 +8,7 @@ use bevy_egui::{EguiContexts, egui};
 
 use crate::components::*;
 use crate::constants::{
-    EffectDisplay, ItemKind, ResourceKind, TOWER_STATS, UpgradeStatKind, WALL_TIER_HP,
+    EffectDisplay, ResourceKind, TOWER_STATS, UpgradeStatKind, WALL_TIER_HP,
     WALL_TIER_NAMES, WALL_UPGRADE_COSTS, building_def, npc_def,
 };
 use crate::gpu::EntityGpuState;
@@ -378,7 +378,7 @@ pub struct BuildingInspectorData<'w, 's> {
     pub weapon_q: Query<'w, 's, &'static EquippedWeapon>,
     pub helmet_q: Query<'w, 's, &'static EquippedHelmet>,
     pub armor_q: Query<'w, 's, &'static EquippedArmor>,
-    pub carried_gold_q: Query<'w, 's, &'static CarriedGold>,
+    pub carried_loot_q: Query<'w, 's, &'static CarriedLoot>,
     pub patrol_route_q: Query<'w, 's, &'static PatrolRoute>,
     pub last_hit_by_q: Query<'w, 's, &'static LastHitBy>,
 }
@@ -1320,7 +1320,6 @@ fn inspector_content(
 
     // Equipment + status from EntityMap + ECS
     let mut squad_id: Option<i32> = None;
-    let mut carried_gold = 0;
     if let Some(npc) = bld_data.entity_map.get_npc(idx) {
         let mut equip_parts: Vec<&str> = Vec::new();
         if bld_data.weapon_q.get(npc.entity).is_ok() {
@@ -1348,11 +1347,6 @@ fn inspector_content(
             ui.colored_label(egui::Color32::from_rgb(200, 60, 60), "Starving");
         }
         squad_id = bld_data.squad_id_q.get(npc.entity).ok().map(|s| s.0);
-        carried_gold = bld_data
-            .carried_gold_q
-            .get(npc.entity)
-            .map(|g| g.0)
-            .unwrap_or(0);
     }
 
     // Town name
@@ -1371,7 +1365,8 @@ fn inspector_content(
     let mut home_slot: Option<usize> = None;
     let mut is_mining_at_mine = false;
 
-    let mut carried_loot: Vec<(ItemKind, i32)> = Vec::new();
+    let mut carried_food = 0i32;
+    let mut carried_gold = 0i32;
     let mut activity_debug = String::new();
     if let Some(npc) = bld_data.entity_map.get_npc(idx) {
         let npc_home = bld_data
@@ -1388,8 +1383,9 @@ fn inspector_content(
         is_mining_at_mine = npc_act.is_some_and(|a| matches!(*a, Activity::MiningAtMine));
         activity_debug = npc_act.map(|a| format!("{:?}", &*a)).unwrap_or_default();
 
-        if let Some(Activity::Returning { loot }) = npc_act.as_deref() {
-            carried_loot = loot.clone();
+        if let Ok(cl) = bld_data.carried_loot_q.get(npc.entity) {
+            carried_food = cl.food;
+            carried_gold = cl.gold;
         }
 
         let mut parts: Vec<&str> = Vec::new();
@@ -1434,35 +1430,22 @@ fn inspector_content(
         ui.label(format!("Squad: {}", sq));
     }
 
-    // Loot + gold (grouped)
+    // Carried loot
     {
-        let loot_str = if carried_loot.is_empty() {
+        let mut parts: Vec<String> = Vec::new();
+        if carried_food > 0 {
+            parts.push(format!("{} food", carried_food));
+        }
+        if carried_gold > 0 {
+            parts.push(format!("{} gold", carried_gold));
+        }
+        let loot_str = if parts.is_empty() {
             "none".to_string()
         } else {
-            carried_loot
-                .iter()
-                .filter(|(_, a)| *a > 0)
-                .map(|(k, a)| {
-                    format!(
-                        "{} {}",
-                        a,
-                        match k {
-                            ItemKind::Food => "food",
-                            ItemKind::Gold => "gold",
-                        }
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(", ")
+            parts.join(", ")
         };
-        let loot_str = if loot_str.is_empty() {
-            "none".to_string()
-        } else {
-            loot_str
-        };
-        ui.label(format!("Loot: {}", loot_str));
+        ui.label(format!("Carrying: {}", loot_str));
     }
-    ui.label(format!("Carried Gold: {}", carried_gold));
 
     // Mine assignment for miners (same UI as MinerHome building inspector)
     if meta.job == 4 {
@@ -1724,23 +1707,7 @@ fn inspector_content(
                         info.push_str(&format!("Squad.placing_target: {}\n", ss.placing_target));
                     }
                 }
-                let gold_val = bld_data
-                    .carried_gold_q
-                    .get(npc.entity)
-                    .map(|g| g.0)
-                    .unwrap_or(0);
-                info.push_str(&format!("CarriedGold: {}\n", gold_val));
-                let loot_str = if carried_loot.is_empty() {
-                    "none".to_string()
-                } else {
-                    carried_loot
-                        .iter()
-                        .filter(|(_, a)| *a > 0)
-                        .map(|(k, a)| format!("{} {:?}", a, k))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                };
-                info.push_str(&format!("Loot: {}\n", loot_str));
+                info.push_str(&format!("CarriedLoot: food={} gold={}\n", carried_food, carried_gold));
                 if let Ok(route) = bld_data.patrol_route_q.get(npc.entity) {
                     info.push_str(&format!(
                         "Patrol: {}/{} posts\n",

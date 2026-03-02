@@ -99,7 +99,7 @@ pub fn tick(
                 && n.job == Job::Miner
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(*a, Activity::Returning { .. }))
+                    .is_ok_and(|a| matches!(*a, Activity::Returning))
         })
         .count();
     let idle = entity_map

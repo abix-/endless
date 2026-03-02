@@ -362,6 +362,8 @@ pub struct NpcSaveData {
     pub home: [f32; 2],
     pub work_position: Option<[f32; 2]>,
     pub squad_id: Option<i32>,
+    #[serde(default)]
+    pub carried_food: Option<i32>,
     pub carried_gold: Option<i32>,
     pub weapon: Option<[f32; 2]>,
     pub helmet: Option<[f32; 2]>,
@@ -381,7 +383,11 @@ pub enum ActivitySave {
     HealingAtFountain { recover_until: f32 },
     Wandering,
     Raiding { target: [f32; 2] },
-    Returning { loot: Vec<(ItemKind, i32)> },
+    /// Old saves had `loot: Vec<(ItemKind, i32)>` — kept as ignored field for backward compat.
+    Returning {
+        #[serde(default)]
+        loot: Vec<(ItemKind, i32)>,
+    },
     Mining { mine_pos: [f32; 2] },
     MiningAtMine,
 }
@@ -406,7 +412,7 @@ impl ActivitySave {
             Activity::Raiding { target } => Self::Raiding {
                 target: v2(*target),
             },
-            Activity::Returning { loot } => Self::Returning { loot: loot.clone() },
+            Activity::Returning => Self::Returning { loot: vec![] },
             Activity::Mining { mine_pos } => Self::Mining {
                 mine_pos: v2(*mine_pos),
             },
@@ -433,7 +439,7 @@ impl ActivitySave {
             Self::Raiding { target } => Activity::Raiding {
                 target: to_vec2(*target),
             },
-            Self::Returning { loot } => Activity::Returning { loot: loot.clone() },
+            Self::Returning { .. } => Activity::Returning,
             Self::Mining { mine_pos } => Activity::Mining {
                 mine_pos: to_vec2(*mine_pos),
             },
@@ -1198,7 +1204,7 @@ pub fn collect_npc_data(
     personality_q: &Query<&Personality>,
     home_q: &Query<&Home>,
     work_state_q: &Query<&NpcWorkState>,
-    carried_gold_q: &Query<&CarriedGold>,
+    carried_loot_q: &Query<&CarriedLoot>,
     weapon_q: &Query<&EquippedWeapon>,
     helmet_q: &Query<&EquippedHelmet>,
     armor_q: &Query<&EquippedArmor>,
@@ -1269,10 +1275,14 @@ pub fn collect_npc_data(
                 .and_then(|ws| ws.work_target_building)
                 .and_then(|uid| entity_map.instance_by_uid(uid).map(|i| v2(i.position))),
             squad_id: squad_id_q.get(npc.entity).ok().map(|s| s.0),
-            carried_gold: carried_gold_q
+            carried_food: carried_loot_q
                 .get(npc.entity)
                 .ok()
-                .and_then(|g| if g.0 > 0 { Some(g.0) } else { None }),
+                .and_then(|cl| if cl.food > 0 { Some(cl.food) } else { None }),
+            carried_gold: carried_loot_q
+                .get(npc.entity)
+                .ok()
+                .and_then(|cl| if cl.gold > 0 { Some(cl.gold) } else { None }),
             weapon: weapon_q.get(npc.entity).ok().map(|w| [w.0, w.1]),
             helmet: helmet_q.get(npc.entity).ok().map(|h| [h.0, h.1]),
             armor: armor_q.get(npc.entity).ok().map(|a| [a.0, a.1]),
@@ -1327,7 +1337,7 @@ pub struct SaveNpcQueries<'w, 's> {
     pub personality_q: Query<'w, 's, &'static Personality>,
     pub home_q: Query<'w, 's, &'static Home>,
     pub work_state_q: Query<'w, 's, &'static NpcWorkState>,
-    pub carried_gold_q: Query<'w, 's, &'static CarriedGold>,
+    pub carried_loot_q: Query<'w, 's, &'static CarriedLoot>,
     pub weapon_q: Query<'w, 's, &'static EquippedWeapon>,
     pub helmet_q: Query<'w, 's, &'static EquippedHelmet>,
     pub armor_q: Query<'w, 's, &'static EquippedArmor>,
@@ -1603,7 +1613,7 @@ pub fn save_game_system(
         &nq.personality_q,
         &nq.home_q,
         &nq.work_state_q,
-        &nq.carried_gold_q,
+        &nq.carried_loot_q,
         &nq.weapon_q,
         &nq.helmet_q,
         &nq.armor_q,
@@ -1694,7 +1704,7 @@ pub fn autosave_system(
         &nq.personality_q,
         &nq.home_q,
         &nq.work_state_q,
-        &nq.carried_gold_q,
+        &nq.carried_loot_q,
         &nq.weapon_q,
         &nq.helmet_q,
         &nq.armor_q,
@@ -1765,6 +1775,7 @@ pub fn spawn_npcs_from_save(
             weapon: npc.weapon,
             helmet: npc.helmet,
             armor: npc.armor,
+            carried_food: npc.carried_food,
             carried_gold: npc.carried_gold,
             squad_id: npc.squad_id,
             uid_override,

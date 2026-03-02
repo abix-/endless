@@ -2,7 +2,6 @@
 //! Validates: raiders dispatched → arrive at farm → steal food → returning → deliver to raider town.
 
 use crate::components::*;
-use crate::constants::ItemKind;
 use crate::resources::*;
 use bevy::prelude::*;
 
@@ -64,6 +63,7 @@ pub fn tick(
     time: Res<Time>,
     mut test: ResMut<TestState>,
     activity_q: Query<&Activity>,
+    carried_loot_q: Query<&CarriedLoot>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else {
         return;
@@ -85,9 +85,12 @@ pub fn tick(
     {
         match activity_q.get(npc.entity).ok().as_deref() {
             Some(Activity::Raiding { .. }) => raiding += 1,
-            Some(Activity::Returning { loot }) => {
+            Some(Activity::Returning) => {
                 returning += 1;
-                if loot.iter().any(|(k, a)| *k == ItemKind::Food && *a > 0) {
+                if carried_loot_q
+                    .get(npc.entity)
+                    .is_ok_and(|cl| cl.food > 0)
+                {
                     carrying += 1;
                 }
             }

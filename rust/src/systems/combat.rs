@@ -147,7 +147,7 @@ pub fn attack_system(
         let cached_proj_lifetime = stats.projectile_lifetime;
         let activity_skip = matches!(
             *activity,
-            Activity::Returning { .. }
+            Activity::Returning
                 | Activity::GoingToRest
                 | Activity::Resting
                 | Activity::GoingToHeal
