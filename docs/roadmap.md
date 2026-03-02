@@ -116,7 +116,8 @@ Replace 3 fragmented carry mechanisms with 1. Currently: (1) `Activity::Returnin
 - [x] `materialize_npc()`: inserts NpcEquipment from overrides, removed conditional Equipped* inserts
 - [x] Save/load: NpcEquipment in NpcSaveData + NpcSpawnOverrides, backward compat with legacy weapon/helmet/armor fields
 - [x] Dead code cleanup: behavior.rs weapon_q/helmet_q/armor_q removed, game_hud shows all D2 slots
-- [ ] `EquipItemMsg`/`UnequipItemMsg` messages + `process_equip_system`: moves item between TownInventory ↔ NpcEquipment, re-resolves CachedStats + MarkVisualDirty
+- [x] `EquipItemMsg`/`UnequipItemMsg` messages + `process_equip_system`: moves item between TownInventory ↔ NpcEquipment, re-resolves CachedStats + MarkVisualDirty
+- [x] `re_resolve_npc_stats()` helper: shared stat re-resolution + GPU update (used by equip, unequip, upgrades)
 
 **Chunk 4: Inventory UI tab**
 

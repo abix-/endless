@@ -522,6 +522,24 @@ pub struct UpgradeMsg {
     pub upgrade_idx: usize,
 }
 
+/// Equip an item from TownInventory onto an NPC.
+/// Writers: Inventory UI. Reader: process_equip_system.
+#[derive(Message, Clone)]
+pub struct EquipItemMsg {
+    pub npc_entity: Entity,
+    pub item_id: u64,
+    pub town_idx: usize,
+}
+
+/// Unequip an item from an NPC back to TownInventory.
+/// Writers: Inventory UI. Reader: process_equip_system.
+#[derive(Message, Clone)]
+pub struct UnequipItemMsg {
+    pub npc_entity: Entity,
+    pub slot: crate::constants::EquipmentSlot,
+    pub ring_index: u8, // 0=ring1, 1=ring2 (ignored for non-Ring)
+}
+
 // ============================================================================
 // HELPERS
 // ============================================================================
@@ -775,6 +793,50 @@ pub fn resolve_combat_stats(
     }
 }
 
+/// Re-resolve NPC stats after equipment/upgrade change. Updates CachedStats, Speed, Health (proportional), GPU.
+pub fn re_resolve_npc_stats(
+    entity: Entity,
+    slot: usize,
+    equipment: &crate::components::NpcEquipment,
+    job: Job,
+    attack_type: BaseAttackType,
+    town_idx: i32,
+    level: i32,
+    personality: &Personality,
+    config: &CombatConfig,
+    upgrades: &TownUpgrades,
+    cached_stats_q: &mut Query<&mut CachedStats>,
+    speed_q: &mut Query<&mut crate::components::Speed>,
+    health_q: &mut Query<&mut crate::components::Health, Without<crate::components::Building>>,
+    gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
+) {
+    let old_max = cached_stats_q
+        .get(entity)
+        .map(|s| s.max_health)
+        .unwrap_or(100.0);
+    let new_cached = resolve_combat_stats(
+        job, attack_type, town_idx, level, personality, config, upgrades,
+        equipment.total_weapon_bonus(), equipment.total_armor_bonus(),
+    );
+    let new_speed = new_cached.speed;
+    let new_max = new_cached.max_health;
+    if let Ok(mut cs) = cached_stats_q.get_mut(entity) {
+        *cs = new_cached;
+    }
+    if let Ok(mut spd) = speed_q.get_mut(entity) {
+        spd.0 = new_speed;
+    }
+    if old_max > 0.0 && (new_max - old_max).abs() > 0.01 {
+        if let Ok(mut hp) = health_q.get_mut(entity) {
+            hp.0 = hp.0 * new_max / old_max;
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: hp.0 }));
+        }
+    }
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetMaxHealth { idx: slot, max_health: new_max }));
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: slot, speed: new_speed }));
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: slot }));
+}
+
 // ============================================================================
 // PROCESS UPGRADES SYSTEM
 // ============================================================================
@@ -936,6 +998,97 @@ pub fn process_upgrades_system(
                 speed: new_speed,
             }));
         }
+    }
+}
+
+// ============================================================================
+// EQUIP / UNEQUIP SYSTEM
+// ============================================================================
+
+/// Processes equip/unequip messages — moves items between TownInventory and NpcEquipment.
+pub fn process_equip_system(
+    mut equip_msgs: MessageReader<EquipItemMsg>,
+    mut unequip_msgs: MessageReader<UnequipItemMsg>,
+    mut equipment_q: Query<(
+        &mut crate::components::NpcEquipment,
+        &crate::components::GpuSlot,
+        &Job,
+        &crate::components::TownId,
+        &BaseAttackType,
+        &Personality,
+    )>,
+    mut cached_stats_q: Query<&mut CachedStats>,
+    mut speed_q: Query<&mut crate::components::Speed>,
+    mut health_q: Query<&mut crate::components::Health, Without<crate::components::Building>>,
+    mut town_inventory: ResMut<crate::resources::TownInventory>,
+    config: Res<CombatConfig>,
+    upgrades: Res<TownUpgrades>,
+    meta_cache: Res<NpcMetaCache>,
+    entity_map: Res<crate::resources::EntityMap>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+) {
+    // Equip: TownInventory → NpcEquipment
+    for msg in equip_msgs.read() {
+        let Some(item) = town_inventory.remove(msg.town_idx, msg.item_id) else {
+            continue;
+        };
+        let Ok((mut eq, gpu_slot, job, town_id, atk_type, pers)) = equipment_q.get_mut(msg.npc_entity) else {
+            // NPC gone — put item back
+            town_inventory.add(msg.town_idx, item);
+            continue;
+        };
+        let slot_idx = gpu_slot.0;
+
+        // Determine target field. Ring special case: prefer empty ring1, else ring2.
+        use crate::constants::EquipmentSlot;
+        let target: &mut Option<crate::constants::LootItem> = match item.slot {
+            EquipmentSlot::Ring => {
+                if eq.ring1.is_none() { &mut eq.ring1 } else { &mut eq.ring2 }
+            }
+            _ => eq.slot_mut(item.slot),
+        };
+
+        // Swap out old item if present
+        if let Some(old) = target.take() {
+            town_inventory.add(msg.town_idx, old);
+        }
+        *target = Some(item);
+
+        // Re-resolve stats
+        let level = entity_map.get_npc(slot_idx).map(|n| meta_cache.0[n.slot].level).unwrap_or(0);
+        re_resolve_npc_stats(
+            msg.npc_entity, slot_idx, &eq, *job, *atk_type,
+            town_id.0, level, pers, &config, &upgrades,
+            &mut cached_stats_q, &mut speed_q, &mut health_q, &mut gpu_updates,
+        );
+    }
+
+    // Unequip: NpcEquipment → TownInventory
+    for msg in unequip_msgs.read() {
+        let Ok((mut eq, gpu_slot, job, town_id, atk_type, pers)) = equipment_q.get_mut(msg.npc_entity) else {
+            continue;
+        };
+        let slot_idx = gpu_slot.0;
+
+        use crate::constants::EquipmentSlot;
+        let source: &mut Option<crate::constants::LootItem> = match msg.slot {
+            EquipmentSlot::Ring => {
+                if msg.ring_index == 1 { &mut eq.ring2 } else { &mut eq.ring1 }
+            }
+            _ => eq.slot_mut(msg.slot),
+        };
+
+        let Some(item) = source.take() else {
+            continue; // slot was empty
+        };
+        town_inventory.add(town_id.0 as usize, item);
+
+        let level = entity_map.get_npc(slot_idx).map(|n| meta_cache.0[n.slot].level).unwrap_or(0);
+        re_resolve_npc_stats(
+            msg.npc_entity, slot_idx, &eq, *job, *atk_type,
+            town_id.0, level, pers, &config, &upgrades,
+            &mut cached_stats_q, &mut speed_q, &mut health_q, &mut gpu_updates,
+        );
     }
 }
 

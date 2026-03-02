@@ -254,6 +254,8 @@ pub fn build_app(app: &mut App) {
         .init_resource::<systems::stats::CombatConfig>()
         .init_resource::<systems::stats::TownUpgrades>()
         .add_message::<systems::stats::UpgradeMsg>()
+        .add_message::<systems::stats::EquipItemMsg>()
+        .add_message::<systems::stats::UnequipItemMsg>()
         .init_resource::<AutoUpgrade>()
         .init_resource::<TownPolicies>()
         .init_resource::<MiningPolicy>()
@@ -356,6 +358,7 @@ pub fn build_app(app: &mut App) {
                 farm_visual_system,
                 (auto_upgrade_system, systems::stats::auto_tower_upgrade_system),
                 process_upgrades_system.after(auto_upgrade_system),
+                systems::stats::process_equip_system.after(process_upgrades_system),
                 systems::ai_player::ai_dirty_drain_system.before(ai_decision_system),
                 ai_decision_system,
                 endless_system,
