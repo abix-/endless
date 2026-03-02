@@ -135,6 +135,7 @@ pub struct SquadParams<'w> {
 // ============================================================================
 
 #[derive(SystemParam)]
+#[allow(dead_code)] // reputation used soon
 pub struct FactionsParams<'w, 's> {
     ai_state: ResMut<'w, AiPlayerState>,
     food_storage: Res<'w, FoodStorage>,
