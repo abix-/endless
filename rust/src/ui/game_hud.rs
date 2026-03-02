@@ -1329,23 +1329,27 @@ fn inspector_content(
     // Equipment + status from EntityMap + ECS
     let mut squad_id: Option<i32> = None;
     if let Some(npc) = bld_data.entity_map.get_npc(idx) {
-        let equip_str = if let Ok(eq) = bld_data.equipment_q.get(npc.entity) {
-            let mut parts: Vec<&str> = Vec::new();
-            if eq.weapon.is_some() { parts.push("Weapon"); }
-            if eq.helm.is_some() { parts.push("Helm"); }
-            if eq.armor.is_some() { parts.push("Armor"); }
-            if eq.shield.is_some() { parts.push("Shield"); }
-            if eq.gloves.is_some() { parts.push("Gloves"); }
-            if eq.boots.is_some() { parts.push("Boots"); }
-            if eq.belt.is_some() { parts.push("Belt"); }
-            if eq.amulet.is_some() { parts.push("Amulet"); }
-            if eq.ring1.is_some() { parts.push("Ring"); }
-            if eq.ring2.is_some() { parts.push("Ring"); }
-            if parts.is_empty() { "None".to_string() } else { parts.join(" + ") }
-        } else {
-            "None".to_string()
-        };
-        ui.label(equip_str);
+        if let Ok(eq) = bld_data.equipment_q.get(npc.entity) {
+            let slots: &[(&str, &Option<crate::constants::LootItem>)] = &[
+                ("Weapon", &eq.weapon), ("Helm", &eq.helm), ("Armor", &eq.armor),
+                ("Shield", &eq.shield), ("Gloves", &eq.gloves), ("Boots", &eq.boots),
+                ("Belt", &eq.belt), ("Amulet", &eq.amulet),
+                ("Ring 1", &eq.ring1), ("Ring 2", &eq.ring2),
+            ];
+            let mut any = false;
+            for &(label, item_opt) in slots {
+                if let Some(item) = item_opt {
+                    any = true;
+                    ui.horizontal(|ui| {
+                        let (r, g, b) = item.rarity.color();
+                        ui.label(format!("{}:", label));
+                        ui.label(egui::RichText::new(&item.name).color(egui::Color32::from_rgb(r, g, b)));
+                        ui.label(format!("(+{:.0}%)", item.stat_bonus * 100.0));
+                    });
+                }
+            }
+            if !any { ui.label("No equipment"); }
+        }
 
         // Status markers
         if bld_data
@@ -1376,6 +1380,7 @@ fn inspector_content(
 
     let mut carried_food = 0i32;
     let mut carried_gold = 0i32;
+    let mut carried_equip_count = 0usize;
     let mut activity_debug = String::new();
     if let Some(npc) = bld_data.entity_map.get_npc(idx) {
         let npc_home = bld_data
@@ -1395,6 +1400,7 @@ fn inspector_content(
         if let Ok(cl) = bld_data.carried_loot_q.get(npc.entity) {
             carried_food = cl.food;
             carried_gold = cl.gold;
+            carried_equip_count = cl.equipment.len();
         }
 
         let mut parts: Vec<&str> = Vec::new();
@@ -1447,6 +1453,9 @@ fn inspector_content(
         }
         if carried_gold > 0 {
             parts.push(format!("{} gold", carried_gold));
+        }
+        if carried_equip_count > 0 {
+            parts.push(format!("{} item(s)", carried_equip_count));
         }
         let loot_str = if parts.is_empty() {
             "none".to_string()
@@ -1639,17 +1648,20 @@ fn inspector_content(
                 ));
             }
             if let Some(npc) = bld_data.entity_map.get_npc(idx) {
-                let equip_str = if let Ok(eq) = bld_data.equipment_q.get(npc.entity) {
-                    let mut parts: Vec<&str> = Vec::new();
-                    if eq.weapon.is_some() { parts.push("Weapon"); }
-                    if eq.helm.is_some() { parts.push("Helm"); }
-                    if eq.armor.is_some() { parts.push("Armor"); }
-                    if eq.shield.is_some() { parts.push("Shield"); }
-                    if parts.is_empty() { "None".to_string() } else { parts.join(" + ") }
-                } else {
-                    "None".to_string()
-                };
-                info.push_str(&format!("{}\n", equip_str));
+                if let Ok(eq) = bld_data.equipment_q.get(npc.entity) {
+                    let slots: &[(&str, &Option<crate::constants::LootItem>)] = &[
+                        ("Weapon", &eq.weapon), ("Helm", &eq.helm), ("Armor", &eq.armor),
+                        ("Shield", &eq.shield), ("Gloves", &eq.gloves), ("Boots", &eq.boots),
+                        ("Belt", &eq.belt), ("Amulet", &eq.amulet),
+                        ("Ring 1", &eq.ring1), ("Ring 2", &eq.ring2),
+                    ];
+                    for &(label, item_opt) in slots {
+                        if let Some(item) = item_opt {
+                            info.push_str(&format!("{}: {} ({} +{:.0}%)\n",
+                                label, item.name, item.rarity.label(), item.stat_bonus * 100.0));
+                        }
+                    }
+                }
                 if let Ok(flags) = bld_data.npc_flags_q.get(npc.entity) {
                     let mut fp: Vec<&str> = Vec::new();
                     if flags.healing {

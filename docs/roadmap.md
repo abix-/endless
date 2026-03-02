@@ -123,7 +123,7 @@ Replace 3 fragmented carry mechanisms with 1. Currently: (1) `Activity::Returnin
 
 - [x] `LeftPanelTab::Inventory` — keybind: `I` (Factions moved to `G`)
 - [x] Inventory tab: scrollable list, rarity-colored, equip/unequip buttons, selected NPC equipment display
-- [ ] NPC inspector: rarity-colored equipment display with stat bonuses
+- [x] NPC inspector: rarity-colored equipment display with stat bonuses, carried equipment count
 
 **Chunk 5: Merchant building**
 

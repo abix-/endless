@@ -3,6 +3,7 @@
 ## 2026-03-02d
 
 - **inventory UI tab** — `LeftPanelTab::Inventory` with `I` keybind (Factions moved `I`→`G`), `ControlAction::ToggleInventory`, top bar button, `InventoryParams` SystemParam. Tab shows selected NPC's D2 equipment slots with rarity-colored names + stat bonuses + Unequip buttons, and scrollable town inventory list with Equip buttons. Help catalog entry added.
+- **NPC inspector rarity equipment** — bottom-panel inspector shows per-slot rarity-colored item names with stat %, hover tooltip shows `Slot: Name (Rarity +X%)`, carried equipment count in loot display
 
 ## 2026-03-02c
 
