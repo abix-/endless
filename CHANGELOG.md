@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-03-02k
+
+- **authority doc consolidation** — merged full data ownership table from messages.md into authority.md (now single source of truth for all data ownership: GPU-authoritative, CPU-authoritative, CPU-only, render-only categories). Slimmed messages.md to reference link. Fixed stale AttackStats values (was range=150/300, corrected to 100/200). Added anti-pattern rule #8 (no readback→writeback same frame).
+- **click_to_select ECS faction** — enemy NPC hit-test in `click_to_select_system` now reads faction from `EntityMap` (ECS authoritative) instead of throttled GPU factions readback.
+- **debug_tick EntityMap count** — `debug_tick_system` uses `EntityMap.npc_count()` instead of `GpuSlotPool.alive()` per authority rule #7.
+
 ## 2026-03-02j
 
 - **fix ghost character sprites on buildings** — `build_visual_upload` sized buffers from `RenderFrameConfig.npc.count` (stale FixedUpdate copy) instead of live `GpuSlotPool.count()`. On frames where FixedUpdate hadn't ticked (especially startup/OnEnter), count was 0, truncating visual buffers and silently dropping dirty writes. Building slots never got visual_data populated, causing uninitialized data to render as character sprites on top of buildings. Fixed by reading live allocator count directly.

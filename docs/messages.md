@@ -8,45 +8,9 @@ Communication between Bevy systems and GPU compute uses two patterns:
 
 All message types and statics are defined in `rust/src/messages.rs`. Bevy resources are in `rust/src/resources.rs`.
 
-## Data Ownership & Authority Model
+## Data Ownership & Authority
 
-Canonical contract: see [authority.md](authority.md). If this file and any other doc disagree, `authority.md` wins.
-
-Each piece of NPC data has exactly one authoritative owner.
-
-**Staleness budget**:
-- Always-on readbacks (`positions`, `combat_targets`, `health`) are typically ~1 frame stale.
-- Throttled readbacks (`factions`, `threat_counts`) are intentionally multi-frame stale and must not be used as hard gameplay authority.
-
-**Anti-pattern**: no system may read from GPU readback AND write back to the same GPU field in the same frame. That creates a feedback loop where 1-frame delay compounds into oscillation.
-
-| Data | Authority | Direction | Notes |
-|------|-----------|-----------|-------|
-| **GPU-Authoritative** (written by compute shader, read back 1 frame later) ||||
-| Positions | GPU | GPU → CPU | Compute shader moves NPCs; Bevy async Readback → GpuReadState |
-| Spatial grid | GPU | Internal | Built each frame (clear → insert → query). Not read back. |
-| Combat targets | GPU | GPU → CPU | Nearest enemy index via grid neighbor search; readback to GpuReadState |
-| Arrivals | CPU | Internal | `HasTarget` + `gpu_position_readback` distance check → `AtDestination` |
-| **CPU-Authoritative** (written by ECS systems, uploaded to GPU next frame) ||||
-| Health | CPU | CPU → GPU | damage_system/healing_system write; uploaded for GPU targeting threshold |
-| Targets/Goals | CPU | CPU → GPU | Systems submit to MovementIntents; resolve_movement_system emits SetTarget; GPU interpolates movement |
-| Factions | CPU | CPU → GPU | Set at spawn, never changes (0=Villager, 1+=Raider towns) |
-| Speeds | CPU | CPU → GPU | Set at spawn, modified by starvation_system |
-| **CPU-Only** (never sent to GPU) ||||
-| GpuSlot | CPU | Internal | Links Bevy entity to GPU slot index (unified namespace for NPCs + buildings) |
-| Job | CPU | Internal | Archer, Farmer, Raider, Fighter, Miner — determines behavior |
-| Energy | CPU | Internal | Drives tired/rest decisions (drain/recover rates) |
-| State markers | CPU | Internal | Dead, InCombat, Patrolling, OnDuty, Resting, Raiding, etc. |
-| Config components | CPU | Internal | FleeThreshold, LeashRange, WoundedThreshold, Stealer |
-| AttackTimer | CPU | Internal | Cooldown between attacks |
-| AttackStats | CPU | Internal | melee(range=150, speed=500) or ranged(range=300, speed=200) |
-| PatrolRoute | CPU | Internal | Guard post sequence for patrols |
-| Home | CPU | Internal | Rest location (spawner building) |
-| WorkPosition | CPU | Internal | Farm location for farmers |
-| **Render-Only** (uploaded to NPC visual/equip storage buffers, never in compute shader) ||||
-| Sprite indices | EntityGpuState | CPU → NpcVisualUpload → NpcVisualBuffers | Atlas col/row per NPC; packed into visual storage buffer [f32;8] by build_visual_upload |
-| Colors | ECS → NpcVisualUpload | CPU → NpcVisualBuffers | RGBA tint from Faction/Job; packed into visual storage buffer [f32;8] by build_visual_upload |
-| Equipment sprites | ECS → NpcVisualUpload | CPU → NpcVisualBuffers | Per-layer col/row (armor/helmet/weapon/item/status/healing); -1.0 sentinel = unequipped/inactive. Derived by `build_visual_upload` from ECS components on dirty slots only (event-driven via MarkVisualDirty). |
+See [authority.md](authority.md) for the complete data ownership table, hard rules, and staleness budget. That document is the single source of truth for which systems own which data.
 
 ## Bevy Messages
 
@@ -182,8 +146,5 @@ GOING_TO_REST=11, GOING_TO_WORK=12
 
 ## Known Issues
 
-- **Health dual ownership**: CPU-authoritative but synced to GPU for targeting. If upload fails or is delayed, GPU targets based on stale health. Bounded to 1 frame.
+- **Health dual ownership**: See [authority.md](authority.md) — CPU-authoritative, GPU mirror is advisory, bounded 1-frame divergence.
 - **All large resources zero-clone**: GpuReadState no longer extracted, ProjPositionState + ProjBufferWrites use `Extract<Res<T>>` (zero-clone).
-
-
-

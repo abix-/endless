@@ -126,10 +126,10 @@ Frame execution order ───────────────────�
 | [behavior.md](behavior.md) | Decision system, utility AI, state machine, energy, patrol, flee/leash | 8/10 |
 | [ai-player.md](ai-player.md) | AI decision loop, hunger system, building scoring, slot placement, squad commander, migration | 8/10 |
 | [economy.md](economy.md) | Farm growth, food theft, starvation, raider foraging, spawner respawn (BuildingInstance fields), dynamic raider town migration (spawn→boat→disembark→walk→settle) | 8/10 |
-| [messages.md](messages.md) | Message flow, GpuUpdateMsg, GAME_CONFIG_STAGING, readback resources | 7/10 |
+| [messages.md](messages.md) | Message flow, GpuUpdateMsg, GAME_CONFIG_STAGING, readback resources (authority → [authority.md](authority.md)) | 7/10 |
 | [resources.md](resources.md) | Bevy resources, game state ownership, UI caches, world data | 7/10 |
 | [projectiles.md](projectiles.md) | GPU projectile compute, hit detection, instanced rendering, slot allocation | 7/10 |
-| [authority.md](authority.md) | GPU readback vs ECS authority contract, source-of-truth rules, validation patterns | - |
+| [authority.md](authority.md) | Complete data ownership (GPU/CPU/render-only), hard rules, staleness budget, slot namespace | 9/10 |
 | [performance-review.md](performance-review.md) | Hot-path perf anti-pattern checklist, review procedure, benchmark guardrails | - |
 | [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
 | [roadmap.md](roadmap.md) | Feature tracking, migration plan | - |

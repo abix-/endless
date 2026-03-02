@@ -492,10 +492,10 @@ fn click_to_select_system(
             }
 
             let positions = &gpu_state.positions;
-            let factions = &gpu_state.factions;
             let npc_count = positions.len() / 2;
 
             // Hit-test enemy NPC (nearest within 20px, different faction)
+            // Use ECS faction from EntityMap (authoritative), not throttled GPU factions readback.
             let select_radius = 20.0_f32;
             let mut best_dist = select_radius;
             let mut best_enemy: Option<(usize, Vec2)> = None;
@@ -508,7 +508,11 @@ fn click_to_select_system(
                 if px < -9000.0 {
                     continue;
                 }
-                let faction = factions.get(i).copied().unwrap_or(0);
+                let faction = click
+                    .entity_map
+                    .get_npc(i)
+                    .map(|n| n.faction)
+                    .unwrap_or(0);
                 if faction == 0 {
                     continue;
                 }

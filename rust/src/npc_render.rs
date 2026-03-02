@@ -49,6 +49,7 @@ use crate::gpu::{
     RenderFrameConfig,
 };
 use crate::render::{CameraState, MainCamera};
+use crate::resources::GpuSlotPool;
 
 // =============================================================================
 // MARKER COMPONENT
@@ -1226,6 +1227,7 @@ fn extract_npc_data(
     gpu_state: Extract<Res<EntityGpuState>>,
     config: Extract<Res<RenderFrameConfig>>,
     visual_upload: Extract<Res<NpcVisualUpload>>,
+    slots: Extract<Res<GpuSlotPool>>,
     gpu_buffers: Option<Res<EntityGpuBuffers>>,
     visual_buffers: Option<Res<NpcVisualBuffers>>,
     render_queue: Res<RenderQueue>,
@@ -1246,7 +1248,8 @@ fn extract_npc_data(
     // --- Sub-timing: compute buffers ---
     let t0 = std::time::Instant::now();
     if let Some(gpu_bufs) = gpu_buffers {
-        let n = config.npc.count as usize;
+        // Read live count from authoritative GpuSlotPool — not stale RenderFrameConfig copy
+        let n = slots.count();
         // Positions: strict coalescing — GPU writes positions[i] every frame, stale CPU values teleport NPCs
         write_coalesced_exact_f32(
             &render_queue,

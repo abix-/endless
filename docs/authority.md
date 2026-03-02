@@ -1,25 +1,46 @@
 # Authority Contract
 
-This document defines the canonical source of truth for gameplay data and how GPU readback must be used.
+This document is the **single source of truth** for data ownership across the entire codebase. Every piece of gameplay data has exactly one authoritative owner.
 
 ## Why This Exists
 
 We had regressions where throttled GPU readback fields were treated as authoritative gameplay state.
 This contract prevents that class of bug.
 
-## Source Of Truth Rules
+## Data Ownership
 
-| Data | Authoritative Owner | Readback Cadence | Allowed Gameplay Usage |
-|------|----------------------|------------------|------------------------|
-| `positions` | GPU compute | Always-on async readback (about 1 frame old) | Yes: movement sync, arrival checks, targeting distance |
-| `combat_targets` | GPU compute | Always-on async readback (about 1 frame old) | Yes: candidate target selection |
-| `health` (entity state) | ECS/CPU (`Health` components) | GPU mirror read back always-on | ECS is truth; GPU value is advisory |
-| `factions` | ECS/CPU (`Faction`, `EntityMap` NPC metadata) | Throttled readback (every 60 frames) | No hard gates; debug/advisory only |
-| `threat_counts` | GPU compute derived metric | Throttled readback (every 30 frames) | Heuristic input only; never identity/ownership truth |
-| Slot identity (`slot -> entity`) | ECS/CPU (`GpuSlotPool`, `EntityMap`) | N/A | Authoritative for routing and ownership checks |
-| Entity slot count (high-water mark) | `GpuSlotPool.count()` | `RenderFrameConfig.npc.count` (FixedUpdate copy, render world only) | GPU buffer sizing, dispatch bounds. Main-world systems MUST read `GpuSlotPool` directly. |
-| Live NPC count | `EntityMap.npc_count()` | None | Gameplay logic, UI, test assertions |
-| Live building count | `EntityMap.building_count()` | None | Gameplay logic, UI, test assertions |
+| Data | Authority | Direction | Notes |
+|------|-----------|-----------|-------|
+| **GPU-Authoritative** (written by compute shader, read back ~1 frame later) ||||
+| Positions | GPU | GPU → CPU | Compute shader moves NPCs; Bevy async Readback → GpuReadState. Always-on. |
+| Spatial grid | GPU | Internal | Built each frame (clear → insert → query). Not read back. |
+| Combat targets | GPU | GPU → CPU | Nearest enemy index via grid neighbor search; readback to GpuReadState. Always-on. Candidate only — must re-validate in ECS. |
+| Threat counts | GPU | GPU → CPU | Derived metric. Throttled readback (every 30 frames). Heuristic input only; never identity/ownership truth. |
+| **CPU-Authoritative** (written by ECS systems, uploaded to GPU next frame) ||||
+| Health | CPU (`Health` component) | CPU → GPU | damage_system/healing_system write; uploaded for GPU targeting threshold. GPU mirror is advisory. |
+| Targets/Goals | CPU | CPU → GPU | Systems submit to MovementIntents; resolve_movement_system emits SetTarget; GPU interpolates movement. |
+| Factions | CPU (`Faction`, `EntityMap`) | CPU → GPU | Set at spawn, never changes (0=Villager, 1+=Raider towns). Throttled readback (every 60 frames) — debug/advisory only. |
+| Speeds | CPU | CPU → GPU | Set at spawn, modified by starvation_system. |
+| Arrivals | CPU | Internal | `HasTarget` + `gpu_position_readback` distance check → `AtDestination`. |
+| Slot identity | CPU (`GpuSlotPool`, `EntityMap`) | N/A | Authoritative for routing and ownership checks. |
+| Entity slot count | `GpuSlotPool.count()` | `RenderFrameConfig.npc.count` (FixedUpdate copy) | GPU buffer sizing, dispatch bounds. Main-world systems MUST read `GpuSlotPool` directly. |
+| Live NPC count | `EntityMap.npc_count()` | None | Gameplay logic, UI, test assertions. |
+| Live building count | `EntityMap.building_count()` | None | Gameplay logic, UI, test assertions. |
+| **CPU-Only** (never sent to GPU compute) ||||
+| GpuSlot | CPU | Internal | Links Bevy entity to GPU slot index (unified namespace for NPCs + buildings). |
+| Job | CPU | Internal | Archer, Farmer, Raider, Fighter, Miner — determines behavior. |
+| Energy | CPU | Internal | Drives tired/rest decisions (drain/recover rates). |
+| State markers | CPU | Internal | Dead, InCombat, Patrolling, OnDuty, Resting, Raiding, etc. |
+| Config components | CPU | Internal | FleeThreshold, LeashRange, WoundedThreshold, Stealer. |
+| AttackTimer | CPU | Internal | Cooldown between attacks. |
+| AttackStats | CPU | Internal | melee(range=100, cooldown=1.0) or ranged(range=200, cooldown=1.5). |
+| PatrolRoute | CPU | Internal | Guard post sequence for patrols. |
+| Home | CPU | Internal | Rest location (spawner building). |
+| WorkPosition | CPU | Internal | Farm location for farmers. |
+| **Render-Only** (uploaded to visual/equip storage buffers, never in compute shader) ||||
+| Sprite indices | EntityGpuState | CPU → NpcVisualUpload → NpcVisualBuffers | Atlas col/row per NPC; packed into visual storage buffer by build_visual_upload. |
+| Colors | ECS → NpcVisualUpload | CPU → NpcVisualBuffers | RGBA tint from Faction/Job; packed into visual storage buffer by build_visual_upload. |
+| Equipment sprites | ECS → NpcVisualUpload | CPU → NpcVisualBuffers | Per-layer col/row (armor/helmet/weapon/item/status/healing); -1.0 sentinel = unequipped/inactive. Event-driven via MarkVisualDirty. |
 
 ## Hard Rules
 
@@ -30,6 +51,7 @@ This contract prevents that class of bug.
 5. Readback is asynchronous; stale values are expected, not exceptional.
 6. Main-world systems that size buffers or iterate entity slots must read `GpuSlotPool.count()` directly. `RenderFrameConfig.npc.count` is a render-world convenience copy updated in FixedUpdate — it lags behind allocations in OnEnter/Update.
 7. For live NPC/building counts, use `EntityMap` methods (`npc_count()`, `building_count()`, `iter_npcs()`, `iter_instances()`). Never use `GpuSlotPool.alive()` for NPC-only or building-only counts — it's the combined total of both.
+8. No system may read from GPU readback AND write back to the same GPU field in the same frame. That creates a feedback loop where 1-frame delay compounds into oscillation.
 
 ## Practical Pattern
 
@@ -40,11 +62,10 @@ For combat target validation:
 3. Validate faction/ownership from ECS data.
 4. Use GPU-readback fields only for geometry/range (`positions`) and heuristics.
 
-## Cadence Notes
+## Staleness Budget
 
-- `positions`, `combat_targets`, and `health` are always-on readbacks.
-- `factions` readback is intentionally throttled to every 60 frames.
-- `threat_counts` readback is intentionally throttled to every 30 frames.
+- Always-on readbacks (`positions`, `combat_targets`, `health`) are typically ~1 frame stale.
+- Throttled readbacks (`factions`, `threat_counts`) are intentionally multi-frame stale and must not be used as hard gameplay authority.
 - Throttled readback also has async delay (spawn at frame N, consumed later).
 
 ## Slot Namespace

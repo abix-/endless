@@ -140,7 +140,7 @@ fn sync_debug_settings(
 /// Debug: log NPC count every second, plus optional detailed logs.
 fn debug_tick_system(
     time: Res<Time>,
-    slots: Res<GpuSlotPool>,
+    entity_map: Res<EntityMap>,
     gpu_state: Res<GpuReadState>,
     combat_debug: Res<CombatDebug>,
     health_debug: Res<HealthDebug>,
@@ -149,9 +149,10 @@ fn debug_tick_system(
 ) {
     *last_log += time.delta_secs();
     if *last_log >= 1.0 {
-        if flags.readback && slots.alive() > 0 {
-            info!("Tick: {} NPCs active", slots.alive());
-            let n = gpu_state.npc_count.min(5);
+        let npc_count = entity_map.npc_count();
+        if flags.readback && npc_count > 0 {
+            info!("Tick: {} NPCs active", npc_count);
+            let n = npc_count.min(5);
             for i in 0..n {
                 let x = gpu_state.positions.get(i * 2).copied().unwrap_or(0.0);
                 let y = gpu_state.positions.get(i * 2 + 1).copied().unwrap_or(0.0);
