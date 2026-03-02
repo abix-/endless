@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-03-02i
+
+- **fix building overlap (64px grid)** — `EntityMap` grid cell lookups in `resources.rs` used hardcoded `/ 32.0` instead of `TOWN_GRID_SPACING` (now 64.0), causing `has_building_at()` to check wrong grid cells. AI would stack buildings at the same position. All 12 occurrences replaced with `TOWN_GRID_SPACING`.
+- **fix ghost NPC sprites on buildings** — equip buffer coalesced upload in `npc_render.rs` used stride 24 (6 layers) but actual data is 28 floats per slot (7 layers × 4 floats). Incremental equip updates wrote to wrong GPU offsets, leaving stale NPC equipment sprites visible on building slots. Fixed stride to 28 and gap constant to 27.
+- **FPS cap setting** — new `fps_cap` field in `UserSettings` (0=uncapped, 30/60/120/144/240 presets). ComboBox in Video settings (both pause menu and main menu). Drives Bevy `focused_mode` via `focused_mode_for_fps_cap()` helper. Applied on startup, setting change, and reset-to-defaults.
+
 ## 2026-03-02h
 
 - **fixed 60 UPS game loop (Factorio model)** — all game systems (Drain → Spawn → Combat → Behavior → movement resolution → GPU data update) moved from `Update` (variable dt) to `FixedUpdate` at 60 Hz (16.67ms/tick). Deterministic simulation: `time.delta_secs()` in FixedUpdate always returns 1/60s, `GameTime::delta()` returns `(1/60) * time_scale`. Test tick systems (28 registrations) also moved to FixedUpdate; UI/save/audio/camera stay on Update. `UpsCounter` resource tracks actual ticks/second — FixedUpdate increments counter, HUD samples per wall-clock second. UPS displayed in top bar alongside FPS.

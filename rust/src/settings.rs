@@ -601,6 +601,9 @@ pub struct UserSettings {
     pub fullscreen: bool,
     #[serde(default)]
     pub background_fps: bool,
+    /// FPS cap: 0 = uncapped, otherwise target FPS (e.g. 30, 60, 120).
+    #[serde(default)]
+    pub fps_cap: u32,
     // World gen style (0=Classic, 1=Continents)
     #[serde(default)]
     pub gen_style: u8,
@@ -788,6 +791,7 @@ impl Default for UserSettings {
             vsync: true,
             fullscreen: true,
             background_fps: false,
+            fps_cap: 0,
             debug_coordinates: false,
             debug_all_npcs: false,
             debug_readback: false,
@@ -870,6 +874,18 @@ impl UserSettings {
         self.window_height = self
             .window_height
             .clamp(MIN_WINDOW_HEIGHT, MAX_WINDOW_HEIGHT);
+    }
+}
+
+/// Convert fps_cap setting into the Bevy focused UpdateMode.
+/// 0 = Continuous (uncapped), otherwise reactive at 1/fps.
+pub fn focused_mode_for_fps_cap(fps_cap: u32) -> bevy::winit::UpdateMode {
+    if fps_cap == 0 {
+        bevy::winit::UpdateMode::Continuous
+    } else {
+        bevy::winit::UpdateMode::reactive_low_power(std::time::Duration::from_secs_f64(
+            1.0 / fps_cap as f64,
+        ))
     }
 }
 

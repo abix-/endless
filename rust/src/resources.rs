@@ -1,6 +1,6 @@
 //! ECS Resources - Shared state accessible by all systems
 
-use crate::constants::{MAX_ENTITIES, MAX_NPC_COUNT, MAX_PROJECTILES};
+use crate::constants::{MAX_ENTITIES, MAX_NPC_COUNT, MAX_PROJECTILES, TOWN_GRID_SPACING};
 use bevy::prelude::*;
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
@@ -312,8 +312,8 @@ impl EntityMap {
             if let Some(slots) = self.by_kind_town.get_mut(&(old.kind, old.town_idx)) {
                 slots.retain(|&s| s != slot);
             }
-            let old_gc = (old.position.x / 32.0).floor() as i32;
-            let old_gr = (old.position.y / 32.0).floor() as i32;
+            let old_gc = (old.position.x / TOWN_GRID_SPACING).floor() as i32;
+            let old_gr = (old.position.y / TOWN_GRID_SPACING).floor() as i32;
             self.by_grid_cell.remove(&(old_gc, old_gr));
             self.spatial_remove(slot, old.position);
         }
@@ -322,8 +322,8 @@ impl EntityMap {
             .entry((kind, inst.town_idx))
             .or_default()
             .push(slot);
-        let gc = (inst.position.x / 32.0).floor() as i32;
-        let gr = (inst.position.y / 32.0).floor() as i32;
+        let gc = (inst.position.x / TOWN_GRID_SPACING).floor() as i32;
+        let gr = (inst.position.y / TOWN_GRID_SPACING).floor() as i32;
         self.by_grid_cell.insert((gc, gr), slot);
         let pos = inst.position;
         self.instances.insert(slot, inst);
@@ -339,8 +339,8 @@ impl EntityMap {
             if let Some(slots) = self.by_kind_town.get_mut(&(inst.kind, inst.town_idx)) {
                 slots.retain(|&s| s != slot);
             }
-            let gc = (inst.position.x / 32.0).floor() as i32;
-            let gr = (inst.position.y / 32.0).floor() as i32;
+            let gc = (inst.position.x / TOWN_GRID_SPACING).floor() as i32;
+            let gr = (inst.position.y / TOWN_GRID_SPACING).floor() as i32;
             self.by_grid_cell.remove(&(gc, gr));
             self.spatial_remove(slot, inst.position);
             Some(inst)
@@ -420,16 +420,16 @@ impl EntityMap {
     }
 
     pub fn find_by_position(&self, pos: Vec2) -> Option<&BuildingInstance> {
-        let gc = (pos.x / 32.0).floor() as i32;
-        let gr = (pos.y / 32.0).floor() as i32;
+        let gc = (pos.x / TOWN_GRID_SPACING).floor() as i32;
+        let gr = (pos.y / TOWN_GRID_SPACING).floor() as i32;
         self.by_grid_cell
             .get(&(gc, gr))
             .and_then(|&s| self.instances.get(&s))
     }
 
     pub fn find_by_position_mut(&mut self, pos: Vec2) -> Option<&mut BuildingInstance> {
-        let gc = (pos.x / 32.0).floor() as i32;
-        let gr = (pos.y / 32.0).floor() as i32;
+        let gc = (pos.x / TOWN_GRID_SPACING).floor() as i32;
+        let gr = (pos.y / TOWN_GRID_SPACING).floor() as i32;
         let slot = self.by_grid_cell.get(&(gc, gr)).copied()?;
         self.instances.get_mut(&slot)
     }
@@ -460,8 +460,8 @@ impl EntityMap {
     }
 
     pub fn slot_at_position(&self, pos: Vec2) -> Option<usize> {
-        let gc = (pos.x / 32.0).floor() as i32;
-        let gr = (pos.y / 32.0).floor() as i32;
+        let gc = (pos.x / TOWN_GRID_SPACING).floor() as i32;
+        let gr = (pos.y / TOWN_GRID_SPACING).floor() as i32;
         self.by_grid_cell.get(&(gc, gr)).copied()
     }
 

@@ -219,6 +219,36 @@ pub fn settings_panel_ui(
 
                             ui.checkbox(&mut settings.vsync, "VSync")
                                 .on_hover_text("Reduces tearing by syncing frame presentation to refresh rate.");
+                            ui.add_space(6.0);
+
+                            ui.label("FPS Cap");
+                            const FPS_OPTIONS: &[(u32, &str)] = &[
+                                (0, "Uncapped"),
+                                (30, "30"),
+                                (60, "60"),
+                                (120, "120"),
+                                (144, "144"),
+                                (240, "240"),
+                            ];
+                            let current_label = FPS_OPTIONS
+                                .iter()
+                                .find(|(v, _)| *v == settings.fps_cap)
+                                .map(|(_, l)| *l)
+                                .unwrap_or("Custom");
+                            egui::ComboBox::from_id_salt("settings_fps_cap")
+                                .selected_text(if settings.fps_cap > 0 && current_label == "Custom" {
+                                    format!("{}", settings.fps_cap)
+                                } else {
+                                    current_label.to_string()
+                                })
+                                .show_ui(ui, |ui| {
+                                    for &(val, label) in FPS_OPTIONS {
+                                        if ui.selectable_label(settings.fps_cap == val, label).clicked() {
+                                            settings.fps_cap = val;
+                                        }
+                                    }
+                                });
+                            ui.small("Limit render frame rate. 0 = unlimited.");
                         }
                         PauseSettingsTab::Camera => {
                             ui.add(egui::Slider::new(&mut settings.scroll_speed, 100.0..=2000.0).text("Scroll Speed"))
@@ -1063,6 +1093,7 @@ fn pause_menu_system(
     let prev_vsync = settings.vsync;
     let prev_fullscreen = settings.fullscreen;
     let prev_bg_fps = settings.background_fps;
+    let prev_fps_cap = settings.fps_cap;
     let prev_music_vol = settings.music_volume;
 
     // Dim background
@@ -1127,6 +1158,7 @@ fn pause_menu_system(
     if reset_requested {
         locals.rebinding = None;
         *settings = crate::settings::UserSettings::default();
+        winit_settings.focused_mode = crate::settings::focused_mode_for_fps_cap(settings.fps_cap);
         winit_settings.unfocused_mode = if settings.background_fps {
             bevy::winit::UpdateMode::Continuous
         } else {
@@ -1153,6 +1185,10 @@ fn pause_menu_system(
         if let Ok(mut window) = windows.single_mut() {
             crate::settings::apply_video_settings_to_window(&mut window, &settings);
         }
+    }
+    // Apply FPS cap change
+    if settings.fps_cap != prev_fps_cap {
+        winit_settings.focused_mode = crate::settings::focused_mode_for_fps_cap(settings.fps_cap);
     }
     // Apply background FPS change
     if settings.background_fps != prev_bg_fps {

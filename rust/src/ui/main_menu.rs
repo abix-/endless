@@ -368,6 +368,7 @@ pub fn main_menu_system(
         let prev_height = user_settings.window_height;
         let prev_maximized = user_settings.window_maximized;
         let prev_bg_fps = user_settings.background_fps;
+        let prev_fps_cap = user_settings.fps_cap;
         let prev_music_vol = user_settings.music_volume;
 
         // Handle key rebinding
@@ -411,6 +412,8 @@ pub fn main_menu_system(
             if inner.reset_requested {
                 state.rebinding_action = None;
                 *user_settings = settings::UserSettings::default();
+                winit_settings.focused_mode =
+                    settings::focused_mode_for_fps_cap(user_settings.fps_cap);
             }
         }
 
@@ -425,6 +428,10 @@ pub fn main_menu_system(
             if let Ok(mut window) = windows.single_mut() {
                 settings::apply_video_settings_to_window(&mut window, &user_settings);
             }
+        }
+        if user_settings.fps_cap != prev_fps_cap {
+            winit_settings.focused_mode =
+                settings::focused_mode_for_fps_cap(user_settings.fps_cap);
         }
         if user_settings.background_fps != prev_bg_fps {
             winit_settings.unfocused_mode = if user_settings.background_fps {

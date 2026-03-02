@@ -4,7 +4,7 @@
 
 **Terrain** uses Bevy's built-in `TilemapChunk` (single layer, `AlphaMode2d::Opaque`, z=-1). **Everything else** — buildings, NPCs, equipment, farms, building HP bars, projectiles — uses a custom GPU pipeline via Bevy's RenderCommand pattern in the Transparent2d phase. Explicit sort keys guarantee deterministic layer ordering (`CompareFunction::Always`, no depth testing between passes). Two render paths share one pipeline with a `StorageDrawMode` specialization key:
 
-- **Storage buffer path** (NPCs + selection brackets): `vertex_npc` shader entry point reads positions/health directly from compute shader's `NpcGpuBuffers` storage buffers (bind group 2). Visual/equipment data uploaded from CPU as flat storage buffers (`NpcVisualBuffers`). Three specialized variants via `#ifdef` shader defs: `MODE_NPC_BODY` (layer 0, non-building only), `MODE_NPC_OVERLAY` (layers 1-6, non-building only), `MODE_SELECTION_BRACKET` (procedural corner brackets from per-instance style data).
+- **Storage buffer path** (NPCs + selection brackets): `vertex_npc` shader entry point reads positions/health directly from compute shader's `NpcGpuBuffers` storage buffers (bind group 2). Visual/equipment data uploaded from CPU as flat storage buffers (`NpcVisualBuffers`). Three specialized variants via `#ifdef` shader defs: `MODE_NPC_BODY` (layer 0, non-building only), `MODE_NPC_OVERLAY` (layers 1-7, non-building only), `MODE_SELECTION_BRACKET` (procedural corner brackets from per-instance style data).
 - **Instance buffer path** (buildings, building overlays, projectiles): `vertex` shader entry point reads from classic per-instance `InstanceData` vertex attributes (slot 1). Building bodies use `BuildingBodyInstances` built each frame from `EntityGpuState` via `EntityMap.iter_instances()`.
 
 Four textures bound simultaneously (group 0, bindings 0-7) — `atlas_id` selects which to sample (0=character, 1=world, 2=heal/3=sleep/4=arrow/8=boat via extras atlas, 7=building). Bar-only modes: 5=building HP bar (green/yellow/red), 6=mining progress bar (gold). Procedural mode: 9=selection brackets (no texture sampling, corner brackets from quad_uv). Atlas ID constants defined in `constants.rs` (`ATLAS_CHAR` through `ATLAS_BOAT`).
@@ -17,8 +17,8 @@ Bevy's built-in sprite renderer creates one entity per sprite. At 16K NPCs, that
 
 - **1 entity per batch** (NpcBatch, ProjBatch) instead of 16,384 entities
 - **GPU compute data stays on GPU** — vertex shader reads positions/health directly from compute output via storage buffers (bind group 2), no readback needed for rendering
-- **Per-dirty storage buffer uploads** — visual [f32;8] + equip [f32;24] per slot, only changed slots uploaded per frame via per-index `write_buffer` (typically <1KB vs ~3.84MB bulk at 30K NPCs). Flash-only slots (damage flash decay) upload visual_data only, skipping equip_data entirely
-- **Multi-layer drawing** — body + up to 6 overlay layers (4 equipment + 2 visual indicators), each a separate `draw_indexed` call within one RenderCommand
+- **Per-dirty storage buffer uploads** — visual [f32;8] + equip [f32;28] per slot, only changed slots uploaded per frame via per-index `write_buffer` (typically <1KB vs ~3.84MB bulk at 30K NPCs). Flash-only slots (damage flash decay) upload visual_data only, skipping equip_data entirely
+- **Multi-layer drawing** — body + up to 7 overlay layers (4 equipment + 3 visual indicators), each a separate `draw_indexed` call within one RenderCommand
 
 ## Data Flow
 
@@ -71,7 +71,7 @@ NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
                       MODE_NPC_BODY — layer 0, non-building only
 
                     DrawNpcOverlayCommands (NPC overlays, storage path):
-                      MODE_NPC_OVERLAY — layers 1-6, non-building only
+                      MODE_NPC_OVERLAY — layers 1-7, non-building only
 
 ProjBufferWrites     ──Extract<Res<T>>──▶ zero-clone immutable read
 ProjPositionState    ──Extract<Res<T>>──▶ zero-clone immutable read
@@ -104,11 +104,11 @@ NPC rendering uses GPU storage buffers instead of per-instance vertex attributes
 | 0 | `npc_positions` | `NpcGpuBuffers.positions` (compute output) | 8B (vec2) |
 | 1 | `npc_healths` | `NpcGpuBuffers.healths` (compute output) | 4B (f32) |
 | 2 | `npc_visual_buf` | `NpcVisualBuffers.visual` (CPU upload) | 32B ([f32;8]) |
-| 3 | `npc_equip` | `NpcVisualBuffers.equip` (CPU upload) | 96B (6×[f32;4]) |
+| 3 | `npc_equip` | `NpcVisualBuffers.equip` (CPU upload) | 112B (7×[f32;4]) |
 
 **Visual buffer layout** (`[f32; 8]` per slot): `[sprite_col, sprite_row, body_atlas, flash, r, g, b, a]`. Built by `build_visual_upload` from `EntityGpuState.sprite_indices`, `.flash_values`, and ECS Faction/Job components. Hidden slots cleared via `hidden_indices` pre-pass (event-driven, not full-array fill). New capacity initialized to `-1.0` via `resize()`. Building slots filled by `iter_instances()` loop. Phantom slots stay hidden via `sprite_col < 0`.
 
-**Equipment buffer layout** (`[f32; 24]` per slot = 6 layers × `[col, row, atlas, _pad]`): Built by `build_visual_upload` from ECS components (EquippedArmor, EquippedHelmet, EquippedWeapon, Activity, Healing). Building slots get equip block wiped to `-1.0` sentinels. `col < 0` means unequipped/inactive.
+**Equipment buffer layout** (`[f32; 28]` per slot = 7 layers × `[col, row, atlas, _pad]`): Built by `build_visual_upload` from ECS components (NpcEquipment armor/helm/weapon/shield, CarriedLoot, Activity for sleep, NpcFlags for healing). Building slots get equip block wiped to `-1.0` sentinels. `col < 0` means unequipped/inactive.
 
 **Instance offset encoding:** 7 `draw_indexed` calls, each with `entity_count` instances. Shader derives:
 ```wgsl
@@ -360,7 +360,7 @@ The render pipeline runs in Bevy's render world after extract:
 | Render | `DrawBuildingBodyCommands` | Instance path — building body sprites from `BuildingBodyRenderBuffers` (built from `EntityGpuState` via `EntityMap`) |
 | Render | `DrawBuildingOverlayCommands` | Instance path — farms, building HP bars, mine progress |
 | Render | `DrawNpcBodyCommands` | Storage path, `#ifdef MODE_NPC_BODY` — layer 0, non-building only |
-| Render | `DrawNpcOverlayCommands` | Storage path, `#ifdef MODE_NPC_OVERLAY` — layers 1-6, non-building only |
+| Render | `DrawNpcOverlayCommands` | Storage path, `#ifdef MODE_NPC_OVERLAY` — layers 1-7, non-building only |
 | Render | `DrawProjCommands` | Instance path — arrow projectiles |
 | Render | `DrawSelectionBracketCommands` | Storage+instance hybrid — procedural selection brackets |
 
@@ -371,7 +371,7 @@ Bevy's RenderCommand trait defines GPU commands for drawing. Six command chains 
 **Generic storage draw** — `DrawStoragePass<const BODY_ONLY: bool>`:
 ```rust
 // BODY_ONLY=true: 1 draw_indexed (layer 0 only)
-// BODY_ONLY=false: 6 draw_indexed (layers 1-6)
+// BODY_ONLY=false: 7 draw_indexed (layers 1-7)
 type DrawNpcBodyCommands = (..., DrawStoragePass<true>);       // + MODE_NPC_BODY shader def
 type DrawNpcOverlayCommands = (..., DrawStoragePass<false>);   // + MODE_NPC_OVERLAY shader def
 ```
@@ -493,11 +493,11 @@ Terrain uses `AlphaMode2d::Opaque`. Buildings are rendered through the GPU insta
 
 **Slot Indicators** (`ui/mod.rs`): Building grid indicators use Sprite entities at z=-0.3 with a `SlotIndicator` marker component — not gizmos, because Bevy gizmos render in a separate pass after all Transparent2d items and can't be z-sorted with them. Green "+" crosshairs mark empty unlocked slots, dim bracket corners mark adjacent locked slots. Indicators are rebuilt when `TownGrids` or `WorldGrid` changes, and despawned on game cleanup.
 
-**`TileSpec` enum** (`world.rs`): `Single(col, row)` for a single 16×16 sprite, `Quad([(col,row); 4])` for a 2×2 composite of four 16×16 sprites (TL, TR, BL, BR), or `External(&'static str)` for a standalone 32×32 PNG (asset path, e.g. `"sprites/house.png"`). Rock terrain uses Quad; Farm and Tent buildings use Quad; FarmerHome, ArcherHome, Waypoint, MinerHome, CrossbowHome, and FighterHome use External (dedicated PNGs from `BUILDING_REGISTRY`).
+**`TileSpec` enum** (`world.rs`): `Single(col, row)` for a single 16×16 sprite, `Quad([(col,row); 4])` for a 2×2 composite of four 16×16 sprites (TL, TR, BL, BR), or `External(&'static str)` for a standalone PNG (asset path, e.g. `"sprites/farmer_home_64x64.png"`). Rock terrain uses Quad; Tent uses Quad. Most buildings use External 64×64 PNGs from `BUILDING_REGISTRY`.
 
-**`build_tileset(atlas, tiles, extra, images)`** (`world.rs`): Extracts tiles from the world atlas and builds a 32×32 `texture_2d_array` for terrain. `Single` tiles are nearest-neighbor 2× upscaled (each pixel → 2×2 block). `Quad` tiles blit four 16×16 sprites into quadrants. `External` tiles copy raw pixel data from extra images. Called once with `TERRAIN_TILES` (11 tiles, no extras).
+**`build_tileset(atlas, tiles, extra, images)`** (`world.rs`): Extracts tiles from the world atlas and builds a 64×64 `texture_2d_array` for terrain (`ATLAS_CELL=64`). `Single` tiles are nearest-neighbor 4× upscaled (16px→64px). `Quad` tiles `blit_2x` four 16×16 sprites into 32×32 quadrants filling 64px. `External` tiles copy raw pixel data (64px direct, smaller sizes NN upscaled). Called once with `TERRAIN_TILES` (11 tiles, no extras).
 
-**`build_building_atlas(atlas, tiles, extra, images)`** (`world.rs`): Builds a 32×(N×32) vertical strip `texture_2d` for the building atlas with `ImageSampler::nearest()` to prevent texture bleeding between layers. Same tile extraction logic as `build_tileset` but outputs a single strip texture instead of a `texture_2d_array`. After base tiles (14 from BUILDING_REGISTRY), appends 10 wall auto-tile layers: E-W straight sprite extracted from `wood_walls_131x32.png` overwrites Wall's base layer, then N-S (90° rotation of E-W), 4 corner sprites (BR source at x=66, rotated 90°/180°/270° for BL/TL/TR), cross/junction sprite (x=33), and 4 T-junction sprites (T source at x=99, rotated 90°/180°/270°). Total layers = BUILDING_REGISTRY.len() + WALL_EXTRA_LAYERS (10). `camera.bldg_layers` includes the extra layers. Stored in `RenderFrameConfig.textures.building_handle`. `BUILDING_REGISTRY` order = tileset strip indices.
+**`build_building_atlas(atlas, tiles, extra, images)`** (`world.rs`): Builds a 64×(N×64) vertical strip `texture_2d` for the building atlas with `ImageSampler::nearest()` to prevent texture bleeding between layers. Same tile extraction logic as `build_tileset` but outputs a single strip texture instead of a `texture_2d_array`. After base tiles (15 from BUILDING_REGISTRY), appends 10 wall auto-tile layers: E-W straight sprite extracted from `wood_walls_131x32.png` overwrites Wall's base layer, then N-S (90° rotation of E-W), 4 corner sprites (BR source at x=66, rotated 90°/180°/270° for BL/TL/TR), cross/junction sprite (x=33), and 4 T-junction sprites (T source at x=99, rotated 90°/180°/270°). Total layers = BUILDING_REGISTRY.len() + WALL_EXTRA_LAYERS (10). `camera.bldg_layers` includes the extra layers. Stored in `RenderFrameConfig.textures.building_handle`. `BUILDING_REGISTRY` order = tileset strip indices.
 
 **`Biome::tileset_index(cell_index)`**: Maps biome + cell position to terrain tileset array index (0-10). Grass alternates 0/1, Forest cycles 2-7, Water=8, Rock=9, Dirt=10.
 

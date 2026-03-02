@@ -151,6 +151,8 @@ fn main() {
             if let Ok(mut window) = windows.single_mut() {
                 endless::settings::apply_video_settings_to_window(&mut window, &settings);
             }
+            winit_settings.focused_mode =
+                endless::settings::focused_mode_for_fps_cap(settings.fps_cap);
             if settings.background_fps {
                 winit_settings.unfocused_mode = bevy::winit::UpdateMode::Continuous;
             }

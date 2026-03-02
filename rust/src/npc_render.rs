@@ -965,7 +965,7 @@ fn extract_selection_overlay(
 const GAP_STRIDE_1: usize = 750; // speeds, factions, healths, flags (750 × 1 × 4 = 3KB/gap)
 const GAP_STRIDE_2: usize = 375; // targets, half_sizes (375 × 2 × 4 = 3KB/gap)
 const GAP_VISUAL: usize = 93; // visual_data (93 × 8 × 4 = 3KB/gap)
-const GAP_EQUIP: usize = 31; // equip_data (31 × 24 × 4 = 3KB/gap)
+const GAP_EQUIP: usize = 27; // equip_data (27 × 28 × 4 = 3KB/gap)
 
 /// Bulk-write the first `count` elements of `data` to `buf` in a single write_buffer call.
 fn write_bulk<T: bytemuck::NoUninit>(queue: &RenderQueue, buf: &Buffer, data: &[T], count: usize) {
@@ -1362,7 +1362,7 @@ fn extract_npc_data(
                     &vis_bufs.equip,
                     &visual_upload.equip_data,
                     &visual_upload.equip_uploaded_indices,
-                    24,
+                    28,
                     GAP_EQUIP,
                 );
             }
