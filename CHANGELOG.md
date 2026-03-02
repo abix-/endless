@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-03-02l
+
+- **performance doc consolidation** — `performance-review.md` → `performance.md`, now single authority for all perf patterns. Added: core principles table, GPU perf patterns (readback minimization, dirty-index uploads, coalescing, instanced rendering), CPU cadencing patterns (bucket-gated decisions, candidate-driven healing, fixed-cadence systems, event-driven systems), debug overhead rules with O(n²) example. Slimmed `concepts.md` — removed GPU Readback Avoidance, Debug Mode Overhead, Staggered Processing, LOD Intervals sections (all moved to performance.md), trimmed summary table perf rows.
+
 ## 2026-03-02k
 
 - **authority doc consolidation** — merged full data ownership table from messages.md into authority.md (now single source of truth for all data ownership: GPU-authoritative, CPU-authoritative, CPU-only, render-only categories). Slimmed messages.md to reference link. Fixed stale AttackStats values (was range=150/300, corrected to 100/200). Added anti-pattern rule #8 (no readback→writeback same frame).

@@ -134,71 +134,9 @@ Used in: `npc_compute.wgsl` via `NpcComputeNode` in Bevy render graph
 
 ## GPU Instanced Rendering
 
-Draw thousands of sprites in one draw call. Each NPC is a textured quad with per-instance data.
+Draw thousands of sprites in one draw call. Each NPC is a textured quad with per-instance data. 1 draw call for all NPCs instead of 16K separate draw calls — GPU renders all instances in parallel via `VertexStepMode::Instance`.
 
-**Without instancing:** 16,384 NPCs = 16,384 draw calls. GPU stalls on each call.
-
-**With instancing:** 16,384 NPCs = 1 draw call. GPU renders all instances in parallel.
-
-```rust
-// One static quad (4 vertices, shared by all NPCs)
-static QUAD_VERTICES: [QuadVertex; 4] = [ /* corners */ ];
-
-// Per-instance data (unique per NPC, 32 bytes each)
-pub struct NpcInstanceData {
-    pub position: [f32; 2],  // world position
-    pub sprite: [f32; 2],    // atlas cell (col, row)
-    pub color: [f32; 4],     // tint color
-}
-
-// One draw call for all NPCs
-pass.draw_indexed(0..6, 0, 0..instance_count);
-```
-
-The GPU uses `VertexStepMode::Instance` to advance instance data once per quad, not once per vertex.
-
-Used in: `npc_render.rs` (RenderCommand + Transparent2d), `npc_render.wgsl`
-
----
-
-## Staggered Processing
-
-Don't update everything every frame. Spread work across frames.
-
-**Without stagger:** Update 16,384 NPCs every frame. CPU spike.
-
-**With stagger:** Update 2,048 NPCs per frame (1/8 each frame). Smooth load.
-
-```rust
-let start = scan_offset * npc_count / SCAN_FRACTION;
-let end = (scan_offset + 1) * npc_count / SCAN_FRACTION;
-
-for i in start..end {
-    update_combat(i);  // only update this slice
-}
-
-scan_offset = (scan_offset + 1) % SCAN_FRACTION;
-```
-
-Trade-off: reactions are delayed by up to `SCAN_FRACTION` frames. Tune per-system.
-
-Not currently used — GPU compute handles all NPCs every frame.
-
----
-
-## LOD Intervals (Level of Detail)
-
-Update frequency based on importance/activity.
-
-| State | Update Interval | Why |
-|-------|-----------------|-----|
-| Fighting | 2 frames | Need fast reactions |
-| Moving | 5 frames | Moderate precision |
-| Idle | 30 frames | Nothing happening |
-
-Distance also affects LOD — off-screen NPCs update less often.
-
-Not currently used — GPU compute processes all NPCs uniformly.
+Used in: `npc_render.rs` (RenderCommand + Transparent2d), `npc_render.wgsl`. See [performance.md](performance.md) for the full instanced rendering architecture.
 
 ---
 
@@ -233,58 +171,9 @@ Used in: All game logic (spawn, combat, behavior, economy systems)
 
 ## GPU Readback Avoidance
 
-Reading data back from GPU to CPU is expensive. Avoid it whenever possible.
+Reading data back from GPU to CPU is expensive — the GPU→CPU transfer stalls the pipeline. The render pipeline reads GPU buffers directly (no readback needed for rendering). CPU readback is async via Bevy's `ReadbackComplete` observers with throttling for non-critical fields.
 
-**The problem:**
-```
-CPU → GPU: Upload positions (fast, ~1ms)
-GPU: Run compute shader (fast, ~0.1ms)
-GPU → CPU: Read positions back (SLOW, ~5-10ms)
-```
-
-The GPU→CPU transfer stalls the pipeline — CPU waits for GPU to finish, then copies data over PCIe.
-
-**Solution: Keep data on GPU**
-
-The render pipeline reads directly from GPU buffers (or from the same CPU-side arrays that were uploaded), avoiding readback. CPU-side systems that need position data use the pre-upload `NpcGpuState` arrays.
-
-**When you must read back:**
-- Keep buffers small (read only what's needed)
-- Read asynchronously if possible (don't block on result)
-- Batch reads (one large read beats many small ones)
-
-Used in: `GpuReadState` is populated via Bevy async Readback (positions, combat_targets always-on; factions/threat_counts throttled). See [authority.md](authority.md) for which fields are authoritative vs advisory.
-
----
-
-## Debug Mode Overhead
-
-Debug metrics can cost more than the actual simulation. Disable or throttle them.
-
-**The trap:** You add O(n²) validation to verify NPCs are properly separated:
-
-```rust
-fn get_min_separation(positions: &[f32], count: usize) -> f32 {
-    let mut min_dist = f32::MAX;
-    for i in 0..count {
-        for j in (i+1)..count {
-            let dx = positions[i*2] - positions[j*2];
-            let dy = positions[i*2+1] - positions[j*2+1];
-            min_dist = min_dist.min((dx*dx + dy*dy).sqrt());
-        }
-    }
-    min_dist
-}
-```
-
-With 5,000 NPCs, that's 12.5 million distance checks per frame. Your 140fps simulation drops to 15fps — but the simulation itself is fine, only the *measurement* is slow.
-
-**Solutions:**
-1. **Disable by default:** Make expensive metrics opt-in
-2. **Throttle:** Run expensive checks once per second, not every frame
-3. **Sample:** Check 100 random pairs instead of all pairs
-
-**Rule of thumb:** If your metric is O(n²) or worse, it needs a toggle.
+Used in: `GpuReadState` via Bevy async Readback. See [authority.md](authority.md) for readback cadences and [performance.md](performance.md) for readback minimization rules.
 
 ---
 
@@ -501,14 +390,11 @@ Used in: `GpuComputePlugin` (NpcGpuData + NpcComputeParams via ExtractResourcePl
 | Spatial Grid | O(n²) neighbor search | O(n×k) cell lookup |
 | Separation | NPC overlap | Push forces from neighbors |
 | Compute Shader | CPU bottleneck | GPU parallelism |
-| Instanced Rendering | Draw call overhead | One draw call for all instances |
-| Stagger | Frame spikes | Spread work across frames |
-| LOD Intervals | Wasted updates | Update based on importance |
-| ECS | DOD ergonomics | Entity/Component/System pattern |
-| GPU Readback | Pipeline stalls | Avoid readback, use CPU copies |
-| Debug Overhead | Metrics kill perf | Disable/throttle expensive checks |
 | Asymmetric Push | Can't enter crowds | Moving NPCs push through settled |
 | TCP Dodge | Head-on collisions | Perpendicular dodge on approach |
+| ECS | DOD ergonomics | Entity/Component/System pattern |
 | ECS States | State machine in ECS | Marker components per state |
 | World Resources | Static world data | Singleton Resources, not Entities |
 | Pipelined Rendering | CPU/GPU sync overhead | Parallel main + render worlds |
+
+For performance-specific patterns (instanced rendering, readback, cadencing, debug overhead, dirty uploads, coalescing), see [performance.md](performance.md).

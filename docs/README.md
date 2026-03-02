@@ -5,7 +5,7 @@
 These docs are the **source of truth** for system architecture. When building new features or modifying existing systems:
 
 1. **Before coding**: Read the relevant doc to understand the current architecture, data flow, and known issues.
-   For hot-path changes (per-frame/per-tick code), also apply [performance-review.md](performance-review.md).
+   For hot-path changes (per-frame/per-tick code), also apply [performance.md](performance.md).
    Hot-path default: Bevy `Query` for filtered scans, `EntityMap` for keyed lookups/indexes.
 2. **During coding**: Follow the patterns documented here (job-as-template spawn, chained combat, GPU buffer layout). If you need to deviate, update the doc first.
 3. **After coding**: Update the doc if the architecture changed. Add new known issues discovered during implementation.
@@ -130,7 +130,7 @@ Frame execution order ───────────────────�
 | [resources.md](resources.md) | Bevy resources, game state ownership, UI caches, world data | 7/10 |
 | [projectiles.md](projectiles.md) | GPU projectile compute, hit detection, instanced rendering, slot allocation | 7/10 |
 | [authority.md](authority.md) | Complete data ownership (GPU/CPU/render-only), hard rules, staleness budget, slot namespace | 9/10 |
-| [performance-review.md](performance-review.md) | Hot-path perf anti-pattern checklist, review procedure, benchmark guardrails | - |
+| [performance.md](performance.md) | Complete perf authority: GPU patterns, CPU cadencing, data access rules, anti-patterns, PR review | 9/10 |
 | [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
 | [roadmap.md](roadmap.md) | Feature tracking, migration plan | - |
 

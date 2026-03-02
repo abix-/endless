@@ -1,6 +1,21 @@
-# Performance Review Checklist
+# Performance
 
-Use this checklist during PR review for code that runs per frame, per tick, per NPC, or per building.
+Single source of truth for achieving maximum performance in this codebase. All other docs reference here for perf patterns.
+
+## Core Principles
+
+| Principle | Problem | Solution |
+|-----------|---------|----------|
+| DOD / Parallel arrays | Object overhead, cache misses | Contiguous `Vec<f32>` arrays (`EntityGpuState`) |
+| Spatial grid | O(n²) neighbor search | O(n×k) cell lookup (GPU 256×256 grid, CPU `EntityMap` spatial buckets) |
+| GPU compute | CPU bottleneck for movement/targeting | Parallel compute shader for all NPCs every frame |
+| Instanced rendering | Draw call overhead (16K entities = 16K draw calls) | 1 entity per batch, storage buffer path, one `draw_indexed` per layer |
+| Pipelined rendering | CPU/GPU sync stalls | Parallel main + render worlds, extract barrier once per frame |
+| GPU readback avoidance | PCIe transfer stalls pipeline | Render reads GPU buffers directly; CPU readback async + throttled |
+| Dirty-index uploads | Bulk buffer writes waste bandwidth | Per-dirty-index `write_buffer` (typically <1KB vs ~4MB bulk at 30K entities) |
+| Coalesced writes | Many small GPU writes | Adjacent dirty indices merged into range writes (strict for GPU-authoritative, gap-based for CPU-authoritative) |
+| Cadenced processing | Per-frame CPU spikes at scale | Bucket-gated systems spread NPC processing across frames |
+| Event-driven updates | Redundant per-frame rebuilds | Dirty flags + message-driven triggers (visual upload, terrain sync, building grid) |
 
 ## Hybrid Data Access Rule
 
@@ -26,8 +41,94 @@ Treat `slot` as the canonical foreign key between ECS and `EntityMap`.
 Apply the hybrid rule to any runtime path that is expected to scale with population or map size:
 
 1. `EguiPrimaryContextPass` systems and inspector/overlay rendering code.
-2. `Update` systems in active gameplay states (`Playing` / `Running`), especially Behavior/AI/Combat/Economy loops.
+2. `FixedUpdate` systems in active gameplay states (`Playing` / `Running`), especially Behavior/AI/Combat/Economy loops.
 3. Any helper called from the above paths that may iterate NPC/building sets.
+
+## GPU Performance Patterns
+
+### Readback Minimization
+
+GPU→CPU readback stalls the pipeline. Rules:
+- Render pipeline reads GPU buffers directly (positions/health via bind group 2) — no readback needed for rendering.
+- CPU readback is async via Bevy's `ReadbackComplete` observers — never blocks.
+- Throttle expensive readbacks: `factions` every 60 frames, `threat_counts` every 30 frames.
+- Size readback buffers to actual entity count, not MAX.
+- See [authority.md](authority.md) for which readback fields are authoritative.
+
+### Dirty-Index Buffer Uploads
+
+`EntityGpuState` tracks per-field dirty indices. `extract_npc_data` uploads only changed slots:
+- **Strict coalescing** (GPU-authoritative: positions, arrivals): merges only exactly-adjacent dirty indices. Stale CPU values would teleport NPCs.
+- **Gap-based coalescing** (CPU-authoritative: targets, speeds, factions, healths, flags): merges nearby dirty indices with configurable gap thresholds (up to ~24KB wasted per gap). 40% window fallback to bulk offset write.
+- **Visual/equip**: gap-based coalescing via `visual_uploaded_indices` / `equip_uploaded_indices`. Flash-only slots skip equip entirely.
+- Full rebuild only on startup/load (`visual_full_rebuild` flag).
+
+### Instanced Rendering
+
+Custom pipeline replaces Bevy's per-entity sprite renderer:
+- 1 `NpcBatch` entity vs 16K entities in the render world.
+- Storage buffer path for NPCs (positions/health read from compute output, no readback).
+- Instance buffer path for buildings/overlays/projectiles.
+- Multi-layer drawing: body + up to 7 overlay layers in one `RenderCommand`.
+
+## CPU Cadencing Patterns
+
+### Bucket-Gated Decision System
+
+At 10K+ NPCs, running `decision_system` for every NPC every frame is too expensive. Solution: bucket gating.
+
+- **Fighting NPCs**: `COMBAT_BUCKET` = 16 frames (~267ms at 60 UPS) — fast enough for flee/leash reactions.
+- **Non-fighting NPCs**: `think_buckets = max(interval × 60, npc_count / max_decisions_per_frame)` — adaptive bucketing with frame budget cap (default 300 decisions/frame).
+- At 10K NPCs with 120 buckets: ~83 NPCs processed per frame instead of 10K.
+- Position hoisted once per NPC into `npc_pos` after bucket gate — eliminates scattered position reads.
+- Conditional writeback: captures original values, compares at end — only calls `get_mut()` for changed fields.
+
+### Candidate-Driven Healing
+
+Replaced full 50K NPC iteration with O(active_healing + sampled_candidates):
+- **Sustain-check (every frame)**: iterates only `ActiveHealingSlots.slots` (active set). O(1) membership via `mark[slot]`.
+- **Enter-check (cadenced, 1/4 NPCs per frame)**: `slot % 4` bucketing per town. Hysteresis radii prevent oscillation.
+
+### Fixed-Cadence Systems
+
+- `farm_visual_system`: runs every 4th frame (crop state changes slowly).
+- `spawner_respawn_system`: timer-based per spawner (no per-frame iteration).
+- `raider_forage_system`: hourly timer accumulation per raider town.
+
+### Event-Driven Systems
+
+- `build_visual_upload`: persistent `NpcVisualUpload`, dirty-signaled via `MarkVisualDirty`. ~4-8ms → ~0.01ms steady state.
+- `rebuild_building_grid_system`: runs only on `BuildingGridDirtyMsg`.
+- Terrain tilemap sync: `TerrainDirtyMsg`-driven, not `WorldGrid::is_changed()`.
+
+## Debug Overhead
+
+Debug metrics can cost more than the actual simulation. Disable or throttle them.
+
+**Example trap** — O(n²) validation to verify NPC separation:
+```rust
+fn get_min_separation(positions: &[f32], count: usize) -> f32 {
+    let mut min_dist = f32::MAX;
+    for i in 0..count {
+        for j in (i+1)..count {
+            let dx = positions[i*2] - positions[j*2];
+            let dy = positions[i*2+1] - positions[j*2+1];
+            min_dist = min_dist.min((dx*dx + dy*dy).sqrt());
+        }
+    }
+    min_dist
+}
+```
+
+With 5,000 NPCs, that's 12.5 million distance checks per frame. Your 60 UPS simulation drops to 15 — but the simulation itself is fine, only the *measurement* is slow.
+
+**Rules:**
+1. Make expensive metrics opt-in (debug flags).
+2. Throttle: run expensive checks once per second, not every frame.
+3. Sample: check 100 random pairs instead of all pairs.
+4. **If your metric is O(n²) or worse, it needs a toggle.**
+
+Profiler UI (`SystemTimings`) itself is cadenced: `Local<ProfilerCache>` refreshes every 15 frames, renders top 10 per section.
 
 ## Migration Templates
 
@@ -157,7 +258,7 @@ for npc in entity_map.iter_npcs() {
 
 ## PR Review Procedure
 
-1. Mark hot paths touched by the PR (`EguiPrimaryContextPass`, `Update` systems in active sets, AI/behavior loops).
+1. Mark hot paths touched by the PR (`EguiPrimaryContextPass`, `FixedUpdate` systems in active sets, AI/behavior loops).
 2. For each hot path, note collection sizes and complexity (`O(n)`, `O(n^2)` risks).
 3. Flag any repeated scans/membership checks and propose concrete replacement.
 4. Add/adjust microbenchmarks for modified hotspots.
