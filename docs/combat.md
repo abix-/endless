@@ -50,7 +50,7 @@ DamageMsg (from process_proj_hits)             GPU movement
           ├─ Loot — NPC killer (npc_def loot_drop → Activity::Returning)
           ├─ Loot — tower killer (npc_def loot_drop → FoodStorage/GoldStorage + flash)
           ├─ despawn entity, HideNpc → GPU (-9999)
-          ├─ Release NpcWorkState (occupied_building + work_target_building UIDs → resolved to slots for release)
+          ├─ Release NpcWorkState via WorkIntentMsg(Release { uid }) → resolved by resolve_work_targets
           ├─ Update FactionStats, KillStats, PopulationStats
           └─ GpuSlotPool.free(idx)
         │

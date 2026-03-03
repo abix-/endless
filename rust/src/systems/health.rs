@@ -51,6 +51,7 @@ pub struct DeathResources<'w, 's> {
     pub work_state_q: Query<'w, 's, &'static crate::components::NpcWorkState>,
     pub carried_loot_q: Query<'w, 's, &'static mut crate::components::CarriedLoot>,
     pub sfx_writer: MessageWriter<'w, crate::resources::PlaySfxMsg>,
+    pub work_intents: MessageWriter<'w, crate::messages::WorkIntentMsg>,
     pub gpu_state: Res<'w, crate::gpu::EntityGpuState>,
     pub next_loot_id: ResMut<'w, crate::resources::NextLootItemId>,
     pub town_inventory: ResMut<'w, crate::resources::TownInventory>,
@@ -474,7 +475,7 @@ pub fn death_system(
     // Phase 2b: Process dead NPCs (immediate — same frame as marking)
     for &slot in &dead_npc_slots {
         // Extract dead NPC data (immutable borrow ends before killer mutation)
-        let (entity, faction, town_idx, job, activity, occupied_slot, work_target, last_hit_by, dead_carried_equip) = {
+        let (entity, faction, town_idx, job, activity, worksite_uid, last_hit_by, dead_carried_equip) = {
             let Some(npc) = res.entity_map.get_npc(slot) else {
                 continue;
             };
@@ -484,18 +485,11 @@ pub fn death_system(
                 .map(|a| a.clone())
                 .unwrap_or_default();
             let lhb = res.last_hit_by_q.get(npc.entity).map(|h| h.0).unwrap_or(-1);
-            let ws = res
+            let ws_uid = res
                 .work_state_q
                 .get(npc.entity)
                 .ok()
-                .copied()
-                .unwrap_or_default();
-            let occ_slot = ws
-                .occupied_building
-                .and_then(|uid| res.entity_map.slot_for_uid(uid));
-            let wt_slot = ws
-                .work_target_building
-                .and_then(|uid| res.entity_map.slot_for_uid(uid));
+                .and_then(|ws| ws.worksite);
             let carried_equip: Vec<crate::constants::LootItem> = res
                 .carried_loot_q
                 .get(npc.entity)
@@ -507,8 +501,7 @@ pub fn death_system(
                 npc.town_idx,
                 npc.job,
                 activity,
-                occ_slot,
-                wt_slot,
+                ws_uid,
                 lhb,
                 carried_equip,
             )
@@ -831,14 +824,10 @@ pub fn death_system(
             pop_dec_working(&mut res.pop_stats, job, town_idx);
         }
 
-        if let Some(slot) = occupied_slot {
-            res.entity_map.release(slot);
-        }
-        if let Some(slot) = work_target {
-            if Some(slot) != occupied_slot {
-                res.entity_map.release(slot);
-            }
-        }
+        // Defer worksite release to centralized resolver
+        res.work_intents.write(crate::messages::WorkIntentMsg(
+            crate::messages::WorkIntent::Release { entity, uid: worksite_uid },
+        ));
         if job == Job::Miner {
             res.dirty_writers
                 .mining

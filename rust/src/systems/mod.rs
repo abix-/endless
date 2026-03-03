@@ -12,6 +12,7 @@ mod movement;
 pub mod pathfinding;
 pub(crate) mod spawn;
 pub mod stats;
+pub mod work_targeting;
 pub use ai_player::{
     AiKind, AiPersonality, AiPlayer, AiPlayerConfig, AiPlayerState, ai_decision_system,
     ai_squad_commander_system, rebuild_squad_indices, sync_patrol_perimeter_system,

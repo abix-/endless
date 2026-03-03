@@ -618,6 +618,8 @@ pub struct UserSettings {
     pub gold_mines_per_town: usize,
     #[serde(default = "default_npc_interval")]
     pub npc_interval: f32,
+    #[serde(default = "default_pathfind_max_per_frame")]
+    pub pathfind_max_per_frame: usize,
     #[serde(default = "default_ui_scale")]
     pub ui_scale: f32,
     #[serde(default = "default_interface_text_size")]
@@ -706,6 +708,9 @@ fn default_ai_interval() -> f32 {
 }
 fn default_npc_interval() -> f32 {
     2.0
+}
+fn default_pathfind_max_per_frame() -> usize {
+    200
 }
 fn default_ui_scale() -> f32 {
     1.0
@@ -808,6 +813,7 @@ impl Default for UserSettings {
             ai_interval: 5.0,
             gold_mines_per_town: 2,
             npc_interval: 2.0,
+            pathfind_max_per_frame: default_pathfind_max_per_frame(),
             ui_scale: 1.0,
             interface_text_size: 16.0,
             help_text_size: 14.0,

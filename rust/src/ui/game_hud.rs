@@ -1730,10 +1730,21 @@ fn inspector_content(
                 };
                 info.push_str(&format!("ManualTarget: {}\n", manual_target_str));
                 if let Ok(ws) = bld_data.work_state_q.get(npc.entity) {
-                    info.push_str(&format!(
-                        "WorkState: occupied={:?} work_target={:?}\n",
-                        ws.occupied_building, ws.work_target_building
-                    ));
+                    info.push_str(&format!("WorkState: worksite={:?}\n", ws.worksite));
+                    if let Some(uid) = ws.worksite {
+                        if let Some(slot) = bld_data.entity_map.slot_for_uid(uid) {
+                            if let Some(inst) = bld_data.entity_map.get_instance(slot) {
+                                let max_occ = crate::constants::building_def(inst.kind)
+                                    .worksite.map_or(0, |w| w.max_occupants);
+                                info.push_str(&format!(
+                                    "  worksite: slot={} occ={}/{} growth={:.0}% pos=({:.0},{:.0})\n",
+                                    slot, inst.occupants, max_occ,
+                                    inst.growth_progress * 100.0,
+                                    inst.position.x, inst.position.y,
+                                ));
+                            }
+                        }
+                    }
                 }
                 if let Some(sq) = bld_data.squad_id_q.get(npc.entity).ok().map(|s| s.0) {
                     info.push_str(&format!("Squad: {}\n", sq));

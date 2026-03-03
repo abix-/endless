@@ -95,6 +95,37 @@ pub struct SquadsDirtyMsg;
 #[derive(Message, Clone)]
 pub struct MiningDirtyMsg;
 
+/// Work targeting intent — fire-and-forget from any system.
+/// Single consumer: `resolve_work_targets` (owns all occupancy mutations).
+#[derive(Message, Clone)]
+pub struct WorkIntentMsg(pub WorkIntent);
+
+/// What to do with an NPC's worksite assignment.
+#[derive(Clone, Debug)]
+pub enum WorkIntent {
+    /// Search for best worksite, claim it, update NpcWorkState.
+    Claim {
+        entity: Entity,
+        kind: crate::world::BuildingKind,
+        town_idx: u32,
+        from: Vec2,
+    },
+    /// Release current worksite, clear NpcWorkState.
+    /// `uid`: carried from sender so resolver doesn't depend on component state
+    /// (decision_system write-back may clear the component before resolver runs).
+    Release {
+        entity: Entity,
+        uid: Option<crate::components::EntityUid>,
+    },
+    /// Atomic release + re-claim at a new worksite.
+    Retarget {
+        entity: Entity,
+        kind: crate::world::BuildingKind,
+        town_idx: u32,
+        from: Vec2,
+    },
+}
+
 /// Patrol waypoint swap request from UI (slot-based identity).
 #[derive(Message, Clone)]
 pub struct PatrolSwapMsg {

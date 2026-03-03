@@ -189,6 +189,7 @@ pub fn build_app(app: &mut App) {
         .add_message::<GpuUpdateMsg>()
         .add_message::<ProjGpuUpdateMsg>()
         .add_message::<CombatLogMsg>()
+        .add_message::<messages::WorkIntentMsg>()
         .add_message::<BuildingGridDirtyMsg>()
         .add_message::<TerrainDirtyMsg>()
         .add_message::<PatrolsDirtyMsg>()
@@ -396,6 +397,12 @@ pub fn build_app(app: &mut App) {
         )
         .add_systems(FixedUpdate, sync_building_hp_render.in_set(Step::Behavior))
         .add_systems(FixedUpdate, merchant_tick_system.in_set(Step::Behavior))
+        .add_systems(
+            FixedUpdate,
+            systems::work_targeting::resolve_work_targets
+                .after(decision_system)
+                .in_set(Step::Behavior),
+        )
         // Waypoint advancement — advance NpcPath after gpu_position_readback sets at_destination
         .add_systems(
             FixedUpdate,

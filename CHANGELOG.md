@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-03-03b
+
+- **centralized work targeting** — all worksite occupancy mutations (claim/release/retarget) moved from 17 inline release sites and 6 claim sites in `decision_system`/`death_system` into a single `resolve_work_targets` system via `WorkIntentMsg` messages. `NpcWorkState` merged from two fields (`occupied_building` + `work_target_building`) into single `worksite: Option<EntityUid>`, eliminating the desync class of bugs. Resolver is the sole caller of `entity_map.release()` and `try_claim_worksite()` for NPC work slots. Release messages carry UID from sender to avoid write-back race. `worksite_deferred` flag gates NpcWorkState write-back and stale invariant. Arrival handler simplified (~220 → ~60 lines). `find_farm_target` and `find_mine_target` consolidated into `work_targeting.rs`.
+
 ## 2026-03-03a
 
 - **unified cleanup** — merged `cleanup_test_world` (OnExit Running) into `game_cleanup_system` (OnExit Playing). Single shared cleanup for both game and test states — no more drift. Added missing resets: `EndlessMode`, `TownInventory`, `MerchantInventory`, `NextLootItemId`, `DebugFlags`, `MiningPolicy`, `TerrainChunk` despawn. New `CleanupUi` SystemParam bundle consolidates loose params.

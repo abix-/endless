@@ -80,6 +80,7 @@ pub fn main_menu_system(
     mut wg_config: ResMut<WorldGenConfig>,
     mut ai_config: ResMut<AiPlayerConfig>,
     mut npc_config: ResMut<crate::resources::NpcDecisionConfig>,
+    mut pathfind_config: ResMut<crate::resources::PathfindConfig>,
     mut user_settings: ResMut<settings::UserSettings>,
     mut save_request: ResMut<crate::save::SaveLoadRequest>,
     mut windows: Query<&mut Window>,
@@ -91,6 +92,7 @@ pub fn main_menu_system(
     mut exit: MessageWriter<AppExit>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
+    pathfind_config.max_per_frame = user_settings.pathfind_max_per_frame.max(1);
 
     // Init slider defaults from saved settings (or WorldGenConfig defaults)
     if !state.initialized {
@@ -300,6 +302,7 @@ pub fn main_menu_system(
                 wg_config.gold_mines_per_town = state.gold_mines as usize;
                 ai_config.decision_interval = state.ai_interval;
                 npc_config.interval = state.npc_interval;
+                pathfind_config.max_per_frame = user_settings.pathfind_max_per_frame.max(1);
 
                 let mut saved = settings::load_settings();
                 saved.world_size = state.world_size;

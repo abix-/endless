@@ -138,12 +138,10 @@ pub struct PatrolRoute {
 }
 
 /// Combined work state for NPCs. Always present — avoids archetype churn from insert/remove.
-/// `occupied_building`: UID of building being occupied (released on death/stop via entity_map.release).
-/// `work_target_building`: UID of building being walked to (navigation target).
+/// Single `worksite` field: claimed worksite (occupancy incremented). Cleared on release/death.
 #[derive(Component, Default, Clone, Copy)]
 pub struct NpcWorkState {
-    pub occupied_building: Option<EntityUid>,
-    pub work_target_building: Option<EntityUid>,
+    pub worksite: Option<EntityUid>,
 }
 
 /// Unified carry component for ALL NPCs. Always present — replaces the old fragmented

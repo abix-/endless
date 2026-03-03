@@ -1676,7 +1676,7 @@ pub struct PathfindConfig {
 impl Default for PathfindConfig {
     fn default() -> Self {
         Self {
-            max_per_frame: 50,
+            max_per_frame: 200,
             short_distance_tiles: 5,
             max_nodes: 5000,
             stuck_repath_frames: 30,

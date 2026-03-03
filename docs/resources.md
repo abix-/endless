@@ -24,7 +24,7 @@ Defined in: `rust/src/resources.rs`, `rust/src/world.rs`
 
 `EntityMap` maintains bidirectional UID maps: `uid_to_slot`/`slot_to_uid` (HashMap) and `uid_to_entity`/`entity_to_uid` (HashMap). Helper methods: `uid_for_slot(slot) -> Option<EntityUid>`, `slot_for_uid(uid) -> Option<usize>`, `entity_by_uid(uid) -> Option<Entity>`, `uid_by_entity(entity) -> Option<EntityUid>`, `instance_by_uid(uid) -> Option<&BuildingInstance>`. Registration via `register_uid(slot, uid, entity)` / `register_uid_slot_only(slot, uid)` (buildings before ECS entity exists) / `bind_uid_entity(uid, entity)` / `unregister_uid(slot)`. Debug-build bijection assertions after every register/unregister.
 
-All long-lived gameplay cross-references use `EntityUid`: `AiSquadCmdState.building_uid`, `BuildingInstance.npc_uid`, `NpcWorkState.occupied_building`/`work_target_building`, `Squad.members`. No gameplay code stores raw slot indices as identity.
+All long-lived gameplay cross-references use `EntityUid`: `AiSquadCmdState.building_uid`, `BuildingInstance.npc_uid`, `NpcWorkState.worksite`, `Squad.members`. No gameplay code stores raw slot indices as identity.
 
 ## NPC UI Caches
 

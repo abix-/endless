@@ -17,7 +17,7 @@
 use crate::components::*;
 use crate::constants::UpgradeStatKind;
 use crate::constants::*;
-use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg};
+use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg, WorkIntent, WorkIntentMsg};
 use crate::resources::{
     CombatEventKind, EntityMap, GameTime, GpuReadState, MovementPriority, PathRequestQueue,
     NpcLogCache, OffDutyBehavior, SelectedNpc, SquadState, TownPolicies, WorkSchedule,
@@ -75,6 +75,7 @@ pub struct DecisionExtras<'w> {
     pub npc_logs: ResMut<'w, NpcLogCache>,
     pub combat_log: MessageWriter<'w, CombatLogMsg>,
     pub gpu_updates: MessageWriter<'w, GpuUpdateMsg>,
+    pub work_intents: MessageWriter<'w, WorkIntentMsg>,
     pub policies: Res<'w, TownPolicies>,
     pub squad_state: Res<'w, SquadState>,
     pub town_upgrades: Res<'w, crate::systems::stats::TownUpgrades>,
@@ -102,7 +103,7 @@ pub fn arrival_system(
             &TownId,
             &mut Activity,
             &Home,
-            &NpcWorkState,
+            &mut NpcWorkState,
         ),
         (Without<Building>, Without<Dead>),
     >,
@@ -179,8 +180,12 @@ pub fn arrival_system(
             loot.food = 0;
             loot.gold = 0;
         }
-        if let Ok((_, slot, _, _, mut act, _, _)) = npc_q.get_mut(entity) {
+        if let Ok((_, slot, _, _, mut act, _, mut ws)) = npc_q.get_mut(entity) {
             *act = Activity::Idle;
+            // Clear stale work_target so idle farmers don't carry a phantom target.
+            // worksite is NOT cleared here — decision_system owns occupancy
+            // release via entity_map and handles it before setting Returning.
+            ws.worksite = None;
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: slot.0 }));
         }
     }
@@ -200,35 +205,7 @@ fn unpack_threat_counts(packed: u32) -> (u32, u32) {
 /// Find a farm for a farmer using cell-ring expansion with kind-filtered spatial index.
 /// Preference order (min-order tuple):
 /// 1) Ready farms first (ready=0, not_ready=1)
-/// 2) Higher growth progress (inverted: lower bits = more growth)
-/// 3) Closer distance
-/// Returns (farm_slot, farm_position, chosen_radius).
-fn find_farmer_farm_target(
-    from: Vec2,
-    entity_map: &EntityMap,
-    town_idx: u32,
-) -> Option<(usize, Vec2, f32)> {
-    use crate::resources::WorksiteFallback;
-    // Score: (not_ready, inverted_growth_bits, dist2_bits) — lower is better
-    let result = entity_map.find_nearest_worksite(
-        from,
-        BuildingKind::Farm,
-        town_idx,
-        WorksiteFallback::TownOnly,
-        6400.0,
-        |inst| {
-            if inst.occupants as i32 >= building_def(BuildingKind::Farm).worksite.unwrap().max_occupants {
-                return None;
-            }
-            let not_ready: u8 = if inst.growth_ready { 0 } else { 1 };
-            // Invert growth so higher progress = lower score
-            let inv_growth = (1.0 - inst.growth_progress).to_bits();
-            let d2 = (inst.position - from).length_squared().to_bits();
-            Some((not_ready, inv_growth, d2))
-        },
-    );
-    result.map(|r| (r.slot, r.position, r.radius_used))
-}
+use crate::systems::work_targeting::find_farm_target as find_farmer_farm_target;
 
 // ============================================================================
 // DECISION SYSTEM
@@ -432,11 +409,8 @@ pub fn decision_system(
             .ok()
             .copied()
             .unwrap_or_default();
-        let mut target_building = work_state
-            .work_target_building
-            .and_then(|uid| entity_map.slot_for_uid(uid));
-        let mut occupied_building = work_state
-            .occupied_building
+        let mut worksite = work_state
+            .worksite
             .and_then(|uid| entity_map.slot_for_uid(uid));
         let has_patrol = npc_data.patrol_route_q.get(entity).is_ok();
         let mut patrol_current = npc_data
@@ -462,12 +436,14 @@ pub fn decision_system(
         let orig_energy = energy;
         let orig_combat_state = std::mem::discriminant(&combat_state);
         let orig_at_destination = at_destination;
-        let orig_target_building = target_building;
-        let orig_occupied_building = occupied_building;
+        let orig_worksite = worksite;
         let orig_patrol_current = patrol_current;
 
         npc_logs.set_slot_faction(idx, faction_i32);
         let max_hp = if max_hp > 0.0 { max_hp } else { 100.0 };
+
+        // When true, skip NpcWorkState write-back (resolver owns it for this NPC this frame)
+        let mut worksite_deferred = false;
 
         'decide: {
             // ====================================================================
@@ -564,223 +540,79 @@ pub fn decision_system(
                     Activity::GoingToWork => {
                         // Farmers: find farm at work_target and start working
                         if job == Job::Farmer {
-                            let reserved_slot = target_building.or(occupied_building);
-                            let search_pos = reserved_slot
-                                .and_then(|wp| entity_map.get_instance(wp).map(|i| i.position))
-                                .unwrap_or_else(|| npc_pos.unwrap_or(Vec2::ZERO));
-
-                            let target_farm = reserved_slot
+                            let current_pos = npc_pos.unwrap_or(home);
+                            let target_farm = worksite
                                 .and_then(|slot| {
                                     entity_map
                                         .get_instance(slot)
-                                        .filter(|inst| {
-                                            inst.kind == BuildingKind::Farm
-                                                && inst.town_idx == town_idx_i32 as u32
-                                        })
+                                        .filter(|inst| inst.kind == BuildingKind::Farm && inst.town_idx == town_idx_i32 as u32)
                                         .map(|inst| (slot, inst.position))
                                 })
                                 .or_else(|| {
-                                    find_within_radius(
-                                        search_pos,
-                                        &entity_map,
-                                        BuildingKind::Farm,
-                                        FARM_ARRIVAL_RADIUS,
-                                        town_idx_i32 as u32,
-                                    )
+                                    find_within_radius(current_pos, &entity_map, BuildingKind::Farm, FARM_ARRIVAL_RADIUS, town_idx_i32 as u32)
                                 });
 
                             if let Some((farm_slot, farm_pos)) = target_farm {
                                 let occ = entity_map.occupant_count(farm_slot);
-                                let owns = occupied_building == Some(farm_slot);
+                                let owns = worksite == Some(farm_slot);
                                 let occupied_by_other = if owns { occ > 1 } else { occ >= 1 };
 
                                 if occupied_by_other {
-                                    // Farm already has a farmer — find a free one in own town
-                                    if let Some((free_slot, _free_pos, radius)) =
-                                        find_farmer_farm_target(
-                                            search_pos,
-                                            &entity_map,
-                                            town_idx_i32 as u32,
-                                        )
-                                    {
-                                        if let Some(old) = occupied_building.take() {
-                                            entity_map.release(old);
-                                        }
-                                        if let Some(claimed) = entity_map.try_claim_worksite(
-                                            free_slot,
-                                            BuildingKind::Farm,
-                                            Some(town_idx_i32 as u32),
-                                            building_def(BuildingKind::Farm).worksite.unwrap().max_occupants,
-                                        ) {
-                                            activity = Activity::GoingToWork;
-                                            target_building = Some(claimed.slot);
-                                            occupied_building = Some(claimed.slot);
-                                            submit_intent(
-                                                &mut intents,
-                                                entity,
-                                                claimed.position.x,
-                                                claimed.position.y,
-                                                MovementPriority::JobRoute,
-                                                "arrival:farm_retarget",
-                                            );
-                                            npc_logs.push(
-                                                idx,
-                                                game_time.day(),
-                                                game_time.hour(),
-                                                game_time.minute(),
-                                                format!(
-                                                    "Farm occupied -> local retarget (r:{:.0})",
-                                                    radius
-                                                ),
-                                            );
-                                        } else {
-                                            target_building = None;
-                                            activity = Activity::Idle;
-                                            npc_logs.push(
-                                                idx,
-                                                game_time.day(),
-                                                game_time.hour(),
-                                                game_time.minute(),
-                                                "Retarget stale -> Idle",
-                                            );
-                                        }
-                                    } else {
-                                        if let Some(old) = occupied_building.take() {
-                                            entity_map.release(old);
-                                        }
-                                        target_building = None;
-                                        activity = Activity::Idle;
-                                        npc_logs.push(
-                                            idx,
-                                            game_time.day(),
-                                            game_time.hour(),
-                                            game_time.minute(),
-                                            "All farms occupied -> Idle",
-                                        );
-                                    }
+                                    // Farm occupied — retarget via resolver
+                                    let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
+                                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
+                                        entity, kind: BuildingKind::Farm, town_idx: town_idx_i32 as u32, from: current_pos,
+                                    }));
+                                    worksite = None;
+                                    worksite_deferred = true;
+                                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm occupied → retarget");
                                 } else if entity_map.get_instance(farm_slot).is_some() {
-                                    if !owns {
-                                        if entity_map
-                                            .try_claim_worksite(
-                                                farm_slot,
-                                                BuildingKind::Farm,
-                                                Some(town_idx_i32 as u32),
-                                                building_def(BuildingKind::Farm).worksite.unwrap().max_occupants,
-                                            )
-                                            .is_none()
-                                        {
-                                            target_building = None;
-                                            activity = Activity::Idle;
-                                            npc_logs.push(
-                                                idx,
-                                                game_time.day(),
-                                                game_time.hour(),
-                                                game_time.minute(),
-                                                "Farm claim failed -> Idle",
-                                            );
-                                            break 'decide;
-                                        }
-                                        occupied_building = Some(farm_slot);
-                                    }
-                                    // Check if farm is ready — harvest and carry home immediately.
-                                    let harvest =
-                                        entity_map.get_instance_mut(farm_slot).and_then(|inst| {
-                                            let food = inst.harvest();
-                                            if food > 0 {
-                                                Some((food, inst.harvest_log_msg(food)))
-                                            } else {
-                                                None
-                                            }
-                                        });
+                                    // Check if farm ready for harvest
+                                    let harvest = entity_map.get_instance_mut(farm_slot).and_then(|inst| {
+                                        let food = inst.harvest();
+                                        if food > 0 { Some((food, inst.harvest_log_msg(food))) } else { None }
+                                    });
                                     if let Some((food, log_msg)) = harvest {
-                                        if occupied_building == Some(farm_slot) {
-                                            entity_map.release(farm_slot);
-                                            occupied_building = None;
-                                        }
+                                        // Harvest — release worksite, carry home
+                                        let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
+                                        extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                                        worksite = None;
+                                        worksite_deferred = true;
                                         combat_log.write(CombatLogMsg {
-                                            kind: CombatEventKind::Harvest,
-                                            faction: faction_i32,
-                                            day: game_time.day(),
-                                            hour: game_time.hour(),
-                                            minute: game_time.minute(),
-                                            message: log_msg,
-                                            location: None,
+                                            kind: CombatEventKind::Harvest, faction: faction_i32,
+                                            day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(),
+                                            message: log_msg, location: None,
                                         });
                                         carried_loot.food += food;
                                         activity = Activity::Returning;
-                                        submit_intent(
-                                            &mut intents,
-                                            entity,
-                                            home.x,
-                                            home.y,
-                                            MovementPriority::JobRoute,
-                                            "arrival:farm_harvest_return",
-                                        );
-                                        npc_logs.push(
-                                            idx,
-                                            game_time.day(),
-                                            game_time.hour(),
-                                            game_time.minute(),
-                                            "Harvested -> Carrying home",
-                                        );
+                                        submit_intent(&mut intents, entity, home.x, home.y, MovementPriority::JobRoute, "arrival:farm_harvest_return");
+                                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested → Returning");
                                     } else {
-                                        // Farm not ready — if not already reserved by us, claim now.
-                                        if occupied_building != Some(farm_slot) {
-                                            if entity_map
-                                                .try_claim_worksite(
-                                                    farm_slot,
-                                                    BuildingKind::Farm,
-                                                    Some(town_idx_i32 as u32),
-                                                    building_def(BuildingKind::Farm).worksite.unwrap().max_occupants,
-                                                )
-                                                .is_none()
-                                            {
-                                                target_building = None;
-                                                activity = Activity::Idle;
-                                                npc_logs.push(
-                                                    idx,
-                                                    game_time.day(),
-                                                    game_time.hour(),
-                                                    game_time.minute(),
-                                                    "Farm claim stale -> Idle",
-                                                );
-                                                break 'decide;
-                                            }
+                                        // Farm not ready — claim via resolver if not already owned, start working
+                                        if !owns {
+                                            let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
+                                            extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                                            extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
+                                                entity, kind: BuildingKind::Farm, town_idx: town_idx_i32 as u32, from: current_pos,
+                                            }));
+                                            worksite = None;
+                                            worksite_deferred = true;
                                         }
                                         activity = Activity::Working;
-                                        occupied_building = Some(farm_slot);
-                                        target_building = Some(farm_slot);
                                         pop_inc_working(&mut economy.pop_stats, job, town_idx_i32);
-                                        submit_intent(
-                                            &mut intents,
-                                            entity,
-                                            farm_pos.x,
-                                            farm_pos.y,
-                                            MovementPriority::JobRoute,
-                                            "arrival:farm_work",
-                                        );
-                                        npc_logs.push(
-                                            idx,
-                                            game_time.day(),
-                                            game_time.hour(),
-                                            game_time.minute(),
-                                            "-> Working (tending)",
-                                        );
+                                        submit_intent(&mut intents, entity, farm_pos.x, farm_pos.y, MovementPriority::JobRoute, "arrival:farm_work");
+                                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working (tending)");
                                     }
                                 }
                             } else {
-                                if let Some(old) = occupied_building.take() {
-                                    entity_map.release(old);
-                                }
-                                target_building = None;
+                                // No farm nearby — release and idle
+                                let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
+                                extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                                worksite = None;
+                                worksite_deferred = true;
                                 activity = Activity::Idle;
-                                npc_logs.push(
-                                    idx,
-                                    game_time.day(),
-                                    game_time.hour(),
-                                    game_time.minute(),
-                                    "No farm nearby -> Idle",
-                                );
+                                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "No farm nearby → Idle");
                             }
                         } else {
                             let current_pos = npc_pos.unwrap_or(Vec2::ZERO);
@@ -941,6 +773,10 @@ pub fn decision_system(
                                 }
                                 let gold_amount = ((base_gold as f32) * yield_mult).round() as i32;
                                 carried_loot.gold += gold_amount;
+                                let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
+                                extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                                worksite = None;
+                                worksite_deferred = true;
                                 activity = Activity::Returning;
                                 submit_intent(
                                     &mut intents,
@@ -957,32 +793,13 @@ pub fn decision_system(
                                     game_time.minute(),
                                     format!("Harvested {} gold -> Returning", gold_amount),
                                 );
-                            } else if let Some(ms) = mine_slot {
-                                // Mine still growing — claim occupancy and tend it
-                                let ws = building_def(BuildingKind::GoldMine).worksite.unwrap();
-                                let town_arg = if ws.town_scoped { Some(town_idx_i32 as u32) } else { None };
-                                if entity_map
-                                    .try_claim_worksite(
-                                        ms,
-                                        BuildingKind::GoldMine,
-                                        town_arg,
-                                        ws.max_occupants,
-                                    )
-                                    .is_none()
-                                {
-                                    activity = Activity::Idle;
-                                    npc_logs.push(
-                                        idx,
-                                        game_time.day(),
-                                        game_time.hour(),
-                                        game_time.minute(),
-                                        "Mine full -> Idle",
-                                    );
-                                    break 'decide;
-                                }
+                            } else if mine_slot.is_some() {
+                                // Mine still growing — claim via resolver and start tending
+                                extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
+                                    entity, kind: BuildingKind::GoldMine, town_idx: town_idx_i32 as u32, from: mine_pos,
+                                }));
+                                worksite_deferred = true;
                                 activity = Activity::MiningAtMine;
-                                occupied_building = Some(ms);
-                                target_building = Some(ms);
                                 pop_inc_working(&mut economy.pop_stats, job, town_idx_i32);
                                 submit_intent(
                                     &mut intents,
@@ -1120,10 +937,10 @@ pub fn decision_system(
                     if health / max_hp < effective_threshold {
                         // Clean up work state if fleeing mid-work
                         if matches!(activity, Activity::MiningAtMine | Activity::Working) {
-                            if let Some(ob) = occupied_building.take() {
-                                entity_map.release(ob);
-                            }
-                            target_building = None;
+                            let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
+                            extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                            worksite = None;
+                            worksite_deferred = true;
                         }
                         combat_state = CombatState::None;
                         if !matches!(activity, Activity::Returning) {
@@ -1193,10 +1010,10 @@ pub fn decision_system(
                             let dy = pos.y - origin.y;
                             if (dx * dx + dy * dy).sqrt() > leash_dist {
                                 if matches!(activity, Activity::MiningAtMine | Activity::Working) {
-                                    if let Some(ob) = occupied_building.take() {
-                                        entity_map.release(ob);
-                                    }
-                                    target_building = None;
+                                    let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
+                                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                                    worksite = None;
+                                    worksite_deferred = true;
                                 }
                                 combat_state = CombatState::None;
                                 if !matches!(activity, Activity::Returning) {
@@ -1361,69 +1178,21 @@ pub fn decision_system(
                 && matches!(activity, Activity::GoingToWork)
                 && (idx + frame) % think_buckets == 0
             {
-                if let Some(wp) = target_building {
+                if let Some(wp) = worksite {
                     let occ = entity_map.occupant_count(wp);
-                    let occupied_by_other = (occ > 1) || (occ >= 1 && occupied_building != Some(wp));
+                    let occupied_by_other = (occ > 1) || (occ >= 1 && worksite != Some(wp));
                     if occupied_by_other {
-                        let wp_pos = entity_map
-                            .get_instance(wp)
-                            .map(|i| i.position)
-                            .unwrap_or_default();
-                        let current_pos = npc_pos.unwrap_or(wp_pos);
-                        if let Some((free_slot, _free_pos, radius)) =
-                            find_farmer_farm_target(current_pos, &entity_map, town_idx_i32 as u32)
-                        {
-                            if let Some(old) = occupied_building.take() {
-                                entity_map.release(old);
-                            }
-                            if let Some(claimed) = entity_map.try_claim_worksite(
-                                free_slot,
-                                BuildingKind::Farm,
-                                Some(town_idx_i32 as u32),
-                                building_def(BuildingKind::Farm).worksite.unwrap().max_occupants,
-                            ) {
-                                target_building = Some(claimed.slot);
-                                occupied_building = Some(claimed.slot);
-                                submit_intent(
-                                    &mut intents,
-                                    entity,
-                                    claimed.position.x,
-                                    claimed.position.y,
-                                    MovementPriority::JobRoute,
-                                    "farm:retarget_free",
-                                );
-                                npc_logs.push(
-                                    idx,
-                                    game_time.day(),
-                                    game_time.hour(),
-                                    game_time.minute(),
-                                    format!("Farm taken -> local retarget (r:{:.0})", radius),
-                                );
-                            } else {
-                                target_building = None;
-                                activity = Activity::Idle;
-                                npc_logs.push(
-                                    idx,
-                                    game_time.day(),
-                                    game_time.hour(),
-                                    game_time.minute(),
-                                    "Retarget stale -> Idle",
-                                );
-                            }
-                        } else {
-                            if let Some(old) = occupied_building.take() {
-                                entity_map.release(old);
-                            }
-                            target_building = None;
-                            activity = Activity::Idle;
-                            npc_logs.push(
-                                idx,
-                                game_time.day(),
-                                game_time.hour(),
-                                game_time.minute(),
-                                "All farms occupied -> Idle",
-                            );
-                        }
+                        // Retarget via resolver — release old + claim new
+                        let current_pos = npc_pos.unwrap_or_default();
+                        let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
+                        extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                        extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
+                            entity, kind: BuildingKind::Farm, town_idx: town_idx_i32 as u32, from: current_pos,
+                        }));
+                        worksite = None;
+                        worksite_deferred = true;
+                        // Activity stays GoingToWork — resolver will submit path or set Idle
+                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm taken → retarget");
                         break 'decide;
                     }
                 }
@@ -1522,6 +1291,10 @@ pub fn decision_system(
                 && !matches!(activity, Activity::Returning)
                 && matches!(combat_state, CombatState::None)
             {
+                let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
+                extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                worksite = None;
+                worksite_deferred = true;
                 activity = Activity::Returning;
                 intents.submit(
                     entity,
@@ -1547,7 +1320,7 @@ pub fn decision_system(
             // ====================================================================
             // Priority 5: Working at worksite (farm or mine)
             let worksite_slot = if matches!(activity, Activity::Working | Activity::MiningAtMine) {
-                occupied_building.or(target_building)
+                worksite
             } else {
                 None
             };
@@ -1556,10 +1329,10 @@ pub fn decision_system(
                 let inst_snapshot = entity_map.get_instance(slot).map(|i| (i.kind, i.town_idx));
                 let Some((kind, inst_town)) = inst_snapshot else {
                     // Worksite destroyed — release and reassign
-                    if let Some(ob) = occupied_building.take() {
-                        entity_map.release(ob);
-                    }
-                    target_building = None;
+                    let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
+                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                    worksite = None;
+                    worksite_deferred = true;
                     activity = Activity::Idle;
                     npc_logs.push(
                         idx,
@@ -1572,21 +1345,20 @@ pub fn decision_system(
                 };
                 let def = building_def(kind);
                 let Some(ws) = def.worksite else {
-                    // Not a worksite (shouldn't happen) — release and reassign
-                    if let Some(ob) = occupied_building.take() {
-                        entity_map.release(ob);
-                    }
-                    target_building = None;
+                    let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
+                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                    worksite = None;
+                    worksite_deferred = true;
                     activity = Activity::Idle;
                     break 'decide;
                 };
 
                 // Validate: town match (only for town-scoped worksites like farms)
                 if ws.town_scoped && inst_town != town_idx_i32 as u32 {
-                    if let Some(ob) = occupied_building.take() {
-                        entity_map.release(ob);
-                    }
-                    target_building = None;
+                    let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
+                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                    worksite = None;
+                    worksite_deferred = true;
                     activity = Activity::Idle;
                     npc_logs.push(
                         idx,
@@ -1600,12 +1372,10 @@ pub fn decision_system(
 
                 // Contention: too many occupants → release and go home
                 if entity_map.occupant_count(slot) > ws.max_occupants {
-                    if let Some(ob) = occupied_building.take() {
-                        entity_map.release(ob);
-                    }
-                    if target_building == Some(slot) {
-                        target_building = None;
-                    }
+                    let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
+                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                    worksite = None;
+                    worksite_deferred = true;
                     activity = Activity::Idle;
                     if home != Vec2::ZERO {
                         submit_intent(
@@ -1627,41 +1397,14 @@ pub fn decision_system(
                     break 'decide;
                 }
 
-                // Claim repair: if we don't have a claim, try to get one
-                if occupied_building.is_none() {
-                    let already_occupied = entity_map.occupant_count(slot) >= 1;
-                    let town_arg = if ws.town_scoped { Some(town_idx_i32 as u32) } else { None };
-                    let claimed = entity_map
-                        .try_claim_worksite(
-                            slot,
-                            kind,
-                            town_arg,
-                            ws.max_occupants,
-                        )
-                        .is_some();
-                    if already_occupied && !claimed {
-                        target_building = None;
-                        activity = Activity::Idle;
-                        if home != Vec2::ZERO {
-                            submit_intent(
-                                &mut intents,
-                                entity,
-                                home.x,
-                                home.y,
-                                MovementPriority::JobRoute,
-                                "worksite:foreign_claim_home",
-                            );
-                        }
-                        npc_logs.push(
-                            idx,
-                            game_time.day(),
-                            game_time.hour(),
-                            game_time.minute(),
-                            "Worksite occupied by other -> Reassign",
-                        );
-                        break 'decide;
-                    }
-                    occupied_building = Some(slot);
+                // Claim repair: if we don't have a claim, try to get one via resolver
+                if worksite.is_none() {
+                    let current_pos = npc_pos.unwrap_or_default();
+                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
+                        entity, kind, town_idx: town_idx_i32 as u32, from: current_pos,
+                    }));
+                    worksite_deferred = true;
+                    // If resolver fails to claim, it sets Activity::Idle
                 }
 
                 // Drift check: push NPC back to worksite if too far
@@ -1703,10 +1446,10 @@ pub fn decision_system(
                             });
                         }
                         let final_yield = ((base_yield as f32) * yield_mult).round() as i32;
-                        if let Some(ob) = occupied_building.take() {
-                            entity_map.release(ob);
-                        }
-                        target_building = None;
+                        let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
+                        extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                        worksite = None;
+                        worksite_deferred = true;
                         match ws.harvest_item {
                             ItemKind::Food => carried_loot.food += final_yield,
                             ItemKind::Gold => carried_loot.gold += final_yield,
@@ -1736,10 +1479,10 @@ pub fn decision_system(
 
                 // Tired check: release worksite and go idle
                 if energy < ENERGY_TIRED_THRESHOLD {
-                    if let Some(ob) = occupied_building.take() {
-                        entity_map.release(ob);
-                    }
-                    target_building = None;
+                    let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
+                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                    worksite = None;
+                    worksite_deferred = true;
                     activity = Activity::Idle;
                     npc_logs.push(
                         idx,
@@ -1992,40 +1735,24 @@ pub fn decision_system(
                     match job {
                         Job::Farmer => {
                             let current_pos = npc_pos.unwrap_or(home);
-                            if let Some((farm_slot, _farm_pos, radius)) = find_farmer_farm_target(
-                                current_pos,
-                                &entity_map,
-                                town_idx_i32 as u32,
-                            ) {
-                                // Re-validate and claim through authoritative path
-                                if let Some(old) = occupied_building.take() {
-                                    entity_map.release(old);
-                                }
-                                if let Some(claimed) = entity_map.try_claim_worksite(
-                                    farm_slot,
-                                    BuildingKind::Farm,
-                                    Some(town_idx_i32 as u32),
-                                    building_def(BuildingKind::Farm).worksite.unwrap().max_occupants,
-                                ) {
-                                    activity = Activity::GoingToWork;
-                                    target_building = Some(claimed.slot);
-                                    occupied_building = Some(claimed.slot);
-                                    submit_intent(
-                                        &mut intents,
-                                        entity,
-                                        claimed.position.x,
-                                        claimed.position.y,
-                                        MovementPriority::JobRoute,
-                                        "idle:work_farm",
-                                    );
-                                    npc_logs.push(
-                                        idx,
-                                        game_time.day(),
-                                        game_time.hour(),
-                                        game_time.minute(),
-                                        format!("Farm target local (r:{:.0})", radius),
-                                    );
-                                }
+                            // Probe for available farm (read-only); defer claim to resolver
+                            if find_farmer_farm_target(current_pos, &entity_map, town_idx_i32 as u32).is_some() {
+                                extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
+                                    entity,
+                                    kind: BuildingKind::Farm,
+                                    town_idx: town_idx_i32 as u32,
+                                    from: current_pos,
+                                }));
+                                activity = Activity::GoingToWork;
+                                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm claim → resolver");
+                            } else {
+                                // No available farm — clear stale target and wander
+                                worksite = None;
+                                let base = if home != Vec2::ZERO { home } else if let Some(pos) = npc_pos { pos } else { break 'decide; };
+                                let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 200.0;
+                                let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 200.0;
+                                activity = Activity::Wandering;
+                                submit_intent(&mut intents, entity, base.x + offset_x, base.y + offset_y, MovementPriority::Wander, "idle:wander_no_farm");
                             }
                         }
                         Job::Miner => {
@@ -2180,24 +1907,18 @@ pub fn decision_system(
 
         // Farmer reservation invariant:
         // a farm reservation may exist only while actively working or moving to work.
-        // This prevents "ghost reservations" (farm shows occupants=1 with no active farmer).
-        if job == Job::Farmer
-            && occupied_building.is_some()
+        // Release stale worksite if farmer isn't actively working or en-route.
+        // Skip if we deferred to resolver this frame (it will handle cleanup).
+        if !worksite_deferred
+            && job == Job::Farmer
+            && worksite.is_some()
             && !matches!(activity, Activity::Working | Activity::GoingToWork)
         {
-            if let Some(slot) = occupied_building.take() {
-                entity_map.release(slot);
-                if target_building == Some(slot) {
-                    target_building = None;
-                }
-                npc_logs.push(
-                    idx,
-                    game_time.day(),
-                    game_time.hour(),
-                    game_time.minute(),
-                    "Released farm reservation",
-                );
-            }
+            let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
+            extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+            worksite = None;
+            worksite_deferred = true;
+            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Released stale worksite");
         }
 
         // Conditional writeback: skip unchanged NPCs (most exit early via break 'decide)
@@ -2241,10 +1962,9 @@ pub fn decision_system(
                 *cs = combat_state;
             }
         }
-        if target_building != orig_target_building || occupied_building != orig_occupied_building {
+        if !worksite_deferred && worksite != orig_worksite {
             if let Ok(mut ws) = npc_data.work_state_q.get_mut(entity) {
-                ws.occupied_building = occupied_building.and_then(|s| entity_map.uid_for_slot(s));
-                ws.work_target_building = target_building.and_then(|s| entity_map.uid_for_slot(s));
+                ws.worksite = worksite.and_then(|s| entity_map.uid_for_slot(s));
             }
         }
         if patrol_current != orig_patrol_current {

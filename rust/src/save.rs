@@ -1326,7 +1326,7 @@ pub fn collect_npc_data(
             work_position: work_state_q
                 .get(npc.entity)
                 .ok()
-                .and_then(|ws| ws.work_target_building)
+                .and_then(|ws| ws.worksite)
                 .and_then(|uid| entity_map.instance_by_uid(uid).map(|i| v2(i.position))),
             squad_id: squad_id_q.get(npc.entity).ok().map(|s| s.0),
             carried_food: carried_loot_q

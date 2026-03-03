@@ -288,8 +288,7 @@ pub fn materialize_npc(
         },
         // Work state (always present)
         NpcWorkState {
-            occupied_building: None,
-            work_target_building: initial_work_target,
+            worksite: initial_work_target,
         },
         // Pathfinding (empty until first path request)
         NpcPath::default(),

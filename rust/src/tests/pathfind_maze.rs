@@ -62,6 +62,7 @@ pub fn setup(mut params: TestSetupParams) {
     let (bx, by) = gw(2, 1);
     params.add_bed(bx, by);
 
+    params.finalize_grid();
     params.init_economy(1);
     // Start with food so the farmer doesn't starve
     params.food_storage.food[0] = 500;

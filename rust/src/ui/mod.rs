@@ -403,6 +403,12 @@ pub fn settings_panel_ui(
                                     .suffix("s"));
                             });
                             ui.small("How often NPCs re-evaluate behavior.");
+                            ui.horizontal(|ui| {
+                                ui.label("Pathfind/Tick:");
+                                ui.add(egui::Slider::new(&mut settings.pathfind_max_per_frame, 10..=2000)
+                                    .step_by(10.0));
+                            });
+                            ui.small("Max path requests processed per tick. Higher reduces queueing but costs more CPU.");
                         }
                         PauseSettingsTab::SaveGame => {
                             if let Some(save_name) = manual_save_name {
@@ -1065,6 +1071,13 @@ struct PauseMenuLocals {
     rebinding: Option<ControlAction>,
 }
 
+#[derive(SystemParam)]
+struct PauseRuntimeConfigs<'w> {
+    ai_config: ResMut<'w, crate::systems::ai_player::AiPlayerConfig>,
+    npc_config: ResMut<'w, crate::resources::NpcDecisionConfig>,
+    pathfind_config: ResMut<'w, crate::resources::PathfindConfig>,
+}
+
 fn pause_menu_system(
     mut contexts: bevy_egui::EguiContexts,
     keys: Res<ButtonInput<KeyCode>>,
@@ -1080,8 +1093,7 @@ fn pause_menu_system(
     mut audio: ResMut<crate::resources::GameAudio>,
     mut music_sinks: Query<&mut AudioSink, With<crate::resources::MusicTrack>>,
     mut locals: Local<PauseMenuLocals>,
-    mut ai_config: ResMut<crate::systems::ai_player::AiPlayerConfig>,
-    mut npc_config: ResMut<crate::resources::NpcDecisionConfig>,
+    mut runtime_configs: PauseRuntimeConfigs,
 ) -> Result {
     if !ui_state.pause_menu_open || ui_state.game_over {
         locals.rebinding = None;
@@ -1230,8 +1242,9 @@ fn pause_menu_system(
     audio.sfx_volume = settings.sfx_volume;
     audio.sfx_shoot_enabled = settings.sfx_shoot_enabled;
     // Sync think intervals + autosave to runtime configs
-    ai_config.decision_interval = settings.ai_interval;
-    npc_config.interval = settings.npc_interval;
+    runtime_configs.ai_config.decision_interval = settings.ai_interval;
+    runtime_configs.npc_config.interval = settings.npc_interval;
+    runtime_configs.pathfind_config.max_per_frame = settings.pathfind_max_per_frame.max(1);
     save_request.autosave_hours = settings.autosave_hours;
 
     Ok(())

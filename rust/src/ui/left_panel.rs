@@ -2886,6 +2886,17 @@ fn profiler_content(
         }
     }
 
+    let pathfind_metrics = format!(
+        "A* Pathfinding Metrics\nprocessed/frame={:.1}\nlos_bypass={:.1}\nastar_calls={:.1}\nastar_fails={:.1}\nelapsed_ms={:.2}\nqueue_remaining={}\nlimit_reason={}",
+        cache.pf_processed,
+        cache.pf_los_bypass,
+        cache.pf_astar_calls,
+        cache.pf_astar_fails,
+        cache.pf_elapsed_ms,
+        cache.pf_queue_remaining,
+        cache.pf_limit_reason,
+    );
+
     ui.label(egui::RichText::new(format!("Frame: {:.2} ms", cache.frame_ms)).strong());
     ui.separator();
 
@@ -2916,6 +2927,9 @@ fn profiler_content(
                         ui.end_row();
                     }
                 });
+            if ui.button("Copy A* Metrics").clicked() {
+                ui.ctx().copy_text(pathfind_metrics.clone());
+            }
         });
     ui.separator();
 
@@ -3021,8 +3035,13 @@ fn profiler_content(
             .join(" ");
         let pathfind = format!(
             "processed={:.1} los={:.1} astar={:.1} fails={:.1} ms={:.2} queue={} limit={}",
-            cache.pf_processed, cache.pf_los_bypass, cache.pf_astar_calls,
-            cache.pf_astar_fails, cache.pf_elapsed_ms, cache.pf_queue_remaining, cache.pf_limit_reason,
+            cache.pf_processed,
+            cache.pf_los_bypass,
+            cache.pf_astar_calls,
+            cache.pf_astar_fails,
+            cache.pf_elapsed_ms,
+            cache.pf_queue_remaining,
+            cache.pf_limit_reason,
         );
         ui.ctx().copy_text(format!(
             "Frame: {:.2} ms\n\nA* Pathfinding\n{}\n\nGame Systems (cpu sum: {:.2} ms)\n{}\n\nEngine Systems (cpu sum: {:.2} ms)\n{}\n\nRender Pipeline\n{}\n\nExtract dirty: {}",
