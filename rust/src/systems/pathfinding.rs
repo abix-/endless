@@ -276,6 +276,7 @@ pub fn invalidate_paths_on_building_change(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::resources::BuildingInstance;
     use crate::world::WorldCell;
 
     /// Create a simple test grid with given dimensions and all Grass terrain.
@@ -286,6 +287,31 @@ mod tests {
             cell_size: 64.0,
             cells: vec![WorldCell::default(); width * height],
         }
+    }
+
+    /// Place a wall at grid (col, row) in the entity map.
+    fn place_wall(entity_map: &mut EntityMap, col: i32, row: i32, slot: usize) {
+        entity_map.add_instance(BuildingInstance {
+            kind: crate::world::BuildingKind::Wall,
+            position: Vec2::new(col as f32 * 64.0 + 32.0, row as f32 * 64.0 + 32.0),
+            slot,
+            town_idx: 0,
+            faction: 0,
+            patrol_order: 0,
+            assigned_mine: None,
+            manual_mine: false,
+            wall_level: 1,
+            npc_uid: None,
+            respawn_timer: -1.0,
+            growth_ready: false,
+            growth_progress: 0.0,
+            occupants: 0,
+            under_construction: 0.0,
+            kills: 0,
+            xp: 0,
+            upgrade_levels: Vec::new(),
+            auto_upgrade_flags: Vec::new(),
+        });
     }
 
     #[test]
@@ -406,6 +432,123 @@ mod tests {
         assert_eq!(h, 469); // (3+4) * 67
         // Must be <= actual cost of cheapest 7-step path (7 roads = 7*67 = 469)
         assert!(h <= 7 * 67);
+    }
+
+    // -- maze pathfinding (walls) ---------------------------------------------
+
+    #[test]
+    fn astar_routes_around_single_wall() {
+        let grid = make_grid(10, 10);
+        let mut entity_map = EntityMap::default();
+        // Wall at (3,0)..=(3,4) — blocks straight horizontal path
+        for row in 0..5 {
+            place_wall(&mut entity_map, 3, row, 100 + row as usize);
+        }
+        let path = pathfind_on_grid(
+            &grid,
+            &entity_map,
+            IVec2::new(0, 0),
+            IVec2::new(6, 0),
+            5000,
+        );
+        assert!(path.is_some(), "should find path around wall");
+        let path = path.unwrap();
+        // Path must not pass through any wall cell
+        for p in &path {
+            if p.x == 3 && p.y < 5 {
+                panic!("path passed through wall at {:?}", p);
+            }
+        }
+        // Path must detour south of the wall (y >= 5)
+        assert!(
+            path.iter().any(|p| p.y >= 5),
+            "path should route around wall: {:?}",
+            path
+        );
+    }
+
+    #[test]
+    fn astar_serpentine_maze() {
+        // 15x11 grid with serpentine walls forcing a snake path
+        let grid = make_grid(15, 11);
+        let mut entity_map = EntityMap::default();
+        let mut slot = 1000;
+
+        // Row 2: wall from col 0..12 (gap at col 13-14)
+        for col in 0..13 {
+            place_wall(&mut entity_map, col, 2, slot);
+            slot += 1;
+        }
+        // Row 5: wall from col 2..14 (gap at col 0-1)
+        for col in 2..15 {
+            place_wall(&mut entity_map, col, 5, slot);
+            slot += 1;
+        }
+        // Row 8: wall from col 0..12 (gap at col 13-14)
+        for col in 0..13 {
+            place_wall(&mut entity_map, col, 8, slot);
+            slot += 1;
+        }
+
+        // Start top-left, goal bottom-right
+        let path = pathfind_on_grid(
+            &grid,
+            &entity_map,
+            IVec2::new(0, 0),
+            IVec2::new(14, 10),
+            10000,
+        );
+        assert!(path.is_some(), "should find path through serpentine maze");
+        let path = path.unwrap();
+
+        // Verify no wall cells traversed
+        for p in &path {
+            let is_wall = (p.y == 2 && p.x < 13)
+                || (p.y == 5 && p.x >= 2)
+                || (p.y == 8 && p.x < 13);
+            assert!(!is_wall, "path crossed wall at {:?}", p);
+        }
+
+        // Path must visit all 3 corridor bands (y=0..1, y=3..4, y=6..7, y=9..10)
+        assert!(path.iter().any(|p| p.y <= 1), "must visit top corridor");
+        assert!(
+            path.iter().any(|p| p.y >= 3 && p.y <= 4),
+            "must visit second corridor"
+        );
+        assert!(
+            path.iter().any(|p| p.y >= 6 && p.y <= 7),
+            "must visit third corridor"
+        );
+        assert!(path.iter().any(|p| p.y >= 9), "must visit bottom corridor");
+    }
+
+    #[test]
+    fn astar_no_path_walled_off() {
+        let grid = make_grid(10, 10);
+        let mut entity_map = EntityMap::default();
+        // Complete wall across column 5 (all rows)
+        for row in 0..10 {
+            place_wall(&mut entity_map, 5, row, 200 + row as usize);
+        }
+        let path = pathfind_on_grid(
+            &grid,
+            &entity_map,
+            IVec2::new(0, 0),
+            IVec2::new(8, 0),
+            5000,
+        );
+        assert!(path.is_none(), "should return None when walled off");
+    }
+
+    #[test]
+    fn los_blocked_by_wall() {
+        let grid = make_grid(10, 10);
+        let mut entity_map = EntityMap::default();
+        place_wall(&mut entity_map, 3, 3, 300);
+        assert!(
+            !line_of_sight(&grid, &entity_map, IVec2::new(0, 0), IVec2::new(6, 6)),
+            "LOS should be blocked by wall at (3,3)"
+        );
     }
 
     // -- invalidate_paths_on_building_change ---------------------------------

@@ -291,6 +291,8 @@ pub fn materialize_npc(
             occupied_building: None,
             work_target_building: initial_work_target,
         },
+        // Pathfinding (empty until first path request)
+        NpcPath::default(),
     ));
     if let Some(sq) = overrides.squad_id {
         ecmds.insert(SquadId(sq));

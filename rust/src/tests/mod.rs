@@ -21,12 +21,14 @@ pub mod loot_cycle;
 pub mod miner_cycle;
 pub mod movement;
 pub mod npc_visuals;
+pub mod pathfind_maze;
 pub mod projectiles;
 pub mod raider_cycle;
 pub mod sandbox;
 pub mod sleep_visual;
 pub mod slot_reuse_wave;
 pub mod spawning;
+pub mod stress_archer_towns;
 pub mod terrain_visual;
 pub mod vertical_slice;
 pub mod world_gen;
@@ -255,6 +257,8 @@ pub struct TestState {
     pub failed: bool,
     pub counters: HashMap<String, u32>,
     pub flags: HashMap<String, bool>,
+    /// When set, test_menu_system will auto-relaunch this test name.
+    pub pending_relaunch: Option<String>,
 }
 
 impl Default for TestState {
@@ -270,6 +274,7 @@ impl Default for TestState {
             failed: false,
             counters: HashMap::new(),
             flags: HashMap::new(),
+            pending_relaunch: None,
         }
     }
 }
@@ -975,6 +980,51 @@ pub fn register_tests(app: &mut App) {
             .after(Step::Behavior),
     );
 
+    // stress-archer-towns
+    app.init_resource::<stress_archer_towns::StressArcherConfig>();
+    registry.tests.push(TestEntry {
+        name: "stress-archer-towns".into(),
+        description: "Stress scene: 20 AI builder towns, configurable archer homes".into(),
+        phase_count: 1,
+        time_scale: 1.0,
+    });
+    app.add_systems(
+        OnEnter(AppState::Running),
+        stress_archer_towns::setup.run_if(test_is("stress-archer-towns")),
+    );
+    app.add_systems(
+        FixedUpdate,
+        stress_archer_towns::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("stress-archer-towns"))
+            .after(Step::Behavior),
+    );
+    app.add_systems(
+        Update,
+        stress_archer_towns::ui
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("stress-archer-towns")),
+    );
+
+    // pathfind-maze
+    registry.tests.push(TestEntry {
+        name: "pathfind-maze".into(),
+        description: "Farmer navigates serpentine wall maze via A* pathfinding".into(),
+        phase_count: 5,
+        time_scale: 1.0,
+    });
+    app.add_systems(
+        OnEnter(AppState::Running),
+        pathfind_maze::setup.run_if(test_is("pathfind-maze")),
+    );
+    app.add_systems(
+        FixedUpdate,
+        pathfind_maze::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("pathfind-maze"))
+            .after(Step::Behavior),
+    );
+
     // loot-cycle
     registry.tests.push(TestEntry {
         name: "loot-cycle".into(),
@@ -1009,6 +1059,14 @@ fn test_menu_system(
     mut run_all: ResMut<RunAllState>,
     mut next_state: ResMut<NextState<AppState>>,
 ) -> Result {
+    // Auto-relaunch if a test requested restart
+    if let Some(name) = test_state.pending_relaunch.take() {
+        if let Some(entry) = registry.tests.iter().find(|t| t.name == name) {
+            start_test(&name, entry.phase_count, entry.time_scale, &mut test_state, &mut next_state);
+            return Ok(());
+        }
+    }
+
     let ctx = contexts.ctx_mut()?;
     egui::CentralPanel::default().show(ctx, |ui| {
         ui.heading("Endless — Test Framework");
@@ -1127,7 +1185,7 @@ fn test_hud_system(
 
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("Test")
-        .anchor(egui::Align2::RIGHT_TOP, [-8.0, 8.0])
+        .anchor(egui::Align2::RIGHT_TOP, [-8.0, 40.0])
         .resizable(false)
         .collapsible(false)
         .show(ctx, |ui| {

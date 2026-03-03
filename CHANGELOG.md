@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-03-02q
+
+- **A* pathfinding system** — new `pathfinding.rs` module with budgeted A* on `WorldGrid`. CPU computes waypoints via `pathfinding` crate; GPU boids steer toward current waypoint via existing `goals[]` buffer. Walls and water block pathfinding. LOS bypass for short-distance moves (<5 tiles). Priority queue (`PathRequestQueue`) with per-frame budget (50 requests). `NpcPath` component on all NPCs. `advance_waypoints_system` progresses through path on arrival. `invalidate_paths_on_building_change` re-queues paths when buildings change.
+- **pathfind-maze test scene** — visual integration test: farmer navigates serpentine wall maze (5 horizontal wall rows with alternating gaps). 5 phases: spawn → A* waypoints → cross wall rows → reach farm. 4 unit tests for wall-based maze pathfinding (single wall, serpentine, walled-off, LOS blocked by wall).
+- **economy system tests** — unit tests for `mining_policy_system` (discover/ignore mines by radius, skip without dirty) and `squad_cleanup_system` (remove dead members, retain alive, skip without dirty).
+
 ## 2026-03-02p
 
 - **7-axis spectrum personality** — replaced 4-trait system (Brave/Tough/Swift/Focused) with 7 spectrum axes (Courage/Diligence/Vitality/Power/Agility/Precision/Ferocity), each with signed magnitude (±0.5 to ±1.5). Positive pole = beneficial (Brave, Efficient, Hardy, Strong, Swift, Sharpshot, Berserker), negative = detrimental (Coward, Lazy, Frail, Weak, Slow, Myopic, Timid). All 7 axes affect both stats (`resolve_combat_stats` via `TraitStatMods`) and behavior weights (`decision_system` via `TraitBehaviorMods`). Personality generation: 20% per axis, cap at 2 traits, deterministic LCG. Save compat: `PersonalitySave.version` (0=legacy 4-trait, 1=spectrum) with `from_legacy_id()` migration.

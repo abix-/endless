@@ -334,5 +334,4 @@ Worksite reservations (`occupied_building` / `NpcWorkState.occupied_building`) f
 
 ## Known Issues / Limitations
 
-- **No pathfinding**: NPCs walk in a straight line to target. They rely on separation physics to avoid each other, but can't navigate around buildings.
 - **Energy drains during transit**: NPCs lose energy while walking home to rest. Distant homes could drain to 0 before arrival (clamped, but NPC arrives empty).

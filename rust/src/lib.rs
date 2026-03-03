@@ -208,6 +208,8 @@ pub fn build_app(app: &mut App) {
         .init_resource::<CombatDebug>()
         .init_resource::<NpcTargetThrashDebug>()
         .init_resource::<MovementIntents>()
+        .init_resource::<resources::PathRequestQueue>()
+        .init_resource::<resources::PathfindConfig>()
         .init_resource::<KillStats>()
         .init_resource::<SelectedNpc>()
         .init_resource::<SelectedBuilding>()
@@ -392,6 +394,25 @@ pub fn build_app(app: &mut App) {
         )
         .add_systems(FixedUpdate, sync_building_hp_render.in_set(Step::Behavior))
         .add_systems(FixedUpdate, merchant_tick_system.in_set(Step::Behavior))
+        // Waypoint advancement — advance NpcPath after gpu_position_readback sets at_destination
+        .add_systems(
+            FixedUpdate,
+            advance_waypoints_system
+                .after(gpu_position_readback)
+                .before(Step::Spawn)
+                .run_if(game_active.clone()),
+        )
+        // A* pathfinding budget — process queued path requests
+        .add_systems(
+            FixedUpdate,
+            (
+                systems::pathfinding::pathfind_budget_system
+                    .after(decision_system),
+                systems::pathfinding::invalidate_paths_on_building_change
+                    .after(world::rebuild_building_grid_system),
+            )
+                .in_set(Step::Behavior),
+        )
         // Movement intent resolution — single owner of SetTarget, runs after all intent producers
         .add_systems(
             FixedUpdate,

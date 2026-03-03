@@ -2105,4 +2105,190 @@ mod tests {
         assert!(inst.npc_uid.is_some(), "building should have npc_uid after spawn");
         assert!((inst.respawn_timer - (-1.0)).abs() < 0.01, "timer should reset to -1.0");
     }
+
+    // -- mining_policy_system ------------------------------------------------
+
+    #[derive(Resource, Default)]
+    struct SendMiningDirty(bool);
+
+    fn send_mining_dirty(
+        mut writer: MessageWriter<crate::messages::MiningDirtyMsg>,
+        mut flag: ResMut<SendMiningDirty>,
+    ) {
+        if flag.0 {
+            writer.write(crate::messages::MiningDirtyMsg);
+            flag.0 = false;
+        }
+    }
+
+    fn setup_mining_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(EntityMap::default());
+        app.insert_resource(TownPolicies::default());
+        app.insert_resource(MiningPolicy::default());
+        app.insert_resource(SendMiningDirty(false));
+        app.insert_resource(WorldData {
+            towns: vec![crate::world::Town {
+                name: "TestTown".to_string(),
+                center: Vec2::new(500.0, 500.0),
+                faction: 0,
+                sprite_type: 0,
+            }],
+        });
+        app.add_message::<crate::messages::MiningDirtyMsg>();
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.add_systems(FixedUpdate, (send_mining_dirty, mining_policy_system).chain());
+        app.update();
+        app.update();
+        app
+    }
+
+    fn add_gold_mine(app: &mut App, slot: usize, pos: Vec2) {
+        let mut inst = test_building_instance(slot, BuildingKind::GoldMine, 0.0);
+        inst.position = pos;
+        app.world_mut().resource_mut::<EntityMap>().add_instance(inst);
+    }
+
+    #[test]
+    fn mining_skips_without_dirty() {
+        let mut app = setup_mining_app();
+        add_gold_mine(&mut app, 6000, Vec2::new(600.0, 500.0));
+        app.update();
+        let mining = app.world().resource::<MiningPolicy>();
+        assert!(
+            mining.discovered_mines.is_empty() || mining.discovered_mines[0].is_empty(),
+            "should not discover mines without dirty msg"
+        );
+    }
+
+    #[test]
+    fn mining_discovers_mine_within_radius() {
+        let mut app = setup_mining_app();
+        // Town center is (500, 500), place mine nearby
+        add_gold_mine(&mut app, 6000, Vec2::new(600.0, 500.0));
+        app.insert_resource(SendMiningDirty(true));
+        app.update();
+        let mining = app.world().resource::<MiningPolicy>();
+        assert!(
+            !mining.discovered_mines.is_empty() && !mining.discovered_mines[0].is_empty(),
+            "should discover nearby gold mine"
+        );
+        assert!(mining.discovered_mines[0].contains(&6000));
+    }
+
+    #[test]
+    fn mining_ignores_mine_outside_radius() {
+        let mut app = setup_mining_app();
+        // Place mine very far away
+        add_gold_mine(&mut app, 6000, Vec2::new(99999.0, 99999.0));
+        app.insert_resource(SendMiningDirty(true));
+        app.update();
+        let mining = app.world().resource::<MiningPolicy>();
+        assert!(
+            mining.discovered_mines.is_empty()
+                || mining.discovered_mines[0].is_empty(),
+            "should not discover mine outside radius"
+        );
+    }
+
+    // -- squad_cleanup_system ------------------------------------------------
+
+    #[derive(Resource, Default)]
+    struct SendSquadsDirty(bool);
+
+    fn send_squads_dirty(
+        mut writer: MessageWriter<crate::messages::SquadsDirtyMsg>,
+        mut flag: ResMut<SendSquadsDirty>,
+    ) {
+        if flag.0 {
+            writer.write(crate::messages::SquadsDirtyMsg);
+            flag.0 = false;
+        }
+    }
+
+    fn setup_squad_cleanup_app() -> App {
+        use crate::resources::SquadState;
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(SquadState::default());
+        app.insert_resource(EntityMap::default());
+        app.insert_resource(SendSquadsDirty(false));
+        app.insert_resource(WorldData {
+            towns: vec![crate::world::Town {
+                name: "TestTown".to_string(),
+                center: Vec2::new(500.0, 500.0),
+                faction: 0,
+                sprite_type: 0,
+            }],
+        });
+        app.add_message::<crate::messages::SquadsDirtyMsg>();
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.add_systems(FixedUpdate, (send_squads_dirty, squad_cleanup_system).chain());
+        app.update();
+        app.update();
+        app
+    }
+
+    #[test]
+    fn squad_cleanup_skips_without_dirty() {
+        use crate::components::EntityUid;
+        use crate::resources::SquadState;
+        let mut app = setup_squad_cleanup_app();
+        // Add a dead member UID to squad
+        {
+            let mut ss = app.world_mut().resource_mut::<SquadState>();
+            ss.squads[0].members.push(EntityUid(999));
+        }
+        app.update();
+        let ss = app.world().resource::<SquadState>();
+        assert_eq!(ss.squads[0].members.len(), 1, "should not clean up without dirty msg");
+    }
+
+    #[test]
+    fn squad_cleanup_removes_dead_members() {
+        use crate::components::EntityUid;
+        use crate::resources::SquadState;
+        let mut app = setup_squad_cleanup_app();
+        // Add UID that doesn't exist in EntityMap → treated as dead
+        {
+            let mut ss = app.world_mut().resource_mut::<SquadState>();
+            ss.squads[0].members.push(EntityUid(999));
+        }
+        app.insert_resource(SendSquadsDirty(true));
+        app.update();
+        let ss = app.world().resource::<SquadState>();
+        assert!(ss.squads[0].members.is_empty(), "dead member should be removed on dirty");
+    }
+
+    #[test]
+    fn squad_cleanup_retains_alive_members() {
+        use crate::components::EntityUid;
+        use crate::resources::SquadState;
+        let mut app = setup_squad_cleanup_app();
+        // Register a live NPC in EntityMap
+        let entity = app.world_mut().spawn((
+            GpuSlot(0),
+            crate::components::Job::Archer,
+            crate::components::TownId(0),
+            crate::components::Faction(0),
+        )).id();
+        {
+            let mut em = app.world_mut().resource_mut::<EntityMap>();
+            em.register_npc(0, entity, crate::components::Job::Archer, 0, 0);
+            em.register_uid(0, EntityUid(1), entity);
+        }
+        {
+            let mut ss = app.world_mut().resource_mut::<SquadState>();
+            ss.squads[0].members.push(EntityUid(1));
+        }
+        app.insert_resource(SendSquadsDirty(true));
+        app.update();
+        let ss = app.world().resource::<SquadState>();
+        assert_eq!(ss.squads[0].members.len(), 1, "alive member should be retained");
+    }
 }

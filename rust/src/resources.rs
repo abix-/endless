@@ -1585,6 +1585,50 @@ impl MovementIntents {
 }
 
 // ============================================================================
+// PATHFINDING
+// ============================================================================
+
+/// A queued pathfinding request.
+pub struct PathRequest {
+    pub entity: Entity,
+    pub slot: usize,
+    pub start: IVec2,
+    pub goal: IVec2,
+    pub goal_world: Vec2,
+    pub priority: u8, // 0=urgent, 1=normal, 2=low
+}
+
+/// Priority queue for A* pathfinding requests, processed by pathfind_budget_system.
+#[derive(Resource, Default)]
+pub struct PathRequestQueue {
+    pub requests: Vec<PathRequest>,
+}
+
+/// Tuning constants for the pathfinding budget system.
+#[derive(Resource)]
+pub struct PathfindConfig {
+    /// Max A* calls per FixedUpdate tick.
+    pub max_per_frame: usize,
+    /// Manhattan distance threshold (in tiles) — below this, use direct LOS instead of A*.
+    pub short_distance_tiles: i32,
+    /// Max nodes A* visits before early termination (prevents worst-case spikes).
+    pub max_nodes: usize,
+    /// Frames without position progress before re-queuing a path request.
+    pub stuck_repath_frames: u32,
+}
+
+impl Default for PathfindConfig {
+    fn default() -> Self {
+        Self {
+            max_per_frame: 50,
+            short_distance_tiles: 5,
+            max_nodes: 5000,
+            stuck_repath_frames: 30,
+        }
+    }
+}
+
+// ============================================================================
 // UI CACHE RESOURCES
 // ============================================================================
 

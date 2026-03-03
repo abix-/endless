@@ -9,6 +9,7 @@ mod economy;
 mod energy;
 mod health;
 mod movement;
+pub mod pathfinding;
 pub(crate) mod spawn;
 pub mod stats;
 pub use ai_player::{

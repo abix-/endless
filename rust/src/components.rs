@@ -308,6 +308,19 @@ pub struct NpcFlags {
     pub at_destination: bool,
 }
 
+/// A* pathfinding waypoints. Optional — only present on NPCs with active paths.
+/// CPU-authoritative: A* produces waypoints, CPU advances on arrival, GPU steers
+/// to current waypoint via existing goals[] upload.
+#[derive(Component, Default, Clone)]
+pub struct NpcPath {
+    /// Waypoints in grid coordinates (col, row).
+    pub waypoints: Vec<IVec2>,
+    /// Index of the next waypoint to reach.
+    pub current: usize,
+    /// Original world-space destination (for invalidation check).
+    pub goal_world: Vec2,
+}
+
 /// Squad assignment for military NPCs. Optional component — only present when recruited.
 #[derive(Component, Clone, Copy)]
 pub struct SquadId(pub i32);

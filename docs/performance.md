@@ -15,6 +15,7 @@ Single source of truth for achieving maximum performance in this codebase. All o
 | Dirty-index uploads | Bulk buffer writes waste bandwidth | Per-dirty-index `write_buffer` (typically <1KB vs ~4MB bulk at 30K entities) |
 | Coalesced writes | Many small GPU writes | Adjacent dirty indices merged into range writes (strict for GPU-authoritative, gap-based for CPU-authoritative) |
 | Cadenced processing | Per-frame CPU spikes at scale | Bucket-gated systems spread NPC processing across frames |
+| Budgeted pathfinding | A* at 50K NPCs would spike frames | Priority queue + per-frame budget (50-100 requests), LOS bypass for short distances |
 | Event-driven updates | Redundant per-frame rebuilds | Dirty flags + message-driven triggers (visual upload, terrain sync, building grid) |
 
 ## Performance Targets
@@ -111,10 +112,15 @@ Replaced full 50K NPC iteration with O(active_healing + sampled_candidates):
 - `spawner_respawn_system`: timer-based per spawner (no per-frame iteration).
 - `raider_forage_system`: hourly timer accumulation per raider town.
 
+### Budgeted Pathfinding
+
+A* requests queued by decision/combat/health systems. `pathfind_budget_system` processes up to `max_pathfinds_per_frame` requests per FixedUpdate tick, sorted by priority (urgent: stuck/combat > normal: job route > low: periodic refresh). Short-distance moves (< 5 tiles with clear LOS) bypass A* entirely — direct boids steering.
+
 ### Event-Driven Systems
 
 - `build_visual_upload`: persistent `NpcVisualUpload`, dirty-signaled via `MarkVisualDirty`. ~4-8ms → ~0.01ms steady state.
 - `rebuild_building_grid_system`: runs only on `BuildingGridDirtyMsg`.
+- `invalidate_paths_on_building_change`: runs on `BuildingGridDirtyMsg`, re-queues paths crossing changed cells.
 - Terrain tilemap sync: `TerrainDirtyMsg`-driven, not `WorldGrid::is_changed()`.
 
 ## Debug Overhead
@@ -166,6 +172,10 @@ All volatile numeric constants in one place. Policy sections above describe *why
 | Healing enter-check cadence | 1/4 NPCs per frame | `health.rs` |
 | Gap coalescing waste budget | ~24KB total across all buffers | `gpu.rs` |
 | Visual upload fallback | 40% window → bulk offset write | `gpu.rs` |
+| `max_pathfinds_per_frame` | 50 | `resources.rs` (PathfindConfig) |
+| `pathfind_short_distance_tiles` | 5 | `resources.rs` (PathfindConfig) |
+| `pathfind_max_nodes` | 5000 | `resources.rs` (PathfindConfig) |
+| `pathfind_stuck_repath_frames` | 30 | `resources.rs` (PathfindConfig) |
 
 ## Migration Templates
 

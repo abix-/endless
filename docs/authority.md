@@ -37,6 +37,7 @@ This contract prevents that class of bug.
 | PatrolRoute | CPU | Internal | Guard post sequence for patrols. |
 | Home | CPU | Internal | Rest location (spawner building). |
 | WorkPosition | CPU | Internal | Farm location for farmers. |
+| Path waypoints | CPU (`NpcPath` component) | CPU → GPU (via `goals[]`) | A* produces waypoints; CPU advances on arrival; GPU steers to current waypoint via existing `goals[]` upload. |
 | **Render-Only** (uploaded to visual/equip storage buffers, never in compute shader) ||||
 | Sprite indices | EntityGpuState | CPU → NpcVisualUpload → NpcVisualBuffers | Atlas col/row per NPC; packed into visual storage buffer by build_visual_upload. |
 | Colors | ECS → NpcVisualUpload | CPU → NpcVisualBuffers | RGBA tint from Faction/Job; packed into visual storage buffer by build_visual_upload. |

@@ -59,6 +59,7 @@ UI-selectable integration tests run inside the full Bevy app via a bevy_egui men
 | `slot-reuse-wave` | 5 | AI wave vs destroyed building: EntityUid prevents ABA slot reuse (wave correctly ends) |
 | `coalesce-movement` | 2 | GPU-authoritative position safety: SetPosition on foreign slot doesn't teleport other NPCs |
 | `coalesce-arrival` | 2 | GPU-authoritative arrival safety: arrived NPC stays stable after unrelated SetTarget |
+| `pathfind-maze` | 5 | Farmer navigates serpentine wall maze via A* pathfinding (spawn → waypoints → cross walls → reach farm) |
 | `sandbox` | 1 | Human player sandbox: 1 player + 1 AI town, 100K food+gold, no raiders — auto-completes for free play |
 
 ## System Map
