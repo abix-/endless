@@ -8,7 +8,7 @@ Your AI rivals do the same — each with a distinct strategy
 
 <!-- TODO: Add screenshot/GIF here -->
 
-[Roadmap](docs/roadmap.md)
+[Roadmap](docs/roadmap.md) | [Architecture](docs/README.md)
 
 ## Download
 
@@ -44,15 +44,6 @@ All keyboard shortcuts are rebindable in `ESC > Settings > Controls`.
 - **Factorio** - scale to thousands of entities, the satisfaction of watching systems hum
 - **RimWorld** - colonist needs, emergent chaos, stories that write themselves
 - **Asimov's "The Last Question"** - entropy as the ultimate antagonist
-
-## Architecture
-
-Built with [Bevy 0.18](https://bevyengine.org/) ECS + GPU compute shaders (WGSL). 50K NPC capacity via instanced rendering in a single draw call. See [docs/](docs/README.md) for details.
-
-### Debugging Target Flips
-
-- Enable the Profiler tab to view `NPC Target Thrash (sink, 1s window)` for live per-second target-change diagnostics.
-- Selected NPC debug info includes sink metrics (`SinkTargetChanges/s`, `SinkPingPong/s`, `SinkTargetWrites/s`) and raw `SinkPrevTarget -> SinkLastTarget`.
 
 ## Credits
 
