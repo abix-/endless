@@ -839,6 +839,8 @@ pub fn setup_world(
         commands, gpu_updates,
     );
     entity_map.init_spatial(grid.width as f32 * grid.cell_size);
+    grid.init_pathfind_costs();
+    grid.sync_building_costs(entity_map);
 
     let n = world_data.towns.len();
     food_storage.init(n);
@@ -1512,6 +1514,11 @@ pub struct WorldGrid {
     pub height: usize,
     pub cell_size: f32,
     pub cells: Vec<WorldCell>,
+    /// Precomputed A* cost per cell. 0 = impassable, >0 = movement cost.
+    /// Combines terrain + building data. Rebuilt incrementally on building changes.
+    pub pathfind_costs: Vec<u16>,
+    /// Flat indices of cells with building cost overrides (for incremental revert).
+    building_cost_cells: Vec<usize>,
 }
 
 impl Default for WorldGrid {
@@ -1521,6 +1528,8 @@ impl Default for WorldGrid {
             height: 0,
             cell_size: TOWN_GRID_SPACING,
             cells: Vec::new(),
+            pathfind_costs: Vec::new(),
+            building_cost_cells: Vec::new(),
         }
     }
 }
@@ -1560,6 +1569,54 @@ impl WorldGrid {
             col as f32 * self.cell_size + self.cell_size * 0.5,
             row as f32 * self.cell_size + self.cell_size * 0.5,
         )
+    }
+
+    // ── Pathfinding cost grid ────────────────────────────────────────
+
+    /// Build terrain base costs. Called once on world init/load.
+    pub fn init_pathfind_costs(&mut self) {
+        self.pathfind_costs = self.cells.iter().map(|c| terrain_base_cost(c.terrain)).collect();
+        self.building_cost_cells.clear();
+    }
+
+    /// Incrementally sync building overrides (walls/roads). O(walls + roads), not O(map).
+    pub fn sync_building_costs(&mut self, entity_map: &crate::resources::EntityMap) {
+        // Revert previous overrides to terrain base
+        for &idx in &self.building_cost_cells {
+            self.pathfind_costs[idx] = terrain_base_cost(self.cells[idx].terrain);
+        }
+        self.building_cost_cells.clear();
+
+        self.apply_building_overlay(entity_map, BuildingKind::Wall, 0);
+        self.apply_building_overlay(entity_map, BuildingKind::Road, 67);
+    }
+
+    fn apply_building_overlay(
+        &mut self,
+        entity_map: &crate::resources::EntityMap,
+        kind: BuildingKind,
+        cost: u16,
+    ) {
+        for inst in entity_map.iter_kind(kind) {
+            let (gc, gr) = self.world_to_grid(inst.position);
+            let idx = gr * self.width + gc;
+            // Don't override water with road bonus (water is always impassable)
+            if cost > 0 && self.pathfind_costs[idx] == 0 {
+                continue;
+            }
+            self.pathfind_costs[idx] = cost;
+            self.building_cost_cells.push(idx);
+        }
+    }
+}
+
+/// Terrain base cost for pathfinding (matches GPU shader speed multipliers).
+pub(crate) fn terrain_base_cost(biome: Biome) -> u16 {
+    match biome {
+        Biome::Grass | Biome::Dirt => 100,
+        Biome::Forest => 143,
+        Biome::Rock => 200,
+        Biome::Water => 0,
     }
 }
 

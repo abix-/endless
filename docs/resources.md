@@ -245,7 +245,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | TestRegistry | `Vec<TestEntry>` (name, description, phase_count, time_scale) | All registered tests |
 | RunAllState | active, queue, results | Sequential test execution state |
 
-`TestState` is reset between tests via `cleanup_test_world` (OnExit Running). `test_is("name")` run condition gates per-test systems.
+`TestState` is reset between tests via shared `game_cleanup_system` (OnExit Running — same cleanup as OnExit Playing). `test_is("name")` run condition gates per-test systems.
 
 ## UI State
 
@@ -322,11 +322,11 @@ Both unlock slots when full (sets terrain to Dirt) and buy upgrades with surplus
 
 | Resource | Data | Writers | Readers |
 |----------|------|---------|---------|
-| MovementIntents | `HashMap<Entity, MovementIntent>` — sparse per-NPC intent slots, highest priority wins | decision_system, attack_system, death_system, click_to_select_system | resolve_movement_system (drains → single `SetTarget` per NPC) |
+| PathRequestQueue | World-space intents + grid-space pathfinding requests. 3 priority buckets with per-entity dedup. `submit()` for world-space intents, `enqueue()` for grid-space requests. Movement source overwrites stale Invalidation for same entity. | decision_system, attack_system, death_system, click_to_select_system (via submit), invalidate_paths_on_building_change (via enqueue) | resolve_movement_system (drains intents → PathRequests → budget-limited A*/LOS routing → SetTarget) |
 
-`MovementPriority` enum: `Wander(0) < JobRoute(1) < Squad(2) < Combat(3) < Survival(4) < ManualTarget(5) < DirectControl(6)`. Multiple `submit()` calls per NPC per frame keep the highest priority. Cleared every frame by `resolve_movement_system` via `drain()`. The resolver is the sole emitter of `GpuUpdate::SetTarget` and the sole recorder of `NpcTargetThrashDebug`. Change detection skips writes when the new target is within 1px of the current GPU target.
+`MovementPriority` enum: `Wander(0) < JobRoute(1) < Squad(2) < Combat(3) < Survival(4) < ManualTarget(5) < DirectControl(6)`. Multiple `submit()` calls per NPC per frame keep the highest priority. `resolve_movement_system` drains intents, filters (dedup, cooldown, unchanged target), converts to grid-space PathRequests via `enqueue()`, then processes the queue with LOS bypass or A* routing. Sole emitter of `GpuUpdate::SetTarget` and sole recorder of `NpcTargetThrashDebug`. Budget-limited: `max_per_frame` count + `max_time_budget_ms` time guard, overflow re-queued.
 
-Systems that write intents no longer need `MessageWriter<GpuUpdateMsg>` for movement — they call `intents.submit(entity, target, priority, source)`. One-time init targets (spawn, boat migration) still write `SetTarget` directly.
+Systems that write intents call `path_queue.submit(entity, target, priority, source)`. One-time init targets (spawn, boat migration) still write `SetTarget` directly.
 
 ## Debug Resources
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-03-03a
+
+- **unified cleanup** — merged `cleanup_test_world` (OnExit Running) into `game_cleanup_system` (OnExit Playing). Single shared cleanup for both game and test states — no more drift. Added missing resets: `EndlessMode`, `TownInventory`, `MerchantInventory`, `NextLootItemId`, `DebugFlags`, `MiningPolicy`, `TerrainChunk` despawn. New `CleanupUi` SystemParam bundle consolidates loose params.
+- **merged resolve_movement + pathfind_budget** — collapsed `pathfind_budget_system` into `resolve_movement_system`. Single system now handles intent filtering, PathRequest enqueueing, and A*/LOS routing in one pass. Eliminates duplicated manhattan + LOS decision logic. PathRequestQueue gains `submit()` for world-space intents and `drain_intents()` for phase 1 processing. Guard against empty `pathfind_costs` prevents crash on first frame.
+
 ## 2026-03-02q
 
 - **A* pathfinding system** — new `pathfinding.rs` module with budgeted A* on `WorldGrid`. CPU computes waypoints via `pathfinding` crate; GPU boids steer toward current waypoint via existing `goals[]` buffer. Walls and water block pathfinding. LOS bypass for short-distance moves (<5 tiles). Priority queue (`PathRequestQueue`) with per-frame budget (50 requests). `NpcPath` component on all NPCs. `advance_waypoints_system` progresses through path on arrival. `invalidate_paths_on_building_change` re-queues paths when buildings change.

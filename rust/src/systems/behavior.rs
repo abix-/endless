@@ -19,7 +19,7 @@ use crate::constants::UpgradeStatKind;
 use crate::constants::*;
 use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg};
 use crate::resources::{
-    CombatEventKind, EntityMap, GameTime, GpuReadState, MovementIntents, MovementPriority,
+    CombatEventKind, EntityMap, GameTime, GpuReadState, MovementPriority, PathRequestQueue,
     NpcLogCache, OffDutyBehavior, SelectedNpc, SquadState, TownPolicies, WorkSchedule,
 };
 use crate::settings::UserSettings;
@@ -276,20 +276,20 @@ fn weighted_random(scores: &[(Action, f32)], seed: usize, frame: usize) -> Actio
 /// Submit a movement intent through the centralized resolver.
 #[inline]
 fn submit_intent(
-    intents: &mut MovementIntents,
+    queue: &mut PathRequestQueue,
     entity: Entity,
     x: f32,
     y: f32,
     priority: MovementPriority,
     source: &'static str,
 ) {
-    intents.submit(entity, Vec2::new(x, y), priority, source);
+    queue.submit(entity, Vec2::new(x, y), priority, source);
 }
 
 /// Submit a movement intent with a deterministic scatter offset around a center point.
 #[inline]
 fn submit_intent_scattered(
-    intents: &mut MovementIntents,
+    queue: &mut PathRequestQueue,
     entity: Entity,
     center_x: f32,
     center_y: f32,
@@ -301,7 +301,7 @@ fn submit_intent_scattered(
 ) {
     let ox = (pseudo_random(idx, frame + 5) - 0.5) * scatter;
     let oy = (pseudo_random(idx, frame + 6) - 0.5) * scatter;
-    intents.submit(entity, Vec2::new(center_x + ox, center_y + oy), priority, source);
+    queue.submit(entity, Vec2::new(center_x + ox, center_y + oy), priority, source);
 }
 
 /// Frame counter for pseudo-random seeding.
@@ -322,7 +322,7 @@ static DECISION_FRAME: std::sync::atomic::AtomicUsize = std::sync::atomic::Atomi
 pub fn decision_system(
     farms: FarmParams,
     mut economy: EconomyState,
-    mut intents: ResMut<MovementIntents>,
+    mut intents: ResMut<PathRequestQueue>,
     gpu_state: Res<GpuReadState>,
     game_time: Res<GameTime>,
     mut extras: DecisionExtras,
@@ -521,7 +521,7 @@ pub fn decision_system(
                             if let Some(post) = route.posts.get(patrol_current) {
                                 submit_intent_scattered(
                                     &mut intents, entity, post.x, post.y, 64.0,
-                                    idx, frame, MovementPriority::JobRoute, "onduty:scatter",
+                                    idx, patrol_current, MovementPriority::JobRoute, "onduty:scatter",
                                 );
                             }
                         }
@@ -1775,19 +1775,16 @@ pub fn decision_system(
                     let squad_patrol_enabled = squad_id
                         .and_then(|sid| squad_state.squads.get(sid as usize))
                         .is_none_or(|s| s.patrol_enabled);
-                    if ticks >= ARCHER_PATROL_WAIT && squad_patrol_enabled {
+                    let jitter = (idx % 30) as u32;
+                    if ticks >= ARCHER_PATROL_WAIT + jitter && squad_patrol_enabled {
                         if let Ok(route) = npc_data.patrol_route_q.get(entity) {
                             if !route.posts.is_empty() {
                                 patrol_current = (patrol_current + 1) % route.posts.len();
                                 if let Some(post) = route.posts.get(patrol_current) {
                                     activity = Activity::Patrolling;
-                                    submit_intent(
-                                        &mut intents,
-                                        entity,
-                                        post.x,
-                                        post.y,
-                                        MovementPriority::JobRoute,
-                                        "onduty:patrol_advance",
+                                    submit_intent_scattered(
+                                        &mut intents, entity, post.x, post.y, 64.0,
+                                        idx, patrol_current, MovementPriority::JobRoute, "onduty:patrol_advance",
                                     );
                                     npc_logs.push(
                                         idx,
@@ -2124,13 +2121,9 @@ pub fn decision_system(
                                     if let Some(post) = route.posts.get(safe_idx) {
                                         patrol_current = safe_idx;
                                         activity = Activity::Patrolling;
-                                        submit_intent(
-                                            &mut intents,
-                                            entity,
-                                            post.x,
-                                            post.y,
-                                            MovementPriority::JobRoute,
-                                            "idle:patrol_route",
+                                        submit_intent_scattered(
+                                            &mut intents, entity, post.x, post.y, 64.0,
+                                            idx, patrol_current, MovementPriority::JobRoute, "idle:patrol_route",
                                         );
                                     }
                                 }

@@ -114,7 +114,7 @@ Replaced full 50K NPC iteration with O(active_healing + sampled_candidates):
 
 ### Budgeted Pathfinding
 
-A* requests queued by decision/combat/health systems. `pathfind_budget_system` processes up to `max_pathfinds_per_frame` requests per FixedUpdate tick, sorted by priority (urgent: stuck/combat > normal: job route > low: periodic refresh). Short-distance moves (< 5 tiles with clear LOS) bypass A* entirely — direct boids steering.
+A* requests queued by `resolve_movement_system` (from MovementIntents) and `invalidate_paths_on_building_change`. `resolve_movement_system` processes up to `max_per_frame` requests per FixedUpdate tick via `PathRequestQueue.drain_budget()`, sorted by (priority, slot) for determinism. Short-distance moves (< 5 tiles with clear LOS) bypass A* entirely — direct boids steering. Time budget guard (`max_time_budget_ms`) re-queues overflow.
 
 ### Event-Driven Systems
 

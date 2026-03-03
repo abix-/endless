@@ -31,6 +31,7 @@ pub struct ProfilerParams<'w> {
     migration: ResMut<'w, MigrationState>,
     mining_policy: ResMut<'w, MiningPolicy>,
     target_thrash: Res<'w, NpcTargetThrashDebug>,
+    pathfind_stats: Res<'w, PathfindStats>,
 }
 
 #[derive(Default)]
@@ -46,6 +47,14 @@ pub struct ProfilerCache {
     total_changes: u32,
     sink_window_key: i64,
     dirty_counts: Vec<(String, u32)>,
+    // A* pathfinding stats
+    pf_processed: f32,
+    pf_los_bypass: f32,
+    pf_astar_calls: f32,
+    pf_astar_fails: f32,
+    pf_elapsed_ms: f32,
+    pf_queue_remaining: usize,
+    pf_limit_reason: &'static str,
 }
 
 // ============================================================================
@@ -445,6 +454,7 @@ pub fn left_panel_system(
                     ui,
                     &profiler.timings,
                     &profiler.target_thrash,
+                    &profiler.pathfind_stats,
                     &mut profiler.migration,
                     &mut settings,
                     &mut profiler_cache,
@@ -2810,6 +2820,7 @@ fn profiler_content(
     ui: &mut egui::Ui,
     timings: &SystemTimings,
     target_thrash: &NpcTargetThrashDebug,
+    pathfind_stats: &PathfindStats,
     migration: &mut MigrationState,
     user_settings: &mut UserSettings,
     cache: &mut ProfilerCache,
@@ -2857,6 +2868,15 @@ fn profiler_content(
             .map(|(idx, c, pp, rf, w, r)| (idx, c, pp, rf, w, r.to_string()))
             .collect();
 
+        // A* pathfinding stats (EMA-smoothed in resource, just copy)
+        cache.pf_processed = pathfind_stats.processed;
+        cache.pf_los_bypass = pathfind_stats.los_bypass;
+        cache.pf_astar_calls = pathfind_stats.astar_calls;
+        cache.pf_astar_fails = pathfind_stats.astar_fails;
+        cache.pf_elapsed_ms = pathfind_stats.elapsed_ms;
+        cache.pf_queue_remaining = pathfind_stats.queue_remaining;
+        cache.pf_limit_reason = pathfind_stats.limit_reason;
+
         // Extract dirty counts from atomic globals
         use crate::messages::{DC_COUNT, DC_NAMES, EXTRACT_DIRTY_COUNTS};
         cache.dirty_counts.clear();
@@ -2867,6 +2887,36 @@ fn profiler_content(
     }
 
     ui.label(egui::RichText::new(format!("Frame: {:.2} ms", cache.frame_ms)).strong());
+    ui.separator();
+
+    // A* Pathfinding stats
+    egui::CollapsingHeader::new(egui::RichText::new(
+        format!("A* Pathfinding ({:.2} ms)", cache.pf_elapsed_ms),
+    ).strong())
+        .id_salt("prof_pathfind")
+        .default_open(true)
+        .show(ui, |ui| {
+            egui::Grid::new("prof_pathfind_grid")
+                .num_columns(2)
+                .striped(true)
+                .show(ui, |ui| {
+                    let rows: [(&str, String); 6] = [
+                        ("processed/frame", format!("{:.1}", cache.pf_processed)),
+                        ("LOS bypass", format!("{:.1}", cache.pf_los_bypass)),
+                        ("A* calls", format!("{:.1}", cache.pf_astar_calls)),
+                        ("A* fails", format!("{:.1}", cache.pf_astar_fails)),
+                        ("queue remaining", format!("{}", cache.pf_queue_remaining)),
+                        ("limit", cache.pf_limit_reason.to_string()),
+                    ];
+                    for (label, value) in &rows {
+                        ui.label(*label);
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(egui::RichText::new(value).monospace());
+                        });
+                        ui.end_row();
+                    }
+                });
+        });
     ui.separator();
 
     // Debug actions (not cached — cheap interactive widgets)
@@ -2969,9 +3019,14 @@ fn profiler_content(
             .map(|(name, count)| format!("{name}={count}"))
             .collect::<Vec<_>>()
             .join(" ");
+        let pathfind = format!(
+            "processed={:.1} los={:.1} astar={:.1} fails={:.1} ms={:.2} queue={} limit={}",
+            cache.pf_processed, cache.pf_los_bypass, cache.pf_astar_calls,
+            cache.pf_astar_fails, cache.pf_elapsed_ms, cache.pf_queue_remaining, cache.pf_limit_reason,
+        );
         ui.ctx().copy_text(format!(
-            "Frame: {:.2} ms\n\nGame Systems (cpu sum: {:.2} ms)\n{}\n\nEngine Systems (cpu sum: {:.2} ms)\n{}\n\nRender Pipeline\n{}\n\nExtract dirty: {}",
-            cache.frame_ms, cache.game_sum, top_game, cache.engine_sum, top_engine, render, dirty
+            "Frame: {:.2} ms\n\nA* Pathfinding\n{}\n\nGame Systems (cpu sum: {:.2} ms)\n{}\n\nEngine Systems (cpu sum: {:.2} ms)\n{}\n\nRender Pipeline\n{}\n\nExtract dirty: {}",
+            cache.frame_ms, pathfind, cache.game_sum, top_game, cache.engine_sum, top_engine, render, dirty
         ));
     }
     ui.separator();

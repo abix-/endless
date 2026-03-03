@@ -32,13 +32,17 @@ MAIN WORLD — Bevy FixedUpdate Schedule (60 Hz, game systems gated on AppState:
 │
 ├─ Step::Behavior
 │     rebuild_building_grid_system (before decision_system, spawner_respawn_system),
+│     sync_pathfind_costs_system (after rebuild_building_grid_system),
+│     invalidate_paths_on_building_change (after rebuild_building_grid_system),
 │     arrival_system, energy_system, healing_system,
 │     on_duty_tick_system, game_time_system, construction_tick_system, farm_growth_system,
 │     raider_forage_system, raider_respawn_system, starvation_system,
 │     decision_system, farm_visual_system, process_upgrades_system
 │
 ├─ resolve_movement_system (after Step::Behavior)
-│     MovementIntents → single GpuUpdate::SetTarget per NPC (priority arbitration)
+│     Phase 1: drain world-space intents → filter + enqueue as grid-space PathRequests
+│     Phase 2: drain PathRequestQueue (budget-limited) → LOS bypass or A* routing
+│     Sole emitter of GpuUpdate::SetTarget
 │
 ├─ sync_debug_settings, debug_tick_system
 │

@@ -36,7 +36,7 @@ use resources::{
     ActiveHealingSlots, AutoUpgrade, BuildMenuContext, BuildingHealState, CombatDebug, CombatLog,
     DebugFlags, Difficulty, EndlessMode, EntityMap, FactionStats, FollowSelected, FoodStorage, Reputation,
     GameAudio, GameConfig, GameTime, GoldStorage, GpuReadState, GpuSlotPool, HealingZoneCache,
-    HealthDebug, HelpCatalog, KillStats, MigrationState, MiningPolicy, MovementIntents,
+    HealthDebug, HelpCatalog, KillStats, MigrationState, MiningPolicy,
     NextEntityUid, NextLootItemId, NpcLogCache, NpcMetaCache, NpcTargetThrashDebug, NpcsByTownCache, PlaySfxMsg,
     PopulationStats, ProjHitState, ProjPositionState, ProjSlotAllocator, RaiderState,
     SelectedBuilding, SelectedNpc, SquadState, SystemTimings, TowerState, TownPolicies,
@@ -102,9 +102,11 @@ fn frame_timer_start(timings: Res<SystemTimings>, time: Res<Time>) {
             }
         }
         // Drain tracing-captured system timings (Bevy auto-spans)
-        if let Ok(map) = crate::tracing_layer::TRACING_TIMINGS.lock() {
-            for (name, &ms) in map.iter() {
-                timings.record_traced(name, ms);
+        if let Ok(mut map) = crate::tracing_layer::TRACING_TIMINGS.lock() {
+            for (name, ms) in map.iter_mut() {
+                timings.record_traced(name, *ms);
+                // Decay stale entries — active systems overwrite via on_exit each frame
+                *ms *= 0.9;
             }
         }
     }
@@ -207,9 +209,9 @@ pub fn build_app(app: &mut App) {
         .init_resource::<HealthDebug>()
         .init_resource::<CombatDebug>()
         .init_resource::<NpcTargetThrashDebug>()
-        .init_resource::<MovementIntents>()
         .init_resource::<resources::PathRequestQueue>()
         .init_resource::<resources::PathfindConfig>()
+        .init_resource::<resources::PathfindStats>()
         .init_resource::<KillStats>()
         .init_resource::<SelectedNpc>()
         .init_resource::<SelectedBuilding>()
@@ -402,12 +404,12 @@ pub fn build_app(app: &mut App) {
                 .before(Step::Spawn)
                 .run_if(game_active.clone()),
         )
-        // A* pathfinding budget — process queued path requests
+        // Pathfinding cost sync + path invalidation on building changes
         .add_systems(
             FixedUpdate,
             (
-                systems::pathfinding::pathfind_budget_system
-                    .after(decision_system),
+                systems::pathfinding::sync_pathfind_costs_system
+                    .after(world::rebuild_building_grid_system),
                 systems::pathfinding::invalidate_paths_on_building_change
                     .after(world::rebuild_building_grid_system),
             )

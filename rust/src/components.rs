@@ -319,6 +319,8 @@ pub struct NpcPath {
     pub current: usize,
     /// Original world-space destination (for invalidation check).
     pub goal_world: Vec2,
+    /// Cooldown (seconds) after A* failure — prevents retry thrash.
+    pub path_cooldown: f32,
 }
 
 /// Squad assignment for military NPCs. Optional component — only present when recruited.

@@ -1718,11 +1718,11 @@ fn build_place_click_system(
 
 /// Marker component for slot indicator sprite entities.
 #[derive(Component)]
-struct SlotIndicator;
+pub(crate) struct SlotIndicator;
 
 /// Marker for the build ghost preview sprite.
 #[derive(Component)]
-struct BuildGhost;
+pub(crate) struct BuildGhost;
 
 /// Marker for additional ghost sprites used to preview drag placement lines.
 #[derive(Component)]
@@ -2279,12 +2279,12 @@ fn process_destroy_system(
 }
 
 // ============================================================================
-// GAME CLEANUP
+// GAME CLEANUP — single shared cleanup for both Playing and Running (test) states
 // ============================================================================
 
 // SystemParam bundles to keep cleanup under 16-param limit
 #[derive(SystemParam)]
-struct CleanupWorld<'w> {
+pub(crate) struct CleanupWorld<'w> {
     world_state: WorldState<'w>,
     food_storage: ResMut<'w, FoodStorage>,
     faction_stats: ResMut<'w, FactionStats>,
@@ -2301,16 +2301,17 @@ struct CleanupWorld<'w> {
 }
 
 #[derive(SystemParam)]
-struct CleanupDebug<'w> {
+pub(crate) struct CleanupDebug<'w> {
     combat_debug: ResMut<'w, CombatDebug>,
     health_debug: ResMut<'w, HealthDebug>,
     kill_stats: ResMut<'w, KillStats>,
     raider_state: ResMut<'w, RaiderState>,
     pop_stats: ResMut<'w, PopulationStats>,
+    debug_flags: ResMut<'w, DebugFlags>,
 }
 
 #[derive(SystemParam)]
-struct CleanupGameplay<'w> {
+pub(crate) struct CleanupGameplay<'w> {
     upgrades: ResMut<'w, TownUpgrades>,
     policies: ResMut<'w, TownPolicies>,
     auto_upgrade: ResMut<'w, AutoUpgrade>,
@@ -2323,24 +2324,35 @@ struct CleanupGameplay<'w> {
     selected_building: ResMut<'w, SelectedBuilding>,
     follow: ResMut<'w, FollowSelected>,
     proj_slots: ResMut<'w, ProjSlotAllocator>,
+    mining_policy: ResMut<'w, MiningPolicy>,
 }
 
-/// Clean up world when leaving Playing state.
-fn game_cleanup_system(
+#[derive(SystemParam)]
+pub(crate) struct CleanupUi<'w> {
+    combat_log: ResMut<'w, CombatLog>,
+    ui_state: ResMut<'w, UiState>,
+    squad_state: ResMut<'w, SquadState>,
+    building_hp_render: ResMut<'w, BuildingHpRender>,
+    healing_cache: ResMut<'w, HealingZoneCache>,
+    active_healing: ResMut<'w, ActiveHealingSlots>,
+    endless: ResMut<'w, EndlessMode>,
+    town_inventory: ResMut<'w, TownInventory>,
+    merchant_inv: ResMut<'w, MerchantInventory>,
+    next_loot_id: ResMut<'w, NextLootItemId>,
+}
+
+/// Clean up world when leaving Playing or Running (test) state.
+pub(crate) fn game_cleanup_system(
     mut commands: Commands,
     npc_query: Query<Entity, With<GpuSlot>>,
     marker_query: Query<Entity, With<FarmReadyMarker>>,
     indicator_query: Query<Entity, With<SlotIndicator>>,
     ghost_query: Query<Entity, With<BuildGhost>>,
     tilemap_query: Query<Entity, With<bevy::sprite_render::TilemapChunk>>,
+    terrain_query: Query<Entity, With<crate::render::TerrainChunk>>,
     mut world: CleanupWorld,
     mut debug: CleanupDebug,
-    mut combat_log: ResMut<CombatLog>,
-    mut ui_state: ResMut<UiState>,
-    mut squad_state: ResMut<SquadState>,
-    mut building_hp_render: ResMut<crate::resources::BuildingHpRender>,
-    mut healing_cache: ResMut<HealingZoneCache>,
-    mut active_healing: ResMut<ActiveHealingSlots>,
+    mut ui: CleanupUi,
     mut gameplay: CleanupGameplay,
 ) {
     // Despawn all entities
@@ -2359,6 +2371,9 @@ fn game_cleanup_system(
     for entity in tilemap_query.iter() {
         commands.entity(entity).despawn();
     }
+    for entity in terrain_query.iter() {
+        commands.entity(entity).despawn();
+    }
 
     // Reset world resources
     world.world_state.entity_slots.reset();
@@ -2373,11 +2388,9 @@ fn game_cleanup_system(
     *world.build_menu_ctx = Default::default();
     *world.ai_state = Default::default();
     *world.gold_storage = Default::default();
-    *building_hp_render = Default::default();
     world.render_config.npc = Default::default();
     world.render_config.proj = Default::default();
     *world.npc_gpu_state = Default::default();
-    // NPC GPU state reset is handled via npc_gpu_state above
     *world.npc_visual_upload = Default::default();
     *world.proj_buffer_writes = Default::default();
 
@@ -2386,18 +2399,24 @@ fn game_cleanup_system(
     *debug.health_debug = Default::default();
     *debug.kill_stats = Default::default();
     *debug.raider_state = Default::default();
-    *world.world_state.entity_map = Default::default();
     *debug.pop_stats = Default::default();
+    *debug.debug_flags = Default::default();
+    *world.world_state.entity_map = Default::default();
 
     // Reset UI state
-    *combat_log = Default::default();
-    *ui_state = Default::default();
-    *squad_state = Default::default();
+    *ui.combat_log = Default::default();
+    *ui.ui_state = Default::default();
+    *ui.squad_state = Default::default();
+    *ui.building_hp_render = Default::default();
     world.world_state.dirty_writers.emit_all();
-    healing_cache.by_faction.clear();
-    *active_healing = Default::default();
+    ui.healing_cache.by_faction.clear();
+    *ui.active_healing = Default::default();
+    *ui.endless = Default::default();
+    *ui.town_inventory = Default::default();
+    *ui.merchant_inv = Default::default();
+    *ui.next_loot_id = Default::default();
 
-    // Reset gameplay resources missed by original cleanup
+    // Reset gameplay resources
     *gameplay.upgrades = Default::default();
     *gameplay.policies = Default::default();
     *gameplay.auto_upgrade = Default::default();
@@ -2410,8 +2429,7 @@ fn game_cleanup_system(
     *gameplay.selected_building = Default::default();
     *gameplay.follow = Default::default();
     *gameplay.proj_slots = Default::default();
-    world.world_state.entity_map.clear_buildings();
-    world.world_state.entity_map.entities.clear();
+    *gameplay.mining_policy = Default::default();
 
     info!("Game cleanup complete");
 }

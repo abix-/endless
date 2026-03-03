@@ -38,56 +38,10 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use std::collections::HashMap;
 
-use crate::components::{FarmReadyMarker, GpuSlot};
 use crate::messages::SpawnNpcMsg;
 use crate::render::MainCamera;
 use crate::resources::*;
 use crate::world;
-
-// ============================================================================
-// SYSTEM PARAM BUNDLES (keeps cleanup under 16-param limit)
-// ============================================================================
-
-#[derive(SystemParam)]
-pub struct CleanupCore<'w> {
-    pub slot_alloc: ResMut<'w, crate::resources::GpuSlotPool>,
-    pub world_data: ResMut<'w, crate::world::WorldData>,
-    pub food_storage: ResMut<'w, crate::resources::FoodStorage>,
-    pub faction_stats: ResMut<'w, crate::resources::FactionStats>,
-    pub gpu_state: ResMut<'w, crate::resources::GpuReadState>,
-    pub game_time: ResMut<'w, crate::resources::GameTime>,
-    pub entity_map: ResMut<'w, crate::resources::EntityMap>,
-    pub npc_gpu_state: ResMut<'w, crate::gpu::EntityGpuState>,
-    pub squad_state: ResMut<'w, crate::resources::SquadState>,
-}
-
-#[derive(SystemParam)]
-pub struct CleanupExtra<'w> {
-    pub combat_debug: ResMut<'w, crate::resources::CombatDebug>,
-    pub health_debug: ResMut<'w, crate::resources::HealthDebug>,
-    pub kill_stats: ResMut<'w, crate::resources::KillStats>,
-    pub raider_state: ResMut<'w, crate::resources::RaiderState>,
-    pub proj_alloc: ResMut<'w, crate::resources::ProjSlotAllocator>,
-    pub world_grid: ResMut<'w, crate::world::WorldGrid>,
-    pub debug_flags: ResMut<'w, crate::resources::DebugFlags>,
-    pub tilemap_spawned: ResMut<'w, crate::render::TilemapSpawned>,
-}
-
-#[derive(SystemParam)]
-pub struct CleanupEndless<'w> {
-    pub endless: ResMut<'w, crate::resources::EndlessMode>,
-    pub ai_state: ResMut<'w, crate::systems::AiPlayerState>,
-    pub migration: ResMut<'w, crate::resources::MigrationState>,
-    pub town_grids: ResMut<'w, crate::world::TownGrids>,
-    pub upgrades: ResMut<'w, crate::systems::TownUpgrades>,
-    pub gold_storage: ResMut<'w, crate::resources::GoldStorage>,
-    pub npcs_by_town: ResMut<'w, crate::resources::NpcsByTownCache>,
-    pub policies: ResMut<'w, crate::resources::TownPolicies>,
-    pub combat_log: ResMut<'w, crate::resources::CombatLog>,
-    pub town_inventory: ResMut<'w, crate::resources::TownInventory>,
-    pub merchant_inv: ResMut<'w, crate::resources::MerchantInventory>,
-    pub next_loot_id: ResMut<'w, crate::resources::NextLootItemId>,
-}
 
 // ============================================================================
 // TEST SETUP PARAMS (shared by most test setup functions)
@@ -203,6 +157,13 @@ impl TestSetupParams<'_, '_> {
             None,
             None,
         );
+    }
+
+    /// Initialize pathfind cost grid from terrain + buildings.
+    /// Call after all buildings are placed so A* works in the test.
+    pub fn finalize_grid(&mut self) {
+        self.world_grid.init_pathfind_costs();
+        self.world_grid.sync_building_costs(&self.entity_map);
     }
 
     /// Init food_storage + faction_stats for N towns.
@@ -446,8 +407,8 @@ pub fn register_tests(app: &mut App) {
     );
     app.add_systems(OnEnter(AppState::TestMenu), auto_start_next_test);
 
-    // Cleanup when leaving Running
-    app.add_systems(OnExit(AppState::Running), cleanup_test_world);
+    // Cleanup when leaving Running — uses same cleanup as game (OnExit Playing)
+    app.add_systems(OnExit(AppState::Running), crate::ui::game_cleanup_system);
 
     // Test completion detection (returns to menu or starts next test)
     app.add_systems(
@@ -1000,7 +961,7 @@ pub fn register_tests(app: &mut App) {
             .after(Step::Behavior),
     );
     app.add_systems(
-        Update,
+        EguiPrimaryContextPass,
         stress_archer_towns::ui
             .run_if(in_state(AppState::Running))
             .run_if(test_is("stress-archer-towns")),
@@ -1333,63 +1294,3 @@ pub fn auto_start_next_test(
     }
 }
 
-// ============================================================================
-// CLEANUP
-// ============================================================================
-
-/// Despawn all NPC entities and reset resources when leaving a test.
-fn cleanup_test_world(
-    mut commands: Commands,
-    entity_query: Query<Entity, Or<(With<GpuSlot>, With<FarmReadyMarker>)>>,
-    tilemap_query: Query<Entity, With<crate::render::TerrainChunk>>,
-    mut core: CleanupCore,
-    mut extra: CleanupExtra,
-    mut endless_cleanup: CleanupEndless,
-) {
-    let count = entity_query.iter().count();
-    for entity in entity_query.iter() {
-        commands.entity(entity).despawn();
-    }
-    let tilemap_count = tilemap_query.iter().count();
-    for entity in tilemap_query.iter() {
-        commands.entity(entity).despawn();
-    }
-
-    *core.slot_alloc = Default::default();
-    core.entity_map.clear_buildings();
-    core.entity_map.clear_npcs();
-    *core.npc_gpu_state = Default::default();
-    *core.squad_state = Default::default();
-    *core.world_data = Default::default();
-    *core.food_storage = Default::default();
-    *core.faction_stats = Default::default();
-    *core.gpu_state = Default::default();
-    *core.game_time = Default::default();
-
-    *extra.combat_debug = Default::default();
-    *extra.health_debug = Default::default();
-    *extra.kill_stats = Default::default();
-    *extra.raider_state = Default::default();
-    *extra.proj_alloc = Default::default();
-    *extra.world_grid = Default::default();
-    *extra.debug_flags = Default::default();
-    extra.tilemap_spawned.0 = false;
-
-    *endless_cleanup.endless = Default::default();
-    *endless_cleanup.ai_state = Default::default();
-    *endless_cleanup.migration = Default::default();
-    *endless_cleanup.town_grids = Default::default();
-    *endless_cleanup.upgrades = Default::default();
-    *endless_cleanup.gold_storage = Default::default();
-    *endless_cleanup.npcs_by_town = Default::default();
-    *endless_cleanup.policies = Default::default();
-    *endless_cleanup.combat_log = Default::default();
-    *endless_cleanup.town_inventory = Default::default();
-    *endless_cleanup.merchant_inv = Default::default();
-    *endless_cleanup.next_loot_id = Default::default();
-
-    info!(
-        "Test cleanup: despawned {} NPCs + {} tilemap chunks, reset resources",
-        count, tilemap_count
-    );
-}

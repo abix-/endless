@@ -4,7 +4,7 @@ use crate::components::*;
 use crate::gpu::ProjBufferWrites;
 use crate::messages::{DamageMsg, ProjGpuUpdate, ProjGpuUpdateMsg};
 use crate::resources::{
-    CombatDebug, EntityMap, GameTime, GpuReadState, MovementIntents, MovementPriority,
+    CombatDebug, EntityMap, GameTime, GpuReadState, MovementPriority, PathRequestQueue,
     ProjHitState, ProjSlotAllocator, TowerState,
 };
 use crate::systems::stats::{TownUpgrades, resolve_town_tower_stats};
@@ -89,7 +89,7 @@ pub fn cooldown_system(
 /// Process attacks using GPU targeting results.
 /// GPU finds nearest enemy, Bevy checks range and applies damage.
 pub fn attack_system(
-    mut intents: ResMut<MovementIntents>,
+    mut intents: ResMut<PathRequestQueue>,
     mut proj_updates: MessageWriter<ProjGpuUpdateMsg>,
     mut damage_events: MessageWriter<DamageMsg>,
     mut sfx_writer: MessageWriter<crate::resources::PlaySfxMsg>,

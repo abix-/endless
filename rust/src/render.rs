@@ -428,7 +428,7 @@ fn click_to_select_system(
     grid: Res<WorldGrid>,
     time: Res<Time<Real>>,
     mut dbl_click: Local<DoubleClickState>,
-    mut intents: ResMut<crate::resources::MovementIntents>,
+    mut intents: ResMut<crate::resources::PathRequestQueue>,
     mut faction_select: MessageWriter<SelectFactionMsg>,
     mut commands: Commands,
     mut npc_flags_q: Query<&mut NpcFlags>,

@@ -15,7 +15,7 @@ use crate::world::{self, BuildingKind, WorldGenStyle};
 use super::{BuildingInitParams, TestState};
 
 const STRESS_AI_TOWNS: usize = 20;
-const DEFAULT_ARCHER_HOMES: usize = 1_000;
+const DEFAULT_ARCHER_HOMES: usize = 100;
 
 #[derive(Resource)]
 pub struct StressArcherConfig {
@@ -190,6 +190,8 @@ pub(super) fn ui(
     mut next_state: ResMut<NextState<crate::AppState>>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
+    let mut buf = stress_config.input_buf.clone();
+    let mut restart = false;
     egui::Window::new("Stress Config")
         .anchor(egui::Align2::RIGHT_TOP, [-8.0, 300.0])
         .resizable(false)
@@ -197,25 +199,30 @@ pub(super) fn ui(
         .show(ctx, |ui: &mut egui::Ui| {
             ui.horizontal(|ui: &mut egui::Ui| {
                 ui.label("Archer homes/town:");
-                ui.add(egui::TextEdit::singleline(&mut stress_config.input_buf).desired_width(80.0));
+                ui.add(egui::TextEdit::singleline(&mut buf).desired_width(80.0));
             });
-            // Parse input, show current effective value
-            if let Ok(val) = stress_config.input_buf.trim().parse::<usize>() {
-                if val > 0 {
-                    stress_config.archer_homes = val;
-                }
+            let homes = buf.trim().parse::<usize>().unwrap_or(0);
+            if homes > 0 {
+                ui.label(format!(
+                    "Total: {} towns × {} = {} homes",
+                    STRESS_AI_TOWNS, homes, STRESS_AI_TOWNS * homes
+                ));
             }
-            ui.label(format!(
-                "Total: {} towns × {} = {} homes",
-                STRESS_AI_TOWNS,
-                stress_config.archer_homes,
-                STRESS_AI_TOWNS * stress_config.archer_homes
-            ));
             ui.add_space(4.0);
             if ui.button("Restart with this value").clicked() {
-                test_state.pending_relaunch = Some("stress-archer-towns".into());
-                next_state.set(crate::AppState::TestMenu);
+                restart = true;
             }
         });
+    // Write back outside the closure to avoid borrow conflicts
+    stress_config.input_buf = buf;
+    if let Ok(val) = stress_config.input_buf.trim().parse::<usize>() {
+        if val > 0 {
+            stress_config.archer_homes = val;
+        }
+    }
+    if restart {
+        test_state.pending_relaunch = Some("stress-archer-towns".into());
+        next_state.set(crate::AppState::TestMenu);
+    }
     Ok(())
 }

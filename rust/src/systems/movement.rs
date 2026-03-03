@@ -1,4 +1,9 @@
-//! Movement systems - Target tracking, arrival detection, intent resolution
+//! Movement systems - Target tracking, arrival detection, path routing
+//!
+//! Single owner of SetTarget GPU messages. Drains PathRequestQueue pending intents,
+//! routes via LOS bypass or A*, respects time/count budget.
+
+use std::time::Instant;
 
 use bevy::prelude::*;
 
@@ -7,10 +12,10 @@ use crate::constants::ARRIVAL_THRESHOLD;
 use crate::gpu::EntityGpuState;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::resources::{
-    EntityMap, GameTime, GpuReadState, MovementIntents, NpcTargetThrashDebug, PathRequestQueue,
-    PathfindConfig,
+    GameTime, GpuReadState, NpcTargetThrashDebug, PathRequest,
+    PathRequestQueue, PathSource, PathfindConfig, PathfindStats,
 };
-use crate::systems::pathfinding::line_of_sight;
+use crate::systems::pathfinding::{line_of_sight, pathfind_on_grid};
 use crate::world::WorldGrid;
 
 /// Read positions from GPU readback buffer → ECS Position + arrival detection.
@@ -62,6 +67,7 @@ pub fn gpu_position_readback(
 pub fn advance_waypoints_system(
     grid: Res<crate::world::WorldGrid>,
     game_time: Res<GameTime>,
+    time: Res<Time>,
     mut npc_q: Query<
         (Entity, &GpuSlot, &mut NpcPath, &mut NpcFlags, &Activity),
         (Without<Building>, Without<Dead>),
@@ -71,7 +77,12 @@ pub fn advance_waypoints_system(
     if game_time.is_paused() {
         return;
     }
+    let dt = time.delta_secs();
     for (_entity, slot, mut path, mut flags, activity) in npc_q.iter_mut() {
+        // Tick down path cooldown (from A* failure backoff)
+        if path.path_cooldown > 0.0 {
+            path.path_cooldown = (path.path_cooldown - dt).max(0.0);
+        }
         if !flags.at_destination || !activity.is_transit() {
             continue;
         }
@@ -98,23 +109,22 @@ pub fn advance_waypoints_system(
     }
 }
 
-/// Resolve movement intents: pick the highest-priority intent per NPC,
-/// emit exactly one SetTarget when the target actually changed.
-/// Long-distance moves with blocked LOS are routed through A* pathfinding.
-/// Runs after all intent-producing systems (decision, combat, health, render).
+/// Unified movement resolution + path routing.
+/// 1. Drain pending world-space intents → filter → enqueue as grid-space PathRequests
+/// 2. Drain PathRequestQueue (budget-limited) → route via LOS bypass or A*
+/// Runs after all intent-producing systems and after invalidate_paths_on_building_change.
 pub fn resolve_movement_system(
-    mut intents: ResMut<MovementIntents>,
     npc_query: Query<&GpuSlot>,
     npc_gpu: Res<EntityGpuState>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut target_thrash: ResMut<NpcTargetThrashDebug>,
     game_time: Res<GameTime>,
     grid: Res<WorldGrid>,
-    entity_map: Res<EntityMap>,
     mut path_queue: ResMut<PathRequestQueue>,
-    path_config: Res<PathfindConfig>,
+    config: Res<PathfindConfig>,
     gpu_state: Res<GpuReadState>,
     mut path_q: Query<&mut NpcPath>,
+    mut stats: ResMut<PathfindStats>,
 ) {
     if game_time.is_paused() {
         return;
@@ -124,13 +134,28 @@ pub fn resolve_movement_system(
     let minute_key = game_time.day() * 24 * 60 + game_time.hour() * 60 + game_time.minute();
     let has_grid = grid.width > 0 && grid.height > 0;
 
-    for (entity, intent) in intents.drain() {
+    // ── Phase 1: Drain world-space intents → enqueue as PathRequests ──
+    let intents: Vec<_> = path_queue.drain_intents().collect();
+    for (entity, intent) in intents {
         let Ok(npc_idx) = npc_query.get(entity) else {
             continue;
         };
         let idx = npc_idx.0;
 
-        // Skip if target unchanged
+        // Skip if already pathing to the same goal (prevents re-path thrash)
+        if let Ok(npc_path) = path_q.get(entity) {
+            if !npc_path.waypoints.is_empty() {
+                let dg = npc_path.goal_world - intent.target;
+                if dg.length_squared() <= 1.0 {
+                    continue;
+                }
+            }
+            if npc_path.path_cooldown > 0.0 {
+                continue;
+            }
+        }
+
+        // Skip if target unchanged vs GPU waypoint
         let i = idx * 2;
         if i + 1 < targets.len() {
             let dx = targets[i] - intent.target.x;
@@ -140,72 +165,133 @@ pub fn resolve_movement_system(
             }
         }
 
-        // Check if this move needs pathfinding
-        let mut needs_pathfinding = false;
-        if has_grid && i + 1 < positions.len() {
-            let npc_pos = Vec2::new(positions[i], positions[i + 1]);
-            let (sc, sr) = grid.world_to_grid(npc_pos);
-            let (gc, gr) = grid.world_to_grid(intent.target);
-            let start = IVec2::new(sc as i32, sr as i32);
-            let goal = IVec2::new(gc as i32, gr as i32);
-            let dist = (goal - start).abs();
-            let manhattan = dist.x + dist.y;
-
-            // Only pathfind if distance exceeds threshold OR LOS is blocked
-            if manhattan > path_config.short_distance_tiles
-                || !line_of_sight(&grid, &entity_map, start, goal)
-            {
-                needs_pathfinding = true;
-                // Clear any stale path
-                if let Ok(mut npc_path) = path_q.get_mut(entity) {
-                    npc_path.waypoints.clear();
-                    npc_path.current = 0;
-                    npc_path.goal_world = intent.target;
-                }
-                path_queue
-                    .requests
-                    .push(crate::resources::PathRequest {
-                        entity,
-                        slot: idx,
-                        start,
-                        goal,
-                        goal_world: intent.target,
-                        priority: 1,
-                    });
-            }
-        }
-
-        if !needs_pathfinding {
-            // Short distance + clear LOS — direct boids movement
-            // Also clear any active path since we're going direct
+        // No grid or no position data — direct SetTarget fallback
+        if !has_grid || i + 1 >= positions.len() {
             if let Ok(mut npc_path) = path_q.get_mut(entity) {
-                if !npc_path.waypoints.is_empty() {
-                    npc_path.waypoints.clear();
-                    npc_path.current = 0;
-                }
+                npc_path.waypoints.clear();
+                npc_path.current = 0;
             }
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
                 idx,
                 x: intent.target.x,
                 y: intent.target.y,
             }));
+            target_thrash.record(idx, intent.source, minute_key, intent.target.x, intent.target.y);
+            continue;
         }
 
-        target_thrash.record(
-            idx,
-            intent.source,
-            minute_key,
-            intent.target.x,
-            intent.target.y,
-        );
+        let npc_pos = Vec2::new(positions[i], positions[i + 1]);
+        let (sc, sr) = grid.world_to_grid(npc_pos);
+        let (gc, gr) = grid.world_to_grid(intent.target);
+
+        path_queue.enqueue(PathRequest {
+            entity,
+            slot: idx,
+            start: IVec2::new(sc as i32, sr as i32),
+            goal: IVec2::new(gc as i32, gr as i32),
+            goal_world: intent.target,
+            priority: 1,
+            source: PathSource::Movement,
+        });
+
+        target_thrash.record(idx, intent.source, minute_key, intent.target.x, intent.target.y);
     }
+
+    // ── Phase 2: Drain queue → route (LOS bypass or A*) ──────────────
+    if path_queue.is_empty() || grid.pathfind_costs.is_empty() {
+        return;
+    }
+
+    let batch = path_queue.drain_budget(config.max_per_frame);
+    let start_time = Instant::now();
+    let time_budget = std::time::Duration::from_secs_f32(config.max_time_budget_ms / 1000.0);
+    let mut processed = 0usize;
+    let mut los_bypass = 0usize;
+    let mut astar_calls = 0usize;
+    let mut astar_fails = 0usize;
+    let mut budget_reason: &'static str = "count";
+    let mut consumed = 0usize;
+
+    for (i, req) in batch.iter().enumerate() {
+        consumed = i + 1;
+        if processed > 0 && start_time.elapsed() >= time_budget {
+            budget_reason = "time";
+            consumed = i;
+            break;
+        }
+
+        if npc_query.get(req.entity).is_err() {
+            continue;
+        }
+
+        processed += 1;
+
+        let dist = (req.goal - req.start).abs();
+        let manhattan = dist.x + dist.y;
+
+        // Short-distance LOS bypass — direct SetTarget
+        if manhattan <= config.short_distance_tiles
+            && line_of_sight(&grid, req.start, req.goal)
+        {
+            los_bypass += 1;
+            if let Ok(mut path) = path_q.get_mut(req.entity) {
+                path.waypoints.clear();
+                path.current = 0;
+                path.path_cooldown = 0.0;
+            }
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                idx: req.slot,
+                x: req.goal_world.x,
+                y: req.goal_world.y,
+            }));
+            continue;
+        }
+
+        // Full A* pathfinding
+        astar_calls += 1;
+        if let Some(path_points) = pathfind_on_grid(&grid, req.start, req.goal, config.max_nodes) {
+            if path_points.len() < 2 {
+                continue;
+            }
+
+            let first_wp = path_points[1];
+            let world_pos = grid.grid_to_world(first_wp.x as usize, first_wp.y as usize);
+
+            if let Ok(mut npc_path) = path_q.get_mut(req.entity) {
+                npc_path.waypoints = path_points;
+                npc_path.current = 1;
+                npc_path.goal_world = req.goal_world;
+                npc_path.path_cooldown = 0.0;
+            }
+
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                idx: req.slot,
+                x: world_pos.x,
+                y: world_pos.y,
+            }));
+        } else {
+            astar_fails += 1;
+            if let Ok(mut npc_path) = path_q.get_mut(req.entity) {
+                npc_path.path_cooldown = 2.0;
+            }
+        }
+    }
+
+    // Re-queue unprocessed batch items (time budget exceeded)
+    for req in batch.into_iter().skip(consumed) {
+        path_queue.enqueue(req);
+    }
+
+    let elapsed_ms = start_time.elapsed().as_secs_f32() * 1000.0;
+    let remaining = path_queue.total_len();
+    stats.update(processed, los_bypass, astar_calls, astar_fails, elapsed_ms, remaining, budget_reason);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use bevy::time::TimeUpdateStrategy;
-    use crate::resources::MovementPriority;
+    use crate::resources::{EntityMap, MovementPriority};
 
     // ── resolve_movement_system ────────────────────────────────────────
 
@@ -225,7 +311,6 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
         app.insert_resource(GameTime::default());
-        app.insert_resource(MovementIntents::default());
         app.insert_resource(EntityGpuState::default());
         app.insert_resource(NpcTargetThrashDebug::default());
         app.insert_resource(CollectedGpuUpdates::default());
@@ -234,6 +319,7 @@ mod tests {
         app.insert_resource(EntityMap::default());
         app.insert_resource(PathRequestQueue::default());
         app.insert_resource(PathfindConfig::default());
+        app.insert_resource(PathfindStats::default());
         app.add_message::<GpuUpdateMsg>();
         app.insert_resource(TimeUpdateStrategy::ManualDuration(
             std::time::Duration::from_secs_f32(1.0),
@@ -255,7 +341,7 @@ mod tests {
         app.world_mut().resource_mut::<EntityGpuState>().targets = vec![0.0, 0.0];
         // Submit an intent to a different position
         app.world_mut()
-            .resource_mut::<MovementIntents>()
+            .resource_mut::<PathRequestQueue>()
             .submit(entity, Vec2::new(100.0, 200.0), MovementPriority::Combat, "test");
         app.update();
         let collected = app.world().resource::<CollectedGpuUpdates>();
@@ -272,7 +358,7 @@ mod tests {
         // Current target IS (100, 200) — submit the same
         app.world_mut().resource_mut::<EntityGpuState>().targets = vec![100.0, 200.0];
         app.world_mut()
-            .resource_mut::<MovementIntents>()
+            .resource_mut::<PathRequestQueue>()
             .submit(entity, Vec2::new(100.0, 200.0), MovementPriority::Combat, "test");
         app.update();
         let collected = app.world().resource::<CollectedGpuUpdates>();
@@ -286,7 +372,7 @@ mod tests {
         let entity = app.world_mut().spawn(GpuSlot(0)).id();
         app.world_mut().resource_mut::<EntityGpuState>().targets = vec![0.0, 0.0];
         app.world_mut()
-            .resource_mut::<MovementIntents>()
+            .resource_mut::<PathRequestQueue>()
             .submit(entity, Vec2::new(100.0, 200.0), MovementPriority::Combat, "test");
         app.world_mut().resource_mut::<GameTime>().paused = true;
         app.update();

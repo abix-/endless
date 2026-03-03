@@ -196,7 +196,7 @@ pub fn death_system(
     mut food_storage: ResMut<FoodStorage>,
     mut gold_storage: ResMut<GoldStorage>,
     config: Res<CombatConfig>,
-    mut intents: ResMut<crate::resources::MovementIntents>,
+    mut intents: ResMut<crate::resources::PathRequestQueue>,
     mut ui_state: ResMut<crate::resources::UiState>,
 ) {
     // Phase 1a: Mark newly dead NPCs via ECS query (no iter_npcs scan)

@@ -1517,7 +1517,7 @@ impl NpcTargetThrashDebug {
 }
 
 // ============================================================================
-// MOVEMENT INTENT — Single-owner arbitration for NPC SetTarget
+// PATHFINDING + MOVEMENT INTENT
 // ============================================================================
 
 /// Priority ladder for movement intent resolution.
@@ -1541,52 +1541,14 @@ pub struct MovementIntent {
     pub source: &'static str,
 }
 
-/// Per-NPC intent map. Keyed by Entity, cleared every frame.
-/// Sparse — only NPCs whose target changes get an entry.
-#[derive(Resource, Default)]
-pub struct MovementIntents {
-    intents: HashMap<Entity, MovementIntent>,
+/// Source of a pathfinding request — used for merge priority when deduplicating.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum PathSource {
+    /// From resolve_movement_system — has a fresh goal.
+    Movement,
+    /// From invalidate_paths_on_building_change — goal may be stale.
+    Invalidation,
 }
-
-impl MovementIntents {
-    /// Submit a movement intent. Keeps the highest-priority intent per entity.
-    #[inline]
-    pub fn submit(
-        &mut self,
-        entity: Entity,
-        target: Vec2,
-        priority: MovementPriority,
-        source: &'static str,
-    ) {
-        match self.intents.entry(entity) {
-            std::collections::hash_map::Entry::Occupied(mut e) => {
-                if priority > e.get().priority {
-                    *e.get_mut() = MovementIntent {
-                        target,
-                        priority,
-                        source,
-                    };
-                }
-            }
-            std::collections::hash_map::Entry::Vacant(e) => {
-                e.insert(MovementIntent {
-                    target,
-                    priority,
-                    source,
-                });
-            }
-        }
-    }
-
-    /// Drain all intents for resolution. Clears the map but keeps allocation.
-    pub fn drain(&mut self) -> std::collections::hash_map::Drain<'_, Entity, MovementIntent> {
-        self.intents.drain()
-    }
-}
-
-// ============================================================================
-// PATHFINDING
-// ============================================================================
 
 /// A queued pathfinding request.
 pub struct PathRequest {
@@ -1596,12 +1558,104 @@ pub struct PathRequest {
     pub goal: IVec2,
     pub goal_world: Vec2,
     pub priority: u8, // 0=urgent, 1=normal, 2=low
+    pub source: PathSource,
 }
 
-/// Priority queue for A* pathfinding requests, processed by pathfind_budget_system.
+/// Unified movement + pathfinding queue.
+/// World-space intents (from behavior/combat/health) are submitted via `submit()`,
+/// then resolved to grid-space PathRequests in resolve_movement_system.
+/// Invalidation feeds `enqueue()` directly with grid-space requests.
+/// 3 priority buckets (0=urgent, 1=normal, 2=low) with per-bucket entity dedup.
 #[derive(Resource, Default)]
 pub struct PathRequestQueue {
-    pub requests: Vec<PathRequest>,
+    /// World-space intents awaiting grid conversion. Priority-wins-per-entity dedup.
+    pending_intents: HashMap<Entity, MovementIntent>,
+    /// Grid-space path requests in 3 priority buckets.
+    buckets: [HashMap<Entity, PathRequest>; 3],
+}
+
+impl PathRequestQueue {
+    /// Submit a movement intent (world-space). Keeps highest priority per entity.
+    #[inline]
+    pub fn submit(
+        &mut self,
+        entity: Entity,
+        target: Vec2,
+        priority: MovementPriority,
+        source: &'static str,
+    ) {
+        use std::collections::hash_map::Entry;
+        match self.pending_intents.entry(entity) {
+            Entry::Occupied(mut e) => {
+                if priority > e.get().priority {
+                    *e.get_mut() = MovementIntent { target, priority, source };
+                }
+            }
+            Entry::Vacant(e) => {
+                e.insert(MovementIntent { target, priority, source });
+            }
+        }
+    }
+
+    /// Drain all pending world-space intents for resolution.
+    pub fn drain_intents(&mut self) -> std::collections::hash_map::Drain<'_, Entity, MovementIntent> {
+        self.pending_intents.drain()
+    }
+
+    /// Insert or merge a grid-space path request. Per-entity dedupe within priority bucket.
+    /// Movement source has fresher goal — prefer it over Invalidation.
+    pub fn enqueue(&mut self, req: PathRequest) {
+        use std::collections::hash_map::Entry;
+        let bucket_idx = (req.priority as usize).min(2);
+        let bucket = &mut self.buckets[bucket_idx];
+        match bucket.entry(req.entity) {
+            Entry::Vacant(e) => {
+                e.insert(req);
+            }
+            Entry::Occupied(mut e) => {
+                let existing = e.get_mut();
+                if req.source == PathSource::Movement {
+                    existing.start = req.start;
+                    existing.goal = req.goal;
+                    existing.goal_world = req.goal_world;
+                    existing.slot = req.slot;
+                    existing.source = PathSource::Movement;
+                }
+            }
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.buckets.iter().all(|b| b.is_empty())
+    }
+
+    pub fn total_len(&self) -> usize {
+        self.buckets.iter().map(|b| b.len()).sum()
+    }
+
+    /// Drain up to `max` requests in priority order. O(max), not O(total).
+    /// Sorted by slot within batch for determinism.
+    pub fn drain_budget(&mut self, max: usize) -> Vec<PathRequest> {
+        let mut result = Vec::with_capacity(max);
+        for bucket in &mut self.buckets {
+            if result.len() >= max {
+                break;
+            }
+            let remaining = max - result.len();
+            if bucket.len() <= remaining {
+                result.extend(bucket.drain().map(|(_, r)| r));
+            } else {
+                let keys: Vec<Entity> = bucket.keys().take(remaining).copied().collect();
+                for key in keys {
+                    if let Some(req) = bucket.remove(&key) {
+                        result.push(req);
+                    }
+                }
+            }
+        }
+        result.sort_unstable_by_key(|r| r.slot);
+        result
+    }
 }
 
 /// Tuning constants for the pathfinding budget system.
@@ -1615,6 +1669,8 @@ pub struct PathfindConfig {
     pub max_nodes: usize,
     /// Frames without position progress before re-queuing a path request.
     pub stuck_repath_frames: u32,
+    /// Max milliseconds per tick for A* processing (early break guard).
+    pub max_time_budget_ms: f32,
 }
 
 impl Default for PathfindConfig {
@@ -1624,7 +1680,65 @@ impl Default for PathfindConfig {
             short_distance_tiles: 5,
             max_nodes: 5000,
             stuck_repath_frames: 30,
+            max_time_budget_ms: 2.0,
         }
+    }
+}
+
+/// Live A* pathfinding metrics for profiler display. Updated every frame by resolve_movement_system.
+#[derive(Resource)]
+pub struct PathfindStats {
+    /// EMA-smoothed: paths processed per frame
+    pub processed: f32,
+    /// EMA-smoothed: LOS bypasses per frame
+    pub los_bypass: f32,
+    /// EMA-smoothed: full A* calls per frame
+    pub astar_calls: f32,
+    /// EMA-smoothed: A* failures (no path / node limit) per frame
+    pub astar_fails: f32,
+    /// EMA-smoothed: elapsed ms per frame
+    pub elapsed_ms: f32,
+    /// Snapshot: queue depth after processing
+    pub queue_remaining: usize,
+    /// Last limit reason ("count" or "time")
+    pub limit_reason: &'static str,
+}
+
+impl Default for PathfindStats {
+    fn default() -> Self {
+        Self {
+            processed: 0.0,
+            los_bypass: 0.0,
+            astar_calls: 0.0,
+            astar_fails: 0.0,
+            elapsed_ms: 0.0,
+            queue_remaining: 0,
+            limit_reason: "count",
+        }
+    }
+}
+
+const PATHFIND_EMA: f32 = 0.1;
+
+impl PathfindStats {
+    pub fn update(
+        &mut self,
+        processed: usize,
+        los_bypass: usize,
+        astar_calls: usize,
+        astar_fails: usize,
+        elapsed_ms: f32,
+        queue_remaining: usize,
+        limit_reason: &'static str,
+    ) {
+        let a = PATHFIND_EMA;
+        self.processed = self.processed * (1.0 - a) + processed as f32 * a;
+        self.los_bypass = self.los_bypass * (1.0 - a) + los_bypass as f32 * a;
+        self.astar_calls = self.astar_calls * (1.0 - a) + astar_calls as f32 * a;
+        self.astar_fails = self.astar_fails * (1.0 - a) + astar_fails as f32 * a;
+        self.elapsed_ms = self.elapsed_ms * (1.0 - a) + elapsed_ms * a;
+        self.queue_remaining = queue_remaining;
+        self.limit_reason = limit_reason;
     }
 }
 
