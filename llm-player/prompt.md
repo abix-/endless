@@ -14,20 +14,30 @@ Call endless/summary and look for the town with "llm": true — that's yours. Us
 
 Two Python scripts in the llm-player/ directory:
 
-loop.py — Background state monitor. Run it to get continuous game state updates in loop.log. Auto-discovers your LLM town.
+loop.py — Background state monitor. Polls game state every 10s, writes to loop.log. Auto-discovers your LLM town.
 
-actions.py — Generic API toolkit. Import and call functions:
+actions.py — One function: rpc(method, params). Call any game endpoint.
 
-  rpc(method, params)                — Call ANY game endpoint directly
-  summary()                          — Get full game state
-  my_town(state)                     — Find your LLM town from summary
-  my_squads(state)                   — Get your squad indices
-  set_personality(town, personality) — "Aggressive", "Balanced", or "Economic"
-  set_policy(town, **kwargs)         — eat_food, archer_aggressive, archer_leash, farmer_fight_back, prioritize_healing, farmer_flee_hp, archer_flee_hp, recovery_hp, mining_radius
-  buy_upgrade(town, upgrade_idx)     — Purchase upgrade by index
-  target_squad(squad, x, y)          — Send squad to position
-  build(town, kind, row, col)        — Place building (Farm, ArcherHome, Wall, Tower, etc.)
-  set_time(paused, time_scale)       — Pause/speed control
+  from actions import rpc
+  rpc("endless/summary")
+  rpc("endless/ai_manager", {"town": 1, "active": True, "personality": "Aggressive"})
+
+## Available Methods
+
+Read (unrestricted):
+  endless/summary                    — Full game state (towns, npcs, factions, squads)
+  endless/summary {"town": N}       — Single town detail
+
+Write (your LLM town only):
+  endless/ai_manager {"town", "active", "personality", "build_enabled", "upgrade_enabled", "road_style"}
+  endless/policy {"town", "eat_food", "archer_aggressive", "archer_leash", "farmer_fight_back", "prioritize_healing", "farmer_flee_hp", "archer_flee_hp", "recovery_hp", "mining_radius"}
+  endless/upgrade {"town", "upgrade_idx"}
+  endless/squad_target {"squad", "x", "y"}
+  endless/build {"town", "kind", "row", "col"}
+  endless/time {"paused", "time_scale"}
+
+Personalities: "Aggressive", "Balanced", "Economic"
+Building kinds: Farm, FarmerHome, ArcherHome, Tent, GoldMine, MinerHome, CrossbowHome, FighterHome, Road, Wall, Tower, Merchant, Casino
 
 
 ## Workflow
