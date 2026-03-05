@@ -21,6 +21,18 @@ app.add_plugins(RemotePlugin::default())
 2. `#[reflect(Component)]` for components, `#[reflect(Resource)]` for resources
 3. `.register_type::<T>()` in `build_app()`
 
+## AI Model Integration
+
+The BRP endpoints exist so any AI model can play Endless as an opponent or ally. The model acts exactly like a human player — reading game state to understand the situation, then taking actions through the same controls available in the UI.
+
+**Token efficiency matters.** AI tokens cost money. The model doesn't need to act every tick or even every few seconds. Call `endless/summary` periodically to assess the situation, then make strategic decisions in batches. A cheap model (Haiku-class) is more than sufficient — the game isn't complex enough to need a frontier model, but even the cheapest LLM makes better strategic decisions than 10K lines of hardcoded if/else.
+
+**Delegation, not micromanagement.** The model controls high-level strategy: personality, policies, squad targets, upgrade priorities. The in-game AI Manager handles the grunt work — building placement, road layout, combat pathing. This is the same split a human player uses: you set the AI Manager's personality and toggles in the Policies tab, then intervene only when you want to override or react to events.
+
+**Read-heavy, write-sparse.** Most interactions are reads — `endless/summary` for a game overview, `world.query` for specific entity data. Write actions (`endless/policy`, `endless/ai_manager`, `endless/squad_target`, `endless/build`, `endless/upgrade`) are infrequent strategic decisions, not per-frame commands.
+
+**Model-agnostic.** Any HTTP client works — curl from Claude Code, Python scripts, MCP tools, OpenAI function calling, etc. The JSON-RPC interface doesn't care what model or framework is driving it.
+
 ## Methods
 
 | Method | Params | Returns |

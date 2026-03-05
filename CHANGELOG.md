@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-03-05c
+
+- **brp.md AI model integration section** — documented the design philosophy for AI model players: token-efficient polling, delegation to in-game AI Manager for grunt work, read-heavy/write-sparse interaction pattern, model-agnostic HTTP interface.
+
 ## 2026-03-05b
 
 - **BRP live game control** — Bevy Remote Protocol (bevy_remote) HTTP JSON-RPC server on localhost:15702. Added `Reflect` + `#[reflect(Component)]`/`#[reflect(Resource)]` to all 33 components + 12 resources + 5 nested types. 60+ `register_type` calls in `build_app()`. 7 custom action endpoints in `systems/remote.rs`: `endless/summary` (game overview), `endless/build` (queue building placement), `endless/upgrade` (queue town upgrade), `endless/policy` (set town policies), `endless/time` (pause/speed), `endless/squad_target` (move squads), `endless/ai_manager` (configure AI Manager). Queue pattern for write endpoints needing SystemParams, direct resource_mut for simple mutations.
