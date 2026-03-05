@@ -140,6 +140,8 @@ Frame execution order ───────────────────�
 | [authority.md](authority.md) | Complete data ownership (GPU/CPU/render-only), hard rules, staleness budget, slot namespace | 9/10 |
 | [performance.md](performance.md) | Complete perf authority: GPU patterns, CPU cadencing, data access rules, anti-patterns, PR review | 9/10 |
 | [brp.md](brp.md) | Live game data access via HTTP JSON-RPC (localhost:15702), reflected types, query examples | 9/10 |
+| [llm-player.md](llm-player.md) | How to run an AI model as a game opponent: setup, game loop, strategy, token budget | - |
+| [llm-player-prompt.md](llm-player-prompt.md) | System prompt to feed the LLM player (role, actions, strategy phases) | - |
 | [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
 | [roadmap.md](roadmap.md) | Feature tracking, migration plan | - |
 

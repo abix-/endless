@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-03-05e
+
+- **LLM player guide** — new `docs/llm-player.md` (setup, game loop, token budget, strategy tips) and `docs/llm-player-prompt.md` (complete system prompt for the model: role, actions reference, strategy phases, rules). Covers Claude Code, Anthropic API, and generic HTTP approaches.
+
 ## 2026-03-05d
 
 - **WC3-style AI player lobby** — main menu replaces aggregate "AI Builder Towns" / "AI Raider Towns" sliders with per-slot player rows. Each slot has a Builder/Raider dropdown and an LLM checkbox. Add/remove buttons, max 20 slots. Raider settings (tents, forage) shown conditionally when raider slots exist. Difficulty presets rebuild slots preserving LLM flags. Persisted via `ai_slots: Vec<AiSlotSave>` in UserSettings with backward compat from legacy fields.
