@@ -18,6 +18,7 @@ loop.py — Background state monitor. Run it to get continuous game state update
 
 actions.py — Generic API toolkit. Import and call functions:
 
+  rpc(method, params)                — Call ANY game endpoint directly
   summary()                          — Get full game state
   my_town(state)                     — Find your LLM town from summary
   my_squads(state)                   — Get your squad indices
