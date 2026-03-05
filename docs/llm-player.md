@@ -17,14 +17,10 @@ The LLM checkbox grants BRP write access for that town. Without it, the model ca
 ### Claude Code (recommended)
 
 ```
-cd llm-player
-claude --model claude-haiku-4-5-20251001 --allowedTools "Bash(curl*localhost:15702*)"
+.\llm-player\launch.ps1
 ```
 
-The `llm-player/` directory contains a `CLAUDE.md` with the game rules, endpoints, and strategy. Claude Code loads it automatically — no `--system-prompt` needed.
-
-- **`--model`** — Haiku is cheap and more than capable. Swap in `claude-sonnet-4-6` for stronger play.
-- **`--allowedTools`** — Restricts the model to only `curl` commands against the game server.
+The launch script reads `docs/llm-player-prompt.md` and passes it as the system prompt. Edit the script to change the model or tool permissions.
 
 Uses your Claude Code subscription. No separate API account needed.
 
