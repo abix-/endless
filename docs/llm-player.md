@@ -17,9 +17,7 @@ The LLM checkbox grants BRP write access for that town. Without it, the model ca
 ### Claude Code (recommended)
 
 ```bash
-claude --model claude-haiku-4-5-20251001 \
-  --system-prompt "$(cat docs/llm-player-prompt.md)" \
-  --allowedTools "Bash(curl*localhost:15702*)"
+claude --model claude-haiku-4-5-20251001 --system-prompt "$(cat docs/llm-player-prompt.md)" --allowedTools "Bash(curl*localhost:15702*)"
 ```
 
 - **`--model`** — Haiku is cheap and more than capable. Swap in `claude-sonnet-4-6` for stronger play.
