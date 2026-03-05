@@ -20,7 +20,7 @@ The LLM checkbox grants BRP write access for that town. Without it, the model ca
 .\llm-player\launch.ps1
 ```
 
-The launch script reads `docs/llm-player-prompt.md` and passes it as the system prompt. Edit the script to change the model or tool permissions.
+The launch script reads `llm-player/prompt.md` and passes it as the system prompt. Edit the script to change the model or tool permissions.
 
 Uses your Claude Code subscription. No separate API account needed.
 
@@ -31,7 +31,7 @@ For a fully autonomous, unattended player. Requires a separate API key from [con
 ```python
 import anthropic, json, time, subprocess
 
-system = open("docs/llm-player-prompt.md").read()
+system = open("llm-player/prompt.md").read()
 
 client = anthropic.Anthropic()
 messages = [{"role": "user", "content": "The game has started. Begin playing."}]
