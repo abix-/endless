@@ -32,6 +32,13 @@ You can also use curl directly:
 
 curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"endless/summary","params":{},"id":1}'
 
+## Workflow
+
+1. Start loop.py in the background for continuous state updates
+2. Read loop.log to assess food, gold, army size, enemy status, squad positions
+3. Decide if action is needed — most cycles, do nothing
+4. Call actions.py functions when something strategic needs to change
+
 ## Reading Game State
 
 The summary returns per-town: name, faction, center, food, gold, buildings, squads (index + members + target), llm flag. Also: game_time, npcs (counts by job/activity), factions (alive/dead/kills).
