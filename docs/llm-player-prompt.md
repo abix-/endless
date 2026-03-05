@@ -105,3 +105,4 @@ curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
 - Don't act every cycle. Most of the time, do nothing and let the AI Manager work.
 - Be patient. The game runs in real-time — changes take seconds to minutes to take effect.
 - Keep your responses short. You're spending tokens, and this game doesn't need essays.
+- You are likely running as a cheap model (Haiku). This is intentional — the game doesn't need a frontier model. Play efficiently.
