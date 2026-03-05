@@ -169,7 +169,7 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 | NpcWorkState | `{ worksite: Option<EntityUid> }` | Always-present — single claimed worksite (if any). UID-based for ABA safety. All mutations (claim/release/retarget) go through `WorkIntentMsg` → `resolve_work_targets` system. |
 | NpcFlags | `{ healing, starving, direct_control, migrating, at_destination }` | High-churn booleans bundled to avoid archetype moves |
 | CachedStats | `{ max_health, damage, range, ... }` | Resolved combat stats |
-| Home | `Vec2` | NPC's spawner building position — rest destination |
+| Home | `Vec2` | NPC's spawner building position — rest destination. Set to (-1,-1) when building destroyed (orphaned/homeless). |
 | PatrolRoute | `{ posts, current }` | Optional — patrol unit's ordered patrol posts |
 | Stealer | marker | Optional — NPC steals from farms (raiders) |
 | LeashRange | `f32` | Optional — disengage combat if chased this far from origin |
@@ -199,13 +199,18 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
   - `Raiding { .. }` → steal if farm ready, else find a different farm (excludes current position, skips tombstoned); if no other farm exists, return home
   - `Mining { mine_pos }` → find mine at position, check gold > 0, send `WorkIntent::Claim` message, insert `MiningProgress(0.0)`, set `Activity::MiningAtMine`
   - `Returning { .. }` → if home is valid, redirect to home (may have arrived at wrong place after DC removal); otherwise transition to Idle
-  - `Wandering` → `Activity::Idle` (wander targets are offset from home position, not current position, preventing unbounded drift)
+  - `Wandering` → `Activity::Idle` (wander completes, re-enters decision scoring)
 - Removes `AtDestination` after handling
 
 **Priority 1-3: Combat decisions**
 - If `CombatState::Fighting` + should flee: policy-driven flee thresholds per job — archers use `archer_flee_hp`, farmers and miners use `farmer_flee_hp`, raiders hardcoded 0.50. Threshold compared against `health.0 / max_hp` (from `CachedStats.max_health` via separate query). `archer_aggressive` disables archer flee, `farmer_fight_back` disables farmer/miner flee. Dynamic threat assessment via GPU spatial grid (enemies vs allies within 200px, computed in npc_compute.wgsl Mode 2, packed u32 readback via `GpuReadState.threat_counts`, throttled every 30 frames on CPU). Preserves existing `Activity::Returning` loot when fleeing.
 - If `CombatState::Fighting` + should leash: archers check `archer_leash` policy (if disabled, archers chase freely), raiders use per-entity `LeashRange` component. Preserves existing `Activity::Returning` loot when leashing.
 - If `CombatState::Fighting`: skip (attack_system handles targeting)
+
+**Stuck-transit redirect** (bucket-gated, before GoingToHeal check):
+- `Wandering`: re-scatter from current position (128px random offset, clamped within 200px of home). Prevents NPCs stuck behind obstacles from idling forever.
+- `Patrolling`: re-submit scatter to current patrol post (128px scatter). Unsticks patrol units blocked by walls or congestion.
+- Other transit activities: fall through to GoingToHeal check.
 
 **Early arrival: GoingToHeal proximity check** (before transit skip)
 - If `GoingToHeal` + within `HEAL_DRIFT_RADIUS` (100px) of town center: transition to `HealingAtFountain` immediately — NPC stops walking as soon as it enters healing range, doesn't need to reach the exact center

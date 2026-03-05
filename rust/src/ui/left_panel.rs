@@ -228,6 +228,7 @@ pub struct FactionsCache {
 /// All collapsing section names we track for persistence.
 /// Each entry is (name, default_open).
 const TRACKED_SECTIONS: &[(&str, bool)] = &[
+    // Roster tab
     ("Desires", true),
     ("Economy", true),
     ("Policies", false),
@@ -236,8 +237,20 @@ const TRACKED_SECTIONS: &[(&str, bool)] = &[
     ("Military Stats", false),
     ("Squad Commander", true),
     ("Recent Actions", true),
+    // Profiler tab
+    ("prof_pathfind", true),
+    ("prof_game", true),
+    ("prof_engine", false),
+    ("prof_render", false),
+    ("prof_dirty", true),
     ("Debug Actions", false),
     ("NPC Target Thrash (sink, 1s window)", true),
+    // Help tab
+    ("Quick Start", true),
+    ("help_economy", false),
+    ("help_military", false),
+    ("help_controls", false),
+    ("help_tips", false),
 ];
 
 /// Read current collapsed state from egui and store in settings.
@@ -270,6 +283,24 @@ fn restore_collapsed_sections(ctx: &egui::Context, settings: &UserSettings) {
         state.set_open(should_open);
         state.store(ctx);
     }
+}
+
+/// Collapsible section with a stable egui ID for save/restore.
+/// Use this instead of CollapsingHeader for sections that need id_salt
+/// (dynamic header text) so snapshot_collapsed_sections can find them.
+fn tracked_section(
+    ui: &mut egui::Ui,
+    key: &str,
+    default_open: bool,
+    title: impl Into<egui::WidgetText>,
+    body: impl FnOnce(&mut egui::Ui),
+) {
+    let id = egui::Id::new(key);
+    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, default_open)
+        .show_header(ui, |ui| {
+            ui.label(title);
+        })
+        .body(body);
 }
 
 fn tab_to_str(tab: LeftPanelTab) -> &'static str {
@@ -2188,9 +2219,7 @@ fn factions_content(
     };
 
     // -- Desires --
-    egui::CollapsingHeader::new("Desires")
-        .default_open(true)
-        .show(ui, |ui| {
+    tracked_section(ui, "Desires", true, "Desires", |ui| {
             egui::Grid::new(format!("intel_desires_grid_{}", snap.faction))
                 .num_columns(2)
                 .striped(true)
@@ -2251,16 +2280,14 @@ fn factions_content(
                         ui.end_row();
                     }
                 });
-        });
+    });
 
     let lv = &snap.upgrades;
     let npc = |k: BuildingKind| snap.npcs.get(&k).copied().unwrap_or(0);
     let bld = |k: BuildingKind| snap.buildings.get(&k).copied().unwrap_or(0);
 
     // -- Economy --
-    egui::CollapsingHeader::new("Economy")
-        .default_open(true)
-        .show(ui, |ui| {
+    tracked_section(ui, "Economy", true, "Economy", |ui| {
             let econ_spawners: Vec<_> = BUILDING_REGISTRY
                 .iter()
                 .filter(|d| d.display == DisplayCategory::Economy && d.spawner.is_some())
@@ -2300,12 +2327,10 @@ fn factions_content(
                 "Discovered: {}  Enabled: {}",
                 snap.mines_discovered, snap.mines_enabled
             ));
-        });
+    });
 
     // -- Policies --
-    egui::CollapsingHeader::new("Policies")
-        .default_open(false)
-        .show(ui, |ui| {
+    tracked_section(ui, "Policies", false, "Policies", |ui| {
             if let Some(policy) = policies.policies.get(snap.town_data_idx) {
                 let schedule_label = |s: WorkSchedule| SCHEDULE_OPTIONS[s as usize];
                 let off_duty_label = |o: OffDutyBehavior| OFF_DUTY_OPTIONS[o as usize];
@@ -2380,12 +2405,10 @@ fn factions_content(
             } else {
                 ui.label("No policy data for this faction.");
             }
-        });
+    });
 
     // -- Military --
-    egui::CollapsingHeader::new("Military")
-        .default_open(true)
-        .show(ui, |ui| {
+    tracked_section(ui, "Military", true, "Military", |ui| {
             let mil_spawners: Vec<_> = BUILDING_REGISTRY
                 .iter()
                 .filter(|d| d.display == DisplayCategory::Military && d.spawner.is_some())
@@ -2415,7 +2438,7 @@ fn factions_content(
             {
                 ui.label(format!("{}: {}", def.label, bld(def.kind)));
             }
-        });
+    });
 
     // -- Economy Stats (collapsed by default) --
     let archer_base = factions.combat_config.jobs.get(&Job::Archer);
@@ -2438,9 +2461,7 @@ fn factions_content(
         UPGRADES.stat_level(lv, "Town", UpgradeStatKind::FountainRange) as f32 * 24.0;
     let tower = resolve_town_tower_stats(lv);
 
-    egui::CollapsingHeader::new("Economy Stats")
-        .default_open(false)
-        .show(ui, |ui| {
+    tracked_section(ui, "Economy Stats", false, "Economy Stats", |ui| {
             egui::Grid::new(format!(
                 "intel_economy_stats_grid_{}_{}",
                 snap.faction, cache.selected_idx
@@ -2519,7 +2540,7 @@ fn factions_content(
                 ));
                 ui.end_row();
             });
-        });
+    });
 
     // -- Military Stats (collapsed by default) --
     let archer_hp_mult = UPGRADES.stat_mult(lv, "Archer", UpgradeStatKind::Hp);
@@ -2540,9 +2561,7 @@ fn factions_content(
     let xbow_speed_mult = UPGRADES.stat_mult(lv, "Crossbow", UpgradeStatKind::MoveSpeed);
     let xbow_cd_mult = 1.0 / UPGRADES.stat_mult(lv, "Crossbow", UpgradeStatKind::AttackSpeed);
 
-    egui::CollapsingHeader::new("Military Stats")
-        .default_open(false)
-        .show(ui, |ui| {
+    tracked_section(ui, "Military Stats", false, "Military Stats", |ui| {
             egui::Grid::new(format!(
                 "intel_military_stats_grid_{}_{}",
                 snap.faction, cache.selected_idx
@@ -2696,12 +2715,10 @@ fn factions_content(
                     ui.end_row();
                 }
             });
-        });
+    });
 
     // -- Squad Commander --
-    egui::CollapsingHeader::new("Squad Commander")
-        .default_open(true)
-        .show(ui, |ui| {
+    tracked_section(ui, "Squad Commander", true, "Squad Commander", |ui| {
             if snap.squads.is_empty() {
                 ui.label("No squads with members.");
             } else {
@@ -2798,17 +2815,15 @@ fn factions_content(
                         }
                     });
             }
-        });
+    });
 
     // -- Recent Actions --
     if !snap.last_actions.is_empty() {
-        egui::CollapsingHeader::new("Recent Actions")
-            .default_open(true)
-            .show(ui, |ui| {
-                for (action, day, hour) in &snap.last_actions {
-                    ui.label(format!("D{} {:02}:00  {}", day, hour, action));
-                }
-            });
+        tracked_section(ui, "Recent Actions", true, "Recent Actions", |ui| {
+            for (action, day, hour) in &snap.last_actions {
+                ui.label(format!("D{} {:02}:00  {}", day, hour, action));
+            }
+        });
     }
 }
 
@@ -2901,12 +2916,12 @@ fn profiler_content(
     ui.separator();
 
     // A* Pathfinding stats
-    egui::CollapsingHeader::new(egui::RichText::new(
-        format!("A* Pathfinding ({:.2} ms)", cache.pf_elapsed_ms),
-    ).strong())
-        .id_salt("prof_pathfind")
-        .default_open(true)
-        .show(ui, |ui| {
+    tracked_section(
+        ui,
+        "prof_pathfind",
+        true,
+        egui::RichText::new(format!("A* Pathfinding ({:.2} ms)", cache.pf_elapsed_ms)).strong(),
+        |ui| {
             egui::Grid::new("prof_pathfind_grid")
                 .num_columns(2)
                 .striped(true)
@@ -2930,13 +2945,13 @@ fn profiler_content(
             if ui.button("Copy A* Metrics").clicked() {
                 ui.ctx().copy_text(pathfind_metrics.clone());
             }
-        });
+        },
+    );
     ui.separator();
 
     // Debug actions (not cached — cheap interactive widgets)
-    egui::CollapsingHeader::new(egui::RichText::new("Debug Actions").strong())
-        .default_open(false)
-        .show(ui, |ui| {
+    tracked_section(ui, "Debug Actions", false,
+        egui::RichText::new("Debug Actions").strong(), |ui| {
             ui.checkbox(
                 &mut user_settings.show_terrain_sprites,
                 "Show Terrain Sprites",
@@ -2955,12 +2970,12 @@ fn profiler_content(
                     .unwrap_or(0);
                 ui.label(format!("Migration active: {} raiders", count));
             }
-        });
+        },
+    );
     ui.separator();
 
-    egui::CollapsingHeader::new(egui::RichText::new("NPC Target Thrash (sink, 1s window)").strong())
-        .default_open(true)
-        .show(ui, |ui| {
+    tracked_section(ui, "NPC Target Thrash (sink, 1s window)", true,
+        egui::RichText::new("NPC Target Thrash (sink, 1s window)").strong(), |ui| {
             ui.label(format!("Window key: {}", cache.sink_window_key));
             ui.label(format!("Top-8 sink target-change sum: {}", cache.total_changes));
             if cache.top_flips.is_empty() {
@@ -2994,7 +3009,8 @@ fn profiler_content(
                     }
                 });
             }
-        });
+        },
+    );
     ui.separator();
 
     if cache.game_entries.is_empty() && cache.engine_entries.is_empty() {
@@ -3051,10 +3067,12 @@ fn profiler_content(
     ui.separator();
 
     // Game systems (top 10, pre-sorted)
-    egui::CollapsingHeader::new(format!("Game Systems ({:.2} ms)", cache.game_sum))
-        .id_salt("prof_game")
-        .default_open(true)
-        .show(ui, |ui| {
+    tracked_section(
+        ui,
+        "prof_game",
+        true,
+        format!("Game Systems ({:.2} ms)", cache.game_sum),
+        |ui| {
             egui::Grid::new("prof_game_grid")
                 .num_columns(2)
                 .striped(true)
@@ -3070,13 +3088,16 @@ fn profiler_content(
                         ui.end_row();
                     }
                 });
-        });
+        },
+    );
 
     // Engine systems (top 10, pre-sorted)
-    egui::CollapsingHeader::new(format!("Engine Systems ({:.2} ms)", cache.engine_sum))
-        .id_salt("prof_engine")
-        .default_open(false)
-        .show(ui, |ui| {
+    tracked_section(
+        ui,
+        "prof_engine",
+        false,
+        format!("Engine Systems ({:.2} ms)", cache.engine_sum),
+        |ui| {
             egui::Grid::new("prof_engine_grid")
                 .num_columns(2)
                 .striped(true)
@@ -3092,15 +3113,18 @@ fn profiler_content(
                         ui.end_row();
                     }
                 });
-        });
+        },
+    );
     ui.separator();
 
     // Render pipeline timings
     if !cache.render_entries.is_empty() {
-        egui::CollapsingHeader::new(egui::RichText::new("Render Pipeline").strong())
-            .id_salt("prof_render")
-            .default_open(false)
-            .show(ui, |ui| {
+        tracked_section(
+            ui,
+            "prof_render",
+            false,
+            egui::RichText::new("Render Pipeline").strong(),
+            |ui| {
                 egui::Grid::new("prof_render_grid")
                     .num_columns(2)
                     .striped(true)
@@ -3119,16 +3143,19 @@ fn profiler_content(
                             ui.end_row();
                         }
                     });
-            });
+            },
+        );
     }
 
     // Extract dirty counts
     if !cache.dirty_counts.is_empty() {
         ui.separator();
-        egui::CollapsingHeader::new(egui::RichText::new("Extract Dirty Counts").strong())
-            .id_salt("prof_dirty")
-            .default_open(true)
-            .show(ui, |ui| {
+        tracked_section(
+            ui,
+            "prof_dirty",
+            true,
+            egui::RichText::new("Extract Dirty Counts").strong(),
+            |ui| {
                 let total: u32 = cache.dirty_counts.iter().map(|(_, v)| v).sum();
                 ui.label(format!("Total dirty indices: {total}"));
                 egui::Grid::new("prof_dirty_grid")
@@ -3149,7 +3176,8 @@ fn profiler_content(
                             ui.end_row();
                         }
                     });
-            });
+            },
+        );
     }
 }
 // ============================================================================
@@ -3158,25 +3186,24 @@ fn profiler_content(
 
 fn help_content(ui: &mut egui::Ui) {
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        egui::CollapsingHeader::new(egui::RichText::new("Quick Start").strong())
-            .default_open(true)
-            .show(ui, |ui| {
+        tracked_section(ui, "Quick Start", true,
+            egui::RichText::new("Quick Start").strong(), |ui| {
                 ui.label("1. B > build Farms, then Farmer Homes");
                 ui.label("2. Waypoints near farms, then Archer Homes");
                 ui.label("3. Food buys buildings + upgrades (U). Gold for advanced upgrades.");
                 ui.label("4. Click to inspect. ESC for settings.");
             });
 
-        egui::CollapsingHeader::new(egui::RichText::new("Economy").strong())
-            .show(ui, |ui| {
+        tracked_section(ui, "help_economy", false,
+            egui::RichText::new("Economy").strong(), |ui| {
                 ui.label("- Farms grow food. Farmer Homes spawn farmers to harvest them.");
                 ui.label("- Gold Mines between towns. Miner Homes spawn miners.");
                 ui.label("- Food = buildings + upgrades. Gold = advanced upgrades.");
                 ui.label("- Dead NPCs respawn after 12 game-hours.");
             });
 
-        egui::CollapsingHeader::new(egui::RichText::new("Military").strong())
-            .show(ui, |ui| {
+        tracked_section(ui, "help_military", false,
+            egui::RichText::new("Military").strong(), |ui| {
                 ui.label("- Waypoints are patrol points for archers. Archer Homes spawn archers.");
                 ui.label("- Archers level up from kills (+1% stats/level).");
                 ui.label("- Policies (P): set work schedules, off-duty behavior, flee/aggro.");
@@ -3185,8 +3212,8 @@ fn help_content(ui: &mut egui::Ui) {
                 ui.label("- Patrols (T): reorder waypoint patrol routes.");
             });
 
-        egui::CollapsingHeader::new(egui::RichText::new("Controls").strong())
-            .show(ui, |ui| {
+        tracked_section(ui, "help_controls", false,
+            egui::RichText::new("Controls").strong(), |ui| {
                 ui.label("WASD - scroll    Wheel - zoom    Click - select");
                 ui.label("Space - pause    +/- - speed (0x, 0.25x-128x)");
                 ui.label("B - Build   R - Roster   U - Upgrades   P - Policies");
@@ -3195,8 +3222,8 @@ fn help_content(ui: &mut egui::Ui) {
                 ui.label("F5 - Quicksave   F9 - Quickload");
             });
 
-        egui::CollapsingHeader::new(egui::RichText::new("Tips").strong())
-            .show(ui, |ui| {
+        tracked_section(ui, "help_tips", false,
+            egui::RichText::new("Tips").strong(), |ui| {
                 ui.label("- Build farms before homes -- no farm, no work.");
                 ui.label("- Waypoints between farms and enemy towns.");
                 ui.label("- Day Only schedule (P) keeps farmers safe at night.");

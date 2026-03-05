@@ -242,7 +242,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
                     // Priority rule: settled and moving actors push differently.
                     var push_strength = 1.0;
-                    if (settled == 0 && neighbor_settled == 1) {
+                    if (settled == 1 && neighbor_settled == 1) {
+                        push_strength = 0.15;  // Both settled, different goals: minimal push
+                    } else if (settled == 0 && neighbor_settled == 1) {
                         push_strength = 0.2;  // I'm moving, they're settled: barely block me
                     } else if (settled == 1 && neighbor_settled == 0) {
                         push_strength = 2.0;  // I'm settled, they're moving: shove me aside

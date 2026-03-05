@@ -139,6 +139,7 @@ For each dead entity:
 
 **Building branch** (detected via `Building` component):
 - Looks up instance data (kind, position, town_idx) from `entity_map.get_instance(idx)`, copies fields before mutation
+- **Orphaned NPC home reset**: if building has `npc_uid`, the linked NPC's `Home` component is set to `(-1, -1)` — NPC becomes homeless (shown as "Homeless" in inspector). Prevents NPCs from walking to a destroyed building to rest.
 - Calls `destroy_building()` for grid cleanup (grid cell clear + wall auto-tile + combat log — no entity lifecycle)
 - Emits `mark_building_changed(kind)` dirty signals
 - **Fountain death**: deactivates AI player for that town. In endless mode, queues replacement AI (`PendingAiSpawn`) scaled to player strength.

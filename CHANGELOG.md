@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-03-05
+
+- **stuck-transit redirect** — bucket-gated re-scatter for wandering and patrolling NPCs that haven't arrived. Wandering NPCs get a new random offset from current position (128px, clamped within 200px of home). Patrolling NPCs re-scatter to their current post. Unsticks NPCs blocked by walls or congestion.
+- **wander from current position** — wander action now offsets from NPC's current position (was home), clamped within 200px of home to prevent unbounded drift. Scatter radius reduced from 200px to 128px.
+- **settled-settled push reduction** — GPU separation shader adds a both-settled case (push_strength=0.15) so NPCs at different destinations don't jitter against each other. Patrol and heal fountain scatter radii unified to 128px.
+- **orphaned NPC home reset** — when a building dies, its linked NPC (npc_uid) has Home set to (-1,-1). Inspector shows "Homeless" instead of coordinates. Prevents NPCs from walking to destroyed buildings to rest.
+- **farmer_cycle test scale-up** — expanded from 3 homes/2 farms to 20 homes/16 farms (4x4 farm grid + 20 border homes). Validates occupancy at scale with 4 expected idle farmers.
+- **tracked_section UI helper** — collapsing headers across Roster/Profiler/Help tabs now use `tracked_section()` with stable egui IDs for save/restore of collapsed state. Added profiler and help sections to TRACKED_SECTIONS.
+
 ## 2026-03-03b
 
 - **centralized work targeting** — all worksite occupancy mutations (claim/release/retarget) moved from 17 inline release sites and 6 claim sites in `decision_system`/`death_system` into a single `resolve_work_targets` system via `WorkIntentMsg` messages. `NpcWorkState` merged from two fields (`occupied_building` + `work_target_building`) into single `worksite: Option<EntityUid>`, eliminating the desync class of bugs. Resolver is the sole caller of `entity_map.release()` and `try_claim_worksite()` for NPC work slots. Release messages carry UID from sender to avoid write-back race. `worksite_deferred` flag gates NpcWorkState write-back and stale invariant. Arrival handler simplified (~220 → ~60 lines). `find_farm_target` and `find_mine_target` consolidated into `work_targeting.rs`.

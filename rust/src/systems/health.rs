@@ -46,7 +46,7 @@ pub struct DeathResources<'w, 's> {
     pub speed_q: Query<'w, 's, &'static mut crate::components::Speed>,
     pub energy_q: Query<'w, 's, &'static crate::components::Energy>,
     pub last_hit_by_q: Query<'w, 's, &'static crate::components::LastHitBy>,
-    pub home_q: Query<'w, 's, &'static crate::components::Home>,
+    pub home_q: Query<'w, 's, &'static mut crate::components::Home>,
     pub personality_q: Query<'w, 's, &'static crate::components::Personality>,
     pub work_state_q: Query<'w, 's, &'static crate::components::NpcWorkState>,
     pub carried_loot_q: Query<'w, 's, &'static mut crate::components::CarriedLoot>,
@@ -260,6 +260,16 @@ pub fn death_system(
             let kind = inst.kind;
             let pos = inst.position;
             let town_idx = inst.town_idx as usize;
+            let npc_uid = inst.npc_uid;
+
+            // Orphaned NPC loses its home
+            if let Some(uid) = npc_uid {
+                if let Some(npc_entity) = res.entity_map.entity_by_uid(uid) {
+                    if let Ok(mut home) = res.home_q.get_mut(npc_entity) {
+                        home.0 = Vec2::new(-1.0, -1.0);
+                    }
+                }
+            }
 
             let town_name = res
                 .world_data

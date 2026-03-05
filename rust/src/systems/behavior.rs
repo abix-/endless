@@ -496,7 +496,7 @@ pub fn decision_system(
                         if let Ok(route) = npc_data.patrol_route_q.get(entity) {
                             if let Some(post) = route.posts.get(patrol_current) {
                                 submit_intent_scattered(
-                                    &mut intents, entity, post.x, post.y, 64.0,
+                                    &mut intents, entity, post.x, post.y, 128.0,
                                     idx, patrol_current, MovementPriority::JobRoute, "onduty:scatter",
                                 );
                             }
@@ -979,7 +979,7 @@ pub fn decision_system(
                         ) {
                             activity = Activity::GoingToHeal;
                             submit_intent_scattered(
-                                &mut intents, entity, town.center.x, town.center.y, 80.0,
+                                &mut intents, entity, town.center.x, town.center.y, 128.0,
                                 idx, frame, MovementPriority::Survival, "combat:heal_fountain",
                             );
                             npc_logs.push(
@@ -1090,7 +1090,7 @@ pub fn decision_system(
                                         combat_state = CombatState::None;
                                         activity = Activity::GoingToHeal;
                                         submit_intent_scattered(
-                                            &mut intents, entity, town.center.x, town.center.y, 80.0,
+                                            &mut intents, entity, town.center.x, town.center.y, 128.0,
                                             idx, frame, MovementPriority::Survival, "squad:heal_fountain",
                                         );
                                         npc_logs.push(
@@ -1203,6 +1203,42 @@ pub fn decision_system(
             // GoingToHeal proximity check: bucket gate ensures this runs on cadence.
             // ====================================================================
             if activity.is_transit() {
+                // Stuck-transit redirect: casual transit NPCs that haven't arrived get new scatter
+                if (idx + frame) % think_buckets == 0 {
+                    match &activity {
+                        Activity::Wandering => {
+                            if let Some(pos) = npc_pos {
+                                let offset_x = (pseudo_random(idx, frame + 3) - 0.5) * 128.0;
+                                let offset_y = (pseudo_random(idx, frame + 4) - 0.5) * 128.0;
+                                let mut target = Vec2::new(pos.x + offset_x, pos.y + offset_y);
+                                if home != Vec2::ZERO {
+                                    let diff = target - home;
+                                    let dist = diff.length();
+                                    if dist > 200.0 { target = home + diff * (200.0 / dist); }
+                                }
+                                submit_intent(&mut intents, entity, target.x, target.y,
+                                    MovementPriority::Wander, "wander:redirect");
+                            }
+                            break 'decide;
+                        }
+                        Activity::Patrolling => {
+                            if let Ok(route) = npc_data.patrol_route_q.get(entity) {
+                                if !route.posts.is_empty() {
+                                    let safe_idx = patrol_current % route.posts.len();
+                                    if let Some(post) = route.posts.get(safe_idx) {
+                                        submit_intent_scattered(
+                                            &mut intents, entity, post.x, post.y, 128.0,
+                                            idx, frame, MovementPriority::JobRoute, "patrol:redirect",
+                                        );
+                                    }
+                                }
+                            }
+                            break 'decide;
+                        }
+                        _ => {}
+                    }
+                }
+
                 // Early arrival: GoingToHeal NPCs stop once inside healing range
                 if matches!(activity, Activity::GoingToHeal) {
                     let town_idx = town_idx_i32 as usize;
@@ -1254,7 +1290,7 @@ pub fn decision_system(
                         if let Some(current) = npc_pos {
                             if current.distance(town.center) > HEAL_DRIFT_RADIUS {
                                 submit_intent_scattered(
-                                    &mut intents, entity, town.center.x, town.center.y, 80.0,
+                                    &mut intents, entity, town.center.x, town.center.y, 128.0,
                                     idx, frame, MovementPriority::Survival, "heal:drift_retarget",
                                 );
                             }
@@ -1526,7 +1562,7 @@ pub fn decision_system(
                                 if let Some(post) = route.posts.get(patrol_current) {
                                     activity = Activity::Patrolling;
                                     submit_intent_scattered(
-                                        &mut intents, entity, post.x, post.y, 64.0,
+                                        &mut intents, entity, post.x, post.y, 128.0,
                                         idx, patrol_current, MovementPriority::JobRoute, "onduty:patrol_advance",
                                     );
                                     npc_logs.push(
@@ -1570,7 +1606,7 @@ pub fn decision_system(
                         let center = town.center;
                         activity = Activity::GoingToHeal;
                         submit_intent_scattered(
-                            &mut intents, entity, center.x, center.y, 80.0,
+                            &mut intents, entity, center.x, center.y, 128.0,
                             idx, frame, MovementPriority::Survival, "idle:heal_fountain",
                         );
                         npc_logs.push(
@@ -1849,7 +1885,7 @@ pub fn decision_system(
                                         patrol_current = safe_idx;
                                         activity = Activity::Patrolling;
                                         submit_intent_scattered(
-                                            &mut intents, entity, post.x, post.y, 64.0,
+                                            &mut intents, entity, post.x, post.y, 128.0,
                                             idx, patrol_current, MovementPriority::JobRoute, "idle:patrol_route",
                                         );
                                     }
@@ -1880,23 +1916,28 @@ pub fn decision_system(
                     }
                 }
                 Action::Wander => {
-                    // Wander near home to prevent unbounded drift off the map
-                    let base = if home != Vec2::ZERO {
-                        home
-                    } else if let Some(pos) = npc_pos {
+                    // Wander from current position, clamped to stay near home
+                    let base = if let Some(pos) = npc_pos {
                         pos
+                    } else if home != Vec2::ZERO {
+                        home
                     } else {
                         break 'decide;
                     };
-                    let (base_x, base_y) = (base.x, base.y);
-                    let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 200.0;
-                    let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 200.0;
+                    let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 128.0;
+                    let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 128.0;
+                    let mut target = Vec2::new(base.x + offset_x, base.y + offset_y);
+                    if home != Vec2::ZERO {
+                        let diff = target - home;
+                        let dist = diff.length();
+                        if dist > 200.0 { target = home + diff * (200.0 / dist); }
+                    }
                     activity = Activity::Wandering;
                     submit_intent(
                         &mut intents,
                         entity,
-                        base_x + offset_x,
-                        base_y + offset_y,
+                        target.x,
+                        target.y,
                         MovementPriority::Wander,
                         "idle:wander",
                     );

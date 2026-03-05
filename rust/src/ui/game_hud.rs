@@ -1419,8 +1419,13 @@ fn inspector_content(
             .map(|h| h.0)
             .unwrap_or(Vec2::ZERO);
         home_pos = Some(npc_home);
-        home_slot = bld_data.entity_map.find_by_position(npc_home).map(|i| i.slot);
-        home_str = format!("({:.0}, {:.0})", npc_home.x, npc_home.y);
+        let home_valid = npc_home.x >= 0.0 && npc_home.y >= 0.0;
+        if home_valid {
+            home_slot = bld_data.entity_map.find_by_position(npc_home).map(|i| i.slot);
+            home_str = format!("({:.0}, {:.0})", npc_home.x, npc_home.y);
+        } else {
+            home_str = "Homeless".to_string();
+        }
         faction_str = format!("{} (town {})", npc.faction, npc.town_idx);
         faction_id = Some(npc.faction);
         let npc_act = bld_data.activity_q.get(npc.entity).ok();
