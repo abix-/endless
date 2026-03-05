@@ -454,12 +454,13 @@ pub struct LogFilterState {
     pub show_ai: bool,
     pub show_building_damage: bool,
     pub show_loot: bool,
+    pub show_llm: bool,
     /// -1 = all factions, 0 = my faction only
     pub faction_filter: i32,
     pub initialized: bool,
     // Cached merged log entries — skip rebuild when sources unchanged
     cached_selected_npc: i32,
-    cached_filters: (bool, bool, bool, bool, bool, bool, bool, bool, bool, i32),
+    cached_filters: (bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, i32),
     cached_entries: Vec<(i64, egui::Color32, String, String, Option<bevy::math::Vec2>)>,
 }
 
@@ -857,6 +858,7 @@ pub fn combat_log_system(
         filter_state.show_ai = settings.log_ai;
         filter_state.show_building_damage = settings.log_building_damage;
         filter_state.show_loot = settings.log_loot;
+        filter_state.show_llm = settings.log_llm;
         filter_state.faction_filter = settings.log_faction_filter;
         filter_state.initialized = true;
     }
@@ -871,6 +873,7 @@ pub fn combat_log_system(
         filter_state.show_ai,
         filter_state.show_building_damage,
         filter_state.show_loot,
+        filter_state.show_llm,
         filter_state.faction_filter,
     );
 
@@ -910,6 +913,7 @@ pub fn combat_log_system(
                 ui.checkbox(&mut filter_state.show_ai, "AI");
                 ui.checkbox(&mut filter_state.show_building_damage, "Buildings");
                 ui.checkbox(&mut filter_state.show_loot, "Loot");
+                ui.checkbox(&mut filter_state.show_llm, "LLM");
             });
 
             ui.separator();
@@ -925,6 +929,7 @@ pub fn combat_log_system(
                 filter_state.show_ai,
                 filter_state.show_building_damage,
                 filter_state.show_loot,
+                filter_state.show_llm,
                 filter_state.faction_filter,
             );
             let needs_rebuild = data.combat_log.is_changed()
@@ -945,6 +950,7 @@ pub fn combat_log_system(
                         CombatEventKind::Ai => filter_state.show_ai,
                         CombatEventKind::BuildingDamage => filter_state.show_building_damage,
                         CombatEventKind::Loot => filter_state.show_loot,
+                        CombatEventKind::Llm => filter_state.show_llm,
                     };
                     if !show {
                         continue;
@@ -964,6 +970,7 @@ pub fn combat_log_system(
                         CombatEventKind::Ai => egui::Color32::from_rgb(180, 120, 220),
                         CombatEventKind::BuildingDamage => egui::Color32::from_rgb(220, 130, 50),
                         CombatEventKind::Loot => egui::Color32::from_rgb(255, 215, 0),
+                        CombatEventKind::Llm => egui::Color32::from_rgb(0, 200, 180),
                     };
 
                     let key = (entry.day as i64) * 10000
@@ -1046,6 +1053,7 @@ pub fn combat_log_system(
         filter_state.show_ai,
         filter_state.show_building_damage,
         filter_state.show_loot,
+        filter_state.show_llm,
         filter_state.faction_filter,
     );
     if curr_filters != prev_filters {
@@ -1058,6 +1066,7 @@ pub fn combat_log_system(
         settings.log_ai = filter_state.show_ai;
         settings.log_building_damage = filter_state.show_building_damage;
         settings.log_loot = filter_state.show_loot;
+        settings.log_llm = filter_state.show_llm;
         settings.log_faction_filter = filter_state.faction_filter;
         settings::save_settings(&settings);
     }

@@ -16,6 +16,27 @@ use crate::resources::*;
 use crate::systemparams::WorldState;
 use crate::world::{self, BuildingKind, WorldData};
 
+fn log_llm(world: &mut World, town: usize, message: String) {
+    let gt = world.resource::<GameTime>();
+    let day = gt.day();
+    let hour = gt.hour();
+    let minute = gt.minute();
+    let faction = world
+        .resource::<WorldData>()
+        .towns
+        .get(town)
+        .map(|t| t.faction)
+        .unwrap_or(-1);
+    world.resource_mut::<CombatLog>().push(
+        CombatEventKind::Llm,
+        faction,
+        day,
+        hour,
+        minute,
+        message,
+    );
+}
+
 const FORBIDDEN_CODE: i16 = -32001;
 
 // ============================================================================
@@ -205,6 +226,8 @@ pub fn build_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpRes
         return Err(brp_err(format!("town {} out of range (max {})", p.town, town_count - 1)));
     }
 
+    log_llm(world, p.town, format!("build {} at ({},{})", p.kind, p.row, p.col));
+
     world
         .resource_mut::<RemoteBuildQueue>()
         .0
@@ -234,6 +257,8 @@ pub fn upgrade_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
     if p.town >= town_count {
         return Err(brp_err(format!("town {} out of range", p.town)));
     }
+
+    log_llm(world, p.town, format!("upgrade idx {}", p.upgrade_idx));
 
     world
         .resource_mut::<RemoteUpgradeQueue>()
@@ -274,6 +299,8 @@ struct PolicyParams {
 pub fn policy_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
     let p: PolicyParams = parse_some(params)?;
     check_town_allowed(world, p.town)?;
+
+    log_llm(world, p.town, "policy change".to_string());
 
     let mut policies = world.resource_mut::<TownPolicies>();
     let policy = policies.policies.get_mut(p.town).ok_or_else(|| brp_err(format!("town {} out of range", p.town)))?;
@@ -332,15 +359,18 @@ pub fn squad_target_handler(In(params): In<Option<Value>>, world: &mut World) ->
     let p: SquadTargetParams = parse_some(params)?;
 
     // Resolve squad owner to town index for access control
+    let town;
     {
         let state = world.resource::<SquadState>();
         let squad = state.squads.get(p.squad).ok_or_else(|| brp_err(format!("squad {} out of range", p.squad)))?;
-        let town = match squad.owner {
+        town = match squad.owner {
             SquadOwner::Player => 0,
             SquadOwner::Town(tdi) => tdi,
         };
         check_town_allowed(world, town)?;
     }
+
+    log_llm(world, town, format!("squad {} target ({:.0},{:.0})", p.squad, p.x, p.y));
 
     let mut state = world.resource_mut::<SquadState>();
     let squad = state.squads.get_mut(p.squad).ok_or_else(|| brp_err(format!("squad {} out of range", p.squad)))?;
@@ -388,6 +418,15 @@ fn parse_road_style(s: &str) -> Option<crate::systems::ai_player::RoadStyle> {
 pub fn ai_manager_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
     let p: AiManagerParams = parse_some(params)?;
     check_town_allowed(world, p.town)?;
+
+    let mut parts = Vec::new();
+    if let Some(v) = p.active { parts.push(format!("active={v}")); }
+    if let Some(ref s) = p.personality { parts.push(format!("personality={s}")); }
+    if let Some(v) = p.build_enabled { parts.push(format!("build={v}")); }
+    if let Some(v) = p.upgrade_enabled { parts.push(format!("upgrade={v}")); }
+    if let Some(ref s) = p.road_style { parts.push(format!("roads={s}")); }
+    let msg = if parts.is_empty() { "ai_manager query".to_string() } else { format!("ai_manager: {}", parts.join(", ")) };
+    log_llm(world, p.town, msg);
 
     let mut ai_state = world.resource_mut::<crate::systems::AiPlayerState>();
     let player = ai_state

@@ -2446,10 +2446,11 @@ pub enum CombatEventKind {
     Ai,
     BuildingDamage,
     Loot,
+    Llm,
 }
 
 impl CombatEventKind {
-    const COUNT: usize = 8;
+    const COUNT: usize = 9;
 
     fn index(self) -> usize {
         match self {
@@ -2461,6 +2462,7 @@ impl CombatEventKind {
             Self::Ai => 5,
             Self::BuildingDamage => 6,
             Self::Loot => 7,
+            Self::Llm => 8,
         }
     }
 }
