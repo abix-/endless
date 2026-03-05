@@ -132,7 +132,7 @@ pub fn arrival_system(
         let dx = x - home.0.x;
         let dy = y - home.0.y;
         let dist = (dx * dx + dy * dy).sqrt();
-        if dist <= DELIVERY_RADIUS {
+        if dist <= DELIVERY_RADIUS && town_id.0 >= 0 {
             deliveries.push((idx, entity, town_id.0 as usize));
         }
     }

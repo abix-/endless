@@ -2106,6 +2106,10 @@ impl TownInventory {
     }
 
     pub fn add(&mut self, town_idx: usize, item: crate::constants::LootItem) {
+        // Guard against usize::MAX from negative i32-to-usize casts
+        if town_idx > 1000 {
+            return;
+        }
         if town_idx >= self.items.len() {
             self.items.resize_with(town_idx + 1, Vec::new);
         }
