@@ -168,6 +168,7 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
     let entity_map = world.resource::<EntityMap>();
     let world_data = world.resource::<WorldData>();
     let allowed = world.resource::<RemoteAllowedTowns>();
+    let squad_state = world.resource::<SquadState>();
 
     let mut towns = Vec::new();
     for (ti, town) in world_data.towns.iter().enumerate() {
@@ -185,6 +186,21 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
             }
         }
 
+        let mut squads = Vec::new();
+        for (si, squad) in squad_state.squads.iter().enumerate() {
+            let squad_town = match squad.owner {
+                SquadOwner::Player => 0,
+                SquadOwner::Town(tdi) => tdi,
+            };
+            if squad_town == ti {
+                squads.push(json!({
+                    "index": si,
+                    "members": squad.members.len(),
+                    "target": squad.target.map(|t| json!({"x": t.x, "y": t.y})),
+                }));
+            }
+        }
+
         towns.push(json!({
             "index": ti,
             "name": town.name,
@@ -193,6 +209,7 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
             "food": food_vec.get(ti).copied().unwrap_or(0),
             "gold": gold_vec.get(ti).copied().unwrap_or(0),
             "buildings": buildings,
+            "squads": squads,
             "llm": allowed.towns.contains(&ti),
         }));
     }

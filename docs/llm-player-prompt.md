@@ -50,7 +50,7 @@ Move Squads:
 
 curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"endless/squad_target","params":{"squad":SQUAD_INDEX,"x":TARGET_X,"y":TARGET_Y},"id":1}'
 
-Send military squads to attack enemy positions. Use enemy town center coordinates from the summary.
+Send military squads to attack enemy positions. Get SQUAD_INDEX from your town's "squads" array in the summary response. Use enemy town center coordinates as targets.
 
 Place Buildings (optional — AI Manager usually handles this):
 
@@ -61,7 +61,7 @@ Building kinds: Fountain, Bed, Waypoint, Farm, FarmerHome, ArcherHome, Tent, Gol
 ## Reading Game State
 
 Summary (primary — use this most):
-The summary returns: game_time (day/hour), towns (name/faction/center/food/gold/buildings/llm), npcs (counts by job and activity per town), factions (alive/dead/kills).
+The summary returns: game_time (day/hour), towns (name/faction/center/food/gold/buildings/squads/llm), npcs (counts by job and activity per town), factions (alive/dead/kills). Each town's "squads" array lists its squad indices, member counts, and current targets.
 
 Detailed queries (use sparingly — large responses):
 
