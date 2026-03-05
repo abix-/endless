@@ -28,9 +28,6 @@ actions.py — Generic API toolkit. Import and call functions:
   build(town, kind, row, col)        — Place building (Farm, ArcherHome, Wall, Tower, etc.)
   set_time(paused, time_scale)       — Pause/speed control
 
-You can also use curl directly:
-
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"endless/summary","params":{},"id":1}'
 
 ## Workflow
 
