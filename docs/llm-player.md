@@ -16,8 +16,9 @@ The LLM checkbox grants BRP write access for that town. Without it, the model ca
 
 ### Claude Code (recommended)
 
-```bash
-cd llm-player && claude --model claude-haiku-4-5-20251001 --allowedTools "Bash(curl*localhost:15702*)"
+```
+cd llm-player
+claude --model claude-haiku-4-5-20251001 --allowedTools "Bash(curl*localhost:15702*)"
 ```
 
 The `llm-player/` directory contains a `CLAUDE.md` with the game rules, endpoints, and strategy. Claude Code loads it automatically — no `--system-prompt` needed.
