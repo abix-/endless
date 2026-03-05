@@ -146,6 +146,7 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
 
     let entity_map = world.resource::<EntityMap>();
     let world_data = world.resource::<WorldData>();
+    let allowed = world.resource::<RemoteAllowedTowns>();
 
     let mut towns = Vec::new();
     for (ti, town) in world_data.towns.iter().enumerate() {
@@ -171,6 +172,7 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
             "food": food_vec.get(ti).copied().unwrap_or(0),
             "gold": gold_vec.get(ti).copied().unwrap_or(0),
             "buildings": buildings,
+            "llm": allowed.towns.contains(&ti),
         }));
     }
 

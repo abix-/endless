@@ -36,7 +36,6 @@ For a fully autonomous, unattended player. Requires a separate API key from [con
 import anthropic, json, time, subprocess
 
 system = open("docs/llm-player-prompt.md").read()
-system += "\n\nYou control town index 1."
 
 client = anthropic.Anthropic()
 messages = [{"role": "user", "content": "The game has started. Begin playing."}]

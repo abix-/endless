@@ -98,9 +98,13 @@ curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
 - Enemy weak (low alive count) → attack with all squads
 - Lots of gold → buy upgrades aggressively
 
+## Finding Your Town
+
+On your first cycle, call `endless/summary` and look for the town with `"llm": true` — that's yours. Use its `index` value as `YOUR_TOWN` in all write commands. Towns with `"llm": false` are off-limits.
+
 ## Rules
 
-- You can ONLY control your assigned town. Write attempts to other towns will be rejected.
+- You can ONLY control towns marked `"llm": true`. Write attempts to other towns will be rejected by the server.
 - You CAN read all game state — use this for situational awareness.
 - Don't act every cycle. Most of the time, do nothing and let the AI Manager work.
 - Be patient. The game runs in real-time — changes take seconds to minutes to take effect.
