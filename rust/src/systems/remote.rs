@@ -9,11 +9,14 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 use crate::components::{Activity, Job, TownId};
+use crate::resources::SquadOwner;
 use crate::constants::building_cost;
 use crate::messages::GpuUpdateMsg;
 use crate::resources::*;
 use crate::systemparams::WorldState;
 use crate::world::{self, BuildingKind, WorldData};
+
+const FORBIDDEN_CODE: i16 = -32001;
 
 // ============================================================================
 // QUEUE RESOURCES
@@ -46,6 +49,19 @@ fn brp_err(msg: impl Into<String>) -> BrpError {
         code: error_codes::INVALID_PARAMS,
         message: msg.into(),
         data: None,
+    }
+}
+
+fn check_town_allowed(world: &World, town: usize) -> Result<(), BrpError> {
+    let allowed = world.resource::<RemoteAllowedTowns>();
+    if allowed.towns.is_empty() || allowed.towns.contains(&town) {
+        Ok(())
+    } else {
+        Err(BrpError {
+            code: FORBIDDEN_CODE,
+            message: format!("town {} is not LLM-controlled", town),
+            data: None,
+        })
     }
 }
 
@@ -178,6 +194,7 @@ struct BuildParams {
 
 pub fn build_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
     let p: BuildParams = parse_some(params)?;
+    check_town_allowed(world, p.town)?;
     let kind = parse_building_kind(&p.kind).ok_or_else(|| brp_err(format!("unknown building kind: {}", p.kind)))?;
 
     // Validate town exists
@@ -209,6 +226,7 @@ struct UpgradeParams {
 
 pub fn upgrade_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
     let p: UpgradeParams = parse_some(params)?;
+    check_town_allowed(world, p.town)?;
 
     let town_count = world.resource::<WorldData>().towns.len();
     if p.town >= town_count {
@@ -253,6 +271,7 @@ struct PolicyParams {
 
 pub fn policy_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
     let p: PolicyParams = parse_some(params)?;
+    check_town_allowed(world, p.town)?;
 
     let mut policies = world.resource_mut::<TownPolicies>();
     let policy = policies.policies.get_mut(p.town).ok_or_else(|| brp_err(format!("town {} out of range", p.town)))?;
@@ -310,6 +329,17 @@ struct SquadTargetParams {
 pub fn squad_target_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
     let p: SquadTargetParams = parse_some(params)?;
 
+    // Resolve squad owner to town index for access control
+    {
+        let state = world.resource::<SquadState>();
+        let squad = state.squads.get(p.squad).ok_or_else(|| brp_err(format!("squad {} out of range", p.squad)))?;
+        let town = match squad.owner {
+            SquadOwner::Player => 0,
+            SquadOwner::Town(tdi) => tdi,
+        };
+        check_town_allowed(world, town)?;
+    }
+
     let mut state = world.resource_mut::<SquadState>();
     let squad = state.squads.get_mut(p.squad).ok_or_else(|| brp_err(format!("squad {} out of range", p.squad)))?;
     squad.target = Some(Vec2::new(p.x, p.y));
@@ -355,6 +385,7 @@ fn parse_road_style(s: &str) -> Option<crate::systems::ai_player::RoadStyle> {
 
 pub fn ai_manager_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
     let p: AiManagerParams = parse_some(params)?;
+    check_town_allowed(world, p.town)?;
 
     let mut ai_state = world.resource_mut::<crate::systems::AiPlayerState>();
     let player = ai_state

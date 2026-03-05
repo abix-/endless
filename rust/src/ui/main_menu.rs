@@ -14,6 +14,23 @@ use crate::settings;
 use crate::systems::AiPlayerConfig;
 use crate::world::{WorldGenConfig, WorldGenStyle};
 
+/// Per-AI-player slot kind.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AiSlotKind { Builder, Raider }
+
+impl AiSlotKind {
+    pub fn label(self) -> &'static str {
+        match self { AiSlotKind::Builder => "Builder", AiSlotKind::Raider => "Raider" }
+    }
+}
+
+/// Per-AI-player slot config for WC3-style lobby.
+#[derive(Clone)]
+pub struct AiSlotConfig {
+    pub kind: AiSlotKind,
+    pub llm: bool,
+}
+
 /// Slider state persisted across frames via Local.
 #[derive(Default)]
 pub struct MenuState {
@@ -22,8 +39,7 @@ pub struct MenuState {
     pub farms: f32,
     /// Per-job NPC home counts, driven by NPC_REGISTRY.
     pub npc_counts: BTreeMap<Job, f32>,
-    pub ai_towns: f32,
-    pub raider_towns: f32,
+    pub ai_slots: Vec<AiSlotConfig>,
     pub ai_interval: f32,
     pub npc_interval: f32,
     pub gold_mines: f32,
@@ -110,8 +126,10 @@ pub fn main_menu_system(
                 .unwrap_or(def.default_count);
             state.npc_counts.insert(def.job, count as f32);
         }
-        state.ai_towns = saved.ai_towns as f32;
-        state.raider_towns = saved.raider_towns as f32;
+        state.ai_slots = saved.ai_slots.iter().map(|s| AiSlotConfig {
+            kind: if s.kind == 1 { AiSlotKind::Raider } else { AiSlotKind::Builder },
+            llm: s.llm,
+        }).collect();
         state.ai_interval = saved.ai_interval;
         state.npc_interval = saved.npc_interval;
         state.gold_mines = saved.gold_mines_per_town as f32;
@@ -130,8 +148,18 @@ pub fn main_menu_system(
     if state.difficulty != state.prev_difficulty {
         let preset = state.difficulty.presets();
         state.farms = preset.farms as f32;
-        state.ai_towns = preset.ai_towns as f32;
-        state.raider_towns = preset.raider_towns as f32;
+        // Rebuild ai_slots from preset counts, preserving LLM flags where possible
+        let mut new_slots = Vec::new();
+        for i in 0..preset.ai_towns {
+            let llm = state.ai_slots.get(i).map_or(false, |s| s.llm && s.kind == AiSlotKind::Builder);
+            new_slots.push(AiSlotConfig { kind: AiSlotKind::Builder, llm });
+        }
+        let old_raider_start = state.ai_slots.iter().position(|s| s.kind == AiSlotKind::Raider).unwrap_or(state.ai_slots.len());
+        for i in 0..preset.raider_towns {
+            let llm = state.ai_slots.get(old_raider_start + i).map_or(false, |s| s.llm && s.kind == AiSlotKind::Raider);
+            new_slots.push(AiSlotConfig { kind: AiSlotKind::Raider, llm });
+        }
+        state.ai_slots = new_slots;
         state.gold_mines = preset.gold_mines as f32;
         state.endless_mode = preset.endless_mode;
         state.endless_strength = preset.endless_strength;
@@ -238,52 +266,69 @@ pub fn main_menu_system(
 
             ui.add_space(4.0);
 
-            // Town counts
+            // AI Players (WC3-style per-slot config)
+            ui.label(egui::RichText::new("AI Players").weak());
+            let mut remove_idx = None;
+            for (i, slot) in state.ai_slots.iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.label(format!("{}.", i + 1));
+                    egui::ComboBox::from_id_salt(format!("ai_kind_{i}"))
+                        .selected_text(slot.kind.label())
+                        .width(70.0)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut slot.kind, AiSlotKind::Builder, "Builder");
+                            ui.selectable_value(&mut slot.kind, AiSlotKind::Raider, "Raider");
+                        });
+                    ui.checkbox(&mut slot.llm, "LLM").on_hover_text("Allow an AI model to control this town via BRP endpoints.");
+                    if ui.small_button("x").on_hover_text("Remove this AI player").clicked() {
+                        remove_idx = Some(i);
+                    }
+                });
+            }
+            if let Some(idx) = remove_idx {
+                state.ai_slots.remove(idx);
+            }
             ui.horizontal(|ui| {
-                ui.label("AI Builder Towns:").on_hover_text("Number of AI-controlled rival builder towns on the map.");
-                ui.add(egui::Slider::new(&mut state.ai_towns, 0.0..=20.0)
-                    .step_by(1.0)
-                    .show_value(false));
-                let mut at = state.ai_towns as i32;
-                if ui.add(egui::DragValue::new(&mut at).range(0..=20)).changed() {
-                    state.ai_towns = at as f32;
+                if state.ai_slots.len() < 20 {
+                    if ui.small_button("+ Builder").clicked() {
+                        state.ai_slots.push(AiSlotConfig { kind: AiSlotKind::Builder, llm: false });
+                    }
+                    if ui.small_button("+ Raider").clicked() {
+                        state.ai_slots.push(AiSlotConfig { kind: AiSlotKind::Raider, llm: false });
+                    }
                 }
             });
-            ui.horizontal(|ui| {
-                ui.label("AI Raider Towns:").on_hover_text("Number of AI-controlled hostile raider towns on the map.");
-                ui.add(egui::Slider::new(&mut state.raider_towns, 0.0..=20.0)
-                    .step_by(1.0)
-                    .show_value(false));
-                let mut rc = state.raider_towns as i32;
-                if ui.add(egui::DragValue::new(&mut rc).range(0..=20)).changed() {
-                    state.raider_towns = rc as f32;
-                }
-            });
-            ui.indent("raider_town_children", |ui| {
-                for def in NPC_REGISTRY.iter().filter(|d| d.is_raider_unit) {
+
+            // Raider settings (applied globally to all raider slots)
+            let has_raiders = state.ai_slots.iter().any(|s| s.kind == AiSlotKind::Raider);
+            if has_raiders {
+                ui.indent("raider_settings", |ui| {
+                    ui.label(egui::RichText::new("Raider Settings").weak());
+                    for def in NPC_REGISTRY.iter().filter(|d| d.is_raider_unit) {
+                        ui.horizontal(|ui| {
+                            let label = format!("{}s:", def.label);
+                            let tip = format!("Raider tents per raider town. Each tent spawns one {}.", def.label.to_lowercase());
+                            ui.label(label).on_hover_text(tip);
+                            let val = state.npc_counts.entry(def.job).or_insert(0.0);
+                            ui.add(egui::Slider::new(val, 0.0..=1000.0)
+                                .step_by(1.0)
+                                .show_value(false));
+                            let mut iv = *val as i32;
+                            if ui.add(egui::DragValue::new(&mut iv).range(0..=1000).suffix(" /town")).changed() {
+                                *val = iv as f32;
+                            }
+                        });
+                    }
                     ui.horizontal(|ui| {
-                        let label = format!("{}s:", def.label);
-                        let tip = format!("Raider tents per raider town. Each tent spawns one {}.", def.label.to_lowercase());
-                        ui.label(label).on_hover_text(tip);
-                        let val = state.npc_counts.entry(def.job).or_insert(0.0);
-                        ui.add(egui::Slider::new(val, 0.0..=1000.0)
+                        ui.label("Forage:");
+                        ui.add(egui::Slider::new(&mut state.raider_forage_hours, 0.0..=24.0)
                             .step_by(1.0)
                             .show_value(false));
-                        let mut iv = *val as i32;
-                        if ui.add(egui::DragValue::new(&mut iv).range(0..=1000).suffix(" /town")).changed() {
-                            *val = iv as f32;
-                        }
-                    });
-                }
-                ui.horizontal(|ui| {
-                    ui.label("Forage:");
-                    ui.add(egui::Slider::new(&mut state.raider_forage_hours, 0.0..=24.0)
-                        .step_by(1.0)
-                        .show_value(false));
-                    let label = if state.raider_forage_hours == 0.0 { "Off".to_string() } else { format!("{}h/food", state.raider_forage_hours as i32) };
-                    ui.label(label);
-                }).response.on_hover_text("Hours for each raider town to passively forage 1 food. 0 = disabled.");
-            });
+                        let label = if state.raider_forage_hours == 0.0 { "Off".to_string() } else { format!("{}h/food", state.raider_forage_hours as i32) };
+                        ui.label(label);
+                    }).response.on_hover_text("Hours for each raider town to passively forage 1 food. 0 = disabled.");
+                });
+            }
 
             ui.add_space(20.0);
 
@@ -297,8 +342,10 @@ pub fn main_menu_system(
                 wg_config.num_towns = 1;
                 wg_config.farms_per_town = state.farms as usize;
                 wg_config.npc_counts = state.npc_counts.iter().map(|(&job, &v)| (job, v as usize)).collect();
-                wg_config.ai_towns = state.ai_towns as usize;
-                wg_config.raider_towns = state.raider_towns as usize;
+                let ai_builder_count = state.ai_slots.iter().filter(|s| s.kind == AiSlotKind::Builder).count();
+                let ai_raider_count = state.ai_slots.iter().filter(|s| s.kind == AiSlotKind::Raider).count();
+                wg_config.ai_towns = ai_builder_count;
+                wg_config.raider_towns = ai_raider_count;
                 wg_config.gold_mines_per_town = state.gold_mines as usize;
                 ai_config.decision_interval = state.ai_interval;
                 npc_config.interval = state.npc_interval;
@@ -311,8 +358,12 @@ pub fn main_menu_system(
                 saved.npc_counts = state.npc_counts.iter()
                     .map(|(&job, &v)| (format!("{:?}", job), v as usize))
                     .collect();
-                saved.ai_towns = state.ai_towns as usize;
-                saved.raider_towns = state.raider_towns as usize;
+                saved.ai_towns = ai_builder_count;
+                saved.raider_towns = ai_raider_count;
+                saved.ai_slots = state.ai_slots.iter().map(|s| settings::AiSlotSave {
+                    kind: if s.kind == AiSlotKind::Raider { 1 } else { 0 },
+                    llm: s.llm,
+                }).collect();
                 saved.ai_interval = state.ai_interval;
                 saved.npc_interval = state.npc_interval;
                 saved.gen_style = 1;
@@ -331,6 +382,30 @@ pub fn main_menu_system(
                     strength_fraction: state.endless_strength,
                     pending_spawns: Vec::new(),
                 });
+                // Populate LLM-allowed towns from slot config
+                // Town ordering: player(0), builders(1..=N), raiders(N+1..)
+                let num_player_towns = wg_config.num_towns; // typically 1
+                let mut llm_towns = Vec::new();
+                let mut builder_idx = 0usize;
+                let mut raider_idx = 0usize;
+                for slot in &state.ai_slots {
+                    match slot.kind {
+                        AiSlotKind::Builder => {
+                            if slot.llm {
+                                llm_towns.push(num_player_towns + builder_idx);
+                            }
+                            builder_idx += 1;
+                        }
+                        AiSlotKind::Raider => {
+                            if slot.llm {
+                                llm_towns.push(num_player_towns + ai_builder_count + raider_idx);
+                            }
+                            raider_idx += 1;
+                        }
+                    }
+                }
+                commands.insert_resource(crate::resources::RemoteAllowedTowns { towns: llm_towns });
+
                 save_request.autosave_hours = state.autosave_hours;
                 next_state.set(AppState::Playing);
             }

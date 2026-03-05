@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-03-05d
+
+- **WC3-style AI player lobby** — main menu replaces aggregate "AI Builder Towns" / "AI Raider Towns" sliders with per-slot player rows. Each slot has a Builder/Raider dropdown and an LLM checkbox. Add/remove buttons, max 20 slots. Raider settings (tents, forage) shown conditionally when raider slots exist. Difficulty presets rebuild slots preserving LLM flags. Persisted via `ai_slots: Vec<AiSlotSave>` in UserSettings with backward compat from legacy fields.
+- **BRP write access control** — new `RemoteAllowedTowns` resource populated from LLM-checked slots on Play. `check_town_allowed()` helper gates all write endpoints (`build`, `upgrade`, `policy`, `ai_manager`, `squad_target`) — rejects requests for non-LLM towns. Read endpoints (`summary`, `world.query`) remain unrestricted. Squad target resolves `SquadOwner` to town index for access check.
+
 ## 2026-03-05c
 
 - **brp.md AI model integration section** — documented the design philosophy for AI model players: token-efficient polling, delegation to in-game AI Manager for grunt work, read-heavy/write-sparse interaction pattern, model-agnostic HTTP interface.

@@ -516,6 +516,28 @@ pub fn is_rebindable_key(key: KeyCode) -> bool {
     parse_keycode_token(&format!("{:?}", key)).is_some()
 }
 
+/// Per-AI-player slot config for WC3-style lobby.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct AiSlotSave {
+    /// 0 = Builder, 1 = Raider
+    #[serde(default)]
+    pub kind: u8,
+    /// LLM-controlled via BRP endpoints
+    #[serde(default)]
+    pub llm: bool,
+}
+
+fn default_ai_slots() -> Vec<AiSlotSave> {
+    let mut slots = Vec::new();
+    for _ in 0..5 {
+        slots.push(AiSlotSave { kind: 0, llm: false });
+    }
+    for _ in 0..5 {
+        slots.push(AiSlotSave { kind: 1, llm: false });
+    }
+    slots
+}
+
 /// Persisted user settings. Saved to `Documents\Endless\settings.json`.
 #[derive(Resource, Serialize, Deserialize, Clone)]
 pub struct UserSettings {
@@ -618,11 +640,14 @@ pub struct UserSettings {
     // World gen style (0=Classic, 1=Continents)
     #[serde(default)]
     pub gen_style: u8,
-    // AI players
+    // AI players (legacy — used for backward compat, derived from ai_slots)
     #[serde(default = "default_five")]
     pub ai_towns: usize,
     #[serde(default = "default_five")]
     pub raider_towns: usize,
+    // Per-AI-player slot config (WC3-style lobby)
+    #[serde(default = "default_ai_slots")]
+    pub ai_slots: Vec<AiSlotSave>,
     #[serde(default = "default_ai_interval")]
     pub ai_interval: f32,
     #[serde(default = "default_gold_mines")]
@@ -832,6 +857,7 @@ impl Default for UserSettings {
             ai_manager_road_style: 2,  // Grid4
             ai_towns: 5,
             raider_towns: 5,
+            ai_slots: default_ai_slots(),
             ai_interval: 5.0,
             gold_mines_per_town: 2,
             npc_interval: 2.0,

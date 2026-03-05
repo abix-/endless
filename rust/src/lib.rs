@@ -295,6 +295,7 @@ pub fn build_app(app: &mut App) {
         .add_plugins(RemoteHttpPlugin::default())
         .init_resource::<systems::remote::RemoteBuildQueue>()
         .init_resource::<systems::remote::RemoteUpgradeQueue>()
+        .init_resource::<resources::RemoteAllowedTowns>()
         // Register reflected types for BRP queries
         .register_type::<components::EntityUid>()
         .register_type::<components::GpuSlot>()
@@ -340,6 +341,7 @@ pub fn build_app(app: &mut App) {
         .register_type::<GoldStorage>()
         .register_type::<FactionStats>()
         .register_type::<resources::FactionStat>()
+        .register_type::<resources::RemoteAllowedTowns>()
         .register_type::<TownPolicies>()
         .register_type::<resources::PolicySet>()
         .register_type::<resources::WorkSchedule>()

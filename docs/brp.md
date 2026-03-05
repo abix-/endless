@@ -33,6 +33,8 @@ The BRP endpoints exist so any AI model can play Endless as an opponent or ally.
 
 **Model-agnostic.** Any HTTP client works — curl from Claude Code, Python scripts, MCP tools, OpenAI function calling, etc. The JSON-RPC interface doesn't care what model or framework is driving it.
 
+**Access control.** The main menu has a WC3-style player lobby — each AI slot has a Builder/Raider dropdown and an LLM checkbox. Write endpoints (`build`, `upgrade`, `policy`, `ai_manager`, `squad_target`) are server-side gated to only allow towns marked as LLM-controlled. Read endpoints (`summary`, `world.query`) are unrestricted — full situational awareness. The `RemoteAllowedTowns` resource holds the allowed town indices; if empty, all towns are allowed (legacy/debug mode).
+
 ## Methods
 
 | Method | Params | Returns |

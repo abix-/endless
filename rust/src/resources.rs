@@ -2191,6 +2191,14 @@ impl Reputation {
     }
 }
 
+/// Towns that the LLM player is allowed to control via BRP write endpoints.
+/// Populated from main menu AI slot config. Empty = no restrictions (legacy/debug).
+#[derive(Resource, Default, Reflect)]
+#[reflect(Resource)]
+pub struct RemoteAllowedTowns {
+    pub towns: Vec<usize>,
+}
+
 /// Raider town state for respawning and foraging.
 /// Faction 1+ are raider towns. Index 0 in this struct = faction 1.
 #[derive(Resource, Default)]
