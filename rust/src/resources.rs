@@ -2,6 +2,7 @@
 
 use crate::constants::{MAX_ENTITIES, MAX_NPC_COUNT, MAX_PROJECTILES, TOWN_GRID_SPACING};
 use bevy::prelude::*;
+use bevy::reflect::Reflect;
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
@@ -1146,7 +1147,8 @@ impl Default for GameConfig {
 
 /// Game time tracking - Bevy-owned, uses PhysicsDelta from godot-bevy.
 /// Only total_seconds is mutable. Day/hour/minute are derived on demand.
-#[derive(Resource)]
+#[derive(Resource, Reflect)]
+#[reflect(Resource)]
 pub struct GameTime {
     pub total_seconds: f32, // Only mutable state - accumulates from PhysicsDelta
     pub seconds_per_hour: f32, // Game speed: 5.0 = 1 game-hour per 5 real seconds
@@ -1212,7 +1214,8 @@ impl Default for GameTime {
 
 /// Tracks actual updates-per-second (UPS). Incremented each FixedUpdate tick,
 /// sampled by the HUD once per wall-clock second.
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Reflect)]
+#[reflect(Resource)]
 pub struct UpsCounter {
     pub ticks_this_second: u32,
     pub display_ups: u32,
@@ -1223,7 +1226,8 @@ pub struct UpsCounter {
 // ============================================================================
 
 /// Kill statistics for UI display.
-#[derive(Resource, Clone, Default)]
+#[derive(Resource, Clone, Default, Reflect)]
+#[reflect(Resource)]
 pub struct KillStats {
     pub archer_kills: i32,   // Raiders killed by archers
     pub villager_kills: i32, // Villagers (farmers/archers) killed by raiders
@@ -2051,7 +2055,8 @@ pub struct ProjHitState(pub Vec<[i32; 2]>);
 pub struct ProjPositionState(pub Vec<f32>);
 
 /// Food storage per location. Replaces FOOD_STORAGE static.
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Reflect)]
+#[reflect(Resource)]
 pub struct FoodStorage {
     pub food: Vec<i32>, // One entry per clan/location
 }
@@ -2063,7 +2068,8 @@ impl FoodStorage {
 }
 
 /// Gold storage per town. Mirrors FoodStorage.
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Reflect)]
+#[reflect(Resource)]
 pub struct GoldStorage {
     pub gold: Vec<i32>,
 }
@@ -2158,7 +2164,7 @@ impl MerchantInventory {
 }
 
 /// Per-faction statistics.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Reflect)]
 pub struct FactionStat {
     pub alive: i32,
     pub dead: i32,
@@ -2166,7 +2172,8 @@ pub struct FactionStat {
 }
 
 /// Stats for all factions. Index 0 = player/villagers, 1+ = raider towns.
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Reflect)]
+#[reflect(Resource)]
 pub struct FactionStats {
     pub stats: Vec<FactionStat>,
 }
@@ -2657,7 +2664,7 @@ impl Default for AutoUpgrade {
 // TOWN POLICIES
 // ============================================================================
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Reflect, serde::Serialize, serde::Deserialize)]
 pub enum WorkSchedule {
     #[default]
     Both,
@@ -2665,7 +2672,7 @@ pub enum WorkSchedule {
     NightOnly,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Reflect, serde::Serialize, serde::Deserialize)]
 pub enum OffDutyBehavior {
     #[default]
     GoToBed,
@@ -2678,7 +2685,7 @@ fn default_policy_mining_radius() -> f32 {
 }
 
 /// Per-town behavior configuration. Controls flee thresholds, work schedules, off-duty behavior.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Reflect, serde::Serialize, serde::Deserialize)]
 pub struct PolicySet {
     pub eat_food: bool,
     #[serde(alias = "guard_aggressive")]
@@ -2749,8 +2756,9 @@ pub struct DifficultyPreset {
 
 /// Game difficulty — scales building costs. Selected on main menu, immutable during play.
 #[derive(
-    Clone, Copy, PartialEq, Eq, Debug, Default, Resource, serde::Serialize, serde::Deserialize,
+    Clone, Copy, PartialEq, Eq, Debug, Default, Resource, Reflect, serde::Serialize, serde::Deserialize,
 )]
+#[reflect(Resource)]
 pub enum Difficulty {
     Easy,
     #[default]
@@ -2836,7 +2844,8 @@ impl Difficulty {
 }
 
 /// Per-town policy settings. Index matches WorldData.towns.
-#[derive(Resource)]
+#[derive(Resource, Reflect)]
+#[reflect(Resource)]
 pub struct TownPolicies {
     pub policies: Vec<PolicySet>,
 }

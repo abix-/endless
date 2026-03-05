@@ -968,9 +968,10 @@ pub fn register_tests(app: &mut App) {
     );
 
     // pathfind-maze
+    app.init_resource::<pathfind_maze::PathfindMazeConfig>();
     registry.tests.push(TestEntry {
         name: "pathfind-maze".into(),
-        description: "Farmer navigates serpentine wall maze via A* pathfinding".into(),
+        description: "NPCs navigate serpentine wall maze via A* pathfinding (configurable count)".into(),
         phase_count: 5,
         time_scale: 1.0,
     });
@@ -984,6 +985,12 @@ pub fn register_tests(app: &mut App) {
             .run_if(in_state(AppState::Running))
             .run_if(test_is("pathfind-maze"))
             .after(Step::Behavior),
+    );
+    app.add_systems(
+        EguiPrimaryContextPass,
+        pathfind_maze::ui
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("pathfind-maze")),
     );
 
     // loot-cycle

@@ -19,7 +19,8 @@ use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
 use crate::settings::{self, ControlAction, ControlGroup, UserSettings};
 use crate::systemparams::WorldState;
-use crate::systems::{AiPlayerState, TownUpgrades};
+use crate::systems::{AiPersonality, AiPlayerState, TownUpgrades};
+use crate::systems::ai_player::RoadStyle;
 use crate::world::{self, BuildingKind, WorldGenConfig};
 
 /// Render a small "?" button (frameless) that shows help text on hover.
@@ -910,6 +911,24 @@ fn game_startup_system(
         }
     }
     extra.ai_state.players = ai_players;
+
+    // Restore AI manager settings for player town
+    if let Some(player) = extra.ai_state.players.iter_mut().find(|p| p.town_data_idx == town_idx) {
+        player.active = saved.ai_manager_active;
+        player.build_enabled = saved.ai_manager_build;
+        player.upgrade_enabled = saved.ai_manager_upgrade;
+        player.personality = match saved.ai_manager_personality {
+            0 => AiPersonality::Aggressive,
+            2 => AiPersonality::Economic,
+            _ => AiPersonality::Balanced,
+        };
+        player.road_style = match saved.ai_manager_road_style {
+            0 => RoadStyle::None,
+            1 => RoadStyle::Cardinal,
+            3 => RoadStyle::Grid5,
+            _ => RoadStyle::Grid4,
+        };
+    }
 
     // Center camera on first town
     if let Some(first_town) = world_state.world_data.towns.first() {

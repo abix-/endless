@@ -1,5 +1,6 @@
 //! Constants - Tuning parameters for the NPC system
 
+use bevy::reflect::Reflect;
 use crate::components::{BaseAttackType, Job};
 use crate::world::BuildingKind;
 
@@ -622,7 +623,7 @@ pub struct AttackTypeStats {
 }
 
 /// What kind of item an NPC can carry or drop.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Reflect, serde::Serialize, serde::Deserialize)]
 pub enum ItemKind {
     Food,
     Gold,
@@ -641,7 +642,7 @@ pub struct LootDrop {
 // ============================================================================
 
 /// Equipment slot on an NPC.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Reflect, serde::Serialize, serde::Deserialize)]
 pub enum EquipmentSlot {
     // Sprite-visible slots
     Helm,
@@ -670,7 +671,7 @@ pub const ALL_EQUIPMENT_SLOTS: &[EquipmentSlot] = &[
 ];
 
 /// Rarity tier for loot items.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Reflect, serde::Serialize, serde::Deserialize)]
 pub enum Rarity {
     Common,
     Uncommon,
@@ -726,7 +727,7 @@ const RARITY_WEIGHTS: [(Rarity, u32); 4] = [
 ];
 
 /// A concrete equipment item with stats.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Reflect, serde::Serialize, serde::Deserialize)]
 pub struct LootItem {
     pub id: u64,
     pub slot: EquipmentSlot,

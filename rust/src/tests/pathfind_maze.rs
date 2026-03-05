@@ -1,10 +1,12 @@
 //! Pathfinding Maze Test
-//! Validates: NPC navigates a serpentine wall maze via A* pathfinding.
-//! Walls force the NPC to snake through corridors instead of walking straight.
+//! Validates: NPCs navigate a serpentine wall maze via A* pathfinding.
+//! Walls force NPCs to snake through corridors instead of walking straight.
+//! Configurable NPC count (1-5000) via slider UI.
 
 use crate::components::*;
 use crate::resources::*;
 use bevy::prelude::*;
+use bevy_egui::{EguiContexts, egui};
 
 use super::{TestSetupParams, TestState};
 
@@ -16,21 +18,39 @@ fn gw(col: i32, row: i32) -> (f32, f32) {
     (col as f32 * CS + CS * 0.5, row as f32 * CS + CS * 0.5)
 }
 
-pub fn setup(mut params: TestSetupParams) {
-    // Larger grid for the maze (25x25 default from add_town is fine)
+#[derive(Resource)]
+pub struct PathfindMazeConfig {
+    pub npc_count: usize,
+    input_buf: String,
+}
+
+impl Default for PathfindMazeConfig {
+    fn default() -> Self {
+        Self {
+            npc_count: 1,
+            input_buf: "1".into(),
+        }
+    }
+}
+
+pub fn setup(mut params: TestSetupParams, config: Res<PathfindMazeConfig>) {
+    let npc_count = config.npc_count.max(1);
+
+    // Expanded grid: 100x100 to fit maze (cols 0-24) + homes (cols 26+)
+    params.world_grid.width = 100;
+    params.world_grid.height = 100;
+    params.world_grid.cell_size = crate::constants::TOWN_GRID_SPACING;
+    params.world_grid.cells =
+        vec![crate::world::WorldCell::default(); 100 * 100];
+
     params.add_town("MazeTown");
-    params.world_data.towns[0].center = Vec2::new(800.0, 800.0);
+    params.world_data.towns[0].center = Vec2::new(3200.0, 3200.0);
+    if params.entity_map.spatial_cell_size() <= 0.0 {
+        let world_size_px = 100.0 * CS;
+        params.entity_map.init_spatial(world_size_px);
+    }
 
-    // -- Build serpentine wall maze --
-    // Grid is 25x25 (cols 0..24, rows 0..24)
-    // Farmer home at (1, 1), farm at (23, 22)
-    // Walls create horizontal barriers with alternating gaps:
-    //   Row 4:  cols 0..21  (gap at right: cols 22-24)
-    //   Row 8:  cols 3..24  (gap at left:  cols 0-2)
-    //   Row 12: cols 0..21  (gap at right: cols 22-24)
-    //   Row 16: cols 3..24  (gap at left:  cols 0-2)
-    //   Row 20: cols 0..21  (gap at right: cols 22-24)
-
+    // -- Build serpentine wall maze (cols 0-24, rows 0-24) --
     let wall_rows: &[(i32, i32, i32)] = &[
         (4, 0, 22),   // row 4: col 0..21
         (8, 3, 25),   // row 8: col 3..24
@@ -46,11 +66,15 @@ pub fn setup(mut params: TestSetupParams) {
         }
     }
 
-    // Farmer home top-left
-    let (hx, hy) = gw(1, 1);
-    params.add_building(crate::world::BuildingKind::FarmerHome, hx, hy, 0);
+    // Place N FarmerHomes in a grid starting at col 26, row 0
+    for i in 0..npc_count {
+        let col = 26 + (i % 74) as i32;
+        let row = (i / 74) as i32;
+        let (hx, hy) = gw(col, row);
+        params.add_building(crate::world::BuildingKind::FarmerHome, hx, hy, 0);
+    }
 
-    // Farm bottom-right (mark as ready so farmer goes to it)
+    // Farm bottom-right of maze (mark as ready so farmers go to it)
     let (fx, fy) = gw(23, 22);
     params.add_building(crate::world::BuildingKind::Farm, fx, fy, 0);
     if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(fx, fy)) {
@@ -58,22 +82,21 @@ pub fn setup(mut params: TestSetupParams) {
         inst.growth_progress = 1.0;
     }
 
-    // Bed near the home for resting
+    // Bed near the home area for resting
     let (bx, by) = gw(2, 1);
     params.add_bed(bx, by);
 
     params.finalize_grid();
     params.init_economy(1);
-    // Start with food so the farmer doesn't starve
     params.food_storage.food[0] = 500;
 
     // Camera centered on maze
     params.focus_camera(800.0, 800.0);
 
-    params.test_state.phase_name = "Waiting for farmer spawn...".into();
+    params.test_state.phase_name = format!("Waiting for {} farmer(s)...", npc_count);
     info!(
-        "pathfind-maze: setup — serpentine maze, home at ({},{}), farm at ({},{})",
-        hx, hy, fx, fy
+        "pathfind-maze: setup — serpentine maze, {} farmer homes, farm at ({},{})",
+        npc_count, fx, fy
     );
 }
 
@@ -85,10 +108,15 @@ pub fn tick(
     activity_q: Query<&Activity>,
     path_q: Query<&NpcPath>,
     _job_q: Query<&Job>,
+    config: Res<PathfindMazeConfig>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else {
         return;
     };
+
+    let npc_count = config.npc_count.max(1);
+    // Scale timeouts with NPC count: more NPCs need more time to spawn/path
+    let time_scale = 1.0 + (npc_count as f32 / 100.0).min(10.0);
 
     let farmers: Vec<_> = entity_map
         .iter_npcs()
@@ -97,16 +125,16 @@ pub fn tick(
     let farmer_count = farmers.len();
 
     match test.phase {
-        // Phase 1: Farmer spawned
+        // Phase 1: All farmers spawned
         1 => {
-            test.phase_name = format!("farmers={}/1", farmer_count);
-            if farmer_count >= 1 {
-                test.pass_phase(elapsed, format!("farmer spawned ({})", farmer_count));
-            } else if elapsed > 5.0 {
-                test.fail_phase(elapsed, format!("no farmer spawned"));
+            test.phase_name = format!("farmers={}/{}", farmer_count, npc_count);
+            if farmer_count >= npc_count {
+                test.pass_phase(elapsed, format!("farmers spawned ({})", farmer_count));
+            } else if elapsed > 5.0 * time_scale {
+                test.fail_phase(elapsed, format!("only {}/{} farmers", farmer_count, npc_count));
             }
         }
-        // Phase 2: Farmer has pathfinding waypoints (A* kicked in)
+        // Phase 2: At least one farmer has A* waypoints
         2 => {
             let has_path = farmers.iter().any(|n| {
                 path_q
@@ -122,18 +150,17 @@ pub fn tick(
                     .max()
                     .unwrap_or(0);
                 test.pass_phase(elapsed, format!("A* path found ({} waypoints)", wp_count));
-            } else if elapsed > 8.0 {
+            } else if elapsed > 8.0 * time_scale {
                 test.fail_phase(elapsed, format!("no pathfinding waypoints"));
             }
         }
-        // Phase 3: Farmer Y position crosses first wall row (row 4 = y=288)
-        // This proves the NPC went through the gap, not through the wall
+        // Phase 3: Any farmer crosses first wall row (row 4 = y=288)
         3 => {
             let crossed = farmers.iter().any(|n| {
                 let idx = n.slot * 2;
                 if idx + 1 < gpu_state.positions.len() {
                     let y = gpu_state.positions[idx + 1];
-                    y > 4.0 * CS + CS // past row 4 wall
+                    y > 4.0 * CS + CS
                 } else {
                     false
                 }
@@ -152,11 +179,11 @@ pub fn tick(
                     elapsed,
                     format!("crossed first wall row (y={:.0})", farmer_y),
                 );
-            } else if elapsed > 30.0 {
+            } else if elapsed > 30.0 * time_scale {
                 test.fail_phase(elapsed, format!("stuck at y={:.0}", farmer_y));
             }
         }
-        // Phase 4: Farmer Y position crosses second wall row (row 8 = y=544)
+        // Phase 4: Any farmer crosses second wall row (row 8 = y=544)
         4 => {
             let farmer_y = farmers
                 .first()
@@ -173,17 +200,17 @@ pub fn tick(
                     elapsed,
                     format!("crossed second wall row (y={:.0})", farmer_y),
                 );
-            } else if elapsed > 50.0 {
+            } else if elapsed > 50.0 * time_scale {
                 test.fail_phase(elapsed, format!("stuck at y={:.0}", farmer_y));
             }
         }
-        // Phase 5: Farmer reaches destination area (near farm at row 22)
+        // Phase 5: Any farmer reaches farm area (near farm at row 22)
         5 => {
             let near_farm = farmers.iter().any(|n| {
                 let idx = n.slot * 2;
                 if idx + 1 < gpu_state.positions.len() {
                     let y = gpu_state.positions[idx + 1];
-                    y > 20.0 * CS // past row 20 wall
+                    y > 20.0 * CS
                 } else {
                     false
                 }
@@ -211,7 +238,7 @@ pub fn tick(
                     ),
                 );
                 test.complete(elapsed);
-            } else if elapsed > 90.0 {
+            } else if elapsed > 90.0 * time_scale {
                 test.fail_phase(
                     elapsed,
                     format!("didn't reach farm, y={:.0}", farmer_y),
@@ -220,4 +247,42 @@ pub fn tick(
         }
         _ => {}
     }
+}
+
+/// Maze config panel — slider for NPC count + restart button.
+pub(super) fn ui(
+    mut contexts: EguiContexts,
+    mut config: ResMut<PathfindMazeConfig>,
+    mut test_state: ResMut<TestState>,
+    mut next_state: ResMut<NextState<crate::AppState>>,
+) -> Result {
+    let ctx = contexts.ctx_mut()?;
+    let mut restart = false;
+    egui::Window::new("Maze Config")
+        .anchor(egui::Align2::RIGHT_TOP, [-8.0, 300.0])
+        .resizable(false)
+        .collapsible(false)
+        .show(ctx, |ui: &mut egui::Ui| {
+            ui.horizontal(|ui: &mut egui::Ui| {
+                ui.label("NPCs:");
+                let mut count = config.npc_count as u32;
+                if ui
+                    .add(egui::Slider::new(&mut count, 1..=5000).logarithmic(true))
+                    .changed()
+                {
+                    config.npc_count = count as usize;
+                    config.input_buf = count.to_string();
+                }
+            });
+            ui.label(format!("{} farmer homes", config.npc_count));
+            ui.add_space(4.0);
+            if ui.button("Restart").clicked() {
+                restart = true;
+            }
+        });
+    if restart {
+        test_state.pending_relaunch = Some("pathfind-maze".into());
+        next_state.set(crate::AppState::TestMenu);
+    }
+    Ok(())
 }

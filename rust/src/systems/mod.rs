@@ -2,6 +2,7 @@
 
 pub mod ai_player;
 pub mod audio;
+pub mod remote;
 mod behavior;
 mod combat;
 mod drain;

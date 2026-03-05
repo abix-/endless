@@ -1,6 +1,13 @@
 # Changelog
 
-## 2026-03-05
+## 2026-03-05b
+
+- **BRP live game control** — Bevy Remote Protocol (bevy_remote) HTTP JSON-RPC server on localhost:15702. Added `Reflect` + `#[reflect(Component)]`/`#[reflect(Resource)]` to all 33 components + 12 resources + 5 nested types. 60+ `register_type` calls in `build_app()`. 7 custom action endpoints in `systems/remote.rs`: `endless/summary` (game overview), `endless/build` (queue building placement), `endless/upgrade` (queue town upgrade), `endless/policy` (set town policies), `endless/time` (pause/speed), `endless/squad_target` (move squads), `endless/ai_manager` (configure AI Manager). Queue pattern for write endpoints needing SystemParams, direct resource_mut for simple mutations.
+- **AI Manager settings persistence** — player town AI Manager state (active, build/upgrade enabled, personality, road style) saved to UserSettings on panel close and restored on game startup. New fields in `settings.rs`: `ai_manager_active`, `ai_manager_build`, `ai_manager_upgrade`, `ai_manager_personality`, `ai_manager_road_style`.
+- **idle stop movement** — NPCs transitioning to Idle now submit a self-position movement intent to clear stale GPU targets, preventing oscillation with nearby NPCs.
+- **pathfind-maze configurable count** — pathfind-maze test now supports 1-5000 NPCs via slider UI (PathfindMazeConfig resource).
+
+## 2026-03-05a
 
 - **stuck-transit redirect** — bucket-gated re-scatter for wandering and patrolling NPCs that haven't arrived. Wandering NPCs get a new random offset from current position (128px, clamped within 200px of home). Patrolling NPCs re-scatter to their current post. Unsticks NPCs blocked by walls or congestion.
 - **wander from current position** — wander action now offsets from NPC's current position (was home), clamped within 200px of home to prevent unbounded drift. Scatter radius reduced from 200px to 128px.

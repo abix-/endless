@@ -369,7 +369,7 @@ pub fn left_panel_system(
         if panel_state.was_open {
             panel_state.was_open = false;
             snapshot_collapsed_sections(ctx, &mut settings);
-            save_left_panel_state(&ui_state, &settings, &policies, &world_data);
+            save_left_panel_state(&ui_state, &settings, &policies, &world_data, &factions.ai_state);
         }
         ui_state.factions_overlay_faction = None;
         panel_state.prev_tab = LeftPanelTab::Roster;
@@ -542,6 +542,7 @@ fn save_left_panel_state(
     settings: &UserSettings,
     policies: &TownPolicies,
     world_data: &WorldData,
+    ai_state: &AiPlayerState,
 ) {
     let mut saved = settings::load_settings();
     saved.left_panel_tab = tab_to_str(ui_state.left_panel_tab).to_string();
@@ -557,6 +558,13 @@ fn save_left_panel_state(
         .unwrap_or(0);
     if town_idx < policies.policies.len() {
         saved.policy = policies.policies[town_idx].clone();
+    }
+    if let Some(player) = ai_state.players.iter().find(|p| p.town_data_idx == town_idx) {
+        saved.ai_manager_active = player.active;
+        saved.ai_manager_build = player.build_enabled;
+        saved.ai_manager_upgrade = player.upgrade_enabled;
+        saved.ai_manager_personality = player.personality as u8;
+        saved.ai_manager_road_style = player.road_style as u8;
     }
     settings::save_settings(&saved);
 }

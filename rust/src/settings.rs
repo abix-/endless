@@ -588,6 +588,17 @@ pub struct UserSettings {
     // Town policies
     #[serde(default)]
     pub policy: PolicySet,
+    // AI Manager (player town)
+    #[serde(default)]
+    pub ai_manager_active: bool,
+    #[serde(default = "default_true")]
+    pub ai_manager_build: bool,
+    #[serde(default = "default_true")]
+    pub ai_manager_upgrade: bool,
+    #[serde(default = "default_ai_personality")]
+    pub ai_manager_personality: u8,
+    #[serde(default = "default_ai_road_style")]
+    pub ai_manager_road_style: u8,
     // Video / display
     #[serde(default = "default_window_width")]
     pub window_width: u32,
@@ -703,6 +714,12 @@ fn default_farms() -> usize {
 fn default_five() -> usize {
     5
 }
+fn default_ai_personality() -> u8 {
+    1 // Balanced
+}
+fn default_ai_road_style() -> u8 {
+    2 // Grid4
+}
 fn default_ai_interval() -> f32 {
     5.0
 }
@@ -808,6 +825,11 @@ impl Default for UserSettings {
             show_terrain_sprites: true,
             show_all_faction_squad_lines: true,
             policy: PolicySet::default(),
+            ai_manager_active: false,
+            ai_manager_build: true,
+            ai_manager_upgrade: true,
+            ai_manager_personality: 1, // Balanced
+            ai_manager_road_style: 2,  // Grid4
             ai_towns: 5,
             raider_towns: 5,
             ai_interval: 5.0,

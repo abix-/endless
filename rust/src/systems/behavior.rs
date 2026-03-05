@@ -1965,6 +1965,12 @@ pub fn decision_system(
         // Conditional writeback: skip unchanged NPCs (most exit early via break 'decide)
         let new_visual_key = (activity.visual_key(), carried_loot.visual_key());
         if std::mem::discriminant(&activity) != orig_activity {
+            // Clear stale GPU target when going Idle — prevents oscillation with nearby NPCs
+            if matches!(activity, Activity::Idle) {
+                if let Some(pos) = npc_pos {
+                    intents.submit(entity, pos, MovementPriority::Wander, "idle:stop");
+                }
+            }
             if let Ok(mut act) = npc_state.activity_q.get_mut(entity) {
                 *act = activity;
             }

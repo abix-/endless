@@ -1101,7 +1101,7 @@ pub fn find_by_pos<W: Worksite>(sites: &[W], pos: Vec2) -> Option<usize> {
 // BUILDING SPATIAL GRID
 // ============================================================================
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord, Serialize, Deserialize, bevy::reflect::Reflect)]
 pub enum BuildingKind {
     Fountain,
     Bed,

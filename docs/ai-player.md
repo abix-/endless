@@ -347,3 +347,5 @@ The player's town (faction 0) gets an `AiPlayer` registered at world gen with `a
 - Phase 2 (upgrade scoring + execution, line ~1889) is wrapped in `if upgrade_enabled { }`
 - Both fields are persisted in `AiPlayerSave` with `#[serde(default = "default_true")]` for backward compat
 - `FactionsParams.ai_state` is `ResMut<AiPlayerState>` (upgraded from `Res`) to allow mutation from the Policies tab
+- **Settings persistence**: AI Manager state (active, build_enabled, upgrade_enabled, personality, road_style) saved to `UserSettings` on panel close and restored on game startup. Fields: `ai_manager_active`, `ai_manager_build`, `ai_manager_upgrade`, `ai_manager_personality` (u8: 0=Aggressive, 1=Balanced, 2=Economic), `ai_manager_road_style` (u8: 0=None, 1=Cardinal, 2=Grid4, 3=Grid5)
+- **BRP endpoint**: `endless/ai_manager` in `systems/remote.rs` — configures AI Manager for any town via HTTP JSON-RPC (see [brp.md](brp.md))

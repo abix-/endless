@@ -1,6 +1,7 @@
 //! ECS Components - Bevy entities have these attached
 
 use bevy::prelude::*;
+use bevy::reflect::Reflect;
 
 // ============================================================================
 // CORE COMPONENTS
@@ -9,18 +10,21 @@ use bevy::prelude::*;
 /// Stable identity for gameplay cross-references. Monotonically increasing u64 counter.
 /// Survives slot recycling — unlike GpuSlot, an EntityUid is never reused.
 /// EntityUid(0) is reserved as "none/invalid".
-#[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug, Reflect)]
+#[reflect(Component)]
 pub struct EntityUid(pub u64);
 
 /// Links a Bevy entity to its unified slot in the GPU entity buffers.
 /// Both NPCs and buildings get an GpuSlot(n) where n = GPU buffer index.
 /// GpuSlot is a dense GPU address, NOT a stable identity — use EntityUid for cross-references.
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct GpuSlot(pub usize);
 
 /// NPC position in world coordinates. Bevy owns this, syncs to GPU for physics.
 /// Phase 11: Replaces GPU-owned positions with Bevy-owned + GPU accelerated.
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct Position {
     pub x: f32,
     pub y: f32,
@@ -36,7 +40,8 @@ impl Position {
 /// - Farmer (green): works at farms, avoids combat
 /// - Archer (blue): patrols and fights raiders
 /// - Raider (red): attacks guards, steals from farms
-#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Reflect)]
+#[reflect(Component)]
 pub enum Job {
     Farmer,
     Archer,
@@ -88,7 +93,8 @@ impl Job {
 }
 
 /// Movement speed in pixels per second.
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct Speed(pub f32);
 
 impl Default for Speed {
@@ -102,7 +108,8 @@ impl Default for Speed {
 
 /// TownId identifies which town an NPC belongs to.
 /// Universal component on every NPC. All settlements are "towns" (villager or raider).
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct TownId(pub i32);
 
 // ============================================================================
@@ -110,7 +117,8 @@ pub struct TownId(pub i32);
 // ============================================================================
 
 /// NPC energy level (0-100). Drains while active, recovers while resting.
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct Energy(pub f32);
 
 impl Default for Energy {
@@ -121,7 +129,8 @@ impl Default for Energy {
 
 /// Where the NPC goes to rest (bed position).
 /// Home(-1, -1) means no home assigned — behavior systems should skip.
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct Home(pub Vec2);
 
 impl Home {
@@ -131,7 +140,8 @@ impl Home {
 }
 
 /// Patrol route for guards (or any NPC that patrols).
-#[derive(Component, Clone)]
+#[derive(Component, Clone, Reflect)]
+#[reflect(Component)]
 pub struct PatrolRoute {
     pub posts: Vec<Vec2>,
     pub current: usize,
@@ -139,7 +149,8 @@ pub struct PatrolRoute {
 
 /// Combined work state for NPCs. Always present — avoids archetype churn from insert/remove.
 /// Single `worksite` field: claimed worksite (occupancy incremented). Cleared on release/death.
-#[derive(Component, Default, Clone, Copy)]
+#[derive(Component, Default, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct NpcWorkState {
     pub worksite: Option<EntityUid>,
 }
@@ -147,7 +158,8 @@ pub struct NpcWorkState {
 /// Unified carry component for ALL NPCs. Always present — replaces the old fragmented
 /// Activity::Returning{loot} payload + CarriedGold component.
 /// Loot lives here; Activity::Returning just means "going home."
-#[derive(Component, Default, Clone)]
+#[derive(Component, Default, Clone, Reflect)]
+#[reflect(Component)]
 pub struct CarriedLoot {
     pub food: i32,
     pub gold: i32,
@@ -184,7 +196,8 @@ impl CarriedLoot {
 /// What the NPC is *doing*. Mutually exclusive — an NPC is in exactly one activity.
 /// Transit variants (Patrolling, GoingToWork, GoingToRest, GoingToHeal, Wandering, Raiding, Returning)
 /// mean the NPC is moving toward a destination; use `is_transit()` to check.
-#[derive(Component, Default, Clone, Debug, PartialEq)]
+#[derive(Component, Default, Clone, Debug, PartialEq, Reflect)]
+#[reflect(Component)]
 pub enum Activity {
     #[default]
     Idle,
@@ -260,7 +273,8 @@ impl Activity {
 
 /// Whether the NPC is in combat. Orthogonal to Activity — a Raiding NPC can be Fighting.
 /// Activity is preserved through combat so the NPC resumes what it was doing when combat ends.
-#[derive(Component, Default, Clone, Debug, PartialEq)]
+#[derive(Component, Default, Clone, Debug, PartialEq, Reflect)]
+#[reflect(Component)]
 pub enum CombatState {
     #[default]
     None,
@@ -285,7 +299,8 @@ impl CombatState {
 }
 
 /// Player-forced target for DirectControl NPCs.
-#[derive(Component, Clone)]
+#[derive(Component, Clone, Reflect)]
+#[reflect(Component)]
 pub enum ManualTarget {
     /// Attack a specific NPC (slot index).
     Npc(usize),
@@ -297,7 +312,8 @@ pub enum ManualTarget {
 
 /// High-churn NPC boolean flags bundled into one component to avoid archetype moves.
 /// Toggled at runtime by various systems. Query-friendly: `Query<&mut NpcFlags>`.
-#[derive(Component, Default, Clone)]
+#[derive(Component, Default, Clone, Reflect)]
+#[reflect(Component)]
 pub struct NpcFlags {
     pub healing: bool,
     pub starving: bool,
@@ -309,7 +325,8 @@ pub struct NpcFlags {
 /// A* pathfinding waypoints. Optional — only present on NPCs with active paths.
 /// CPU-authoritative: A* produces waypoints, CPU advances on arrival, GPU steers
 /// to current waypoint via existing goals[] upload.
-#[derive(Component, Default, Clone)]
+#[derive(Component, Default, Clone, Reflect)]
+#[reflect(Component)]
 pub struct NpcPath {
     /// Waypoints in grid coordinates (col, row).
     pub waypoints: Vec<IVec2>,
@@ -322,11 +339,13 @@ pub struct NpcPath {
 }
 
 /// Squad assignment for military NPCs. Optional component — only present when recruited.
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct SquadId(pub i32);
 
 /// NPC is dead and pending removal.
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct Dead;
 
 // ============================================================================
@@ -334,7 +353,8 @@ pub struct Dead;
 // ============================================================================
 
 /// NPC current health. Dies when reaching 0.
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct Health(pub f32);
 
 impl Default for Health {
@@ -345,7 +365,8 @@ impl Default for Health {
 
 /// Whether this NPC uses melee or ranged attacks.
 /// Used as key into CombatConfig.attacks and stored on entity for re-resolution.
-#[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug, Reflect)]
+#[reflect(Component)]
 pub enum BaseAttackType {
     Melee,
     Ranged,
@@ -353,7 +374,8 @@ pub enum BaseAttackType {
 
 /// Cached resolved combat stats. Populated on spawn from resolve_combat_stats().
 /// Re-resolved on upgrade purchase or level-up (Stage 9+).
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, Reflect)]
+#[reflect(Component)]
 pub struct CachedStats {
     pub damage: f32,
     pub range: f32,
@@ -374,7 +396,8 @@ pub struct CachedStats {
 /// Faction ID determines hostility. NPCs attack different factions.
 /// GPU uses this for targeting queries (simple != comparison).
 /// Convention: 0 = player, 1+ = AI/raider factions (each unique)
-#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Component, Clone, Copy, PartialEq, Eq, Debug, Reflect)]
+#[reflect(Component)]
 pub struct Faction(pub i32);
 
 impl Faction {
@@ -388,7 +411,8 @@ impl Faction {
 }
 
 /// Cooldown timer for attacks. When > 0, NPC can't attack.
-#[derive(Component, Default, Clone, Copy)]
+#[derive(Component, Default, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct AttackTimer(pub f32);
 
 // ============================================================================
@@ -396,15 +420,17 @@ pub struct AttackTimer(pub f32);
 // ============================================================================
 
 /// Spawn-only marker: NPC can steal from farms.
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct Stealer;
 
 /// Spawn-only marker: NPC has energy system active.
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct HasEnergy;
 
 /// Equipment rendering layer index.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Reflect)]
 #[repr(u8)]
 pub enum EquipLayer {
     Armor = 0,
@@ -420,7 +446,8 @@ impl EquipLayer {
 
 /// Unified equipment component — always present on NPCs with equip_slots.
 /// Replaces EquippedWeapon, EquippedArmor, EquippedHelmet.
-#[derive(Component, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Component, Clone, Default, Reflect, serde::Serialize, serde::Deserialize)]
+#[reflect(Component)]
 pub struct NpcEquipment {
     pub helm: Option<crate::constants::LootItem>,
     pub armor: Option<crate::constants::LootItem>,
@@ -532,7 +559,8 @@ impl NpcEquipment {
 }
 
 /// Tracks the NPC/building slot of the last attacker (for XP on kill).
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct LastHitBy(pub i32);
 
 // Healing, Starving, Migrating, DirectControl, AtDestination → NpcFlags component
@@ -541,13 +569,15 @@ pub struct LastHitBy(pub i32);
 /// Marker: entity is a building (not a walking NPC).
 /// Buildings are NPC-like entities with Speed(0.0) on the building atlas.
 /// They share GPU slots, EntityMap registration, and the death pipeline with NPCs.
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct Building {
     pub kind: crate::world::BuildingKind,
 }
 
 /// Marker: farm is visually Ready (food icon overlay).
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct FarmReadyMarker {
     pub farm_slot: usize,
 }
@@ -557,18 +587,21 @@ pub struct FarmReadyMarker {
 // ============================================================================
 
 /// Flee combat when HP drops below this percentage.
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct FleeThreshold {
     pub pct: f32,
 }
 
 /// Disengage combat if distance from Home exceeds this.
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct LeashRange(pub f32);
 
 /// Drop everything and return home when HP drops below this percentage.
 /// Distinct from FleeThreshold: wounded NPCs enter recovery mode.
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct WoundedThreshold {
     pub pct: f32,
 }
@@ -578,7 +611,7 @@ pub struct WoundedThreshold {
 // ============================================================================
 
 /// 7 spectrum axes. Magnitude sign determines pole (+Brave/-Coward, etc).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Reflect)]
 pub enum TraitKind {
     Courage,    // +Brave / -Coward
     Diligence,  // +Efficient / -Lazy
@@ -665,7 +698,7 @@ impl TraitKind {
 }
 
 /// A trait axis with signed magnitude (-1.5..+1.5). Sign = pole, abs = strength.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Reflect)]
 pub struct TraitInstance {
     pub kind: TraitKind,
     pub magnitude: f32,
@@ -707,7 +740,8 @@ impl Default for TraitBehaviorMods {
 }
 
 /// NPC personality: 0-2 spectrum traits that modify stats and decision weights.
-#[derive(Component, Clone, Debug, Default)]
+#[derive(Component, Clone, Debug, Default, Reflect)]
+#[reflect(Component)]
 pub struct Personality {
     pub trait1: Option<TraitInstance>,
     pub trait2: Option<TraitInstance>,

@@ -26,6 +26,7 @@ pub mod world;
 // ============================================================================
 
 use bevy::prelude::*;
+use bevy::remote::{RemotePlugin, http::RemoteHttpPlugin};
 
 use messages::{
     BuildingGridDirtyMsg, CombatLogMsg, DamageMsg, DestroyBuildingMsg, GpuUpdateMsg,
@@ -280,6 +281,76 @@ pub fn build_app(app: &mut App) {
         .add_plugins(gpu::GpuComputePlugin)
         .add_plugins(render::RenderPlugin)
         .add_plugins(npc_render::NpcRenderPlugin)
+        // BRP: live game data access via HTTP JSON-RPC on localhost:15702
+        .add_plugins(
+            RemotePlugin::default()
+                .with_method("endless/summary", systems::remote::summary_handler)
+                .with_method("endless/build", systems::remote::build_handler)
+                .with_method("endless/upgrade", systems::remote::upgrade_handler)
+                .with_method("endless/policy", systems::remote::policy_handler)
+                .with_method("endless/time", systems::remote::time_handler)
+                .with_method("endless/squad_target", systems::remote::squad_target_handler)
+                .with_method("endless/ai_manager", systems::remote::ai_manager_handler)
+        )
+        .add_plugins(RemoteHttpPlugin::default())
+        .init_resource::<systems::remote::RemoteBuildQueue>()
+        .init_resource::<systems::remote::RemoteUpgradeQueue>()
+        // Register reflected types for BRP queries
+        .register_type::<components::EntityUid>()
+        .register_type::<components::GpuSlot>()
+        .register_type::<components::Position>()
+        .register_type::<components::Job>()
+        .register_type::<components::Speed>()
+        .register_type::<components::TownId>()
+        .register_type::<components::Energy>()
+        .register_type::<components::Home>()
+        .register_type::<components::PatrolRoute>()
+        .register_type::<components::NpcWorkState>()
+        .register_type::<components::CarriedLoot>()
+        .register_type::<components::Activity>()
+        .register_type::<components::CombatState>()
+        .register_type::<components::ManualTarget>()
+        .register_type::<components::NpcFlags>()
+        .register_type::<components::NpcPath>()
+        .register_type::<components::SquadId>()
+        .register_type::<components::Dead>()
+        .register_type::<components::Health>()
+        .register_type::<components::BaseAttackType>()
+        .register_type::<components::CachedStats>()
+        .register_type::<components::Faction>()
+        .register_type::<components::AttackTimer>()
+        .register_type::<components::Stealer>()
+        .register_type::<components::HasEnergy>()
+        .register_type::<components::NpcEquipment>()
+        .register_type::<components::LastHitBy>()
+        .register_type::<components::Building>()
+        .register_type::<components::FarmReadyMarker>()
+        .register_type::<components::FleeThreshold>()
+        .register_type::<components::LeashRange>()
+        .register_type::<components::WoundedThreshold>()
+        .register_type::<components::Personality>()
+        .register_type::<components::TraitKind>()
+        .register_type::<components::TraitInstance>()
+        .register_type::<components::EquipLayer>()
+        // Reflected resources
+        .register_type::<GameTime>()
+        .register_type::<UpsCounter>()
+        .register_type::<KillStats>()
+        .register_type::<FoodStorage>()
+        .register_type::<GoldStorage>()
+        .register_type::<FactionStats>()
+        .register_type::<resources::FactionStat>()
+        .register_type::<TownPolicies>()
+        .register_type::<resources::PolicySet>()
+        .register_type::<resources::WorkSchedule>()
+        .register_type::<resources::OffDutyBehavior>()
+        // Reflected nested types
+        .register_type::<constants::LootItem>()
+        .register_type::<constants::ItemKind>()
+        .register_type::<constants::EquipmentSlot>()
+        .register_type::<constants::Rarity>()
+        .register_type::<world::BuildingKind>()
+        .register_type::<Difficulty>()
         // Startup
         .add_systems(Startup, startup_system)
         .add_systems(Startup, systems::audio::load_music)
@@ -328,6 +399,13 @@ pub fn build_app(app: &mut App) {
                 .after(Step::Drain)
                 .before(Step::Spawn)
                 .run_if(game_active.clone()),
+        )
+        // Remote action queue drain (BRP → game actions)
+        .add_systems(
+            FixedUpdate,
+            systems::remote::drain_remote_queues
+                .in_set(Step::Spawn)
+                .before(spawn_npc_system),
         )
         // Spawn
         .add_systems(FixedUpdate, spawn_npc_system.in_set(Step::Spawn))
