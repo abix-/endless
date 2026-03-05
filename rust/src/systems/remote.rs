@@ -275,7 +275,12 @@ pub fn upgrade_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
         return Err(brp_err(format!("town {} out of range", p.town)));
     }
 
-    log_llm(world, p.town, format!("upgrade idx {}", p.upgrade_idx));
+    let upgrade_label = crate::systems::stats::UPGRADES
+        .nodes
+        .get(p.upgrade_idx)
+        .map(|n| n.label)
+        .unwrap_or("unknown");
+    log_llm(world, p.town, format!("upgrade: {}", upgrade_label));
 
     world
         .resource_mut::<RemoteUpgradeQueue>()
@@ -317,7 +322,17 @@ pub fn policy_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpRe
     let p: PolicyParams = parse_some(params)?;
     check_town_allowed(world, p.town)?;
 
-    log_llm(world, p.town, "policy change".to_string());
+    let mut parts = Vec::new();
+    if let Some(v) = p.eat_food { parts.push(format!("eat_food={v}")); }
+    if let Some(v) = p.archer_aggressive { parts.push(format!("archer_aggressive={v}")); }
+    if let Some(v) = p.archer_leash { parts.push(format!("archer_leash={v}")); }
+    if let Some(v) = p.farmer_fight_back { parts.push(format!("farmer_fight_back={v}")); }
+    if let Some(v) = p.prioritize_healing { parts.push(format!("prioritize_healing={v}")); }
+    if let Some(v) = p.farmer_flee_hp { parts.push(format!("farmer_flee_hp={v:.1}")); }
+    if let Some(v) = p.archer_flee_hp { parts.push(format!("archer_flee_hp={v:.1}")); }
+    if let Some(v) = p.recovery_hp { parts.push(format!("recovery_hp={v:.1}")); }
+    if let Some(v) = p.mining_radius { parts.push(format!("mining_radius={v:.0}")); }
+    log_llm(world, p.town, format!("policy: {}", parts.join(", ")));
 
     let mut policies = world.resource_mut::<TownPolicies>();
     let policy = policies.policies.get_mut(p.town).ok_or_else(|| brp_err(format!("town {} out of range", p.town)))?;
