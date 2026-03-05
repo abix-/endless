@@ -17,7 +17,7 @@ The LLM checkbox grants BRP write access for that town. Without it, the model ca
 ### Claude Code (recommended)
 
 ```
-.\llm-player\launch.ps1
+python llm-player/launch.py
 ```
 
 The launch script reads `llm-player/prompt.md` and passes it as the system prompt. Edit the script to change the model or tool permissions.
