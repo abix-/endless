@@ -9,3 +9,5 @@ rust/target/
 *.import
 gdextension_interface.h
 *.tmp
+llm-player/loop.log
+__pycache__/

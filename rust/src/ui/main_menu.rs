@@ -404,6 +404,12 @@ pub fn main_menu_system(
                         }
                     }
                 }
+                // Insert LLM player state for first LLM town (built-in claude --print)
+                if let Some(&first_llm) = llm_towns.first() {
+                    commands.insert_resource(
+                        crate::systems::llm_player::LlmPlayerState::new(first_llm),
+                    );
+                }
                 commands.insert_resource(crate::resources::RemoteAllowedTowns { towns: llm_towns });
 
                 save_request.autosave_hours = state.autosave_hours;

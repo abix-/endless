@@ -2,37 +2,66 @@
 
 How to run an AI model as a player in Endless.
 
-## 1. Configure the Game
+## Built-in Player (recommended)
 
-In the main menu, set up AI player slots:
+The game has a built-in LLM player that spawns `claude --print` directly — no HTTP server, no Python scripts.
 
-1. Click **+ Builder** or **+ Raider** to add AI towns
-2. Check the **LLM** checkbox on slots you want the model to control
+### Setup
+
+1. In the main menu, add AI player slots (Builder or Raider)
+2. Check the **LLM** checkbox on the slot you want the model to control
 3. Click **Play**
 
-The LLM checkbox grants BRP write access for that town. Without it, the model can read game state but can't take actions.
+The built-in player reads ECS resources directly and sends game state as a JSON user message to Claude via stdin piping. It runs every 20 seconds.
 
-## 2. Launch the Model
+### Architecture
 
-### Claude Code (recommended)
+`systems/llm_player.rs`:
+- `LlmPlayerState` resource: timer, async receiver, subscriptions, pending queries
+- `LlmReadState` SystemParam: read-only ECS access (WorldData, GameTime, FactionStats, PopulationStats, TownUpgrades, Reputation)
+- `LlmWriteState` SystemParam: write access (SquadState, FoodStorage, GoldStorage)
+- `build_state_json()`: serializes game state to JSON — own town gets full building list `[{kind, row, col}]`, enemy towns get counts `{"Farm": 3}`
+- `execute_actions()`: parses LLM JSON response into build/destroy/upgrade/policy/squad_target/query/subscribe/unsubscribe actions
+
+Process spawn uses `.env_remove("CLAUDECODE")` to avoid nested-session detection, `Stdio::piped()` for stdin, and `CREATE_NO_WINDOW` on Windows to prevent console focus stealing.
+
+### Prompt
+
+`llm-player/prompt_builtin.md` is the system prompt. It documents:
+- Base state format (towns with distance, reputation, buildings, squads)
+- All actions (policy, build, destroy, upgrade, squad_target, query, subscribe, unsubscribe)
+- Data topics (npcs, combat_log, upgrades, policies)
+- Strategy phases (expand → upgrades → attack)
+
+### Data Model
+
+Three tiers of data delivery:
+1. **Base state** (always sent): game_time, towns, factions, reputation
+2. **Subscriptions** (persistent): topics included every cycle until unsubscribed
+3. **One-shot queries**: topics included in next cycle only, then cleared
+
+### Reputation
+
+Per-town `reputation` field in base state shows how your faction feels about each town's faction. -50 means they killed ~50 of your NPCs. Backed by the 2D `Reputation` matrix in `resources.rs`.
+
+## External Player (alternative)
+
+### Claude Code
 
 ```
 python llm-player/launch.py
 ```
 
-The launch script reads `llm-player/prompt.md` and passes it as the system prompt. Edit the script to change the model or tool permissions.
+Reads `llm-player/prompt.md` as system prompt. Uses BRP HTTP endpoints on localhost:15702.
 
-Uses your Claude Code subscription. No separate API account needed.
+### Anthropic API
 
-### Anthropic API (alternative)
-
-For a fully autonomous, unattended player. Requires a separate API key from [console.anthropic.com](https://console.anthropic.com).
+For unattended play. Requires API key from [console.anthropic.com](https://console.anthropic.com).
 
 ```python
 import anthropic, json, time, subprocess
 
 system = open("llm-player/prompt.md").read()
-
 client = anthropic.Anthropic()
 messages = [{"role": "user", "content": "The game has started. Begin playing."}]
 
@@ -61,10 +90,10 @@ while True:
 
 ### Any other model
 
-The game doesn't care what's calling the endpoints. OpenAI, LangChain, a bash script — anything that can POST JSON to `http://localhost:15702` works. See [brp.md](brp.md) for endpoint docs.
+Anything that can POST JSON to `http://localhost:15702` works. See [brp.md](brp.md) for endpoint docs.
 
 ## Token Budget
 
-**Claude Code**: Uses your subscription budget. Haiku burns through it very slowly — a game session uses a fraction of what a coding session would.
+**Built-in**: Uses Claude Code subscription. Haiku burns through it slowly.
 
-**API**: ~$0.01-0.05 per hour at Haiku pricing. A frontier model costs 10-50x more with no meaningful gameplay improvement.
+**API**: ~$0.01-0.05 per hour at Haiku pricing.

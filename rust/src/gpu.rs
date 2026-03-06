@@ -1347,7 +1347,7 @@ fn populate_tile_flags(
         if idx >= total {
             continue;
         }
-        if inst.kind == crate::world::BuildingKind::Road {
+        if inst.kind.is_road() {
             flags[idx] |= crate::constants::TILE_ROAD;
         }
         if inst.kind == crate::world::BuildingKind::Wall {

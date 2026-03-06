@@ -233,10 +233,27 @@ pub fn build_bounds(grid: &TownGrid) -> (i32, i32, i32, i32) {
     (min_row, max_row, min_col, max_col)
 }
 
-/// True if (row, col) is currently inside this town's buildable area.
+/// True if (row, col) is currently inside this town's buildable area (concentric ring only).
 pub fn is_slot_buildable(grid: &TownGrid, row: i32, col: i32) -> bool {
     let (min_row, max_row, min_col, max_col) = build_bounds(grid);
     row >= min_row && row <= max_row && col >= min_col && col <= max_col
+}
+
+/// True if (row, col) is buildable — either within town grid bounds OR within road expansion.
+pub fn is_slot_buildable_ext(
+    grid: &TownGrid,
+    row: i32,
+    col: i32,
+    center: Vec2,
+    town_idx: usize,
+    towns: &[Town],
+    entity_map: &crate::resources::EntityMap,
+) -> bool {
+    if is_slot_buildable(grid, row, col) {
+        return true;
+    }
+    let pos = town_grid_to_world(center, row, col);
+    is_buildable_for_town(pos, town_idx, towns, entity_map)
 }
 
 /// Returns true if world_pos falls inside any town's build area OTHER than own_town_idx.
@@ -245,6 +262,7 @@ pub fn in_foreign_build_area(
     own_town_idx: usize,
     towns: &[Town],
     town_grids: &TownGrids,
+    entity_map: &crate::resources::EntityMap,
 ) -> bool {
     for tg in &town_grids.grids {
         if tg.town_data_idx == own_town_idx {
@@ -254,40 +272,137 @@ pub fn in_foreign_build_area(
             continue;
         };
         let (row, col) = world_to_town_grid(town.center, pos);
-        if is_slot_buildable(tg, row, col) {
+        if is_slot_buildable_ext(tg, row, col, town.center, tg.town_data_idx, towns, entity_map) {
             return true;
         }
     }
     false
 }
 
-/// All empty buildable slots in a town grid (excludes center 0,0).
+/// Check if a world position is buildable for a given town.
+/// Buildable if within fountain base radius OR within any owned road's build radius.
+pub fn is_buildable_for_town(
+    pos: Vec2,
+    town_idx: usize,
+    towns: &[Town],
+    entity_map: &crate::resources::EntityMap,
+) -> bool {
+    let Some(town) = towns.get(town_idx) else {
+        return false;
+    };
+    // Chebyshev distance in grid tiles from fountain center
+    let dx = ((pos.x - town.center.x) / TOWN_GRID_SPACING).abs();
+    let dy = ((pos.y - town.center.y) / TOWN_GRID_SPACING).abs();
+    if dx.max(dy) <= BASE_GRID_MAX as f32 + 0.5 {
+        return true; // within fountain base area
+    }
+    // Check road build radii
+    let ti = town_idx as u32;
+    for kind in [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad] {
+        let radius = kind.road_build_radius().unwrap() as f32;
+        for inst in entity_map.iter_kind_for_town(kind, ti) {
+            let rdx = ((pos.x - inst.position.x) / TOWN_GRID_SPACING).abs();
+            let rdy = ((pos.y - inst.position.y) / TOWN_GRID_SPACING).abs();
+            if rdx.max(rdy) <= radius + 0.5 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Check if a road can be placed at this position for a town.
+/// Roads can extend from existing buildable area or from other roads.
+pub fn is_road_placeable_for_town(
+    pos: Vec2,
+    town_idx: usize,
+    towns: &[Town],
+    entity_map: &crate::resources::EntityMap,
+) -> bool {
+    // Roads can be placed anywhere that's buildable
+    if is_buildable_for_town(pos, town_idx, towns, entity_map) {
+        return true;
+    }
+    // Roads can also extend 1 tile beyond existing buildable area (chain outward)
+    let Some(town) = towns.get(town_idx) else {
+        return false;
+    };
+    // Check adjacency to fountain base area (1 tile beyond)
+    let dx = ((pos.x - town.center.x) / TOWN_GRID_SPACING).abs();
+    let dy = ((pos.y - town.center.y) / TOWN_GRID_SPACING).abs();
+    if dx.max(dy) <= BASE_GRID_MAX as f32 + 1.5 {
+        return true;
+    }
+    // Check adjacency to any existing road (1 tile away)
+    let ti = town_idx as u32;
+    for kind in [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad] {
+        for inst in entity_map.iter_kind_for_town(kind, ti) {
+            let rdx = ((pos.x - inst.position.x) / TOWN_GRID_SPACING).abs();
+            let rdy = ((pos.y - inst.position.y) / TOWN_GRID_SPACING).abs();
+            if rdx.max(rdy) <= 1.5 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// All empty buildable slots for a town (town grid bounds + road-expanded area).
 pub fn empty_slots(
     tg: &TownGrid,
     center: Vec2,
     grid: &WorldGrid,
     entity_map: &crate::resources::EntityMap,
+    _towns: &[Town],
 ) -> Vec<(i32, i32)> {
-    let (min_row, max_row, min_col, max_col) = build_bounds(tg);
+    use std::collections::HashSet;
+    let town_idx = tg.town_data_idx;
+    let mut seen = HashSet::new();
     let mut out = Vec::new();
+
+    let try_slot = |r: i32, c: i32, seen: &mut HashSet<(i32, i32)>, out: &mut Vec<(i32, i32)>| {
+        if r == 0 && c == 0 { return; }
+        if !seen.insert((r, c)) { return; }
+        let pos = town_grid_to_world(center, r, c);
+        let (gc, gr) = grid.world_to_grid(pos);
+        if grid.cell(gc, gr).is_some() && !entity_map.has_building_at(gc as _, gr as _) {
+            out.push((r, c));
+        }
+    };
+
+    // 1. Town grid bounds (concentric ring area)
+    let (min_row, max_row, min_col, max_col) = build_bounds(tg);
     for r in min_row..=max_row {
         for c in min_col..=max_col {
-            if r == 0 && c == 0 {
-                continue;
-            }
-            let pos = town_grid_to_world(center, r, c);
-            let (gc, gr) = grid.world_to_grid(pos);
-            if grid.cell(gc, gr).is_some() && !entity_map.has_building_at(gc as _, gr as _) {
-                out.push((r, c));
+            try_slot(r, c, &mut seen, &mut out);
+        }
+    }
+
+    // 2. Road-expanded area: cells within each road's build radius
+    let ti = town_idx as u32;
+    for kind in [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad] {
+        let radius = kind.road_build_radius().unwrap();
+        for inst in entity_map.iter_kind_for_town(kind, ti) {
+            let (road_row, road_col) = world_to_town_grid(center, inst.position);
+            for r in (road_row - radius)..=(road_row + radius) {
+                for c in (road_col - radius)..=(road_col + radius) {
+                    try_slot(r, c, &mut seen, &mut out);
+                }
             }
         }
     }
+
     out
 }
 
 /// Find which town has a buildable slot matching the given grid coords.
 /// Returns the grid index and town data index.
-pub fn find_town_slot(world_pos: Vec2, towns: &[Town], grids: &TownGrids) -> Option<TownSlotInfo> {
+pub fn find_town_slot(
+    world_pos: Vec2,
+    towns: &[Town],
+    grids: &TownGrids,
+    entity_map: &crate::resources::EntityMap,
+) -> Option<TownSlotInfo> {
     for (grid_idx, town_grid) in grids.grids.iter().enumerate() {
         let town_data_idx = town_grid.town_data_idx;
         if town_data_idx >= towns.len() {
@@ -304,7 +419,7 @@ pub fn find_town_slot(world_pos: Vec2, towns: &[Town], grids: &TownGrids) -> Opt
             continue;
         }
 
-        if is_slot_buildable(town_grid, row, col) {
+        if is_slot_buildable_ext(town_grid, row, col, town.center, town_data_idx, towns, entity_map) {
             return Some(TownSlotInfo {
                 grid_idx,
                 town_data_idx,
@@ -330,14 +445,18 @@ pub struct TownSlotInfo {
 
 
 /// Check if a grid cell contains a building of the given kind.
+/// For roads, matches any road tier so different tiers auto-connect.
 fn is_kind_at(entity_map: &EntityMap, col: usize, row: usize, kind: BuildingKind) -> bool {
     entity_map
         .get_at_grid(col as i32, row as i32)
-        .is_some_and(|inst| inst.kind == kind)
+        .is_some_and(|inst| {
+            if kind.is_road() { inst.kind.is_road() } else { inst.kind == kind }
+        })
 }
 
 /// Compute auto-tile variant (0-10) for a building at grid (col, row).
 /// Uses 4-neighbor NSEW matching. Works for any autotile-enabled building kind.
+/// Roads of different tiers connect to each other via is_kind_at.
 pub fn autotile_variant(entity_map: &EntityMap, col: usize, row: usize, kind: BuildingKind) -> u16 {
     let n = row > 0 && is_kind_at(entity_map, col, row - 1, kind);
     let s = is_kind_at(entity_map, col, row + 1, kind);
@@ -381,19 +500,24 @@ pub fn update_autotile_around(
             continue;
         }
         let (c, r) = (c as usize, r as usize);
-        if !is_kind_at(entity_map, c, r, kind) {
+        // For roads, update any road-tier neighbor; use the neighbor's actual kind for sprite
+        let pos = grid.grid_to_world(c, r);
+        let Some(inst) = entity_map.find_by_position(pos) else {
+            continue;
+        };
+        let neighbor_kind = inst.kind;
+        if kind.is_road() {
+            if !neighbor_kind.is_road() { continue; }
+        } else if neighbor_kind != kind {
             continue;
         }
-        let variant = autotile_variant(entity_map, c, r, kind);
-        let pos = grid.grid_to_world(c, r);
-        if let Some(inst) = entity_map.find_by_position(pos) {
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
-                idx: inst.slot,
-                col: crate::constants::autotile_col(kind, variant),
-                row: 0.0,
-                atlas: crate::constants::ATLAS_BUILDING,
-            }));
-        }
+        let variant = autotile_variant(entity_map, c, r, neighbor_kind);
+        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
+            idx: inst.slot,
+            col: crate::constants::autotile_col(neighbor_kind, variant),
+            row: 0.0,
+            atlas: crate::constants::ATLAS_BUILDING,
+        }));
     }
 }
 
@@ -560,7 +684,7 @@ fn push_building_gpu_updates(
 ) {
     let flags = if tower {
         crate::constants::ENTITY_FLAG_BUILDING | crate::constants::ENTITY_FLAG_COMBAT
-    } else if kind == BuildingKind::Road {
+    } else if kind.is_road() {
         crate::constants::ENTITY_FLAG_BUILDING | crate::constants::ENTITY_FLAG_UNTARGETABLE
     } else {
         crate::constants::ENTITY_FLAG_BUILDING
@@ -580,7 +704,7 @@ fn push_building_gpu_updates(
         health: max_hp,
     }));
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFlags { idx: slot, flags }));
-    let half = if kind == BuildingKind::Road {
+    let half = if kind.is_road() {
         [0.0, 0.0]
     } else {
         crate::constants::BUILDING_HITBOX_HALF
@@ -648,9 +772,20 @@ pub fn place_building(
         if cell.terrain == Biome::Water {
             return Err("cannot build on water");
         }
-        if in_foreign_build_area(snapped, town_idx as usize, &ctx.world_data.towns, ctx.town_grids)
+        if in_foreign_build_area(snapped, town_idx as usize, &ctx.world_data.towns, ctx.town_grids, entity_map)
         {
             return Err("cannot build in foreign territory");
+        }
+
+        // Wilderness buildings must be within road or fountain buildable area
+        if def.placement == crate::constants::PlacementMode::Wilderness {
+            if kind.is_road() {
+                if !is_road_placeable_for_town(snapped, town_idx as usize, &ctx.world_data.towns, entity_map) {
+                    return Err("road must be adjacent to town or existing road");
+                }
+            } else if !is_buildable_for_town(snapped, town_idx as usize, &ctx.world_data.towns, entity_map) {
+                return Err("outside buildable area");
+            }
         }
 
         let food = ctx
@@ -851,11 +986,6 @@ pub fn setup_world(
 
     create_ai_players(world_data, town_grids)
 }
-
-
-/// Place a waypoint at an arbitrary world position (not tied to town grid).
-/// Place a wilderness building (world-grid snapping, not town-grid).
-/// Used for Waypoint, Road, and AI territorial expansion.
 
 /// Expand one town's buildable area by one ring and convert new ring terrain to Dirt.
 pub fn expand_town_build_area(
@@ -1115,10 +1245,49 @@ pub enum BuildingKind {
     CrossbowHome,
     FighterHome,
     Road,
+    StoneRoad,
+    MetalRoad,
     Wall,
     Tower,
     Merchant,
     Casino,
+}
+
+impl BuildingKind {
+    /// True for any road tier (dirt, stone, metal).
+    pub fn is_road(self) -> bool {
+        matches!(self, Self::Road | Self::StoneRoad | Self::MetalRoad)
+    }
+
+    /// Buildable radius (in grid tiles) granted by this road tier.
+    pub fn road_build_radius(self) -> Option<i32> {
+        match self {
+            Self::Road => Some(3),
+            Self::StoneRoad => Some(5),
+            Self::MetalRoad => Some(7),
+            _ => None,
+        }
+    }
+
+    /// Pathfinding cost for this road tier. Lower = faster (cost = 100 / speed_mult).
+    pub fn road_pathfind_cost(self) -> Option<u16> {
+        match self {
+            Self::Road => Some(67),      // 1.5x speed
+            Self::StoneRoad => Some(50), // 2.0x speed
+            Self::MetalRoad => Some(40), // 2.5x speed
+            _ => None,
+        }
+    }
+
+    /// Road tier index for upgrade ordering (0=dirt, 1=stone, 2=metal).
+    pub fn road_tier(self) -> Option<u8> {
+        match self {
+            Self::Road => Some(0),
+            Self::StoneRoad => Some(1),
+            Self::MetalRoad => Some(2),
+            _ => None,
+        }
+    }
 }
 
 /// Rebuild building spatial grid. Only runs when BuildingGridDirtyMsg is received.
@@ -1588,7 +1757,10 @@ impl WorldGrid {
         self.building_cost_cells.clear();
 
         self.apply_building_overlay(entity_map, BuildingKind::Wall, 0);
-        self.apply_building_overlay(entity_map, BuildingKind::Road, 67);
+        // Apply road overlays — higher tiers override lower (iter order: dirt, stone, metal)
+        for kind in [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad] {
+            self.apply_building_overlay(entity_map, kind, kind.road_pathfind_cost().unwrap());
+        }
     }
 
     fn apply_building_overlay(
@@ -2243,10 +2415,10 @@ pub fn clear_town_roads_and_dirt(
     town_idx: u32,
     commands: &mut Commands,
 ) {
-    // Collect road slots for this town (can't mutate while iterating)
-    let road_slots: Vec<usize> = entity_map
-        .iter_kind_for_town(BuildingKind::Road, town_idx)
-        .map(|inst| inst.slot)
+    // Collect road slots for this town across all tiers (can't mutate while iterating)
+    let road_slots: Vec<usize> = [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad]
+        .iter()
+        .flat_map(|&kind| entity_map.iter_kind_for_town(kind, town_idx).map(|inst| inst.slot))
         .collect();
 
     for slot in road_slots {

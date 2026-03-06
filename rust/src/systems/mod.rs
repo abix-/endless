@@ -2,6 +2,7 @@
 
 pub mod ai_player;
 pub mod audio;
+pub mod llm_player;
 pub mod remote;
 mod behavior;
 mod combat;

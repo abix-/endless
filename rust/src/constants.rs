@@ -1884,16 +1884,16 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
     },
-    // 12: Road
+    // 12: Road (dirt) — expands buildable area by 3 tiles
     BuildingDef {
         kind: BuildingKind::Road,
         display: DisplayCategory::Economy,
         tile: TileSpec::External("sprites/dirt_roads_131_32.png"),
         hp: 30.0,
         cost: 1,
-        label: "Road",
-        help: "1.5x NPC speed",
-        tooltip: "NPCs move 50% faster on roads. Click-drag to\nbuild lines. Connect farms, mines, and town\ncenter for faster supply chains. HP: 30",
+        label: "Dirt Road",
+        help: "1.5x speed, +3 build radius",
+        tooltip: "Expands buildable area 3 tiles around the road.\nNPCs move 50% faster. Click-drag to build lines.\nUpgrade to Stone Road for more range. HP: 30",
         player_buildable: true,
         raider_buildable: true,
         placement: PlacementMode::Wilderness,
@@ -1906,7 +1906,51 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: true,
     },
-    // 13: Wall
+    // 13: StoneRoad — expands buildable area by 5 tiles
+    BuildingDef {
+        kind: BuildingKind::StoneRoad,
+        display: DisplayCategory::Economy,
+        tile: TileSpec::External("sprites/dirt_roads_131_32.png"), // TODO: stone road sprite
+        hp: 60.0,
+        cost: 3,
+        label: "Stone Road",
+        help: "2x speed, +5 build radius",
+        tooltip: "Expands buildable area 5 tiles around the road.\nNPCs move 2x faster. Click existing dirt road\nto upgrade. HP: 60",
+        player_buildable: true,
+        raider_buildable: true,
+        placement: PlacementMode::Wilderness,
+        is_tower: false,
+        tower_stats: None,
+        on_place: OnPlace::None,
+        spawner: None,
+        save_key: Some("stone_roads"),
+        is_unit_home: false,
+        worksite: None,
+        autotile: true,
+    },
+    // 14: MetalRoad — expands buildable area by 7 tiles
+    BuildingDef {
+        kind: BuildingKind::MetalRoad,
+        display: DisplayCategory::Economy,
+        tile: TileSpec::External("sprites/dirt_roads_131_32.png"), // TODO: metal road sprite
+        hp: 100.0,
+        cost: 8,
+        label: "Metal Road",
+        help: "2.5x speed, +7 build radius",
+        tooltip: "Expands buildable area 7 tiles around the road.\nNPCs move 2.5x faster. Click existing stone road\nto upgrade. HP: 100",
+        player_buildable: true,
+        raider_buildable: true,
+        placement: PlacementMode::Wilderness,
+        is_tower: false,
+        tower_stats: None,
+        on_place: OnPlace::None,
+        spawner: None,
+        save_key: Some("metal_roads"),
+        is_unit_home: false,
+        worksite: None,
+        autotile: true,
+    },
+    // 15: Wall
     BuildingDef {
         kind: BuildingKind::Wall,
         display: DisplayCategory::Military,
@@ -2140,7 +2184,8 @@ mod tests {
             BuildingKind::Fountain, BuildingKind::Waypoint, BuildingKind::Farm,
             BuildingKind::FarmerHome, BuildingKind::ArcherHome, BuildingKind::Tent,
             BuildingKind::GoldMine, BuildingKind::MinerHome, BuildingKind::CrossbowHome,
-            BuildingKind::FighterHome, BuildingKind::Road, BuildingKind::Wall,
+            BuildingKind::FighterHome, BuildingKind::Road, BuildingKind::StoneRoad,
+            BuildingKind::MetalRoad, BuildingKind::Wall,
             BuildingKind::Tower, BuildingKind::Merchant, BuildingKind::Casino,
         ];
         for kind in kinds {

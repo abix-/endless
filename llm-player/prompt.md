@@ -33,10 +33,12 @@ Read (unrestricted):
 Write (your LLM town only):
   endless/ai_manager {"town", "active", "personality", "build_enabled", "upgrade_enabled", "road_style"}
   endless/policy {"town", "eat_food", "archer_aggressive", "archer_leash", "farmer_fight_back", "prioritize_healing", "farmer_flee_hp" (0.0-1.0), "archer_flee_hp" (0.0-1.0), "recovery_hp" (0.0-1.0), "mining_radius" (0-5000)}
+    ⚠ All HP thresholds are fractions 0.0–1.0 (0.5 = 50%). Do NOT pass percentages — 80 means 8000%, not 80%.
   endless/upgrade {"town", "upgrade_idx"}
   endless/squad_target {"squad", "x", "y"}
   endless/build {"town", "kind", "row", "col"}
   endless/destroy {"town", "row", "col"}  — Remove own building (not Fountain/GoldMine)
+    ⚠ Grid is centered on (0,0) at the fountain, spanning roughly -5 to 4. Rows 0-3 are usually occupied by starter buildings — expand on outer rows (4, -4, -5).
   endless/chat {"town", "to", "message"}  — Send chat message to another town
   endless/time {"paused", "time_scale"}
 
@@ -58,10 +60,11 @@ The summary returns per-town: name, faction, center, food, gold, buildings (list
 ## Strategy
 
 Phase 1 — Economy (until food > 50 consistently):
-- Enable AI Manager with Economic personality
-- Set eat_food: true, prioritize_healing: true
-- Let the AI Manager build farms and homes
-- Build 15+ military homes (ArcherHome, FighterHome, CrossbowHome) to scale army
+- Enable AI Manager with Balanced personality (not Economic — it over-builds miners and starves economy)
+- Set road_style: "None" immediately — roads permanently waste grid slots
+- Set eat_food: true, prioritize_healing: false, recovery_hp: 0.5
+- Let the AI Manager build farms and homes — match farmer homes to farm count (homes cap farmer spawns)
+- Build 15+ military homes (ArcherHome, FighterHome, CrossbowHome) on outer rows (-5, -4, 4) to scale army
 - Don't attack yet — squads of 3-5 are useless against towns of 30+
 
 Phase 2 — Upgrades (until 3-4 bought):
@@ -88,6 +91,10 @@ Key mistakes to avoid:
 - Don't attack until army is large enough (15+ military NPCs)
 - Don't switch targets mid-attack — finish what you started
 - Don't ignore inbox — check every cycle for diplomacy opportunities
+- Don't set HP values as percentages — 0.5 means 50%, writing 80 means 8000% and locks all NPCs in healing
+- Don't use road_style other than "None" — roads permanently block construction slots
+- Don't use Economic personality early — over-builds miners, causes food crisis. Use Balanced
+- Don't build on rows 0-3 — usually occupied by starter buildings. Expand outward (-5, -4, 4)
 
 ## Rules
 

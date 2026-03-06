@@ -1777,6 +1777,7 @@ fn rebuild_factions_cache(
                         center,
                         &factions.world_grid,
                         &factions.entity_map,
+                        &world_data.towns,
                     )
                     .len();
                     let (min_r, max_r, min_c, max_c) = crate::world::build_bounds(tg);

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-03-05g
+
+- **Built-in LLM player** — new `systems/llm_player.rs` spawns `claude --print` every 20s, reads ECS resources directly (no BRP round-trip). Builds JSON state payload with own-town full building list vs enemy-town counts for token efficiency. Supports all actions: build, destroy, upgrade, policy, squad_target. Three-tier data model: base state (always sent), subscriptions (persistent topics), one-shot queries (next cycle only). Stdin piping bypasses Windows 32K CLI limit. `CREATE_NO_WINDOW` flag prevents console focus stealing. `fix_unquoted_keys` regex fallback handles Haiku's occasional unquoted JSON.
+- **Built-in LLM prompt** — new `llm-player/prompt_builtin.md` with complete action reference, data topic docs (npcs, combat_log, upgrades, policies), per-town distance + reputation fields, road expansion strategy guidance. Optimized for token efficiency with no duplication.
+- **Faction reputation matrix** — `Reputation` resource expanded from 1D `Vec<f32>` to 2D `Vec<Vec<f32>>` matrix. `values[a][b]` = faction a's opinion of faction b. Decremented by 1 per kill via `on_kill()` at both NPC and tower kill sites in `health.rs`. Range -9999..9999. Exposed per-town as `reputation` field in LLM state. Blackjack updated to 2D indexing. Save format migrated with backward-compatible custom deserializer (1D→2D).
+- **Regex dependency** — added `regex v1` for LLM output fixing.
+
 ## 2026-03-05f
 
 - **In-game chat (player ↔ LLM)** — two-way messaging between human player and LLM-controlled towns. Chat input at bottom of combat log sends messages to all LLM towns via `ChatInbox` resource. Messages appear in `endless/summary` response as `inbox` array per-town, drained on read. New `endless/chat` BRP endpoint lets LLM reply (logged as LLM combat event). New `CombatEventKind::Chat` (gold color) with filterable checkbox.

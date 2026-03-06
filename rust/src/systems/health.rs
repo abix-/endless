@@ -56,6 +56,7 @@ pub struct DeathResources<'w, 's> {
     pub next_loot_id: ResMut<'w, crate::resources::NextLootItemId>,
     pub town_inventory: ResMut<'w, crate::resources::TownInventory>,
     pub equipment_q: Query<'w, 's, &'static crate::components::NpcEquipment>,
+    pub reputation: ResMut<'w, crate::resources::Reputation>,
 }
 
 /// Unified damage system: applies damage to both NPCs and buildings.
@@ -101,10 +102,7 @@ pub fn damage_system(
             }));
         } else if let Some(inst) = entity_map.get_instance(idx) {
             // Building damage
-            if matches!(
-                inst.kind,
-                crate::world::BuildingKind::GoldMine | crate::world::BuildingKind::Road
-            ) {
+            if inst.kind == crate::world::BuildingKind::GoldMine || inst.kind.is_road() {
                 continue;
             }
             let Some(&entity) = entity_map.entities.get(&idx) else {
@@ -541,6 +539,7 @@ pub fn death_system(
                 let k_faction = killer.faction;
                 let k_home = res.home_q.get(k_entity).map(|h| h.0).unwrap_or(Vec2::ZERO);
                 res.faction_stats.inc_kills(k_faction);
+                res.reputation.on_kill(k_faction, faction);
 
                 let meta = &mut npc_meta.0[k_slot];
                 let old_xp = meta.xp;
@@ -726,6 +725,7 @@ pub fn death_system(
                 let tower_faction = res.entity_map.get_instance(killer_slot).unwrap().faction;
                 let tower_town = res.entity_map.get_instance(killer_slot).unwrap().town_idx as usize;
                 res.faction_stats.inc_kills(tower_faction);
+                res.reputation.on_kill(tower_faction, faction);
 
                 let inst = res.entity_map.get_instance_mut(killer_slot).unwrap();
                 inst.kills += 1;

@@ -2,7 +2,7 @@
 //! Save format is self-contained: dedicated serde structs decouple from ECS types.
 
 use bevy::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::components::*;
 use crate::constants::{ItemKind, MAX_SQUADS};
@@ -15,6 +15,32 @@ use crate::systems::stats::{
     CombatConfig, TownUpgrades, decode_auto_upgrade_flags, decode_upgrade_levels,
 };
 use crate::world::{self, TownGrids, WorldCell, WorldData, WorldGrid};
+
+// ============================================================================
+// REPUTATION MIGRATION: old saves have Vec<f32>, new saves have Vec<Vec<f32>>
+// ============================================================================
+
+fn deserialize_reputation<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Vec<f32>>, D::Error> {
+    let raw = serde_json::Value::deserialize(d).map_err(serde::de::Error::custom)?;
+    match raw {
+        serde_json::Value::Array(arr) => {
+            if arr.first().map_or(true, |v| v.is_array()) {
+                // New 2D format
+                serde_json::from_value(serde_json::Value::Array(arr)).map_err(serde::de::Error::custom)
+            } else {
+                // Old 1D format — place in row 0
+                let old: Vec<f32> = serde_json::from_value(serde_json::Value::Array(arr)).map_err(serde::de::Error::custom)?;
+                let n = old.len();
+                let mut matrix = vec![vec![0.0; n]; n];
+                if !matrix.is_empty() {
+                    matrix[0] = old;
+                }
+                Ok(matrix)
+            }
+        }
+        _ => Ok(Vec::new()),
+    }
+}
 
 // ============================================================================
 // VEC2 HELPERS
@@ -228,9 +254,9 @@ pub struct SaveData {
     #[serde(default)]
     pub merchant_stocks: Vec<crate::resources::MerchantStock>,
 
-    // Reputation per faction (blackjack diplomacy)
-    #[serde(default)]
-    pub reputation: Vec<f32>,
+    // Faction-vs-faction reputation matrix (2D).
+    #[serde(default, deserialize_with = "deserialize_reputation")]
+    pub reputation: Vec<Vec<f32>>,
 
     // Building vecs + towns — registry-driven via #[serde(flatten)]
     // Captures: towns, farms, beds, waypoints, farmer_homes, archer_homes,
@@ -1077,13 +1103,10 @@ pub fn apply_save(
         })
         .collect();
 
-    // Reputation
+    // Reputation (2D matrix)
     reputation.values = save.reputation.clone();
-    // Pad to faction count if save is from before reputation existed
     let n_factions = faction_stats.stats.len();
-    if reputation.values.len() < n_factions {
-        reputation.values.resize(n_factions, 0.0);
-    }
+    reputation.ensure_size(n_factions);
 
     // Kill stats
     kill_stats.archer_kills = save.kill_stats[0];

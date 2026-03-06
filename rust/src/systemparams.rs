@@ -80,6 +80,80 @@ impl WorldState<'_> {
         .map(|_| ())
     }
 
+    /// Upgrade an existing road at world_pos to a higher tier.
+    /// Returns Ok if upgrade succeeded, Err if no upgradeable road found.
+    pub fn upgrade_road(
+        &mut self,
+        food_storage: &mut FoodStorage,
+        new_kind: crate::world::BuildingKind,
+        town_data_idx: usize,
+        world_pos: Vec2,
+        gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
+        commands: &mut Commands,
+    ) -> Result<(), &'static str> {
+        let (gc, gr) = self.grid.world_to_grid(world_pos);
+        let snapped = self.grid.grid_to_world(gc, gr);
+        let inst = self.entity_map.get_at_grid(gc as i32, gr as i32)
+            .ok_or("no building at position")?;
+        let old_kind = inst.kind;
+        let old_town = inst.town_idx;
+        if !old_kind.is_road() {
+            return Err("not a road");
+        }
+        let old_tier = old_kind.road_tier().unwrap_or(0);
+        let new_tier = new_kind.road_tier().ok_or("target is not a road")?;
+        if new_tier <= old_tier {
+            return Err("already same or higher tier");
+        }
+        if old_town != town_data_idx as u32 {
+            return Err("road belongs to different town");
+        }
+
+        // Cost = new road cost minus old road cost
+        let upgrade_cost = crate::constants::building_cost(new_kind)
+            - crate::constants::building_cost(old_kind);
+        let food = food_storage.food.get_mut(town_data_idx).ok_or("invalid town")?;
+        if *food < upgrade_cost {
+            return Err("not enough food");
+        }
+
+        // Remove old road
+        let slot = inst.slot;
+        if let Some(&entity) = self.entity_map.entities.get(&slot) {
+            commands.entity(entity).despawn();
+        }
+        self.entity_map.remove_by_slot(slot);
+        self.entity_slots.free(slot);
+        gpu_updates.write(crate::messages::GpuUpdateMsg(
+            crate::messages::GpuUpdate::Hide { idx: slot },
+        ));
+
+        // Deduct cost
+        *food -= upgrade_cost;
+
+        // Place new road (no validation context — we already validated)
+        let faction = self.world_data.towns.get(town_data_idx)
+            .map(|t| t.faction).unwrap_or(0);
+        crate::world::place_building(
+            &mut self.entity_slots,
+            &mut self.entity_map,
+            &mut self.uid_alloc,
+            commands,
+            gpu_updates,
+            new_kind,
+            snapped,
+            town_data_idx as u32,
+            faction,
+            0,
+            0,
+            None,
+            None,
+            None, // no BuildContext — skip validation (already done)
+            Some(&mut self.dirty_writers),
+        )
+        .map(|_| ())
+    }
+
     pub fn destroy_building(
         &mut self,
         combat_log: &mut MessageWriter<crate::messages::CombatLogMsg>,

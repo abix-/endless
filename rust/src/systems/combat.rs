@@ -253,7 +253,7 @@ pub fn attack_system(
 
         // ── Building target ──
         if let Some(inst) = entity_map.get_instance(ti) {
-            if inst.kind == BuildingKind::Road {
+            if inst.kind.is_road() {
                 continue;
             }
             if !matches!(job, Job::Archer | Job::Crossbow | Job::Raider) {

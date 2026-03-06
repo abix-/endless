@@ -11,30 +11,27 @@ use std::collections::BTreeMap;
 use crate::components::{Activity, Job, TownId};
 use crate::resources::SquadOwner;
 use crate::constants::building_cost;
-use crate::messages::GpuUpdateMsg;
+use crate::messages::{CombatLogMsg, GpuUpdateMsg};
 use crate::resources::*;
 use crate::systemparams::WorldState;
 use crate::world::{self, BuildingKind, WorldData};
 
-fn log_llm(world: &mut World, town: usize, message: String) {
+fn queue_llm_log(world: &mut World, town: usize, message: String, location: Option<Vec2>) {
     let gt = world.resource::<GameTime>();
-    let day = gt.day();
-    let hour = gt.hour();
-    let minute = gt.minute();
-    let faction = world
-        .resource::<WorldData>()
-        .towns
-        .get(town)
-        .map(|t| t.faction)
-        .unwrap_or(-1);
-    world.resource_mut::<CombatLog>().push(
-        CombatEventKind::Llm,
+    let (day, hour, minute) = (gt.day(), gt.hour(), gt.minute());
+    let wd = world.resource::<WorldData>();
+    let name = wd.towns.get(town).map(|t| t.name.as_str()).unwrap_or("?");
+    let faction = wd.towns.get(town).map(|t| t.faction).unwrap_or(-1);
+    let msg = format!("[{name}] {message}");
+    world.resource_mut::<RemoteLlmLogQueue>().0.push(CombatLogMsg {
+        kind: CombatEventKind::Llm,
         faction,
         day,
         hour,
         minute,
-        message,
-    );
+        message: msg,
+        location,
+    });
 }
 
 const FORBIDDEN_CODE: i16 = -32001;
@@ -54,12 +51,24 @@ pub struct RemoteBuild {
 }
 
 #[derive(Resource, Default)]
+pub struct RemoteDestroyQueue(pub Vec<RemoteDestroy>);
+
+pub struct RemoteDestroy {
+    pub town: usize,
+    pub row: i32,
+    pub col: i32,
+}
+
+#[derive(Resource, Default)]
 pub struct RemoteUpgradeQueue(pub Vec<RemoteUpgrade>);
 
 pub struct RemoteUpgrade {
     pub town: usize,
     pub upgrade_idx: usize,
 }
+
+#[derive(Resource, Default)]
+pub struct RemoteLlmLogQueue(pub Vec<CombatLogMsg>);
 
 // ============================================================================
 // HELPERS
@@ -86,7 +95,7 @@ fn check_town_allowed(world: &World, town: usize) -> Result<(), BrpError> {
     }
 }
 
-fn parse_building_kind(s: &str) -> Option<BuildingKind> {
+pub fn parse_building_kind(s: &str) -> Option<BuildingKind> {
     match s {
         "Fountain" => Some(BuildingKind::Fountain),
         "Bed" => Some(BuildingKind::Bed),
@@ -99,7 +108,9 @@ fn parse_building_kind(s: &str) -> Option<BuildingKind> {
         "MinerHome" => Some(BuildingKind::MinerHome),
         "CrossbowHome" => Some(BuildingKind::CrossbowHome),
         "FighterHome" => Some(BuildingKind::FighterHome),
-        "Road" => Some(BuildingKind::Road),
+        "Road" | "DirtRoad" => Some(BuildingKind::Road),
+        "StoneRoad" => Some(BuildingKind::StoneRoad),
+        "MetalRoad" => Some(BuildingKind::MetalRoad),
         "Wall" => Some(BuildingKind::Wall),
         "Tower" => Some(BuildingKind::Tower),
         "Merchant" => Some(BuildingKind::Merchant),
@@ -197,11 +208,12 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
             }
         }
 
-        let mut buildings: BTreeMap<&str, usize> = BTreeMap::new();
+        let mut buildings: Vec<Value> = Vec::new();
         for inst in entity_map.iter_instances() {
             if inst.town_idx as usize == ti {
                 let label = crate::constants::building_def(inst.kind).label;
-                *buildings.entry(label).or_default() += 1;
+                let (row, col) = world::world_to_town_grid(town.center, inst.position);
+                buildings.push(json!({"kind": label, "row": row, "col": col}));
             }
         }
 
@@ -264,7 +276,9 @@ pub fn build_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpRes
         return Err(brp_err(format!("town {} out of range (max {})", p.town, town_count - 1)));
     }
 
-    log_llm(world, p.town, format!("build {} at ({},{})", p.kind, p.row, p.col));
+    let center = world.resource::<WorldData>().towns.get(p.town).map(|t| t.center).unwrap_or_default();
+    let pos = world::town_grid_to_world(center, p.row, p.col);
+    queue_llm_log(world, p.town, format!("build {} at ({},{})", p.kind, p.row, p.col), Some(pos));
 
     world
         .resource_mut::<RemoteBuildQueue>()
@@ -277,6 +291,40 @@ pub fn build_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpRes
         });
 
     Ok(json!({"status": "queued", "kind": p.kind, "town": p.town, "row": p.row, "col": p.col}))
+}
+
+// --- endless/destroy --------------------------------------------------------
+
+#[derive(Deserialize)]
+struct DestroyParams {
+    town: usize,
+    row: i32,
+    col: i32,
+}
+
+pub fn destroy_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
+    let p: DestroyParams = parse_some(params)?;
+    check_town_allowed(world, p.town)?;
+
+    let town_count = world.resource::<WorldData>().towns.len();
+    if p.town >= town_count {
+        return Err(brp_err(format!("town {} out of range", p.town)));
+    }
+
+    let center = world.resource::<WorldData>().towns.get(p.town).map(|t| t.center).unwrap_or_default();
+    let pos = world::town_grid_to_world(center, p.row, p.col);
+    queue_llm_log(world, p.town, format!("destroy at ({},{})", p.row, p.col), Some(pos));
+
+    world
+        .resource_mut::<RemoteDestroyQueue>()
+        .0
+        .push(RemoteDestroy {
+            town: p.town,
+            row: p.row,
+            col: p.col,
+        });
+
+    Ok(json!({"status": "queued", "town": p.town, "row": p.row, "col": p.col}))
 }
 
 // --- endless/upgrade --------------------------------------------------------
@@ -301,7 +349,7 @@ pub fn upgrade_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
         .get(p.upgrade_idx)
         .map(|n| n.label)
         .unwrap_or("unknown");
-    log_llm(world, p.town, format!("upgrade: {}", upgrade_label));
+    queue_llm_log(world, p.town, format!("upgrade: {}", upgrade_label), None);
 
     world
         .resource_mut::<RemoteUpgradeQueue>()
@@ -343,30 +391,25 @@ pub fn policy_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpRe
     let p: PolicyParams = parse_some(params)?;
     check_town_allowed(world, p.town)?;
 
-    let mut parts = Vec::new();
-    if let Some(v) = p.eat_food { parts.push(format!("eat_food={v}")); }
-    if let Some(v) = p.archer_aggressive { parts.push(format!("archer_aggressive={v}")); }
-    if let Some(v) = p.archer_leash { parts.push(format!("archer_leash={v}")); }
-    if let Some(v) = p.farmer_fight_back { parts.push(format!("farmer_fight_back={v}")); }
-    if let Some(v) = p.prioritize_healing { parts.push(format!("prioritize_healing={v}")); }
-    if let Some(v) = p.farmer_flee_hp { parts.push(format!("farmer_flee_hp={v:.1}")); }
-    if let Some(v) = p.archer_flee_hp { parts.push(format!("archer_flee_hp={v:.1}")); }
-    if let Some(v) = p.recovery_hp { parts.push(format!("recovery_hp={v:.1}")); }
-    if let Some(v) = p.mining_radius { parts.push(format!("mining_radius={v:.0}")); }
-    log_llm(world, p.town, format!("policy: {}", parts.join(", ")));
-
     let mut policies = world.resource_mut::<TownPolicies>();
     let policy = policies.policies.get_mut(p.town).ok_or_else(|| brp_err(format!("town {} out of range", p.town)))?;
 
-    if let Some(v) = p.eat_food { policy.eat_food = v; }
-    if let Some(v) = p.archer_aggressive { policy.archer_aggressive = v; }
-    if let Some(v) = p.archer_leash { policy.archer_leash = v; }
-    if let Some(v) = p.farmer_fight_back { policy.farmer_fight_back = v; }
-    if let Some(v) = p.prioritize_healing { policy.prioritize_healing = v; }
-    if let Some(v) = p.farmer_flee_hp { policy.farmer_flee_hp = v; }
-    if let Some(v) = p.archer_flee_hp { policy.archer_flee_hp = v; }
-    if let Some(v) = p.recovery_hp { policy.recovery_hp = v; }
-    if let Some(v) = p.mining_radius { policy.mining_radius = v; }
+    // Diff: only log fields that actually change
+    let mut parts = Vec::new();
+    if let Some(v) = p.eat_food { if v != policy.eat_food { parts.push(format!("eat_food={v}")); } policy.eat_food = v; }
+    if let Some(v) = p.archer_aggressive { if v != policy.archer_aggressive { parts.push(format!("archer_aggressive={v}")); } policy.archer_aggressive = v; }
+    if let Some(v) = p.archer_leash { if v != policy.archer_leash { parts.push(format!("archer_leash={v}")); } policy.archer_leash = v; }
+    if let Some(v) = p.farmer_fight_back { if v != policy.farmer_fight_back { parts.push(format!("farmer_fight_back={v}")); } policy.farmer_fight_back = v; }
+    if let Some(v) = p.prioritize_healing { if v != policy.prioritize_healing { parts.push(format!("prioritize_healing={v}")); } policy.prioritize_healing = v; }
+    if let Some(v) = p.farmer_flee_hp { let v = v.clamp(0.0, 1.0); if (v - policy.farmer_flee_hp).abs() > f32::EPSILON { parts.push(format!("farmer_flee_hp={v:.1}")); } policy.farmer_flee_hp = v; }
+    if let Some(v) = p.archer_flee_hp { let v = v.clamp(0.0, 1.0); if (v - policy.archer_flee_hp).abs() > f32::EPSILON { parts.push(format!("archer_flee_hp={v:.1}")); } policy.archer_flee_hp = v; }
+    if let Some(v) = p.recovery_hp { let v = v.clamp(0.0, 1.0); if (v - policy.recovery_hp).abs() > f32::EPSILON { parts.push(format!("recovery_hp={v:.1}")); } policy.recovery_hp = v; }
+    if let Some(v) = p.mining_radius { let v = v.clamp(0.0, 5000.0); if (v - policy.mining_radius).abs() > f32::EPSILON { parts.push(format!("mining_radius={v:.0}")); } policy.mining_radius = v; }
+    drop(policies);
+
+    if !parts.is_empty() {
+        queue_llm_log(world, p.town, format!("policy: {}", parts.join(", ")), None);
+    }
 
     Ok(json!({"status": "ok", "town": p.town}))
 }
@@ -423,7 +466,7 @@ pub fn squad_target_handler(In(params): In<Option<Value>>, world: &mut World) ->
         check_town_allowed(world, town)?;
     }
 
-    log_llm(world, town, format!("squad {} target ({:.0},{:.0})", p.squad, p.x, p.y));
+    queue_llm_log(world, town, format!("squad {} target ({:.0},{:.0})", p.squad, p.x, p.y), Some(Vec2::new(p.x, p.y)));
 
     let mut state = world.resource_mut::<SquadState>();
     let squad = state.squads.get_mut(p.squad).ok_or_else(|| brp_err(format!("squad {} out of range", p.squad)))?;
@@ -479,7 +522,7 @@ pub fn ai_manager_handler(In(params): In<Option<Value>>, world: &mut World) -> B
     if let Some(v) = p.upgrade_enabled { parts.push(format!("upgrade={v}")); }
     if let Some(ref s) = p.road_style { parts.push(format!("roads={s}")); }
     let msg = if parts.is_empty() { "ai_manager query".to_string() } else { format!("ai_manager: {}", parts.join(", ")) };
-    log_llm(world, p.town, msg);
+    queue_llm_log(world, p.town, msg, None);
 
     let mut ai_state = world.resource_mut::<crate::systems::AiPlayerState>();
     let player = ai_state
@@ -526,7 +569,7 @@ pub fn chat_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResu
     let (day, hour, minute) = (gt.day(), gt.hour(), gt.minute());
 
     let from_name = world.resource::<WorldData>().towns.get(p.town).map(|t| t.name.clone()).unwrap_or_default();
-    log_llm(world, p.town, format!("[chat to F{}] {}", p.to, p.message));
+    queue_llm_log(world, p.town, format!("[chat to F{}] {}", p.to, p.message), None);
 
     world.resource_mut::<ChatInbox>().messages.push(ChatMessage {
         from_town: p.town,
@@ -544,12 +587,17 @@ pub fn chat_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResu
 
 pub fn drain_remote_queues(
     mut build_q: ResMut<RemoteBuildQueue>,
+    mut destroy_q: ResMut<RemoteDestroyQueue>,
     mut upgrade_q: ResMut<RemoteUpgradeQueue>,
+    mut llm_log_q: ResMut<RemoteLlmLogQueue>,
     mut world_state: WorldState,
     mut food_storage: ResMut<FoodStorage>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    mut combat_log: MessageWriter<crate::messages::CombatLogMsg>,
+    mut damage_writer: MessageWriter<crate::messages::DamageMsg>,
     mut commands: Commands,
     mut upgrade_writer: MessageWriter<crate::systems::stats::UpgradeMsg>,
+    game_time: Res<GameTime>,
 ) {
     // Drain build queue
     let builds: Vec<RemoteBuild> = build_q.0.drain(..).collect();
@@ -572,11 +620,64 @@ pub fn drain_remote_queues(
         );
     }
 
+    // Drain destroy queue
+    let destroys: Vec<RemoteDestroy> = destroy_q.0.drain(..).collect();
+    for destroy in destroys {
+        let Some(town) = world_state.world_data.towns.get(destroy.town) else {
+            continue;
+        };
+        let center = town.center;
+        let town_name = town.name.clone();
+        let pos = world::town_grid_to_world(center, destroy.row, destroy.col);
+        let (gc, gr) = world_state.grid.world_to_grid(pos);
+
+        // Look up building at grid cell
+        let Some(inst) = world_state.entity_map.get_at_grid(gc as i32, gr as i32) else {
+            continue;
+        };
+        // Validate: not Fountain/GoldMine, belongs to requesting town
+        if matches!(inst.kind, BuildingKind::Fountain | BuildingKind::GoldMine) {
+            continue;
+        }
+        if inst.town_idx as usize != destroy.town {
+            continue;
+        }
+        let bld_kind = inst.kind;
+        let slot = inst.slot;
+
+        // Send lethal damage so death_system handles entity despawn
+        let Some(uid) = world_state.entity_map.uid_for_slot(slot) else {
+            continue;
+        };
+        damage_writer.write(crate::messages::DamageMsg {
+            target: uid,
+            amount: f32::MAX,
+            attacker: -1,
+            attacker_faction: 0,
+        });
+
+        let _ = world_state.destroy_building(
+            &mut combat_log,
+            &game_time,
+            destroy.row,
+            destroy.col,
+            center,
+            &format!("Destroyed building in {}", town_name),
+            &mut gpu_updates,
+        );
+        world_state.dirty_writers.mark_building_changed(bld_kind);
+    }
+
     // Drain upgrade queue
     for upgrade in upgrade_q.0.drain(..) {
         upgrade_writer.write(crate::systems::stats::UpgradeMsg {
             town_idx: upgrade.town,
             upgrade_idx: upgrade.upgrade_idx,
         });
+    }
+
+    // Drain LLM log queue
+    for msg in llm_log_q.0.drain(..) {
+        combat_log.write(msg);
     }
 }

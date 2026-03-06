@@ -286,6 +286,7 @@ pub fn build_app(app: &mut App) {
             RemotePlugin::default()
                 .with_method("endless/summary", systems::remote::summary_handler)
                 .with_method("endless/build", systems::remote::build_handler)
+                .with_method("endless/destroy", systems::remote::destroy_handler)
                 .with_method("endless/upgrade", systems::remote::upgrade_handler)
                 .with_method("endless/policy", systems::remote::policy_handler)
                 .with_method("endless/time", systems::remote::time_handler)
@@ -295,7 +296,9 @@ pub fn build_app(app: &mut App) {
         )
         .add_plugins(RemoteHttpPlugin::default())
         .init_resource::<systems::remote::RemoteBuildQueue>()
+        .init_resource::<systems::remote::RemoteDestroyQueue>()
         .init_resource::<systems::remote::RemoteUpgradeQueue>()
+        .init_resource::<systems::remote::RemoteLlmLogQueue>()
         .init_resource::<resources::RemoteAllowedTowns>()
         .init_resource::<resources::ChatInbox>()
         // Register reflected types for BRP queries
@@ -475,6 +478,12 @@ pub fn build_app(app: &mut App) {
             ai_squad_commander_system
                 .after(ai_decision_system)
                 .before(decision_system)
+                .in_set(Step::Behavior),
+        )
+        .add_systems(
+            FixedUpdate,
+            systems::llm_player::llm_player_system
+                .run_if(resource_exists::<systems::llm_player::LlmPlayerState>)
                 .in_set(Step::Behavior),
         )
         .add_systems(FixedUpdate, sync_building_hp_render.in_set(Step::Behavior))

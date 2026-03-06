@@ -813,6 +813,7 @@ fn find_inner_slot(
     center: Vec2,
     grid: &WorldGrid,
     entity_map: &EntityMap,
+    towns: &[world::Town],
     personality: AiPersonality,
     road_style: RoadStyle,
 ) -> Option<(i32, i32)> {
@@ -820,7 +821,7 @@ fn find_inner_slot(
         .waypoint_ring_slots(tg, road_style)
         .into_iter()
         .collect();
-    world::empty_slots(tg, center, grid, entity_map)
+    world::empty_slots(tg, center, grid, entity_map, towns)
         .into_iter()
         .filter(|&(r, c)| !road_style.is_road_slot(r, c) && !wp_slots.contains(&(r, c)))
         .min_by_key(|&(r, c)| r * r + c * c)
@@ -860,7 +861,7 @@ fn build_town_snapshot(
     // Compute waypoint ring once and cache — reused for slot filtering and find_waypoint_slot
     let waypoint_ring = personality.waypoint_ring_slots(tg, road_style);
     let wp_slots: HashSet<(i32, i32)> = waypoint_ring.iter().copied().collect();
-    let empty_slots = world::empty_slots(tg, center, grid, entity_map)
+    let empty_slots = world::empty_slots(tg, center, grid, entity_map, &world_data.towns)
         .into_iter()
         .filter(|&(r, c)| !road_style.is_road_slot(r, c) && !wp_slots.contains(&(r, c)))
         .collect();
@@ -1386,7 +1387,7 @@ impl TownContext {
             .map(|s| s.empty_slots.len())
             .or_else(|| {
                 res.world.town_grids.grids.get(grid_idx).map(|tg| {
-                    world::empty_slots(tg, center, &res.world.grid, &res.world.entity_map).len()
+                    world::empty_slots(tg, center, &res.world.grid, &res.world.entity_map, &res.world.world_data.towns).len()
                 })
             })
             .unwrap_or(0);
@@ -1808,7 +1809,7 @@ pub fn ai_decision_system(
                         road_style,
                     );
                     if road_candidates > 0 {
-                        let roads = bc(BuildingKind::Road);
+                        let roads = bc(BuildingKind::Road) + bc(BuildingKind::StoneRoad) + bc(BuildingKind::MetalRoad);
                         let economy_buildings = farms + houses + mine_shafts;
                         let road_need =
                             road_candidates.min(economy_buildings.saturating_sub(roads / 2));
@@ -2053,6 +2054,7 @@ fn pick_slot_from_snapshot_or_inner(
     center: Vec2,
     grid: &WorldGrid,
     entity_map: &EntityMap,
+    towns: &[world::Town],
     score: fn(&AiTownSnapshot, (i32, i32)) -> i32,
     personality: AiPersonality,
     road_style: RoadStyle,
@@ -2064,7 +2066,7 @@ fn pick_slot_from_snapshot_or_inner(
             return Some(slot);
         }
     }
-    find_inner_slot(tg, center, grid, entity_map, personality, road_style)
+    find_inner_slot(tg, center, grid, entity_map, towns, personality, road_style)
 }
 
 fn try_build_inner(
@@ -2085,6 +2087,7 @@ fn try_build_inner(
         center,
         &res.world.grid,
         &res.world.entity_map,
+        &res.world.world_data.towns,
         personality,
         road_style,
     )?;
@@ -2111,6 +2114,7 @@ fn try_build_scored(
         center,
         &res.world.grid,
         &res.world.entity_map,
+        &res.world.world_data.towns,
         score_fn,
         personality,
         road_style,
@@ -2139,6 +2143,7 @@ fn try_build_miner_home(
                 ctx.center,
                 &res.world.grid,
                 &res.world.entity_map,
+                &res.world.world_data.towns,
                 personality,
                 road_style,
             )
@@ -2149,6 +2154,7 @@ fn try_build_miner_home(
             ctx.center,
             &res.world.grid,
             &res.world.entity_map,
+            &res.world.world_data.towns,
             personality,
             road_style,
         )
@@ -2185,8 +2191,9 @@ fn count_road_candidates(
     if econ_slots.is_empty() {
         return 0;
     }
-    let road_slots: HashSet<(i32, i32)> = entity_map
-        .iter_kind_for_town(BuildingKind::Road, ti)
+    let road_slots: HashSet<(i32, i32)> = [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad]
+        .iter()
+        .flat_map(|&kind| entity_map.iter_kind_for_town(kind, ti))
         .map(|b| world::world_to_town_grid(center, b.position))
         .collect();
     let (min_r, max_r, min_c, max_c) = town_grids
@@ -2250,9 +2257,10 @@ fn try_build_road_grid(
         return None;
     }
 
-    // Collect existing road positions for quick lookup
-    let road_slots: HashSet<(i32, i32)> = entity_map
-        .iter_kind_for_town(BuildingKind::Road, ti)
+    // Collect existing road positions for quick lookup (all tiers)
+    let road_slots: HashSet<(i32, i32)> = [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad]
+        .iter()
+        .flat_map(|&kind| entity_map.iter_kind_for_town(kind, ti))
         .map(|b| world::world_to_town_grid(center, b.position))
         .collect();
 

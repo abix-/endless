@@ -893,6 +893,7 @@ pub fn combat_log_system(
     egui::Window::new("Combat Log")
         .anchor(egui::Align2::RIGHT_BOTTOM, [-2.0, -2.0])
         .default_size([450.0, 140.0])
+        .max_height(300.0)
         .collapsible(false)
         .resizable(true)
         .movable(false)

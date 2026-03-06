@@ -1599,7 +1599,7 @@ fn build_place_click_system(
     }
 
     // Road: drag-line placement on world grid (reuses drag_start_slot/slots_on_line)
-    if kind == BuildingKind::Road {
+    if kind.is_road() {
         let (gc, gr) = world_state.grid.world_to_grid(world_pos);
         if just_pressed {
             build_ctx.drag_start_slot = Some((gr as i32, gc as i32));
@@ -1621,35 +1621,36 @@ fn build_place_click_system(
             .unwrap_or((gr as i32, gc as i32));
         let cost = crate::constants::building_cost(kind);
         let mut placed = 0usize;
+        let mut upgraded = 0usize;
         for (sr, sc) in slots_on_line(start, end) {
             let cell_pos = world_state.grid.grid_to_world(sc as usize, sr as usize);
-            if world_state
-                .place_building(
-                    &mut food_storage,
-                    kind,
-                    town_data_idx,
-                    cell_pos,
-                    cost,
-                    &mut gpu_updates,
-                    &mut commands,
-                )
-                .is_ok()
-            {
-                placed += 1;
+            match world_state.place_building(
+                &mut food_storage, kind, town_data_idx, cell_pos, cost,
+                &mut gpu_updates, &mut commands,
+            ) {
+                Ok(()) => { placed += 1; }
+                Err("cell already has a building") => {
+                    // Try upgrading existing road
+                    if world_state.upgrade_road(
+                        &mut food_storage, kind, town_data_idx, cell_pos,
+                        &mut gpu_updates, &mut commands,
+                    ).is_ok() {
+                        upgraded += 1;
+                    }
+                }
+                Err(_) => {}
             }
         }
-        if placed > 0 {
+        if placed > 0 || upgraded > 0 {
             let label = crate::constants::building_def(kind).label;
-            let msg = if placed == 1 {
-                format!("Built {} in {}", label.to_lowercase(), town_name)
-            } else {
-                format!(
-                    "Built {} {}s in {}",
-                    placed,
-                    label.to_lowercase(),
-                    town_name
-                )
-            };
+            let mut parts = Vec::new();
+            if placed > 0 {
+                parts.push(format!("built {placed}"));
+            }
+            if upgraded > 0 {
+                parts.push(format!("upgraded {upgraded}"));
+            }
+            let msg = format!("{} {} in {}", parts.join(", "), label.to_lowercase(), town_name);
             combat_log.write(crate::messages::CombatLogMsg {
                 kind: CombatEventKind::Harvest,
                 faction: 0,
@@ -1675,7 +1676,7 @@ fn build_place_click_system(
         else {
             return false;
         };
-        if !world::is_slot_buildable(town_grid, slot_row, slot_col) {
+        if !world::is_slot_buildable_ext(town_grid, slot_row, slot_col, center, town_data_idx, &world_state.world_data.towns, &world_state.entity_map) {
             return false;
         }
         if slot_row == 0 && slot_col == 0 {
@@ -1878,7 +1879,7 @@ fn build_ghost_system(
     let kind = build_ctx.selected_build.unwrap();
 
     // Road: world-grid ghost with drag trail preview (mirrors town-grid trail pattern)
-    if kind == BuildingKind::Road {
+    if kind.is_road() {
         let (gc, gr) = grid.world_to_grid(world_pos);
         let snapped = grid.grid_to_world(gc, gr);
         build_ctx.hover_world_pos = snapped;
@@ -2034,7 +2035,7 @@ fn build_ghost_system(
         .iter()
         .find(|tg| tg.town_data_idx == town_data_idx);
     let in_bounds = town_grid
-        .map(|tg| world::is_slot_buildable(tg, row, col))
+        .map(|tg| world::is_slot_buildable_ext(tg, row, col, center, town_data_idx, &world_data.towns, &entity_map))
         .unwrap_or(false);
     let is_center = row == 0 && col == 0;
 
@@ -2049,7 +2050,7 @@ fn build_ghost_system(
 
         for (slot_row, slot_col) in path {
             let visible_slot = town_grid
-                .map(|tg| world::is_slot_buildable(tg, slot_row, slot_col))
+                .map(|tg| world::is_slot_buildable_ext(tg, slot_row, slot_col, center, town_data_idx, &world_data.towns, &entity_map))
                 .unwrap_or(false)
                 && !(slot_row == 0 && slot_col == 0);
             if !visible_slot {
@@ -2155,6 +2156,7 @@ fn build_ghost_system(
 
 /// Spawn/rebuild slot indicator sprites when the town grid or world grid changes.
 /// Uses actual Sprite entities at z=-0.3 so they render between buildings and NPCs.
+/// Color-coded: green = base area, blue = road-expanded, yellow = road chain (road selected only).
 fn draw_slot_indicators(
     mut commands: Commands,
     existing: Query<Entity, With<SlotIndicator>>,
@@ -2189,47 +2191,99 @@ fn draw_slot_indicators(
     };
     let center = town.center;
 
-    let green = Color::srgba(0.3, 0.7, 0.3, 0.5);
+    let cell = crate::constants::TOWN_GRID_SPACING;
+    let base_color = Color::srgba(0.2, 0.6, 0.2, 0.15);
+    let road_color = Color::srgba(0.2, 0.5, 0.7, 0.15);
+    let chain_color = Color::srgba(0.5, 0.5, 0.2, 0.12);
     let indicator_z = -0.3;
-    let line_w = 2.0;
-    let line_len = 10.0;
 
-    // Green "+" on empty unlocked slots
-    let (min_row, max_row, min_col, max_col) = world::build_bounds(town_grid);
-    for row in min_row..=max_row {
-        for col in min_col..=max_col {
-            if row == 0 && col == 0 {
-                continue;
+    let is_road_selected = build_ctx
+        .selected_build
+        .map_or(false, |k| k.is_road());
+
+    // Collect all empty buildable slots (base + road-expanded)
+    let slots = world::empty_slots(
+        town_grid,
+        center,
+        &grid,
+        &entity_map,
+        &world_data.towns,
+    );
+
+    let mut seen = std::collections::HashSet::new();
+    for &(row, col) in &slots {
+        seen.insert((row, col));
+        let is_base = world::is_slot_buildable(town_grid, row, col);
+        let color = if is_base { base_color } else { road_color };
+
+        let raw_pos = world::town_grid_to_world(center, row, col);
+        let (gc, gr) = grid.world_to_grid(raw_pos);
+        let slot_pos = grid.grid_to_world(gc, gr);
+
+        commands.spawn((
+            Sprite {
+                color,
+                custom_size: Some(Vec2::new(cell, cell)),
+                ..default()
+            },
+            Transform::from_xyz(slot_pos.x, slot_pos.y, indicator_z),
+            SlotIndicator,
+        ));
+    }
+
+    // Road chain preview: show where roads can extend (1 tile beyond current buildable area)
+    if is_road_selected {
+        // Collect chain candidates from all existing roads + base boundary
+        let ti = town_data_idx as u32;
+        let mut chain_candidates = Vec::new();
+
+        // 1 tile around each existing road
+        for kind in [world::BuildingKind::Road, world::BuildingKind::StoneRoad, world::BuildingKind::MetalRoad] {
+            for inst in entity_map.iter_kind_for_town(kind, ti) {
+                let (rr, rc) = world::world_to_town_grid(center, inst.position);
+                for dr in -1..=1 {
+                    for dc in -1..=1 {
+                        if dr == 0 && dc == 0 { continue; }
+                        chain_candidates.push((rr + dr, rc + dc));
+                    }
+                }
             }
+        }
+
+        // 1 tile around base boundary
+        let (min_row, max_row, min_col, max_col) = world::build_bounds(town_grid);
+        for row in (min_row - 1)..=(max_row + 1) {
+            for col in (min_col - 1)..=(max_col + 1) {
+                if row >= min_row && row <= max_row && col >= min_col && col <= max_col {
+                    continue; // skip interior
+                }
+                chain_candidates.push((row, col));
+            }
+        }
+
+        for (row, col) in chain_candidates {
+            if row == 0 && col == 0 { continue; }
+            if seen.contains(&(row, col)) { continue; }
+            if !seen.insert((row, col)) { continue; }
 
             let raw_pos = world::town_grid_to_world(center, row, col);
             let (gc, gr) = grid.world_to_grid(raw_pos);
-            let slot_pos = grid.grid_to_world(gc, gr);
 
-            let has_building = entity_map.has_building_at(gc as i32, gr as i32);
-
-            if !has_building {
-                // Horizontal bar
-                commands.spawn((
-                    Sprite {
-                        color: green,
-                        custom_size: Some(Vec2::new(line_len, line_w)),
-                        ..default()
-                    },
-                    Transform::from_xyz(slot_pos.x, slot_pos.y, indicator_z),
-                    SlotIndicator,
-                ));
-                // Vertical bar
-                commands.spawn((
-                    Sprite {
-                        color: green,
-                        custom_size: Some(Vec2::new(line_w, line_len)),
-                        ..default()
-                    },
-                    Transform::from_xyz(slot_pos.x, slot_pos.y, indicator_z),
-                    SlotIndicator,
-                ));
+            // Must be a valid world cell and empty
+            if grid.cell(gc, gr).is_none() || entity_map.has_building_at(gc as i32, gr as i32) {
+                continue;
             }
+
+            let slot_pos = grid.grid_to_world(gc, gr);
+            commands.spawn((
+                Sprite {
+                    color: chain_color,
+                    custom_size: Some(Vec2::new(cell, cell)),
+                    ..default()
+                },
+                Transform::from_xyz(slot_pos.x, slot_pos.y, indicator_z),
+                SlotIndicator,
+            ));
         }
     }
 }

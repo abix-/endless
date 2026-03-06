@@ -246,11 +246,8 @@ fn blackjack_content(
         .get(state.opponent_town_idx)
         .copied()
         .unwrap_or(0);
-    let rep = reputation
-        .values
-        .get(state.opponent_faction as usize)
-        .copied()
-        .unwrap_or(0.0);
+    // How opponent feels about player (faction 0)
+    let rep = reputation.get(state.opponent_faction, 0);
 
     // Header: opponent + gold + reputation
     ui.horizontal(|ui| {
@@ -775,8 +772,11 @@ fn resolve_hands(
         *og -= total_net;
     }
 
-    if let Some(rep) = reputation.values.get_mut(state.opponent_faction as usize) {
-        *rep = (*rep - total_net as f32 * REPUTATION_PER_GOLD).clamp(-100.0, 100.0);
+    // Player is faction 0 — update how opponent feels about player
+    if let Some(row) = reputation.values.get_mut(state.opponent_faction as usize) {
+        if let Some(rep) = row.get_mut(0) {
+            *rep = (*rep - total_net as f32 * REPUTATION_PER_GOLD).clamp(-9999.0, 9999.0);
+        }
     }
 
     let mut parts = Vec::new();

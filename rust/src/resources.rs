@@ -2182,16 +2182,44 @@ pub struct FactionStats {
     pub stats: Vec<FactionStat>,
 }
 
-/// Per-faction reputation from the player's perspective. 0.0 = neutral, range -100..100.
-/// Positive = friendly (player lost gold to them), negative = hostile (player won gold from them).
+/// Faction-vs-faction reputation matrix. values[a][b] = how faction a feels about faction b.
+/// 0.0 = neutral. Negative = hostile (they killed our NPCs). Range -9999..9999.
 #[derive(Resource, Default)]
 pub struct Reputation {
-    pub values: Vec<f32>,
+    pub values: Vec<Vec<f32>>,
 }
 
 impl Reputation {
     pub fn init(&mut self, count: usize) {
-        self.values = vec![0.0; count];
+        self.values = vec![vec![0.0; count]; count];
+    }
+
+    /// Ensure matrix is at least NxN (for dynamic faction additions).
+    pub fn ensure_size(&mut self, count: usize) {
+        while self.values.len() < count {
+            self.values.push(vec![0.0; count]);
+        }
+        for row in &mut self.values {
+            row.resize(count, 0.0);
+        }
+    }
+
+    /// Faction `victim_faction` loses reputation toward `killer_faction`. -1 per kill.
+    pub fn on_kill(&mut self, killer_faction: i32, victim_faction: i32) {
+        if killer_faction == victim_faction { return; }
+        if let Some(row) = self.values.get_mut(victim_faction as usize) {
+            if let Some(val) = row.get_mut(killer_faction as usize) {
+                *val = (*val - 1.0).clamp(-9999.0, 9999.0);
+            }
+        }
+    }
+
+    /// Get faction a's opinion of faction b.
+    pub fn get(&self, a: i32, b: i32) -> f32 {
+        self.values.get(a as usize)
+            .and_then(|row| row.get(b as usize))
+            .copied()
+            .unwrap_or(0.0)
     }
 }
 

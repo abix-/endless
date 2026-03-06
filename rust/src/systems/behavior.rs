@@ -525,7 +525,8 @@ pub fn decision_system(
                             .policies
                             .get(town_idx)
                             .map(|p| p.recovery_hp)
-                            .unwrap_or(0.8);
+                            .unwrap_or(0.8)
+                            .min(1.0);
                         activity = Activity::HealingAtFountain {
                             recover_until: threshold,
                         };
@@ -1249,7 +1250,8 @@ pub fn decision_system(
                                     .policies
                                     .get(town_idx)
                                     .map(|p| p.recovery_hp)
-                                    .unwrap_or(0.8);
+                                    .unwrap_or(0.8)
+                                    .min(1.0);
                                 activity = Activity::HealingAtFountain {
                                     recover_until: threshold,
                                 };
@@ -1273,7 +1275,7 @@ pub fn decision_system(
             // Priority 4a: HealingAtFountain? -> Wake when HP recovered
             // ====================================================================
             if let Activity::HealingAtFountain { recover_until } = &activity {
-                if health / max_hp >= *recover_until {
+                if health / max_hp >= recover_until.min(1.0) {
                     activity = Activity::Idle;
                     npc_logs.push(
                         idx,
