@@ -139,6 +139,25 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
         *npc_counts.entry(act_key).or_default() += 1;
     }
 
+    // Drain chat inbox before immutable borrows
+    let mut inbox_by_town: std::collections::HashMap<usize, Vec<Value>> = std::collections::HashMap::new();
+    {
+        let mut inbox = world.resource_mut::<ChatInbox>();
+        let messages = std::mem::take(&mut inbox.messages);
+        for msg in messages {
+            let dominated_by_filter = filter_town.is_some_and(|ft| ft != msg.to_town);
+            if dominated_by_filter {
+                inbox.messages.push(msg); // put back — not for this query
+            } else {
+                inbox_by_town.entry(msg.to_town).or_default().push(json!({
+                    "from": msg.from_town,
+                    "message": msg.text,
+                    "day": msg.day, "hour": msg.hour, "minute": msg.minute,
+                }));
+            }
+        }
+    }
+
     // Now borrow resources immutably
     let game_time = world.resource::<GameTime>();
     let time_json = json!({
@@ -201,6 +220,7 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
             }
         }
 
+        let inbox = inbox_by_town.remove(&ti).unwrap_or_default();
         towns.push(json!({
             "index": ti,
             "name": town.name,
@@ -211,6 +231,7 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
             "buildings": buildings,
             "squads": squads,
             "llm": allowed.towns.contains(&ti),
+            "inbox": inbox,
         }));
     }
 
@@ -486,6 +507,35 @@ pub fn ai_manager_handler(In(params): In<Option<Value>>, world: &mut World) -> B
         "personality": player.personality.name(),
         "road_style": format!("{:?}", player.road_style),
     }))
+}
+
+// --- endless/chat ------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct ChatParams {
+    town: usize,
+    to: usize,
+    message: String,
+}
+
+pub fn chat_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
+    let p: ChatParams = parse_some(params)?;
+    check_town_allowed(world, p.town)?;
+
+    let gt = world.resource::<GameTime>();
+    let (day, hour, minute) = (gt.day(), gt.hour(), gt.minute());
+
+    let from_name = world.resource::<WorldData>().towns.get(p.town).map(|t| t.name.clone()).unwrap_or_default();
+    log_llm(world, p.town, format!("[chat to F{}] {}", p.to, p.message));
+
+    world.resource_mut::<ChatInbox>().messages.push(ChatMessage {
+        from_town: p.town,
+        to_town: p.to,
+        text: p.message.clone(),
+        day, hour, minute,
+    });
+
+    Ok(json!({"status": "ok", "from": from_name, "message": p.message}))
 }
 
 // ============================================================================

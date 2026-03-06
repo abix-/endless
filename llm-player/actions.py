@@ -16,8 +16,16 @@ def rpc(method, params=None):
     return result.get("result")
 
 if __name__ == "__main__":
-    state = rpc("endless/summary")
-    if state:
-        for t in state.get("towns", []):
-            llm = " [LLM]" if t.get("llm") else ""
-            print(f"  Town {t['index']}: {t['name']}{llm} - Food:{t.get('food',0)} Gold:{t.get('gold',0)}")
+    import json, sys
+    if len(sys.argv) >= 2:
+        method = sys.argv[1]
+        params = json.loads(sys.argv[2]) if len(sys.argv) >= 3 else {}
+        result = rpc(method, params)
+        if result is not None:
+            print(json.dumps(result, indent=2))
+    else:
+        state = rpc("endless/summary")
+        if state:
+            for t in state.get("towns", []):
+                llm = " [LLM]" if t.get("llm") else ""
+                print(f"  Town {t['index']}: {t['name']}{llm} - Food:{t.get('food',0)} Gold:{t.get('gold',0)}")

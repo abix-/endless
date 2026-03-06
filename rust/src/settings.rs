@@ -584,6 +584,8 @@ pub struct UserSettings {
     pub log_loot: bool,
     #[serde(default = "default_true")]
     pub log_llm: bool,
+    #[serde(default = "default_true")]
+    pub log_chat: bool,
     /// -1 = all factions, 0 = my faction only
     #[serde(default = "default_neg1")]
     pub log_faction_filter: i32,
@@ -833,6 +835,7 @@ impl Default for UserSettings {
             log_building_damage: true,
             log_loot: true,
             log_llm: true,
+            log_chat: true,
             log_faction_filter: -1,
             gen_style: 1,
             window_width: default_window_width(),

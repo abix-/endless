@@ -2451,10 +2451,11 @@ pub enum CombatEventKind {
     BuildingDamage,
     Loot,
     Llm,
+    Chat,
 }
 
 impl CombatEventKind {
-    const COUNT: usize = 9;
+    const COUNT: usize = 10;
 
     fn index(self) -> usize {
         match self {
@@ -2467,6 +2468,7 @@ impl CombatEventKind {
             Self::BuildingDamage => 6,
             Self::Loot => 7,
             Self::Llm => 8,
+            Self::Chat => 9,
         }
     }
 }
@@ -3279,6 +3281,24 @@ pub enum SfxKind {
 pub struct PlaySfxMsg {
     pub kind: SfxKind,
     pub position: Option<Vec2>,
+}
+
+// ============================================================================
+// CHAT INBOX (LLM ↔ Player messaging)
+// ============================================================================
+
+pub struct ChatMessage {
+    pub from_town: usize,
+    pub to_town: usize,
+    pub text: String,
+    pub day: i32,
+    pub hour: i32,
+    pub minute: i32,
+}
+
+#[derive(Resource, Default)]
+pub struct ChatInbox {
+    pub messages: Vec<ChatMessage>,
 }
 
 // Test12 relocated to src/tests/vertical_slice.rs — uses shared TestState resource.

@@ -226,7 +226,11 @@ curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"endless/summary","params":{"town":0},"id":1}'
 ```
 
-Returns: `{game_time, towns: [{index, name, faction, center, food, gold, buildings}], npcs: {key: count}, factions}`
+Returns: `{game_time, towns: [{index, name, faction, center, food, gold, buildings, squads, inbox, llm}], npcs: {key: count}, factions}`
+
+- `squads`: array of `{index, members, target}` — squad index, member count, move target or null
+- `inbox`: array of `{from, message, day, hour, minute}` — chat messages from other players. **Drained on read** — messages are removed after being included in the response
+- `llm`: bool — whether this town is LLM-controlled
 
 ### endless/build
 
@@ -327,6 +331,23 @@ Configure the AI Manager for a town. Only provided fields are changed.
 curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"endless/ai_manager","params":{"town":1,"active":true,"personality":"Aggressive"},"id":1}'
 ```
+
+### endless/chat
+
+Send a chat message to another town. Messages appear in the recipient's `inbox` field in the next summary response and are logged to the combat log.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `town` | usize | yes | Sender town index (must be LLM-controlled) |
+| `to` | usize | yes | Recipient town index |
+| `message` | string | yes | Chat message text |
+
+```bash
+curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"endless/chat","params":{"town":1,"to":0,"message":"lets team up"},"id":1}'
+```
+
+The player can also send messages to LLM towns via the chat input in the combat log UI.
 
 ## Notes
 

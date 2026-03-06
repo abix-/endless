@@ -15,5 +15,5 @@ subprocess.run([
     "claude",
     "--model", "claude-haiku-4-5-20251001",
     "--system-prompt", prompt,
-    "--allowedTools", "Bash(python*)",
+    "--allowedTools", "Bash(python*) Read",
 ], cwd=script_dir)

@@ -291,11 +291,13 @@ pub fn build_app(app: &mut App) {
                 .with_method("endless/time", systems::remote::time_handler)
                 .with_method("endless/squad_target", systems::remote::squad_target_handler)
                 .with_method("endless/ai_manager", systems::remote::ai_manager_handler)
+                .with_method("endless/chat", systems::remote::chat_handler)
         )
         .add_plugins(RemoteHttpPlugin::default())
         .init_resource::<systems::remote::RemoteBuildQueue>()
         .init_resource::<systems::remote::RemoteUpgradeQueue>()
         .init_resource::<resources::RemoteAllowedTowns>()
+        .init_resource::<resources::ChatInbox>()
         // Register reflected types for BRP queries
         .register_type::<components::EntityUid>()
         .register_type::<components::GpuSlot>()

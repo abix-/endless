@@ -396,7 +396,7 @@ pub struct BottomPanelData<'w> {
     game_time: Res<'w, GameTime>,
     npc_logs: Res<'w, NpcLogCache>,
     selected: ResMut<'w, SelectedNpc>,
-    combat_log: Res<'w, CombatLog>,
+    combat_log: ResMut<'w, CombatLog>,
     target_thrash: Res<'w, NpcTargetThrashDebug>,
     policies: Res<'w, TownPolicies>,
 }
@@ -455,12 +455,14 @@ pub struct LogFilterState {
     pub show_building_damage: bool,
     pub show_loot: bool,
     pub show_llm: bool,
+    pub show_chat: bool,
     /// -1 = all factions, 0 = my faction only
     pub faction_filter: i32,
     pub initialized: bool,
+    pub chat_input: String,
     // Cached merged log entries — skip rebuild when sources unchanged
     cached_selected_npc: i32,
-    cached_filters: (bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, i32),
+    cached_filters: (bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, i32),
     cached_entries: Vec<(i64, egui::Color32, String, String, Option<bevy::math::Vec2>)>,
 }
 
@@ -836,11 +838,13 @@ fn tower_upgrade_effect(upg: &crate::constants::UpgradeStatDef, lv: u8) -> Strin
 /// Combat log window anchored at bottom-right.
 pub fn combat_log_system(
     mut contexts: EguiContexts,
-    data: BottomPanelData,
+    mut data: BottomPanelData,
     mut settings: ResMut<UserSettings>,
     mut filter_state: Local<LogFilterState>,
     ui_state: Res<UiState>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
+    mut chat_inbox: ResMut<crate::resources::ChatInbox>,
+    allowed_towns: Res<crate::resources::RemoteAllowedTowns>,
 ) -> Result {
     if !ui_state.combat_log_visible {
         return Ok(());
@@ -859,6 +863,7 @@ pub fn combat_log_system(
         filter_state.show_building_damage = settings.log_building_damage;
         filter_state.show_loot = settings.log_loot;
         filter_state.show_llm = settings.log_llm;
+        filter_state.show_chat = settings.log_chat;
         filter_state.faction_filter = settings.log_faction_filter;
         filter_state.initialized = true;
     }
@@ -874,8 +879,12 @@ pub fn combat_log_system(
         filter_state.show_building_damage,
         filter_state.show_loot,
         filter_state.show_llm,
+        filter_state.show_chat,
         filter_state.faction_filter,
     );
+
+    let has_llm_towns = !allowed_towns.towns.is_empty();
+    let mut chat_send: Option<String> = None;
 
     let frame = egui::Frame::new()
         .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 35, 220))
@@ -914,6 +923,7 @@ pub fn combat_log_system(
                 ui.checkbox(&mut filter_state.show_building_damage, "Buildings");
                 ui.checkbox(&mut filter_state.show_loot, "Loot");
                 ui.checkbox(&mut filter_state.show_llm, "LLM");
+                ui.checkbox(&mut filter_state.show_chat, "Chat");
             });
 
             ui.separator();
@@ -930,6 +940,7 @@ pub fn combat_log_system(
                 filter_state.show_building_damage,
                 filter_state.show_loot,
                 filter_state.show_llm,
+                filter_state.show_chat,
                 filter_state.faction_filter,
             );
             let needs_rebuild = data.combat_log.is_changed()
@@ -951,6 +962,7 @@ pub fn combat_log_system(
                         CombatEventKind::BuildingDamage => filter_state.show_building_damage,
                         CombatEventKind::Loot => filter_state.show_loot,
                         CombatEventKind::Llm => filter_state.show_llm,
+                        CombatEventKind::Chat => filter_state.show_chat,
                     };
                     if !show {
                         continue;
@@ -971,6 +983,7 @@ pub fn combat_log_system(
                         CombatEventKind::BuildingDamage => egui::Color32::from_rgb(220, 130, 50),
                         CombatEventKind::Loot => egui::Color32::from_rgb(255, 215, 0),
                         CombatEventKind::Llm => egui::Color32::from_rgb(0, 200, 180),
+                        CombatEventKind::Chat => egui::Color32::from_rgb(240, 200, 80),
                     };
 
                     let key = (entry.day as i64) * 10000
@@ -1040,7 +1053,46 @@ pub fn combat_log_system(
                     transform.translation.y = pos.y;
                 }
             }
+
+            // Chat input — send messages to LLM towns
+            if has_llm_towns {
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label("Chat:");
+                    let response = ui.text_edit_singleline(&mut filter_state.chat_input);
+                    if (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                        || ui.small_button("Send").clicked()
+                    {
+                        let text = filter_state.chat_input.trim().to_string();
+                        if !text.is_empty() {
+                            chat_send = Some(text);
+                            filter_state.chat_input.clear();
+                        }
+                    }
+                });
+            }
         });
+
+    // Process chat send outside the window closure (needs mutable access to combat_log + chat_inbox)
+    if let Some(text) = chat_send {
+        let day = data.game_time.day();
+        let hour = data.game_time.hour();
+        let minute = data.game_time.minute();
+        for &to_town in &allowed_towns.towns {
+            chat_inbox.messages.push(crate::resources::ChatMessage {
+                from_town: 0,
+                to_town,
+                text: text.clone(),
+                day, hour, minute,
+            });
+        }
+        data.combat_log.push(
+            crate::resources::CombatEventKind::Chat,
+            0,
+            day, hour, minute,
+            format!("[chat] {}", text),
+        );
+    }
 
     // Persist filter changes
     let curr_filters = (
@@ -1054,6 +1106,7 @@ pub fn combat_log_system(
         filter_state.show_building_damage,
         filter_state.show_loot,
         filter_state.show_llm,
+        filter_state.show_chat,
         filter_state.faction_filter,
     );
     if curr_filters != prev_filters {
@@ -1067,6 +1120,7 @@ pub fn combat_log_system(
         settings.log_building_damage = filter_state.show_building_damage;
         settings.log_loot = filter_state.show_loot;
         settings.log_llm = filter_state.show_llm;
+        settings.log_chat = filter_state.show_chat;
         settings.log_faction_filter = filter_state.faction_filter;
         settings::save_settings(&settings);
     }
@@ -1435,7 +1489,11 @@ fn inspector_content(
         } else {
             home_str = "Homeless".to_string();
         }
-        faction_str = format!("{} (town {})", npc.faction, npc.town_idx);
+        faction_str = if let Some(town) = world_data.towns.get(npc.town_idx as usize) {
+            format!("{} (F{})", town.name, town.faction)
+        } else {
+            format!("F{}", npc.faction)
+        };
         faction_id = Some(npc.faction);
         let npc_act = bld_data.activity_q.get(npc.entity).ok();
         is_mining_at_mine = npc_act.is_some_and(|a| matches!(*a, Activity::MiningAtMine));
@@ -2079,7 +2137,7 @@ fn building_inspector_content(
     // Town + faction
     if let Some(town) = world_data.towns.get(town_idx) {
         ui.label(format!("Town: {}", town.name));
-        if ui.link(format!("Faction: {}", town.faction)).clicked() {
+        if ui.link(format!("Faction: {} (F{})", town.name, town.faction)).clicked() {
             ui_state.left_panel_open = true;
             ui_state.left_panel_tab = LeftPanelTab::Factions;
             faction_select.write(crate::messages::SelectFactionMsg(town.faction));
@@ -2802,7 +2860,7 @@ fn building_inspector_content(
             let faction_text = world_data
                 .towns
                 .get(town_idx)
-                .map(|t| t.faction.to_string())
+                .map(|t| format!("{} (F{})", t.name, t.faction))
                 .unwrap_or_else(|| {
                     if kind == BuildingKind::GoldMine {
                         "Unowned".to_string()
@@ -3604,7 +3662,11 @@ pub fn faction_squad_overlay_system(
 
         let label_pos = end + perp * 10.0;
         let label = if show_all {
-            format!("F{} Squad {}", faction, si + 1)
+            let town_label = world_data.towns.iter()
+                .find(|t| t.faction == faction)
+                .map(|t| t.name.as_str())
+                .unwrap_or("?");
+            format!("{} Squad {}", town_label, si + 1)
         } else {
             format!("Squad {}", si + 1)
         };

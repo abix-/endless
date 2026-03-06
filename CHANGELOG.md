@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-03-05f
+
+- **In-game chat (player ↔ LLM)** — two-way messaging between human player and LLM-controlled towns. Chat input at bottom of combat log sends messages to all LLM towns via `ChatInbox` resource. Messages appear in `endless/summary` response as `inbox` array per-town, drained on read. New `endless/chat` BRP endpoint lets LLM reply (logged as LLM combat event). New `CombatEventKind::Chat` (gold color) with filterable checkbox.
+- **Faction consistency in inspectors** — NPC and building inspectors now show `Faction: Orlando (F1)` instead of raw numbers (`1 (town 1)` / `1`). Squad overlay arrows show `Orlando Squad 1` instead of `F1 Squad 1`. Matches the factions tab format.
+- **LLM player CLI improvements** — `actions.py` now works as CLI tool (`python actions.py method '{"params"}'`), eliminating ugly heredoc/import patterns. `launch.py` grants `Read` permission for loop.log access. Prompt strategy section updated with battle-tested lessons: food > 50 gate, 15+ military homes before attacking, commit to one target, re-issue squad orders frequently.
+
 ## 2026-03-05e
 
 - **LLM player guide** — new `docs/llm-player.md` (setup, game loop, token budget, strategy tips) and `docs/llm-player-prompt.md` (complete system prompt for the model: role, actions reference, strategy phases, rules). Covers Claude Code, Anthropic API, and generic HTTP approaches.

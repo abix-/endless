@@ -12,15 +12,17 @@ Call endless/summary and look for the town with "llm": true — that's yours. Us
 
 ## Tools
 
-Two Python scripts in the llm-player/ directory:
+Two Python scripts in the current directory:
 
 loop.py — Background state monitor. Polls game state every 10s, writes to loop.log. Auto-discovers your LLM town.
 
-actions.py — One function: rpc(method, params). Call any game endpoint.
+actions.py — CLI wrapper for any game endpoint. Usage:
 
-  from actions import rpc
-  rpc("endless/summary")
-  rpc("endless/ai_manager", {"town": 1, "active": True, "personality": "Aggressive"})
+  python actions.py endless/summary
+  python actions.py endless/ai_manager '{"town": 1, "active": true, "personality": "Aggressive"}'
+  python actions.py endless/squad_target '{"squad": 13, "x": 6944, "y": 11488}'
+
+Run with no args to see all towns. Chain multiple calls with &&.
 
 ## Available Methods
 
@@ -34,6 +36,7 @@ Write (your LLM town only):
   endless/upgrade {"town", "upgrade_idx"}
   endless/squad_target {"squad", "x", "y"}
   endless/build {"town", "kind", "row", "col"}
+  endless/chat {"town", "to", "message"}  — Send chat message to another town
   endless/time {"paused", "time_scale"}
 
 Personalities: "Aggressive", "Balanced", "Economic"
@@ -49,34 +52,41 @@ Building kinds: Farm, FarmerHome, ArcherHome, Tent, GoldMine, MinerHome, Crossbo
 
 ## Reading Game State
 
-The summary returns per-town: name, faction, center, food, gold, buildings, squads (index + members + target), llm flag. Also: game_time, npcs (counts by job/activity), factions (alive/dead/kills).
+The summary returns per-town: name, faction, center, food, gold, buildings, squads (index + members + target), inbox (chat messages from other players), llm flag. Also: game_time, npcs (counts by job/activity), factions (alive/dead/kills). Inbox messages are drained on read — check them every cycle.
 
 ## Strategy
 
-Phase 1 — Economy (day 1-3):
+Phase 1 — Economy (until food > 50 consistently):
 - Enable AI Manager with Economic personality
 - Set eat_food: true, prioritize_healing: true
 - Let the AI Manager build farms and homes
-- Don't attack yet
+- Build 15+ military homes (ArcherHome, FighterHome, CrossbowHome) to scale army
+- Don't attack yet — squads of 3-5 are useless against towns of 30+
 
-Phase 2 — Growth (day 3-8):
+Phase 2 — Upgrades (until 3-4 bought):
 - Switch to Balanced personality
-- Monitor food: if consistently > 50, economy is healthy
-- Start buying upgrades (Move Speed first, then Stamina, then Damage)
-- Build more homes to grow population
+- Buy upgrades: Move Speed, then HP, then Damage
+- Keep food above 50 — it's the bottleneck. If food drops, go Economic immediately
+- Monitor enemy factions — if one is snowballing (100+ alive), it becomes unkillable later
 
-Phase 3 — Military (day 8+):
-- Switch to Aggressive when you have 10+ military NPCs
-- Get your squad indices from the summary's "squads" array
-- Send squads to attack weak enemies (low alive count, nearby)
-- Buy military upgrades: Damage, HP, Attack Range
-- Finish weakened enemies before splitting focus
+Phase 3 — Attack (one target, full commit):
+- Pick ONE nearby weak target (low alive count, short distance). Never attack 6000+ tiles away
+- Send ALL squads to the same target. Don't split focus between multiple enemies
+- Re-issue squad orders frequently — squads go idle after reaching targets
+- Raider towns regenerate. Press the attack until the fountain is destroyed
+- Don't flip between Aggressive/Economic/Balanced constantly. Commit to a plan
 
 React to events:
-- Food dropping below 15 -> switch to Economic, disable archer_aggressive
+- Food below 15 -> switch to Economic, disable archer_aggressive, recall squads
 - Under attack -> redirect squads home, enable farmer_fight_back
-- Enemy weak (low alive count) -> attack with all squads
-- Lots of gold -> buy upgrades
+- Dominant enemy (100+ alive) -> consider diplomacy via endless/chat before they're unstoppable
+- Lots of gold -> buy upgrades before attacking
+
+Key mistakes to avoid:
+- Don't cd in commands — working directory is already set
+- Don't attack until army is large enough (15+ military NPCs)
+- Don't switch targets mid-attack — finish what you started
+- Don't ignore inbox — check every cycle for diplomacy opportunities
 
 ## Rules
 
