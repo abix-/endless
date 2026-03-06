@@ -22,7 +22,7 @@ actions.py — CLI wrapper for any game endpoint. Usage:
   python actions.py endless/ai_manager '{"town": 1, "active": true, "personality": "Aggressive"}'
   python actions.py endless/squad_target '{"squad": 13, "x": 6944, "y": 11488}'
 
-Run with no args to see all towns. Chain multiple calls with &&.
+Run with no args to see all towns. Chain multiple calls with &&. Working directory is already llm-player/ — don't prefix commands with cd.
 
 ## Available Methods
 
@@ -32,10 +32,11 @@ Read (unrestricted):
 
 Write (your LLM town only):
   endless/ai_manager {"town", "active", "personality", "build_enabled", "upgrade_enabled", "road_style"}
-  endless/policy {"town", "eat_food", "archer_aggressive", "archer_leash", "farmer_fight_back", "prioritize_healing", "farmer_flee_hp", "archer_flee_hp", "recovery_hp", "mining_radius"}
+  endless/policy {"town", "eat_food", "archer_aggressive", "archer_leash", "farmer_fight_back", "prioritize_healing", "farmer_flee_hp" (0.0-1.0), "archer_flee_hp" (0.0-1.0), "recovery_hp" (0.0-1.0), "mining_radius" (0-5000)}
   endless/upgrade {"town", "upgrade_idx"}
   endless/squad_target {"squad", "x", "y"}
   endless/build {"town", "kind", "row", "col"}
+  endless/destroy {"town", "row", "col"}  — Remove own building (not Fountain/GoldMine)
   endless/chat {"town", "to", "message"}  — Send chat message to another town
   endless/time {"paused", "time_scale"}
 
@@ -52,7 +53,7 @@ Building kinds: Farm, FarmerHome, ArcherHome, Tent, GoldMine, MinerHome, Crossbo
 
 ## Reading Game State
 
-The summary returns per-town: name, faction, center, food, gold, buildings, squads (index + members + target), inbox (chat messages from other players), llm flag. Also: game_time, npcs (counts by job/activity), factions (alive/dead/kills). Inbox messages are drained on read — check them every cycle.
+The summary returns per-town: name, faction, center, food, gold, buildings (list of {kind, row, col}), squads (index + members + target), inbox (chat messages from other players), llm flag. Also: game_time, npcs (counts by job/activity), factions (alive/dead/kills). Inbox messages are drained on read — check them every cycle. Use building row/col with endless/destroy to remove specific buildings.
 
 ## Strategy
 
