@@ -293,6 +293,7 @@ pub fn build_app(app: &mut App) {
                 .with_method("endless/squad_target", systems::remote::squad_target_handler)
                 .with_method("endless/ai_manager", systems::remote::ai_manager_handler)
                 .with_method("endless/chat", systems::remote::chat_handler)
+                .with_method("endless/debug", systems::remote::debug_handler)
         )
         .add_plugins(RemoteHttpPlugin::default())
         .init_resource::<systems::remote::RemoteBuildQueue>()

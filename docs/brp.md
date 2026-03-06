@@ -29,7 +29,7 @@ The BRP endpoints exist so any AI model can play Endless as an opponent or ally.
 
 **Delegation, not micromanagement.** The model controls high-level strategy: personality, policies, squad targets, upgrade priorities. The in-game AI Manager handles the grunt work — building placement, road layout, combat pathing. This is the same split a human player uses: you set the AI Manager's personality and toggles in the Policies tab, then intervene only when you want to override or react to events.
 
-**Read-heavy, write-sparse.** Most interactions are reads — `endless/summary` for a game overview, `world.query` for specific entity data. Write actions (`endless/policy`, `endless/ai_manager`, `endless/squad_target`, `endless/build`, `endless/upgrade`) are infrequent strategic decisions, not per-frame commands.
+**Read-heavy, write-sparse.** Most interactions are reads — `endless/summary` for a game overview, `world.query` for specific entity data, `endless/debug` for deep NPC/building inspection. Write actions (`endless/policy`, `endless/ai_manager`, `endless/squad_target`, `endless/build`, `endless/upgrade`, `endless/chat`) are infrequent strategic decisions, not per-frame commands.
 
 **Model-agnostic.** Any HTTP client works — curl from Claude Code, Python scripts, MCP tools, OpenAI function calling, etc. The JSON-RPC interface doesn't care what model or framework is driving it.
 
@@ -344,6 +344,21 @@ curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
 ```
 
 The player can also send messages to LLM towns via the chat input in the combat log UI.
+
+### endless/debug
+
+Deep-inspect a single NPC or building by GPU slot index. Returns full ECS component data in TOON format.
+
+**Params:** `kind` (string: "npc" or "building"), `slot` (usize: GPU slot index)
+
+**NPC returns:** slot, job, activity, combat_state, hp, max_hp, energy, home, faction, town, personality traits, equipment slots (with rarity/bonus), flags, manual_target, squad, patrol, carried loot, cached stats, kill/death counts.
+
+**Building returns:** slot, kind, label, town, faction, grid position, hp, max_hp, occupants, growth, under_construction, respawn_timer, worksite info, wall level, assigned mine.
+
+```bash
+curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"endless/debug","params":{"kind":"npc","slot":42},"id":1}'
+```
 
 ## Notes
 

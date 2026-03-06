@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use crate::resources::PolicySet;
 
-const SETTINGS_VERSION: u32 = 13;
+const SETTINGS_VERSION: u32 = 14;
 
 /// Controls which NPCs have their activity logged in `NpcLogCache`.
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug)]
@@ -722,8 +722,14 @@ pub struct UserSettings {
     /// Section names the user has explicitly collapsed in the left panel.
     #[serde(default)]
     pub collapsed_sections: Vec<String>,
+    /// LLM player cycle interval in seconds.
+    #[serde(default = "default_llm_interval")]
+    pub llm_interval: f32,
 }
 
+fn default_llm_interval() -> f32 {
+    20.0
+}
 fn default_endless_strength() -> f32 {
     0.75
 }
@@ -894,6 +900,7 @@ impl Default for UserSettings {
             npc_log_mode: NpcLogMode::default(),
             left_panel_tab: String::new(),
             collapsed_sections: Vec::new(),
+            llm_interval: 20.0,
         }
     }
 }

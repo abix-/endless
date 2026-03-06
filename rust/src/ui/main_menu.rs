@@ -485,6 +485,7 @@ pub fn main_menu_system(
                     rebinding_action,
                     None, // no save
                     None, // no load
+                    None, // no LLM player in main menu
                 )
             });
         if !open {

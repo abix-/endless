@@ -197,7 +197,12 @@ fn camera_pan_system(
     time: Res<Time>,
     mut query: Query<(&mut Transform, &Projection), With<MainCamera>>,
     user_settings: Res<UserSettings>,
+    mut contexts: bevy_egui::EguiContexts,
 ) {
+    // Suppress camera pan when typing in a text field
+    if contexts.ctx_mut().is_ok_and(|ctx| ctx.wants_keyboard_input()) {
+        return;
+    }
     let Ok((mut transform, projection)) = query.single_mut() else {
         return;
     };

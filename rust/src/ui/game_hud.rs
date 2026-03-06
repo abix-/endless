@@ -148,6 +148,7 @@ pub fn top_bar_system(
     mut ups_elapsed: Local<f32>,
     settings: Res<crate::settings::UserSettings>,
     mut camera_query: Query<&mut Transform, With<MainCamera>>,
+    llm_state: Option<Res<crate::systems::llm_player::LlmPlayerState>>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
 
@@ -331,6 +332,37 @@ pub fn top_bar_system(
                             .size(12.0)
                             .strong(),
                     );
+
+                    // LLM status indicator — painted circle with color coding
+                    if let Some(ref llm) = llm_state {
+                        use crate::systems::llm_player::LlmStatus;
+                        let (color, tip) = match llm.status {
+                            LlmStatus::Idle => (
+                                egui::Color32::from_rgb(80, 80, 80),
+                                "LLM idle",
+                            ),
+                            LlmStatus::Sending => (
+                                egui::Color32::from_rgb(80, 180, 255),
+                                "LLM sending state",
+                            ),
+                            LlmStatus::Thinking => (
+                                egui::Color32::from_rgb(255, 200, 50),
+                                "LLM thinking...",
+                            ),
+                            LlmStatus::Done(n) => (
+                                egui::Color32::from_rgb(80, 220, 120),
+                                if n > 0 { "LLM executed actions" } else { "LLM no actions" },
+                            ),
+                        };
+                        let size = 8.0;
+                        let (rect, resp) = ui.allocate_exact_size(
+                            egui::vec2(size + 4.0, size + 4.0),
+                            egui::Sense::hover(),
+                        );
+                        ui.painter().circle_filled(rect.center(), size * 0.5, color);
+                        resp.on_hover_text(tip);
+                    }
+
                     ui.separator();
 
                     // Player stats (right-aligned) — player's town is index 0

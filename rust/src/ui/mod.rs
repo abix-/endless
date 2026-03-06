@@ -73,6 +73,8 @@ pub fn settings_panel_ui(
     // Save/Load tab state — None hides those tabs
     manual_save_name: Option<&mut String>,
     manual_load_name: Option<&mut String>,
+    // LLM player inspector — (command, payload, response), None if no LLM player active
+    llm_preview: Option<(&str, &str, &str)>,
 ) -> SettingsResponse {
     let mut resp = SettingsResponse {
         reset_requested: false,
@@ -99,6 +101,7 @@ pub fn settings_panel_ui(
                 PauseSettingsTab::Audio,
                 PauseSettingsTab::Logs,
                 PauseSettingsTab::Debug,
+                PauseSettingsTab::LlmPlayer,
             ] {
                 ui.selectable_value(
                     tab,
@@ -411,6 +414,51 @@ pub fn settings_panel_ui(
                             });
                             ui.small("Max path requests processed per tick. Higher reduces queueing but costs more CPU.");
                         }
+                        PauseSettingsTab::LlmPlayer => {
+                            ui.horizontal(|ui| {
+                                ui.label("Cycle Interval:");
+                                ui.add(egui::Slider::new(&mut settings.llm_interval, 5.0..=120.0)
+                                    .step_by(5.0)
+                                    .suffix("s"));
+                            });
+                            ui.small("How often the LLM player runs claude --print.");
+                            ui.add_space(8.0);
+                            if let Some((cmd, payload, response)) = llm_preview {
+                                ui.separator();
+                                egui::CollapsingHeader::new("Last Command").default_open(true).show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.label(egui::RichText::new(cmd).monospace().size(12.0));
+                                        if ui.small_button("Copy").clicked() {
+                                            ui.output_mut(|o| o.commands.push(egui::OutputCommand::CopyText(cmd.to_string())));
+                                        }
+                                    });
+                                });
+                                ui.add_space(4.0);
+                                egui::CollapsingHeader::new("Last Payload").default_open(false).show(ui, |ui| {
+                                    if ui.small_button("Copy").clicked() {
+                                        ui.output_mut(|o| o.commands.push(egui::OutputCommand::CopyText(payload.to_string())));
+                                    }
+                                    egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                                        ui.label(egui::RichText::new(payload).monospace().size(11.0));
+                                    });
+                                });
+                                ui.add_space(4.0);
+                                egui::CollapsingHeader::new("Last Response").default_open(false).show(ui, |ui| {
+                                    if response.is_empty() {
+                                        ui.label(egui::RichText::new("No response yet.").weak());
+                                    } else {
+                                        if ui.small_button("Copy").clicked() {
+                                            ui.output_mut(|o| o.commands.push(egui::OutputCommand::CopyText(response.to_string())));
+                                        }
+                                        egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                                            ui.label(egui::RichText::new(response).monospace().size(11.0));
+                                        });
+                                    }
+                                });
+                            } else {
+                                ui.label(egui::RichText::new("No LLM player active.").weak());
+                            }
+                        }
                         PauseSettingsTab::SaveGame => {
                             if let Some(save_name) = manual_save_name {
                                 ui.label("Quick save");
@@ -649,8 +697,13 @@ pub fn ui_toggle_system(
     mut follow: ResMut<FollowSelected>,
     mut squad_state: ResMut<SquadState>,
     mut build_ctx: ResMut<BuildMenuContext>,
+    mut contexts: bevy_egui::EguiContexts,
 ) {
     if ui_state.pause_menu_open {
+        return;
+    }
+    // Suppress hotkeys when an egui text field (chat, etc.) has keyboard focus
+    if contexts.ctx_mut().is_ok_and(|ctx| ctx.wants_keyboard_input()) {
         return;
     }
 
@@ -1013,7 +1066,9 @@ fn game_escape_system(
     mut squad_state: ResMut<SquadState>,
     mut build_ctx: ResMut<BuildMenuContext>,
     settings: Res<UserSettings>,
+    mut contexts: bevy_egui::EguiContexts,
 ) {
+    let egui_wants_kb = contexts.ctx_mut().is_ok_and(|ctx| ctx.wants_keyboard_input());
     if keys.just_pressed(settings.key_for_action(ControlAction::PauseMenu)) {
         // Cancel box-select or squad target placement first
         if squad_state.box_selecting || squad_state.drag_start.is_some() {
@@ -1048,8 +1103,8 @@ fn game_escape_system(
             }
         }
     }
-    // Time controls only when pause menu is closed
-    if !ui_state.pause_menu_open {
+    // Time controls only when pause menu is closed and no text field focused
+    if !ui_state.pause_menu_open && !egui_wants_kb {
         if keys.just_pressed(settings.key_for_action(ControlAction::TogglePause)) {
             if game_time.is_paused() {
                 if game_time.time_scale <= 0.0 {
@@ -1113,6 +1168,7 @@ fn pause_menu_system(
     mut music_sinks: Query<&mut AudioSink, With<crate::resources::MusicTrack>>,
     mut locals: Local<PauseMenuLocals>,
     mut runtime_configs: PauseRuntimeConfigs,
+    llm_state: Option<Res<crate::systems::llm_player::LlmPlayerState>>,
 ) -> Result {
     if !ui_state.pause_menu_open || ui_state.game_over {
         locals.rebinding = None;
@@ -1166,6 +1222,7 @@ fn pause_menu_system(
         .min_height(520.0)
         .show(ctx, |ui| {
             let PauseMenuLocals { save_name, load_name, rebinding } = &mut *locals;
+            let llm_preview = llm_state.as_ref().map(|s| (s.last_command.as_str(), s.last_payload.as_str(), s.last_response.as_str()));
             let resp = settings_panel_ui(
                 ui,
                 &mut settings,
@@ -1173,6 +1230,7 @@ fn pause_menu_system(
                 rebinding,
                 Some(save_name),
                 Some(load_name),
+                llm_preview,
             );
 
             if ui.button("Resume").clicked() {

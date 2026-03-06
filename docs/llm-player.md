@@ -22,14 +22,23 @@ npcs:
   Archer: 8 (Patrolling:5 OnDuty:3)
 ```
 
-Action format (LLM → game): one action per line, `method key:value key:value ...`
+Action format (LLM → game): TOON `actions[N]:` array of objects with `method` field plus params.
 ```
-build kind:Farm row:-5 col:0
-policy eat_food:true recovery_hp:0.5
-squad_target squad:0 x:5000 y:8000
+actions[3]:
+  - method: build
+    kind: Farm
+    row: -5
+    col: 0
+  - method: policy
+    eat_food: true
+    recovery_hp: 0.5
+  - method: squad_target
+    squad: 0
+    x: 5000
+    y: 8000
 ```
 
-Serialized via `serde_toon2` crate in Rust (derives `Serialize`).
+Serialized via `serde_toon2` crate in Rust — `serde_toon2::from_str` parses responses directly.
 
 ## Built-in Player (recommended)
 
@@ -41,17 +50,17 @@ The game has a built-in LLM player that spawns `claude --print` directly — no 
 2. Check the **LLM** checkbox on the slot you want the model to control
 3. Click **Play**
 
-The built-in player reads ECS resources directly and sends game state as TOON to Claude via stdin piping. It runs every 20 seconds.
+The built-in player reads ECS resources directly and sends game state as TOON to Claude via stdin piping. Default cycle is 20 seconds, adjustable via LLM Player settings tab (5-120s).
 
 ### Architecture
 
 `systems/llm_player.rs`:
-- `LlmPlayerState` resource: timer, async receiver, subscriptions, pending queries
+- `LlmPlayerState` resource: timer, async receiver, subscriptions, pending queries, `last_command`/`last_payload`/`last_response` for settings panel inspector, `LlmStatus` enum (Idle/Sending/Thinking/Done)
 - `LlmReadState` SystemParam: read-only ECS access (WorldData, GameTime, FactionStats, PopulationStats, TownUpgrades, Reputation)
-- `LlmWriteState` SystemParam: write access (SquadState, FoodStorage, GoldStorage)
+- `LlmWriteState` SystemParam: write access (SquadState, FoodStorage, GoldStorage, ChatInbox)
 - `build_state_json()`: builds `serde_json::Value` from ECS, serialized to TOON via `serde_toon2::to_string()` — own town gets full building list, enemy towns get counts
-- `parse_actions()`: parses TOON action lines (`method key:value ...`) with auto-typed values (bool/int/float/string)
-- `execute_actions()`: routes parsed actions to ECS mutations
+- `parse_actions()`: parses TOON `actions[N]:` array via `serde_toon2::from_str` — each action object has `method` field plus params
+- `execute_actions()`: routes parsed actions to ECS mutations (build, destroy, upgrade, policy, squad_target, chat, query, subscribe, unsubscribe)
 
 Process spawn uses `.env_remove("CLAUDECODE")` to avoid nested-session detection, `Stdio::piped()` for stdin, and `CREATE_NO_WINDOW` on Windows to prevent console focus stealing.
 
@@ -59,9 +68,26 @@ Process spawn uses `.env_remove("CLAUDECODE")` to avoid nested-session detection
 
 `llm-player/prompt_builtin.md` is the system prompt. It documents:
 - TOON state format (towns with distance, reputation, buildings, squads)
-- TOON action format: `method key:value ...` one per line, `NONE` for no-op
-- Data topics (npcs, combat_log, upgrades, policies) via `subscribe topics:npcs,upgrades`
-- Strategy phases (expand → upgrades → attack)
+- TOON action format: `actions[N]:` array with `- method: X` objects, `NONE` for no-op
+- Actions: build, destroy, upgrade, policy, squad_target, chat, query, subscribe, unsubscribe
+- Data topics (npcs, combat_log, upgrades, policies) via subscribe
+- Strategy phases (expand → upgrades → attack → diplomacy)
+
+### Settings Panel
+
+The LLM Player tab in the pause menu settings provides:
+- **Cycle interval slider** (5-120s, step 5) — synced live to timer duration
+- **Last Command** — the `claude --print` CLI invocation (collapsible, copy button)
+- **Last Payload** — full TOON state sent as stdin (collapsible, copy button)
+- **Last Response** — raw LLM output (collapsible, copy button)
+
+### HUD Status Indicator
+
+A colored circle in the top bar shows LLM status:
+- Gray: idle (timer counting down)
+- Blue: sending state to Claude
+- Yellow: waiting for response
+- Green: executed actions (or no actions)
 
 ### Data Model
 

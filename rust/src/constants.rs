@@ -2114,20 +2114,20 @@ mod tests {
     #[test]
     fn rarity_stat_ranges_ordered() {
         let rarities = [Rarity::Common, Rarity::Uncommon, Rarity::Rare, Rarity::Epic];
-        for w in rarities.windows(2) {
-            let (_, max_lower) = w[0].stat_range();
-            let (min_upper, _) = w[1].stat_range();
+        for [lo, hi] in rarities.array_windows() {
+            let (_, max_lower) = lo.stat_range();
+            let (min_upper, _) = hi.stat_range();
             assert!(min_upper >= max_lower,
-                "{:?} max {} should be <= {:?} min {}", w[0], max_lower, w[1], min_upper);
+                "{:?} max {} should be <= {:?} min {}", lo, max_lower, hi, min_upper);
         }
     }
 
     #[test]
     fn rarity_gold_costs_increase() {
         let rarities = [Rarity::Common, Rarity::Uncommon, Rarity::Rare, Rarity::Epic];
-        for w in rarities.windows(2) {
-            assert!(w[1].gold_cost() > w[0].gold_cost(),
-                "{:?} cost {} should be > {:?} cost {}", w[1], w[1].gold_cost(), w[0], w[0].gold_cost());
+        for [lo, hi] in rarities.array_windows() {
+            assert!(hi.gold_cost() > lo.gold_cost(),
+                "{:?} cost {} should be > {:?} cost {}", hi, hi.gold_cost(), lo, lo.gold_cost());
         }
     }
 

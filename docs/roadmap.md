@@ -186,11 +186,12 @@ Chunk 4 — Economy & Sending:
 
 *Done when: player marches an army to a raider town, defeats defenders, and claims the town - raider town converts to player-owned town with buildings intact, player now manages two towns.*
 
+Initial game setup: 1 player town, 1 AI builder town, 1 AI raider town on a small starting map. Conquest of these towns triggers the first expansion (Stage 29).
+
 - [ ] Town siege: army arrives at hostile settlement -> attacks defenders + buildings
 - [ ] Building HP: walls have HP - attackers must breach defenses (archer homes/farmer homes HP already done)
 - [ ] Town capture: all defenders dead + town center HP -> 0 = captured -> converts to player town
 - [ ] AI expansion: AI players can attack each other and the player (not just raid - full conquest attempts)
-- [ ] Victory condition: control all settlements on the map
 
 **Stage 28: Diplomacy**
 
@@ -202,14 +203,33 @@ Chunk 4 — Economy & Sending:
 - [ ] Allied raider towns stop raiding, may send fighters during large attacks
 - [ ] Betrayal: allied raider towns can turn hostile if tribute stops or player is weak
 
-**Stage 29: World Map**
+**Stage 29: Endless Expansion**
 
-*Done when: player conquers all towns on "County of Palm Beach", clicks "Next Region" on the world map, and starts a new county with harder AI and more raider towns - campaign progression.*
+*Done when: player conquers both starter AI towns, picks an expansion direction, map grows with new AI towns, and the cycle repeats — the game ends only when hardware can't keep up.*
 
-- [ ] World map screen: grid of regions (counties), each is a separate game map
-- [ ] Region difficulty scaling (more raider towns, tougher AI, scarcer resources)
-- [ ] Persistent bonuses between regions (tech carries over, starting resources from tribute)
-- [ ] "Country" = set of regions. "World" = set of countries. Campaign arc.
+The game starts small (3 towns) and grows outward each time the player conquers all hostile towns in the current map. Each expansion adds a new map chunk with fresh AI towns at increasing difficulty. There is no victory screen — the simulation runs until CPU/GPU hits its limit. Every player's "ending" is unique to their hardware.
+
+- [ ] Expansion trigger: detect when all hostile towns on current map are conquered
+- [ ] Direction picker UI: player chooses which direction to expand (N/S/E/W or quadrant)
+- [ ] Map chunk generation: extend world grid in chosen direction, generate terrain + new AI towns
+- [ ] Progressive difficulty: each expansion wave adds more towns, tougher AI, higher NPC counts
+- [ ] Performance-aware scaling: monitor framerate, warn player when approaching hardware limits
+- [ ] No end condition: cycle repeats indefinitely (expand -> conquer -> expand)
+
+**Stage 30: Underground Caverns**
+
+*Done when: player sends a party of NPCs into a cavern entrance, they descend into a procedurally generated underground layer, fight cave creatures, and return with rare loot.*
+
+Cavern entrances spawn on the surface map (naturally on Rock biome, or revealed by expansion). Each entrance leads to a procedural underground layer — a separate grid with tunnels, chambers, and creature dens. NPCs explore autonomously: navigate tunnels, fight creatures, collect loot, and return home when injured or loaded up. Deeper caverns = tougher creatures + rarer loot.
+
+- [ ] Cavern entrance building/object: placed on Rock tiles or spawned during map generation
+- [ ] Underground layer generation: procedural tunnel/chamber layout (noise-based or cellular automata)
+- [ ] Creature types: cave dwellers with unique combat behaviors (melee swarmers, ranged spitters, boss creatures in deep chambers)
+- [ ] NPC delving behavior: send party -> descend -> explore -> fight -> loot -> return when hurt or full
+- [ ] Depth tiers: each cavern has multiple depth levels, deeper = harder + better loot
+- [ ] Cavern loot table: rare ores, unique equipment, crafting materials not found on surface (feeds into Stage 18 loot + Stage 25 resources)
+- [ ] Fog of war: underground areas revealed as NPCs explore, persists between visits
+- [ ] Creature respawn: caverns repopulate over time, making them replayable
 
 Sound (bevy_audio) woven into stages. Done: arrow shoot SFX, NPC death SFX (24 variants), spatial camera culling, per-kind dedup. Remaining: building place, wall hit, loot pickup (Stages 17-20); element sounds + wave horn (Stage 24).
 

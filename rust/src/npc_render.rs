@@ -1194,7 +1194,7 @@ fn write_coalesced_exact_f32(
         return;
     }
     debug_assert!(
-        dirty.windows(2).all(|w| w[0] < w[1]),
+        dirty.array_windows().all(|[a, b]| a < b),
         "dirty indices not sorted+deduped"
     );
     debug_assert!(

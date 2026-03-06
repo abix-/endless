@@ -2321,6 +2321,7 @@ pub enum PauseSettingsTab {
     Audio,
     Logs,
     Debug,
+    LlmPlayer,
     SaveGame,
     LoadGame,
 }
@@ -2335,6 +2336,7 @@ impl PauseSettingsTab {
             Self::Audio => "Audio",
             Self::Logs => "Logs",
             Self::Debug => "Debug",
+            Self::LlmPlayer => "LLM Player",
             Self::SaveGame => "Save Game",
             Self::LoadGame => "Load Game",
         }
@@ -2349,6 +2351,7 @@ impl PauseSettingsTab {
             Self::Audio => ("Audio", "Music and sound effect levels."),
             Self::Logs => ("Logs", "Control what gets written to combat and activity logs."),
             Self::Debug => ("Debug", "Developer visibility and diagnostics toggles."),
+            Self::LlmPlayer => ("LLM Player", "Claude command interval and payload inspector."),
             Self::SaveGame => ("Save Game", "Quicksave instantly or save manually by filename."),
             Self::LoadGame => ("Load Game", "Quickload or load a named/manual save file."),
         }

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-03-06a
+
+- **TOON response format for LLM player** — LLM responses now use proper TOON `actions[N]:` arrays instead of custom `method key:value` one-liners. Parser replaced with `serde_toon2::from_str` (eliminated custom `parse_toon_value` and line-by-line parser). Prompt updated with one comprehensive TOON example and compact per-action field lists. End-to-end TOON: outbound state AND inbound responses.
+- **LLM player settings tab** — new pause menu tab with cycle interval slider (5-120s, step 5, synced live to timer), collapsible inspectors for last command, last payload, and last response, each with copy-to-clipboard buttons via `OutputCommand::CopyText`.
+- **LLM HUD status indicator** — colored circle in top bar: gray (idle), blue (sending), yellow (thinking), green (done). `LlmStatus` enum on `LlmPlayerState`.
+- **LLM chat action** — built-in player can now send chat messages to other towns via `chat` action (to, message params). Messages pushed to `ChatInbox` (moved from `LlmReadState` to `LlmWriteState` for write access).
+- **BRP debug endpoint** — new `endless/debug` endpoint for deep NPC/building inspection by GPU slot. Returns full ECS component data (job, activity, health, equipment, personality, combat state, flags for NPCs; kind, grid, occupants, worksite for buildings).
+- **Keyboard focus suppression** — camera pan and hotkeys suppressed when egui text fields have keyboard focus (chat input, save name).
+- **Rust 1.94** — bumped MSRV, `array_windows()` replaces `windows(2)` in tests.
+
 ## 2026-03-05h
 
 - **TOON format for all LLM communication** — replaced JSON with TOON (Token-Oriented Object Notation) for 30-60% token savings. Added `serde_toon2` crate. BRP summary endpoint uses typed `SummaryResponse` struct with tuples for tabular data (factions, buildings, squads, upgrades, combat_log, inbox), serialized via `serde_toon2::to_string()`. All write handler responses use `toon_ok()` helper. New data in summary: `RemoteCombatLogRing` (VecDeque cap 20) for recent combat events, `TownUpgrades` for per-town upgrade levels/costs, `compact_npc_counts()` collapses verbose per-activity keys into `Archer: 8 (Patrolling:5 OnDuty:3)`.

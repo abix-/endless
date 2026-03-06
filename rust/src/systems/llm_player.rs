@@ -9,7 +9,20 @@ use std::sync::{mpsc, Mutex};
 use crate::resources::*;
 use crate::world::WorldData;
 
-const CYCLE_SECS: f32 = 20.0;
+const DEFAULT_CYCLE_SECS: f32 = 20.0;
+
+/// LLM communication state — displayed as a status icon in the HUD.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LlmStatus {
+    /// Timer counting down, no active request.
+    Idle,
+    /// Spawned claude process, piping state data.
+    Sending,
+    /// Waiting for claude to respond.
+    Thinking,
+    /// Got response, executed N actions.
+    Done(usize),
+}
 
 #[derive(Resource)]
 pub struct LlmPlayerState {
@@ -17,26 +30,37 @@ pub struct LlmPlayerState {
     receiver: Option<Mutex<mpsc::Receiver<String>>>,
     prompt: String,
     pub town_idx: usize,
+    pub status: LlmStatus,
     /// One-shot topics requested by `query` — included in next cycle only, then cleared.
     pending_queries: Vec<String>,
     /// Persistent topic subscriptions — included in every cycle's state payload.
     subscriptions: Vec<String>,
+    /// Last CLI command that was (or will be) executed — for settings panel display.
+    pub last_command: String,
+    /// Last TOON state payload sent as stdin — for settings panel display.
+    pub last_payload: String,
+    /// Last raw response from claude — for settings panel display.
+    pub last_response: String,
 }
 
 impl LlmPlayerState {
     pub fn new(town_idx: usize) -> Self {
         let prompt = load_prompt();
         println!("[LLM] Built-in LLM player initialized for town {town_idx}");
-        // Fire immediately on first tick, then repeat every CYCLE_SECS
-        let mut timer = Timer::from_seconds(CYCLE_SECS, TimerMode::Repeating);
-        timer.tick(std::time::Duration::from_secs_f32(CYCLE_SECS));
+        // Fire immediately on first tick, then repeat every DEFAULT_CYCLE_SECS
+        let mut timer = Timer::from_seconds(DEFAULT_CYCLE_SECS, TimerMode::Repeating);
+        timer.tick(std::time::Duration::from_secs_f32(DEFAULT_CYCLE_SECS));
         Self {
             timer,
             receiver: None,
             prompt,
             town_idx,
+            status: LlmStatus::Idle,
             pending_queries: Vec::new(),
             subscriptions: Vec::new(),
+            last_command: String::new(),
+            last_payload: String::new(),
+            last_response: String::new(),
         }
     }
 }
@@ -64,7 +88,6 @@ pub struct LlmReadState<'w> {
     game_time: Res<'w, GameTime>,
     faction_stats: Res<'w, FactionStats>,
     entity_map: Res<'w, EntityMap>,
-    chat_inbox: Res<'w, ChatInbox>,
     pop_stats: Res<'w, PopulationStats>,
     town_upgrades: Res<'w, crate::systems::stats::TownUpgrades>,
     reputation: Res<'w, crate::resources::Reputation>,
@@ -79,6 +102,7 @@ pub struct LlmWriteState<'w> {
     upgrade_q: ResMut<'w, crate::systems::remote::RemoteUpgradeQueue>,
     combat_log: ResMut<'w, CombatLog>,
     squad_state: ResMut<'w, SquadState>,
+    chat_inbox: ResMut<'w, ChatInbox>,
 }
 
 /// Build game state JSON directly from ECS resources.
@@ -132,7 +156,7 @@ fn build_state_json(read: &LlmReadState, write: &LlmWriteState, town_idx: usize,
             }
         }
 
-        let inbox: Vec<Value> = read.chat_inbox
+        let inbox: Vec<Value> = write.chat_inbox
             .messages
             .iter()
             .filter(|m| m.to_town == ti)
@@ -223,46 +247,33 @@ fn build_state_json(read: &LlmReadState, write: &LlmWriteState, town_idx: usize,
     root
 }
 
-/// Parse TOON action lines: `method key:value key:value ...`
+/// Parse TOON response — expects `actions[N]:` array of action objects.
 fn parse_actions(response: &str) -> Vec<LlmAction> {
     let text = response.trim();
-
     if text.is_empty() || text.eq_ignore_ascii_case("none") {
         return Vec::new();
     }
 
-    let mut actions = Vec::new();
-    for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') || line.eq_ignore_ascii_case("none") {
-            continue;
+    let value: Value = match serde_toon2::from_str(text) {
+        Ok(v) => v,
+        Err(e) => {
+            warn!("[LLM] Failed to parse TOON response: {e}");
+            return Vec::new();
         }
-        let mut parts = line.splitn(2, ' ');
-        let method = match parts.next() {
-            Some(m) => m.to_string(),
-            None => continue,
-        };
-        let mut params = serde_json::Map::new();
-        if let Some(rest) = parts.next() {
-            for pair in rest.split_whitespace() {
-                if let Some((key, val)) = pair.split_once(':') {
-                    params.insert(key.to_string(), parse_toon_value(val));
-                }
-            }
-        }
-        actions.push(LlmAction { method, params: Value::Object(params) });
-    }
-    actions
-}
+    };
 
-/// Auto-type a TOON value string into a serde_json::Value.
-fn parse_toon_value(s: &str) -> Value {
-    if s == "true" { return Value::Bool(true); }
-    if s == "false" { return Value::Bool(false); }
-    if s == "null" { return Value::Null; }
-    if let Ok(i) = s.parse::<i64>() { return json!(i); }
-    if let Ok(f) = s.parse::<f64>() { return json!(f); }
-    json!(s)
+    let items = match value.get("actions") {
+        Some(Value::Array(arr)) => arr.clone(),
+        _ => {
+            warn!("[LLM] Response missing actions array");
+            return Vec::new();
+        }
+    };
+
+    items.iter().filter_map(|obj| {
+        let method = obj.get("method")?.as_str()?.to_string();
+        Some(LlmAction { method, params: obj.clone() })
+    }).collect()
 }
 
 #[derive(Debug)]
@@ -277,44 +288,43 @@ pub fn llm_player_system(
     time: Res<Time>,
     read: LlmReadState,
     mut write: LlmWriteState,
+    settings: Res<crate::settings::UserSettings>,
 ) {
     let town = state.town_idx;
 
+    // Sync timer duration from settings so slider changes take effect live
+    state.timer.set_duration(std::time::Duration::from_secs_f32(settings.llm_interval));
+
     // Poll pending result
-    let mut got_response = None;
-    if let Some(ref receiver_mutex) = state.receiver {
+    enum PollResult { None, Response(String), Waiting, Disconnected }
+    let poll = if let Some(ref receiver_mutex) = state.receiver {
         let receiver = receiver_mutex.lock().unwrap();
         match receiver.try_recv() {
-            Ok(response) => {
-                got_response = Some(response);
-            }
-            Err(mpsc::TryRecvError::Empty) => {}
-            Err(mpsc::TryRecvError::Disconnected) => {
-                warn!("[LLM] Background thread disconnected");
-                drop(receiver);
-                state.receiver = None;
-            }
+            Ok(response) => PollResult::Response(response),
+            Err(mpsc::TryRecvError::Empty) => PollResult::Waiting,
+            Err(mpsc::TryRecvError::Disconnected) => PollResult::Disconnected,
         }
-    }
-    let day = read.game_time.day();
-    let hour = read.game_time.hour();
-    let min = read.game_time.minute();
+    } else {
+        PollResult::None
+    };
 
-    if let Some(response) = got_response {
-        state.receiver = None;
-        // Log truncated raw response for debugging
-        let preview: String = response.chars().take(200).collect();
-        write.combat_log.push(CombatEventKind::Llm, -1, day, hour, min,
-            format!("[llm] raw: {}", preview.replace('\n', " ")));
-        let actions = parse_actions(&response);
-        if actions.is_empty() {
-            write.combat_log.push(CombatEventKind::Llm, -1, day, hour, min,
-                "[llm] no actions this cycle".into());
-        } else {
-            write.combat_log.push(CombatEventKind::Llm, -1, day, hour, min,
-                format!("[llm] executing {} actions", actions.len()));
+    match poll {
+        PollResult::Response(response) => {
+            state.receiver = None;
+            state.last_response = response.clone();
+            let actions = parse_actions(&response);
+            state.status = LlmStatus::Done(actions.len());
+            execute_actions(&actions, town, &read, &mut write, &mut state);
         }
-        execute_actions(&actions, town, &read, &mut write, &mut state);
+        PollResult::Waiting => {
+            state.status = LlmStatus::Thinking;
+        }
+        PollResult::Disconnected => {
+            warn!("[LLM] Background thread disconnected");
+            state.receiver = None;
+            state.status = LlmStatus::Idle;
+        }
+        PollResult::None => {}
     }
 
     // Tick timer
@@ -342,15 +352,17 @@ pub fn llm_player_system(
     let prompt = state.prompt.clone();
     let toon_state = serde_toon2::to_string(&state_json).unwrap_or_default();
     let message = format!(
-        "Current game state:\n\n{}\n\nRespond with one action per line (method key:value ...) or NONE if no action needed.",
+        "Current game state:\n\n{}\n\nRespond with a TOON actions[N]: array of action objects, or NONE if no action needed.",
         toon_state
     );
 
+    // Store command + payload for the settings panel inspector
+    state.last_command = "claude --print --model claude-haiku-4-5-20251001 --output-format text --system-prompt <prompt_builtin.md> --dangerously-skip-permissions".into();
+    state.last_payload = message.clone();
+
     let (tx, rx) = mpsc::channel();
     state.receiver = Some(Mutex::new(rx));
-
-    write.combat_log.push(CombatEventKind::Llm, -1, day, hour, min,
-        "[llm] sending state to Claude...".into());
+    state.status = LlmStatus::Sending;
 
     std::thread::spawn(move || {
         use std::io::Write;
@@ -503,6 +515,20 @@ fn execute_actions(
                         write.combat_log.push(CombatEventKind::Llm, faction, day, hour, minute,
                             format!("[llm] squad_target squad={} x={} y={}", si, x, y));
                     }
+                }
+            }
+            "chat" => {
+                let to = p.get("to").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let message = p.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                if !message.is_empty() {
+                    write.chat_inbox.messages.push(ChatMessage {
+                        from_town: town,
+                        to_town: to,
+                        text: message.clone(),
+                        day, hour, minute,
+                    });
+                    write.combat_log.push(CombatEventKind::Llm, faction, day, hour, minute,
+                        format!("[llm] chat to town {}: {}", to, message));
                 }
             }
             "query" => {

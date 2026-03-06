@@ -108,11 +108,11 @@ Bevy ECS (lib.rs build_app)
     │   ├─ Economy systems ────────────────▶ [economy.md]
     │   ├─ AI player system ─────────────▶ [ai-player.md]
     │   ├─ Audio (systems/audio.rs) ───▶ music jukebox (22 tracks, random no-repeat, speed control), SFX (ArrowShoot + Death, random variant selection, spatial camera culling, max 1 per SfxKind per frame, ArrowShoot gated by `sfx_shoot_enabled`)
-    │   └─ LLM player (systems/llm_player.rs) ──▶ built-in claude --print player, 20s cycle, direct ECS read, TOON state + actions
+    │   └─ LLM player (systems/llm_player.rs) ──▶ built-in claude --print player, configurable cycle (5-120s), direct ECS read, TOON state + TOON actions[N]: response, HUD status indicator, settings panel with command/payload/response inspector + copy buttons
     │
     ├─ BRP (bevy_remote) ────────────────────▶ [brp.md]
     │   ├─ HTTP JSON-RPC on localhost:15702 (live ECS queries + resource reads)
-    │   ├─ Custom endpoints (systems/remote.rs): summary, build, upgrade, policy, time, squad_target, ai_manager, chat
+    │   ├─ Custom endpoints (systems/remote.rs): summary, build, upgrade, policy, time, squad_target, ai_manager, chat, debug
     │   ├─ Chat inbox: player ↔ LLM messaging via ChatInbox resource, drain-on-read in summary, chat input in combat log UI
     │   └─ Access control: RemoteAllowedTowns resource, write endpoints gated to LLM-marked towns
     │

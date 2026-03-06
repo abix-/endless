@@ -8,7 +8,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-use crate::components::{Activity, Job, TownId};
+use crate::components::{
+    Activity, CachedStats, CarriedLoot, CombatState, Energy, Faction, GpuSlot, Health, Home, Job,
+    ManualTarget, NpcEquipment, NpcFlags, NpcWorkState, Personality, PatrolRoute, Speed, SquadId,
+    TownId,
+};
 use crate::resources::SquadOwner;
 use crate::constants::building_cost;
 use crate::messages::{CombatLogMsg, GpuUpdateMsg};
@@ -692,6 +696,352 @@ pub fn chat_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResu
     });
 
     toon_ok(json!({"status": "ok", "from": from_name, "message": p.message}))
+}
+
+// --- endless/debug -----------------------------------------------------------
+
+#[derive(Deserialize)]
+struct DebugParams {
+    kind: String,
+    slot: usize,
+}
+
+pub fn debug_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
+    let p: DebugParams = parse_some(params)?;
+    match p.kind.as_str() {
+        "npc" => debug_npc(world, p.slot),
+        "building" => debug_building(world, p.slot),
+        _ => Err(brp_err(format!("unknown debug kind: {} (use 'npc' or 'building')", p.kind))),
+    }
+}
+
+fn debug_npc(world: &mut World, slot: usize) -> BrpResult {
+    // ECS query — split into nested tuples to stay under Bevy's 15-element QueryData limit
+    let mut query = world.query::<(
+        &GpuSlot, &Job, &Activity, &Health, &Energy, &Speed, &Home, &TownId,
+        &Faction, &CarriedLoot, &NpcWorkState, &NpcFlags, &CombatState,
+        (&Personality, &CachedStats, &NpcEquipment,
+         Option<&ManualTarget>, Option<&SquadId>, Option<&PatrolRoute>),
+    )>();
+
+    let mut npc_data: Option<Value> = None;
+    for (
+        gpu_slot, job, activity, health, energy, _speed, home, town_id,
+        faction, carried_loot, work_state, flags, combat_state,
+        (personality, stats, equipment, manual_target, squad_id, patrol_route),
+    ) in query.iter(world) {
+        if gpu_slot.0 != slot { continue; }
+
+        // Equipment slots
+        let mut equip = json!({});
+        let slots: &[(&str, &Option<crate::constants::LootItem>)] = &[
+            ("weapon", &equipment.weapon), ("helm", &equipment.helm),
+            ("armor", &equipment.armor), ("shield", &equipment.shield),
+            ("gloves", &equipment.gloves), ("boots", &equipment.boots),
+            ("belt", &equipment.belt), ("amulet", &equipment.amulet),
+            ("ring1", &equipment.ring1), ("ring2", &equipment.ring2),
+        ];
+        for &(label, item_opt) in slots {
+            if let Some(item) = item_opt {
+                equip[label] = json!({
+                    "name": item.name,
+                    "rarity": item.rarity.label(),
+                    "stat_bonus": format!("{:.0}%", item.stat_bonus * 100.0),
+                });
+            }
+        }
+
+        // Flags
+        let mut flag_list = Vec::new();
+        if flags.healing { flag_list.push("healing"); }
+        if flags.starving { flag_list.push("starving"); }
+        if flags.direct_control { flag_list.push("direct_control"); }
+        if flags.migrating { flag_list.push("migrating"); }
+        if flags.at_destination { flag_list.push("at_dest"); }
+
+        // ManualTarget
+        let mt_str = match manual_target {
+            Some(ManualTarget::Npc(s)) => format!("Npc({})", s),
+            Some(ManualTarget::Building(pos)) => format!("Building({:.0},{:.0})", pos.x, pos.y),
+            Some(ManualTarget::Position(pos)) => format!("Position({:.0},{:.0})", pos.x, pos.y),
+            None => "None".to_string(),
+        };
+
+        // Personality traits
+        let trait_str = personality.trait_summary();
+
+        npc_data = Some(json!({
+            "slot": slot,
+            "job": format!("{:?}", job),
+            "activity": activity.name(),
+            "activity_debug": format!("{:?}", activity),
+            "combat_state": combat_state.name(),
+            "hp": health.0,
+            "max_hp": stats.max_health,
+            "energy": energy.0,
+            "speed": stats.speed,
+            "home": [home.0.x, home.0.y],
+            "town_id": town_id.0,
+            "faction": faction.0,
+            "carried_loot": {
+                "food": carried_loot.food,
+                "gold": carried_loot.gold,
+                "equipment": carried_loot.equipment.iter().map(|i| json!({
+                    "name": &i.name, "rarity": i.rarity.label(),
+                })).collect::<Vec<_>>(),
+            },
+            "work_state": { "worksite": work_state.worksite.map(|u| u.0) },
+            "flags": flag_list,
+            "manual_target": mt_str,
+            "squad_id": squad_id.map(|s| s.0),
+            "patrol": patrol_route.map(|r| json!({
+                "current": r.current, "posts": r.posts.len(),
+            })),
+            "personality": trait_str,
+            "stats": {
+                "damage": stats.damage,
+                "range": stats.range,
+                "cooldown": stats.cooldown,
+                "hp_regen": stats.hp_regen,
+                "stamina": stats.stamina,
+                "berserk_bonus": stats.berserk_bonus,
+            },
+            "equipment": equip,
+        }));
+        break;
+    }
+
+    let Some(mut data) = npc_data else {
+        return Err(brp_err(format!("no NPC at slot {}", slot)));
+    };
+
+    // Resource-based data (immutable borrows after query)
+    let entity_map = world.resource::<EntityMap>();
+    let meta_cache = world.resource::<NpcMetaCache>();
+    let npc_logs = world.resource::<NpcLogCache>();
+    let thrash = world.resource::<NpcTargetThrashDebug>();
+    let gpu_state = world.resource::<GpuReadState>();
+    let world_data = world.resource::<WorldData>();
+    let policies = world.resource::<TownPolicies>();
+    let squad_state = world.resource::<SquadState>();
+    let game_time = world.resource::<GameTime>();
+
+    // NpcMeta (name, level, xp)
+    if let Some(meta) = meta_cache.0.get(slot) {
+        let xp_next = (meta.level + 1) * (meta.level + 1) * 100;
+        data["name"] = json!(meta.name);
+        data["level"] = json!(meta.level);
+        data["xp"] = json!(meta.xp);
+        data["xp_next"] = json!(xp_next);
+    }
+
+    // Town name + faction name
+    let town_id = data["town_id"].as_i64().unwrap_or(-1) as i32;
+    if town_id >= 0 {
+        if let Some(town) = world_data.towns.get(town_id as usize) {
+            data["town_name"] = json!(town.name);
+            data["faction_name"] = json!(format!("{} (F{})", town.name, town.faction));
+        }
+        if let Some(p) = policies.policies.get(town_id as usize) {
+            data["policy"] = json!({
+                "eat_food": p.eat_food,
+                "archer_aggressive": p.archer_aggressive,
+                "archer_leash": p.archer_leash,
+                "archer_flee_hp": p.archer_flee_hp,
+                "farmer_flee_hp": p.farmer_flee_hp,
+                "prioritize_healing": p.prioritize_healing,
+                "recovery_hp": p.recovery_hp,
+            });
+        }
+    }
+
+    // GPU readback: position, target, combat_target
+    let i2 = slot * 2;
+    if i2 + 1 < gpu_state.positions.len() {
+        data["gpu_pos"] = json!([gpu_state.positions[i2], gpu_state.positions[i2 + 1]]);
+    }
+    // GPU target from EntityGpuState (CPU-side target buffer)
+    let gpu_data = world.resource::<crate::gpu::EntityGpuState>();
+    if i2 + 1 < gpu_data.targets.len() {
+        data["gpu_target"] = json!([gpu_data.targets[i2], gpu_data.targets[i2 + 1]]);
+    }
+    let ct = gpu_state.combat_targets.get(slot).copied().unwrap_or(-1);
+    data["gpu_combat_target"] = json!(ct);
+    if ct >= 0 {
+        let ti = ct as usize;
+        if let Some(inst) = entity_map.get_instance(ti) {
+            data["gpu_target_resolved"] = json!({
+                "type": "building",
+                "kind": format!("{:?}", inst.kind),
+                "faction": inst.faction,
+                "pos": [inst.position.x, inst.position.y],
+            });
+        } else if let Some(tnpc) = entity_map.get_npc(ti) {
+            let tx = gpu_state.positions.get(ti * 2).copied().unwrap_or(-9999.0);
+            let ty = gpu_state.positions.get(ti * 2 + 1).copied().unwrap_or(-9999.0);
+            data["gpu_target_resolved"] = json!({
+                "type": "npc",
+                "slot": ti,
+                "faction": tnpc.faction,
+                "pos": [tx, ty],
+                "dead": tnpc.dead,
+            });
+        }
+    }
+
+    // Worksite detail
+    if let Some(uid_val) = data["work_state"]["worksite"].as_u64() {
+        let uid = crate::components::EntityUid(uid_val);
+        if let Some(ws_slot) = entity_map.slot_for_uid(uid) {
+            if let Some(inst) = entity_map.get_instance(ws_slot) {
+                let max_occ = crate::constants::building_def(inst.kind)
+                    .worksite.map_or(0, |w| w.max_occupants);
+                data["worksite_detail"] = json!({
+                    "slot": ws_slot,
+                    "kind": format!("{:?}", inst.kind),
+                    "occupants": inst.occupants,
+                    "max_occupants": max_occ,
+                    "growth": format!("{:.0}%", inst.growth_progress * 100.0),
+                    "pos": [inst.position.x, inst.position.y],
+                });
+            }
+        }
+    }
+
+    // Squad detail
+    if let Some(sq_val) = data["squad_id"].as_i64() {
+        let sq = sq_val as usize;
+        if sq < squad_state.squads.len() {
+            let s = &squad_state.squads[sq];
+            data["squad"] = json!({
+                "id": sq,
+                "members": s.members.len(),
+                "target": s.target.map(|v| json!([v.x, v.y])),
+                "hold_fire": s.hold_fire,
+                "patrol_enabled": s.patrol_enabled,
+                "rest_when_tired": s.rest_when_tired,
+            });
+        }
+    }
+
+    // Target thrash diagnostics
+    let sink_changes = thrash.sink_target_changes_this_minute.get(slot).copied().unwrap_or(0);
+    let sink_ping_pong = thrash.sink_ping_pong_this_minute.get(slot).copied().unwrap_or(0);
+    let sink_writes = thrash.sink_writes_this_minute.get(slot).copied().unwrap_or(0);
+    let reason_flips = thrash.reason_flips_this_minute.get(slot).copied().unwrap_or(0);
+    let last_reason = thrash.last_reason.get(slot).map(String::as_str).unwrap_or("-");
+    let prev_target = thrash.sink_prev_target.get(slot).copied().unwrap_or((0.0, 0.0));
+    let last_target = thrash.sink_last_target.get(slot).copied().unwrap_or((0.0, 0.0));
+    data["thrash"] = json!({
+        "sink_changes": sink_changes,
+        "sink_ping_pong": sink_ping_pong,
+        "sink_writes": sink_writes,
+        "reason_flips": reason_flips,
+        "last_reason": last_reason,
+        "prev_target": [prev_target.0, prev_target.1],
+        "last_target": [last_target.0, last_target.1],
+    });
+
+    // NPC activity log (last 20 entries)
+    if slot < npc_logs.logs.len() {
+        let entries: Vec<Value> = npc_logs.logs[slot].iter().rev().take(20).map(|e| {
+            json!(format!("D{}:{:02}:{:02} {}", e.day, e.hour, e.minute, e.message))
+        }).collect();
+        data["log"] = json!(entries);
+    }
+
+    // Timestamp
+    data["day"] = json!(game_time.day());
+    data["hour"] = json!(game_time.hour());
+    data["minute"] = json!(game_time.minute());
+
+    toon_ok(data)
+}
+
+fn debug_building(world: &mut World, slot: usize) -> BrpResult {
+    let entity_map = world.resource::<EntityMap>();
+    let gpu_state = world.resource::<GpuReadState>();
+    let world_data = world.resource::<WorldData>();
+    let game_time = world.resource::<GameTime>();
+
+    let inst = entity_map.get_instance(slot)
+        .ok_or_else(|| brp_err(format!("no building at slot {}", slot)))?
+        .clone();
+
+    let def = crate::constants::building_def(inst.kind);
+    let town_name = world_data.towns.get(inst.town_idx as usize)
+        .map(|t| t.name.as_str()).unwrap_or("?");
+    let faction_str = world_data.towns.get(inst.town_idx as usize)
+        .map(|t| format!("{} (F{})", t.name, t.faction))
+        .unwrap_or_else(|| if inst.kind == BuildingKind::GoldMine { "Unowned".into() } else { "?".into() });
+
+    // Grid coords
+    let (row, col) = world_data.towns.get(inst.town_idx as usize)
+        .map(|t| world::world_to_town_grid(t.center, inst.position))
+        .unwrap_or((0, 0));
+
+    // HP from entity
+    let hp = entity_map.entities.get(&slot)
+        .and_then(|&e| world.get::<Health>(e))
+        .map(|h| h.0)
+        .unwrap_or(0.0);
+
+    // GPU position
+    let i2 = slot * 2;
+    let gpu_pos = if i2 + 1 < gpu_state.positions.len() {
+        Some([gpu_state.positions[i2], gpu_state.positions[i2 + 1]])
+    } else {
+        None
+    };
+
+    let mut data = json!({
+        "slot": slot,
+        "kind": format!("{:?}", inst.kind),
+        "label": def.label,
+        "town": town_name,
+        "faction": faction_str,
+        "pos": [inst.position.x, inst.position.y],
+        "grid": [row, col],
+        "hp": hp,
+        "max_hp": def.hp,
+        "town_idx": inst.town_idx,
+        "occupants": inst.occupants,
+        "growth": format!("{:.0}%", inst.growth_progress * 100.0),
+        "under_construction": inst.under_construction,
+        "npc_uid": inst.npc_uid.map(|u| u.0),
+        "respawn_timer": inst.respawn_timer,
+    });
+
+    if let Some(gp) = gpu_pos {
+        data["gpu_pos"] = json!(gp);
+    }
+
+    // Worksite info
+    if let Some(ws) = def.worksite {
+        data["worksite"] = json!({
+            "max_occupants": ws.max_occupants,
+            "drift_radius": ws.drift_radius,
+            "harvest_item": format!("{:?}", ws.harvest_item),
+            "town_scoped": ws.town_scoped,
+        });
+    }
+
+    // Miner home extras
+    if inst.kind == BuildingKind::MinerHome {
+        data["assigned_mine"] = json!(inst.assigned_mine.map(|v| [v.x, v.y]));
+        data["manual_mine"] = json!(inst.manual_mine);
+    }
+
+    // Wall level
+    if inst.kind == BuildingKind::Wall {
+        data["wall_level"] = json!(inst.wall_level);
+    }
+
+    data["day"] = json!(game_time.day());
+    data["hour"] = json!(game_time.hour());
+    data["minute"] = json!(game_time.minute());
+
+    toon_ok(data)
 }
 
 // ============================================================================
