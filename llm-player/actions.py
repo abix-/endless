@@ -15,14 +15,42 @@ def rpc(method, params=None):
         return None
     return result.get("result")
 
+def parse_toon_value(s):
+    """Auto-type a TOON value string."""
+    if s == "true": return True
+    if s == "false": return False
+    if s == "null": return None
+    try: return int(s)
+    except ValueError: pass
+    try: return float(s)
+    except ValueError: pass
+    return s
+
+def parse_toon_params(args):
+    """Parse TOON key:value args into a dict. Falls back to JSON if first arg starts with '{'."""
+    import json
+    if len(args) == 1 and args[0].startswith("{"):
+        return json.loads(args[0])
+    params = {}
+    for arg in args:
+        if ":" not in arg:
+            raise ValueError(f"bad param (expected key:value): {arg}")
+        key, value = arg.split(":", 1)
+        params[key] = parse_toon_value(value)
+    return params
+
 if __name__ == "__main__":
     import json, sys
     if len(sys.argv) >= 2:
         method = sys.argv[1]
-        params = json.loads(sys.argv[2]) if len(sys.argv) >= 3 else {}
+        params = parse_toon_params(sys.argv[2:]) if len(sys.argv) >= 3 else {}
         result = rpc(method, params)
         if result is not None:
-            print(json.dumps(result, indent=2))
+            # TOON responses come back as strings — print raw
+            if isinstance(result, str):
+                print(result)
+            else:
+                print(json.dumps(result, indent=2))
     else:
         state = rpc("endless/summary")
         if state:

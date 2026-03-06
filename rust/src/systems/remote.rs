@@ -4,7 +4,7 @@
 
 use bevy::prelude::*;
 use bevy::remote::{BrpError, BrpResult, builtin_methods::parse_some, error_codes};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -70,9 +70,32 @@ pub struct RemoteUpgrade {
 #[derive(Resource, Default)]
 pub struct RemoteLlmLogQueue(pub Vec<CombatLogMsg>);
 
+/// Ring buffer of recent combat events for LLM summary (last 20).
+#[derive(Resource, Default)]
+pub struct RemoteCombatLogRing {
+    pub events: std::collections::VecDeque<CombatLogMsg>,
+}
+
+impl RemoteCombatLogRing {
+    const CAP: usize = 20;
+
+    pub fn push(&mut self, msg: CombatLogMsg) {
+        if self.events.len() >= Self::CAP {
+            self.events.pop_front();
+        }
+        self.events.push_back(msg);
+    }
+}
+
 // ============================================================================
 // HELPERS
 // ============================================================================
+
+/// Wrap any serde_json::Value as a TOON string for BRP response.
+fn toon_ok(value: Value) -> BrpResult {
+    let toon = serde_toon2::to_string(&value).unwrap_or_default();
+    Ok(json!(toon))
+}
 
 fn brp_err(msg: impl Into<String>) -> BrpError {
     BrpError {
@@ -125,6 +148,71 @@ pub fn parse_building_kind(s: &str) -> Option<BuildingKind> {
 
 // --- endless/summary --------------------------------------------------------
 
+#[derive(Serialize)]
+struct SummaryResponse {
+    day: i32,
+    hour: i32,
+    minute: i32,
+    paused: bool,
+    time_scale: f32,
+    town_idx: usize,
+    town_name: String,
+    faction: i32,
+    food: i32,
+    gold: i32,
+    factions: Vec<(usize, i32, i32, i32)>,
+    buildings: Vec<(String, i32, i32)>,
+    squads: Vec<(usize, usize, Option<i32>, Option<i32>)>,
+    upgrades: Vec<(usize, String, u8, String, String)>,
+    combat_log: Vec<(i32, i32, i32, String)>,
+    inbox: Vec<(usize, String, i32, i32, i32)>,
+    npcs: BTreeMap<String, String>,
+}
+
+/// Format cost slice as compact string like "50g" or "30f+10g"
+fn format_cost(cost: &[(crate::constants::ResourceKind, i32)]) -> String {
+    cost.iter()
+        .map(|(kind, amt)| {
+            let suffix = match kind {
+                crate::constants::ResourceKind::Food => "f",
+                crate::constants::ResourceKind::Gold => "g",
+            };
+            format!("{amt}{suffix}")
+        })
+        .collect::<Vec<_>>()
+        .join("+")
+}
+
+/// Collapse NPC counts like t1_Archer_Patrolling into "Archer: 8 (Patrolling:5 Idle:3)"
+fn compact_npc_counts(raw: &BTreeMap<String, usize>, town_prefix: &str) -> BTreeMap<String, String> {
+    let mut job_totals: BTreeMap<String, usize> = BTreeMap::new();
+    let mut job_activities: BTreeMap<String, Vec<(String, usize)>> = BTreeMap::new();
+
+    for (key, &count) in raw {
+        let Some(rest) = key.strip_prefix(town_prefix) else { continue };
+        let parts: Vec<&str> = rest.splitn(2, '_').collect();
+        let job = parts[0].to_string();
+        if parts.len() == 1 {
+            // Job total (e.g. t1_Archer)
+            job_totals.insert(job, count);
+        } else {
+            // Activity (e.g. t1_Archer_Patrolling)
+            job_activities.entry(job).or_default().push((parts[1].to_string(), count));
+        }
+    }
+
+    let mut result = BTreeMap::new();
+    for (job, total) in &job_totals {
+        let mut s = format!("{total}");
+        if let Some(activities) = job_activities.get(job) {
+            let parts: Vec<String> = activities.iter().map(|(a, c)| format!("{a}:{c}")).collect();
+            s.push_str(&format!(" ({})", parts.join(" ")));
+        }
+        result.insert(job.clone(), s);
+    }
+    result
+}
+
 #[derive(Deserialize)]
 struct SummaryParams {
     town: Option<usize>,
@@ -151,108 +239,133 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
     }
 
     // Drain chat inbox before immutable borrows
-    let mut inbox_by_town: std::collections::HashMap<usize, Vec<Value>> = std::collections::HashMap::new();
+    let mut inbox_by_town: std::collections::HashMap<usize, Vec<(usize, String, i32, i32, i32)>> = std::collections::HashMap::new();
     {
         let mut inbox = world.resource_mut::<ChatInbox>();
         let messages = std::mem::take(&mut inbox.messages);
         for msg in messages {
             let dominated_by_filter = filter_town.is_some_and(|ft| ft != msg.to_town);
             if dominated_by_filter {
-                inbox.messages.push(msg); // put back — not for this query
+                inbox.messages.push(msg);
             } else {
-                inbox_by_town.entry(msg.to_town).or_default().push(json!({
-                    "from": msg.from_town,
-                    "message": msg.text,
-                    "day": msg.day, "hour": msg.hour, "minute": msg.minute,
-                }));
+                inbox_by_town.entry(msg.to_town).or_default().push(
+                    (msg.from_town, msg.text, msg.day, msg.hour, msg.minute)
+                );
             }
         }
     }
 
     // Now borrow resources immutably
     let game_time = world.resource::<GameTime>();
-    let time_json = json!({
-        "day": game_time.day(),
-        "hour": game_time.hour(),
-        "minute": game_time.minute(),
-        "paused": game_time.paused,
-        "time_scale": game_time.time_scale,
-        "total_seconds": game_time.total_seconds,
-    });
+    let day = game_time.day();
+    let hour = game_time.hour();
+    let minute = game_time.minute();
+    let paused = game_time.paused;
+    let time_scale = game_time.time_scale;
 
     let food = world.resource::<FoodStorage>();
-    let food_vec: Vec<i32> = food.food.clone();
     let gold = world.resource::<GoldStorage>();
-    let gold_vec: Vec<i32> = gold.gold.clone();
-
     let faction_stats = world.resource::<FactionStats>();
-    let fstats: Vec<Value> = faction_stats
-        .stats
-        .iter()
-        .enumerate()
-        .map(|(i, s)| {
-            json!({"faction": i, "alive": s.alive, "dead": s.dead, "kills": s.kills})
-        })
-        .collect();
-
     let entity_map = world.resource::<EntityMap>();
     let world_data = world.resource::<WorldData>();
     let allowed = world.resource::<RemoteAllowedTowns>();
     let squad_state = world.resource::<SquadState>();
+    let town_upgrades = world.resource::<crate::systems::stats::TownUpgrades>();
+    let log_ring = world.resource::<RemoteCombatLogRing>();
 
-    let mut towns = Vec::new();
-    for (ti, town) in world_data.towns.iter().enumerate() {
-        if let Some(ft) = filter_town {
-            if ti != ft {
-                continue;
-            }
-        }
+    let factions: Vec<(usize, i32, i32, i32)> = faction_stats
+        .stats
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (i, s.alive, s.dead, s.kills))
+        .collect();
 
-        let mut buildings: Vec<Value> = Vec::new();
-        for inst in entity_map.iter_instances() {
-            if inst.town_idx as usize == ti {
-                let label = crate::constants::building_def(inst.kind).label;
-                let (row, col) = world::world_to_town_grid(town.center, inst.position);
-                buildings.push(json!({"kind": label, "row": row, "col": col}));
-            }
-        }
+    // Find the LLM town (first allowed, or filter_town, or first town)
+    let target_town = filter_town
+        .or_else(|| allowed.towns.first().copied())
+        .unwrap_or(0);
 
-        let mut squads = Vec::new();
-        for (si, squad) in squad_state.squads.iter().enumerate() {
+    let town = world_data.towns.get(target_town);
+    let town_name = town.map(|t| t.name.clone()).unwrap_or_default();
+    let town_faction = town.map(|t| t.faction).unwrap_or(0);
+    let town_food = food.food.get(target_town).copied().unwrap_or(0);
+    let town_gold = gold.gold.get(target_town).copied().unwrap_or(0);
+
+    // Buildings
+    let buildings: Vec<(String, i32, i32)> = if let Some(t) = town {
+        entity_map.iter_instances()
+            .filter(|inst| inst.town_idx as usize == target_town)
+            .map(|inst| {
+                let label = crate::constants::building_def(inst.kind).label.to_string();
+                let (row, col) = world::world_to_town_grid(t.center, inst.position);
+                (label, row, col)
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    // Squads
+    let squads: Vec<(usize, usize, Option<i32>, Option<i32>)> = squad_state.squads.iter().enumerate()
+        .filter(|(_, squad)| {
             let squad_town = match squad.owner {
                 SquadOwner::Player => 0,
                 SquadOwner::Town(tdi) => tdi,
             };
-            if squad_town == ti {
-                squads.push(json!({
-                    "index": si,
-                    "members": squad.members.len(),
-                    "target": squad.target.map(|t| json!({"x": t.x, "y": t.y})),
-                }));
-            }
-        }
+            squad_town == target_town
+        })
+        .map(|(si, squad)| {
+            let (tx, ty) = match squad.target {
+                Some(t) => (Some(t.x as i32), Some(t.y as i32)),
+                None => (None, None),
+            };
+            (si, squad.members.len(), tx, ty)
+        })
+        .collect();
 
-        let inbox = inbox_by_town.remove(&ti).unwrap_or_default();
-        towns.push(json!({
-            "index": ti,
-            "name": town.name,
-            "faction": town.faction,
-            "center": { "x": town.center.x, "y": town.center.y },
-            "food": food_vec.get(ti).copied().unwrap_or(0),
-            "gold": gold_vec.get(ti).copied().unwrap_or(0),
-            "buildings": buildings,
-            "squads": squads,
-            "llm": allowed.towns.contains(&ti),
-            "inbox": inbox,
-        }));
-    }
+    // Upgrades
+    let levels = town_upgrades.town_levels(target_town);
+    let upgrade_nodes = &crate::systems::stats::UPGRADES.nodes;
+    let upgrades: Vec<(usize, String, u8, String, String)> = upgrade_nodes.iter().enumerate()
+        .map(|(i, node)| {
+            let level = levels.get(i).copied().unwrap_or(0);
+            let pct = format!("{:.0}%", node.pct * 100.0);
+            let cost = format_cost(node.cost);
+            (i, node.label.to_string(), level, pct, cost)
+        })
+        .collect();
 
-    Ok(json!({
-        "game_time": time_json,
-        "towns": towns,
-        "npcs": npc_counts,
-        "factions": fstats,
-    }))
+    // Combat log — filter to events relevant to this town's faction
+    let combat_log: Vec<(i32, i32, i32, String)> = log_ring.events.iter()
+        .filter(|e| e.faction == town_faction || e.kind == CombatEventKind::Llm)
+        .map(|e| (e.day, e.hour, e.minute, e.message.clone()))
+        .collect();
+
+    // Inbox
+    let inbox = inbox_by_town.remove(&target_town).unwrap_or_default();
+
+    // Compact NPC counts
+    let town_prefix = format!("t{}_", target_town);
+    let npcs = compact_npc_counts(&npc_counts, &town_prefix);
+
+    let response = SummaryResponse {
+        day, hour, minute, paused, time_scale,
+        town_idx: target_town,
+        town_name,
+        faction: town_faction,
+        food: town_food,
+        gold: town_gold,
+        factions,
+        buildings,
+        squads,
+        upgrades,
+        combat_log,
+        inbox,
+        npcs,
+    };
+
+    let toon = serde_toon2::to_string(&response).unwrap_or_default();
+    Ok(json!(toon))
 }
 
 // --- endless/build ----------------------------------------------------------
@@ -290,7 +403,7 @@ pub fn build_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpRes
             col: p.col,
         });
 
-    Ok(json!({"status": "queued", "kind": p.kind, "town": p.town, "row": p.row, "col": p.col}))
+    toon_ok(json!({"status": "queued", "kind": p.kind, "town": p.town, "row": p.row, "col": p.col}))
 }
 
 // --- endless/destroy --------------------------------------------------------
@@ -324,7 +437,7 @@ pub fn destroy_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
             col: p.col,
         });
 
-    Ok(json!({"status": "queued", "town": p.town, "row": p.row, "col": p.col}))
+    toon_ok(json!({"status": "queued", "town": p.town, "row": p.row, "col": p.col}))
 }
 
 // --- endless/upgrade --------------------------------------------------------
@@ -359,7 +472,7 @@ pub fn upgrade_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
             upgrade_idx: p.upgrade_idx,
         });
 
-    Ok(json!({"status": "queued", "town": p.town, "upgrade_idx": p.upgrade_idx}))
+    toon_ok(json!({"status": "queued", "town": p.town, "upgrade_idx": p.upgrade_idx}))
 }
 
 // --- endless/policy ---------------------------------------------------------
@@ -411,7 +524,7 @@ pub fn policy_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpRe
         queue_llm_log(world, p.town, format!("policy: {}", parts.join(", ")), None);
     }
 
-    Ok(json!({"status": "ok", "town": p.town}))
+    toon_ok(json!({"status": "ok", "town": p.town}))
 }
 
 // --- endless/time -----------------------------------------------------------
@@ -435,7 +548,7 @@ pub fn time_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResu
         gt.time_scale = v.clamp(0.0, 20.0);
     }
 
-    Ok(json!({
+    toon_ok(json!({
         "status": "ok",
         "paused": gt.paused,
         "time_scale": gt.time_scale,
@@ -472,7 +585,7 @@ pub fn squad_target_handler(In(params): In<Option<Value>>, world: &mut World) ->
     let squad = state.squads.get_mut(p.squad).ok_or_else(|| brp_err(format!("squad {} out of range", p.squad)))?;
     squad.target = Some(Vec2::new(p.x, p.y));
 
-    Ok(json!({"status": "ok", "squad": p.squad, "target": {"x": p.x, "y": p.y}}))
+    toon_ok(json!({"status": "ok", "squad": p.squad, "target_x": p.x, "target_y": p.y}))
 }
 
 // --- endless/ai_manager -----------------------------------------------------
@@ -541,7 +654,7 @@ pub fn ai_manager_handler(In(params): In<Option<Value>>, world: &mut World) -> B
         player.road_style = parse_road_style(s).ok_or_else(|| brp_err(format!("unknown road_style: {s}")))?;
     }
 
-    Ok(json!({
+    toon_ok(json!({
         "status": "ok",
         "town": p.town,
         "active": player.active,
@@ -578,7 +691,7 @@ pub fn chat_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResu
         day, hour, minute,
     });
 
-    Ok(json!({"status": "ok", "from": from_name, "message": p.message}))
+    toon_ok(json!({"status": "ok", "from": from_name, "message": p.message}))
 }
 
 // ============================================================================
@@ -590,6 +703,7 @@ pub fn drain_remote_queues(
     mut destroy_q: ResMut<RemoteDestroyQueue>,
     mut upgrade_q: ResMut<RemoteUpgradeQueue>,
     mut llm_log_q: ResMut<RemoteLlmLogQueue>,
+    mut log_ring: ResMut<RemoteCombatLogRing>,
     mut world_state: WorldState,
     mut food_storage: ResMut<FoodStorage>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
@@ -676,8 +790,9 @@ pub fn drain_remote_queues(
         });
     }
 
-    // Drain LLM log queue
+    // Drain LLM log queue — write to both combat log and ring buffer
     for msg in llm_log_q.0.drain(..) {
+        log_ring.push(msg.clone());
         combat_log.write(msg);
     }
 }

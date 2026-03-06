@@ -206,31 +206,27 @@ curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
 
 ## Custom Action Endpoints
 
-Game-specific JSON-RPC methods for live control. Registered via `RemotePlugin::default().with_method()` in `lib.rs`, implemented in `systems/remote.rs`.
+Game-specific JSON-RPC methods for live control. Registered via `RemotePlugin::default().with_method()` in `lib.rs`, implemented in `systems/remote.rs`. All responses are **TOON-formatted strings** (returned as JSON string values through BRP). Typed Rust structs serialized via `serde_toon2`.
 
 ### endless/summary
 
-Get a high-level game state overview — towns, NPC counts by job/activity, food, gold, factions.
+Get a high-level game state overview. Auto-filters to the LLM-controlled town (shows one town, not all).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `town` | usize | no | Filter to a single town index |
 
 ```bash
-# Full summary
 curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"endless/summary","params":{},"id":1}'
-
-# Single town
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"endless/summary","params":{"town":0},"id":1}'
 ```
 
-Returns: `{game_time, towns: [{index, name, faction, center, food, gold, buildings, squads, inbox, llm}], npcs: {key: count}, factions}`
+Returns TOON with: day, hour, minute, paused, time_scale, town_idx, town_name, faction, food, gold, factions (tuple rows), buildings (kind,row,col), squads (idx,members,target_x,target_y), upgrades (idx,name,level,pct,cost), combat_log (day,hour,min,msg), inbox (from_town,message,day,hour,min), npcs (compact per-job counts).
 
-- `squads`: array of `{index, members, target}` — squad index, member count, move target or null
-- `inbox`: array of `{from, message, day, hour, minute}` — chat messages from other players. **Drained on read** — messages are removed after being included in the response
-- `llm`: bool — whether this town is LLM-controlled
+- `inbox`: **drained on read** — messages are removed after being included in the response
+- `combat_log`: last 20 events from `RemoteCombatLogRing` resource, filtered to town's faction
+- `upgrades`: per-town levels from `TownUpgrades`, costs from `UPGRADES` registry
+- `npcs`: compact format — `Archer: 8 (Patrolling:5 OnDuty:3)` collapsed from verbose per-activity keys
 
 ### endless/build
 

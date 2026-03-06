@@ -2450,6 +2450,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "serde_toon2",
  "tracing",
  "tracing-subscriber",
  "wgpu",
@@ -4807,6 +4808,16 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "serde_toon2"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5acb63d5daa1bec7ca5179eba361264259c174ac98a6b996084496f748ce25e4"
+dependencies = [
+ "indexmap",
+ "serde",
 ]
 
 [[package]]

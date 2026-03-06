@@ -3,7 +3,6 @@
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::{mpsc, Mutex};
 
@@ -224,47 +223,51 @@ fn build_state_json(read: &LlmReadState, write: &LlmWriteState, town_idx: usize,
     root
 }
 
-/// Extract JSON actions array from Claude's response text.
+/// Parse TOON action lines: `method key:value key:value ...`
 fn parse_actions(response: &str) -> Vec<LlmAction> {
     let text = response.trim();
-    let json_str = if let Some(start) = text.find('[') {
-        if let Some(end) = text.rfind(']') {
-            &text[start..=end]
-        } else {
-            text
-        }
-    } else {
-        text
-    };
 
-    // Try parsing as-is first, then fix unquoted keys if needed
-    if let Ok(actions) = serde_json::from_str::<Vec<LlmAction>>(json_str) {
-        return actions;
+    if text.is_empty() || text.eq_ignore_ascii_case("none") {
+        return Vec::new();
     }
-    // LLMs sometimes emit {method: "x"} instead of {"method": "x"}
-    let fixed = fix_unquoted_keys(json_str);
-    match serde_json::from_str::<Vec<LlmAction>>(&fixed) {
-        Ok(actions) => actions,
-        Err(e) => {
-            warn!("[LLM] Failed to parse actions: {e}");
-            warn!("[LLM] Raw: {}", &response[..response.len().min(500)]);
-            Vec::new()
+
+    let mut actions = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') || line.eq_ignore_ascii_case("none") {
+            continue;
         }
+        let mut parts = line.splitn(2, ' ');
+        let method = match parts.next() {
+            Some(m) => m.to_string(),
+            None => continue,
+        };
+        let mut params = serde_json::Map::new();
+        if let Some(rest) = parts.next() {
+            for pair in rest.split_whitespace() {
+                if let Some((key, val)) = pair.split_once(':') {
+                    params.insert(key.to_string(), parse_toon_value(val));
+                }
+            }
+        }
+        actions.push(LlmAction { method, params: Value::Object(params) });
     }
+    actions
 }
 
-/// Fix unquoted JSON keys: {method: "x"} -> {"method": "x"}
-fn fix_unquoted_keys(s: &str) -> String {
-    let re = regex::Regex::new(r#"(?m)([{,]\s*)([a-zA-Z_]\w*)(\s*:)"#).unwrap();
-    re.replace_all(s, |caps: &regex::Captures| {
-        format!("{}\"{}\"{}",  &caps[1], &caps[2], &caps[3])
-    }).into_owned()
+/// Auto-type a TOON value string into a serde_json::Value.
+fn parse_toon_value(s: &str) -> Value {
+    if s == "true" { return Value::Bool(true); }
+    if s == "false" { return Value::Bool(false); }
+    if s == "null" { return Value::Null; }
+    if let Ok(i) = s.parse::<i64>() { return json!(i); }
+    if let Ok(f) = s.parse::<f64>() { return json!(f); }
+    json!(s)
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Debug)]
 struct LlmAction {
     method: String,
-    #[serde(default)]
     params: Value,
 }
 
@@ -337,9 +340,10 @@ pub fn llm_player_system(
     let state_json = build_state_json(&read, &write, town, &topics);
 
     let prompt = state.prompt.clone();
+    let toon_state = serde_toon2::to_string(&state_json).unwrap_or_default();
     let message = format!(
-        "Here is the current game state:\n\n```json\n{}\n```\n\nAnalyze the state and respond with a JSON array of actions. If no action needed, respond with [].",
-        serde_json::to_string_pretty(&state_json).unwrap_or_default()
+        "Current game state:\n\n{}\n\nRespond with one action per line (method key:value ...) or NONE if no action needed.",
+        toon_state
     );
 
     let (tx, rx) = mpsc::channel();
@@ -399,6 +403,14 @@ pub fn llm_player_system(
             }
         }
     });
+}
+
+/// Extract topic names from params — supports comma-separated string `topics:npcs,upgrades`.
+fn extract_topics(p: &Value) -> Vec<String> {
+    if let Some(s) = p.get("topics").and_then(|v| v.as_str()) {
+        return s.split(',').map(|t| t.trim().to_string()).collect();
+    }
+    Vec::new()
 }
 
 /// Execute parsed actions directly against ECS resources.
@@ -494,35 +506,25 @@ fn execute_actions(
                 }
             }
             "query" => {
-                if let Some(topics) = p.get("topics").and_then(|v| v.as_array()) {
-                    let topic_names: Vec<String> = topics.iter()
-                        .filter_map(|t| t.as_str().map(|s| s.to_string()))
-                        .collect();
-                    write.combat_log.push(CombatEventKind::Llm, faction, day, hour, minute,
-                        format!("[llm] query: {:?}", topic_names));
-                    state.pending_queries.extend(topic_names);
-                }
+                let topic_names = extract_topics(p);
+                write.combat_log.push(CombatEventKind::Llm, faction, day, hour, minute,
+                    format!("[llm] query: {:?}", topic_names));
+                state.pending_queries.extend(topic_names);
             }
             "subscribe" => {
-                if let Some(topics) = p.get("topics").and_then(|v| v.as_array()) {
-                    for t in topics.iter().filter_map(|t| t.as_str()) {
-                        if !state.subscriptions.contains(&t.to_string()) {
-                            state.subscriptions.push(t.to_string());
-                        }
+                for t in extract_topics(p) {
+                    if !state.subscriptions.contains(&t) {
+                        state.subscriptions.push(t);
                     }
-                    write.combat_log.push(CombatEventKind::Llm, faction, day, hour, minute,
-                        format!("[llm] subscribed: {:?}", state.subscriptions));
                 }
+                write.combat_log.push(CombatEventKind::Llm, faction, day, hour, minute,
+                    format!("[llm] subscribed: {:?}", state.subscriptions));
             }
             "unsubscribe" => {
-                if let Some(topics) = p.get("topics").and_then(|v| v.as_array()) {
-                    let to_remove: Vec<String> = topics.iter()
-                        .filter_map(|t| t.as_str().map(|s| s.to_string()))
-                        .collect();
-                    state.subscriptions.retain(|s| !to_remove.contains(s));
-                    write.combat_log.push(CombatEventKind::Llm, faction, day, hour, minute,
-                        format!("[llm] unsubscribed, remaining: {:?}", state.subscriptions));
-                }
+                let to_remove = extract_topics(p);
+                state.subscriptions.retain(|s| !to_remove.contains(s));
+                write.combat_log.push(CombatEventKind::Llm, faction, day, hour, minute,
+                    format!("[llm] unsubscribed, remaining: {:?}", state.subscriptions));
             }
             other => {
                 warn!("[LLM] Unknown action: {other}");

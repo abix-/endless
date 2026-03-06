@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-03-05h
+
+- **TOON format for all LLM communication** — replaced JSON with TOON (Token-Oriented Object Notation) for 30-60% token savings. Added `serde_toon2` crate. BRP summary endpoint uses typed `SummaryResponse` struct with tuples for tabular data (factions, buildings, squads, upgrades, combat_log, inbox), serialized via `serde_toon2::to_string()`. All write handler responses use `toon_ok()` helper. New data in summary: `RemoteCombatLogRing` (VecDeque cap 20) for recent combat events, `TownUpgrades` for per-town upgrade levels/costs, `compact_npc_counts()` collapses verbose per-activity keys into `Archer: 8 (Patrolling:5 OnDuty:3)`.
+- **Built-in LLM player TOON I/O** — `llm_player.rs` sends TOON state (via `serde_toon2::to_string` on `serde_json::Value`) and parses TOON action lines (`method key:value ...`) with auto-typed values. Removed JSON fallback, `fix_unquoted_keys` regex, `Deserialize` derive. Topics use comma syntax: `subscribe topics:npcs,upgrades`.
+- **External LLM player TOON params** — `actions.py` accepts TOON key:value pairs as separate shell args instead of quoted JSON blob. `parse_toon_params()` with auto-typing (bool/int/float/string), JSON fallback if arg starts with `{`. `loop.py` simplified to dump raw TOON string.
+- **Prompts updated** — both `prompt.md` (external) and `prompt_builtin.md` (built-in) rewritten with TOON examples throughout. All JSON references removed.
+
 ## 2026-03-05g
 
 - **Built-in LLM player** — new `systems/llm_player.rs` spawns `claude --print` every 20s, reads ECS resources directly (no BRP round-trip). Builds JSON state payload with own-town full building list vs enemy-town counts for token efficiency. Supports all actions: build, destroy, upgrade, policy, squad_target. Three-tier data model: base state (always sent), subscriptions (persistent topics), one-shot queries (next cycle only). Stdin piping bypasses Windows 32K CLI limit. `CREATE_NO_WINDOW` flag prevents console focus stealing. `fix_unquoted_keys` regex fallback handles Haiku's occasional unquoted JSON.

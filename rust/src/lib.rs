@@ -299,6 +299,7 @@ pub fn build_app(app: &mut App) {
         .init_resource::<systems::remote::RemoteDestroyQueue>()
         .init_resource::<systems::remote::RemoteUpgradeQueue>()
         .init_resource::<systems::remote::RemoteLlmLogQueue>()
+        .init_resource::<systems::remote::RemoteCombatLogRing>()
         .init_resource::<resources::RemoteAllowedTowns>()
         .init_resource::<resources::ChatInbox>()
         // Register reflected types for BRP queries
