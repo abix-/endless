@@ -29,7 +29,7 @@ pub(super) fn setup(
     mut food_storage: ResMut<FoodStorage>,
     mut gold_storage: ResMut<GoldStorage>,
     mut faction_stats: ResMut<FactionStats>,
-    mut town_grids: ResMut<world::TownGrids>,
+
     mut slot_alloc: ResMut<GpuSlotPool>,
     mut bld: BuildingInitParams,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
@@ -50,7 +50,7 @@ pub(super) fn setup(
         &config,
         &mut world_grid,
         &mut world_data,
-        &mut town_grids,
+
         &mut slot_alloc,
         &mut bld.entity_map,
         &mut food_storage,

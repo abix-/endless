@@ -14,7 +14,7 @@ use crate::systems::spawn::{NpcSpawnOverrides, materialize_npc};
 use crate::systems::stats::{
     CombatConfig, TownUpgrades, decode_auto_upgrade_flags, decode_upgrade_levels,
 };
-use crate::world::{self, TownGrids, WorldCell, WorldData, WorldGrid};
+use crate::world::{self, WorldCell, WorldData, WorldGrid};
 
 // ============================================================================
 // REPUTATION MIGRATION: old saves have Vec<f32>, new saves have Vec<Vec<f32>>
@@ -172,7 +172,8 @@ pub struct SaveData {
     #[serde(deserialize_with = "deserialize_grid_buildings")]
     pub buildings: Vec<Option<(world::BuildingKind, u32)>>, // parallel to terrain
 
-    // Town grids (area_level + town_data_idx)
+    // Town grids — legacy field for old save migration. area_level now lives in Town.
+    #[serde(default)]
     pub town_grids: Vec<TownGridSave>,
 
     // Time + economy
@@ -326,7 +327,8 @@ pub struct FactionStatSave {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AiPlayerSave {
     pub town_data_idx: usize,
-    pub grid_idx: usize,
+    #[serde(default)]
+    pub grid_idx: usize, // legacy — no longer used
     pub kind: u8,        // 0=Raider, 1=Builder
     pub personality: u8, // 0=Aggressive, 1=Balanced, 2=Economic
     #[serde(default = "default_road_style")]
@@ -629,7 +631,6 @@ pub fn collect_save_data(
     grid: &WorldGrid,
     world_data: &WorldData,
     entity_map: &EntityMap,
-    town_grids: &TownGrids,
     game_time: &GameTime,
     food_storage: &FoodStorage,
     gold_storage: &GoldStorage,
@@ -696,13 +697,14 @@ pub fn collect_save_data(
         building_data.insert(key.to_string(), serde_json::to_value(&placed).unwrap());
     }
 
-    // Town grids
-    let town_grids_save: Vec<TownGridSave> = town_grids
-        .grids
+    // Town grids (legacy compat — area_level now lives in Town struct)
+    let town_grids_save: Vec<TownGridSave> = world_data
+        .towns
         .iter()
-        .map(|g| TownGridSave {
-            town_data_idx: g.town_data_idx,
-            area_level: g.area_level,
+        .enumerate()
+        .map(|(i, t)| TownGridSave {
+            town_data_idx: i,
+            area_level: t.area_level,
         })
         .collect();
 
@@ -785,7 +787,7 @@ pub fn collect_save_data(
             use crate::systems::ai_player::*;
             AiPlayerSave {
                 town_data_idx: p.town_data_idx,
-                grid_idx: p.grid_idx,
+                grid_idx: p.town_data_idx, // legacy field
                 kind: match p.kind {
                     AiKind::Raider => 0,
                     AiKind::Builder => 1,
@@ -853,7 +855,7 @@ pub fn collect_save_data(
             .filter(|g| g.boat_slot.is_none()) // don't save boat phase — transient
             .map(|g| MigrationSave {
                 town_data_idx: g.town_data_idx,
-                grid_idx: g.grid_idx,
+                grid_idx: g.town_data_idx.unwrap_or(0), // legacy field
                 member_slots: g.member_slots.clone(),
                 check_timer: migration_state.check_timer,
                 is_raider: g.is_raider,
@@ -954,7 +956,6 @@ pub fn apply_save(
     save: &SaveData,
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
-    town_grids: &mut TownGrids,
     game_time: &mut GameTime,
     food_storage: &mut FoodStorage,
     gold_storage: &mut GoldStorage,
@@ -1004,17 +1005,13 @@ pub fn apply_save(
         world_data.towns = serde_json::from_value(val.clone()).unwrap_or_default();
     }
 
-    // Town grids
-    town_grids.grids = save
-        .town_grids
-        .iter()
-        .map(|g| {
-            let mut tg = world::TownGrid::new_base(g.town_data_idx);
-            tg.area_level = g.area_level;
-            tg
-        })
-        .collect();
-    world::sync_town_grid_world_caps(grid, &world_data.towns, town_grids);
+    // Migrate area_level from legacy town_grids into Town structs
+    for tg in &save.town_grids {
+        if let Some(town) = world_data.towns.get_mut(tg.town_data_idx) {
+            town.area_level = town.area_level.max(tg.area_level);
+        }
+    }
+    grid.init_town_buildable();
 
     // Game time
     game_time.total_seconds = save.total_seconds;
@@ -1121,7 +1118,6 @@ pub fn apply_save(
             .iter()
             .map(|p| AiPlayer {
                 town_data_idx: p.town_data_idx,
-                grid_idx: p.grid_idx,
                 kind: if p.kind == 0 {
                     AiKind::Raider
                 } else {
@@ -1165,7 +1161,6 @@ pub fn apply_save(
             member_slots: ms.member_slots.clone(),
             faction: ms.faction,
             town_data_idx: ms.town_data_idx,
-            grid_idx: ms.grid_idx,
         });
         migration_state.check_timer = ms.check_timer;
     } else {
@@ -1384,7 +1379,6 @@ use bevy::ecs::system::SystemParam;
 pub struct SaveWorldState<'w> {
     pub grid: ResMut<'w, WorldGrid>,
     pub world_data: ResMut<'w, WorldData>,
-    pub town_grids: ResMut<'w, TownGrids>,
     pub game_time: ResMut<'w, GameTime>,
     pub food_storage: ResMut<'w, FoodStorage>,
     pub gold_storage: ResMut<'w, GoldStorage>,
@@ -1706,7 +1700,6 @@ pub fn save_game_system(
         &ws.grid,
         &ws.world_data,
         &entity_map,
-        &ws.town_grids,
         &ws.game_time,
         &ws.food_storage,
         &ws.gold_storage,
@@ -1799,7 +1792,6 @@ pub fn autosave_system(
         &ws.grid,
         &ws.world_data,
         &entity_map,
-        &ws.town_grids,
         &ws.game_time,
         &ws.food_storage,
         &ws.gold_storage,
@@ -1933,7 +1925,6 @@ pub fn restore_world_from_save(
         save,
         &mut ws.grid,
         &mut ws.world_data,
-        &mut ws.town_grids,
         &mut ws.game_time,
         &mut ws.food_storage,
         &mut ws.gold_storage,

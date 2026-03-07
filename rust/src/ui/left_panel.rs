@@ -19,7 +19,7 @@ use crate::systems::stats::{
     upgrade_effect_summary, upgrade_unlocked,
 };
 use crate::systems::{AiKind, AiPlayerState};
-use crate::world::{BuildingKind, TownGrids, WorldData, WorldGrid, is_alive};
+use crate::world::{BuildingKind, WorldData, WorldGrid, is_alive};
 
 // ============================================================================
 // PROFILER PARAMS
@@ -153,7 +153,6 @@ pub struct FactionsParams<'w, 's> {
     faction_stats: Res<'w, FactionStats>,
     upgrades: Res<'w, TownUpgrades>,
     combat_config: Res<'w, CombatConfig>,
-    town_grids: Res<'w, TownGrids>,
     world_grid: Res<'w, WorldGrid>,
     entity_map: Res<'w, EntityMap>,
     gpu_state: Res<'w, GpuReadState>,
@@ -1766,21 +1765,16 @@ fn rebuild_factions_cache(
 
         // Economy desire = 1 - slot_fullness = empty_slots / total_slots (mirrors ai_player.rs).
         let (economy_desire, economy_desire_tip) = if personality.is_some() {
-            let (empty, total, fullness) = factions
-                .town_grids
-                .grids
-                .iter()
-                .find(|tg| tg.town_data_idx == tdi)
-                .map(|tg| {
+            let (empty, total, fullness) = world_data.towns.get(tdi)
+                .map(|town| {
                     let empty = crate::world::empty_slots(
-                        tg,
+                        tdi,
                         center,
                         &factions.world_grid,
                         &factions.entity_map,
-                        &world_data.towns,
                     )
                     .len();
-                    let (min_r, max_r, min_c, max_c) = crate::world::build_bounds(tg);
+                    let (min_r, max_r, min_c, max_c) = crate::world::build_bounds(town.area_level, center, &factions.world_grid);
                     let total = ((max_r - min_r + 1) * (max_c - min_c + 1) - 1) as f32;
                     (empty, total, 1.0 - empty as f32 / total.max(1.0))
                 })

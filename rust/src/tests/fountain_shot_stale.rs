@@ -32,6 +32,7 @@ pub fn setup(
         center: Vec2::new(384.0, 384.0),
         faction: 0,
         sprite_type: 0,
+    area_level: 0,
     });
     food_storage.init(1);
     faction_stats.init(2);

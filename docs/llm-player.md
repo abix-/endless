@@ -2,43 +2,20 @@
 
 How to run an AI model as a player in Endless.
 
-## Wire Format: TOON
+## Wire Format
 
-All data between the game and LLM uses **TOON** (Token-Oriented Object Notation) — a compact format that saves 30-60% tokens vs JSON.
+**State (game → LLM)**: TOON (Token-Oriented Object Notation) via `serde_toon2` — compact line-oriented format, 30-60% fewer tokens than JSON.
 
-- Flat data: `key: value` pairs, one per line
-- Arrays: `field[N]:` header + indented CSV rows
-- Maps: `field:` header + indented `key: value` pairs
-
-State example:
+**Actions (LLM → game)**: CSV lines — one action per line: `method, key:value, key:value, ...`
 ```
-day: 4
-hour: 7
-food: 27
-factions[2]:
-  0,30,0,3
-  1,25,1,0
-npcs:
-  Archer: 8 (Patrolling:5 OnDuty:3)
+build, kind:Farm, row:1, col:0
+policy, eat_food:true, prioritize_healing:true
+subscribe, topics:npcs,upgrades
+squad_target, squad:0, x:5000, y:8000
+chat, to:2, message:good luck neighbor
 ```
 
-Action format (LLM → game): TOON `actions[N]:` array of objects with `method` field plus params.
-```
-actions[3]:
-  - method: build
-    kind: Farm
-    row: -5
-    col: 0
-  - method: policy
-    eat_food: true
-    recovery_hp: 0.5
-  - method: squad_target
-    squad: 0
-    x: 5000
-    y: 8000
-```
-
-Serialized via `serde_toon2` crate in Rust — `serde_toon2::from_str` parses responses directly.
+Parsed by `parse_actions()` — splits on `, ` then `split_once(':')` for named key:value params. Special handling for `message:` (captures everything after, preserving commas).
 
 ## Built-in Player (recommended)
 
@@ -58,8 +35,8 @@ The built-in player reads ECS resources directly and sends game state as TOON to
 - `LlmPlayerState` resource: timer, async receiver, subscriptions, pending queries, `last_command`/`last_payload`/`last_response` for settings panel inspector, `LlmStatus` enum (Idle/Sending/Thinking/Done)
 - `LlmReadState` SystemParam: read-only ECS access (WorldData, GameTime, FactionStats, PopulationStats, TownUpgrades, Reputation)
 - `LlmWriteState` SystemParam: write access (SquadState, FoodStorage, GoldStorage, ChatInbox)
-- `build_state_json()`: builds `serde_json::Value` from ECS, serialized to TOON via `serde_toon2::to_string()` — own town gets full building list, enemy towns get counts
-- `parse_actions()`: parses TOON `actions[N]:` array via `serde_toon2::from_str` — each action object has `method` field plus params
+- `build_state_json()`: builds `serde_json::Value` from ECS, serialized to TOON via `serde_toon2::to_string()` — all towns get building counts (not full lists), own town also gets 10 precomputed `open_slots` (buildable row/col positions sampled for spatial spread)
+- `parse_actions()`: parses CSV lines — splits on `, ` then `split_once(':')` for named key:value params
 - `execute_actions()`: routes parsed actions to ECS mutations (build, destroy, upgrade, policy, squad_target, chat, query, subscribe, unsubscribe)
 
 Process spawn uses `.env_remove("CLAUDECODE")` to avoid nested-session detection, `Stdio::piped()` for stdin, and `CREATE_NO_WINDOW` on Windows to prevent console focus stealing.
@@ -67,8 +44,8 @@ Process spawn uses `.env_remove("CLAUDECODE")` to avoid nested-session detection
 ### Prompt
 
 `llm-player/prompt_builtin.md` is the system prompt. It documents:
-- TOON state format (towns with distance, reputation, buildings, squads)
-- TOON action format: `actions[N]:` array with `- method: X` objects, `NONE` for no-op
+- TOON state format (towns with distance, reputation, building counts, open_slots, squads)
+- CSV action format: `method, key:value, key:value, ...` one per line, `NONE` for no-op
 - Actions: build, destroy, upgrade, policy, squad_target, chat, query, subscribe, unsubscribe
 - Data topics (npcs, combat_log, upgrades, policies) via subscribe
 - Strategy phases (expand → upgrades → attack → diplomacy)

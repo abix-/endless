@@ -97,6 +97,7 @@ impl TestSetupParams<'_, '_> {
             center: Vec2::new(384.0, 384.0),
             faction: 0,
             sprite_type: 0,
+            area_level: 0,
         });
     }
 

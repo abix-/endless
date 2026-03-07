@@ -12,7 +12,6 @@ use crate::resources::*;
 pub struct WorldState<'w> {
     pub grid: ResMut<'w, crate::world::WorldGrid>,
     pub world_data: ResMut<'w, crate::world::WorldData>,
-    pub town_grids: ResMut<'w, crate::world::TownGrids>,
     pub dirty_writers: DirtyWriters<'w>,
     pub entity_slots: ResMut<'w, GpuSlotPool>,
     pub entity_map: ResMut<'w, EntityMap>,
@@ -72,7 +71,6 @@ impl WorldState<'_> {
                 grid: &mut self.grid,
                 world_data: &self.world_data,
                 food_storage,
-                town_grids: &self.town_grids,
                 cost,
             }),
             Some(&mut self.dirty_writers),

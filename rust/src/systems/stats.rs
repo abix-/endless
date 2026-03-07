@@ -911,23 +911,16 @@ pub fn process_upgrades_system(
         }
 
         if node.triggers_expansion {
-            if let Some(grid_idx) = world_state
-                .town_grids
-                .grids
-                .iter()
-                .position(|g| g.town_data_idx == town_idx)
-            {
-                let _ = crate::world::expand_town_build_area(
-                    &mut world_state.grid,
-                    &world_state.world_data.towns,
-                    &mut world_state.town_grids,
-                    grid_idx,
-                );
-                world_state
-                    .dirty_writers
-                    .terrain
-                    .write(crate::messages::TerrainDirtyMsg);
-            }
+            let _ = crate::world::expand_town_build_area(
+                &mut world_state.grid,
+                &mut world_state.world_data.towns,
+                &world_state.entity_map,
+                town_idx,
+            );
+            world_state
+                .dirty_writers
+                .terrain
+                .write(crate::messages::TerrainDirtyMsg);
             continue;
         }
 

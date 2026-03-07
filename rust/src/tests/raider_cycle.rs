@@ -16,6 +16,7 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
         center: Vec2::new(384.0, 128.0),
         faction: 1,
         sprite_type: 1,
+    area_level: 0,
     });
     // 3 farms near villager town — all Ready so raiders can steal
     for i in 0..3 {

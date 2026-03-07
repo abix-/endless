@@ -13,7 +13,7 @@ pub fn setup(
     config: Res<world::WorldGenConfig>,
     mut food_storage: ResMut<FoodStorage>,
     mut faction_stats: ResMut<FactionStats>,
-    mut town_grids: ResMut<world::TownGrids>,
+
     mut slot_alloc: ResMut<GpuSlotPool>,
     mut entity_map: ResMut<EntityMap>,
     mut test_state: ResMut<TestState>,
@@ -23,14 +23,12 @@ pub fn setup(
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
 ) {
     // Generate the world using our config (default: 2 towns)
-    town_grids.grids.clear();
     entity_map.clear_buildings();
     entity_map.entities.clear();
     world::generate_world(
         &config,
         &mut world_grid,
         &mut world_data,
-        &mut town_grids,
         &mut slot_alloc,
         &mut entity_map,
         &mut uid_alloc,

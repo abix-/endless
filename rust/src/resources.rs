@@ -3174,7 +3174,6 @@ pub struct MigrationGroup {
     pub faction: i32,
     // Set at settle
     pub town_data_idx: Option<usize>,
-    pub grid_idx: usize,
 }
 
 /// Tracks dynamic raider town migrations.

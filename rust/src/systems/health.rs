@@ -18,7 +18,7 @@ use crate::systems::economy::*;
 use crate::systems::stats::{
     CombatConfig, TownUpgrades, UPGRADES, level_from_xp, resolve_combat_stats,
 };
-use crate::world::{BuildingKind, TownGrids, WorldData, WorldGrid};
+use crate::world::{BuildingKind, WorldData, WorldGrid};
 
 /// Bundled resources for death_system — merged from CleanupResources + WorldState + BuildingDeathExtra.
 #[derive(SystemParam)]
@@ -34,7 +34,6 @@ pub struct DeathResources<'w, 's> {
     pub grid: ResMut<'w, WorldGrid>,
     pub world_data: ResMut<'w, WorldData>,
     pub selected_building: ResMut<'w, SelectedBuilding>,
-    pub town_grids: ResMut<'w, TownGrids>,
     pub ai_state: ResMut<'w, crate::systems::AiPlayerState>,
     pub endless: ResMut<'w, EndlessMode>,
     pub npc_flags_q: Query<'w, 's, &'static mut crate::components::NpcFlags>,
@@ -1561,6 +1560,7 @@ mod tests {
                 center: Vec2::new(500.0, 500.0),
                 faction: 0,
                 sprite_type: 0,
+                area_level: 0,
             }],
         });
         app.insert_resource(CombatConfig::default());
@@ -1612,6 +1612,7 @@ mod tests {
                 center: Vec2::ZERO,
                 faction: -1,
                 sprite_type: 0,
+                area_level: 0,
             }],
         });
         app.insert_resource(SendHealingDirty(true));
@@ -1630,8 +1631,8 @@ mod tests {
         let mut app = setup_healing_cache_app();
         app.insert_resource(WorldData {
             towns: vec![
-                Town { name: "A".to_string(), center: Vec2::new(100.0, 100.0), faction: 0, sprite_type: 0 },
-                Town { name: "B".to_string(), center: Vec2::new(900.0, 900.0), faction: 1, sprite_type: 1 },
+                Town { name: "A".to_string(), center: Vec2::new(100.0, 100.0), faction: 0, sprite_type: 0, area_level: 0 },
+                Town { name: "B".to_string(), center: Vec2::new(900.0, 900.0), faction: 1, sprite_type: 1, area_level: 0 },
             ],
         });
         app.insert_resource(SendHealingDirty(true));

@@ -17,7 +17,7 @@ use crate::resources::*;
 use crate::systemparams::{EconomyState, WorldState};
 use crate::systems::ai_player::{AiKind, AiPersonality, AiPlayer, AiPlayerState};
 use crate::systems::stats::{TownUpgrades, UPGRADES};
-use crate::world::{self, Biome, BuildingKind, TownGrids, WorldData};
+use crate::world::{self, Biome, BuildingKind, WorldData};
 
 // ============================================================================
 // POPULATION TRACKING HELPERS
@@ -739,19 +739,18 @@ pub struct MigrationResources<'w, 's> {
     pub home_q: Query<'w, 's, &'static mut Home>,
 }
 
-/// Create a new AI town: allocate faction, push Town + TownGrid, extend all per-town
+/// Create a new AI town: allocate faction, push Town, extend all per-town
 /// resource vecs, create an inactive AiPlayer with random personality.
-/// Returns (town_data_idx, grid_idx, faction).
+/// Returns (town_data_idx, faction).
 fn create_ai_town(
-    grid: &crate::world::WorldGrid,
+    _grid: &crate::world::WorldGrid,
     world_data: &mut WorldData,
     entity_map: &EntityMap,
-    town_grids: &mut TownGrids,
     res: &mut MigrationResources,
     ai_state: &mut AiPlayerState,
     center: Vec2,
     is_raider: bool,
-) -> (usize, usize, i32) {
+) -> (usize, i32) {
     let next_faction = world_data
         .towns
         .iter()
@@ -771,13 +770,9 @@ fn create_ai_town(
         center,
         faction: next_faction,
         sprite_type,
+        area_level: 0,
     });
     let town_data_idx = world_data.towns.len() - 1;
-
-    let mut tg = world::TownGrid::new_base(town_data_idx);
-    tg.recompute_world_caps(center, grid);
-    town_grids.grids.push(tg);
-    let grid_idx = town_grids.grids.len() - 1;
 
     // Extend per-town resources
     let num_towns = world_data.towns.len();
@@ -814,7 +809,6 @@ fn create_ai_town(
     }
     ai_state.players.push(AiPlayer {
         town_data_idx,
-        grid_idx,
         kind: ai_kind,
         personality,
         road_style,
@@ -826,7 +820,7 @@ fn create_ai_town(
         squad_cmd: HashMap::new(),
     });
 
-    (town_data_idx, grid_idx, next_faction)
+    (town_data_idx, next_faction)
 }
 
 /// Pick a settlement site far from all existing towns.
@@ -1093,11 +1087,10 @@ pub fn endless_system(
         let is_raider = mg.is_raider;
         let member_slots = mg.member_slots.clone();
 
-        let (town_data_idx, grid_idx, _faction) = create_ai_town(
+        let (town_data_idx, _faction) = create_ai_town(
             &world_state.grid,
             &mut world_state.world_data,
             &world_state.entity_map,
-            &mut world_state.town_grids,
             &mut res,
             &mut ai_state,
             mg.settle_target,
@@ -1116,22 +1109,19 @@ pub fn endless_system(
         upgrades.levels[town_data_idx] = mg.upgrade_levels.clone();
 
         // Place buildings directly into EntityMap
-        if let Some(town_grid) = world_state.town_grids.grids.get_mut(grid_idx) {
-            world::place_buildings(
-                &mut world_state.grid,
-                &world_state.world_data,
-                mg.settle_target,
-                town_data_idx as u32,
-                &config,
-                town_grid,
-                is_raider,
-                &mut world_state.entity_slots,
-                &mut world_state.entity_map,
-                &mut world_state.uid_alloc,
-                &mut commands,
-                &mut res.gpu_updates,
-            );
-        }
+        world::place_buildings(
+            &mut world_state.grid,
+            &mut world_state.world_data,
+            mg.settle_target,
+            town_data_idx as u32,
+            &config,
+            is_raider,
+            &mut world_state.entity_slots,
+            &mut world_state.entity_map,
+            &mut world_state.uid_alloc,
+            &mut commands,
+            &mut res.gpu_updates,
+        );
         world::stamp_dirt(&mut world_state.grid, &[mg.settle_target]);
 
         // Activate AI
@@ -1267,7 +1257,6 @@ pub fn endless_system(
         member_slots: Vec::new(),
         faction: 0,
         town_data_idx: None,
-        grid_idx: 0,
     });
 
     let kind_str = if spawn.is_raider {
@@ -1692,8 +1681,8 @@ mod tests {
         app.insert_resource(TownInventory::default());
         app.insert_resource(WorldData {
             towns: vec![
-                crate::world::Town { name: "Player".into(), center: Vec2::ZERO, faction: 0, sprite_type: 0 },
-                crate::world::Town { name: "Raider".into(), center: Vec2::new(1000.0, 0.0), faction: 1, sprite_type: 1 },
+                crate::world::Town { name: "Player".into(), center: Vec2::ZERO, faction: 0, sprite_type: 0, area_level: 0 },
+                crate::world::Town { name: "Raider".into(), center: Vec2::new(1000.0, 0.0), faction: 1, sprite_type: 1, area_level: 0 },
             ],
         });
         app.insert_resource(crate::settings::UserSettings::default());
@@ -1865,7 +1854,7 @@ mod tests {
         app.insert_resource(NextLootItemId::default());
         app.insert_resource(WorldData {
             towns: vec![
-                crate::world::Town { name: "Town".into(), center: Vec2::ZERO, faction: 0, sprite_type: 0 },
+                crate::world::Town { name: "Town".into(), center: Vec2::ZERO, faction: 0, sprite_type: 0, area_level: 0 },
             ],
         });
         app.insert_resource(TimeUpdateStrategy::ManualDuration(
@@ -2031,6 +2020,7 @@ mod tests {
                 center: Vec2::new(500.0, 500.0),
                 faction: 0,
                 sprite_type: 0,
+            area_level: 0,
             }],
         });
         // Register all message types needed by DirtyWriters + system
@@ -2134,6 +2124,7 @@ mod tests {
                 center: Vec2::new(500.0, 500.0),
                 faction: 0,
                 sprite_type: 0,
+            area_level: 0,
             }],
         });
         app.add_message::<crate::messages::MiningDirtyMsg>();
@@ -2222,6 +2213,7 @@ mod tests {
                 center: Vec2::new(500.0, 500.0),
                 faction: 0,
                 sprite_type: 0,
+            area_level: 0,
             }],
         });
         app.add_message::<crate::messages::SquadsDirtyMsg>();

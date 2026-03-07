@@ -23,12 +23,14 @@ pub fn setup(
         center: Vec2::new(384.0, 384.0),
         faction: 0,
         sprite_type: 0,
+    area_level: 0,
     });
     world_data.towns.push(world::Town {
         name: "Targets".into(),
         center: Vec2::new(384.0, 192.0),
         faction: 1,
         sprite_type: 1,
+    area_level: 0,
     });
     food_storage.init(2);
     faction_stats.init(2);

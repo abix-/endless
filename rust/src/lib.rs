@@ -242,7 +242,6 @@ pub fn build_app(app: &mut App) {
         .init_resource::<world::WorldGenConfig>()
         .init_resource::<UiState>()
         .init_resource::<CombatLog>()
-        .init_resource::<world::TownGrids>()
         .init_resource::<BuildMenuContext>()
         .add_message::<DestroyBuildingMsg>()
         .add_message::<SelectFactionMsg>()

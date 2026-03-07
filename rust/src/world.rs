@@ -5,7 +5,7 @@
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Serialize Vec2 as [f32; 2] for save file backwards compat.
 pub mod vec2_as_array {
@@ -75,6 +75,9 @@ pub struct Town {
     pub center: Vec2,
     pub faction: i32,     // 0=Villager, 1+=Raider factions
     pub sprite_type: i32, // 0=fountain, 1=tent
+    /// Build area expansion level. 0 = base 8x8, each level adds 1 ring.
+    #[serde(default)]
+    pub area_level: i32,
 }
 
 /// Unified placed-building record. All building kinds (except Town) use this struct.
@@ -148,66 +151,6 @@ pub struct WorldData {
     pub towns: Vec<Town>,
 }
 
-// ============================================================================
-// TOWN BUILDING GRID
-// ============================================================================
-
-/// Per-town building area configuration.
-/// Grid uses (row, col) relative to town center with TOWN_GRID_SPACING.
-/// Base grid: (-3,-3) to (3,3) = 7x7. `area_level` expands bounds by 1 per level.
-pub struct TownGrid {
-    pub town_data_idx: usize,
-    pub area_level: i32,
-    pub min_row_cap: i32,
-    pub max_row_cap: i32,
-    pub min_col_cap: i32,
-    pub max_col_cap: i32,
-}
-
-impl TownGrid {
-    /// Create with base 7x7 build area for the given town data index.
-    pub fn new_base(town_data_idx: usize) -> Self {
-        Self {
-            town_data_idx,
-            area_level: 0,
-            min_row_cap: -MAX_GRID_EXTENT,
-            max_row_cap: MAX_GRID_EXTENT + 1,
-            min_col_cap: -MAX_GRID_EXTENT,
-            max_col_cap: MAX_GRID_EXTENT + 1,
-        }
-    }
-
-    /// Recompute world-edge caps for this town in town-grid coordinates.
-    pub fn recompute_world_caps(&mut self, center: Vec2, grid: &WorldGrid) {
-        if grid.width == 0 || grid.height == 0 {
-            return;
-        }
-        let (center_col, center_row) = grid.world_to_grid(center);
-        let center_col = center_col as i32;
-        let center_row = center_row as i32;
-        self.min_row_cap = -center_row;
-        self.max_row_cap = grid.height as i32 - 1 - center_row;
-        self.min_col_cap = -center_col;
-        self.max_col_cap = grid.width as i32 - 1 - center_col;
-    }
-}
-
-/// All town building grids. One per town (villager and raider towns).
-#[derive(Resource, Default)]
-pub struct TownGrids {
-    pub grids: Vec<TownGrid>,
-}
-
-/// Recompute world-edge caps for all town grids.
-pub fn sync_town_grid_world_caps(grid: &WorldGrid, towns: &[Town], town_grids: &mut TownGrids) {
-    for tg in &mut town_grids.grids {
-        let Some(town) = towns.get(tg.town_data_idx) else {
-            continue;
-        };
-        tg.recompute_world_caps(town.center, grid);
-    }
-}
-
 /// Convert town-relative grid coords to world position.
 /// Slot (0,0) = town center. Each slot = one WorldGrid cell (32px).
 pub fn town_grid_to_world(center: Vec2, row: i32, col: i32) -> Vec2 {
@@ -224,122 +167,43 @@ pub fn world_to_town_grid(center: Vec2, world_pos: Vec2) -> (i32, i32) {
     (row, col)
 }
 
-/// Buildable slot bounds for a town grid (inclusive): min_row, max_row, min_col, max_col.
-pub fn build_bounds(grid: &TownGrid) -> (i32, i32, i32, i32) {
-    let min_row = (BASE_GRID_MIN - grid.area_level).max(grid.min_row_cap);
-    let max_row = (BASE_GRID_MAX + grid.area_level).min(grid.max_row_cap);
-    let min_col = (BASE_GRID_MIN - grid.area_level).max(grid.min_col_cap);
-    let max_col = (BASE_GRID_MAX + grid.area_level).min(grid.max_col_cap);
+/// Buildable slot bounds for a town (inclusive): min_row, max_row, min_col, max_col.
+/// Computes from area_level + town center position clamped to world edges.
+pub fn build_bounds(area_level: i32, center: Vec2, grid: &WorldGrid) -> (i32, i32, i32, i32) {
+    let (center_col, center_row) = grid.world_to_grid(center);
+    let cc = center_col as i32;
+    let cr = center_row as i32;
+    let min_row_cap = -cr;
+    let max_row_cap = grid.height as i32 - 1 - cr;
+    let min_col_cap = -cc;
+    let max_col_cap = grid.width as i32 - 1 - cc;
+    let min_row = (BASE_GRID_MIN - area_level).max(min_row_cap);
+    let max_row = (BASE_GRID_MAX + area_level).min(max_row_cap);
+    let min_col = (BASE_GRID_MIN - area_level).max(min_col_cap);
+    let max_col = (BASE_GRID_MAX + area_level).min(max_col_cap);
     (min_row, max_row, min_col, max_col)
 }
 
-/// True if (row, col) is currently inside this town's buildable area (concentric ring only).
-pub fn is_slot_buildable(grid: &TownGrid, row: i32, col: i32) -> bool {
-    let (min_row, max_row, min_col, max_col) = build_bounds(grid);
-    row >= min_row && row <= max_row && col >= min_col && col <= max_col
-}
-
-/// True if (row, col) is buildable — either within town grid bounds OR within road expansion.
-pub fn is_slot_buildable_ext(
-    grid: &TownGrid,
-    row: i32,
-    col: i32,
-    center: Vec2,
-    town_idx: usize,
-    towns: &[Town],
-    entity_map: &crate::resources::EntityMap,
-) -> bool {
-    if is_slot_buildable(grid, row, col) {
-        return true;
-    }
-    let pos = town_grid_to_world(center, row, col);
-    is_buildable_for_town(pos, town_idx, towns, entity_map)
-}
-
-/// Returns true if world_pos falls inside any town's build area OTHER than own_town_idx.
-pub fn in_foreign_build_area(
-    pos: Vec2,
-    own_town_idx: usize,
-    towns: &[Town],
-    town_grids: &TownGrids,
-    entity_map: &crate::resources::EntityMap,
-) -> bool {
-    for tg in &town_grids.grids {
-        if tg.town_data_idx == own_town_idx {
-            continue;
-        }
-        let Some(town) = towns.get(tg.town_data_idx) else {
-            continue;
-        };
-        let (row, col) = world_to_town_grid(town.center, pos);
-        if is_slot_buildable_ext(tg, row, col, town.center, tg.town_data_idx, towns, entity_map) {
-            return true;
-        }
-    }
-    false
-}
-
-/// Check if a world position is buildable for a given town.
-/// Buildable if within fountain base radius OR within any owned road's build radius.
-pub fn is_buildable_for_town(
-    pos: Vec2,
-    town_idx: usize,
-    towns: &[Town],
-    entity_map: &crate::resources::EntityMap,
-) -> bool {
-    let Some(town) = towns.get(town_idx) else {
-        return false;
-    };
-    // Chebyshev distance in grid tiles from fountain center
-    let dx = ((pos.x - town.center.x) / TOWN_GRID_SPACING).abs();
-    let dy = ((pos.y - town.center.y) / TOWN_GRID_SPACING).abs();
-    if dx.max(dy) <= BASE_GRID_MAX as f32 + 0.5 {
-        return true; // within fountain base area
-    }
-    // Check road build radii
-    let ti = town_idx as u32;
-    for kind in [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad] {
-        let radius = kind.road_build_radius().unwrap() as f32;
-        for inst in entity_map.iter_kind_for_town(kind, ti) {
-            let rdx = ((pos.x - inst.position.x) / TOWN_GRID_SPACING).abs();
-            let rdy = ((pos.y - inst.position.y) / TOWN_GRID_SPACING).abs();
-            if rdx.max(rdy) <= radius + 0.5 {
-                return true;
-            }
-        }
-    }
-    false
-}
-
 /// Check if a road can be placed at this position for a town.
-/// Roads can extend from existing buildable area or from other roads.
+/// Roads can extend 1 tile beyond existing buildable area (chain outward).
 pub fn is_road_placeable_for_town(
     pos: Vec2,
     town_idx: usize,
-    towns: &[Town],
-    entity_map: &crate::resources::EntityMap,
+    grid: &WorldGrid,
 ) -> bool {
-    // Roads can be placed anywhere that's buildable
-    if is_buildable_for_town(pos, town_idx, towns, entity_map) {
+    let (gc, gr) = grid.world_to_grid(pos);
+    // Already buildable?
+    if grid.can_town_build(gc, gr, town_idx as u16) {
         return true;
     }
-    // Roads can also extend 1 tile beyond existing buildable area (chain outward)
-    let Some(town) = towns.get(town_idx) else {
-        return false;
-    };
-    // Check adjacency to fountain base area (1 tile beyond)
-    let dx = ((pos.x - town.center.x) / TOWN_GRID_SPACING).abs();
-    let dy = ((pos.y - town.center.y) / TOWN_GRID_SPACING).abs();
-    if dx.max(dy) <= BASE_GRID_MAX as f32 + 1.5 {
-        return true;
-    }
-    // Check adjacency to any existing road (1 tile away)
-    let ti = town_idx as u32;
-    for kind in [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad] {
-        for inst in entity_map.iter_kind_for_town(kind, ti) {
-            let rdx = ((pos.x - inst.position.x) / TOWN_GRID_SPACING).abs();
-            let rdy = ((pos.y - inst.position.y) / TOWN_GRID_SPACING).abs();
-            if rdx.max(rdy) <= 1.5 {
+    // Check if any adjacent cell is buildable for this town (1 tile chain)
+    let ti = town_idx as u16;
+    for dr in -1i32..=1 {
+        for dc in -1i32..=1 {
+            if dr == 0 && dc == 0 { continue; }
+            let nc = gc as i32 + dc;
+            let nr = gr as i32 + dr;
+            if nc >= 0 && nr >= 0 && grid.can_town_build(nc as usize, nr as usize, ti) {
                 return true;
             }
         }
@@ -347,85 +211,62 @@ pub fn is_road_placeable_for_town(
     false
 }
 
-/// All empty buildable slots for a town (town grid bounds + road-expanded area).
+/// All empty buildable slots for a town in town-relative (row, col) coords.
 pub fn empty_slots(
-    tg: &TownGrid,
+    town_idx: usize,
     center: Vec2,
     grid: &WorldGrid,
     entity_map: &crate::resources::EntityMap,
-    _towns: &[Town],
 ) -> Vec<(i32, i32)> {
-    use std::collections::HashSet;
-    let town_idx = tg.town_data_idx;
-    let mut seen = HashSet::new();
+    let ti = town_idx as u16;
     let mut out = Vec::new();
-
-    let try_slot = |r: i32, c: i32, seen: &mut HashSet<(i32, i32)>, out: &mut Vec<(i32, i32)>| {
-        if r == 0 && c == 0 { return; }
-        if !seen.insert((r, c)) { return; }
-        let pos = town_grid_to_world(center, r, c);
-        let (gc, gr) = grid.world_to_grid(pos);
-        if grid.cell(gc, gr).is_some() && !entity_map.has_building_at(gc as _, gr as _) {
+    // Scan all cells that this town can build on
+    for row in 0..grid.height {
+        for col in 0..grid.width {
+            if !grid.can_town_build(col, row, ti) { continue; }
+            if entity_map.has_building_at(col as i32, row as i32) { continue; }
+            let pos = grid.grid_to_world(col, row);
+            let (r, c) = world_to_town_grid(center, pos);
+            if r == 0 && c == 0 { continue; } // skip town center
             out.push((r, c));
         }
-    };
-
-    // 1. Town grid bounds (concentric ring area)
-    let (min_row, max_row, min_col, max_col) = build_bounds(tg);
-    for r in min_row..=max_row {
-        for c in min_col..=max_col {
-            try_slot(r, c, &mut seen, &mut out);
-        }
     }
-
-    // 2. Road-expanded area: cells within each road's build radius
-    let ti = town_idx as u32;
-    for kind in [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad] {
-        let radius = kind.road_build_radius().unwrap();
-        for inst in entity_map.iter_kind_for_town(kind, ti) {
-            let (road_row, road_col) = world_to_town_grid(center, inst.position);
-            for r in (road_row - radius)..=(road_row + radius) {
-                for c in (road_col - radius)..=(road_col + radius) {
-                    try_slot(r, c, &mut seen, &mut out);
-                }
-            }
-        }
-    }
-
     out
 }
 
-/// Find which town has a buildable slot matching the given grid coords.
-/// Returns the grid index and town data index.
+/// Find which town has a buildable slot matching the given world position.
 pub fn find_town_slot(
     world_pos: Vec2,
     towns: &[Town],
-    grids: &TownGrids,
-    entity_map: &crate::resources::EntityMap,
+    grid: &WorldGrid,
 ) -> Option<TownSlotInfo> {
-    for (grid_idx, town_grid) in grids.grids.iter().enumerate() {
-        let town_data_idx = town_grid.town_data_idx;
-        if town_data_idx >= towns.len() {
-            continue;
-        }
-        let town = &towns[town_data_idx];
+    let (gc, gr) = grid.world_to_grid(world_pos);
+    let snapped = grid.grid_to_world(gc, gr);
+    let click_radius = TOWN_GRID_SPACING * 0.7;
+    if world_pos.distance(snapped) > click_radius {
+        return None;
+    }
+    // Check which town(s) own this cell — primary owner first
+    let idx = gr * grid.width + gc;
+    if idx >= grid.town_owner.len() { return None; }
+    let owner = grid.town_owner[idx];
+    if owner == u16::MAX { return None; }
 
+    // Collect candidate towns (owner + any overlap)
+    let check_town = |town_data_idx: usize| -> Option<TownSlotInfo> {
+        let town = towns.get(town_data_idx)?;
         let (row, col) = world_to_town_grid(town.center, world_pos);
+        Some(TownSlotInfo { town_data_idx, row, col })
+    };
 
-        // Check click is within reasonable range of this grid's slots
-        let slot_pos = town_grid_to_world(town.center, row, col);
-        let click_radius = TOWN_GRID_SPACING * 0.7;
-        if world_pos.distance(slot_pos) > click_radius {
-            continue;
-        }
-
-        if is_slot_buildable_ext(town_grid, row, col, town.center, town_data_idx, towns, entity_map) {
-            return Some(TownSlotInfo {
-                grid_idx,
-                town_data_idx,
-                row,
-                col,
-            });
+    if let Some(info) = check_town(owner as usize) {
+        return Some(info);
+    }
+    if let Some(overlaps) = grid.town_overlap.get(&idx) {
+        for &ti in overlaps {
+            if let Some(info) = check_town(ti as usize) {
+                return Some(info);
+            }
         }
     }
     None
@@ -433,7 +274,6 @@ pub fn find_town_slot(
 
 /// Info about a clicked town grid slot.
 pub struct TownSlotInfo {
-    pub grid_idx: usize,      // Index into TownGrids.grids
     pub town_data_idx: usize, // Index into WorldData.towns
     pub row: i32,
     pub col: i32,
@@ -728,7 +568,6 @@ pub struct BuildContext<'a> {
     pub grid: &'a mut WorldGrid,
     pub world_data: &'a WorldData,
     pub food_storage: &'a mut FoodStorage,
-    pub town_grids: &'a TownGrids,
     pub cost: i32,
 }
 
@@ -772,18 +611,17 @@ pub fn place_building(
         if cell.terrain == Biome::Water {
             return Err("cannot build on water");
         }
-        if in_foreign_build_area(snapped, town_idx as usize, &ctx.world_data.towns, ctx.town_grids, entity_map)
-        {
+        if ctx.grid.is_foreign_territory(gc, gr, town_idx as u16) {
             return Err("cannot build in foreign territory");
         }
 
         // Wilderness buildings must be within road or fountain buildable area
         if def.placement == crate::constants::PlacementMode::Wilderness {
             if kind.is_road() {
-                if !is_road_placeable_for_town(snapped, town_idx as usize, &ctx.world_data.towns, entity_map) {
+                if !is_road_placeable_for_town(snapped, town_idx as usize, ctx.grid) {
                     return Err("road must be adjacent to town or existing road");
                 }
-            } else if !is_buildable_for_town(snapped, town_idx as usize, &ctx.world_data.towns, entity_map) {
+            } else if !ctx.grid.can_town_build(gc, gr, town_idx as u16) {
                 return Err("outside buildable area");
             }
         }
@@ -891,7 +729,6 @@ pub fn place_building(
 /// Create AI players for all non-player towns with random personalities.
 fn create_ai_players(
     world_data: &WorldData,
-    town_grids: &TownGrids,
 ) -> Vec<crate::systems::AiPlayer> {
     use crate::systems::ai_player::RoadStyle;
     use crate::systems::{AiKind, AiPersonality, AiPlayer};
@@ -903,46 +740,41 @@ fn create_ai_players(
     ];
     let mut rng = rand::rng();
     let mut players = Vec::new();
-    for (grid_idx, tg) in town_grids.grids.iter().enumerate() {
-        let tdi = tg.town_data_idx;
-        if let Some(town) = world_data.towns.get(tdi) {
-            if town.faction > 0 {
-                let kind = if town.sprite_type == 1 {
-                    AiKind::Raider
-                } else {
-                    AiKind::Builder
-                };
-                let personality = personalities[rng.random_range(0..personalities.len())];
-                let road_style = RoadStyle::random(&mut rng);
-                players.push(AiPlayer {
-                    town_data_idx: tdi,
-                    grid_idx,
-                    kind,
-                    personality,
-                    road_style,
-                    last_actions: std::collections::VecDeque::new(),
-                    active: true,
-                    build_enabled: true,
-                    upgrade_enabled: true,
-                    squad_indices: Vec::new(),
-                    squad_cmd: std::collections::HashMap::new(),
-                });
+    for (tdi, town) in world_data.towns.iter().enumerate() {
+        if town.faction > 0 {
+            let kind = if town.sprite_type == 1 {
+                AiKind::Raider
             } else {
-                // Player town — inactive by default, controllable from Policies tab
-                players.push(AiPlayer {
-                    town_data_idx: tdi,
-                    grid_idx,
-                    kind: AiKind::Builder,
-                    personality: AiPersonality::Balanced,
-                    road_style: RoadStyle::Grid4,
-                    last_actions: std::collections::VecDeque::new(),
-                    active: false,
-                    build_enabled: true,
-                    upgrade_enabled: true,
-                    squad_indices: Vec::new(),
-                    squad_cmd: std::collections::HashMap::new(),
-                });
-            }
+                AiKind::Builder
+            };
+            let personality = personalities[rng.random_range(0..personalities.len())];
+            let road_style = RoadStyle::random(&mut rng);
+            players.push(AiPlayer {
+                town_data_idx: tdi,
+                kind,
+                personality,
+                road_style,
+                last_actions: std::collections::VecDeque::new(),
+                active: true,
+                build_enabled: true,
+                upgrade_enabled: true,
+                squad_indices: Vec::new(),
+                squad_cmd: std::collections::HashMap::new(),
+            });
+        } else {
+            // Player town — inactive by default, controllable from Policies tab
+            players.push(AiPlayer {
+                town_data_idx: tdi,
+                kind: AiKind::Builder,
+                personality: AiPersonality::Balanced,
+                road_style: RoadStyle::Grid4,
+                last_actions: std::collections::VecDeque::new(),
+                active: false,
+                build_enabled: true,
+                upgrade_enabled: true,
+                squad_indices: Vec::new(),
+                squad_cmd: std::collections::HashMap::new(),
+            });
         }
     }
     players
@@ -955,7 +787,6 @@ pub fn setup_world(
     config: &WorldGenConfig,
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
-    town_grids: &mut TownGrids,
     slot_alloc: &mut GpuSlotPool,
     entity_map: &mut EntityMap,
     food_storage: &mut FoodStorage,
@@ -967,15 +798,15 @@ pub fn setup_world(
     commands: &mut Commands,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
 ) -> Vec<crate::systems::AiPlayer> {
-    town_grids.grids.clear();
     entity_map.clear_buildings();
     generate_world(
-        config, grid, world_data, town_grids, slot_alloc, entity_map, uid_alloc,
+        config, grid, world_data, slot_alloc, entity_map, uid_alloc,
         commands, gpu_updates,
     );
     entity_map.init_spatial(grid.width as f32 * grid.cell_size);
     grid.init_pathfind_costs();
     grid.sync_building_costs(entity_map);
+    grid.sync_town_buildability(&world_data.towns, entity_map);
 
     let n = world_data.towns.len();
     food_storage.init(n);
@@ -984,27 +815,26 @@ pub fn setup_world(
     reputation.init(n);
     raider_state.init(n, 10);
 
-    create_ai_players(world_data, town_grids)
+    create_ai_players(world_data)
 }
 
 /// Expand one town's buildable area by one ring and convert new ring terrain to Dirt.
 pub fn expand_town_build_area(
     grid: &mut WorldGrid,
-    towns: &[Town],
-    town_grids: &mut TownGrids,
-    grid_idx: usize,
+    towns: &mut [Town],
+    entity_map: &EntityMap,
+    town_idx: usize,
 ) -> Result<(), &'static str> {
-    let Some(town_grid) = town_grids.grids.get_mut(grid_idx) else {
-        return Err("invalid town grid index");
+    let Some(town) = towns.get(town_idx) else {
+        return Err("invalid town index");
     };
-    let town_data_idx = town_grid.town_data_idx;
-    let Some(town) = towns.get(town_data_idx) else {
-        return Err("invalid town data index");
-    };
+    let center = town.center;
 
-    let (old_min_row, old_max_row, old_min_col, old_max_col) = build_bounds(town_grid);
-    town_grid.area_level += 1;
-    let (new_min_row, new_max_row, new_min_col, new_max_col) = build_bounds(town_grid);
+    let (old_min_row, old_max_row, old_min_col, old_max_col) =
+        build_bounds(town.area_level, center, grid);
+    towns[town_idx].area_level += 1;
+    let (new_min_row, new_max_row, new_min_col, new_max_col) =
+        build_bounds(towns[town_idx].area_level, center, grid);
 
     for row in new_min_row..=new_max_row {
         for col in new_min_col..=new_max_col {
@@ -1015,7 +845,7 @@ pub fn expand_town_build_area(
             if is_old {
                 continue;
             }
-            let slot_pos = town_grid_to_world(town.center, row, col);
+            let slot_pos = town_grid_to_world(center, row, col);
             let (gc, gr) = grid.world_to_grid(slot_pos);
             if let Some(cell) = grid.cell_mut(gc, gr) {
                 cell.terrain = Biome::Dirt;
@@ -1023,6 +853,7 @@ pub fn expand_town_build_area(
         }
     }
 
+    grid.sync_town_buildability(towns, entity_map);
     Ok(())
 }
 
@@ -1688,6 +1519,11 @@ pub struct WorldGrid {
     pub pathfind_costs: Vec<u16>,
     /// Flat indices of cells with building cost overrides (for incremental revert).
     building_cost_cells: Vec<usize>,
+    /// Primary town owner per cell. u16::MAX = no owner.
+    pub town_owner: Vec<u16>,
+    /// Overflow for cells buildable by 2+ towns (rare overlap zones).
+    /// Key = flat cell index, Value = all town indices that can build there.
+    pub town_overlap: HashMap<usize, Vec<u16>>,
 }
 
 impl Default for WorldGrid {
@@ -1699,6 +1535,8 @@ impl Default for WorldGrid {
             cells: Vec::new(),
             pathfind_costs: Vec::new(),
             building_cost_cells: Vec::new(),
+            town_owner: Vec::new(),
+            town_overlap: HashMap::new(),
         }
     }
 }
@@ -1778,6 +1616,146 @@ impl WorldGrid {
             }
             self.pathfind_costs[idx] = cost;
             self.building_cost_cells.push(idx);
+        }
+    }
+
+    // ── Town buildability grid ─────────────────────────────────────
+
+    /// True if `town_idx` can build at grid (col, row).
+    pub fn can_town_build(&self, col: usize, row: usize, town_idx: u16) -> bool {
+        if col >= self.width || row >= self.height {
+            return false;
+        }
+        let idx = row * self.width + col;
+        let owner = self.town_owner[idx];
+        if owner == town_idx {
+            return true;
+        }
+        if owner == u16::MAX {
+            return false;
+        }
+        // Check overlap map for multi-owner cells
+        self.town_overlap
+            .get(&idx)
+            .is_some_and(|v| v.contains(&town_idx))
+    }
+
+    /// Mark cell (col, row) as buildable by `town_idx`.
+    pub fn add_town_buildable(&mut self, col: usize, row: usize, town_idx: u16) {
+        if col >= self.width || row >= self.height {
+            return;
+        }
+        // Skip water cells
+        if self.cells[row * self.width + col].terrain == Biome::Water {
+            return;
+        }
+        let idx = row * self.width + col;
+        let owner = self.town_owner[idx];
+        if owner == town_idx {
+            return; // already set
+        }
+        if owner == u16::MAX {
+            self.town_owner[idx] = town_idx;
+        } else {
+            // Cell already owned by another town — add to overlap
+            let entry = self.town_overlap.entry(idx).or_insert_with(|| vec![owner]);
+            if !entry.contains(&town_idx) {
+                entry.push(town_idx);
+            }
+        }
+    }
+
+    /// Clear all town buildability data.
+    pub fn clear_town_buildable(&mut self) {
+        self.town_owner.fill(u16::MAX);
+        self.town_overlap.clear();
+    }
+
+    /// Init town_owner vec to match cell count.
+    pub fn init_town_buildable(&mut self) {
+        self.town_owner = vec![u16::MAX; self.cells.len()];
+        self.town_overlap.clear();
+    }
+
+    /// True if any town OTHER than `own_town` can build at (col, row).
+    pub fn is_foreign_territory(&self, col: usize, row: usize, own_town: u16) -> bool {
+        if col >= self.width || row >= self.height {
+            return false;
+        }
+        let idx = row * self.width + col;
+        let owner = self.town_owner[idx];
+        if owner == u16::MAX {
+            return false;
+        }
+        if owner != own_town {
+            return true;
+        }
+        // Owner matches, but check overlap for other towns
+        self.town_overlap
+            .get(&idx)
+            .is_some_and(|v| v.iter().any(|&t| t != own_town))
+    }
+
+    /// Rebuild all town buildability from town area_levels + road positions.
+    pub fn sync_town_buildability(
+        &mut self,
+        towns: &[Town],
+        entity_map: &crate::resources::EntityMap,
+    ) {
+        self.clear_town_buildable();
+        let w = self.width;
+        let h = self.height;
+        if w == 0 || h == 0 {
+            return;
+        }
+
+        // 1. Stamp base area for each town
+        for (ti, town) in towns.iter().enumerate() {
+            let ti16 = ti as u16;
+            let (center_col, center_row) = self.world_to_grid(town.center);
+            let cc = center_col as i32;
+            let cr = center_row as i32;
+
+            // World-edge caps in town-relative coords
+            let min_row_cap = -cr;
+            let max_row_cap = h as i32 - 1 - cr;
+            let min_col_cap = -cc;
+            let max_col_cap = w as i32 - 1 - cc;
+
+            let min_row = (BASE_GRID_MIN - town.area_level).max(min_row_cap);
+            let max_row = (BASE_GRID_MAX + town.area_level).min(max_row_cap);
+            let min_col = (BASE_GRID_MIN - town.area_level).max(min_col_cap);
+            let max_col = (BASE_GRID_MAX + town.area_level).min(max_col_cap);
+
+            for r in min_row..=max_row {
+                let gr = (cr + r) as usize;
+                if gr >= h { continue; }
+                for c in min_col..=max_col {
+                    let gc = (cc + c) as usize;
+                    if gc >= w { continue; }
+                    self.add_town_buildable(gc, gr, ti16);
+                }
+            }
+        }
+
+        // 2. Stamp road build radii
+        for kind in [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad] {
+            let radius = kind.road_build_radius().unwrap();
+            for inst in entity_map.iter_kind(kind) {
+                let ti16 = inst.town_idx as u16;
+                let (road_col, road_row) = self.world_to_grid(inst.position);
+                let rc = road_col as i32;
+                let rr = road_row as i32;
+                for dr in -radius..=radius {
+                    let gr = (rr + dr) as usize;
+                    if gr >= h { continue; }
+                    for dc in -radius..=radius {
+                        let gc = (rc + dc) as usize;
+                        if gc >= w { continue; }
+                        self.add_town_buildable(gc, gr, ti16);
+                    }
+                }
+            }
         }
     }
 }
@@ -1874,7 +1852,6 @@ pub fn generate_world(
     config: &WorldGenConfig,
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
-    town_grids: &mut TownGrids,
     slot_alloc: &mut crate::resources::GpuSlotPool,
     entity_map: &mut EntityMap,
     uid_alloc: &mut crate::resources::NextEntityUid,
@@ -1890,6 +1867,7 @@ pub fn generate_world(
     grid.width = w;
     grid.height = h;
     grid.cells = vec![WorldCell::default(); w * h];
+    grid.init_town_buildable();
 
     // Shuffle town names
     let mut names = config.town_names.clone();
@@ -1959,20 +1937,16 @@ pub fn generate_world(
             center,
             faction: 0,
             sprite_type: 0,
+            area_level: 0,
         });
         let town_data_idx = world_data.towns.len() - 1;
         let town_idx = town_data_idx as u32;
-        let mut tg = TownGrid::new_base(town_data_idx);
-        tg.recompute_world_caps(center, grid);
-        town_grids.grids.push(tg);
-        let gi = town_grids.grids.len() - 1;
         place_buildings(
             grid,
             world_data,
             center,
             town_idx,
             config,
-            &mut town_grids.grids[gi],
             false,
             slot_alloc,
             entity_map,
@@ -2020,20 +1994,16 @@ pub fn generate_world(
             center,
             faction,
             sprite_type: 0,
+            area_level: 0,
         });
         let town_data_idx = world_data.towns.len() - 1;
         let town_idx = town_data_idx as u32;
-        let mut tg = TownGrid::new_base(town_data_idx);
-        tg.recompute_world_caps(center, grid);
-        town_grids.grids.push(tg);
-        let gi = town_grids.grids.len() - 1;
         place_buildings(
             grid,
             world_data,
             center,
             town_idx,
             config,
-            &mut town_grids.grids[gi],
             false,
             slot_alloc,
             entity_map,
@@ -2076,20 +2046,16 @@ pub fn generate_world(
             center,
             faction,
             sprite_type: 1,
+            area_level: 0,
         });
         let town_data_idx = world_data.towns.len() - 1;
         let town_idx = town_data_idx as u32;
-        let mut tg = TownGrid::new_base(town_data_idx);
-        tg.recompute_world_caps(center, grid);
-        town_grids.grids.push(tg);
-        let gi = town_grids.grids.len() - 1;
         place_buildings(
             grid,
             world_data,
             center,
             town_idx,
             config,
-            &mut town_grids.grids[gi],
             true,
             slot_alloc,
             entity_map,
@@ -2172,11 +2138,10 @@ pub fn generate_world(
 /// - Raider (`is_raider: true`): fountain + raider NPC homes (tents)
 pub fn place_buildings(
     grid: &mut WorldGrid,
-    world_data: &WorldData,
+    world_data: &mut WorldData,
     center: Vec2,
     town_idx: u32,
     config: &WorldGenConfig,
-    town_grid: &mut TownGrid,
     is_raider: bool,
     slot_alloc: &mut crate::resources::GpuSlotPool,
     entity_map: &mut EntityMap,
@@ -2283,7 +2248,9 @@ pub fn place_buildings(
         let col_need = (BASE_GRID_MIN - col).max(col - BASE_GRID_MAX).max(0);
         acc.max(row_need).max(col_need)
     });
-    town_grid.area_level = town_grid.area_level.max(required);
+    if let Some(town) = world_data.towns.get_mut(town_idx as usize) {
+        town.area_level = town.area_level.max(required);
+    }
 }
 
 /// Generate `count` grid positions in a spiral pattern outward from (0,0), skipping occupied cells.

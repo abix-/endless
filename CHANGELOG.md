@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-03-07
+
+- **LLM payload reduction** — own-town buildings switched from full position list to counts (same as enemy towns), plus 10 precomputed `open_slots` (buildable row/col positions sampled for spatial spread via `world::empty_slots()`). Upgrades flattened from nested cost arrays to single-line strings (`"50 Gold, 20 Food"`). Scales O(building_types) not O(buildings) — payload stays bounded at 1000+ buildings.
+- **CSV action format** — LLM responses switched from TOON `actions[N]:` arrays to plain CSV lines: `method, key:value, key:value, ...`. Parser uses `split`/`split_once` instead of `serde_toon2::from_str`. Special `message:` handling preserves commas in chat text.
+- **LLM chat inbox drain** — messages now drained after LLM responds (not on every cycle), so messages survive crashes/disconnects.
+- **Prompt updated** — `prompt_builtin.md` rewritten with CSV examples, `open_slots` docs, inbox instructions.
+
 ## 2026-03-06a
 
 - **TOON response format for LLM player** — LLM responses now use proper TOON `actions[N]:` arrays instead of custom `method key:value` one-liners. Parser replaced with `serde_toon2::from_str` (eliminated custom `parse_toon_value` and line-by-line parser). Prompt updated with one comprehensive TOON example and compact per-action field lists. End-to-end TOON: outbound state AND inbound responses.

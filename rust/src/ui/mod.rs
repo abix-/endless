@@ -898,7 +898,6 @@ fn game_startup_system(
         &config,
         &mut world_state.grid,
         &mut world_state.world_data,
-        &mut world_state.town_grids,
         &mut world_state.entity_slots,
         &mut world_state.entity_map,
         &mut food_storage,
@@ -1726,15 +1725,9 @@ fn build_place_click_system(
     let label = crate::constants::building_def(kind).label;
 
     let mut try_place_at_slot = |slot_row: i32, slot_col: i32| -> bool {
-        let Some(town_grid) = world_state
-            .town_grids
-            .grids
-            .iter()
-            .find(|tg| tg.town_data_idx == town_data_idx)
-        else {
-            return false;
-        };
-        if !world::is_slot_buildable_ext(town_grid, slot_row, slot_col, center, town_data_idx, &world_state.world_data.towns, &world_state.entity_map) {
+        let pos = world::town_grid_to_world(center, slot_row, slot_col);
+        let (gc, gr) = world_state.grid.world_to_grid(pos);
+        if !world_state.grid.can_town_build(gc, gr, town_data_idx as u16) {
             return false;
         }
         if slot_row == 0 && slot_col == 0 {
@@ -1828,7 +1821,6 @@ fn build_ghost_system(
     mut build_ctx: ResMut<BuildMenuContext>,
     grid: Res<world::WorldGrid>,
     world_data: Res<world::WorldData>,
-    town_grids: Res<world::TownGrids>,
     food_storage: Res<FoodStorage>,
     entity_map: Res<EntityMap>,
     mut ghost_query: Query<
@@ -2088,13 +2080,7 @@ fn build_ghost_system(
     // Determine validity
     let (gc, gr) = grid.world_to_grid(slot_pos);
     let has_building = entity_map.has_building_at(gc as i32, gr as i32);
-    let town_grid = town_grids
-        .grids
-        .iter()
-        .find(|tg| tg.town_data_idx == town_data_idx);
-    let in_bounds = town_grid
-        .map(|tg| world::is_slot_buildable_ext(tg, row, col, center, town_data_idx, &world_data.towns, &entity_map))
-        .unwrap_or(false);
+    let in_bounds = grid.can_town_build(gc, gr, town_data_idx as u16);
     let is_center = row == 0 && col == 0;
 
     let mut drag_preview: Vec<(i32, i32, bool, bool)> = Vec::new();
@@ -2107,9 +2093,9 @@ fn build_ghost_system(
         let mut budget = food_storage.food.get(town_data_idx).copied().unwrap_or(0);
 
         for (slot_row, slot_col) in path {
-            let visible_slot = town_grid
-                .map(|tg| world::is_slot_buildable_ext(tg, slot_row, slot_col, center, town_data_idx, &world_data.towns, &entity_map))
-                .unwrap_or(false)
+            let sp = world::town_grid_to_world(center, slot_row, slot_col);
+            let (sgc, sgr) = grid.world_to_grid(sp);
+            let visible_slot = grid.can_town_build(sgc, sgr, town_data_idx as u16)
                 && !(slot_row == 0 && slot_col == 0);
             if !visible_slot {
                 drag_preview.push((slot_row, slot_col, false, false));
@@ -2219,13 +2205,12 @@ fn draw_slot_indicators(
     mut commands: Commands,
     existing: Query<Entity, With<SlotIndicator>>,
     world_data: Res<world::WorldData>,
-    town_grids: Res<world::TownGrids>,
     grid: Res<world::WorldGrid>,
     entity_map: Res<EntityMap>,
     build_ctx: Res<BuildMenuContext>,
 ) {
     // Only rebuild when grid state changes or build selection changes
-    if !town_grids.is_changed() && !grid.is_changed() && !build_ctx.is_changed() {
+    if !grid.is_changed() && !build_ctx.is_changed() {
         return;
     }
 
@@ -2239,15 +2224,13 @@ fn draw_slot_indicators(
         return;
     }
 
-    // Only show indicators for the player's villager town (first grid)
-    let Some(town_grid) = town_grids.grids.first() else {
-        return;
-    };
-    let town_data_idx = town_grid.town_data_idx;
+    // Player's town is always index 0
+    let town_data_idx = 0usize;
     let Some(town) = world_data.towns.get(town_data_idx) else {
         return;
     };
     let center = town.center;
+    let area_level = town.area_level;
 
     let cell = crate::constants::TOWN_GRID_SPACING;
     let base_color = Color::srgba(0.2, 0.6, 0.2, 0.15);
@@ -2261,17 +2244,20 @@ fn draw_slot_indicators(
 
     // Collect all empty buildable slots (base + road-expanded)
     let slots = world::empty_slots(
-        town_grid,
+        town_data_idx,
         center,
         &grid,
         &entity_map,
-        &world_data.towns,
     );
+    if slots.is_empty() {
+        info!("draw_slot_indicators: empty_slots returned 0 for town {town_data_idx}, center={center}, grid={}x{}, town_owner_len={}", grid.width, grid.height, grid.town_owner.len());
+    }
 
+    let (base_min_r, base_max_r, base_min_c, base_max_c) = world::build_bounds(area_level, center, &grid);
     let mut seen = std::collections::HashSet::new();
     for &(row, col) in &slots {
         seen.insert((row, col));
-        let is_base = world::is_slot_buildable(town_grid, row, col);
+        let is_base = row >= base_min_r && row <= base_max_r && col >= base_min_c && col <= base_max_c;
         let color = if is_base { base_color } else { road_color };
 
         let raw_pos = world::town_grid_to_world(center, row, col);
@@ -2309,7 +2295,7 @@ fn draw_slot_indicators(
         }
 
         // 1 tile around base boundary
-        let (min_row, max_row, min_col, max_col) = world::build_bounds(town_grid);
+        let (min_row, max_row, min_col, max_col) = (base_min_r, base_max_r, base_min_c, base_max_c);
         for row in (min_row - 1)..=(max_row + 1) {
             for col in (min_col - 1)..=(max_col + 1) {
                 if row >= min_row && row <= max_row && col >= min_col && col <= max_col {
@@ -2528,7 +2514,6 @@ pub(crate) fn game_cleanup_system(
     *world.game_time = Default::default();
     *world.world_state.grid = Default::default();
     world.tilemap_spawned.0 = false;
-    *world.world_state.town_grids = Default::default();
     *world.build_menu_ctx = Default::default();
     *world.ai_state = Default::default();
     *world.gold_storage = Default::default();

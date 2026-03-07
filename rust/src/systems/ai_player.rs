@@ -424,8 +424,8 @@ impl AiPersonality {
 
     /// Compute the ideal outer ring of waypoint positions for the current build area.
     /// Walks the perimeter clockwise with corners guaranteed and min 5 Manhattan spacing.
-    fn waypoint_ring_slots(self, tg: &world::TownGrid, road_style: RoadStyle) -> Vec<(i32, i32)> {
-        let (min_r, max_r, min_c, max_c) = world::build_bounds(tg);
+    fn waypoint_ring_slots(self, area_level: i32, center: Vec2, grid: &world::WorldGrid, road_style: RoadStyle) -> Vec<(i32, i32)> {
+        let (min_r, max_r, min_c, max_c) = world::build_bounds(area_level, center, grid);
         const MIN_SPACING: i32 = 5;
 
         // Walk perimeter clockwise: top→right→bottom→left (no duplicate corners)
@@ -773,7 +773,6 @@ pub enum SquadRole {
 
 pub struct AiPlayer {
     pub town_data_idx: usize,
-    pub grid_idx: usize,
     pub kind: AiKind,
     pub personality: AiPersonality,
     pub road_style: RoadStyle,
@@ -809,19 +808,19 @@ pub struct AiPlayerState {
 /// Find best empty slot closest to town center (for economy buildings).
 /// Excludes road and waypoint pattern slots for the given personality.
 fn find_inner_slot(
-    tg: &world::TownGrid,
+    town_idx: usize,
     center: Vec2,
+    area_level: i32,
     grid: &WorldGrid,
     entity_map: &EntityMap,
-    towns: &[world::Town],
     personality: AiPersonality,
     road_style: RoadStyle,
 ) -> Option<(i32, i32)> {
     let wp_slots: HashSet<(i32, i32)> = personality
-        .waypoint_ring_slots(tg, road_style)
+        .waypoint_ring_slots(area_level, center, grid, road_style)
         .into_iter()
         .collect();
-    world::empty_slots(tg, center, grid, entity_map, towns)
+    world::empty_slots(town_idx, center, grid, entity_map)
         .into_iter()
         .filter(|&(r, c)| !road_style.is_road_slot(r, c) && !wp_slots.contains(&(r, c)))
         .min_by_key(|&(r, c)| r * r + c * c)
@@ -831,15 +830,13 @@ fn build_town_snapshot(
     world_data: &WorldData,
     entity_map: &EntityMap,
     grid: &WorldGrid,
-    tg: &world::TownGrid,
     town_data_idx: usize,
     personality: AiPersonality,
     road_style: RoadStyle,
 ) -> Option<AiTownSnapshot> {
-    // Build one cached view of this town used during this AI tick.
-    // Purpose: avoid recomputing per-building slot sets repeatedly while scoring.
     let town = world_data.towns.get(town_data_idx)?;
     let center = town.center;
+    let area_level = town.area_level;
     let ti = town_data_idx as u32;
 
     let farms = entity_map
@@ -858,10 +855,9 @@ fn build_town_snapshot(
         .iter_kind_for_town(BuildingKind::CrossbowHome, ti)
         .map(|b| world::world_to_town_grid(center, b.position))
         .collect();
-    // Compute waypoint ring once and cache — reused for slot filtering and find_waypoint_slot
-    let waypoint_ring = personality.waypoint_ring_slots(tg, road_style);
+    let waypoint_ring = personality.waypoint_ring_slots(area_level, center, grid, road_style);
     let wp_slots: HashSet<(i32, i32)> = waypoint_ring.iter().copied().collect();
-    let empty_slots = world::empty_slots(tg, center, grid, entity_map, &world_data.towns)
+    let empty_slots = world::empty_slots(town_data_idx, center, grid, entity_map)
         .into_iter()
         .filter(|&(r, c)| !road_style.is_road_slot(r, c) && !wp_slots.contains(&(r, c)))
         .collect();
@@ -1134,7 +1130,7 @@ fn miner_toward_mine_score(mine_positions: &[Vec2], center: Vec2, slot: (i32, i3
 /// Find the next ideal waypoint slot from the personality's outer ring pattern.
 /// Uses cached ring from snapshot if available, otherwise computes fresh.
 fn find_waypoint_slot(
-    tg: &world::TownGrid,
+    area_level: i32,
     center: Vec2,
     grid: &WorldGrid,
     entity_map: &EntityMap,
@@ -1147,7 +1143,7 @@ fn find_waypoint_slot(
     let ideal = match cached_ring {
         Some(ring) => ring,
         None => {
-            computed = personality.waypoint_ring_slots(tg, road_style);
+            computed = personality.waypoint_ring_slots(area_level, center, grid, road_style);
             &computed
         }
     };
@@ -1183,17 +1179,10 @@ fn sync_town_perimeter_waypoints(
     let Some(town) = world.world_data.towns.get(town_data_idx) else {
         return 0;
     };
-    let Some(tg) = world
-        .town_grids
-        .grids
-        .iter()
-        .find(|g| g.town_data_idx == town_data_idx)
-    else {
-        return 0;
-    };
     let center = town.center;
+    let area_level = town.area_level;
     let ti = town_data_idx as u32;
-    let ideal_slots = personality.waypoint_ring_slots(tg, road_style);
+    let ideal_slots = personality.waypoint_ring_slots(area_level, center, &world.grid, road_style);
     if ideal_slots.is_empty() {
         return 0;
     }
@@ -1360,7 +1349,7 @@ struct TownContext {
     center: Vec2,
     ti: u32,
     tdi: usize,
-    grid_idx: usize,
+    area_level: i32,
     food: i32,
     has_slots: bool,
     slot_fullness: f32,
@@ -1370,51 +1359,33 @@ struct TownContext {
 impl TownContext {
     fn build(
         tdi: usize,
-        grid_idx: usize,
         food: i32,
         snapshot: Option<&AiTownSnapshot>,
         res: &AiBuildRes,
         kind: AiKind,
         mining_radius: f32,
     ) -> Option<Self> {
-        // Constructor centralizes per-tick derived values.
-        // Returning `Option<Self>` avoids panics if required world/town data is missing.
-        let center = snapshot
-            .map(|s| s.center)
-            .or_else(|| res.world.world_data.towns.get(tdi).map(|t| t.center))?;
+        let town = res.world.world_data.towns.get(tdi)?;
+        let center = snapshot.map(|s| s.center).unwrap_or(town.center);
+        let area_level = town.area_level;
         let ti = tdi as u32;
         let empty_count = snapshot
             .map(|s| s.empty_slots.len())
-            .or_else(|| {
-                res.world.town_grids.grids.get(grid_idx).map(|tg| {
-                    world::empty_slots(tg, center, &res.world.grid, &res.world.entity_map, &res.world.world_data.towns).len()
-                })
-            })
-            .unwrap_or(0);
-        let slot_fullness = res
-            .world
-            .town_grids
-            .grids
-            .get(grid_idx)
-            .map(|tg| {
-                let (min_r, max_r, min_c, max_c) = world::build_bounds(tg);
-                // Total candidate build slots inside town bounds, minus center tile.
-                let total = ((max_r - min_r + 1) * (max_c - min_c + 1) - 1) as f32;
-                // Normalize occupancy to [0,1] where 1.0 means "effectively full".
-                1.0 - empty_count as f32 / total.max(1.0)
-            })
-            .unwrap_or(0.0);
+            .unwrap_or_else(|| {
+                world::empty_slots(tdi, center, &res.world.grid, &res.world.entity_map).len()
+            });
+        let (min_r, max_r, min_c, max_c) = world::build_bounds(area_level, center, &res.world.grid);
+        let total = ((max_r - min_r + 1) * (max_c - min_c + 1) - 1) as f32;
+        let slot_fullness = 1.0 - empty_count as f32 / total.max(1.0);
         let mines = match kind {
-            // Builder AIs use mine analysis for scoring/execution.
             AiKind::Builder => Some(analyze_mines(&res.world.entity_map, center, mining_radius)),
-            // Raider AIs don't use mining logic.
             AiKind::Raider => None,
         };
         Some(Self {
             center,
             ti,
             tdi,
-            grid_idx,
+            area_level,
             food,
             has_slots: empty_count > 0,
             slot_fullness,
@@ -1483,21 +1454,17 @@ pub fn ai_decision_system(
         let build_enabled = player.build_enabled;
         let upgrade_enabled = player.upgrade_enabled;
         let kind = player.kind;
-        let grid_idx = player.grid_idx;
         let _ = player; // end immutable borrow — mutable access needed later
         if !snapshots.towns.contains_key(&tdi) {
-            if let Some(tg) = res.world.town_grids.grids.get(grid_idx) {
-                if let Some(snap) = build_town_snapshot(
-                    &res.world.world_data,
-                    &res.world.entity_map,
-                    &res.world.grid,
-                    tg,
-                    tdi,
-                    personality,
-                    road_style,
-                ) {
-                    snapshots.towns.insert(tdi, snap);
-                }
+            if let Some(snap) = build_town_snapshot(
+                &res.world.world_data,
+                &res.world.entity_map,
+                &res.world.grid,
+                tdi,
+                personality,
+                road_style,
+            ) {
+                snapshots.towns.insert(tdi, snap);
             }
         }
 
@@ -1513,7 +1480,6 @@ pub fn ai_decision_system(
             .unwrap_or(crate::constants::DEFAULT_MINING_RADIUS);
         let Some(ctx) = TownContext::build(
             tdi,
-            grid_idx,
             food,
             snapshots.towns.get(&tdi),
             &res,
@@ -1801,11 +1767,10 @@ pub fn ai_decision_system(
                 {
                     let road_candidates = count_road_candidates(
                         &res.world.entity_map,
-                        &res.world.town_grids,
+                        ctx.area_level,
+                        ctx.center,
                         &res.world.grid,
                         ctx.ti,
-                        ctx.center,
-                        ctx.grid_idx,
                         road_style,
                     );
                     if road_candidates > 0 {
@@ -2050,23 +2015,21 @@ fn try_build_at_slot(
 
 fn pick_slot_from_snapshot_or_inner(
     snapshot: Option<&AiTownSnapshot>,
-    tg: &world::TownGrid,
+    town_idx: usize,
     center: Vec2,
+    area_level: i32,
     grid: &WorldGrid,
     entity_map: &EntityMap,
-    towns: &[world::Town],
     score: fn(&AiTownSnapshot, (i32, i32)) -> i32,
     personality: AiPersonality,
     road_style: RoadStyle,
 ) -> Option<(i32, i32)> {
-    // If snapshot exists, use expensive scoring over known empty slots.
-    // If no snapshot/candidate, fallback to deterministic inner-slot policy.
     if let Some(snap) = snapshot {
         if let Some(slot) = pick_best_empty_slot(snap, |s| score(snap, s)) {
             return Some(slot);
         }
     }
-    find_inner_slot(tg, center, grid, entity_map, towns, personality, road_style)
+    find_inner_slot(town_idx, center, area_level, grid, entity_map, personality, road_style)
 }
 
 fn try_build_inner(
@@ -2076,18 +2039,16 @@ fn try_build_inner(
     tdi: usize,
     center: Vec2,
     res: &mut AiBuildRes,
-    grid_idx: usize,
+    area_level: i32,
     personality: AiPersonality,
     road_style: RoadStyle,
 ) -> Option<String> {
-    // Build using deterministic center-nearest slot.
-    let tg = res.world.town_grids.grids.get(grid_idx)?;
     let (row, col) = find_inner_slot(
-        tg,
+        tdi,
         center,
+        area_level,
         &res.world.grid,
         &res.world.entity_map,
-        &res.world.world_data.towns,
         personality,
         road_style,
     )?;
@@ -2100,21 +2061,19 @@ fn try_build_scored(
     tdi: usize,
     center: Vec2,
     res: &mut AiBuildRes,
-    grid_idx: usize,
+    area_level: i32,
     snapshot: Option<&AiTownSnapshot>,
     score_fn: fn(&AiTownSnapshot, (i32, i32)) -> i32,
     personality: AiPersonality,
     road_style: RoadStyle,
 ) -> Option<String> {
-    // Build using snapshot-aware scoring with inner-slot fallback.
-    let tg = res.world.town_grids.grids.get(grid_idx)?;
     let (row, col) = pick_slot_from_snapshot_or_inner(
         snapshot,
-        tg,
+        tdi,
         center,
+        area_level,
         &res.world.grid,
         &res.world.entity_map,
-        &res.world.world_data.towns,
         score_fn,
         personality,
         road_style,
@@ -2132,29 +2091,28 @@ fn try_build_miner_home(
 ) -> Option<String> {
     // Miner homes are intentionally special-cased:
     // score depends on mine positions from per-tick MineAnalysis, not only local adjacency.
-    let tg = res.world.town_grids.grids.get(ctx.grid_idx)?;
     let slot = if let Some(snap) = snapshot {
         pick_best_empty_slot(snap, |s| {
             miner_toward_mine_score(&mines.all_positions, ctx.center, s)
         })
         .or_else(|| {
             find_inner_slot(
-                tg,
+                ctx.tdi,
                 ctx.center,
+                ctx.area_level,
                 &res.world.grid,
                 &res.world.entity_map,
-                &res.world.world_data.towns,
                 personality,
                 road_style,
             )
         })
     } else {
         find_inner_slot(
-            tg,
+            ctx.tdi,
             ctx.center,
+            ctx.area_level,
             &res.world.grid,
             &res.world.entity_map,
-            &res.world.world_data.towns,
             personality,
             road_style,
         )
@@ -2175,11 +2133,10 @@ fn try_build_miner_home(
 /// Used to gate road scoring so roads aren't scored when no candidates exist.
 fn count_road_candidates(
     entity_map: &EntityMap,
-    town_grids: &world::TownGrids,
+    area_level: i32,
+    center: Vec2,
     grid: &world::WorldGrid,
     ti: u32,
-    center: Vec2,
-    grid_idx: usize,
     road_style: RoadStyle,
 ) -> usize {
     let econ_slots: Vec<(i32, i32)> = entity_map
@@ -2196,11 +2153,7 @@ fn count_road_candidates(
         .flat_map(|&kind| entity_map.iter_kind_for_town(kind, ti))
         .map(|b| world::world_to_town_grid(center, b.position))
         .collect();
-    let (min_r, max_r, min_c, max_c) = town_grids
-        .grids
-        .get(grid_idx)
-        .map(|g| world::build_bounds(g))
-        .unwrap_or((-4, 3, -4, 3));
+    let (min_r, max_r, min_c, max_c) = world::build_bounds(area_level, center, grid);
     // Cardinal: extend axes to 2× build radius for attack corridors
     let (ext_min_r, ext_max_r, ext_min_c, ext_max_c) = if road_style == RoadStyle::Cardinal {
         (min_r * 2, max_r * 2, min_c * 2, max_c * 2)
@@ -2266,8 +2219,7 @@ fn try_build_road_grid(
 
     // Generate candidate road cells using the town's road style
     let mut candidates: HashMap<(i32, i32), i32> = HashMap::new();
-    let tg = res.world.town_grids.grids.get(ctx.grid_idx);
-    let (min_r, max_r, min_c, max_c) = tg.map(|g| world::build_bounds(g)).unwrap_or((-4, 3, -4, 3));
+    let (min_r, max_r, min_c, max_c) = world::build_bounds(ctx.area_level, ctx.center, &res.world.grid);
     // Cardinal: extend axes to 2× build radius for attack corridors
     let (ext_min_r, ext_max_r, ext_min_c, ext_max_c) = if road_style == RoadStyle::Cardinal {
         (min_r * 2, max_r * 2, min_c * 2, max_c * 2)
@@ -2369,7 +2321,7 @@ fn execute_action(
             ctx.tdi,
             ctx.center,
             res,
-            ctx.grid_idx,
+            ctx.area_level,
             personality,
             road_style,
         ),
@@ -2385,7 +2337,7 @@ fn execute_action(
                 ctx.tdi,
                 ctx.center,
                 res,
-                ctx.grid_idx,
+                ctx.area_level,
                 snapshot,
                 score,
                 personality,
@@ -2404,7 +2356,7 @@ fn execute_action(
                 ctx.tdi,
                 ctx.center,
                 res,
-                ctx.grid_idx,
+                ctx.area_level,
                 snapshot,
                 score,
                 personality,
@@ -2417,7 +2369,7 @@ fn execute_action(
             ctx.tdi,
             ctx.center,
             res,
-            ctx.grid_idx,
+            ctx.area_level,
             snapshot,
             archer_fill_score,
             personality,
@@ -2429,7 +2381,7 @@ fn execute_action(
             ctx.tdi,
             ctx.center,
             res,
-            ctx.grid_idx,
+            ctx.area_level,
             snapshot,
             archer_fill_score,
             personality,
@@ -2461,10 +2413,9 @@ fn execute_action(
         }
         AiAction::BuildWaypoint => {
             let cost = building_cost(BuildingKind::Waypoint);
-            let tg = res.world.town_grids.grids.get(ctx.grid_idx)?;
             let cached_ring = snapshot.map(|s| s.waypoint_ring.as_slice());
             let (row, col) = find_waypoint_slot(
-                tg,
+                ctx.area_level,
                 ctx.center,
                 &res.world.grid,
                 &res.world.entity_map,

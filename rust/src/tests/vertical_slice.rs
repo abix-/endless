@@ -28,6 +28,7 @@ pub fn setup(mut params: TestSetupParams) {
         center: Vec2::new(384.0, 128.0),
         faction: 1,
         sprite_type: 1,
+    area_level: 0,
     });
 
     // 5 farms near town 0 (pre-grown so farmers can harvest)
