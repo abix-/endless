@@ -73,7 +73,7 @@ pub struct Town {
     pub name: String,
     #[serde(with = "vec2_as_array")]
     pub center: Vec2,
-    pub faction: i32,     // 0=Villager, 1+=Raider factions
+    pub faction: i32,     // 0=Neutral, 1=Player, 2+=AI factions
     pub sprite_type: i32, // 0=fountain, 1=tent
     /// Build area expansion level. 0 = base 8x8, each level adds 1 ring.
     #[serde(default)]
@@ -214,7 +214,75 @@ pub fn empty_slots(
     out
 }
 
-/// Find which town has a buildable slot matching the given world position.
+/// Find interior roads for a town — roads whose build-area contribution is fully redundant.
+/// A road is "interior" if every cell within its radius is already covered by the base grid
+/// or by another road's radius. Safe to destroy without losing buildable area.
+pub fn find_interior_roads(
+    town_idx: usize,
+    grid: &WorldGrid,
+    entity_map: &crate::resources::EntityMap,
+    towns: &[Town],
+) -> Vec<(usize, usize)> {
+    let Some(town) = towns.get(town_idx) else { return Vec::new() };
+    let ti = town_idx as u32;
+    let (min_c, max_c, min_r, max_r) = build_bounds(town.area_level, town.center, grid);
+    let w = grid.width;
+    let h = grid.height;
+
+    // Collect all roads for this town: (col, row, radius)
+    let mut roads: Vec<(usize, usize, i32)> = Vec::new();
+    for kind in [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad] {
+        let radius = kind.road_build_radius().unwrap();
+        for inst in entity_map.iter_kind_for_town(kind, ti) {
+            let (col, row) = grid.world_to_grid(inst.position);
+            roads.push((col, row, radius));
+        }
+    }
+
+    let mut result = Vec::new();
+    for i in 0..roads.len() {
+        let (rc, rr, radius) = roads[i];
+        let mut all_covered = true;
+
+        // Check every cell this road covers
+        'cell: for dr in -radius..=radius {
+            let gr = rr as i32 + dr;
+            if gr < 0 || gr as usize >= h { continue; }
+            for dc in -radius..=radius {
+                let gc = rc as i32 + dc;
+                if gc < 0 || gc as usize >= w { continue; }
+                let col = gc as usize;
+                let row = gr as usize;
+
+                // Covered by base grid?
+                if col >= min_c && col <= max_c && row >= min_r && row <= max_r {
+                    continue;
+                }
+
+                // Covered by another road's radius?
+                let mut other_covers = false;
+                for (j, &(oc, or, orad)) in roads.iter().enumerate() {
+                    if j == i { continue; }
+                    if (col as i32 - oc as i32).abs() <= orad
+                        && (row as i32 - or as i32).abs() <= orad
+                    {
+                        other_covers = true;
+                        break;
+                    }
+                }
+                if !other_covers {
+                    all_covered = false;
+                    break 'cell;
+                }
+            }
+        }
+
+        if all_covered {
+            result.push((rc, rr));
+        }
+    }
+    result
+}
 
 // ============================================================================
 // BUILDING PLACEMENT / REMOVAL
@@ -666,7 +734,9 @@ pub fn place_building(
 /// Create AI players for all non-player towns with random personalities.
 fn create_ai_players(
     world_data: &WorldData,
+    faction_list: &crate::resources::FactionList,
 ) -> Vec<crate::systems::AiPlayer> {
+    use crate::resources::FactionKind;
     use crate::systems::ai_player::RoadStyle;
     use crate::systems::{AiKind, AiPersonality, AiPlayer};
     use rand::Rng;
@@ -678,7 +748,9 @@ fn create_ai_players(
     let mut rng = rand::rng();
     let mut players = Vec::new();
     for (tdi, town) in world_data.towns.iter().enumerate() {
-        if town.faction > 0 {
+        let is_ai = faction_list.factions.get(town.faction as usize)
+            .is_some_and(|f| matches!(f.kind, FactionKind::AiBuilder | FactionKind::AiRaider));
+        if is_ai {
             let kind = if town.sprite_type == 1 {
                 AiKind::Raider
             } else {
@@ -724,6 +796,7 @@ pub fn setup_world(
     config: &WorldGenConfig,
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
+    faction_list: &mut crate::resources::FactionList,
     slot_alloc: &mut GpuSlotPool,
     entity_map: &mut EntityMap,
     food_storage: &mut FoodStorage,
@@ -737,7 +810,7 @@ pub fn setup_world(
 ) -> Vec<crate::systems::AiPlayer> {
     entity_map.clear_buildings();
     generate_world(
-        config, grid, world_data, slot_alloc, entity_map, uid_alloc,
+        config, grid, world_data, faction_list, slot_alloc, entity_map, uid_alloc,
         commands, gpu_updates,
     );
     entity_map.init_spatial(grid.width as f32 * grid.cell_size);
@@ -745,14 +818,15 @@ pub fn setup_world(
     grid.sync_building_costs(entity_map);
     grid.sync_town_buildability(&world_data.towns, entity_map);
 
-    let n = world_data.towns.len();
-    food_storage.init(n);
-    gold_storage.init(n);
-    faction_stats.init(n);
-    reputation.init(n);
-    raider_state.init(n, 10);
+    let n_towns = world_data.towns.len();
+    let n_factions = faction_list.factions.len();
+    food_storage.init(n_towns);
+    gold_storage.init(n_towns);
+    faction_stats.init(n_factions);
+    reputation.init(n_factions);
+    raider_state.init(n_towns, 10);
 
-    create_ai_players(world_data)
+    create_ai_players(world_data, faction_list)
 }
 
 /// Expand one town's buildable area by one ring and convert new ring terrain to Dirt.
@@ -1784,14 +1858,24 @@ pub fn generate_world(
     config: &WorldGenConfig,
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
+    faction_list: &mut crate::resources::FactionList,
     slot_alloc: &mut crate::resources::GpuSlotPool,
     entity_map: &mut EntityMap,
     uid_alloc: &mut crate::resources::NextEntityUid,
     commands: &mut Commands,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
 ) {
+    use crate::resources::{FactionData, FactionKind};
     use rand::Rng;
     let mut rng = rand::rng();
+
+    // Faction 0 = Neutral (gold mines, world objects)
+    faction_list.factions.clear();
+    faction_list.factions.push(FactionData {
+        kind: FactionKind::Neutral,
+        name: "Neutral".into(),
+        towns: Vec::new(),
+    });
 
     // Step 1: Initialize grid
     let w = (config.world_width / grid.cell_size) as usize;
@@ -1820,9 +1904,7 @@ pub fn generate_world(
     let mut all_positions: Vec<Vec2> = Vec::new();
     // Continents needs more attempts since many positions land in ocean
     let max_attempts = if is_continents { 5000 } else { 2000 };
-    let mut next_faction = 1;
-
-    // Step 2: Place player town centers (faction 0)
+    // Step 2: Place player town centers
     let mut player_positions: Vec<Vec2> = Vec::new();
     let mut attempts = 0;
     while player_positions.len() < config.num_towns && attempts < max_attempts {
@@ -1857,21 +1939,27 @@ pub fn generate_world(
         );
     }
 
-    // Register player towns
+    // Register player towns — each gets its own faction
     for &center in &player_positions {
         let name = names
             .get(name_idx)
             .cloned()
             .unwrap_or_else(|| format!("Town {}", name_idx));
         name_idx += 1;
+        let faction = faction_list.factions.len() as i32;
+        let town_data_idx = world_data.towns.len();
+        faction_list.factions.push(FactionData {
+            kind: FactionKind::Player,
+            name: name.clone(),
+            towns: vec![town_data_idx],
+        });
         world_data.towns.push(Town {
             name,
             center,
-            faction: 0,
+            faction,
             sprite_type: 0,
             area_level: 0,
         });
-        let town_data_idx = world_data.towns.len() - 1;
         let town_idx = town_data_idx as u32;
         place_buildings(
             grid,
@@ -1919,8 +2007,13 @@ pub fn generate_world(
             .cloned()
             .unwrap_or_else(|| format!("AI Town {}", name_idx));
         name_idx += 1;
-        let faction = next_faction;
-        next_faction += 1;
+        let faction = faction_list.factions.len() as i32;
+        let town_data_idx = world_data.towns.len();
+        faction_list.factions.push(FactionData {
+            kind: FactionKind::AiBuilder,
+            name: name.clone(),
+            towns: vec![town_data_idx],
+        });
         world_data.towns.push(Town {
             name,
             center,
@@ -1928,7 +2021,6 @@ pub fn generate_world(
             sprite_type: 0,
             area_level: 0,
         });
-        let town_data_idx = world_data.towns.len() - 1;
         let town_idx = town_data_idx as u32;
         place_buildings(
             grid,
@@ -1971,8 +2063,13 @@ pub fn generate_world(
     }
 
     for &center in &raider_positions {
-        let faction = next_faction;
-        next_faction += 1;
+        let faction = faction_list.factions.len() as i32;
+        let town_data_idx = world_data.towns.len();
+        faction_list.factions.push(FactionData {
+            kind: FactionKind::AiRaider,
+            name: "Raider Town".into(),
+            towns: vec![town_data_idx],
+        });
         world_data.towns.push(Town {
             name: "Raider Town".into(),
             center,
@@ -1980,7 +2077,6 @@ pub fn generate_world(
             sprite_type: 1,
             area_level: 0,
         });
-        let town_data_idx = world_data.towns.len() - 1;
         let town_idx = town_data_idx as u32;
         place_buildings(
             grid,
@@ -2043,7 +2139,7 @@ pub fn generate_world(
         let snapped = grid.grid_to_world(gc, gr);
         let _ = place_building(
             slot_alloc, entity_map, uid_alloc, commands, gpu_updates,
-            BuildingKind::GoldMine, snapped, 0, crate::constants::FACTION_NEUTRAL,
+            BuildingKind::GoldMine, snapped, crate::constants::TOWN_NONE, crate::constants::FACTION_NEUTRAL,
             0, 0, None, None, None, None,
         );
         mine_positions.push(snapped);

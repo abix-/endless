@@ -348,7 +348,7 @@ pub fn death_system(
                     .write(crate::messages::BuildingGridDirtyMsg);
 
                 // Player fountain destroyed → trigger game over screen
-                if defender_faction == 0 {
+                if defender_faction == crate::constants::FACTION_PLAYER {
                     ui_state.game_over = true;
                     game_time.paused = true;
                 }
@@ -365,7 +365,7 @@ pub fn death_system(
                         .world_data
                         .towns
                         .iter()
-                        .position(|t| t.faction == 0)
+                        .position(|t| t.faction == crate::constants::FACTION_PLAYER)
                         .unwrap_or(0);
                     let player_levels = upgrades.town_levels(player_town);
                     let frac = res.endless.strength_fraction;
@@ -850,9 +850,9 @@ pub fn death_system(
                         .map(|b| b.faction)
                 })
                 .unwrap_or(-1);
-            if killer_faction == 0 && faction != 0 {
+            if killer_faction == crate::constants::FACTION_PLAYER && faction != crate::constants::FACTION_PLAYER {
                 res.kill_stats.archer_kills += 1;
-            } else if killer_faction != 0 && faction == 0 {
+            } else if killer_faction != crate::constants::FACTION_PLAYER && faction == crate::constants::FACTION_PLAYER {
                 res.kill_stats.villager_kills += 1;
             }
         }
@@ -914,7 +914,7 @@ pub fn update_healing_zone_cache(
     cache.by_faction.resize_with(faction_count, Vec::new);
 
     for (town_idx, town) in world_data.towns.iter().enumerate() {
-        if town.faction < 0 {
+        if town.faction == crate::constants::FACTION_NEUTRAL {
             continue;
         }
         let town_levels = upgrades.town_levels(town_idx);
@@ -1160,7 +1160,7 @@ pub fn healing_system(
             }
             let x = bld_positions[idx * 2];
             let y = bld_positions[idx * 2 + 1];
-            if faction.0 < 0 {
+            if faction.0 == crate::constants::FACTION_NEUTRAL {
                 continue;
             }
             if let Some(zones) = {

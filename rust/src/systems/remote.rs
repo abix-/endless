@@ -101,6 +101,9 @@ fn toon_ok(value: Value) -> BrpResult {
     Ok(json!(toon))
 }
 
+/// Round f32 to 2 decimal places via f64 to avoid precision artifacts.
+fn r2(v: f32) -> f64 { (v as f64 * 100.0).round() / 100.0 }
+
 fn brp_err(msg: impl Into<String>) -> BrpError {
     BrpError {
         code: error_codes::INVALID_PARAMS,
@@ -392,7 +395,7 @@ pub fn build_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpRes
     }
 
     let pos = world.resource::<crate::world::WorldGrid>().grid_to_world(p.col, p.row);
-    queue_llm_log(world, p.town, format!("build {} at ({},{})", p.col, p.row, p.kind), Some(pos));
+    queue_llm_log(world, p.town, format!("build {} at ({},{})", p.kind, p.col, p.row), Some(pos));
 
     world
         .resource_mut::<RemoteBuildQueue>()
@@ -751,8 +754,8 @@ fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
     ) in query.iter(world) {
         if entity_uid.0 != uid { continue; }
 
-        // Equipment slots
-        let mut equip = json!({});
+        // Equipment slots — uniform array for TOON CSV table
+        let mut equip: Vec<Value> = Vec::new();
         let slots: &[(&str, &Option<crate::constants::LootItem>)] = &[
             ("weapon", &equipment.weapon), ("helm", &equipment.helm),
             ("armor", &equipment.armor), ("shield", &equipment.shield),
@@ -762,11 +765,11 @@ fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
         ];
         for &(label, item_opt) in slots {
             if let Some(item) = item_opt {
-                equip[label] = json!({
-                    "name": item.name,
+                equip.push(json!({
+                    "slot": label, "name": item.name,
                     "rarity": item.rarity.label(),
-                    "stat_bonus": format!("{:.0}%", item.stat_bonus * 100.0),
-                });
+                    "bonus": format!("{:.0}%", item.stat_bonus * 100.0),
+                }));
             }
         }
 
@@ -793,38 +796,33 @@ fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
             "uid": uid,
             "job": format!("{:?}", job),
             "activity": activity.name(),
-            "activity_debug": format!("{:?}", activity),
             "combat_state": combat_state.name(),
             "hp": health.0,
             "max_hp": stats.max_health,
-            "energy": energy.0,
+            "energy": ((energy.0 as f64 * 10.0).round() / 10.0),
             "speed": stats.speed,
-            "home": [home.0.x, home.0.y],
+            "home_x": home.0.x as i32,
+            "home_y": home.0.y as i32,
             "town_id": town_id.0,
             "faction": faction.0,
-            "carried_loot": {
-                "food": carried_loot.food,
-                "gold": carried_loot.gold,
-                "equipment": carried_loot.equipment.iter().map(|i| json!({
-                    "name": &i.name, "rarity": i.rarity.label(),
-                })).collect::<Vec<_>>(),
-            },
-            "work_state": { "worksite": work_state.worksite.map(|u| u.0) },
+            "loot_food": carried_loot.food,
+            "loot_gold": carried_loot.gold,
+            "loot_equipment": carried_loot.equipment.iter().map(|i| json!({
+                "name": &i.name, "rarity": i.rarity.label(),
+            })).collect::<Vec<_>>(),
+            "worksite": work_state.worksite.map(|u| u.0),
             "flags": flag_list,
             "manual_target": mt_str,
             "squad_id": squad_id.map(|s| s.0),
-            "patrol": patrol_route.map(|r| json!({
-                "current": r.current, "posts": r.posts.len(),
-            })),
+            "patrol_current": patrol_route.map(|r| r.current),
+            "patrol_posts": patrol_route.map(|r| r.posts.len()),
             "personality": trait_str,
-            "stats": {
-                "damage": stats.damage,
-                "range": stats.range,
-                "cooldown": stats.cooldown,
-                "hp_regen": stats.hp_regen,
-                "stamina": stats.stamina,
-                "berserk_bonus": stats.berserk_bonus,
-            },
+            "stats_damage": stats.damage,
+            "stats_range": r2(stats.range),
+            "stats_cooldown": r2(stats.cooldown),
+            "stats_hp_regen": r2(stats.hp_regen),
+            "stats_stamina": stats.stamina,
+            "stats_berserk": stats.berserk_bonus,
             "equipment": equip,
         }));
         break;
@@ -862,67 +860,57 @@ fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
             data["faction_name"] = json!(format!("{} (F{})", town.name, town.faction));
         }
         if let Some(p) = policies.policies.get(town_id as usize) {
-            data["policy"] = json!({
-                "eat_food": p.eat_food,
-                "archer_aggressive": p.archer_aggressive,
-                "archer_leash": p.archer_leash,
-                "archer_flee_hp": p.archer_flee_hp,
-                "farmer_flee_hp": p.farmer_flee_hp,
-                "prioritize_healing": p.prioritize_healing,
-                "recovery_hp": p.recovery_hp,
-            });
+            data["policy_eat_food"] = json!(p.eat_food);
+            data["policy_aggressive"] = json!(p.archer_aggressive);
+            data["policy_leash"] = json!(p.archer_leash);
+            data["policy_archer_flee"] = json!(r2(p.archer_flee_hp));
+            data["policy_farmer_flee"] = json!(r2(p.farmer_flee_hp));
+            data["policy_heal_prio"] = json!(p.prioritize_healing);
+            data["policy_recovery"] = json!(r2(p.recovery_hp));
         }
     }
 
-    // GPU readback: position, target, combat_target
+    // Readback: actual rendered position, movement target, combat target
     let i2 = slot * 2;
     if i2 + 1 < gpu_state.positions.len() {
-        data["gpu_pos"] = json!([gpu_state.positions[i2], gpu_state.positions[i2 + 1]]);
+        data["world_x"] = json!(gpu_state.positions[i2] as i32);
+        data["world_y"] = json!(gpu_state.positions[i2 + 1] as i32);
     }
-    // GPU target from EntityGpuState (CPU-side target buffer)
     let gpu_data = world.resource::<crate::gpu::EntityGpuState>();
     if i2 + 1 < gpu_data.targets.len() {
-        data["gpu_target"] = json!([gpu_data.targets[i2], gpu_data.targets[i2 + 1]]);
+        data["target_x"] = json!(gpu_data.targets[i2] as i32);
+        data["target_y"] = json!(gpu_data.targets[i2 + 1] as i32);
     }
     let ct = gpu_state.combat_targets.get(slot).copied().unwrap_or(-1);
-    data["gpu_combat_target"] = json!(ct);
+    data["combat_target"] = json!(ct);
     if ct >= 0 {
         let ti = ct as usize;
         if let Some(inst) = entity_map.get_instance(ti) {
-            data["gpu_target_resolved"] = json!({
-                "type": "building",
-                "kind": format!("{:?}", inst.kind),
-                "faction": inst.faction,
-                "pos": [inst.position.x, inst.position.y],
-            });
+            data["combat_info"] = json!(format!(
+                "building {} F{} @{},{}", format!("{:?}", inst.kind), inst.faction,
+                inst.position.x as i32, inst.position.y as i32
+            ));
         } else if let Some(tnpc) = entity_map.get_npc(ti) {
             let tx = gpu_state.positions.get(ti * 2).copied().unwrap_or(-9999.0);
             let ty = gpu_state.positions.get(ti * 2 + 1).copied().unwrap_or(-9999.0);
-            data["gpu_target_resolved"] = json!({
-                "type": "npc",
-                "slot": ti,
-                "faction": tnpc.faction,
-                "pos": [tx, ty],
-                "dead": tnpc.dead,
-            });
+            data["combat_info"] = json!(format!(
+                "npc F{} @{},{}{}", tnpc.faction, tx as i32, ty as i32,
+                if tnpc.dead { " dead" } else { "" }
+            ));
         }
     }
 
     // Worksite detail
-    if let Some(uid_val) = data["work_state"]["worksite"].as_u64() {
+    if let Some(uid_val) = data["worksite"].as_u64() {
         let uid = crate::components::EntityUid(uid_val);
         if let Some(ws_slot) = entity_map.slot_for_uid(uid) {
             if let Some(inst) = entity_map.get_instance(ws_slot) {
                 let max_occ = crate::constants::building_def(inst.kind)
                     .worksite.map_or(0, |w| w.max_occupants);
-                data["worksite_detail"] = json!({
-                    "slot": ws_slot,
-                    "kind": format!("{:?}", inst.kind),
-                    "occupants": inst.occupants,
-                    "max_occupants": max_occ,
-                    "growth": format!("{:.0}%", inst.growth_progress * 100.0),
-                    "pos": [inst.position.x, inst.position.y],
-                });
+                data["worksite_kind"] = json!(format!("{:?}", inst.kind));
+                data["worksite_occupants"] = json!(inst.occupants);
+                data["worksite_max_occ"] = json!(max_occ);
+                data["worksite_growth"] = json!(format!("{:.0}%", inst.growth_progress * 100.0));
             }
         }
     }
@@ -932,34 +920,66 @@ fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
         let sq = sq_val as usize;
         if sq < squad_state.squads.len() {
             let s = &squad_state.squads[sq];
-            data["squad"] = json!({
-                "id": sq,
-                "members": s.members.len(),
-                "target": s.target.map(|v| json!([v.x, v.y])),
-                "hold_fire": s.hold_fire,
-                "patrol_enabled": s.patrol_enabled,
-                "rest_when_tired": s.rest_when_tired,
-            });
+            data["squad_members"] = json!(s.members.len());
+            data["squad_target_x"] = json!(s.target.map(|v| v.x as i32));
+            data["squad_target_y"] = json!(s.target.map(|v| v.y as i32));
+            data["squad_hold_fire"] = json!(s.hold_fire);
+            data["squad_patrol"] = json!(s.patrol_enabled);
+            data["squad_rest"] = json!(s.rest_when_tired);
         }
     }
 
     // Target thrash diagnostics
-    let sink_changes = thrash.sink_target_changes_this_minute.get(slot).copied().unwrap_or(0);
-    let sink_ping_pong = thrash.sink_ping_pong_this_minute.get(slot).copied().unwrap_or(0);
-    let sink_writes = thrash.sink_writes_this_minute.get(slot).copied().unwrap_or(0);
-    let reason_flips = thrash.reason_flips_this_minute.get(slot).copied().unwrap_or(0);
-    let last_reason = thrash.last_reason.get(slot).map(String::as_str).unwrap_or("-");
-    let prev_target = thrash.sink_prev_target.get(slot).copied().unwrap_or((0.0, 0.0));
-    let last_target = thrash.sink_last_target.get(slot).copied().unwrap_or((0.0, 0.0));
-    data["thrash"] = json!({
-        "sink_changes": sink_changes,
-        "sink_ping_pong": sink_ping_pong,
-        "sink_writes": sink_writes,
-        "reason_flips": reason_flips,
-        "last_reason": last_reason,
-        "prev_target": [prev_target.0, prev_target.1],
-        "last_target": [last_target.0, last_target.1],
-    });
+    data["thrash_changes"] = json!(thrash.sink_target_changes_this_minute.get(slot).copied().unwrap_or(0));
+    data["thrash_ping_pong"] = json!(thrash.sink_ping_pong_this_minute.get(slot).copied().unwrap_or(0));
+    data["thrash_writes"] = json!(thrash.sink_writes_this_minute.get(slot).copied().unwrap_or(0));
+    data["thrash_flips"] = json!(thrash.reason_flips_this_minute.get(slot).copied().unwrap_or(0));
+    data["thrash_reason"] = json!(thrash.last_reason.get(slot).map(String::as_str).unwrap_or("-"));
+
+    // Sprite indices from EntityGpuState (CPU-side visual state)
+    let si = slot * 4;
+    if si + 3 < gpu_data.sprite_indices.len() {
+        data["sprite_col"] = json!(gpu_data.sprite_indices[si]);
+        data["sprite_row"] = json!(gpu_data.sprite_indices[si + 1]);
+        data["sprite_atlas"] = json!(gpu_data.sprite_indices[si + 2]);
+    }
+
+    // Visual upload data (what actually gets sent to GPU)
+    let visual_upload = world.resource::<crate::gpu::NpcVisualUpload>();
+    let vb = slot * 8;
+    if vb + 7 < visual_upload.visual_data.len() {
+        data["visual_col"] = json!(visual_upload.visual_data[vb]);
+        data["visual_row"] = json!(visual_upload.visual_data[vb + 1]);
+        data["visual_atlas"] = json!(visual_upload.visual_data[vb + 2]);
+        data["visual_flash"] = json!(visual_upload.visual_data[vb + 3]);
+    }
+
+    // Active projectiles fired by this NPC
+    let proj_writes = world.resource::<crate::gpu::ProjBufferWrites>();
+    let proj_pos_state = world.resource::<ProjPositionState>();
+    let mut projs = Vec::new();
+    for &pi in &proj_writes.active_set {
+        if proj_writes.shooters[pi] == slot as i32 {
+            let pi2 = pi * 2;
+            let (px, py) = if pi2 + 1 < proj_pos_state.0.len() {
+                (proj_pos_state.0[pi2], proj_pos_state.0[pi2 + 1])
+            } else {
+                (proj_writes.positions.get(pi2).copied().unwrap_or(0.0),
+                 proj_writes.positions.get(pi2 + 1).copied().unwrap_or(0.0))
+            };
+            projs.push(json!({
+                "slot": pi,
+                "x": px as i32,
+                "y": py as i32,
+                "vx": proj_writes.velocities[pi2] as i32,
+                "vy": proj_writes.velocities[pi2 + 1] as i32,
+                "damage": proj_writes.damages[pi] as i32,
+                "faction": proj_writes.factions[pi],
+                "lifetime": (proj_writes.lifetimes[pi] * 10.0).round() / 10.0,
+            }));
+        }
+    }
+    data["projectiles"] = json!(projs);
 
     // NPC activity log (last 20 entries)
     if slot < npc_logs.logs.len() {
@@ -979,7 +999,6 @@ fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
 
 fn debug_building(world: &mut World, uid: u64, slot: usize) -> BrpResult {
     let entity_map = world.resource::<EntityMap>();
-    let gpu_state = world.resource::<GpuReadState>();
     let world_data = world.resource::<WorldData>();
     let game_time = world.resource::<GameTime>();
 
@@ -1004,22 +1023,16 @@ fn debug_building(world: &mut World, uid: u64, slot: usize) -> BrpResult {
         .map(|h| h.0)
         .unwrap_or(0.0);
 
-    // GPU position
-    let i2 = slot * 2;
-    let gpu_pos = if i2 + 1 < gpu_state.positions.len() {
-        Some([gpu_state.positions[i2], gpu_state.positions[i2 + 1]])
-    } else {
-        None
-    };
-
     let mut data = json!({
         "uid": uid,
         "kind": format!("{:?}", inst.kind),
         "label": def.label,
         "town": town_name,
         "faction": faction_str,
-        "pos": [inst.position.x, inst.position.y],
-        "grid": [row, col],
+        "world_x": inst.position.x as i32,
+        "world_y": inst.position.y as i32,
+        "grid_col": col,
+        "grid_row": row,
         "hp": hp,
         "max_hp": def.hp,
         "town_idx": inst.town_idx,
@@ -1030,23 +1043,27 @@ fn debug_building(world: &mut World, uid: u64, slot: usize) -> BrpResult {
         "respawn_timer": inst.respawn_timer,
     });
 
-    if let Some(gp) = gpu_pos {
-        data["gpu_pos"] = json!(gp);
+    // Sprite/visual data
+    let gpu_data = world.resource::<crate::gpu::EntityGpuState>();
+    let si = slot * 4;
+    if si + 3 < gpu_data.sprite_indices.len() {
+        data["sprite_col"] = json!(gpu_data.sprite_indices[si]);
+        data["sprite_row"] = json!(gpu_data.sprite_indices[si + 1]);
+        data["sprite_atlas"] = json!(gpu_data.sprite_indices[si + 2]);
     }
 
     // Worksite info
     if let Some(ws) = def.worksite {
-        data["worksite"] = json!({
-            "max_occupants": ws.max_occupants,
-            "drift_radius": ws.drift_radius,
-            "harvest_item": format!("{:?}", ws.harvest_item),
-            "town_scoped": ws.town_scoped,
-        });
+        data["ws_max_occ"] = json!(ws.max_occupants);
+        data["ws_drift"] = json!(ws.drift_radius);
+        data["ws_harvest"] = json!(format!("{:?}", ws.harvest_item));
+        data["ws_town_scoped"] = json!(ws.town_scoped);
     }
 
     // Miner home extras
     if inst.kind == BuildingKind::MinerHome {
-        data["assigned_mine"] = json!(inst.assigned_mine.map(|v| [v.x, v.y]));
+        data["assigned_mine_x"] = json!(inst.assigned_mine.map(|v| v.x as i32));
+        data["assigned_mine_y"] = json!(inst.assigned_mine.map(|v| v.y as i32));
         data["manual_mine"] = json!(inst.manual_mine);
     }
 
@@ -1082,37 +1099,34 @@ fn debug_squad(world: &mut World, idx: usize) -> BrpResult {
         (uid.0, slot, name)
     }).collect();
 
-    // ECS query for member stats
+    // ECS query for member stats — uniform fields for TOON CSV table
     let mut members_json = Vec::new();
     for (uid, slot, name) in &member_slots {
-        let mut m = json!({"uid": uid, "name": name});
+        let (mut job, mut dead, mut activity, mut energy, mut hp, mut max_hp) =
+            ("".to_string(), false, "".to_string(), 0.0_f32, 0.0_f32, 0.0_f32);
         if let Some(s) = slot {
             if let Some(npc) = world.resource::<EntityMap>().get_npc(*s) {
                 let entity = npc.entity;
-                m["job"] = json!(format!("{:?}", npc.job));
-                m["dead"] = json!(npc.dead);
-                if let Some(activity) = world.get::<Activity>(entity) {
-                    m["activity"] = json!(activity.name());
-                }
-                if let Some(energy) = world.get::<Energy>(entity) {
-                    m["energy"] = json!((energy.0 * 10.0).round() / 10.0);
-                }
-                if let Some(health) = world.get::<Health>(entity) {
-                    m["hp"] = json!(health.0);
-                }
-                if let Some(stats) = world.get::<CachedStats>(entity) {
-                    m["max_hp"] = json!(stats.max_health);
-                }
+                job = format!("{:?}", npc.job);
+                dead = npc.dead;
+                if let Some(a) = world.get::<Activity>(entity) { activity = a.name().to_string(); }
+                if let Some(e) = world.get::<Energy>(entity) { energy = e.0; }
+                if let Some(h) = world.get::<Health>(entity) { hp = h.0; }
+                if let Some(s) = world.get::<CachedStats>(entity) { max_hp = s.max_health; }
             }
         }
-        members_json.push(m);
+        members_json.push(json!({
+            "uid": uid, "name": name, "job": job, "dead": dead,
+            "activity": activity, "energy": r2(energy), "hp": hp, "max_hp": max_hp,
+        }));
     }
 
     let data = json!({
         "squad_index": idx,
         "members": members_json,
         "member_count": squad.members.len(),
-        "target": squad.target.map(|v| json!([v.x, v.y])),
+        "target_x": squad.target.map(|v| v.x as i32),
+        "target_y": squad.target.map(|v| v.y as i32),
         "target_size": squad.target_size,
         "patrol_enabled": squad.patrol_enabled,
         "rest_when_tired": squad.rest_when_tired,
@@ -1149,15 +1163,16 @@ fn debug_town(world: &mut World, idx: usize) -> BrpResult {
     let squad_state = world.resource::<SquadState>();
     let squads: Vec<Value> = squad_state.squads.iter().enumerate().filter_map(|(i, s)| {
         let belongs = match s.owner {
-            SquadOwner::Player => faction == 0,
+            SquadOwner::Player => faction == crate::constants::FACTION_PLAYER,
             SquadOwner::Town(t) => t == idx,
         };
         if !belongs || s.members.is_empty() { return None; }
         Some(json!({
             "index": i,
             "members": s.members.len(),
-            "target": s.target.map(|v| json!([v.x, v.y])),
-            "rest_when_tired": s.rest_when_tired,
+            "target_x": s.target.map(|v| v.x as i32),
+            "target_y": s.target.map(|v| v.y as i32),
+            "rest": s.rest_when_tired,
         }))
     }).collect();
 
@@ -1178,33 +1193,40 @@ fn debug_town(world: &mut World, idx: usize) -> BrpResult {
         }
     }
 
+    // Compact strings for npcs/buildings
+    let npcs_str = job_counts.iter()
+        .map(|(k, v)| format!("{}:{}", k, v)).collect::<Vec<_>>().join(",");
+    let buildings_str = building_counts.iter()
+        .map(|(k, v)| format!("{}:{}", k, v)).collect::<Vec<_>>().join(",");
+
     let mut data = json!({
         "town_index": idx,
         "name": name,
         "faction": faction,
-        "center": center,
+        "center_x": center[0] as i32,
+        "center_y": center[1] as i32,
         "area_level": area_level,
         "food": food,
         "gold": gold,
-        "npcs": job_counts,
-        "buildings": building_counts,
+        "npcs": npcs_str,
+        "buildings": buildings_str,
         "squads": squads,
         "day": day, "hour": hour, "minute": minute,
     });
     if let Some(fs) = faction_stat {
-        data["faction_stats"] = json!({"alive": fs.alive, "dead": fs.dead, "kills": fs.kills});
+        data["faction_alive"] = json!(fs.alive);
+        data["faction_dead"] = json!(fs.dead);
+        data["faction_kills"] = json!(fs.kills);
     }
     if let Some(p) = policy {
-        data["policy"] = json!({
-            "eat_food": p.eat_food,
-            "archer_aggressive": p.archer_aggressive,
-            "archer_leash": p.archer_leash,
-            "archer_flee_hp": p.archer_flee_hp,
-            "farmer_flee_hp": p.farmer_flee_hp,
-            "farmer_fight_back": p.farmer_fight_back,
-            "prioritize_healing": p.prioritize_healing,
-            "recovery_hp": p.recovery_hp,
-        });
+        data["policy_eat_food"] = json!(p.eat_food);
+        data["policy_aggressive"] = json!(p.archer_aggressive);
+        data["policy_leash"] = json!(p.archer_leash);
+        data["policy_archer_flee"] = json!(r2(p.archer_flee_hp));
+        data["policy_farmer_flee"] = json!(r2(p.farmer_flee_hp));
+        data["policy_fight_back"] = json!(p.farmer_fight_back);
+        data["policy_heal_prio"] = json!(p.prioritize_healing);
+        data["policy_recovery"] = json!(r2(p.recovery_hp));
     }
     toon_ok(data)
 }
@@ -1222,11 +1244,11 @@ fn debug_policy(world: &mut World, idx: usize) -> BrpResult {
         "eat_food": p.eat_food,
         "archer_aggressive": p.archer_aggressive,
         "archer_leash": p.archer_leash,
-        "archer_flee_hp": p.archer_flee_hp,
-        "farmer_flee_hp": p.farmer_flee_hp,
+        "archer_flee_hp": r2(p.archer_flee_hp),
+        "farmer_flee_hp": r2(p.farmer_flee_hp),
         "farmer_fight_back": p.farmer_fight_back,
         "prioritize_healing": p.prioritize_healing,
-        "recovery_hp": p.recovery_hp,
+        "recovery_hp": r2(p.recovery_hp),
         "day": game_time.day(), "hour": game_time.hour(), "minute": game_time.minute(),
     });
     toon_ok(data)

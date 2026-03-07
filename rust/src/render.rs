@@ -518,7 +518,7 @@ fn click_to_select_system(
                     .get_npc(i)
                     .map(|n| n.faction)
                     .unwrap_or(0);
-                if faction == 0 {
+                if faction == crate::constants::FACTION_PLAYER || faction == crate::constants::FACTION_NEUTRAL {
                     continue;
                 }
                 let dx = world_pos.x - px;
@@ -564,7 +564,7 @@ fn click_to_select_system(
                     let px = inst.position.x;
                     let py = inst.position.y;
                     let faction = inst.faction;
-                    if faction == 0 {
+                    if faction == crate::constants::FACTION_PLAYER || faction == crate::constants::FACTION_NEUTRAL {
                         continue;
                     }
                     if px < -9000.0 {

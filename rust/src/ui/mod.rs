@@ -9,7 +9,10 @@ pub mod tutorial;
 
 use bevy::audio::Volume;
 use bevy::ecs::system::SystemParam;
+use bevy::math::primitives::Rectangle;
+use bevy::mesh::Mesh2d;
 use bevy::prelude::*;
+use bevy::sprite_render::{ColorMaterial, MeshMaterial2d};
 use bevy_egui::{EguiContextSettings, EguiPrimaryContextPass, egui};
 
 use crate::AppState;
@@ -874,6 +877,7 @@ fn game_startup_system(
     config: Res<WorldGenConfig>,
     mut world_state: WorldState,
     mut food_storage: ResMut<FoodStorage>,
+    mut faction_list: ResMut<crate::resources::FactionList>,
     mut faction_stats: ResMut<FactionStats>,
     mut raider_state: ResMut<RaiderState>,
     mut game_config: ResMut<GameConfig>,
@@ -898,6 +902,7 @@ fn game_startup_system(
         &config,
         &mut world_state.grid,
         &mut world_state.world_data,
+        &mut faction_list,
         &mut world_state.entity_slots,
         &mut world_state.entity_map,
         &mut food_storage,
@@ -925,7 +930,7 @@ fn game_startup_system(
         .world_data
         .towns
         .iter()
-        .position(|t| t.faction == 0)
+        .position(|t| t.faction == crate::constants::FACTION_PLAYER)
         .unwrap_or(0);
     if town_idx < extra.policies.policies.len() {
         extra.policies.policies[town_idx] = saved.policy;
@@ -1025,7 +1030,7 @@ fn tutorial_init_system(
     let player_town = world_data
         .towns
         .iter()
-        .position(|t| t.faction == 0)
+        .position(|t| t.faction == crate::constants::FACTION_PLAYER)
         .unwrap_or(0);
 
     // Snapshot initial building counts for completion checks
@@ -1366,7 +1371,7 @@ fn game_over_system(
         .show(ctx, |ui| {
             ui.add_space(4.0);
 
-            let player_town = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
+            let player_town = world_data.towns.iter().position(|t| t.faction == crate::constants::FACTION_PLAYER).unwrap_or(0);
             let days_survived = game_time.day();
             let (alive, dead, kills) = faction_stats
                 .stats
@@ -1574,7 +1579,7 @@ fn build_place_click_system(
                         .world_data
                         .towns
                         .get(inst.town_idx as usize)
-                        .map_or(false, |t| t.faction == 0) =>
+                        .map_or(false, |t| t.faction == crate::constants::FACTION_PLAYER) =>
                 {
                     inst
                 }
@@ -1786,6 +1791,15 @@ fn build_place_click_system(
 /// Marker component for slot indicator sprite entities.
 #[derive(Component)]
 pub(crate) struct SlotIndicator;
+
+/// Cached mesh/material handles for slot indicators (lazy-initialized).
+#[derive(Default)]
+struct SlotIndicatorCache {
+    mesh: Option<Handle<Mesh>>,
+    base_mat: Option<Handle<ColorMaterial>>,
+    road_mat: Option<Handle<ColorMaterial>>,
+    chain_mat: Option<Handle<ColorMaterial>>,
+}
 
 /// Marker for the build ghost preview sprite.
 #[derive(Component)]
@@ -2173,7 +2187,7 @@ fn build_ghost_system(
 }
 
 /// Spawn/rebuild slot indicator sprites when the town grid or world grid changes.
-/// Uses actual Sprite entities at z=-0.3 so they render between buildings and NPCs.
+/// Renders slot indicators using Mesh2d+ColorMaterial (same pipeline as TilemapChunk).
 /// Color-coded: green = base area, blue = road-expanded, yellow = road chain (road selected only).
 fn draw_slot_indicators(
     mut commands: Commands,
@@ -2182,6 +2196,9 @@ fn draw_slot_indicators(
     grid: Res<world::WorldGrid>,
     entity_map: Res<EntityMap>,
     build_ctx: Res<BuildMenuContext>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut color_materials: ResMut<Assets<ColorMaterial>>,
+    mut cache: Local<SlotIndicatorCache>,
 ) {
     // Only rebuild when grid state changes or build selection changes
     if !grid.is_changed() && !build_ctx.is_changed() {
@@ -2207,10 +2224,21 @@ fn draw_slot_indicators(
     let area_level = town.area_level;
 
     let cell = crate::constants::TOWN_GRID_SPACING;
-    let base_color = Color::srgba(0.2, 0.6, 0.2, 0.15);
-    let road_color = Color::srgba(0.2, 0.5, 0.7, 0.15);
-    let chain_color = Color::srgba(0.5, 0.5, 0.2, 0.12);
-    let indicator_z = 1.0;
+    let indicator_z = 0.1;
+
+    // Lazy-init cached mesh and material handles
+    let mesh_h = cache.mesh.get_or_insert_with(|| {
+        meshes.add(Rectangle::from_size(Vec2::splat(cell)))
+    }).clone();
+    let base_h = cache.base_mat.get_or_insert_with(|| {
+        color_materials.add(ColorMaterial::from(Color::srgba(0.2, 0.6, 0.2, 0.15)))
+    }).clone();
+    let road_h = cache.road_mat.get_or_insert_with(|| {
+        color_materials.add(ColorMaterial::from(Color::srgba(0.2, 0.5, 0.7, 0.15)))
+    }).clone();
+    let chain_h = cache.chain_mat.get_or_insert_with(|| {
+        color_materials.add(ColorMaterial::from(Color::srgba(0.5, 0.5, 0.2, 0.12)))
+    }).clone();
 
     let is_road_selected = build_ctx
         .selected_build
@@ -2229,16 +2257,13 @@ fn draw_slot_indicators(
     for &(col, row) in &slots {
         seen.insert((col, row));
         let is_base = col >= base_min_c && col <= base_max_c && row >= base_min_r && row <= base_max_r;
-        let color = if is_base { base_color } else { road_color };
+        let mat = if is_base { &base_h } else { &road_h };
 
         let slot_pos = grid.grid_to_world(col, row);
 
         commands.spawn((
-            Sprite {
-                color,
-                custom_size: Some(Vec2::new(cell, cell)),
-                ..default()
-            },
+            Mesh2d(mesh_h.clone()),
+            MeshMaterial2d(mat.clone()),
             Transform::from_xyz(slot_pos.x, slot_pos.y, indicator_z),
             SlotIndicator,
         ));
@@ -2290,11 +2315,8 @@ fn draw_slot_indicators(
 
             let slot_pos = grid.grid_to_world(col, row);
             commands.spawn((
-                Sprite {
-                    color: chain_color,
-                    custom_size: Some(Vec2::new(cell, cell)),
-                    ..default()
-                },
+                Mesh2d(mesh_h.clone()),
+                MeshMaterial2d(chain_h.clone()),
                 Transform::from_xyz(slot_pos.x, slot_pos.y, indicator_z),
                 SlotIndicator,
             ));
@@ -2325,7 +2347,7 @@ fn process_destroy_system(
                         .world_data
                         .towns
                         .get(inst.town_idx as usize)
-                        .map_or(false, |t| t.faction == 0) =>
+                        .map_or(false, |t| t.faction == crate::constants::FACTION_PLAYER) =>
                 {
                     inst
                 }

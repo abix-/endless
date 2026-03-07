@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-03-07c
+
+- **Faction system refactor** — replaced bare `i32` faction IDs with structured `FactionKind` enum (`Neutral=0`, `Player=1`, `AiBuilder`, `AiRaider`), `FactionData` struct, and `FactionList` resource. Each town gets its own faction. Constants `FACTION_NEUTRAL` (0), `FACTION_PLAYER` (1), `TOWN_NONE` (`u32::MAX`) replace all hardcoded numeric checks across 30+ files.
+- **Gold mine worksite fix** — gold mines now spawn with `town_idx: TOWN_NONE` (neutral) instead of `town_idx: 0` (Miami). `try_claim_worksite()` accepts `TOWN_NONE` buildings for any town's workers, so all factions' miners can claim gold mines.
+- **Neutral faction targeting fix** — combat system (`combat.rs`) now excludes `FACTION_NEUTRAL` buildings from targeting. GPU shaders (`npc_compute.wgsl`, `projectile_compute.wgsl`) updated to treat faction 0 as non-hostile alongside the -1 sentinel.
+- **Faction UI duplicate fix** — factions panel no longer shows the player faction twice. `rebuild_factions_cache` skips player-faction towns when iterating AI players.
+- **Runtime faction tracking** — `create_ai_town` in economy.rs pushes `FactionData` to `FactionList` when spawning dynamic towns during migration.
+- **Player stats fix** — `faction_stats.stats.get(player_faction)` replaces `.first()` which was returning neutral faction stats after renumbering.
+- **Save/load backward compat** — old saves without `FactionList` get it reconstructed from town data (sprite_type=1 → AiRaider, else AiBuilder).
+
 ## 2026-03-07b
 
 - **Stop-in-place short-circuit** — `resolve_movement_system` now bypasses `path_cooldown` when an intent's target is within 2 units of the NPC's current position. Fixes idle NPCs retaining stale GPU targets from a previous activity (e.g., farm claim losers walking into the farm they failed to claim), causing bumping/oscillation.

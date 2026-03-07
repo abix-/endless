@@ -2596,7 +2596,7 @@ fn pick_raider_farm_target(
     let mut result: Option<(BuildingKind, crate::components::EntityUid, Vec2)> = None;
     let r2 = AI_ATTACK_SEARCH_RADIUS * AI_ATTACK_SEARCH_RADIUS;
     entity_map.for_each_nearby(center, AI_ATTACK_SEARCH_RADIUS, |inst| {
-        if inst.faction == faction || inst.faction < 0 {
+        if inst.faction == faction || inst.faction == crate::constants::FACTION_NEUTRAL {
             return;
         }
         if inst.kind != BuildingKind::Farm {
@@ -2633,7 +2633,7 @@ fn pick_ai_target_unclaimed(
         let mut result: Option<(BuildingKind, crate::components::EntityUid, Vec2)> = None;
         let r2 = AI_ATTACK_SEARCH_RADIUS * AI_ATTACK_SEARCH_RADIUS;
         entity_map.for_each_nearby(center, AI_ATTACK_SEARCH_RADIUS, |inst| {
-            if inst.faction == faction || inst.faction < 0 { return; }
+            if inst.faction == faction || inst.faction == crate::constants::FACTION_NEUTRAL { return; }
             if !allowed_kinds.contains(&inst.kind) { return; }
             let Some(uid) = entity_map.uid_for_slot(inst.slot) else { return; };
             if claimed.contains(&uid) { return; }

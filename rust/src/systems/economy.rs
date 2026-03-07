@@ -234,7 +234,7 @@ pub fn raider_forage_system(
     }
 
     for (town_idx, town) in world_data.towns.iter().enumerate() {
-        if town.faction > 0 && town_idx < economy.food_storage.food.len() {
+        if town.faction != crate::constants::FACTION_PLAYER && town.faction != crate::constants::FACTION_NEUTRAL && town_idx < economy.food_storage.food.len() {
             if town_idx < raider_state.forage_timers.len() {
                 raider_state.forage_timers[town_idx] += 1.0;
                 if raider_state.forage_timers[town_idx] >= interval {
@@ -468,7 +468,7 @@ pub fn mining_policy_system(
 
     for town_idx in 0..world_data.towns.len() {
         let town = &world_data.towns[town_idx];
-        if town.faction < 0 {
+        if town.faction == crate::constants::FACTION_NEUTRAL {
             mining.discovered_mines[town_idx].clear();
             continue;
         }
@@ -491,7 +491,7 @@ pub fn mining_policy_system(
     }
 
     for town_idx in 0..world_data.towns.len() {
-        if world_data.towns[town_idx].faction < 0 {
+        if world_data.towns[town_idx].faction == crate::constants::FACTION_NEUTRAL {
             continue;
         }
 
@@ -589,7 +589,7 @@ pub fn squad_cleanup_system(
     let player_town = world_data
         .towns
         .iter()
-        .position(|t| t.faction == 0)
+        .position(|t| t.faction == crate::constants::FACTION_PLAYER)
         .unwrap_or(0) as i32;
 
     // Track pending assignments locally to avoid deferred-Commands read-after-write issues
@@ -731,6 +731,7 @@ pub struct MigrationResources<'w, 's> {
     pub food_storage: ResMut<'w, FoodStorage>,
     pub gold_storage: ResMut<'w, GoldStorage>,
     pub faction_stats: ResMut<'w, FactionStats>,
+    pub faction_list: ResMut<'w, crate::resources::FactionList>,
     pub raider_state: ResMut<'w, RaiderState>,
     pub npcs_by_town: ResMut<'w, NpcsByTownCache>,
     pub policies: ResMut<'w, TownPolicies>,
@@ -773,6 +774,18 @@ fn create_ai_town(
         area_level: 0,
     });
     let town_data_idx = world_data.towns.len() - 1;
+
+    // Register in FactionList
+    let kind = if is_raider {
+        crate::resources::FactionKind::AiRaider
+    } else {
+        crate::resources::FactionKind::AiBuilder
+    };
+    res.faction_list.factions.push(crate::resources::FactionData {
+        kind,
+        name: name.into(),
+        towns: vec![town_data_idx],
+    });
 
     // Extend per-town resources
     let num_towns = world_data.towns.len();

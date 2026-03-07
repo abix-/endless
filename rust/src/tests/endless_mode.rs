@@ -52,7 +52,7 @@ pub(super) fn setup(
         &config,
         &mut world_grid,
         &mut world_data,
-
+        &mut crate::resources::FactionList::default(),
         &mut slot_alloc,
         &mut bld.entity_map,
         &mut food_storage,
@@ -132,7 +132,7 @@ pub fn tick(
                 .towns
                 .iter()
                 .enumerate()
-                .filter(|(_, t)| t.faction > 0)
+                .filter(|(_, t)| t.faction > crate::constants::FACTION_PLAYER)
                 .collect();
             let ai_count = ai_towns.len();
             let fountain_count = world_data.towns.len();

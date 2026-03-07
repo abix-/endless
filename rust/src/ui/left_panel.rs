@@ -553,7 +553,7 @@ fn save_left_panel_state(
     let town_idx = world_data
         .towns
         .iter()
-        .position(|t| t.faction == 0)
+        .position(|t| t.faction == crate::constants::FACTION_PLAYER)
         .unwrap_or(0);
     if town_idx < policies.policies.len() {
         saved.policy = policies.policies[town_idx].clone();
@@ -589,7 +589,7 @@ fn roster_content(
             let idx = npc.slot;
             let meta = &roster.meta_cache.0[idx];
             // Player faction only unless debug
-            if !debug_all && npc.faction != 0 {
+            if !debug_all && npc.faction != crate::constants::FACTION_PLAYER {
                 continue;
             }
             if state.job_filter >= 0 && meta.job != state.job_filter {
@@ -861,7 +861,7 @@ fn upgrade_content(
     let town_idx = world_data
         .towns
         .iter()
-        .position(|t| t.faction == 0)
+        .position(|t| t.faction == crate::constants::FACTION_PLAYER)
         .unwrap_or(0);
     let food = upgrade
         .food_storage
@@ -874,7 +874,8 @@ fn upgrade_content(
         .get(town_idx)
         .copied()
         .unwrap_or(0);
-    let villager_stats = upgrade.faction_stats.stats.first();
+    let player_faction = world_data.towns.get(town_idx).map(|t| t.faction as usize).unwrap_or(0);
+    let villager_stats = upgrade.faction_stats.stats.get(player_faction);
     let alive = villager_stats.map(|s| s.alive).unwrap_or(0);
     let levels = upgrade.upgrades.town_levels(town_idx);
 
@@ -1023,7 +1024,7 @@ fn policies_content(
     let town_idx = world_data
         .towns
         .iter()
-        .position(|t| t.faction == 0)
+        .position(|t| t.faction == crate::constants::FACTION_PLAYER)
         .unwrap_or(0);
 
     if town_idx >= policies.policies.len() {
@@ -1271,7 +1272,7 @@ fn patrols_content(
     let town_pair_idx = world_data
         .towns
         .iter()
-        .position(|t| t.faction == 0)
+        .position(|t| t.faction == crate::constants::FACTION_PLAYER)
         .unwrap_or(0) as u32;
 
     if let Some(town) = world_data.towns.get(town_pair_idx as usize) {
@@ -1803,7 +1804,7 @@ fn rebuild_factions_cache(
             .enumerate()
             .filter_map(|(si, squad)| {
                 let owned = match squad.owner {
-                    SquadOwner::Player => faction == 0,
+                    SquadOwner::Player => faction == crate::constants::FACTION_PLAYER,
                     SquadOwner::Town(owner_tdi) => owner_tdi == tdi,
                 };
                 if !owned || squad.members.is_empty() {
@@ -1865,7 +1866,7 @@ fn rebuild_factions_cache(
     cache.snapshots.clear();
 
     // Include player faction (faction 0) in Factions view.
-    if let Some(player_tdi) = world_data.towns.iter().position(|t| t.faction == 0) {
+    if let Some(player_tdi) = world_data.towns.iter().position(|t| t.faction == crate::constants::FACTION_PLAYER) {
         push_snapshot(
             factions,
             gold_storage,
@@ -1885,6 +1886,7 @@ fn rebuild_factions_cache(
 
     for player in factions.ai_state.players.iter() {
         let tdi = player.town_data_idx;
+        if world_data.towns.get(tdi).is_some_and(|t| t.faction == crate::constants::FACTION_PLAYER) { continue; }
 
         let kind_name = match player.kind {
             AiKind::Builder => "Builder",
@@ -2004,7 +2006,7 @@ fn build_faction_debug_string(snap: &AiSnapshot) -> String {
         let mut squads = snap.squads.clone();
         squads.sort_by_key(|sq| sq.squad_idx);
         for (i, sq) in squads.iter().enumerate() {
-            let role = if snap.faction == 0 {
+            let role = if snap.faction == crate::constants::FACTION_PLAYER {
                 "MANUAL"
             } else if i == 0 {
                 "DEF"
@@ -2729,7 +2731,7 @@ fn factions_content(
                 squads.sort_by_key(|s| s.squad_idx);
 
                 let role_for = |i: usize, s: &SquadSnapshot| -> &'static str {
-                    if snap.faction == 0 {
+                    if snap.faction == crate::constants::FACTION_PLAYER {
                         "MANUAL"
                     } else if i == 0 {
                         "DEF"
@@ -2757,7 +2759,7 @@ fn factions_content(
                 }
 
                 ui.label(format!("Active squads: {}", squads.len()));
-                if snap.faction == 0 {
+                if snap.faction == crate::constants::FACTION_PLAYER {
                     ui.label("Commander: Manual");
                 } else {
                     ui.label("Commander: AI");

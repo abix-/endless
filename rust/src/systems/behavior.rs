@@ -1223,14 +1223,20 @@ pub fn decision_system(
                             break 'decide;
                         }
                         Activity::Patrolling => {
-                            if let Ok(route) = npc_data.patrol_route_q.get(entity) {
-                                if !route.posts.is_empty() {
-                                    let safe_idx = patrol_current % route.posts.len();
-                                    if let Some(post) = route.posts.get(safe_idx) {
-                                        submit_intent_scattered(
-                                            &mut intents, entity, post.x, post.y, 128.0,
-                                            idx, frame, MovementPriority::JobRoute, "patrol:redirect",
-                                        );
+                            // Don't patrol around town if squad has an active target
+                            let has_squad_target = squad_id
+                                .and_then(|sid| squad_state.squads.get(sid as usize))
+                                .is_some_and(|s| s.target.is_some());
+                            if !has_squad_target {
+                                if let Ok(route) = npc_data.patrol_route_q.get(entity) {
+                                    if !route.posts.is_empty() {
+                                        let safe_idx = patrol_current % route.posts.len();
+                                        if let Some(post) = route.posts.get(safe_idx) {
+                                            submit_intent_scattered(
+                                                &mut intents, entity, post.x, post.y, 128.0,
+                                                idx, frame, MovementPriority::JobRoute, "patrol:redirect",
+                                            );
+                                        }
                                     }
                                 }
                             }

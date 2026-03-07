@@ -59,7 +59,7 @@ fn step_complete(
     let pt = world_data
         .towns
         .iter()
-        .position(|t| t.faction == 0)
+        .position(|t| t.faction == crate::constants::FACTION_PLAYER)
         .unwrap_or(0);
     match step {
         1 => (camera_pos - tutorial.camera_start).length() > 50.0,

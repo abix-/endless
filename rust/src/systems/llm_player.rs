@@ -176,6 +176,17 @@ fn build_state_json(read: &LlmReadState, write: &mut LlmWriteState, town_idx: us
         "your_town": town_idx,
     });
 
+    // Gold mine positions sorted by distance from own town
+    let mut mines: Vec<(i32, Value)> = read.entity_map.iter_kind(crate::world::BuildingKind::GoldMine)
+        .map(|inst| {
+            let (col, row) = read.world_grid.world_to_grid(inst.position);
+            let dist = own_center.distance(inst.position) as i32;
+            (dist, json!({"col": col, "row": row, "x": inst.position.x as i32, "y": inst.position.y as i32, "dist": dist}))
+        })
+        .collect();
+    mines.sort_by_key(|(d, _)| *d);
+    root["gold_mines"] = json!(mines.into_iter().map(|(_, v)| v).collect::<Vec<Value>>());
+
     // Own-town extras at top level (not per-town — keeps towns tabular)
     let your_squads: Vec<Value> = write.squad_state.squads.iter().enumerate()
         .filter(|(_, s)| match s.owner {
@@ -192,12 +203,38 @@ fn build_state_json(read: &LlmReadState, write: &mut LlmWriteState, town_idx: us
 
     let all_empty = crate::world::empty_slots(town_idx, own_center, &read.world_grid, &read.entity_map);
     let step = if all_empty.len() <= 10 { 1 } else { all_empty.len() / 10 };
+    let ti16 = town_idx as u16;
     let slots: Vec<Value> = all_empty.iter()
         .step_by(step)
         .take(10)
-        .map(|&(r, c)| json!({"row": r, "col": c}))
+        .map(|&(col, row)| {
+            // Perimeter = at least one neighbor is NOT buildable by this town
+            let perimeter = (-1i32..=1).any(|dr| (-1i32..=1).any(|dc| {
+                if dr == 0 && dc == 0 { return false; }
+                let nc = col as i32 + dc;
+                let nr = row as i32 + dr;
+                nc < 0 || nr < 0
+                    || nc as usize >= read.world_grid.width
+                    || nr as usize >= read.world_grid.height
+                    || !read.world_grid.can_town_build(nc as usize, nr as usize, ti16)
+            }));
+            json!({"col": col, "row": row, "perimeter": perimeter})
+        })
         .collect();
     root["open_slots"] = json!(slots);
+
+    // When running low on space, show interior roads that can be safely destroyed
+    if all_empty.len() <= 3 {
+        let interior = crate::world::find_interior_roads(
+            town_idx, &read.world_grid, &read.entity_map, &read.world_data.towns,
+        );
+        if !interior.is_empty() {
+            let roads: Vec<Value> = interior.iter()
+                .map(|&(col, row)| json!({"col": col, "row": row}))
+                .collect();
+            root["destroyable_roads"] = json!(roads);
+        }
+    }
 
     let inbox: Vec<Value> = write.chat_inbox
         .messages
@@ -321,6 +358,11 @@ pub fn llm_player_system(
     // Sync timer duration from settings so slider changes take effect live
     state.timer.set_duration(std::time::Duration::from_secs_f32(settings.llm_interval));
 
+    // Freeze everything when paused — don't poll, execute, or tick timer
+    if read.game_time.paused {
+        return;
+    }
+
     // Poll pending result
     enum PollResult { None, Response(String), Waiting, Disconnected }
     let poll = if let Some(ref receiver_mutex) = state.receiver {
@@ -361,9 +403,6 @@ pub fn llm_player_system(
     }
     if state.receiver.is_some() {
         return; // still waiting for previous response
-    }
-    if read.game_time.paused {
-        return;
     }
 
     // Merge persistent subscriptions + one-shot queries (deduplicated)
@@ -459,7 +498,7 @@ fn execute_actions(
     write: &mut LlmWriteState,
     state: &mut LlmPlayerState,
 ) {
-    let faction = -1i32;
+    let faction = crate::constants::FACTION_NEUTRAL;
     let day = read.game_time.day();
     let hour = read.game_time.hour();
     let minute = read.game_time.minute();

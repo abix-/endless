@@ -29,6 +29,7 @@ pub fn setup(
         &config,
         &mut world_grid,
         &mut world_data,
+        &mut crate::resources::FactionList::default(),
         &mut slot_alloc,
         &mut entity_map,
         &mut uid_alloc,
@@ -131,7 +132,7 @@ pub fn tick(
             let villager_towns: Vec<Vec2> = world_data
                 .towns
                 .iter()
-                .filter(|t| t.faction == 0)
+                .filter(|t| t.faction == crate::constants::FACTION_PLAYER)
                 .map(|t| t.center)
                 .collect();
 
@@ -219,7 +220,7 @@ pub fn tick(
             let villager_towns: Vec<Vec2> = world_data
                 .towns
                 .iter()
-                .filter(|t| t.faction == 0)
+                .filter(|t| t.faction == crate::constants::FACTION_PLAYER)
                 .map(|t| t.center)
                 .collect();
 
@@ -244,7 +245,7 @@ pub fn tick(
         // Phase 6: Raider raider towns exist with correct faction
         6 => {
             let raider_towns: Vec<&world::Town> =
-                world_data.towns.iter().filter(|t| t.faction > 0).collect();
+                world_data.towns.iter().filter(|t| t.faction > crate::constants::FACTION_PLAYER).collect();
 
             let expected = config.num_towns;
             let raider_centers = entity_map.iter_kind(world::BuildingKind::Fountain).count();

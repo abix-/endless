@@ -82,7 +82,7 @@ pub(super) fn setup(
         &config,
         &mut world_grid,
         &mut world_data,
-
+        &mut crate::resources::FactionList::default(),
         &mut slot_alloc,
         &mut bld.entity_map,
         &mut food_storage,

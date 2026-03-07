@@ -48,7 +48,7 @@ NPC state is derived at query time from ECS components (Activity, CombatState, P
 | KillStats | archer_kills, villager_kills | death_system | UI |
 | FactionStats | `Vec<FactionStat>` — alive, dead, kills per faction | spawn/death systems | UI |
 
-`FactionStats` — one entry per settlement (player towns + AI towns + raider towns). Methods: `inc_alive()`, `dec_alive()`, `inc_dead()`, `inc_kills()`.
+`FactionStats` — one entry per faction (indexed by faction ID: 0=Neutral, 1=Player, 2+=AI). Methods: `inc_alive()`, `dec_alive()`, `inc_dead()`, `inc_kills()`. Player stats are at index `FACTION_PLAYER` (1), not index 0.
 
 ## World Layout
 
@@ -70,7 +70,7 @@ Static world data, immutable after initialization.
 
 | Struct | Fields |
 |--------|--------|
-| Town | name, center (Vec2), faction, sprite_type (0=fountain, 1=tent) |
+| Town | name, center (Vec2), faction (i32: 0=Neutral, 1=Player, 2+=AI), sprite_type (0=fountain, 1=tent) |
 
 `WorldData` contains only towns. All building instance data lives in `EntityMap` (building fields) — there is no `buildings` BTreeMap. `PlacedBuilding` remains in `save.rs` for backward-compatible deserialization of legacy save files.
 
@@ -112,6 +112,24 @@ Building placement: `place_building()` is the single entry point for all runtime
 
 Building costs: `building_cost(kind)` in `constants.rs`. Flat costs (no difficulty scaling): Farm=2, FarmerHome=2, MinerHome=4, ArcherHome=4, CrossbowHome=8, Waypoint=1, Tent=3. All properties defined in `BUILDING_REGISTRY`.
 
+## Factions
+
+| Resource | Data | Writers | Readers |
+|----------|------|---------|---------|
+| FactionList | `factions: Vec<FactionData>` — one per faction | generate_world, create_ai_town | UI (factions panel), save/load |
+
+`FactionData` fields: `kind: FactionKind`, `name: String`, `towns: Vec<usize>` (town indices owned).
+
+`FactionKind` enum: `Neutral` (0), `Player` (1), `AiBuilder` (2+), `AiRaider`. Faction index order: 0=Neutral, 1=Player, 2+=AI settlements.
+
+Helper methods: `is_player(idx)`, `is_neutral(idx)`, `player_faction() -> Option<usize>`, `player_town() -> Option<usize>`.
+
+Constants in `constants.rs`: `FACTION_NEUTRAL: i32 = 0`, `FACTION_PLAYER: i32 = 1`, `TOWN_NONE: u32 = u32::MAX` (sentinel for buildings not owned by any town, e.g., gold mines).
+
+Gold mines use `town_idx: TOWN_NONE` and `faction: FACTION_NEUTRAL`. `try_claim_worksite()` accepts `TOWN_NONE` buildings for any town's workers.
+
+Save/load: `FactionList` serialized in `SaveData`. Old saves without it get `FactionList` reconstructed from town data (sprite_type 1 = AiRaider, else AiBuilder for non-player factions).
+
 ## Food & Economy
 
 | Resource | Data | Writers | Readers |
@@ -129,7 +147,7 @@ Building costs: `building_cost(kind)` in `constants.rs`. Flat costs (no difficul
 |----------|------|---------|
 | RaiderState | max_pop, respawn_timers, forage_timers per raider town | Raider town respawn/forage scheduling |
 
-`RaiderState::faction_to_idx(faction)` maps faction ID to raider index (faction 1 = index 0).
+`RaiderState::faction_to_idx(faction)` maps faction ID to raider index (faction 2 = index 0, offset by 2 since 0=Neutral, 1=Player).
 
 ## Game Time
 

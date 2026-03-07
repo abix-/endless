@@ -718,7 +718,7 @@ fn build_building_body_instances(
             gpu_state.healths.get(idx).copied().unwrap_or(0.0)
         };
 
-        let (r, g, b, a) = if faction == 0 {
+        let (r, g, b, a) = if faction == crate::constants::FACTION_PLAYER {
             (1.0, 1.0, 1.0, 1.0)
         } else {
             // Buildings use a subtle faction tint (not full recolor like NPCs/projectiles).
@@ -1521,7 +1521,7 @@ fn extract_proj_data(
         }
 
         let faction = writes.factions[i];
-        let (cr, cg, cb) = if faction == 0 {
+        let (cr, cg, cb) = if faction == crate::constants::FACTION_PLAYER {
             (0.0, 0.0, 1.0)
         } else {
             let (r, g, b, _) = crate::constants::raider_faction_color(faction);

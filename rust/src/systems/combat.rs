@@ -210,7 +210,7 @@ pub fn attack_system(
             if entity_map.get_instance(ti).is_some() && i * 2 + 1 < npc_gpu.targets.len() {
                 let current_target = Vec2::new(npc_gpu.targets[i * 2], npc_gpu.targets[i * 2 + 1]);
                 if let Some(curr_inst) = entity_map.find_by_position(current_target) {
-                    if curr_inst.faction >= 0 && curr_inst.faction != faction_id {
+                    if curr_inst.faction != crate::constants::FACTION_NEUTRAL && curr_inst.faction != faction_id {
                         target_idx = curr_inst.slot as i32;
                     }
                 }
@@ -327,7 +327,7 @@ pub fn attack_system(
         let target_faction = target_npc
             .map(|n| n.faction)
             .unwrap_or_else(|| gpu_state.factions.get(ti).copied().unwrap_or(-1));
-        if target_faction < 0 || target_faction == faction_id {
+        if target_faction == crate::constants::FACTION_NEUTRAL || target_faction == faction_id {
             if is_fighting {
                 if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) {
                     *cs = CombatState::None;

@@ -204,7 +204,7 @@ pub(crate) fn build_menu_system(
             if ui.add(btn).clicked() {
                 ui_state.build_menu_open = !ui_state.build_menu_open;
                 if ui_state.build_menu_open {
-                    build_ctx.town_data_idx = world_data.towns.iter().position(|t| t.faction == 0);
+                    build_ctx.town_data_idx = world_data.towns.iter().position(|t| t.faction == crate::constants::FACTION_PLAYER);
                 } else {
                     build_ctx.selected_build = None;
                 }
@@ -216,7 +216,7 @@ pub(crate) fn build_menu_system(
     }
 
     if build_ctx.town_data_idx.is_none() {
-        build_ctx.town_data_idx = world_data.towns.iter().position(|t| t.faction == 0);
+        build_ctx.town_data_idx = world_data.towns.iter().position(|t| t.faction == crate::constants::FACTION_PLAYER);
     }
 
     let Some(town_data_idx) = build_ctx.town_data_idx else {
@@ -225,7 +225,7 @@ pub(crate) fn build_menu_system(
     let Some(town) = world_data.towns.get(town_data_idx) else {
         return Ok(());
     };
-    let is_raider = town.faction > 0;
+    let is_raider = town.faction > crate::constants::FACTION_PLAYER;
     let food = food_storage.food.get(town_data_idx).copied().unwrap_or(0);
     let text_scale = user_settings.build_menu_text_scale.clamp(0.7, 2.0);
     let label_size = 13.0 * text_scale;
@@ -236,10 +236,17 @@ pub(crate) fn build_menu_system(
         .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 35, 230))
         .inner_margin(egui::Margin::same(6));
 
+    // Constrain width to avoid overlapping left panel / combat log
+    let screen_w = ctx.content_rect().width();
+    let left_w = if ui_state.left_panel_open { 348.0 } else { 0.0 };
+    let right_w = if ui_state.combat_log_visible { 454.0 } else { 0.0 };
+    let max_w = (screen_w - left_w - right_w - 16.0).max(300.0);
+
     let mut open = true;
     egui::Window::new("Build")
         .open(&mut open)
         .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -2.0])
+        .max_width(max_w)
         .collapsible(false)
         .resizable(false)
         .movable(false)
@@ -276,7 +283,7 @@ pub(crate) fn build_menu_system(
                     }
                 }
             });
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 for def in BUILDING_REGISTRY {
                     let show = if is_raider {
                         def.raider_buildable

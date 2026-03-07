@@ -393,7 +393,7 @@ fn write_npc_visual(
         .copied()
         .unwrap_or(0.0);
     upload.visual_data[base + 3] = gpu_state.flash_values.get(idx).copied().unwrap_or(0.0);
-    let (r, g, b, a) = if faction == 0 {
+    let (r, g, b, a) = if faction == crate::constants::FACTION_PLAYER {
         job.color()
     } else {
         crate::constants::raider_faction_color(faction)
@@ -1296,7 +1296,7 @@ fn update_gpu_data(
     let player_town_idx = world_data
         .towns
         .iter()
-        .position(|t| t.faction == 0)
+        .position(|t| t.faction == crate::constants::FACTION_PLAYER)
         .unwrap_or(0);
     let levels = upgrades.town_levels(player_town_idx);
     config.npc.dodge_unlocked = if stats::dodge_unlocked(&levels) { 1 } else { 0 };

@@ -3,6 +3,7 @@
 use crate::constants::{MAX_ENTITIES, MAX_NPC_COUNT, MAX_PROJECTILES, TOWN_GRID_SPACING};
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
+use serde::{Serialize, Deserialize};
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
@@ -998,7 +999,7 @@ impl EntityMap {
     ) -> Option<ClaimedWorksite> {
         let valid = self.instances.get(&slot).is_some_and(|inst| {
             inst.kind == expected_kind
-                && expected_town.is_none_or(|t| inst.town_idx == t)
+                && expected_town.is_none_or(|t| inst.town_idx == t || inst.town_idx == crate::constants::TOWN_NONE)
                 && (inst.occupants as i32) < max_occupants
         });
         if valid {
@@ -2171,6 +2172,50 @@ impl MerchantInventory {
     }
 }
 
+/// What kind of faction this is — determines AI behavior and UI treatment.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Reflect)]
+pub enum FactionKind {
+    Neutral,
+    Player,
+    AiBuilder,
+    AiRaider,
+}
+
+/// A faction in the game. Owns towns, buildings, and NPCs.
+#[derive(Clone, Debug, Serialize, Deserialize, Reflect)]
+pub struct FactionData {
+    pub kind: FactionKind,
+    pub name: String,
+    /// Town indices owned by this faction (most factions own exactly 1 town).
+    pub towns: Vec<usize>,
+}
+
+/// All factions. Index 0 = Neutral, 1 = Player, 2+ = AI.
+#[derive(Resource, Default, Serialize, Deserialize, Reflect)]
+#[reflect(Resource)]
+pub struct FactionList {
+    pub factions: Vec<FactionData>,
+}
+
+impl FactionList {
+    pub fn is_player(&self, faction_idx: i32) -> bool {
+        self.factions.get(faction_idx as usize).is_some_and(|f| f.kind == FactionKind::Player)
+    }
+
+    pub fn is_neutral(&self, faction_idx: i32) -> bool {
+        faction_idx == 0 || self.factions.get(faction_idx as usize).is_some_and(|f| f.kind == FactionKind::Neutral)
+    }
+
+    pub fn player_faction(&self) -> Option<usize> {
+        self.factions.iter().position(|f| f.kind == FactionKind::Player)
+    }
+
+    pub fn player_town(&self) -> Option<usize> {
+        self.factions.iter().find(|f| f.kind == FactionKind::Player)
+            .and_then(|f| f.towns.first().copied())
+    }
+}
+
 /// Per-faction statistics.
 #[derive(Clone, Default, Reflect)]
 pub struct FactionStat {
@@ -2179,7 +2224,7 @@ pub struct FactionStat {
     pub kills: i32,
 }
 
-/// Stats for all factions. Index 0 = player/villagers, 1+ = raider towns.
+/// Stats for all factions. Indexed by faction ID (0=Neutral, 1=Player, 2+=AI).
 #[derive(Resource, Default, Reflect)]
 #[reflect(Resource)]
 pub struct FactionStats {
@@ -2255,10 +2300,11 @@ impl RaiderState {
         self.forage_timers = vec![0.0; count];
     }
 
-    /// Get raider index from faction (faction 1 = index 0, etc).
+    /// Get raider index from faction (faction 2 = index 0, etc).
+    /// AI factions start at index 2 (after Neutral=0, Player=1).
     pub fn faction_to_idx(faction: i32) -> Option<usize> {
-        if faction > 0 {
-            Some((faction - 1) as usize)
+        if faction > crate::constants::FACTION_PLAYER {
+            Some((faction - 2) as usize)
         } else {
             None
         }

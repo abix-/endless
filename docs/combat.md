@@ -69,7 +69,7 @@ attack_system emits `ProjGpuUpdateMsg` when in range, or applies point-blank dam
 | Health | `f32` | Current HP (per-type: Farmer 60, Crossbow 70, Archer/Miner 80, Raider 120, Fighter 150) |
 | Dead | marker | Inserted when health <= 0 |
 | LastHitBy | `i32` | NPC slot index of last attacker (-1 = no attacker). Inserted by damage_system, read by death_system for XP grant + loot attribution. |
-| Faction | `struct(i32)` | Faction ID (-1=Neutral, 0=Player, 1+=AI settlements). NPCs attack different factions. Neutral (-1) is treated as same-faction by GPU combat targeting and projectile collision. |
+| Faction | `struct(i32)` | Faction ID (0=Neutral, 1=Player, 2+=AI settlements). NPCs attack different factions. Neutral (0) is treated as same-faction by GPU combat targeting and projectile collision. GPU shaders also treat -1 as non-hostile (dead/empty slot sentinel). |
 | BaseAttackType | enum | `Melee` or `Ranged` — keys into `CombatConfig.attacks` HashMap. Crossbow units use `Ranged` but stats resolve from `CombatConfig.crossbow_attack` (overridden by Job in `resolve_combat_stats`). |
 | CachedStats | struct | `damage, range, cooldown, projectile_speed, projectile_lifetime, max_health, speed` — resolved from `CombatConfig` via `resolve_combat_stats()` |
 | AttackTimer | `f32` | Seconds until next attack allowed |
@@ -230,4 +230,4 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 - **No generational indices on slots**: Stale slot references could silently alias. Mitigated by DamageMsg using EntityUid (stable identity) instead of raw slots — damage_system resolves UID→slot, skipping if the UID is no longer valid. Chained execution within Step::Combat provides additional safety.
 - **No friendly fire**: Faction check prevents same-faction damage. No way to enable it selectively.
 - **CombatState::Fighting blocks behavior decisions**: While fighting, decision_system skips the NPC. However, Activity is preserved through combat — when combat ends (`CombatState::None`), the NPC resumes its previous activity.
-- **KillStats faction-attributed**: `archer_kills` counts enemy NPCs killed by player faction (killer_faction == 0, victim != 0); `villager_kills` counts player NPCs killed by enemies (killer_faction != 0, victim == 0). Attribution uses `last_hit_by` slot → faction lookup via EntityMap (NPC or building).
+- **KillStats faction-attributed**: `archer_kills` counts enemy NPCs killed by player faction (killer_faction == FACTION_PLAYER, victim != FACTION_PLAYER); `villager_kills` counts player NPCs killed by enemies (killer_faction != FACTION_PLAYER, victim == FACTION_PLAYER). Attribution uses `last_hit_by` slot → faction lookup via EntityMap (NPC or building).

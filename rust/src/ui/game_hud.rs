@@ -643,7 +643,7 @@ pub fn bottom_panel_system(
                                 && world_data
                                     .towns
                                     .get(*ti as usize)
-                                    .map_or(false, |t| t.faction == 0)
+                                    .map_or(false, |t| t.faction == crate::constants::FACTION_PLAYER)
                         })
                         .unwrap_or(false);
                     if is_destructible {
@@ -1001,7 +1001,7 @@ pub fn combat_log_system(
                         continue;
                     }
                     // Faction filter: "Mine" shows player (0) + global (-1) events only
-                    if filter_state.faction_filter == 0 && entry.faction != 0 && entry.faction != -1
+                    if filter_state.faction_filter == 0 && entry.faction != crate::constants::FACTION_PLAYER && entry.faction != crate::constants::FACTION_NEUTRAL
                     {
                         continue;
                     }
@@ -1086,7 +1086,7 @@ pub fn combat_log_system(
                 .stick_to_bottom(true)
                 .show(ui, |ui| {
                     for (_, color, ts, msg, loc) in &filter_state.cached_entries {
-                        ui.horizontal(|ui| {
+                        ui.horizontal_wrapped(|ui| {
                             ui.small(ts);
                             if let Some(pos) = loc {
                                 if ui
@@ -1695,12 +1695,17 @@ fn inspector_content(
         });
     }
 
-    // Debug IDs: show slot + UID for BRP queries, plus copy button
+    // Debug IDs: show slot + UID + world coords for BRP queries, plus copy button
     if settings.debug_ids {
         ui.separator();
         let uid = bld_data.entity_map.uid_for_slot(idx);
         let uid_str = uid.map_or("?".to_string(), |u| u.0.to_string());
-        ui.label(format!("Slot: {}  UID: {}", idx, uid_str));
+        let world_pos_str = if idx * 2 + 1 < gpu_state.positions.len() {
+            format!("({:.0}, {:.0})", gpu_state.positions[idx * 2], gpu_state.positions[idx * 2 + 1])
+        } else {
+            "?".into()
+        };
+        ui.label(format!("Slot: {}  UID: {}  Pos: {}", idx, uid_str, world_pos_str));
 
         if ui.button("Copy Debug Info").clicked() {
             let positions = &gpu_state.positions;
@@ -2422,7 +2427,7 @@ fn building_inspector_content(
         }
     } } // end if !is_constructing + match
 
-    // Debug IDs: show slot + UID for BRP queries, plus copy button
+    // Debug IDs: show slot + UID + world coords for BRP queries, plus copy button
     if settings.debug_ids {
         ui.separator();
         let selected_slot = bld.selected_building.slot.or_else(|| {
@@ -2433,7 +2438,7 @@ fn building_inspector_content(
         if let Some(slot) = selected_slot {
             let uid = bld.entity_map.uid_for_slot(slot);
             let uid_str = uid.map_or("?".to_string(), |u| u.0.to_string());
-            ui.label(format!("Slot: {}  UID: {}", slot, uid_str));
+            ui.label(format!("Slot: {}  UID: {}  Pos: ({:.0}, {:.0})", slot, uid_str, world_pos.x, world_pos.y));
 
             if ui.button("Copy Debug Info").clicked() {
                 let max_hp = crate::constants::building_def(kind).hp;

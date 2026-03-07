@@ -233,7 +233,7 @@ fn blackjack_content(
         return;
     }
 
-    if state.opponent_faction == 0 {
+    if state.opponent_faction == crate::constants::FACTION_NEUTRAL {
         if let Some(&(idx, faction, _)) = ai_towns.first() {
             state.opponent_faction = faction;
             state.opponent_town_idx = idx;

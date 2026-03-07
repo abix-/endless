@@ -79,7 +79,7 @@ pub fn setup(
         &config,
         &mut world_grid,
         &mut world_data,
-
+        &mut crate::resources::FactionList::default(),
         &mut slot_alloc,
         &mut bld.entity_map,
         &mut food_storage,
@@ -127,7 +127,7 @@ pub fn setup(
             let player_ti = world_data
                 .towns
                 .iter()
-                .position(|t| t.faction == 0)
+                .position(|t| t.faction == crate::constants::FACTION_PLAYER)
                 .unwrap_or(0);
             let _ = world::place_building(
                 &mut slot_alloc, &mut bld.entity_map, &mut uid_alloc,

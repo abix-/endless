@@ -598,7 +598,11 @@ pub const TOWN_UPGRADES: &[UpgradeStatDef] = &[
 ];
 
 /// Neutral faction — friendly to everyone. Used for world-owned buildings (gold mines).
-pub const FACTION_NEUTRAL: i32 = -1;
+pub const FACTION_NEUTRAL: i32 = 0;
+/// Player faction index (first non-neutral faction).
+pub const FACTION_PLAYER: i32 = 1;
+/// Sentinel town_idx for buildings not owned by any town (gold mines, etc.)
+pub const TOWN_NONE: u32 = u32::MAX;
 
 // Spatial grid lives on GPU only — see gpu.rs (256×256 cells × 128px = 32,768px coverage).
 

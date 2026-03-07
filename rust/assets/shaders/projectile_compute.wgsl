@@ -169,7 +169,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 if (entity_idx == proj_shooters[i]) { continue; }
 
                 // Ignore same faction and neutral entities.
-                if (entity_factions[entity_idx] == my_faction || entity_factions[entity_idx] == -1) { continue; }
+                if (entity_factions[entity_idx] == my_faction || entity_factions[entity_idx] == -1 || entity_factions[entity_idx] == 0) { continue; }
 
                 // Ignore dead entities.
                 if (entity_healths[entity_idx] <= 0.0) { continue; }

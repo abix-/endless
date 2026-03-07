@@ -78,7 +78,7 @@ game_time_system (every frame)
 
 ### raider_forage_system
 - Runs when `game_time.hour_ticked` is true
-- Each raider town (faction > 0) gains `RAIDER_FORAGE_RATE` (1) food per hour
+- Each raider town (faction != FACTION_PLAYER and != FACTION_NEUTRAL) gains `RAIDER_FORAGE_RATE` (1) food per hour
 - Passive income ensures raiders can survive even if they never steal
 
 ### spawner_respawn_system
@@ -269,8 +269,8 @@ migration_spawn_system (hourly check)
         │
         ▼ YES: spawn group at nearest map edge to settle target
         │
-        ├─ Create Town entry (faction = max+1, sprite_type = 1)
-        ├─ Create TownGrid (with world-edge caps via recompute_world_caps), extend all per-town resources (food, gold, factions, raider_state, policies)
+        ├─ Create Town entry (faction = next faction index, sprite_type = 1)
+        ├─ Create TownGrid (with world-edge caps via recompute_world_caps), extend all per-town resources (food, gold, factions, raider_state, policies, faction_list)
         ├─ Create inactive AiPlayer (active: false, kind: Raider, random personality)
         ├─ Spawn N raiders via SpawnNpcMsg with Home = player town center
         │   Group size: MIGRATION_BASE_SIZE (3) + player_alive / difficulty.migration_scaling()

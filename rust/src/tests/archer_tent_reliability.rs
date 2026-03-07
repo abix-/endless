@@ -147,7 +147,7 @@ pub fn tick(
 
     let archer_count = entity_map
         .iter_npcs()
-        .filter(|n| !n.dead && n.job == Job::Archer && n.faction == 0)
+        .filter(|n| !n.dead && n.job == Job::Archer && n.faction == crate::constants::FACTION_PLAYER)
         .count();
 
     match test.phase {

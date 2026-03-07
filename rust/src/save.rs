@@ -255,6 +255,10 @@ pub struct SaveData {
     #[serde(default)]
     pub merchant_stocks: Vec<crate::resources::MerchantStock>,
 
+    // Faction list
+    #[serde(default)]
+    pub faction_list: Vec<crate::resources::FactionData>,
+
     // Faction-vs-faction reputation matrix (2D).
     #[serde(default, deserialize_with = "deserialize_reputation")]
     pub reputation: Vec<Vec<f32>>,
@@ -651,6 +655,7 @@ pub fn collect_save_data(
     next_loot_id: &crate::resources::NextLootItemId,
     town_inventory: &crate::resources::TownInventory,
     merchant_inv: &crate::resources::MerchantInventory,
+    faction_list: &crate::resources::FactionList,
 ) -> SaveData {
     // Terrain + buildings
     let terrain: Vec<u8> = grid.cells.iter().map(|c| biome_to_u8(c.terrain)).collect();
@@ -845,6 +850,7 @@ pub fn collect_save_data(
         raider_forage_timers: raider_state.forage_timers.clone(),
         raider_max_pop: raider_state.max_pop.clone(),
         faction_stats: faction_stats_save,
+        faction_list: faction_list.factions.clone(),
         reputation: reputation.values.clone(),
         kill_stats: [kill_stats.archer_kills, kill_stats.villager_kills],
         npcs,
@@ -1394,6 +1400,7 @@ pub struct SaveWorldState<'w> {
 pub struct SaveFactionState<'w> {
     pub raider_state: ResMut<'w, RaiderState>,
     pub faction_stats: ResMut<'w, FactionStats>,
+    pub faction_list: ResMut<'w, crate::resources::FactionList>,
     pub reputation: ResMut<'w, crate::resources::Reputation>,
     pub kill_stats: ResMut<'w, KillStats>,
     pub ai_state: ResMut<'w, AiPlayerState>,
@@ -1548,19 +1555,20 @@ pub fn load_building_instances_from_save(
             if !world::is_alive(b.position) {
                 continue;
             }
-            let faction = if def.kind == world::BuildingKind::GoldMine {
-                FACTION_NEUTRAL
+            let (town_idx, faction) = if def.kind == world::BuildingKind::GoldMine {
+                (crate::constants::TOWN_NONE, FACTION_NEUTRAL)
             } else {
-                world_data
+                let f = world_data
                     .towns
                     .get(b.town_idx as usize)
                     .map(|t| t.faction)
-                    .unwrap_or(0)
+                    .unwrap_or(0);
+                (b.town_idx, f)
             };
             let hp = kind_hps.and_then(|v| v.get(i).copied());
             let _ = world::place_building(
                 slot_alloc, entity_map, uid_alloc, commands, gpu_updates,
-                def.kind, b.position, b.town_idx, faction,
+                def.kind, b.position, town_idx, faction,
                 b.patrol_order, b.wall_level, None, hp, None, None,
             );
             // Restore miner home fields
@@ -1720,6 +1728,7 @@ pub fn save_game_system(
         &fs.next_loot_id,
         &fs.town_inventory,
         &fs.merchant_inv,
+        &fs.faction_list,
     );
 
     let result = if let Some(path) = request.save_path.take() {
@@ -1812,6 +1821,7 @@ pub fn autosave_system(
         &fs.next_loot_id,
         &fs.town_inventory,
         &fs.merchant_inv,
+        &fs.faction_list,
     );
 
     match write_save_to(&data, &path) {
@@ -1945,6 +1955,35 @@ pub fn restore_world_from_save(
         &mut fs.town_inventory,
         &mut fs.merchant_inv,
     );
+
+    // Restore faction list (backward compat: old saves have empty vec, rebuild from towns)
+    if save.faction_list.is_empty() {
+        // Old save — reconstruct factions from town data
+        use crate::resources::{FactionData, FactionKind};
+        fs.faction_list.factions.clear();
+        fs.faction_list.factions.push(FactionData {
+            kind: FactionKind::Neutral,
+            name: "Neutral".to_string(),
+            towns: vec![],
+        });
+        for (ti, town) in ws.world_data.towns.iter().enumerate() {
+            let kind = if town.sprite_type == 1 {
+                FactionKind::AiRaider
+            } else if ti == 0 {
+                FactionKind::Player
+            } else {
+                FactionKind::AiBuilder
+            };
+            let name = town.name.clone();
+            fs.faction_list.factions.push(FactionData {
+                kind,
+                name,
+                towns: vec![ti],
+            });
+        }
+    } else {
+        fs.faction_list.factions = save.faction_list.clone();
+    }
 
     // Rebuild buildings from save payload.
     let world_size_px = ws.grid.width as f32 * ws.grid.cell_size;

@@ -328,7 +328,7 @@ Group size capped at 20 raiders. Random personality assigned at spawn.
 
 ## Player AI Manager
 
-The player's town (faction 0) gets an `AiPlayer` registered at world gen with `active: false`, `AiKind::Builder`, `AiPersonality::Balanced`, `RoadStyle::Grid4`. The existing `ai_decision_system` loop checks `player.active` — toggling it on via the Policies tab enables the full AI builder for the player's town.
+The player's town (faction FACTION_PLAYER=1) gets an `AiPlayer` registered at world gen with `active: false`, `AiKind::Builder`, `AiPersonality::Balanced`, `RoadStyle::Grid4`. The existing `ai_decision_system` loop checks `player.active` — toggling it on via the Policies tab enables the full AI builder for the player's town.
 
 ### Controls (Policies Tab → AI Manager)
 
