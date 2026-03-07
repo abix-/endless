@@ -1957,10 +1957,10 @@ fn build_ghost_system(
             let cell_world = grid.grid_to_world(sc, sr);
             let cell = grid.cell(sc, sr);
             let empty = !entity_map.has_building_at(sc as i32, sr as i32);
-            let not_water = cell
-                .map(|c| c.terrain != world::Biome::Water)
+            let buildable_terrain = cell
+                .map(|c| !matches!(c.terrain, world::Biome::Water | world::Biome::Rock))
                 .unwrap_or(false);
-            let valid = empty && not_water && budget >= cost;
+            let valid = empty && buildable_terrain && budget >= cost;
             if valid {
                 budget -= cost;
             }
@@ -2022,10 +2022,10 @@ fn build_ghost_system(
         build_ctx.hover_world_pos = snapped;
         let cell = grid.cell(gc, gr);
         let empty = !entity_map.has_building_at(gc as i32, gr as i32);
-        let not_water = cell
-            .map(|c| c.terrain != world::Biome::Water)
+        let buildable_terrain = cell
+            .map(|c| !matches!(c.terrain, world::Biome::Water | world::Biome::Rock))
             .unwrap_or(false);
-        let valid = empty && not_water;
+        let valid = empty && buildable_terrain;
         build_ctx.show_cursor_hint = !valid;
 
         let color = if valid {

@@ -81,7 +81,7 @@ All 6 chunks complete (see [completed.md](completed.md)): unified CarriedLoot, L
 
 - [ ] A* or flow field pathfinding on the world grid
 - [ ] Terrain movement costs — biome affects GPU movement speed via existing `tile_flags` pattern:
-  - Cost table: Grass/Dirt=1.0x (base), Road=1.5x (already done), Forest=0.7x, Rock=0.5x, Water=impassable
+  - Cost table: Grass/Dirt=1.0x (base), Road=1.5x (already done), Forest=0.7x, Rock+Water=impassable (pathfinding cost 0, building blocked)
   - GPU shader (`npc_compute.wgsl`): after the existing `TILE_ROAD` speed check (~line 169), add `TILE_FOREST`/`TILE_ROCK` branches that multiply `speed` by 0.7/0.5. `TILE_WATER` blocks entry (same wall-collision pattern as `TILE_WALL`)
   - Tile flag constants already exist in `constants.rs`: `TILE_GRASS=1, TILE_FOREST=2, TILE_WATER=4, TILE_ROCK=8, TILE_DIRT=16`
   - `populate_tile_flags()` in `gpu.rs` already writes biome → flag bits per cell — no Rust-side changes needed for the flag data

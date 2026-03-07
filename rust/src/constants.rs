@@ -2024,7 +2024,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
     BuildingDef {
         kind: BuildingKind::Casino,
         display: DisplayCategory::Economy,
-        tile: TileSpec::Single(51, 9),
+        tile: TileSpec::External("sprites/casino_64x64.png"),
         hp: 200.0,
         cost: 80,
         label: "Casino",

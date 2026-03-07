@@ -335,6 +335,11 @@ pub fn decision_system(
     let interval_buckets = (npc_config.interval * 60.0) as usize;
     let min_buckets = npc_count / npc_config.max_decisions_per_frame.max(1);
     let think_buckets = interval_buckets.max(min_buckets).max(1);
+    // Scale buckets down at high game speeds so decisions keep pace with movement
+    let speed_scale = game_time.time_scale.max(1.0);
+    let think_buckets = (think_buckets as f32 / speed_scale).max(1.0) as usize;
+    const COMBAT_BUCKET: usize = 16; // ~267ms at 60fps
+    let combat_bucket = (COMBAT_BUCKET as f32 / speed_scale).max(1.0) as usize;
 
     for (entity, slot, job, town_id, faction) in decision_npc_q.iter() {
         let idx = slot.0;
@@ -343,14 +348,13 @@ pub fn decision_system(
         // Top-of-loop bucket gate: only process NPCs on their think cadence.
         // Fighting NPCs use a tighter bucket for responsive flee/leash.
         // ====================================================================
-        const COMBAT_BUCKET: usize = 16; // ~267ms at 60fps
         let combat_state_peek = npc_state
             .combat_state_q
             .get(entity)
             .map(|cs| cs.is_fighting())
             .unwrap_or(false);
         if combat_state_peek {
-            if (idx + frame) % COMBAT_BUCKET != 0 {
+            if (idx + frame) % combat_bucket != 0 {
                 continue;
             }
         } else {

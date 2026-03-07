@@ -116,8 +116,8 @@ fn init_sprite_cache(
         let handle = match def.tile {
             TileSpec::External(path) => {
                 let ext_h = external_handle(path, sprites).unwrap();
-                // Wall: extract just the first sprite from the strip
-                if def.kind == BuildingKind::Wall {
+                // Autotile: extract just the first sprite from the strip
+                if def.autotile {
                     if let Some(ext_img) = images.get(ext_h) {
                         let sprite = crate::world::extract_sprite(ext_img, 0, 32);
                         let cell = crate::world::ATLAS_CELL;
@@ -236,17 +236,15 @@ pub(crate) fn build_menu_system(
         .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 35, 230))
         .inner_margin(egui::Margin::same(6));
 
-    // Constrain width to avoid overlapping left panel / combat log
-    let screen_w = ctx.content_rect().width();
+    // Shift anchor to center between left panel and combat log
     let left_w = if ui_state.left_panel_open { 348.0 } else { 0.0 };
     let right_w = if ui_state.combat_log_visible { 454.0 } else { 0.0 };
-    let max_w = (screen_w - left_w - right_w - 16.0).max(300.0);
+    let anchor_x = (left_w - right_w) / 2.0;
 
     let mut open = true;
     egui::Window::new("Build")
         .open(&mut open)
-        .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -2.0])
-        .max_width(max_w)
+        .anchor(egui::Align2::CENTER_BOTTOM, [anchor_x, -2.0])
         .collapsible(false)
         .resizable(false)
         .movable(false)
@@ -283,7 +281,7 @@ pub(crate) fn build_menu_system(
                     }
                 }
             });
-            ui.horizontal_wrapped(|ui| {
+            ui.horizontal(|ui| {
                 for def in BUILDING_REGISTRY {
                     let show = if is_raider {
                         def.raider_buildable

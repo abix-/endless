@@ -613,8 +613,8 @@ pub fn place_building(
         if entity_map.has_building_at(gc as i32, gr as i32) {
             return Err("cell already has a building");
         }
-        if cell.terrain == Biome::Water {
-            return Err("cannot build on water");
+        if matches!(cell.terrain, Biome::Water | Biome::Rock) {
+            return Err("cannot build on water or rock");
         }
         if ctx.grid.is_foreign_territory(gc, gr, town_idx as u16) {
             return Err("cannot build in foreign territory");
@@ -1651,8 +1651,8 @@ impl WorldGrid {
         if col >= self.width || row >= self.height {
             return;
         }
-        // Skip water cells
-        if self.cells[row * self.width + col].terrain == Biome::Water {
+        // Skip impassable cells (water, rock)
+        if matches!(self.cells[row * self.width + col].terrain, Biome::Water | Biome::Rock) {
             return;
         }
         let idx = row * self.width + col;
@@ -1771,7 +1771,7 @@ pub(crate) fn terrain_base_cost(biome: Biome) -> u16 {
     match biome {
         Biome::Grass | Biome::Dirt => 100,
         Biome::Forest => 143,
-        Biome::Rock => 200,
+        Biome::Rock => 0,
         Biome::Water => 0,
     }
 }

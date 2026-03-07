@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-03-07d
+
+- **Rock terrain impassable** — rock biome is now impassable (pathfinding cost 0, like water). Building placement blocked on rock tiles. `add_town_buildable` skips rock cells. Ghost preview shows red on rock.
+- **Decision bucket speed scaling** — `think_buckets` and `COMBAT_BUCKET` now scale down with `time_scale` so NPC decisions keep pace with movement at high game speeds.
+- **Build menu positioning** — anchor shifts horizontally to center between left panel and combat log when either is open, preventing overlap.
+- **Build menu autotile sprites** — all autotile buildings (roads, walls) now extract the first sprite from their strip for the toolbar icon. Previously only walls did this; roads showed the full squashed strip.
+- **Combat log word wrap** — log entries use `horizontal_wrapped` so long messages wrap within the window instead of expanding it horizontally.
+- **Casino sprite** — changed from roguelike sheet tile to external `casino_64x64.png`.
+
 ## 2026-03-07c
 
 - **Faction system refactor** — replaced bare `i32` faction IDs with structured `FactionKind` enum (`Neutral=0`, `Player=1`, `AiBuilder`, `AiRaider`), `FactionData` struct, and `FactionList` resource. Each town gets its own faction. Constants `FACTION_NEUTRAL` (0), `FACTION_PLAYER` (1), `TOWN_NONE` (`u32::MAX`) replace all hardcoded numeric checks across 30+ files.

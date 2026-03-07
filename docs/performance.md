@@ -94,8 +94,8 @@ Custom pipeline replaces Bevy's per-entity sprite renderer:
 
 At 10K+ NPCs, running `decision_system` for every NPC every frame is too expensive. Solution: bucket gating.
 
-- **Fighting NPCs**: `COMBAT_BUCKET` — fast enough for flee/leash reactions (see Current Tunings for value).
-- **Non-fighting NPCs**: `think_buckets = max(interval × 60, npc_count / max_decisions_per_frame)` — adaptive bucketing with frame budget cap (see Current Tunings for `max_decisions_per_frame`).
+- **Fighting NPCs**: `COMBAT_BUCKET` — fast enough for flee/leash reactions (see Current Tunings for value). Scaled down by `time_scale` at high game speeds so combat decisions keep pace with movement.
+- **Non-fighting NPCs**: `think_buckets = max(interval × 60, npc_count / max_decisions_per_frame)` — adaptive bucketing with frame budget cap (see Current Tunings for `max_decisions_per_frame`). Also scaled down by `time_scale` at high game speeds.
 - At 10K NPCs with 120 buckets: ~83 NPCs processed per frame instead of 10K.
 - Position hoisted once per NPC into `npc_pos` after bucket gate — eliminates scattered position reads.
 - Conditional writeback: captures original values, compares at end — only calls `get_mut()` for changed fields. Optimal for `decision_system` where most NPCs exit early via `break 'decide` — avoids unnecessary borrow-mut for unchanged entities.

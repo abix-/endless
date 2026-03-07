@@ -317,14 +317,14 @@ mod tests {
 
     #[test]
     fn terrain_costs_match_gpu_shader() {
-        // GPU shader: Road = 1.5x speed, Grass = 1.0x, Forest = 0.7x, Rock = 0.5x
-        // Cost = 100 / speed → Road=67, Grass=100, Forest=143, Rock=200
-        // Water = 0 (impassable in cost grid)
+        // GPU shader: Road = 1.5x speed, Grass = 1.0x, Forest = 0.7x
+        // Cost = 100 / speed → Road=67, Grass=100, Forest=143
+        // Rock = 0 and Water = 0 (impassable in cost grid)
         use crate::world::terrain_base_cost;
         assert_eq!(terrain_base_cost(Biome::Grass), 100);
         assert_eq!(terrain_base_cost(Biome::Dirt), 100);
         assert_eq!(terrain_base_cost(Biome::Forest), 143);
-        assert_eq!(terrain_base_cost(Biome::Rock), 200);
+        assert_eq!(terrain_base_cost(Biome::Rock), 0);
         assert_eq!(terrain_base_cost(Biome::Water), 0);
     }
 
