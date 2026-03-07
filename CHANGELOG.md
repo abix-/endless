@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-03-07b
+
+- **Stop-in-place short-circuit** — `resolve_movement_system` now bypasses `path_cooldown` when an intent's target is within 2 units of the NPC's current position. Fixes idle NPCs retaining stale GPU targets from a previous activity (e.g., farm claim losers walking into the farm they failed to claim), causing bumping/oscillation.
+- **Chat inbox no longer drained by summary** — `summary_handler` reads `ChatInbox` immutably instead of using `std::mem::take`. Chat messages persist in the HUD after BRP summary requests.
+- **Debug endpoint expansion** — `endless/debug` auto-detects NPC vs building from `uid` (no `kind` param needed). New `kind`+`index` mode for resource inspection: `squad`, `town`, `policy`.
+
 ## 2026-03-07a
 
 - **World grid coordinates everywhere** — eliminated town-relative `(row, col)` coordinate system entirely. All ~50 call sites across 6 source files now use world grid `(col, row)` as `(usize, usize)`. Deleted `town_grid_to_world`, `world_to_town_grid`, `find_town_slot`, `TownSlotInfo`. `build_bounds` returns `(min_col, max_col, min_row, max_row)` in world grid. `empty_slots` returns `Vec<(usize, usize)>` world grid coords. AI scoring functions (`farm_slot_score`, `balanced_farm_ray_score`, `balanced_house_side_score`, etc.) all operate on `(usize, usize)`. BRP `endless/build` and `endless/destroy` params changed from `row: i32, col: i32` to `col: usize, row: usize` (world grid). LLM prompt updated.

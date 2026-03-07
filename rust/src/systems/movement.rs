@@ -142,6 +142,34 @@ pub fn resolve_movement_system(
         };
         let idx = npc_idx.0;
 
+        let i = idx * 2;
+
+        // "Stop in place" — intent target ≈ current position: skip cooldown, write directly
+        if i + 1 < positions.len() {
+            let dx = positions[i] - intent.target.x;
+            let dy = positions[i + 1] - intent.target.y;
+            if dx * dx + dy * dy <= 4.0 {
+                // Only write if GPU target actually differs (avoid no-op writes)
+                if i + 1 < targets.len() {
+                    let tdx = targets[i] - intent.target.x;
+                    let tdy = targets[i + 1] - intent.target.y;
+                    if tdx * tdx + tdy * tdy > 4.0 {
+                        if let Ok(mut npc_path) = path_q.get_mut(entity) {
+                            npc_path.waypoints.clear();
+                            npc_path.current = 0;
+                        }
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                            idx,
+                            x: intent.target.x,
+                            y: intent.target.y,
+                        }));
+                        target_thrash.record(idx, intent.source, minute_key, intent.target.x, intent.target.y);
+                    }
+                }
+                continue;
+            }
+        }
+
         // Skip if already pathing to the same goal (prevents re-path thrash)
         if let Ok(npc_path) = path_q.get(entity) {
             if !npc_path.waypoints.is_empty() {
@@ -156,7 +184,6 @@ pub fn resolve_movement_system(
         }
 
         // Skip if target unchanged vs GPU waypoint
-        let i = idx * 2;
         if i + 1 < targets.len() {
             let dx = targets[i] - intent.target.x;
             let dy = targets[i + 1] - intent.target.y;

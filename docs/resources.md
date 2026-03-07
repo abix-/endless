@@ -328,6 +328,8 @@ Both unlock slots when full (sets terrain to Dirt) and buy upgrades with surplus
 
 `MovementPriority` enum: `Wander(0) < JobRoute(1) < Squad(2) < Combat(3) < Survival(4) < ManualTarget(5) < DirectControl(6)`. Multiple `submit()` calls per NPC per frame keep the highest priority. `resolve_movement_system` drains intents, filters (dedup, cooldown, unchanged target), converts to grid-space PathRequests via `enqueue()`, then processes the queue with LOS bypass or A* routing. Sole emitter of `GpuUpdate::SetTarget` and sole recorder of `NpcTargetThrashDebug`. Budget-limited: `max_per_frame` count + `max_time_budget_ms` time guard, overflow re-queued.
 
+**Stop-in-place short-circuit:** If an intent's target is within 2 units of the NPC's current position, `resolve_movement_system` bypasses `path_cooldown` and writes `SetTarget` directly — no A* needed to "stand still." This ensures `idle:stop` intents (fired once on Idle transition) always take effect, preventing stale GPU targets from a previous activity.
+
 Systems that write intents call `path_queue.submit(entity, target, priority, source)`. One-time init targets (spawn, boat migration) still write `SetTarget` directly.
 
 ## Debug Resources
