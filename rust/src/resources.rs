@@ -3324,11 +3324,26 @@ pub struct ChatMessage {
     pub day: i32,
     pub hour: i32,
     pub minute: i32,
+    /// Whether this message has been included in an LLM state payload.
+    pub sent_to_llm: bool,
+    /// Whether a reply exists for this message.
+    pub has_reply: bool,
 }
+
+const CHAT_CAPACITY: usize = 200;
 
 #[derive(Resource, Default)]
 pub struct ChatInbox {
-    pub messages: Vec<ChatMessage>,
+    pub messages: std::collections::VecDeque<ChatMessage>,
+}
+
+impl ChatInbox {
+    pub fn push(&mut self, msg: ChatMessage) {
+        if self.messages.len() >= CHAT_CAPACITY {
+            self.messages.pop_front();
+        }
+        self.messages.push_back(msg);
+    }
 }
 
 // Test12 relocated to src/tests/vertical_slice.rs — uses shared TestState resource.

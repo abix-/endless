@@ -2,10 +2,11 @@
 
 ## 2026-03-07
 
-- **LLM payload reduction** — own-town buildings switched from full position list to counts (same as enemy towns), plus 10 precomputed `open_slots` (buildable row/col positions sampled for spatial spread via `world::empty_slots()`). Upgrades flattened from nested cost arrays to single-line strings (`"50 Gold, 20 Food"`). Scales O(building_types) not O(buildings) — payload stays bounded at 1000+ buildings.
+- **Unified chat system** — `ChatInbox` is now the single source of truth for player ↔ LLM messaging. Replaced dual-write (ChatInbox + combat log) with ChatInbox-only writes. Combat log UI reads directly from ChatInbox and renders `[chat to Town]` / `[chat from Town]` under the Chat filter. `ChatMessage` gains `sent_to_llm` and `has_reply` flags for delivery tracking. `ChatInbox` converted to `VecDeque` ring buffer (200 cap) to prevent unbounded growth.
+- **LLM payload reduction** — flat per-town fields (compact building strings `"Farm:24,ArcherHome:4"`, squad counts, short field names) for tabular TOON format. Own-town extras (your_squads, open_slots, inbox) moved to top level. Upgrades flattened to single-line cost strings. Scales O(building_types) not O(buildings).
 - **CSV action format** — LLM responses switched from TOON `actions[N]:` arrays to plain CSV lines: `method, key:value, key:value, ...`. Parser uses `split`/`split_once` instead of `serde_toon2::from_str`. Special `message:` handling preserves commas in chat text.
-- **LLM chat inbox drain** — messages now drained after LLM responds (not on every cycle), so messages survive crashes/disconnects.
-- **Prompt updated** — `prompt_builtin.md` rewritten with CSV examples, `open_slots` docs, inbox instructions.
+- **LLM combat log locations** — all LLM action log entries now use `push_at` with world positions, enabling camera-pan buttons in the combat log for build/destroy/upgrade/squad_target/policy actions.
+- **Prompt updated** — `prompt_builtin.md` rewritten with flat field names (i, cx, cy, dist, rep), top-level your_squads/open_slots/inbox docs, CSV examples.
 
 ## 2026-03-06a
 

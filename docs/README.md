@@ -113,7 +113,7 @@ Bevy ECS (lib.rs build_app)
     ├─ BRP (bevy_remote) ────────────────────▶ [brp.md]
     │   ├─ HTTP JSON-RPC on localhost:15702 (live ECS queries + resource reads)
     │   ├─ Custom endpoints (systems/remote.rs): summary, build, upgrade, policy, time, squad_target, ai_manager, chat, debug
-    │   ├─ Chat inbox: player ↔ LLM messaging via ChatInbox resource, drain-on-read in BRP summary, drain-on-response in LLM player, chat input in combat log UI
+    │   ├─ Chat inbox: player ↔ LLM messaging via ChatInbox resource (VecDeque ring buffer, 200 cap), flag-based tracking (sent_to_llm, has_reply), displayed from ChatInbox in combat log UI
     │   └─ Access control: RemoteAllowedTowns resource, write endpoints gated to LLM-marked towns
     │
     └─ Test Framework (tests/)

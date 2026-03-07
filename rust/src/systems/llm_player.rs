@@ -108,7 +108,7 @@ pub struct LlmWriteState<'w> {
 }
 
 /// Build game state JSON directly from ECS resources.
-fn build_state_json(read: &LlmReadState, write: &LlmWriteState, town_idx: usize, queries: &[String]) -> Value {
+fn build_state_json(read: &LlmReadState, write: &mut LlmWriteState, town_idx: usize, queries: &[String]) -> Value {
     let own_center = read.world_data.towns.get(town_idx)
         .map(|t| t.center)
         .unwrap_or_default();
@@ -116,12 +116,12 @@ fn build_state_json(read: &LlmReadState, write: &LlmWriteState, town_idx: usize,
         .map(|t| t.faction)
         .unwrap_or(0);
 
+    // Flat per-town fields so TOON uses tabular CSV format (no repeated field names)
     let mut towns = Vec::new();
     for (ti, town) in read.world_data.towns.iter().enumerate() {
-        let is_own = ti == town_idx;
         let distance = own_center.distance(town.center) as i32;
 
-        // All towns get building counts (not full position lists — scales O(types) not O(buildings))
+        // Buildings → compact string "Farm:24,ArcherHome:4"
         let mut counts: std::collections::BTreeMap<&str, i32> = std::collections::BTreeMap::new();
         for inst in read.entity_map.iter_instances() {
             if inst.town_idx as usize == ti {
@@ -129,61 +129,33 @@ fn build_state_json(read: &LlmReadState, write: &LlmWriteState, town_idx: usize,
                 *counts.entry(label).or_default() += 1;
             }
         }
-        let buildings_val = json!(counts);
+        let buildings_str = counts.iter()
+            .map(|(k, v)| format!("{}:{}", k, v))
+            .collect::<Vec<_>>()
+            .join(",");
 
-        let mut squads = Vec::new();
-        for (si, squad) in write.squad_state.squads.iter().enumerate() {
-            let squad_town = match squad.owner {
-                SquadOwner::Player => 0,
-                SquadOwner::Town(tdi) => tdi,
-            };
-            if squad_town == ti {
-                squads.push(json!({
-                    "index": si,
-                    "members": squad.members.len(),
-                    "target": squad.target.map(|t| json!({"x": t.x, "y": t.y})),
-                }));
-            }
-        }
+        let squad_count = write.squad_state.squads.iter()
+            .filter(|s| match s.owner {
+                SquadOwner::Player => ti == 0,
+                SquadOwner::Town(tdi) => tdi == ti,
+            })
+            .count();
 
-        let inbox: Vec<Value> = write.chat_inbox
-            .messages
-            .iter()
-            .filter(|m| m.to_town == ti)
-            .map(|m| json!({"from": m.from_town, "message": &m.text}))
-            .collect();
-
-        // How YOUR faction feels about this town's faction (negative = they killed your NPCs)
         let rep = read.reputation.get(own_faction, town.faction);
 
-        let mut town_json = json!({
-            "index": ti,
+        towns.push(json!({
+            "i": ti,
             "name": town.name,
             "faction": town.faction,
-            "center": {"x": town.center.x, "y": town.center.y},
-            "distance": distance,
-            "reputation": rep,
+            "cx": town.center.x as i32,
+            "cy": town.center.y as i32,
+            "dist": distance,
+            "rep": rep,
             "food": read.food.food.get(ti).copied().unwrap_or(0),
             "gold": read.gold.gold.get(ti).copied().unwrap_or(0),
-            "buildings": buildings_val,
-            "squads": squads,
-            "llm": is_own,
-            "inbox": inbox,
-        });
-
-        // Own town gets 10 precomputed buildable slots (sampled for spatial spread)
-        if is_own {
-            let all_empty = crate::world::empty_slots(ti, town.center, &read.world_grid, &read.entity_map);
-            let step = if all_empty.len() <= 10 { 1 } else { all_empty.len() / 10 };
-            let slots: Vec<Value> = all_empty.iter()
-                .step_by(step)
-                .take(10)
-                .map(|&(r, c)| json!({"row": r, "col": c}))
-                .collect();
-            town_json["open_slots"] = json!(slots);
-        }
-
-        towns.push(town_json);
+            "buildings": buildings_str,
+            "squads": squad_count,
+        }));
     }
 
     let fstats: Vec<Value> = read.faction_stats
@@ -203,6 +175,45 @@ fn build_state_json(read: &LlmReadState, write: &LlmWriteState, town_idx: usize,
         "factions": fstats,
         "your_town": town_idx,
     });
+
+    // Own-town extras at top level (not per-town — keeps towns tabular)
+    let your_squads: Vec<Value> = write.squad_state.squads.iter().enumerate()
+        .filter(|(_, s)| match s.owner {
+            SquadOwner::Player => town_idx == 0,
+            SquadOwner::Town(t) => t == town_idx,
+        })
+        .map(|(si, s)| json!({
+            "index": si,
+            "members": s.members.len(),
+            "target": s.target.map(|t| json!({"x": t.x, "y": t.y})),
+        }))
+        .collect();
+    root["your_squads"] = json!(your_squads);
+
+    let all_empty = crate::world::empty_slots(town_idx, own_center, &read.world_grid, &read.entity_map);
+    let step = if all_empty.len() <= 10 { 1 } else { all_empty.len() / 10 };
+    let slots: Vec<Value> = all_empty.iter()
+        .step_by(step)
+        .take(10)
+        .map(|&(r, c)| json!({"row": r, "col": c}))
+        .collect();
+    root["open_slots"] = json!(slots);
+
+    let inbox: Vec<Value> = write.chat_inbox
+        .messages
+        .iter()
+        .filter(|m| m.to_town == town_idx && !m.sent_to_llm)
+        .map(|m| json!({"from": m.from_town, "message": &m.text}))
+        .collect();
+    if !inbox.is_empty() {
+        root["inbox"] = json!(inbox);
+    }
+    // Mark messages as sent so they aren't repeated next cycle
+    for m in write.chat_inbox.messages.iter_mut() {
+        if m.to_town == town_idx && !m.sent_to_llm {
+            m.sent_to_llm = true;
+        }
+    }
 
     // Append queried topics
     for topic in queries {
@@ -330,8 +341,7 @@ pub fn llm_player_system(
             let actions = parse_actions(&response);
             state.status = LlmStatus::Done(actions.len());
             execute_actions(&actions, town, &read, &mut write, &mut state);
-            // Drain inbox after LLM has responded — not on send, so messages survive crashes
-            write.chat_inbox.messages.retain(|m| m.to_town != town);
+            // Flag-based: messages marked sent_to_llm in build_state_json, no drain needed
         }
         PollResult::Waiting => {
             state.status = LlmStatus::Thinking;
@@ -364,7 +374,7 @@ pub fn llm_player_system(
             topics.push(t);
         }
     }
-    let state_json = build_state_json(&read, &write, town, &topics);
+    let state_json = build_state_json(&read, &mut write, town, &topics);
 
     let prompt = state.prompt.clone();
     let toon_state = serde_toon2::to_string(&state_json).unwrap_or_default();
@@ -453,6 +463,9 @@ fn execute_actions(
     let day = read.game_time.day();
     let hour = read.game_time.hour();
     let minute = read.game_time.minute();
+    let center = read.world_data.towns.get(town)
+        .map(|t| t.center)
+        .unwrap_or_default();
 
     for action in actions {
         let p = &action.params;
@@ -473,8 +486,8 @@ fn execute_actions(
                             _ => {}
                         }
                     }
-                    write.combat_log.push(CombatEventKind::Llm, faction, day, hour, minute,
-                        format!("[llm] policy: {:?}", p));
+                    write.combat_log.push_at(CombatEventKind::Llm, faction, day, hour, minute,
+                        format!("[llm] policy: {:?}", p), Some(center));
                 }
             }
             "build" => {
@@ -485,24 +498,26 @@ fn execute_actions(
                     write.build_q.0.push(crate::systems::remote::RemoteBuild {
                         town, kind, row, col,
                     });
-                    write.combat_log.push(CombatEventKind::Llm, faction, day, hour, minute,
-                        format!("[llm] build {} at ({},{})", kind_str, row, col));
+                    let pos = crate::world::town_grid_to_world(center, row, col);
+                    write.combat_log.push_at(CombatEventKind::Llm, faction, day, hour, minute,
+                        format!("[llm] build {} at ({},{})", kind_str, row, col), Some(pos));
                 }
             }
             "destroy" => {
                 let row = p.get("row").and_then(|s| s.parse::<i32>().ok()).unwrap_or(0);
                 let col = p.get("col").and_then(|s| s.parse::<i32>().ok()).unwrap_or(0);
                 write.destroy_q.0.push(crate::systems::remote::RemoteDestroy { town, row, col });
-                write.combat_log.push(CombatEventKind::Llm, faction, day, hour, minute,
-                    format!("[llm] destroy at ({},{})", row, col));
+                let pos = crate::world::town_grid_to_world(center, row, col);
+                write.combat_log.push_at(CombatEventKind::Llm, faction, day, hour, minute,
+                    format!("[llm] destroy at ({},{})", row, col), Some(pos));
             }
             "upgrade" => {
                 let idx = p.get("upgrade_idx").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
                 write.upgrade_q.0.push(crate::systems::remote::RemoteUpgrade {
                     town, upgrade_idx: idx,
                 });
-                write.combat_log.push(CombatEventKind::Llm, faction, day, hour, minute,
-                    format!("[llm] upgrade idx {}", idx));
+                write.combat_log.push_at(CombatEventKind::Llm, faction, day, hour, minute,
+                    format!("[llm] upgrade idx {}", idx), Some(center));
             }
             "squad_target" => {
                 let squad_idx = p.get("squad").and_then(|s| s.parse::<usize>().ok());
@@ -514,9 +529,10 @@ fn execute_actions(
                         SquadOwner::Town(tdi) => tdi,
                     } == town).unwrap_or(false);
                     if owned {
-                        write.squad_state.squads[si].target = Some(bevy::math::Vec2::new(x, y));
-                        write.combat_log.push(CombatEventKind::Llm, faction, day, hour, minute,
-                            format!("[llm] squad_target squad={} x={} y={}", si, x, y));
+                        let target = bevy::math::Vec2::new(x, y);
+                        write.squad_state.squads[si].target = Some(target);
+                        write.combat_log.push_at(CombatEventKind::Llm, faction, day, hour, minute,
+                            format!("[llm] squad_target squad={} x={} y={}", si, x, y), Some(target));
                     }
                 }
             }
@@ -524,14 +540,20 @@ fn execute_actions(
                 let to = p.get("to").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
                 let message = p.get("message").cloned().unwrap_or_default();
                 if !message.is_empty() {
-                    write.chat_inbox.messages.push(ChatMessage {
+                    write.chat_inbox.push(ChatMessage {
                         from_town: town,
                         to_town: to,
                         text: message.clone(),
                         day, hour, minute,
+                        sent_to_llm: false,
+                        has_reply: false,
                     });
-                    write.combat_log.push(CombatEventKind::Llm, faction, day, hour, minute,
-                        format!("[llm] chat to town {}: {}", to, message));
+                    // Mark the most recent unreplied player message to this LLM town as replied
+                    if let Some(orig) = write.chat_inbox.messages.iter_mut().rev()
+                        .find(|m| m.from_town == to && m.to_town == town && !m.has_reply)
+                    {
+                        orig.has_reply = true;
+                    }
                 }
             }
             "query" => {

@@ -20,14 +20,16 @@ chat, to:2, message:good luck neighbor
 Every cycle you receive TOON-formatted game state with these fields:
 - game_time: day, hour, minute
 - your_town: your town's index number
-- towns[]: index, name, faction, center (x,y), distance, reputation, food, gold, buildings, squads, llm, inbox
-  - distance: how far from YOUR town (0 = your own). Use to find nearest enemies.
-  - reputation: how YOUR faction feels about this town's faction. Negative = they killed your NPCs.
-  - buildings: counts by type for ALL towns (e.g. Farm:5, ArcherHome:3)
-  - YOUR town (llm:true) also has open_slots: 10 precomputed buildable (row,col) positions
+- towns[]: i, name, faction, cx, cy, dist, rep, food, gold, buildings, squads
+  - dist: how far from YOUR town (0 = your own). Use to find nearest enemies.
+  - rep: how YOUR faction feels about this town's faction. Negative = they killed your NPCs.
+  - buildings: compact string of counts (e.g. "Farm:5,ArcherHome:3")
+  - squads: number of squads this town has
   - Same faction = ally. Different faction = enemy.
-  - Priority targets: closest enemy town with most negative reputation.
-  - inbox: messages from the human player or other towns. Always read and respond to inbox messages using the chat action.
+  - Priority targets: closest enemy town with most negative rep.
+- your_squads[]: index, members, target — your squad details for squad_target action
+- open_slots[]: row, col — 10 precomputed buildable positions for your town
+- inbox[]: from, message — only present if you have messages. Always read and respond using chat action.
 - factions[]: faction, alive, dead, kills
 - Plus any topics you've subscribed to
 
@@ -54,7 +56,7 @@ Subscribe to upgrades topic first to see available indices and costs.
 
 ### squad_target — Send a squad to attack
 `squad_target, squad:0, x:5000, y:8000`
-squad: index from your squads list. x, y: world coordinates (use enemy town's center).
+squad: index from your_squads list. x, y: world coordinates (use enemy town's cx,cy).
 
 ### chat — Send a message to another town
 `chat, to:2, message:good luck neighbor`

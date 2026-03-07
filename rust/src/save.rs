@@ -1966,6 +1966,7 @@ pub fn restore_world_from_save(
     restore_growth_from_save(save, entity_map);
     ws.grid.init_pathfind_costs();
     ws.grid.sync_building_costs(entity_map);
+    ws.grid.sync_town_buildability(&ws.world_data.towns, entity_map);
 
     // Rebuild NPCs from save payload.
     spawn_npcs_from_save(

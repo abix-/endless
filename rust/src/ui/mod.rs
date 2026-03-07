@@ -2236,7 +2236,7 @@ fn draw_slot_indicators(
     let base_color = Color::srgba(0.2, 0.6, 0.2, 0.15);
     let road_color = Color::srgba(0.2, 0.5, 0.7, 0.15);
     let chain_color = Color::srgba(0.5, 0.5, 0.2, 0.12);
-    let indicator_z = -0.3;
+    let indicator_z = 1.0;
 
     let is_road_selected = build_ctx
         .selected_build
@@ -2249,9 +2249,6 @@ fn draw_slot_indicators(
         &grid,
         &entity_map,
     );
-    if slots.is_empty() {
-        info!("draw_slot_indicators: empty_slots returned 0 for town {town_data_idx}, center={center}, grid={}x{}, town_owner_len={}", grid.width, grid.height, grid.town_owner.len());
-    }
 
     let (base_min_r, base_max_r, base_min_c, base_max_c) = world::build_bounds(area_level, center, &grid);
     let mut seen = std::collections::HashSet::new();

@@ -877,6 +877,10 @@ pub fn combat_log_system(
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     mut chat_inbox: ResMut<crate::resources::ChatInbox>,
     allowed_towns: Res<crate::resources::RemoteAllowedTowns>,
+    world_data: Res<WorldData>,
+    entity_map: Res<EntityMap>,
+    grid: Res<WorldGrid>,
+    mut selected_building: ResMut<SelectedBuilding>,
 ) -> Result {
     if !ui_state.combat_log_visible {
         return Ok(());
@@ -978,6 +982,7 @@ pub fn combat_log_system(
             );
             let needs_rebuild = data.combat_log.is_changed()
                 || data.npc_logs.is_changed()
+                || chat_inbox.is_changed()
                 || data.selected.0 != filter_state.cached_selected_npc
                 || curr_filters != filter_state.cached_filters;
 
@@ -1053,6 +1058,27 @@ pub fn combat_log_system(
                     }
                 }
 
+                // Chat messages from ChatInbox (single source of truth)
+                if filter_state.show_chat {
+                    let chat_color = egui::Color32::from_rgb(240, 200, 80);
+                    for msg in chat_inbox.messages.iter() {
+                        let other_town = if msg.from_town == 0 { msg.to_town } else { msg.from_town };
+                        let town_name = world_data.towns.get(other_town)
+                            .map(|t| t.name.as_str())
+                            .unwrap_or("?");
+                        let label = if msg.from_town == 0 {
+                            format!("[chat to {}] {}", town_name, msg.text)
+                        } else {
+                            format!("[chat from {}] {}", town_name, msg.text)
+                        };
+                        let key = (msg.day as i64) * 10000
+                            + (msg.hour as i64) * 100
+                            + msg.minute as i64;
+                        let ts = format!("[D{} {:02}:{:02}]", msg.day, msg.hour, msg.minute);
+                        filter_state.cached_entries.push((key, chat_color, ts, label, None));
+                    }
+                }
+
                 filter_state.cached_entries.sort_by_key(|(key, ..)| *key);
                 filter_state.cached_selected_npc = data.selected.0;
                 filter_state.cached_filters = curr_filters;
@@ -1085,6 +1111,18 @@ pub fn combat_log_system(
                     transform.translation.x = pos.x;
                     transform.translation.y = pos.y;
                 }
+                // Select building at this position (if any)
+                let (gc, gr) = grid.world_to_grid(pos);
+                if let Some(inst) = entity_map.get_at_grid(gc as i32, gr as i32) {
+                    data.selected.0 = -1;
+                    *selected_building = SelectedBuilding {
+                        col: gc,
+                        row: gr,
+                        active: true,
+                        slot: Some(inst.slot),
+                        kind: Some(inst.kind),
+                    };
+                }
             }
 
             // Chat input — send messages to LLM towns
@@ -1106,25 +1144,21 @@ pub fn combat_log_system(
             }
         });
 
-    // Process chat send outside the window closure (needs mutable access to combat_log + chat_inbox)
+    // Process chat send — write to ChatInbox only (displayed from there, not combat log)
     if let Some(text) = chat_send {
         let day = data.game_time.day();
         let hour = data.game_time.hour();
         let minute = data.game_time.minute();
         for &to_town in &allowed_towns.towns {
-            chat_inbox.messages.push(crate::resources::ChatMessage {
+            chat_inbox.push(crate::resources::ChatMessage {
                 from_town: 0,
                 to_town,
                 text: text.clone(),
                 day, hour, minute,
+                sent_to_llm: false,
+                has_reply: false,
             });
         }
-        data.combat_log.push(
-            crate::resources::CombatEventKind::Chat,
-            0,
-            day, hour, minute,
-            format!("[chat] {}", text),
-        );
     }
 
     // Persist filter changes

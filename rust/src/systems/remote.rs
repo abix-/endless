@@ -250,7 +250,7 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
         for msg in messages {
             let dominated_by_filter = filter_town.is_some_and(|ft| ft != msg.to_town);
             if dominated_by_filter {
-                inbox.messages.push(msg);
+                inbox.messages.push_back(msg);
             } else {
                 inbox_by_town.entry(msg.to_town).or_default().push(
                     (msg.from_town, msg.text, msg.day, msg.hour, msg.minute)
@@ -688,11 +688,13 @@ pub fn chat_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResu
     let from_name = world.resource::<WorldData>().towns.get(p.town).map(|t| t.name.clone()).unwrap_or_default();
     queue_llm_log(world, p.town, format!("[chat to F{}] {}", p.to, p.message), None);
 
-    world.resource_mut::<ChatInbox>().messages.push(ChatMessage {
+    world.resource_mut::<ChatInbox>().push(ChatMessage {
         from_town: p.town,
         to_town: p.to,
         text: p.message.clone(),
         day, hour, minute,
+        sent_to_llm: false,
+        has_reply: false,
     });
 
     toon_ok(json!({"status": "ok", "from": from_name, "message": p.message}))
