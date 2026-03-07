@@ -7,6 +7,10 @@ use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 
+/// CLI flag: skip main menu and start a new game with saved settings.
+#[derive(Resource, Default)]
+pub struct AutoStart(pub bool);
+
 /// Profiling resource: frame timing + render-world timing drain + tracing capture.
 /// Auto-capture via SystemTimingLayer handles all main-world systems.
 /// Render-world timings still use record() via atomic drain in frame_timer_start.
@@ -2430,10 +2434,10 @@ pub struct BuildMenuContext {
     pub destroy_mode: bool,
     /// Last hovered snapped world position (for indicators/tooltips).
     pub hover_world_pos: Vec2,
-    /// Drag-line start slot in town-grid coordinates (row, col).
-    pub drag_start_slot: Option<(i32, i32)>,
-    /// Drag-line current/end slot in town-grid coordinates (row, col).
-    pub drag_current_slot: Option<(i32, i32)>,
+    /// Drag-line start slot in world grid coordinates (col, row).
+    pub drag_start_slot: Option<(usize, usize)>,
+    /// Drag-line current/end slot in world grid coordinates (col, row).
+    pub drag_current_slot: Option<(usize, usize)>,
     /// Show the mouse-follow build hint sprite (hidden when snapped over a valid build slot).
     pub show_cursor_hint: bool,
     /// Bevy image handles for ghost preview sprites (populated by build_menu init).

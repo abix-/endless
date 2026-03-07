@@ -8,7 +8,7 @@ use bevy_egui::{EguiContexts, egui};
 
 use crate::components::*;
 use crate::constants::{
-    EffectDisplay, ResourceKind, TOWER_STATS, UpgradeStatKind, WALL_TIER_HP,
+    EffectDisplay, ResourceKind, UpgradeStatKind, WALL_TIER_HP,
     WALL_TIER_NAMES, WALL_UPGRADE_COSTS, building_def, npc_def,
 };
 use crate::gpu::EntityGpuState;
@@ -429,8 +429,6 @@ pub struct BottomPanelData<'w> {
     npc_logs: Res<'w, NpcLogCache>,
     selected: ResMut<'w, SelectedNpc>,
     combat_log: ResMut<'w, CombatLog>,
-    target_thrash: Res<'w, NpcTargetThrashDebug>,
-    policies: Res<'w, TownPolicies>,
 }
 
 /// Bundled resources for building inspector.
@@ -438,7 +436,6 @@ pub struct BottomPanelData<'w> {
 pub struct BuildingInspectorData<'w, 's> {
     selected_building: ResMut<'w, SelectedBuilding>,
     grid: Res<'w, WorldGrid>,
-    entity_slots: Res<'w, GpuSlotPool>,
     food_storage: ResMut<'w, FoodStorage>,
     gold_storage: ResMut<'w, GoldStorage>,
     combat_config: Res<'w, CombatConfig>,
@@ -525,8 +522,8 @@ pub fn bottom_panel_system(
     mut bld_data: BuildingInspectorData,
     mut world_data: ResMut<WorldData>,
     gpu_state: Res<GpuReadState>,
-    buffer_writes: Res<EntityGpuState>,
-    visual_upload: Res<crate::gpu::NpcVisualUpload>,
+    _buffer_writes: Res<EntityGpuState>,
+    _visual_upload: Res<crate::gpu::NpcVisualUpload>,
     mut follow: ResMut<FollowSelected>,
     settings: Res<UserSettings>,
     catalog: Res<HelpCatalog>,
@@ -608,8 +605,6 @@ pub fn bottom_panel_system(
                     &mut bld_data,
                     &mut world_data,
                     &gpu_state,
-                    &buffer_writes,
-                    &visual_upload,
                     &mut follow,
                     &settings,
                     &catalog,
@@ -1263,8 +1258,6 @@ fn inspector_content(
     bld_data: &mut BuildingInspectorData,
     world_data: &mut WorldData,
     gpu_state: &GpuReadState,
-    buffer_writes: &EntityGpuState,
-    visual_upload: &crate::gpu::NpcVisualUpload,
     follow: &mut FollowSelected,
     settings: &UserSettings,
     catalog: &HelpCatalog,
@@ -1289,13 +1282,9 @@ fn inspector_content(
                 dirty_writers,
                 meta_cache,
                 ui_state,
-                copy_text,
-                &data.game_time,
                 settings,
-                &data.combat_log,
                 gpu_state,
-                buffer_writes,
-                visual_upload,
+                copy_text,
                 faction_select,
             );
         }
@@ -1326,13 +1315,9 @@ fn inspector_content(
                 dirty_writers,
                 meta_cache,
                 ui_state,
-                copy_text,
-                &data.game_time,
                 settings,
-                &data.combat_log,
                 gpu_state,
-                buffer_writes,
-                visual_upload,
+                copy_text,
                 faction_select,
             );
         }
@@ -1365,13 +1350,9 @@ fn inspector_content(
                 dirty_writers,
                 meta_cache,
                 ui_state,
-                copy_text,
-                &data.game_time,
                 settings,
-                &data.combat_log,
                 gpu_state,
-                buffer_writes,
-                visual_upload,
+                copy_text,
                 faction_select,
             );
         } else {
@@ -1714,93 +1695,44 @@ fn inspector_content(
         });
     }
 
-    // Debug: coordinates, copy button
-    if settings.debug_coordinates {
+    // Debug IDs: show slot + UID for BRP queries, plus copy button
+    if settings.debug_ids {
         ui.separator();
-
-        let positions = &gpu_state.positions;
-        let targets = &buffer_writes.targets;
-
-        let pos = if idx * 2 + 1 < positions.len() {
-            format!("({:.0}, {:.0})", positions[idx * 2], positions[idx * 2 + 1])
-        } else {
-            "?".into()
-        };
-        let target = if idx * 2 + 1 < targets.len() {
-            format!("({:.0}, {:.0})", targets[idx * 2], targets[idx * 2 + 1])
-        } else {
-            "?".into()
-        };
-
-        ui.label(format!("Pos: {}  Target: {}", pos, target));
-        let reason_flips = data
-            .target_thrash
-            .reason_flips_this_minute
-            .get(idx)
-            .copied()
-            .unwrap_or(0);
-        let sink_changes = data
-            .target_thrash
-            .sink_target_changes_this_minute
-            .get(idx)
-            .copied()
-            .unwrap_or(0);
-        let sink_ping_pong = data
-            .target_thrash
-            .sink_ping_pong_this_minute
-            .get(idx)
-            .copied()
-            .unwrap_or(0);
-        let sink_writes = data
-            .target_thrash
-            .sink_writes_this_minute
-            .get(idx)
-            .copied()
-            .unwrap_or(0);
-        let reason = data
-            .target_thrash
-            .last_reason
-            .get(idx)
-            .map(String::as_str)
-            .unwrap_or("");
-        let prev_target = data
-            .target_thrash
-            .sink_prev_target
-            .get(idx)
-            .copied()
-            .unwrap_or((0.0, 0.0));
-        let last_target = data
-            .target_thrash
-            .sink_last_target
-            .get(idx)
-            .copied()
-            .unwrap_or((0.0, 0.0));
-        ui.label(format!(
-            "SinkChanges/s: {}  SinkPingPong/s: {}  SinkWrites/s: {}  ReasonFlips/min: {}  LastReason: {}",
-            sink_changes, sink_ping_pong, sink_writes, reason_flips, if reason.is_empty() { "-" } else { reason }
-        ));
-        ui.label(format!(
-            "Sink target prev->last: ({:.1}, {:.1}) -> ({:.1}, {:.1})",
-            prev_target.0, prev_target.1, last_target.0, last_target.1
-        ));
+        let uid = bld_data.entity_map.uid_for_slot(idx);
+        let uid_str = uid.map_or("?".to_string(), |u| u.0.to_string());
+        ui.label(format!("Slot: {}  UID: {}", idx, uid_str));
 
         if ui.button("Copy Debug Info").clicked() {
+            let positions = &gpu_state.positions;
+            let pos = if idx * 2 + 1 < positions.len() {
+                format!("({:.0}, {:.0})", positions[idx * 2], positions[idx * 2 + 1])
+            } else {
+                "?".into()
+            };
             let xp_next = (meta.level + 1) * (meta.level + 1) * 100;
             let mut info = format!(
                 "NPC #{idx} \"{name}\" {job} Lv.{level}  XP: {xp}/{xp_next}\n\
+                 Slot: {idx}  UID: {uid}\n\
                  HP: {hp:.0}/{max_hp:.0}  EN: {energy:.0}\n\
-                 Pos: {pos}  Target: {target}\n",
+                 Pos: {pos}\n\
+                 Home: {home}  Faction: {faction}\n\
+                 State: {state}\n\
+                 Activity: {activity}\n",
                 idx = idx,
                 name = meta.name,
                 job = crate::job_name(meta.job),
                 level = meta.level,
                 xp = meta.xp,
                 xp_next = xp_next,
+                uid = uid_str,
                 hp = hp,
                 max_hp = max_hp,
                 energy = energy,
                 pos = pos,
-                target = target,
+                home = home_str,
+                faction = faction_str,
+                state = state_str,
+                activity = activity_debug,
             );
             if let Some(npc) = bld_data.entity_map.get_npc(idx) {
                 if let Ok(pers) = bld_data.personality_q.get(npc.entity) {
@@ -1833,21 +1765,11 @@ fn inspector_content(
                 }
                 if let Ok(flags) = bld_data.npc_flags_q.get(npc.entity) {
                     let mut fp: Vec<&str> = Vec::new();
-                    if flags.healing {
-                        fp.push("healing");
-                    }
-                    if flags.starving {
-                        fp.push("starving");
-                    }
-                    if flags.direct_control {
-                        fp.push("direct_control");
-                    }
-                    if flags.migrating {
-                        fp.push("migrating");
-                    }
-                    if flags.at_destination {
-                        fp.push("at_dest");
-                    }
+                    if flags.healing { fp.push("healing"); }
+                    if flags.starving { fp.push("starving"); }
+                    if flags.direct_control { fp.push("direct_control"); }
+                    if flags.migrating { fp.push("migrating"); }
+                    if flags.at_destination { fp.push("at_dest"); }
                     info.push_str(&format!("Flags: [{}]\n", fp.join(", ")));
                 }
                 let combat_state_name = bld_data
@@ -1856,230 +1778,14 @@ fn inspector_content(
                     .map(|cs| cs.name())
                     .unwrap_or("Unknown");
                 info.push_str(&format!("CombatState: {}\n", combat_state_name));
-                let manual_target = bld_data.manual_target_q.get(npc.entity).ok();
-                let manual_target_str = match manual_target {
-                    Some(ManualTarget::Npc(slot)) => format!("Npc({})", slot),
-                    Some(ManualTarget::Building(pos)) => {
-                        format!("Building({:.0}, {:.0})", pos.x, pos.y)
-                    }
-                    Some(ManualTarget::Position(pos)) => {
-                        format!("Position({:.0}, {:.0})", pos.x, pos.y)
-                    }
-                    None => "None".to_string(),
-                };
-                info.push_str(&format!("ManualTarget: {}\n", manual_target_str));
-                if let Ok(ws) = bld_data.work_state_q.get(npc.entity) {
-                    info.push_str(&format!("WorkState: worksite={:?}\n", ws.worksite));
-                    if let Some(uid) = ws.worksite {
-                        if let Some(slot) = bld_data.entity_map.slot_for_uid(uid) {
-                            if let Some(inst) = bld_data.entity_map.get_instance(slot) {
-                                let max_occ = crate::constants::building_def(inst.kind)
-                                    .worksite.map_or(0, |w| w.max_occupants);
-                                info.push_str(&format!(
-                                    "  worksite: slot={} occ={}/{} growth={:.0}% pos=({:.0},{:.0})\n",
-                                    slot, inst.occupants, max_occ,
-                                    inst.growth_progress * 100.0,
-                                    inst.position.x, inst.position.y,
-                                ));
-                            }
-                        }
-                    }
-                }
-                if let Some(sq) = bld_data.squad_id_q.get(npc.entity).ok().map(|s| s.0) {
-                    info.push_str(&format!("Squad: {}\n", sq));
-                    let ss = squad_state;
-                    info.push_str(&format!("Squad.selected: {}\n", ss.selected));
-                    if (sq as usize) < ss.squads.len() {
-                        let s = &ss.squads[sq as usize];
-                        let tgt = match s.target {
-                            Some(v) => format!("({:.0}, {:.0})", v.x, v.y),
-                            None => "None".to_string(),
-                        };
-                        info.push_str(&format!("Squad.target: {}\n", tgt));
-                        info.push_str(&format!("Squad.members: {:?}\n", s.members));
-                        info.push_str(&format!("Squad.hold_fire: {}\n", s.hold_fire));
-                        info.push_str(&format!("Squad.patrol_enabled: {}\n", s.patrol_enabled));
-                        info.push_str(&format!("Squad.rest_when_tired: {}\n", s.rest_when_tired));
-                        info.push_str(&format!("Squad.placing_target: {}\n", ss.placing_target));
-                    }
-                }
                 info.push_str(&format!("CarriedLoot: food={} gold={}\n", carried_food, carried_gold));
-                if let Ok(route) = bld_data.patrol_route_q.get(npc.entity) {
-                    info.push_str(&format!(
-                        "Patrol: {}/{} posts\n",
-                        route.current,
-                        route.posts.len()
-                    ));
-                }
-            }
-            if meta.town_id >= 0 {
-                if let Some(town) = world_data.towns.get(meta.town_id as usize) {
-                    info.push_str(&format!("Town: {}\n", town.name));
-                }
             }
             info.push_str(&format!(
-                "Home: {home}  Faction: {faction}\n\
-                 State: {state}\n\
-                 Activity: {activity}\n",
-                home = home_str,
-                faction = faction_str,
-                state = state_str,
-                activity = activity_debug,
-            ));
-            if meta.town_id >= 0 {
-                if let Some(p) = data.policies.policies.get(meta.town_id as usize) {
-                    info.push_str(&format!(
-                        "Policy: archer_aggressive={} archer_leash={} archer_flee_hp={:.2} prioritize_healing={} recovery_hp={:.2}\n",
-                        p.archer_aggressive, p.archer_leash, p.archer_flee_hp, p.prioritize_healing, p.recovery_hp
-                    ));
-                }
-            }
-            let ct_idx = gpu_state.combat_targets.get(idx).copied().unwrap_or(-99);
-            info.push_str(&format!("GPU.combat_target[{}]: {}\n", idx, ct_idx));
-            if ct_idx >= 0 {
-                let ti = ct_idx as usize;
-                if let Some(inst) = bld_data.entity_map.get_instance(ti) {
-                    info.push_str(&format!(
-                        "GPU target resolve: Building slot={} kind={:?} faction={} pos=({:.0}, {:.0})\n",
-                        ti, inst.kind, inst.faction, inst.position.x, inst.position.y
-                    ));
-                } else if let Some(tnpc) = bld_data.entity_map.get_npc(ti) {
-                    let tx = gpu_state.positions.get(ti * 2).copied().unwrap_or(-9999.0);
-                    let ty = gpu_state
-                        .positions
-                        .get(ti * 2 + 1)
-                        .copied()
-                        .unwrap_or(-9999.0);
-                    let tf = gpu_state.factions.get(ti).copied().unwrap_or(-99);
-                    let th = gpu_state.health.get(ti).copied().unwrap_or(-1.0);
-                    info.push_str(&format!(
-                        "GPU target resolve: NPC slot={} gpu_faction={} ecs_faction={} hp={:.0} pos=({:.0}, {:.0}) dead={}\n",
-                        ti, tf, tnpc.faction, th, tx, ty, tnpc.dead
-                    ));
-                } else {
-                    info.push_str(
-                        "GPU target resolve: unresolved slot (neither NPC nor building)\n",
-                    );
-                }
-            }
-            let reason_flips = data
-                .target_thrash
-                .reason_flips_this_minute
-                .get(idx)
-                .copied()
-                .unwrap_or(0);
-            let sink_changes = data
-                .target_thrash
-                .sink_target_changes_this_minute
-                .get(idx)
-                .copied()
-                .unwrap_or(0);
-            let sink_ping_pong = data
-                .target_thrash
-                .sink_ping_pong_this_minute
-                .get(idx)
-                .copied()
-                .unwrap_or(0);
-            let sink_writes = data
-                .target_thrash
-                .sink_writes_this_minute
-                .get(idx)
-                .copied()
-                .unwrap_or(0);
-            let reason = data
-                .target_thrash
-                .last_reason
-                .get(idx)
-                .map(String::as_str)
-                .unwrap_or("-");
-            let prev_target = data
-                .target_thrash
-                .sink_prev_target
-                .get(idx)
-                .copied()
-                .unwrap_or((0.0, 0.0));
-            let last_target = data
-                .target_thrash
-                .sink_last_target
-                .get(idx)
-                .copied()
-                .unwrap_or((0.0, 0.0));
-            info.push_str(&format!(
-                "SinkTargetChanges/s: {}  SinkPingPong/s: {}  SinkTargetWrites/s: {}  ReasonFlips/min: {}  LastTargetReason: {}\n",
-                sink_changes, sink_ping_pong, sink_writes, reason_flips, reason
-            ));
-            info.push_str(&format!(
-                "SinkPrevTarget: ({:.1}, {:.1})  SinkLastTarget: ({:.1}, {:.1})\n",
-                prev_target.0, prev_target.1, last_target.0, last_target.1
-            ));
-            if meta.job == 4 {
-                if let Some(hp) = home_pos {
-                    if let Some(inst) = bld_data
-                        .entity_map
-                        .find_by_position(hp)
-                        .filter(|i| i.kind == BuildingKind::MinerHome)
-                    {
-                        let assigned = inst.assigned_mine;
-                        let manual = inst.manual_mine;
-                        if let Some(mine_pos) = assigned {
-                            let dist = mine_pos.distance(hp);
-                            if let Some(mine_idx) = bld_data.entity_map.gold_mine_index(mine_pos) {
-                                info.push_str(&format!(
-                                    "Mine: {} - {:.0}px\n",
-                                    crate::ui::gold_mine_name(mine_idx),
-                                    dist
-                                ));
-                            } else {
-                                info.push_str(&format!(
-                                    "Mine: ({:.0}, {:.0}) - {:.0}px\n",
-                                    mine_pos.x, mine_pos.y, dist
-                                ));
-                            }
-                        } else {
-                            info.push_str("Mine: Auto (nearest)\n");
-                        }
-                        info.push_str(if manual {
-                            "Mode: Manual\n"
-                        } else {
-                            "Mode: Auto-policy\n"
-                        });
-                        if is_mining_at_mine {
-                            if let Some(mine_pos) = assigned {
-                                let occupants = bld_data
-                                    .entity_map
-                                    .slot_at_position(mine_pos)
-                                    .map(|s| bld_data.entity_map.occupant_count(s))
-                                    .unwrap_or(0);
-                                if occupants > 0 {
-                                    let mult = crate::constants::mine_productivity_mult(occupants);
-                                    info.push_str(&format!(
-                                        "Mine productivity: {:.0}% ({} miners)\n",
-                                        mult * 100.0,
-                                        occupants
-                                    ));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            info.push_str(&format!(
-                "Follow: {}\n\
-                 Day {day} {hour:02}:{min:02}\n\
-                 ---\n",
-                if follow.0 { "ON" } else { "OFF" },
+                "Day {day} {hour:02}:{min:02}\n",
                 day = data.game_time.day(),
                 hour = data.game_time.hour(),
                 min = data.game_time.minute(),
             ));
-            if idx < data.npc_logs.logs.len() {
-                for entry in data.npc_logs.logs[idx].iter() {
-                    info.push_str(&format!(
-                        "D{}:{:02}:{:02} {}\n",
-                        entry.day, entry.hour, entry.minute, entry.message
-                    ));
-                }
-            }
             *copy_text = Some(info);
         }
     }
@@ -2180,13 +1886,9 @@ fn building_inspector_content(
     dirty_writers: &mut crate::messages::DirtyWriters,
     meta_cache: &NpcMetaCache,
     ui_state: &mut UiState,
-    copy_text: &mut Option<String>,
-    game_time: &GameTime,
     settings: &UserSettings,
-    combat_log: &CombatLog,
     gpu_state: &GpuReadState,
-    buffer_writes: &EntityGpuState,
-    visual_upload: &crate::gpu::NpcVisualUpload,
+    copy_text: &mut Option<String>,
     faction_select: &mut MessageWriter<crate::messages::SelectFactionMsg>,
 ) -> Option<InspectorAction> {
     let Some((kind, bld_town_idx, world_pos, col, row)) =
@@ -2720,608 +2422,71 @@ fn building_inspector_content(
         }
     } } // end if !is_constructing + match
 
-    // Copy Debug Info — gated behind debug_coordinates (same as NPC inspector)
-    if settings.debug_coordinates {
+    // Debug IDs: show slot + UID for BRP queries, plus copy button
+    if settings.debug_ids {
         ui.separator();
-        let max_hp = crate::constants::building_def(kind).hp;
-        let hp = bld
-            .entity_map
-            .find_by_position(world_pos)
-            .and_then(|inst| bld.entity_map.entities.get(&inst.slot).copied())
-            .and_then(|e| bld.building_health.get(e).ok())
-            .map(|h| h.0)
-            .unwrap_or(0.0);
         let selected_slot = bld.selected_building.slot.or_else(|| {
             bld.entity_map
                 .find_by_position(world_pos)
                 .map(|inst| inst.slot)
         });
-
-        let overlay_debug = bld.selected_building.slot.and_then(|slot| {
-            let i = slot * 2;
-            if i + 1 < gpu_state.positions.len() {
-                let gx = gpu_state.positions[i];
-                let gy = gpu_state.positions[i + 1];
-                Some((slot, gx, gy, gx - world_pos.x, gy - world_pos.y))
-            } else {
-                None
-            }
-        });
-
-        ui.label(format!(
-            "Pos: ({:.0}, {:.0})  Grid: ({}, {})",
-            world_pos.x, world_pos.y, col, row
-        ));
-        ui.label(format!("HP: {:.0}/{:.0}  Kind: {:?}", hp, max_hp, kind));
-        if let Some((slot, gx, gy, dx, dy)) = overlay_debug {
-            ui.label(format!(
-                "Overlay anchor (GPU): ({gx:.0}, {gy:.0})  Delta: ({dx:.0}, {dy:.0})  Slot: {slot}",
-                gx = gx,
-                gy = gy,
-                dx = dx,
-                dy = dy,
-                slot = slot,
-            ));
-        } else if let Some(slot) = bld.selected_building.slot {
-            ui.label(format!(
-                "Overlay anchor (GPU): unavailable for slot {}",
-                slot
-            ));
-        }
         if let Some(slot) = selected_slot {
-            let slot_building = bld.entity_map.get_instance(slot);
-            let slot_npc = bld.entity_map.get_npc(slot);
-            ui.label(format!(
-                "Slot owner: building={} npc={}",
-                slot_building.is_some(),
-                slot_npc.is_some(),
-            ));
-            if let Some(inst) = slot_building {
-                ui.label(format!(
-                    "Slot building: kind={:?} pos=({:.0}, {:.0}) town={} faction={}",
-                    inst.kind, inst.position.x, inst.position.y, inst.town_idx, inst.faction
-                ));
-            }
-            if let Some(npc) = slot_npc {
-                ui.label(format!(
-                    "Slot NPC: entity={:?} job={:?} town={} faction={} dead={}",
-                    npc.entity, npc.job, npc.town_idx, npc.faction, npc.dead
-                ));
-            }
-            if let Some(&entity) = bld.entity_map.entities.get(&slot) {
-                ui.label(format!("Slot entity map entry: {:?}", entity));
-            }
+            let uid = bld.entity_map.uid_for_slot(slot);
+            let uid_str = uid.map_or("?".to_string(), |u| u.0.to_string());
+            ui.label(format!("Slot: {}  UID: {}", slot, uid_str));
 
-            let i2 = slot * 2;
-            let si = slot * 4;
-            if i2 + 1 < buffer_writes.positions.len() {
-                let px = buffer_writes.positions[i2];
-                let py = buffer_writes.positions[i2 + 1];
-                ui.label(format!("GPU raw pos: ({:.0}, {:.0})", px, py));
-            }
-            if i2 + 1 < buffer_writes.targets.len() {
-                let tx = buffer_writes.targets[i2];
-                let ty = buffer_writes.targets[i2 + 1];
-                ui.label(format!("GPU raw target: ({:.0}, {:.0})", tx, ty));
-            }
-            if let Some(h) = buffer_writes.healths.get(slot).copied() {
-                ui.label(format!("GPU raw health: {:.1}", h));
-            }
-            if let Some(f) = buffer_writes.factions.get(slot).copied() {
-                ui.label(format!("GPU raw faction: {}", f));
-            }
-            if let Some(spd) = buffer_writes.speeds.get(slot).copied() {
-                ui.label(format!("GPU raw speed: {:.1}", spd));
-            }
-            {
-                let i2 = slot * 2;
-                if i2 + 1 < gpu_state.positions.len() {
-                    let rx = gpu_state.positions[i2];
-                    let ry = gpu_state.positions[i2 + 1];
-                    ui.label(format!("GPU readback pos: ({:.0}, {:.0})", rx, ry));
-                }
-            }
-            if let Some(flags) = buffer_writes.entity_flags.get(slot).copied() {
-                let is_building = (flags & crate::constants::ENTITY_FLAG_BUILDING) != 0;
-                let is_combat = (flags & crate::constants::ENTITY_FLAG_COMBAT) != 0;
-                let untargetable = (flags & crate::constants::ENTITY_FLAG_UNTARGETABLE) != 0;
-                ui.label(format!(
-                    "GPU raw flags: {} (building={} combat={} untargetable={})",
-                    flags, is_building, is_combat, untargetable
-                ));
-            }
-            if si + 2 < buffer_writes.sprite_indices.len() {
-                let scol = buffer_writes.sprite_indices[si];
-                let srow = buffer_writes.sprite_indices[si + 1];
-                let satlas = buffer_writes.sprite_indices[si + 2];
-                ui.label(format!(
-                    "GPU raw sprite: col={:.1} row={:.1} atlas={:.1}",
-                    scol, srow, satlas
-                ));
-            }
-            let vbase = slot * 8;
-            if vbase + 7 < visual_upload.visual_data.len() {
-                let vd = &visual_upload.visual_data[vbase..vbase + 8];
-                ui.label(format!(
-                    "Visual upload: col={:.1} row={:.1} atlas={:.1} flash={:.2} rgba=({:.2},{:.2},{:.2},{:.2})",
-                    vd[0], vd[1], vd[2], vd[3], vd[4], vd[5], vd[6], vd[7]
-                ));
-            }
-            let ebase = slot * 28;
-            if ebase + 27 < visual_upload.equip_data.len() {
-                let ed = &visual_upload.equip_data[ebase..ebase + 28];
-                for layer in 0..7u32 {
-                    let o = layer as usize * 4;
-                    ui.label(format!(
-                        "Equip L{}: col={:.1} row={:.1} atlas={:.1} _={:.1}",
-                        layer, ed[o], ed[o+1], ed[o+2], ed[o+3]
-                    ));
-                }
-            }
-
-            let free_hits = bld.entity_slots.free_list().iter().filter(|&&s| s == slot).count();
-            ui.label(format!(
-                "Allocator: slot_in_free_list={} free_list_hits={} next={} free_len={}",
-                free_hits > 0,
-                free_hits,
-                bld.entity_slots.next(),
-                bld.entity_slots.free_list().len()
-            ));
-            if bld.selected_building.active {
-                ui.label(format!(
-                    "SelectionOverlay expected: slot={} color=(1.00,0.86,0.35,0.90) scale=36 y_offset=2",
-                    slot
-                ));
-            }
-
-            // LastHitBy
-            if let Some(&entity) = bld.entity_map.entities.get(&slot) {
-                if let Ok(lhb) = bld.last_hit_by_q.get(entity) {
-                    let a = lhb.0;
-                    let info = if a < 0 {
-                        "none".to_string()
-                    } else if let Some(npc) = bld.entity_map.get_npc(a as usize) {
-                        format!("NPC {:?} faction={}", npc.job, npc.faction)
-                    } else if let Some(inst) = bld.entity_map.get_instance(a as usize) {
-                        format!("{:?} faction={}", inst.kind, inst.faction)
-                    } else {
-                        "unknown (dead/freed)".to_string()
-                    };
-                    ui.label(format!("LastHitBy: slot={} ({})", a, info));
-                }
-            }
-
-            // Combat target (outgoing)
-            let ct = gpu_state.combat_targets.get(slot).copied().unwrap_or(-1);
-            ui.label(format!("combat_target: {}", ct));
-
-            // Incoming attackers
-            let mut incoming: Vec<usize> = Vec::new();
-            for (idx, &ct_val) in gpu_state.combat_targets.iter().enumerate() {
-                if ct_val == slot as i32 && idx != slot {
-                    incoming.push(idx);
-                    if incoming.len() >= 5 { break; }
-                }
-            }
-            if !incoming.is_empty() {
-                let descs: Vec<String> = incoming.iter().map(|&idx| {
-                    if let Some(npc) = bld.entity_map.get_npc(idx) {
-                        format!("#{} {:?} f{}", idx, npc.job, npc.faction)
-                    } else if let Some(inst) = bld.entity_map.get_instance(idx) {
-                        format!("#{} {:?} f{}", idx, inst.kind, inst.faction)
-                    } else {
-                        format!("#{}", idx)
-                    }
-                }).collect();
-                ui.label(format!("Targeted by: [{}]", descs.join(", ")));
-            }
-        }
-
-        if ui.button("Copy Debug Info").clicked() {
-            let name = def.label;
-            let town_name = world_data
-                .towns
-                .get(town_idx)
-                .map(|t| t.name.as_str())
-                .unwrap_or("?");
-            let faction_text = world_data
-                .towns
-                .get(town_idx)
-                .map(|t| format!("{} (F{})", t.name, t.faction))
-                .unwrap_or_else(|| {
-                    if kind == BuildingKind::GoldMine {
-                        "Unowned".to_string()
-                    } else {
-                        "?".to_string()
-                    }
-                });
-            let mut info = format!(
-                "{name} [{kind:?}]\n\
-                 Town: {town}\n\
-                 Faction: {faction}\n\
-                 Pos: ({px:.0}, {py:.0})  Grid: ({col}, {row})\n\
-                 HP: {hp:.0}/{max:.0}\n\
-                 ",
-                name = name,
-                kind = kind,
-                town = town_name,
-                faction = faction_text,
-                px = world_pos.x,
-                py = world_pos.y,
-                col = col,
-                row = row,
-                hp = hp,
-                max = max_hp,
-            );
-            if let Some(town) = world_data.towns.get(town_idx) {
-                let center = town.center;
-                let (trow, tcol) = crate::world::world_to_town_grid(center, world_pos);
-                info.push_str(&format!(
-                    "Town center: ({:.0}, {:.0})\n",
-                    center.x, center.y
-                ));
-                info.push_str(&format!("Town slot: ({}, {})\n", trow, tcol));
-            }
-            if let Some(inst) = bld.entity_map.find_by_position(world_pos) {
-                info.push_str(&format!("Slot: {}\n", inst.slot));
-            }
-            if let Some(slot) = selected_slot {
-                let slot_building = bld.entity_map.get_instance(slot);
-                let slot_npc = bld.entity_map.get_npc(slot);
-                info.push_str(&format!(
-                    "Slot owner: building={} npc={}\n",
-                    slot_building.is_some(),
-                    slot_npc.is_some(),
-                ));
-                if let Some(inst) = slot_building {
-                    info.push_str(&format!(
-                        "Slot building: kind={:?} pos=({:.0}, {:.0}) town={} faction={}\n",
-                        inst.kind, inst.position.x, inst.position.y, inst.town_idx, inst.faction
-                    ));
-                }
-                if let Some(npc) = slot_npc {
-                    info.push_str(&format!(
-                        "Slot NPC: entity={:?} job={:?} town={} faction={} dead={}\n",
-                        npc.entity, npc.job, npc.town_idx, npc.faction, npc.dead
-                    ));
-                }
-                if let Some(&entity) = bld.entity_map.entities.get(&slot) {
-                    info.push_str(&format!("Slot entity map entry: {:?}\n", entity));
-                }
-
-                let i2 = slot * 2;
-                let si = slot * 4;
-                if i2 + 1 < buffer_writes.positions.len() {
-                    let px = buffer_writes.positions[i2];
-                    let py = buffer_writes.positions[i2 + 1];
-                    info.push_str(&format!("GPU raw pos: ({:.0}, {:.0})\n", px, py));
-                }
-                if i2 + 1 < buffer_writes.targets.len() {
-                    let tx = buffer_writes.targets[i2];
-                    let ty = buffer_writes.targets[i2 + 1];
-                    info.push_str(&format!("GPU raw target: ({:.0}, {:.0})\n", tx, ty));
-                }
-                if let Some(h) = buffer_writes.healths.get(slot).copied() {
-                    info.push_str(&format!("GPU raw health: {:.1}\n", h));
-                }
-                if let Some(f) = buffer_writes.factions.get(slot).copied() {
-                    info.push_str(&format!("GPU raw faction: {}\n", f));
-                }
-                if let Some(spd) = buffer_writes.speeds.get(slot).copied() {
-                    info.push_str(&format!("GPU raw speed: {:.1}\n", spd));
-                }
-                if i2 + 1 < gpu_state.positions.len() {
-                    let rx = gpu_state.positions[i2];
-                    let ry = gpu_state.positions[i2 + 1];
-                    info.push_str(&format!("GPU readback pos: ({:.0}, {:.0})\n", rx, ry));
-                }
-                if let Some(flags) = buffer_writes.entity_flags.get(slot).copied() {
-                    let is_building = (flags & crate::constants::ENTITY_FLAG_BUILDING) != 0;
-                    let is_combat = (flags & crate::constants::ENTITY_FLAG_COMBAT) != 0;
-                    let untargetable = (flags & crate::constants::ENTITY_FLAG_UNTARGETABLE) != 0;
-                    info.push_str(&format!(
-                        "GPU raw flags: {} (building={} combat={} untargetable={})\n",
-                        flags, is_building, is_combat, untargetable
-                    ));
-                }
-                if si + 2 < buffer_writes.sprite_indices.len() {
-                    let scol = buffer_writes.sprite_indices[si];
-                    let srow = buffer_writes.sprite_indices[si + 1];
-                    let satlas = buffer_writes.sprite_indices[si + 2];
-                    info.push_str(&format!(
-                        "GPU raw sprite: col={:.1} row={:.1} atlas={:.1}\n",
-                        scol, srow, satlas
-                    ));
-                }
-                let vbase = slot * 8;
-                if vbase + 7 < visual_upload.visual_data.len() {
-                    let vd = &visual_upload.visual_data[vbase..vbase + 8];
-                    info.push_str(&format!(
-                        "Visual upload: col={:.1} row={:.1} atlas={:.1} flash={:.2} rgba=({:.2},{:.2},{:.2},{:.2})\n",
-                        vd[0], vd[1], vd[2], vd[3], vd[4], vd[5], vd[6], vd[7]
-                    ));
-                }
-                let ebase = slot * 28;
-                if ebase + 27 < visual_upload.equip_data.len() {
-                    let ed = &visual_upload.equip_data[ebase..ebase + 28];
-                    for layer in 0..7u32 {
-                        let o = layer as usize * 4;
-                        info.push_str(&format!(
-                            "Equip L{}: col={:.1} row={:.1} atlas={:.1} _={:.1}\n",
-                            layer, ed[o], ed[o+1], ed[o+2], ed[o+3]
-                        ));
-                    }
-                }
-
-                let free_hits = bld.entity_slots.free_list().iter().filter(|&&s| s == slot).count();
-                info.push_str(&format!(
-                    "Allocator: slot_in_free_list={} free_list_hits={} next={} free_len={}\n",
-                    free_hits > 0,
-                    free_hits,
-                    bld.entity_slots.next(),
-                    bld.entity_slots.free_list().len()
-                ));
-                if bld.selected_building.active {
-                    info.push_str(&format!(
-                        "SelectionOverlay expected: slot={} color=(1.00,0.86,0.35,0.90) scale=36 y_offset=2\n",
-                        slot
-                    ));
-                }
-            }
-            if let Some((slot, gx, gy, dx, dy)) = overlay_debug {
-                info.push_str(&format!(
-                    "Overlay anchor (GPU): ({gx:.0}, {gy:.0})\n\
-                     Overlay delta (GPU-Pos): ({dx:.0}, {dy:.0})\n\
-                     Overlay slot: {slot}\n",
-                    gx = gx,
-                    gy = gy,
-                    dx = dx,
-                    dy = dy,
+            if ui.button("Copy Debug Info").clicked() {
+                let max_hp = crate::constants::building_def(kind).hp;
+                let hp = bld.entity_map.entities.get(&slot)
+                    .and_then(|&e| bld.building_health.get(e).ok())
+                    .map(|h| h.0)
+                    .unwrap_or(0.0);
+                let town_name = world_data.towns.get(town_idx)
+                    .map(|t| t.name.as_str()).unwrap_or("?");
+                let faction_text = world_data.towns.get(town_idx)
+                    .map(|t| format!("{} (F{})", t.name, t.faction))
+                    .unwrap_or_else(|| "?".to_string());
+                let mut info = format!(
+                    "{name} [{kind:?}]\n\
+                     Slot: {slot}  UID: {uid}\n\
+                     Town: {town}  Faction: {faction}\n\
+                     Pos: ({px:.0}, {py:.0})  Grid: ({col}, {row})\n\
+                     HP: {hp:.0}/{max:.0}\n",
+                    name = def.label,
+                    kind = kind,
                     slot = slot,
-                ));
-            } else if let Some(slot) = bld.selected_building.slot {
-                info.push_str(&format!(
-                    "Overlay anchor (GPU): unavailable for slot {}\n",
-                    slot
-                ));
-            }
-            // LastHitBy
-            if let Some(slot) = selected_slot {
-                if let Some(&entity) = bld.entity_map.entities.get(&slot) {
-                    if let Ok(lhb) = bld.last_hit_by_q.get(entity) {
-                        let a = lhb.0;
-                        let lhb_info = if a < 0 {
-                            "none".to_string()
-                        } else if let Some(npc) = bld.entity_map.get_npc(a as usize) {
-                            format!("NPC {:?} faction={}", npc.job, npc.faction)
-                        } else if let Some(inst) = bld.entity_map.get_instance(a as usize) {
-                            format!("{:?} faction={}", inst.kind, inst.faction)
-                        } else {
-                            "unknown (dead/freed)".to_string()
-                        };
-                        info.push_str(&format!("LastHitBy: slot={} ({})\n", a, lhb_info));
-                    }
-                }
-                let ct = gpu_state.combat_targets.get(slot).copied().unwrap_or(-1);
-                info.push_str(&format!("combat_target: {}\n", ct));
-                let mut incoming: Vec<usize> = Vec::new();
-                for (idx, &ct_val) in gpu_state.combat_targets.iter().enumerate() {
-                    if ct_val == slot as i32 && idx != slot {
-                        incoming.push(idx);
-                        if incoming.len() >= 5 { break; }
-                    }
-                }
-                if !incoming.is_empty() {
-                    let descs: Vec<String> = incoming.iter().map(|&idx| {
-                        if let Some(npc) = bld.entity_map.get_npc(idx) {
-                            format!("#{} {:?} f{}", idx, npc.job, npc.faction)
-                        } else if let Some(inst) = bld.entity_map.get_instance(idx) {
-                            format!("#{} {:?} f{}", idx, inst.kind, inst.faction)
-                        } else {
-                            format!("#{}", idx)
-                        }
-                    }).collect();
-                    info.push_str(&format!("Targeted by: [{}]\n", descs.join(", ")));
-                }
-            }
-            match kind {
-                BuildingKind::Farm => {
-                    if let Some(inst) = bld.entity_map.find_farm_at(world_pos) {
-                        let state_name = if inst.growth_ready {
-                            "Ready to harvest"
-                        } else {
-                            "Growing"
-                        };
-                        info.push_str(&format!("Status: {}\n", state_name));
-                        info.push_str(&format!("Growth: {:.0}%\n", inst.growth_progress * 100.0));
-                        info.push_str(&format!("Farmers: {}\n", inst.occupants));
-                    }
-                }
-                BuildingKind::Waypoint => {
-                    if let Some(wp_inst) = bld.entity_map.find_by_position(world_pos) {
-                        info.push_str(&format!("Patrol order: {}\n", wp_inst.patrol_order));
-                    }
-                }
-                BuildingKind::Fountain => {
-                    let base_radius = bld.combat_config.heal_radius;
-                    let levels = bld.town_upgrades.town_levels(town_idx);
-                    let upgrade_bonus =
-                        UPGRADES.stat_level(&levels, "Town", UpgradeStatKind::FountainRange) as f32
-                            * 24.0;
-                    let tower = resolve_town_tower_stats(&levels);
-                    info.push_str(&format!(
-                        "Heal radius: {:.0}px\n",
-                        base_radius + upgrade_bonus
-                    ));
-                    info.push_str(&format!(
-                        "Heal rate: {:.0}/s\n",
-                        bld.combat_config.heal_rate
-                    ));
-                    info.push_str(&format!("Tower range: {:.0}px\n", tower.range));
-                    info.push_str(&format!("Tower damage: {:.1}\n", tower.damage));
-                    info.push_str(&format!("Tower cooldown: {:.2}s\n", tower.cooldown));
-                    info.push_str(&format!(
-                        "Tower projectile life: {:.2}s\n",
-                        tower.proj_lifetime
-                    ));
-                    if let Some(&food) = bld.food_storage.food.get(town_idx) {
-                        info.push_str(&format!("Food: {}\n", food));
-                    }
-                }
-                BuildingKind::Bed => {
-                    info.push_str("Rest point\n");
-                }
-                BuildingKind::GoldMine => {
-                    if let Some(mine_inst) = bld.entity_map.find_by_position(world_pos) {
-                        let mine_label = if let Some(idx) = bld.entity_map.gold_mine_index(world_pos) {
-                            crate::ui::gold_mine_name(idx)
-                        } else {
-                            format!("Gold Mine (slot {})", mine_inst.slot)
-                        };
-                        info.push_str(&format!("{}\n", mine_label));
-                        let enabled = *mining_policy
-                            .mine_enabled
-                            .get(&mine_inst.slot)
-                            .unwrap_or(&true);
-                        info.push_str(if enabled {
-                            "Auto-mining: ON\n"
-                        } else {
-                            "Auto-mining: OFF\n"
-                        });
-                    }
-                    if let Some(inst) = bld.entity_map.find_mine_at(world_pos) {
-                        if inst.growth_ready {
-                            info.push_str("Ready to harvest\n");
-                        } else {
-                            info.push_str(&format!(
-                                "Growing: {:.0}%\n",
-                                inst.growth_progress * 100.0
-                            ));
-                        }
-                        if inst.occupants > 0 {
-                            let mult =
-                                crate::constants::mine_productivity_mult(inst.occupants as i32);
-                            info.push_str(&format!(
-                                "Miners: {} ({:.0}% speed)\n",
-                                inst.occupants,
-                                mult * 100.0
-                            ));
-                        }
-                    }
-                }
-                BuildingKind::Tower => {
+                    uid = uid_str,
+                    town = town_name,
+                    faction = faction_text,
+                    px = world_pos.x,
+                    py = world_pos.y,
+                    col = col,
+                    row = row,
+                    hp = hp,
+                    max = max_hp,
+                );
+                // Spawner NPC state
+                if let Some(spawner) = def.spawner {
                     if let Some(inst) = bld.entity_map.find_by_position(world_pos) {
-                        let level = level_from_xp(inst.xp);
-                        let stats = resolve_tower_instance_stats(level, &inst.upgrade_levels);
-                        info.push_str(&format!("Lv.{} ({} kills, {}xp)\n", level, inst.kills, inst.xp));
-                        info.push_str(&format!("Range: {:.0}px\n", stats.range));
-                        info.push_str(&format!("Damage: {:.1}\n", stats.damage));
-                        info.push_str(&format!("Cooldown: {:.2}s\n", stats.cooldown));
-                        info.push_str(&format!("Proj life: {:.2}s\n", stats.proj_lifetime));
-                        if stats.hp_regen > 0.0 {
-                            info.push_str(&format!("HP Regen: {:.1}/s\n", stats.hp_regen));
+                        let spawns_label = npc_def(Job::from_i32(spawner.job)).label;
+                        info.push_str(&format!("Spawns: {}\n", spawns_label));
+                        if let Some(npc_uid) = inst.npc_uid {
+                            if let Some(npc_slot) = bld.entity_map.slot_for_uid(npc_uid) {
+                                if npc_slot < meta_cache.0.len() {
+                                    let meta = &meta_cache.0[npc_slot];
+                                    info.push_str(&format!(
+                                        "NPC: {} (Lv.{}) slot={} uid={}\n",
+                                        meta.name, meta.level, npc_slot, npc_uid.0
+                                    ));
+                                }
+                            }
+                        } else if inst.respawn_timer > 0.0 {
+                            info.push_str(&format!("Respawning in {:.0}h\n", inst.respawn_timer));
                         }
-                        info.push_str(&format!("Upgrades: {:?}\n", inst.upgrade_levels));
-                        info.push_str(&format!("Auto: {:?}\n", inst.auto_upgrade_flags));
-                    } else {
-                        info.push_str(&format!("Range: {:.0}px\n", TOWER_STATS.range));
-                        info.push_str(&format!("Damage: {:.1}\n", TOWER_STATS.damage));
-                        info.push_str(&format!("Cooldown: {:.2}s\n", TOWER_STATS.cooldown));
                     }
                 }
-                _ => {}
+                *copy_text = Some(info);
             }
-            // Append spawner NPC state
-            if let Some(spawner) = def.spawner {
-                if let Some(inst) = bld.entity_map.find_by_position(world_pos) {
-                    let spawns_label = npc_def(Job::from_i32(spawner.job)).label;
-                    info.push_str(&format!("Spawns: {}\n", spawns_label));
-                    if let Some(npc_uid) = inst.npc_uid {
-                        if let Some(slot) = bld.entity_map.slot_for_uid(npc_uid) {
-                            if slot < meta_cache.0.len() {
-                                let meta = &meta_cache.0[slot];
-                                info.push_str(&format!(
-                                    "NPC: {} (Lv.{}) uid={}\n",
-                                    meta.name, meta.level, npc_uid.0
-                                ));
-                            }
-                            if let Some(npc) = bld.entity_map.get_npc(slot) {
-                                let combat_name = bld
-                                    .combat_state_q
-                                    .get(npc.entity)
-                                    .map(|cs| cs.name())
-                                    .unwrap_or("");
-                                let act_name = bld
-                                    .activity_q
-                                    .get(npc.entity)
-                                    .map(|a| a.name())
-                                    .unwrap_or("Unknown");
-                                info.push_str(&format!(
-                                    "State: {}{}\n",
-                                    if combat_name.is_empty() {
-                                        ""
-                                    } else {
-                                        combat_name
-                                    },
-                                    if combat_name.is_empty() {
-                                        act_name.to_string()
-                                    } else {
-                                        format!(", {}", act_name)
-                                    }
-                                ));
-                                if let Some(sq) = bld.squad_id_q.get(npc.entity).ok().map(|s| s.0) {
-                                    info.push_str(&format!("Squad: {}\n", sq + 1));
-                                }
-                                let has_patrol = bld
-                                    .patrol_route_q
-                                    .get(npc.entity)
-                                    .is_ok_and(|r| !r.posts.is_empty());
-                                info.push_str(&format!(
-                                    "Patrol route: {}\n",
-                                    if has_patrol { "yes" } else { "none" }
-                                ));
-                                if slot * 2 + 1 < gpu_state.positions.len() {
-                                    let px = gpu_state.positions[slot * 2];
-                                    let py = gpu_state.positions[slot * 2 + 1];
-                                    if px > -9000.0 {
-                                        info.push_str(&format!(
-                                            "GPU pos: ({:.0}, {:.0})\n",
-                                            px, py
-                                        ));
-                                    }
-                                }
-                                info.push_str(&format!(
-                                    "Home: ({:.0}, {:.0})\n",
-                                    bld.home_q.get(npc.entity).map(|h| h.0.x).unwrap_or(0.0),
-                                    bld.home_q.get(npc.entity).map(|h| h.0.y).unwrap_or(0.0)
-                                ));
-                            }
-                        }
-                    } else if inst.respawn_timer > 0.0 {
-                        info.push_str(&format!("Respawning in {:.0}h\n", inst.respawn_timer));
-                    }
-                }
-            }
-            info.push_str(&format!(
-                "Day {day} {hour:02}:{min:02}\n\
-                 ---\n",
-                day = game_time.day(),
-                hour = game_time.hour(),
-                min = game_time.minute(),
-            ));
-            // Append building damage log entries (same pattern as NPC log in copy)
-            let prefix = format!("{:?} in {}", kind, town_name);
-            for entry in combat_log.iter_all() {
-                if entry.kind == CombatEventKind::BuildingDamage
-                    && entry.message.starts_with(&prefix)
-                {
-                    info.push_str(&format!(
-                        "D{}:{:02}:{:02} {}\n",
-                        entry.day, entry.hour, entry.minute, entry.message
-                    ));
-                }
-            }
-            *copy_text = Some(info);
         }
     }
     None

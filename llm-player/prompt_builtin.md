@@ -9,7 +9,7 @@ If no action needed, respond with: NONE
 No markdown, no explanation, no code fences.
 
 Example (5 actions):
-build, kind:Farm, row:1, col:0
+build, kind:Farm, col:172, row:125
 policy, eat_food:true, prioritize_healing:true
 subscribe, topics:npcs,upgrades
 upgrade, upgrade_idx:3
@@ -28,7 +28,7 @@ Every cycle you receive TOON-formatted game state with these fields:
   - Same faction = ally. Different faction = enemy.
   - Priority targets: closest enemy town with most negative rep.
 - your_squads[]: index, members, target — your squad details for squad_target action
-- open_slots[]: row, col — 10 precomputed buildable positions for your town
+- open_slots[]: col, row — 10 precomputed buildable positions (world grid coords) for your town
 - inbox[]: from, message — only present if you have messages. Always read and respond using chat action.
 - factions[]: faction, alive, dead, kills
 - Plus any topics you've subscribed to
@@ -41,14 +41,14 @@ Keys: eat_food, archer_aggressive, archer_leash, farmer_fight_back, prioritize_h
 Only include fields you want to change. HP values are fractions (0.5 = 50%). mining_radius: 0-5000.
 
 ### build — Place a building
-`build, kind:Farm, row:1, col:0`
-Pick row/col from your open_slots list. To expand beyond the base grid, build a Road at an edge slot — roads unlock new buildable area around them.
+`build, kind:Farm, col:172, row:125`
+Pick col/row from your open_slots list (world grid coords). To expand beyond the base grid, build a Road at an edge slot — roads unlock new buildable area around them.
 Kinds: Farm, FarmerHome, ArcherHome, Tent, GoldMine, MinerHome, CrossbowHome, FighterHome, Road, Wall, Tower, Merchant, Casino
 Roads expand territory (Road: 3 tiles, StoneRoad: 5, MetalRoad: 7). Roads chain and boost NPC speed (1.5x/2x/2.5x).
 
 ### destroy — Remove a building
-`destroy, row:2, col:1`
-Use row/col from your buildings list. Cannot destroy Fountain or GoldMine.
+`destroy, col:173, row:126`
+Use col/row from your buildings list (world grid coords). Cannot destroy Fountain or GoldMine.
 
 ### upgrade — Purchase an upgrade
 `upgrade, upgrade_idx:3`
@@ -88,7 +88,7 @@ Use to check current values before changing them.
 
 ## Strategy
 
-Phase 1 — Expand: On first cycle, subscribe to npcs and upgrades. Set eat_food and prioritize_healing to true. Build Roads outward (row/col 4+) to expand beyond the 7x7 base grid, then place Farms, FarmerHomes, ArcherHomes around them. Branch roads in multiple directions — AI towns can't do this, it's your biggest advantage. Never stop expanding.
+Phase 1 — Expand: On first cycle, subscribe to npcs and upgrades. Set eat_food and prioritize_healing to true. Build Roads at edge slots from your open_slots list to expand beyond the base grid, then place Farms, FarmerHomes, ArcherHomes around them. Branch roads in multiple directions — AI towns can't do this, it's your biggest advantage. Never stop expanding.
 
 Phase 2 — Upgrades: When gold > 50, check upgrades data and buy movement speed, HP, damage upgrades.
 

@@ -221,7 +221,7 @@ curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"endless/summary","params":{},"id":1}'
 ```
 
-Returns TOON with: day, hour, minute, paused, time_scale, town_idx, town_name, faction, food, gold, factions (tuple rows), buildings (kind,row,col), squads (idx,members,target_x,target_y), upgrades (idx,name,level,pct,cost), combat_log (day,hour,min,msg), inbox (from_town,message,day,hour,min), npcs (compact per-job counts).
+Returns TOON with: day, hour, minute, paused, time_scale, town_idx, town_name, faction, food, gold, factions (tuple rows), buildings (kind,col,row — world grid coords), squads (idx,members,target_x,target_y), upgrades (idx,name,level,pct,cost), combat_log (day,hour,min,msg), inbox (from_town,message,day,hour,min), npcs (compact per-job counts).
 
 - `inbox`: **drained on read** — messages are removed after being included in the response
 - `combat_log`: last 20 events from `RemoteCombatLogRing` resource, filtered to town's faction
@@ -236,12 +236,12 @@ Queue a building placement. Executes next FixedUpdate tick via drain system.
 |-------|------|----------|-------------|
 | `town` | usize | yes | Town index |
 | `kind` | string | yes | BuildingKind name (e.g. "Farm", "Wall", "Tower") |
-| `row` | i32 | yes | Grid row relative to town center |
-| `col` | i32 | yes | Grid col relative to town center |
+| `col` | usize | yes | World grid column |
+| `row` | usize | yes | World grid row |
 
 ```bash
 curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"endless/build","params":{"town":0,"kind":"Farm","row":2,"col":3},"id":1}'
+  -d '{"jsonrpc":"2.0","method":"endless/build","params":{"town":0,"kind":"Farm","col":172,"row":125},"id":1}'
 ```
 
 ### endless/upgrade
@@ -345,19 +345,30 @@ curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
 
 The player can also send messages to LLM towns via the chat input in the combat log UI.
 
-### endless/debug
+### endless/perf
 
-Deep-inspect a single NPC or building by GPU slot index. Returns full ECS component data in TOON format.
-
-**Params:** `kind` (string: "npc" or "building"), `slot` (usize: GPU slot index)
-
-**NPC returns:** slot, job, activity, combat_state, hp, max_hp, energy, home, faction, town, personality traits, equipment slots (with rarity/bonus), flags, manual_target, squad, patrol, carried loot, cached stats, kill/death counts.
-
-**Building returns:** slot, kind, label, town, faction, grid position, hp, max_hp, occupants, growth, under_construction, respawn_timer, worksite info, wall level, assigned mine.
+Get performance metrics — FPS, frame time, UPS, NPC/entity counts. Includes per-system timings when profiling is enabled.
 
 ```bash
 curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"endless/debug","params":{"kind":"npc","slot":42},"id":1}'
+  -d '{"jsonrpc":"2.0","method":"endless/perf","id":1}'
+```
+
+Returns: `fps`, `frame_ms`, `ups`, `npc_count`, `entity_count`, and optionally `timings` (BTreeMap of system name → ms).
+
+### endless/debug
+
+Deep-inspect a single NPC or building by EntityUid. Returns full ECS component data in TOON format.
+
+**Params:** `kind` (string: "npc" or "building"), `uid` (u64: EntityUid value)
+
+**NPC returns:** uid, slot, job, activity, combat_state, hp, max_hp, energy, home, faction, town, personality traits, equipment slots (with rarity/bonus), flags, manual_target, squad, patrol, carried loot, cached stats, kill/death counts.
+
+**Building returns:** uid, slot, kind, label, town, faction, grid position, hp, max_hp, occupants, growth, under_construction, respawn_timer, worksite info, wall level, assigned mine.
+
+```bash
+curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"endless/debug","params":{"kind":"npc","uid":450},"id":1}'
 ```
 
 ## Notes
@@ -366,4 +377,5 @@ curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
 - BRP runs on a background thread — zero game performance impact unless actively queried
 - `world.insert_components` and `world.mutate_resources` can live-modify game state (powerful for debugging)
 - Custom endpoints (`endless/*`) use queue resources for writes needing SystemParams (build, upgrade) and direct `resource_mut` for simple mutations (policy, time, squad_target, ai_manager)
+- `endless/perf` returns FPS/UPS/NPC counts (no params needed), optionally includes per-system timings when profiling is enabled
 - Port 15702 is Bevy's default, hardcoded in `RemoteHttpPlugin::default()`

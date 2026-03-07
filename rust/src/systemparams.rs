@@ -156,9 +156,8 @@ impl WorldState<'_> {
         &mut self,
         combat_log: &mut MessageWriter<crate::messages::CombatLogMsg>,
         game_time: &GameTime,
-        row: i32,
-        col: i32,
-        town_center: Vec2,
+        gc: usize,
+        gr: usize,
         reason: &str,
         gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
     ) -> Result<(), &'static str> {
@@ -168,9 +167,8 @@ impl WorldState<'_> {
             &mut self.entity_map,
             combat_log,
             game_time,
-            row,
-            col,
-            town_center,
+            gc,
+            gr,
             reason,
             gpu_updates,
         )

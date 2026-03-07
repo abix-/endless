@@ -117,6 +117,86 @@ fn startup_system() {
     info!("Endless ECS initialized - systems registered");
 }
 
+/// Skip main menu when --autostart is passed. Loads saved settings and starts a new game.
+fn autostart_system(
+    auto: Res<resources::AutoStart>,
+    mut commands: Commands,
+    mut wg_config: ResMut<world::WorldGenConfig>,
+    mut ai_config: ResMut<AiPlayerConfig>,
+    mut npc_config: ResMut<resources::NpcDecisionConfig>,
+    mut pathfind_config: ResMut<resources::PathfindConfig>,
+    user_settings: Res<settings::UserSettings>,
+    mut save_request: ResMut<save::SaveLoadRequest>,
+    mut next_state: ResMut<NextState<AppState>>,
+) {
+    if !auto.0 { return; }
+    info!("--autostart: bypassing main menu");
+
+    let saved = settings::load_settings();
+
+    // World gen config
+    wg_config.gen_style = world::WorldGenStyle::Continents;
+    wg_config.world_width = saved.world_size;
+    wg_config.world_height = saved.world_size;
+    wg_config.num_towns = 1;
+    wg_config.farms_per_town = saved.farms;
+    wg_config.npc_counts = saved.npc_counts.iter()
+        .filter_map(|(k, &v)| {
+            let job = match k.as_str() {
+                "Farmer" => components::Job::Farmer,
+                "Archer" => components::Job::Archer,
+                "Raider" => components::Job::Raider,
+                "Fighter" => components::Job::Fighter,
+                "Miner" => components::Job::Miner,
+                "Crossbow" => components::Job::Crossbow,
+                "Boat" => components::Job::Boat,
+                _ => return None,
+            };
+            Some((job, v))
+        })
+        .collect();
+    let ai_builder_count = saved.ai_slots.iter().filter(|s| s.kind == 0).count();
+    let ai_raider_count = saved.ai_slots.iter().filter(|s| s.kind == 1).count();
+    wg_config.ai_towns = ai_builder_count;
+    wg_config.raider_towns = ai_raider_count;
+    wg_config.gold_mines_per_town = saved.gold_mines_per_town;
+
+    // AI/NPC config
+    ai_config.decision_interval = saved.ai_interval;
+    npc_config.interval = saved.npc_interval;
+    pathfind_config.max_per_frame = user_settings.pathfind_max_per_frame.max(1);
+
+    // Runtime resources
+    commands.insert_resource(saved.difficulty);
+    commands.insert_resource(EndlessMode {
+        enabled: true,
+        strength_fraction: saved.endless_strength,
+        pending_spawns: Vec::new(),
+    });
+
+    // LLM-allowed towns
+    let num_player_towns = wg_config.num_towns;
+    let mut llm_towns = Vec::new();
+    let mut builder_idx = 0usize;
+    let mut raider_idx = 0usize;
+    for slot in &saved.ai_slots {
+        if slot.kind == 0 {
+            if slot.llm { llm_towns.push(num_player_towns + builder_idx); }
+            builder_idx += 1;
+        } else {
+            if slot.llm { llm_towns.push(num_player_towns + ai_builder_count + raider_idx); }
+            raider_idx += 1;
+        }
+    }
+    if let Some(&first_llm) = llm_towns.first() {
+        commands.insert_resource(systems::llm_player::LlmPlayerState::new(first_llm));
+    }
+    commands.insert_resource(resources::RemoteAllowedTowns { towns: llm_towns });
+
+    save_request.autosave_hours = saved.autosave_hours;
+    next_state.set(AppState::Playing);
+}
+
 /// Sync debug settings from UserSettings into DebugFlags + SystemTimings resources.
 fn sync_debug_settings(
     settings: Res<crate::settings::UserSettings>,
@@ -236,6 +316,7 @@ pub fn build_app(app: &mut App) {
         .init_resource::<BuildingHealState>()
         .init_resource::<ActiveHealingSlots>()
         .init_resource::<HealingZoneCache>()
+        .init_resource::<resources::AutoStart>()
         .init_resource::<SystemTimings>()
         .init_resource::<UpsCounter>()
         .init_resource::<world::WorldGrid>()
@@ -293,6 +374,7 @@ pub fn build_app(app: &mut App) {
                 .with_method("endless/ai_manager", systems::remote::ai_manager_handler)
                 .with_method("endless/chat", systems::remote::chat_handler)
                 .with_method("endless/debug", systems::remote::debug_handler)
+                .with_method("endless/perf", systems::remote::perf_handler)
         )
         .add_plugins(RemoteHttpPlugin::default())
         .init_resource::<systems::remote::RemoteBuildQueue>()
@@ -363,6 +445,8 @@ pub fn build_app(app: &mut App) {
         .add_systems(Startup, startup_system)
         .add_systems(Startup, systems::audio::load_music)
         .add_systems(Startup, systems::audio::load_sfx)
+        // Autostart: skip main menu if --autostart was passed
+        .add_systems(OnEnter(AppState::MainMenu), autostart_system)
         // Music lifecycle
         .add_systems(OnEnter(AppState::Playing), systems::audio::start_music)
         .add_systems(OnExit(AppState::Playing), systems::audio::stop_music)

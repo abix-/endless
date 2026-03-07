@@ -151,37 +151,19 @@ pub struct WorldData {
     pub towns: Vec<Town>,
 }
 
-/// Convert town-relative grid coords to world position.
-/// Slot (0,0) = town center. Each slot = one WorldGrid cell (32px).
-pub fn town_grid_to_world(center: Vec2, row: i32, col: i32) -> Vec2 {
-    Vec2::new(
-        center.x + col as f32 * TOWN_GRID_SPACING,
-        center.y + row as f32 * TOWN_GRID_SPACING,
-    )
-}
 
-/// Convert world position to nearest town grid coords (row, col).
-pub fn world_to_town_grid(center: Vec2, world_pos: Vec2) -> (i32, i32) {
-    let col = ((world_pos.x - center.x) / TOWN_GRID_SPACING).round() as i32;
-    let row = ((world_pos.y - center.y) / TOWN_GRID_SPACING).round() as i32;
-    (row, col)
-}
-
-/// Buildable slot bounds for a town (inclusive): min_row, max_row, min_col, max_col.
-/// Computes from area_level + town center position clamped to world edges.
-pub fn build_bounds(area_level: i32, center: Vec2, grid: &WorldGrid) -> (i32, i32, i32, i32) {
+/// Buildable slot bounds for a town (inclusive) in world grid coords: (min_col, max_col, min_row, max_row).
+pub fn build_bounds(area_level: i32, center: Vec2, grid: &WorldGrid) -> (usize, usize, usize, usize) {
     let (center_col, center_row) = grid.world_to_grid(center);
     let cc = center_col as i32;
     let cr = center_row as i32;
-    let min_row_cap = -cr;
-    let max_row_cap = grid.height as i32 - 1 - cr;
-    let min_col_cap = -cc;
-    let max_col_cap = grid.width as i32 - 1 - cc;
-    let min_row = (BASE_GRID_MIN - area_level).max(min_row_cap);
-    let max_row = (BASE_GRID_MAX + area_level).min(max_row_cap);
-    let min_col = (BASE_GRID_MIN - area_level).max(min_col_cap);
-    let max_col = (BASE_GRID_MAX + area_level).min(max_col_cap);
-    (min_row, max_row, min_col, max_col)
+    let half_neg = BASE_GRID_MIN - area_level; // negative
+    let half_pos = BASE_GRID_MAX + area_level;  // positive
+    let min_col = (cc + half_neg).max(0) as usize;
+    let max_col = (cc + half_pos).min(grid.width as i32 - 1) as usize;
+    let min_row = (cr + half_neg).max(0) as usize;
+    let max_row = (cr + half_pos).min(grid.height as i32 - 1) as usize;
+    (min_col, max_col, min_row, max_row)
 }
 
 /// Check if a road can be placed at this position for a town.
@@ -211,73 +193,28 @@ pub fn is_road_placeable_for_town(
     false
 }
 
-/// All empty buildable slots for a town in town-relative (row, col) coords.
+/// All empty buildable slots for a town in world grid (col, row) coords.
 pub fn empty_slots(
     town_idx: usize,
     center: Vec2,
     grid: &WorldGrid,
     entity_map: &crate::resources::EntityMap,
-) -> Vec<(i32, i32)> {
+) -> Vec<(usize, usize)> {
     let ti = town_idx as u16;
+    let (center_col, center_row) = grid.world_to_grid(center);
     let mut out = Vec::new();
-    // Scan all cells that this town can build on
     for row in 0..grid.height {
         for col in 0..grid.width {
+            if col == center_col && row == center_row { continue; } // skip town center
             if !grid.can_town_build(col, row, ti) { continue; }
             if entity_map.has_building_at(col as i32, row as i32) { continue; }
-            let pos = grid.grid_to_world(col, row);
-            let (r, c) = world_to_town_grid(center, pos);
-            if r == 0 && c == 0 { continue; } // skip town center
-            out.push((r, c));
+            out.push((col, row));
         }
     }
     out
 }
 
 /// Find which town has a buildable slot matching the given world position.
-pub fn find_town_slot(
-    world_pos: Vec2,
-    towns: &[Town],
-    grid: &WorldGrid,
-) -> Option<TownSlotInfo> {
-    let (gc, gr) = grid.world_to_grid(world_pos);
-    let snapped = grid.grid_to_world(gc, gr);
-    let click_radius = TOWN_GRID_SPACING * 0.7;
-    if world_pos.distance(snapped) > click_radius {
-        return None;
-    }
-    // Check which town(s) own this cell — primary owner first
-    let idx = gr * grid.width + gc;
-    if idx >= grid.town_owner.len() { return None; }
-    let owner = grid.town_owner[idx];
-    if owner == u16::MAX { return None; }
-
-    // Collect candidate towns (owner + any overlap)
-    let check_town = |town_data_idx: usize| -> Option<TownSlotInfo> {
-        let town = towns.get(town_data_idx)?;
-        let (row, col) = world_to_town_grid(town.center, world_pos);
-        Some(TownSlotInfo { town_data_idx, row, col })
-    };
-
-    if let Some(info) = check_town(owner as usize) {
-        return Some(info);
-    }
-    if let Some(overlaps) = grid.town_overlap.get(&idx) {
-        for &ti in overlaps {
-            if let Some(info) = check_town(ti as usize) {
-                return Some(info);
-            }
-        }
-    }
-    None
-}
-
-/// Info about a clicked town grid slot.
-pub struct TownSlotInfo {
-    pub town_data_idx: usize, // Index into WorldData.towns
-    pub row: i32,
-    pub col: i32,
-}
 
 // ============================================================================
 // BUILDING PLACEMENT / REMOVAL
@@ -830,24 +767,22 @@ pub fn expand_town_build_area(
     };
     let center = town.center;
 
-    let (old_min_row, old_max_row, old_min_col, old_max_col) =
+    let (old_min_c, old_max_c, old_min_r, old_max_r) =
         build_bounds(town.area_level, center, grid);
     towns[town_idx].area_level += 1;
-    let (new_min_row, new_max_row, new_min_col, new_max_col) =
+    let (new_min_c, new_max_c, new_min_r, new_max_r) =
         build_bounds(towns[town_idx].area_level, center, grid);
 
-    for row in new_min_row..=new_max_row {
-        for col in new_min_col..=new_max_col {
-            let is_old = row >= old_min_row
-                && row <= old_max_row
-                && col >= old_min_col
-                && col <= old_max_col;
+    for row in new_min_r..=new_max_r {
+        for col in new_min_c..=new_max_c {
+            let is_old = row >= old_min_r
+                && row <= old_max_r
+                && col >= old_min_c
+                && col <= old_max_c;
             if is_old {
                 continue;
             }
-            let slot_pos = town_grid_to_world(center, row, col);
-            let (gc, gr) = grid.world_to_grid(slot_pos);
-            if let Some(cell) = grid.cell_mut(gc, gr) {
+            if let Some(cell) = grid.cell_mut(col, row) {
                 cell.terrain = Biome::Dirt;
             }
         }
@@ -866,14 +801,11 @@ pub(crate) fn destroy_building(
     entity_map: &mut EntityMap,
     combat_log: &mut MessageWriter<CombatLogMsg>,
     game_time: &GameTime,
-    row: i32,
-    col: i32,
-    town_center: Vec2,
+    gc: usize,
+    gr: usize,
     reason: &str,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
 ) -> Result<(), &'static str> {
-    let world_pos = town_grid_to_world(town_center, row, col);
-    let (gc, gr) = grid.world_to_grid(world_pos);
 
     let inst = entity_map
         .get_at_grid(gc as i32, gr as i32)
@@ -2156,15 +2088,16 @@ pub fn place_buildings(
         .map(|t| t.faction)
         .unwrap_or(0);
 
-    // Helper: place building at town grid (row, col), return snapped world position
+    let (cc, cr) = grid.world_to_grid(center);
+    // Helper: place building at offset (row, col) from center, return snapped world position
     let place = |row: i32,
                  col: i32,
                  _kind: BuildingKind,
                  _ti: u32,
                  occ: &mut HashSet<(i32, i32)>|
      -> Vec2 {
-        let world_pos = town_grid_to_world(center, row, col);
-        let (gc, gr) = grid.world_to_grid(world_pos);
+        let gc = (cc as i32 + col) as usize;
+        let gr = (cr as i32 + row) as usize;
         let snapped_pos = grid.grid_to_world(gc, gr);
         occ.insert((row, col));
         snapped_pos

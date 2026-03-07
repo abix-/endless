@@ -139,6 +139,11 @@ fn main() {
             }),
     );
 
+    // Parse CLI flags
+    if std::env::args().any(|a| a == "--autostart") {
+        app.insert_resource(endless::resources::AutoStart(true));
+    }
+
     // Wire up ECS systems
     endless::build_app(&mut app);
 

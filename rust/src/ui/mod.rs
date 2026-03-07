@@ -372,8 +372,8 @@ pub fn settings_panel_ui(
                             }
                         }
                         PauseSettingsTab::Debug => {
-                            ui.checkbox(&mut settings.debug_coordinates, "NPC Coordinates");
-                            ui.small("Show world coordinates for selected NPCs.");
+                            ui.checkbox(&mut settings.debug_ids, "Debug IDs");
+                            ui.small("Show slot/UID for selected NPCs and buildings (for BRP queries).");
                             ui.checkbox(&mut settings.debug_all_npcs, "All NPCs in Roster");
                             ui.small("Force all NPCs visible in roster/debug lists.");
                             ui.checkbox(&mut settings.debug_readback, "GPU Readback");
@@ -1462,41 +1462,29 @@ fn screen_to_world(
 }
 
 /// Bresenham-style integer line over town-grid slots, inclusive of start/end.
-fn slots_on_line(start: (i32, i32), end: (i32, i32)) -> Vec<(i32, i32)> {
-    let (mut r0, mut c0) = start;
-    let (r1, c1) = end;
-    let dr = (r1 - r0).abs();
+fn slots_on_line(start: (usize, usize), end: (usize, usize)) -> Vec<(usize, usize)> {
+    let (mut c0, mut r0) = (start.0 as i32, start.1 as i32);
+    let (c1, r1) = (end.0 as i32, end.1 as i32);
     let dc = (c1 - c0).abs();
-    let sr = if r0 < r1 {
-        1
-    } else if r0 > r1 {
-        -1
-    } else {
-        0
-    };
-    let sc = if c0 < c1 {
-        1
-    } else if c0 > c1 {
-        -1
-    } else {
-        0
-    };
-    let mut err = dr - dc;
+    let dr = (r1 - r0).abs();
+    let sc: i32 = if c0 < c1 { 1 } else if c0 > c1 { -1 } else { 0 };
+    let sr: i32 = if r0 < r1 { 1 } else if r0 > r1 { -1 } else { 0 };
+    let mut err = dc - dr;
 
     let mut out = Vec::new();
     loop {
-        out.push((r0, c0));
-        if r0 == r1 && c0 == c1 {
+        out.push((c0 as usize, r0 as usize));
+        if c0 == c1 && r0 == r1 {
             break;
         }
         let e2 = 2 * err;
-        if e2 > -dc {
-            err -= dc;
-            r0 += sr;
-        }
-        if e2 < dr {
-            err += dr;
+        if e2 > -dr {
+            err -= dr;
             c0 += sc;
+        }
+        if e2 < dc {
+            err += dc;
+            r0 += sr;
         }
     }
     out
@@ -1566,11 +1554,9 @@ fn build_place_click_system(
         return;
     };
     let world_pos = screen_to_world(cursor_pos, transform, projection, window);
-    let (row, col) = world::world_to_town_grid(center, world_pos);
-    let slot_pos = world::town_grid_to_world(center, row, col);
+    let (gc, gr) = world_state.grid.world_to_grid(world_pos);
+    let slot_pos = world_state.grid.grid_to_world(gc, gr);
     build_ctx.hover_world_pos = slot_pos;
-
-    let (gc, gr) = world_state.grid.world_to_grid(slot_pos);
 
     // Destroy mode: remove building at clicked cell (player-owned only)
     if build_ctx.destroy_mode {
@@ -1610,10 +1596,9 @@ fn build_place_click_system(
         let _ = world_state.destroy_building(
             &mut combat_log,
             &game_time,
-            row,
-            col,
-            center,
-            &format!("Destroyed building at ({},{}) in {}", row, col, town_name),
+            gc,
+            gr,
+            &format!("Destroyed building at ({},{}) in {}", gc, gr, town_name),
             &mut gpu_updates,
         );
         world_state.dirty_writers.mark_building_changed(bld_kind);
@@ -1657,12 +1642,11 @@ fn build_place_click_system(
 
     // Road: drag-line placement on world grid (reuses drag_start_slot/slots_on_line)
     if kind.is_road() {
-        let (gc, gr) = world_state.grid.world_to_grid(world_pos);
         if just_pressed {
-            build_ctx.drag_start_slot = Some((gr as i32, gc as i32));
-            build_ctx.drag_current_slot = Some((gr as i32, gc as i32));
+            build_ctx.drag_start_slot = Some((gc, gr));
+            build_ctx.drag_current_slot = Some((gc, gr));
         } else if pressed && build_ctx.drag_start_slot.is_some() {
-            build_ctx.drag_current_slot = Some((gr as i32, gc as i32));
+            build_ctx.drag_current_slot = Some((gc, gr));
         }
         if !just_released {
             return;
@@ -1671,16 +1655,16 @@ fn build_place_click_system(
         let start = build_ctx
             .drag_start_slot
             .take()
-            .unwrap_or((gr as i32, gc as i32));
+            .unwrap_or((gc, gr));
         let end = build_ctx
             .drag_current_slot
             .take()
-            .unwrap_or((gr as i32, gc as i32));
+            .unwrap_or((gc, gr));
         let cost = crate::constants::building_cost(kind);
         let mut placed = 0usize;
         let mut upgraded = 0usize;
-        for (sr, sc) in slots_on_line(start, end) {
-            let cell_pos = world_state.grid.grid_to_world(sc as usize, sr as usize);
+        for (sc, sr) in slots_on_line(start, end) {
+            let cell_pos = world_state.grid.grid_to_world(sc, sr);
             match world_state.place_building(
                 &mut food_storage, kind, town_data_idx, cell_pos, cost,
                 &mut gpu_updates, &mut commands,
@@ -1721,19 +1705,18 @@ fn build_place_click_system(
         return;
     }
 
-    // Town-grid build mode: supports single-click and click-drag line placement.
+    // World-grid build mode: supports single-click and click-drag line placement.
     let label = crate::constants::building_def(kind).label;
+    let (cc, cr) = world_state.grid.world_to_grid(center);
 
-    let mut try_place_at_slot = |slot_row: i32, slot_col: i32| -> bool {
-        let pos = world::town_grid_to_world(center, slot_row, slot_col);
-        let (gc, gr) = world_state.grid.world_to_grid(pos);
-        if !world_state.grid.can_town_build(gc, gr, town_data_idx as u16) {
+    let mut try_place_at_slot = |slot_col: usize, slot_row: usize| -> bool {
+        if !world_state.grid.can_town_build(slot_col, slot_row, town_data_idx as u16) {
             return false;
         }
-        if slot_row == 0 && slot_col == 0 {
+        if slot_col == cc && slot_row == cr {
             return false;
         }
-        let pos = world::town_grid_to_world(center, slot_row, slot_col);
+        let pos = world_state.grid.grid_to_world(slot_col, slot_row);
         let cost = crate::constants::building_cost(kind);
 
         world_state
@@ -1750,24 +1733,24 @@ fn build_place_click_system(
     };
 
     if just_pressed {
-        build_ctx.drag_start_slot = Some((row, col));
-        build_ctx.drag_current_slot = Some((row, col));
+        build_ctx.drag_start_slot = Some((gc, gr));
+        build_ctx.drag_current_slot = Some((gc, gr));
     } else if pressed && build_ctx.drag_start_slot.is_some() {
-        build_ctx.drag_current_slot = Some((row, col));
+        build_ctx.drag_current_slot = Some((gc, gr));
     }
 
     if !just_released {
         return;
     }
 
-    let start = build_ctx.drag_start_slot.take().unwrap_or((row, col));
-    let end = build_ctx.drag_current_slot.take().unwrap_or((row, col));
+    let start = build_ctx.drag_start_slot.take().unwrap_or((gc, gr));
+    let end = build_ctx.drag_current_slot.take().unwrap_or((gc, gr));
     let mut placed = 0usize;
-    let mut first_placed: Option<(i32, i32)> = None;
-    for (sr, sc) in slots_on_line(start, end) {
-        if try_place_at_slot(sr, sc) {
+    let mut first_placed: Option<(usize, usize)> = None;
+    for (sc, sr) in slots_on_line(start, end) {
+        if try_place_at_slot(sc, sr) {
             if first_placed.is_none() {
-                first_placed = Some((sr, sc));
+                first_placed = Some((sc, sr));
             }
             placed += 1;
         }
@@ -1777,7 +1760,7 @@ fn build_place_click_system(
     }
 
     if placed == 1 {
-        let (pr, pc) = first_placed.unwrap_or((row, col));
+        let (pc, pr) = first_placed.unwrap_or((gc, gr));
         combat_log.write(crate::messages::CombatLogMsg {
             kind: CombatEventKind::Harvest,
             faction: 0,
@@ -1880,14 +1863,12 @@ fn build_ghost_system(
         let Some(town_data_idx) = build_ctx.town_data_idx else {
             return;
         };
-        let Some(town) = world_data.towns.get(town_data_idx) else {
+        if town_data_idx >= world_data.towns.len() {
             return;
-        };
-        let center = town.center;
-        let (row, col) = world::world_to_town_grid(center, world_pos);
-        let slot_pos = world::town_grid_to_world(center, row, col);
+        }
+        let (gc, gr) = grid.world_to_grid(world_pos);
+        let slot_pos = grid.grid_to_world(gc, gr);
         build_ctx.hover_world_pos = slot_pos;
-        let (gc, gr) = grid.world_to_grid(slot_pos);
         let grid_inst = entity_map.get_at_grid(gc as i32, gr as i32);
         let has_building = grid_inst.is_some();
         let is_fountain = grid_inst
@@ -1936,10 +1917,10 @@ fn build_ghost_system(
 
         let path = match build_ctx.drag_start_slot {
             Some(start) => {
-                build_ctx.drag_current_slot = Some((gr as i32, gc as i32));
-                slots_on_line(start, (gr as i32, gc as i32))
+                build_ctx.drag_current_slot = Some((gc, gr));
+                slots_on_line(start, (gc, gr))
             }
-            None => vec![(gr as i32, gc as i32)],
+            None => vec![(gc, gr)],
         };
 
         let cost = crate::constants::building_cost(kind);
@@ -1958,11 +1939,10 @@ fn build_ghost_system(
         }
 
         let mut cursor_valid = false;
-        for (idx, &(sr, sc)) in path.iter().enumerate() {
-            let cell_world = grid.grid_to_world(sc as usize, sr as usize);
-            let (cgc, cgr) = grid.world_to_grid(cell_world);
-            let cell = grid.cell(cgc, cgr);
-            let empty = !entity_map.has_building_at(cgc as i32, cgr as i32);
+        for (idx, &(sc, sr)) in path.iter().enumerate() {
+            let cell_world = grid.grid_to_world(sc, sr);
+            let cell = grid.cell(sc, sr);
+            let empty = !entity_map.has_building_at(sc as i32, sr as i32);
             let not_water = cell
                 .map(|c| c.terrain != world::Biome::Water)
                 .unwrap_or(false);
@@ -2073,44 +2053,40 @@ fn build_ghost_system(
         return;
     };
     let center = town.center;
-    let (row, col) = world::world_to_town_grid(center, world_pos);
-    let slot_pos = world::town_grid_to_world(center, row, col);
+    let (gc, gr) = grid.world_to_grid(world_pos);
+    let slot_pos = grid.grid_to_world(gc, gr);
     build_ctx.hover_world_pos = slot_pos;
 
     // Determine validity
-    let (gc, gr) = grid.world_to_grid(slot_pos);
     let has_building = entity_map.has_building_at(gc as i32, gr as i32);
     let in_bounds = grid.can_town_build(gc, gr, town_data_idx as u16);
-    let is_center = row == 0 && col == 0;
+    let (cc, cr) = grid.world_to_grid(center);
+    let is_center = gc == cc && gr == cr;
 
-    let mut drag_preview: Vec<(i32, i32, bool, bool)> = Vec::new();
+    let mut drag_preview: Vec<(usize, usize, bool, bool)> = Vec::new();
     {
         let path = match (build_ctx.drag_start_slot, build_ctx.drag_current_slot) {
             (Some(start), Some(end)) => slots_on_line(start, end),
-            _ => vec![(row, col)],
+            _ => vec![(gc, gr)],
         };
         let cost = crate::constants::building_cost(kind);
         let mut budget = food_storage.food.get(town_data_idx).copied().unwrap_or(0);
 
-        for (slot_row, slot_col) in path {
-            let sp = world::town_grid_to_world(center, slot_row, slot_col);
-            let (sgc, sgr) = grid.world_to_grid(sp);
-            let visible_slot = grid.can_town_build(sgc, sgr, town_data_idx as u16)
-                && !(slot_row == 0 && slot_col == 0);
+        for (slot_col, slot_row) in path {
+            let visible_slot = grid.can_town_build(slot_col, slot_row, town_data_idx as u16)
+                && !(slot_col == cc && slot_row == cr);
             if !visible_slot {
-                drag_preview.push((slot_row, slot_col, false, false));
+                drag_preview.push((slot_col, slot_row, false, false));
                 continue;
             }
 
-            let slot_world = world::town_grid_to_world(center, slot_row, slot_col);
-            let (sgc, sgr) = grid.world_to_grid(slot_world);
-            let slot_empty = !entity_map.has_building_at(sgc as i32, sgr as i32);
+            let slot_empty = !entity_map.has_building_at(slot_col as i32, slot_row as i32);
             let can_pay = budget >= cost;
             let slot_valid = slot_empty && can_pay;
             if slot_valid {
                 budget -= cost;
             }
-            drag_preview.push((slot_row, slot_col, slot_valid, true));
+            drag_preview.push((slot_col, slot_row, slot_valid, true));
         }
     }
 
@@ -2118,7 +2094,7 @@ fn build_ghost_system(
     let (valid, visible) = {
         let current = drag_preview
             .iter()
-            .find(|(sr, sc, _, _)| *sr == row && *sc == col)
+            .find(|(sc, sr, _, _)| *sc == gc && *sr == gr)
             .copied();
         if let Some((_, _, v, vis)) = current {
             (v, vis)
@@ -2153,13 +2129,11 @@ fn build_ghost_system(
         commands.entity(entity).despawn();
     }
     if drag_preview.len() > 1 {
-        for (slot_row, slot_col, slot_valid, slot_visible) in drag_preview.iter().copied() {
-            if (slot_row == row && slot_col == col) || !slot_visible {
+        for (slot_col, slot_row, slot_valid, slot_visible) in drag_preview.iter().copied() {
+            if (slot_col == gc && slot_row == gr) || !slot_visible {
                 continue;
             }
-            let slot_world = world::town_grid_to_world(center, slot_row, slot_col);
-            let (sgc, sgr) = grid.world_to_grid(slot_world);
-            let snapped_slot = grid.grid_to_world(sgc, sgr);
+            let snapped_slot = grid.grid_to_world(slot_col, slot_row);
             let slot_color = if slot_valid {
                 Color::srgba(1.0, 1.0, 1.0, 0.45)
             } else {
@@ -2250,16 +2224,14 @@ fn draw_slot_indicators(
         &entity_map,
     );
 
-    let (base_min_r, base_max_r, base_min_c, base_max_c) = world::build_bounds(area_level, center, &grid);
+    let (base_min_c, base_max_c, base_min_r, base_max_r) = world::build_bounds(area_level, center, &grid);
     let mut seen = std::collections::HashSet::new();
-    for &(row, col) in &slots {
-        seen.insert((row, col));
-        let is_base = row >= base_min_r && row <= base_max_r && col >= base_min_c && col <= base_max_c;
+    for &(col, row) in &slots {
+        seen.insert((col, row));
+        let is_base = col >= base_min_c && col <= base_max_c && row >= base_min_r && row <= base_max_r;
         let color = if is_base { base_color } else { road_color };
 
-        let raw_pos = world::town_grid_to_world(center, row, col);
-        let (gc, gr) = grid.world_to_grid(raw_pos);
-        let slot_pos = grid.grid_to_world(gc, gr);
+        let slot_pos = grid.grid_to_world(col, row);
 
         commands.spawn((
             Sprite {
@@ -2281,41 +2253,42 @@ fn draw_slot_indicators(
         // 1 tile around each existing road
         for kind in [world::BuildingKind::Road, world::BuildingKind::StoneRoad, world::BuildingKind::MetalRoad] {
             for inst in entity_map.iter_kind_for_town(kind, ti) {
-                let (rr, rc) = world::world_to_town_grid(center, inst.position);
-                for dr in -1..=1 {
-                    for dc in -1..=1 {
+                let (rc, rr) = grid.world_to_grid(inst.position);
+                for dr in -1i32..=1 {
+                    for dc in -1i32..=1 {
                         if dr == 0 && dc == 0 { continue; }
-                        chain_candidates.push((rr + dr, rc + dc));
+                        let nc = rc as i32 + dc;
+                        let nr = rr as i32 + dr;
+                        if nc >= 0 && nr >= 0 {
+                            chain_candidates.push((nc as usize, nr as usize));
+                        }
                     }
                 }
             }
         }
 
         // 1 tile around base boundary
-        let (min_row, max_row, min_col, max_col) = (base_min_r, base_max_r, base_min_c, base_max_c);
-        for row in (min_row - 1)..=(max_row + 1) {
-            for col in (min_col - 1)..=(max_col + 1) {
-                if row >= min_row && row <= max_row && col >= min_col && col <= max_col {
+        for row in base_min_r.saturating_sub(1)..=(base_max_r + 1) {
+            for col in base_min_c.saturating_sub(1)..=(base_max_c + 1) {
+                if col >= base_min_c && col <= base_max_c && row >= base_min_r && row <= base_max_r {
                     continue; // skip interior
                 }
-                chain_candidates.push((row, col));
+                chain_candidates.push((col, row));
             }
         }
 
-        for (row, col) in chain_candidates {
-            if row == 0 && col == 0 { continue; }
-            if seen.contains(&(row, col)) { continue; }
-            if !seen.insert((row, col)) { continue; }
-
-            let raw_pos = world::town_grid_to_world(center, row, col);
-            let (gc, gr) = grid.world_to_grid(raw_pos);
+        let (cc, cr) = grid.world_to_grid(center);
+        for (col, row) in chain_candidates {
+            if col == cc && row == cr { continue; }
+            if seen.contains(&(col, row)) { continue; }
+            if !seen.insert((col, row)) { continue; }
 
             // Must be a valid world cell and empty
-            if grid.cell(gc, gr).is_none() || entity_map.has_building_at(gc as i32, gr as i32) {
+            if grid.cell(col, row).is_none() || entity_map.has_building_at(col as i32, row as i32) {
                 continue;
             }
 
-            let slot_pos = grid.grid_to_world(gc, gr);
+            let slot_pos = grid.grid_to_world(col, row);
             commands.spawn((
                 Sprite {
                     color: chain_color,
@@ -2360,21 +2333,12 @@ fn process_destroy_system(
             };
             (inst.slot, inst.kind, inst.town_idx as usize)
         };
-        let center = world_state
-            .world_data
-            .towns
-            .get(town_idx)
-            .map(|t| t.center)
-            .unwrap_or_default();
         let town_name = world_state
             .world_data
             .towns
             .get(town_idx)
             .map(|t| t.name.clone())
             .unwrap_or_default();
-
-        let world_pos = world_state.grid.grid_to_world(col, row);
-        let (trow, tcol) = world::world_to_town_grid(center, world_pos);
 
         // Send lethal damage so death_system handles despawn (single Dead writer)
         let Some(uid) = world_state.entity_map.uid_for_slot(building_gpu_slot) else {
@@ -2391,9 +2355,8 @@ fn process_destroy_system(
             .destroy_building(
                 &mut combat_log,
                 &game_time,
-                trow,
-                tcol,
-                center,
+                col,
+                row,
                 &format!("Destroyed building in {}", town_name),
                 &mut gpu_updates,
             )

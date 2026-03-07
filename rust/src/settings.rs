@@ -591,7 +591,7 @@ pub struct UserSettings {
     pub log_faction_filter: i32,
     // Debug visibility (pause menu settings)
     #[serde(default)]
-    pub debug_coordinates: bool,
+    pub debug_ids: bool,
     #[serde(default)]
     pub debug_all_npcs: bool,
     // Debug logging (formerly F-key toggles)
@@ -851,7 +851,7 @@ impl Default for UserSettings {
             fullscreen: true,
             background_fps: false,
             fps_cap: 0,
-            debug_coordinates: false,
+            debug_ids: false,
             debug_all_npcs: false,
             debug_readback: false,
             debug_combat: false,

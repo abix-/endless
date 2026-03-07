@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-03-07a
+
+- **World grid coordinates everywhere** — eliminated town-relative `(row, col)` coordinate system entirely. All ~50 call sites across 6 source files now use world grid `(col, row)` as `(usize, usize)`. Deleted `town_grid_to_world`, `world_to_town_grid`, `find_town_slot`, `TownSlotInfo`. `build_bounds` returns `(min_col, max_col, min_row, max_row)` in world grid. `empty_slots` returns `Vec<(usize, usize)>` world grid coords. AI scoring functions (`farm_slot_score`, `balanced_farm_ray_score`, `balanced_house_side_score`, etc.) all operate on `(usize, usize)`. BRP `endless/build` and `endless/destroy` params changed from `row: i32, col: i32` to `col: usize, row: usize` (world grid). LLM prompt updated.
+- **`--autostart` CLI flag** — skip main menu for BRP testing. `AutoStart` resource parsed from CLI args in `main.rs`, `autostart_system` (OnEnter MainMenu) loads saved settings, configures world gen + AI slots + LLM towns, and transitions directly to Playing.
+- **`endless/perf` BRP endpoint** — returns FPS, frame_ms, UPS, NPC count, entity count. Includes per-system timing BTreeMap when profiling is enabled.
+- **`endless/debug` uses EntityUid** — changed from GPU slot index to stable `uid: u64` parameter. Resolves UID to slot via `EntityMap::slot_for_uid`.
+- **Inspector cleanup** — removed ~835 lines of verbose GPU raw state dump from Copy Debug Info (NPC and building inspectors). Kept concise ECS-only debug output. Removed unused SystemParam fields (`GpuSlotPool`, `NpcTargetThrashDebug`, `EntityGpuState`, `NpcVisualUpload`).
+- **`debug_coordinates` → `debug_ids`** — renamed settings field to reflect actual usage (shows EntityUid overlay, not coordinates).
+
 ## 2026-03-07
 
 - **Unified chat system** — `ChatInbox` is now the single source of truth for player ↔ LLM messaging. Replaced dual-write (ChatInbox + combat log) with ChatInbox-only writes. Combat log UI reads directly from ChatInbox and renders `[chat to Town]` / `[chat from Town]` under the Chat filter. `ChatMessage` gains `sent_to_llm` and `has_reply` flags for delivery tracking. `ChatInbox` converted to `VecDeque` ring buffer (200 cap) to prevent unbounded growth.

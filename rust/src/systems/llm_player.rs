@@ -492,24 +492,24 @@ fn execute_actions(
             }
             "build" => {
                 let kind_str = p.get("kind").map(|s| s.as_str()).unwrap_or("");
-                let row = p.get("row").and_then(|s| s.parse::<i32>().ok()).unwrap_or(0);
-                let col = p.get("col").and_then(|s| s.parse::<i32>().ok()).unwrap_or(0);
+                let col = p.get("col").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
+                let row = p.get("row").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
                 if let Some(kind) = crate::systems::remote::parse_building_kind(kind_str) {
                     write.build_q.0.push(crate::systems::remote::RemoteBuild {
-                        town, kind, row, col,
+                        town, kind, col, row,
                     });
-                    let pos = crate::world::town_grid_to_world(center, row, col);
+                    let pos = read.world_grid.grid_to_world(col, row);
                     write.combat_log.push_at(CombatEventKind::Llm, faction, day, hour, minute,
-                        format!("[llm] build {} at ({},{})", kind_str, row, col), Some(pos));
+                        format!("[llm] build {} at ({},{})", kind_str, col, row), Some(pos));
                 }
             }
             "destroy" => {
-                let row = p.get("row").and_then(|s| s.parse::<i32>().ok()).unwrap_or(0);
-                let col = p.get("col").and_then(|s| s.parse::<i32>().ok()).unwrap_or(0);
-                write.destroy_q.0.push(crate::systems::remote::RemoteDestroy { town, row, col });
-                let pos = crate::world::town_grid_to_world(center, row, col);
+                let col = p.get("col").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
+                let row = p.get("row").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
+                write.destroy_q.0.push(crate::systems::remote::RemoteDestroy { town, col, row });
+                let pos = read.world_grid.grid_to_world(col, row);
                 write.combat_log.push_at(CombatEventKind::Llm, faction, day, hour, minute,
-                    format!("[llm] destroy at ({},{})", row, col), Some(pos));
+                    format!("[llm] destroy at ({},{})", col, row), Some(pos));
             }
             "upgrade" => {
                 let idx = p.get("upgrade_idx").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);

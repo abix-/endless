@@ -150,13 +150,16 @@ fn recalc_waypoint_patrol_order_clockwise(
 #[derive(Clone, Default)]
 struct AiTownSnapshot {
     center: Vec2,
-    empty_slots: Vec<(i32, i32)>,
-    farms: HashSet<(i32, i32)>,
-    farmer_homes: HashSet<(i32, i32)>,
-    archer_homes: HashSet<(i32, i32)>,
-    crossbow_homes: HashSet<(i32, i32)>,
-    /// Cached ideal waypoint ring positions (computed once per snapshot).
-    waypoint_ring: Vec<(i32, i32)>,
+    /// Town center in world grid coords.
+    cc: usize,
+    cr: usize,
+    empty_slots: Vec<(usize, usize)>,
+    farms: HashSet<(usize, usize)>,
+    farmer_homes: HashSet<(usize, usize)>,
+    archer_homes: HashSet<(usize, usize)>,
+    crossbow_homes: HashSet<(usize, usize)>,
+    /// Cached ideal waypoint ring positions in world grid (col, row).
+    waypoint_ring: Vec<(usize, usize)>,
 }
 
 #[derive(Default)]
@@ -202,16 +205,18 @@ pub enum RoadStyle {
 }
 
 impl RoadStyle {
-    /// True if (row, col) is reserved for road placement in this style.
-    pub fn is_road_slot(self, row: i32, col: i32) -> bool {
-        if row == 0 && col == 0 {
+    /// True if (col, row) in world grid is reserved for road placement in this style.
+    pub fn is_road_slot(self, col: usize, row: usize, cc: usize, cr: usize) -> bool {
+        let dc = col as i32 - cc as i32;
+        let dr = row as i32 - cr as i32;
+        if dc == 0 && dr == 0 {
             return false;
         }
         match self {
             Self::None => false,
-            Self::Cardinal => row == 0 || col == 0,
-            Self::Grid4 => row.rem_euclid(4) == 0 || col.rem_euclid(4) == 0,
-            Self::Grid5 => row.rem_euclid(5) == 0 || col.rem_euclid(5) == 0,
+            Self::Cardinal => dr == 0 || dc == 0,
+            Self::Grid4 => dr.rem_euclid(4) == 0 || dc.rem_euclid(4) == 0,
+            Self::Grid5 => dr.rem_euclid(5) == 0 || dc.rem_euclid(5) == 0,
         }
     }
 
@@ -424,49 +429,51 @@ impl AiPersonality {
 
     /// Compute the ideal outer ring of waypoint positions for the current build area.
     /// Walks the perimeter clockwise with corners guaranteed and min 5 Manhattan spacing.
-    fn waypoint_ring_slots(self, area_level: i32, center: Vec2, grid: &world::WorldGrid, road_style: RoadStyle) -> Vec<(i32, i32)> {
-        let (min_r, max_r, min_c, max_c) = world::build_bounds(area_level, center, grid);
+    fn waypoint_ring_slots(self, area_level: i32, center: Vec2, grid: &world::WorldGrid, road_style: RoadStyle) -> Vec<(usize, usize)> {
+        let (min_c, max_c, min_r, max_r) = world::build_bounds(area_level, center, grid);
+        let (cc, cr) = grid.world_to_grid(center);
         const MIN_SPACING: i32 = 5;
 
         // Walk perimeter clockwise: top→right→bottom→left (no duplicate corners)
-        let mut perimeter: Vec<(i32, i32)> = Vec::new();
+        // Stored as (col, row) in world grid coords
+        let mut perimeter: Vec<(usize, usize)> = Vec::new();
         for c in min_c..=max_c {
-            perimeter.push((max_r, c));
+            perimeter.push((c, max_r));
         }
         for r in (min_r..max_r).rev() {
-            perimeter.push((r, max_c));
+            perimeter.push((max_c, r));
         }
         for c in (min_c..max_c).rev() {
-            perimeter.push((min_r, c));
+            perimeter.push((c, min_r));
         }
         for r in (min_r + 1)..max_r {
-            perimeter.push((r, min_c));
+            perimeter.push((min_c, r));
         }
 
-        let corners: HashSet<(i32, i32)> = [
-            (max_r, min_c),
-            (max_r, max_c),
-            (min_r, max_c),
-            (min_r, min_c),
+        let corners: HashSet<(usize, usize)> = [
+            (min_c, max_r),
+            (max_c, max_r),
+            (max_c, min_r),
+            (min_c, min_r),
         ]
         .into_iter()
         .collect();
 
-        let mut result: Vec<(i32, i32)> = Vec::new();
-        for &(r, c) in &perimeter {
-            if r == 0 && c == 0 {
+        let mut result: Vec<(usize, usize)> = Vec::new();
+        for &(c, r) in &perimeter {
+            if c == cc && r == cr {
                 continue;
             }
             // Corners always included (even on road slots); others skip road slots
-            if road_style.is_road_slot(r, c) && !corners.contains(&(r, c)) {
+            if road_style.is_road_slot(c, r, cc, cr) && !corners.contains(&(c, r)) {
                 continue;
             }
-            let is_corner = corners.contains(&(r, c));
-            let too_close = result
-                .iter()
-                .any(|&(pr, pc)| (r - pr).abs() + (c - pc).abs() < MIN_SPACING);
+            let is_corner = corners.contains(&(c, r));
+            let too_close = result.iter().any(|&(pc, pr)| {
+                (c as i32 - pc as i32).abs() + (r as i32 - pr as i32).abs() < MIN_SPACING
+            });
             if is_corner || !too_close {
-                result.push((r, c));
+                result.push((c, r));
             }
         }
 
@@ -474,7 +481,7 @@ impl AiPersonality {
         while result.len() > 4 {
             let last = *result.last().unwrap();
             let first = result[0];
-            if (last.0 - first.0).abs() + (last.1 - first.1).abs() >= MIN_SPACING {
+            if (last.0 as i32 - first.0 as i32).abs() + (last.1 as i32 - first.1 as i32).abs() >= MIN_SPACING {
                 break;
             }
             if corners.contains(&last) {
@@ -815,15 +822,20 @@ fn find_inner_slot(
     entity_map: &EntityMap,
     personality: AiPersonality,
     road_style: RoadStyle,
-) -> Option<(i32, i32)> {
-    let wp_slots: HashSet<(i32, i32)> = personality
+) -> Option<(usize, usize)> {
+    let (cc, cr) = grid.world_to_grid(center);
+    let wp_slots: HashSet<(usize, usize)> = personality
         .waypoint_ring_slots(area_level, center, grid, road_style)
         .into_iter()
         .collect();
     world::empty_slots(town_idx, center, grid, entity_map)
         .into_iter()
-        .filter(|&(r, c)| !road_style.is_road_slot(r, c) && !wp_slots.contains(&(r, c)))
-        .min_by_key(|&(r, c)| r * r + c * c)
+        .filter(|&(c, r)| !road_style.is_road_slot(c, r, cc, cr) && !wp_slots.contains(&(c, r)))
+        .min_by_key(|&(c, r)| {
+            let dc = c as i32 - cc as i32;
+            let dr = r as i32 - cr as i32;
+            dc * dc + dr * dr
+        })
 }
 
 fn build_town_snapshot(
@@ -839,31 +851,34 @@ fn build_town_snapshot(
     let area_level = town.area_level;
     let ti = town_data_idx as u32;
 
+    let (cc, cr) = grid.world_to_grid(center);
     let farms = entity_map
         .iter_kind_for_town(BuildingKind::Farm, ti)
-        .map(|b| world::world_to_town_grid(center, b.position))
+        .map(|b| grid.world_to_grid(b.position))
         .collect();
     let farmer_homes = entity_map
         .iter_kind_for_town(BuildingKind::FarmerHome, ti)
-        .map(|b| world::world_to_town_grid(center, b.position))
+        .map(|b| grid.world_to_grid(b.position))
         .collect();
     let archer_homes = entity_map
         .iter_kind_for_town(BuildingKind::ArcherHome, ti)
-        .map(|b| world::world_to_town_grid(center, b.position))
+        .map(|b| grid.world_to_grid(b.position))
         .collect();
     let crossbow_homes = entity_map
         .iter_kind_for_town(BuildingKind::CrossbowHome, ti)
-        .map(|b| world::world_to_town_grid(center, b.position))
+        .map(|b| grid.world_to_grid(b.position))
         .collect();
     let waypoint_ring = personality.waypoint_ring_slots(area_level, center, grid, road_style);
-    let wp_slots: HashSet<(i32, i32)> = waypoint_ring.iter().copied().collect();
+    let wp_slots: HashSet<(usize, usize)> = waypoint_ring.iter().copied().collect();
     let empty_slots = world::empty_slots(town_data_idx, center, grid, entity_map)
         .into_iter()
-        .filter(|&(r, c)| !road_style.is_road_slot(r, c) && !wp_slots.contains(&(r, c)))
+        .filter(|&(c, r)| !road_style.is_road_slot(c, r, cc, cr) && !wp_slots.contains(&(c, r)))
         .collect();
 
     Some(AiTownSnapshot {
         center,
+        cc,
+        cr,
         empty_slots,
         farms,
         farmer_homes,
@@ -873,14 +888,11 @@ fn build_town_snapshot(
     })
 }
 
-fn pick_best_empty_slot<F>(snapshot: &AiTownSnapshot, mut score: F) -> Option<(i32, i32)>
+fn pick_best_empty_slot<F>(snapshot: &AiTownSnapshot, mut score: F) -> Option<(usize, usize)>
 where
-    F: FnMut((i32, i32)) -> i32,
+    F: FnMut((usize, usize)) -> i32,
 {
-    // Generic scoring function:
-    // `F: FnMut(...)` means caller can pass any closure/function that scores one slot.
-    // We keep the "best so far" as Option<(slot, score)> to handle empty input safely.
-    let mut best: Option<((i32, i32), i32)> = None;
+    let mut best: Option<((usize, usize), i32)> = None;
     for &slot in &snapshot.empty_slots {
         let s = score(slot);
         if best.map_or(true, |(_, bs)| s > bs) {
@@ -898,10 +910,8 @@ struct NeighborCounts {
     crossbow_homes: i32,
 }
 
-fn count_neighbors(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> NeighborCounts {
-    // 3x3 neighborhood scan around the candidate slot.
-    // This is a common scoring primitive reused by multiple building scorers.
-    let (r, c) = slot;
+fn count_neighbors(snapshot: &AiTownSnapshot, slot: (usize, usize)) -> NeighborCounts {
+    let (col, row) = slot;
     let mut nc = NeighborCounts {
         edge_farms: 0,
         diag_farms: 0,
@@ -909,12 +919,17 @@ fn count_neighbors(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> NeighborCount
         archer_homes: 0,
         crossbow_homes: 0,
     };
-    for dr in -1..=1 {
-        for dc in -1..=1 {
+    for dr in -1i32..=1 {
+        for dc in -1i32..=1 {
             if dr == 0 && dc == 0 {
                 continue;
             }
-            let n = (r + dr, c + dc);
+            let nc_col = col as i32 + dc;
+            let nc_row = row as i32 + dr;
+            if nc_col < 0 || nc_row < 0 {
+                continue;
+            }
+            let n = (nc_col as usize, nc_row as usize);
             if snapshot.farms.contains(&n) {
                 if dr == 0 || dc == 0 {
                     nc.edge_farms += 1;
@@ -936,23 +951,27 @@ fn count_neighbors(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> NeighborCount
     nc
 }
 
-fn farm_slot_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
-    let (r, c) = slot;
+fn farm_slot_score(snapshot: &AiTownSnapshot, slot: (usize, usize)) -> i32 {
+    let (col, row) = slot;
     let nc = count_neighbors(snapshot, slot);
-    // Base preference:
-    // - reward adjacency to farms (stronger for orthogonal neighbors than diagonal)
-    // - mildly reward being near farmer homes (keeps food production near workers)
     let mut score = nc.edge_farms * 24 + nc.diag_farms * 12 + nc.farmer_homes * 8;
 
-    // Shape bonus:
-    // Check all four 2x2 blocks that could include this candidate slot.
-    // If placing here would complete a dense farm block, reward heavily.
-    // This encourages compact agricultural clusters instead of sparse scatter.
-    let two_by_two = [(0, 0), (-1, 0), (0, -1), (-1, -1)];
-    for (or, oc) in two_by_two {
-        let r0 = r + or;
-        let c0 = c + oc;
-        let block = [(r0, c0), (r0 + 1, c0), (r0, c0 + 1), (r0 + 1, c0 + 1)];
+    // Shape bonus: check 2x2 blocks that could include this slot
+    let ci = col as i32;
+    let ri = row as i32;
+    let two_by_two: [(i32, i32); 4] = [(0, 0), (-1, 0), (0, -1), (-1, -1)];
+    for (oc, or) in two_by_two {
+        let c0 = ci + oc;
+        let r0 = ri + or;
+        if c0 < 0 || r0 < 0 {
+            continue;
+        }
+        let block = [
+            (c0 as usize, r0 as usize),
+            (c0 as usize + 1, r0 as usize),
+            (c0 as usize, r0 as usize + 1),
+            (c0 as usize + 1, r0 as usize + 1),
+        ];
         let existing = block
             .iter()
             .filter(|&&b| b != slot && snapshot.farms.contains(&b))
@@ -964,33 +983,28 @@ fn farm_slot_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
         }
     }
 
-    // Line bonus:
-    // Extra reward when candidate touches multiple orthogonal farms,
-    // which tends to create contiguous rows/columns with better density.
     if nc.edge_farms >= 2 {
         score += 30;
     }
 
-    // Bootstrap rule:
-    // For the very first farms, bias toward the town center so early layout
-    // starts compact before local-cluster signals become available.
+    // Bootstrap: bias toward town center
     if snapshot.farms.is_empty() {
-        let radial = r * r + c * c;
+        let dc = col as i32 - snapshot.cc as i32;
+        let dr = row as i32 - snapshot.cr as i32;
+        let radial = dc * dc + dr * dr;
         score -= radial / 2;
     }
     score
 }
 
-fn balanced_farm_ray_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
-    // Balanced-personality farm pattern:
-    // prefer straight rays on cardinal axes from town center, with continuity bonus.
-    let (r, c) = slot;
-    // `radial` is squared distance from town center in grid space.
-    // Squared distance is cheaper than sqrt and good enough for ranking.
-    let radial = r * r + c * c;
-    let on_axis = r == 0 || c == 0;
-    // High base score for axis slots, strong penalty for off-axis.
-    // Additional `-radial*4` keeps growth close-in before extending outward.
+fn balanced_farm_ray_score(snapshot: &AiTownSnapshot, slot: (usize, usize)) -> i32 {
+    let (col, row) = slot;
+    let cc = snapshot.cc as i32;
+    let cr = snapshot.cr as i32;
+    let dc = col as i32 - cc;
+    let dr = row as i32 - cr;
+    let radial = dc * dc + dr * dr;
+    let on_axis = dc == 0 || dr == 0;
     let mut score = if on_axis {
         500 - radial * 4
     } else {
@@ -998,22 +1012,26 @@ fn balanced_farm_ray_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
     };
 
     if on_axis {
-        if r == 0 && c != 0 {
-            let step = if c > 0 { 1 } else { -1 };
-            // Big reward if this extends an existing chain from center outward.
-            if snapshot.farms.contains(&(0, c - step)) {
+        if dr == 0 && dc != 0 {
+            // Horizontal ray: check continuity toward center
+            let step = if dc > 0 { 1i32 } else { -1 };
+            let prev = ((col as i32 - step) as usize, row);
+            let next = ((col as i32 + step) as usize, row);
+            if snapshot.farms.contains(&prev) {
                 score += 220;
             }
-            // Smaller reward for having the next slot already filled.
-            if snapshot.farms.contains(&(0, c + step)) {
+            if snapshot.farms.contains(&next) {
                 score += 40;
             }
-        } else if c == 0 && r != 0 {
-            let step = if r > 0 { 1 } else { -1 };
-            if snapshot.farms.contains(&(r - step, 0)) {
+        } else if dc == 0 && dr != 0 {
+            // Vertical ray
+            let step = if dr > 0 { 1i32 } else { -1 };
+            let prev = (col, (row as i32 - step) as usize);
+            let next = (col, (row as i32 + step) as usize);
+            if snapshot.farms.contains(&prev) {
                 score += 220;
             }
-            if snapshot.farms.contains(&(r + step, 0)) {
+            if snapshot.farms.contains(&next) {
                 score += 40;
             }
         }
@@ -1022,7 +1040,7 @@ fn balanced_farm_ray_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
     score
 }
 
-fn farmer_home_border_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
+fn farmer_home_border_score(snapshot: &AiTownSnapshot, slot: (usize, usize)) -> i32 {
     // Farmer homes should border farms; reject positions with no nearby farms.
     // Then reward stronger farm adjacency and moderate proximity to existing homes.
     let nc = count_neighbors(snapshot, slot);
@@ -1040,48 +1058,40 @@ fn farmer_home_border_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 
         + nc.crossbow_homes * 5
 }
 
-fn balanced_house_side_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
-    // Balanced-personality housing pattern:
-    // farms tend to form straight "rays" from town center (north/south/east/west).
-    // This scorer places farmer houses to the SIDE of those rays instead of on top of them.
-    let (r, c) = slot;
+fn balanced_house_side_score(snapshot: &AiTownSnapshot, slot: (usize, usize)) -> i32 {
+    let (col, row) = slot;
+    let cc = snapshot.cc;
+    let cr = snapshot.cr;
+    let dc = col as i32 - cc as i32;
+    let dr = row as i32 - cr as i32;
     let mut score = 0i32;
-    let on_axis = r == 0 || c == 0;
+    let on_axis = dc == 0 || dr == 0;
     if on_axis {
-        // Penalize slots on the center axes (row 0 or col 0).
-        // Reason: we want those lanes mostly for farms and movement, not houses.
         score -= 120;
     }
 
-    for &(fr, fc) in &snapshot.farms {
-        // Side-of-ray bonus:
-        // - If farm is on vertical ray (col=0), reward houses at (farm_row, +/-1).
-        // - If farm is on horizontal ray (row=0), reward houses at (+/-1, farm_col).
-        // This creates "farm in lane, houses on both shoulders" layout.
-        if fc == 0 && fr != 0 {
-            if slot == (fr, 1) || slot == (fr, -1) {
+    for &(fc, fr) in &snapshot.farms {
+        let fdc = fc as i32 - cc as i32;
+        let fdr = fr as i32 - cr as i32;
+        // Side-of-ray bonus: farms on vertical axis get houses at +/-1 col offset
+        if fdc == 0 && fdr != 0 {
+            if row == fr && (col as i32 - cc as i32 == 1 || col as i32 - cc as i32 == -1) {
                 score += 260;
             }
-        } else if fr == 0 && fc != 0 {
-            if slot == (1, fc) || slot == (-1, fc) {
+        } else if fdr == 0 && fdc != 0 {
+            if col == fc && (row as i32 - cr as i32 == 1 || row as i32 - cr as i32 == -1) {
                 score += 260;
             }
         }
 
-        // Adjacency bonus:
-        // grid_steps = |row_delta| + |col_delta| (up/down/left/right step count).
-        // If exactly 1, this house touches a farm edge, which is desirable.
-        let grid_steps = (r - fr).abs() + (c - fc).abs();
+        let grid_steps = (col as i32 - fc as i32).abs() + (row as i32 - fr as i32).abs();
         if grid_steps == 1 {
             score += 20;
         }
     }
 
-    for &(hr, hc) in &snapshot.farmer_homes {
-        // Anti-clumping:
-        // - Massive penalty for overlap (distance 0) to prevent duplicate placement.
-        // - Small penalty for direct adjacency (distance 1) to keep spacing readable.
-        let d = (r - hr).abs() + (c - hc).abs();
+    for &(hc, hr) in &snapshot.farmer_homes {
+        let d = (col as i32 - hc as i32).abs() + (row as i32 - hr as i32).abs();
         if d == 0 {
             score -= 200;
         } else if d == 1 {
@@ -1092,7 +1102,7 @@ fn balanced_house_side_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32
     score
 }
 
-fn archer_fill_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
+fn archer_fill_score(snapshot: &AiTownSnapshot, slot: (usize, usize)) -> i32 {
     // Archer homes act as defensive fillers:
     // prefer being near economic core, avoid over-clumping with other archer homes.
     let nc = count_neighbors(snapshot, slot);
@@ -1107,23 +1117,18 @@ fn archer_fill_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
     score
 }
 
-fn miner_toward_mine_score(mine_positions: &[Vec2], center: Vec2, slot: (i32, i32)) -> i32 {
-    // Miner homes should move toward global mine availability.
-    // With no mines, fallback to center-biased placement.
+fn miner_toward_mine_score(mine_positions: &[Vec2], grid: &WorldGrid, slot: (usize, usize), cc: usize, cr: usize) -> i32 {
+    let dc = slot.0 as i32 - cc as i32;
+    let dr = slot.1 as i32 - cr as i32;
+    let radial = dc * dc + dr * dr;
     if mine_positions.is_empty() {
-        let (r, c) = slot;
-        // No mine targets: fallback to center preference.
-        return -(r * r + c * c);
+        return -radial;
     }
-    let wp = world::town_grid_to_world(center, slot.0, slot.1);
-    // `best` = squared distance to nearest mine from this candidate slot.
+    let wp = grid.grid_to_world(slot.0, slot.1);
     let best = mine_positions
         .iter()
         .map(|m| (wp - *m).length_squared())
         .fold(f32::INFINITY, f32::min);
-    let radial = slot.0 * slot.0 + slot.1 * slot.1;
-    // Lower distance should rank higher, so return negative cost.
-    // Add small center bias via `-radial` as tie-breaker.
     -(best as i32) - radial
 }
 
@@ -1137,8 +1142,8 @@ fn find_waypoint_slot(
     ti: u32,
     personality: AiPersonality,
     road_style: RoadStyle,
-    cached_ring: Option<&[(i32, i32)]>,
-) -> Option<(i32, i32)> {
+    cached_ring: Option<&[(usize, usize)]>,
+) -> Option<(usize, usize)> {
     let computed;
     let ideal = match cached_ring {
         Some(ring) => ring,
@@ -1147,21 +1152,16 @@ fn find_waypoint_slot(
             &computed
         }
     };
-    let existing: HashSet<(i32, i32)> = entity_map
+    let existing: HashSet<(usize, usize)> = entity_map
         .iter_kind_for_town(BuildingKind::Waypoint, ti)
-        .map(|b| world::world_to_town_grid(center, b.position))
+        .map(|b| grid.world_to_grid(b.position))
         .collect();
 
-    // Pick first ideal slot not already occupied by any building
     ideal
         .iter()
         .copied()
         .filter(|slot| !existing.contains(slot))
-        .find(|&(r, c)| {
-            let pos = world::town_grid_to_world(center, r, c);
-            let (gc, gr) = grid.world_to_grid(pos);
-            !entity_map.has_building_at(gc as i32, gr as i32)
-        })
+        .find(|&(c, r)| !entity_map.has_building_at(c as i32, r as i32))
 }
 
 fn sync_town_perimeter_waypoints(
@@ -1186,30 +1186,22 @@ fn sync_town_perimeter_waypoints(
     if ideal_slots.is_empty() {
         return 0;
     }
-    let ideal: HashSet<(i32, i32)> = ideal_slots.iter().copied().collect();
+    let ideal: HashSet<(usize, usize)> = ideal_slots.iter().copied().collect();
 
-    // Gather current waypoint slots once; used for both completeness check and pruning.
-    let existing: HashSet<(i32, i32)> = world
+    let existing: HashSet<(usize, usize)> = world
         .entity_map
         .iter_kind_for_town(BuildingKind::Waypoint, ti)
-        .map(|b| world::world_to_town_grid(center, b.position))
+        .map(|b| world.grid.world_to_grid(b.position))
         .collect();
 
-    // Do not prune any inner ring yet if the current outer ring is incomplete.
-    // An ideal slot counts as "covered" if it has a waypoint OR any other building
-    // (blocked slots can't have waypoints, so we don't hold pruning hostage to them).
-    let outer_complete = ideal.iter().all(|&(r, c)| {
-        existing.contains(&(r, c)) || {
-            let pos = world::town_grid_to_world(center, r, c);
-            let (gc, gr) = world.grid.world_to_grid(pos);
-            world.entity_map.has_building_at(gc as i32, gr as i32)
-        }
+    let outer_complete = ideal.iter().all(|&(c, r)| {
+        existing.contains(&(c, r)) || world.entity_map.has_building_at(c as i32, r as i32)
     });
     if !outer_complete {
         return 0;
     }
 
-    let mut prune_slots: Vec<(i32, i32)> = Vec::new();
+    let mut prune_slots: Vec<(usize, usize)> = Vec::new();
     for &slot in &existing {
         if !ideal.contains(&slot) {
             prune_slots.push(slot);
@@ -1217,13 +1209,11 @@ fn sync_town_perimeter_waypoints(
     }
 
     let mut removed = 0usize;
-    for (row, col) in prune_slots {
-        // Resolve the exact waypoint slot from town-grid coords.
-        // If we cannot map slot->entity, do not clear the grid cell; that avoids orphaned sprites.
+    for (col, row) in prune_slots {
         let building_gpu_slot = world
             .entity_map
             .iter_kind_for_town(BuildingKind::Waypoint, ti)
-            .find(|b| world::world_to_town_grid(center, b.position) == (row, col))
+            .find(|b| world.grid.world_to_grid(b.position) == (col, row))
             .map(|b| b.slot);
         let Some(building_gpu_slot) = building_gpu_slot else {
             continue;
@@ -1232,7 +1222,6 @@ fn sync_town_perimeter_waypoints(
             continue;
         };
 
-        // Send lethal damage so death_system handles despawn (single Dead writer)
         damage_writer.write(crate::messages::DamageMsg {
             target: uid,
             amount: f32::MAX,
@@ -1243,9 +1232,8 @@ fn sync_town_perimeter_waypoints(
             .destroy_building(
                 combat_log,
                 game_time,
-                row,
                 col,
-                center,
+                row,
                 "waypoint pruned (not on outer ring)",
                 gpu_updates,
             )
@@ -1374,8 +1362,8 @@ impl TownContext {
             .unwrap_or_else(|| {
                 world::empty_slots(tdi, center, &res.world.grid, &res.world.entity_map).len()
             });
-        let (min_r, max_r, min_c, max_c) = world::build_bounds(area_level, center, &res.world.grid);
-        let total = ((max_r - min_r + 1) * (max_c - min_c + 1) - 1) as f32;
+        let (min_c, max_c, min_r, max_r) = world::build_bounds(area_level, center, &res.world.grid);
+        let total = ((max_c - min_c + 1) * (max_r - min_r + 1) - 1) as f32;
         let slot_fullness = 1.0 - empty_count as f32 / total.max(1.0);
         let mines = match kind {
             AiKind::Builder => Some(analyze_mines(&res.world.entity_map, center, mining_radius)),
@@ -1993,12 +1981,11 @@ fn try_build_at_slot(
     cost: i32,
     label: &str,
     tdi: usize,
-    center: Vec2,
     res: &mut AiBuildRes,
-    row: i32,
-    col: i32,
+    col: usize,
+    row: usize,
 ) -> Option<String> {
-    let pos = world::town_grid_to_world(center, row, col);
+    let pos = res.world.grid.grid_to_world(col, row);
     res.world
         .place_building(
             &mut res.food_storage,
@@ -2020,10 +2007,10 @@ fn pick_slot_from_snapshot_or_inner(
     area_level: i32,
     grid: &WorldGrid,
     entity_map: &EntityMap,
-    score: fn(&AiTownSnapshot, (i32, i32)) -> i32,
+    score: fn(&AiTownSnapshot, (usize, usize)) -> i32,
     personality: AiPersonality,
     road_style: RoadStyle,
-) -> Option<(i32, i32)> {
+) -> Option<(usize, usize)> {
     if let Some(snap) = snapshot {
         if let Some(slot) = pick_best_empty_slot(snap, |s| score(snap, s)) {
             return Some(slot);
@@ -2043,7 +2030,7 @@ fn try_build_inner(
     personality: AiPersonality,
     road_style: RoadStyle,
 ) -> Option<String> {
-    let (row, col) = find_inner_slot(
+    let (col, row) = find_inner_slot(
         tdi,
         center,
         area_level,
@@ -2052,7 +2039,7 @@ fn try_build_inner(
         personality,
         road_style,
     )?;
-    try_build_at_slot(kind, cost, label, tdi, center, res, row, col)
+    try_build_at_slot(kind, cost, label, tdi, res, col, row)
 }
 
 fn try_build_scored(
@@ -2063,11 +2050,11 @@ fn try_build_scored(
     res: &mut AiBuildRes,
     area_level: i32,
     snapshot: Option<&AiTownSnapshot>,
-    score_fn: fn(&AiTownSnapshot, (i32, i32)) -> i32,
+    score_fn: fn(&AiTownSnapshot, (usize, usize)) -> i32,
     personality: AiPersonality,
     road_style: RoadStyle,
 ) -> Option<String> {
-    let (row, col) = pick_slot_from_snapshot_or_inner(
+    let (col, row) = pick_slot_from_snapshot_or_inner(
         snapshot,
         tdi,
         center,
@@ -2078,7 +2065,7 @@ fn try_build_scored(
         personality,
         road_style,
     )?;
-    try_build_at_slot(kind, building_cost(kind), label, tdi, center, res, row, col)
+    try_build_at_slot(kind, building_cost(kind), label, tdi, res, col, row)
 }
 
 fn try_build_miner_home(
@@ -2091,9 +2078,11 @@ fn try_build_miner_home(
 ) -> Option<String> {
     // Miner homes are intentionally special-cased:
     // score depends on mine positions from per-tick MineAnalysis, not only local adjacency.
+    let grid = &res.world.grid;
+    let (cc, cr) = grid.world_to_grid(ctx.center);
     let slot = if let Some(snap) = snapshot {
         pick_best_empty_slot(snap, |s| {
-            miner_toward_mine_score(&mines.all_positions, ctx.center, s)
+            miner_toward_mine_score(&mines.all_positions, grid, s, cc, cr)
         })
         .or_else(|| {
             find_inner_slot(
@@ -2122,7 +2111,6 @@ fn try_build_miner_home(
         building_cost(BuildingKind::MinerHome),
         "miner home",
         ctx.tdi,
-        ctx.center,
         res,
         slot.0,
         slot.1,
@@ -2139,46 +2127,48 @@ fn count_road_candidates(
     ti: u32,
     road_style: RoadStyle,
 ) -> usize {
-    let econ_slots: Vec<(i32, i32)> = entity_map
+    let (cc, cr) = grid.world_to_grid(center);
+    let econ_slots: Vec<(usize, usize)> = entity_map
         .iter_kind_for_town(BuildingKind::Farm, ti)
         .chain(entity_map.iter_kind_for_town(BuildingKind::FarmerHome, ti))
         .chain(entity_map.iter_kind_for_town(BuildingKind::MinerHome, ti))
-        .map(|b| world::world_to_town_grid(center, b.position))
+        .map(|b| grid.world_to_grid(b.position))
         .collect();
     if econ_slots.is_empty() {
         return 0;
     }
-    let road_slots: HashSet<(i32, i32)> = [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad]
+    let road_slots: HashSet<(usize, usize)> = [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad]
         .iter()
         .flat_map(|&kind| entity_map.iter_kind_for_town(kind, ti))
-        .map(|b| world::world_to_town_grid(center, b.position))
+        .map(|b| grid.world_to_grid(b.position))
         .collect();
-    let (min_r, max_r, min_c, max_c) = world::build_bounds(area_level, center, grid);
+    let (min_c, max_c, min_r, max_r) = world::build_bounds(area_level, center, grid);
     // Cardinal: extend axes to 2× build radius for attack corridors
-    let (ext_min_r, ext_max_r, ext_min_c, ext_max_c) = if road_style == RoadStyle::Cardinal {
-        (min_r * 2, max_r * 2, min_c * 2, max_c * 2)
+    let (ext_min_c, ext_max_c, ext_min_r, ext_max_r) = if road_style == RoadStyle::Cardinal {
+        let half_c = cc - min_c;
+        let half_r = cr - min_r;
+        (cc.saturating_sub(half_c * 2), max_c + half_c, cr.saturating_sub(half_r * 2), max_r + half_r)
     } else {
-        (min_r, max_r, min_c, max_c)
+        (min_c, max_c, min_r, max_r)
     };
     let mut count = 0usize;
-    for r in ext_min_r..=ext_max_r {
-        for c in ext_min_c..=ext_max_c {
-            if !road_style.is_road_slot(r, c) {
+    for row in ext_min_r..=ext_max_r {
+        for col in ext_min_c..=ext_max_c {
+            if !road_style.is_road_slot(col, row, cc, cr) {
                 continue;
             }
-            if road_slots.contains(&(r, c)) {
+            if road_slots.contains(&(col, row)) {
                 continue;
             }
-            let pos = world::town_grid_to_world(center, r, c);
-            let (gc, gr) = grid.world_to_grid(pos);
-            if entity_map.has_building_at(gc as i32, gr as i32) {
+            if entity_map.has_building_at(col as i32, row as i32) {
                 continue;
             }
-            let in_bounds = r >= min_r && r <= max_r && c >= min_c && c <= max_c;
+            let in_bounds = col >= min_c && col <= max_c && row >= min_r && row <= max_r;
             let adj = econ_slots
                 .iter()
-                .any(|&(er, ec)| (er - r).abs() <= 2 && (ec - c).abs() <= 2);
-            // Inside bounds: require adjacency. Outside bounds (Cardinal corridors): always count.
+                .any(|&(ec, er)| {
+                    (ec as i32 - col as i32).abs() <= 2 && (er as i32 - row as i32).abs() <= 2
+                });
             if adj || !in_bounds {
                 count += 1;
             }
@@ -2196,78 +2186,74 @@ fn try_build_road_grid(
 ) -> Option<String> {
     let cost = building_cost(BuildingKind::Road);
     let ti = ctx.ti;
-    let center = ctx.center;
+    let grid = &res.world.grid;
+    let (cc, cr) = grid.world_to_grid(ctx.center);
     let entity_map = &res.world.entity_map;
 
-    // Collect economy building positions as town grid coords
-    let econ_slots: Vec<(i32, i32)> = entity_map
+    let econ_slots: Vec<(usize, usize)> = entity_map
         .iter_kind_for_town(BuildingKind::Farm, ti)
         .chain(entity_map.iter_kind_for_town(BuildingKind::FarmerHome, ti))
         .chain(entity_map.iter_kind_for_town(BuildingKind::MinerHome, ti))
-        .map(|b| world::world_to_town_grid(center, b.position))
+        .map(|b| grid.world_to_grid(b.position))
         .collect();
     if econ_slots.is_empty() {
         return None;
     }
 
-    // Collect existing road positions for quick lookup (all tiers)
-    let road_slots: HashSet<(i32, i32)> = [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad]
+    let road_slots: HashSet<(usize, usize)> = [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad]
         .iter()
         .flat_map(|&kind| entity_map.iter_kind_for_town(kind, ti))
-        .map(|b| world::world_to_town_grid(center, b.position))
+        .map(|b| grid.world_to_grid(b.position))
         .collect();
 
-    // Generate candidate road cells using the town's road style
-    let mut candidates: HashMap<(i32, i32), i32> = HashMap::new();
-    let (min_r, max_r, min_c, max_c) = world::build_bounds(ctx.area_level, ctx.center, &res.world.grid);
+    let mut candidates: HashMap<(usize, usize), i32> = HashMap::new();
+    let (min_c, max_c, min_r, max_r) = world::build_bounds(ctx.area_level, ctx.center, &res.world.grid);
     // Cardinal: extend axes to 2× build radius for attack corridors
-    let (ext_min_r, ext_max_r, ext_min_c, ext_max_c) = if road_style == RoadStyle::Cardinal {
-        (min_r * 2, max_r * 2, min_c * 2, max_c * 2)
+    let (ext_min_c, ext_max_c, ext_min_r, ext_max_r) = if road_style == RoadStyle::Cardinal {
+        let half_c = cc - min_c;
+        let half_r = cr - min_r;
+        (cc.saturating_sub(half_c * 2), max_c + half_c, cr.saturating_sub(half_r * 2), max_r + half_r)
     } else {
-        (min_r, max_r, min_c, max_c)
+        (min_c, max_c, min_r, max_r)
     };
 
-    for r in ext_min_r..=ext_max_r {
-        for c in ext_min_c..=ext_max_c {
-            if !road_style.is_road_slot(r, c) {
+    for row in ext_min_r..=ext_max_r {
+        for col in ext_min_c..=ext_max_c {
+            if !road_style.is_road_slot(col, row, cc, cr) {
                 continue;
             }
-            // Skip cells occupied by non-road buildings
-            let pos = world::town_grid_to_world(center, r, c);
-            let (gc, gr) = res.world.grid.world_to_grid(pos);
-            if res.world.entity_map.has_building_at(gc as i32, gr as i32) {
+            if entity_map.has_building_at(col as i32, row as i32) {
                 continue;
             }
-            // Score by adjacency to economy buildings (distance 2 covers the 4-cell pattern gap)
-            let in_bounds = r >= min_r && r <= max_r && c >= min_c && c <= max_c;
+            let in_bounds = col >= min_c && col <= max_c && row >= min_r && row <= max_r;
             let adj = econ_slots
                 .iter()
-                .filter(|&&(er, ec)| (er - r).abs() <= 2 && (ec - c).abs() <= 2)
+                .filter(|&&(ec, er)| {
+                    (ec as i32 - col as i32).abs() <= 2 && (er as i32 - row as i32).abs() <= 2
+                })
                 .count() as i32;
-            // Inside bounds: require adjacency. Outside bounds (Aggressive corridors): score 1.
             if adj > 0 {
-                candidates.insert((r, c), adj);
+                candidates.insert((col, row), adj);
             } else if !in_bounds {
-                candidates.insert((r, c), 1);
+                candidates.insert((col, row), 1);
             }
         }
     }
 
-    // Filter out existing roads
     candidates.retain(|slot, _| !road_slots.contains(slot));
 
     // Sort by score (highest adjacency first), then by distance to center (closer first)
-    let mut ranked: Vec<((i32, i32), i32)> = candidates.into_iter().collect();
+    let mut ranked: Vec<((usize, usize), i32)> = candidates.into_iter().collect();
     ranked.sort_by(|a, b| {
         b.1.cmp(&a.1).then_with(|| {
-            let da = a.0.0 * a.0.0 + a.0.1 * a.0.1;
-            let db = b.0.0 * b.0.0 + b.0.1 * b.0.1;
+            let da = (a.0 .0 as i32 - cc as i32).pow(2) + (a.0 .1 as i32 - cr as i32).pow(2);
+            let db = (b.0 .0 as i32 - cc as i32).pow(2) + (b.0 .1 as i32 - cr as i32).pow(2);
             da.cmp(&db)
         })
     });
 
     let mut placed = 0usize;
-    for &((r, c), _score) in ranked.iter().take(batch_size * 2) {
+    for &((col, row), _score) in ranked.iter().take(batch_size * 2) {
         if placed >= batch_size {
             break;
         }
@@ -2276,7 +2262,7 @@ fn try_build_road_grid(
             break;
         }
 
-        let pos = world::town_grid_to_world(center, r, c);
+        let pos = res.world.grid.grid_to_world(col, row);
         if res
             .world
             .place_building(
@@ -2414,7 +2400,7 @@ fn execute_action(
         AiAction::BuildWaypoint => {
             let cost = building_cost(BuildingKind::Waypoint);
             let cached_ring = snapshot.map(|s| s.waypoint_ring.as_slice());
-            let (row, col) = find_waypoint_slot(
+            let (col, row) = find_waypoint_slot(
                 ctx.area_level,
                 ctx.center,
                 &res.world.grid,
@@ -2424,7 +2410,7 @@ fn execute_action(
                 road_style,
                 cached_ring,
             )?;
-            let pos = world::town_grid_to_world(ctx.center, row, col);
+            let pos = res.world.grid.grid_to_world(col, row);
             if res
                 .world
                 .place_building(

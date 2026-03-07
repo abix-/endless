@@ -9,16 +9,16 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 use crate::components::{
-    Activity, CachedStats, CarriedLoot, CombatState, Energy, Faction, GpuSlot, Health, Home, Job,
-    ManualTarget, NpcEquipment, NpcFlags, NpcWorkState, Personality, PatrolRoute, Speed, SquadId,
-    TownId,
+    Activity, CachedStats, CarriedLoot, CombatState, Energy, EntityUid, Faction, GpuSlot, Health,
+    Home, Job, ManualTarget, NpcEquipment, NpcFlags, NpcWorkState, Personality, PatrolRoute, Speed,
+    SquadId, TownId,
 };
 use crate::resources::SquadOwner;
 use crate::constants::building_cost;
 use crate::messages::{CombatLogMsg, GpuUpdateMsg};
 use crate::resources::*;
 use crate::systemparams::WorldState;
-use crate::world::{self, BuildingKind, WorldData};
+use crate::world::{BuildingKind, WorldData};
 
 fn queue_llm_log(world: &mut World, town: usize, message: String, location: Option<Vec2>) {
     let gt = world.resource::<GameTime>();
@@ -50,8 +50,8 @@ pub struct RemoteBuildQueue(pub Vec<RemoteBuild>);
 pub struct RemoteBuild {
     pub town: usize,
     pub kind: BuildingKind,
-    pub row: i32,
-    pub col: i32,
+    pub col: usize,
+    pub row: usize,
 }
 
 #[derive(Resource, Default)]
@@ -59,8 +59,8 @@ pub struct RemoteDestroyQueue(pub Vec<RemoteDestroy>);
 
 pub struct RemoteDestroy {
     pub town: usize,
-    pub row: i32,
-    pub col: i32,
+    pub col: usize,
+    pub row: usize,
 }
 
 #[derive(Resource, Default)]
@@ -165,7 +165,7 @@ struct SummaryResponse {
     food: i32,
     gold: i32,
     factions: Vec<(usize, i32, i32, i32)>,
-    buildings: Vec<(String, i32, i32)>,
+    buildings: Vec<(String, usize, usize)>,
     squads: Vec<(usize, usize, Option<i32>, Option<i32>)>,
     upgrades: Vec<(usize, String, u8, String, String)>,
     combat_log: Vec<(i32, i32, i32, String)>,
@@ -242,18 +242,15 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
         *npc_counts.entry(act_key).or_default() += 1;
     }
 
-    // Drain chat inbox before immutable borrows
+    // Read chat inbox without draining — messages must persist for HUD display
     let mut inbox_by_town: std::collections::HashMap<usize, Vec<(usize, String, i32, i32, i32)>> = std::collections::HashMap::new();
     {
-        let mut inbox = world.resource_mut::<ChatInbox>();
-        let messages = std::mem::take(&mut inbox.messages);
-        for msg in messages {
+        let inbox = world.resource::<ChatInbox>();
+        for msg in inbox.messages.iter() {
             let dominated_by_filter = filter_town.is_some_and(|ft| ft != msg.to_town);
-            if dominated_by_filter {
-                inbox.messages.push_back(msg);
-            } else {
+            if !dominated_by_filter {
                 inbox_by_town.entry(msg.to_town).or_default().push(
-                    (msg.from_town, msg.text, msg.day, msg.hour, msg.minute)
+                    (msg.from_town, msg.text.clone(), msg.day, msg.hour, msg.minute)
                 );
             }
         }
@@ -271,6 +268,7 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
     let gold = world.resource::<GoldStorage>();
     let faction_stats = world.resource::<FactionStats>();
     let entity_map = world.resource::<EntityMap>();
+    let grid = world.resource::<crate::world::WorldGrid>();
     let world_data = world.resource::<WorldData>();
     let allowed = world.resource::<RemoteAllowedTowns>();
     let squad_state = world.resource::<SquadState>();
@@ -296,13 +294,13 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
     let town_gold = gold.gold.get(target_town).copied().unwrap_or(0);
 
     // Buildings
-    let buildings: Vec<(String, i32, i32)> = if let Some(t) = town {
+    let buildings: Vec<(String, usize, usize)> = if let Some(_t) = town {
         entity_map.iter_instances()
             .filter(|inst| inst.town_idx as usize == target_town)
             .map(|inst| {
                 let label = crate::constants::building_def(inst.kind).label.to_string();
-                let (row, col) = world::world_to_town_grid(t.center, inst.position);
-                (label, row, col)
+                let (col, row) = grid.world_to_grid(inst.position);
+                (label, col, row)
             })
             .collect()
     } else {
@@ -378,8 +376,8 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
 struct BuildParams {
     town: usize,
     kind: String,
-    row: i32,
-    col: i32,
+    col: usize,
+    row: usize,
 }
 
 pub fn build_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
@@ -393,9 +391,8 @@ pub fn build_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpRes
         return Err(brp_err(format!("town {} out of range (max {})", p.town, town_count - 1)));
     }
 
-    let center = world.resource::<WorldData>().towns.get(p.town).map(|t| t.center).unwrap_or_default();
-    let pos = world::town_grid_to_world(center, p.row, p.col);
-    queue_llm_log(world, p.town, format!("build {} at ({},{})", p.kind, p.row, p.col), Some(pos));
+    let pos = world.resource::<crate::world::WorldGrid>().grid_to_world(p.col, p.row);
+    queue_llm_log(world, p.town, format!("build {} at ({},{})", p.col, p.row, p.kind), Some(pos));
 
     world
         .resource_mut::<RemoteBuildQueue>()
@@ -403,11 +400,11 @@ pub fn build_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpRes
         .push(RemoteBuild {
             town: p.town,
             kind,
-            row: p.row,
             col: p.col,
+            row: p.row,
         });
 
-    toon_ok(json!({"status": "queued", "kind": p.kind, "town": p.town, "row": p.row, "col": p.col}))
+    toon_ok(json!({"status": "queued", "kind": p.kind, "town": p.town, "col": p.col, "row": p.row}))
 }
 
 // --- endless/destroy --------------------------------------------------------
@@ -415,8 +412,8 @@ pub fn build_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpRes
 #[derive(Deserialize)]
 struct DestroyParams {
     town: usize,
-    row: i32,
-    col: i32,
+    col: usize,
+    row: usize,
 }
 
 pub fn destroy_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
@@ -428,20 +425,19 @@ pub fn destroy_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
         return Err(brp_err(format!("town {} out of range", p.town)));
     }
 
-    let center = world.resource::<WorldData>().towns.get(p.town).map(|t| t.center).unwrap_or_default();
-    let pos = world::town_grid_to_world(center, p.row, p.col);
-    queue_llm_log(world, p.town, format!("destroy at ({},{})", p.row, p.col), Some(pos));
+    let pos = world.resource::<crate::world::WorldGrid>().grid_to_world(p.col, p.row);
+    queue_llm_log(world, p.town, format!("destroy at ({},{})", p.col, p.row), Some(pos));
 
     world
         .resource_mut::<RemoteDestroyQueue>()
         .0
         .push(RemoteDestroy {
             town: p.town,
-            row: p.row,
             col: p.col,
+            row: p.row,
         });
 
-    toon_ok(json!({"status": "queued", "town": p.town, "row": p.row, "col": p.col}))
+    toon_ok(json!({"status": "queued", "town": p.town, "col": p.col, "row": p.row}))
 }
 
 // --- endless/upgrade --------------------------------------------------------
@@ -705,22 +701,25 @@ pub fn chat_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResu
 #[derive(Deserialize)]
 struct DebugParams {
     kind: String,
-    slot: usize,
+    uid: u64,
 }
 
 pub fn debug_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
     let p: DebugParams = parse_some(params)?;
+    let entity_uid = crate::components::EntityUid(p.uid);
+    let slot = world.resource::<EntityMap>().slot_for_uid(entity_uid)
+        .ok_or_else(|| brp_err(format!("no entity with uid {}", p.uid)))?;
     match p.kind.as_str() {
-        "npc" => debug_npc(world, p.slot),
-        "building" => debug_building(world, p.slot),
+        "npc" => debug_npc(world, p.uid, slot),
+        "building" => debug_building(world, p.uid, slot),
         _ => Err(brp_err(format!("unknown debug kind: {} (use 'npc' or 'building')", p.kind))),
     }
 }
 
-fn debug_npc(world: &mut World, slot: usize) -> BrpResult {
+fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
     // ECS query — split into nested tuples to stay under Bevy's 15-element QueryData limit
     let mut query = world.query::<(
-        &GpuSlot, &Job, &Activity, &Health, &Energy, &Speed, &Home, &TownId,
+        &EntityUid, &GpuSlot, &Job, &Activity, &Health, &Energy, &Speed, &Home, &TownId,
         &Faction, &CarriedLoot, &NpcWorkState, &NpcFlags, &CombatState,
         (&Personality, &CachedStats, &NpcEquipment,
          Option<&ManualTarget>, Option<&SquadId>, Option<&PatrolRoute>),
@@ -728,11 +727,11 @@ fn debug_npc(world: &mut World, slot: usize) -> BrpResult {
 
     let mut npc_data: Option<Value> = None;
     for (
-        gpu_slot, job, activity, health, energy, _speed, home, town_id,
+        entity_uid, _gpu_slot, job, activity, health, energy, _speed, home, town_id,
         faction, carried_loot, work_state, flags, combat_state,
         (personality, stats, equipment, manual_target, squad_id, patrol_route),
     ) in query.iter(world) {
-        if gpu_slot.0 != slot { continue; }
+        if entity_uid.0 != uid { continue; }
 
         // Equipment slots
         let mut equip = json!({});
@@ -773,7 +772,7 @@ fn debug_npc(world: &mut World, slot: usize) -> BrpResult {
         let trait_str = personality.trait_summary();
 
         npc_data = Some(json!({
-            "slot": slot,
+            "uid": uid,
             "job": format!("{:?}", job),
             "activity": activity.name(),
             "activity_debug": format!("{:?}", activity),
@@ -814,7 +813,7 @@ fn debug_npc(world: &mut World, slot: usize) -> BrpResult {
     }
 
     let Some(mut data) = npc_data else {
-        return Err(brp_err(format!("no NPC at slot {}", slot)));
+        return Err(brp_err(format!("no NPC with uid {}", uid)));
     };
 
     // Resource-based data (immutable borrows after query)
@@ -960,14 +959,14 @@ fn debug_npc(world: &mut World, slot: usize) -> BrpResult {
     toon_ok(data)
 }
 
-fn debug_building(world: &mut World, slot: usize) -> BrpResult {
+fn debug_building(world: &mut World, uid: u64, slot: usize) -> BrpResult {
     let entity_map = world.resource::<EntityMap>();
     let gpu_state = world.resource::<GpuReadState>();
     let world_data = world.resource::<WorldData>();
     let game_time = world.resource::<GameTime>();
 
     let inst = entity_map.get_instance(slot)
-        .ok_or_else(|| brp_err(format!("no building at slot {}", slot)))?
+        .ok_or_else(|| brp_err(format!("no building with uid {}", uid)))?
         .clone();
 
     let def = crate::constants::building_def(inst.kind);
@@ -977,10 +976,9 @@ fn debug_building(world: &mut World, slot: usize) -> BrpResult {
         .map(|t| format!("{} (F{})", t.name, t.faction))
         .unwrap_or_else(|| if inst.kind == BuildingKind::GoldMine { "Unowned".into() } else { "?".into() });
 
-    // Grid coords
-    let (row, col) = world_data.towns.get(inst.town_idx as usize)
-        .map(|t| world::world_to_town_grid(t.center, inst.position))
-        .unwrap_or((0, 0));
+    // Grid coords (world grid)
+    let grid = world.resource::<crate::world::WorldGrid>();
+    let (col, row) = grid.world_to_grid(inst.position);
 
     // HP from entity
     let hp = entity_map.entities.get(&slot)
@@ -997,7 +995,7 @@ fn debug_building(world: &mut World, slot: usize) -> BrpResult {
     };
 
     let mut data = json!({
-        "slot": slot,
+        "uid": uid,
         "kind": format!("{:?}", inst.kind),
         "label": def.label,
         "town": town_name,
@@ -1046,6 +1044,43 @@ fn debug_building(world: &mut World, slot: usize) -> BrpResult {
     toon_ok(data)
 }
 
+// --- endless/perf ------------------------------------------------------------
+
+pub fn perf_handler(In(_params): In<Option<Value>>, world: &World) -> BrpResult {
+    let timings = world.resource::<crate::resources::SystemTimings>();
+    let ups = world.resource::<crate::resources::UpsCounter>();
+    let faction_stats = world.resource::<FactionStats>();
+
+    let frame_ms = timings.frame_ms.lock().map(|v| *v).unwrap_or(0.0);
+    let fps = if frame_ms > 0.0 { 1000.0 / frame_ms } else { 0.0 };
+    let npc_count: i32 = faction_stats.stats.iter().map(|s| s.alive).sum();
+    let entity_count = world.entities().len() as usize;
+
+    let mut response = json!({
+        "fps": (fps * 10.0).round() / 10.0,
+        "frame_ms": (frame_ms * 100.0).round() / 100.0,
+        "ups": ups.display_ups,
+        "npc_count": npc_count,
+        "entity_count": entity_count,
+    });
+
+    // Include per-system timings if profiling is enabled
+    if timings.enabled {
+        let system_timings = timings.get_timings();
+        let traced_timings = timings.get_traced_timings();
+        let mut all: std::collections::BTreeMap<String, f64> = std::collections::BTreeMap::new();
+        for (k, v) in system_timings {
+            all.insert(k.to_string(), (v as f64 * 100.0).round() / 100.0);
+        }
+        for (k, v) in traced_timings {
+            all.insert(k, (v as f64 * 100.0).round() / 100.0);
+        }
+        response["timings"] = json!(all);
+    }
+
+    toon_ok(response)
+}
+
 // ============================================================================
 // DRAIN SYSTEM
 // ============================================================================
@@ -1068,11 +1103,10 @@ pub fn drain_remote_queues(
     // Drain build queue
     let builds: Vec<RemoteBuild> = build_q.0.drain(..).collect();
     for build in builds {
-        let Some(town) = world_state.world_data.towns.get(build.town) else {
+        if build.town >= world_state.world_data.towns.len() {
             continue;
-        };
-        let center = town.center;
-        let pos = world::town_grid_to_world(center, build.row, build.col);
+        }
+        let pos = world_state.grid.grid_to_world(build.col, build.row);
         let cost = building_cost(build.kind);
 
         let _ = world_state.place_building(
@@ -1092,13 +1126,10 @@ pub fn drain_remote_queues(
         let Some(town) = world_state.world_data.towns.get(destroy.town) else {
             continue;
         };
-        let center = town.center;
         let town_name = town.name.clone();
-        let pos = world::town_grid_to_world(center, destroy.row, destroy.col);
-        let (gc, gr) = world_state.grid.world_to_grid(pos);
 
         // Look up building at grid cell
-        let Some(inst) = world_state.entity_map.get_at_grid(gc as i32, gr as i32) else {
+        let Some(inst) = world_state.entity_map.get_at_grid(destroy.col as i32, destroy.row as i32) else {
             continue;
         };
         // Validate: not Fountain/GoldMine, belongs to requesting town
@@ -1125,9 +1156,8 @@ pub fn drain_remote_queues(
         let _ = world_state.destroy_building(
             &mut combat_log,
             &game_time,
-            destroy.row,
             destroy.col,
-            center,
+            destroy.row,
             &format!("Destroyed building in {}", town_name),
             &mut gpu_updates,
         );

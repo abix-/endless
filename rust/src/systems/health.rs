@@ -274,13 +274,7 @@ pub fn death_system(
                 .get(town_idx)
                 .map(|t| t.name.clone())
                 .unwrap_or_default();
-            let center = res
-                .world_data
-                .towns
-                .get(town_idx)
-                .map(|t| t.center)
-                .unwrap_or_default();
-            let (trow, tcol) = crate::world::world_to_town_grid(center, pos);
+            let (gc, gr) = res.grid.world_to_grid(pos);
             let defender_faction = res
                 .world_data
                 .towns
@@ -304,9 +298,8 @@ pub fn death_system(
                 &mut res.entity_map,
                 &mut combat_log,
                 &game_time,
-                trow,
-                tcol,
-                center,
+                gc,
+                gr,
                 &format!("{:?} destroyed in {}", kind, town_name),
                 &mut gpu_updates,
             );
@@ -337,11 +330,13 @@ pub fn death_system(
                 );
 
                 // Remove roads + restore dirt to natural terrain
+                let town_center = res.world_data.towns.get(town_idx)
+                    .map(|t| t.center).unwrap_or_default();
                 crate::world::clear_town_roads_and_dirt(
                     &mut res.grid,
                     &mut res.entity_map,
                     &mut res.slots,
-                    center,
+                    town_center,
                     town_idx as u32,
                     &mut commands,
                 );
