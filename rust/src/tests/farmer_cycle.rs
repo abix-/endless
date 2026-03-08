@@ -88,7 +88,7 @@ pub fn tick(
                 && n.job == Job::Farmer
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(*a, Activity::GoingToWork))
+                    .is_ok_and(|a| a.kind == ActivityKind::GoingToWork)
         })
         .count();
     let working = entity_map
@@ -98,7 +98,7 @@ pub fn tick(
                 && n.job == Job::Farmer
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(*a, Activity::Working))
+                    .is_ok_and(|a| a.kind == ActivityKind::Working)
         })
         .count();
     let idle = entity_map
@@ -108,7 +108,7 @@ pub fn tick(
                 && n.job == Job::Farmer
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(*a, Activity::Idle))
+                    .is_ok_and(|a| a.kind == ActivityKind::Idle)
         })
         .count();
     let wandering = entity_map
@@ -118,7 +118,7 @@ pub fn tick(
                 && n.job == Job::Farmer
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(*a, Activity::Wandering))
+                    .is_ok_and(|a| a.kind == ActivityKind::Wandering)
         })
         .count();
 

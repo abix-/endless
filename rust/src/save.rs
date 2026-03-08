@@ -442,60 +442,48 @@ pub enum ActivitySave {
     },
     Mining { mine_pos: [f32; 2] },
     MiningAtMine,
+    SquadTarget,
 }
 
 impl ActivitySave {
     fn from_activity(a: &Activity) -> Self {
-        match a {
-            Activity::Idle => Self::Idle,
-            Activity::Working => Self::Working,
-            Activity::OnDuty { ticks_waiting } => Self::OnDuty {
-                ticks_waiting: *ticks_waiting,
-            },
-            Activity::Patrolling => Self::Patrolling,
-            Activity::GoingToWork => Self::GoingToWork,
-            Activity::GoingToRest => Self::GoingToRest,
-            Activity::Resting => Self::Resting,
-            Activity::GoingToHeal => Self::GoingToHeal,
-            Activity::HealingAtFountain { recover_until } => Self::HealingAtFountain {
-                recover_until: *recover_until,
-            },
-            Activity::Wandering => Self::Wandering,
-            Activity::Raiding { target } => Self::Raiding {
-                target: v2(*target),
-            },
-            Activity::Returning => Self::Returning { loot: vec![] },
-            Activity::Mining { mine_pos } => Self::Mining {
-                mine_pos: v2(*mine_pos),
-            },
-            Activity::MiningAtMine => Self::MiningAtMine,
+        use ActivityKind::*;
+        match a.kind {
+            Idle => Self::Idle,
+            Working => Self::Working,
+            OnDuty => Self::OnDuty { ticks_waiting: a.ticks_waiting },
+            Patrolling => Self::Patrolling,
+            SquadTarget => Self::SquadTarget,
+            GoingToWork => Self::GoingToWork,
+            GoingToRest => Self::GoingToRest,
+            Resting => Self::Resting,
+            GoingToHeal => Self::GoingToHeal,
+            HealingAtFountain => Self::HealingAtFountain { recover_until: a.recover_until },
+            Wandering => Self::Wandering,
+            Raiding => Self::Raiding { target: v2(a.target) },
+            Returning => Self::Returning { loot: vec![] },
+            Mining => Self::Mining { mine_pos: v2(a.target) },
+            MiningAtMine => Self::MiningAtMine,
         }
     }
 
     fn to_activity(&self) -> Activity {
         match self {
-            Self::Idle => Activity::Idle,
-            Self::Working => Activity::Working,
-            Self::OnDuty { ticks_waiting } => Activity::OnDuty {
-                ticks_waiting: *ticks_waiting,
-            },
-            Self::Patrolling => Activity::Patrolling,
-            Self::GoingToWork => Activity::GoingToWork,
-            Self::GoingToRest => Activity::GoingToRest,
-            Self::Resting => Activity::Resting,
-            Self::GoingToHeal => Activity::GoingToHeal,
-            Self::HealingAtFountain { recover_until } => Activity::HealingAtFountain {
-                recover_until: *recover_until,
-            },
-            Self::Wandering => Activity::Wandering,
-            Self::Raiding { target } => Activity::Raiding {
-                target: to_vec2(*target),
-            },
-            Self::Returning { .. } => Activity::Returning,
-            Self::Mining { mine_pos } => Activity::Mining {
-                mine_pos: to_vec2(*mine_pos),
-            },
-            Self::MiningAtMine => Activity::MiningAtMine,
+            Self::Idle => Activity::default(),
+            Self::Working => Activity::new(ActivityKind::Working),
+            Self::OnDuty { ticks_waiting } => Activity { kind: ActivityKind::OnDuty, ticks_waiting: *ticks_waiting, ..Default::default() },
+            Self::Patrolling => Activity::new(ActivityKind::Patrolling),
+            Self::SquadTarget => Activity::new(ActivityKind::SquadTarget),
+            Self::GoingToWork => Activity::new(ActivityKind::GoingToWork),
+            Self::GoingToRest => Activity::new(ActivityKind::GoingToRest),
+            Self::Resting => Activity::new(ActivityKind::Resting),
+            Self::GoingToHeal => Activity::new(ActivityKind::GoingToHeal),
+            Self::HealingAtFountain { recover_until } => Activity::healing(*recover_until),
+            Self::Wandering => Activity::new(ActivityKind::Wandering),
+            Self::Raiding { target } => Activity::raiding(to_vec2(*target)),
+            Self::Returning { .. } => Activity::new(ActivityKind::Returning),
+            Self::Mining { mine_pos } => Activity::mining(to_vec2(*mine_pos)),
+            Self::MiningAtMine => Activity::new(ActivityKind::MiningAtMine),
         }
     }
 }

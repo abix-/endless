@@ -24,14 +24,14 @@ use crate::world::WorldGrid;
 pub fn gpu_position_readback(
     gpu_state: Res<GpuReadState>,
     buffer_writes: Res<EntityGpuState>,
-    mut npc_q: Query<(&GpuSlot, &mut Position, &Activity, &mut NpcFlags, &NpcPath)>,
+    mut npc_q: Query<(&GpuSlot, &mut Position, &mut NpcFlags, &NpcPath)>,
 ) {
     let positions = &gpu_state.positions;
     let targets = &buffer_writes.targets;
     let threshold_sq = ARRIVAL_THRESHOLD * ARRIVAL_THRESHOLD;
     let intermediate_sq = INTERMEDIATE_ARRIVAL_THRESHOLD * INTERMEDIATE_ARRIVAL_THRESHOLD;
 
-    for (es, mut pos, activity, mut flags, path) in npc_q.iter_mut() {
+    for (es, mut pos, mut flags, path) in npc_q.iter_mut() {
         let i = es.0;
         if i * 2 + 1 >= positions.len() {
             continue;
@@ -47,8 +47,9 @@ pub fn gpu_position_readback(
         pos.x = gpu_x;
         pos.y = gpu_y;
 
-        // CPU-side arrival detection
-        if activity.is_transit() && !flags.at_destination {
+        // CPU-side arrival detection — path-driven, not activity-driven
+        let has_path = path.current < path.waypoints.len();
+        if !flags.at_destination && has_path {
             if i * 2 + 1 < targets.len() {
                 let goal_x = targets[i * 2];
                 let goal_y = targets[i * 2 + 1];
@@ -75,7 +76,7 @@ pub fn advance_waypoints_system(
     game_time: Res<GameTime>,
     time: Res<Time>,
     mut npc_q: Query<
-        (Entity, &GpuSlot, &mut NpcPath, &mut NpcFlags, &Activity),
+        (Entity, &GpuSlot, &mut NpcPath, &mut NpcFlags),
         (Without<Building>, Without<Dead>),
     >,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
@@ -84,12 +85,12 @@ pub fn advance_waypoints_system(
         return;
     }
     let dt = time.delta_secs();
-    for (_entity, slot, mut path, mut flags, activity) in npc_q.iter_mut() {
+    for (_entity, slot, mut path, mut flags) in npc_q.iter_mut() {
         // Tick down path cooldown (from A* failure backoff)
         if path.path_cooldown > 0.0 {
             path.path_cooldown = (path.path_cooldown - dt).max(0.0);
         }
-        if !flags.at_destination || !activity.is_transit() {
+        if !flags.at_destination {
             continue;
         }
         if path.waypoints.is_empty() || path.current >= path.waypoints.len() {
@@ -445,7 +446,7 @@ mod tests {
         app.world_mut().spawn((
             GpuSlot(0),
             Position { x: 0.0, y: 0.0 },
-            Activity::Idle,
+            Activity::default(),
             NpcFlags::default(),
             NpcPath::default(),
         ));
@@ -463,7 +464,7 @@ mod tests {
         app.world_mut().spawn((
             GpuSlot(0),
             Position { x: 5.0, y: 5.0 },
-            Activity::Idle,
+            Activity::default(),
             NpcFlags::default(),
             NpcPath::default(),
         ));
@@ -481,9 +482,9 @@ mod tests {
         app.world_mut().spawn((
             GpuSlot(0),
             Position { x: 0.0, y: 0.0 },
-            Activity::GoingToWork,
+            Activity::new(ActivityKind::GoingToWork),
             NpcFlags::default(),
-            NpcPath::default(),
+            NpcPath { waypoints: vec![IVec2::new(100, 200)], current: 0, goal_world: Vec2::new(100.0, 200.0), path_cooldown: 0.0 },
         ));
         app.update();
         let flags = app.world_mut().query::<&NpcFlags>().single(app.world()).unwrap();

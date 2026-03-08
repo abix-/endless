@@ -85,8 +85,8 @@ pub fn tick(
         .filter(|n| !n.dead && n.job == crate::components::Job::Raider)
     {
         match activity_q.get(npc.entity).ok() {
-            Some(Activity::Raiding { .. }) => raiding += 1,
-            Some(Activity::Returning) => {
+            Some(a) if a.kind == ActivityKind::Raiding => raiding += 1,
+            Some(a) if a.kind == ActivityKind::Returning => {
                 returning += 1;
                 if carried_loot_q
                     .get(npc.entity)

@@ -93,7 +93,7 @@ fn claim_worksite(
     let Some((target_slot, ..)) = result else {
         // No worksite available — revert Activity to Idle
         if let Ok(mut act) = activity_q.get_mut(entity) {
-            *act = crate::components::Activity::Idle;
+            *act = crate::components::Activity::default();
         }
         return;
     };
@@ -107,7 +107,7 @@ fn claim_worksite(
     ) else {
         // Claim failed — revert Activity to Idle
         if let Ok(mut act) = activity_q.get_mut(entity) {
-            *act = crate::components::Activity::Idle;
+            *act = crate::components::Activity::default();
         }
         return;
     };

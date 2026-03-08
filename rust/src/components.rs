@@ -190,85 +190,82 @@ impl CarriedLoot {
 }
 
 // ============================================================================
-// NPC STATE — Two orthogonal enums (Activity × CombatState)
+// NPC STATE — Activity (data-driven) × CombatState
 // ============================================================================
 
-/// What the NPC is *doing*. Mutually exclusive — an NPC is in exactly one activity.
-/// Transit variants (Patrolling, GoingToWork, GoingToRest, GoingToHeal, Wandering, Raiding, Returning)
-/// mean the NPC is moving toward a destination; use `is_transit()` to check.
-#[derive(Component, Default, Clone, Debug, PartialEq, Reflect)]
-#[reflect(Component)]
-pub enum Activity {
+/// Activity identity — what the NPC is doing. No payload; metadata lives in ACTIVITY_DEFS.
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, Reflect)]
+pub enum ActivityKind {
     #[default]
     Idle,
     Working,
-    OnDuty {
-        ticks_waiting: u32,
-    },
+    OnDuty,
     Patrolling,
+    SquadTarget,
     GoingToWork,
     GoingToRest,
     Resting,
     GoingToHeal,
-    HealingAtFountain {
-        recover_until: f32,
-    },
+    HealingAtFountain,
     Wandering,
-    Raiding {
-        target: Vec2,
-    },
+    Raiding,
     Returning,
-    Mining {
-        mine_pos: Vec2,
-    },
+    Mining,
     MiningAtMine,
 }
 
+/// Static metadata for each activity kind.
+pub struct ActivityDef {
+    pub kind: ActivityKind,
+    pub label: &'static str,
+    pub transit: bool,
+    pub visual_key: u8,
+}
+
+pub const ACTIVITY_DEFS: &[ActivityDef] = &[
+    ActivityDef { kind: ActivityKind::Idle,              label: "Idle",           transit: false, visual_key: 0 },
+    ActivityDef { kind: ActivityKind::Working,           label: "Working",        transit: false, visual_key: 0 },
+    ActivityDef { kind: ActivityKind::OnDuty,            label: "On Duty",        transit: false, visual_key: 0 },
+    ActivityDef { kind: ActivityKind::Patrolling,        label: "Patrolling",     transit: true,  visual_key: 0 },
+    ActivityDef { kind: ActivityKind::SquadTarget,       label: "Squad Target",   transit: true,  visual_key: 0 },
+    ActivityDef { kind: ActivityKind::GoingToWork,       label: "Going to Work",  transit: true,  visual_key: 0 },
+    ActivityDef { kind: ActivityKind::GoingToRest,       label: "Going to Rest",  transit: true,  visual_key: 0 },
+    ActivityDef { kind: ActivityKind::Resting,           label: "Resting",        transit: false, visual_key: 1 },
+    ActivityDef { kind: ActivityKind::GoingToHeal,       label: "Going to Heal",  transit: true,  visual_key: 0 },
+    ActivityDef { kind: ActivityKind::HealingAtFountain, label: "Healing",        transit: false, visual_key: 0 },
+    ActivityDef { kind: ActivityKind::Wandering,         label: "Wandering",      transit: true,  visual_key: 0 },
+    ActivityDef { kind: ActivityKind::Raiding,           label: "Raiding",        transit: true,  visual_key: 0 },
+    ActivityDef { kind: ActivityKind::Returning,         label: "Returning",      transit: true,  visual_key: 0 },
+    ActivityDef { kind: ActivityKind::Mining,            label: "Mining",         transit: true,  visual_key: 0 },
+    ActivityDef { kind: ActivityKind::MiningAtMine,      label: "Mining",         transit: false, visual_key: 0 },
+];
+
+pub fn activity_def(kind: ActivityKind) -> &'static ActivityDef {
+    ACTIVITY_DEFS.iter().find(|d| d.kind == kind).expect("missing ActivityDef")
+}
+
+/// What the NPC is doing. Kind identifies the activity; payload fields are only
+/// meaningful for specific kinds (OnDuty, HealingAtFountain, Raiding, Mining).
+#[derive(Component, Default, Clone, Debug, PartialEq, Reflect)]
+#[reflect(Component)]
+pub struct Activity {
+    pub kind: ActivityKind,
+    pub ticks_waiting: u32,
+    pub recover_until: f32,
+    pub target: Vec2,
+}
+
 impl Activity {
-    /// Is this NPC moving toward a destination?
-    pub fn is_transit(&self) -> bool {
-        matches!(
-            self,
-            Self::Patrolling
-                | Self::GoingToWork
-                | Self::GoingToRest
-                | Self::GoingToHeal
-                | Self::Wandering
-                | Self::Raiding { .. }
-                | Self::Returning
-                | Self::Mining { .. }
-        )
-    }
+    pub fn def(&self) -> &'static ActivityDef { activity_def(self.kind) }
+    pub fn is_transit(&self) -> bool { self.def().transit }
+    pub fn name(&self) -> &'static str { self.def().label }
+    pub fn visual_key(&self) -> u8 { self.def().visual_key }
 
-    /// Visual key for dirty tracking: same key = same visual representation.
-    /// Only Resting affects rendered overlays from Activity. Carried-item overlays
-    /// are tracked by CarriedLoot::visual_key() instead.
-    pub fn visual_key(&self) -> u8 {
-        match self {
-            Self::Resting => 1,
-            _ => 0,
-        }
-    }
-
-    /// Display name for UI/debug.
-    pub fn name(&self) -> &'static str {
-        match self {
-            Self::Idle => "Idle",
-            Self::Working => "Working",
-            Self::OnDuty { .. } => "On Duty",
-            Self::Patrolling => "Patrolling",
-            Self::GoingToWork => "Going to Work",
-            Self::GoingToRest => "Going to Rest",
-            Self::Resting => "Resting",
-            Self::GoingToHeal => "Going to Heal",
-            Self::HealingAtFountain { .. } => "Healing",
-            Self::Wandering => "Wandering",
-            Self::Raiding { .. } => "Raiding",
-            Self::Returning => "Returning",
-            Self::Mining { .. } => "Mining",
-            Self::MiningAtMine => "Mining",
-        }
-    }
+    pub fn new(kind: ActivityKind) -> Self { Self { kind, ..Default::default() } }
+    pub fn on_duty() -> Self { Self { kind: ActivityKind::OnDuty, ..Default::default() } }
+    pub fn healing(threshold: f32) -> Self { Self { kind: ActivityKind::HealingAtFountain, recover_until: threshold, ..Default::default() } }
+    pub fn raiding(target: Vec2) -> Self { Self { kind: ActivityKind::Raiding, target, ..Default::default() } }
+    pub fn mining(mine_pos: Vec2) -> Self { Self { kind: ActivityKind::Mining, target: mine_pos, ..Default::default() } }
 }
 
 /// Whether the NPC is in combat. Orthogonal to Activity — a Raiding NPC can be Fighting.

@@ -1570,7 +1570,7 @@ fn inspector_content(
         };
         faction_id = Some(npc.faction);
         let npc_act = bld_data.activity_q.get(npc.entity).ok();
-        is_mining_at_mine = npc_act.is_some_and(|a| matches!(*a, Activity::MiningAtMine));
+        is_mining_at_mine = npc_act.is_some_and(|a| a.kind == ActivityKind::MiningAtMine);
         activity_debug = npc_act.map(|a| format!("{:?}", a)).unwrap_or_default();
 
         if let Ok(cl) = bld_data.carried_loot_q.get(npc.entity) {

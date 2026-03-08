@@ -152,12 +152,12 @@ pub fn attack_system(
         let cached_proj_speed = stats.projectile_speed;
         let cached_proj_lifetime = stats.projectile_lifetime;
         let activity_skip = matches!(
-            *activity,
-            Activity::Returning
-                | Activity::GoingToRest
-                | Activity::Resting
-                | Activity::GoingToHeal
-                | Activity::HealingAtFountain { .. }
+            activity.kind,
+            ActivityKind::Returning
+                | ActivityKind::GoingToRest
+                | ActivityKind::Resting
+                | ActivityKind::GoingToHeal
+                | ActivityKind::HealingAtFountain
         );
         let squad_id_val = squad_id_opt.map(|s| s.0);
         let is_fighting = aq
@@ -661,13 +661,18 @@ pub fn building_tower_system(
 }
 
 /// Populate BuildingHpRender from building entity Health (only damaged buildings).
+/// Gated behind `BuildingHealState.needs_healing` — skips full query when no buildings are damaged.
 pub fn sync_building_hp_render(
     query: Query<(&Building, &GpuSlot, &Health), Without<Dead>>,
     gpu_state: Res<crate::gpu::EntityGpuState>,
     mut render: ResMut<crate::resources::BuildingHpRender>,
+    heal_state: Res<crate::resources::BuildingHealState>,
 ) {
     render.positions.clear();
     render.health_pcts.clear();
+    if !heal_state.needs_healing {
+        return;
+    }
     let positions = &gpu_state.positions;
     for (building, npc_idx, health) in query.iter() {
         let max_hp = crate::constants::building_def(building.kind).hp;
@@ -796,6 +801,7 @@ mod tests {
         app.add_plugins(MinimalPlugins);
         app.insert_resource(crate::gpu::EntityGpuState::default());
         app.insert_resource(crate::resources::BuildingHpRender::default());
+        app.insert_resource(crate::resources::BuildingHealState { needs_healing: true });
         app.insert_resource(TimeUpdateStrategy::ManualDuration(
             std::time::Duration::from_secs_f32(1.0),
         ));
@@ -852,5 +858,20 @@ mod tests {
         app.update();
         let render = app.world().resource::<crate::resources::BuildingHpRender>();
         assert!(render.positions.is_empty(), "dead building (hp=0) should not appear in render");
+    }
+
+    #[test]
+    fn hp_render_skips_when_no_healing_needed() {
+        let mut app = setup_hp_render_app();
+        app.world_mut().resource_mut::<crate::resources::BuildingHealState>().needs_healing = false;
+        app.world_mut().spawn((
+            Building { kind: crate::world::BuildingKind::Fountain },
+            GpuSlot(0),
+            crate::components::Health(250.0),
+        ));
+        app.world_mut().resource_mut::<crate::gpu::EntityGpuState>().positions = vec![100.0, 200.0];
+        app.update();
+        let render = app.world().resource::<crate::resources::BuildingHpRender>();
+        assert!(render.positions.is_empty(), "should skip query when needs_healing is false");
     }
 }

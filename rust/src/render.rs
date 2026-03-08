@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use bevy::sprite_render::{AlphaMode2d, TileData, TilemapChunk, TilemapChunkTileData};
 
 use crate::components::{
-    Activity, Building, Dead, Faction, GpuSlot, Job, ManualTarget, NpcFlags, Position, SquadId,
+    Activity, ActivityKind, Building, Dead, Faction, GpuSlot, Job, ManualTarget, NpcFlags, Position, SquadId,
 };
 use crate::gpu::RenderFrameConfig;
 use crate::messages::{SelectFactionMsg, TerrainDirtyMsg};
@@ -540,8 +540,8 @@ fn click_to_select_system(
                             .insert(ManualTarget::Npc(enemy_slot));
                         // Wake resting NPCs on move command
                         if let Ok(mut act) = activity_q.get_mut(entity) {
-                            if matches!(*act, Activity::GoingToRest | Activity::Resting) {
-                                *act = Activity::Idle;
+                            if matches!(act.kind, ActivityKind::GoingToRest | ActivityKind::Resting) {
+                                *act = Activity::default();
                             }
                         }
                         intents.submit(
@@ -590,8 +590,8 @@ fn click_to_select_system(
                         let entity = npc.entity;
                         commands.entity(entity).insert(mt.clone());
                         if let Ok(mut act) = activity_q.get_mut(entity) {
-                            if matches!(*act, Activity::GoingToRest | Activity::Resting) {
-                                *act = Activity::Idle;
+                            if matches!(act.kind, ActivityKind::GoingToRest | ActivityKind::Resting) {
+                                *act = Activity::default();
                             }
                         }
                         intents.submit(

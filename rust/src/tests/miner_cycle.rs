@@ -78,7 +78,7 @@ pub fn tick(
                 && n.job == Job::Miner
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(*a, Activity::Mining { .. }))
+                    .is_ok_and(|a| a.kind == ActivityKind::Mining)
         })
         .count();
     let mining_at_mine = entity_map
@@ -88,7 +88,7 @@ pub fn tick(
                 && n.job == Job::Miner
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(*a, Activity::MiningAtMine))
+                    .is_ok_and(|a| a.kind == ActivityKind::MiningAtMine)
         })
         .count();
     let returning = entity_map
@@ -98,7 +98,7 @@ pub fn tick(
                 && n.job == Job::Miner
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(*a, Activity::Returning))
+                    .is_ok_and(|a| a.kind == ActivityKind::Returning)
         })
         .count();
     let idle = entity_map
@@ -108,7 +108,7 @@ pub fn tick(
                 && n.job == Job::Miner
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(*a, Activity::Idle))
+                    .is_ok_and(|a| a.kind == ActivityKind::Idle)
         })
         .count();
     let going_rest = entity_map
@@ -118,7 +118,7 @@ pub fn tick(
                 && n.job == Job::Miner
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(*a, Activity::GoingToRest))
+                    .is_ok_and(|a| a.kind == ActivityKind::GoingToRest)
         })
         .count();
     let resting = entity_map
@@ -128,7 +128,7 @@ pub fn tick(
                 && n.job == Job::Miner
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(*a, Activity::Resting))
+                    .is_ok_and(|a| a.kind == ActivityKind::Resting)
         })
         .count();
 

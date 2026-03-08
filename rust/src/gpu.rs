@@ -31,7 +31,7 @@ use bevy::{
 };
 use std::borrow::Cow;
 
-use crate::components::{Activity, Building, Dead, Faction, GpuSlot, Job};
+use crate::components::{ActivityKind, Building, Dead, Faction, GpuSlot, Job};
 use crate::constants::{
     FOOD_SPRITE, GOLD_SPRITE, MAX_ENTITIES, MAX_NPC_COUNT,
     MAX_PROJECTILES as MAX_PROJECTILE_COUNT, PROJECTILE_HIT_HALF_LENGTH, PROJECTILE_HIT_HALF_WIDTH,
@@ -456,7 +456,7 @@ fn write_npc_visual(
     upload.equip_data[eq + 19] = 0.0;
 
     // Layer 5: Status (sleep icon)
-    let (sc, sr, sa) = if npc_activity.is_some_and(|a| matches!(*a, Activity::Resting)) {
+    let (sc, sr, sa) = if npc_activity.is_some_and(|a| a.kind == ActivityKind::Resting) {
         (0.0, 0.0, 3.0)
     } else {
         (-1.0, 0.0, 0.0)
@@ -1063,6 +1063,12 @@ fn sync_readback_ranges(
     let threat_due = rb_state.threat_frame_counter >= 30;
 
     let sz = |count: usize, elem: usize| -> u64 { (count * elem) as u64 };
+    /// Copy GPU readback bytes into an existing Vec, reusing its allocation.
+    fn copy_readback<T: bytemuck::Pod>(dst: &mut Vec<T>, src: &[u8]) {
+        let typed: &[T] = bytemuck::cast_slice(src);
+        dst.resize(typed.len(), T::zeroed());
+        dst.copy_from_slice(typed);
+    }
     let rb = &config.readback;
 
     // Always-on readbacks: only respawn when bucket changes or first frame
@@ -1087,7 +1093,7 @@ fn sync_readback_ranges(
                     sz(new_npc, 8),
                 ))
                 .observe(|e: On<ReadbackComplete>, mut s: ResMut<GpuReadState>| {
-                    s.positions = e.to_shader_type();
+                    copy_readback(&mut s.positions, &e.data);
                 })
                 .id(),
         );
@@ -1100,7 +1106,7 @@ fn sync_readback_ranges(
                     sz(new_entity, 4),
                 ))
                 .observe(|e: On<ReadbackComplete>, mut s: ResMut<GpuReadState>| {
-                    s.combat_targets = e.to_shader_type();
+                    copy_readback(&mut s.combat_targets, &e.data);
                 })
                 .id(),
         );
@@ -1113,7 +1119,7 @@ fn sync_readback_ranges(
                     sz(new_npc, 4),
                 ))
                 .observe(|e: On<ReadbackComplete>, mut s: ResMut<GpuReadState>| {
-                    s.health = e.to_shader_type();
+                    copy_readback(&mut s.health, &e.data);
                 })
                 .id(),
         );
@@ -1126,7 +1132,7 @@ fn sync_readback_ranges(
                     sz(new_proj, 8),
                 ))
                 .observe(|e: On<ReadbackComplete>, mut s: ResMut<ProjHitState>| {
-                    s.0 = e.to_shader_type();
+                    copy_readback(&mut s.0, &e.data);
                 })
                 .id(),
         );
@@ -1140,7 +1146,7 @@ fn sync_readback_ranges(
                 ))
                 .observe(
                     |e: On<ReadbackComplete>, mut s: ResMut<ProjPositionState>| {
-                        s.0 = e.to_shader_type();
+                        copy_readback(&mut s.0, &e.data);
                     },
                 )
                 .id(),
@@ -1174,7 +1180,7 @@ fn sync_readback_ranges(
                     sz(new_npc, 4),
                 ))
                 .observe(|e: On<ReadbackComplete>, mut s: ResMut<GpuReadState>| {
-                    s.factions = e.to_shader_type();
+                    copy_readback(&mut s.factions, &e.data);
                 })
                 .id(),
             0,
@@ -1191,7 +1197,7 @@ fn sync_readback_ranges(
                     sz(new_npc, 4),
                 ))
                 .observe(|e: On<ReadbackComplete>, mut s: ResMut<GpuReadState>| {
-                    s.threat_counts = e.to_shader_type();
+                    copy_readback(&mut s.threat_counts, &e.data);
                 })
                 .id(),
             0,

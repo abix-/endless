@@ -92,7 +92,7 @@ pub fn tick(
                 && n.job == Job::Archer
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(*a, Activity::OnDuty { .. }))
+                    .is_ok_and(|a| a.kind == ActivityKind::OnDuty)
         })
         .count();
     let patrolling = entity_map
@@ -102,7 +102,7 @@ pub fn tick(
                 && n.job == Job::Archer
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(*a, Activity::Patrolling))
+                    .is_ok_and(|a| a.kind == ActivityKind::Patrolling)
         })
         .count();
     let resting = entity_map
@@ -112,7 +112,7 @@ pub fn tick(
                 && n.job == Job::Archer
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(*a, Activity::Resting))
+                    .is_ok_and(|a| a.kind == ActivityKind::Resting)
         })
         .count();
     let going_rest = entity_map
@@ -122,7 +122,7 @@ pub fn tick(
                 && n.job == Job::Archer
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(*a, Activity::GoingToRest))
+                    .is_ok_and(|a| a.kind == ActivityKind::GoingToRest)
         })
         .count();
 
@@ -149,8 +149,8 @@ pub fn tick(
                     .iter_npcs()
                     .find_map(|n| {
                         activity_q.get(n.entity).ok().and_then(|a| {
-                            if let Activity::OnDuty { ticks_waiting } = *a {
-                                Some(ticks_waiting)
+                            if a.kind == ActivityKind::OnDuty {
+                                Some(a.ticks_waiting)
                             } else {
                                 None
                             }

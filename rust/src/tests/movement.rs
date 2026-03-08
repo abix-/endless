@@ -76,7 +76,7 @@ pub fn tick(
             !n.dead
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(*a, Activity::Working))
+                    .is_ok_and(|a| a.kind == ActivityKind::Working)
         })
         .count();
     let going_rest = entity_map
@@ -85,7 +85,7 @@ pub fn tick(
             !n.dead
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(*a, Activity::GoingToRest))
+                    .is_ok_and(|a| a.kind == ActivityKind::GoingToRest)
         })
         .count();
     let resting = entity_map
@@ -94,7 +94,7 @@ pub fn tick(
             !n.dead
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(*a, Activity::Resting))
+                    .is_ok_and(|a| a.kind == ActivityKind::Resting)
         })
         .count();
 

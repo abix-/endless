@@ -176,10 +176,10 @@ pub fn tick(
         3 => {
             let is_returning = activity_q
                 .get(archer.entity)
-                .is_ok_and(|a| matches!(a, Activity::Returning));
+                .is_ok_and(|a| a.kind == ActivityKind::Returning);
             let is_idle = activity_q
                 .get(archer.entity)
-                .is_ok_and(|a| matches!(a, Activity::Idle));
+                .is_ok_and(|a| a.kind == ActivityKind::Idle);
             test.phase_name = format!(
                 "returning={} idle={} carried={} inv={}",
                 is_returning, is_idle, archer_equip_count, inv_count

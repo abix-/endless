@@ -487,6 +487,17 @@ Completed items moved from roadmap for readability.
 - [x] Tower authority hardening: `building_tower_system` re-validates GPU `combat_targets` candidates via ECS (exists, !dead, enemy faction) before spawning projectiles
 - [x] Authority contract enforcement: docs aligned to authority.md — corrected stale claims in combat.md, concepts.md, gpu-compute.md, messages.md, resources.md
 
+### Stage 19: Code Health
+- [x] Fix 5 failing tests (healing_cache_multiple_towns, healing_cache_rebuilds_on_dirty, healing_cache_skips_negative_faction, mining_discovers_mine_within_radius, raider_forage_adds_food_on_hour_tick) — FactionKind/FACTION_NEUTRAL awareness in test setup
+- [x] CI pipeline: `cargo test` + `cargo clippy` in GitHub Actions on every push (.github/workflows/ci.yml)
+- [x] Split god-files: left_panel.rs (3,629 lines → inventory_ui, upgrades_ui, roster_ui), resources.rs (3,405 → extract EntityMap), economy.rs (2,299 → extract tests)
+- [x] Audit production unwrap()s: replaced ~20 production unwrap() calls with proper error handling (health.rs killer_slot triple-unwrap, economy.rs, save.rs, gpu.rs, etc.). Remaining unwrap()s are test-only.
+
+### Testing Infrastructure
+- [x] Unit test infrastructure: `#[cfg(test)]` modules in stats.rs, constants.rs, components.rs (65 pure function tests via `cargo test`)
+- [x] System-level tests: headless `App::new()` + `FixedUpdate` tests for energy, regen, starvation, game_time, cooldown, damage, construction systems + population helpers (52 tests)
+- [x] Pure function tests: generate_name, generate_personality in spawn.rs (6 tests)
+
 ### Intentional Removals
 - [x] Sprite atlas browser tool — intentional removal (Godot dev tool, not needed in Bevy)
 - [x] World-space town labels — intentional removal (Godot scenes, not ported)

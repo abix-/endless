@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-03-08l
+
+- **Data-driven Activity system** — replaced `Activity` enum with `ActivityKind` enum + `ActivityDef` static registry + `Activity` struct. Metadata (label, transit, visual_key) is data-driven via `ACTIVITY_DEFS` — adding a new activity is 1 enum variant + 1 registry entry instead of updating 4+ match arms. Same pattern as `BuildingDef`/`NpcDef`.
+- **New `SquadTarget` activity** — dedicated transit activity for NPCs following squad targets. Replaces the previous hack of using `Patrolling` + OnDuty exemption. Smooth multi-waypoint movement to squad target position.
+- **Decoupled waypoint advancement from activity state** — `gpu_position_readback` and `advance_waypoints_system` now check `has_path` (NpcPath has remaining waypoints) instead of `is_transit()`. Fixes step-pause-step movement bug where OnDuty archers following squad targets had paths computed but waypoints never advanced.
+- **Building HP render system** — `sync_building_hp_render` gated behind `BuildingHealState.needs_healing` for efficient damaged-building-only rendering.
+
 ## 2026-03-08k
 
 - **DenseSlotSet** — new data structure in entity_map.rs: dense `Vec<usize>` + reverse `HashMap<usize, usize>` for O(1) insert, O(1) swap_remove, cache-friendly iteration. Applied to `npc_by_town`, `by_kind`, `by_kind_town`, `spawner_slots`. Death system 500 deaths/frame: 7.8ms → 951µs (8.2× faster). Same pattern as EnTT sparse sets.

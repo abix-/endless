@@ -91,7 +91,7 @@ Execution order is **chained** — each system completes before the next starts.
 - **Manual target override**: if NPC has `ManualTarget::Npc(slot)`, uses that slot as target instead of GPU `combat_targets[i]`. Auto-clears `ManualTarget` when target's GPU health <= 0 (dead). `ManualTarget::Building` and `ManualTarget::Position` variants fall through to GPU auto-targeting. `ManualTarget` is matched by reference (no clone per-NPC per-frame). See [behavior.md](behavior.md#squads) for how `ManualTarget` is set.
 - **Hold fire**: if NPC's squad has `hold_fire == true` and no `ManualTarget`, target is set to -1 (skip auto-engage). Reads `SquadState` via `SquadId`.
 - Falls back to `GpuReadState.combat_targets` for NPCs without manual target or hold-fire.
-- **Skips** NPCs with `Activity::Returning`, `Activity::GoingToRest`, or `Activity::Resting` (prevents combat while heading home, going to bed, or sleeping)
+- **Skips** NPCs with `ActivityKind::Returning`, `ActivityKind::GoingToRest`, `ActivityKind::Resting`, `ActivityKind::GoingToHeal`, or `ActivityKind::HealingAtFountain` (prevents combat while heading home, resting, or healing)
 - **Unified GPU targeting**: `combat_targets[i]` returns a unified entity slot. Building vs NPC is determined by `entity_map.get_instance()` presence check. One code path for all target types.
 - **Building targets** (target has instance in `EntityMap`):
   - **Roads skipped**: `BuildingKind::Road` targets are ignored (roads are untargetable — also filtered via `ENTITY_FLAG_UNTARGETABLE` in GPU compute shader)

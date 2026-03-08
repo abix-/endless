@@ -33,10 +33,9 @@ Remaining performance items (sorted by expected savings):
    Expected saving: ~5-15+ ms/frame CPU when most NPCs off-camera; near-zero if camera covers all.
 2. [ ] [Medium] Cache-friendly vectors for hot building iteration paths (keep HashMaps as authority, vectors for tight loops).
    Expected saving: ~1-3 ms/frame CPU on building-heavy ticks.
-3. [ ] [Medium] Pre-allocate `GpuReadState` vecs: readback observers create new Vecs per frame. At 50k entities, positions = 1.6MB allocation per frame.
-   Expected saving: ~0.5-1.5 ms/frame CPU plus allocator churn.
-4. [ ] [Medium] `sync_building_hp_render` every-frame rebuild: gate behind dirty flag. Only damaged buildings (<1%) produce output.
-   Expected saving: ~0.5-1.5 ms/frame CPU.
+3. [x] ~~[Medium] Pre-allocate `GpuReadState` vecs: readback observers create new Vecs per frame. At 50k entities, positions = 1.6MB allocation per frame.~~
+   ~~Expected saving: ~0.5-1.5 ms/frame CPU plus allocator churn.~~
+4. [x] ~~[Medium] `sync_building_hp_render` gated behind `BuildingHealState.needs_healing` — skips full building query when no buildings are damaged (99%+ of frames).~~
 5. [ ] [Medium] `on_duty_tick_system` full iteration: narrow to OnDuty archers only.
    Expected saving: ~0.3-1.0 ms/frame CPU.
 6. [ ] [Medium] Perf anti-pattern remediation pass: repeated query scans, `Vec::contains` → `HashSet`, per-item linear dedup.

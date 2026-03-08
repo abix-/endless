@@ -218,7 +218,7 @@ pub fn tick(
             let is_working = farmers.iter().any(|n| {
                 activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(*a, Activity::Working))
+                    .is_ok_and(|a| a.kind == ActivityKind::Working)
             });
             let farmer_y = farmers
                 .first()

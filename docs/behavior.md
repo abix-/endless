@@ -4,12 +4,13 @@
 
 NPC decision-making and state transitions. All run in `Step::Behavior` after combat is resolved. Movement targets are submitted via `MovementIntents` resource with priority-based arbitration — `resolve_movement_system` (after Step::Behavior) is the sole emitter of `GpuUpdate::SetTarget`. For economy systems (farm growth, starvation, raider foraging, raider respawning, game time), see [economy.md](economy.md).
 
-**Unified Decision System**: All NPC decisions are handled by `decision_system` using a priority cascade. NPC state is modeled by two orthogonal enum components (concurrent state machines pattern):
+**Unified Decision System**: All NPC decisions are handled by `decision_system` using a priority cascade. NPC state is modeled by two orthogonal components (concurrent state machines pattern):
 
-- `Activity` enum: what the NPC is *doing* (Idle, Working, OnDuty, Patrolling, GoingToWork, GoingToRest, Resting, GoingToHeal, HealingAtFountain, Wandering, Raiding, Returning, Mining, MiningAtMine)
+- `Activity` struct: what the NPC is *doing*. Contains `kind: ActivityKind` (identity) + payload fields (`ticks_waiting`, `recover_until`, `target`). Metadata (label, transit flag, visual_key) is data-driven via `ActivityDef` static registry — same pattern as `BuildingDef`/`NpcDef`.
+- `ActivityKind` enum: `Idle, Working, OnDuty, Patrolling, SquadTarget, GoingToWork, GoingToRest, Resting, GoingToHeal, HealingAtFountain, Wandering, Raiding, Returning, Mining, MiningAtMine`
 - `CombatState` enum: whether the NPC is *fighting* (None, Fighting, Fleeing)
 
-Activity is preserved through combat — a Raiding NPC stays `Activity::Raiding` while `CombatState::Fighting`. When combat ends, the NPC resumes its previous activity.
+Activity is preserved through combat — a Raiding NPC stays `ActivityKind::Raiding` while `CombatState::Fighting`. When combat ends, the NPC resumes its previous activity.
 
 The system uses **SystemParam bundles** for farm and economy parameters:
 - `FarmParams`: `EntityMap` (occupancy tracked via `BuildingInstance.occupants` field)
@@ -92,27 +93,32 @@ Same situation, different outcomes. That's emergent behavior.
 
 ## State Machine
 
-Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` (fighting status). Activity is preserved through combat.
+Two concurrent state machines: `Activity.kind` (what NPC is doing) and `CombatState` (fighting status). Activity is preserved through combat.
 
 ```
     Archer:               Farmer:               Miner:                Stealer (Raider):
     ┌──────────┐         ┌──────────┐         ┌──────────┐          ┌──────────┐
     │  OnDuty  │ spawn   │GoingToWork│ spawn  │  Idle    │ spawn   │  Idle    │ spawns idle
-    │{ticks: 0}│         └────┬─────┘         └────┬─────┘          └────┬─────┘
-    └────┬─────┘              │ arrival             │ decision          │ decision_system
-         │ decision_system    ▼                     ▼                   ▼
-         ▼                ┌──────────┐         ┌──────────┐       ┌──────────────────┐
-    ┌──────────┐         │ Working  │         │Mining{pos}│       │ Raiding{target}  │
-    │Patrolling│         └────┬─────┘         └────┬─────┘       └────┬─────────────┘
-    └────┬─────┘              │ farm Ready         │ arrival          │ arrival at farm
-         │ arrival            ▼                     ▼                  ▼
-         ▼              ┌──────────────┐       ┌──────────┐       ┌──────────────────┐
-    ┌──────────┐        │Returning     │       │MiningAt  │       │Returning{food:T} │
-    │  OnDuty  │        │{food: yield} │       │Mine      │       └────┬─────────────┘
-    │{ticks: 0}│        └────┬─────────┘       │(4h cycle)│            │ proximity delivery
-    └────┬─────┘              │ delivery        └────┬─────┘            ▼
-         │                    ▼                     │ full/tired  deliver food, re-enter
-         │               GoingToWork           Returning{gold}     decision_system
+    └────┬─────┘         └────┬─────┘         └────┬─────┘          └────┬─────┘
+         │ decision_system    │ arrival             │ decision          │ decision_system
+         ▼                    ▼                     ▼                   ▼
+    ┌──────────┐         ┌──────────┐         ┌──────────┐       ┌──────────────────┐
+    │Patrolling│         │ Working  │         │  Mining  │       │     Raiding      │
+    └────┬─────┘         └────┬─────┘         └────┬─────┘       └────┬─────────────┘
+         │ arrival            │ farm Ready         │ arrival          │ arrival at farm
+         ▼                    ▼                     ▼                  ▼
+    ┌──────────┐         ┌──────────────┐     ┌──────────┐       ┌──────────────────┐
+    │  OnDuty  │         │ Returning    │     │MiningAt  │       │    Returning     │
+    └────┬─────┘         └────┬─────────┘     │Mine      │       └────┬─────────────┘
+         │                    │ delivery       │(4h cycle)│            │ proximity delivery
+         │ squad target       ▼                └────┬─────┘            ▼
+         ▼               GoingToWork           Returning          deliver food, re-enter
+    ┌───────────┐                                                  decision_system
+    │SquadTarget│ (smooth multi-waypoint walk to squad target)
+    └────┬──────┘
+         │ arrival
+         ▼
+    OnDuty (at squad target position)
          └────────┬───────────┴─────────────────────┘
                   │ decision_system
                   ▼ (weighted random)
@@ -141,22 +147,28 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 
 ## Components
 
-### State Enums (Concurrent State Machines)
+### State Components (Concurrent State Machines)
 
-| ECS Component | Variants | Purpose |
-|-----------|----------|---------|
-| Activity | `Idle, Working, OnDuty{ticks_waiting}, Patrolling, GoingToWork, GoingToRest, Resting, GoingToHeal, HealingAtFountain{recover_until}, Wandering, Raiding{target}, Returning{loot: Vec<(ItemKind, i32)>}, Mining{mine_pos}, MiningAtMine` | What the NPC is *doing* — mutually exclusive |
-| CombatState | `None, Fighting{origin}, Fleeing` | Whether the NPC is *fighting* — orthogonal to Activity |
+| ECS Component | Type | Purpose |
+|-----------|------|---------|
+| Activity | struct: `kind: ActivityKind` + payload fields | What the NPC is *doing* — mutually exclusive |
+| CombatState | enum: `None, Fighting{origin}, Fleeing` | Whether the NPC is *fighting* — orthogonal to Activity |
 
-`Activity::is_transit()` returns true for Patrolling, GoingToWork, GoingToRest, GoingToHeal, Wandering, Raiding, Returning, Mining. Used by `gpu_position_readback` for arrival detection.
+**ActivityKind enum**: `Idle, Working, OnDuty, Patrolling, SquadTarget, GoingToWork, GoingToRest, Resting, GoingToHeal, HealingAtFountain, Wandering, Raiding, Returning, Mining, MiningAtMine`
 
-`Resting` is a unit variant — energy recovery only. NPCs go home (spawner) to rest.
+**ActivityDef registry** (`ACTIVITY_DEFS`): static metadata per kind — `label: &str`, `transit: bool`, `visual_key: u8`. Looked up via `activity_def(kind)`. Adding a new activity = 1 enum variant + 1 registry entry (no match arms to update).
 
-`HealingAtFountain { recover_until: 0.75 }` — HP recovery at town fountain. NPC waits until HP >= threshold, then resumes. Separate from energy rest.
+**Activity struct** fields: `kind: ActivityKind`, `ticks_waiting: u32` (OnDuty guard counter), `recover_until: f32` (HealingAtFountain HP threshold), `target: Vec2` (Raiding/Mining destination). Convenience constructors: `Activity::on_duty()`, `Activity::healing(threshold)`, `Activity::raiding(target)`, `Activity::mining(mine_pos)`.
 
-`Returning { loot: Vec<(ItemKind, i32)> }` — carried resources are part of the activity. Loot accumulates from NPC kills (`npc_def.loot_drop`), building destruction (`BuildingDef::loot_drop()`), farm stealing, and mine extraction. Multiple loot types can be carried simultaneously.
+`activity.is_transit()` delegates to `ActivityDef.transit`. True for: Patrolling, SquadTarget, GoingToWork, GoingToRest, GoingToHeal, Wandering, Raiding, Returning, Mining.
 
-`Mining { mine_pos: Vec2 }` — miner walking to a gold mine. `MiningAtMine` — miner actively extracting gold (claims occupancy, progress-based 4-hour work cycle with gold progress bar overhead).
+**Waypoint advancement is decoupled from activity state**: `gpu_position_readback` and `advance_waypoints_system` check `has_path` (whether `NpcPath` has remaining waypoints) instead of `is_transit()`. This allows any activity to follow multi-waypoint paths without step-pause-step movement.
+
+`Resting` — energy recovery only. NPCs go home (spawner) to rest.
+
+`HealingAtFountain` — `activity.recover_until` stores HP threshold. NPC waits until HP >= threshold, then resumes. Separate from energy rest.
+
+`Mining` — `activity.target` stores mine position. `MiningAtMine` — miner actively extracting gold (claims occupancy, progress-based 4-hour work cycle with gold progress bar overhead).
 
 ### NPC ECS Components
 
@@ -179,7 +191,7 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 ## Systems
 
 ### decision_system (Unified Priority Cascade)
-- Iterates a focused ECS query `(Entity, &GpuSlot, &Job, &TownId, &Faction)` with `Without<Building>, Without<Dead>` filters for the outer NPC loop. Reads/writes mutable NPC state via `DecisionNpcState` + `NpcDataQueries` SystemParam bundles (`get_mut(entity)` per NPC). Skips `direct_control` NPCs entirely, skips NPCs in transit (`activity.is_transit()`). Work state managed via always-present `NpcWorkState` component (no `Commands` needed — no archetype churn). Patrol route data read inline at usage sites (no per-NPC Vec clone). **Conditional writeback**: captures original values at loop top, compares at end — only calls `get_mut()` for changed fields (most NPCs exit early via `break 'decide`). On transition to `Idle`, submits a self-position movement intent to clear stale GPU targets (prevents oscillation with nearby NPCs). `EntityMap` retained for building instance lookups (farms, waypoints, mines, occupancy)
+- Iterates a focused ECS query `(Entity, &GpuSlot, &Job, &TownId, &Faction)` with `Without<Building>, Without<Dead>` filters for the outer NPC loop. Reads/writes mutable NPC state via `DecisionNpcState` + `NpcDataQueries` SystemParam bundles (`get_mut(entity)` per NPC). Skips `direct_control` NPCs entirely, skips NPCs in transit (`activity.is_transit()`). Work state managed via always-present `NpcWorkState` component (no `Commands` needed — no archetype churn). Patrol route data read inline at usage sites (no per-NPC Vec clone). **Conditional writeback**: captures `orig_activity = activity.kind` at loop top, compares at end — only calls `get_mut()` for changed fields (most NPCs exit early via `break 'decide`). On transition to `Idle`, submits a self-position movement intent to clear stale GPU targets (prevents oscillation with nearby NPCs). `EntityMap` retained for building instance lookups (farms, waypoints, mines, occupancy)
 - Uses **SystemParam bundles** for farm and economy parameters (see Overview)
 - `DecisionExtras` includes `work_intents: MessageWriter<WorkIntentMsg>` — all worksite claim/release/retarget delegated to `resolve_work_targets` via fire-and-forget messages (no inline `entity_map.release()` or `try_claim_worksite()` calls)
 - `worksite_deferred` flag per NPC: set when WorkIntentMsg sent, skips NpcWorkState write-back (resolver owns the component that frame)
@@ -192,7 +204,7 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 
 **Priority 0: Arrival transitions**
 - If `AtDestination`: match on Activity variant
-  - `Patrolling` → check squad rest first (tired squad members → `GoingToRest` targeting home instead of `OnDuty`); otherwise `Activity::OnDuty { ticks_waiting: 0 }`
+  - `Patrolling` / `SquadTarget` → check squad rest first (tired squad members → `GoingToRest` targeting home instead of `OnDuty`); otherwise `Activity::on_duty()`
   - `GoingToRest` → `Activity::Resting` (sleep icon derived by `sync_visual_sprites`)
   - `GoingToHeal` → `Activity::HealingAtFountain { recover_until: policy.recovery_hp }` (healing aura handles HP recovery)
   - `GoingToWork` → Farmer: checks `worksite` slot. If occupied by another, sends `WorkIntent::Retarget` message (or idles if none free). If not occupied, checks Ready: if Ready, `harvest()` + sends `WorkIntent::Release` + `Returning { loot: Food }`. If not Ready, `Working` (tending).
@@ -249,18 +261,18 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 
 ### on_duty_tick_system
 - Query-first: `(&mut Activity, &CombatState)` with `Without<Building>, Without<Dead>` — no `EntityMap` dependency
-- Increments `ticks_waiting` each frame for NPCs with `Activity::OnDuty` where `CombatState` is not Fighting
+- Increments `activity.ticks_waiting` each frame for NPCs with `ActivityKind::OnDuty` where `CombatState` is not Fighting
 
 ### arrival_system (Proximity Checks)
 - **Proximity-based delivery** for Returning NPCs: matches `Activity::Returning { .. }`, checks distance to home, delivers food and/or gold within DELIVERY_RADIUS (50px). All NPCs (including farmers) go `Idle` after delivery — the decision system re-evaluates the best target. Gold delivered to `GoldStorage` per town.
 - **Worksite harvest + drift** handled entirely by `decision_system` Priority 5 unified worksite block (not arrival_system)
 - **Healing drift check** in decision_system: `HealingAtFountain` NPCs pushed >100px from town center by separation physics get re-targeted to fountain (prevents deadlock where NPC is outside healing range but stuck in healing state)
 - **GoingToHeal early arrival** in decision_system: NPCs transition to `HealingAtFountain` as soon as they're within 100px of town center, before reaching the exact pixel
-- Arrival detection (`is_transit()` → `AtDestination`) is handled by `gpu_position_readback` in movement.rs
+- Arrival detection (path-driven `has_path` check → `AtDestination`) is handled by `gpu_position_readback` in movement.rs
 - All state transitions handled by decision_system Priority 0 (central brain model)
 
 ### energy_system
-- NPCs with `Activity::Resting` or `Activity::HealingAtFountain`: recover `ENERGY_RECOVER_RATE` per tick
+- NPCs with `ActivityKind::Resting` or `ActivityKind::HealingAtFountain`: recover `ENERGY_RECOVER_RATE` per tick
 - All other NPCs: drain `ENERGY_DRAIN_RATE` per tick
 - Clamp to 0.0-100.0
 - **Note**: HealingAtFountain also recovers energy to prevent ping-pong (NPC leaves fountain tired → goes home → not healed → returns to fountain)
@@ -313,11 +325,11 @@ Each town has 4 waypoints at corners. Patrol units cycle clockwise. Patrol route
 
 Military unit groups for both player and AI. 10 player-reserved squads + AI squads appended after. All military NPCs (determined by `Job::is_military()`: archers, crossbows, fighters, raiders) can be squad members. `SquadId(i32)` is an optional ECS component — inserted on recruitment, removed on dismiss.
 
-**Behavior override**: In `decision_system`'s squad sync block, any NPC with `squad_id` checks `SquadState.squads[id].target`. If a target exists, the unit walks there (`Activity::Patrolling` with squad target). On arrival, `Activity::OnDuty` (same as waypoint). If no target is set and patrol disabled, unit stops (`Activity::Idle`). Squad sync also handles `Activity::Raiding` (raiders redirect to squad target).
+**Behavior override**: In `decision_system`'s squad sync block, any NPC with `squad_id` checks `SquadState.squads[id].target`. If a target exists, non-transit NPCs transition to `ActivityKind::SquadTarget` (a transit activity with smooth multi-waypoint movement). On arrival, `Activity::on_duty()`. If no target is set and patrol disabled, unit stops (`ActivityKind::Idle`). Squad sync also handles `Activity::Raiding` (raiders redirect to squad target).
 
 **Manual micro override**: NPCs with a `manual_target` field skip the squad sync block entirely — player-assigned attack targets take priority over squad auto-redirect. The combat system handles `ManualTarget` directly (see [combat.md](combat.md#attack-system)).
 
-**Squad sync**: The squad sync block always submits a movement intent to the squad target at `MovementPriority::Squad` (2). The movement system deduplicates unchanged targets, so redundant writes are cheap. Non-transit, non-OnDuty activities transition to `Patrolling`. `OnDuty` scatter targets the squad target (not patrol post) when a squad target is active. Patrol cycling is suppressed when the squad has an active target, preventing archers from walking back to their patrol waypoints.
+**Squad sync**: The squad sync block always submits a movement intent to the squad target at `MovementPriority::Squad` (2). The movement system deduplicates unchanged targets, so redundant writes are cheap. Non-transit activities transition to `ActivityKind::SquadTarget`. `OnDuty` scatter targets the squad target (not patrol post) when a squad target is active. Patrol cycling is suppressed when the squad has an active target, preventing archers from walking back to their patrol waypoints.
 
 **Rest-when-tired**: Squad members respect `rest_when_tired` flag via four gates: (1) arrival handler catches tired members before `OnDuty`, (2) hard gate before combat priorities forces `GoingToRest`, (3) squad sync block skips resting members, (4) Priority 6 OnDuty+tired check skips leave-post when `rest_when_tired == false`. Gates 1-3 use hysteresis (enter at energy < 30, stay until energy ≥ 90). Gate 4 is the inverse — it prevents units from leaving post when the flag is off. `attack_system` skips `GoingToRest` NPCs to prevent GPU target override.
 
