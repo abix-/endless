@@ -70,6 +70,10 @@ impl<T: Clone> DenseSlotMap<T> {
         self.slots.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.slots.is_empty()
+    }
+
     pub fn clear(&mut self) {
         self.slots.clear();
         self.data.clear();
