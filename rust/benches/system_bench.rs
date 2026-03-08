@@ -542,7 +542,7 @@ fn bench_building_tower_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("building_tower");
     group.sample_size(20);
     // Scale by tower count (with fixed enemy NPC population)
-    const TOWER_COUNTS: &[usize] = &[10, 50, 100, 250, 500];
+    const TOWER_COUNTS: &[usize] = &[100, 500, 1_000, 5_000, 50_000];
     for &tower_count in TOWER_COUNTS {
         group.bench_with_input(
             BenchmarkId::from_parameter(tower_count),
@@ -575,8 +575,8 @@ fn bench_building_tower_system(c: &mut Criterion) {
                     }
                     let mut tower_entities = Vec::with_capacity(tower_count);
                     for (i, &slot) in tower_slots.iter().enumerate() {
-                        let x = 400.0 + (i % 25) as f32 * 32.0;
-                        let y = 400.0 + (i / 25) as f32 * 32.0;
+                        let x = 400.0 + (i % 224) as f32 * 32.0;
+                        let y = 400.0 + (i / 224) as f32 * 32.0;
                         let entity = world.spawn((
                             GpuSlot(slot),
                             Position { x, y },
@@ -636,7 +636,7 @@ fn bench_death_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("death_system");
     group.sample_size(20);
     // Scale by deaths-per-frame at fixed 50K total NPCs
-    const DEATH_COUNTS: &[usize] = &[100, 500, 1_000, 2_500];
+    const DEATH_COUNTS: &[usize] = &[100, 500, 1_000, 5_000, 25_000];
     for &death_count in DEATH_COUNTS {
         group.bench_with_input(
             BenchmarkId::from_parameter(death_count),
@@ -673,7 +673,7 @@ fn bench_spawner_respawn_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("spawner_respawn");
     group.sample_size(20);
     // Scale by spawner building count
-    const SPAWNER_COUNTS: &[usize] = &[100, 500, 1_000, 2_000];
+    const SPAWNER_COUNTS: &[usize] = &[100, 500, 1_000, 5_000, 50_000];
     for &spawner_count in SPAWNER_COUNTS {
         group.bench_with_input(
             BenchmarkId::from_parameter(spawner_count),
@@ -695,8 +695,8 @@ fn bench_spawner_respawn_system(c: &mut Criterion) {
                     }
                     let mut em = world.resource_mut::<EntityMap>();
                     for (i, &slot) in building_slots.iter().enumerate() {
-                        let x = 100.0 + (i % 50) as f32 * 32.0;
-                        let y = 100.0 + (i / 50) as f32 * 32.0;
+                        let x = 100.0 + (i % 224) as f32 * 32.0;
+                        let y = 100.0 + (i / 224) as f32 * 32.0;
                         em.add_instance(BuildingInstance {
                             kind: world::BuildingKind::FarmerHome,
                             position: Vec2::new(x, y),

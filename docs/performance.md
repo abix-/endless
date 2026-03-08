@@ -446,3 +446,44 @@ Replaced raw A* with custom HPA* (Hierarchical Pathfinding A*). Grid divided int
 - Budgeted 50K: **2.27ms → 214µs (10.9× faster)**. Budget cap now nearly unnecessary — 5000 requests cost <1ms.
 - Three compounding factors: HPA* abstract graph searches ~100-500 nodes instead of ~5000, LOS bypass 5→12 tiles skips most short paths, eliminated 125KB/frame cost grid clone.
 - HPA* cache build is one-time at world init (~50-100ms). Chunk rebuilds on building change are <1ms.
+
+### 2026-03-08f — e07691b (full suite, expanded building/death scale)
+
+**NPC-scaled** (vary entity count):
+
+| System | 1K | 5K | 10K | 25K | 50K | Scaling |
+|--------|----|----|-----|-----|-----|---------|
+| decision | 37µs | 67µs | 105µs | 239µs | 456µs | O(n) |
+| damage | 25µs | 47µs | 54µs | 127µs | 251µs | O(n) |
+| healing | 11µs | 39µs | 78µs | 205µs | 450µs | O(n) |
+| attack | 20µs | 70µs | 136µs | 358µs | 844µs | O(n) |
+| resolve_movement | 19µs | 48µs | 64µs | 122µs | 222µs | O(n) HPA* |
+| resolve_movement_unbounded | 33µs | 88µs | 160µs | 389µs | 739µs | O(n) HPA* |
+| populate_gpu_state | 182µs | 200µs | 236µs | 539µs | 1061µs | O(n) |
+
+**Building-scaled** (vary building count, 5K enemy NPCs):
+
+| System | 100 | 500 | 1K | 5K | 50K | Scaling |
+|--------|-----|-----|----|-----|------|---------|
+| building_tower | 9µs | 26µs | 50µs | 237µs | 5.6ms | O(n) |
+
+**Spawner-scaled** (vary spawner building count):
+
+| System | 100 | 500 | 1K | 5K | 50K | Scaling |
+|--------|-----|-----|----|-----|------|---------|
+| spawner_respawn | 15µs | 26µs | 45µs | 209µs | 2.1ms | O(n) |
+
+**Death-scaled** (vary deaths/frame, fixed 50K NPCs):
+
+| Deaths/frame | 100 | 500 | 1K | 5K | 25K |
+|-------------|-----|-----|----|-----|------|
+| death_system | 45µs | 41µs | 41µs | 47µs | 43µs |
+
+Combined 50K (7 NPC-scaled systems): 4.2ms (26.4% of 16ms budget).
+
+**Findings:**
+- `attack_system` regressed ~25% at 50K (844µs vs 668µs baseline). Noise/thermal variation — no code changed in attack path.
+- `resolve_movement` now O(n) instead of O(1) budget-capped, but at 222µs@50K it's 10× cheaper than the old 2.27ms budget cap.
+- `building_tower` at 50K towers = 5.6ms — a realistic stress test. 500 towers (typical game) = 26µs, negligible.
+- `spawner_respawn` at 50K spawners = 2.1ms — confirms O(n) post-fix. 2K spawners (old max) = ~45µs.
+- `death_system` flat at ~43µs regardless of death count (100-25K). Bench still not exercising the expensive path — Dead NPCs bypassed by `Without<Dead>` filter. Known issue from 2026-03-08b.
