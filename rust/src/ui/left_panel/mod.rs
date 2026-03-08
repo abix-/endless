@@ -757,6 +757,26 @@ fn policies_content(
         }
     }
 
+    // -- Resource Reserves --
+    ui.add_space(8.0);
+    ui.label(egui::RichText::new("Resource Reserves").strong());
+    ui.small("AI/auto-upgrade won't spend below these amounts");
+
+    ui.horizontal(|ui| {
+        ui.label("Food:");
+        let mut rf = policy.reserve_food;
+        if ui.add(egui::DragValue::new(&mut rf).range(0..=10000).speed(10)).changed() {
+            policy.reserve_food = rf;
+        }
+    });
+    ui.horizontal(|ui| {
+        ui.label("Gold:");
+        let mut rg = policy.reserve_gold;
+        if ui.add(egui::DragValue::new(&mut rg).range(0..=10000).speed(10)).changed() {
+            policy.reserve_gold = rg;
+        }
+    });
+
 }
 
 // ============================================================================

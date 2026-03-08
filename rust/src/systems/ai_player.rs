@@ -1458,7 +1458,13 @@ pub fn ai_decision_system(
 
         let food = res.food_storage.food.get(tdi).copied().unwrap_or(0);
         let spawner_count = snapshots.spawner_counts.get(&tdi).copied().unwrap_or(0);
-        let reserve = personality.food_reserve_per_spawner() * spawner_count;
+        let policy_reserves = res
+            .policies
+            .policies
+            .get(tdi)
+            .map(|p| (p.reserve_food, p.reserve_gold))
+            .unwrap_or((0, 0));
+        let reserve = personality.food_reserve_per_spawner() * spawner_count + policy_reserves.0;
         // Desire signals are computed once below and reused by action + upgrade scoring.
         let mining_radius = res
             .policies
@@ -1844,8 +1850,8 @@ pub fn ai_decision_system(
         if upgrade_enabled {
         let food_after = res.food_storage.food.get(tdi).copied().unwrap_or(0);
         let gold_after = gold_storage.gold.get(tdi).copied().unwrap_or(0);
-        // Gold reservation: when no empty slots, reserve gold for expansion upgrade.
-        let expansion_gold_reserve = if !ctx.has_slots {
+        // Gold reservation: policy reserve + expansion upgrade hoard.
+        let expansion_gold_reserve = policy_reserves.1 + if !ctx.has_slots {
             uw.iter()
                 .enumerate()
                 .filter(|&(_, &w)| w > 0.0)

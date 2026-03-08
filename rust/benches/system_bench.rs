@@ -644,24 +644,94 @@ fn bench_death_system(c: &mut Criterion) {
             |b, &death_count| {
                 let mut app = build_bench_app();
                 populate_npcs(&mut app, 50_000);
+                // Warmup — run once so system caches are primed
+                let _ = app.world_mut().run_system_once(death_system);
                 b.iter(|| {
-                    // Mark N NPCs as dead before each run
+                    // Set health to 0 on N NPCs so death_system discovers them
+                    // (previous bug: inserting Dead directly bypassed the detection query)
                     let _ = app.world_mut().run_system_once(
-                        move |mut commands: Commands,
-                              q: Query<(Entity, &mut Health), (Without<Building>, Without<Dead>)>| {
+                        move |mut q: Query<&mut Health, (Without<Building>, Without<Dead>)>| {
                             let mut killed = 0usize;
-                            for (entity, _hp) in q.iter().take(death_count) {
-                                commands.entity(entity).insert(Dead);
+                            for mut hp in q.iter_mut() {
+                                if killed >= death_count { break; }
+                                hp.0 = 0.0;
                                 killed += 1;
                             }
-                            let _ = killed;
                         },
                     );
-                    // Apply commands so Dead is visible to death_system
-                    app.world_mut().flush();
                     let _ = app.world_mut().run_system_once(death_system);
-                    // Apply commands from death_system (despawns)
+                    // Flush despawn commands from death_system
                     app.world_mut().flush();
+
+                    // Respawn killed NPCs so next iteration has victims
+                    // (death_system despawns + unregisters + frees GPU slots)
+                    let _ = app.world_mut().run_system_once(
+                        move |world_mut: &mut World| {
+                            let live_count = world_mut
+                                .query_filtered::<&GpuSlot, Without<Building>>()
+                                .iter(world_mut)
+                                .count();
+                            let need = 50_000usize.saturating_sub(live_count);
+                            if need == 0 { return; }
+
+                            let mut slots = Vec::with_capacity(need);
+                            {
+                                let mut pool = world_mut.resource_mut::<GpuSlotPool>();
+                                for _ in 0..need {
+                                    if let Some(slot) = pool.alloc_reset() {
+                                        slots.push(slot);
+                                    }
+                                }
+                            }
+                            let mut spawned = Vec::with_capacity(need);
+                            for (i, &slot) in slots.iter().enumerate() {
+                                let x = (slot % 100) as f32 * 16.0;
+                                let y = (slot / 100) as f32 * 16.0;
+                                let entity = world_mut.spawn((
+                                    (
+                                        GpuSlot(slot),
+                                        Position { x, y },
+                                        Health(100.0),
+                                        Job::Farmer,
+                                        Faction(1),
+                                        TownId(0),
+                                        Activity::Idle,
+                                        CombatState::default(),
+                                        Energy(100.0),
+                                        Speed(60.0),
+                                        Home(Vec2::new(800.0, 800.0)),
+                                        NpcFlags::default(),
+                                    ),
+                                    (
+                                        CachedStats {
+                                            damage: 10.0, range: 40.0, cooldown: 1.0,
+                                            projectile_speed: 0.0, projectile_lifetime: 0.0,
+                                            max_health: 100.0, speed: 60.0, stamina: 1.0,
+                                            hp_regen: 0.0, berserk_bonus: 0.0,
+                                        },
+                                        BaseAttackType::Melee,
+                                        AttackTimer(0.0),
+                                        NpcWorkState::default(),
+                                        PatrolRoute { posts: vec![], current: 0 },
+                                        CarriedLoot { food: 0, gold: 0, equipment: vec![] },
+                                        Personality::default(),
+                                        FleeThreshold { pct: 0.2 },
+                                        LeashRange(400.0),
+                                        WoundedThreshold { pct: 0.3 },
+                                        HasEnergy,
+                                        NpcEquipment::default(),
+                                        SquadId(0),
+                                    ),
+                                )).id();
+                                spawned.push((entity, slot));
+                                let _ = i;
+                            }
+                            let mut em = world_mut.resource_mut::<EntityMap>();
+                            for &(entity, slot) in &spawned {
+                                em.register_npc(slot, entity, Job::Farmer, 1, 0);
+                            }
+                        },
+                    );
                 });
             },
         );

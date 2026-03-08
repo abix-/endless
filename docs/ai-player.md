@@ -128,10 +128,10 @@ This guarantees early mining infrastructure regardless of food pressure or compe
 ### Food Reserve Gate
 
 ```
-reserve = food_reserve_per_spawner × spawner_count
+reserve = food_reserve_per_spawner × spawner_count + policy.reserve_food
 ```
 
-Every spawner building (farmer home, archer home, crossbow home, fighter home, miner home) counts. The AI won't spend food if at or below reserve (except for the deterministic miner bootstrap above). This prevents self-starvation but also slows building as the town grows.
+Every spawner building (farmer home, archer home, crossbow home, fighter home, miner home) counts. The AI won't spend food if at or below reserve (except for the deterministic miner bootstrap above). For the player's town, `PolicySet.reserve_food` is added on top of the personality reserve. Gold spending also respects `PolicySet.reserve_gold` — added to `expansion_gold_reserve` as a baseline floor. This prevents self-starvation but also slows building as the town grows.
 
 ### Desire Signals
 
@@ -339,6 +339,8 @@ The player's town (faction FACTION_PLAYER=1) gets an `AiPlayer` registered at wo
 | **Auto-Upgrade** | Gates Phase 2 (upgrade purchasing). When off, only buildings are placed |
 | **Strategy** | Personality picker (Aggressive/Balanced/Economic) — drives all building/upgrade/squad decisions |
 | **Roads** | Road style picker (None/Cardinal/Grid 4/Grid 5) |
+| **Reserve Food** | `PolicySet.reserve_food` — AI/auto-upgrade won't spend food below this floor (0–10000, default 0) |
+| **Reserve Gold** | `PolicySet.reserve_gold` — AI/auto-upgrade won't spend gold below this floor (0–10000, default 0) |
 
 ### Implementation
 

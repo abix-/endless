@@ -182,7 +182,7 @@ impl TestSetupParams<'_, '_> {
             x,
             y,
             job,
-            faction: crate::constants::FACTION_PLAYER as i32,
+            faction: crate::constants::FACTION_PLAYER,
             town_idx: 0,
             home_x,
             home_y,

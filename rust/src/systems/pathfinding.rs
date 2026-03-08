@@ -187,8 +187,8 @@ impl HpaCache {
             chunk_nodes: HashMap::new(),
         };
 
-        let cols = (width + HPA_CHUNK_SIZE - 1) / HPA_CHUNK_SIZE;
-        let rows = (height + HPA_CHUNK_SIZE - 1) / HPA_CHUNK_SIZE;
+        let cols = width.div_ceil(HPA_CHUNK_SIZE);
+        let rows = height.div_ceil(HPA_CHUNK_SIZE);
 
         // Phase 1: Find entrance nodes at chunk boundaries
         // Horizontal borders (between chunk rows)
@@ -320,7 +320,7 @@ impl HpaCache {
         chunk_key: (usize, usize),
     ) {
         let node_indices: Vec<usize> = self.chunk_nodes.get(&chunk_key)
-            .map(|v| v.clone())
+            .cloned()
             .unwrap_or_default();
         if node_indices.len() < 2 { return; }
 
@@ -561,12 +561,12 @@ pub fn pathfind_hpa(
 
         if from_id == v_start {
             // start → first entrance node
-            if let Some(&(_, _, ref path)) = start_edges.iter().find(|e| e.0 == to_id) {
+            if let Some((_, _, path)) = start_edges.iter().find(|e| e.0 == to_id) {
                 full_path.extend_from_slice(path);
             }
         } else if to_id == v_goal {
             // last entrance → goal
-            if let Some(&(_, ref path)) = goal_edges.get(&from_id) {
+            if let Some((_, path)) = goal_edges.get(&from_id) {
                 full_path.extend_from_slice(path);
             }
         } else if from_id < n && to_id < n {

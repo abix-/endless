@@ -1730,6 +1730,12 @@ pub struct PolicySet {
     pub archer_off_duty: OffDutyBehavior,
     #[serde(default = "default_policy_mining_radius")]
     pub mining_radius: f32,
+    /// AI manager won't spend food below this amount.
+    #[serde(default)]
+    pub reserve_food: i32,
+    /// AI manager won't spend gold below this amount.
+    #[serde(default)]
+    pub reserve_gold: i32,
 }
 
 impl Default for PolicySet {
@@ -1748,6 +1754,8 @@ impl Default for PolicySet {
             farmer_off_duty: OffDutyBehavior::GoToBed,
             archer_off_duty: OffDutyBehavior::GoToBed,
             mining_radius: crate::constants::DEFAULT_MINING_RADIUS,
+            reserve_food: 0,
+            reserve_gold: 0,
         }
     }
 }

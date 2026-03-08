@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-03-08i
+
+- **Resource reserve policy** — added `reserve_food` and `reserve_gold` to `PolicySet` (default 0, range 0–10000). AI manager, auto-upgrade, and auto-tower-upgrade systems all respect the reserve floor — won't spend resources below the player-set minimum. UI sliders in Policies → Resource Reserves section. Saved to settings.
+- **Clippy fixes** — `div_ceil` replaces manual ceiling division in pathfinding, `.cloned()` replaces `.map(|v| v.clone())`, simplified destructuring patterns.
+
 ## 2026-03-08h
 
 - **HPA* hierarchical pathfinding** — custom HPA* implementation replaces raw A* for cross-chunk paths. Grid divided into 16×16 chunks with precomputed entrance nodes and intra-chunk paths. Unbounded 50K: 257ms → 753µs (341× faster). Budgeted 50K: 2.27ms → 214µs (10.9× faster).

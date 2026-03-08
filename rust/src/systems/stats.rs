@@ -1106,6 +1106,7 @@ pub fn auto_upgrade_system(
     upgrades: Res<TownUpgrades>,
     food_storage: Res<crate::resources::FoodStorage>,
     gold_storage: Res<crate::resources::GoldStorage>,
+    policies: Res<crate::resources::TownPolicies>,
     mut queue: MessageWriter<UpgradeMsg>,
 ) {
     if !game_time.hour_ticked {
@@ -1115,8 +1116,15 @@ pub fn auto_upgrade_system(
     let count = upgrade_count();
     for (town_idx, flags) in auto.flags.iter().enumerate() {
         let levels = upgrades.town_levels(town_idx);
-        let food = food_storage.food.get(town_idx).copied().unwrap_or(0);
-        let gold = gold_storage.gold.get(town_idx).copied().unwrap_or(0);
+        let raw_food = food_storage.food.get(town_idx).copied().unwrap_or(0);
+        let raw_gold = gold_storage.gold.get(town_idx).copied().unwrap_or(0);
+        let (rf, rg) = policies
+            .policies
+            .get(town_idx)
+            .map(|p| (p.reserve_food, p.reserve_gold))
+            .unwrap_or((0, 0));
+        let food = (raw_food - rf).max(0);
+        let gold = (raw_gold - rg).max(0);
         for (i, &enabled) in flags.iter().enumerate().take(count) {
             if !enabled {
                 continue;
@@ -1137,6 +1145,7 @@ pub fn auto_tower_upgrade_system(
     mut entity_map: ResMut<crate::resources::EntityMap>,
     mut food_storage: ResMut<crate::resources::FoodStorage>,
     mut gold_storage: ResMut<crate::resources::GoldStorage>,
+    policies: Res<crate::resources::TownPolicies>,
 ) {
     if !game_time.hour_ticked {
         return;
@@ -1151,8 +1160,13 @@ pub fn auto_tower_upgrade_system(
 
     for (slot, town_idx, upgrade_levels, auto_flags) in towers {
         let ti = town_idx as usize;
-        let food = food_storage.food.get(ti).copied().unwrap_or(0);
-        let gold = gold_storage.gold.get(ti).copied().unwrap_or(0);
+        let (rf, rg) = policies
+            .policies
+            .get(ti)
+            .map(|p| (p.reserve_food, p.reserve_gold))
+            .unwrap_or((0, 0));
+        let food = (food_storage.food.get(ti).copied().unwrap_or(0) - rf).max(0);
+        let gold = (gold_storage.gold.get(ti).copied().unwrap_or(0) - rg).max(0);
 
         // Find cheapest affordable upgrade among auto-flagged stats
         let mut best: Option<(i32, usize)> = None; // (total_cost, index)
@@ -1655,6 +1669,7 @@ mod tests {
         app.insert_resource(crate::resources::AutoUpgrade::default());
         app.insert_resource(crate::resources::FoodStorage { food: vec![0] });
         app.insert_resource(crate::resources::GoldStorage { gold: vec![0] });
+        app.insert_resource(crate::resources::TownPolicies::default());
         app.insert_resource(CollectedUpgrades::default());
         app.add_message::<UpgradeMsg>();
         app.insert_resource(TimeUpdateStrategy::ManualDuration(
@@ -1737,6 +1752,7 @@ mod tests {
         app.insert_resource(crate::resources::EntityMap::default());
         app.insert_resource(crate::resources::FoodStorage { food: vec![100] });
         app.insert_resource(crate::resources::GoldStorage { gold: vec![100] });
+        app.insert_resource(crate::resources::TownPolicies::default());
         app.insert_resource(TimeUpdateStrategy::ManualDuration(
             std::time::Duration::from_secs_f32(1.0),
         ));

@@ -238,7 +238,7 @@ UI tree layout is driven by `UPGRADES.branches` (generated during registry build
 |----------|------|---------|---------|
 | TownPolicies | `Vec<PolicySet>` — per-town behavior configuration (16 slots default) | left_panel (UI) | decision_system, behavior systems |
 
-`PolicySet` fields: `eat_food` (bool), `archer_aggressive` (bool), `archer_leash` (bool), `farmer_fight_back` (bool), `prioritize_healing` (bool), `farmer_flee_hp` (f32, 0.0-1.0), `archer_flee_hp` (f32), `recovery_hp` (f32), `farmer_schedule` (WorkSchedule enum), `archer_schedule` (WorkSchedule enum), `farmer_off_duty` (OffDutyBehavior enum), `archer_off_duty` (OffDutyBehavior enum).
+`PolicySet` fields: `eat_food` (bool), `archer_aggressive` (bool), `archer_leash` (bool), `farmer_fight_back` (bool), `prioritize_healing` (bool), `farmer_flee_hp` (f32, 0.0-1.0), `archer_flee_hp` (f32), `recovery_hp` (f32), `farmer_schedule` (WorkSchedule enum), `archer_schedule` (WorkSchedule enum), `farmer_off_duty` (OffDutyBehavior enum), `archer_off_duty` (OffDutyBehavior enum), `mining_radius` (f32), `reserve_food` (i32, default 0), `reserve_gold` (i32, default 0).
 
 `WorkSchedule`: Both (default), DayOnly, NightOnly. `OffDutyBehavior`: GoToBed (default), StayAtFountain, WanderTown.
 
