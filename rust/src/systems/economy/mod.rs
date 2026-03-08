@@ -729,7 +729,6 @@ pub struct MigrationResources<'w, 's> {
     pub faction_stats: ResMut<'w, FactionStats>,
     pub faction_list: ResMut<'w, crate::resources::FactionList>,
     pub raider_state: ResMut<'w, RaiderState>,
-    pub npcs_by_town: ResMut<'w, NpcsByTownCache>,
     pub policies: ResMut<'w, TownPolicies>,
     pub gpu_updates: MessageWriter<'w, GpuUpdateMsg>,
     pub npc_flags_q: Query<'w, 's, &'static mut NpcFlags>,
@@ -793,7 +792,6 @@ fn create_ai_town(
     res.raider_state.max_pop.resize(num_towns, 10);
     res.raider_state.respawn_timers.resize(num_towns, 0.0);
     res.raider_state.forage_timers.resize(num_towns, 0.0);
-    res.npcs_by_town.0.resize(num_towns, Vec::new());
     res.policies
         .policies
         .resize(num_towns, PolicySet::default());

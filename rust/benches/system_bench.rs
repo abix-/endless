@@ -75,7 +75,6 @@ fn build_bench_app() -> App {
         .init_resource::<SelectedBuilding>()
         .init_resource::<FollowSelected>()
         .init_resource::<NpcMetaCache>()
-        .init_resource::<NpcsByTownCache>()
         .init_resource::<NpcLogCache>()
         .init_resource::<DebugFlags>()
         .init_resource::<GpuReadState>()

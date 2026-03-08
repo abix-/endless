@@ -7,7 +7,7 @@ use crate::messages::{DamageMsg, DirtyWriters, GpuUpdate, GpuUpdateMsg};
 use crate::resources::{
     ActiveHealingSlots, BuildingHealState, CombatEventKind, EndlessMode, EntityMap, FactionStats,
     FoodStorage, GameTime, GoldStorage, GpuReadState, GpuSlotPool, HealingZoneCache, HealthDebug,
-    KillStats, NpcMetaCache, NpcsByTownCache, PopulationStats, SelectedBuilding, SelectedNpc,
+    KillStats, NpcMetaCache, PopulationStats, SelectedBuilding, SelectedNpc,
     SquadState,
 };
 use bevy::ecs::system::SystemParam;
@@ -28,7 +28,6 @@ pub struct DeathResources<'w, 's> {
     pub faction_stats: ResMut<'w, FactionStats>,
     pub debug: ResMut<'w, HealthDebug>,
     pub kill_stats: ResMut<'w, KillStats>,
-    pub npcs_by_town: ResMut<'w, NpcsByTownCache>,
     pub slots: ResMut<'w, GpuSlotPool>,
     pub dirty_writers: DirtyWriters<'w>,
     pub grid: ResMut<'w, WorldGrid>,
@@ -477,7 +476,7 @@ pub fn death_system(
     // Phase 2b: Process dead NPCs (immediate — same frame as marking)
     for &slot in &dead_npc_slots {
         // Extract dead NPC data (immutable borrow ends before killer mutation)
-        let (entity, faction, town_idx, job, activity, worksite_uid, last_hit_by, dead_carried_equip, dead_equipped_items) = {
+        let (entity, faction, town_idx, job, activity, worksite_uid, last_hit_by) = {
             let Some(npc) = res.entity_map.get_npc(slot) else {
                 continue;
             };
@@ -491,16 +490,6 @@ pub fn death_system(
                 .get(npc.entity)
                 .ok()
                 .and_then(|ws| ws.worksite);
-            let carried_equip: Vec<crate::constants::LootItem> = res
-                .carried_loot_q
-                .get(npc.entity)
-                .map(|cl| cl.equipment.clone())
-                .unwrap_or_default();
-            let equipped: Vec<crate::constants::LootItem> = res
-                .equipment_q
-                .get(npc.entity)
-                .map(|eq| eq.all_items().collect())
-                .unwrap_or_default();
             (
                 npc.entity,
                 npc.faction,
@@ -509,8 +498,6 @@ pub fn death_system(
                 activity,
                 ws_uid,
                 lhb,
-                carried_equip,
-                equipped,
             )
         };
 
@@ -531,6 +518,17 @@ pub fn death_system(
 
         // XP grant: reward killer with XP, level-up, and NPC kill loot
         if last_hit_by >= 0 {
+            // Extract equipment only when there's a killer (saves 2 Vec allocs for starvation deaths)
+            let dead_carried_equip: Vec<crate::constants::LootItem> = res
+                .carried_loot_q
+                .get(entity)
+                .map(|cl| cl.equipment.clone())
+                .unwrap_or_default();
+            let dead_equipped_items: Vec<crate::constants::LootItem> = res
+                .equipment_q
+                .get(entity)
+                .map(|eq| eq.all_items().collect())
+                .unwrap_or_default();
             let killer_slot = last_hit_by as usize;
             if let Some(killer) = res.entity_map.get_npc(killer_slot) {
                 let k_slot = killer.slot;
@@ -899,13 +897,7 @@ pub fn death_system(
         res.faction_stats.dec_alive(faction);
         res.faction_stats.inc_dead(faction);
 
-        if town_idx >= 0 {
-            let ti = town_idx as usize;
-            if ti < res.npcs_by_town.0.len() {
-                res.npcs_by_town.0[ti].retain(|&i| i != slot);
-            }
-        }
-
+        // npc_by_town cleanup handled by unregister_npc inside hide_npc
         hide_npc(slot, &mut res.entity_map, &mut res.slots, &mut gpu_updates);
     }
 

@@ -154,7 +154,7 @@ For each dead entity:
 - **Loot on kill (tower killer)**: same `npc_def(dead_job).loot_drop` table, deposited directly to `FoodStorage`/`GoldStorage` for the tower's town (towers can't carry). `SetDamageFlash` on tower for visual feedback. Loot event logged to combat log. Equipment from victim's `NpcEquipment` and `CarriedLoot.equipment` deposited to `TownInventory` at 50% per item.
 - Despawn entity, `GpuSlotPool.free(idx)` (allocator queues GPU hide cleanup), release AssignedFarm/WorkPosition
 - Update stats: `PopulationStats`, `FactionStats`, `KillStats`
-- Remove from `NpcsByTownCache`, deselect if SelectedNpc matches
+- Remove from `EntityMap.npc_by_town` (via `unregister_npc`), deselect if SelectedNpc matches
 - `GpuSlotPool.free(idx)` — recycle slot
 
 XP formula: `level = floor(sqrt(xp / 100))`, level multiplier = `1.0 + level * 0.01`

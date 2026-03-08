@@ -789,10 +789,6 @@ impl Default for NpcMetaCache {
     }
 }
 
-/// Per-town NPC lists for O(1) roster queries. Index = town_id, value = Vec of NPC slots.
-#[derive(Resource, Default)]
-pub struct NpcsByTownCache(pub Vec<Vec<usize>>);
-
 /// Per-NPC activity logs. Indexed by slot. 500 entries max per NPC.
 #[derive(Resource)]
 pub struct NpcLogCache {

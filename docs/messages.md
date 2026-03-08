@@ -137,7 +137,6 @@ Two allocators share a `SlotPool` inner type (LIFO free list, high-water mark tr
 | NpcMetaCache | Name, level, xp, trait, town, job per NPC | spawn_npc_system | UI queries |
 | NpcLogCache | Activity log per NPC | behavior systems | UI queries |
 | NpcTargetThrashDebug | Target write diagnostics (reason-tagged + sink-level 1s window: `SinkTargetChanges/s`, `SinkPingPong/s`, `SinkTargetWrites/s`, `ReasonFlips/min`) | resolve_movement_system (sole recorder, via MovementIntents) | profiler tab, selected-NPC inspector |
-| NpcsByTownCache | NPC indices grouped by town | spawn/death systems | UI queries |
 | PopulationStats | Alive/working/dead counts per job+town | spawn/death/state systems | UI queries |
 | KillStats | archer_kills, villager_kills | death_system | UI queries |
 | SelectedNpc | Currently selected NPC index | (external input) | UI queries |

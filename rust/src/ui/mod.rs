@@ -789,7 +789,6 @@ pub fn ui_toggle_system(
 #[derive(SystemParam)]
 struct StartupExtra<'w> {
     policies: ResMut<'w, TownPolicies>,
-    npcs_by_town: ResMut<'w, NpcsByTownCache>,
     ai_state: ResMut<'w, AiPlayerState>,
     combat_log: MessageWriter<'w, crate::messages::CombatLogMsg>,
     gold_storage: ResMut<'w, GoldStorage>,
@@ -918,7 +917,6 @@ fn game_startup_system(
     // Game-specific post-setup: settings, policies, combat log
     *extra.mining_policy = MiningPolicy::default();
     let num_towns = world_state.world_data.towns.len();
-    extra.npcs_by_town.0.resize(num_towns, Vec::new());
     game_config.npc_counts = config
         .npc_counts
         .iter()
@@ -2430,7 +2428,6 @@ pub(crate) struct CleanupGameplay<'w> {
     auto_upgrade: ResMut<'w, AutoUpgrade>,
     npc_logs: ResMut<'w, NpcLogCache>,
     npc_meta: ResMut<'w, NpcMetaCache>,
-    npcs_by_town: ResMut<'w, NpcsByTownCache>,
     migration: ResMut<'w, MigrationState>,
     tower_state: ResMut<'w, TowerState>,
     selected_npc: ResMut<'w, SelectedNpc>,
@@ -2534,7 +2531,6 @@ pub(crate) fn game_cleanup_system(
     *gameplay.auto_upgrade = Default::default();
     *gameplay.npc_logs = Default::default();
     *gameplay.npc_meta = Default::default();
-    *gameplay.npcs_by_town = Default::default();
     *gameplay.migration = Default::default();
     *gameplay.tower_state = Default::default();
     *gameplay.selected_npc = Default::default();

@@ -976,7 +976,6 @@ pub fn apply_save(
     ai_state: &mut AiPlayerState,
     migration_state: &mut MigrationState,
     endless: &mut EndlessMode,
-    npcs_by_town: &mut NpcsByTownCache,
     slots: &mut GpuSlotPool,
     next_loot_id: &mut crate::resources::NextLootItemId,
     town_inventory: &mut crate::resources::TownInventory,
@@ -1182,9 +1181,6 @@ pub fn apply_save(
     next_loot_id.next = save.next_loot_item_id;
     town_inventory.items = save.town_inventory.clone();
     merchant_inv.stocks = save.merchant_stocks.clone();
-
-    // NPC tracking
-    npcs_by_town.0 = vec![Vec::new(); num_towns];
 
     // Slot allocator: rebuild from saved NPC slots
     slots.reset();
@@ -1434,7 +1430,6 @@ pub struct SaveNpcQueries<'w, 's> {
 pub struct LoadNpcTracking<'w> {
     pub pop_stats: ResMut<'w, PopulationStats>,
     pub npc_meta: ResMut<'w, NpcMetaCache>,
-    pub npcs_by_town: ResMut<'w, NpcsByTownCache>,
     pub slots: ResMut<'w, GpuSlotPool>,
     pub combat_log: ResMut<'w, CombatLog>,
     pub gpu_state: ResMut<'w, GpuReadState>,
@@ -1844,7 +1839,6 @@ pub fn spawn_npcs_from_save(
     entity_map: &mut EntityMap,
     pop_stats: &mut PopulationStats,
     npc_meta: &mut NpcMetaCache,
-    npcs_by_town: &mut NpcsByTownCache,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
     world_data: &WorldData,
     combat_config: &CombatConfig,
@@ -1894,7 +1888,6 @@ pub fn spawn_npcs_from_save(
             entity_map,
             pop_stats,
             npc_meta,
-            npcs_by_town,
             gpu_updates,
             world_data,
             combat_config,
@@ -1949,7 +1942,6 @@ pub fn restore_world_from_save(
         &mut fs.ai_state,
         &mut fs.migration_state,
         &mut fs.endless,
-        &mut tracking.npcs_by_town,
         &mut tracking.slots,
         &mut fs.next_loot_id,
         &mut fs.town_inventory,
@@ -2014,7 +2006,6 @@ pub fn restore_world_from_save(
         entity_map,
         &mut tracking.pop_stats,
         &mut tracking.npc_meta,
-        &mut tracking.npcs_by_town,
         gpu_updates,
         &ws.world_data,
         combat_config,

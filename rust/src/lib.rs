@@ -44,7 +44,7 @@ use resources::{
     DebugFlags, Difficulty, EndlessMode, EntityMap, FactionList, FactionStats, FollowSelected, FoodStorage, Reputation,
     GameAudio, GameConfig, GameTime, GoldStorage, GpuReadState, GpuSlotPool, HealingZoneCache,
     HealthDebug, HelpCatalog, KillStats, MigrationState, MiningPolicy,
-    NextEntityUid, NextLootItemId, NpcLogCache, NpcMetaCache, NpcTargetThrashDebug, NpcsByTownCache, PlaySfxMsg,
+    NextEntityUid, NextLootItemId, NpcLogCache, NpcMetaCache, NpcTargetThrashDebug, PlaySfxMsg,
     PopulationStats, ProjHitState, ProjPositionState, ProjSlotAllocator, RaiderState,
     SelectedBuilding, SelectedNpc, SquadState, SystemTimings, TowerState, TownPolicies,
     TownInventory, MerchantInventory, TutorialState, UiState, UpsCounter,
@@ -305,7 +305,6 @@ pub fn build_app(app: &mut App) {
         .init_resource::<SelectedBuilding>()
         .init_resource::<FollowSelected>()
         .init_resource::<NpcMetaCache>()
-        .init_resource::<NpcsByTownCache>()
         .init_resource::<NpcLogCache>()
         .init_resource::<DebugFlags>()
         .init_resource::<GpuReadState>()

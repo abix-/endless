@@ -487,3 +487,23 @@ Combined 50K (7 NPC-scaled systems): 4.2ms (26.4% of 16ms budget).
 - `building_tower` at 50K towers = 5.6ms — a realistic stress test. 500 towers (typical game) = 26µs, negligible.
 - `spawner_respawn` at 50K spawners = 2.1ms — confirms O(n) post-fix. 2K spawners (old max) = ~45µs.
 - `death_system` now properly measures full death→despawn→respawn cycle at ~15.5µs/death. 500 deaths/frame (heavy combat) = 7.7ms (48% of budget). Previous bench was broken — inserting `Dead` directly bypassed the `Without<Dead>` detection query, showing flat ~43µs regardless of count.
+
+### 2026-03-08g — NpcsByTownCache removal + equipment deferral
+
+**Root cause**: `NpcsByTownCache` (`Vec<Vec<usize>>`) was entirely redundant with `EntityMap.npc_by_town` (`HashMap<i32, Vec<usize>>`). Both stored slot lists per town, both pushed on spawn and retained on death. Every death paid O(town_size) `retain()` twice — once in `NpcsByTownCache` (health.rs) and once in `EntityMap.unregister_npc` (entity_map.rs).
+
+**Fix** (two parts):
+1. **Delete NpcsByTownCache**: Removed the struct from `resources.rs` and all 8 files that referenced it (health.rs, spawn.rs, stats.rs, economy/mod.rs, save.rs, ui/mod.rs, lib.rs, system_bench.rs). Added `EntityMap::slots_for_town()` as the single access point for per-town NPC slot queries.
+2. **Defer equipment extraction**: Moved `carried_loot_q` and `equipment_q` reads inside the `if last_hit_by >= 0` block in death_system. NPCs dying without a killer (starvation) skip 2 Vec allocations.
+
+**Death-scaled** (full death→despawn→respawn cycle, vary deaths/frame, fixed 50K NPCs):
+
+| Deaths/frame | 100 | 500 | 1K | 5K | 25K | Scaling |
+|-------------|-----|-----|----|-----|------|---------|
+| death_system (before) | 1.6ms | 7.7ms | 15.5ms | 82.3ms | 394ms | O(n) ~15.5µs/death |
+| death_system (after) | 1.6ms | 7.8ms | 15.5ms | 79.5ms | 380ms | O(n) ~15.1µs/death |
+
+**Findings:**
+- 3-5% improvement at scale (5K-25K deaths), within noise at smaller counts.
+- Architectural win: eliminated a redundant data structure and ~15 lines of duplicate bookkeeping across 8 files. Single source of truth for per-town NPC slots is now `EntityMap.npc_by_town`.
+- Remaining bottleneck: `EntityMap.unregister_npc` still does O(town_size) `retain()` per death. Converting `npc_by_town` from `Vec<usize>` to `HashSet<usize>` would make removal O(1) but sacrifice iteration locality — worth profiling if death cost becomes a blocker at scale.

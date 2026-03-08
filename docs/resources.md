@@ -34,7 +34,6 @@ Pre-computed per-NPC data for UI queries, indexed by slot.
 |----------|-------------|---------|---------|
 | NpcMetaCache | name, level, xp, town_id, job | spawn_npc_system, death_system (XP grant), inspector rename | UI queries |
 | NpcLogCache | `VecDeque<NpcLogEntry>` (100 cap, circular, lazy init) | behavior/decision systems | UI queries |
-| NpcsByTownCache | `Vec<Vec<usize>>` — NPC slots grouped by town | spawn/death systems | UI queries |
 
 `NpcLogCache.push(idx, day, hour, minute, message)` adds timestamped entries. Oldest evicted at capacity.
 

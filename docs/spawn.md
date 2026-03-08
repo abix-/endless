@@ -28,7 +28,7 @@ spawn_npc_system                         spawn_npcs_from_save
                │
                ├─ Initialize NpcMetaCache (name, level, trait)
                │
-               └─ Add to NpcsByTownCache
+               └─ Add to EntityMap.npc_by_town (via register_npc)
 ```
 
 Fresh spawns pass `NpcSpawnOverrides::default()` (all None — uses generated values). Save-load fills overrides with restored state (health, energy, activity, personality, name, level, equipment, etc.). `FactionStats.inc_alive()` is called only in `spawn_npc_system` (save-load restores FactionStats from the save file directly).

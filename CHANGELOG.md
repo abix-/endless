@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-03-08j
+
+- **Remove `NpcsByTownCache`** — eliminated redundant resource that duplicated `EntityMap.npc_by_town`. Added `EntityMap::slots_for_town()` as the single access point. Removed from 8 files (health.rs, spawn.rs, stats.rs, economy/mod.rs, save.rs, ui/mod.rs, lib.rs, system_bench.rs). Death system defers equipment extraction to killer-only path (saves 2 Vec allocs for starvation deaths).
+
 ## 2026-03-08i
 
 - **Resource reserve policy** — added `reserve_food` and `reserve_gold` to `PolicySet` (default 0, range 0–10000). AI manager, auto-upgrade, and auto-tower-upgrade systems all respect the reserve floor — won't spend resources below the player-set minimum. UI sliders in Policies → Resource Reserves section. Saved to settings.

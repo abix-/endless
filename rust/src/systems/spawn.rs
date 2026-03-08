@@ -7,8 +7,7 @@ use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg, SpawnNpcMsg};
 use crate::messages::{DirtyWriters, MiningDirtyMsg, SquadsDirtyMsg};
 use crate::resources::NextEntityUid;
 use crate::resources::{
-    CombatEventKind, EntityMap, FactionStats, GameTime, NpcMeta, NpcMetaCache, NpcsByTownCache,
-    PopulationStats,
+    CombatEventKind, EntityMap, FactionStats, GameTime, NpcMeta, NpcMetaCache, PopulationStats,
 };
 use crate::systems::economy::*;
 use crate::systems::stats::{CombatConfig, TownUpgrades, resolve_combat_stats};
@@ -113,7 +112,6 @@ pub fn materialize_npc(
     entity_map: &mut EntityMap,
     pop_stats: &mut PopulationStats,
     npc_meta: &mut NpcMetaCache,
-    npcs_by_town: &mut NpcsByTownCache,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
     _world_data: &WorldData,
     combat_config: &CombatConfig,
@@ -311,12 +309,7 @@ pub fn materialize_npc(
         };
     }
 
-    if town_idx >= 0 {
-        let ti = town_idx as usize;
-        if ti < npcs_by_town.0.len() {
-            npcs_by_town.0[ti].push(idx);
-        }
-    }
+    // npc_by_town bookkeeping handled by register_npc inside entity_map
 }
 
 /// Generic spawn system. Job determines the component template.
@@ -331,7 +324,6 @@ pub fn spawn_npc_system(
     world_data: Res<WorldData>,
     game_time: Res<GameTime>,
     mut npc_meta: ResMut<NpcMetaCache>,
-    mut npcs_by_town: ResMut<NpcsByTownCache>,
     mut combat_log: MessageWriter<CombatLogMsg>,
     combat_config: Res<CombatConfig>,
     upgrades: Res<TownUpgrades>,
@@ -366,7 +358,6 @@ pub fn spawn_npc_system(
             &mut entity_map,
             &mut pop_stats,
             &mut npc_meta,
-            &mut npcs_by_town,
             &mut gpu_updates,
             &world_data,
             &combat_config,

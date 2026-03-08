@@ -8,7 +8,7 @@ use crate::constants::{
     TOWN_UPGRADES, TowerStats, UpgradeStatDef, UpgradeStatKind, npc_def,
 };
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
-use crate::resources::{NpcMetaCache, NpcsByTownCache};
+use crate::resources::NpcMetaCache;
 use crate::systemparams::{EconomyState, WorldState};
 use bevy::prelude::*;
 use std::collections::HashMap;
@@ -856,7 +856,6 @@ pub fn process_upgrades_system(
     mut queue: MessageReader<UpgradeMsg>,
     mut upgrades: ResMut<TownUpgrades>,
     mut economy: EconomyState,
-    npcs_by_town: Res<NpcsByTownCache>,
     config: Res<CombatConfig>,
     meta_cache: Res<NpcMetaCache>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
@@ -938,10 +937,7 @@ pub fn process_upgrades_system(
             continue;
         }
 
-        let Some(npc_slots) = npcs_by_town.0.get(town_idx) else {
-            continue;
-        };
-        let slots: Vec<usize> = npc_slots.clone();
+        let slots: Vec<usize> = world_state.entity_map.slots_for_town(town_idx as i32).to_vec();
         for slot in slots {
             let Some(npc) = world_state.entity_map.get_npc(slot) else {
                 continue;

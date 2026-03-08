@@ -5,6 +5,41 @@ use hashbrown::HashMap;
 
 use crate::constants::TOWN_GRID_SPACING;
 
+/// Dense slot set with O(1) insert, O(1) remove, and cache-friendly iteration.
+/// Uses swap_remove + reverse index (slot → position in dense vec).
+#[derive(Clone, Default)]
+pub struct DenseSlotSet {
+    slots: Vec<usize>,
+    index: HashMap<usize, usize>, // slot → position in slots
+}
+
+impl DenseSlotSet {
+    pub fn insert(&mut self, slot: usize) {
+        let pos = self.slots.len();
+        self.slots.push(slot);
+        self.index.insert(slot, pos);
+    }
+
+    pub fn remove(&mut self, slot: usize) {
+        if let Some(pos) = self.index.remove(&slot) {
+            self.slots.swap_remove(pos);
+            if pos < self.slots.len() {
+                // Fix up the swapped element's index
+                self.index.insert(self.slots[pos], pos);
+            }
+        }
+    }
+
+    pub fn as_slice(&self) -> &[usize] {
+        &self.slots
+    }
+
+    pub fn clear(&mut self) {
+        self.slots.clear();
+        self.index.clear();
+    }
+}
+
 /// A single placed building instance. All runtime state for one building.
 #[derive(Clone)]
 pub struct BuildingInstance {
@@ -99,7 +134,7 @@ pub struct EntityMap {
 
     // NPC-specific data (index-only — gameplay state on ECS components)
     npcs: HashMap<usize, NpcEntry>,
-    npc_by_town: HashMap<i32, Vec<usize>>,
+    npc_by_town: HashMap<i32, DenseSlotSet>,
 
     // Spatial grid
     spatial_cell_size: f32,
@@ -483,7 +518,7 @@ impl EntityMap {
             slot
         );
         self.entities.insert(slot, entity);
-        self.npc_by_town.entry(town_idx).or_default().push(slot);
+        self.npc_by_town.entry(town_idx).or_default().insert(slot);
         self.npcs.insert(
             slot,
             NpcEntry {
@@ -508,7 +543,7 @@ impl EntityMap {
         self.unregister_uid(slot);
         if let Some(entry) = self.npcs.remove(&slot) {
             if let Some(slots) = self.npc_by_town.get_mut(&entry.town_idx) {
-                slots.retain(|&s| s != slot);
+                slots.remove(slot);
             }
             Some(entry)
         } else {
@@ -528,12 +563,16 @@ impl EntityMap {
         self.npcs.values()
     }
 
+    pub fn slots_for_town(&self, town_idx: i32) -> &[usize] {
+        self.npc_by_town.get(&town_idx).map(|v| v.as_slice()).unwrap_or(&[])
+    }
+
     pub fn npcs_for_town(&self, town_idx: i32) -> impl Iterator<Item = &NpcEntry> {
         let npcs = &self.npcs;
         self.npc_by_town
             .get(&town_idx)
             .into_iter()
-            .flat_map(|v| v.iter())
+            .flat_map(|v| v.as_slice().iter())
             .filter_map(move |&s| npcs.get(&s))
     }
 

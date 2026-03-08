@@ -44,7 +44,7 @@ Remaining performance items (sorted by expected savings):
 7. [ ] [Low] `decision_system` remaining log pressure (~10 `format!` calls).
 8. [ ] [Low] `sync_terrain_tilemap` chunk granularity: rewrites all chunks on any terrain change.
 9. [ ] [Low] SystemTimings Mutex contention: replace with AtomicU32 + f32::to_bits.
-10. [ ] [Low] `NpcsByTownCache` `Vec::retain()` → `HashSet` for mass death spikes.
+10. [x] ~~`NpcsByTownCache` removed — `EntityMap.npc_by_town` is the single source of truth via `slots_for_town()`.~~
 11. [ ] [Low] Perf guardrails: microbenchmarks + CI thresholds.
 12. [ ] [Low] Message signal regression tests.
 
