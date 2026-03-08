@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-03-08p
+
+- **Fair mining queue** — gold mines now use a FIFO claim queue (`worksite_claim_queue` on EntityMap) to determine harvest priority. The miner who claimed first harvests first. Miners who drift beyond `drift_radius` or are moved out of range via direct control lose their queue position and re-queue at the back. `try_claim_worksite` appends to queue, `release_for` removes from queue, `is_worksite_harvest_turn` gates harvest to front-of-queue miner.
+- **Dawn start** — `GameTime.total_seconds` defaults to 6:55am (was midnight). NPCs begin working immediately instead of sleeping through the first 6 hours.
+- **Benchmark update** — performance.md updated with run 2 Criterion results. Combined 50K budget: 4.4ms → 4.2ms (27% → 26% of frame). Attack system improved 22%.
+- **Roadmap cleanup** — Stage 19 (Code Health) marked fully complete. Current sprint priorities added: loot cycle stress test, path recalculation on building change, entity sleeping. Loot stress test item added to Stage 18.
+
 ## 2026-03-08o
 
 - **Inspector++ tabs** - NPC inspector now has dedicated `Overview`, `Loadout`, `Economy`, and `Log` tabs so detailed per-NPC data is easier to scan without mixing workflows.

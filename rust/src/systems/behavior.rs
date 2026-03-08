@@ -451,6 +451,30 @@ pub fn decision_system(
             // DirectControl: absolute skip — no autonomous behavior whatsoever.
             // ====================================================================
             if direct_control {
+                // Fair mining queue: direct-control miners lose their spot if moved out of range.
+                if let (Some(slot), Some(current)) = (worksite, npc_pos) {
+                    if let Some(inst) = entity_map.get_instance(slot) {
+                        if inst.kind == BuildingKind::GoldMine {
+                            let drift_radius = building_def(BuildingKind::GoldMine)
+                                .worksite
+                                .map(|ws| ws.drift_radius)
+                                .unwrap_or(0.0);
+                            if current.distance(inst.position) > drift_radius {
+                                let uid = entity_map.uid_for_slot(slot);
+                                extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                                worksite = None;
+                                worksite_deferred = true;
+                                npc_logs.push(
+                                    idx,
+                                    game_time.day(),
+                                    game_time.hour(),
+                                    game_time.minute(),
+                                    "Direct control: out of mine range -> released queue spot",
+                                );
+                            }
+                        }
+                    }
+                }
                 if at_destination {
                     at_destination = false;
                 }
@@ -751,8 +775,12 @@ pub fn decision_system(
                         let mine_pos = activity.target;
                         // Arrived at gold mine — check BuildingInstance for harvest or tend
                         let mine_slot = entity_map.slot_at_position(mine_pos);
+                        let miner_uid = entity_map.uid_by_entity(entity);
+                        let can_harvest_turn = mine_slot.is_none_or(|slot| {
+                            miner_uid.is_none_or(|uid| entity_map.is_worksite_harvest_turn(slot, uid))
+                        });
                         if let Some(inst) = entity_map.find_mine_at_mut(mine_pos) {
-                            if inst.growth_ready {
+                            if inst.growth_ready && can_harvest_turn {
                                 // Mine ready — harvest immediately
                                 let town_levels =
                                     extras.town_upgrades.town_levels(town_idx_i32 as usize);
@@ -796,7 +824,7 @@ pub fn decision_system(
                                     format!("Harvested {} gold -> Returning", gold_amount),
                                 );
                             } else if mine_slot.is_some() {
-                                // Mine still growing — claim via resolver and start tending
+                                // Mine not ready for this miner (still growing or queued behind others) — tend/wait
                                 extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
                                     entity, kind: BuildingKind::GoldMine, town_idx: town_idx_i32 as u32, from: mine_pos,
                                 }));
@@ -1420,21 +1448,52 @@ pub fn decision_system(
                     .unwrap_or_default();
                 if let Some(current) = npc_pos {
                     if current.distance(ws_pos) > ws.drift_radius {
-                        submit_intent(
-                            &mut intents,
-                            entity,
-                            ws_pos.x,
-                            ws_pos.y,
-                            MovementPriority::JobRoute,
-                            "worksite:drift",
-                        );
+                        if kind == BuildingKind::GoldMine {
+                            // Fair mining queue: leaving mine range forfeits queue position.
+                            let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
+                            extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                            worksite = None;
+                            worksite_deferred = true;
+                            activity = Activity::mining(ws_pos);
+                            submit_intent(
+                                &mut intents,
+                                entity,
+                                ws_pos.x,
+                                ws_pos.y,
+                                MovementPriority::JobRoute,
+                                "mine:requeue_after_range_loss",
+                            );
+                            npc_logs.push(
+                                idx,
+                                game_time.day(),
+                                game_time.hour(),
+                                game_time.minute(),
+                                "Out of mine range -> queue spot lost",
+                            );
+                            break 'decide;
+                        } else {
+                            submit_intent(
+                                &mut intents,
+                                entity,
+                                ws_pos.x,
+                                ws_pos.y,
+                                MovementPriority::JobRoute,
+                                "worksite:drift",
+                            );
+                        }
                     }
                 }
 
                 // Harvest check: if growth_ready, harvest + apply yield mult + return home
                 let mut harvested = false;
+                let claimer_uid = entity_map.uid_by_entity(entity);
+                let can_harvest_turn = if kind == BuildingKind::GoldMine {
+                    claimer_uid.is_none_or(|uid| entity_map.is_worksite_harvest_turn(slot, uid))
+                } else {
+                    true
+                };
                 if let Some(inst) = entity_map.get_instance_mut(slot) {
-                    if inst.growth_ready {
+                    if inst.growth_ready && can_harvest_turn {
                         let town_levels =
                             extras.town_upgrades.town_levels(town_idx_i32 as usize);
                         let yield_mult =

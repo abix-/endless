@@ -20,7 +20,7 @@ The system uses **SystemParam bundles** for farm and economy parameters:
 
 Priority order (first match wins), with two-cadence top-of-loop bucket gating (see [performance.md](performance.md#bucket-gated-decision-system) for formulas and scaling numbers):
 
-**DirectControl skip** (before all priorities): NPCs with `direct_control` flag skip the entire decision system — no autonomous behavior whatsoever. The system clears `AtDestination` if present to prevent stale arrival flags. DC NPCs may accumulate loot in `Activity::Returning` while fighting (via `dc_no_return` toggle) — the Returning activity is inert while DC is active. When a DC right-click move/attack command is issued (`click_to_select_system` in render.rs), resting NPCs (`GoingToRest`/`Resting`) are woken to `Idle` so they respond to the command instead of sliding while asleep.
+**DirectControl skip** (before all priorities): NPCs with `direct_control` flag skip the entire decision system — no autonomous behavior whatsoever. The system clears `AtDestination` if present to prevent stale arrival flags. DC NPCs may accumulate loot in `Activity::Returning` while fighting (via `dc_no_return` toggle) — the Returning activity is inert while DC is active. When a DC right-click move/attack command is issued (`click_to_select_system` in render.rs), resting NPCs (`GoingToRest`/`Resting`) are woken to `Idle` so they respond to the command instead of sliding while asleep. **Fair mining queue**: DC miners with a gold mine worksite check distance to mine — if out of `drift_radius`, release queue spot via `WorkIntent::Release` and clear worksite. Prevents DC-moved miners from hogging harvest priority.
 
 **Priority 0 — arrivals** (every bucket tick):
 0. AtDestination → Handle arrival transitions (transient one-frame flag)
@@ -209,7 +209,7 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
   - `GoingToHeal` → `Activity::HealingAtFountain { recover_until: policy.recovery_hp }` (healing aura handles HP recovery)
   - `GoingToWork` → Farmer: checks `worksite` slot. If occupied by another, sends `WorkIntent::Retarget` message (or idles if none free). If not occupied, checks Ready: if Ready, `harvest()` + sends `WorkIntent::Release` + `Returning { loot: Food }`. If not Ready, `Working` (tending).
   - `Raiding { .. }` → steal if farm ready, else find a different farm (excludes current position, skips tombstoned); if no other farm exists, return home
-  - `Mining { mine_pos }` → find mine at position, check gold > 0, send `WorkIntent::Claim` message, insert `MiningProgress(0.0)`, set `Activity::MiningAtMine`
+  - `Mining { mine_pos }` → find mine at position, check `is_worksite_harvest_turn()` — if front of queue and mine ready, harvest immediately + `Returning`; otherwise send `WorkIntent::Claim` message and start tending
   - `Returning { .. }` → if home is valid, redirect to home (may have arrived at wrong place after DC removal); otherwise transition to Idle
   - `Wandering` → `Activity::Idle` (wander completes, re-enters decision scoring)
 - Removes `AtDestination` after handling
@@ -237,8 +237,8 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 **Priority 5: Unified worksite occupancy (farm + mine)**
 - Single merged block handles both `Activity::Working` and `Activity::MiningAtMine` using config from `BuildingDef.worksite` (`WorksiteDef` in `BUILDING_REGISTRY`). Config fields: `max_occupants` (Farm=1, GoldMine=5), `drift_radius` (Farm=20, Mine=MINE_WORK_RADIUS=40), `upgrade_job` ("Farmer"/"Miner"), `harvest_item` (Food/Gold), `town_scoped` (Farm=true, GoldMine=false — mines are usable by any faction).
 - **Worksite safety invariant** (validated before energy check, gated on `!worksite_deferred`): (1) no `worksite` → Idle, (2) worksite destroyed or wrong town (town-scoped only) → `WorkIntent::Release` + Idle, (3) contention: `occupant_count > ws.max_occupants` → `WorkIntent::Release` + Idle. Self-heals invalid state from older saves or edge cases.
-- **Drift check**: if NPC distance > `ws.drift_radius` from worksite position, submit intent back (stay claimed, no release). Applies to both farm and mine.
-- **Harvest check**: if `growth_ready`, `inst.harvest()` → yield multiplied by `UPGRADES.stat_mult(ws.upgrade_job, Yield)` → `WorkIntent::Release` → `Activity::Returning { loot: [(ws.harvest_item, final_yield)] }` targeting home.
+- **Drift check**: if NPC distance > `ws.drift_radius` from worksite position: farms submit intent back (stay claimed, no release); gold mines forfeit queue position via `WorkIntent::Release` + re-enter `Activity::Mining` to re-claim and re-queue (fair mining — leaving range loses your spot).
+- **Harvest check**: if `growth_ready` AND (non-mine OR front of claim queue via `is_worksite_harvest_turn()`), `inst.harvest()` → yield multiplied by `UPGRADES.stat_mult(ws.upgrade_job, Yield)` → `WorkIntent::Release` → `Activity::Returning { loot: [(ws.harvest_item, final_yield)] }` targeting home. Mines not at front of queue skip harvest and continue tending/waiting.
 - **Tired check**: energy < `ENERGY_TIRED_THRESHOLD` → `WorkIntent::Release` → Idle.
 
 **Priority 6: Patrol**
@@ -345,13 +345,23 @@ Military unit groups for both player and AI. 10 player-reserved squads + AI squa
 
 ## Worksite Reservation Lifecycle
 
-All worksite occupancy mutations are centralized in `resolve_work_targets` (work_targeting.rs) — the sole caller of `entity_map.release()` and `try_claim_worksite()` for NPC work slots. Systems send fire-and-forget `WorkIntentMsg` messages; the resolver processes them after `decision_system` in `Step::Behavior`. `NpcWorkState` has a single `worksite: Option<EntityUid>` field (merged from the previous two-field design that enabled desync bugs).
+All worksite occupancy mutations are centralized in `resolve_work_targets` (work_targeting.rs) — the sole caller of `entity_map.release_for()` and `try_claim_worksite()` for NPC work slots. Systems send fire-and-forget `WorkIntentMsg` messages; the resolver processes them after `decision_system` in `Step::Behavior`. `NpcWorkState` has a single `worksite: Option<EntityUid>` field (merged from the previous two-field design that enabled desync bugs).
 
-- **Claim**: `WorkIntent::Claim { entity, kind, town_idx, from }` — resolver searches for best worksite via `find_farm_target()`/`find_mine_target()`, calls `try_claim_worksite()`, updates `NpcWorkState.worksite`, submits movement via `PathRequestQueue`. On failure, sets `Activity::Idle`.
-- **Release**: `WorkIntent::Release { entity, uid }` — resolver releases by carried UID (sender captures UID before write-back may clear it), clears `NpcWorkState.worksite`.
+- **Claim**: `WorkIntent::Claim { entity, kind, town_idx, from }` — resolver searches for best worksite via `find_farm_target()`/`find_mine_target()`, calls `try_claim_worksite()` (passing `claimer_uid` for queue tracking), updates `NpcWorkState.worksite`, submits movement via `PathRequestQueue`. On failure, sets `Activity::Idle`.
+- **Release**: `WorkIntent::Release { entity, uid }` — resolver releases by carried UID via `release_for(slot, claimer_uid)` (removes from occupancy + claim queue), clears `NpcWorkState.worksite`.
 - **Retarget**: `WorkIntent::Retarget` — atomic release + re-claim at a new worksite.
 - **Deferred write-back**: `decision_system` sets `worksite_deferred = true` when sending WorkIntentMsg, skipping NpcWorkState write-back that frame (resolver owns the component). The stale worksite invariant is also gated on `!worksite_deferred`.
 - **No pre-claim at spawn**: `spawner_respawn_system` does not claim worksite slots — workers self-claim via behavior system on first work decision.
+
+### Fair Mining Queue
+
+Gold mines support up to 5 concurrent miners (`max_occupants`). A FIFO claim queue (`worksite_claim_queue: HashMap<usize, Vec<EntityUid>>` on `EntityMap`) determines harvest priority — the miner who claimed first harvests first.
+
+- **Queue insertion**: `try_claim_worksite()` appends `claimer_uid` to the worksite's queue (if not already present).
+- **Queue removal**: `release_for()` removes the claimer from the queue. When `claimer_uid` is None and occupants reach 0, the entire queue is cleared.
+- **Harvest gating**: `is_worksite_harvest_turn(slot, uid)` returns true if the claimer is at the front of the queue (or queue is empty). Only the front-of-queue miner can harvest a ready mine; others continue tending.
+- **Range forfeit**: Miners who drift beyond `drift_radius` (40px for gold mines) lose their queue position — worksite is released and re-claimed, placing them at the back of the queue.
+- **DC forfeit**: Direct-control miners moved out of mine range also lose their queue spot.
 
 ## Known Issues / Limitations
 

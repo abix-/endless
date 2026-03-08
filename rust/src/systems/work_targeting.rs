@@ -2,7 +2,7 @@
 //!
 //! All systems declare intent via `WorkIntentMsg`; this system resolves them:
 //! - Claim: spatial search → try_claim_worksite → update NpcWorkState + submit movement
-//! - Release: entity_map.release → clear NpcWorkState
+//! - Release: entity_map.release_for (occupancy + claim-queue cleanup) → clear NpcWorkState
 //! - Retarget: Release then Claim atomically
 
 use bevy::prelude::*;
@@ -24,7 +24,7 @@ pub fn resolve_work_targets(
     for WorkIntentMsg(intent) in intents.read() {
         match intent {
             WorkIntent::Release { entity, uid } => {
-                release_worksite_uid(*uid, &mut entity_map);
+                release_worksite_uid(*entity, *uid, &mut entity_map);
                 clear_worksite(*entity, &mut work_state_q);
             }
             WorkIntent::Claim { entity, kind, town_idx, from } => {
@@ -44,19 +44,21 @@ fn release_worksite(
     entity_map: &mut EntityMap,
     work_state_q: &mut Query<&mut NpcWorkState>,
 ) {
+    let claimer_uid = entity_map.uid_by_entity(entity);
     let Ok(mut ws) = work_state_q.get_mut(entity) else { return };
     if let Some(uid) = ws.worksite.take() {
         if let Some(slot) = entity_map.slot_for_uid(uid) {
-            entity_map.release(slot);
+            entity_map.release_for(slot, claimer_uid);
         }
     }
 }
 
 /// Release by carried UID (used when decision_system write-back already cleared the component).
-fn release_worksite_uid(uid: Option<EntityUid>, entity_map: &mut EntityMap) {
+fn release_worksite_uid(entity: Entity, uid: Option<EntityUid>, entity_map: &mut EntityMap) {
+    let claimer_uid = entity_map.uid_by_entity(entity);
     if let Some(uid) = uid {
         if let Some(slot) = entity_map.slot_for_uid(uid) {
-            entity_map.release(slot);
+            entity_map.release_for(slot, claimer_uid);
         }
     }
 }
@@ -78,6 +80,7 @@ fn claim_worksite(
     activity_q: &mut Query<&mut crate::components::Activity>,
     path_queue: &mut PathRequestQueue,
 ) {
+    let claimer_uid = entity_map.uid_by_entity(entity);
     let max_occupants = match building_def(kind).worksite {
         Some(ws) => ws.max_occupants,
         None => return,
@@ -104,6 +107,7 @@ fn claim_worksite(
         kind,
         Some(town_idx),
         max_occupants,
+        claimer_uid,
     ) else {
         // Claim failed — revert Activity to Idle
         if let Ok(mut act) = activity_q.get_mut(entity) {

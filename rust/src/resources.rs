@@ -217,7 +217,7 @@ impl GameTime {
 impl Default for GameTime {
     fn default() -> Self {
         Self {
-            total_seconds: 0.0,
+            total_seconds: 5.0 * 55.0 / 60.0, // Start at 6:55am
             seconds_per_hour: 5.0,
             start_hour: 6,
             time_scale: 1.0,

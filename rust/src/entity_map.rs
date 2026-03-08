@@ -183,6 +183,8 @@ pub struct EntityMap {
     // NPC-specific data (index-only — gameplay state on ECS components)
     npcs: HashMap<usize, NpcEntry>,
     npc_by_town: HashMap<i32, DenseSlotSet>,
+    // Per-worksite FIFO claim order: slot -> claimer UID queue.
+    worksite_claim_queue: HashMap<usize, Vec<crate::components::EntityUid>>,
 
     // Spatial grid
     spatial_cell_size: f32,
@@ -331,6 +333,7 @@ impl EntityMap {
         self.by_kind_town.clear();
         self.by_grid_cell.clear();
         self.spawner_slots.clear();
+        self.worksite_claim_queue.clear();
         self.spatial_cells.iter_mut().for_each(|c| c.clear());
         self.spatial_kind_town.clear();
         self.spatial_kind_cell.clear();
@@ -398,6 +401,7 @@ impl EntityMap {
             self.by_grid_cell.remove(&(gc, gr));
             self.spatial_remove(slot, inst.position);
             self.spawner_slots.remove(slot);
+            self.worksite_claim_queue.remove(&slot);
             Some(inst)
         } else {
             None
@@ -538,8 +542,26 @@ impl EntityMap {
     // ── Occupancy ─────────────────────────────────────────────────────
 
     pub fn release(&mut self, slot: usize) {
+        self.release_for(slot, None);
+    }
+
+    pub fn release_for(&mut self, slot: usize, claimer_uid: Option<crate::components::EntityUid>) {
         if let Some(inst) = self.instances.get_mut(slot) {
             inst.occupants = inst.occupants.saturating_sub(1);
+            if let Some(uid) = claimer_uid {
+                if let Some(queue) = self.worksite_claim_queue.get_mut(&slot) {
+                    if let Some(pos) = queue.iter().position(|&u| u == uid) {
+                        queue.remove(pos);
+                    }
+                    if queue.is_empty() {
+                        self.worksite_claim_queue.remove(&slot);
+                    }
+                }
+            } else if inst.occupants <= 0 {
+                self.worksite_claim_queue.remove(&slot);
+            }
+        } else {
+            self.worksite_claim_queue.remove(&slot);
         }
     }
 
@@ -549,6 +571,17 @@ impl EntityMap {
 
     pub fn is_occupied(&self, slot: usize) -> bool {
         self.instances.get(slot).is_some_and(|i| i.occupants >= 1)
+    }
+
+    pub fn is_worksite_harvest_turn(
+        &self,
+        slot: usize,
+        claimer_uid: crate::components::EntityUid,
+    ) -> bool {
+        self.worksite_claim_queue
+            .get(&slot)
+            .and_then(|queue| queue.first().copied())
+            .is_none_or(|front| front == claimer_uid)
     }
 
     // ── NPC instance API ───────────────────────────────────────────────
@@ -1038,6 +1071,7 @@ impl EntityMap {
         expected_kind: crate::world::BuildingKind,
         expected_town: Option<u32>,
         max_occupants: i32,
+        claimer_uid: Option<crate::components::EntityUid>,
     ) -> Option<ClaimedWorksite> {
         let valid = self.instances.get(slot).is_some_and(|inst| {
             inst.kind == expected_kind
@@ -1047,6 +1081,12 @@ impl EntityMap {
         if valid {
             let inst = self.instances.get_mut(slot).expect("slot validated above");
             inst.occupants += 1;
+            if let Some(uid) = claimer_uid {
+                let queue = self.worksite_claim_queue.entry(slot).or_default();
+                if !queue.contains(&uid) {
+                    queue.push(uid);
+                }
+            }
             Some(ClaimedWorksite {
                 slot,
                 position: inst.position,

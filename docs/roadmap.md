@@ -17,7 +17,12 @@ See [completed.md](completed.md) for completed work moved out of active stages.
 
 ## Stages
 
-Stages 1-15, 18: [x] Complete (see [completed.md](completed.md))
+Stages 1-15, 18, 19: [x] Complete (see [completed.md](completed.md))
+
+**Current Sprint (priority order):**
+1. Loot cycle stress test — benchmark TownInventory growth under 50K NPCs over extended play, cap or prune unbounded accumulation
+2. Path recalculation on building place/remove (Stage 20) — dirty affected HPA* chunks, rebuild entrance nodes. Unblocks Stage 21 gates
+3. Entity sleeping (Stage 16 item 1) — camera-radius culling, 5-15ms/frame savings
 
 **Stage 16: Performance**
 
@@ -74,14 +79,10 @@ Design: no loot bags on the ground. Kill → loot goes directly into killer's `C
 
 All 6 chunks complete (see [completed.md](completed.md)): unified CarriedLoot, LootItem/Rarity/EquipmentSlot types, equipment drops + carry accumulation, NpcEquipment (9 D2 slots) + stat integration, Armory UI tab (I key), Merchant building (buy/sell/reroll), save/load persistence + loot-cycle test. Additional: auto-equip system (hourly, distributes items to best NPC), immediate Armory auto-equip actions (selected NPC or whole town via the same auto-equip rules), equipment drops on death (50% per item to killer), inventory/armory UI overhaul (Equipped/Unequipped/All views, slot filters, sorting, bulk sell common, comparison tooltips, multi-town support), and Inspector++ NPC tabs (Overview/Loadout/Economy/Log) with per-NPC personal log and carried-loot detail.
 
-**Stage 19: Code Health**
+Remaining:
+- [ ] Loot cycle stress test: benchmark `TownInventory` growth at 50K NPCs over extended play (2+ hours simulated). If unbounded, add inventory cap or periodic pruning of lowest-rarity items.
 
-*Done when: all tests pass on every push, no production unwrap can crash the game.*
-
-- [x] Fix 5 failing tests (healing_cache_multiple_towns, healing_cache_rebuilds_on_dirty, healing_cache_skips_negative_faction, mining_discovers_mine_within_radius, raider_forage_adds_food_on_hour_tick) — likely need FactionKind/FACTION_NEUTRAL awareness in test setup
-- [ ] CI pipeline: `cargo test` + `cargo clippy` in GitHub Actions on every push
-- [x] Split god-files: left_panel.rs (3,629 lines → inventory_ui, upgrades_ui, roster_ui), resources.rs (3,405 → extract EntityMap), economy.rs (2,299 → extract tests)
-- [ ] Audit production unwrap()s: replace ~20 non-test unwrap() calls with proper error handling (especially health.rs:735-740 triple-unwrap on killer_slot, economy.rs:112)
+**Stage 19: Code Health** — [x] Complete (see [completed.md](completed.md))
 
 **Stage 20: Pathfinding**
 

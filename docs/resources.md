@@ -152,7 +152,7 @@ Save/load: `FactionList` serialized in `SaveData`. Old saves without it get `Fac
 
 | Resource | Fields | Default |
 |----------|--------|---------|
-| GameTime | total_seconds, seconds_per_hour, start_hour, time_scale, paused, last_hour, hour_ticked | 0.0s, 5.0s/hr, 6am, 1.0x, false |
+| GameTime | total_seconds, seconds_per_hour, start_hour, time_scale, paused, last_hour, hour_ticked | 4.58s (6:55am), 5.0s/hr, 6am, 1.0x, false |
 
 Derived methods: `day()`, `hour()`, `minute()`, `is_daytime()` (6am–8pm), `total_hours()`.
 
