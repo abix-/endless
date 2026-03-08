@@ -483,8 +483,7 @@ pub fn death_system(
             };
             let activity = res
                 .activity_q
-                .get(npc.entity)
-                .map(|a| a.clone())
+                .get(npc.entity).cloned()
                 .unwrap_or_default();
             let lhb = res.last_hit_by_q.get(npc.entity).map(|h| h.0).unwrap_or(-1);
             let ws_uid = res
@@ -619,7 +618,7 @@ pub fn death_system(
                 let amount = if drop.min == drop.max {
                     drop.min
                 } else {
-                    drop.min + (meta.xp as i32 % (drop.max - drop.min + 1))
+                    drop.min + (meta.xp % (drop.max - drop.min + 1))
                 };
                 if amount > 0 {
                     let dc_keep_fighting = res
@@ -768,7 +767,7 @@ pub fn death_system(
                 let amount = if drop.min == drop.max {
                     drop.min
                 } else {
-                    drop.min + (tower_xp as i32 % (drop.max - drop.min + 1))
+                    drop.min + (tower_xp % (drop.max - drop.min + 1))
                 };
                 if amount > 0 {
                     match drop.item {
@@ -938,7 +937,7 @@ pub fn update_healing_zone_cache(
     cache.by_faction.resize_with(faction_count, Vec::new);
 
     for (town_idx, town) in world_data.towns.iter().enumerate() {
-        if town.faction == crate::constants::FACTION_NEUTRAL {
+        if town.faction <= crate::constants::FACTION_NEUTRAL {
             continue;
         }
         let town_levels = upgrades.town_levels(town_idx);
@@ -1577,7 +1576,7 @@ mod tests {
             towns: vec![Town {
                 name: "TestTown".to_string(),
                 center: Vec2::new(500.0, 500.0),
-                faction: 0,
+                faction: 1,
                 sprite_type: 0,
                 area_level: 0,
             }],
@@ -1613,8 +1612,9 @@ mod tests {
         app.update();
         let cache = app.world().resource::<crate::resources::HealingZoneCache>();
         assert!(!cache.by_faction.is_empty(), "cache should have factions after dirty");
-        assert!(!cache.by_faction[0].is_empty(), "faction 0 should have a healing zone");
-        let zone = &cache.by_faction[0][0];
+        assert!(cache.by_faction.len() > 1, "cache should have at least 2 faction slots");
+        assert!(!cache.by_faction[1].is_empty(), "faction 1 should have a healing zone");
+        let zone = &cache.by_faction[1][0];
         assert!((zone.center.x - 500.0).abs() < 0.1, "zone center should match town center");
         assert!(zone.heal_rate > 0.0, "heal_rate should be positive");
         assert!(zone.enter_radius_sq > 0.0, "enter_radius_sq should be positive");
@@ -1650,15 +1650,15 @@ mod tests {
         let mut app = setup_healing_cache_app();
         app.insert_resource(WorldData {
             towns: vec![
-                Town { name: "A".to_string(), center: Vec2::new(100.0, 100.0), faction: 0, sprite_type: 0, area_level: 0 },
-                Town { name: "B".to_string(), center: Vec2::new(900.0, 900.0), faction: 1, sprite_type: 1, area_level: 0 },
+                Town { name: "A".to_string(), center: Vec2::new(100.0, 100.0), faction: 1, sprite_type: 0, area_level: 0 },
+                Town { name: "B".to_string(), center: Vec2::new(900.0, 900.0), faction: 2, sprite_type: 1, area_level: 0 },
             ],
         });
         app.insert_resource(SendHealingDirty(true));
         app.update();
         let cache = app.world().resource::<crate::resources::HealingZoneCache>();
-        assert!(cache.by_faction.len() >= 2, "should have at least 2 faction entries");
-        assert!(!cache.by_faction[0].is_empty(), "faction 0 should have a zone");
+        assert!(cache.by_faction.len() >= 3, "should have at least 3 faction entries");
         assert!(!cache.by_faction[1].is_empty(), "faction 1 should have a zone");
+        assert!(!cache.by_faction[2].is_empty(), "faction 2 should have a zone");
     }
 }

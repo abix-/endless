@@ -75,7 +75,16 @@ Design: no loot bags on the ground. Kill → loot goes directly into killer's `C
 
 All 6 chunks complete (see [completed.md](completed.md)): unified CarriedLoot, LootItem/Rarity/EquipmentSlot types, equipment drops + carry accumulation, NpcEquipment (9 D2 slots) + stat integration, Inventory UI tab (I key), Merchant building (buy/sell/reroll), save/load persistence + loot-cycle test. Additional: auto-equip system (hourly, distributes items to best NPC), equipment drops on death (50% per item to killer), inventory UI overhaul (Equipped/Unequipped/All views, slot filters, sorting, bulk sell common, comparison tooltips, multi-town support).
 
-**Stage 19: Pathfinding**
+**Stage 19: Code Health**
+
+*Done when: all tests pass on every push, no production unwrap can crash the game.*
+
+- [x] Fix 5 failing tests (healing_cache_multiple_towns, healing_cache_rebuilds_on_dirty, healing_cache_skips_negative_faction, mining_discovers_mine_within_radius, raider_forage_adds_food_on_hour_tick) — likely need FactionKind/FACTION_NEUTRAL awareness in test setup
+- [ ] CI pipeline: `cargo test` + `cargo clippy` in GitHub Actions on every push
+- [x] Split god-files: left_panel.rs (3,629 lines → inventory_ui, upgrades_ui, roster_ui), resources.rs (3,405 → extract EntityMap), economy.rs (2,299 → extract tests)
+- [ ] Audit production unwrap()s: replace ~20 non-test unwrap() calls with proper error handling (especially health.rs:735-740 triple-unwrap on killer_slot, economy.rs:112)
+
+**Stage 20: Pathfinding**
 
 *Done when: NPCs navigate around obstacles using A\* or flow fields instead of pure boids steering. Raiders path around walls to find openings. Placing a building that would fully block access is rejected.*
 
@@ -87,9 +96,9 @@ All 6 chunks complete (see [completed.md](completed.md)): unified CarriedLoot, L
 - [ ] Path recalculation on building place/remove (incremental update, not full rebuild)
 - [ ] Path validation: reject building placements that fully block access to critical locations
 
-Prerequisite for Stage 20 (wall gates) and Stage 24 (tower defense maze).
+Prerequisite for Stage 21 (wall gates) and Stage 25 (tower defense maze).
 
-**Stage 20: Walls & Defenses**
+**Stage 21: Walls & Defenses**
 
 *Done when: player builds a stone wall perimeter with a gate, raiders path around it or attack through it, chokepoints make guard placement strategic.*
 
@@ -99,10 +108,10 @@ Wall auto-tiling complete (see [completed.md](completed.md)).
 
 Remaining:
 - [ ] Gate building (walls with a passthrough that friendlies use, raiders must breach)
-- [ ] Pathfinding integration: raiders route around walls to find openings, attack walls when no path exists (uses Stage 19 pathfinding)
+- [ ] Pathfinding integration: raiders route around walls to find openings, attack walls when no path exists (uses Stage 20 pathfinding)
 - [ ] Guard towers (upgrade from guard post - elevated, +range, requires wall adjacency)
 
-**Stage 21: Economy Depth**
+**Stage 22: Economy Depth**
 
 *Done when: player must choose between feeding NPCs and buying upgrades - food is a constraint, not a score.*
 
@@ -110,7 +119,7 @@ Remaining:
 - [ ] FoodEfficiency upgrade wired into `decision_system` eat logic
 - [ ] Economy pressure: upgrades cost more food, NPCs consume more as population grows
 
-**Stage 22: NPC Skills & Proficiency** (see [specs/npc-skills.md](specs/npc-skills.md))
+**Stage 23: NPC Skills & Proficiency** (see [specs/npc-skills.md](specs/npc-skills.md))
 
 *Done when: two NPCs with the same job but different proficiencies produce measurably different outcomes (farm output, combat effectiveness, dodge/survival), and those differences are visible in UI.*
 
@@ -123,18 +132,18 @@ Remaining:
 - [ ] Render skill/proficiency details in inspector + roster sorting/filtering support
 - [ ] Keep base-role identity intact (job still determines behavior class; proficiency scales effectiveness)
 
-**Stage 23: Save Slots**
+**Stage 24: Save Slots**
 
 *Done when: player builds up a town for 20 minutes, quits, relaunches, and continues exactly where they left off - NPCs in the same positions, same HP, same upgrades, same food.*
 
 Core save/load shipped (see [completed.md](completed.md)).
 - [ ] Save slot selection (3 slots)
 
-**Stage 24: Tower Defense (Wintermaul Wars-inspired)**
+**Stage 25: Tower Defense (Wintermaul Wars-inspired)**
 
 *Done when: player builds towers in a maze layout to shape enemy pathing, towers have elemental types with rock-paper-scissors counters, income accrues with interest, and towers upgrade/evolve into advanced forms.*
 
-Chunk 1 — Maze & Pathing (depends on Stage 19 Pathfinding):
+Chunk 1 — Maze & Pathing (depends on Stage 20 Pathfinding):
 - [ ] Open-field tower placement on a grid (towers block pathing, enemies path around them)
 - [ ] Maze validation — path from spawn to goal must always exist (reject placements that fully block)
 - [ ] Visual path preview (show calculated enemy route through current maze)
@@ -158,7 +167,7 @@ Chunk 4 — Economy & Sending:
 - [ ] Send menu with creep tiers (cheap/fast, tanky, elemental, boss)
 - [ ] Income bonus from sending (reward aggressive play)
 
-**Stage 25: Resources & Jobs**
+**Stage 26: Resources & Jobs**
 
 *Done when: player builds a lumber mill near Forest tiles, assigns a woodcutter, collects wood, and builds a stone wall using wood + stone instead of food - multi-resource economy with job specialization.*
 
@@ -169,7 +178,7 @@ Chunk 4 — Economy & Sending:
 - [ ] Crafting: blacksmith building consumes iron -> produces weapons/armor (feeds into Stage 18 loot system)
 - [ ] Villager job assignment UI (drag workers between roles - farming, woodcutting, mining, smithing, military)
 
-**Stage 26: Armies & Marching**
+**Stage 27: Armies & Marching**
 
 *Done when: player recruits 15 archers into an army, gives a march order to a neighboring raider town, and the army walks across the map as a formation - arriving ready to fight.*
 
@@ -179,18 +188,18 @@ Chunk 4 — Economy & Sending:
 - [ ] Army supply: marching armies consume food from origin town's storage, starve without supply
 - [ ] Field battles: two armies in proximity -> combat triggers (existing combat system handles it)
 
-**Stage 27: Conquest**
+**Stage 28: Conquest**
 
 *Done when: player marches an army to a raider town, defeats defenders, and claims the town - raider town converts to player-owned town with buildings intact, player now manages two towns.*
 
-Initial game setup: 1 player town, 1 AI builder town, 1 AI raider town on a small starting map. Conquest of these towns triggers the first expansion (Stage 29).
+Initial game setup: 1 player town, 1 AI builder town, 1 AI raider town on a small starting map. Conquest of these towns triggers the first expansion (Stage 30).
 
 - [ ] Town siege: army arrives at hostile settlement -> attacks defenders + buildings
 - [ ] Building HP: walls have HP - attackers must breach defenses (archer homes/farmer homes HP already done)
 - [ ] Town capture: all defenders dead + town center HP -> 0 = captured -> converts to player town
 - [ ] AI expansion: AI players can attack each other and the player (not just raid - full conquest attempts)
 
-**Stage 28: Diplomacy**
+**Stage 29: Diplomacy**
 
 *Done when: a raider town sends a messenger offering a truce for 3 food/hour tribute - accepting stops raids, refusing triggers an immediate attack wave.*
 
@@ -200,7 +209,7 @@ Initial game setup: 1 player town, 1 AI builder town, 1 AI raider town on a smal
 - [ ] Allied raider towns stop raiding, may send fighters during large attacks
 - [ ] Betrayal: allied raider towns can turn hostile if tribute stops or player is weak
 
-**Stage 29: Endless Expansion**
+**Stage 30: Endless Expansion**
 
 *Done when: player conquers both starter AI towns, picks an expansion direction, map grows with new AI towns, and the cycle repeats — the game ends only when hardware can't keep up.*
 
@@ -213,7 +222,7 @@ The game starts small (3 towns) and grows outward each time the player conquers 
 - [ ] Performance-aware scaling: monitor framerate, warn player when approaching hardware limits
 - [ ] No end condition: cycle repeats indefinitely (expand -> conquer -> expand)
 
-**Stage 30: Underground Caverns**
+**Stage 31: Underground Caverns**
 
 *Done when: player sends a party of NPCs into a cavern entrance, they descend into a procedurally generated underground layer, fight cave creatures, and return with rare loot.*
 
@@ -224,11 +233,11 @@ Cavern entrances spawn on the surface map (naturally on Rock biome, or revealed 
 - [ ] Creature types: cave dwellers with unique combat behaviors (melee swarmers, ranged spitters, boss creatures in deep chambers)
 - [ ] NPC delving behavior: send party -> descend -> explore -> fight -> loot -> return when hurt or full
 - [ ] Depth tiers: each cavern has multiple depth levels, deeper = harder + better loot
-- [ ] Cavern loot table: rare ores, unique equipment, crafting materials not found on surface (feeds into Stage 18 loot + Stage 25 resources)
+- [ ] Cavern loot table: rare ores, unique equipment, crafting materials not found on surface (feeds into Stage 18 loot + Stage 26 resources)
 - [ ] Fog of war: underground areas revealed as NPCs explore, persists between visits
 - [ ] Creature respawn: caverns repopulate over time, making them replayable
 
-Sound (bevy_audio) woven into stages. Done: arrow shoot SFX, NPC death SFX (24 variants), spatial camera culling, per-kind dedup. Remaining: building place, wall hit, loot pickup (Stages 17-20); element sounds + wave horn (Stage 24).
+Sound (bevy_audio) woven into stages. Done: arrow shoot SFX, NPC death SFX (24 variants), spatial camera culling, per-kind dedup. Remaining: building place, wall hit, loot pickup (Stages 17-21); element sounds + wave horn (Stage 25).
 
 ## Backlog
 
@@ -240,7 +249,6 @@ Sound (bevy_audio) woven into stages. Done: arrow shoot SFX, NPC death SFX (24 v
 - [x] Unit test infrastructure: `#[cfg(test)]` modules in stats.rs, constants.rs, components.rs (65 pure function tests via `cargo test`)
 - [x] System-level tests: headless `App::new()` + `FixedUpdate` tests for energy, regen, starvation, game_time, cooldown, damage, construction systems + population helpers (52 tests)
 - [x] Pure function tests: generate_name, generate_personality in spawn.rs (6 tests)
-- [ ] CI pipeline: `cargo test` + `cargo clippy` in GitHub Actions
 
 ### UI & UX
 - [ ] Add `show_active_radius` debug toggle in Bevy UI
@@ -258,7 +266,7 @@ Implementation guides for upcoming stages. After delivery, spec content rolls in
 | Spec | Stage | File |
 |---|---|---|
 | Chunked Tilemap | 16 | [specs/chunked-tilemap.md](specs/chunked-tilemap.md) |
-| NPC Skills & Proficiency | 22 | [specs/npc-skills.md](specs/npc-skills.md) |
+| NPC Skills & Proficiency | 23 | [specs/npc-skills.md](specs/npc-skills.md) |
 
 ## Performance
 

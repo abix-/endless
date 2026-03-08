@@ -2,6 +2,8 @@
 
 ## 2026-03-08
 
+- **Fix 5 failing tests** — test towns used `faction: 0` (FACTION_NEUTRAL) instead of active factions, causing healing cache, mining discovery, and raider forage tests to fail. Fixed `update_healing_zone_cache` to skip negative factions (`<= FACTION_NEUTRAL` guard).
+- **Split god-files** — extracted `entity_map.rs` from `resources.rs` (EntityMap + BuildingInstance + NpcEntry, ~1K lines), split `economy.rs` tests into `economy/tests.rs` (~960 lines), split `left_panel.rs` into `left_panel/` module with `roster_ui.rs`, `upgrades_ui.rs`, `inventory_ui.rs` submodules (~900 lines extracted). All re-exported for API compatibility.
 - **Squad target behavior fix** — archers at squad target now scatter near the squad target instead of walking back to their patrol waypoint. Squad intent always submitted with priority resolution, removing brittle per-activity redirect logic. Patrol cycling suppressed when squad has an active target.
 - **Inspector unequip buttons** — each equipped item in the NPC inspector now has an Unequip button. "Manage Equipment >" link opens the Inventory tab. Non-military NPCs no longer show "No equipment".
 - **LLM prompt: skip wiped towns** — AI town data now includes alive/dead NPC counts. Prompt instructs AI to skip wiped towns (alive < 5 or no buildings) when choosing attack targets.

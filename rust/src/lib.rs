@@ -1,5 +1,10 @@
 //! Endless ECS - Pure Bevy colony simulation.
 //! See docs/ for architecture documentation.
+#![allow(
+    clippy::too_many_arguments, // Bevy systems have many params by design
+    clippy::type_complexity,    // Bevy Query types are inherently complex
+    clippy::collapsible_if,     // Nested ifs are often clearer in game logic
+)]
 
 // ============================================================================
 // MODULES
@@ -7,6 +12,7 @@
 
 pub mod components;
 pub mod constants;
+pub mod entity_map;
 pub mod gpu;
 pub mod messages;
 pub mod npc_render;
