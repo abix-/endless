@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-03-08q
+
+- **FPS cap fix** — replaced broken `focused_mode_for_fps_cap` (Bevy `UpdateMode::reactive_low_power`, which only limits idle polling and has no effect during active gameplay) with `bevy_framepace` crate. Uses `spin_sleep` for accurate frame timing on Windows (~15ms `thread::sleep` granularity bypassed via hybrid sleep+spin). New `apply_fps_cap()` helper sets `Limiter::Off` (uncapped) or `Limiter::from_framerate()`. SystemParam bundles (`PauseRuntimeConfigs`, `MenuVideoParams`) added to stay within Bevy's 16-param system limit.
+- **NPC speed rebalance** — all base speeds halved (Farmer/Archer/Miner 200→100, Raider 230→110, Fighter/Crossbow 170→85). Movement feels more deliberate at the new arrival threshold.
+- **Arrival threshold tightened** — `ARRIVAL_THRESHOLD` 40→20px. GPU `arrival_threshold` uniform now synced from the constant (was hardcoded 8.0).
+- **Transitive arrival** — GPU shader: unsettled NPCs sharing the same goal as a settled neighbor become settled too, propagating arrival through clusters so back-of-crowd NPCs stop pushing forward.
+- **GPU upload scheduling** — `update_gpu_data`/`update_proj_gpu_data` moved from FixedUpdate to Update for smoother visual updates decoupled from the 60 UPS tick.
+
 ## 2026-03-08p
 
 - **Fair mining queue** — gold mines now use a FIFO claim queue (`worksite_claim_queue` on EntityMap) to determine harvest priority. The miner who claimed first harvests first. Miners who drift beyond `drift_radius` or are moved out of range via direct control lose their queue position and re-queue at the back. `try_claim_worksite` appends to queue, `release_for` removes from queue, `is_worksite_harvest_turn` gates harvest to front-of-queue miner.

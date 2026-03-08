@@ -240,6 +240,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                         if (goal.x == goal_j.x && goal.y == goal_j.y) { continue; }
                     }
 
+                    // Transitive arrival: bump a settled neighbor at same goal → settle too
+                    if (settled == 0 && neighbor_settled == 1) {
+                        let goal_j = goals[j];
+                        if (goal.x == goal_j.x && goal.y == goal_j.y) {
+                            settled = 1;
+                        }
+                    }
+
                     // Priority rule: settled and moving actors push differently.
                     var push_strength = 1.0;
                     if (settled == 1 && neighbor_settled == 1) {

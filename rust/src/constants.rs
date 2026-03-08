@@ -652,7 +652,7 @@ pub const TOWN_NONE: u32 = u32::MAX;
 // Spatial grid lives on GPU only — see gpu.rs (256×256 cells × 128px = 32,768px coverage).
 
 /// Distance from target at which an NPC is considered "arrived".
-pub const ARRIVAL_THRESHOLD: f32 = 40.0;
+pub const ARRIVAL_THRESHOLD: f32 = 20.0;
 /// Relaxed arrival threshold for intermediate A* waypoints (not final destination).
 /// Prevents pile-up when boid separation pushes NPCs away from shared waypoints.
 pub const INTERMEDIATE_ARRIVAL_THRESHOLD: f32 = 96.0;
@@ -939,7 +939,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         color: (0.0, 1.0, 0.0, 1.0),
         base_hp: 60.0,
         base_damage: 0.0,
-        base_speed: 200.0,
+        base_speed: 100.0,
         default_attack_type: BaseAttackType::Melee,
         attack_override: None,
         is_patrol_unit: false,
@@ -973,7 +973,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         color: (0.0, 0.0, 1.0, 1.0),
         base_hp: 80.0,
         base_damage: 15.0,
-        base_speed: 200.0,
+        base_speed: 100.0,
         default_attack_type: BaseAttackType::Ranged,
         attack_override: None,
         is_patrol_unit: true,
@@ -1014,7 +1014,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         color: (1.0, 0.0, 0.0, 1.0),
         base_hp: 120.0,
         base_damage: 15.0,
-        base_speed: 230.0,
+        base_speed: 110.0,
         default_attack_type: BaseAttackType::Melee,
         attack_override: None,
         is_patrol_unit: false,
@@ -1055,7 +1055,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         color: (1.0, 1.0, 0.0, 1.0),
         base_hp: 150.0,
         base_damage: 22.5,
-        base_speed: 170.0,
+        base_speed: 85.0,
         default_attack_type: BaseAttackType::Melee,
         attack_override: None,
         is_patrol_unit: true,
@@ -1096,7 +1096,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         color: (0.6, 0.4, 0.2, 1.0),
         base_hp: 80.0,
         base_damage: 0.0,
-        base_speed: 200.0,
+        base_speed: 100.0,
         default_attack_type: BaseAttackType::Melee,
         attack_override: None,
         is_patrol_unit: false,
@@ -1130,7 +1130,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         color: (0.4, 0.0, 0.8, 1.0),
         base_hp: 70.0,
         base_damage: 25.0,
-        base_speed: 170.0,
+        base_speed: 85.0,
         default_attack_type: BaseAttackType::Ranged,
         attack_override: Some(AttackTypeStats {
             range: 300.0,

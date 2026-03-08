@@ -67,8 +67,8 @@ Main World (ECS)                       Render World (GPU)
 ECS → GPU (upload):
   GpuSlotPool.pending_frees → populate_gpu_state (hide: pos=-9999, health=0, speed=0, flags=0)
   GpuSlotPool.pending_resets → populate_gpu_state (full wipe: all 9 GPU fields to safe defaults)
-  GpuUpdateMsg → populate_gpu_state → EntityGpuState (unified NPC+building state, per-buffer dirty flags)
-  ProjGpuUpdateMsg → populate_proj_buffer_writes
+  update_gpu_data (Update schedule): GpuUpdateMsg → populate_gpu_state → EntityGpuState (unified NPC+building state, per-buffer dirty flags)
+  update_proj_gpu_data (Update schedule): ProjGpuUpdateMsg → populate_proj_buffer_writes
     → ProjBufferWrites (spawn/deactivate dirty sets for extract_proj_data)
 
   build_visual_upload (PostUpdate, chained after populate_gpu_state):
@@ -111,7 +111,7 @@ GPU → ECS (readback, Bevy async Readback):
       proj_positions → ProjPositionState.0
     → gpu_position_readback: GpuReadState → ECS Position components
       + arrival detection: if HasTarget && dist(pos, goal) < ARRIVAL_THRESHOLD → AtDestination
-  Data is 1 frame old (~1.6px drift at 100px/s). ARRIVAL_THRESHOLD=8px >> drift.
+  Data is 1 frame old (~1.6px drift at 100px/s). ARRIVAL_THRESHOLD=20px >> drift.
   entity_count not set from readback (buffer is MAX-sized) — comes from GpuSlotPool.count().
 
 GPU → Render:
@@ -146,7 +146,7 @@ One thread per entity (`entity_count`). Entity type determined by `entity_flags`
 
 Four phases per NPC thread (speed > 0):
 
-**Separation + dodge** (single 3x3 grid scan): For each neighbor within `separation_radius`, computes push-away force proportional to overlap. **Skips neighbors with `ENTITY_BUILDING` flag** (buildings are collision-only, no separation force). Asymmetric push: both-settled NPCs with different goals push minimally (0.15x — prevents jitter at shared destinations), moving NPCs (settled=0) push through settled ones (0.2x strength), settled NPCs get shoved by movers (2.0x). Same-faction neighbors get 1.5x push to spread out convoys. Exact overlaps use golden angle spread. Dodge is computed in the same loop: for moving NPCs approaching other moving NPCs within 2x `separation_radius`, dodges perpendicular to movement direction. Detects head-on (0.5), crossing (0.4), and overtaking (0.3) scenarios via dot-product convergence check. Consistent side-picking via index comparison (`i < j`). Dodge scaled by `strength * 0.7`. Total avoidance clamped to `speed * 1.5` to prevent wild overshoot.
+**Separation + dodge** (single 3x3 grid scan): For each neighbor within `separation_radius`, computes push-away force proportional to overlap. **Skips neighbors with `ENTITY_BUILDING` flag** (buildings are collision-only, no separation force). Asymmetric push: both-settled NPCs with different goals push minimally (0.15x — prevents jitter at shared destinations), moving NPCs (settled=0) push through settled ones (0.2x strength), settled NPCs get shoved by movers (2.0x). Same-faction neighbors get 1.5x push to spread out convoys. Exact overlaps use golden angle spread. Dodge is computed in the same loop: for moving NPCs approaching other moving NPCs within 2x `separation_radius`, dodges perpendicular to movement direction. Detects head-on (0.5), crossing (0.4), and overtaking (0.3) scenarios via dot-product convergence check. Consistent side-picking via index comparison (`i < j`). Dodge scaled by `strength * 0.7`. Total avoidance clamped to `speed * 1.5` to prevent wild overshoot. **Transitive arrival**: during the neighbor scan, an unsettled NPC sharing the same goal as a settled neighbor becomes settled too — arrival propagates through clusters so NPCs at the back of a crowd don't keep pushing forward.
 
 **Projectile dodge** (spatial grid scan): After separation, scans 3x3 neighborhood of the projectile spatial grid (built by projectile compute modes 0+1 in the previous frame). For each enemy projectile within 60px heading toward the NPC (approach dot > 0.3), computes a perpendicular dodge force. Direction is away from the projectile's path (consistent side-picking via `select`). Urgency scales linearly with proximity (closer = stronger). Normalized and scaled to `speed * 1.5`. Applied as a separate force in the position update (`movement + avoidance + proj_dodge`), independent of avoidance clamping. 1-frame latency is acceptable: at 60fps, an arrow at speed 500 moves ~8px — within the 60px dodge radius.
 
@@ -218,7 +218,7 @@ Built by `build_visual_upload` from ECS components (EquippedArmor, EquippedHelme
 | grid_height | 256 | Spatial grid rows |
 | cell_size | 128.0 | Pixels per grid cell |
 | max_per_cell | 48 | Max NPCs per cell |
-| arrival_threshold | 8.0 | Distance to mark as arrived |
+| arrival_threshold | 20.0 | Distance to mark as arrived (synced from ARRIVAL_THRESHOLD constant) |
 | mode | 0 | Dispatch mode (0=clear grid, 1=build grid, 2=separation+movement+targeting) |
 | combat_range | 400.0 | Maximum distance for combat targeting (covers FOUNTAIN_TOWER.range=400) |
 | proj_max_per_cell | 48 | Max projectiles per spatial grid cell (for dodge scan) |

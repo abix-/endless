@@ -89,6 +89,12 @@ fn size_name(size: f32) -> &'static str {
     }
 }
 
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct MenuVideoParams<'w> {
+    winit_settings: ResMut<'w, bevy::winit::WinitSettings>,
+    framepace: ResMut<'w, bevy_framepace::FramepaceSettings>,
+}
+
 pub fn main_menu_system(
     mut commands: Commands,
     mut contexts: EguiContexts,
@@ -103,7 +109,7 @@ pub fn main_menu_system(
     keys: Res<ButtonInput<KeyCode>>,
     mut audio: ResMut<GameAudio>,
     mut music_sinks: Query<&mut AudioSink, With<MusicTrack>>,
-    mut winit_settings: ResMut<bevy::winit::WinitSettings>,
+    mut video: MenuVideoParams,
     mut state: Local<MenuState>,
     mut exit: MessageWriter<AppExit>,
 ) -> Result {
@@ -497,8 +503,7 @@ pub fn main_menu_system(
             if inner.reset_requested {
                 state.rebinding_action = None;
                 *user_settings = settings::UserSettings::default();
-                winit_settings.focused_mode =
-                    settings::focused_mode_for_fps_cap(user_settings.fps_cap);
+                settings::apply_fps_cap(user_settings.fps_cap, &mut video.framepace);
             }
         }
 
@@ -515,11 +520,10 @@ pub fn main_menu_system(
             }
         }
         if user_settings.fps_cap != prev_fps_cap {
-            winit_settings.focused_mode =
-                settings::focused_mode_for_fps_cap(user_settings.fps_cap);
+            settings::apply_fps_cap(user_settings.fps_cap, &mut video.framepace);
         }
         if user_settings.background_fps != prev_bg_fps {
-            winit_settings.unfocused_mode = if user_settings.background_fps {
+            video.winit_settings.unfocused_mode = if user_settings.background_fps {
                 bevy::winit::UpdateMode::Continuous
             } else {
                 bevy::winit::UpdateMode::reactive_low_power(std::time::Duration::from_secs_f64(

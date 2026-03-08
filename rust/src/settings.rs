@@ -939,16 +939,13 @@ impl UserSettings {
     }
 }
 
-/// Convert fps_cap setting into the Bevy focused UpdateMode.
-/// 0 = Continuous (uncapped), otherwise reactive at 1/fps.
-pub fn focused_mode_for_fps_cap(fps_cap: u32) -> bevy::winit::UpdateMode {
-    if fps_cap == 0 {
-        bevy::winit::UpdateMode::Continuous
+/// Apply FPS cap via bevy_framepace. 0 = uncapped, otherwise target FPS.
+pub fn apply_fps_cap(fps_cap: u32, settings: &mut bevy_framepace::FramepaceSettings) {
+    settings.limiter = if fps_cap == 0 {
+        bevy_framepace::Limiter::Off
     } else {
-        bevy::winit::UpdateMode::reactive_low_power(std::time::Duration::from_secs_f64(
-            1.0 / fps_cap as f64,
-        ))
-    }
+        bevy_framepace::Limiter::from_framerate(fps_cap as f64)
+    };
 }
 
 pub fn apply_video_settings_to_window(window: &mut bevy::window::Window, settings: &UserSettings) {

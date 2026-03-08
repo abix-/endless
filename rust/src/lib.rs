@@ -365,6 +365,7 @@ pub fn build_app(app: &mut App) {
         // Fixed 60 UPS game loop (Factorio model)
         .insert_resource(Time::<Fixed>::from_hz(60.0))
         // Plugins
+        .add_plugins(bevy_framepace::FramepacePlugin)
         .add_plugins(bevy_egui::EguiPlugin::default())
         .add_plugins(gpu::GpuComputePlugin)
         .add_plugins(render::RenderPlugin)

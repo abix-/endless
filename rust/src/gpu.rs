@@ -93,7 +93,7 @@ impl Default for EntityGpuData {
             grid_height: GRID_HEIGHT,
             cell_size: 128.0,
             max_per_cell: MAX_PER_CELL,
-            arrival_threshold: 8.0,
+            arrival_threshold: crate::constants::ARRIVAL_THRESHOLD,
             mode: 0,
             combat_range: 400.0,
             proj_max_per_cell: MAX_PER_CELL,
@@ -1225,13 +1225,12 @@ impl Plugin for GpuComputePlugin {
             .init_resource::<ProjBufferWrites>()
             .init_resource::<ReadbackState>()
             .add_systems(
+                Update,
+                (update_gpu_data, update_proj_gpu_data),
+            )
+            .add_systems(
                 FixedUpdate,
-                (
-                    update_gpu_data,
-                    update_proj_gpu_data,
-                    populate_tile_flags,
-                    sync_readback_ranges,
-                ),
+                (populate_tile_flags, sync_readback_ranges),
             )
             .add_systems(
                 PostUpdate,

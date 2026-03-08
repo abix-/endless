@@ -1162,6 +1162,7 @@ struct PauseRuntimeConfigs<'w> {
     ai_config: ResMut<'w, crate::systems::ai_player::AiPlayerConfig>,
     npc_config: ResMut<'w, crate::resources::NpcDecisionConfig>,
     pathfind_config: ResMut<'w, crate::resources::PathfindConfig>,
+    framepace: ResMut<'w, bevy_framepace::FramepaceSettings>,
 }
 
 fn pause_menu_system(
@@ -1279,7 +1280,7 @@ fn pause_menu_system(
     if reset_requested {
         locals.rebinding = None;
         *settings = crate::settings::UserSettings::default();
-        winit_settings.focused_mode = crate::settings::focused_mode_for_fps_cap(settings.fps_cap);
+        crate::settings::apply_fps_cap(settings.fps_cap, &mut runtime_configs.framepace);
         winit_settings.unfocused_mode = if settings.background_fps {
             bevy::winit::UpdateMode::Continuous
         } else {
@@ -1309,7 +1310,7 @@ fn pause_menu_system(
     }
     // Apply FPS cap change
     if settings.fps_cap != prev_fps_cap {
-        winit_settings.focused_mode = crate::settings::focused_mode_for_fps_cap(settings.fps_cap);
+        crate::settings::apply_fps_cap(settings.fps_cap, &mut runtime_configs.framepace);
     }
     // Apply background FPS change
     if settings.background_fps != prev_bg_fps {
