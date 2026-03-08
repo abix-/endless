@@ -65,7 +65,7 @@ pub enum UpgradeStatKind {
 pub enum EffectDisplay {
     /// +X% per level (standard multiplicative)
     Percentage,
-    /// -X% cooldown reduction (reciprocal: 1/(1+n*pct))
+    /// +X% speed boost (reciprocal: 1/(1+n*pct), displayed as positive)
     CooldownReduction,
     /// Binary unlock (level 0 = locked, level 1+ = unlocked)
     Unlock,
@@ -222,7 +222,7 @@ const MILITARY_RANGED_UPGRADES: &[UpgradeStatDef] = &[
         &[(F, 1)],
         "Attack Speed",
         "AtkSpd",
-        "-8% attack cooldown per level",
+        "+8% attack speed per level",
         EffectDisplay::CooldownReduction,
     ),
     usd(
@@ -251,7 +251,7 @@ const MILITARY_RANGED_UPGRADES: &[UpgradeStatDef] = &[
         &[(F, 1)],
         "Stamina",
         "Stam",
-        "-10% energy drain per level",
+        "+10% stamina per level",
         EffectDisplay::CooldownReduction,
         USK::MoveSpeed,
         1,
@@ -321,7 +321,7 @@ const MILITARY_MELEE_UPGRADES: &[UpgradeStatDef] = &[
         &[(F, 1)],
         "Attack Speed",
         "AtkSpd",
-        "-8% attack cooldown per level",
+        "+8% attack speed per level",
         EffectDisplay::CooldownReduction,
     ),
     usd(
@@ -350,7 +350,7 @@ const MILITARY_MELEE_UPGRADES: &[UpgradeStatDef] = &[
         &[(F, 1)],
         "Stamina",
         "Stam",
-        "-10% energy drain per level",
+        "+10% stamina per level",
         EffectDisplay::CooldownReduction,
         USK::MoveSpeed,
         1,
@@ -411,7 +411,7 @@ const FARMER_UPGRADES: &[UpgradeStatDef] = &[
         &[(F, 1)],
         "Stamina",
         "Stam",
-        "-10% energy drain per level",
+        "+10% stamina per level",
         EffectDisplay::CooldownReduction,
         USK::MoveSpeed,
         1,
@@ -443,7 +443,7 @@ const MINER_UPGRADES: &[UpgradeStatDef] = &[
         &[(F, 1)],
         "Stamina",
         "Stam",
-        "-10% energy drain per level",
+        "+10% stamina per level",
         EffectDisplay::CooldownReduction,
         USK::MoveSpeed,
         1,
@@ -494,7 +494,7 @@ pub const TOWER_UPGRADES: &[UpgradeStatDef] = &[
         &[(F, 1)],
         "Attack Speed",
         "AtkSpd",
-        "-8% tower cooldown per level",
+        "+8% tower attack speed per level",
         EffectDisplay::CooldownReduction,
     ),
     usd(
@@ -566,7 +566,7 @@ pub const TOWN_UPGRADES: &[UpgradeStatDef] = &[
         cost: &[(G, 1)],
         label: "Fountain Atk Speed",
         short: "FAS",
-        tooltip: "-8% fountain cooldown per level",
+        tooltip: "+8% fountain attack speed per level",
         display: EffectDisplay::CooldownReduction,
         prereq_stat: Some(USK::FountainRange),
         prereq_level: 1,

@@ -1447,6 +1447,8 @@ pub struct UiState {
     pub inv_view_mode: u8,
     /// Tech tree window open.
     pub tech_tree_open: bool,
+    /// Tech tree active branch tab index.
+    pub tech_tree_tab: usize,
     /// Inspector window currently visible (NPC or building selected).
     pub inspector_visible: bool,
 }
@@ -1470,6 +1472,7 @@ impl Default for UiState {
             inv_slot_filter: 0x1FF, // all 9 slots enabled
             inv_view_mode: 0,
             tech_tree_open: false,
+            tech_tree_tab: 0,
             inspector_visible: false,
         }
     }

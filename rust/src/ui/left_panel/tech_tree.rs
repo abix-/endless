@@ -1,4 +1,4 @@
-//! Visual tech tree window — full-width immersive upgrade tree with left-to-right node graph.
+//! Visual tech tree window — top-down node graph with tabbed branches.
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
@@ -7,18 +7,16 @@ use crate::constants::FACTION_PLAYER;
 use crate::resources::*;
 use crate::settings::UserSettings;
 use crate::systems::stats::{
-    UPGRADES, UpgradeBranch, UpgradeMsg, branch_total, format_upgrade_cost,
-    missing_prereqs, upgrade_available, upgrade_count, upgrade_effect_summary, upgrade_unlocked,
+    UPGRADES, UpgradeMsg, branch_total, format_upgrade_cost,
+    missing_prereqs, upgrade_available, upgrade_unlocked, upgrade_count, upgrade_effect_summary,
 };
 use crate::world::WorldData;
 
 // Layout constants
-const NODE_W: f32 = 110.0;
-const NODE_H: f32 = 38.0;
-const COL_SPACING: f32 = 150.0;
-const ROW_SPACING: f32 = 6.0;
-const BRANCH_SPACING: f32 = 16.0;
-const SECTION_SPACING: f32 = 24.0;
+const NODE_W: f32 = 140.0;
+const NODE_H: f32 = 52.0;
+const COL_SPACING: f32 = 160.0;
+const ROW_SPACING: f32 = 70.0;
 
 /// Node visual state.
 #[derive(Clone, Copy)]
@@ -49,25 +47,25 @@ fn node_state(levels: &[u8], idx: usize, food: i32, gold: i32) -> NodeState {
 
 fn node_bg(state: NodeState) -> egui::Color32 {
     match state {
-        NodeState::Locked => egui::Color32::from_gray(35),
-        NodeState::Unlocked => egui::Color32::from_gray(55),
-        NodeState::Available => egui::Color32::from_rgb(30, 70, 30),
-        NodeState::Maxed => egui::Color32::from_rgb(35, 35, 90),
+        NodeState::Locked => egui::Color32::from_gray(30),
+        NodeState::Unlocked => egui::Color32::from_gray(50),
+        NodeState::Available => egui::Color32::from_rgb(25, 65, 25),
+        NodeState::Maxed => egui::Color32::from_rgb(30, 30, 80),
     }
 }
 
 fn node_border(state: NodeState) -> egui::Stroke {
     match state {
-        NodeState::Locked => egui::Stroke::new(1.0, egui::Color32::from_gray(60)),
+        NodeState::Locked => egui::Stroke::new(1.0, egui::Color32::from_gray(55)),
         NodeState::Unlocked => egui::Stroke::new(1.0, egui::Color32::from_gray(100)),
-        NodeState::Available => egui::Stroke::new(2.0, egui::Color32::from_rgb(180, 180, 50)),
+        NodeState::Available => egui::Stroke::new(2.0, egui::Color32::from_rgb(120, 200, 60)),
         NodeState::Maxed => egui::Stroke::new(1.5, egui::Color32::from_rgb(80, 80, 180)),
     }
 }
 
 fn node_text_color(state: NodeState) -> egui::Color32 {
     match state {
-        NodeState::Locked => egui::Color32::from_gray(90),
+        NodeState::Locked => egui::Color32::from_gray(80),
         _ => egui::Color32::from_gray(220),
     }
 }
@@ -76,7 +74,7 @@ fn line_color(unlocked: bool) -> egui::Color32 {
     if unlocked {
         egui::Color32::from_gray(120)
     } else {
-        egui::Color32::from_gray(45)
+        egui::Color32::from_gray(40)
     }
 }
 
@@ -86,97 +84,130 @@ struct PlacedNode {
     rect: egui::Rect,
 }
 
-/// Compute node positions for a branch. Returns (placed_nodes, total_height).
-fn layout_branch(branch: &UpgradeBranch, origin: egui::Pos2) -> (Vec<PlacedNode>, f32) {
+/// Compute top-down node positions for a branch.
+/// Returns (placed_nodes, content_width, content_height).
+fn layout_branch_topdown(
+    branch: &crate::systems::stats::UpgradeBranch,
+    origin: egui::Pos2,
+) -> (Vec<PlacedNode>, f32, f32) {
+    let reg = &*UPGRADES;
     let mut placed: Vec<PlacedNode> = Vec::new();
 
-    // Group entries by depth, preserving DFS order
+    if branch.entries.is_empty() {
+        return (placed, 0.0, 0.0);
+    }
+
     let max_depth = branch.entries.iter().map(|&(_, d)| d).max().unwrap_or(0);
 
-    // For each root node, place it and its children aligned vertically
-    let mut y_cursor = origin.y;
-
-    // Track which nodes are roots (depth 0) and build parent→children map
-    let reg = &*UPGRADES;
-    let branch_indices: Vec<usize> = branch.entries.iter().map(|&(idx, _)| idx).collect();
-
-    // Walk DFS order from entries (already in DFS order from emit_tree)
-    // Place roots at depth 0, children at depth 1, etc.
-    // Children should be vertically adjacent to their parent
-
-    // First pass: count nodes per depth column to allocate rows
+    // Group entries by depth row
     let mut depth_rows: Vec<Vec<usize>> = vec![Vec::new(); (max_depth + 1) as usize];
     for &(idx, depth) in &branch.entries {
         depth_rows[depth as usize].push(idx);
     }
 
-    // Place nodes by walking the DFS-ordered entries
-    // For nodes with children, center the parent vertically across its children
-    // Simple approach: assign rows by DFS order, place children next to parent
+    // Phase 1: initial placement — spread each row evenly
+    let mut node_pos: std::collections::HashMap<usize, (f32, f32)> =
+        std::collections::HashMap::new();
 
-    // Simpler layout: for each entry in DFS order, track Y by parent relationship
-    let mut node_y: std::collections::HashMap<usize, f32> = std::collections::HashMap::new();
+    for (depth, row) in depth_rows.iter().enumerate() {
+        let y = origin.y + depth as f32 * ROW_SPACING;
+        let row_width = row.len() as f32 * COL_SPACING;
+        let start_x = origin.x - row_width / 2.0 + COL_SPACING / 2.0;
+        for (i, &idx) in row.iter().enumerate() {
+            let x = start_x + i as f32 * COL_SPACING;
+            node_pos.insert(idx, (x, y));
+        }
+    }
 
-    for &(idx, depth) in &branch.entries {
-        let x = origin.x + depth as f32 * COL_SPACING;
-        let y = if depth == 0 {
-            // Root node: place at current cursor
-            let y = y_cursor;
-            y_cursor = y + NODE_H + ROW_SPACING;
-            y
-        } else {
-            // Child node: place at cursor (will be near parent since DFS order)
-            let y = y_cursor;
-            y_cursor = y + NODE_H + ROW_SPACING;
-            y
-        };
-        node_y.insert(idx, y);
+    // Phase 2: center parents above their children, then resolve collisions
+    // Work bottom-up so grandparents center above already-centered parents
+    for depth in (0..max_depth).rev() {
+        for &parent_idx in &depth_rows[depth as usize] {
+            let children: Vec<usize> = depth_rows
+                .get((depth + 1) as usize)
+                .map(|row| {
+                    row.iter()
+                        .filter(|&&ci| {
+                            reg.nodes[ci]
+                                .prereqs
+                                .iter()
+                                .any(|&(pi, _)| pi == parent_idx)
+                        })
+                        .copied()
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            if !children.is_empty() {
+                let child_xs: Vec<f32> =
+                    children.iter().filter_map(|ci| node_pos.get(ci).map(|p| p.0)).collect();
+                let center_x =
+                    (child_xs.iter().copied().fold(f32::MAX, f32::min)
+                        + child_xs.iter().copied().fold(f32::MIN, f32::max))
+                        / 2.0;
+                if let Some(pos) = node_pos.get_mut(&parent_idx) {
+                    pos.0 = center_x;
+                }
+            }
+        }
+
+        // Resolve collisions: sort row by X, push apart where too close
+        let row = &depth_rows[depth as usize];
+        let mut sorted: Vec<usize> = row.clone();
+        sorted.sort_by(|a, b| {
+            let ax = node_pos[a].0;
+            let bx = node_pos[b].0;
+            ax.partial_cmp(&bx).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        for i in 1..sorted.len() {
+            let prev_x = node_pos[&sorted[i - 1]].0;
+            let curr_x = node_pos[&sorted[i]].0;
+            if curr_x - prev_x < COL_SPACING {
+                let shift = COL_SPACING - (curr_x - prev_x);
+                node_pos.get_mut(&sorted[i]).unwrap().0 += shift;
+            }
+        }
+    }
+
+    // Also resolve collisions on the deepest row (max_depth) which isn't a parent row
+    {
+        let row = &depth_rows[max_depth as usize];
+        let mut sorted: Vec<usize> = row.clone();
+        sorted.sort_by(|a, b| {
+            let ax = node_pos[a].0;
+            let bx = node_pos[b].0;
+            ax.partial_cmp(&bx).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        for i in 1..sorted.len() {
+            let prev_x = node_pos[&sorted[i - 1]].0;
+            let curr_x = node_pos[&sorted[i]].0;
+            if curr_x - prev_x < COL_SPACING {
+                let shift = COL_SPACING - (curr_x - prev_x);
+                node_pos.get_mut(&sorted[i]).unwrap().0 += shift;
+            }
+        }
+    }
+
+    // Phase 3: normalize X positions so nothing goes negative
+    let min_x = node_pos.values().map(|p| p.0).fold(f32::MAX, f32::min);
+    let offset_x = if min_x < origin.x { origin.x - min_x + NODE_W / 2.0 } else { 0.0 };
+
+    let mut max_x = 0.0_f32;
+    let mut max_y = 0.0_f32;
+    for (&idx, &(x, y)) in &node_pos {
+        let px = x + offset_x - NODE_W / 2.0;
+        let py = y;
         placed.push(PlacedNode {
             idx,
-            rect: egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(NODE_W, NODE_H)),
+            rect: egui::Rect::from_min_size(egui::pos2(px, py), egui::vec2(NODE_W, NODE_H)),
         });
+        max_x = max_x.max(px + NODE_W);
+        max_y = max_y.max(py + NODE_H);
     }
 
-    // Second pass: for root nodes with children, vertically center the parent
-    // across its children's Y range
-    for &(idx, depth) in &branch.entries {
-        if depth != 0 {
-            continue;
-        }
-        // Find children of this root
-        let children: Vec<usize> = branch_indices
-            .iter()
-            .filter(|&&ci| {
-                ci != idx && reg.nodes[ci].prereqs.iter().any(|&(pi, _)| pi == idx)
-            })
-            .copied()
-            .collect();
-        if children.is_empty() {
-            continue;
-        }
-        // Get Y range of children
-        let child_ys: Vec<f32> = children
-            .iter()
-            .filter_map(|ci| node_y.get(ci).copied())
-            .collect();
-        if child_ys.is_empty() {
-            continue;
-        }
-        let min_y = child_ys.iter().copied().fold(f32::MAX, f32::min);
-        let max_y = child_ys.iter().copied().fold(f32::MIN, f32::max);
-        let center = (min_y + max_y + NODE_H) / 2.0 - NODE_H / 2.0;
-
-        // Re-center parent
-        if let Some(p) = placed.iter_mut().find(|n| n.idx == idx) {
-            p.rect = egui::Rect::from_min_size(
-                egui::pos2(p.rect.min.x, center),
-                egui::vec2(NODE_W, NODE_H),
-            );
-        }
-    }
-
-    let total_h = y_cursor - origin.y;
-    (placed, total_h)
+    let content_w = max_x - origin.x + 20.0;
+    let content_h = max_y - origin.y + 20.0;
+    (placed, content_w, content_h)
 }
 
 pub fn tech_tree_system(
@@ -215,6 +246,9 @@ pub fn tech_tree_system(
     let levels = upgrade.upgrades.town_levels(town_idx);
     let reg = &*UPGRADES;
 
+    // Use tech_tree_tab from UiState if available, otherwise default 0
+    let active_tab = ui_state.tech_tree_tab.min(reg.branches.len().saturating_sub(1));
+
     let mut open = ui_state.tech_tree_open;
     egui::Window::new("Tech Tree")
         .open(&mut open)
@@ -223,250 +257,189 @@ pub fn tech_tree_system(
         .resizable(true)
         .collapsible(false)
         .show(ctx, |ui| {
-            // Header row
+            // Header: resources
             ui.horizontal(|ui| {
-                ui.label(format!("Food: {food}"));
+                ui.label(egui::RichText::new(format!("Food: {food}")).strong());
                 ui.separator();
-                ui.label(format!("Gold: {gold}"));
+                ui.label(egui::RichText::new(format!("Gold: {gold}")).strong());
                 ui.separator();
-                ui.label(format!("Villagers: {alive}"));
-                ui.add_space(20.0);
-                for branch in &reg.branches {
+                ui.label(egui::RichText::new(format!("Villagers: {alive}")).strong());
+            });
+            ui.add_space(4.0);
+
+            // Tab bar
+            ui.horizontal(|ui| {
+                for (i, branch) in reg.branches.iter().enumerate() {
                     let bt = branch_total(&levels, branch.label);
-                    ui.label(
-                        egui::RichText::new(format!("{}:{}", branch.label, bt))
-                            .small()
-                            .weak(),
-                    );
+                    let label = format!("{} ({})", branch.label, bt);
+                    let is_active = i == active_tab;
+                    let text = if is_active {
+                        egui::RichText::new(&label).strong()
+                    } else {
+                        egui::RichText::new(&label)
+                    };
+                    let btn = ui.selectable_label(is_active, text);
+                    if btn.clicked() {
+                        ui_state.tech_tree_tab = i;
+                    }
                 }
             });
             ui.separator();
 
-            // Scrollable tree canvas
-            egui::ScrollArea::both()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    // Reserve space for the full tree, then draw with painter
-                    let origin = ui.cursor().min;
-                    let mut y_offset = 0.0_f32;
+            // Draw active branch
+            let current_tab = ui_state.tech_tree_tab.min(reg.branches.len().saturating_sub(1));
+            if let Some(branch) = reg.branches.get(current_tab) {
+                egui::ScrollArea::both()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        let origin = ui.cursor().min + egui::vec2(20.0, 10.0);
+                        let (placed, content_w, content_h) = layout_branch_topdown(branch, origin);
 
-                    for section_name in ["Economy", "Military"] {
-                        // Section header
-                        let section_y = origin.y + y_offset;
-                        ui.painter().text(
-                            egui::pos2(origin.x + 4.0, section_y),
-                            egui::Align2::LEFT_TOP,
-                            section_name,
-                            egui::FontId::proportional(16.0),
-                            egui::Color32::from_gray(200),
-                        );
-                        y_offset += SECTION_SPACING;
-
-                        for branch in reg.branches.iter().filter(|b| b.section == section_name) {
-                            // Branch label
-                            let branch_y = origin.y + y_offset;
-                            let bt = branch_total(&levels, branch.label);
-                            ui.painter().text(
-                                egui::pos2(origin.x + 8.0, branch_y),
-                                egui::Align2::LEFT_TOP,
-                                format!("{} ({})", branch.label, bt),
-                                egui::FontId::proportional(13.0),
-                                egui::Color32::from_gray(160),
-                            );
-                            y_offset += 18.0;
-
-                            // Layout and draw branch tree
-                            let branch_origin =
-                                egui::pos2(origin.x + 12.0, origin.y + y_offset);
-                            let (placed, tree_h) = layout_branch(branch, branch_origin);
-
-                            // Draw connection lines
-                            let painter = ui.painter();
-                            for pn in &placed {
-                                let node = &reg.nodes[pn.idx];
-                                for &(prereq_idx, _min_lv) in &node.prereqs {
-                                    if let Some(parent) =
-                                        placed.iter().find(|p| p.idx == prereq_idx)
-                                    {
-                                        let unlocked = upgrade_unlocked(&levels, pn.idx);
-                                        let color = line_color(unlocked);
-                                        let from = egui::pos2(
-                                            parent.rect.right(),
-                                            parent.rect.center().y,
-                                        );
-                                        let to = egui::pos2(
-                                            pn.rect.left(),
-                                            pn.rect.center().y,
-                                        );
-                                        let mid_x = (from.x + to.x) / 2.0;
-                                        // Right-angle connector
-                                        painter.line_segment(
-                                            [from, egui::pos2(mid_x, from.y)],
-                                            egui::Stroke::new(1.5, color),
-                                        );
-                                        painter.line_segment(
-                                            [
-                                                egui::pos2(mid_x, from.y),
-                                                egui::pos2(mid_x, to.y),
-                                            ],
-                                            egui::Stroke::new(1.5, color),
-                                        );
-                                        painter.line_segment(
-                                            [egui::pos2(mid_x, to.y), to],
-                                            egui::Stroke::new(1.5, color),
-                                        );
-                                    }
+                        // Draw connection lines first (behind nodes)
+                        let painter = ui.painter();
+                        for pn in &placed {
+                            let node = &reg.nodes[pn.idx];
+                            for &(prereq_idx, _min_lv) in &node.prereqs {
+                                if let Some(parent) = placed.iter().find(|p| p.idx == prereq_idx) {
+                                    let unlocked = upgrade_unlocked(&levels, pn.idx);
+                                    let color = line_color(unlocked);
+                                    let stroke = egui::Stroke::new(1.5, color);
+                                    // Parent bottom-center → child top-center
+                                    let from = egui::pos2(
+                                        parent.rect.center().x,
+                                        parent.rect.bottom(),
+                                    );
+                                    let to = egui::pos2(pn.rect.center().x, pn.rect.top());
+                                    let mid_y = (from.y + to.y) / 2.0;
+                                    // Right-angle connector: down, across, down
+                                    painter.line_segment(
+                                        [from, egui::pos2(from.x, mid_y)],
+                                        stroke,
+                                    );
+                                    painter.line_segment(
+                                        [egui::pos2(from.x, mid_y), egui::pos2(to.x, mid_y)],
+                                        stroke,
+                                    );
+                                    painter.line_segment(
+                                        [egui::pos2(to.x, mid_y), to],
+                                        stroke,
+                                    );
                                 }
                             }
+                        }
 
-                            // Draw node boxes
-                            for pn in &placed {
-                                let node = &reg.nodes[pn.idx];
-                                let lv = levels.get(pn.idx).copied().unwrap_or(0);
-                                let state = node_state(&levels, pn.idx, food, gold);
+                        // Draw node boxes using child_ui with real widgets
+                        for pn in &placed {
+                            let node = &reg.nodes[pn.idx];
+                            let lv = levels.get(pn.idx).copied().unwrap_or(0);
+                            let state = node_state(&levels, pn.idx, food, gold);
+                            let node_idx = pn.idx;
 
-                                // Background + border
-                                let painter = ui.painter();
-                                painter.rect_filled(
-                                    pn.rect,
-                                    4.0,
-                                    node_bg(state),
-                                );
-                                painter.rect_stroke(
-                                    pn.rect,
-                                    4.0,
-                                    node_border(state),
-                                    egui::StrokeKind::Outside,
-                                );
+                            // Background + border (painter is fine for decorative bg)
+                            let painter = ui.painter();
+                            painter.rect_filled(pn.rect, 6.0, node_bg(state));
+                            painter.rect_stroke(
+                                pn.rect,
+                                6.0,
+                                node_border(state),
+                                egui::StrokeKind::Outside,
+                            );
 
-                                // Label text (short name + level)
-                                let text_color = node_text_color(state);
-                                let label = if node.max_level == Some(1) {
-                                    if lv >= 1 {
-                                        format!("{} ✓", node.short)
-                                    } else {
-                                        node.short.to_string()
-                                    }
-                                } else {
-                                    format!("{} Lv{}", node.short, lv)
-                                };
-                                painter.text(
-                                    pn.rect.center(),
-                                    egui::Align2::CENTER_CENTER,
-                                    &label,
-                                    egui::FontId::proportional(12.0),
-                                    text_color,
-                                );
+                            // Node interaction FIRST so checkbox (later) takes priority
+                            let node_resp = ui.interact(
+                                pn.rect,
+                                egui::Id::new(("tech_node", node_idx)),
+                                egui::Sense::click() | egui::Sense::hover(),
+                            );
 
-                                // Interaction (click + hover)
-                                let resp = ui.allocate_rect(
-                                    pn.rect,
-                                    egui::Sense::click() | egui::Sense::hover(),
-                                );
+                            // Child UI inside the node rect for real widget layout
+                            let mut child = ui.new_child(
+                                egui::UiBuilder::new()
+                                    .max_rect(pn.rect.shrink(3.0))
+                                    .layout(egui::Layout::top_down(egui::Align::Center)),
+                            );
 
-                                // Click to buy (before hover which consumes resp)
-                                let clicked = resp.clicked();
-                                let node_idx = pn.idx;
+                            let text_color = node_text_color(state);
 
-                                // Tooltip
-                                resp.on_hover_ui(|ui| {
-                                    ui.label(
-                                        egui::RichText::new(node.label).strong(),
-                                    );
-                                    ui.label(node.tooltip);
-                                    let (now, next) = upgrade_effect_summary(node_idx, lv);
-                                    ui.label(format!("{} → {}", now, next));
-                                    if matches!(state, NodeState::Available | NodeState::Unlocked)
-                                    {
-                                        let cost = format_upgrade_cost(node_idx, lv);
-                                        ui.label(format!("Cost: {}", cost));
-                                    }
-                                    if let Some(msg) = missing_prereqs(&levels, node_idx) {
-                                        ui.label(
-                                            egui::RichText::new(msg)
-                                                .color(egui::Color32::from_rgb(200, 100, 100)),
-                                        );
-                                    }
-                                });
-
-                                if clicked && matches!(state, NodeState::Available) {
-                                    upgrade.queue.write(UpgradeMsg {
-                                        town_idx,
-                                        upgrade_idx: node_idx,
-                                    });
-                                }
-
-                                // Auto-upgrade checkbox (small, top-right corner)
+                            // Row 1: checkbox + label
+                            child.horizontal(|ui| {
                                 if !matches!(state, NodeState::Locked) {
-                                    let cb_size = 14.0;
-                                    let cb_rect = egui::Rect::from_min_size(
-                                        egui::pos2(
-                                            pn.rect.right() - cb_size - 2.0,
-                                            pn.rect.top() + 2.0,
-                                        ),
-                                        egui::vec2(cb_size, cb_size),
-                                    );
                                     upgrade.auto.ensure_towns(town_idx + 1);
                                     let count = upgrade_count();
                                     upgrade.auto.flags[town_idx].resize(count, false);
-                                    let is_auto = upgrade.auto.flags[town_idx]
-                                        .get(pn.idx)
-                                        .copied()
-                                        .unwrap_or(false);
-                                    let cb_resp = ui.allocate_rect(
-                                        cb_rect,
-                                        egui::Sense::click(),
-                                    );
-                                    // Draw checkbox visual
-                                    let painter = ui.painter();
-                                    painter.rect_stroke(
-                                        cb_rect,
-                                        2.0,
-                                        egui::Stroke::new(1.0, egui::Color32::from_gray(100)),
-                                        egui::StrokeKind::Outside,
-                                    );
-                                    if is_auto {
-                                        painter.text(
-                                            cb_rect.center(),
-                                            egui::Align2::CENTER_CENTER,
-                                            "A",
-                                            egui::FontId::proportional(9.0),
-                                            egui::Color32::from_rgb(100, 200, 100),
-                                        );
-                                    }
-                                    let cb_clicked = cb_resp.clicked();
-                                    cb_resp.on_hover_text("Auto-buy each game hour");
-                                    if cb_clicked {
-                                        upgrade.auto.flags[town_idx][pn.idx] = !is_auto;
+                                    let auto_flag =
+                                        &mut upgrade.auto.flags[town_idx][node_idx];
+                                    let prev = *auto_flag;
+                                    ui.checkbox(auto_flag, "")
+                                        .on_hover_text("Auto-buy each game hour");
+                                    if *auto_flag != prev {
                                         settings.auto_upgrades =
                                             upgrade.auto.flags[town_idx].clone();
                                     }
                                 }
-                            }
+                                ui.label(
+                                    egui::RichText::new(node.label)
+                                        .size(12.0)
+                                        .color(text_color),
+                                );
+                            });
 
-                            y_offset += tree_h.max(NODE_H) + BRANCH_SPACING;
+                            // Row 2: status (level + effect)
+                            let (current_effect, _next) = upgrade_effect_summary(node_idx, lv);
+                            let status = if matches!(state, NodeState::Maxed) {
+                                if node.max_level == Some(1) {
+                                    "Unlocked".to_string()
+                                } else {
+                                    format!("Lv{}  {}", lv, current_effect)
+                                }
+                            } else if matches!(state, NodeState::Locked) {
+                                "Locked".to_string()
+                            } else if lv == 0 {
+                                "Lv0".to_string()
+                            } else {
+                                format!("Lv{}  {}", lv, current_effect)
+                            };
+                            let status_color = match state {
+                                NodeState::Available => egui::Color32::from_rgb(160, 220, 100),
+                                NodeState::Maxed => egui::Color32::from_rgb(120, 120, 200),
+                                _ => egui::Color32::from_gray(150),
+                            };
+                            child.label(
+                                egui::RichText::new(&status)
+                                    .size(10.0)
+                                    .color(status_color),
+                            );
+
+                            // Tooltip + click-to-buy on the node rect
+                            node_resp.clone().on_hover_ui(|ui| {
+                                ui.label(egui::RichText::new(node.label).strong());
+                                ui.label(node.tooltip);
+                                let (now, next) = upgrade_effect_summary(node_idx, lv);
+                                ui.label(format!("{} → {}", now, next));
+                                if matches!(state, NodeState::Available | NodeState::Unlocked) {
+                                    let cost = format_upgrade_cost(node_idx, lv);
+                                    ui.label(format!("Cost: {}", cost));
+                                }
+                                if let Some(msg) = missing_prereqs(&levels, node_idx) {
+                                    ui.label(
+                                        egui::RichText::new(msg)
+                                            .color(egui::Color32::from_rgb(200, 100, 100)),
+                                    );
+                                }
+                            });
+
+                            if node_resp.clicked() && matches!(state, NodeState::Available) {
+                                upgrade.queue.write(UpgradeMsg {
+                                    town_idx,
+                                    upgrade_idx: node_idx,
+                                });
+                            }
                         }
 
-                        y_offset += SECTION_SPACING * 0.5;
-                    }
-
-                    // Reserve the total space so ScrollArea knows the content size
-                    let max_x = reg
-                        .branches
-                        .iter()
-                        .map(|b| {
-                            b.entries
-                                .iter()
-                                .map(|&(_, d)| d)
-                                .max()
-                                .unwrap_or(0) as f32
-                                * COL_SPACING
-                                + NODE_W
-                                + 24.0
-                        })
-                        .fold(0.0_f32, f32::max);
-                    ui.allocate_space(egui::vec2(max_x, y_offset));
-                });
+                        // Reserve space for scroll area
+                        ui.allocate_space(egui::vec2(content_w, content_h));
+                    });
+            }
         });
     ui_state.tech_tree_open = open;
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-03-08s
+
+- **Tech tree redesign** — full rewrite of `tech_tree.rs`. Top-down node graph layout (was left-to-right). Tab bar per upgrade branch (Farmer/Archer/Fighter/Crossbow/Miner/Town) with total counts, persisted via `UiState.tech_tree_tab`. Nodes are 140x52px with full labels ("Attack Speed" not "AtkSpd"), level + effect status, and cost hints. Layout algorithm: spread by depth row → center parents above children → resolve sibling collisions. Connection lines use right-angle painter segments. Node boxes use `child_ui` with real egui widgets (Checkbox, Label) instead of manual painter + allocate_rect.
+- **Positive effect display** — CooldownReduction upgrades (Attack Speed, Stamina) now show "+X%" instead of "-X%" in tooltips and effect summaries. Tooltips reworded: "-8% attack cooldown per level" → "+8% attack speed per level", "-10% energy drain per level" → "+10% stamina per level". Same underlying math, friendlier framing.
+
 ## 2026-03-08r
 
 - **Profiler spike detection** — per-system rolling peak (max ms over 120-frame window) tracked alongside EMA average. Profiler game/engine system grids now show `avg` + `peak` columns. Peaks >5x average and >1ms highlight red. Frame header shows peak too. Copy button includes peak data.

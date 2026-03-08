@@ -871,8 +871,8 @@ fn tower_upgrade_effect(upg: &crate::constants::UpgradeStatDef, lv: u8) -> Strin
             if lv == 0 {
                 "0%".to_string()
             } else {
-                let reduction = (1.0 - 1.0 / (1.0 + lv as f32 * upg.pct)) * 100.0;
-                format!("-{:.0}%", reduction)
+                let boost = (1.0 - 1.0 / (1.0 + lv as f32 * upg.pct)) * 100.0;
+                format!("+{:.0}%", boost)
             }
         }
         EffectDisplay::Discrete => {

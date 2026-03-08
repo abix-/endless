@@ -435,11 +435,11 @@ pub fn upgrade_effect_summary(idx: usize, level: u8) -> (String, String) {
             let now = if level == 0 {
                 "-".to_string()
             } else {
-                let reduction = (1.0 - 1.0 / (1.0 + lv * pct)) * 100.0;
-                format!("-{:.0}%", reduction)
+                let boost = (1.0 - 1.0 / (1.0 + lv * pct)) * 100.0;
+                format!("+{:.0}%", boost)
             };
-            let next_reduction = (1.0 - 1.0 / (1.0 + (lv + 1.0) * pct)) * 100.0;
-            let next = format!("-{:.0}%", next_reduction);
+            let next_boost = (1.0 - 1.0 / (1.0 + (lv + 1.0) * pct)) * 100.0;
+            let next = format!("+{:.0}%", next_boost);
             (now, next)
         }
         EffectDisplay::Unlock => {
