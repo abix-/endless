@@ -371,35 +371,14 @@ impl HpaCache {
 
     /// Rebuild specific chunks (after building placement/destruction).
     pub fn rebuild_chunks(&mut self, costs: &[u16], width: usize, height: usize, dirty_cells: &[usize]) {
-        // Find which chunks are affected
-        let mut dirty_chunks: Vec<(usize, usize)> = Vec::new();
+        let mut dirty_chunks: hashbrown::HashSet<(usize, usize)> = hashbrown::HashSet::new();
         for &idx in dirty_cells {
             let col = idx % width;
             let row = idx / width;
-            let cc = col / HPA_CHUNK_SIZE;
-            let cr = row / HPA_CHUNK_SIZE;
-            if !dirty_chunks.contains(&(cc, cr)) {
-                dirty_chunks.push((cc, cr));
-            }
+            dirty_chunks.insert((col / HPA_CHUNK_SIZE, row / HPA_CHUNK_SIZE));
         }
         if dirty_chunks.is_empty() { return; }
-
-        // Remove all nodes belonging to dirty chunks and their edges
-        for &chunk_key in &dirty_chunks {
-            if let Some(node_ids) = self.chunk_nodes.remove(&chunk_key) {
-                for &nid in &node_ids {
-                    let pos = self.nodes[nid].pos;
-                    self.pos_to_node.remove(&pos);
-                    // Remove edges pointing to this node from other nodes
-                    for node in &mut self.nodes {
-                        node.edges.retain(|e| !node_ids.contains(&e.target));
-                    }
-                }
-            }
-        }
-
-        // Full rebuild is simpler for correctness — nodes are append-only
-        // so stale indices remain. Rebuild entirely if any chunks changed.
+        // Full rebuild — nodes are append-only so stale indices remain.
         *self = Self::build(costs, width, height);
     }
 }

@@ -2548,5 +2548,7 @@ pub(crate) fn game_cleanup_system(
     *gameplay.proj_slots = Default::default();
     *gameplay.mining_policy = Default::default();
 
+    commands.remove_resource::<crate::systems::llm_player::LlmPlayerState>();
+
     info!("Game cleanup complete");
 }

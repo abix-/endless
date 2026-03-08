@@ -338,9 +338,6 @@ Benchmark tool: `cargo bench --bench system_bench` (Criterion). Run `/benchmark`
 ## Current Known Hotspot Patterns
 
 - UI inspector paths doing repeated slot lookups across multiple queries in a single frame.
-- Squad/selection flows using `Vec::contains` within nested loops.
-- Overlay target dedupe using per-target linear scans.
-- Cleanup/reassignment systems scanning full queries repeatedly instead of pre-indexing.
 - Decision system conditional writeback: captures original values at loop top, compares at end, only calls `get_mut()` for changed fields. Most NPCs exit early via `break 'decide` with no state changes, skipping all writeback. Remaining overhead: per-NPC component reads at loop top for ~10 fields.
 
 ## Known Exceptions

@@ -36,10 +36,10 @@ Remaining performance items (sorted by expected savings):
 3. [x] ~~[Medium] Pre-allocate `GpuReadState` vecs: readback observers create new Vecs per frame. At 50k entities, positions = 1.6MB allocation per frame.~~
    ~~Expected saving: ~0.5-1.5 ms/frame CPU plus allocator churn.~~
 4. [x] ~~[Medium] `sync_building_hp_render` gated behind `BuildingHealState.needs_healing` — skips full building query when no buildings are damaged (99%+ of frames).~~
-5. [ ] [Medium] `on_duty_tick_system` full iteration: narrow to OnDuty archers only.
-   Expected saving: ~0.3-1.0 ms/frame CPU.
-6. [ ] [Medium] Perf anti-pattern remediation pass: repeated query scans, `Vec::contains` → `HashSet`, per-item linear dedup.
-   Expected saving: ~1-4 ms/frame total.
+5. [x] ~~[Medium] `on_duty_tick_system` full iteration: narrow to OnDuty archers only.~~
+   ~~Expected saving: ~0.3-1.0 ms/frame CPU.~~ Added `With<PatrolRoute>` query filter — iterates ~200 patrol units instead of 50K NPCs.
+6. [x] ~~[Medium] Perf anti-pattern remediation pass: repeated query scans, `Vec::contains` → `HashSet`, per-item linear dedup.~~
+   ~~Expected saving: ~1-4 ms/frame total.~~ Audit found most patterns already remediated. Fixed: flash_dirty temp Vec, pathfinding dirty_chunks Vec→HashSet + dead code removal.
 7. [ ] [Low] `decision_system` remaining log pressure (~10 `format!` calls).
 8. [ ] [Low] `sync_terrain_tilemap` chunk granularity: rewrites all chunks on any terrain change.
 9. [ ] [Low] SystemTimings Mutex contention: replace with AtomicU32 + f32::to_bits.

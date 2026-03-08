@@ -746,15 +746,16 @@ pub fn populate_gpu_state(
     let dt = time.delta_secs();
     const FLASH_DECAY_RATE: f32 = 5.0;
     let active = slots.count().min(npc_state.flash_values.len());
-    let mut flash_dirty: Vec<usize> = Vec::new();
-    for (slot_idx, flash) in npc_state.flash_values[..active].iter_mut().enumerate() {
-        if *flash > 0.0 {
-            *flash = (*flash - dt * FLASH_DECAY_RATE).max(0.0);
-            flash_dirty.push(slot_idx);
+    {
+        let state = &mut *npc_state;
+        state.flash_only_indices.clear();
+        for (slot_idx, flash) in state.flash_values[..active].iter_mut().enumerate() {
+            if *flash > 0.0 {
+                *flash = (*flash - dt * FLASH_DECAY_RATE).max(0.0);
+                state.flash_only_indices.push(slot_idx);
+            }
         }
     }
-    npc_state.flash_only_indices.clear();
-    npc_state.flash_only_indices.extend_from_slice(&flash_dirty);
 
     // Pre-sort+dedup dirty index Vecs so extract phase receives coalesce-ready data
     macro_rules! sort_dedup {

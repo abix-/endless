@@ -6,6 +6,11 @@
 - **New `SquadTarget` activity** — dedicated transit activity for NPCs following squad targets. Replaces the previous hack of using `Patrolling` + OnDuty exemption. Smooth multi-waypoint movement to squad target position.
 - **Decoupled waypoint advancement from activity state** — `gpu_position_readback` and `advance_waypoints_system` now check `has_path` (NpcPath has remaining waypoints) instead of `is_transit()`. Fixes step-pause-step movement bug where OnDuty archers following squad targets had paths computed but waypoints never advanced.
 - **Building HP render system** — `sync_building_hp_render` gated behind `BuildingHealState.needs_healing` for efficient damaged-building-only rendering.
+- **Build menu inspector overlap fix** — build menu now accounts for inspector width (306px) as a left-side obstacle via `UiState.inspector_visible`, preventing overlap when both are open. Uses `max(left_panel, inspector)` for independent left-side obstacle handling.
+- **on_duty_tick_system narrowed** — added `With<PatrolRoute>` query filter so only patrol-capable NPCs (~200 archers) are iterated instead of all 50K.
+- **Perf anti-pattern fixes** — flash_dirty temp Vec eliminated in `populate_gpu_state` (writes directly to `flash_only_indices`), pathfinding `dirty_chunks` Vec→HashSet for O(1) dedup + dead code removal in `rebuild_chunks`.
+- **LlmPlayerState cleanup** — resource removed during game cleanup to prevent stale state across sessions.
+- **Roadmap cleanup** — Stage 18 (Loot) and Stage 19 (Code Health) moved to completed.md, testing backlog items moved, performance table updated. Stage 16 items 2/4/5/6/10 checked off.
 
 ## 2026-03-08k
 

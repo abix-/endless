@@ -2007,7 +2007,7 @@ pub fn decision_system(
 /// Separated from decision_system because we need mutable Activity access.
 pub fn on_duty_tick_system(
     game_time: Res<GameTime>,
-    mut q: Query<(&mut Activity, &CombatState), (Without<Building>, Without<Dead>)>,
+    mut q: Query<(&mut Activity, &CombatState), (With<PatrolRoute>, Without<Building>, Without<Dead>)>,
 ) {
     if game_time.is_paused() {
         return;
@@ -2124,6 +2124,7 @@ mod tests {
         let npc = app.world_mut().spawn((
             Activity::on_duty(),
             CombatState::None,
+            PatrolRoute { posts: vec![], current: 0 },
         )).id();
 
         app.update();
@@ -2141,6 +2142,7 @@ mod tests {
         let npc = app.world_mut().spawn((
             Activity::on_duty(),
             CombatState::Fighting { origin: Vec2::ZERO },
+            PatrolRoute { posts: vec![], current: 0 },
         )).id();
 
         app.update();
@@ -2159,6 +2161,7 @@ mod tests {
         let npc = app.world_mut().spawn((
             Activity { kind: ActivityKind::OnDuty, ticks_waiting: 5, ..Default::default() },
             CombatState::None,
+            PatrolRoute { posts: vec![], current: 0 },
         )).id();
 
         app.update();

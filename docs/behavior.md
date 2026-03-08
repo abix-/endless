@@ -260,7 +260,7 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 - **Decision logging**: Each decision logged to `NpcLogCache`
 
 ### on_duty_tick_system
-- Query-first: `(&mut Activity, &CombatState)` with `Without<Building>, Without<Dead>` — no `EntityMap` dependency
+- Query-first: `(&mut Activity, &CombatState)` with `With<PatrolRoute>, Without<Building>, Without<Dead>` — only iterates patrol-capable NPCs (~200 archers), not all 50K NPCs
 - Increments `activity.ticks_waiting` each frame for NPCs with `ActivityKind::OnDuty` where `CombatState` is not Fighting
 
 ### arrival_system (Proximity Checks)

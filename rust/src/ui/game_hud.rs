@@ -539,7 +539,8 @@ pub fn bottom_panel_system(
     let has_npc = data.selected.0 >= 0;
     let has_building = bld_data.selected_building.active;
     let dc_count = dc_slots(&panel_state.squad_state, &bld_data.entity_map).len();
-    if has_npc || has_building || dc_count > 0 {
+    panel_state.ui_state.inspector_visible = has_npc || has_building || dc_count > 0;
+    if panel_state.ui_state.inspector_visible {
         if has_npc && !has_building {
             inspector_state.tabs.show_npc = true;
         } else if has_building && !has_npc {

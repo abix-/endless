@@ -158,7 +158,7 @@ pub struct InstanceData {
 **Building HP bars** (in `BuildingOverlayBuffers`, drawn by `DrawBuildingOverlay`):
 - atlas_id=5.0, scale=32.0 (building-sized)
 - Shader discards all sprite pixels for atlas_id >= 4.5, keeping only the health bar in bottom 15%
-- Only buildings with HP < max are included (from `BuildingHpRender` resource)
+- Only buildings with HP < max are included (from `BuildingHpRender` resource, gated behind `BuildingHealState.needs_healing` — query skipped when no buildings are damaged)
 
 **Mining progress bars** (in `BuildingOverlayBuffers`, drawn by `DrawBuildingOverlay`):
 - atlas_id=6.0, scale=12.0, positioned +12y above miner
