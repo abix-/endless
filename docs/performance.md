@@ -473,11 +473,11 @@ Replaced raw A* with custom HPA* (Hierarchical Pathfinding A*). Grid divided int
 |--------|-----|-----|----|-----|------|---------|
 | spawner_respawn | 15µs | 26µs | 45µs | 209µs | 2.1ms | O(n) |
 
-**Death-scaled** (vary deaths/frame, fixed 50K NPCs):
+**Death-scaled** (full death→despawn→respawn cycle, vary deaths/frame, fixed 50K NPCs):
 
-| Deaths/frame | 100 | 500 | 1K | 5K | 25K |
-|-------------|-----|-----|----|-----|------|
-| death_system | 45µs | 41µs | 41µs | 47µs | 43µs |
+| Deaths/frame | 100 | 500 | 1K | 5K | 25K | Scaling |
+|-------------|-----|-----|----|-----|------|---------|
+| death_system | 1.6ms | 7.7ms | 15.5ms | 82.3ms | 394ms | O(n) ~15.5µs/death |
 
 Combined 50K (7 NPC-scaled systems): 4.2ms (26.4% of 16ms budget).
 
@@ -486,4 +486,4 @@ Combined 50K (7 NPC-scaled systems): 4.2ms (26.4% of 16ms budget).
 - `resolve_movement` now O(n) instead of O(1) budget-capped, but at 222µs@50K it's 10× cheaper than the old 2.27ms budget cap.
 - `building_tower` at 50K towers = 5.6ms — a realistic stress test. 500 towers (typical game) = 26µs, negligible.
 - `spawner_respawn` at 50K spawners = 2.1ms — confirms O(n) post-fix. 2K spawners (old max) = ~45µs.
-- `death_system` flat at ~43µs regardless of death count (100-25K). Bench still not exercising the expensive path — Dead NPCs bypassed by `Without<Dead>` filter. Known issue from 2026-03-08b.
+- `death_system` now properly measures full death→despawn→respawn cycle at ~15.5µs/death. 500 deaths/frame (heavy combat) = 7.7ms (48% of budget). Previous bench was broken — inserting `Dead` directly bypassed the `Without<Dead>` detection query, showing flat ~43µs regardless of count.

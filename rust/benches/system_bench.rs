@@ -635,7 +635,8 @@ fn bench_building_tower_system(c: &mut Criterion) {
 fn bench_death_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("death_system");
     group.sample_size(20);
-    // Scale by deaths-per-frame at fixed 50K total NPCs
+    // Scale by deaths-per-frame at fixed 50K total NPCs.
+    // Measures full death→despawn→respawn cycle — the real cost the game pays.
     const DEATH_COUNTS: &[usize] = &[100, 500, 1_000, 5_000, 25_000];
     for &death_count in DEATH_COUNTS {
         group.bench_with_input(
@@ -644,11 +645,9 @@ fn bench_death_system(c: &mut Criterion) {
             |b, &death_count| {
                 let mut app = build_bench_app();
                 populate_npcs(&mut app, 50_000);
-                // Warmup — run once so system caches are primed
                 let _ = app.world_mut().run_system_once(death_system);
                 b.iter(|| {
                     // Set health to 0 on N NPCs so death_system discovers them
-                    // (previous bug: inserting Dead directly bypassed the detection query)
                     let _ = app.world_mut().run_system_once(
                         move |mut q: Query<&mut Health, (Without<Building>, Without<Dead>)>| {
                             let mut killed = 0usize;
@@ -659,12 +658,11 @@ fn bench_death_system(c: &mut Criterion) {
                             }
                         },
                     );
+                    // death_system: detect hp<=0, process XP/loot/cleanup, despawn
                     let _ = app.world_mut().run_system_once(death_system);
-                    // Flush despawn commands from death_system
                     app.world_mut().flush();
 
-                    // Respawn killed NPCs so next iteration has victims
-                    // (death_system despawns + unregisters + frees GPU slots)
+                    // Respawn killed NPCs (game pays this via spawner_respawn_system)
                     let _ = app.world_mut().run_system_once(
                         move |world_mut: &mut World| {
                             let live_count = world_mut
@@ -684,20 +682,15 @@ fn bench_death_system(c: &mut Criterion) {
                                 }
                             }
                             let mut spawned = Vec::with_capacity(need);
-                            for (i, &slot) in slots.iter().enumerate() {
+                            for &slot in &slots {
                                 let x = (slot % 100) as f32 * 16.0;
                                 let y = (slot / 100) as f32 * 16.0;
                                 let entity = world_mut.spawn((
                                     (
-                                        GpuSlot(slot),
-                                        Position { x, y },
-                                        Health(100.0),
-                                        Job::Farmer,
-                                        Faction(1),
-                                        TownId(0),
-                                        Activity::Idle,
-                                        CombatState::default(),
-                                        Energy(100.0),
+                                        GpuSlot(slot), Position { x, y },
+                                        Health(100.0), Job::Farmer, Faction(1),
+                                        TownId(0), Activity::Idle,
+                                        CombatState::default(), Energy(100.0),
                                         Speed(60.0),
                                         Home(Vec2::new(800.0, 800.0)),
                                         NpcFlags::default(),
@@ -709,8 +702,7 @@ fn bench_death_system(c: &mut Criterion) {
                                             max_health: 100.0, speed: 60.0, stamina: 1.0,
                                             hp_regen: 0.0, berserk_bonus: 0.0,
                                         },
-                                        BaseAttackType::Melee,
-                                        AttackTimer(0.0),
+                                        BaseAttackType::Melee, AttackTimer(0.0),
                                         NpcWorkState::default(),
                                         PatrolRoute { posts: vec![], current: 0 },
                                         CarriedLoot { food: 0, gold: 0, equipment: vec![] },
@@ -718,13 +710,10 @@ fn bench_death_system(c: &mut Criterion) {
                                         FleeThreshold { pct: 0.2 },
                                         LeashRange(400.0),
                                         WoundedThreshold { pct: 0.3 },
-                                        HasEnergy,
-                                        NpcEquipment::default(),
-                                        SquadId(0),
+                                        HasEnergy, NpcEquipment::default(), SquadId(0),
                                     ),
                                 )).id();
                                 spawned.push((entity, slot));
-                                let _ = i;
                             }
                             let mut em = world_mut.resource_mut::<EntityMap>();
                             for &(entity, slot) in &spawned {
