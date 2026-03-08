@@ -298,7 +298,7 @@ for npc in entity_map.iter_npcs() {
 
 - Per-item Vec::retain in loops (O(n²)):
   - Pattern: `for item in items { vec.retain(|x| x != item); }` — linear scan per removal.
-  - Replace with: `DenseSlotSet` (entity_map.rs) — dense Vec + reverse HashMap, O(1) swap_remove per removal, cache-friendly iteration via `as_slice()`. See 2026-03-08h benchmark for 6.5× speedup on death_system.
+  - Replace with: `DenseSlotMap<T>` / `DenseSlotSet` (entity_map.rs) — dense parallel Vecs + reverse HashMap, O(1) insert/remove/get, cache-friendly iteration via `slot_slice()`/`values()`. `DenseSlotSet` is thin wrapper (`DenseSlotMap<()>`). Applied to building indexes + building instances. See 2026-03-08h benchmark for 6.5× speedup on death_system.
 
 - Redundant traversals:
   - Pattern: multiple passes over the same query/collection for related outputs.
@@ -352,7 +352,7 @@ Legitimate violations of the rules above, tracked with exit criteria.
 
 ## Current Benchmark Results
 
-Run via `cargo bench --bench system_bench` (Criterion). Use `/benchmark` to execute and append results. Last full run: 2026-03-08.
+Run via `cargo bench --bench system_bench` (Criterion). Use `/benchmark` to execute and append results. Last full run: 2026-03-08. Economy benchmarks added 2026-03-08.
 
 ### NPC-scaled (vary entity count, 50K NPCs baseline)
 
@@ -368,13 +368,16 @@ Run via `cargo bench --bench system_bench` (Criterion). Use `/benchmark` to exec
 
 Combined 50K (6 systems, excluding unbounded variant): 3.3ms (20.5% of 16ms budget).
 
-### Building-scaled (vary building count, 5K enemy NPCs)
+### Building-scaled (vary building count)
 
 | System | 100 | 500 | 1K | 5K | 50K | Scaling |
 |--------|-----|-----|----|-----|------|---------|
 | building_tower | 9µs | 26µs | 50µs | 237µs | 5.6ms | O(n) |
+| growth | 3.8µs | 3.8µs | 6.1µs | 25.7µs | 263µs | O(n) |
+| construction_tick | 7.2µs | 20.9µs | 36.8µs | 189µs | 2.5ms | O(n) |
 
 500 towers (typical game) = 26µs, negligible. 50K towers = 5.6ms stress test.
+Growth + construction at typical scale (1K buildings) = 43µs combined.
 
 ### Spawner-scaled (vary spawner building count)
 
@@ -398,9 +401,11 @@ Combined 50K (6 systems, excluding unbounded variant): 3.3ms (20.5% of 16ms budg
 | death_system (500 deaths) | 951µs | 6.0% |
 | building_tower (500 towers) | 26µs | 0.2% |
 | spawner_respawn (1K spawners) | 45µs | 0.3% |
-| **Total measured** | **4.3ms** | **27.0%** |
+| growth (1K farms/mines) | 6µs | 0.04% |
+| construction_tick (1K buildings) | 37µs | 0.2% |
+| **Total measured** | **4.4ms** | **27.2%** |
 
-Remaining budget for GPU compute, rendering, UI, and unmeasured systems: ~11.7ms (73%).
+Remaining budget for GPU compute, rendering, UI, and unmeasured systems: ~11.6ms (73%).
 
 ## Optimization Log
 
@@ -428,7 +433,7 @@ Compact record of performance fixes applied. Each entry preserves the root cause
 
 **Fix** (three parts):
 1. **Delete NpcsByTownCache** — redundant with `EntityMap.npc_by_town`. Removed from 8 files.
-2. **DenseSlotSet** (entity_map.rs) — dense `Vec<usize>` + reverse `HashMap<usize, usize>` (slot → position). O(1) insert, O(1) removal via `swap_remove`, cache-friendly iteration via `as_slice()`. Same pattern as [EnTT sparse sets](https://gist.github.com/dakom/82551fff5d2b843cbe1601bbaff2acbf) and [`IndexSet::swap_remove`](https://docs.rs/indexmap/latest/indexmap/set/struct.IndexSet.html). Applied to `npc_by_town`, `by_kind`, `by_kind_town`, `spawner_slots`.
+2. **DenseSlotMap\<T\>** (entity_map.rs) — generic dense parallel `Vec<usize>` (slots) + `Vec<T>` (data) + reverse `HashMap<usize, usize>` (slot → position). O(1) insert/remove/get, cache-friendly iteration via `slot_slice()`/`values()`. `DenseSlotSet` is thin wrapper (`DenseSlotMap<()>`). Same pattern as [EnTT sparse sets](https://gist.github.com/dakom/82551fff5d2b843cbe1601bbaff2acbf) and [`IndexSet::swap_remove`](https://docs.rs/indexmap/latest/indexmap/set/struct.IndexSet.html). Applied to `npc_by_town`, `by_kind`, `by_kind_town`, `spawner_slots`, and `instances` (building data).
 3. **Defer equipment extraction** — moved equipment queries inside `if last_hit_by >= 0` block. Starvation deaths skip 2 Vec allocations.
 
-**Pattern**: For any `Vec` needing both O(1) removal-by-value and cache-friendly iteration, use `DenseSlotSet`. 35 lines of code, reusable. 500 deaths/frame: 7.8ms → 951µs.
+**Pattern**: For any collection needing O(1) keyed access and cache-friendly iteration, use `DenseSlotMap<T>` (with data) or `DenseSlotSet` (slot-only). 500 deaths/frame: 7.8ms → 951µs.

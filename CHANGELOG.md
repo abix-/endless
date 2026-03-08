@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-03-08m
+
+- **DenseSlotMap\<T\>** — generalized `DenseSlotSet` into generic `DenseSlotMap<T>` with parallel slots/data arrays. `DenseSlotSet` is now a thin wrapper (`DenseSlotMap<()>`). Building `instances` migrated from `HashMap<usize, BuildingInstance>` to `DenseSlotMap<BuildingInstance>` for cache-friendly iteration.
+- **Test scene pathfinding fix** — `TestSetupParams` now wires the same dirty-message pipeline as the main game: `add_town` calls `init_pathfind_costs()`, `add_building`/`add_waypoint` pass `DirtyWriters` to `place_building` so `BuildingGridDirtyMsg` fires. Fixes all test scene NPCs being frozen at spawn (pathfind_costs was never initialized). Removed manual `finalize_grid()` workaround.
+- **Economy benchmarks** — added `growth_system` and `construction_tick_system` Criterion benchmarks (building-scaled 100–50K).
+
 ## 2026-03-08l
 
 - **Data-driven Activity system** — replaced `Activity` enum with `ActivityKind` enum + `ActivityDef` static registry + `Activity` struct. Metadata (label, transit, visual_key) is data-driven via `ACTIVITY_DEFS` — adding a new activity is 1 enum variant + 1 registry entry instead of updating 4+ match arms. Same pattern as `BuildingDef`/`NpcDef`.

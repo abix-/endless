@@ -86,7 +86,6 @@ pub fn setup(mut params: TestSetupParams, config: Res<PathfindMazeConfig>) {
     let (bx, by) = gw(2, 1);
     params.add_bed(bx, by);
 
-    params.finalize_grid();
     params.init_economy(1);
     params.food_storage.food[0] = 500;
 

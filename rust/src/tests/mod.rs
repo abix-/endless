@@ -62,6 +62,7 @@ pub struct TestSetupParams<'w, 's> {
     pub uid_alloc: ResMut<'w, crate::resources::NextEntityUid>,
     pub commands: Commands<'w, 's>,
     pub gpu_updates: MessageWriter<'w, crate::messages::GpuUpdateMsg>,
+    pub dirty_writers: crate::messages::DirtyWriters<'w>,
 }
 
 /// Shared test setup params bundle — stays under 16-param limit.
@@ -92,6 +93,7 @@ impl TestSetupParams<'_, '_> {
             let world_size_px = self.world_grid.width as f32 * self.world_grid.cell_size;
             self.entity_map.init_spatial(world_size_px);
         }
+        self.world_grid.init_pathfind_costs();
         self.world_data.towns.push(world::Town {
             name: name.into(),
             center: Vec2::new(384.0, 384.0),
@@ -129,7 +131,7 @@ impl TestSetupParams<'_, '_> {
             None,
             None,
             None,
-            None,
+            Some(&mut self.dirty_writers),
         );
     }
 
@@ -156,15 +158,8 @@ impl TestSetupParams<'_, '_> {
             None,
             None,
             None,
-            None,
+            Some(&mut self.dirty_writers),
         );
-    }
-
-    /// Initialize pathfind cost grid from terrain + buildings.
-    /// Call after all buildings are placed so A* works in the test.
-    pub fn finalize_grid(&mut self) {
-        self.world_grid.init_pathfind_costs();
-        self.world_grid.sync_building_costs(&self.entity_map);
     }
 
     /// Init food_storage + faction_stats for N towns.

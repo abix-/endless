@@ -5,39 +5,87 @@ use hashbrown::HashMap;
 
 use crate::constants::TOWN_GRID_SPACING;
 
-/// Dense slot set with O(1) insert, O(1) remove, and cache-friendly iteration.
-/// Uses swap_remove + reverse index (slot → position in dense vec).
-#[derive(Clone, Default)]
-pub struct DenseSlotSet {
+/// Dense slot map with O(1) insert, O(1) remove, and cache-friendly iteration.
+/// Parallel `slots`/`data` arrays + reverse index (slot → position) for swap_remove.
+/// For `T = ()`, data is zero-sized (optimized away by compiler).
+#[derive(Clone)]
+pub struct DenseSlotMap<T: Clone> {
     slots: Vec<usize>,
-    index: HashMap<usize, usize>, // slot → position in slots
+    data: Vec<T>,
+    index: HashMap<usize, usize>,
 }
 
-impl DenseSlotSet {
-    pub fn insert(&mut self, slot: usize) {
-        let pos = self.slots.len();
-        self.slots.push(slot);
-        self.index.insert(slot, pos);
+impl<T: Clone> Default for DenseSlotMap<T> {
+    fn default() -> Self {
+        Self { slots: Vec::new(), data: Vec::new(), index: HashMap::new() }
     }
+}
 
-    pub fn remove(&mut self, slot: usize) {
-        if let Some(pos) = self.index.remove(&slot) {
-            self.slots.swap_remove(pos);
-            if pos < self.slots.len() {
-                // Fix up the swapped element's index
-                self.index.insert(self.slots[pos], pos);
-            }
+impl<T: Clone> DenseSlotMap<T> {
+    pub fn insert(&mut self, slot: usize, value: T) {
+        if let Some(&idx) = self.index.get(&slot) {
+            self.data[idx] = value;
+        } else {
+            let idx = self.slots.len();
+            self.slots.push(slot);
+            self.data.push(value);
+            self.index.insert(slot, idx);
         }
     }
 
-    pub fn as_slice(&self) -> &[usize] {
+    pub fn remove(&mut self, slot: usize) -> Option<T> {
+        if let Some(idx) = self.index.remove(&slot) {
+            self.slots.swap_remove(idx);
+            let value = self.data.swap_remove(idx);
+            if idx < self.slots.len() {
+                self.index.insert(self.slots[idx], idx);
+            }
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    pub fn get(&self, slot: usize) -> Option<&T> {
+        self.index.get(&slot).map(|&idx| &self.data[idx])
+    }
+
+    pub fn get_mut(&mut self, slot: usize) -> Option<&mut T> {
+        self.index.get(&slot).copied().map(move |idx| &mut self.data[idx])
+    }
+
+    pub fn slot_slice(&self) -> &[usize] {
         &self.slots
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &T> {
+        self.data.iter()
+    }
+
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.data.iter_mut()
+    }
+
+    pub fn len(&self) -> usize {
+        self.slots.len()
     }
 
     pub fn clear(&mut self) {
         self.slots.clear();
+        self.data.clear();
         self.index.clear();
     }
+}
+
+/// Thin wrapper: DenseSlotMap<()> with slot-only API.
+#[derive(Clone, Default)]
+pub struct DenseSlotSet(DenseSlotMap<()>);
+
+impl DenseSlotSet {
+    pub fn insert(&mut self, slot: usize) { self.0.insert(slot, ()); }
+    pub fn remove(&mut self, slot: usize) { self.0.remove(slot); }
+    pub fn as_slice(&self) -> &[usize] { self.0.slot_slice() }
+    pub fn clear(&mut self) { self.0.clear(); }
 }
 
 /// A single placed building instance. All runtime state for one building.
@@ -125,8 +173,8 @@ pub struct EntityMap {
     uid_to_entity: HashMap<crate::components::EntityUid, Entity>,
     entity_to_uid: HashMap<Entity, crate::components::EntityUid>,
 
-    // Building-specific data
-    instances: HashMap<usize, BuildingInstance>,
+    // Building-specific data (dense storage for cache-friendly iteration)
+    instances: DenseSlotMap<BuildingInstance>,
     by_kind: HashMap<crate::world::BuildingKind, DenseSlotSet>,
     by_kind_town: HashMap<(crate::world::BuildingKind, u32), DenseSlotSet>,
     by_grid_cell: HashMap<(i32, i32), usize>,
@@ -229,7 +277,7 @@ impl EntityMap {
     pub fn instance_by_uid(&self, uid: crate::components::EntityUid) -> Option<&BuildingInstance> {
         self.uid_to_slot
             .get(&uid)
-            .and_then(|&slot| self.instances.get(&slot))
+            .and_then(|&slot| self.instances.get(slot))
     }
 
     #[cfg(debug_assertions)]
@@ -297,7 +345,7 @@ impl EntityMap {
 
     /// Iterate all entity instance slot keys.
     pub fn all_entity_slots(&self) -> impl Iterator<Item = usize> + '_ {
-        self.instances.keys().copied()
+        self.instances.slot_slice().iter().copied()
     }
 
     /// Add or update a building instance. Updates all indexes.
@@ -306,7 +354,7 @@ impl EntityMap {
         let slot = inst.slot;
         let kind = inst.kind;
         // Remove old index entries if updating an existing slot
-        if let Some(old) = self.instances.remove(&slot) {
+        if let Some(old) = self.instances.remove(slot) {
             if let Some(slots) = self.by_kind.get_mut(&old.kind) {
                 slots.remove(slot);
             }
@@ -338,7 +386,7 @@ impl EntityMap {
 
     /// Remove an instance by slot. Returns removed instance if any.
     fn remove_instance(&mut self, slot: usize) -> Option<BuildingInstance> {
-        if let Some(inst) = self.instances.remove(&slot) {
+        if let Some(inst) = self.instances.remove(slot) {
             if let Some(slots) = self.by_kind.get_mut(&inst.kind) {
                 slots.remove(slot);
             }
@@ -357,11 +405,11 @@ impl EntityMap {
     }
 
     pub fn get_instance(&self, slot: usize) -> Option<&BuildingInstance> {
-        self.instances.get(&slot)
+        self.instances.get(slot)
     }
 
     pub fn get_instance_mut(&mut self, slot: usize) -> Option<&mut BuildingInstance> {
-        self.instances.get_mut(&slot)
+        self.instances.get_mut(slot)
     }
 
     pub fn iter_instances(&self) -> impl Iterator<Item = &BuildingInstance> {
@@ -385,7 +433,7 @@ impl EntityMap {
         slots
             .into_iter()
             .flat_map(|v| v.as_slice().iter())
-            .filter_map(move |&s| instances.get(&s))
+            .filter_map(move |&s| instances.get(s))
     }
 
     pub fn iter_kind_for_town(
@@ -398,7 +446,7 @@ impl EntityMap {
         slots
             .into_iter()
             .flat_map(|v| v.as_slice().iter())
-            .filter_map(move |&s| instances.get(&s))
+            .filter_map(move |&s| instances.get(s))
     }
 
     pub fn count_for_town(&self, kind: crate::world::BuildingKind, town_idx: u32) -> usize {
@@ -413,7 +461,7 @@ impl EntityMap {
                 .iter()
                 .filter(|&&s| {
                     self.instances
-                        .get(&s)
+                        .get(s)
                         .is_some_and(|i| i.town_idx == town_idx)
                 })
                 .count();
@@ -436,14 +484,14 @@ impl EntityMap {
         let gr = (pos.y / TOWN_GRID_SPACING).floor() as i32;
         self.by_grid_cell
             .get(&(gc, gr))
-            .and_then(|&s| self.instances.get(&s))
+            .and_then(|&s| self.instances.get(s))
     }
 
     pub fn find_by_position_mut(&mut self, pos: Vec2) -> Option<&mut BuildingInstance> {
         let gc = (pos.x / TOWN_GRID_SPACING).floor() as i32;
         let gr = (pos.y / TOWN_GRID_SPACING).floor() as i32;
         let slot = self.by_grid_cell.get(&(gc, gr)).copied()?;
-        self.instances.get_mut(&slot)
+        self.instances.get_mut(slot)
     }
 
     pub fn find_farm_at(&self, pos: Vec2) -> Option<&BuildingInstance> {
@@ -484,23 +532,23 @@ impl EntityMap {
     pub fn get_at_grid(&self, gc: i32, gr: i32) -> Option<&BuildingInstance> {
         self.by_grid_cell
             .get(&(gc, gr))
-            .and_then(|&s| self.instances.get(&s))
+            .and_then(|&s| self.instances.get(s))
     }
 
     // ── Occupancy ─────────────────────────────────────────────────────
 
     pub fn release(&mut self, slot: usize) {
-        if let Some(inst) = self.instances.get_mut(&slot) {
+        if let Some(inst) = self.instances.get_mut(slot) {
             inst.occupants = inst.occupants.saturating_sub(1);
         }
     }
 
     pub fn occupant_count(&self, slot: usize) -> i32 {
-        self.instances.get(&slot).map_or(0, |i| i.occupants as i32)
+        self.instances.get(slot).map_or(0, |i| i.occupants as i32)
     }
 
     pub fn is_occupied(&self, slot: usize) -> bool {
-        self.instances.get(&slot).is_some_and(|i| i.occupants >= 1)
+        self.instances.get(slot).is_some_and(|i| i.occupants >= 1)
     }
 
     // ── NPC instance API ───────────────────────────────────────────────
@@ -641,7 +689,7 @@ impl EntityMap {
             self.spatial_cells[cell_idx].push(slot);
 
             // Kind-filtered buckets
-            if let Some(inst) = self.instances.get(&slot) {
+            if let Some(inst) = self.instances.get(slot) {
                 let kind = inst.kind;
                 let town = inst.town_idx;
 
@@ -739,7 +787,7 @@ impl EntityMap {
             let row = cy * self.spatial_width;
             for cx in min_cx..=max_cx {
                 for &slot in &self.spatial_cells[row + cx] {
-                    if let Some(inst) = self.instances.get(&slot) {
+                    if let Some(inst) = self.instances.get(slot) {
                         f(inst);
                     }
                 }
@@ -779,7 +827,7 @@ impl EntityMap {
                 let cell_idx = cy * self.spatial_width + cx;
                 if let Some(bucket) = self.spatial_kind_town.get(&(kind, town_idx, cell_idx)) {
                     for &slot in bucket {
-                        if let Some(inst) = self.instances.get(&slot) {
+                        if let Some(inst) = self.instances.get(slot) {
                             f(inst);
                         }
                     }
@@ -809,7 +857,7 @@ impl EntityMap {
                 let cell_idx = cy * self.spatial_width + cx;
                 if let Some(bucket) = self.spatial_kind_cell.get(&(kind, cell_idx)) {
                     for &slot in bucket {
-                        if let Some(inst) = self.instances.get(&slot) {
+                        if let Some(inst) = self.instances.get(slot) {
                             f(inst);
                         }
                     }
@@ -857,7 +905,7 @@ impl EntityMap {
                 let cell_idx = cy * w + cx;
                 if let Some(bucket) = self.spatial_kind_town.get(&(kind, town_idx, cell_idx)) {
                     for &slot in bucket {
-                        if let Some(inst) = self.instances.get(&slot) {
+                        if let Some(inst) = self.instances.get(slot) {
                             f(inst);
                         }
                     }
@@ -901,7 +949,7 @@ impl EntityMap {
                 let cell_idx = cy * w + cx;
                 if let Some(bucket) = self.spatial_kind_cell.get(&(kind, cell_idx)) {
                     for &slot in bucket {
-                        if let Some(inst) = self.instances.get(&slot) {
+                        if let Some(inst) = self.instances.get(slot) {
                             f(inst);
                         }
                     }
@@ -991,13 +1039,13 @@ impl EntityMap {
         expected_town: Option<u32>,
         max_occupants: i32,
     ) -> Option<ClaimedWorksite> {
-        let valid = self.instances.get(&slot).is_some_and(|inst| {
+        let valid = self.instances.get(slot).is_some_and(|inst| {
             inst.kind == expected_kind
                 && expected_town.is_none_or(|t| inst.town_idx == t || inst.town_idx == crate::constants::TOWN_NONE)
                 && (inst.occupants as i32) < max_occupants
         });
         if valid {
-            let inst = self.instances.get_mut(&slot).expect("slot validated above");
+            let inst = self.instances.get_mut(slot).expect("slot validated above");
             inst.occupants += 1;
             Some(ClaimedWorksite {
                 slot,

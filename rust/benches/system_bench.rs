@@ -19,6 +19,7 @@ use endless::systems::{
     AiPlayerConfig, AiPlayerState, decision_system, attack_system,
     damage_system, healing_system, resolve_movement_system,
     building_tower_system, death_system, spawner_respawn_system,
+    growth_system, construction_tick_system,
 };
 use endless::gpu::populate_gpu_state;
 use endless::systems::stats;
@@ -202,7 +203,7 @@ fn populate_npcs(app: &mut App, count: usize) {
                     Job::Farmer,
                     Faction(1),
                     TownId(0),
-                    Activity::Idle,
+                    Activity::default(),
                     CombatState::default(),
                     Energy(100.0),
                     Speed(60.0),
@@ -688,7 +689,7 @@ fn bench_death_system(c: &mut Criterion) {
                                     (
                                         GpuSlot(slot), Position { x, y },
                                         Health(100.0), Job::Farmer, Faction(1),
-                                        TownId(0), Activity::Idle,
+                                        TownId(0), Activity::default(),
                                         CombatState::default(), Energy(100.0),
                                         Speed(60.0),
                                         Home(Vec2::new(800.0, 800.0)),
@@ -839,6 +840,163 @@ fn bench_populate_gpu_state(c: &mut Criterion) {
     group.finish();
 }
 
+/// Populate `count` farm/mine buildings in EntityMap for economy benchmarks.
+/// Half farms (some tended), half gold mines. All growable, none under construction.
+fn populate_growable_buildings(app: &mut App, count: usize) {
+    let world = app.world_mut();
+    let mut building_slots = Vec::with_capacity(count);
+    {
+        let mut pool = world.resource_mut::<GpuSlotPool>();
+        for _ in 0..count {
+            if let Some(slot) = pool.alloc_reset() {
+                building_slots.push(slot);
+            }
+        }
+    }
+    let mut em = world.resource_mut::<EntityMap>();
+    for (i, &slot) in building_slots.iter().enumerate() {
+        let x = 100.0 + (i % 224) as f32 * 32.0;
+        let y = 100.0 + (i / 224) as f32 * 32.0;
+        let is_farm = i % 2 == 0;
+        em.add_instance(BuildingInstance {
+            kind: if is_farm { world::BuildingKind::Farm } else { world::BuildingKind::GoldMine },
+            position: Vec2::new(x, y),
+            town_idx: 0,
+            slot,
+            faction: 1,
+            patrol_order: 0,
+            assigned_mine: None,
+            manual_mine: false,
+            wall_level: 0,
+            npc_uid: None,
+            respawn_timer: -1.0,
+            growth_ready: false,
+            growth_progress: 0.0,
+            occupants: if i % 4 == 0 { 1 } else { 0 }, // 25% tended
+            under_construction: 0.0,
+            kills: 0,
+            xp: 0,
+            upgrade_levels: vec![],
+            auto_upgrade_flags: vec![],
+        });
+    }
+}
+
+fn bench_growth_system(c: &mut Criterion) {
+    let mut group = c.benchmark_group("growth_system");
+    group.sample_size(20);
+    const BUILDING_COUNTS: &[usize] = &[100, 500, 1_000, 5_000, 50_000];
+    for &bcount in BUILDING_COUNTS {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(bcount),
+            &bcount,
+            |b, &bcount| {
+                let mut app = build_bench_app();
+                populate_npcs(&mut app, 100); // minimal NPCs for world setup
+                populate_growable_buildings(&mut app, bcount);
+                // Warmup
+                let _ = app.world_mut().run_system_once(growth_system);
+                b.iter(|| {
+                    // Reset growth so system has work each iteration
+                    let _ = app.world_mut().run_system_once(
+                        |mut entity_map: ResMut<EntityMap>| {
+                            for inst in entity_map.iter_instances_mut() {
+                                inst.growth_ready = false;
+                                inst.growth_progress = 0.5;
+                            }
+                        },
+                    );
+                    let _ = app.world_mut().run_system_once(growth_system);
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+fn bench_construction_tick_system(c: &mut Criterion) {
+    let mut group = c.benchmark_group("construction_tick");
+    group.sample_size(20);
+    const BUILDING_COUNTS: &[usize] = &[100, 500, 1_000, 5_000, 50_000];
+    for &bcount in BUILDING_COUNTS {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(bcount),
+            &bcount,
+            |b, &bcount| {
+                let mut app = build_bench_app();
+                populate_npcs(&mut app, 100);
+                // Populate buildings under construction
+                {
+                    let world = app.world_mut();
+                    let mut building_slots = Vec::with_capacity(bcount);
+                    {
+                        let mut pool = world.resource_mut::<GpuSlotPool>();
+                        for _ in 0..bcount {
+                            if let Some(slot) = pool.alloc_reset() {
+                                building_slots.push(slot);
+                            }
+                        }
+                    }
+                    // Spawn ECS entities with Building + Health (construction_tick queries them)
+                    let mut entities_and_slots = Vec::with_capacity(bcount);
+                    for (i, &slot) in building_slots.iter().enumerate() {
+                        let x = 100.0 + (i % 224) as f32 * 32.0;
+                        let y = 100.0 + (i / 224) as f32 * 32.0;
+                        let entity = world.spawn((
+                            GpuSlot(slot),
+                            Position { x, y },
+                            Health(0.01),
+                            Faction(1),
+                            TownId(0),
+                            Building { kind: world::BuildingKind::FarmerHome },
+                        )).id();
+                        entities_and_slots.push((entity, slot, x, y));
+                    }
+                    let mut em = world.resource_mut::<EntityMap>();
+                    for &(entity, slot, x, y) in &entities_and_slots {
+                        em.entities.insert(slot, entity);
+                        em.add_instance(BuildingInstance {
+                            kind: world::BuildingKind::FarmerHome,
+                            position: Vec2::new(x, y),
+                            town_idx: 0,
+                            slot,
+                            faction: 1,
+                            patrol_order: 0,
+                            assigned_mine: None,
+                            manual_mine: false,
+                            wall_level: 0,
+                            npc_uid: None,
+                            respawn_timer: -1.0,
+                            growth_ready: false,
+                            growth_progress: 0.0,
+                            occupants: 0,
+                            under_construction: 5.0, // 5 seconds remaining
+                            kills: 0,
+                            xp: 0,
+                            upgrade_levels: vec![],
+                            auto_upgrade_flags: vec![],
+                        });
+                    }
+                }
+                // Warmup
+                let _ = app.world_mut().run_system_once(construction_tick_system);
+                b.iter(|| {
+                    // Reset construction timers each iteration
+                    let _ = app.world_mut().run_system_once(
+                        |mut entity_map: ResMut<EntityMap>| {
+                            for inst in entity_map.iter_instances_mut() {
+                                inst.under_construction = 5.0;
+                            }
+                        },
+                    );
+                    let _ = app.world_mut().run_system_once(construction_tick_system);
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_decision_system,
@@ -851,5 +1009,7 @@ criterion_group!(
     bench_death_system,
     bench_spawner_respawn_system,
     bench_populate_gpu_state,
+    bench_growth_system,
+    bench_construction_tick_system,
 );
 criterion_main!(benches);
