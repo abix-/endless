@@ -406,17 +406,27 @@ pub fn register_tests(app: &mut App) {
         Update,
         crate::ui::ui_toggle_system.run_if(in_state(AppState::Running)),
     );
-    app.add_systems(OnEnter(AppState::TestMenu), auto_start_next_test);
+    app.add_systems(OnEnter(AppState::TestMenu), (cli_test_start, auto_start_next_test).chain());
+
+    // CLI mode: redirect MainMenu → TestMenu
+    app.add_systems(OnEnter(AppState::MainMenu), cli_test_redirect);
 
     // Cleanup when leaving Running — uses same cleanup as game (OnExit Playing)
     app.add_systems(OnExit(AppState::Running), crate::ui::game_cleanup_system);
 
     // Test completion detection (returns to menu or starts next test)
+    // CLI exit detection (prints results and sends AppExit)
     app.add_systems(
         FixedUpdate,
-        test_completion_system
+        (test_completion_system, cli_test_exit_system)
+            .chain()
             .run_if(in_state(AppState::Running))
             .after(Step::Behavior),
+    );
+    // CLI exit also checks in TestMenu (Run All returns here when done)
+    app.add_systems(
+        FixedUpdate,
+        cli_test_exit_system.run_if(in_state(AppState::TestMenu)),
     );
 
     // Register individual tests
@@ -1236,6 +1246,7 @@ fn test_completion_system(
     mut next_state: ResMut<NextState<AppState>>,
     mut delayed: Local<Option<f32>>,
     time: Res<Time>,
+    cli_mode: Res<crate::resources::CliTestMode>,
 ) {
     if !test_state.passed && !test_state.failed {
         *delayed = None;
@@ -1247,12 +1258,13 @@ fn test_completion_system(
         return;
     }
 
-    // Run All mode: auto-advance after 1.5s delay
+    // Run All mode: auto-advance after delay (skip delay in CLI mode)
     let now = time.elapsed_secs();
     if delayed.is_none() {
         *delayed = Some(now);
     }
-    if now - delayed.unwrap() < 1.5 {
+    let delay = if cli_mode.active { 0.0 } else { 1.5 };
+    if now - delayed.unwrap() < delay {
         return;
     }
 
@@ -1299,6 +1311,136 @@ pub fn auto_start_next_test(
         }
     } else {
         run_all.active = false;
+    }
+}
+
+// ============================================================================
+// CLI TEST MODE
+// ============================================================================
+
+/// On MainMenu enter, redirect to TestMenu if --test was passed.
+fn cli_test_redirect(
+    cli_mode: Res<crate::resources::CliTestMode>,
+    mut next_state: ResMut<NextState<AppState>>,
+) {
+    if cli_mode.active {
+        info!("--test: redirecting to test menu");
+        next_state.set(AppState::TestMenu);
+    }
+}
+
+/// On TestMenu enter, set up RunAll or single test for CLI mode.
+fn cli_test_start(
+    cli_mode: Res<crate::resources::CliTestMode>,
+    registry: Res<TestRegistry>,
+    mut run_all: ResMut<RunAllState>,
+    mut test_state: ResMut<TestState>,
+    mut next_state: ResMut<NextState<AppState>>,
+) {
+    if !cli_mode.active {
+        return;
+    }
+    // Already started (re-entering TestMenu during Run All)
+    if run_all.active || !run_all.results.is_empty() {
+        return;
+    }
+
+    let filter = cli_mode.filter.as_deref();
+    match filter {
+        None | Some("all") => {
+            // Run all tests
+            run_all.queue = registry.tests.iter().map(|t| t.name.clone()).collect();
+            run_all.active = true;
+            run_all.results.clear();
+            info!("--test all: queued {} tests", run_all.queue.len());
+        }
+        Some(name) => {
+            if let Some(entry) = registry.tests.iter().find(|t| t.name == name) {
+                info!("--test {}: starting single test", name);
+                start_test(
+                    name,
+                    entry.phase_count,
+                    entry.time_scale,
+                    &mut test_state,
+                    &mut next_state,
+                );
+            } else {
+                error!("--test {}: unknown test. Available tests:", name);
+                for t in &registry.tests {
+                    error!("  {}", t.name);
+                }
+                println!("\n=== ENDLESS TEST RESULTS ===");
+                println!("ERROR: unknown test '{}'", name);
+                println!("\nAvailable tests:");
+                for t in &registry.tests {
+                    println!("  {} — {}", t.name, t.description);
+                }
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
+/// Detects test completion in CLI mode and exits with results.
+fn cli_test_exit_system(
+    cli_mode: Res<crate::resources::CliTestMode>,
+    test_state: Res<TestState>,
+    run_all: Res<RunAllState>,
+    mut exit: MessageWriter<AppExit>,
+    mut done: Local<bool>,
+) {
+    if !cli_mode.active || *done {
+        return;
+    }
+
+    // Single test mode: wait for pass/fail
+    if cli_mode.filter.is_some() && cli_mode.filter.as_deref() != Some("all") {
+        if !test_state.passed && !test_state.failed {
+            return;
+        }
+        let name = test_state.test_name.as_deref().unwrap_or("?");
+        println!("\n=== ENDLESS TEST RESULTS ===");
+        if test_state.passed {
+            println!("PASS {}", name);
+        } else {
+            println!("FAIL {}", name);
+            for r in &test_state.results {
+                if !r.passed {
+                    println!("  Phase {}: {}", r.phase, r.message);
+                }
+            }
+        }
+        println!("\nPASSED: {}/1", if test_state.passed { 1 } else { 0 });
+        *done = true;
+        if test_state.passed {
+            exit.write(AppExit::Success);
+        } else {
+            exit.write(AppExit::error());
+        }
+        return;
+    }
+
+    // Run All mode: wait for completion
+    if run_all.active || run_all.results.is_empty() {
+        return;
+    }
+
+    let passed = run_all.results.iter().filter(|(_, p)| *p).count();
+    let total = run_all.results.len();
+    println!("\n=== ENDLESS TEST RESULTS ===");
+    for (name, ok) in &run_all.results {
+        if *ok {
+            println!("PASS {}", name);
+        } else {
+            println!("FAIL {}", name);
+        }
+    }
+    println!("\nPASSED: {}/{}", passed, total);
+    *done = true;
+    if passed == total {
+        exit.write(AppExit::Success);
+    } else {
+        exit.write(AppExit::error());
     }
 }
 

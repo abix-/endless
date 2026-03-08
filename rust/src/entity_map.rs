@@ -883,7 +883,7 @@ impl EntityMap {
         loop {
             self.for_each_ring_kind_town(from, prev_r, cell_r, kind, town_idx, |inst| {
                 if let Some(s) = score(inst) {
-                    if best.as_ref().map_or(true, |b| s < b.0) {
+                    if best.as_ref().is_none_or(|b| s < b.0) {
                         best = Some((s, inst.slot, inst.position));
                     }
                 }
@@ -906,7 +906,7 @@ impl EntityMap {
             loop {
                 self.for_each_ring_kind(from, prev_r, cell_r, kind, |inst| {
                     if let Some(s) = score(inst) {
-                        if best.as_ref().map_or(true, |b| s < b.0) {
+                        if best.as_ref().is_none_or(|b| s < b.0) {
                             best = Some((s, inst.slot, inst.position));
                         }
                     }

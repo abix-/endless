@@ -411,7 +411,7 @@ pub fn spawner_respawn_system(
 
                 let pos = inst.position;
                 let is_miner_home = inst.kind == BuildingKind::MinerHome;
-                let npc_uid = uid_alloc.next();
+                let npc_uid = uid_alloc.alloc();
                 spawn_writer.write(SpawnNpcMsg {
                     slot_idx: slot,
                     x: pos.x,

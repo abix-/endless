@@ -415,9 +415,7 @@ fn parse_digit_key(token: &str) -> Option<KeyCode> {
 }
 
 fn parse_function_key(token: &str) -> Option<KeyCode> {
-    let Some(raw) = token.strip_prefix('F').or_else(|| token.strip_prefix('f')) else {
-        return None;
-    };
+    let raw = token.strip_prefix('F').or_else(|| token.strip_prefix('f'))?;
     let n = raw.parse::<u8>().ok()?;
     match n {
         1 => Some(KeyCode::F1),

@@ -148,6 +148,13 @@ fn main() {
     if std::env::args().any(|a| a == "--autostart") {
         app.insert_resource(endless::resources::AutoStart(true));
     }
+    if let Some(pos) = std::env::args().position(|a| a == "--test") {
+        let filter = std::env::args().nth(pos + 1);
+        app.insert_resource(endless::resources::CliTestMode {
+            active: true,
+            filter,
+        });
+    }
 
     // Wire up ECS systems
     endless::build_app(&mut app);

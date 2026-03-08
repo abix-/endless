@@ -14,6 +14,13 @@ use std::sync::Mutex;
 #[derive(Resource, Default)]
 pub struct AutoStart(pub bool);
 
+/// CLI flag: --test [name|all] — run integration tests and exit.
+#[derive(Resource, Default)]
+pub struct CliTestMode {
+    pub active: bool,
+    pub filter: Option<String>,
+}
+
 /// Profiling resource: frame timing + render-world timing drain + tracing capture.
 /// Auto-capture via SystemTimingLayer handles all main-world systems.
 /// Render-world timings still use record() via atomic drain in frame_timer_start.
@@ -97,7 +104,7 @@ impl Default for NextEntityUid {
 
 impl NextEntityUid {
     /// Allocate the next UID. Never returns EntityUid(0).
-    pub fn next(&mut self) -> crate::components::EntityUid {
+    pub fn alloc(&mut self) -> crate::components::EntityUid {
         let uid = crate::components::EntityUid(self.0);
         self.0 += 1;
         uid

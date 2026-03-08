@@ -745,9 +745,7 @@ fn resolve_hands(
             HandResult::Blackjack
         } else if dealer_bj {
             HandResult::Lose
-        } else if dealer_bust {
-            HandResult::Win
-        } else if player_val > dealer_val {
+        } else if dealer_bust || player_val > dealer_val {
             HandResult::Win
         } else if player_val < dealer_val {
             HandResult::Lose

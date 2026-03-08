@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-03-08e
+
+- **Criterion system benchmarks** — new `benches/system_bench.rs` measuring `decision_system`, `damage_system`, `healing_system`, `attack_system` at 1K/5K/10K/25K/50K entity counts. Headless Bevy app via `MinimalPlugins` with full component/resource setup. Added `bevy_ecs` + `criterion` to dev-dependencies. Baseline results: all systems O(n), combined 50K = 1.9ms (11.4% of 16ms budget). Run via `cargo bench --bench system_bench`.
+- **`/benchmark` skill** — automates running benchmarks and appending dated results to `docs/performance.md` Benchmark History section.
+- **CLI test mode** — `--test all` or `--test <name>` runs integration tests and exits with pass/fail summary + exit code. `CliTestMode` resource, `cli_test_redirect`/`cli_test_start`/`cli_test_exit_system` in test framework. Zero delay between tests in CLI mode.
+- **Clippy cleanup** — `map_or(true, ...)` → `is_none_or(...)`, `let-else` → `?` operator, index-by-position → iterator patterns in test visuals, `to_grid_building` → `into_grid_building`, `next()` → `alloc()` on `NextEntityUid`, `policy_handler` borrow scoping fix, blackjack branch merge.
+
 ## 2026-03-08d
 
 - **Tech tree window** — "Upgrades" top bar button replaced with "Tech Tree" standalone window. Keyboard toggle (U) opens tech tree instead of left panel upgrades tab. Tutorial step 13 updated.

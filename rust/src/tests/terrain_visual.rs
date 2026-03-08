@@ -170,7 +170,7 @@ pub fn tick(
     };
 
     // Terrain labels (above terrain row)
-    for col in 0..GRID_COLS {
+    for (col, &label) in TERRAIN_LABELS.iter().enumerate().take(GRID_COLS) {
         let pos = cell_center(col, TERRAIN_ROW) + Vec2::new(0.0, grid.cell_size * 0.7);
         let screen = world_to_screen(pos);
         egui::Area::new(egui::Id::new(format!("terrain_label_{}", col)))
@@ -179,7 +179,7 @@ pub fn tick(
             .interactable(false)
             .show(ctx, |ui| {
                 ui.label(
-                    egui::RichText::new(TERRAIN_LABELS[col])
+                    egui::RichText::new(label)
                         .strong()
                         .size(11.0)
                         .color(egui::Color32::WHITE),
@@ -204,7 +204,7 @@ pub fn tick(
         });
 
     // Building labels (below building row)
-    for col in 0..BUILDING_LABELS.len() {
+    for (col, &label) in BUILDING_LABELS.iter().enumerate() {
         let pos = cell_center(col, BUILDING_ROW) - Vec2::new(0.0, grid.cell_size * 0.7);
         let screen = world_to_screen(pos);
         egui::Area::new(egui::Id::new(format!("building_label_{}", col)))
@@ -213,7 +213,7 @@ pub fn tick(
             .interactable(false)
             .show(ctx, |ui| {
                 ui.label(
-                    egui::RichText::new(BUILDING_LABELS[col])
+                    egui::RichText::new(label)
                         .strong()
                         .size(11.0)
                         .color(egui::Color32::WHITE),

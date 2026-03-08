@@ -289,7 +289,7 @@ pub fn materialize_npc(
     if def.has_energy {
         ecmds.insert(HasEnergy);
     }
-    let uid = overrides.uid_override.unwrap_or_else(|| uid_alloc.next());
+    let uid = overrides.uid_override.unwrap_or_else(|| uid_alloc.alloc());
     ecmds.insert(uid);
     let entity = ecmds.id();
 
@@ -346,9 +346,7 @@ pub fn spawn_npc_system(
         };
 
         let overrides = if msg.uid_override.is_some() {
-            let mut o = NpcSpawnOverrides::default();
-            o.uid_override = msg.uid_override;
-            o
+            NpcSpawnOverrides { uid_override: msg.uid_override, ..Default::default() }
         } else {
             NpcSpawnOverrides::default()
         };

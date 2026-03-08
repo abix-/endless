@@ -1922,11 +1922,8 @@ fn building_inspector_content(
     copy_text: &mut Option<String>,
     faction_select: &mut MessageWriter<crate::messages::SelectFactionMsg>,
 ) -> Option<InspectorAction> {
-    let Some((kind, bld_town_idx, world_pos, col, row)) =
-        selected_building_info(&bld.selected_building, &bld.grid, &bld.entity_map)
-    else {
-        return None;
-    };
+    let (kind, bld_town_idx, world_pos, col, row) =
+        selected_building_info(&bld.selected_building, &bld.grid, &bld.entity_map)?;
 
     let def = building_def(kind);
     let town_idx = bld_town_idx as usize;

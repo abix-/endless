@@ -324,6 +324,7 @@ pub fn build_app(app: &mut App) {
         .init_resource::<ActiveHealingSlots>()
         .init_resource::<HealingZoneCache>()
         .init_resource::<resources::AutoStart>()
+        .init_resource::<resources::CliTestMode>()
         .init_resource::<SystemTimings>()
         .init_resource::<UpsCounter>()
         .init_resource::<world::WorldGrid>()

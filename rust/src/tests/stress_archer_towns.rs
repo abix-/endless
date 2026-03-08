@@ -1,7 +1,7 @@
 //! Stress test scene:
 //! - 20 AI builder towns
 //! - Configurable archer homes per town (default 1,000)
-//! Verifies counts on phase 1, then leaves scene running for observation.
+//!   Verifies counts on phase 1, then leaves scene running for observation.
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;

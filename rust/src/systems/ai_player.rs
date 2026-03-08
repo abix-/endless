@@ -2381,9 +2381,7 @@ fn execute_action(
         AiAction::ExpandMiningRadius => {
             // Policy action, not building placement.
             // Expands search radius for mines in fixed-size steps with max cap.
-            let Some(policy) = res.policies.policies.get_mut(ctx.tdi) else {
-                return None;
-            };
+            let policy = res.policies.policies.get_mut(ctx.tdi)?;
             let old = policy.mining_radius;
             let new = (old + MINING_RADIUS_STEP).min(MAX_MINING_RADIUS);
             if new <= old {

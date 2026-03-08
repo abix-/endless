@@ -118,7 +118,7 @@ pub fn advance_waypoints_system(
 /// Unified movement resolution + path routing.
 /// 1. Drain pending world-space intents → filter → enqueue as grid-space PathRequests
 /// 2. Drain PathRequestQueue (budget-limited) → route via LOS bypass or A*
-/// Runs after all intent-producing systems and after invalidate_paths_on_building_change.
+///    Runs after all intent-producing systems and after invalidate_paths_on_building_change.
 pub fn resolve_movement_system(
     npc_query: Query<&GpuSlot>,
     npc_gpu: Res<EntityGpuState>,

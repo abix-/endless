@@ -31,7 +31,7 @@ Single source of truth for achieving maximum performance in this codebase. All o
 
 Reference hardware: mid-range discrete GPU (GTX 1060 / RX 580 class), 4-core CPU.
 
-Benchmark: manual profiler via `SystemTimings` (enable `debug_profiler` in settings). No `cargo bench` harness yet.
+Benchmark: `cargo bench --bench system_bench` (Criterion, HTML reports in `target/criterion/`). In-game profiler via `SystemTimings` (enable `debug_profiler` in settings).
 
 ## Hybrid Data Access Rule
 
@@ -315,7 +315,7 @@ for npc in entity_map.iter_npcs() {
 
 ## Benchmark/Guardrail Expectations
 
-Current benchmark tool: `SystemTimings` in-game profiler (enable `debug_profiler` in settings). No `cargo bench` harness yet — adding one is tracked as aspirational.
+Benchmark tool: `cargo bench --bench system_bench` (Criterion). Run `/benchmark` to execute and record results. In-game profiler: `SystemTimings` (enable `debug_profiler` in settings).
 
 1. Add microbenchmarks for hotspot helpers when introducing or changing their logic.
 2. Keep baseline numbers for representative counts (small, medium, stress) against Performance Targets.
@@ -339,3 +339,18 @@ Legitimate violations of the rules above, tracked with exit criteria.
 | `save.rs` uses `iter_npcs()` | Hot Path #6 | Save is cold path (F5 only) | N/A | None needed |
 | `npc_render.rs` `build_visual_upload` uses `iter_npcs()` | Hot Path #6 | Needs NpcInstance fields not in ECS; event-driven dirty-only | Acceptable | None — correct pattern |
 | `roster_panel.rs` / `left_panel.rs` use `iter_npcs()` | Hot Path #6 | UI roster display needs full NPC list | 30-frame cadence cache | Add pagination or virtual scroll |
+
+## Benchmark History
+
+Run via `cargo bench --bench system_bench` (Criterion). Use `/benchmark` to execute and append results.
+
+### 2026-03-08 — d0191eb (baseline)
+
+| System | 1K | 5K | 10K | 25K | 50K |
+|--------|----|----|-----|-----|-----|
+| decision | 33µs | 72µs | 118µs | 261µs | 520µs |
+| damage | 21µs | 48µs | 55µs | 130µs | 251µs |
+| healing | 11µs | 39µs | 80µs | 205µs | 443µs |
+| attack | 21µs | 70µs | 134µs | 328µs | 674µs |
+
+Combined 50K: 1.9ms (11.4% of 16ms budget). All systems O(n) — linear scaling confirmed.

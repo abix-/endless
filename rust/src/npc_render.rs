@@ -957,7 +957,7 @@ fn extract_selection_overlay(
 // EXTRACT: NPC + PROJECTILE DATA
 // =============================================================================
 
-/// Upload NPC compute + visual data directly to GPU buffers during Extract phase.
+// Upload NPC compute + visual data directly to GPU buffers during Extract phase.
 // --- Shared dirty-write helpers (used by both NPC and projectile extract) ---
 
 // Coalescing gap thresholds for CPU-AUTHORITATIVE buffers (slots).

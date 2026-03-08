@@ -57,10 +57,9 @@ pub fn setup(mut params: TestSetupParams) {
 
     // Spawn NPC grid: NUM_ROWS * NUM_COLS = 28 NPCs
     let mut first_slot = usize::MAX;
-    for row in 0..NUM_ROWS {
+    for (row, &job) in ROW_JOBS.iter().enumerate().take(NUM_ROWS) {
         for col in 0..NUM_COLS {
             let pos = grid_pos(row, col);
-            let job = ROW_JOBS[row];
             let slot = params.spawn_npc(job, pos.x, pos.y, pos.x, pos.y);
             if first_slot == usize::MAX {
                 first_slot = slot;
@@ -233,7 +232,7 @@ pub fn tick(
     };
 
     // Column headers (above top row)
-    for col in 0..NUM_COLS {
+    for (col, &label) in COL_LABELS.iter().enumerate().take(NUM_COLS) {
         let header_pos = grid_pos(0, col) + Vec2::new(0.0, 40.0);
         let screen = world_to_screen(header_pos);
         egui::Area::new(egui::Id::new(format!("col_header_{}", col)))
@@ -242,7 +241,7 @@ pub fn tick(
             .interactable(false)
             .show(ctx, |ui| {
                 ui.label(
-                    egui::RichText::new(COL_LABELS[col])
+                    egui::RichText::new(label)
                         .strong()
                         .size(12.0)
                         .color(egui::Color32::WHITE),
@@ -251,7 +250,7 @@ pub fn tick(
     }
 
     // Row labels (left of first column)
-    for row in 0..NUM_ROWS {
+    for (row, &label) in ROW_LABELS.iter().enumerate().take(NUM_ROWS) {
         let label_pos = grid_pos(row, 0) - Vec2::new(60.0, 0.0);
         let screen = world_to_screen(label_pos);
         egui::Area::new(egui::Id::new(format!("row_label_{}", row)))
@@ -267,7 +266,7 @@ pub fn tick(
                     _ => egui::Color32::WHITE,
                 };
                 ui.label(
-                    egui::RichText::new(ROW_LABELS[row])
+                    egui::RichText::new(label)
                         .strong()
                         .size(14.0)
                         .color(color),

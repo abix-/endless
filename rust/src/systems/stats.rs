@@ -1117,8 +1117,8 @@ pub fn auto_upgrade_system(
         let levels = upgrades.town_levels(town_idx);
         let food = food_storage.food.get(town_idx).copied().unwrap_or(0);
         let gold = gold_storage.gold.get(town_idx).copied().unwrap_or(0);
-        for i in 0..count.min(flags.len()) {
-            if !flags[i] {
+        for (i, &enabled) in flags.iter().enumerate().take(count) {
+            if !enabled {
                 continue;
             }
             if upgrade_available(&levels, i, food, gold) {
@@ -1171,7 +1171,7 @@ pub fn auto_tower_upgrade_system(
             });
             if can_afford {
                 let total: i32 = upg.cost.iter().map(|(_, base)| base * cost_mult).sum();
-                if best.map_or(true, |b| total < b.0) {
+                if best.is_none_or(|b| total < b.0) {
                     best = Some((total, i));
                 }
             }
@@ -1271,7 +1271,7 @@ pub fn auto_equip_system(
                 }
 
                 // Prefer NPC with lowest current bonus (distribute gear evenly)
-                if best.map_or(true, |b| current_bonus < b.1) {
+                if best.is_none_or(|b| current_bonus < b.1) {
                     best = Some((entity, current_bonus));
                 }
             }

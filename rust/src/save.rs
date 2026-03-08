@@ -106,7 +106,7 @@ enum LegacyBuilding {
 }
 
 impl LegacyBuilding {
-    fn to_grid_building(self) -> (world::BuildingKind, u32) {
+    fn into_grid_building(self) -> (world::BuildingKind, u32) {
         use world::BuildingKind::*;
         match self {
             Self::Fountain { town_idx } => (Fountain, town_idx),
@@ -143,7 +143,7 @@ fn deserialize_grid_buildings<'de, D: serde::Deserializer<'de>>(
                 // Fall back to legacy enum format: {"Farm": {"town_idx": 0}}
                 serde_json::from_value::<LegacyBuilding>(v)
                     .ok()
-                    .map(|lb| lb.to_grid_building())
+                    .map(|lb| lb.into_grid_building())
             })
         })
         .collect())

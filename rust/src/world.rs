@@ -653,7 +653,7 @@ pub fn place_building(
     };
 
     // Create BuildingInstance
-    let uid = uid_override.unwrap_or_else(|| uid_alloc.next());
+    let uid = uid_override.unwrap_or_else(|| uid_alloc.alloc());
     let has_spawner = def.spawner.is_some();
     entity_map.add_instance(crate::resources::BuildingInstance {
         kind,
