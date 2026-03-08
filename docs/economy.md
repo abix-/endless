@@ -344,4 +344,4 @@ migration_settle_system (every frame, early-returns if no active migration)
 
 ## Known Issues
 
-None currently.
+- **spawner_respawn O(n²)**: `iter_instances()` filter inside per-spawner loop causes quadratic scaling. Benchmarked: 100 spawners = 66µs, 2K spawners = 88ms (5× frame budget). Acceptable at typical counts (<200 spawners) but will be a bottleneck if building count grows.

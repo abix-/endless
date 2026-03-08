@@ -354,3 +354,35 @@ Run via `cargo bench --bench system_bench` (Criterion). Use `/benchmark` to exec
 | attack | 21µs | 70µs | 134µs | 328µs | 674µs |
 
 Combined 50K: 1.9ms (11.4% of 16ms budget). All systems O(n) — linear scaling confirmed.
+
+### 2026-03-08b — 030c060 (full suite, 9 systems)
+
+**NPC-scaled** (vary entity count):
+
+| System | 1K | 5K | 10K | 25K | 50K | Scaling |
+|--------|----|----|-----|-----|-----|---------|
+| decision | 34µs | 68µs | 112µs | 261µs | 480µs | O(n) |
+| damage | 21µs | 51µs | 54µs | 129µs | 248µs | O(n) |
+| healing | 11µs | 39µs | 79µs | 213µs | 448µs | O(n) |
+| attack | 22µs | 73µs | 138µs | 344µs | 668µs | O(n) |
+| resolve_movement | 2.06ms | 2.07ms | 2.10ms | 2.22ms | 2.32ms | O(1) budget-capped |
+| populate_gpu_state | 177µs | 204µs | 231µs | 536µs | 985µs | O(n) |
+
+**Building-scaled** (vary tower count, 5K enemy NPCs):
+
+| System | 10 | 50 | 100 | 250 | 500 |
+|--------|----|----|-----|-----|-----|
+| building_tower | 5µs | 7µs | 9µs | 15µs | 26µs |
+
+**Spawner-scaled** (vary spawner building count):
+
+| System | 100 | 500 | 1K | 2K |
+|--------|-----|-----|----|-----|
+| spawner_respawn | 66µs | 4.3ms | 18.5ms | 88.2ms |
+
+Combined 50K (6 NPC-scaled systems): 5.1ms (30.7% of 16ms budget).
+
+**Findings:**
+- `spawner_respawn` is **O(n²)** — 2K spawners = 88ms, blows frame budget 5×. Likely caused by `iter_instances()` filter inside per-spawner loop.
+- `resolve_movement` is budget-capped (~2ms) via `max_per_frame` pathfind limit — near-constant regardless of NPC count.
+- `death_system` bench needs rework — shows flat ~42µs regardless of death count (Dead NPCs not being processed).

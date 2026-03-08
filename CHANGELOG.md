@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-03-08f
+
+- **Expanded system benchmarks** — added 5 new Criterion benchmarks: `resolve_movement` (budget-capped A*), `building_tower` (tower targeting by tower count), `death_system` (deaths/frame), `spawner_respawn` (spawner building count), `populate_gpu_state` (GPU message throughput). Total: 9 benchmarked systems.
+- **Spawner O(n²) discovery** — benchmarks revealed `spawner_respawn_system` scales quadratically: 100 spawners = 66µs, 2K = 88ms. Documented in economy.md known issues.
+
 ## 2026-03-08e
 
 - **Criterion system benchmarks** — new `benches/system_bench.rs` measuring `decision_system`, `damage_system`, `healing_system`, `attack_system` at 1K/5K/10K/25K/50K entity counts. Headless Bevy app via `MinimalPlugins` with full component/resource setup. Added `bevy_ecs` + `criterion` to dev-dependencies. Baseline results: all systems O(n), combined 50K = 1.9ms (11.4% of 16ms budget). Run via `cargo bench --bench system_bench`.
