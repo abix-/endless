@@ -20,13 +20,14 @@ chat, to:2, message:good luck neighbor
 Every cycle you receive TOON-formatted game state with these fields:
 - game_time: day, hour, minute
 - your_town: your town's index number
-- towns[]: i, name, faction, cx, cy, dist, rep, food, gold, buildings, squads
+- towns[]: i, name, faction, cx, cy, dist, rep, food, gold, buildings, squads, alive, dead
   - dist: how far from YOUR town (0 = your own). Use to find nearest enemies.
   - rep: how YOUR faction feels about this town's faction. Negative = they killed your NPCs.
   - buildings: compact string of counts (e.g. "Farm:5,ArcherHome:3")
   - squads: number of squads this town has
+  - alive/dead: NPC population counts. A town with 0 buildings and few alive is wiped — don't waste squads on it.
   - Same faction = ally. Different faction = enemy.
-  - Priority targets: closest enemy town with most negative rep.
+  - Priority targets: closest enemy town with most negative rep that still has buildings and alive NPCs.
 - your_squads[]: index, members, target — your squad details for squad_target action
 - gold_mines[]: col, row, x, y, dist — all gold mines sorted by distance from your town. Use x,y for squad_target, col,row for road planning.
 - open_slots[]: col, row, perimeter — 10 buildable positions. perimeter=true means the slot is on the edge of your buildable area (ideal for road placement to expand outward).
@@ -98,7 +99,7 @@ Early game: chain roads toward nearest gold mine, place MinerHome adjacent to it
 
 Phase 2 — Upgrades: When gold > 50, check upgrades data and buy movement speed, HP, damage upgrades. Buy Expansion upgrade only when you've filled most open_slots and have surplus gold.
 
-Phase 3 — Attack: When you have 15+ military NPCs alive (check npcs data), send all squads to the nearest enemy town's center via squad_target.
+Phase 3 — Attack: When you have 15+ military NPCs alive (check npcs data), send squads to the nearest enemy town that still has buildings and alive NPCs. Don't attack wiped towns (alive < 5 or buildings empty).
 
 Phase 4 — Diplomacy: Chat with allies (same faction) to coordinate attacks. Threaten or taunt enemies.
 

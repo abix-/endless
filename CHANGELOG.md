@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-03-08
+
+- **Squad target behavior fix** — archers at squad target now scatter near the squad target instead of walking back to their patrol waypoint. Squad intent always submitted with priority resolution, removing brittle per-activity redirect logic. Patrol cycling suppressed when squad has an active target.
+- **Inspector unequip buttons** — each equipped item in the NPC inspector now has an Unequip button. "Manage Equipment >" link opens the Inventory tab. Non-military NPCs no longer show "No equipment".
+- **LLM prompt: skip wiped towns** — AI town data now includes alive/dead NPC counts. Prompt instructs AI to skip wiped towns (alive < 5 or no buildings) when choosing attack targets.
+
 ## 2026-03-07e
 
 - **Rock/Water passable terrain** — rock (cost 500) and water (cost 800) are now expensive but passable in pathfinding, so NPCs pushed onto these tiles by GPU physics can slowly pathfind off. Previously cost 0 (impassable), trapping NPCs.

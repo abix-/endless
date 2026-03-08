@@ -16,8 +16,8 @@ use crate::render::MainCamera;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
 use crate::systems::stats::{
-    CombatConfig, TownUpgrades, UPGRADES, level_from_xp, resolve_tower_instance_stats,
-    resolve_town_tower_stats,
+    CombatConfig, TownUpgrades, UPGRADES, UnequipItemMsg, level_from_xp,
+    resolve_tower_instance_stats, resolve_town_tower_stats,
 };
 use crate::ui::tipped;
 use crate::world::{BuildingKind, WorldData, WorldGrid};
@@ -466,6 +466,7 @@ pub struct BuildingInspectorData<'w, 's> {
 pub struct BottomPanelUiState<'w> {
     destroy_request: MessageWriter<'w, crate::messages::DestroyBuildingMsg>,
     faction_select: MessageWriter<'w, crate::messages::SelectFactionMsg>,
+    unequip_writer: MessageWriter<'w, UnequipItemMsg>,
     ui_state: ResMut<'w, UiState>,
     mining_policy: ResMut<'w, MiningPolicy>,
     dirty_writers: crate::messages::DirtyWriters<'w>,
@@ -615,6 +616,7 @@ pub fn bottom_panel_system(
                     show_npc,
                     &mut panel_state.squad_state,
                     &mut panel_state.faction_select,
+                    &mut panel_state.unequip_writer,
                     dc_count,
                 );
                 if let Some(action) = action {
@@ -1268,6 +1270,7 @@ fn inspector_content(
     show_npc: bool,
     squad_state: &mut SquadState,
     faction_select: &mut MessageWriter<crate::messages::SelectFactionMsg>,
+    unequip_writer: &mut MessageWriter<UnequipItemMsg>,
     dc_count: usize,
 ) -> Option<InspectorAction> {
     if !show_npc {
@@ -1469,16 +1472,25 @@ fn inspector_content(
 
     // Equipment + status from EntityMap + ECS
     let mut squad_id: Option<i32> = None;
+    let job = Job::from_i32(meta.job);
+    let can_equip = !npc_def(job).equip_slots.is_empty();
     if let Some(npc) = bld_data.entity_map.get_npc(idx) {
         if let Ok(eq) = bld_data.equipment_q.get(npc.entity) {
-            let slots: &[(&str, &Option<crate::constants::LootItem>)] = &[
-                ("Weapon", &eq.weapon), ("Helm", &eq.helm), ("Armor", &eq.armor),
-                ("Shield", &eq.shield), ("Gloves", &eq.gloves), ("Boots", &eq.boots),
-                ("Belt", &eq.belt), ("Amulet", &eq.amulet),
-                ("Ring 1", &eq.ring1), ("Ring 2", &eq.ring2),
+            use crate::constants::EquipmentSlot;
+            let slots: &[(&str, &Option<crate::constants::LootItem>, EquipmentSlot, u8)] = &[
+                ("Weapon", &eq.weapon, EquipmentSlot::Weapon, 0),
+                ("Helm", &eq.helm, EquipmentSlot::Helm, 0),
+                ("Armor", &eq.armor, EquipmentSlot::Armor, 0),
+                ("Shield", &eq.shield, EquipmentSlot::Shield, 0),
+                ("Gloves", &eq.gloves, EquipmentSlot::Gloves, 0),
+                ("Boots", &eq.boots, EquipmentSlot::Boots, 0),
+                ("Belt", &eq.belt, EquipmentSlot::Belt, 0),
+                ("Amulet", &eq.amulet, EquipmentSlot::Amulet, 0),
+                ("Ring 1", &eq.ring1, EquipmentSlot::Ring, 0),
+                ("Ring 2", &eq.ring2, EquipmentSlot::Ring, 1),
             ];
             let mut any = false;
-            for &(label, item_opt) in slots {
+            for &(label, item_opt, slot, ring_index) in slots {
                 if let Some(item) = item_opt {
                     any = true;
                     ui.horizontal(|ui| {
@@ -1486,10 +1498,25 @@ fn inspector_content(
                         ui.label(format!("{}:", label));
                         ui.label(egui::RichText::new(&item.name).color(egui::Color32::from_rgb(r, g, b)));
                         ui.label(format!("(+{:.0}%)", item.stat_bonus * 100.0));
+                        if ui.small_button("Unequip").clicked() {
+                            unequip_writer.write(UnequipItemMsg {
+                                npc_entity: npc.entity,
+                                slot,
+                                ring_index,
+                            });
+                        }
                     });
                 }
             }
-            if !any { ui.label("No equipment"); }
+            if !any && can_equip {
+                ui.label("No equipment");
+            }
+        }
+        if can_equip {
+            if ui.small_button("Manage Equipment >").clicked() {
+                ui_state.left_panel_open = true;
+                ui_state.left_panel_tab = LeftPanelTab::Inventory;
+            }
         }
 
         // Status markers

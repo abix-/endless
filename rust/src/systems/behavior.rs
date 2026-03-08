@@ -496,14 +496,19 @@ pub fn decision_system(
                             }
                         }
                         activity = Activity::OnDuty { ticks_waiting: 0 };
-                        // Scatter near waypoint so guards don't stack on the exact same spot
-                        if let Ok(route) = npc_data.patrol_route_q.get(entity) {
-                            if let Some(post) = route.posts.get(patrol_current) {
-                                submit_intent_scattered(
-                                    &mut intents, entity, post.x, post.y, 128.0,
-                                    idx, patrol_current, MovementPriority::JobRoute, "onduty:scatter",
-                                );
-                            }
+                        // Scatter near arrival — squad target if active, else patrol post
+                        let scatter_pos = squad_id
+                            .and_then(|sid| squad_state.squads.get(sid as usize))
+                            .and_then(|s| s.target)
+                            .or_else(|| {
+                                npc_data.patrol_route_q.get(entity).ok()
+                                    .and_then(|route| route.posts.get(patrol_current).copied())
+                            });
+                        if let Some(spos) = scatter_pos {
+                            submit_intent_scattered(
+                                &mut intents, entity, spos.x, spos.y, 128.0,
+                                idx, patrol_current, MovementPriority::JobRoute, "onduty:scatter",
+                            );
                         }
                         npc_logs.push(
                             idx,
@@ -1110,47 +1115,19 @@ pub fn decision_system(
                                 break 'decide;
                             }
                         }
-                        // Squad target — only redirect when needed (no per-frame GPU writes)
-                        match activity {
-                            Activity::OnDuty { .. } => {
-                                // At a position — redirect only if squad target moved
-                                if let Some(pos) = npc_pos {
-                                    let dx = pos.x - target.x;
-                                    let dy = pos.y - target.y;
-                                    if dx * dx + dy * dy > 100.0 * 100.0 {
-                                        activity = Activity::Patrolling;
-                                        submit_intent(
-                                            &mut intents,
-                                            entity,
-                                            target.x,
-                                            target.y,
-                                            MovementPriority::Squad,
-                                            "squad:target_rejoin",
-                                        );
-                                    }
-                                }
-                            }
-                            Activity::Patrolling
-                            | Activity::Raiding { .. }
-                            | Activity::GoingToRest
-                            | Activity::Resting
-                            | Activity::GoingToHeal
-                            | Activity::HealingAtFountain { .. }
-                            | Activity::Returning => {
-                                // Already heading to target, resting, healing, or carrying loot — no redirect
-                            }
-                            _ => {
-                                // Idle/Wandering/Returning/other — redirect to squad target
-                                activity = Activity::Patrolling;
-                                submit_intent(
-                                    &mut intents,
-                                    entity,
-                                    target.x,
-                                    target.y,
-                                    MovementPriority::Squad,
-                                    "squad:target_assign",
-                                );
-                            }
+                        // Squad target — always submit intent (single path, deterministic)
+                        // Movement system deduplicates unchanged targets; priority system
+                        // resolves conflicts (Survival=4 > Squad=2 > JobRoute=1).
+                        submit_intent(
+                            &mut intents,
+                            entity,
+                            target.x,
+                            target.y,
+                            MovementPriority::Squad,
+                            "squad:target",
+                        );
+                        if !activity.is_transit() && !matches!(activity, Activity::OnDuty { .. }) {
+                            activity = Activity::Patrolling;
                         }
                     } else if !squad.patrol_enabled {
                         // No target + patrol disabled: stop and wait (gathering phase)
@@ -1563,11 +1540,12 @@ pub fn decision_system(
                     );
                     // Fall through to idle scoring — Rest will win
                 } else {
-                    let squad_patrol_enabled = squad_id
-                        .and_then(|sid| squad_state.squads.get(sid as usize))
-                        .is_none_or(|s| s.patrol_enabled);
+                    let squad = squad_id
+                        .and_then(|sid| squad_state.squads.get(sid as usize));
+                    let has_squad_target = squad.is_some_and(|s| s.target.is_some());
+                    let squad_patrol_enabled = squad.is_none_or(|s| s.patrol_enabled);
                     let jitter = (idx % 30) as u32;
-                    if ticks >= ARCHER_PATROL_WAIT + jitter && squad_patrol_enabled {
+                    if !has_squad_target && ticks >= ARCHER_PATROL_WAIT + jitter && squad_patrol_enabled {
                         if let Ok(route) = npc_data.patrol_route_q.get(entity) {
                             if !route.posts.is_empty() {
                                 patrol_current = (patrol_current + 1) % route.posts.len();
