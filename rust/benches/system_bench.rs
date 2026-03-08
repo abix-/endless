@@ -477,6 +477,67 @@ fn bench_resolve_movement_system(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_resolve_movement_unbounded(c: &mut Criterion) {
+    let mut group = c.benchmark_group("resolve_movement_unbounded");
+    group.sample_size(20);
+    for &count in COUNTS {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(count),
+            &count,
+            |b, &count| {
+                let mut app = build_bench_app();
+                populate_npcs(&mut app, count);
+                {
+                    let world = app.world_mut();
+                    world.resource_mut::<world::WorldGrid>().init_pathfind_costs();
+                    // Lift budget caps to measure true unbounded cost
+                    let mut config = world.resource_mut::<PathfindConfig>();
+                    config.max_per_frame = 100_000;
+                    config.max_time_budget_ms = 60_000.0; // 60 seconds — effectively unlimited
+                }
+                let _ = app.world_mut().run_system_once(
+                    |mut commands: Commands, q: Query<Entity, Without<Building>>| {
+                        for entity in q.iter() {
+                            commands.entity(entity).insert(NpcPath {
+                                waypoints: vec![],
+                                current: 0,
+                                goal_world: Vec2::ZERO,
+                                path_cooldown: 0.0,
+                            });
+                        }
+                    },
+                );
+                let _ = app.world_mut().run_system_once(resolve_movement_system);
+                b.iter(|| {
+                    let _ = app.world_mut().run_system_once(
+                        move |q: Query<(Entity, &GpuSlot, &Position), Without<Building>>,
+                              mut queue: ResMut<PathRequestQueue>| {
+                            for (entity, slot, pos) in q.iter().take(count / 10) {
+                                let start_col = (pos.x / TOWN_GRID_SPACING) as i32;
+                                let start_row = (pos.y / TOWN_GRID_SPACING) as i32;
+                                queue.enqueue(PathRequest {
+                                    entity,
+                                    slot: slot.0,
+                                    start: IVec2::new(start_col, start_row),
+                                    goal: IVec2::new(start_col + 5, start_row + 3),
+                                    goal_world: Vec2::new(
+                                        (start_col + 5) as f32 * TOWN_GRID_SPACING,
+                                        (start_row + 3) as f32 * TOWN_GRID_SPACING,
+                                    ),
+                                    priority: 1,
+                                    source: PathSource::Movement,
+                                });
+                            }
+                        },
+                    );
+                    let _ = app.world_mut().run_system_once(resolve_movement_system);
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
 fn bench_building_tower_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("building_tower");
     group.sample_size(20);
@@ -727,6 +788,7 @@ criterion_group!(
     bench_healing_system,
     bench_attack_system,
     bench_resolve_movement_system,
+    bench_resolve_movement_unbounded,
     bench_building_tower_system,
     bench_death_system,
     bench_spawner_respawn_system,

@@ -403,3 +403,18 @@ Combined 50K (6 NPC-scaled systems): 5.1ms (30.7% of 16ms budget).
 | spawner_respawn (after) | 10.7µs | 25µs | 36µs | 75µs | O(n) |
 
 2K spawners: **88ms → 75µs (1,176× faster)**. Now 0.5% of frame budget instead of 5× over it.
+
+### 2026-03-08d — resolve_movement unbounded benchmark
+
+Added `resolve_movement_unbounded` benchmark variant that lifts the budget cap (`max_per_frame: 100K`, `max_time_budget_ms: 60s`) to measure true A* cost when 10% of NPCs request paths each frame.
+
+| Variant | 1K | 5K | 10K | 25K | 50K | Scaling |
+|---------|----|----|-----|-----|-----|---------|
+| budgeted (200/frame, 2ms cap) | 2.05ms | 2.09ms | 2.11ms | 2.17ms | 2.27ms | O(1) capped |
+| unbounded (10% pathing) | 4.1ms | 28.8ms | 58.1ms | 141ms | 257ms | O(n) |
+
+**Findings:**
+- Per-request A* cost: ~51µs average (consistent across all counts — linear in request count, not NPC count).
+- At 50K NPCs with 10% needing paths: 5000 requests × 51µs = 257ms unbounded.
+- Budget cap at 200 requests/frame processes the queue in ~25 frames (5000 ÷ 200), adding ~400ms queue latency before the last NPC starts moving.
+- The budget is working as designed — without it, pathfinding alone would consume 16× the frame budget at 50K.
