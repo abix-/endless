@@ -939,7 +939,6 @@ pub fn find_location_within_radius(
     kind: LocationKind,
     radius: f32,
 ) -> Option<(usize, Vec2)> {
-    let is_town = kind == LocationKind::Town;
     let bkind = match kind {
         LocationKind::Farm => BuildingKind::Farm,
         LocationKind::Waypoint => BuildingKind::Waypoint,
@@ -949,15 +948,7 @@ pub fn find_location_within_radius(
     let r2 = radius * radius;
     let mut best_d2 = f32::MAX;
     let mut result: Option<(usize, Vec2)> = None;
-    entity_map.for_each_nearby(from, radius, |inst| {
-        let matches = if is_town {
-            inst.kind == BuildingKind::Fountain
-        } else {
-            inst.kind == bkind
-        };
-        if !matches {
-            return;
-        }
+    entity_map.for_each_nearby_kind(from, radius, bkind, |inst| {
         let dx = inst.position.x - from.x;
         let dy = inst.position.y - from.y;
         let d2 = dx * dx + dy * dy;
@@ -1047,10 +1038,7 @@ pub fn find_within_radius(
     let r2 = radius * radius;
     let mut best_d2 = f32::MAX;
     let mut result: Option<(usize, Vec2)> = None;
-    entity_map.for_each_nearby(from, radius, |inst| {
-        if inst.kind != kind || inst.town_idx != town_idx {
-            return;
-        }
+    entity_map.for_each_nearby_kind_town(from, radius, kind, town_idx, |inst| {
         let dx = inst.position.x - from.x;
         let dy = inst.position.y - from.y;
         let d2 = dx * dx + dy * dy;
@@ -1529,6 +1517,8 @@ pub struct WorldGrid {
     pub pathfind_costs: Vec<u16>,
     /// Flat indices of cells with building cost overrides (for incremental revert).
     building_cost_cells: Vec<usize>,
+    /// Hierarchical pathfinding cache (HPA*). Built on init, rebuilt on building changes.
+    pub hpa_cache: Option<crate::systems::pathfinding::HpaCache>,
     /// Primary town owner per cell. u16::MAX = no owner.
     pub town_owner: Vec<u16>,
     /// Overflow for cells buildable by 2+ towns (rare overlap zones).
@@ -1545,6 +1535,7 @@ impl Default for WorldGrid {
             cells: Vec::new(),
             pathfind_costs: Vec::new(),
             building_cost_cells: Vec::new(),
+            hpa_cache: None,
             town_owner: Vec::new(),
             town_overlap: HashMap::new(),
         }
@@ -1594,6 +1585,11 @@ impl WorldGrid {
     pub fn init_pathfind_costs(&mut self) {
         self.pathfind_costs = self.cells.iter().map(|c| terrain_base_cost(c.terrain)).collect();
         self.building_cost_cells.clear();
+        if self.width > 0 && self.height > 0 {
+            self.hpa_cache = Some(crate::systems::pathfinding::HpaCache::build(
+                &self.pathfind_costs, self.width, self.height,
+            ));
+        }
     }
 
     /// Incrementally sync building overrides (walls/roads). O(walls + roads), not O(map).
@@ -1608,6 +1604,12 @@ impl WorldGrid {
         // Apply road overlays — higher tiers override lower (iter order: dirt, stone, metal)
         for kind in [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad] {
             self.apply_building_overlay(entity_map, kind, kind.road_pathfind_cost().expect("road kind has cost"));
+        }
+        // Rebuild HPA* cache for affected chunks
+        if !self.building_cost_cells.is_empty() && self.width > 0 {
+            if let Some(ref mut cache) = self.hpa_cache {
+                cache.rebuild_chunks(&self.pathfind_costs, self.width, self.height, &self.building_cost_cells);
+            }
         }
     }
 

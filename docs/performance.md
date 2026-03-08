@@ -112,9 +112,18 @@ Replaced full 50K NPC iteration with O(active_healing + sampled_candidates):
 - `spawner_respawn_system`: timer-based per spawner (no per-frame iteration).
 - `raider_forage_system`: hourly timer accumulation per raider town.
 
+### HPA* Hierarchical Pathfinding
+
+Custom HPA* (Hierarchical Pathfinding A*) replaces raw A* for cross-chunk paths. Grid divided into 16×16 chunks (~256 chunks on 250×250 grid). Entrance nodes placed at chunk boundary crossings. Intra-chunk paths precomputed via A* between all entrance pairs within each chunk. Queries search the abstract graph (~500-1000 entrance nodes) instead of the full 62,500-cell grid, then stitch cached intra-chunk segments into full paths.
+
+- **Build**: `HpaCache::build()` called in `init_pathfind_costs()`. Scans horizontal/vertical borders for entrance nodes, runs intra-chunk A* between all pairs, connects cross-border edges.
+- **Query**: `pathfind_hpa()` — same-chunk paths use chunk-bounded A* directly (small search space). Cross-chunk paths insert temporary start/goal nodes, A* on abstract graph, stitch cached paths.
+- **Update**: `HpaCache::rebuild_chunks()` called in `sync_building_costs()` when buildings change. Currently full rebuild (simpler for correctness with append-only node indices).
+- **Heuristic**: Abstract graph A* uses `manhattan_distance × HPA_MIN_COST` (67 = road cost) for tight, admissible heuristic.
+
 ### Budgeted Pathfinding
 
-A* requests queued by `resolve_movement_system` (from MovementIntents) and `invalidate_paths_on_building_change`. `resolve_movement_system` processes up to `max_per_frame` requests per FixedUpdate tick via `PathRequestQueue.drain_budget()`, sorted by (priority, slot) for determinism. Short-distance moves (< 5 tiles with clear LOS) bypass A* entirely — direct boids steering. Time budget guard (`max_time_budget_ms`) re-queues overflow.
+A* requests queued by `resolve_movement_system` (from MovementIntents) and `invalidate_paths_on_building_change`. `resolve_movement_system` processes up to `max_per_frame` requests per FixedUpdate tick via `PathRequestQueue.drain_budget()`, sorted by (priority, slot) for determinism. Short-distance moves (< 12 tiles with clear LOS) bypass A* entirely — direct boids steering. Time budget guard (`max_time_budget_ms`) re-queues overflow. With HPA*, the budget cap is nearly unnecessary — 5000 unbounded requests cost <1ms — but retained as safety margin.
 
 ### Event-Driven Systems
 
@@ -173,7 +182,7 @@ All volatile numeric constants in one place. Policy sections above describe *why
 | Gap coalescing waste budget | ~24KB total across all buffers | `gpu.rs` |
 | Visual upload fallback | 40% window → bulk offset write | `gpu.rs` |
 | `max_pathfinds_per_frame` | 50 | `resources.rs` (PathfindConfig) |
-| `pathfind_short_distance_tiles` | 5 | `resources.rs` (PathfindConfig) |
+| `pathfind_short_distance_tiles` | 12 | `resources.rs` (PathfindConfig) |
 | `pathfind_max_nodes` | 5000 | `resources.rs` (PathfindConfig) |
 | `pathfind_stuck_repath_frames` | 30 | `resources.rs` (PathfindConfig) |
 
@@ -418,3 +427,22 @@ Added `resolve_movement_unbounded` benchmark variant that lifts the budget cap (
 - At 50K NPCs with 10% needing paths: 5000 requests × 51µs = 257ms unbounded.
 - Budget cap at 200 requests/frame processes the queue in ~25 frames (5000 ÷ 200), adding ~400ms queue latency before the last NPC starts moving.
 - The budget is working as designed — without it, pathfinding alone would consume 16× the frame budget at 50K.
+
+### 2026-03-08e — HPA* hierarchical pathfinding
+
+Replaced raw A* with custom HPA* (Hierarchical Pathfinding A*). Grid divided into 16×16 chunks, entrance nodes at chunk boundaries, precomputed intra-chunk paths. Also increased LOS bypass from 5→12 tiles and eliminated per-frame cost grid clone (125KB).
+
+**NPC-scaled** (vary entity count, 10% pathing):
+
+| Variant | 1K | 5K | 10K | 25K | 50K | Scaling |
+|---------|----|----|-----|-----|-----|---------|
+| budgeted (before) | 2.05ms | 2.09ms | 2.11ms | 2.17ms | 2.27ms | O(1) capped |
+| budgeted (HPA*) | 19µs | 45µs | 63µs | 118µs | 214µs | O(n) |
+| unbounded (before) | 4.1ms | 28.8ms | 58.1ms | 141ms | 257ms | O(n) |
+| unbounded (HPA*) | 30µs | 84µs | 153µs | 369µs | 753µs | O(n) |
+
+**Findings:**
+- Unbounded 50K: **257ms → 753µs (341× faster)**. Per-request cost dropped from ~51µs to sub-microsecond.
+- Budgeted 50K: **2.27ms → 214µs (10.9× faster)**. Budget cap now nearly unnecessary — 5000 requests cost <1ms.
+- Three compounding factors: HPA* abstract graph searches ~100-500 nodes instead of ~5000, LOS bypass 5→12 tiles skips most short paths, eliminated 125KB/frame cost grid clone.
+- HPA* cache build is one-time at world init (~50-100ms). Chunk rebuilds on building change are <1ms.

@@ -701,10 +701,7 @@ pub fn decision_system(
                                     entity_map.spatial_cell_size().max(256.0) * 8.0;
                                 let mut best_d2 = f32::MAX;
                                 let mut other_farm_pos: Option<Vec2> = None;
-                                entity_map.for_each_nearby(pos, raid_search_radius, |f| {
-                                    if f.kind != BuildingKind::Farm {
-                                        return;
-                                    }
+                                entity_map.for_each_nearby_kind(pos, raid_search_radius, BuildingKind::Farm, |f| {
                                     if f.position.distance(pos) <= FARM_ARRIVAL_RADIUS {
                                         return;
                                     }

@@ -688,7 +688,7 @@ impl Default for PathfindConfig {
     fn default() -> Self {
         Self {
             max_per_frame: 200,
-            short_distance_tiles: 5,
+            short_distance_tiles: 12,
             max_nodes: 5000,
             stuck_repath_frames: 30,
             max_time_budget_ms: 2.0,

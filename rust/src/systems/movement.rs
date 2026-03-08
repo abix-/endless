@@ -8,14 +8,14 @@ use std::time::Instant;
 use bevy::prelude::*;
 
 use crate::components::*;
-use crate::constants::{ARRIVAL_THRESHOLD, INTERMEDIATE_ARRIVAL_THRESHOLD, PATH_SPREAD_COST, PATH_SPREAD_RADIUS};
+use crate::constants::{ARRIVAL_THRESHOLD, INTERMEDIATE_ARRIVAL_THRESHOLD};
 use crate::gpu::EntityGpuState;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::resources::{
     GameTime, GpuReadState, NpcTargetThrashDebug, PathRequest,
     PathRequestQueue, PathSource, PathfindConfig, PathfindStats,
 };
-use crate::systems::pathfinding::{accumulate_path_cost, line_of_sight, pathfind_with_costs};
+use crate::systems::pathfinding::{line_of_sight, pathfind_hpa, pathfind_on_grid};
 use crate::world::WorldGrid;
 
 /// Read positions from GPU readback buffer → ECS Position + arrival detection.
@@ -245,9 +245,7 @@ pub fn resolve_movement_system(
     let mut budget_reason: &'static str = "count";
     let mut consumed = 0usize;
 
-    // Path cost accumulation: clone the cost grid so each successive A* call
-    // sees inflated costs along previously-found paths, spreading routes apart.
-    let mut accum_costs = grid.pathfind_costs.clone();
+    let use_hpa = grid.hpa_cache.is_some();
 
     for (i, req) in batch.iter().enumerate() {
         consumed = i + 1;
@@ -284,21 +282,18 @@ pub fn resolve_movement_system(
             continue;
         }
 
-        // Full A* pathfinding (using accumulated costs for route spreading)
+        // Pathfinding: HPA* (hierarchical) with fallback to raw A*
         astar_calls += 1;
-        if let Some(path_points) = pathfind_with_costs(
-            &accum_costs, grid.width, grid.height,
-            req.start, req.goal, config.max_nodes,
-        ) {
+        let path_result = if use_hpa {
+            pathfind_hpa(&grid, req.start, req.goal)
+        } else {
+            pathfind_on_grid(&grid, req.start, req.goal, config.max_nodes)
+        };
+
+        if let Some(path_points) = path_result {
             if path_points.len() < 2 {
                 continue;
             }
-
-            // Inflate costs along this path so subsequent paths spread to different routes
-            accumulate_path_cost(
-                &mut accum_costs, grid.width, grid.height,
-                &path_points, PATH_SPREAD_RADIUS, PATH_SPREAD_COST,
-            );
 
             let first_wp = path_points[1];
             let world_pos = grid.grid_to_world(first_wp.x as usize, first_wp.y as usize);

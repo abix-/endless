@@ -2592,11 +2592,8 @@ fn pick_raider_farm_target(
     let mut best_d2 = f32::MAX;
     let mut result: Option<(BuildingKind, crate::components::EntityUid, Vec2)> = None;
     let r2 = AI_ATTACK_SEARCH_RADIUS * AI_ATTACK_SEARCH_RADIUS;
-    entity_map.for_each_nearby(center, AI_ATTACK_SEARCH_RADIUS, |inst| {
+    entity_map.for_each_nearby_kind(center, AI_ATTACK_SEARCH_RADIUS, BuildingKind::Farm, |inst| {
         if inst.faction == faction || inst.faction == crate::constants::FACTION_NEUTRAL {
-            return;
-        }
-        if inst.kind != BuildingKind::Farm {
             return;
         }
         let Some(uid) = entity_map.uid_for_slot(inst.slot) else {
@@ -2629,19 +2626,20 @@ fn pick_ai_target_unclaimed(
         let mut best_d2 = f32::MAX;
         let mut result: Option<(BuildingKind, crate::components::EntityUid, Vec2)> = None;
         let r2 = AI_ATTACK_SEARCH_RADIUS * AI_ATTACK_SEARCH_RADIUS;
-        entity_map.for_each_nearby(center, AI_ATTACK_SEARCH_RADIUS, |inst| {
-            if inst.faction == faction || inst.faction == crate::constants::FACTION_NEUTRAL { return; }
-            if !allowed_kinds.contains(&inst.kind) { return; }
-            let Some(uid) = entity_map.uid_for_slot(inst.slot) else { return; };
-            if claimed.contains(&uid) { return; }
-            let dx = inst.position.x - center.x;
-            let dy = inst.position.y - center.y;
-            let d2 = dx * dx + dy * dy;
-            if d2 <= r2 && d2 < best_d2 {
-                best_d2 = d2;
-                result = Some((inst.kind, uid, inst.position));
-            }
-        });
+        for &kind in allowed_kinds {
+            entity_map.for_each_nearby_kind(center, AI_ATTACK_SEARCH_RADIUS, kind, |inst| {
+                if inst.faction == faction || inst.faction == crate::constants::FACTION_NEUTRAL { return; }
+                let Some(uid) = entity_map.uid_for_slot(inst.slot) else { return; };
+                if claimed.contains(&uid) { return; }
+                let dx = inst.position.x - center.x;
+                let dy = inst.position.y - center.y;
+                let d2 = dx * dx + dy * dy;
+                if d2 <= r2 && d2 < best_d2 {
+                    best_d2 = d2;
+                    result = Some((inst.kind, uid, inst.position));
+                }
+            });
+        }
         result
     };
 

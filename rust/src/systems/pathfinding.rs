@@ -142,6 +142,454 @@ pub fn accumulate_path_cost(
 }
 
 // ============================================================================
+// HPA* (HIERARCHICAL PATHFINDING A*)
+// ============================================================================
+//
+// Divides the grid into chunks and precomputes paths between chunk-boundary
+// entrance nodes. Queries search the small abstract graph (~500-1000 nodes)
+// instead of the full grid (~62,500 cells). 5-10× faster per request.
+
+use hashbrown::HashMap;
+
+const HPA_CHUNK_SIZE: usize = 16;
+/// Minimum terrain cost (road=67) — used for admissible heuristic on abstract graph.
+const HPA_MIN_COST: u32 = 67;
+
+/// Cached edge between two entrance nodes within the same chunk.
+#[derive(Clone, Debug)]
+struct HpaEdge {
+    target: usize,     // node index
+    cost: u32,         // total path cost
+    path: Vec<IVec2>,  // cached grid-level path (excludes start, includes target)
+}
+
+/// An entrance node at a chunk boundary.
+#[derive(Clone, Debug)]
+struct HpaNode {
+    pos: IVec2,
+    chunk: (usize, usize), // (chunk_col, chunk_row)
+    edges: Vec<HpaEdge>,
+}
+
+/// Precomputed hierarchical pathfinding cache.
+pub struct HpaCache {
+    nodes: Vec<HpaNode>,
+    pos_to_node: HashMap<IVec2, usize>,
+    chunk_nodes: HashMap<(usize, usize), Vec<usize>>,
+}
+
+impl HpaCache {
+    /// Build the HPA* cache from a cost grid.
+    pub fn build(costs: &[u16], width: usize, height: usize) -> Self {
+        let mut cache = HpaCache {
+            nodes: Vec::new(),
+            pos_to_node: HashMap::new(),
+            chunk_nodes: HashMap::new(),
+        };
+
+        let cols = (width + HPA_CHUNK_SIZE - 1) / HPA_CHUNK_SIZE;
+        let rows = (height + HPA_CHUNK_SIZE - 1) / HPA_CHUNK_SIZE;
+
+        // Phase 1: Find entrance nodes at chunk boundaries
+        // Horizontal borders (between chunk rows)
+        for cr in 0..rows.saturating_sub(1) {
+            let border_row = (cr + 1) * HPA_CHUNK_SIZE;
+            if border_row >= height { continue; }
+            for cc in 0..cols {
+                let col_start = cc * HPA_CHUNK_SIZE;
+                let col_end = ((cc + 1) * HPA_CHUNK_SIZE).min(width);
+                cache.scan_border_horizontal(costs, width, height, border_row, col_start, col_end, cr, cc);
+            }
+        }
+        // Vertical borders (between chunk columns)
+        for cc in 0..cols.saturating_sub(1) {
+            let border_col = (cc + 1) * HPA_CHUNK_SIZE;
+            if border_col >= width { continue; }
+            for cr in 0..rows {
+                let row_start = cr * HPA_CHUNK_SIZE;
+                let row_end = ((cr + 1) * HPA_CHUNK_SIZE).min(height);
+                cache.scan_border_vertical(costs, width, height, border_col, row_start, row_end, cc, cr);
+            }
+        }
+
+        // Phase 2: Precompute intra-chunk paths between all entrance pairs
+        let all_chunks: Vec<(usize, usize)> = cache.chunk_nodes.keys().copied().collect();
+        for chunk_key in all_chunks {
+            cache.compute_intra_chunk_edges(costs, width, height, chunk_key);
+        }
+
+        cache
+    }
+
+    /// Scan a horizontal border between chunk (cc, cr) and (cc, cr+1).
+    fn scan_border_horizontal(
+        &mut self, costs: &[u16], width: usize, _height: usize,
+        border_row: usize, col_start: usize, col_end: usize,
+        cr: usize, cc: usize,
+    ) {
+        let mut run_start: Option<usize> = None;
+        for col in col_start..col_end {
+            let above = costs[(border_row - 1) * width + col];
+            let below = costs[border_row * width + col];
+            if above > 0 && below > 0 {
+                if run_start.is_none() { run_start = Some(col); }
+            } else {
+                if let Some(start) = run_start.take() {
+                    let mid = (start + col - 1) / 2;
+                    self.add_border_pair(
+                        IVec2::new(mid as i32, border_row as i32 - 1), (cc, cr),
+                        IVec2::new(mid as i32, border_row as i32), (cc, cr + 1),
+                        costs, width,
+                    );
+                }
+            }
+        }
+        if let Some(start) = run_start {
+            let mid = (start + col_end - 1) / 2;
+            self.add_border_pair(
+                IVec2::new(mid as i32, border_row as i32 - 1), (cc, cr),
+                IVec2::new(mid as i32, border_row as i32), (cc, cr + 1),
+                costs, width,
+            );
+        }
+    }
+
+    /// Scan a vertical border between chunk (cc, cr) and (cc+1, cr).
+    fn scan_border_vertical(
+        &mut self, costs: &[u16], width: usize, _height: usize,
+        border_col: usize, row_start: usize, row_end: usize,
+        cc: usize, cr: usize,
+    ) {
+        let mut run_start: Option<usize> = None;
+        for row in row_start..row_end {
+            let left = costs[row * width + border_col - 1];
+            let right = costs[row * width + border_col];
+            if left > 0 && right > 0 {
+                if run_start.is_none() { run_start = Some(row); }
+            } else {
+                if let Some(start) = run_start.take() {
+                    let mid = (start + row - 1) / 2;
+                    self.add_border_pair(
+                        IVec2::new(border_col as i32 - 1, mid as i32), (cc, cr),
+                        IVec2::new(border_col as i32, mid as i32), (cc + 1, cr),
+                        costs, width,
+                    );
+                }
+            }
+        }
+        if let Some(start) = run_start {
+            let mid = (start + row_end - 1) / 2;
+            self.add_border_pair(
+                IVec2::new(border_col as i32 - 1, mid as i32), (cc, cr),
+                IVec2::new(border_col as i32, mid as i32), (cc + 1, cr),
+                costs, width,
+            );
+        }
+    }
+
+    /// Add a pair of entrance nodes on opposite sides of a border and connect them.
+    fn add_border_pair(
+        &mut self,
+        pos_a: IVec2, chunk_a: (usize, usize),
+        pos_b: IVec2, chunk_b: (usize, usize),
+        costs: &[u16], width: usize,
+    ) {
+        let idx_a = self.get_or_add_node(pos_a, chunk_a);
+        let idx_b = self.get_or_add_node(pos_b, chunk_b);
+        // Cross-border edge: one step between adjacent cells
+        let cross_cost = costs[pos_b.y as usize * width + pos_b.x as usize] as u32;
+        self.nodes[idx_a].edges.push(HpaEdge { target: idx_b, cost: cross_cost, path: vec![pos_b] });
+        let back_cost = costs[pos_a.y as usize * width + pos_a.x as usize] as u32;
+        self.nodes[idx_b].edges.push(HpaEdge { target: idx_a, cost: back_cost, path: vec![pos_a] });
+    }
+
+    fn get_or_add_node(&mut self, pos: IVec2, chunk: (usize, usize)) -> usize {
+        if let Some(&idx) = self.pos_to_node.get(&pos) {
+            return idx;
+        }
+        let idx = self.nodes.len();
+        self.nodes.push(HpaNode { pos, chunk, edges: Vec::new() });
+        self.pos_to_node.insert(pos, idx);
+        self.chunk_nodes.entry(chunk).or_default().push(idx);
+        idx
+    }
+
+    /// Precompute paths between all entrance pairs within a chunk using A*.
+    fn compute_intra_chunk_edges(
+        &mut self, costs: &[u16], width: usize, height: usize,
+        chunk_key: (usize, usize),
+    ) {
+        let node_indices: Vec<usize> = self.chunk_nodes.get(&chunk_key)
+            .map(|v| v.clone())
+            .unwrap_or_default();
+        if node_indices.len() < 2 { return; }
+
+        let (cc, cr) = chunk_key;
+        let min_col = (cc * HPA_CHUNK_SIZE) as i32;
+        let min_row = (cr * HPA_CHUNK_SIZE) as i32;
+        let max_col = (((cc + 1) * HPA_CHUNK_SIZE).min(width)) as i32;
+        let max_row = (((cr + 1) * HPA_CHUNK_SIZE).min(height)) as i32;
+
+        // For each pair of nodes in this chunk, find intra-chunk path
+        for i in 0..node_indices.len() {
+            let start_pos = self.nodes[node_indices[i]].pos;
+            for j in (i + 1)..node_indices.len() {
+                let goal_pos = self.nodes[node_indices[j]].pos;
+
+                // Chunk-bounded A*
+                let result = pathfinding::prelude::astar(
+                    &start_pos,
+                    |&pos| {
+                        let mut result = Vec::with_capacity(4);
+                        for d in NEIGHBOR_DIRS {
+                            let np = pos + d;
+                            if np.x >= min_col && np.x < max_col && np.y >= min_row && np.y < max_row {
+                                if let Some(c) = cost_at(costs, width, height, np) {
+                                    result.push((np, c));
+                                }
+                            }
+                        }
+                        result
+                    },
+                    |&pos| heuristic(pos, goal_pos),
+                    |&pos| pos == goal_pos,
+                );
+
+                if let Some((path, cost)) = result {
+                    let ni = node_indices[i];
+                    let nj = node_indices[j];
+                    // Forward edge (skip start)
+                    let fwd_path: Vec<IVec2> = path[1..].to_vec();
+                    self.nodes[ni].edges.push(HpaEdge { target: nj, cost, path: fwd_path });
+                    // Reverse edge
+                    let rev_path: Vec<IVec2> = path[..path.len()-1].iter().rev().copied().collect();
+                    self.nodes[nj].edges.push(HpaEdge { target: ni, cost, path: rev_path });
+                }
+            }
+        }
+    }
+
+    /// Rebuild specific chunks (after building placement/destruction).
+    pub fn rebuild_chunks(&mut self, costs: &[u16], width: usize, height: usize, dirty_cells: &[usize]) {
+        // Find which chunks are affected
+        let mut dirty_chunks: Vec<(usize, usize)> = Vec::new();
+        for &idx in dirty_cells {
+            let col = idx % width;
+            let row = idx / width;
+            let cc = col / HPA_CHUNK_SIZE;
+            let cr = row / HPA_CHUNK_SIZE;
+            if !dirty_chunks.contains(&(cc, cr)) {
+                dirty_chunks.push((cc, cr));
+            }
+        }
+        if dirty_chunks.is_empty() { return; }
+
+        // Remove all nodes belonging to dirty chunks and their edges
+        for &chunk_key in &dirty_chunks {
+            if let Some(node_ids) = self.chunk_nodes.remove(&chunk_key) {
+                for &nid in &node_ids {
+                    let pos = self.nodes[nid].pos;
+                    self.pos_to_node.remove(&pos);
+                    // Remove edges pointing to this node from other nodes
+                    for node in &mut self.nodes {
+                        node.edges.retain(|e| !node_ids.contains(&e.target));
+                    }
+                }
+            }
+        }
+
+        // Full rebuild is simpler for correctness — nodes are append-only
+        // so stale indices remain. Rebuild entirely if any chunks changed.
+        *self = Self::build(costs, width, height);
+    }
+}
+
+/// HPA* pathfinding query. Falls back to chunk-local A* for same-chunk paths.
+pub fn pathfind_hpa(
+    grid: &WorldGrid,
+    start: IVec2,
+    goal: IVec2,
+) -> Option<Vec<IVec2>> {
+    let cache = grid.hpa_cache.as_ref()?;
+    let costs = &grid.pathfind_costs;
+
+    // Check goal is passable
+    cost_at(costs, grid.width, grid.height, goal)?;
+
+    let start_chunk = (start.x as usize / HPA_CHUNK_SIZE, start.y as usize / HPA_CHUNK_SIZE);
+    let goal_chunk = (goal.x as usize / HPA_CHUNK_SIZE, goal.y as usize / HPA_CHUNK_SIZE);
+
+    // Same chunk: use direct chunk-bounded A* (fast, small search space)
+    if start_chunk == goal_chunk {
+        let min_col = (start_chunk.0 * HPA_CHUNK_SIZE) as i32;
+        let min_row = (start_chunk.1 * HPA_CHUNK_SIZE) as i32;
+        let max_col = (((start_chunk.0 + 1) * HPA_CHUNK_SIZE).min(grid.width)) as i32;
+        let max_row = (((start_chunk.1 + 1) * HPA_CHUNK_SIZE).min(grid.height)) as i32;
+        return pathfinding::prelude::astar(
+            &start,
+            |&pos| {
+                let mut result = Vec::with_capacity(4);
+                for d in NEIGHBOR_DIRS {
+                    let np = pos + d;
+                    if np.x >= min_col && np.x < max_col && np.y >= min_row && np.y < max_row {
+                        if let Some(c) = cost_at(costs, grid.width, grid.height, np) {
+                            result.push((np, c));
+                        }
+                    }
+                }
+                result
+            },
+            |&pos| heuristic(pos, goal),
+            |&pos| pos == goal,
+        )
+        .map(|(path, _)| path);
+    }
+
+    // Different chunks: search the abstract graph
+    // Step 1: Connect start/goal to their chunk's entrance nodes via temp edges
+    let chunk_entrance_nodes = |chunk: (usize, usize)| -> Vec<usize> {
+        cache.chunk_nodes.get(&chunk).cloned().unwrap_or_default()
+    };
+
+    let start_entrances = chunk_entrance_nodes(start_chunk);
+    let goal_entrances = chunk_entrance_nodes(goal_chunk);
+    if start_entrances.is_empty() || goal_entrances.is_empty() {
+        return None; // chunk has no entrances — isolated
+    }
+
+    // Compute temporary edges from start to its chunk's entrance nodes
+    let (sc_min_col, sc_min_row, sc_max_col, sc_max_row) = chunk_bounds(start_chunk, grid.width, grid.height);
+    let mut start_edges: Vec<(usize, u32, Vec<IVec2>)> = Vec::new();
+    for &nid in &start_entrances {
+        let entrance_pos = cache.nodes[nid].pos;
+        let result = pathfinding::prelude::astar(
+            &start,
+            |&pos| {
+                let mut r = Vec::with_capacity(4);
+                for d in NEIGHBOR_DIRS {
+                    let np = pos + d;
+                    if np.x >= sc_min_col && np.x < sc_max_col && np.y >= sc_min_row && np.y < sc_max_row {
+                        if let Some(c) = cost_at(costs, grid.width, grid.height, np) {
+                            r.push((np, c));
+                        }
+                    }
+                }
+                r
+            },
+            |&pos| heuristic(pos, entrance_pos),
+            |&pos| pos == entrance_pos,
+        );
+        if let Some((path, cost)) = result {
+            start_edges.push((nid, cost, path[1..].to_vec()));
+        }
+    }
+
+    // Compute temporary edges from goal chunk entrances to goal
+    let (gc_min_col, gc_min_row, gc_max_col, gc_max_row) = chunk_bounds(goal_chunk, grid.width, grid.height);
+    let mut goal_edges: HashMap<usize, (u32, Vec<IVec2>)> = HashMap::new();
+    for &nid in &goal_entrances {
+        let entrance_pos = cache.nodes[nid].pos;
+        let result = pathfinding::prelude::astar(
+            &entrance_pos,
+            |&pos| {
+                let mut r = Vec::with_capacity(4);
+                for d in NEIGHBOR_DIRS {
+                    let np = pos + d;
+                    if np.x >= gc_min_col && np.x < gc_max_col && np.y >= gc_min_row && np.y < gc_max_row {
+                        if let Some(c) = cost_at(costs, grid.width, grid.height, np) {
+                            r.push((np, c));
+                        }
+                    }
+                }
+                r
+            },
+            |&pos| heuristic(pos, goal),
+            |&pos| pos == goal,
+        );
+        if let Some((path, cost)) = result {
+            goal_edges.insert(nid, (cost, path[1..].to_vec()));
+        }
+    }
+
+    // Step 2: A* on abstract graph
+    // Node IDs: 0..N-1 are real nodes, N = virtual start, N+1 = virtual goal
+    let n = cache.nodes.len();
+    let v_start = n;
+    let v_goal = n + 1;
+
+    let abstract_result = pathfinding::prelude::astar(
+        &v_start,
+        |&node_id| {
+            let mut successors: Vec<(usize, u32)> = Vec::new();
+            if node_id == v_start {
+                for &(nid, cost, _) in &start_edges {
+                    successors.push((nid, cost));
+                }
+            } else if node_id == v_goal {
+                // goal has no outgoing edges
+            } else if node_id < n {
+                // Real node — emit cached edges
+                for edge in &cache.nodes[node_id].edges {
+                    successors.push((edge.target, edge.cost));
+                }
+                // If this node is in the goal chunk, try reaching virtual goal
+                if cache.nodes[node_id].chunk == goal_chunk {
+                    if let Some(&(cost, _)) = goal_edges.get(&node_id) {
+                        successors.push((v_goal, cost));
+                    }
+                }
+            }
+            successors
+        },
+        |&node_id| {
+            if node_id == v_goal { return 0; }
+            let pos = if node_id == v_start { start }
+                      else if node_id < n { cache.nodes[node_id].pos }
+                      else { goal };
+            heuristic(pos, goal) * HPA_MIN_COST
+        },
+        |&node_id| node_id == v_goal,
+    );
+
+    let (abstract_path, _total_cost) = abstract_result?;
+
+    // Step 3: Stitch cached paths into full grid-level path
+    let mut full_path = vec![start];
+    for window in abstract_path.windows(2) {
+        let from_id = window[0];
+        let to_id = window[1];
+
+        if from_id == v_start {
+            // start → first entrance node
+            if let Some(&(_, _, ref path)) = start_edges.iter().find(|e| e.0 == to_id) {
+                full_path.extend_from_slice(path);
+            }
+        } else if to_id == v_goal {
+            // last entrance → goal
+            if let Some(&(_, ref path)) = goal_edges.get(&from_id) {
+                full_path.extend_from_slice(path);
+            }
+        } else if from_id < n && to_id < n {
+            // cached edge between entrance nodes
+            if let Some(edge) = cache.nodes[from_id].edges.iter().find(|e| e.target == to_id) {
+                full_path.extend_from_slice(&edge.path);
+            }
+        }
+    }
+
+    Some(full_path)
+}
+
+/// Get chunk bounds as (min_col, min_row, max_col, max_row) in grid coords.
+fn chunk_bounds(chunk: (usize, usize), width: usize, height: usize) -> (i32, i32, i32, i32) {
+    let min_col = (chunk.0 * HPA_CHUNK_SIZE) as i32;
+    let min_row = (chunk.1 * HPA_CHUNK_SIZE) as i32;
+    let max_col = (((chunk.0 + 1) * HPA_CHUNK_SIZE).min(width)) as i32;
+    let max_row = (((chunk.1 + 1) * HPA_CHUNK_SIZE).min(height)) as i32;
+    (min_col, min_row, max_col, max_row)
+}
+
+// ============================================================================
 // LINE OF SIGHT (SHORT-DISTANCE BYPASS)
 // ============================================================================
 

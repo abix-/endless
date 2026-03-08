@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-03-08h
+
+- **HPA* hierarchical pathfinding** — custom HPA* implementation replaces raw A* for cross-chunk paths. Grid divided into 16×16 chunks with precomputed entrance nodes and intra-chunk paths. Unbounded 50K: 257ms → 753µs (341× faster). Budgeted 50K: 2.27ms → 214µs (10.9× faster).
+- **LOS bypass threshold 5→12 tiles** — most in-town movements bypass A* entirely via Bresenham line-of-sight.
+- **Eliminated cost grid clone** — removed 125KB/frame `pathfind_costs.clone()` and `accumulate_path_cost` route spreading. HPA* distributes routes through different entrance nodes naturally.
+- **Kind-filtered spatial search in behavior/ai_player** — remaining `for_each_nearby` calls converted to `for_each_nearby_kind` for farm/target searches.
+
 ## 2026-03-08g
 
 - **spawner_respawn O(n²) fix** — two-part fix: (1) `spawner_slots: Vec<usize>` index on EntityMap for O(spawners) collection instead of O(all_buildings) scan, (2) `find_nearest_free()` now uses kind-filtered spatial search (`for_each_nearby_kind_town`/`for_each_nearby_kind`) instead of generic `for_each_nearby` that scanned all building types. 2K spawners: 88ms → 75µs (1,176× faster).
