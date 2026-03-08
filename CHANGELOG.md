@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-03-08o
+
+- **Inspector++ tabs** - NPC inspector now has dedicated `Overview`, `Loadout`, `Economy`, and `Log` tabs so detailed per-NPC data is easier to scan without mixing workflows.
+- **Personal economy + log in inspector** - inspector now surfaces carried loot detail (including carried equipment preview) plus recent per-NPC activity log entries from `NpcLogCache`.
+- **Armory naming and flow cleanup** - top-bar/left-panel `Inventory` labels are now `Armory`, and inspector handoff button is now `Open Armory >`.
+- **Manual bulk auto-equip actions** - Armory can trigger immediate auto-equip planning for the whole town or selected NPC (`AutoEquipNowMsg`), reusing the existing hourly auto-equip selection rules.
+- **Inspector scroll container** - inspector content is now vertically scrollable to support deeper stat/equipment/log views without clipping.
+
 ## 2026-03-08n
 
 - **Arrival parity (LOS + waypoint)** — `gpu_position_readback` now marks `at_destination` for transit activities, not only waypoint-backed paths. This fixes NPCs stuck in `GoingToWork` when movement used direct LOS `SetTarget` (no waypoints). Added movement readback regression tests for transit/no-path and non-transit/no-path cases.

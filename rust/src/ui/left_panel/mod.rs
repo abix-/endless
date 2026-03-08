@@ -259,7 +259,7 @@ fn tab_to_str(tab: LeftPanelTab) -> &'static str {
         LeftPanelTab::Policies => "Policies",
         LeftPanelTab::Patrols => "Patrols",
         LeftPanelTab::Squads => "Squads",
-        LeftPanelTab::Inventory => "Inventory",
+        LeftPanelTab::Inventory => "Armory",
         LeftPanelTab::Factions => "Factions",
 
         LeftPanelTab::Profiler => "Profiler",
@@ -328,7 +328,7 @@ pub fn left_panel_system(
         LeftPanelTab::Policies => "Policies",
         LeftPanelTab::Patrols => "Patrols",
         LeftPanelTab::Squads => "Squads",
-        LeftPanelTab::Inventory => "Inventory",
+        LeftPanelTab::Inventory => "Armory",
         LeftPanelTab::Factions => "Factions",
 
         LeftPanelTab::Profiler => "Profiler",
@@ -2757,4 +2757,3 @@ fn help_content(ui: &mut egui::Ui) {
             });
     });
 }
-

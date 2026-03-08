@@ -350,6 +350,7 @@ pub fn build_app(app: &mut App) {
         .add_message::<systems::stats::UpgradeMsg>()
         .add_message::<systems::stats::EquipItemMsg>()
         .add_message::<systems::stats::UnequipItemMsg>()
+        .add_message::<systems::stats::AutoEquipNowMsg>()
         .init_resource::<AutoUpgrade>()
         .init_resource::<TownPolicies>()
         .init_resource::<MiningPolicy>()

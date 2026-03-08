@@ -216,7 +216,7 @@ pub fn top_bar_system(
                     .selectable_label(
                         ui_state.left_panel_open
                             && ui_state.left_panel_tab == LeftPanelTab::Inventory,
-                        "Inventory",
+                        "Armory",
                     )
                     .clicked()
                 {
@@ -505,10 +505,20 @@ pub struct InspectorRenameState {
     text: String,
 }
 
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum InspectorNpcTab {
+    #[default]
+    Overview,
+    Loadout,
+    Economy,
+    Log,
+}
+
 #[derive(Default)]
 pub struct InspectorTabState {
     /// true = NPC tab, false = Building tab
     show_npc: bool,
+    npc_tab: InspectorNpcTab,
 }
 
 #[derive(Default)]
@@ -603,74 +613,80 @@ pub fn bottom_panel_system(
                     ui.separator();
                 }
 
-                let show_npc = has_npc && (!has_building || inspector_state.tabs.show_npc);
-                let action = inspector_content(
-                    ui,
-                    &mut data,
-                    &mut meta_cache,
-                    &mut inspector_state.rename,
-                    &mut bld_data,
-                    &mut world_data,
-                    &gpu_state,
-                    &mut follow,
-                    &settings,
-                    &catalog,
-                    &mut copy_text,
-                    &mut panel_state.ui_state,
-                    &mut panel_state.mining_policy,
-                    &mut panel_state.dirty_writers,
-                    show_npc,
-                    &mut panel_state.squad_state,
-                    &mut panel_state.faction_select,
-                    &mut panel_state.unequip_writer,
-                    dc_count,
-                );
-                if let Some(action) = action {
-                    apply_inspector_action(
-                        action,
-                        &mut data.selected,
-                        &mut bld_data.selected_building,
-                        &gpu_state,
-                        &bld_data.entity_map,
-                        &bld_data.grid,
-                        &mut camera_query,
-                    );
-                }
-                // Destroy button for selected player-owned buildings (not fountains/mines)
-                let show_building = has_building && (!has_npc || !show_npc);
-                if show_building {
-                    let selected_info = selected_building_info(
-                        &bld_data.selected_building,
-                        &bld_data.grid,
-                        &bld_data.entity_map,
-                    );
-                    let is_destructible = selected_info
-                        .as_ref()
-                        .map(|(k, ti, _, _, _)| {
-                            !matches!(k, BuildingKind::Fountain | BuildingKind::GoldMine)
-                                && world_data
-                                    .towns
-                                    .get(*ti as usize)
-                                    .is_some_and(|t| t.faction == crate::constants::FACTION_PLAYER)
-                        })
-                        .unwrap_or(false);
-                    if is_destructible {
-                        ui.separator();
-                        if ui
-                            .button(
-                                egui::RichText::new("Destroy")
-                                    .color(egui::Color32::from_rgb(220, 80, 80)),
-                            )
-                            .clicked()
-                        {
-                            if let Some((_, _, _, col, row)) = selected_info {
-                                panel_state
-                                    .destroy_request
-                                    .write(crate::messages::DestroyBuildingMsg(col, row));
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        let show_npc = has_npc && (!has_building || inspector_state.tabs.show_npc);
+                        let InspectorUiState { rename, tabs, .. } = &mut *inspector_state;
+                        let action = inspector_content(
+                            ui,
+                            &mut data,
+                            &mut meta_cache,
+                            rename,
+                            &mut tabs.npc_tab,
+                            &mut bld_data,
+                            &mut world_data,
+                            &gpu_state,
+                            &mut follow,
+                            &settings,
+                            &catalog,
+                            &mut copy_text,
+                            &mut panel_state.ui_state,
+                            &mut panel_state.mining_policy,
+                            &mut panel_state.dirty_writers,
+                            show_npc,
+                            &mut panel_state.squad_state,
+                            &mut panel_state.faction_select,
+                            &mut panel_state.unequip_writer,
+                            dc_count,
+                        );
+                        if let Some(action) = action {
+                            apply_inspector_action(
+                                action,
+                                &mut data.selected,
+                                &mut bld_data.selected_building,
+                                &gpu_state,
+                                &bld_data.entity_map,
+                                &bld_data.grid,
+                                &mut camera_query,
+                            );
+                        }
+                        // Destroy button for selected player-owned buildings (not fountains/mines)
+                        let show_building = has_building && (!has_npc || !show_npc);
+                        if show_building {
+                            let selected_info = selected_building_info(
+                                &bld_data.selected_building,
+                                &bld_data.grid,
+                                &bld_data.entity_map,
+                            );
+                            let is_destructible = selected_info
+                                .as_ref()
+                                .map(|(k, ti, _, _, _)| {
+                                    !matches!(k, BuildingKind::Fountain | BuildingKind::GoldMine)
+                                        && world_data
+                                            .towns
+                                            .get(*ti as usize)
+                                            .is_some_and(|t| t.faction == crate::constants::FACTION_PLAYER)
+                                })
+                                .unwrap_or(false);
+                            if is_destructible {
+                                ui.separator();
+                                if ui
+                                    .button(
+                                        egui::RichText::new("Destroy")
+                                            .color(egui::Color32::from_rgb(220, 80, 80)),
+                                    )
+                                    .clicked()
+                                {
+                                    if let Some((_, _, _, col, row)) = selected_info {
+                                        panel_state
+                                            .destroy_request
+                                            .write(crate::messages::DestroyBuildingMsg(col, row));
+                                    }
+                                }
                             }
                         }
-                    }
-                }
+                    });
             });
     }
 
@@ -1266,6 +1282,7 @@ fn inspector_content(
     data: &mut BottomPanelData,
     meta_cache: &mut NpcMetaCache,
     rename_state: &mut InspectorRenameState,
+    npc_tab: &mut InspectorNpcTab,
     bld_data: &mut BuildingInspectorData,
     world_data: &mut WorldData,
     gpu_state: &GpuReadState,
@@ -1380,40 +1397,58 @@ fn inspector_content(
         rename_state.text = meta_cache.0[idx].name.clone();
     }
 
-    ui.horizontal(|ui| {
-        ui.label("Name:");
-        let edit = ui.text_edit_singleline(&mut rename_state.text);
-        let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-        if (ui.button("Rename").clicked() || enter) && !rename_state.text.trim().is_empty() {
-            let new_name = rename_state.text.trim().to_string();
-            meta_cache.0[idx].name = new_name.clone();
-            rename_state.text = new_name;
-        }
+    ui.horizontal_wrapped(|ui| {
+        ui.selectable_value(npc_tab, InspectorNpcTab::Overview, "Overview");
+        ui.selectable_value(npc_tab, InspectorNpcTab::Loadout, "Loadout");
+        ui.selectable_value(npc_tab, InspectorNpcTab::Economy, "Economy");
+        ui.selectable_value(npc_tab, InspectorNpcTab::Log, "Log");
     });
+    ui.separator();
+    let show_overview = *npc_tab == InspectorNpcTab::Overview;
+    let show_loadout = *npc_tab == InspectorNpcTab::Loadout;
+    let show_economy = *npc_tab == InspectorNpcTab::Economy;
+    let show_log = *npc_tab == InspectorNpcTab::Log;
+
+    if show_overview {
+        ui.horizontal(|ui| {
+            ui.label("Name:");
+            let edit = ui.text_edit_singleline(&mut rename_state.text);
+            let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if (ui.button("Rename").clicked() || enter) && !rename_state.text.trim().is_empty() {
+                let new_name = rename_state.text.trim().to_string();
+                meta_cache.0[idx].name = new_name.clone();
+                rename_state.text = new_name;
+            }
+        });
+    }
 
     let meta = &meta_cache.0[idx];
 
-    tipped(
-        ui,
-        format!(
-            "{} Lv.{}  XP: {}/{}",
-            crate::job_name(meta.job),
-            meta.level,
-            meta.xp,
-            (meta.level + 1) * (meta.level + 1) * 100
-        ),
-        catalog.0.get("npc_level").unwrap_or(&""),
-    );
+    if show_overview {
+        tipped(
+            ui,
+            format!(
+                "{} Lv.{}  XP: {}/{}",
+                crate::job_name(meta.job),
+                meta.level,
+                meta.xp,
+                (meta.level + 1) * (meta.level + 1) * 100
+            ),
+            catalog.0.get("npc_level").unwrap_or(&""),
+        );
+    }
 
-    if let Some(npc) = bld_data.entity_map.get_npc(idx) {
-        if let Ok(pers) = bld_data.personality_q.get(npc.entity) {
-            let trait_str = pers.trait_summary();
-            if !trait_str.is_empty() {
-                tipped(
-                    ui,
-                    format!("Trait: {}", trait_str),
-                    catalog.0.get("npc_trait").unwrap_or(&""),
-                );
+    if show_overview {
+        if let Some(npc) = bld_data.entity_map.get_npc(idx) {
+            if let Ok(pers) = bld_data.personality_q.get(npc.entity) {
+                let trait_str = pers.trait_summary();
+                if !trait_str.is_empty() {
+                    tipped(
+                        ui,
+                        format!("Trait: {}", trait_str),
+                        catalog.0.get("npc_trait").unwrap_or(&""),
+                    );
+                }
             }
         }
     }
@@ -1437,112 +1472,122 @@ fn inspector_content(
         (0.0f32, 100.0f32, 0.0f32, None)
     };
 
-    // HP bar
-    let hp_frac = if max_hp > 0.0 {
-        (hp / max_hp).clamp(0.0, 1.0)
-    } else {
-        0.0
-    };
-    let hp_color = if hp_frac > 0.6 {
-        egui::Color32::from_rgb(80, 200, 80)
-    } else if hp_frac > 0.3 {
-        egui::Color32::from_rgb(200, 200, 40)
-    } else {
-        egui::Color32::from_rgb(200, 60, 60)
-    };
-    ui.horizontal(|ui| {
-        ui.label("HP:");
-        ui.add(
-            egui::ProgressBar::new(hp_frac)
-                .text(
-                    egui::RichText::new(format!("{:.0}/{:.0}", hp, max_hp))
-                        .color(egui::Color32::BLACK),
-                )
-                .fill(hp_color),
-        );
-    });
+    if show_overview {
+        // HP bar
+        let hp_frac = if max_hp > 0.0 {
+            (hp / max_hp).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let hp_color = if hp_frac > 0.6 {
+            egui::Color32::from_rgb(80, 200, 80)
+        } else if hp_frac > 0.3 {
+            egui::Color32::from_rgb(200, 200, 40)
+        } else {
+            egui::Color32::from_rgb(200, 60, 60)
+        };
+        ui.horizontal(|ui| {
+            ui.label("HP:");
+            ui.add(
+                egui::ProgressBar::new(hp_frac)
+                    .text(
+                        egui::RichText::new(format!("{:.0}/{:.0}", hp, max_hp))
+                            .color(egui::Color32::BLACK),
+                    )
+                    .fill(hp_color),
+            );
+        });
 
-    // Energy bar
-    let energy_frac = (energy / 100.0).clamp(0.0, 1.0);
-    ui.horizontal(|ui| {
-        tipped(ui, "EN:", catalog.0.get("npc_energy").unwrap_or(&""));
-        ui.add(
-            egui::ProgressBar::new(energy_frac)
-                .text(egui::RichText::new(format!("{:.0}", energy)).color(egui::Color32::BLACK))
-                .fill(egui::Color32::from_rgb(60, 120, 200)),
-        );
-    });
+        // Energy bar
+        let energy_frac = (energy / 100.0).clamp(0.0, 1.0);
+        ui.horizontal(|ui| {
+            tipped(ui, "EN:", catalog.0.get("npc_energy").unwrap_or(&""));
+            ui.add(
+                egui::ProgressBar::new(energy_frac)
+                    .text(egui::RichText::new(format!("{:.0}", energy)).color(egui::Color32::BLACK))
+                    .fill(egui::Color32::from_rgb(60, 120, 200)),
+            );
+        });
 
-    // Combat stats
-    if let Some(ref stats) = cached_stats {
-        ui.label(format!(
-            "Dmg: {:.0}  Rng: {:.0}  CD: {:.1}s  Spd: {:.0}",
-            stats.damage, stats.range, stats.cooldown, stats.speed
-        ));
+        // Combat stats
+        if let Some(ref stats) = cached_stats {
+            ui.label(format!(
+                "Dmg: {:.0}  Rng: {:.0}  CD: {:.1}s  Spd: {:.0}",
+                stats.damage, stats.range, stats.cooldown, stats.speed
+            ));
+        }
     }
 
     // Equipment + status from EntityMap + ECS
+    if show_loadout {
+        ui.separator();
+        ui.label(egui::RichText::new("Loadout").strong());
+    }
     let mut squad_id: Option<i32> = None;
     let job = Job::from_i32(meta.job);
     let can_equip = !npc_def(job).equip_slots.is_empty();
     if let Some(npc) = bld_data.entity_map.get_npc(idx) {
-        if let Ok(eq) = bld_data.equipment_q.get(npc.entity) {
-            use crate::constants::EquipmentSlot;
-            let slots: &[(&str, &Option<crate::constants::LootItem>, EquipmentSlot, u8)] = &[
-                ("Weapon", &eq.weapon, EquipmentSlot::Weapon, 0),
-                ("Helm", &eq.helm, EquipmentSlot::Helm, 0),
-                ("Armor", &eq.armor, EquipmentSlot::Armor, 0),
-                ("Shield", &eq.shield, EquipmentSlot::Shield, 0),
-                ("Gloves", &eq.gloves, EquipmentSlot::Gloves, 0),
-                ("Boots", &eq.boots, EquipmentSlot::Boots, 0),
-                ("Belt", &eq.belt, EquipmentSlot::Belt, 0),
-                ("Amulet", &eq.amulet, EquipmentSlot::Amulet, 0),
-                ("Ring 1", &eq.ring1, EquipmentSlot::Ring, 0),
-                ("Ring 2", &eq.ring2, EquipmentSlot::Ring, 1),
-            ];
-            let mut any = false;
-            for &(label, item_opt, slot, ring_index) in slots {
-                if let Some(item) = item_opt {
-                    any = true;
-                    ui.horizontal(|ui| {
-                        let (r, g, b) = item.rarity.color();
-                        ui.label(format!("{}:", label));
-                        ui.label(egui::RichText::new(&item.name).color(egui::Color32::from_rgb(r, g, b)));
-                        ui.label(format!("(+{:.0}%)", item.stat_bonus * 100.0));
-                        if ui.small_button("Unequip").clicked() {
-                            unequip_writer.write(UnequipItemMsg {
-                                npc_entity: npc.entity,
-                                slot,
-                                ring_index,
-                            });
-                        }
-                    });
+        if show_loadout {
+            if let Ok(eq) = bld_data.equipment_q.get(npc.entity) {
+                use crate::constants::EquipmentSlot;
+                let slots: &[(&str, &Option<crate::constants::LootItem>, EquipmentSlot, u8)] = &[
+                    ("Weapon", &eq.weapon, EquipmentSlot::Weapon, 0),
+                    ("Helm", &eq.helm, EquipmentSlot::Helm, 0),
+                    ("Armor", &eq.armor, EquipmentSlot::Armor, 0),
+                    ("Shield", &eq.shield, EquipmentSlot::Shield, 0),
+                    ("Gloves", &eq.gloves, EquipmentSlot::Gloves, 0),
+                    ("Boots", &eq.boots, EquipmentSlot::Boots, 0),
+                    ("Belt", &eq.belt, EquipmentSlot::Belt, 0),
+                    ("Amulet", &eq.amulet, EquipmentSlot::Amulet, 0),
+                    ("Ring 1", &eq.ring1, EquipmentSlot::Ring, 0),
+                    ("Ring 2", &eq.ring2, EquipmentSlot::Ring, 1),
+                ];
+                let mut any = false;
+                for &(label, item_opt, slot, ring_index) in slots {
+                    if let Some(item) = item_opt {
+                        any = true;
+                        ui.horizontal(|ui| {
+                            let (r, g, b) = item.rarity.color();
+                            ui.label(format!("{}:", label));
+                            ui.label(egui::RichText::new(&item.name).color(egui::Color32::from_rgb(r, g, b)));
+                            ui.label(format!("(+{:.0}%)", item.stat_bonus * 100.0));
+                            if ui.small_button("Unequip").clicked() {
+                                unequip_writer.write(UnequipItemMsg {
+                                    npc_entity: npc.entity,
+                                    slot,
+                                    ring_index,
+                                });
+                            }
+                        });
+                    }
+                }
+                if !any && can_equip {
+                    ui.label("No equipment");
                 }
             }
-            if !any && can_equip {
-                ui.label("No equipment");
-            }
-        }
-        if can_equip {
-            if ui.small_button("Manage Equipment >").clicked() {
-                ui_state.left_panel_open = true;
-                ui_state.left_panel_tab = LeftPanelTab::Inventory;
+            if can_equip {
+                if ui.small_button("Open Armory >").clicked() {
+                    ui_state.left_panel_open = true;
+                    ui_state.left_panel_tab = LeftPanelTab::Inventory;
+                }
             }
         }
 
         // Status markers
-        if bld_data
-            .npc_flags_q
-            .get(npc.entity)
-            .is_ok_and(|f| f.starving)
-        {
-            ui.colored_label(egui::Color32::from_rgb(200, 60, 60), "Starving");
+        if show_overview {
+            if bld_data
+                .npc_flags_q
+                .get(npc.entity)
+                .is_ok_and(|f| f.starving)
+            {
+                ui.colored_label(egui::Color32::from_rgb(200, 60, 60), "Starving");
+            }
         }
         squad_id = bld_data.squad_id_q.get(npc.entity).ok().map(|s| s.0);
     }
 
     // Town name
-    if meta.town_id >= 0 {
+    if show_overview && meta.town_id >= 0 {
         if let Some(town) = world_data.towns.get(meta.town_id as usize) {
             ui.label(format!("Town: {}", town.name));
         }
@@ -1560,6 +1605,8 @@ fn inspector_content(
     let mut carried_food = 0i32;
     let mut carried_gold = 0i32;
     let mut carried_equip_count = 0usize;
+    let mut carried_equip_preview: Vec<String> = Vec::new();
+    let mut carried_equip_more = 0usize;
     let mut activity_debug = String::new();
     if let Some(npc) = bld_data.entity_map.get_npc(idx) {
         let npc_home = bld_data
@@ -1589,6 +1636,13 @@ fn inspector_content(
             carried_food = cl.food;
             carried_gold = cl.gold;
             carried_equip_count = cl.equipment.len();
+            carried_equip_preview = cl
+                .equipment
+                .iter()
+                .take(4)
+                .map(|it| format!("{} ({:?} +{:.0}%)", it.name, it.slot, it.stat_bonus * 100.0))
+                .collect();
+            carried_equip_more = cl.equipment.len().saturating_sub(carried_equip_preview.len());
         }
 
         let mut parts: Vec<&str> = Vec::new();
@@ -1604,57 +1658,92 @@ fn inspector_content(
         state_str = parts.join(", ");
     }
 
-    tipped(
-        ui,
-        format!("State: {}", state_str),
-        catalog.0.get("npc_state").unwrap_or(&""),
-    );
-    let home_action = ui.horizontal(|ui| {
-        if let Some(fid) = faction_id {
-            if ui.link(format!("Faction: {}", faction_str)).clicked() {
-                ui_state.left_panel_open = true;
-                ui_state.left_panel_tab = LeftPanelTab::Factions;
-                faction_select.write(crate::messages::SelectFactionMsg(fid));
+    if show_overview {
+        tipped(
+            ui,
+            format!("State: {}", state_str),
+            catalog.0.get("npc_state").unwrap_or(&""),
+        );
+        let home_action = ui.horizontal(|ui| {
+            if let Some(fid) = faction_id {
+                if ui.link(format!("Faction: {}", faction_str)).clicked() {
+                    ui_state.left_panel_open = true;
+                    ui_state.left_panel_tab = LeftPanelTab::Factions;
+                    faction_select.write(crate::messages::SelectFactionMsg(fid));
+                }
+            } else {
+                ui.label(format!("Faction: {}", faction_str));
             }
-        } else {
-            ui.label(format!("Faction: {}", faction_str));
+            if let Some(slot) = home_slot {
+                building_link(ui, &format!("Home: {}", home_str), slot)
+            } else {
+                ui.label(format!("Home: {}", home_str));
+                None
+            }
+        }).inner;
+        if let Some(action) = home_action {
+            return Some(action);
         }
-        if let Some(slot) = home_slot {
-            building_link(ui, &format!("Home: {}", home_str), slot)
-        } else {
-            ui.label(format!("Home: {}", home_str));
-            None
+        if let Some(sq) = squad_id {
+            ui.label(format!("Squad: {}", sq));
         }
-    }).inner;
-    if let Some(action) = home_action {
-        return Some(action);
-    }
-    if let Some(sq) = squad_id {
-        ui.label(format!("Squad: {}", sq));
     }
 
-    // Carried loot
-    {
-        let mut parts: Vec<String> = Vec::new();
-        if carried_food > 0 {
-            parts.push(format!("{} food", carried_food));
+    if show_economy {
+        // Carried loot
+        ui.separator();
+        ui.label(egui::RichText::new("Personal Economy").strong());
+        {
+            let mut parts: Vec<String> = Vec::new();
+            if carried_food > 0 {
+                parts.push(format!("{} food", carried_food));
+            }
+            if carried_gold > 0 {
+                parts.push(format!("{} gold", carried_gold));
+            }
+            if carried_equip_count > 0 {
+                parts.push(format!("{} item(s)", carried_equip_count));
+            }
+            let loot_str = if parts.is_empty() {
+                "none".to_string()
+            } else {
+                parts.join(", ")
+            };
+            ui.label(format!("Carrying: {}", loot_str));
+            if !carried_equip_preview.is_empty() {
+                for line in carried_equip_preview {
+                    ui.small(format!("Carried item: {}", line));
+                }
+                if carried_equip_more > 0 {
+                    ui.small(format!("...and {} more item(s)", carried_equip_more));
+                }
+            }
         }
-        if carried_gold > 0 {
-            parts.push(format!("{} gold", carried_gold));
+    }
+
+    if show_log {
+        ui.separator();
+        ui.label(egui::RichText::new("Personal Log").strong());
+        if idx < data.npc_logs.logs.len() {
+            let log = &data.npc_logs.logs[idx];
+            if log.is_empty() {
+                ui.small("No activity entries recorded for this NPC yet.");
+            } else {
+                for entry in log.iter().rev().take(12) {
+                    ui.small(format!(
+                        "[D{} {:02}:{:02}] {}",
+                        entry.day, entry.hour, entry.minute, entry.message
+                    ));
+                }
+                if log.len() > 12 {
+                    ui.small(format!("...{} older entries", log.len() - 12));
+                }
+            }
         }
-        if carried_equip_count > 0 {
-            parts.push(format!("{} item(s)", carried_equip_count));
-        }
-        let loot_str = if parts.is_empty() {
-            "none".to_string()
-        } else {
-            parts.join(", ")
-        };
-        ui.label(format!("Carrying: {}", loot_str));
     }
 
     // Mine assignment for miners (same UI as MinerHome building inspector)
-    if meta.job == 4 {
+    if show_overview && meta.job == 4 {
         if let Some(hp) = home_pos {
             let mh_slot = bld_data
                 .entity_map
@@ -1701,40 +1790,42 @@ fn inspector_content(
     }
 
     // Controls: Follow + Direct Control (near bottom)
-    ui.separator();
-    ui.horizontal(|ui| {
-        if ui.selectable_label(follow.0, "Follow (F)").clicked() {
-            follow.0 = !follow.0;
-        }
-    });
-    {
-        let entity = bld_data.entity_map.get_npc(idx).map(|n| n.entity);
-        let is_dc = entity
-            .and_then(|e| bld_data.npc_flags_q.get(e).ok())
-            .is_some_and(|f| f.direct_control);
+    if show_overview {
+        ui.separator();
         ui.horizontal(|ui| {
-            let label = if is_dc {
-                "Direct Control: ON"
-            } else {
-                "Direct Control: OFF"
-            };
-            let color = if is_dc {
-                egui::Color32::from_rgb(80, 220, 80)
-            } else {
-                egui::Color32::GRAY
-            };
-            if ui.button(egui::RichText::new(label).color(color)).clicked() {
-                if let Some(e) = entity {
-                    if let Ok(mut flags) = bld_data.npc_flags_q.get_mut(e) {
-                        flags.direct_control = !is_dc;
-                    }
-                }
+            if ui.selectable_label(follow.0, "Follow (F)").clicked() {
+                follow.0 = !follow.0;
             }
         });
+        {
+            let entity = bld_data.entity_map.get_npc(idx).map(|n| n.entity);
+            let is_dc = entity
+                .and_then(|e| bld_data.npc_flags_q.get(e).ok())
+                .is_some_and(|f| f.direct_control);
+            ui.horizontal(|ui| {
+                let label = if is_dc {
+                    "Direct Control: ON"
+                } else {
+                    "Direct Control: OFF"
+                };
+                let color = if is_dc {
+                    egui::Color32::from_rgb(80, 220, 80)
+                } else {
+                    egui::Color32::GRAY
+                };
+                if ui.button(egui::RichText::new(label).color(color)).clicked() {
+                    if let Some(e) = entity {
+                        if let Ok(mut flags) = bld_data.npc_flags_q.get_mut(e) {
+                            flags.direct_control = !is_dc;
+                        }
+                    }
+                }
+            });
+        }
     }
 
     // Debug IDs: show slot + UID + world coords for BRP queries, plus copy button
-    if settings.debug_ids {
+    if show_overview && settings.debug_ids {
         ui.separator();
         let uid = bld_data.entity_map.uid_for_slot(idx);
         let uid_str = uid.map_or("?".to_string(), |u| u.0.to_string());

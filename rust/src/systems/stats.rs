@@ -543,6 +543,14 @@ pub struct UnequipItemMsg {
     pub ring_index: u8, // 0=ring1, 1=ring2 (ignored for non-Ring)
 }
 
+/// Request immediate auto-equip planning for a town, optionally scoped to one NPC.
+/// Writers: Armory UI. Reader: auto_equip_system.
+#[derive(Message, Clone)]
+pub struct AutoEquipNowMsg {
+    pub town_idx: usize,
+    pub npc_entity: Option<Entity>,
+}
+
 // ============================================================================
 // HELPERS
 // ============================================================================
@@ -1227,22 +1235,32 @@ pub fn auto_equip_system(
         (Entity, &crate::components::NpcEquipment, &Job, &crate::components::TownId),
         (Without<crate::components::Building>, Without<crate::components::Dead>),
     >,
+    mut auto_now: MessageReader<AutoEquipNowMsg>,
     mut equip_writer: MessageWriter<EquipItemMsg>,
 ) {
-    if !game_time.hour_ticked {
+    let manual_requests: Vec<AutoEquipNowMsg> = auto_now.read().cloned().collect();
+    if !game_time.hour_ticked && manual_requests.is_empty() {
         return;
     }
 
-    for (town_idx, items) in town_inventory.items.iter().enumerate() {
+    let mut run_for_scope = |town_idx: usize, only_entity: Option<Entity>| {
+        let Some(items) = town_inventory.items.get(town_idx) else {
+            return;
+        };
         if items.is_empty() {
-            continue;
+            return;
         }
 
         // Collect military NPCs in this town
         let town_npcs: Vec<_> = equipment_q
             .iter()
-            .filter(|(_, _, _, tid)| tid.0 == town_idx as i32)
+            .filter(|(entity, _, _, tid)| {
+                tid.0 == town_idx as i32 && only_entity.is_none_or(|target| *entity == target)
+            })
             .collect();
+        if town_npcs.is_empty() {
+            return;
+        }
 
         // Track items we've already queued for equip this cycle (avoid double-assign)
         let mut assigned_items: Vec<u64> = Vec::new();
@@ -1295,6 +1313,16 @@ pub fn auto_equip_system(
                 assigned_items.push(item.id);
             }
         }
+    };
+
+    if game_time.hour_ticked {
+        for town_idx in 0..town_inventory.items.len() {
+            run_for_scope(town_idx, None);
+        }
+    }
+
+    for req in manual_requests {
+        run_for_scope(req.town_idx, req.npc_entity);
     }
 }
 

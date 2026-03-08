@@ -72,7 +72,7 @@ Remaining:
 
 Design: no loot bags on the ground. Kill → loot goes directly into killer's `CarriedLoot` component → NPC keeps fighting → carry threshold triggers return home → deposit food/gold to storage + equipment to `TownInventory` → player equips via UI → stat bonus + sprite change.
 
-All 6 chunks complete (see [completed.md](completed.md)): unified CarriedLoot, LootItem/Rarity/EquipmentSlot types, equipment drops + carry accumulation, NpcEquipment (9 D2 slots) + stat integration, Inventory UI tab (I key), Merchant building (buy/sell/reroll), save/load persistence + loot-cycle test. Additional: auto-equip system (hourly, distributes items to best NPC), equipment drops on death (50% per item to killer), inventory UI overhaul (Equipped/Unequipped/All views, slot filters, sorting, bulk sell common, comparison tooltips, multi-town support).
+All 6 chunks complete (see [completed.md](completed.md)): unified CarriedLoot, LootItem/Rarity/EquipmentSlot types, equipment drops + carry accumulation, NpcEquipment (9 D2 slots) + stat integration, Armory UI tab (I key), Merchant building (buy/sell/reroll), save/load persistence + loot-cycle test. Additional: auto-equip system (hourly, distributes items to best NPC), immediate Armory auto-equip actions (selected NPC or whole town via the same auto-equip rules), equipment drops on death (50% per item to killer), inventory/armory UI overhaul (Equipped/Unequipped/All views, slot filters, sorting, bulk sell common, comparison tooltips, multi-town support), and Inspector++ NPC tabs (Overview/Loadout/Economy/Log) with per-NPC personal log and carried-loot detail.
 
 **Stage 19: Code Health**
 

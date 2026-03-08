@@ -6,6 +6,7 @@ pub struct InventoryParams<'w, 's> {
     pub equipment_q: Query<'w, 's, (Entity, &'static NpcEquipment, &'static Job, &'static TownId, &'static GpuSlot)>,
     pub equip_writer: MessageWriter<'w, crate::systems::stats::EquipItemMsg>,
     pub unequip_writer: MessageWriter<'w, crate::systems::stats::UnequipItemMsg>,
+    pub auto_equip_writer: MessageWriter<'w, crate::systems::stats::AutoEquipNowMsg>,
     pub catalog: Res<'w, HelpCatalog>,
 }
 
@@ -55,6 +56,27 @@ pub(crate) fn inventory_content(
             .unwrap_or(0)
     } else {
         0
+    };
+    ui.label(
+        egui::RichText::new(format!("Town {} Armory", town_idx + 1))
+            .strong()
+            .size(15.0),
+    );
+    ui.small("Bulk equipment management for this town.");
+    ui.separator();
+    let selected_military_entity = if sel >= 0 {
+        entity_map.get_npc(sel as usize).and_then(|npc| {
+            inv.equipment_q.get(npc.entity).ok().and_then(|(_, _, job, tid, _)| {
+                let def = npc_def(*job);
+                if tid.0 == town_idx as i32 && !def.equip_slots.is_empty() {
+                    Some(npc.entity)
+                } else {
+                    None
+                }
+            })
+        })
+    } else {
+        None
     };
 
     // --- Selected NPC equipment section ---
@@ -137,9 +159,39 @@ pub(crate) fn inventory_content(
             }
         }
     } else {
-        ui.label("Select a military NPC to equip items.");
+        ui.label("Select a military NPC to preview equip/unequip.");
         ui.separator();
     }
+
+    let town_item_count = inv
+        .town_inventory
+        .items
+        .get(town_idx)
+        .map(|v| v.len())
+        .unwrap_or(0);
+    ui.horizontal(|ui| {
+        let can_town_auto = town_item_count > 0;
+        let town_btn = ui.add_enabled(can_town_auto, egui::Button::new("Auto-equip Town Now"));
+        if town_btn.clicked() {
+            inv.auto_equip_writer
+                .write(crate::systems::stats::AutoEquipNowMsg {
+                    town_idx,
+                    npc_entity: None,
+                });
+        }
+        if let Some(ent) = selected_military_entity {
+            let sel_btn = ui.add_enabled(can_town_auto, egui::Button::new("Auto-equip Selected"));
+            if sel_btn.clicked() {
+                inv.auto_equip_writer
+                    .write(crate::systems::stats::AutoEquipNowMsg {
+                        town_idx,
+                        npc_entity: Some(ent),
+                    });
+            }
+        }
+    });
+    ui.small("Uses the same upgrade rules as hourly auto-equip, but runs immediately.");
+    ui.separator();
 
     // --- View mode toggle ---
     let view_mode = &mut ui_state.inv_view_mode;
@@ -243,20 +295,7 @@ pub(crate) fn inventory_content(
     let filter_val = *filter;
 
     // Can equip if a valid military NPC from this town is selected
-    let npc_entity = if sel >= 0 {
-        entity_map.get_npc(sel as usize).and_then(|npc| {
-            inv.equipment_q.get(npc.entity).ok().and_then(|(_, _, job, tid, _)| {
-                let def = npc_def(*job);
-                if tid.0 == town_idx as i32 && !def.equip_slots.is_empty() {
-                    Some(npc.entity)
-                } else {
-                    None
-                }
-            })
-        })
-    } else {
-        None
-    };
+    let npc_entity = selected_military_entity;
 
     let slot_passes_filter = |slot: EquipmentSlot| -> bool {
         let idx = ALL_EQUIPMENT_SLOTS.iter().position(|&s| s == slot).unwrap_or(0);
