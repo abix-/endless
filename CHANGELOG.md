@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-03-08c
+
+- **CI pipeline** — added `.github/workflows/ci.yml`: cargo clippy (`-D warnings`) + cargo test (`--lib --release`) on every push/PR to main. Runs on Ubuntu with Bevy system deps. Separate from the existing build/release workflow.
+
 ## 2026-03-08b
 
 - **Clippy setup** — added crate-level `#![allow]` for Bevy-inherent warnings (`too_many_arguments`, `type_complexity`, `collapsible_if`) in both `lib.rs` and `main.rs`. Ran `cargo clippy --fix` for ~85 auto-fixes: `.get(0)` → `.first()`, useless `format!()`, `map_or(false, ...)` → `is_some_and(...)`, redundant closures, unnecessary casts, `#[derive(Default)]` additions.
