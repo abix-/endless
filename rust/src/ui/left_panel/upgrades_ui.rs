@@ -2,11 +2,11 @@ use super::*;
 
 #[derive(SystemParam)]
 pub struct UpgradeParams<'w> {
-    food_storage: Res<'w, FoodStorage>,
-    faction_stats: Res<'w, FactionStats>,
-    upgrades: Res<'w, TownUpgrades>,
-    queue: MessageWriter<'w, UpgradeMsg>,
-    auto: ResMut<'w, AutoUpgrade>,
+    pub(crate) food_storage: Res<'w, FoodStorage>,
+    pub(crate) faction_stats: Res<'w, FactionStats>,
+    pub(crate) upgrades: Res<'w, TownUpgrades>,
+    pub(crate) queue: MessageWriter<'w, UpgradeMsg>,
+    pub(crate) auto: ResMut<'w, AutoUpgrade>,
 }
 
 // ============================================================================

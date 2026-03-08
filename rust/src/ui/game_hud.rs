@@ -172,13 +172,12 @@ pub fn top_bar_system(
                 }
                 if ui
                     .selectable_label(
-                        ui_state.left_panel_open
-                            && ui_state.left_panel_tab == LeftPanelTab::Upgrades,
-                        "Upgrades",
+                        ui_state.tech_tree_open,
+                        "Tech Tree",
                     )
                     .clicked()
                 {
-                    ui_state.toggle_left_tab(LeftPanelTab::Upgrades);
+                    ui_state.tech_tree_open = !ui_state.tech_tree_open;
                 }
                 if ui
                     .selectable_label(

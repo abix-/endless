@@ -1,7 +1,7 @@
 //! EntityMap — unified entity registry for NPCs and buildings.
 
 use bevy::prelude::*;
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 use crate::constants::TOWN_GRID_SPACING;
 

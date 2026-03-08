@@ -617,6 +617,7 @@ pub fn register_ui(app: &mut App) {
         (
             game_hud::top_bar_system,
             left_panel::left_panel_system,
+            left_panel::tech_tree::tech_tree_system,
             (
                 game_hud::bottom_panel_system,
                 game_hud::combat_log_system,
@@ -717,7 +718,7 @@ pub fn ui_toggle_system(
         ui_state.build_menu_open = !ui_state.build_menu_open;
     }
     if keys.just_pressed(settings.key_for_action(ControlAction::ToggleUpgrades)) {
-        ui_state.toggle_left_tab(LeftPanelTab::Upgrades);
+        ui_state.tech_tree_open = !ui_state.tech_tree_open;
     }
     if keys.just_pressed(settings.key_for_action(ControlAction::TogglePolicies)) {
         ui_state.toggle_left_tab(LeftPanelTab::Policies);

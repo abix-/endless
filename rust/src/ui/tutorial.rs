@@ -83,7 +83,7 @@ fn step_complete(
                 > tutorial.initial_archer_homes
         }
         12 => false, // info-only (walls)
-        13 => ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Upgrades,
+        13 => ui_state.tech_tree_open,
         14 => false, // info-only
         15 => false, // info-only (roads)
         16 => false, // info-only

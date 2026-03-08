@@ -1419,6 +1419,8 @@ pub struct UiState {
     pub inv_slot_filter: u16,
     /// Inventory view mode: 0=Unequipped, 1=Equipped, 2=All.
     pub inv_view_mode: u8,
+    /// Tech tree window open.
+    pub tech_tree_open: bool,
 }
 
 impl Default for UiState {
@@ -1439,6 +1441,7 @@ impl Default for UiState {
             casino_open: false,
             inv_slot_filter: 0x1FF, // all 9 slots enabled
             inv_view_mode: 0,
+            tech_tree_open: false,
         }
     }
 }

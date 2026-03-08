@@ -176,6 +176,7 @@ pub(crate) fn build_menu_system(
     _difficulty: Res<Difficulty>,
     sprites: Res<SpriteAssets>,
     mut images: ResMut<Assets<Image>>,
+    upgrades: Res<crate::systems::TownUpgrades>,
     mut cache: Local<BuildSpriteCache>,
 ) -> Result {
     // Initialize sprite cache (one-time, before borrowing egui context)
@@ -299,6 +300,26 @@ pub(crate) fn build_menu_system(
                         let tidx = build_ctx.town_data_idx.unwrap_or(0);
                         if entity_map.count_for_town(def.kind, tidx as u32) >= 1 {
                             continue;
+                        }
+                    }
+                    // Tech tree building unlocks (player only)
+                    if !is_raider {
+                        use crate::constants::UpgradeStatKind as USK;
+                        use crate::systems::stats::UPGRADES;
+                        let tidx = build_ctx.town_data_idx.unwrap_or(0);
+                        let levels = upgrades.town_levels(tidx);
+                        let required_unlock = match def.kind {
+                            BuildingKind::StoneRoad => Some(USK::UnlockStoneRoad),
+                            BuildingKind::MetalRoad => Some(USK::UnlockMetalRoad),
+                            _ => None,
+                        };
+                        if let Some(unlock_kind) = required_unlock {
+                            let unlocked = UPGRADES.index_map.get(&("Town", unlock_kind))
+                                .map(|&idx| levels.get(idx).copied().unwrap_or(0) >= 1)
+                                .unwrap_or(false);
+                            if !unlocked {
+                                continue;
+                            }
                         }
                     }
 

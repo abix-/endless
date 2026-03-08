@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-03-08d
+
+- **Tech tree window** — "Upgrades" top bar button replaced with "Tech Tree" standalone window. Keyboard toggle (U) opens tech tree instead of left panel upgrades tab. Tutorial step 13 updated.
+- **Building unlock upgrades** — new `UnlockStoneRoad` and `UnlockMetalRoad` upgrade kinds with `max_level: Some(1)` cap. Stone Road requires 10 food + 5 gold; Metal Road requires Stone Road prereq + 20 food + 10 gold. Build menu hides locked buildings until upgrade purchased.
+- **hashbrown HashMap** — moved `hashbrown` from dev-dependencies to dependencies. `entity_map.rs` and `left_panel/mod.rs` use `hashbrown::HashMap` (foldhash) instead of `std::HashMap` (SipHash) for faster hashing on hot paths.
+- **UpgradeParams pub(crate)** — fields made `pub(crate)` so `tech_tree` module can access them.
+- **max_level field** — `UpgradeStatDef` and `UpgradeNode` gain `max_level: Option<u8>`. `upgrade_available()` enforces the cap.
+
 ## 2026-03-08c
 
 - **CI pipeline** — added `.github/workflows/ci.yml`: cargo clippy (`-D warnings`) + cargo test (`--lib --release`) on every push/PR to main. Runs on Ubuntu with Bevy system deps. Separate from the existing build/release workflow.

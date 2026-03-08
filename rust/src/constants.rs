@@ -55,6 +55,9 @@ pub enum UpgradeStatKind {
     FountainAttackSpeed,
     FountainProjectileLife,
     Expansion,
+    // Building unlocks
+    UnlockStoneRoad,
+    UnlockMetalRoad,
 }
 
 /// How an upgrade's effect is displayed in the UI.
@@ -93,6 +96,8 @@ pub struct UpgradeStatDef {
     pub triggers_expansion: bool,
     /// Custom cost function instead of standard exponential scaling.
     pub custom_cost: bool,
+    /// Max level cap (None = unlimited, capped by cost growth at ~20).
+    pub max_level: Option<u8>,
 }
 
 use ResourceKind::{Food as F, Gold as G};
@@ -122,6 +127,7 @@ const fn usd(
         invalidates_healing: false,
         triggers_expansion: false,
         custom_cost: false,
+        max_level: None,
     }
 }
 
@@ -148,6 +154,7 @@ const fn usd_noncombat(
         invalidates_healing: false,
         triggers_expansion: false,
         custom_cost: false,
+        max_level: None,
     }
 }
 
@@ -176,6 +183,7 @@ const fn usd_req(
         invalidates_healing: false,
         triggers_expansion: false,
         custom_cost: false,
+        max_level: None,
     }
 }
 
@@ -534,6 +542,7 @@ pub const TOWN_UPGRADES: &[UpgradeStatDef] = &[
         invalidates_healing: true,
         triggers_expansion: false,
         custom_cost: false,
+        max_level: None,
     },
     UpgradeStatDef {
         kind: USK::FountainRange,
@@ -549,6 +558,7 @@ pub const TOWN_UPGRADES: &[UpgradeStatDef] = &[
         invalidates_healing: true,
         triggers_expansion: false,
         custom_cost: false,
+        max_level: None,
     },
     UpgradeStatDef {
         kind: USK::FountainAttackSpeed,
@@ -564,6 +574,7 @@ pub const TOWN_UPGRADES: &[UpgradeStatDef] = &[
         invalidates_healing: false,
         triggers_expansion: false,
         custom_cost: false,
+        max_level: None,
     },
     UpgradeStatDef {
         kind: USK::FountainProjectileLife,
@@ -579,6 +590,7 @@ pub const TOWN_UPGRADES: &[UpgradeStatDef] = &[
         invalidates_healing: false,
         triggers_expansion: false,
         custom_cost: false,
+        max_level: None,
     },
     UpgradeStatDef {
         kind: USK::Expansion,
@@ -594,6 +606,39 @@ pub const TOWN_UPGRADES: &[UpgradeStatDef] = &[
         invalidates_healing: false,
         triggers_expansion: true,
         custom_cost: true,
+        max_level: None,
+    },
+    UpgradeStatDef {
+        kind: USK::UnlockStoneRoad,
+        pct: 0.0,
+        cost: &[(F, 10), (G, 5)],
+        label: "Stone Roads",
+        short: "SRoad",
+        tooltip: "Unlocks Stone Road (2x speed, +5 build radius)",
+        display: EffectDisplay::Unlock,
+        prereq_stat: None,
+        prereq_level: 1,
+        is_combat_stat: false,
+        invalidates_healing: false,
+        triggers_expansion: false,
+        custom_cost: false,
+        max_level: Some(1),
+    },
+    UpgradeStatDef {
+        kind: USK::UnlockMetalRoad,
+        pct: 0.0,
+        cost: &[(F, 20), (G, 10)],
+        label: "Metal Roads",
+        short: "MRoad",
+        tooltip: "Unlocks Metal Road (2.5x speed, +7 build radius)",
+        display: EffectDisplay::Unlock,
+        prereq_stat: Some(USK::UnlockStoneRoad),
+        prereq_level: 1,
+        is_combat_stat: false,
+        invalidates_healing: false,
+        triggers_expansion: false,
+        custom_cost: false,
+        max_level: Some(1),
     },
 ];
 

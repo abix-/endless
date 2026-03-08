@@ -98,6 +98,7 @@ pub struct UpgradeNode {
     pub invalidates_healing: bool,
     pub triggers_expansion: bool,
     pub custom_cost: bool,
+    pub max_level: Option<u8>,
 }
 
 /// A branch in the upgrade tree UI.
@@ -204,6 +205,7 @@ fn build_upgrade_registry() -> UpgradeRegistry {
                 invalidates_healing: def.invalidates_healing,
                 triggers_expansion: def.triggers_expansion,
                 custom_cost: def.custom_cost,
+                max_level: def.max_level,
             });
         }
 
@@ -310,6 +312,7 @@ fn build_upgrade_registry() -> UpgradeRegistry {
                 invalidates_healing: def.invalidates_healing,
                 triggers_expansion: def.triggers_expansion,
                 custom_cost: def.custom_cost,
+                max_level: def.max_level,
             });
         }
         // Resolve Town prereqs
@@ -595,10 +598,16 @@ pub fn upgrade_unlocked(levels: &[u8], idx: usize) -> bool {
         .all(|&(pi, min_lv)| levels.get(pi).copied().unwrap_or(0) >= min_lv)
 }
 
-/// Full purchasability check: prereqs met AND can afford all costs.
+/// Full purchasability check: prereqs met AND can afford all costs AND below max level.
 /// Single gate used by process_upgrades, auto_upgrade, AI, and UI.
 pub fn upgrade_available(levels: &[u8], idx: usize, food: i32, gold: i32) -> bool {
     let lv = levels.get(idx).copied().unwrap_or(0);
+    let node = &UPGRADES.nodes[idx];
+    if let Some(max) = node.max_level {
+        if lv >= max {
+            return false;
+        }
+    }
     upgrade_unlocked(levels, idx) && can_afford_upgrade(idx, lv, food, gold)
 }
 

@@ -2,6 +2,7 @@
 
 mod inventory_ui;
 mod roster_ui;
+pub(crate) mod tech_tree;
 mod upgrades_ui;
 
 pub use inventory_ui::InventoryParams;
@@ -130,8 +131,8 @@ struct AiSnapshot {
     personality_name: &'static str,
     food: i32,
     gold: i32,
-    npcs: std::collections::HashMap<crate::world::BuildingKind, usize>,
-    buildings: std::collections::HashMap<crate::world::BuildingKind, usize>,
+    npcs: hashbrown::HashMap<crate::world::BuildingKind, usize>,
+    buildings: hashbrown::HashMap<crate::world::BuildingKind, usize>,
     alive: i32,
     dead: i32,
     kills: i32,
@@ -1088,7 +1089,7 @@ fn rebuild_factions_cache(
 
         let buildings = entity_map.building_counts(ti);
 
-        let npcs: std::collections::HashMap<BuildingKind, usize> =
+        let npcs: hashbrown::HashMap<BuildingKind, usize> =
             crate::constants::BUILDING_REGISTRY
                 .iter()
                 .filter(|def| def.spawner.is_some())
