@@ -25,6 +25,14 @@ use crate::messages::RENDER_PROFILING;
 pub static TRACING_TIMINGS: LazyLock<Mutex<HashMap<String, f32>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// Per-system peak (max) ms over a rolling window, for spike detection.
+/// Values are (peak_ms, frames_since_reset). Peak resets after PEAK_WINDOW frames.
+pub static TRACING_PEAKS: LazyLock<Mutex<HashMap<String, (f32, u32)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Number of frames before peak resets. ~2 seconds at 60fps.
+const PEAK_WINDOW: u32 = 120;
+
 /// Stored in span extensions at creation time to hold the system name.
 struct SpanName(String);
 
@@ -91,6 +99,15 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> tracing_subscriber::Layer<S> for Sy
         if let Ok(mut map) = TRACING_TIMINGS.lock() {
             let entry = map.entry(name.0.clone()).or_insert(0.0);
             *entry = *entry * 0.9 + ms * 0.1;
+        }
+        if let Ok(mut peaks) = TRACING_PEAKS.lock() {
+            let entry = peaks.entry(name.0.clone()).or_insert((0.0, 0));
+            entry.0 = entry.0.max(ms);
+            entry.1 += 1;
+            if entry.1 >= PEAK_WINDOW {
+                entry.0 = ms; // reset window, seed with current
+                entry.1 = 0;
+            }
         }
     }
 }

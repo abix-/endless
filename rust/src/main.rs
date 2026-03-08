@@ -116,6 +116,15 @@ fn install_crash_handler() {
 fn main() {
     install_crash_handler();
 
+    // Apply GPU backend preference before wgpu initializes.
+    // Safety: called in main() before any threads are spawned.
+    let saved_settings = endless::settings::load_settings();
+    match saved_settings.gpu_backend {
+        1 => unsafe { std::env::set_var("WGPU_BACKEND", "vulkan") },
+        2 => unsafe { std::env::set_var("WGPU_BACKEND", "dx12") },
+        _ => {} // 0 = Auto, let wgpu decide
+    }
+
     let mut app = App::new();
 
     // Release: embed assets in binary, fallback to disk for modding

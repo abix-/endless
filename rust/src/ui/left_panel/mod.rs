@@ -51,8 +51,9 @@ pub struct ProfilerParams<'w> {
 pub struct ProfilerCache {
     frame_counter: u32,
     frame_ms: f32,
-    game_entries: Vec<(String, f32)>,
-    engine_entries: Vec<(String, f32)>,
+    frame_peak_ms: f32,
+    game_entries: Vec<(String, f32, f32)>,  // (name, avg_ms, peak_ms)
+    engine_entries: Vec<(String, f32, f32)>,
     game_sum: f32,
     engine_sum: f32,
     render_entries: Vec<(String, f32)>,
@@ -2370,15 +2371,18 @@ fn profiler_content(
     cache.frame_counter += 1;
     if cache.frame_counter % 15 == 1 || cache.game_entries.is_empty() {
         cache.frame_ms = timings.get_frame_ms();
+        cache.frame_peak_ms = timings.get_frame_peak_ms();
 
         let traced = timings.get_traced_timings();
+        let peaks = timings.get_traced_peaks();
         cache.game_entries.clear();
         cache.engine_entries.clear();
         for (name, &ms) in &traced {
+            let peak = peaks.get(name).copied().unwrap_or(0.0);
             if name.starts_with("endless::") {
-                cache.game_entries.push((name.clone(), ms));
+                cache.game_entries.push((name.clone(), ms, peak));
             } else {
-                cache.engine_entries.push((name.clone(), ms));
+                cache.engine_entries.push((name.clone(), ms, peak));
             }
         }
         cache
@@ -2387,8 +2391,8 @@ fn profiler_content(
         cache
             .engine_entries
             .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        cache.game_sum = cache.game_entries.iter().map(|(_, ms)| ms).sum();
-        cache.engine_sum = cache.engine_entries.iter().map(|(_, ms)| ms).sum();
+        cache.game_sum = cache.game_entries.iter().map(|(_, ms, _)| ms).sum();
+        cache.engine_sum = cache.engine_entries.iter().map(|(_, ms, _)| ms).sum();
         cache.game_entries.truncate(10);
         cache.engine_entries.truncate(10);
 
@@ -2438,7 +2442,10 @@ fn profiler_content(
         cache.pf_limit_reason,
     );
 
-    ui.label(egui::RichText::new(format!("Frame: {:.2} ms", cache.frame_ms)).strong());
+    ui.label(egui::RichText::new(format!(
+        "Frame: {:.2} ms  (peak {:.1} ms)",
+        cache.frame_ms, cache.frame_peak_ms
+    )).strong());
     ui.separator();
 
     // A* Pathfinding stats
@@ -2554,13 +2561,13 @@ fn profiler_content(
         let top_game: String = cache
             .game_entries
             .iter()
-            .map(|(name, ms)| format!("{}: {:.3} ms", name, ms))
+            .map(|(name, ms, peak)| format!("{}: {:.3} ms (peak {:.1})", name, ms, peak))
             .collect::<Vec<_>>()
             .join("\n");
         let top_engine: String = cache
             .engine_entries
             .iter()
-            .map(|(name, ms)| format!("{}: {:.3} ms", name, ms))
+            .map(|(name, ms, peak)| format!("{}: {:.3} ms (peak {:.1})", name, ms, peak))
             .collect::<Vec<_>>()
             .join("\n");
         let render: String = cache
@@ -2586,8 +2593,8 @@ fn profiler_content(
             cache.pf_limit_reason,
         );
         ui.ctx().copy_text(format!(
-            "Frame: {:.2} ms\n\nA* Pathfinding\n{}\n\nGame Systems (cpu sum: {:.2} ms)\n{}\n\nEngine Systems (cpu sum: {:.2} ms)\n{}\n\nRender Pipeline\n{}\n\nExtract dirty: {}",
-            cache.frame_ms, pathfind, cache.game_sum, top_game, cache.engine_sum, top_engine, render, dirty
+            "Frame: {:.2} ms (peak {:.1} ms)\n\nA* Pathfinding\n{}\n\nGame Systems (cpu sum: {:.2} ms)\n{}\n\nEngine Systems (cpu sum: {:.2} ms)\n{}\n\nRender Pipeline\n{}\n\nExtract dirty: {}",
+            cache.frame_ms, cache.frame_peak_ms, pathfind, cache.game_sum, top_game, cache.engine_sum, top_engine, render, dirty
         ));
     }
     ui.separator();
@@ -2600,16 +2607,26 @@ fn profiler_content(
         format!("Game Systems ({:.2} ms)", cache.game_sum),
         |ui| {
             egui::Grid::new("prof_game_grid")
-                .num_columns(2)
+                .num_columns(3)
                 .striped(true)
                 .show(ui, |ui| {
                     ui.label(egui::RichText::new("system").strong());
-                    ui.label(egui::RichText::new("ms").strong());
+                    ui.label(egui::RichText::new("avg").strong());
+                    ui.label(egui::RichText::new("peak").strong());
                     ui.end_row();
-                    for (name, ms) in &cache.game_entries {
+                    for (name, ms, peak) in &cache.game_entries {
                         ui.label(name.as_str());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.label(egui::RichText::new(format!("{:.3}", ms)).monospace());
+                        });
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let text = egui::RichText::new(format!("{:.1}", peak)).monospace();
+                            // Highlight spikes: peak > 5x average and peak > 1ms
+                            ui.label(if *peak > ms * 5.0 && *peak > 1.0 {
+                                text.color(egui::Color32::RED)
+                            } else {
+                                text
+                            });
                         });
                         ui.end_row();
                     }
@@ -2625,16 +2642,25 @@ fn profiler_content(
         format!("Engine Systems ({:.2} ms)", cache.engine_sum),
         |ui| {
             egui::Grid::new("prof_engine_grid")
-                .num_columns(2)
+                .num_columns(3)
                 .striped(true)
                 .show(ui, |ui| {
                     ui.label(egui::RichText::new("system").strong());
-                    ui.label(egui::RichText::new("ms").strong());
+                    ui.label(egui::RichText::new("avg").strong());
+                    ui.label(egui::RichText::new("peak").strong());
                     ui.end_row();
-                    for (name, ms) in &cache.engine_entries {
+                    for (name, ms, peak) in &cache.engine_entries {
                         ui.label(name.as_str());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.label(egui::RichText::new(format!("{:.3}", ms)).monospace());
+                        });
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let text = egui::RichText::new(format!("{:.1}", peak)).monospace();
+                            ui.label(if *peak > ms * 5.0 && *peak > 1.0 {
+                                text.color(egui::Color32::RED)
+                            } else {
+                                text
+                            });
                         });
                         ui.end_row();
                     }

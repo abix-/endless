@@ -32,6 +32,8 @@ pub struct SystemTimings {
     /// Tracing-captured timings (Bevy auto-spans, feature-gated behind `trace`).
     traced: Mutex<HashMap<String, f32>>,
     pub frame_ms: Mutex<f32>,
+    /// Rolling peak frame time (resets every PEAK_WINDOW frames).
+    frame_peak: Mutex<(f32, u32)>,
     pub enabled: bool,
 }
 
@@ -41,6 +43,7 @@ impl Default for SystemTimings {
             data: Mutex::new(HashMap::new()),
             traced: Mutex::new(HashMap::new()),
             frame_ms: Mutex::new(0.0),
+            frame_peak: Mutex::new((0.0, 0)),
             enabled: false,
         }
     }
@@ -53,6 +56,14 @@ impl SystemTimings {
             let ms = dt_secs * 1000.0;
             if let Ok(mut fm) = self.frame_ms.lock() {
                 *fm = *fm * (1.0 - EMA_ALPHA) + ms * EMA_ALPHA;
+            }
+            if let Ok(mut fp) = self.frame_peak.lock() {
+                fp.0 = fp.0.max(ms);
+                fp.1 += 1;
+                if fp.1 >= 120 {
+                    fp.0 = ms;
+                    fp.1 = 0;
+                }
             }
         }
     }
@@ -83,8 +94,20 @@ impl SystemTimings {
         self.traced.lock().map(|d| d.clone()).unwrap_or_default()
     }
 
+    /// Get per-system peak ms from the tracing layer's rolling window.
+    pub fn get_traced_peaks(&self) -> HashMap<String, f32> {
+        crate::tracing_layer::TRACING_PEAKS
+            .lock()
+            .map(|p| p.iter().map(|(k, (peak, _))| (k.clone(), *peak)).collect())
+            .unwrap_or_default()
+    }
+
     pub fn get_frame_ms(&self) -> f32 {
         self.frame_ms.lock().map(|f| *f).unwrap_or(0.0)
+    }
+
+    pub fn get_frame_peak_ms(&self) -> f32 {
+        self.frame_peak.lock().map(|f| f.0).unwrap_or(0.0)
     }
 }
 

@@ -1289,15 +1289,13 @@ struct ProjectileComputeLabel;
 fn update_gpu_data(
     mut config: ResMut<RenderFrameConfig>,
     slots: Res<GpuSlotPool>,
-    time: Res<Time>,
-    game_time: Res<GameTime>,
+    dt: Res<crate::resources::DeltaTime>,
     upgrades: Res<TownUpgrades>,
     world_data: Res<WorldData>,
 ) {
-    let dt = game_time.delta(&time);
     config.npc.count = slots.count() as u32;
     config.npc.entity_count = slots.count() as u32;
-    config.npc.delta = dt;
+    config.npc.delta = dt.0;
 
     let player_town_idx = world_data
         .towns
@@ -1978,14 +1976,12 @@ fn update_proj_gpu_data(
     mut config: ResMut<RenderFrameConfig>,
     slots: Res<GpuSlotPool>,
     proj_alloc: Res<crate::resources::ProjSlotAllocator>,
-    time: Res<Time>,
-    game_time: Res<GameTime>,
+    dt: Res<crate::resources::DeltaTime>,
 ) {
-    let dt = game_time.delta(&time);
     config.proj.proj_count = proj_alloc.next as u32;
     config.proj._npc_count = slots.count() as u32;
     config.proj.entity_count = slots.count() as u32;
-    config.proj.delta = dt;
+    config.proj.delta = dt.0;
 }
 
 fn init_proj_compute_pipeline(

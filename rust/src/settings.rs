@@ -636,6 +636,9 @@ pub struct UserSettings {
     /// FPS cap: 0 = uncapped, otherwise target FPS (e.g. 30, 60, 120).
     #[serde(default)]
     pub fps_cap: u32,
+    /// Graphics backend: 0 = Auto, 1 = Vulkan, 2 = DX12. Requires restart.
+    #[serde(default)]
+    pub gpu_backend: u8,
     // World gen style (0=Classic, 1=Continents)
     #[serde(default)]
     pub gen_style: u8,
@@ -846,6 +849,7 @@ impl Default for UserSettings {
             fullscreen: true,
             background_fps: false,
             fps_cap: 0,
+            gpu_backend: 0,
             debug_ids: false,
             debug_all_npcs: false,
             debug_readback: false,

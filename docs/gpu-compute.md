@@ -213,7 +213,7 @@ Built by `build_visual_upload` from ECS components (EquippedArmor, EquippedHelme
 | count | 0 | Entity slot high-water mark (set from GpuSlotPool.count() each frame) |
 | separation_radius | 20.0 | Minimum distance NPCs try to maintain |
 | separation_strength | 100.0 | Repulsion force multiplier |
-| delta | 0.016 | Frame delta time |
+| delta | 0.016 | Frame delta time (EMA-smoothed via DeltaTime resource to reduce microstutter) |
 | grid_width | 256 | Spatial grid columns |
 | grid_height | 256 | Spatial grid rows |
 | cell_size | 128.0 | Pixels per grid cell |

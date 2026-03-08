@@ -256,6 +256,29 @@ pub fn settings_panel_ui(
                                     }
                                 });
                             ui.small("Limit render frame rate. 0 = unlimited.");
+                            ui.add_space(6.0);
+
+                            ui.label("Graphics Backend");
+                            const BACKEND_OPTIONS: &[(u8, &str)] = &[
+                                (0, "Auto"),
+                                (1, "Vulkan"),
+                                (2, "DX12"),
+                            ];
+                            let backend_label = BACKEND_OPTIONS
+                                .iter()
+                                .find(|(v, _)| *v == settings.gpu_backend)
+                                .map(|(_, l)| *l)
+                                .unwrap_or("Auto");
+                            egui::ComboBox::from_id_salt("settings_gpu_backend")
+                                .selected_text(backend_label)
+                                .show_ui(ui, |ui| {
+                                    for &(val, label) in BACKEND_OPTIONS {
+                                        if ui.selectable_label(settings.gpu_backend == val, label).clicked() {
+                                            settings.gpu_backend = val;
+                                        }
+                                    }
+                                });
+                            ui.small("Requires restart to take effect.");
                         }
                         PauseSettingsTab::Camera => {
                             ui.add(egui::Slider::new(&mut settings.scroll_speed, 100.0..=2000.0).text("Scroll Speed"))

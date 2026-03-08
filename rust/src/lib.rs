@@ -45,7 +45,7 @@ use resources::{
     GameAudio, GameConfig, GameTime, GoldStorage, GpuReadState, GpuSlotPool, HealingZoneCache,
     HealthDebug, HelpCatalog, KillStats, MigrationState, MiningPolicy,
     NextEntityUid, NextLootItemId, NpcLogCache, NpcMetaCache, NpcTargetThrashDebug, PlaySfxMsg,
-    PopulationStats, ProjHitState, ProjPositionState, ProjSlotAllocator, RaiderState,
+    DeltaTime, PopulationStats, ProjHitState, ProjPositionState, ProjSlotAllocator, RaiderState,
     SelectedBuilding, SelectedNpc, SquadState, SystemTimings, TowerState, TownPolicies,
     TownInventory, MerchantInventory, TutorialState, UiState, UpsCounter,
 };
@@ -94,6 +94,14 @@ pub enum Step {
 
 fn ups_tick(mut ups: ResMut<UpsCounter>) {
     ups.ticks_this_second += 1;
+}
+
+/// EMA-smoothed delta for visual systems (GPU movement, camera pan).
+/// Filters Bevy's jittery Time::delta_secs() to prevent microstutter.
+fn smooth_delta(time: Res<Time>, game_time: Res<GameTime>, mut dt: ResMut<DeltaTime>) {
+    let raw = game_time.delta(&time);
+    let alpha = 0.1;
+    dt.0 = if dt.0 == 0.0 { raw } else { dt.0 * (1.0 - alpha) + raw * alpha };
 }
 
 fn frame_timer_start(timings: Res<SystemTimings>, time: Res<Time>) {
@@ -293,6 +301,7 @@ pub fn build_app(app: &mut App) {
         .init_resource::<PopulationStats>()
         .init_resource::<GameConfig>()
         .init_resource::<GameTime>()
+        .init_resource::<DeltaTime>()
         .init_resource::<world::WorldData>()
         .init_resource::<HealthDebug>()
         .init_resource::<CombatDebug>()
@@ -459,6 +468,7 @@ pub fn build_app(app: &mut App) {
         // Music lifecycle
         .add_systems(OnEnter(AppState::Playing), systems::audio::start_music)
         .add_systems(OnExit(AppState::Playing), systems::audio::stop_music)
+        .add_systems(Update, smooth_delta)
         .add_systems(
             Update,
             systems::audio::jukebox_system.run_if(in_state(AppState::Playing)),

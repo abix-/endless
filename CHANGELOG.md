@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-03-08r
+
+- **Profiler spike detection** — per-system rolling peak (max ms over 120-frame window) tracked alongside EMA average. Profiler game/engine system grids now show `avg` + `peak` columns. Peaks >5x average and >1ms highlight red. Frame header shows peak too. Copy button includes peak data.
+- **Graphics backend selector** — new `gpu_backend` setting (Auto / Vulkan / DX12) in Video settings with "Requires restart" note. Applied via `WGPU_BACKEND` env var before wgpu initialization on startup.
+- **EMA-smoothed DeltaTime** — new `DeltaTime` resource computed by `smooth_delta` system (10% EMA of `GameTime::delta`). Used by GPU shader delta and camera pan/edge-pan systems to filter Bevy's jittery `Time::delta_secs()` and reduce microstutter.
+
 ## 2026-03-08q
 
 - **FPS cap fix** — replaced broken `focused_mode_for_fps_cap` (Bevy `UpdateMode::reactive_low_power`, which only limits idle polling and has no effect during active gameplay) with `bevy_framepace` crate. Uses `spin_sleep` for accurate frame timing on Windows (~15ms `thread::sleep` granularity bypassed via hybrid sleep+spin). New `apply_fps_cap()` helper sets `Limiter::Off` (uncapped) or `Limiter::from_framerate()`. SystemParam bundles (`PauseRuntimeConfigs`, `MenuVideoParams`) added to stay within Bevy's 16-param system limit.
