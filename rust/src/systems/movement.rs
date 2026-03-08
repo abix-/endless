@@ -24,14 +24,14 @@ use crate::world::WorldGrid;
 pub fn gpu_position_readback(
     gpu_state: Res<GpuReadState>,
     buffer_writes: Res<EntityGpuState>,
-    mut npc_q: Query<(&GpuSlot, &mut Position, &mut NpcFlags, &NpcPath)>,
+    mut npc_q: Query<(&GpuSlot, &mut Position, &mut NpcFlags, &NpcPath, &Activity)>,
 ) {
     let positions = &gpu_state.positions;
     let targets = &buffer_writes.targets;
     let threshold_sq = ARRIVAL_THRESHOLD * ARRIVAL_THRESHOLD;
     let intermediate_sq = INTERMEDIATE_ARRIVAL_THRESHOLD * INTERMEDIATE_ARRIVAL_THRESHOLD;
 
-    for (es, mut pos, mut flags, path) in npc_q.iter_mut() {
+    for (es, mut pos, mut flags, path, activity) in npc_q.iter_mut() {
         let i = es.0;
         if i * 2 + 1 >= positions.len() {
             continue;
@@ -47,9 +47,9 @@ pub fn gpu_position_readback(
         pos.x = gpu_x;
         pos.y = gpu_y;
 
-        // CPU-side arrival detection — path-driven, not activity-driven
-        let has_path = path.current < path.waypoints.len();
-        if !flags.at_destination && has_path {
+        // CPU-side arrival detection for transit states.
+        // Works for both waypoint movement and direct LOS SetTarget movement.
+        if !flags.at_destination && activity.is_transit() {
             if i * 2 + 1 < targets.len() {
                 let goal_x = targets[i * 2];
                 let goal_y = targets[i * 2 + 1];
@@ -489,5 +489,47 @@ mod tests {
         app.update();
         let flags = app.world_mut().query::<&NpcFlags>().single(app.world()).unwrap();
         assert!(flags.at_destination, "should set at_destination when near target");
+    }
+
+    #[test]
+    fn readback_sets_arrival_for_transit_without_path() {
+        let mut app = setup_readback_app();
+        // Direct LOS-style target: no waypoints, but transit activity at target.
+        app.world_mut().resource_mut::<GpuReadState>().positions = vec![100.0, 200.0];
+        app.world_mut().resource_mut::<EntityGpuState>().targets = vec![100.0, 200.0];
+        app.world_mut().spawn((
+            GpuSlot(0),
+            Position { x: 0.0, y: 0.0 },
+            Activity::new(ActivityKind::GoingToWork),
+            NpcFlags::default(),
+            NpcPath::default(),
+        ));
+        app.update();
+        let flags = app.world_mut().query::<&NpcFlags>().single(app.world()).unwrap();
+        assert!(
+            flags.at_destination,
+            "transit NPC should set at_destination even without waypoints"
+        );
+    }
+
+    #[test]
+    fn readback_does_not_set_arrival_for_non_transit_without_path() {
+        let mut app = setup_readback_app();
+        // Idle NPC at its current target should not repeatedly trigger arrivals.
+        app.world_mut().resource_mut::<GpuReadState>().positions = vec![100.0, 200.0];
+        app.world_mut().resource_mut::<EntityGpuState>().targets = vec![100.0, 200.0];
+        app.world_mut().spawn((
+            GpuSlot(0),
+            Position { x: 0.0, y: 0.0 },
+            Activity::default(),
+            NpcFlags::default(),
+            NpcPath::default(),
+        ));
+        app.update();
+        let flags = app.world_mut().query::<&NpcFlags>().single(app.world()).unwrap();
+        assert!(
+            !flags.at_destination,
+            "non-transit NPC should not set at_destination without path progress"
+        );
     }
 }

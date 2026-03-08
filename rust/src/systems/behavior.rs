@@ -1182,19 +1182,9 @@ pub fn decision_system(
                 if (idx + frame).is_multiple_of(think_buckets) {
                     match activity.kind {
                         ActivityKind::Wandering => {
-                            if let Some(pos) = npc_pos {
-                                let offset_x = (pseudo_random(idx, frame + 3) - 0.5) * 128.0;
-                                let offset_y = (pseudo_random(idx, frame + 4) - 0.5) * 128.0;
-                                let mut target = Vec2::new(pos.x + offset_x, pos.y + offset_y);
-                                if home != Vec2::ZERO {
-                                    let diff = target - home;
-                                    let dist = diff.length();
-                                    if dist > 200.0 { target = home + diff * (200.0 / dist); }
-                                }
-                                submit_intent(&mut intents, entity, target.x, target.y,
-                                    MovementPriority::Wander, "wander:redirect");
-                            }
-                            break 'decide;
+                            // Drop to Idle so decision system re-evaluates (Work/Eat/Rest)
+                            // instead of endlessly picking new wander targets.
+                            activity.kind = ActivityKind::Idle;
                         }
                         ActivityKind::Patrolling => {
                             // Don't patrol around town if squad has an active target

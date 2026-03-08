@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-03-08n
+
+- **Arrival parity (LOS + waypoint)** — `gpu_position_readback` now marks `at_destination` for transit activities, not only waypoint-backed paths. This fixes NPCs stuck in `GoingToWork` when movement used direct LOS `SetTarget` (no waypoints). Added movement readback regression tests for transit/no-path and non-transit/no-path cases.
+- **Wander transit de-thrash** — transit `Wandering` NPCs now drop to `Idle` on cadence so the decision system re-scores Work/Eat/Rest instead of endlessly reissuing wander redirects.
+- **Direct-control squad filtering in HUD** — direct-control group panels/overlays now only include squad members whose `NpcFlags.direct_control` is true, preventing non-selected squad members from appearing in DC inspector counts/target overlays.
+
 ## 2026-03-08m
 
 - **DenseSlotMap\<T\>** — generalized `DenseSlotSet` into generic `DenseSlotMap<T>` with parallel slots/data arrays. `DenseSlotSet` is now a thin wrapper (`DenseSlotMap<()>`). Building `instances` migrated from `HashMap<usize, BuildingInstance>` to `DenseSlotMap<BuildingInstance>` for cache-friendly iteration.

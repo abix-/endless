@@ -92,6 +92,7 @@ All 6 chunks complete (see [completed.md](completed.md)): unified CarriedLoot, L
 - [x] NPC pathfinding integration: all NPCs use A* paths for long-distance navigation with LOS bypass for short distances
 - [x] Route spreading: successive A* calls inflate costs along found paths (PATH_SPREAD_COST=100, PATH_SPREAD_RADIUS=1) to spread NPC routes apart
 - [x] Intermediate waypoint relaxed threshold (96px vs 40px for final destination) prevents pile-up from boid separation
+- [x] Arrival detection parity for LOS/direct targets and waypoint paths: `gpu_position_readback` now marks `at_destination` for transit activities even when movement has no waypoints (direct `SetTarget`), with regression coverage for transit/no-path and non-transit/no-path cases
 - [ ] Path recalculation on building place/remove (incremental update, not full rebuild)
 - [ ] Path validation: reject building placements that fully block access to critical locations
 

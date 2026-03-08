@@ -27,8 +27,9 @@ use crate::world::{BuildingKind, WorldData, WorldGrid};
 // ============================================================================
 
 /// Collect alive direct-control NPC slots from the selected player squad.
+/// Only includes NPCs with `NpcFlags.direct_control == true` (set by box-select).
 /// O(squad_size) instead of O(all_npcs) — avoids scanning entire EntityMap.
-fn dc_slots(squad_state: &SquadState, entity_map: &EntityMap) -> Vec<usize> {
+fn dc_slots(squad_state: &SquadState, entity_map: &EntityMap, is_dc: impl Fn(Entity) -> bool) -> Vec<usize> {
     let si = squad_state.selected;
     if si < 0 {
         return Vec::new();
@@ -44,6 +45,9 @@ fn dc_slots(squad_state: &SquadState, entity_map: &EntityMap) -> Vec<usize> {
         .iter()
         .filter_map(|uid| entity_map.slot_for_uid(*uid))
         .filter(|&slot| entity_map.get_npc(slot).is_some_and(|n| !n.dead))
+        .filter(|&slot| {
+            entity_map.get_npc(slot).is_some_and(|n| is_dc(n.entity))
+        })
         .collect()
 }
 
@@ -538,7 +542,9 @@ pub fn bottom_panel_system(
     // Only show inspector when something is selected (or DC group active)
     let has_npc = data.selected.0 >= 0;
     let has_building = bld_data.selected_building.active;
-    let dc_count = dc_slots(&panel_state.squad_state, &bld_data.entity_map).len();
+    let dc_count = dc_slots(&panel_state.squad_state, &bld_data.entity_map, |e| {
+        bld_data.npc_flags_q.get(e).is_ok_and(|f| f.direct_control)
+    }).len();
     panel_state.ui_state.inspector_visible = has_npc || has_building || dc_count > 0;
     if panel_state.ui_state.inspector_visible {
         if has_npc && !has_building {
@@ -1199,12 +1205,15 @@ fn dc_group_inspector(
     squad_state: &mut SquadState,
     health_q: &Query<&Health, Without<Building>>,
     cached_stats_q: &Query<&CachedStats>,
+    npc_flags_q: &Query<&mut NpcFlags>,
 ) {
     let mut total_hp = 0.0f32;
     let mut total_max_hp = 0.0f32;
     let mut job_counts: Vec<(&str, usize)> = Vec::new();
 
-    let slots = dc_slots(squad_state, entity_map);
+    let slots = dc_slots(squad_state, entity_map, |e| {
+        npc_flags_q.get(e).is_ok_and(|f| f.direct_control)
+    });
     let count = slots.len();
 
     for slot in &slots {
@@ -1298,6 +1307,7 @@ fn inspector_content(
                 squad_state,
                 &bld_data.npc_health_q,
                 &bld_data.cached_stats_q,
+                &bld_data.npc_flags_q,
             );
             return None;
         }
@@ -1331,6 +1341,7 @@ fn inspector_content(
                 squad_state,
                 &bld_data.npc_health_q,
                 &bld_data.cached_stats_q,
+                &bld_data.npc_flags_q,
             );
             return None;
         }
@@ -2629,6 +2640,7 @@ pub fn squad_overlay_system(
     windows: Query<&Window>,
     entity_map: Res<EntityMap>,
     manual_target_q: Query<&ManualTarget>,
+    npc_flags_q: Query<&NpcFlags>,
 ) -> Result {
     let Ok(window) = windows.single() else {
         return Ok(());
@@ -2699,7 +2711,9 @@ pub fn squad_overlay_system(
     let xh_color = egui::Color32::from_rgba_unmultiplied(80, 220, 80, 200);
     // Collect unique target positions to avoid drawing multiple crosshairs on same spot
     let mut drawn_targets: Vec<egui::Pos2> = Vec::new();
-    let dc_targets: Vec<ManualTarget> = dc_slots(&squad_state, &entity_map)
+    let dc_targets: Vec<ManualTarget> = dc_slots(&squad_state, &entity_map, |e| {
+        npc_flags_q.get(e).is_ok_and(|f| f.direct_control)
+    })
         .iter()
         .filter_map(|&slot| entity_map.get_npc(slot))
         .filter_map(|npc| manual_target_q.get(npc.entity).ok().cloned())
