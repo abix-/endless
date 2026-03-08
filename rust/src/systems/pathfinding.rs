@@ -27,10 +27,15 @@ fn is_passable(grid: &WorldGrid, col: i32, row: i32) -> bool {
 /// Single array index — no HashMap lookups.
 fn neighbor_cost(grid: &WorldGrid, pos: IVec2) -> Option<u32> {
     debug_assert!(!grid.pathfind_costs.is_empty(), "pathfind_costs not initialized");
-    if pos.x < 0 || pos.y < 0 || pos.x >= grid.width as i32 || pos.y >= grid.height as i32 {
+    cost_at(&grid.pathfind_costs, grid.width, grid.height, pos)
+}
+
+/// Read cost from a flat cost array. Returns None if out-of-bounds or impassable (0).
+fn cost_at(costs: &[u16], width: usize, height: usize, pos: IVec2) -> Option<u32> {
+    if pos.x < 0 || pos.y < 0 || pos.x >= width as i32 || pos.y >= height as i32 {
         return None;
     }
-    let cost = grid.pathfind_costs[pos.y as usize * grid.width + pos.x as usize];
+    let cost = costs[pos.y as usize * width + pos.x as usize];
     if cost == 0 { None } else { Some(cost as u32) }
 }
 
@@ -75,6 +80,69 @@ pub fn pathfind_on_grid(
         |&pos| pos == goal,
     )
     .map(|(path, _cost)| path)
+}
+
+/// Like `pathfind_on_grid` but reads costs from a provided slice.
+/// Used for path cost accumulation — each successive A* call sees costs inflated
+/// along previously-found paths, naturally spreading routes apart.
+pub fn pathfind_with_costs(
+    costs: &[u16],
+    width: usize,
+    height: usize,
+    start: IVec2,
+    goal: IVec2,
+    max_nodes: usize,
+) -> Option<Vec<IVec2>> {
+    if cost_at(costs, width, height, goal).is_none() {
+        return None;
+    }
+    let node_count = Cell::new(0usize);
+    pathfinding::prelude::astar(
+        &start,
+        |&pos| {
+            let n = node_count.get() + 1;
+            node_count.set(n);
+            let mut result = Vec::with_capacity(4);
+            if n <= max_nodes {
+                for d in NEIGHBOR_DIRS {
+                    let np = pos + d;
+                    if let Some(cost) = cost_at(costs, width, height, np) {
+                        result.push((np, cost));
+                    }
+                }
+            }
+            result
+        },
+        |&pos| heuristic(pos, goal),
+        |&pos| pos == goal,
+    )
+    .map(|(path, _cost)| path)
+}
+
+/// Accumulate cost along a path with spread radius. Discourages subsequent A* calls
+/// from using the same cells. Only modifies passable cells (cost > 0).
+pub fn accumulate_path_cost(
+    costs: &mut [u16],
+    width: usize,
+    height: usize,
+    path: &[IVec2],
+    spread: i32,
+    cost_add: u16,
+) {
+    for cell in path {
+        for dy in -spread..=spread {
+            for dx in -spread..=spread {
+                let x = cell.x + dx;
+                let y = cell.y + dy;
+                if x >= 0 && y >= 0 && (x as usize) < width && (y as usize) < height {
+                    let idx = y as usize * width + x as usize;
+                    if costs[idx] > 0 {
+                        costs[idx] = costs[idx].saturating_add(cost_add);
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -241,25 +309,26 @@ mod tests {
     }
 
     #[test]
-    fn astar_routes_around_water() {
+    fn astar_routes_around_impassable() {
         let mut grid = make_grid(10, 10);
-        // Place water wall from (2,0) to (2,4) — forces detour
+        let mut entity_map = EntityMap::default();
+        // Wall from (2,0) to (2,4) — forces detour
         for row in 0..5 {
-            grid.cells[row * 10 + 2].terrain = Biome::Water;
+            place_wall(&mut entity_map, 2, row, 500 + row as usize);
         }
-        grid.init_pathfind_costs();
+        grid.sync_building_costs(&entity_map);
         let path = pathfind_on_grid(
             &grid,
             IVec2::new(0, 0),
             IVec2::new(4, 0),
             5000,
         );
-        assert!(path.is_some(), "should find path around water");
+        assert!(path.is_some(), "should find path around wall");
         let path = path.unwrap();
-        // Path must go around the water (row >= 5 at some point)
+        // Path must go around the wall (row >= 5 at some point)
         assert!(
             path.iter().any(|p| p.y >= 5),
-            "path should route around water barrier: {:?}",
+            "path should route around wall barrier: {:?}",
             path
         );
     }
@@ -267,11 +336,12 @@ mod tests {
     #[test]
     fn astar_no_path_when_fully_blocked() {
         let mut grid = make_grid(10, 10);
-        // Water wall across entire column 2
+        let mut entity_map = EntityMap::default();
+        // Wall across entire column 2
         for row in 0..10 {
-            grid.cells[row * 10 + 2].terrain = Biome::Water;
+            place_wall(&mut entity_map, 2, row, 600 + row as usize);
         }
-        grid.init_pathfind_costs();
+        grid.sync_building_costs(&entity_map);
         let path = pathfind_on_grid(
             &grid,
             IVec2::new(0, 0),
@@ -305,13 +375,14 @@ mod tests {
     }
 
     #[test]
-    fn los_blocked_by_water() {
+    fn los_blocked_by_impassable() {
         let mut grid = make_grid(10, 10);
-        grid.cells[2 * 10 + 2].terrain = Biome::Water; // (2,2) is water
-        grid.init_pathfind_costs();
+        let mut entity_map = EntityMap::default();
+        place_wall(&mut entity_map, 2, 2, 700);
+        grid.sync_building_costs(&entity_map);
         assert!(
             !line_of_sight(&grid, IVec2::new(0, 0), IVec2::new(4, 4)),
-            "LOS should be blocked by water at (2,2)"
+            "LOS should be blocked by wall at (2,2)"
         );
     }
 
@@ -319,13 +390,13 @@ mod tests {
     fn terrain_costs_match_gpu_shader() {
         // GPU shader: Road = 1.5x speed, Grass = 1.0x, Forest = 0.7x
         // Cost = 100 / speed → Road=67, Grass=100, Forest=143
-        // Rock = 0 and Water = 0 (impassable in cost grid)
+        // Rock/Water are expensive but passable (NPCs avoid but can escape)
         use crate::world::terrain_base_cost;
         assert_eq!(terrain_base_cost(Biome::Grass), 100);
         assert_eq!(terrain_base_cost(Biome::Dirt), 100);
         assert_eq!(terrain_base_cost(Biome::Forest), 143);
-        assert_eq!(terrain_base_cost(Biome::Rock), 0);
-        assert_eq!(terrain_base_cost(Biome::Water), 0);
+        assert_eq!(terrain_base_cost(Biome::Rock), 500);
+        assert_eq!(terrain_base_cost(Biome::Water), 800);
     }
 
     #[test]

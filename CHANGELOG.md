@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-03-07e
+
+- **Rock/Water passable terrain** — rock (cost 500) and water (cost 800) are now expensive but passable in pathfinding, so NPCs pushed onto these tiles by GPU physics can slowly pathfind off. Previously cost 0 (impassable), trapping NPCs.
+- **A* route spreading** — successive pathfinding calls within the same batch inflate costs along previously-found paths (`PATH_SPREAD_COST=100`, `PATH_SPREAD_RADIUS=1`), naturally spreading NPC routes apart instead of all funneling through one corridor. New `pathfind_with_costs` and `accumulate_path_cost` helpers in `pathfinding.rs`.
+- **Intermediate waypoint threshold** — relaxed arrival detection for A* waypoints (96px vs 40px for final destination). Prevents pile-up when boid separation pushes NPCs away from shared waypoints.
+- **Inventory system overhaul** — 3-way view mode (Unequipped/Equipped/All) shows equipped items across all town NPCs with owner names. Slot filter toggles (9 equipment slots with counts). Sorting by slot → rarity → bonus. Bulk sell common items for gold. Comparison tooltips on hover show current vs new bonus with upgrade/downgrade arrows. Multi-town support (derives town from selected NPC).
+- **Auto-equip system** — once per game hour, scans `TownInventory` and distributes items to the best NPC candidate (empty slot first, then lowest current bonus). Writes `EquipItemMsg` to reuse existing equip pipeline.
+- **Equipment drops on death** — victim's `NpcEquipment` and `CarriedLoot.equipment` transfer to killer at 50% per-item (deterministic hash). NPC killers carry items home; tower killers deposit directly to `TownInventory`. New `NpcEquipment::all_items()` helper.
+- **LLM combat log improvements** — action messages use town names and building/upgrade labels instead of raw IDs. Filters confidence-rating chat spam. Surfaces LLM reasoning/commentary as single combat log entry.
+- **Build menu max width** — clamped to available gap between left panel and combat log to prevent overflow on narrow screens.
+
 ## 2026-03-07d
 
 - **Rock terrain impassable** — rock biome is now impassable (pathfinding cost 0, like water). Building placement blocked on rock tiles. `add_town_buildable` skips rock cells. Ghost preview shows red on rock.

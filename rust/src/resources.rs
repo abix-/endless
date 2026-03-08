@@ -2431,6 +2431,10 @@ pub struct UiState {
     pub tower_upgrade_slot: Option<usize>,
     /// Casino blackjack popup open.
     pub casino_open: bool,
+    /// Inventory slot filter — bitfield of enabled EquipmentSlot variants (all on by default).
+    pub inv_slot_filter: u16,
+    /// Inventory view mode: 0=Unequipped, 1=Equipped, 2=All.
+    pub inv_view_mode: u8,
 }
 
 impl Default for UiState {
@@ -2449,6 +2453,8 @@ impl Default for UiState {
             game_over: false,
             tower_upgrade_slot: None,
             casino_open: false,
+            inv_slot_filter: 0x1FF, // all 9 slots enabled
+            inv_view_mode: 0,
         }
     }
 }

@@ -325,8 +325,8 @@ fn tab_to_str(tab: LeftPanelTab) -> &'static str {
 
 #[derive(SystemParam)]
 pub struct InventoryParams<'w, 's> {
-    pub town_inventory: Res<'w, TownInventory>,
-    pub equipment_q: Query<'w, 's, (&'static NpcEquipment, &'static Job, &'static TownId)>,
+    pub town_inventory: ResMut<'w, TownInventory>,
+    pub equipment_q: Query<'w, 's, (Entity, &'static NpcEquipment, &'static Job, &'static TownId, &'static GpuSlot)>,
     pub equip_writer: MessageWriter<'w, crate::systems::stats::EquipItemMsg>,
     pub unequip_writer: MessageWriter<'w, crate::systems::stats::UnequipItemMsg>,
     pub catalog: Res<'w, HelpCatalog>,
@@ -465,6 +465,8 @@ pub fn left_panel_system(
                     &roster.selected,
                     &roster.meta_cache,
                     &factions.entity_map,
+                    &mut ui_state,
+                    &mut factions.gold_storage,
                 ),
                 LeftPanelTab::Factions => factions_content(
                     ui,
@@ -3266,14 +3268,30 @@ fn inventory_content(
     selected_npc: &SelectedNpc,
     meta_cache: &NpcMetaCache,
     entity_map: &EntityMap,
+    ui_state: &mut UiState,
+    gold_storage: &mut crate::resources::GoldStorage,
 ) {
-    let town_idx: usize = 0; // player town
+    // Derive town from selected NPC, fallback to player town 0
+    let sel = selected_npc.0;
+    let town_idx: usize = if sel >= 0 {
+        entity_map
+            .get_npc(sel as usize)
+            .and_then(|npc| {
+                inv.equipment_q
+                    .get(npc.entity)
+                    .ok()
+                    .map(|(_, _, _, tid, _)| tid.0.max(0) as usize)
+            })
+            .unwrap_or(0)
+    } else {
+        0
+    };
 
     // --- Selected NPC equipment section ---
-    let sel = selected_npc.0;
+    let mut selected_equip: Option<&NpcEquipment> = None;
     if sel >= 0 {
         if let Some(npc) = entity_map.get_npc(sel as usize) {
-            if let Ok((equip, job, _town_id)) = inv.equipment_q.get(npc.entity) {
+            if let Ok((_, equip, job, _town_id, _)) = inv.equipment_q.get(npc.entity) {
                 let def = npc_def(*job);
                 let name = meta_cache.0.get(sel as usize)
                     .map(|m| m.name.as_str())
@@ -3287,6 +3305,7 @@ fn inventory_content(
                 if def.equip_slots.is_empty() {
                     ui.label("(non-military — cannot equip)");
                 } else {
+                    selected_equip = Some(equip);
                     for &slot in ALL_EQUIPMENT_SLOTS {
                         if slot == EquipmentSlot::Ring {
                             for (ring_idx, ring) in
@@ -3352,7 +3371,72 @@ fn inventory_content(
         ui.separator();
     }
 
-    // --- Town inventory list ---
+    // --- View mode toggle ---
+    let view_mode = &mut ui_state.inv_view_mode;
+    ui.horizontal(|ui| {
+        if ui.selectable_label(*view_mode == 0, "Unequipped").clicked() { *view_mode = 0; }
+        if ui.selectable_label(*view_mode == 1, "Equipped").clicked() { *view_mode = 1; }
+        if ui.selectable_label(*view_mode == 2, "All").clicked() { *view_mode = 2; }
+    });
+    let view = *view_mode;
+
+    // --- Collect equipped items across town NPCs (for Equipped/All views) ---
+    struct EquippedEntry {
+        owner: String,
+        entity: Entity,
+        item: crate::constants::LootItem,
+        ring_index: u8,
+    }
+    let mut equipped_entries: Vec<EquippedEntry> = Vec::new();
+    if view >= 1 {
+        for (entity, equip, job, tid, gpu_slot) in inv.equipment_q.iter() {
+            if tid.0 != town_idx as i32 { continue; }
+            let def = npc_def(*job);
+            if def.equip_slots.is_empty() { continue; }
+            let name = meta_cache.0.get(gpu_slot.0)
+                .map(|m| m.name.as_str())
+                .unwrap_or("NPC");
+            let owner = format!("{} ({:?})", name, job);
+            for item in equip.all_items() {
+                let ring_index = if item.slot == EquipmentSlot::Ring {
+                    if equip.ring2.as_ref().map(|r| r.id) == Some(item.id) { 1 } else { 0 }
+                } else { 0 };
+                equipped_entries.push(EquippedEntry { owner: owner.clone(), entity, item, ring_index });
+            }
+        }
+    }
+
+    // --- Unequipped items ---
+    let show_unequipped = view == 0 || view == 2;
+
+    if show_unequipped {
+        // Bulk sell Common — must happen before borrowing items slice
+        {
+            let common_count = inv.town_inventory.items.get(town_idx).map(|v| v.iter().filter(|it| it.rarity == Rarity::Common).count()).unwrap_or(0);
+            if common_count > 0 {
+                let total_gold: i32 = common_count as i32 * (Rarity::Common.gold_cost() / 2);
+                if ui
+                    .button(format!(
+                        "Sell All Common ({} items, +{}g)",
+                        common_count, total_gold
+                    ))
+                    .clicked()
+                {
+                    let common_ids: Vec<u64> = inv.town_inventory.items.get(town_idx)
+                        .map(|v| v.iter().filter(|it| it.rarity == Rarity::Common).map(|it| it.id).collect())
+                        .unwrap_or_default();
+                    for id in common_ids {
+                        if inv.town_inventory.remove(town_idx, id).is_some() {
+                            if let Some(g) = gold_storage.gold.get_mut(town_idx) {
+                                *g += Rarity::Common.gold_cost() / 2;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let items = inv
         .town_inventory
         .items
@@ -3360,21 +3444,38 @@ fn inventory_content(
         .map(|v| v.as_slice())
         .unwrap_or(&[]);
 
-    ui.label(
-        egui::RichText::new(format!("Town Inventory ({} items)", items.len()))
-            .strong()
-            .size(14.0),
-    );
+    // Header with counts
+    let unequipped_count = items.len();
+    let equipped_count = equipped_entries.len();
+    match view {
+        0 => ui.label(egui::RichText::new(format!("Unequipped ({} items)", unequipped_count)).strong().size(14.0)),
+        1 => ui.label(egui::RichText::new(format!("Equipped ({} items)", equipped_count)).strong().size(14.0)),
+        _ => ui.label(egui::RichText::new(format!("All ({} equipped, {} unequipped)", equipped_count, unequipped_count)).strong().size(14.0)),
+    };
 
-    if items.is_empty() {
-        ui.label("No unequipped items. Defeat raiders to collect loot.");
-        return;
-    }
+    // Slot filter buttons with counts (count from visible items)
+    let filter = &mut ui_state.inv_slot_filter;
+    ui.horizontal_wrapped(|ui| {
+        for (i, &slot) in ALL_EQUIPMENT_SLOTS.iter().enumerate() {
+            let bit = 1u16 << i;
+            let enabled = *filter & bit != 0;
+            let mut count = 0usize;
+            if show_unequipped { count += items.iter().filter(|it| it.slot == slot).count(); }
+            if view >= 1 { count += equipped_entries.iter().filter(|e| e.item.slot == slot).count(); }
+            // Deduplicate for All mode — equipped already counted separately
+            if view == 2 { count = items.iter().filter(|it| it.slot == slot).count() + equipped_entries.iter().filter(|e| e.item.slot == slot).count(); }
+            let label = format!("{} ({})", slot_label(slot), count);
+            if ui.selectable_label(enabled, label).clicked() {
+                *filter ^= bit;
+            }
+        }
+    });
+    let filter_val = *filter;
 
-    // Can equip if a valid military NPC from player town is selected
+    // Can equip if a valid military NPC from this town is selected
     let npc_entity = if sel >= 0 {
         entity_map.get_npc(sel as usize).and_then(|npc| {
-            inv.equipment_q.get(npc.entity).ok().and_then(|(_, job, tid)| {
+            inv.equipment_q.get(npc.entity).ok().and_then(|(_, _, job, tid, _)| {
                 let def = npc_def(*job);
                 if tid.0 == town_idx as i32 && !def.equip_slots.is_empty() {
                     Some(npc.entity)
@@ -3387,32 +3488,142 @@ fn inventory_content(
         None
     };
 
+    let slot_passes_filter = |slot: EquipmentSlot| -> bool {
+        let idx = ALL_EQUIPMENT_SLOTS.iter().position(|&s| s == slot).unwrap_or(0);
+        filter_val & (1u16 << idx) != 0
+    };
+
+    // Check if there's anything to show
+    let has_unequipped = show_unequipped && items.iter().any(|it| slot_passes_filter(it.slot));
+    let has_equipped = view >= 1 && equipped_entries.iter().any(|e| slot_passes_filter(e.item.slot));
+    if !has_unequipped && !has_equipped {
+        ui.label("No items to show.");
+        return;
+    }
+
     egui::ScrollArea::vertical()
         .max_height(400.0)
         .show(ui, |ui| {
-            for item in items {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(&item.name)
-                            .color(rarity_color(item.rarity)),
-                    );
-                    ui.label(format!(
-                        "{} +{:.0}%",
-                        slot_label(item.slot),
-                        item.stat_bonus * 100.0
-                    ));
-                    if let Some(ent) = npc_entity {
-                        if ui.small_button("Equip").clicked() {
-                            inv.equip_writer.write(
-                                crate::systems::stats::EquipItemMsg {
-                                    npc_entity: ent,
-                                    item_id: item.id,
-                                    town_idx,
+            // Show equipped items
+            if view >= 1 {
+                // Sort equipped entries
+                equipped_entries.sort_by(|a, b| {
+                    let sa = ALL_EQUIPMENT_SLOTS.iter().position(|&s| s == a.item.slot).unwrap_or(0);
+                    let sb = ALL_EQUIPMENT_SLOTS.iter().position(|&s| s == b.item.slot).unwrap_or(0);
+                    sa.cmp(&sb)
+                        .then(rarity_ord(b.item.rarity).cmp(&rarity_ord(a.item.rarity)))
+                        .then(b.item.stat_bonus.partial_cmp(&a.item.stat_bonus).unwrap_or(std::cmp::Ordering::Equal))
+                });
+                for entry in &equipped_entries {
+                    if !slot_passes_filter(entry.item.slot) { continue; }
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(&entry.item.name)
+                                .color(rarity_color(entry.item.rarity)),
+                        );
+                        ui.label(format!(
+                            "{} +{:.0}%",
+                            slot_label(entry.item.slot),
+                            entry.item.stat_bonus * 100.0,
+                        ));
+                        ui.label(
+                            egui::RichText::new(&entry.owner)
+                                .color(egui::Color32::from_rgb(150, 150, 150))
+                                .small(),
+                        );
+                        if ui.small_button("Unequip").clicked() {
+                            inv.unequip_writer.write(
+                                crate::systems::stats::UnequipItemMsg {
+                                    npc_entity: entry.entity,
+                                    slot: entry.item.slot,
+                                    ring_index: entry.ring_index,
                                 },
                             );
                         }
-                    }
+                    });
+                }
+                if show_unequipped && has_unequipped && has_equipped {
+                    ui.separator();
+                }
+            }
+
+            // Show unequipped items
+            if show_unequipped {
+                let mut sorted: Vec<&crate::constants::LootItem> = items
+                    .iter()
+                    .filter(|it| slot_passes_filter(it.slot))
+                    .collect();
+                sorted.sort_by(|a, b| {
+                    let slot_a = ALL_EQUIPMENT_SLOTS.iter().position(|&s| s == a.slot).unwrap_or(0);
+                    let slot_b = ALL_EQUIPMENT_SLOTS.iter().position(|&s| s == b.slot).unwrap_or(0);
+                    slot_a.cmp(&slot_b)
+                        .then(rarity_ord(b.rarity).cmp(&rarity_ord(a.rarity)))
+                        .then(b.stat_bonus.partial_cmp(&a.stat_bonus).unwrap_or(std::cmp::Ordering::Equal))
                 });
+                for item in &sorted {
+                    let resp = ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(&item.name)
+                                .color(rarity_color(item.rarity)),
+                        );
+                        ui.label(format!(
+                            "{} +{:.0}%",
+                            slot_label(item.slot),
+                            item.stat_bonus * 100.0
+                        ));
+                        if view == 2 {
+                            ui.label(
+                                egui::RichText::new("[Unequipped]")
+                                    .color(egui::Color32::from_rgb(120, 120, 120))
+                                    .small(),
+                            );
+                        }
+                        if let Some(ent) = npc_entity {
+                            if ui.small_button("Equip").clicked() {
+                                inv.equip_writer.write(
+                                    crate::systems::stats::EquipItemMsg {
+                                        npc_entity: ent,
+                                        item_id: item.id,
+                                        town_idx,
+                                    },
+                                );
+                            }
+                        }
+                    }).response;
+
+                    // Comparison tooltip when NPC is selected
+                    if let Some(equip) = selected_equip {
+                        if resp.hovered() {
+                            let current = match item.slot {
+                                EquipmentSlot::Ring => {
+                                    let b1 = equip.ring1.as_ref().map(|i| i.stat_bonus).unwrap_or(0.0);
+                                    let b2 = equip.ring2.as_ref().map(|i| i.stat_bonus).unwrap_or(0.0);
+                                    b1.min(b2)
+                                }
+                                _ => equip.slot(item.slot).as_ref().map(|i| i.stat_bonus).unwrap_or(0.0),
+                            };
+                            let diff = item.stat_bonus - current;
+                            let arrow = if diff > 0.0 { "▲" } else if diff < 0.0 { "▼" } else { "=" };
+                            resp.show_tooltip_text(format!(
+                                "Current: +{:.0}% → New: +{:.0}% ({}{:.0}%)",
+                                current * 100.0,
+                                item.stat_bonus * 100.0,
+                                arrow,
+                                diff * 100.0,
+                            ));
+                        }
+                    }
+                }
             }
         });
+}
+
+/// Rarity sort order (higher = rarer).
+fn rarity_ord(r: Rarity) -> u8 {
+    match r {
+        Rarity::Common => 0,
+        Rarity::Uncommon => 1,
+        Rarity::Rare => 2,
+        Rarity::Epic => 3,
+    }
 }

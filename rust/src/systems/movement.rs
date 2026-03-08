@@ -8,14 +8,14 @@ use std::time::Instant;
 use bevy::prelude::*;
 
 use crate::components::*;
-use crate::constants::ARRIVAL_THRESHOLD;
+use crate::constants::{ARRIVAL_THRESHOLD, INTERMEDIATE_ARRIVAL_THRESHOLD, PATH_SPREAD_COST, PATH_SPREAD_RADIUS};
 use crate::gpu::EntityGpuState;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::resources::{
     GameTime, GpuReadState, NpcTargetThrashDebug, PathRequest,
     PathRequestQueue, PathSource, PathfindConfig, PathfindStats,
 };
-use crate::systems::pathfinding::{line_of_sight, pathfind_on_grid};
+use crate::systems::pathfinding::{accumulate_path_cost, line_of_sight, pathfind_with_costs};
 use crate::world::WorldGrid;
 
 /// Read positions from GPU readback buffer → ECS Position + arrival detection.
@@ -24,13 +24,14 @@ use crate::world::WorldGrid;
 pub fn gpu_position_readback(
     gpu_state: Res<GpuReadState>,
     buffer_writes: Res<EntityGpuState>,
-    mut npc_q: Query<(&GpuSlot, &mut Position, &Activity, &mut NpcFlags)>,
+    mut npc_q: Query<(&GpuSlot, &mut Position, &Activity, &mut NpcFlags, &NpcPath)>,
 ) {
     let positions = &gpu_state.positions;
     let targets = &buffer_writes.targets;
     let threshold_sq = ARRIVAL_THRESHOLD * ARRIVAL_THRESHOLD;
+    let intermediate_sq = INTERMEDIATE_ARRIVAL_THRESHOLD * INTERMEDIATE_ARRIVAL_THRESHOLD;
 
-    for (es, mut pos, activity, mut flags) in npc_q.iter_mut() {
+    for (es, mut pos, activity, mut flags, path) in npc_q.iter_mut() {
         let i = es.0;
         if i * 2 + 1 >= positions.len() {
             continue;
@@ -53,7 +54,12 @@ pub fn gpu_position_readback(
                 let goal_y = targets[i * 2 + 1];
                 let dx = gpu_x - goal_x;
                 let dy = gpu_y - goal_y;
-                if dx * dx + dy * dy <= threshold_sq {
+                let dist_sq = dx * dx + dy * dy;
+                // Relaxed threshold for intermediate waypoints — prevents pile-up
+                // when boid separation pushes NPCs away from shared A* waypoints
+                let is_intermediate = path.current + 1 < path.waypoints.len();
+                let thresh_sq = if is_intermediate { intermediate_sq } else { threshold_sq };
+                if dist_sq <= thresh_sq {
                     flags.at_destination = true;
                 }
             }
@@ -239,6 +245,10 @@ pub fn resolve_movement_system(
     let mut budget_reason: &'static str = "count";
     let mut consumed = 0usize;
 
+    // Path cost accumulation: clone the cost grid so each successive A* call
+    // sees inflated costs along previously-found paths, spreading routes apart.
+    let mut accum_costs = grid.pathfind_costs.clone();
+
     for (i, req) in batch.iter().enumerate() {
         consumed = i + 1;
         if processed > 0 && start_time.elapsed() >= time_budget {
@@ -274,12 +284,21 @@ pub fn resolve_movement_system(
             continue;
         }
 
-        // Full A* pathfinding
+        // Full A* pathfinding (using accumulated costs for route spreading)
         astar_calls += 1;
-        if let Some(path_points) = pathfind_on_grid(&grid, req.start, req.goal, config.max_nodes) {
+        if let Some(path_points) = pathfind_with_costs(
+            &accum_costs, grid.width, grid.height,
+            req.start, req.goal, config.max_nodes,
+        ) {
             if path_points.len() < 2 {
                 continue;
             }
+
+            // Inflate costs along this path so subsequent paths spread to different routes
+            accumulate_path_cost(
+                &mut accum_costs, grid.width, grid.height,
+                &path_points, PATH_SPREAD_RADIUS, PATH_SPREAD_COST,
+            );
 
             let first_wp = path_points[1];
             let world_pos = grid.grid_to_world(first_wp.x as usize, first_wp.y as usize);
@@ -433,6 +452,7 @@ mod tests {
             Position { x: 0.0, y: 0.0 },
             Activity::Idle,
             NpcFlags::default(),
+            NpcPath::default(),
         ));
         app.update();
         let pos = app.world_mut().query::<&Position>().single(app.world()).unwrap();
@@ -450,6 +470,7 @@ mod tests {
             Position { x: 5.0, y: 5.0 },
             Activity::Idle,
             NpcFlags::default(),
+            NpcPath::default(),
         ));
         app.update();
         let pos = app.world_mut().query::<&Position>().single(app.world()).unwrap();
@@ -467,6 +488,7 @@ mod tests {
             Position { x: 0.0, y: 0.0 },
             Activity::GoingToWork,
             NpcFlags::default(),
+            NpcPath::default(),
         ));
         app.update();
         let flags = app.world_mut().query::<&NpcFlags>().single(app.world()).unwrap();

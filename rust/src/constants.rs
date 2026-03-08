@@ -608,6 +608,14 @@ pub const TOWN_NONE: u32 = u32::MAX;
 
 /// Distance from target at which an NPC is considered "arrived".
 pub const ARRIVAL_THRESHOLD: f32 = 40.0;
+/// Relaxed arrival threshold for intermediate A* waypoints (not final destination).
+/// Prevents pile-up when boid separation pushes NPCs away from shared waypoints.
+pub const INTERMEDIATE_ARRIVAL_THRESHOLD: f32 = 96.0;
+
+/// Cells around each A* path cell that receive extra cost during batch accumulation (1 = 3×3 area).
+pub const PATH_SPREAD_RADIUS: i32 = 1;
+/// Cost added per affected cell during path accumulation. Grass=100, so +100 doubles traversal cost.
+pub const PATH_SPREAD_COST: u16 = 100;
 
 /// Floats per NPC instance in the MultiMesh buffer.
 /// Transform2D (8) + Color (4) + CustomData (4) = 16

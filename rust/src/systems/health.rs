@@ -477,7 +477,7 @@ pub fn death_system(
     // Phase 2b: Process dead NPCs (immediate — same frame as marking)
     for &slot in &dead_npc_slots {
         // Extract dead NPC data (immutable borrow ends before killer mutation)
-        let (entity, faction, town_idx, job, activity, worksite_uid, last_hit_by, dead_carried_equip) = {
+        let (entity, faction, town_idx, job, activity, worksite_uid, last_hit_by, dead_carried_equip, dead_equipped_items) = {
             let Some(npc) = res.entity_map.get_npc(slot) else {
                 continue;
             };
@@ -497,6 +497,11 @@ pub fn death_system(
                 .get(npc.entity)
                 .map(|cl| cl.equipment.clone())
                 .unwrap_or_default();
+            let equipped: Vec<crate::constants::LootItem> = res
+                .equipment_q
+                .get(npc.entity)
+                .map(|eq| eq.all_items().collect())
+                .unwrap_or_default();
             (
                 npc.entity,
                 npc.faction,
@@ -506,6 +511,7 @@ pub fn death_system(
                 ws_uid,
                 lhb,
                 carried_equip,
+                equipped,
             )
         };
 
@@ -708,6 +714,16 @@ pub fn death_system(
                         }
                     }
                 }
+
+                // Transfer victim's equipped items (50% per item)
+                for eq_item in dead_equipped_items.iter() {
+                    let transfer_roll = (eq_item.id.wrapping_mul(2654435761).wrapping_add(7) % 100) as f32;
+                    if transfer_roll < 50.0 {
+                        if let Ok(mut cl) = res.carried_loot_q.get_mut(k_entity) {
+                            cl.equipment.push(eq_item.clone());
+                        }
+                    }
+                }
             } else if res
                 .entity_map
                 .get_instance(killer_slot)
@@ -816,6 +832,14 @@ pub fn death_system(
                     let transfer_roll = (carried_item.id.wrapping_mul(2654435761) % 100) as f32;
                     if transfer_roll < 50.0 {
                         res.town_inventory.add(tower_town, carried_item.clone());
+                    }
+                }
+
+                // Victim's equipped items → TownInventory (50% per item)
+                for eq_item in dead_equipped_items.iter() {
+                    let transfer_roll = (eq_item.id.wrapping_mul(2654435761).wrapping_add(7) % 100) as f32;
+                    if transfer_roll < 50.0 {
+                        res.town_inventory.add(tower_town, eq_item.clone());
                     }
                 }
             }

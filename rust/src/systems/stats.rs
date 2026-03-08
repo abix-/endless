@@ -1196,6 +1196,90 @@ pub fn auto_tower_upgrade_system(
 }
 
 // ============================================================================
+// AUTO-EQUIP SYSTEM
+// ============================================================================
+
+/// Once per game hour, auto-equip items from TownInventory onto NPCs.
+/// Picks the NPC with the lowest bonus in the matching slot (or empty slot first).
+pub fn auto_equip_system(
+    game_time: Res<crate::resources::GameTime>,
+    town_inventory: Res<crate::resources::TownInventory>,
+    equipment_q: Query<
+        (Entity, &crate::components::NpcEquipment, &Job, &crate::components::TownId),
+        (Without<crate::components::Building>, Without<crate::components::Dead>),
+    >,
+    mut equip_writer: MessageWriter<EquipItemMsg>,
+) {
+    if !game_time.hour_ticked {
+        return;
+    }
+
+    for (town_idx, items) in town_inventory.items.iter().enumerate() {
+        if items.is_empty() {
+            continue;
+        }
+
+        // Collect military NPCs in this town
+        let town_npcs: Vec<_> = equipment_q
+            .iter()
+            .filter(|(_, _, _, tid)| tid.0 == town_idx as i32)
+            .collect();
+
+        // Track items we've already queued for equip this cycle (avoid double-assign)
+        let mut assigned_items: Vec<u64> = Vec::new();
+
+        for item in items {
+            if assigned_items.contains(&item.id) {
+                continue;
+            }
+
+            let slot = item.slot;
+
+            // Find best NPC candidate: empty slot first, then biggest upgrade margin
+            let mut best: Option<(Entity, f32)> = None; // (entity, current_bonus)
+
+            for &(entity, ref equip, job, _) in &town_npcs {
+                let def = crate::constants::npc_def(*job);
+                if !def.equip_slots.contains(&slot) {
+                    continue;
+                }
+
+                // Get current bonus in this slot
+                use crate::constants::EquipmentSlot;
+                let current_bonus = match slot {
+                    EquipmentSlot::Ring => {
+                        // For rings, check both slots — use the lower one
+                        let b1 = equip.ring1.as_ref().map(|i| i.stat_bonus).unwrap_or(0.0);
+                        let b2 = equip.ring2.as_ref().map(|i| i.stat_bonus).unwrap_or(0.0);
+                        b1.min(b2)
+                    }
+                    _ => equip.slot(slot).as_ref().map(|i| i.stat_bonus).unwrap_or(0.0),
+                };
+
+                // Must be a strict upgrade
+                if item.stat_bonus <= current_bonus {
+                    continue;
+                }
+
+                // Prefer NPC with lowest current bonus (distribute gear evenly)
+                if best.is_none() || current_bonus < best.unwrap().1 {
+                    best = Some((entity, current_bonus));
+                }
+            }
+
+            if let Some((entity, _)) = best {
+                equip_writer.write(EquipItemMsg {
+                    npc_entity: entity,
+                    item_id: item.id,
+                    town_idx,
+                });
+                assigned_items.push(item.id);
+            }
+        }
+    }
+}
+
+// ============================================================================
 // XP grant + NPC kill loot logic moved to unified death_system (health.rs)
 
 // ============================================================================

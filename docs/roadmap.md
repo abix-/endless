@@ -73,20 +73,17 @@ Remaining:
 
 Design: no loot bags on the ground. Kill → loot goes directly into killer's `CarriedLoot` component → NPC keeps fighting → carry threshold triggers return home → deposit food/gold to storage + equipment to `TownInventory` → player equips via UI → stat bonus + sprite change.
 
-All 6 chunks complete (see [completed.md](completed.md)): unified CarriedLoot, LootItem/Rarity/EquipmentSlot types, equipment drops + carry accumulation, NpcEquipment (9 D2 slots) + stat integration, Inventory UI tab (I key), Merchant building (buy/sell/reroll), save/load persistence + loot-cycle test.
+All 6 chunks complete (see [completed.md](completed.md)): unified CarriedLoot, LootItem/Rarity/EquipmentSlot types, equipment drops + carry accumulation, NpcEquipment (9 D2 slots) + stat integration, Inventory UI tab (I key), Merchant building (buy/sell/reroll), save/load persistence + loot-cycle test. Additional: auto-equip system (hourly, distributes items to best NPC), equipment drops on death (50% per item to killer), inventory UI overhaul (Equipped/Unequipped/All views, slot filters, sorting, bulk sell common, comparison tooltips, multi-town support).
 
 **Stage 19: Pathfinding**
 
 *Done when: NPCs navigate around obstacles using A\* or flow fields instead of pure boids steering. Raiders path around walls to find openings. Placing a building that would fully block access is rejected.*
 
-- [ ] A* or flow field pathfinding on the world grid
-- [ ] Terrain movement costs — biome affects GPU movement speed via existing `tile_flags` pattern:
-  - Cost table: Grass/Dirt=1.0x (base), Road=1.5x (already done), Forest=0.7x, Rock+Water=impassable (pathfinding cost 0, building blocked)
-  - GPU shader (`npc_compute.wgsl`): after the existing `TILE_ROAD` speed check (~line 169), add `TILE_FOREST`/`TILE_ROCK` branches that multiply `speed` by 0.7/0.5. `TILE_WATER` blocks entry (same wall-collision pattern as `TILE_WALL`)
-  - Tile flag constants already exist in `constants.rs`: `TILE_GRASS=1, TILE_FOREST=2, TILE_WATER=4, TILE_ROCK=8, TILE_DIRT=16`
-  - `populate_tile_flags()` in `gpu.rs` already writes biome → flag bits per cell — no Rust-side changes needed for the flag data
-  - A* cost function should use the same multipliers so pathfinding agrees with GPU movement
-- [ ] NPC pathfinding integration: raiders route around walls, all NPCs use paths for long-distance navigation
+- [x] A* pathfinding on the world grid (pathfinding.rs, movement.rs)
+- [x] Terrain movement costs — Grass/Dirt=100, Forest=143, Rock=500, Water=800 (high but passable so NPCs can escape if pushed by physics). Road speed multiplier applied separately in GPU shader.
+- [x] NPC pathfinding integration: all NPCs use A* paths for long-distance navigation with LOS bypass for short distances
+- [x] Route spreading: successive A* calls inflate costs along found paths (PATH_SPREAD_COST=100, PATH_SPREAD_RADIUS=1) to spread NPC routes apart
+- [x] Intermediate waypoint relaxed threshold (96px vs 40px for final destination) prevents pile-up from boid separation
 - [ ] Path recalculation on building place/remove (incremental update, not full rebuild)
 - [ ] Path validation: reject building placements that fully block access to critical locations
 

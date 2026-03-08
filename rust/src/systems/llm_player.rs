@@ -116,6 +116,18 @@ fn build_state_json(read: &LlmReadState, write: &mut LlmWriteState, town_idx: us
         .map(|t| t.faction)
         .unwrap_or(0);
 
+    // Per-town alive/dead counts from PopulationStats (keyed by (job_id, town_id))
+    let town_count = read.world_data.towns.len();
+    let mut town_alive = vec![0i32; town_count];
+    let mut town_dead = vec![0i32; town_count];
+    for (&(_job_id, town_id), stats) in &read.pop_stats.0 {
+        let ti = town_id as usize;
+        if ti < town_count {
+            town_alive[ti] += stats.alive;
+            town_dead[ti] += stats.dead;
+        }
+    }
+
     // Flat per-town fields so TOON uses tabular CSV format (no repeated field names)
     let mut towns = Vec::new();
     for (ti, town) in read.world_data.towns.iter().enumerate() {
@@ -155,6 +167,8 @@ fn build_state_json(read: &LlmReadState, write: &mut LlmWriteState, town_idx: us
             "gold": read.gold.gold.get(ti).copied().unwrap_or(0),
             "buildings": buildings_str,
             "squads": squad_count,
+            "alive": town_alive.get(ti).copied().unwrap_or(0),
+            "dead": town_dead.get(ti).copied().unwrap_or(0),
         }));
     }
 
@@ -359,7 +373,7 @@ pub fn llm_player_system(
     state.timer.set_duration(std::time::Duration::from_secs_f32(settings.llm_interval));
 
     // Freeze everything when paused — don't poll, execute, or tick timer
-    if read.game_time.paused {
+    if read.game_time.is_paused() {
         return;
     }
 
@@ -498,13 +512,19 @@ fn execute_actions(
     write: &mut LlmWriteState,
     state: &mut LlmPlayerState,
 ) {
-    let faction = crate::constants::FACTION_NEUTRAL;
+    let faction = read.world_data.towns.get(town)
+        .map(|t| t.faction)
+        .unwrap_or(crate::constants::FACTION_NEUTRAL);
+    let town_name = read.world_data.towns.get(town)
+        .map(|t| t.name.as_str())
+        .unwrap_or("AI");
     let day = read.game_time.day();
     let hour = read.game_time.hour();
     let minute = read.game_time.minute();
     let center = read.world_data.towns.get(town)
         .map(|t| t.center)
         .unwrap_or_default();
+    let mut commentary: Vec<String> = Vec::new();
 
     for action in actions {
         let p = &action.params;
@@ -525,8 +545,9 @@ fn execute_actions(
                             _ => {}
                         }
                     }
+                    let changes: Vec<String> = p.iter().map(|(k, v)| format!("{k}={v}")).collect();
                     write.combat_log.push_at(CombatEventKind::Llm, faction, day, hour, minute,
-                        format!("[llm] policy: {:?}", p), Some(center));
+                        format!("[{}] set policy: {}", town_name, changes.join(", ")), Some(center));
                 }
             }
             "build" => {
@@ -534,12 +555,13 @@ fn execute_actions(
                 let col = p.get("col").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
                 let row = p.get("row").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
                 if let Some(kind) = crate::systems::remote::parse_building_kind(kind_str) {
+                    let label = crate::constants::building_def(kind).label;
                     write.build_q.0.push(crate::systems::remote::RemoteBuild {
                         town, kind, col, row,
                     });
                     let pos = read.world_grid.grid_to_world(col, row);
                     write.combat_log.push_at(CombatEventKind::Llm, faction, day, hour, minute,
-                        format!("[llm] build {} at ({},{})", kind_str, col, row), Some(pos));
+                        format!("[{}] built {}", town_name, label), Some(pos));
                 }
             }
             "destroy" => {
@@ -547,16 +569,22 @@ fn execute_actions(
                 let row = p.get("row").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
                 write.destroy_q.0.push(crate::systems::remote::RemoteDestroy { town, col, row });
                 let pos = read.world_grid.grid_to_world(col, row);
+                let bld_label = read.entity_map.get_at_grid(col as i32, row as i32)
+                    .map(|inst| crate::constants::building_def(inst.kind).label)
+                    .unwrap_or("building");
                 write.combat_log.push_at(CombatEventKind::Llm, faction, day, hour, minute,
-                    format!("[llm] destroy at ({},{})", col, row), Some(pos));
+                    format!("[{}] destroyed {}", town_name, bld_label), Some(pos));
             }
             "upgrade" => {
                 let idx = p.get("upgrade_idx").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
+                let upgrade_name = crate::systems::stats::UPGRADES.nodes.get(idx)
+                    .map(|n| n.label)
+                    .unwrap_or("unknown");
                 write.upgrade_q.0.push(crate::systems::remote::RemoteUpgrade {
                     town, upgrade_idx: idx,
                 });
                 write.combat_log.push_at(CombatEventKind::Llm, faction, day, hour, minute,
-                    format!("[llm] upgrade idx {}", idx), Some(center));
+                    format!("[{}] upgraded {}", town_name, upgrade_name), Some(center));
             }
             "squad_target" => {
                 let squad_idx = p.get("squad").and_then(|s| s.parse::<usize>().ok());
@@ -571,14 +599,17 @@ fn execute_actions(
                         let target = bevy::math::Vec2::new(x, y);
                         write.squad_state.squads[si].target = Some(target);
                         write.combat_log.push_at(CombatEventKind::Llm, faction, day, hour, minute,
-                            format!("[llm] squad_target squad={} x={} y={}", si, x, y), Some(target));
+                            format!("[{}] sent squad {} to attack", town_name, si), Some(target));
                     }
                 }
             }
             "chat" => {
                 let to = p.get("to").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
                 let message = p.get("message").cloned().unwrap_or_default();
-                if !message.is_empty() {
+                let is_confidence_rating = message.trim().len() <= 5
+                    && message.contains('/')
+                    && message.trim().chars().all(|c| c.is_ascii_digit() || c == '/');
+                if !message.is_empty() && !is_confidence_rating {
                     write.chat_inbox.push(ChatMessage {
                         from_town: town,
                         to_town: to,
@@ -618,8 +649,21 @@ fn execute_actions(
                     format!("[llm] unsubscribed, remaining: {:?}", state.subscriptions));
             }
             other => {
-                warn!("[LLM] Unknown action: {other}");
+                // Non-action lines are LLM commentary/reasoning — collect for display
+                let line = action.params.values().next()
+                    .map(|v| format!("{other}, {v}"))
+                    .unwrap_or_else(|| other.to_string());
+                if !line.starts_with("ERR") {
+                    commentary.push(line);
+                }
             }
         }
+    }
+    // Surface LLM reasoning as a single combat log entry
+    if !commentary.is_empty() {
+        let text = commentary.join(" | ");
+        let text = if text.len() > 200 { format!("{}...", &text[..197]) } else { text };
+        write.combat_log.push_at(CombatEventKind::Llm, faction, day, hour, minute,
+            format!("[{}] {}", town_name, text), Some(center));
     }
 }

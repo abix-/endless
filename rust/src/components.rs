@@ -556,6 +556,17 @@ impl NpcEquipment {
     pub fn total_stamina_bonus(&self) -> f32 {
         Self::item_bonus(&self.belt)
     }
+
+    /// Iterate all equipped items (cloned) for death-drop transfer.
+    pub fn all_items(&self) -> impl Iterator<Item = crate::constants::LootItem> + '_ {
+        [
+            &self.helm, &self.armor, &self.weapon, &self.shield,
+            &self.gloves, &self.boots, &self.belt, &self.amulet,
+            &self.ring1, &self.ring2,
+        ]
+        .into_iter()
+        .filter_map(|slot| slot.clone())
+    }
 }
 
 /// Tracks the NPC/building slot of the last attacker (for XP on kill).
