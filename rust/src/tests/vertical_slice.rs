@@ -26,7 +26,7 @@ pub fn setup(mut params: TestSetupParams) {
     params.world_data.towns.push(world::Town {
         name: "Raiders".into(),
         center: Vec2::new(384.0, 128.0),
-        faction: 1,
+        faction: 2,
         sprite_type: 1,
     area_level: 0,
     });

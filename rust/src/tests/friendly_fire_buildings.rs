@@ -42,19 +42,19 @@ pub fn setup(
     world_data.towns.push(world::Town {
         name: "Blue".into(),
         center: Vec2::new(384.0, 384.0),
-        faction: 0,
+        faction: 1,
         sprite_type: 0,
     area_level: 0,
     });
     world_data.towns.push(world::Town {
         name: "Red".into(),
         center: Vec2::new(768.0, 320.0),
-        faction: 1,
+        faction: 2,
         sprite_type: 1,
     area_level: 0,
     });
     food_storage.init(2);
-    faction_stats.init(2);
+    faction_stats.init(3);
 
     // Friendly vertical farm wall in projectile lane.
     for y in FARM_WALL_Y {
@@ -65,14 +65,14 @@ pub fn setup(
         );
     }
 
-    // Shooter (faction 0, ranged).
+    // Shooter (faction 1, ranged).
     let shooter = slot_alloc.alloc_reset().expect("slot alloc");
     spawn_events.write(SpawnNpcMsg {
         slot_idx: shooter,
         x: 448.0,
         y: 320.0,
         job: 3, // fighter
-        faction: 0,
+        faction: 1,
         town_idx: 0,
         home_x: 384.0,
         home_y: 384.0,
@@ -83,14 +83,14 @@ pub fn setup(
         uid_override: None,
     });
 
-    // Target dummy (faction 1, melee) so only one side shoots.
+    // Target dummy (faction 2, melee) so only one side shoots.
     let target = slot_alloc.alloc_reset().expect("slot alloc");
     spawn_events.write(SpawnNpcMsg {
         slot_idx: target,
         x: TARGET_X,
         y: TARGET_Y,
         job: 0, // farmer (not dedicated ranged combat)
-        faction: 1,
+        faction: 2,
         town_idx: 1,
         home_x: 768.0,
         home_y: 320.0,

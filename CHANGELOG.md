@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-03-08g
+
+- **spawner_respawn O(n²) fix** — two-part fix: (1) `spawner_slots: Vec<usize>` index on EntityMap for O(spawners) collection instead of O(all_buildings) scan, (2) `find_nearest_free()` now uses kind-filtered spatial search (`for_each_nearby_kind_town`/`for_each_nearby_kind`) instead of generic `for_each_nearby` that scanned all building types. 2K spawners: 88ms → 75µs (1,176× faster).
+- **Faction test fixes** — test helpers use `FACTION_PLAYER` constant and `faction_stats.init(town_count + 1)` to match faction system refactor.
+
 ## 2026-03-08f
 
 - **Expanded system benchmarks** — added 5 new Criterion benchmarks: `resolve_movement` (budget-capped A*), `building_tower` (tower targeting by tower count), `death_system` (deaths/frame), `spawner_respawn` (spawner building count), `populate_gpu_state` (GPU message throughput). Total: 9 benchmarked systems.

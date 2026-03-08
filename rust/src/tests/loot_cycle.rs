@@ -30,12 +30,12 @@ pub fn setup(
         squad.hold_fire = false;
     }
 
-    // Two towns: player (faction 0) + raider (faction 1)
+    // Two towns: player (faction 1) + raider (faction 2)
     params.add_town("LootTown");
     params.world_data.towns.push(crate::world::Town {
         name: "RaiderCamp".into(),
         center: Vec2::new(384.0, 128.0),
-        faction: 1,
+        faction: 2,
         sprite_type: 1,
     area_level: 0,
     });
@@ -50,14 +50,14 @@ pub fn setup(
     town_inventory.init(2);
     next_loot_id.next = 1;
 
-    // Spawn 1 strong archer (faction 0) — will kill the raider
+    // Spawn 1 strong archer (faction 1) — will kill the raider
     let archer_slot = params.slot_alloc.alloc_reset().expect("slot alloc");
     params.spawn_events.write(crate::messages::SpawnNpcMsg {
         slot_idx: archer_slot,
         x: 384.0,
         y: 320.0,
         job: 1, // Archer
-        faction: 0,
+        faction: 1,
         town_idx: 0,
         home_x: 384.0,
         home_y: 384.0,
@@ -77,7 +77,7 @@ pub fn setup(
             x: 384.0 + (i as f32 * 5.0),
             y: 256.0,
             job: 2, // Raider
-            faction: 1,
+            faction: 2,
             town_idx: 1,
             home_x: 384.0,
             home_y: 128.0,

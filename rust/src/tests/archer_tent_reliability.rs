@@ -37,19 +37,19 @@ pub fn setup(
     world_data.towns.push(world::Town {
         name: "Archers".into(),
         center: Vec2::new(384.0, 320.0),
-        faction: 0,
+        faction: 1,
         sprite_type: 0,
     area_level: 0,
     });
     world_data.towns.push(world::Town {
         name: "TentTown".into(),
         center: Vec2::new(576.0, 320.0),
-        faction: 1,
+        faction: 2,
         sprite_type: 1,
     area_level: 0,
     });
     food_storage.init(2);
-    faction_stats.init(2);
+    faction_stats.init(3);
 
     let _home_a = world::place_building(
         &mut slot_alloc, &mut entity_map, &mut uid_alloc, &mut commands, &mut gpu_updates,

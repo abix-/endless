@@ -42,33 +42,33 @@ pub fn setup(
     world_data.towns.push(world::Town {
         name: "Town".into(),
         center: Vec2::new(384.0, 384.0),
-        faction: 0,
+        faction: 1,
         sprite_type: 0,
     area_level: 0,
     });
     world_data.towns.push(world::Town {
         name: "Raider Town".into(),
         center: Vec2::new(384.0, 192.0),
-        faction: 1,
+        faction: 2,
         sprite_type: 1,
     area_level: 0,
     });
     food_storage.init(2);
-    faction_stats.init(2);
+    faction_stats.init(3);
     policies.policies.resize(2, PolicySet::default());
     // Test-scene override: archers flee at 5% HP.
     policies.policies[0].archer_flee_hp = 0.05;
     // Keep combat test focused on fighting (avoid early heal breakoff).
     policies.policies[0].recovery_hp = 0.05;
 
-    // Spawn 1 guard (faction 0) and 1 raider (faction 1) close together.
+    // Spawn 1 guard (faction 1) and 1 raider (faction 2) close together.
     let slot0 = slot_alloc.alloc_reset().expect("slot alloc");
     spawn_events.write(SpawnNpcMsg {
         slot_idx: slot0,
         x: 384.0,
         y: 320.0,
         job: 1,
-        faction: 0,
+        faction: 1,
         town_idx: 0,
         home_x: 384.0,
         home_y: 384.0,
@@ -84,7 +84,7 @@ pub fn setup(
         x: 384.0,
         y: 256.0,
         job: 2,
-        faction: 1,
+        faction: 2,
         town_idx: 1,
         home_x: 384.0,
         home_y: 192.0,

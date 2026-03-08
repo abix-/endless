@@ -22,7 +22,7 @@ pub fn setup(mut params: TestSetupParams) {
         x: 448.0,
         y: 384.0,
         job: 0,
-        faction: 0,
+        faction: 1,
         town_idx: 0,
         home_x: 384.0,
         home_y: 448.0,

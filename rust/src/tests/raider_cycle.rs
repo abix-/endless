@@ -8,13 +8,13 @@ use bevy::prelude::*;
 use super::{TestSetupParams, TestState};
 
 pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>) {
-    // Villager town (faction 0) with farms
+    // Villager town (faction 1) with farms
     params.add_town("FarmVille");
-    // Raider raider town (faction 1)
+    // Raider raider town (faction 2)
     params.world_data.towns.push(crate::world::Town {
         name: "RaiderTown".into(),
         center: Vec2::new(384.0, 128.0),
-        faction: 1,
+        faction: 2,
         sprite_type: 1,
     area_level: 0,
     });
@@ -41,7 +41,7 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
             x: 384.0 + (i as f32 * 20.0),
             y: 128.0,
             job: 2,
-            faction: 1,
+            faction: 2,
             town_idx: 1,
             home_x: 384.0,
             home_y: 128.0,

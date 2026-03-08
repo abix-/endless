@@ -95,7 +95,7 @@ impl TestSetupParams<'_, '_> {
         self.world_data.towns.push(world::Town {
             name: name.into(),
             center: Vec2::new(384.0, 384.0),
-            faction: 0,
+            faction: crate::constants::FACTION_PLAYER,
             sprite_type: 0,
             area_level: 0,
         });
@@ -170,7 +170,7 @@ impl TestSetupParams<'_, '_> {
     /// Init food_storage + faction_stats for N towns.
     pub fn init_economy(&mut self, town_count: usize) {
         self.food_storage.init(town_count);
-        self.faction_stats.init(town_count);
+        self.faction_stats.init(town_count + 1);
     }
 
     /// Alloc a slot and write a SpawnNpcMsg with sensible defaults.
@@ -182,7 +182,7 @@ impl TestSetupParams<'_, '_> {
             x,
             y,
             job,
-            faction: 0,
+            faction: crate::constants::FACTION_PLAYER as i32,
             town_idx: 0,
             home_x,
             home_y,

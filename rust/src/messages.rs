@@ -15,7 +15,7 @@ pub struct SpawnNpcMsg {
     pub x: f32,
     pub y: f32,
     pub job: i32,      // 0=Farmer, 1=Archer, 2=Raider
-    pub faction: i32,  // 0=Villager, 1=Raider
+    pub faction: i32,  // 0=Neutral, 1=Player, 2+=AI
     pub town_idx: i32, // -1 = none
     pub home_x: f32,
     pub home_y: f32,

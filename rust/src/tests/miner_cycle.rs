@@ -28,7 +28,7 @@ pub fn setup(mut params: TestSetupParams, mut gold_storage: ResMut<GoldStorage>)
         x: 384.0,
         y: 384.0,
         job: 4,
-        faction: 0,
+        faction: 1,
         town_idx: 0,
         home_x: 384.0,
         home_y: 384.0,

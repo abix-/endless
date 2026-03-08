@@ -14,7 +14,7 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
     params.world_data.towns.push(crate::world::Town {
         name: "EcoRaider".into(),
         center: Vec2::new(384.0, 128.0),
-        faction: 1,
+        faction: 2,
         sprite_type: 1,
     area_level: 0,
     });
@@ -44,7 +44,7 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
         x: 384.0,
         y: 384.0,
         job: 0,
-        faction: 0,
+        faction: 1,
         town_idx: 0,
         home_x: 384.0,
         home_y: 384.0,

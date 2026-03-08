@@ -83,13 +83,13 @@ game_time_system (every frame)
 
 ### spawner_respawn_system
 - Runs when `game_time.hour_ticked` is true
-- Iterates all `BuildingInstance` entries in `EntityMap` where `respawn_timer > -2.0` (spawner-capable buildings). Spawner fields (`npc_gpu_slot: i32`, `respawn_timer: f32`) live directly on `BuildingInstance` — no separate SpawnerState resource.
+- Iterates `EntityMap.spawner_slots()` pre-built index (maintained on add/remove_instance) instead of scanning all buildings. Spawner fields (`npc_gpu_slot: i32`, `respawn_timer: f32`) live directly on `BuildingInstance` — no separate SpawnerState resource.
 - Sentinel values: `npc_gpu_slot = -1` (no NPC alive), `respawn_timer = -2.0` (non-spawner building), `-1.0` (not respawning), `>= 0.0` (countdown active)
 - If `npc_gpu_slot >= 0` and NPC is dead (not in `EntityMap`): starts 12h respawn timer
 - Timer decrements 1.0 per game hour; on expiry: allocates slot via `SlotAllocator`, emits `SpawnNpcMsg`, logs to `CombatLog`
 - All spawner buildings (world gen and player-built) start with `respawn_timer: 0.0` and `npc_gpu_slot: -1` — the system spawns the first NPC on the next hourly tick. No separate initial spawn function.
 - Tombstoned entries (position.x < -9000) are skipped (building was destroyed)
-- Spawn mapping resolved by `world::resolve_spawner_npc()` (single source of truth, takes `&BuildingInstance`): FarmerHome → Farmer (nearest farm via `find_nearest_free` as hint, no claim at spawn — farmer self-claims via behavior system), ArcherHome → Archer (nearest waypoint via `find_location_within_radius`), FighterHome → Fighter (nearest waypoint via `find_location_within_radius`), Tent → Raider (home = tent position), MinerHome → Miner (assigned mine from `BuildingInstance.assigned_mine` if set, otherwise nearest gold mine via `find_nearest_free`). All types look up faction from `world_data.towns[town_idx].faction`. Note: spawner_respawn_system does **not** pre-claim work slots — farmers self-claim via `find_farmer_farm_target()` in decision_system.
+- Spawn mapping resolved by `world::resolve_spawner_npc()` (single source of truth, takes `&BuildingInstance`): FarmerHome → Farmer (nearest farm via `find_nearest_free` with kind-filtered spatial search as hint, no claim at spawn — farmer self-claims via behavior system), ArcherHome → Archer (nearest waypoint via `find_location_within_radius`), FighterHome → Fighter (nearest waypoint via `find_location_within_radius`), Tent → Raider (home = tent position), MinerHome → Miner (assigned mine from `BuildingInstance.assigned_mine` if set, otherwise nearest gold mine via `find_nearest_free`). All types look up faction from `world_data.towns[town_idx].faction`. Note: spawner_respawn_system does **not** pre-claim work slots — farmers self-claim via `find_farmer_farm_target()` in decision_system.
 
 ### starvation_system
 - Query-first: `(&GpuSlot, &Energy, &CachedStats, &mut NpcFlags, &mut Health)` with `Without<Building>, Without<Dead>` — no `EntityMap` dependency
@@ -344,4 +344,4 @@ migration_settle_system (every frame, early-returns if no active migration)
 
 ## Known Issues
 
-- **spawner_respawn O(n²)**: `iter_instances()` filter inside per-spawner loop causes quadratic scaling. Benchmarked: 100 spawners = 66µs, 2K spawners = 88ms (5× frame budget). Acceptable at typical counts (<200 spawners) but will be a bottleneck if building count grows.
+- (none currently)

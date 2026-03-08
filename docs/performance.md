@@ -383,6 +383,23 @@ Combined 50K: 1.9ms (11.4% of 16ms budget). All systems O(n) — linear scaling 
 Combined 50K (6 NPC-scaled systems): 5.1ms (30.7% of 16ms budget).
 
 **Findings:**
-- `spawner_respawn` is **O(n²)** — 2K spawners = 88ms, blows frame budget 5×. Likely caused by `iter_instances()` filter inside per-spawner loop.
+- `spawner_respawn` was **O(n²)** — 2K spawners = 88ms, blows frame budget 5×. Fixed in 2026-03-08c (see below).
 - `resolve_movement` is budget-capped (~2ms) via `max_per_frame` pathfind limit — near-constant regardless of NPC count.
 - `death_system` bench needs rework — shows flat ~42µs regardless of death count (Dead NPCs not being processed).
+
+### 2026-03-08c — spawner_respawn O(n²) fix
+
+**Root cause**: `find_nearest_free()` (world.rs) used the generic `for_each_nearby` spatial search, which iterates ALL building types per cell. When no Farm/GoldMine exists for a town, the expanding-radius loop (2→4→...→128 cells) scanned every building instance at every radius. With N spawners firing × N instances = O(n²).
+
+**Fix** (two parts):
+1. **Spawner slot index** (entity_map.rs): `spawner_slots: Vec<usize>` maintained on add/remove. Collection phase uses index instead of `iter_instances().filter(spawner)`. O(spawners) not O(all_buildings).
+2. **Kind-filtered spatial search** (world.rs): `find_nearest_free()` now uses `for_each_nearby_kind_town` / `for_each_nearby_kind` instead of generic `for_each_nearby`. These use pre-built `spatial_kind_town` / `spatial_kind_cell` hash maps that only contain buildings of the matching kind. When zero farms exist, every bucket is empty → instant no-op per cell → expanding loop touches nothing.
+
+**Pattern**: This is a variant of the Candidate-Driven pattern — instead of scanning all entities and filtering, use a pre-built index that contains only candidates of the right type. The kind-filtered spatial indexes (`spatial_kind_town`, `spatial_kind_cell`) already existed but `find_nearest_free` wasn't using them.
+
+| System | 100 | 500 | 1K | 2K | Scaling |
+|--------|-----|-----|----|-----|---------|
+| spawner_respawn (before) | 66µs | 4.3ms | 18.5ms | 88.2ms | O(n²) |
+| spawner_respawn (after) | 10.7µs | 25µs | 36µs | 75µs | O(n) |
+
+2K spawners: **88ms → 75µs (1,176× faster)**. Now 0.5% of frame budget instead of 5× over it.

@@ -95,6 +95,7 @@ pub struct EntityMap {
     by_kind: HashMap<crate::world::BuildingKind, Vec<usize>>,
     by_kind_town: HashMap<(crate::world::BuildingKind, u32), Vec<usize>>,
     by_grid_cell: HashMap<(i32, i32), usize>,
+    spawner_slots: Vec<usize>,
 
     // NPC-specific data (index-only — gameplay state on ECS components)
     npcs: HashMap<usize, NpcEntry>,
@@ -280,6 +281,7 @@ impl EntityMap {
             let old_gr = (old.position.y / TOWN_GRID_SPACING).floor() as i32;
             self.by_grid_cell.remove(&(old_gc, old_gr));
             self.spatial_remove(slot, old.position);
+            self.spawner_slots.retain(|&s| s != slot);
         }
         self.by_kind.entry(kind).or_default().push(slot);
         self.by_kind_town
@@ -289,9 +291,13 @@ impl EntityMap {
         let gc = (inst.position.x / TOWN_GRID_SPACING).floor() as i32;
         let gr = (inst.position.y / TOWN_GRID_SPACING).floor() as i32;
         self.by_grid_cell.insert((gc, gr), slot);
+        let is_spawner = inst.respawn_timer > -2.0;
         let pos = inst.position;
         self.instances.insert(slot, inst);
         self.spatial_insert(slot, pos);
+        if is_spawner {
+            self.spawner_slots.push(slot);
+        }
     }
 
     /// Remove an instance by slot. Returns removed instance if any.
@@ -307,6 +313,7 @@ impl EntityMap {
             let gr = (inst.position.y / TOWN_GRID_SPACING).floor() as i32;
             self.by_grid_cell.remove(&(gc, gr));
             self.spatial_remove(slot, inst.position);
+            self.spawner_slots.retain(|&s| s != slot);
             Some(inst)
         } else {
             None
@@ -327,6 +334,10 @@ impl EntityMap {
 
     pub fn iter_instances_mut(&mut self) -> impl Iterator<Item = &mut BuildingInstance> {
         self.instances.values_mut()
+    }
+
+    pub fn spawner_slots(&self) -> &[usize] {
+        &self.spawner_slots
     }
 
     pub fn iter_kind(

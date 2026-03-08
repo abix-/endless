@@ -189,7 +189,7 @@ pub fn tick(
                     damage_writer.write(DamageMsg {
                         target: *uid,
                         amount: max_hp + 100.0,
-                        attacker_faction: 0,
+                        attacker_faction: 2,
                         attacker: -1,
                     });
                 }
@@ -409,7 +409,7 @@ pub fn tick(
                     damage_writer.write(DamageMsg {
                         target: *uid,
                         amount: max_hp + 100.0,
-                        attacker_faction: 0,
+                        attacker_faction: 2,
                         attacker: -1,
                     });
                 }

@@ -21,19 +21,19 @@ pub fn setup(
     world_data.towns.push(world::Town {
         name: "Archers".into(),
         center: Vec2::new(384.0, 384.0),
-        faction: 0,
+        faction: 1,
         sprite_type: 0,
     area_level: 0,
     });
     world_data.towns.push(world::Town {
         name: "Targets".into(),
         center: Vec2::new(384.0, 192.0),
-        faction: 1,
+        faction: 2,
         sprite_type: 1,
     area_level: 0,
     });
     food_storage.init(2);
-    faction_stats.init(2);
+    faction_stats.init(3);
 
     // 2 ranged fighters on opposing factions, within range (300px)
     let slot0 = slot_alloc.alloc_reset().expect("slot alloc");
@@ -42,7 +42,7 @@ pub fn setup(
         x: 384.0,
         y: 320.0,
         job: 3,
-        faction: 0,
+        faction: 1,
         town_idx: 0, // Fighter
         home_x: 384.0,
         home_y: 384.0,
@@ -58,7 +58,7 @@ pub fn setup(
         x: 384.0,
         y: 256.0,
         job: 3,
-        faction: 1,
+        faction: 2,
         town_idx: 1, // Fighter
         home_x: 384.0,
         home_y: 192.0,

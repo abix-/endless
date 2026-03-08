@@ -30,12 +30,12 @@ pub fn setup(
     world_data.towns.push(world::Town {
         name: "FountainTown".into(),
         center: Vec2::new(384.0, 384.0),
-        faction: 0,
+        faction: 1,
         sprite_type: 0,
     area_level: 0,
     });
     food_storage.init(1);
-    faction_stats.init(2);
+    faction_stats.init(3);
 
     // Create fountain instance directly
     let _ = world::place_building(
@@ -51,7 +51,7 @@ pub fn setup(
         x: ENEMY_START_X,
         y: ENEMY_START_Y,
         job: 0,
-        faction: 1,
+        faction: 2,
         town_idx: 0,
         home_x: ENEMY_START_X,
         home_y: ENEMY_START_Y,

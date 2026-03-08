@@ -1005,26 +1005,28 @@ pub fn find_nearest_free(
     let mut best_d2 = f32::MAX;
     let mut result: Option<(usize, Vec2)> = None;
     loop {
-        entity_map.for_each_nearby(from, radius, |inst| {
-            if inst.kind != kind {
-                return;
-            }
-            if let Some(tid) = town_idx {
-                if inst.town_idx != tid {
+        // Use kind-filtered spatial search (only visits buildings of matching kind)
+        {
+            let r = &mut result;
+            let bd2 = &mut best_d2;
+            let mut check = |inst: &crate::resources::BuildingInstance| {
+                if inst.occupants >= 1 {
                     return;
                 }
+                let dx = inst.position.x - from.x;
+                let dy = inst.position.y - from.y;
+                let d2 = dx * dx + dy * dy;
+                if d2 < *bd2 {
+                    *bd2 = d2;
+                    *r = Some((inst.slot, inst.position));
+                }
+            };
+            if let Some(tid) = town_idx {
+                entity_map.for_each_nearby_kind_town(from, radius, kind, tid, &mut check);
+            } else {
+                entity_map.for_each_nearby_kind(from, radius, kind, &mut check);
             }
-            if inst.occupants >= 1 {
-                return;
-            }
-            let dx = inst.position.x - from.x;
-            let dy = inst.position.y - from.y;
-            let d2 = dx * dx + dy * dy;
-            if d2 < best_d2 {
-                best_d2 = d2;
-                result = Some((inst.slot, inst.position));
-            }
-        });
+        }
         // Found one within this ring, or searched the whole world
         if result.is_some() || radius >= max_radius {
             break;

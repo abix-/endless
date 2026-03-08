@@ -350,12 +350,8 @@ pub fn spawner_respawn_system(
         return;
     }
 
-    // Collect spawner slots to avoid borrow conflict (need &mut for npc_uid/respawn_timer, & for resolve)
-    let spawner_slots: Vec<usize> = entity_map
-        .iter_instances()
-        .filter(|i| i.respawn_timer > -2.0)
-        .map(|i| i.slot)
-        .collect();
+    // Use pre-built spawner index instead of scanning all buildings (O(spawners) not O(buildings))
+    let spawner_slots = entity_map.spawner_slots().to_vec();
 
     for bld_slot in spawner_slots {
         let Some(inst) = entity_map.get_instance(bld_slot) else {
