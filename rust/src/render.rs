@@ -908,7 +908,7 @@ fn box_select_system(
                             squad_state.squads[qi].members.retain(|uid| {
                                 entity_map
                                     .slot_for_uid(*uid)
-                                    .map_or(false, |s| !selected_set.contains(&s))
+                                    .is_some_and(|s| !selected_set.contains(&s))
                             });
                         }
                         // Set as the squad's members (replace, not append) — convert slots to UIDs

@@ -92,7 +92,7 @@ pub fn tick(
         2 => {
             test.phase_name = format!("ready={} progress={:.2}", farm_ready, farm_progress);
             if farm_ready {
-                test.pass_phase(elapsed, format!("Ready!"));
+                test.pass_phase(elapsed, "Ready!".to_string());
             } else if elapsed > 30.0 {
                 test.fail_phase(
                     elapsed,

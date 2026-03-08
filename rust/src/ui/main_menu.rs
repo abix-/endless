@@ -151,12 +151,12 @@ pub fn main_menu_system(
         // Rebuild ai_slots from preset counts, preserving LLM flags where possible
         let mut new_slots = Vec::new();
         for i in 0..preset.ai_towns {
-            let llm = state.ai_slots.get(i).map_or(false, |s| s.llm && s.kind == AiSlotKind::Builder);
+            let llm = state.ai_slots.get(i).is_some_and(|s| s.llm && s.kind == AiSlotKind::Builder);
             new_slots.push(AiSlotConfig { kind: AiSlotKind::Builder, llm });
         }
         let old_raider_start = state.ai_slots.iter().position(|s| s.kind == AiSlotKind::Raider).unwrap_or(state.ai_slots.len());
         for i in 0..preset.raider_towns {
-            let llm = state.ai_slots.get(old_raider_start + i).map_or(false, |s| s.llm && s.kind == AiSlotKind::Raider);
+            let llm = state.ai_slots.get(old_raider_start + i).is_some_and(|s| s.llm && s.kind == AiSlotKind::Raider);
             new_slots.push(AiSlotConfig { kind: AiSlotKind::Raider, llm });
         }
         state.ai_slots = new_slots;

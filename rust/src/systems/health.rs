@@ -723,20 +723,18 @@ pub fn death_system(
                         }
                     }
                 }
-            } else if res
+            } else if let Some(tower_faction) = res
                 .entity_map
                 .get_instance(killer_slot)
-                .is_some_and(|i| {
-                    i.kind == BuildingKind::Fountain || i.kind == BuildingKind::Tower
-                })
+                .filter(|i| i.kind == BuildingKind::Fountain || i.kind == BuildingKind::Tower)
+                .map(|i| (i.faction, i.town_idx as usize))
             {
                 // Tower/fountain killer — XP, kills, loot deposit
-                let tower_faction = res.entity_map.get_instance(killer_slot).unwrap().faction;
-                let tower_town = res.entity_map.get_instance(killer_slot).unwrap().town_idx as usize;
+                let (tower_faction, tower_town) = tower_faction;
                 res.faction_stats.inc_kills(tower_faction);
                 res.reputation.on_kill(tower_faction, faction);
 
-                let inst = res.entity_map.get_instance_mut(killer_slot).unwrap();
+                let Some(inst) = res.entity_map.get_instance_mut(killer_slot) else { continue; };
                 inst.kills += 1;
                 let old_xp = inst.xp;
                 inst.xp += 100;

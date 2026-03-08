@@ -172,7 +172,7 @@ pub fn tick(
                     ),
                 );
             } else if elapsed > 20.0 {
-                test.fail_phase(elapsed, format!("damage=0 attacks=0"));
+                test.fail_phase(elapsed, "damage=0 attacks=0".to_string());
             }
         }
         // Phase 4: Health decreases (tracked via debug)

@@ -138,7 +138,7 @@ pub fn tick(
             test.phase_name = format!("positions_len={}", gpu_state.positions.len());
             if has_positions {
                 let p0 = (
-                    gpu_state.positions.get(0).copied().unwrap_or(0.0),
+                    gpu_state.positions.first().copied().unwrap_or(0.0),
                     gpu_state.positions.get(1).copied().unwrap_or(0.0),
                 );
                 test.pass_phase(

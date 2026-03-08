@@ -56,9 +56,7 @@ pub fn pathfind_on_grid(
     goal: IVec2,
     max_nodes: usize,
 ) -> Option<Vec<IVec2>> {
-    if neighbor_cost(grid, goal).is_none() {
-        return None;
-    }
+    neighbor_cost(grid, goal)?;
     let node_count = Cell::new(0usize);
     pathfinding::prelude::astar(
         &start,
@@ -93,9 +91,7 @@ pub fn pathfind_with_costs(
     goal: IVec2,
     max_nodes: usize,
 ) -> Option<Vec<IVec2>> {
-    if cost_at(costs, width, height, goal).is_none() {
-        return None;
-    }
+    cost_at(costs, width, height, goal)?;
     let node_count = Cell::new(0usize);
     pathfinding::prelude::astar(
         &start,
@@ -233,7 +229,7 @@ pub fn invalidate_paths_on_building_change(
             continue;
         };
 
-        let goal = *path.waypoints.last().unwrap();
+        let goal = *path.waypoints.last().expect("path non-empty");
         queue.enqueue(PathRequest {
             entity,
             slot: idx,

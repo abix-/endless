@@ -53,7 +53,7 @@ pub fn tick(
                     .filter(|n| !n.dead && n.job == Job::Farmer)
                     .count();
                 if farmers == 5 {
-                    test.pass_phase(elapsed, format!("5 farmers spawned"));
+                    test.pass_phase(elapsed, "5 farmers spawned".to_string());
                 } else {
                     test.fail_phase(elapsed, format!("farmers={} (expected 5)", farmers));
                 }
@@ -91,7 +91,7 @@ pub fn tick(
             if free_count > 0 {
                 test.pass_phase(elapsed, format!("slot freed (free={})", free_count));
             } else if elapsed > 5.0 {
-                test.fail_phase(elapsed, format!("free_slots=0"));
+                test.fail_phase(elapsed, "free_slots=0".to_string());
             }
         }
         // Phase 4: Spawn reuses freed slot

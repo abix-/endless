@@ -1804,13 +1804,13 @@ fn factions_content(
                     format!(
                         "{} {}",
                         npc(d.kind),
-                        npc_def(Job::from_i32(d.spawner.unwrap().job)).label_plural
+                        npc_def(Job::from_i32(d.spawner.expect("spawner building").job)).label_plural
                     )
                 })
                 .collect();
             ui.label(format!("Workforce: {} ({})", workforce, parts.join(" + ")));
             for def in &econ_spawners {
-                let label = npc_def(Job::from_i32(def.spawner.unwrap().job)).label_plural;
+                let label = npc_def(Job::from_i32(def.spawner.expect("spawner building").job)).label_plural;
                 ui.label(format!("{}: {}/{}", label, npc(def.kind), bld(def.kind)));
             }
             ui.separator();
@@ -1925,13 +1925,13 @@ fn factions_content(
                     format!(
                         "{} {}",
                         npc(d.kind),
-                        npc_def(Job::from_i32(d.spawner.unwrap().job)).label_plural
+                        npc_def(Job::from_i32(d.spawner.expect("spawner building").job)).label_plural
                     )
                 })
                 .collect();
             ui.label(format!("Force: {} ({})", total_mil, parts.join(" + ")));
             for def in &mil_spawners {
-                let label = npc_def(Job::from_i32(def.spawner.unwrap().job)).label_plural;
+                let label = npc_def(Job::from_i32(def.spawner.expect("spawner building").job)).label_plural;
                 ui.label(format!("{}: {}/{}", label, npc(def.kind), bld(def.kind)));
             }
             ui.separator();

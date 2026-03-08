@@ -109,7 +109,7 @@ pub fn construction_tick_system(
 
     for slot in constructing {
         let (kind, finished, new_hp) = {
-            let inst = entity_map.get_instance_mut(slot).unwrap();
+            let Some(inst) = entity_map.get_instance_mut(slot) else { continue; };
             inst.under_construction -= dt;
             let total = crate::constants::BUILDING_CONSTRUCT_SECS;
             if inst.under_construction <= 0.0 {
@@ -865,7 +865,7 @@ fn pick_settle_site(
             .towns
             .iter()
             .map(|t| pos.distance(t.center))
-            .min_by(|a, b| a.partial_cmp(b).unwrap())
+            .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .unwrap_or(f32::MAX);
 
         if min_dist > best_min_dist {

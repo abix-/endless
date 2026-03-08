@@ -232,7 +232,7 @@ pub fn find_interior_roads(
     // Collect all roads for this town: (col, row, radius)
     let mut roads: Vec<(usize, usize, i32)> = Vec::new();
     for kind in [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad] {
-        let radius = kind.road_build_radius().unwrap();
+        let radius = kind.road_build_radius().expect("road kind has radius");
         for inst in entity_map.iter_kind_for_town(kind, ti) {
             let (col, row) = grid.world_to_grid(inst.position);
             roads.push((col, row, radius));
@@ -680,7 +680,9 @@ pub fn place_building(
 
     // Runtime: set construction timer + suppress spawner
     let hp = if ctx.is_some() {
-        let inst = entity_map.get_instance_mut(slot).unwrap();
+        let Some(inst) = entity_map.get_instance_mut(slot) else {
+            return Err("slot missing after register");
+        };
         inst.under_construction = crate::constants::BUILDING_CONSTRUCT_SECS;
         if inst.respawn_timer >= 0.0 {
             inst.respawn_timer = -1.0;
@@ -1162,7 +1164,7 @@ impl Biome {
     pub fn tileset_index(self, cell_index: usize) -> u16 {
         match self {
             Biome::Grass => {
-                if cell_index % 2 == 0 {
+                if cell_index.is_multiple_of(2) {
                     0
                 } else {
                     1
@@ -1603,7 +1605,7 @@ impl WorldGrid {
         self.apply_building_overlay(entity_map, BuildingKind::Wall, 0);
         // Apply road overlays — higher tiers override lower (iter order: dirt, stone, metal)
         for kind in [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad] {
-            self.apply_building_overlay(entity_map, kind, kind.road_pathfind_cost().unwrap());
+            self.apply_building_overlay(entity_map, kind, kind.road_pathfind_cost().expect("road kind has cost"));
         }
     }
 
@@ -1746,7 +1748,7 @@ impl WorldGrid {
 
         // 2. Stamp road build radii
         for kind in [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad] {
-            let radius = kind.road_build_radius().unwrap();
+            let radius = kind.road_build_radius().expect("road kind has radius");
             for inst in entity_map.iter_kind(kind) {
                 let ti16 = inst.town_idx as u16;
                 let (road_col, road_row) = self.world_to_grid(inst.position);
@@ -2359,8 +2361,8 @@ fn generate_terrain(grid: &mut WorldGrid, town_positions: &[Vec2], raider_positi
 
             let natural = {
                 let n = noise.get([
-                    world_pos.x as f64 * frequency as f64,
-                    world_pos.y as f64 * frequency as f64,
+                    world_pos.x as f64 * frequency,
+                    world_pos.y as f64 * frequency,
                 ]);
                 if n < -0.3 {
                     Biome::Water

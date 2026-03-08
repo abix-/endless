@@ -645,7 +645,7 @@ pub fn bottom_panel_system(
                                 && world_data
                                     .towns
                                     .get(*ti as usize)
-                                    .map_or(false, |t| t.faction == crate::constants::FACTION_PLAYER)
+                                    .is_some_and(|t| t.faction == crate::constants::FACTION_PLAYER)
                         })
                         .unwrap_or(false);
                     if is_destructible {
@@ -706,7 +706,7 @@ fn tower_upgrade_window(
 
     // Read tower data (clone to avoid borrow conflict)
     let (level, upgrade_levels, auto_flags, town_idx) = {
-        let inst = bld.entity_map.get_instance(slot).unwrap();
+        let Some(inst) = bld.entity_map.get_instance(slot) else { return; };
         (
             level_from_xp(inst.xp),
             inst.upgrade_levels.clone(),
@@ -717,7 +717,7 @@ fn tower_upgrade_window(
 
     let food = bld.food_storage.food.get(town_idx).copied().unwrap_or(0);
     let gold = bld.gold_storage.gold.get(town_idx).copied().unwrap_or(0);
-    let tower_upgrades = &*crate::constants::TOWER_UPGRADES;
+    let tower_upgrades = crate::constants::TOWER_UPGRADES;
 
     let mut open = true;
     egui::Window::new("Tower Upgrades")
@@ -1572,7 +1572,7 @@ fn inspector_content(
         faction_id = Some(npc.faction);
         let npc_act = bld_data.activity_q.get(npc.entity).ok();
         is_mining_at_mine = npc_act.is_some_and(|a| matches!(*a, Activity::MiningAtMine));
-        activity_debug = npc_act.map(|a| format!("{:?}", &*a)).unwrap_or_default();
+        activity_debug = npc_act.map(|a| format!("{:?}", a)).unwrap_or_default();
 
         if let Ok(cl) = bld_data.carried_loot_q.get(npc.entity) {
             carried_food = cl.food;
@@ -1952,8 +1952,11 @@ fn building_inspector_content(
         .entity_map
         .find_by_position(world_pos)
         .is_some_and(|inst| inst.under_construction > 0.0);
-    if is_constructing {
-        let inst = bld.entity_map.find_by_position(world_pos).unwrap();
+    if let Some(inst) = bld
+        .entity_map
+        .find_by_position(world_pos)
+        .filter(|inst| inst.under_construction > 0.0)
+    {
         let total = crate::constants::BUILDING_CONSTRUCT_SECS;
         let progress = ((total - inst.under_construction) / total).clamp(0.0, 1.0);
         ui.colored_label(egui::Color32::from_rgb(200, 200, 40), "Under Construction");

@@ -479,7 +479,7 @@ impl AiPersonality {
 
         // Wrap-around check: drop trailing non-corner entries too close to the first
         while result.len() > 4 {
-            let last = *result.last().unwrap();
+            let last = *result.last().expect("result non-empty after len check");
             let first = result[0];
             if (last.0 as i32 - first.0 as i32).abs() + (last.1 as i32 - first.1 as i32).abs() >= MIN_SPACING {
                 break;
@@ -895,7 +895,7 @@ where
     let mut best: Option<((usize, usize), i32)> = None;
     for &slot in &snapshot.empty_slots {
         let s = score(slot);
-        if best.map_or(true, |(_, bs)| s > bs) {
+        if best.is_none_or(|(_, bs)| s > bs) {
             best = Some((slot, s));
         }
     }
@@ -1443,7 +1443,7 @@ pub fn ai_decision_system(
         let upgrade_enabled = player.upgrade_enabled;
         let kind = player.kind;
         let _ = player; // end immutable borrow — mutable access needed later
-        if !snapshots.towns.contains_key(&tdi) {
+        if let std::collections::hash_map::Entry::Vacant(e) = snapshots.towns.entry(tdi) {
             if let Some(snap) = build_town_snapshot(
                 &res.world.world_data,
                 &res.world.entity_map,
@@ -1452,7 +1452,7 @@ pub fn ai_decision_system(
                 personality,
                 road_style,
             ) {
-                snapshots.towns.insert(tdi, snap);
+                e.insert(snap);
             }
         }
 
@@ -1499,11 +1499,10 @@ pub fn ai_decision_system(
             && mine_shafts < personality.min_miner_homes()
             && food >= building_cost(BuildingKind::MinerHome)
         {
-            let mines = ctx.mines.as_ref();
-            if mines.is_some_and(|m| m.in_radius + m.outside_radius > 0) {
+            if let Some(mines) = ctx.mines.as_ref().filter(|m| m.in_radius + m.outside_radius > 0) {
                 if let Some(what) = try_build_miner_home(
                     &ctx,
-                    mines.unwrap(),
+                    mines,
                     &mut res,
                     snapshots.towns.get(&tdi),
                     personality,
@@ -1671,7 +1670,7 @@ pub fn ai_decision_system(
                 let total_civilians = houses + mine_shafts;
                 let bt = personality.archer_home_target(total_civilians);
                 let ht = personality.farmer_home_target(farms);
-                let mines = ctx.mines.as_ref().unwrap();
+                let Some(mines) = ctx.mines.as_ref() else { continue; };
                 let ms_target = ((total_civilians as f32 * personality.mining_ratio()) as usize)
                     .max(mines.in_radius) // at least 1 miner per in-radius mine
                     .min(mines.in_radius * MAX_MINERS_PER_MINE);
@@ -2726,7 +2725,7 @@ pub fn ai_squad_commander_system(
                 let idx = squad_state.alloc_squad(SquadOwner::Town(tdi));
                 let base_cd = personality.retarget_cooldown();
                 let jitter = rand::rng().random_range(0.3..1.0);
-                let sq = squad_state.squads.get_mut(idx).unwrap();
+                let sq = squad_state.squads.get_mut(idx).expect("squad just allocated");
                 sq.wave_min_start = personality.wave_min_start(kind);
                 sq.wave_retreat_below_pct = personality.wave_retreat_pct(kind);
                 ai_state.players[pi].squad_cmd.insert(
@@ -2869,7 +2868,7 @@ pub fn ai_squad_commander_system(
                     } else {
                         "heavy losses"
                     };
-                    let squad = squad_state.squads.get_mut(si).unwrap();
+                    let squad = squad_state.squads.get_mut(si).expect("squad index valid");
                     squad.wave_active = false;
                     squad.target = None;
                     squad.wave_start_count = 0;
@@ -2916,7 +2915,7 @@ pub fn ai_squad_commander_system(
                     cmd.building_uid = Some(uid);
                     claimed_targets.insert(uid);
 
-                    let squad = squad_state.squads.get_mut(si).unwrap();
+                    let squad = squad_state.squads.get_mut(si).expect("squad index valid");
                     squad.target = Some(pos);
                     squad.wave_active = true;
                     squad.wave_start_count = member_count;

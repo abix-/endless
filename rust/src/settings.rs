@@ -11,20 +11,17 @@ const SETTINGS_VERSION: u32 = 14;
 
 /// Controls which NPCs have their activity logged in `NpcLogCache`.
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug)]
+#[derive(Default)]
 pub enum NpcLogMode {
     /// Log for all NPCs. High memory with large populations.
     All,
     /// Log only for the player's faction.
     Faction,
     /// Log only for the currently selected NPC. Best performance.
+    #[default]
     SelectedOnly,
 }
 
-impl Default for NpcLogMode {
-    fn default() -> Self {
-        Self::SelectedOnly
-    }
-}
 
 /// Groupings used by the Controls settings page.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]

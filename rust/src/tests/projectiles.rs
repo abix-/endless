@@ -120,7 +120,7 @@ pub fn tick(
                     ),
                 );
             } else if elapsed > 20.0 {
-                test.fail_phase(elapsed, format!("proj_next=0 attacks=0"));
+                test.fail_phase(elapsed, "proj_next=0 attacks=0".to_string());
             }
         }
         // Phase 3: Projectile hits → damage processed
@@ -145,7 +145,7 @@ pub fn tick(
                     test.pass_phase(elapsed, format!("damage confirmed, proj_free={}", free));
                     test.complete(elapsed);
                 } else {
-                    test.fail_phase(elapsed, format!("proj_free=0"));
+                    test.fail_phase(elapsed, "proj_free=0".to_string());
                 }
             }
         }

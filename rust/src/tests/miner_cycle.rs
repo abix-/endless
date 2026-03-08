@@ -149,7 +149,7 @@ pub fn tick(
         2 => {
             test.phase_name = format!("at_mine={} mining={}", mining_at_mine, mining);
             if mining_at_mine > 0 {
-                test.pass_phase(elapsed, format!("MiningAtMine (tending)"));
+                test.pass_phase(elapsed, "MiningAtMine (tending)".to_string());
             } else if elapsed > 10.0 {
                 test.fail_phase(elapsed, format!("mining={} at_mine=0", mining));
             }
@@ -161,7 +161,7 @@ pub fn tick(
                 returning, gold, mining_at_mine
             );
             if returning > 0 {
-                test.pass_phase(elapsed, format!("Returning with gold"));
+                test.pass_phase(elapsed, "Returning with gold".to_string());
             } else if elapsed > 15.0 {
                 test.fail_phase(elapsed, format!("at_mine={} returning=0", mining_at_mine));
             }

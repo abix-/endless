@@ -24,7 +24,7 @@ fn deserialize_reputation<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Vec<f32
     let raw = serde_json::Value::deserialize(d).map_err(serde::de::Error::custom)?;
     match raw {
         serde_json::Value::Array(arr) => {
-            if arr.first().map_or(true, |v| v.is_array()) {
+            if arr.first().is_none_or(|v| v.is_array()) {
                 // New 2D format
                 serde_json::from_value(serde_json::Value::Array(arr)).map_err(serde::de::Error::custom)
             } else {
@@ -678,7 +678,7 @@ pub fn collect_save_data(
         std::collections::HashMap::new();
     building_data.insert(
         "towns".to_string(),
-        serde_json::to_value(&world_data.towns).unwrap(),
+        serde_json::to_value(&world_data.towns).expect("town serialization"),
     );
     for def in crate::constants::BUILDING_REGISTRY.iter() {
         let Some(key) = def.save_key else { continue };
@@ -699,7 +699,7 @@ pub fn collect_save_data(
                 auto_upgrade_flags: inst.auto_upgrade_flags.clone(),
             })
             .collect();
-        building_data.insert(key.to_string(), serde_json::to_value(&placed).unwrap());
+        building_data.insert(key.to_string(), serde_json::to_value(&placed).expect("building serialization"));
     }
 
     // Town grids (legacy compat — area_level now lives in Town struct)
@@ -1322,15 +1322,15 @@ pub fn collect_npc_data(
             },
             activity: activity_q
                 .get(npc.entity)
-                .map(|a| ActivitySave::from_activity(a))
+                .map(ActivitySave::from_activity)
                 .unwrap_or(ActivitySave::Idle),
             combat_state: combat_state_q
                 .get(npc.entity)
-                .map(|cs| CombatStateSave::from_combat_state(cs))
+                .map(CombatStateSave::from_combat_state)
                 .unwrap_or(CombatStateSave::None),
             personality: personality_q
                 .get(npc.entity)
-                .map(|p| PersonalitySave::from_personality(p))
+                .map(PersonalitySave::from_personality)
                 .unwrap_or_default(),
             name: meta.name.clone(),
             level: meta.level,

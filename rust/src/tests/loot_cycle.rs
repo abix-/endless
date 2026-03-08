@@ -132,8 +132,7 @@ pub fn tick(
     let archer_equip_count = archer_carried.map(|cl| cl.equipment.len()).unwrap_or(0);
 
     let inv_count = town_inventory
-        .items
-        .get(0)
+        .items.first()
         .map(|v| v.len())
         .unwrap_or(0);
 
@@ -219,7 +218,7 @@ pub fn tick(
         5 => {
             if !test.get_flag("equip_sent") {
                 // Try to equip the first item from town 0 inventory
-                if let Some(items) = town_inventory.items.get(0) {
+                if let Some(items) = town_inventory.items.first() {
                     if let Some(item) = items.first() {
                         let base_stats = cached_stats_q.get(archer.entity).ok();
                         if let Some(stats) = base_stats {

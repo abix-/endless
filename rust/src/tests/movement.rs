@@ -139,7 +139,7 @@ pub fn tick(
                 if npc.dead {
                     continue;
                 }
-                let idx = npc.slot as usize * 2;
+                let idx = npc.slot * 2;
                 if idx + 1 < positions.len() {
                     let y = positions[idx + 1];
                     if y > 0.0 && (y - HOME_Y).abs() > 5.0 {

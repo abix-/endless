@@ -354,11 +354,11 @@ pub fn decision_system(
             .map(|cs| cs.is_fighting())
             .unwrap_or(false);
         if combat_state_peek {
-            if (idx + frame) % combat_bucket != 0 {
+            if !(idx + frame).is_multiple_of(combat_bucket) {
                 continue;
             }
         } else {
-            if (idx + frame) % think_buckets != 0 {
+            if !(idx + frame).is_multiple_of(think_buckets) {
                 continue;
             }
         }
@@ -381,13 +381,11 @@ pub fn decision_system(
             .unwrap_or_default();
         let mut activity = npc_state
             .activity_q
-            .get(entity)
-            .map(|a| a.clone())
+            .get(entity).cloned()
             .unwrap_or_default();
         let mut combat_state = npc_state
             .combat_state_q
-            .get(entity)
-            .map(|cs| cs.clone())
+            .get(entity).cloned()
             .unwrap_or_default();
         let mut at_destination = npc_state
             .npc_flags_q
@@ -430,8 +428,7 @@ pub fn decision_system(
         };
         let mut carried_loot = npc_data
             .carried_loot_q
-            .get(entity)
-            .map(|cl| cl.clone())
+            .get(entity).cloned()
             .unwrap_or_default();
 
         // Capture originals for conditional writeback
@@ -934,7 +931,7 @@ pub fn decision_system(
                     (flee_pct + flee_mods.flee_threshold_add).clamp(0.0, 1.0)
                 };
                 if flee_pct > 0.0 {
-                    let should_check_threat = (frame + idx) % CHECK_INTERVAL == 0;
+                    let should_check_threat = (frame + idx).is_multiple_of(CHECK_INTERVAL);
                     let effective_threshold = if should_check_threat {
                         let packed = gpu_state.threat_counts.get(idx).copied().unwrap_or(0);
                         let (enemies, allies) = unpack_threat_counts(packed);
@@ -1158,7 +1155,7 @@ pub fn decision_system(
             // ====================================================================
             if job == Job::Farmer
                 && matches!(activity, Activity::GoingToWork)
-                && (idx + frame) % think_buckets == 0
+                && (idx + frame).is_multiple_of(think_buckets)
             {
                 if let Some(wp) = worksite {
                     let occ = entity_map.occupant_count(wp);
@@ -1186,7 +1183,7 @@ pub fn decision_system(
             // ====================================================================
             if activity.is_transit() {
                 // Stuck-transit redirect: casual transit NPCs that haven't arrived get new scatter
-                if (idx + frame) % think_buckets == 0 {
+                if (idx + frame).is_multiple_of(think_buckets) {
                     match &activity {
                         Activity::Wandering => {
                             if let Some(pos) = npc_pos {
@@ -1971,7 +1968,7 @@ pub fn decision_system(
                 .carried_loot_q
                 .get(entity)
                 .ok();
-            let changed = orig_cl.as_ref().map_or(true, |cl| cl.food != carried_loot.food || cl.gold != carried_loot.gold);
+            let changed = orig_cl.as_ref().is_none_or(|cl| cl.food != carried_loot.food || cl.gold != carried_loot.gold);
             if changed {
                 if let Ok(mut cl) = npc_data.carried_loot_q.get_mut(entity) {
                     cl.food = carried_loot.food;

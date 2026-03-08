@@ -368,7 +368,7 @@ pub fn tick(
             let current_hour = game_time.total_hours();
             test.phase_name = format!("waiting 1h... hour={}/{}", current_hour, phase7_hour + 1);
 
-            if current_hour >= phase7_hour + 1 {
+            if current_hour > phase7_hour {
                 // Find a raider AI town that's still active
                 let raider = ai_state
                     .players

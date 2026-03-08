@@ -1594,7 +1594,7 @@ fn prepare_npc_buffers(
     // Here we only handle: first-frame buffer creation, bind group recreation, quad geometry.
     if let Some(mut visual_buffers) = existing_visual {
         // Recreate bind group each frame (gpu_buffers may not exist on first frame)
-        if let (Some(gpu_bufs), Some(ref pipeline)) = (gpu_buffers.as_ref(), pipeline.as_ref()) {
+        if let (Some(gpu_bufs), Some(pipeline)) = (gpu_buffers.as_ref(), pipeline.as_ref()) {
             let layout = pipeline_cache.get_bind_group_layout(&pipeline.npc_data_bind_group_layout);
             visual_buffers.bind_group = Some(render_device.create_bind_group(
                 Some("npc_storage_bind_group"),
@@ -1629,7 +1629,7 @@ fn prepare_npc_buffers(
         render_queue.write_buffer(&equip_buffer, 0, bytemuck::cast_slice(&sentinel_equip));
 
         // Create bind group if gpu_buffers available
-        let bind_group = if let (Some(gpu_bufs), Some(ref pipeline)) =
+        let bind_group = if let (Some(gpu_bufs), Some(pipeline)) =
             (gpu_buffers.as_ref(), pipeline.as_ref())
         {
             let layout = pipeline_cache.get_bind_group_layout(&pipeline.npc_data_bind_group_layout);

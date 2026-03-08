@@ -106,11 +106,8 @@ pub(super) fn tick(time: Res<Time>, mut test: ResMut<TestState>) {
         return;
     };
 
-    match test.phase {
-        1 => {
-            test.pass_phase(elapsed, "sandbox active — play freely");
-            test.complete(elapsed);
-        }
-        _ => {}
+    if test.phase == 1 {
+        test.pass_phase(elapsed, "sandbox active — play freely");
+        test.complete(elapsed);
     }
 }

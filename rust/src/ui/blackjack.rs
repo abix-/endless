@@ -150,7 +150,7 @@ impl BlackjackState {
         if self.shoe.is_empty() {
             self.build_shoe();
         }
-        self.shoe.pop().unwrap()
+        self.shoe.pop().expect("shoe refilled")
     }
 
     fn needs_reshuffle(&self) -> bool {
@@ -609,7 +609,7 @@ fn player_turn_ui(ui: &mut egui::Ui, state: &mut BlackjackState, player_gold: i3
             advance_hand(state);
         }
         Some(3) => {
-            let second_card = state.player_hands[ah].cards.pop().unwrap();
+            let second_card = state.player_hands[ah].cards.pop().expect("split card exists");
             let new_card_a = state.draw();
             state.player_hands[ah].cards.push(new_card_a);
             let new_card_b = state.draw();

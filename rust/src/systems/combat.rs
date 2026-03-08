@@ -181,7 +181,7 @@ pub fn attack_system(
         let mut target_idx = if let Some(mt) = manual_target_opt {
             match mt {
                 ManualTarget::Npc(t) => {
-                    let dead = entity_map.get_npc(*t).map_or(true, |n| n.dead);
+                    let dead = entity_map.get_npc(*t).is_none_or(|n| n.dead);
                     if dead {
                         commands.entity(entity).remove::<ManualTarget>();
                         combat_targets.get(i).copied().unwrap_or(-1)
@@ -196,7 +196,7 @@ pub fn attack_system(
         } else {
             let hold = squad_id_val
                 .and_then(|sid| squad_state.squads.get(sid as usize))
-                .map_or(false, |sq| sq.hold_fire);
+                .is_some_and(|sq| sq.hold_fire);
             if hold {
                 -1
             } else {
@@ -313,7 +313,7 @@ pub fn attack_system(
 
         // ── NPC target ──
         let target_npc = entity_map.get_npc(ti);
-        if target_npc.map_or(true, |n| n.dead) {
+        if target_npc.is_none_or(|n| n.dead) {
             if is_fighting {
                 if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) {
                     *cs = CombatState::None;
@@ -422,10 +422,10 @@ pub fn attack_system(
     debug.in_range_count = in_range_count;
     debug.timer_ready_count = timer_ready_count;
     debug.sample_timer = sample_timer;
-    debug.sample_combat_target_0 = combat_targets.get(0).copied().unwrap_or(-99);
+    debug.sample_combat_target_0 = combat_targets.first().copied().unwrap_or(-99);
     debug.sample_combat_target_1 = combat_targets.get(1).copied().unwrap_or(-99);
     debug.sample_pos_0 = (
-        positions.get(0).copied().unwrap_or(-999.0),
+        positions.first().copied().unwrap_or(-999.0),
         positions.get(1).copied().unwrap_or(-999.0),
     );
     debug.sample_pos_1 = (

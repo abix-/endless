@@ -890,7 +890,7 @@ fn game_startup_system(
     // If game_load_system already populated the world, skip world gen.
     // The flag was cleared by game_load_system, but we can detect load happened
     // by checking if the world grid is already populated.
-    if world_state.grid.cells.len() > 0 {
+    if !world_state.grid.cells.is_empty() {
         info!("Game startup: skipping world gen (loaded from save)");
         return;
     }
@@ -1579,7 +1579,7 @@ fn build_place_click_system(
                         .world_data
                         .towns
                         .get(inst.town_idx as usize)
-                        .map_or(false, |t| t.faction == crate::constants::FACTION_PLAYER) =>
+                        .is_some_and(|t| t.faction == crate::constants::FACTION_PLAYER) =>
                 {
                     inst
                 }
@@ -1610,7 +1610,7 @@ fn build_place_click_system(
         return;
     }
 
-    let kind = build_ctx.selected_build.unwrap();
+    let kind = build_ctx.selected_build.expect("checked above");
 
     // Waypoint: single-click placement
     if kind == BuildingKind::Waypoint {
@@ -1921,7 +1921,7 @@ fn build_ghost_system(
         return;
     }
 
-    let kind = build_ctx.selected_build.unwrap();
+    let kind = build_ctx.selected_build.expect("checked above");
 
     // Road: world-grid ghost with drag trail preview (mirrors town-grid trail pattern)
     if kind.is_road() {
@@ -2242,7 +2242,7 @@ fn draw_slot_indicators(
 
     let is_road_selected = build_ctx
         .selected_build
-        .map_or(false, |k| k.is_road());
+        .is_some_and(|k| k.is_road());
 
     // Collect all empty buildable slots (base + road-expanded)
     let slots = world::empty_slots(
@@ -2347,7 +2347,7 @@ fn process_destroy_system(
                         .world_data
                         .towns
                         .get(inst.town_idx as usize)
-                        .map_or(false, |t| t.faction == crate::constants::FACTION_PLAYER) =>
+                        .is_some_and(|t| t.faction == crate::constants::FACTION_PLAYER) =>
                 {
                     inst
                 }

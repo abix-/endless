@@ -124,7 +124,7 @@ fn claim_worksite(
 
 /// Find best available farm for a farmer. Returns (slot, position, search_radius).
 pub(crate) fn find_farm_target(from: Vec2, entity_map: &EntityMap, town_idx: u32) -> Option<(usize, Vec2, f32)> {
-    let max_occ = building_def(BuildingKind::Farm).worksite.unwrap().max_occupants;
+    let max_occ = building_def(BuildingKind::Farm).worksite.expect("Farm has worksite").max_occupants;
     entity_map.find_nearest_worksite(
         from,
         BuildingKind::Farm,

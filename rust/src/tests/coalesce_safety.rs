@@ -74,7 +74,7 @@ pub fn tick_movement(
             }
             test.phase_name = format!("moved={moved}/2 npcs={}", npc_count);
             if moved >= 2 {
-                test.pass_phase(elapsed, format!("2 farmers moving south"));
+                test.pass_phase(elapsed, "2 farmers moving south".to_string());
             }
             if elapsed > 10.0 {
                 test.fail_phase(elapsed, format!("only {moved}/2 moved"));
@@ -123,14 +123,14 @@ pub fn tick_movement(
             if !snapped {
                 test.pass_phase(
                     elapsed,
-                    format!("positions stable after foreign SetPosition"),
+                    "positions stable after foreign SetPosition".to_string(),
                 );
                 test.complete(elapsed);
             } else {
                 test.fail_phase(elapsed, detail);
             }
             if elapsed > 5.0 && !snapped {
-                test.pass_phase(elapsed, format!("timeout but no snap detected"));
+                test.pass_phase(elapsed, "timeout but no snap detected".to_string());
                 test.complete(elapsed);
             }
         }
@@ -215,7 +215,7 @@ pub fn tick_arrival(
                 }
             }
             if elapsed > 10.0 {
-                test.fail_phase(elapsed, format!("timeout"));
+                test.fail_phase(elapsed, "timeout".to_string());
             }
         }
         _ => {}

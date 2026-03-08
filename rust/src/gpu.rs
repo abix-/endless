@@ -439,7 +439,7 @@ fn write_npc_visual(
 
     // Layer 4: Item (carried loot — gold takes display priority)
     let npc_activity = activity_q.get(entity).ok();
-    let (ic, ir, ia) = if let Some(cl) = carried_loot_q.get(entity).ok() {
+    let (ic, ir, ia) = if let Ok(cl) = carried_loot_q.get(entity) {
         if cl.gold > 0 {
             (GOLD_SPRITE.0, GOLD_SPRITE.1, 1.0)
         } else if cl.food > 0 {
@@ -1458,7 +1458,7 @@ fn init_npc_compute_pipeline(
     let grid_data_size = grid_cells * MAX_PER_CELL as usize;
 
     // Create GPU buffers — entity-sized for unified NPC + building collision
-    let max_ents = MAX_ENTITIES as usize;
+    let max_ents = MAX_ENTITIES;
     let buffers = EntityGpuBuffers {
         positions: render_device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("entity_positions"),
@@ -1860,8 +1860,8 @@ impl render_graph::Node for NpcComputeNode {
         };
 
         let grid_cells = GRID_WIDTH * GRID_HEIGHT;
-        let grid_wg = (grid_cells + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
-        let entity_wg = (entity_count + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+        let grid_wg = grid_cells.div_ceil(WORKGROUP_SIZE);
+        let entity_wg = entity_count.div_ceil(WORKGROUP_SIZE);
 
         // Pass 0: Clear spatial grid
         {
@@ -2335,8 +2335,8 @@ impl render_graph::Node for ProjectileComputeNode {
         };
 
         let grid_cells = GRID_WIDTH * GRID_HEIGHT;
-        let grid_wg = (grid_cells + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
-        let proj_wg = (proj_count + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+        let grid_wg = grid_cells.div_ceil(WORKGROUP_SIZE);
+        let proj_wg = proj_count.div_ceil(WORKGROUP_SIZE);
 
         // Pass 0: Clear projectile spatial grid
         {

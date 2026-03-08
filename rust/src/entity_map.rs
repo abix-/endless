@@ -883,7 +883,7 @@ impl EntityMap {
         loop {
             self.for_each_ring_kind_town(from, prev_r, cell_r, kind, town_idx, |inst| {
                 if let Some(s) = score(inst) {
-                    if best.is_none() || s < best.as_ref().unwrap().0 {
+                    if best.as_ref().map_or(true, |b| s < b.0) {
                         best = Some((s, inst.slot, inst.position));
                     }
                 }
@@ -906,7 +906,7 @@ impl EntityMap {
             loop {
                 self.for_each_ring_kind(from, prev_r, cell_r, kind, |inst| {
                     if let Some(s) = score(inst) {
-                        if best.is_none() || s < best.as_ref().unwrap().0 {
+                        if best.as_ref().map_or(true, |b| s < b.0) {
                             best = Some((s, inst.slot, inst.position));
                         }
                     }
@@ -945,7 +945,7 @@ impl EntityMap {
                 && (inst.occupants as i32) < max_occupants
         });
         if valid {
-            let inst = self.instances.get_mut(&slot).unwrap();
+            let inst = self.instances.get_mut(&slot).expect("slot validated above");
             inst.occupants += 1;
             Some(ClaimedWorksite {
                 slot,

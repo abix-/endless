@@ -136,49 +136,46 @@ pub(super) fn tick(
     };
     let archer_homes = stress_config.archer_homes;
 
-    match test.phase {
-        1 => {
-            let ai_towns = ai_state.players.len();
-            let homes_ok = ai_state.players.iter().all(|player| {
-                entity_map.count_for_town(
-                    BuildingKind::ArcherHome,
-                    player.town_data_idx as u32,
-                ) == archer_homes
-            });
+    if test.phase == 1 {
+        let ai_towns = ai_state.players.len();
+        let homes_ok = ai_state.players.iter().all(|player| {
+            entity_map.count_for_town(
+                BuildingKind::ArcherHome,
+                player.town_data_idx as u32,
+            ) == archer_homes
+        });
 
-            if ai_towns == STRESS_AI_TOWNS && homes_ok {
-                test.pass_phase(
-                    elapsed,
-                    format!(
-                        "spawned {} AI towns with {} archer homes each",
-                        STRESS_AI_TOWNS, archer_homes
-                    ),
-                );
-                test.complete(elapsed);
-            } else {
-                let mismatched = ai_state
-                    .players
-                    .iter()
-                    .filter(|player| {
-                        entity_map.count_for_town(
-                            BuildingKind::ArcherHome,
-                            player.town_data_idx as u32,
-                        ) != archer_homes
-                    })
-                    .count();
-                test.fail_phase(
-                    elapsed,
-                    format!(
-                        "expected {} AI towns with {} archer homes each; got towns={} mismatched_towns={}",
-                        STRESS_AI_TOWNS,
-                        archer_homes,
-                        ai_towns,
-                        mismatched
-                    ),
-                );
-            }
+        if ai_towns == STRESS_AI_TOWNS && homes_ok {
+            test.pass_phase(
+                elapsed,
+                format!(
+                    "spawned {} AI towns with {} archer homes each",
+                    STRESS_AI_TOWNS, archer_homes
+                ),
+            );
+            test.complete(elapsed);
+        } else {
+            let mismatched = ai_state
+                .players
+                .iter()
+                .filter(|player| {
+                    entity_map.count_for_town(
+                        BuildingKind::ArcherHome,
+                        player.town_data_idx as u32,
+                    ) != archer_homes
+                })
+                .count();
+            test.fail_phase(
+                elapsed,
+                format!(
+                    "expected {} AI towns with {} archer homes each; got towns={} mismatched_towns={}",
+                    STRESS_AI_TOWNS,
+                    archer_homes,
+                    ai_towns,
+                    mismatched
+                ),
+            );
         }
-        _ => {}
     }
 }
 

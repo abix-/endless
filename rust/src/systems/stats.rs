@@ -699,7 +699,7 @@ pub fn resolve_town_tower_stats(levels: &[u8]) -> TowerStats {
 /// Resolve per-tower-instance stats from base + XP level + per-instance upgrade levels.
 pub fn resolve_tower_instance_stats(level: i32, upgrade_levels: &[u8]) -> TowerStats {
     let level_mult = 1.0 + level as f32 * 0.01;
-    let upgrades = &*crate::constants::TOWER_UPGRADES;
+    let upgrades = crate::constants::TOWER_UPGRADES;
     let get = |kind: UpgradeStatKind| -> f32 {
         for (i, def) in upgrades.iter().enumerate() {
             if def.kind == kind {
@@ -1132,7 +1132,7 @@ pub fn auto_tower_upgrade_system(
     if !game_time.hour_ticked {
         return;
     }
-    let tower_upgrades = &*crate::constants::TOWER_UPGRADES;
+    let tower_upgrades = crate::constants::TOWER_UPGRADES;
     // Collect tower data to avoid borrow conflict on entity_map
     let towers: Vec<(usize, u32, Vec<u8>, Vec<bool>)> = entity_map
         .iter_kind(crate::world::BuildingKind::Tower)
@@ -1162,7 +1162,7 @@ pub fn auto_tower_upgrade_system(
             });
             if can_afford {
                 let total: i32 = upg.cost.iter().map(|(_, base)| base * cost_mult).sum();
-                if best.is_none() || total < best.unwrap().0 {
+                if best.map_or(true, |b| total < b.0) {
                     best = Some((total, i));
                 }
             }
@@ -1238,7 +1238,7 @@ pub fn auto_equip_system(
             // Find best NPC candidate: empty slot first, then biggest upgrade margin
             let mut best: Option<(Entity, f32)> = None; // (entity, current_bonus)
 
-            for &(entity, ref equip, job, _) in &town_npcs {
+            for &(entity, equip, job, _) in &town_npcs {
                 let def = crate::constants::npc_def(*job);
                 if !def.equip_slots.contains(&slot) {
                     continue;
@@ -1262,7 +1262,7 @@ pub fn auto_equip_system(
                 }
 
                 // Prefer NPC with lowest current bonus (distribute gear evenly)
-                if best.is_none() || current_bonus < best.unwrap().1 {
+                if best.map_or(true, |b| current_bonus < b.1) {
                     best = Some((entity, current_bonus));
                 }
             }

@@ -1,6 +1,6 @@
 # Tech Tree Upgrade Graph (v1)
 
-Stage 20 implementation spec for chunks 3-4.
+Stage 21 implementation spec for chunks 3-4.
 
 ## Current Baseline
 

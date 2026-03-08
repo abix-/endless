@@ -327,7 +327,6 @@ pub fn tick(
                 } else {
                     test.fail_phase(elapsed, "place_building returned Err");
                 }
-                return;
             }
         }
 

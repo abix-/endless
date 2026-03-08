@@ -115,7 +115,7 @@ fn init_sprite_cache(
 
         let handle = match def.tile {
             TileSpec::External(path) => {
-                let ext_h = external_handle(path, sprites).unwrap();
+                let Some(ext_h) = external_handle(path, sprites) else { continue; };
                 // Autotile: extract just the first sprite from the strip
                 if def.autotile {
                     if let Some(ext_img) = images.get(ext_h) {

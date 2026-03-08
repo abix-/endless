@@ -75,6 +75,7 @@ fn generate_personality(slot: usize) -> Personality {
 // ============================================================================
 
 /// Optional overrides for save-loaded NPCs. Fresh spawns pass all None.
+#[derive(Default)]
 pub struct NpcSpawnOverrides {
     pub health: Option<f32>,
     pub energy: Option<f32>,
@@ -93,26 +94,6 @@ pub struct NpcSpawnOverrides {
     pub uid_override: Option<EntityUid>,
 }
 
-impl Default for NpcSpawnOverrides {
-    fn default() -> Self {
-        Self {
-            health: None,
-            energy: None,
-            activity: None,
-            combat_state: None,
-            personality: None,
-            name: None,
-            level: None,
-            xp: None,
-            equipment: NpcEquipment::default(),
-            carried_food: None,
-            carried_gold: None,
-            carried_equipment: Vec::new(),
-            squad_id: None,
-            uid_override: None,
-        }
-    }
-}
 
 /// Shared NPC spawn: creates entity, emits GPU updates, registers in tracking caches.
 /// Used by both spawn_npc_system (fresh spawn) and spawn_npcs_from_save (load).
@@ -169,8 +150,7 @@ pub fn materialize_npc(
     // Fresh spawns should not start with a work target; behavior assigns work later.
     // Save/restore path (activity override) may restore explicit work targets.
     let restore_work_state = overrides.activity.is_some();
-    let (target_x, target_y) = if restore_work_state && job == Job::Farmer && work_pos.is_some() {
-        let wp = work_pos.unwrap();
+    let (target_x, target_y) = if let (true, Job::Farmer, Some(wp)) = (restore_work_state, job, work_pos.as_ref()) {
         (wp[0], wp[1])
     } else {
         (x, y)

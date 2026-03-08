@@ -151,7 +151,7 @@ pub fn tick(
                     .unwrap_or(0);
                 test.pass_phase(elapsed, format!("A* path found ({} waypoints)", wp_count));
             } else if elapsed > 8.0 * time_scale {
-                test.fail_phase(elapsed, format!("no pathfinding waypoints"));
+                test.fail_phase(elapsed, "no pathfinding waypoints".to_string());
             }
         }
         // Phase 3: Any farmer crosses first wall row (row 4 = y=288)

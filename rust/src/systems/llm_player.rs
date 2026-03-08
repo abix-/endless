@@ -380,7 +380,7 @@ pub fn llm_player_system(
     // Poll pending result
     enum PollResult { None, Response(String), Waiting, Disconnected }
     let poll = if let Some(ref receiver_mutex) = state.receiver {
-        let receiver = receiver_mutex.lock().unwrap();
+        let receiver = receiver_mutex.lock().expect("llm receiver lock");
         match receiver.try_recv() {
             Ok(response) => PollResult::Response(response),
             Err(mpsc::TryRecvError::Empty) => PollResult::Waiting,

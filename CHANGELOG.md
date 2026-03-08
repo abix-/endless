@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-03-08b
+
+- **Clippy setup** — added crate-level `#![allow]` for Bevy-inherent warnings (`too_many_arguments`, `type_complexity`, `collapsible_if`) in both `lib.rs` and `main.rs`. Ran `cargo clippy --fix` for ~85 auto-fixes: `.get(0)` → `.first()`, useless `format!()`, `map_or(false, ...)` → `is_some_and(...)`, redundant closures, unnecessary casts, `#[derive(Default)]` additions.
+- **Production unwrap() audit** — replaced all 34 non-test `unwrap()` calls with safe alternatives. Critical GPU readback paths (`health.rs`, `economy/mod.rs`, `world.rs`, `game_hud.rs`) use `let Some(x) = ... else { continue/return }`. Guarded patterns (`ai_player.rs`, `stats.rs`, `entity_map.rs`) restructured to `map_or`/`if let Some`. Low-risk invariants (`blackjack.rs`, `pathfinding.rs`, `save.rs`, etc.) upgraded to `.expect("reason")`. NaN-safe f32 sort in `economy/mod.rs` via `unwrap_or(Ordering::Equal)`.
+- **Roadmap Stage 19 (Code Health)** — inserted new stage with 4 items (fix failing tests, CI, split god-files, audit unwraps). All subsequent stages renumbered +1 (19→20 through 30→31). Cross-references updated (tech-tree spec, wall gates, tower defense).
+
 ## 2026-03-08
 
 - **Fix 5 failing tests** — test towns used `faction: 0` (FACTION_NEUTRAL) instead of active factions, causing healing cache, mining discovery, and raider forage tests to fail. Fixed `update_healing_zone_cache` to skip negative factions (`<= FACTION_NEUTRAL` guard).

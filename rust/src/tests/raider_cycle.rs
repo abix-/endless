@@ -84,7 +84,7 @@ pub fn tick(
         .iter_npcs()
         .filter(|n| !n.dead && n.job == crate::components::Job::Raider)
     {
-        match activity_q.get(npc.entity).ok().as_deref() {
+        match activity_q.get(npc.entity).ok() {
             Some(Activity::Raiding { .. }) => raiding += 1,
             Some(Activity::Returning) => {
                 returning += 1;
@@ -136,7 +136,7 @@ pub fn tick(
                     format!("returning={} (already delivered?)", returning),
                 );
             } else if elapsed > 35.0 {
-                test.fail_phase(elapsed, format!("carrying=0 returning=0"));
+                test.fail_phase(elapsed, "carrying=0 returning=0".to_string());
             }
         }
         // Phase 4: Raiders returning home
@@ -151,7 +151,7 @@ pub fn tick(
                     format!("returning={} raider_food={}", returning, raider_food),
                 );
             } else if elapsed > 40.0 {
-                test.fail_phase(elapsed, format!("returning=0 raider_food=0"));
+                test.fail_phase(elapsed, "returning=0 raider_food=0".to_string());
             }
         }
         // Phase 5: Food delivered (raider town food increases)
