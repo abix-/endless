@@ -127,10 +127,10 @@ pub struct EntityMap {
 
     // Building-specific data
     instances: HashMap<usize, BuildingInstance>,
-    by_kind: HashMap<crate::world::BuildingKind, Vec<usize>>,
-    by_kind_town: HashMap<(crate::world::BuildingKind, u32), Vec<usize>>,
+    by_kind: HashMap<crate::world::BuildingKind, DenseSlotSet>,
+    by_kind_town: HashMap<(crate::world::BuildingKind, u32), DenseSlotSet>,
     by_grid_cell: HashMap<(i32, i32), usize>,
-    spawner_slots: Vec<usize>,
+    spawner_slots: DenseSlotSet,
 
     // NPC-specific data (index-only — gameplay state on ECS components)
     npcs: HashMap<usize, NpcEntry>,
@@ -282,6 +282,7 @@ impl EntityMap {
         self.by_kind.clear();
         self.by_kind_town.clear();
         self.by_grid_cell.clear();
+        self.spawner_slots.clear();
         self.spatial_cells.iter_mut().for_each(|c| c.clear());
         self.spatial_kind_town.clear();
         self.spatial_kind_cell.clear();
@@ -307,22 +308,22 @@ impl EntityMap {
         // Remove old index entries if updating an existing slot
         if let Some(old) = self.instances.remove(&slot) {
             if let Some(slots) = self.by_kind.get_mut(&old.kind) {
-                slots.retain(|&s| s != slot);
+                slots.remove(slot);
             }
             if let Some(slots) = self.by_kind_town.get_mut(&(old.kind, old.town_idx)) {
-                slots.retain(|&s| s != slot);
+                slots.remove(slot);
             }
             let old_gc = (old.position.x / TOWN_GRID_SPACING).floor() as i32;
             let old_gr = (old.position.y / TOWN_GRID_SPACING).floor() as i32;
             self.by_grid_cell.remove(&(old_gc, old_gr));
             self.spatial_remove(slot, old.position);
-            self.spawner_slots.retain(|&s| s != slot);
+            self.spawner_slots.remove(slot);
         }
-        self.by_kind.entry(kind).or_default().push(slot);
+        self.by_kind.entry(kind).or_default().insert(slot);
         self.by_kind_town
             .entry((kind, inst.town_idx))
             .or_default()
-            .push(slot);
+            .insert(slot);
         let gc = (inst.position.x / TOWN_GRID_SPACING).floor() as i32;
         let gr = (inst.position.y / TOWN_GRID_SPACING).floor() as i32;
         self.by_grid_cell.insert((gc, gr), slot);
@@ -331,7 +332,7 @@ impl EntityMap {
         self.instances.insert(slot, inst);
         self.spatial_insert(slot, pos);
         if is_spawner {
-            self.spawner_slots.push(slot);
+            self.spawner_slots.insert(slot);
         }
     }
 
@@ -339,16 +340,16 @@ impl EntityMap {
     fn remove_instance(&mut self, slot: usize) -> Option<BuildingInstance> {
         if let Some(inst) = self.instances.remove(&slot) {
             if let Some(slots) = self.by_kind.get_mut(&inst.kind) {
-                slots.retain(|&s| s != slot);
+                slots.remove(slot);
             }
             if let Some(slots) = self.by_kind_town.get_mut(&(inst.kind, inst.town_idx)) {
-                slots.retain(|&s| s != slot);
+                slots.remove(slot);
             }
             let gc = (inst.position.x / TOWN_GRID_SPACING).floor() as i32;
             let gr = (inst.position.y / TOWN_GRID_SPACING).floor() as i32;
             self.by_grid_cell.remove(&(gc, gr));
             self.spatial_remove(slot, inst.position);
-            self.spawner_slots.retain(|&s| s != slot);
+            self.spawner_slots.remove(slot);
             Some(inst)
         } else {
             None
@@ -372,7 +373,7 @@ impl EntityMap {
     }
 
     pub fn spawner_slots(&self) -> &[usize] {
-        &self.spawner_slots
+        self.spawner_slots.as_slice()
     }
 
     pub fn iter_kind(
@@ -383,7 +384,7 @@ impl EntityMap {
         let instances = &self.instances;
         slots
             .into_iter()
-            .flat_map(|v| v.iter())
+            .flat_map(|v| v.as_slice().iter())
             .filter_map(move |&s| instances.get(&s))
     }
 
@@ -396,7 +397,7 @@ impl EntityMap {
         let instances = &self.instances;
         slots
             .into_iter()
-            .flat_map(|v| v.iter())
+            .flat_map(|v| v.as_slice().iter())
             .filter_map(move |&s| instances.get(&s))
     }
 
@@ -408,6 +409,7 @@ impl EntityMap {
         let mut counts = HashMap::new();
         for (kind, slots) in &self.by_kind {
             let count = slots
+                .as_slice()
                 .iter()
                 .filter(|&&s| {
                     self.instances

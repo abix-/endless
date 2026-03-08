@@ -1083,6 +1083,15 @@ fn game_escape_system(
             squad_state.placing_target = false;
             return;
         }
+        // Close floating windows before left panel / pause menu
+        if ui_state.tech_tree_open {
+            ui_state.tech_tree_open = false;
+            return;
+        }
+        if ui_state.casino_open {
+            ui_state.casino_open = false;
+            return;
+        }
         // Close left panel before opening/toggling pause menu.
         if ui_state.left_panel_open {
             ui_state.left_panel_open = false;

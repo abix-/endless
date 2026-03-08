@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-03-08k
+
+- **DenseSlotSet** — new data structure in entity_map.rs: dense `Vec<usize>` + reverse `HashMap<usize, usize>` for O(1) insert, O(1) swap_remove, cache-friendly iteration. Applied to `npc_by_town`, `by_kind`, `by_kind_town`, `spawner_slots`. Death system 500 deaths/frame: 7.8ms → 951µs (8.2× faster). Same pattern as EnTT sparse sets.
+- **Consolidated performance.md** — replaced 8 dated benchmark entries with single Current Benchmark Results section (no duplication) + compact Optimization Log preserving fix narratives.
+- **Escape key closes floating windows** — tech tree and casino windows close on Escape before left panel/pause menu.
+- **Bugfix**: added missing `spawner_slots.clear()` to `clear_buildings()`.
+
 ## 2026-03-08j
 
 - **Remove `NpcsByTownCache`** — eliminated redundant resource that duplicated `EntityMap.npc_by_town`. Added `EntityMap::slots_for_town()` as the single access point. Removed from 8 files (health.rs, spawn.rs, stats.rs, economy/mod.rs, save.rs, ui/mod.rs, lib.rs, system_bench.rs). Death system defers equipment extraction to killer-only path (saves 2 Vec allocs for starvation deaths).

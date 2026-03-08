@@ -296,6 +296,10 @@ for npc in entity_map.iter_npcs() {
   - Pattern: `for x in A { if B.contains(x) { ... } }` where `B` is `Vec`.
   - Replace with: `HashSet` for membership or sorted vector + binary search when stable ordering is needed.
 
+- Per-item Vec::retain in loops (O(n²)):
+  - Pattern: `for item in items { vec.retain(|x| x != item); }` — linear scan per removal.
+  - Replace with: `DenseSlotSet` (entity_map.rs) — dense Vec + reverse HashMap, O(1) swap_remove per removal, cache-friendly iteration via `as_slice()`. See 2026-03-08h benchmark for 6.5× speedup on death_system.
+
 - Redundant traversals:
   - Pattern: multiple passes over the same query/collection for related outputs.
   - Replace with: single pass that accumulates all needed outputs.
@@ -349,107 +353,11 @@ Legitimate violations of the rules above, tracked with exit criteria.
 | `npc_render.rs` `build_visual_upload` uses `iter_npcs()` | Hot Path #6 | Needs NpcInstance fields not in ECS; event-driven dirty-only | Acceptable | None — correct pattern |
 | `roster_panel.rs` / `left_panel.rs` use `iter_npcs()` | Hot Path #6 | UI roster display needs full NPC list | 30-frame cadence cache | Add pagination or virtual scroll |
 
-## Benchmark History
+## Current Benchmark Results
 
-Run via `cargo bench --bench system_bench` (Criterion). Use `/benchmark` to execute and append results.
+Run via `cargo bench --bench system_bench` (Criterion). Use `/benchmark` to execute and append results. Last full run: 2026-03-08.
 
-### 2026-03-08 — d0191eb (baseline)
-
-| System | 1K | 5K | 10K | 25K | 50K |
-|--------|----|----|-----|-----|-----|
-| decision | 33µs | 72µs | 118µs | 261µs | 520µs |
-| damage | 21µs | 48µs | 55µs | 130µs | 251µs |
-| healing | 11µs | 39µs | 80µs | 205µs | 443µs |
-| attack | 21µs | 70µs | 134µs | 328µs | 674µs |
-
-Combined 50K: 1.9ms (11.4% of 16ms budget). All systems O(n) — linear scaling confirmed.
-
-### 2026-03-08b — 030c060 (full suite, 9 systems)
-
-**NPC-scaled** (vary entity count):
-
-| System | 1K | 5K | 10K | 25K | 50K | Scaling |
-|--------|----|----|-----|-----|-----|---------|
-| decision | 34µs | 68µs | 112µs | 261µs | 480µs | O(n) |
-| damage | 21µs | 51µs | 54µs | 129µs | 248µs | O(n) |
-| healing | 11µs | 39µs | 79µs | 213µs | 448µs | O(n) |
-| attack | 22µs | 73µs | 138µs | 344µs | 668µs | O(n) |
-| resolve_movement | 2.06ms | 2.07ms | 2.10ms | 2.22ms | 2.32ms | O(1) budget-capped |
-| populate_gpu_state | 177µs | 204µs | 231µs | 536µs | 985µs | O(n) |
-
-**Building-scaled** (vary tower count, 5K enemy NPCs):
-
-| System | 10 | 50 | 100 | 250 | 500 |
-|--------|----|----|-----|-----|-----|
-| building_tower | 5µs | 7µs | 9µs | 15µs | 26µs |
-
-**Spawner-scaled** (vary spawner building count):
-
-| System | 100 | 500 | 1K | 2K |
-|--------|-----|-----|----|-----|
-| spawner_respawn | 66µs | 4.3ms | 18.5ms | 88.2ms |
-
-Combined 50K (6 NPC-scaled systems): 5.1ms (30.7% of 16ms budget).
-
-**Findings:**
-- `spawner_respawn` was **O(n²)** — 2K spawners = 88ms, blows frame budget 5×. Fixed in 2026-03-08c (see below).
-- `resolve_movement` is budget-capped (~2ms) via `max_per_frame` pathfind limit — near-constant regardless of NPC count.
-- `death_system` bench needs rework — shows flat ~42µs regardless of death count (Dead NPCs not being processed).
-
-### 2026-03-08c — spawner_respawn O(n²) fix
-
-**Root cause**: `find_nearest_free()` (world.rs) used the generic `for_each_nearby` spatial search, which iterates ALL building types per cell. When no Farm/GoldMine exists for a town, the expanding-radius loop (2→4→...→128 cells) scanned every building instance at every radius. With N spawners firing × N instances = O(n²).
-
-**Fix** (two parts):
-1. **Spawner slot index** (entity_map.rs): `spawner_slots: Vec<usize>` maintained on add/remove. Collection phase uses index instead of `iter_instances().filter(spawner)`. O(spawners) not O(all_buildings).
-2. **Kind-filtered spatial search** (world.rs): `find_nearest_free()` now uses `for_each_nearby_kind_town` / `for_each_nearby_kind` instead of generic `for_each_nearby`. These use pre-built `spatial_kind_town` / `spatial_kind_cell` hash maps that only contain buildings of the matching kind. When zero farms exist, every bucket is empty → instant no-op per cell → expanding loop touches nothing.
-
-**Pattern**: This is a variant of the Candidate-Driven pattern — instead of scanning all entities and filtering, use a pre-built index that contains only candidates of the right type. The kind-filtered spatial indexes (`spatial_kind_town`, `spatial_kind_cell`) already existed but `find_nearest_free` wasn't using them.
-
-| System | 100 | 500 | 1K | 2K | Scaling |
-|--------|-----|-----|----|-----|---------|
-| spawner_respawn (before) | 66µs | 4.3ms | 18.5ms | 88.2ms | O(n²) |
-| spawner_respawn (after) | 10.7µs | 25µs | 36µs | 75µs | O(n) |
-
-2K spawners: **88ms → 75µs (1,176× faster)**. Now 0.5% of frame budget instead of 5× over it.
-
-### 2026-03-08d — resolve_movement unbounded benchmark
-
-Added `resolve_movement_unbounded` benchmark variant that lifts the budget cap (`max_per_frame: 100K`, `max_time_budget_ms: 60s`) to measure true A* cost when 10% of NPCs request paths each frame.
-
-| Variant | 1K | 5K | 10K | 25K | 50K | Scaling |
-|---------|----|----|-----|-----|-----|---------|
-| budgeted (200/frame, 2ms cap) | 2.05ms | 2.09ms | 2.11ms | 2.17ms | 2.27ms | O(1) capped |
-| unbounded (10% pathing) | 4.1ms | 28.8ms | 58.1ms | 141ms | 257ms | O(n) |
-
-**Findings:**
-- Per-request A* cost: ~51µs average (consistent across all counts — linear in request count, not NPC count).
-- At 50K NPCs with 10% needing paths: 5000 requests × 51µs = 257ms unbounded.
-- Budget cap at 200 requests/frame processes the queue in ~25 frames (5000 ÷ 200), adding ~400ms queue latency before the last NPC starts moving.
-- The budget is working as designed — without it, pathfinding alone would consume 16× the frame budget at 50K.
-
-### 2026-03-08e — HPA* hierarchical pathfinding
-
-Replaced raw A* with custom HPA* (Hierarchical Pathfinding A*). Grid divided into 16×16 chunks, entrance nodes at chunk boundaries, precomputed intra-chunk paths. Also increased LOS bypass from 5→12 tiles and eliminated per-frame cost grid clone (125KB).
-
-**NPC-scaled** (vary entity count, 10% pathing):
-
-| Variant | 1K | 5K | 10K | 25K | 50K | Scaling |
-|---------|----|----|-----|-----|-----|---------|
-| budgeted (before) | 2.05ms | 2.09ms | 2.11ms | 2.17ms | 2.27ms | O(1) capped |
-| budgeted (HPA*) | 19µs | 45µs | 63µs | 118µs | 214µs | O(n) |
-| unbounded (before) | 4.1ms | 28.8ms | 58.1ms | 141ms | 257ms | O(n) |
-| unbounded (HPA*) | 30µs | 84µs | 153µs | 369µs | 753µs | O(n) |
-
-**Findings:**
-- Unbounded 50K: **257ms → 753µs (341× faster)**. Per-request cost dropped from ~51µs to sub-microsecond.
-- Budgeted 50K: **2.27ms → 214µs (10.9× faster)**. Budget cap now nearly unnecessary — 5000 requests cost <1ms.
-- Three compounding factors: HPA* abstract graph searches ~100-500 nodes instead of ~5000, LOS bypass 5→12 tiles skips most short paths, eliminated 125KB/frame cost grid clone.
-- HPA* cache build is one-time at world init (~50-100ms). Chunk rebuilds on building change are <1ms.
-
-### 2026-03-08f — e07691b (full suite, expanded building/death scale)
-
-**NPC-scaled** (vary entity count):
+### NPC-scaled (vary entity count, 50K NPCs baseline)
 
 | System | 1K | 5K | 10K | 25K | 50K | Scaling |
 |--------|----|----|-----|-----|-----|---------|
@@ -461,49 +369,69 @@ Replaced raw A* with custom HPA* (Hierarchical Pathfinding A*). Grid divided int
 | resolve_movement_unbounded | 33µs | 88µs | 160µs | 389µs | 739µs | O(n) HPA* |
 | populate_gpu_state | 182µs | 200µs | 236µs | 539µs | 1061µs | O(n) |
 
-**Building-scaled** (vary building count, 5K enemy NPCs):
+Combined 50K (6 systems, excluding unbounded variant): 3.3ms (20.5% of 16ms budget).
+
+### Building-scaled (vary building count, 5K enemy NPCs)
 
 | System | 100 | 500 | 1K | 5K | 50K | Scaling |
 |--------|-----|-----|----|-----|------|---------|
 | building_tower | 9µs | 26µs | 50µs | 237µs | 5.6ms | O(n) |
 
-**Spawner-scaled** (vary spawner building count):
+500 towers (typical game) = 26µs, negligible. 50K towers = 5.6ms stress test.
+
+### Spawner-scaled (vary spawner building count)
 
 | System | 100 | 500 | 1K | 5K | 50K | Scaling |
 |--------|-----|-----|----|-----|------|---------|
 | spawner_respawn | 15µs | 26µs | 45µs | 209µs | 2.1ms | O(n) |
 
-**Death-scaled** (full death→despawn→respawn cycle, vary deaths/frame, fixed 50K NPCs):
+### Death-scaled (full death→despawn→respawn cycle, fixed 50K NPCs)
 
 | Deaths/frame | 100 | 500 | 1K | 5K | 25K | Scaling |
 |-------------|-----|-----|----|-----|------|---------|
-| death_system | 1.6ms | 7.7ms | 15.5ms | 82.3ms | 394ms | O(n) ~15.5µs/death |
+| death_system | 318µs | 951µs | 1.8ms | 11.4ms | 55.5ms | O(n) ~2.2µs/death |
 
-Combined 50K (7 NPC-scaled systems): 4.2ms (26.4% of 16ms budget).
+500 deaths/frame (heavy combat) = 951µs (6% of budget).
 
-**Findings:**
-- `attack_system` regressed ~25% at 50K (844µs vs 668µs baseline). Noise/thermal variation — no code changed in attack path.
-- `resolve_movement` now O(n) instead of O(1) budget-capped, but at 222µs@50K it's 10× cheaper than the old 2.27ms budget cap.
-- `building_tower` at 50K towers = 5.6ms — a realistic stress test. 500 towers (typical game) = 26µs, negligible.
-- `spawner_respawn` at 50K spawners = 2.1ms — confirms O(n) post-fix. 2K spawners (old max) = ~45µs.
-- `death_system` now properly measures full death→despawn→respawn cycle at ~15.5µs/death. 500 deaths/frame (heavy combat) = 7.7ms (48% of budget). Previous bench was broken — inserting `Dead` directly bypassed the `Without<Dead>` detection query, showing flat ~43µs regardless of count.
+### Budget Summary (50K entities, typical combat frame)
 
-### 2026-03-08g — NpcsByTownCache removal + equipment deferral
+| Component | Cost | % of 16ms |
+|-----------|------|-----------|
+| 6 NPC-scaled systems | 3.3ms | 20.5% |
+| death_system (500 deaths) | 951µs | 6.0% |
+| building_tower (500 towers) | 26µs | 0.2% |
+| spawner_respawn (1K spawners) | 45µs | 0.3% |
+| **Total measured** | **4.3ms** | **27.0%** |
 
-**Root cause**: `NpcsByTownCache` (`Vec<Vec<usize>>`) was entirely redundant with `EntityMap.npc_by_town` (`HashMap<i32, Vec<usize>>`). Both stored slot lists per town, both pushed on spawn and retained on death. Every death paid O(town_size) `retain()` twice — once in `NpcsByTownCache` (health.rs) and once in `EntityMap.unregister_npc` (entity_map.rs).
+Remaining budget for GPU compute, rendering, UI, and unmeasured systems: ~11.7ms (73%).
 
-**Fix** (two parts):
-1. **Delete NpcsByTownCache**: Removed the struct from `resources.rs` and all 8 files that referenced it (health.rs, spawn.rs, stats.rs, economy/mod.rs, save.rs, ui/mod.rs, lib.rs, system_bench.rs). Added `EntityMap::slots_for_town()` as the single access point for per-town NPC slot queries.
-2. **Defer equipment extraction**: Moved `carried_loot_q` and `equipment_q` reads inside the `if last_hit_by >= 0` block in death_system. NPCs dying without a killer (starvation) skip 2 Vec allocations.
+## Optimization Log
 
-**Death-scaled** (full death→despawn→respawn cycle, vary deaths/frame, fixed 50K NPCs):
+Compact record of performance fixes applied. Each entry preserves the root cause analysis and pattern used.
 
-| Deaths/frame | 100 | 500 | 1K | 5K | 25K | Scaling |
-|-------------|-----|-----|----|-----|------|---------|
-| death_system (before) | 1.6ms | 7.7ms | 15.5ms | 82.3ms | 394ms | O(n) ~15.5µs/death |
-| death_system (after) | 1.6ms | 7.8ms | 15.5ms | 79.5ms | 380ms | O(n) ~15.1µs/death |
+### spawner_respawn O(n²) → O(n) — 1,176× faster
 
-**Findings:**
-- 3-5% improvement at scale (5K-25K deaths), within noise at smaller counts.
-- Architectural win: eliminated a redundant data structure and ~15 lines of duplicate bookkeeping across 8 files. Single source of truth for per-town NPC slots is now `EntityMap.npc_by_town`.
-- Remaining bottleneck: `EntityMap.unregister_npc` still does O(town_size) `retain()` per death. Converting `npc_by_town` from `Vec<usize>` to `HashSet<usize>` would make removal O(1) but sacrifice iteration locality — worth profiling if death cost becomes a blocker at scale.
+**Root cause**: `find_nearest_free()` (world.rs) used generic `for_each_nearby` spatial search iterating ALL building types per cell. N spawners × N buildings = O(n²). 2K spawners = 88ms.
+
+**Fix**: (1) `spawner_slots` index in entity_map.rs — O(spawners) collection instead of O(all_buildings). (2) Kind-filtered spatial search via `for_each_nearby_kind_town` — pre-built indexes containing only matching building kinds. Empty buckets = instant no-op.
+
+**Pattern**: Candidate-Driven — use pre-built type-specific indexes instead of scanning all entities and filtering. 2K spawners: 88ms → 75µs.
+
+### HPA* hierarchical pathfinding — 341× faster
+
+**Root cause**: Raw A* searched ~5000 grid cells per request. At 50K NPCs with 10% pathing: 5000 requests × 51µs = 257ms unbounded.
+
+**Fix**: Custom HPA* — 16×16 chunks, entrance nodes at boundaries, precomputed intra-chunk paths. Abstract graph A* searches ~100-500 nodes instead of ~5000. Also increased LOS bypass 5→12 tiles and eliminated 125KB/frame cost grid clone.
+
+**Result**: Unbounded 50K: 257ms → 753µs. Budgeted 50K: 2.27ms → 214µs. Budget cap now nearly unnecessary. Cache build is one-time (~50-100ms at world init), chunk rebuilds on building change <1ms.
+
+### death_system O(n²) → O(1) via DenseSlotSet — 7× faster
+
+**Root cause**: `EntityMap.unregister_npc` called `npc_by_town[town].retain(|&s| s != slot)` per death — O(town_size) linear scan per removal. N deaths × town_size = O(n²). Also, `NpcsByTownCache` duplicated the same data, paying the O(n) retain twice.
+
+**Fix** (three parts):
+1. **Delete NpcsByTownCache** — redundant with `EntityMap.npc_by_town`. Removed from 8 files.
+2. **DenseSlotSet** (entity_map.rs) — dense `Vec<usize>` + reverse `HashMap<usize, usize>` (slot → position). O(1) insert, O(1) removal via `swap_remove`, cache-friendly iteration via `as_slice()`. Same pattern as [EnTT sparse sets](https://gist.github.com/dakom/82551fff5d2b843cbe1601bbaff2acbf) and [`IndexSet::swap_remove`](https://docs.rs/indexmap/latest/indexmap/set/struct.IndexSet.html). Applied to `npc_by_town`, `by_kind`, `by_kind_town`, `spawner_slots`.
+3. **Defer equipment extraction** — moved equipment queries inside `if last_hit_by >= 0` block. Starvation deaths skip 2 Vec allocations.
+
+**Pattern**: For any `Vec` needing both O(1) removal-by-value and cache-friendly iteration, use `DenseSlotSet`. 35 lines of code, reusable. 500 deaths/frame: 7.8ms → 951µs.
