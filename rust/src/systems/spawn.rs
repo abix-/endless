@@ -5,7 +5,6 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg, SpawnNpcMsg};
 use crate::messages::{DirtyWriters, MiningDirtyMsg, SquadsDirtyMsg};
-use crate::resources::NextEntityUid;
 use crate::resources::{
     CombatEventKind, EntityMap, FactionStats, GameTime, NpcMeta, NpcMetaCache, PopulationStats,
 };
@@ -89,8 +88,6 @@ pub struct NpcSpawnOverrides {
     pub carried_gold: Option<i32>,
     pub carried_equipment: Vec<crate::constants::LootItem>,
     pub squad_id: Option<i32>,
-    /// Explicit UID for save/load. None = allocate fresh from NextEntityUid.
-    pub uid_override: Option<EntityUid>,
 }
 
 
@@ -116,7 +113,6 @@ pub fn materialize_npc(
     _world_data: &WorldData,
     combat_config: &CombatConfig,
     town_levels: &[u8],
-    uid_alloc: &mut NextEntityUid,
 ) {
     let idx = slot_idx;
     let job = Job::from_i32(job_id);
@@ -213,7 +209,7 @@ pub fn materialize_npc(
     // Work position slot
     let work_slot = work_pos.and_then(|wp| entity_map.slot_at_position(Vec2::new(wp[0], wp[1])));
     let initial_work_target = if restore_work_state {
-        work_slot.and_then(|s| entity_map.uid_for_slot(s))
+        work_slot.and_then(|s| entity_map.entities.get(&s).copied())
     } else {
         None
     };
@@ -287,12 +283,9 @@ pub fn materialize_npc(
     if def.has_energy {
         ecmds.insert(HasEnergy);
     }
-    let uid = overrides.uid_override.unwrap_or_else(|| uid_alloc.alloc());
-    ecmds.insert(uid);
     let entity = ecmds.id();
 
     entity_map.register_npc(idx, entity, job, faction_id, town_idx);
-    entity_map.register_uid(idx, uid, entity);
     pop_inc_alive(pop_stats, job, town_idx);
 
     if idx < npc_meta.0.len() {
@@ -328,7 +321,6 @@ pub fn spawn_npc_system(
     combat_config: Res<CombatConfig>,
     town_access: crate::systemparams::TownAccess,
     mut dirty_writers: DirtyWriters,
-    mut uid_alloc: ResMut<NextEntityUid>,
 ) {
     for msg in events.read() {
         let work_pos = if msg.work_x >= 0.0 {
@@ -337,11 +329,7 @@ pub fn spawn_npc_system(
             None
         };
 
-        let overrides = if msg.uid_override.is_some() {
-            NpcSpawnOverrides { uid_override: msg.uid_override, ..Default::default() }
-        } else {
-            NpcSpawnOverrides::default()
-        };
+        let overrides = NpcSpawnOverrides::default();
         materialize_npc(
             msg.slot_idx,
             msg.x,
@@ -362,7 +350,6 @@ pub fn spawn_npc_system(
             &world_data,
             &combat_config,
             &town_access.upgrade_levels(msg.town_idx),
-            &mut uid_alloc,
         );
 
         // Spawn-only bookkeeping (not needed for save-load)

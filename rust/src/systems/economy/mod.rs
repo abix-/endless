@@ -344,7 +344,6 @@ pub fn spawner_respawn_system(
     world_data: Res<WorldData>,
     mut combat_log: MessageWriter<CombatLogMsg>,
     mut dirty_writers: crate::messages::DirtyWriters,
-    mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
     mut spawner_q: Query<(&mut SpawnerState, Option<&MinerHomeConfig>)>,
 ) {
     if !game_time.hour_ticked {
@@ -365,15 +364,12 @@ pub fn spawner_respawn_system(
             continue;
         };
 
-        // Check if linked NPC died (UID no longer maps to a live slot)
-        if let Some(npc_uid) = spawner.npc_uid {
-            let npc_alive = entity_map
-                .slot_for_uid(npc_uid)
-                .map(|s| entity_map.entities.contains_key(&s))
-                .unwrap_or(false);
+        // Check if linked NPC died (slot no longer has a live NPC)
+        if let Some(npc_slot) = spawner.npc_slot {
+            let npc_alive = entity_map.get_npc(npc_slot).is_some_and(|n| !n.dead);
             if !npc_alive {
                 let is_miner_home = inst.kind == BuildingKind::MinerHome;
-                spawner.npc_uid = None;
+                spawner.npc_slot = None;
                 spawner.respawn_timer = SPAWNER_RESPAWN_HOURS;
                 if is_miner_home {
                     dirty_writers.mining.write(crate::messages::MiningDirtyMsg);
@@ -407,7 +403,6 @@ pub fn spawner_respawn_system(
 
                 let pos = inst.position;
                 let is_miner_home = inst.kind == BuildingKind::MinerHome;
-                let npc_uid = uid_alloc.alloc();
                 spawn_writer.write(SpawnNpcMsg {
                     slot_idx: slot,
                     x: pos.x,
@@ -421,9 +416,9 @@ pub fn spawner_respawn_system(
                     work_y,
                     starting_post,
                     attack_type,
-                    uid_override: Some(npc_uid),
+                    entity_override: None,
                 });
-                spawner.npc_uid = Some(npc_uid);
+                spawner.npc_slot = Some(slot);
                 spawner.respawn_timer = -1.0;
                 if is_miner_home {
                     dirty_writers.mining.write(crate::messages::MiningDirtyMsg);
@@ -517,9 +512,8 @@ pub fn mining_policy_system(
                 let Ok(cfg) = miner_cfg_q.get(entity) else { return false };
                 if cfg.manual_mine { return false; }
                 let Ok(sp) = spawner_q.get(entity) else { return false };
-                sp.npc_uid
-                    .and_then(|uid| entity_map.slot_for_uid(uid))
-                    .map(|s| entity_map.entities.contains_key(&s))
+                sp.npc_slot
+                    .map(|s| entity_map.get_npc(s).is_some_and(|n| !n.dead))
                     .unwrap_or(false)
             })
             .map(|inst| inst.slot)
@@ -592,9 +586,9 @@ pub fn squad_cleanup_system(
 
     // Phase 1: remove dead members (all squads)
     for squad in squad_state.squads.iter_mut() {
-        squad.members.retain(|&uid| {
+        squad.members.retain(|&e| {
             entity_map
-                .slot_for_uid(uid)
+                .slot_for_entity(e)
                 .and_then(|slot| entity_map.get_npc(slot))
                 .is_some_and(|n| !n.dead)
         });
@@ -603,7 +597,7 @@ pub fn squad_cleanup_system(
     // Phase 2: keep Default Squad (index 0) as the live pool of unsquadded player military units.
     if let Some(default_squad) = squad_state.squads.get_mut(0) {
         if default_squad.is_player() {
-            let new_members: Vec<(usize, Entity, crate::components::EntityUid)> = recruit_q
+            let new_members: Vec<(usize, Entity)> = recruit_q
                 .iter()
                 .filter(|(slot, job, town_id, sq_id)| {
                     job.is_military()
@@ -616,15 +610,14 @@ pub fn squad_cleanup_system(
                 .map(|(slot, _, _, _)| slot.0)
                 .filter_map(|slot| {
                     let entity = *entity_map.entities.get(&slot)?;
-                    let uid = entity_map.uid_for_slot(slot)?;
-                    Some((slot, entity, uid))
+                    Some((slot, entity))
                 })
                 .collect();
-            for (slot, entity, uid) in new_members {
+            for (slot, entity) in new_members {
                 commands.entity(entity).insert(SquadId(0));
                 pending_squad.insert(slot, Some(0));
-                if !default_squad.members.contains(&uid) {
-                    default_squad.members.push(uid);
+                if !default_squad.members.contains(&entity) {
+                    default_squad.members.push(entity);
                 }
             }
         }
@@ -633,13 +626,13 @@ pub fn squad_cleanup_system(
     // Phase 3: dismiss excess (target_size > 0 and members > target_size, all squads)
     for (si, squad) in squad_state.squads.iter_mut().enumerate() {
         if squad.target_size > 0 && squad.members.len() > squad.target_size {
-            let to_dismiss: Vec<crate::components::EntityUid> =
+            let to_dismiss: Vec<Entity> =
                 squad.members.drain(squad.target_size..).collect();
-            for &uid in &to_dismiss {
-                let Some(slot) = entity_map.slot_for_uid(uid) else {
+            for &entity in &to_dismiss {
+                let Some(slot) = entity_map.slot_for_entity(entity) else {
                     continue;
                 };
-                if let Some(&entity) = entity_map.entities.get(&slot) {
+                {
                     let current_sq = pending_squad
                         .get(&slot)
                         .copied()
@@ -664,7 +657,7 @@ pub fn squad_cleanup_system(
         .flat_map(|s| {
             s.members
                 .iter()
-                .filter_map(|uid| entity_map.slot_for_uid(*uid))
+                .filter_map(|e| entity_map.slot_for_entity(*e))
         })
         .collect();
 
@@ -705,8 +698,8 @@ pub fn squad_cleanup_system(
                     commands.entity(entity).insert(SquadId(si as i32));
                     pending_squad.insert(slot, Some(si as i32));
                 }
-                if let Some(uid) = entity_map.uid_for_slot(slot) {
-                    squad.members.push(uid);
+                if let Some(&entity) = entity_map.entities.get(&slot) {
+                    squad.members.push(entity);
                 }
             } else {
                 break;
@@ -973,7 +966,7 @@ pub fn endless_system(
                         work_y: -1.0,
                         starting_post: -1,
                         attack_type: 0,
-                        uid_override: None,
+                        entity_override: None,
                     });
                     mg.member_slots.push(slot);
                 }
@@ -1135,7 +1128,6 @@ pub fn endless_system(
             is_raider,
             &mut world_state.entity_slots,
             &mut world_state.entity_map,
-            &mut world_state.uid_alloc,
             &mut commands,
             &mut res.gpu_updates,
         );
@@ -1259,7 +1251,7 @@ pub fn endless_system(
             work_y: -1.0,
             starting_post: -1,
             attack_type: 0,
-            uid_override: None,
+            entity_override: None,
         });
     }
 

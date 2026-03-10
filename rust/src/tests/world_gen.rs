@@ -17,7 +17,6 @@ pub fn setup(
     mut entity_map: ResMut<EntityMap>,
     mut test_state: ResMut<TestState>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
-    mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
     mut commands: Commands,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
 ) {
@@ -31,7 +30,6 @@ pub fn setup(
         &mut crate::resources::FactionList::default(),
         &mut slot_alloc,
         &mut entity_map,
-        &mut uid_alloc,
         &mut commands,
         &mut gpu_updates,
     );

@@ -28,7 +28,7 @@ pub fn setup(mut params: TestSetupParams) {
         work_y: -1.0,
         starting_post: -1,
         attack_type: 0,
-        uid_override: None,
+        entity_override: None,
     });
     params.test_state.phase_name = "Waiting for spawn...".into();
     info!("energy: setup — 1 farmer");

@@ -33,8 +33,8 @@ pub fn resolve_work_targets(
         .collect();
     for WorkIntentMsg(intent) in intents.read() {
         match intent {
-            WorkIntent::Release { entity, uid } => {
-                release_worksite_uid(*entity, *uid, &mut entity_map);
+            WorkIntent::Release { entity, worksite } => {
+                release_worksite_entity(*entity, *worksite, &mut entity_map);
                 clear_worksite(*entity, &mut work_state_q);
             }
             WorkIntent::Claim { entity, kind, town_idx, from } => {
@@ -54,21 +54,19 @@ fn release_worksite(
     entity_map: &mut EntityMap,
     work_state_q: &mut Query<&mut NpcWorkState>,
 ) {
-    let claimer_uid = entity_map.uid_by_entity(entity);
     let Ok(mut ws) = work_state_q.get_mut(entity) else { return };
-    if let Some(uid) = ws.worksite.take() {
-        if let Some(slot) = entity_map.slot_for_uid(uid) {
-            entity_map.release_for(slot, claimer_uid);
+    if let Some(ws_entity) = ws.worksite.take() {
+        if let Some(slot) = entity_map.slot_for_entity(ws_entity) {
+            entity_map.release_for(slot, Some(entity));
         }
     }
 }
 
-/// Release by carried UID (used when decision_system write-back already cleared the component).
-fn release_worksite_uid(entity: Entity, uid: Option<EntityUid>, entity_map: &mut EntityMap) {
-    let claimer_uid = entity_map.uid_by_entity(entity);
-    if let Some(uid) = uid {
-        if let Some(slot) = entity_map.slot_for_uid(uid) {
-            entity_map.release_for(slot, claimer_uid);
+/// Release by carried worksite entity (used when decision_system write-back already cleared the component).
+fn release_worksite_entity(npc: Entity, worksite: Option<Entity>, entity_map: &mut EntityMap) {
+    if let Some(ws_entity) = worksite {
+        if let Some(slot) = entity_map.slot_for_entity(ws_entity) {
+            entity_map.release_for(slot, Some(npc));
         }
     }
 }
@@ -91,7 +89,6 @@ fn claim_worksite(
     path_queue: &mut PathRequestQueue,
     production_map: &std::collections::HashMap<usize, (bool, f32)>,
 ) {
-    let claimer_uid = entity_map.uid_by_entity(entity);
     let max_occupants = match building_def(kind).worksite {
         Some(ws) => ws.max_occupants,
         None => return,
@@ -118,7 +115,7 @@ fn claim_worksite(
         kind,
         Some(town_idx),
         max_occupants,
-        claimer_uid,
+        Some(entity),
     ) else {
         // Claim failed — revert Activity to Idle
         if let Ok(mut act) = activity_q.get_mut(entity) {
@@ -129,8 +126,7 @@ fn claim_worksite(
 
     // Update NpcWorkState
     if let Ok(mut ws) = work_state_q.get_mut(entity) {
-        let uid = entity_map.uid_for_slot(claimed.slot);
-        ws.worksite = uid;
+        ws.worksite = entity_map.entities.get(&claimed.slot).copied();
     }
 
     // Submit movement intent

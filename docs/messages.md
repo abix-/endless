@@ -19,7 +19,7 @@ See [authority.md](authority.md) for the complete data ownership table, hard rul
 | Message | Fields | Pattern |
 |---------|--------|---------|
 | SpawnNpcMsg | slot_idx, x, y, job, faction, town_idx, home_x/y, work_x/y, starting_post, attack_type | MessageWriter → MessageReader |
-| DamageMsg | target (EntityUid), amount (f32), attacker (i32, -1=tower/unknown), attacker_faction (i32) | process_proj_hits / attack_system → damage_system |
+| DamageMsg | target (Entity), amount (f32), attacker (i32, -1=tower/unknown), attacker_faction (i32) | process_proj_hits / attack_system → damage_system |
 | GpuUpdateMsg | GpuUpdate enum (see below) | MessageWriter → populate_gpu_state |
 | CombatLogMsg | kind, faction, day, hour, minute, message, location | 18+ writers → drain_combat_log |
 | SaveGameMsg | none | save_load_input_system → save_game_system |
@@ -52,10 +52,10 @@ Fire-and-forget message for all worksite occupancy mutations. Single consumer: `
 | Variant | Fields | Purpose |
 |---------|--------|---------|
 | Claim | entity, kind (BuildingKind), town_idx (u32), from (Vec2) | Search for best worksite, claim it, update NpcWorkState, submit movement |
-| Release | entity, uid (Option\<EntityUid\>) | Release worksite by carried UID, clear NpcWorkState |
+| Release | entity, worksite (Option\<Entity\>) | Release worksite by carried Entity, clear NpcWorkState |
 | Retarget | entity, kind, town_idx, from | Atomic release + re-claim at a new worksite |
 
-Release carries `uid` from the sender because `decision_system`'s write-back may clear the NpcWorkState component before the resolver runs. Producers: `decision_system` (17 release sites, 6 claim sites), `death_system`.
+Release carries `worksite` from the sender because `decision_system`'s write-back may clear the NpcWorkState component before the resolver runs. Producers: `decision_system` (17 release sites, 6 claim sites), `death_system`.
 
 **Drain pattern for Reader/Writer conflicts:** When a system needs both `MessageReader<T>` (requires `Res<Messages<T>>`) and `MessageWriter<T>` (requires `ResMut<Messages<T>>`) for the same message type — e.g., because it reads dirty signals AND writes them via `DirtyWriters` in `WorldState` — Bevy's scheduler panics (B0002). The fix: split the read into a tiny drain system that runs `.before()` the main system, writing to an intermediate `Resource` flag. Two drain systems exist:
 - `ai_dirty_drain_system` → `AiSnapshotDirty` (drains BuildingGridDirtyMsg + MiningDirtyMsg + PatrolPerimeterDirtyMsg for `ai_decision_system`)

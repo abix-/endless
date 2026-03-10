@@ -22,7 +22,6 @@ pub fn setup(
     mut faction_stats: ResMut<FactionStats>,
     mut test_state: ResMut<TestState>,
     mut camera_query: Query<&mut Transform, With<MainCamera>>,
-    mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
     mut commands: Commands,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
 ) {
@@ -50,19 +49,19 @@ pub fn setup(
     faction_stats.init(3);
 
     let _home_a = world::place_building(
-        &mut slot_alloc, &mut entity_map, &mut uid_alloc, &mut commands, &mut gpu_updates,
-        BuildingKind::ArcherHome, ARCHER_HOME_A, 0, 0, 0, 0, None, None, None, None,
+        &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
+        BuildingKind::ArcherHome, ARCHER_HOME_A, 0, 0, 0, 0, None, None, None,
     )
     .expect("archer home A slot alloc");
     let _home_b = world::place_building(
-        &mut slot_alloc, &mut entity_map, &mut uid_alloc, &mut commands, &mut gpu_updates,
-        BuildingKind::ArcherHome, ARCHER_HOME_B, 0, 0, 0, 0, None, None, None, None,
+        &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
+        BuildingKind::ArcherHome, ARCHER_HOME_B, 0, 0, 0, 0, None, None, None,
     )
     .expect("archer home B slot alloc");
 
     let tent_slot = world::place_building(
-        &mut slot_alloc, &mut entity_map, &mut uid_alloc, &mut commands, &mut gpu_updates,
-        BuildingKind::Tent, TENT_POS, 1, 1, 0, 0, None, None, None, None,
+        &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
+        BuildingKind::Tent, TENT_POS, 1, 1, 0, 0, None, None, None,
     )
     .expect("tent slot alloc");
     test_state

@@ -55,7 +55,6 @@ pub(super) fn setup(
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
     mut state: StressArcherTownsState,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
-    mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
     stress_config: Res<StressArcherConfig>,
     mut town_index: ResMut<crate::resources::TownIndex>,
 ) {
@@ -87,7 +86,6 @@ pub(super) fn setup(
         &mut faction_stats,
         &mut crate::resources::Reputation::default(),
         &mut state.raider_state,
-        &mut uid_alloc,
         &mut town_index,
         &mut commands,
         &mut gpu_updates,

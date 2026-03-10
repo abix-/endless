@@ -120,7 +120,7 @@ struct SquadSnapshot {
     patrol_enabled: bool,
     rest_when_tired: bool,
     target: Option<Vec2>,
-    commander_uid: Option<crate::components::EntityUid>,
+    commander_uid: Option<Entity>,
     commander_cooldown: Option<f32>,
 }
 
@@ -971,12 +971,12 @@ fn squads_content(
         }
         let job_id = def.job as i32;
         // Available units of this job in default squad (squad 0)
-        let available: Vec<crate::components::EntityUid> = squad.squad_state.squads[0]
+        let available: Vec<Entity> = squad.squad_state.squads[0]
             .members
             .iter()
             .copied()
-            .filter(|uid| {
-                squad.entity_map.slot_for_uid(*uid).is_some_and(|slot| {
+            .filter(|e| {
+                squad.entity_map.slot_for_entity(*e).is_some_and(|slot| {
                     slot < meta_cache.0.len() && meta_cache.0[slot].job == job_id
                 })
             })
@@ -1005,7 +1005,7 @@ fn squads_content(
                         break;
                     }
                     if ui.small_button(format!("+{}", amount)).clicked() {
-                        let recruits: Vec<crate::components::EntityUid> =
+                        let recruits: Vec<Entity> =
                             available.iter().copied().take(amount).collect();
                         squad.squad_state.squads[0]
                             .members
@@ -1042,8 +1042,8 @@ fn squads_content(
         .auto_shrink([false, false])
         .show(ui, |ui| {
             let members = &squad.squad_state.squads[si].members;
-            for &uid in members {
-                let Some(slot) = squad.entity_map.slot_for_uid(uid) else {
+            for &entity in members {
+                let Some(slot) = squad.entity_map.slot_for_entity(entity) else {
                     continue;
                 };
                 if slot >= meta_cache.0.len() {
@@ -1126,7 +1126,7 @@ fn rebuild_factions_cache(
                         .filter(|i| {
                             let has_npc = factions.entity_map.entities.get(&i.slot)
                                 .and_then(|&e| factions.spawner_q.get(e).ok())
-                                .is_some_and(|s| s.npc_uid.is_some());
+                                .is_some_and(|s| s.npc_slot.is_some());
                             has_npc && is_alive(i.position)
                         })
                         .count();
@@ -1544,8 +1544,8 @@ fn build_faction_debug_string(snap: &AiSnapshot) -> String {
             } else {
                 "ATK"
             };
-            let target = if let Some(uid) = sq.commander_uid {
-                format!("uid#{}", uid.0)
+            let target = if let Some(e) = sq.commander_uid {
+                format!("entity#{:?}", e)
             } else if sq.target.is_some() {
                 "Map target".into()
             } else {
@@ -2319,8 +2319,8 @@ fn factions_content(
                                 state_bits.join(" ")
                             };
 
-                            let target = if let Some(uid) = squad.commander_uid {
-                                format!("uid#{}", uid.0)
+                            let target = if let Some(e) = squad.commander_uid {
+                                format!("entity#{:?}", e)
                             } else if squad.target.is_some() {
                                 "Map target".to_string()
                             } else {

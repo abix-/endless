@@ -832,7 +832,6 @@ fn game_load_system(
     combat_config: Res<crate::systems::stats::CombatConfig>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     mut mining_policy: ResMut<MiningPolicy>,
-    mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
 ) {
     if !save_request.load_on_enter {
         return;
@@ -874,7 +873,6 @@ fn game_load_system(
         &mut entity_map,
         &mut gpu_updates,
         &combat_config,
-        &mut uid_alloc,
     );
     *mining_policy = MiningPolicy::default();
 
@@ -929,7 +927,6 @@ fn game_startup_system(
         &mut faction_stats,
         &mut extra.reputation,
         &mut raider_state,
-        &mut world_state.uid_alloc,
         &mut town_index,
         &mut commands,
         &mut gpu_updates,
@@ -1628,11 +1625,11 @@ fn build_place_click_system(
         };
 
         // Send lethal damage so death_system handles despawn (single Dead writer)
-        let Some(uid) = world_state.entity_map.uid_for_slot(building_gpu_slot) else {
+        let Some(&entity) = world_state.entity_map.entities.get(&building_gpu_slot) else {
             return;
         };
         damage_writer.write(crate::messages::DamageMsg {
-            target: uid,
+            target: entity,
             amount: f32::MAX,
             attacker: -1,
             attacker_faction: 0,
@@ -2407,11 +2404,11 @@ fn process_destroy_system(
             .unwrap_or_default();
 
         // Send lethal damage so death_system handles despawn (single Dead writer)
-        let Some(uid) = world_state.entity_map.uid_for_slot(building_gpu_slot) else {
+        let Some(&entity) = world_state.entity_map.entities.get(&building_gpu_slot) else {
             return;
         };
         damage_writer.write(crate::messages::DamageMsg {
-            target: uid,
+            target: entity,
             amount: f32::MAX,
             attacker: -1,
             attacker_faction: 0,

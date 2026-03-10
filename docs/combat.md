@@ -24,7 +24,7 @@ GPU combat_target_buffer (from compute shader)
                                                       │
                                                       ▼
 DamageMsg (from process_proj_hits)             GPU movement
-        │  (target: EntityUid — resolved to slot via entity_map.slot_for_uid(), then routes via EntityMap.get_instance() presence check)
+        │  (target: Entity — resolved to slot via entity_map.slot_for_entity(), then routes via EntityMap.get_instance() presence check)
         ▼
   damage_system
   ├─ Building (slot in EntityMap):
@@ -111,7 +111,7 @@ Execution order is **chained** — each system completes before the next starts.
 
 ### 3. damage_system (health.rs)
 - Drains unified `DamageMsg` events from Bevy MessageReader
-- Resolves `event.target` (EntityUid) to slot via `entity_map.slot_for_uid()` — skips if UID no longer valid
+- Resolves `event.target` (Entity) to slot via `entity_map.slot_for_entity()` — skips if entity no longer valid
 - Routes by slot: checks `entity_map.get_instance(idx)` — if found, it's a building; otherwise, it's an NPC (both share one `EntityMap`)
 - **Building damage** (slot has instance in `EntityMap`):
   - O(1) lookup via `entity_map.get_instance(idx)` + `entity_map.entities.get(&idx)`
@@ -139,7 +139,7 @@ For each dead entity:
 
 **Building branch** (detected via `Building` component):
 - Looks up instance data (kind, position, town_idx) from `entity_map.get_instance(idx)`, copies fields before mutation
-- **Orphaned NPC home reset**: if building has `npc_uid`, the linked NPC's `Home` component is set to `(-1, -1)` — NPC becomes homeless (shown as "Homeless" in inspector). Prevents NPCs from walking to a destroyed building to rest.
+- **Orphaned NPC home reset**: if building has `npc_slot`, the linked NPC's `Home` component is set to `(-1, -1)` — NPC becomes homeless (shown as "Homeless" in inspector). Prevents NPCs from walking to a destroyed building to rest.
 - Calls `destroy_building()` for grid cleanup (grid cell clear + wall auto-tile + combat log — no entity lifecycle)
 - Emits `mark_building_changed(kind)` dirty signals
 - **Fountain death**: deactivates AI player for that town. In endless mode, queues replacement AI (`PendingAiSpawn`) scaled to player strength.
@@ -211,7 +211,7 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 | CPU → GPU | Building HP sync | `damage_system` writes entity `Health` + `GpuUpdate::SetHealth` to sync building HP in `EntityGpuState` |
 | CPU → GPU | Building damage flash | `damage_system` writes `GpuUpdate::SetDamageFlash` (intensity 1.0, decays at 5.0/s) |
 | GPU → CPU | Tower targeting | `building_tower_system` reads `GpuReadState.combat_targets[bld_slot]` — unified slot IS GPU index (same as NPC targeting) |
-| GPU → CPU | Projectile hits | `process_proj_hits`: unified `DamageMsg` for all hits (EntityUid target resolved to slot in damage_system) |
+| GPU → CPU | Projectile hits | `process_proj_hits`: unified `DamageMsg` for all hits (Entity target resolved to slot in damage_system) |
 | GPU → CPU | Building targeting | `attack_system` reads `combat_targets[i]` — GPU returns building indices (`>= npc_count`) when buildings are nearest enemy |
 
 ## Debug
@@ -228,7 +228,7 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 
 ## Known Issues / Limitations
 
-- **No generational indices on slots**: Stale slot references could silently alias. Mitigated by DamageMsg using EntityUid (stable identity) instead of raw slots — damage_system resolves UID→slot, skipping if the UID is no longer valid. Chained execution within Step::Combat provides additional safety.
+- **No generational indices on slots**: Stale slot references could silently alias. Mitigated by DamageMsg using Entity (Bevy's generational identity) instead of raw slots — damage_system resolves Entity→slot, skipping if the entity is no longer valid. Chained execution within Step::Combat provides additional safety.
 - **No friendly fire**: Faction check prevents same-faction damage. No way to enable it selectively.
 - **CombatState::Fighting blocks behavior decisions**: While fighting, decision_system skips the NPC. However, Activity is preserved through combat — when combat ends (`CombatState::None`), the NPC resumes its previous activity.
 - **KillStats faction-attributed**: `archer_kills` counts enemy NPCs killed by player faction (killer_faction == FACTION_PLAYER, victim != FACTION_PLAYER); `villager_kills` counts player NPCs killed by enemies (killer_faction != FACTION_PLAYER, victim == FACTION_PLAYER). Attribution uses `last_hit_by` slot → faction lookup via EntityMap (NPC or building).

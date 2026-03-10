@@ -43,7 +43,7 @@ fn dc_slots(squad_state: &SquadState, entity_map: &EntityMap, is_dc: impl Fn(Ent
     squad
         .members
         .iter()
-        .filter_map(|uid| entity_map.slot_for_uid(*uid))
+        .filter_map(|e| entity_map.slot_for_entity(*e))
         .filter(|&slot| entity_map.get_npc(slot).is_some_and(|n| !n.dead))
         .filter(|&slot| {
             entity_map.get_npc(slot).is_some_and(|n| is_dc(n.entity))
@@ -1828,14 +1828,14 @@ fn inspector_content(
     // Debug IDs: show slot + UID + world coords for BRP queries, plus copy button
     if show_overview && settings.debug_ids {
         ui.separator();
-        let uid = bld_data.entity_map.uid_for_slot(idx);
-        let uid_str = uid.map_or("?".to_string(), |u| u.0.to_string());
+        let entity = bld_data.entity_map.entities.get(&idx);
+        let entity_str = entity.map_or("?".to_string(), |e| format!("{:?}", e));
         let world_pos_str = if idx * 2 + 1 < gpu_state.positions.len() {
             format!("({:.0}, {:.0})", gpu_state.positions[idx * 2], gpu_state.positions[idx * 2 + 1])
         } else {
             "?".into()
         };
-        ui.label(format!("Slot: {}  UID: {}  Pos: {}", idx, uid_str, world_pos_str));
+        ui.label(format!("Slot: {}  Entity: {}  Pos: {}", idx, entity_str, world_pos_str));
 
         if ui.button("Copy Debug Info").clicked() {
             let positions = &gpu_state.positions;
@@ -1847,7 +1847,7 @@ fn inspector_content(
             let xp_next = (meta.level + 1) * (meta.level + 1) * 100;
             let mut info = format!(
                 "NPC #{idx} \"{name}\" {job} Lv.{level}  XP: {xp}/{xp_next}\n\
-                 Slot: {idx}  UID: {uid}\n\
+                 Slot: {idx}  Entity: {entity}\n\
                  HP: {hp:.0}/{max_hp:.0}  EN: {energy:.0}\n\
                  Pos: {pos}\n\
                  Home: {home}  Faction: {faction}\n\
@@ -1859,7 +1859,7 @@ fn inspector_content(
                 level = meta.level,
                 xp = meta.xp,
                 xp_next = xp_next,
-                uid = uid_str,
+                entity = entity_str,
                 hp = hp,
                 max_hp = max_hp,
                 energy = energy,
@@ -2468,10 +2468,10 @@ fn building_inspector_content(
                     ui.label(format!("Spawns: {}", spawns_label));
                     let spawner_state = bld.entity_map.entities.get(&inst.slot)
                         .and_then(|&e| bld.spawner_q.get(e).ok());
-                    let npc_uid_opt = spawner_state.and_then(|s| s.npc_uid);
+                    let npc_slot_opt = spawner_state.and_then(|s| s.npc_slot);
                     let respawn_timer = spawner_state.map(|s| s.respawn_timer).unwrap_or(0.0);
-                    if let Some(npc_uid) = npc_uid_opt {
-                        if let Some(slot) = bld.entity_map.slot_for_uid(npc_uid) {
+                    if let Some(slot) = npc_slot_opt {
+                        if bld.entity_map.get_npc(slot).is_some() {
                             if let Some(action) = npc_link(ui, meta_cache, slot) {
                                 return Some(action);
                             }
@@ -2562,9 +2562,9 @@ fn building_inspector_content(
                 .map(|inst| inst.slot)
         });
         if let Some(slot) = selected_slot {
-            let uid = bld.entity_map.uid_for_slot(slot);
-            let uid_str = uid.map_or("?".to_string(), |u| u.0.to_string());
-            ui.label(format!("Slot: {}  UID: {}  Pos: ({:.0}, {:.0})", slot, uid_str, world_pos.x, world_pos.y));
+            let entity = bld.entity_map.entities.get(&slot);
+            let entity_str = entity.map_or("?".to_string(), |e| format!("{:?}", e));
+            ui.label(format!("Slot: {}  Entity: {}  Pos: ({:.0}, {:.0})", slot, entity_str, world_pos.x, world_pos.y));
 
             if ui.button("Copy Debug Info").clicked() {
                 let max_hp = crate::constants::building_def(kind).hp;
@@ -2579,14 +2579,14 @@ fn building_inspector_content(
                     .unwrap_or_else(|| "?".to_string());
                 let mut info = format!(
                     "{name} [{kind:?}]\n\
-                     Slot: {slot}  UID: {uid}\n\
+                     Slot: {slot}  Entity: {entity}\n\
                      Town: {town}  Faction: {faction}\n\
                      Pos: ({px:.0}, {py:.0})  Grid: ({col}, {row})\n\
                      HP: {hp:.0}/{max:.0}\n",
                     name = def.label,
                     kind = kind,
                     slot = slot,
-                    uid = uid_str,
+                    entity = entity_str,
                     town = town_name,
                     faction = faction_text,
                     px = world_pos.x,
@@ -2601,15 +2601,14 @@ fn building_inspector_content(
                     let spawns_label = npc_def(Job::from_i32(spawner.job)).label;
                     info.push_str(&format!("Spawns: {}\n", spawns_label));
                     if let Some(ss) = bld_entity.and_then(|e| bld.spawner_q.get(e).ok()) {
-                        if let Some(npc_uid) = ss.npc_uid {
-                            if let Some(npc_slot) = bld.entity_map.slot_for_uid(npc_uid) {
-                                if npc_slot < meta_cache.0.len() {
-                                    let meta = &meta_cache.0[npc_slot];
-                                    info.push_str(&format!(
-                                        "NPC: {} (Lv.{}) slot={} uid={}\n",
-                                        meta.name, meta.level, npc_slot, npc_uid.0
-                                    ));
-                                }
+                        if let Some(npc_slot) = ss.npc_slot {
+                            if npc_slot < meta_cache.0.len() {
+                                let meta = &meta_cache.0[npc_slot];
+                                let npc_entity = bld.entity_map.entities.get(&npc_slot);
+                                info.push_str(&format!(
+                                    "NPC: {} (Lv.{}) slot={} entity={:?}\n",
+                                    meta.name, meta.level, npc_slot, npc_entity
+                                ));
                             }
                         } else if ss.respawn_timer > 0.0 {
                             info.push_str(&format!("Respawning in {:.0}h\n", ss.respawn_timer));

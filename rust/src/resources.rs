@@ -115,25 +115,6 @@ impl SystemTimings {
 #[derive(Resource, Default)]
 pub struct DeltaTime(pub f32);
 
-/// Monotonically increasing UID allocator. Starts at 1 (0 is reserved as "none").
-#[derive(Resource)]
-pub struct NextEntityUid(pub u64);
-
-impl Default for NextEntityUid {
-    fn default() -> Self {
-        Self(1)
-    }
-}
-
-impl NextEntityUid {
-    /// Allocate the next UID. Never returns EntityUid(0).
-    pub fn alloc(&mut self) -> crate::components::EntityUid {
-        let uid = crate::components::EntityUid(self.0);
-        self.0 += 1;
-        uid
-    }
-}
-
 /// NPC decision throttling config. Controls how often non-combat decisions are evaluated.
 #[derive(Resource)]
 pub struct NpcDecisionConfig {
@@ -1877,8 +1858,8 @@ pub fn npc_matches_owner(owner: SquadOwner, npc_town_id: i32, player_town: i32) 
 /// A squad of combat units (player-controlled or AI-commanded).
 #[derive(Clone)]
 pub struct Squad {
-    /// NPC UIDs assigned to this squad (stable across slot reuse).
-    pub members: Vec<crate::components::EntityUid>,
+    /// NPC entities assigned to this squad.
+    pub members: Vec<Entity>,
     /// Squad target position. None = no target, guards patrol normally.
     pub target: Option<Vec2>,
     /// Desired member count. 0 = manual mode (no auto-recruit).

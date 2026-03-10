@@ -278,9 +278,9 @@ pub fn attack_system(
                         cached_damage, cached_proj_speed, cached_proj_lifetime,
                         faction_id, i as i32, &mut proj_alloc, &mut proj_updates, &mut sfx_writer,
                     ) {
-                        if let Some(target_uid) = entity_map.uid_for_slot(ti) {
+                        if let Some(target_entity) = entity_map.entities.get(&ti).copied() {
                             damage_events.write(DamageMsg {
-                                target: target_uid,
+                                target: target_entity,
                                 amount: cached_damage,
                                 attacker: i as i32,
                                 attacker_faction: faction_id,
@@ -377,9 +377,9 @@ pub fn attack_system(
                     cached_damage, cached_proj_speed, cached_proj_lifetime,
                     faction_id, i as i32, &mut proj_alloc, &mut proj_updates, &mut sfx_writer,
                 ) {
-                    if let Some(target_uid) = entity_map.uid_for_slot(ti) {
+                    if let Some(&target_entity) = entity_map.entities.get(&ti) {
                         damage_events.write(DamageMsg {
-                            target: target_uid,
+                            target: target_entity,
                             amount: cached_damage,
                             attacker: i as i32,
                             attacker_faction: faction_id,
@@ -461,9 +461,9 @@ pub fn process_proj_hits(
                     -1
                 };
                 let attacker_faction = proj_writes.factions.get(slot).copied().unwrap_or(-1);
-                if let Some(target_uid) = entity_map.uid_for_slot(hit_idx as usize) {
+                if let Some(&target_entity) = entity_map.entities.get(&(hit_idx as usize)) {
                     damage_events.write(DamageMsg {
-                        target: target_uid,
+                        target: target_entity,
                         amount: damage,
                         attacker: shooter,
                         attacker_faction,

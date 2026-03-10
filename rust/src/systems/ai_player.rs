@@ -761,7 +761,7 @@ pub fn cheapest_gold_upgrade_cost(weights: &[f32], levels: &[u8], gold: i32) -> 
 #[derive(Clone, Default)]
 pub struct AiSquadCmdState {
     /// Target building UID (stable identity, survives slot reuse).
-    pub building_uid: Option<crate::components::EntityUid>,
+    pub building_uid: Option<Entity>,
     /// Seconds remaining before retarget is allowed.
     pub cooldown: f32,
 }
@@ -1215,12 +1215,12 @@ fn sync_town_perimeter_waypoints(
         let Some(building_gpu_slot) = building_gpu_slot else {
             continue;
         };
-        let Some(uid) = world.entity_map.uid_for_slot(building_gpu_slot) else {
+        let Some(&target_entity) = world.entity_map.entities.get(&building_gpu_slot) else {
             continue;
         };
 
         damage_writer.write(crate::messages::DamageMsg {
-            target: uid,
+            target: target_entity,
             amount: f32::MAX,
             attacker: -1,
             attacker_faction: 0,
@@ -2522,8 +2522,8 @@ fn log_ai(
 // ============================================================================
 
 /// Resolve a building's position by slot. Returns None if slot has no instance (dead/freed).
-fn resolve_building_pos(entity_map: &EntityMap, uid: crate::components::EntityUid) -> Option<Vec2> {
-    entity_map.instance_by_uid(uid).map(|inst| inst.position)
+fn resolve_building_pos(entity_map: &EntityMap, uid: Entity) -> Option<Vec2> {
+    entity_map.instance_by_entity(uid).map(|inst| inst.position)
 }
 
 impl AiPersonality {
@@ -2640,15 +2640,15 @@ fn pick_raider_farm_target(
     entity_map: &EntityMap,
     center: Vec2,
     faction: i32,
-) -> Option<(BuildingKind, crate::components::EntityUid, Vec2)> {
+) -> Option<(BuildingKind, Entity, Vec2)> {
     let mut best_d2 = f32::MAX;
-    let mut result: Option<(BuildingKind, crate::components::EntityUid, Vec2)> = None;
+    let mut result: Option<(BuildingKind, Entity, Vec2)> = None;
     let r2 = AI_ATTACK_SEARCH_RADIUS * AI_ATTACK_SEARCH_RADIUS;
     entity_map.for_each_nearby_kind(center, AI_ATTACK_SEARCH_RADIUS, BuildingKind::Farm, |inst| {
         if inst.faction == faction || inst.faction == crate::constants::FACTION_NEUTRAL {
             return;
         }
-        let Some(uid) = entity_map.uid_for_slot(inst.slot) else {
+        let Some(&uid) = entity_map.entities.get(&inst.slot) else {
             return;
         };
         let dx = inst.position.x - center.x;
@@ -2668,20 +2668,20 @@ fn pick_ai_target_unclaimed(
     faction: i32,
     personality: AiPersonality,
     role: SquadRole,
-    claimed: &HashSet<crate::components::EntityUid>,
-) -> Option<(BuildingKind, crate::components::EntityUid, Vec2)> {
+    claimed: &HashSet<Entity>,
+) -> Option<(BuildingKind, Entity, Vec2)> {
     if role != SquadRole::Attack {
         return None;
     }
 
-    let find_nearest_unclaimed = |allowed_kinds: &[BuildingKind]| -> Option<(BuildingKind, crate::components::EntityUid, Vec2)> {
+    let find_nearest_unclaimed = |allowed_kinds: &[BuildingKind]| -> Option<(BuildingKind, Entity, Vec2)> {
         let mut best_d2 = f32::MAX;
-        let mut result: Option<(BuildingKind, crate::components::EntityUid, Vec2)> = None;
+        let mut result: Option<(BuildingKind, Entity, Vec2)> = None;
         let r2 = AI_ATTACK_SEARCH_RADIUS * AI_ATTACK_SEARCH_RADIUS;
         for &kind in allowed_kinds {
             entity_map.for_each_nearby_kind(center, AI_ATTACK_SEARCH_RADIUS, kind, |inst| {
                 if inst.faction == faction || inst.faction == crate::constants::FACTION_NEUTRAL { return; }
-                let Some(uid) = entity_map.uid_for_slot(inst.slot) else { return; };
+                let Some(&uid) = entity_map.entities.get(&inst.slot) else { return; };
                 if claimed.contains(&uid) { return; }
                 let dx = inst.position.x - center.x;
                 let dy = inst.position.y - center.y;
@@ -2872,7 +2872,7 @@ pub fn ai_squad_commander_system(
         }
 
         // --- Wave-based retarget for all attack squads ---
-        let mut claimed_targets: HashSet<crate::components::EntityUid> = HashSet::new();
+        let mut claimed_targets: HashSet<Entity> = HashSet::new();
         for &si in &squad_indices {
             let cmd = ai_state.players[pi].squad_cmd.entry(si).or_default();
             if cmd.cooldown > 0.0 {

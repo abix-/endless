@@ -129,12 +129,6 @@ pub struct EntityMap {
     /// ALL entities (NPCs + buildings) — unified slot→entity
     pub entities: HashMap<usize, Entity>,
 
-    // UID bidirectional maps — stable identity for gameplay cross-references
-    uid_to_slot: HashMap<crate::components::EntityUid, usize>,
-    slot_to_uid: HashMap<usize, crate::components::EntityUid>,
-    uid_to_entity: HashMap<crate::components::EntityUid, Entity>,
-    entity_to_uid: HashMap<Entity, crate::components::EntityUid>,
-
     // Building-specific data (dense storage for cache-friendly iteration)
     instances: DenseSlotMap<BuildingInstance>,
     by_kind: HashMap<crate::world::BuildingKind, DenseSlotSet>,
@@ -145,8 +139,8 @@ pub struct EntityMap {
     // NPC-specific data (index-only — gameplay state on ECS components)
     npcs: HashMap<usize, NpcEntry>,
     npc_by_town: HashMap<i32, DenseSlotSet>,
-    // Per-worksite FIFO claim order: slot -> claimer UID queue.
-    worksite_claim_queue: HashMap<usize, Vec<crate::components::EntityUid>>,
+    // Per-worksite FIFO claim order: slot -> claimer entity queue.
+    worksite_claim_queue: HashMap<usize, Vec<Entity>>,
 
     // Spatial grid
     spatial_cell_size: f32,
@@ -175,116 +169,26 @@ struct SpatialBucketRef {
 }
 
 impl EntityMap {
-    // ── UID API ───────────────────────────────────────────────────────
-
-    /// Register a UID↔slot↔entity mapping. Called at NPC spawn time.
-    pub fn register_uid(&mut self, slot: usize, uid: crate::components::EntityUid, entity: Entity) {
-        debug_assert!(uid.0 != 0, "EntityUid(0) is reserved");
-        self.uid_to_slot.insert(uid, slot);
-        self.slot_to_uid.insert(slot, uid);
-        self.uid_to_entity.insert(uid, entity);
-        self.entity_to_uid.insert(entity, uid);
-        #[cfg(debug_assertions)]
-        self.debug_assert_uid_bijection();
-    }
-
-    /// Register UID↔slot only (no entity yet). Used for buildings before ECS entity exists.
-    pub fn register_uid_slot_only(&mut self, slot: usize, uid: crate::components::EntityUid) {
-        debug_assert!(uid.0 != 0, "EntityUid(0) is reserved");
-        self.uid_to_slot.insert(uid, slot);
-        self.slot_to_uid.insert(slot, uid);
-    }
-
-    /// Bind a UID to an ECS entity. Called when ECS entity is created for a building.
-    pub fn bind_uid_entity(&mut self, uid: crate::components::EntityUid, entity: Entity) {
-        self.uid_to_entity.insert(uid, entity);
-        self.entity_to_uid.insert(entity, uid);
-    }
-
-    /// Unregister UID mappings for a slot. Called at death/despawn.
-    pub fn unregister_uid(&mut self, slot: usize) {
-        if let Some(uid) = self.slot_to_uid.remove(&slot) {
-            self.uid_to_slot.remove(&uid);
-            if let Some(entity) = self.uid_to_entity.remove(&uid) {
-                self.entity_to_uid.remove(&entity);
-            }
-        }
-        #[cfg(debug_assertions)]
-        self.debug_assert_uid_bijection();
-    }
-
-    /// Clear all UID mappings. Called on world reset/load.
-    pub fn clear_uids(&mut self) {
-        self.uid_to_slot.clear();
-        self.slot_to_uid.clear();
-        self.uid_to_entity.clear();
-        self.entity_to_uid.clear();
-    }
-
-    pub fn uid_for_slot(&self, slot: usize) -> Option<crate::components::EntityUid> {
-        self.slot_to_uid.get(&slot).copied()
-    }
-
-    pub fn slot_for_uid(&self, uid: crate::components::EntityUid) -> Option<usize> {
-        self.uid_to_slot.get(&uid).copied()
-    }
-
-    pub fn entity_by_uid(&self, uid: crate::components::EntityUid) -> Option<Entity> {
-        self.uid_to_entity.get(&uid).copied()
-    }
-
-    pub fn uid_by_entity(&self, entity: Entity) -> Option<crate::components::EntityUid> {
-        self.entity_to_uid.get(&entity).copied()
-    }
-
-    /// Look up a building instance by UID (resolves UID→slot→instance).
-    pub fn instance_by_uid(&self, uid: crate::components::EntityUid) -> Option<&BuildingInstance> {
-        self.uid_to_slot
-            .get(&uid)
-            .and_then(|&slot| self.instances.get(slot))
-    }
-
-    #[cfg(debug_assertions)]
-    fn debug_assert_uid_bijection(&self) {
-        debug_assert_eq!(
-            self.uid_to_slot.len(),
-            self.slot_to_uid.len(),
-            "UID↔slot map length mismatch: {} vs {}",
-            self.uid_to_slot.len(),
-            self.slot_to_uid.len()
-        );
-        debug_assert_eq!(
-            self.uid_to_entity.len(),
-            self.entity_to_uid.len(),
-            "UID↔entity map length mismatch: {} vs {}",
-            self.uid_to_entity.len(),
-            self.entity_to_uid.len()
-        );
-        for (&uid, &slot) in &self.uid_to_slot {
-            debug_assert_eq!(
-                self.slot_to_uid.get(&slot),
-                Some(&uid),
-                "UID→slot→UID round-trip failed for uid={:?} slot={}",
-                uid,
-                slot
-            );
-        }
-        for (&uid, &entity) in &self.uid_to_entity {
-            debug_assert_eq!(
-                self.entity_to_uid.get(&entity),
-                Some(&uid),
-                "UID→entity→UID round-trip failed for uid={:?}",
-                uid
-            );
-        }
-    }
-
     // ── Building instance API ──────────────────────────────────────────
 
-    /// Remove a building by its slot. Removes entity mapping, UID mapping, AND instance data.
+    /// Look up a building instance by entity (resolves entity→slot→instance).
+    pub fn instance_by_entity(&self, entity: Entity) -> Option<&BuildingInstance> {
+        // Reverse lookup: find slot for this entity, then get instance
+        self.entities.iter()
+            .find(|(_, e)| **e == entity)
+            .and_then(|(slot, _)| self.instances.get(*slot))
+    }
+
+    /// Look up the slot for an entity.
+    pub fn slot_for_entity(&self, entity: Entity) -> Option<usize> {
+        self.entities.iter()
+            .find(|(_, e)| **e == entity)
+            .map(|(slot, _)| *slot)
+    }
+
+    /// Remove a building by its slot. Removes entity mapping AND instance data.
     pub fn remove_by_slot(&mut self, slot: usize) {
         self.entities.remove(&slot);
-        self.unregister_uid(slot);
         self.remove_instance(slot);
     }
 
@@ -300,7 +204,6 @@ impl EntityMap {
         self.spatial_kind_town.clear();
         self.spatial_kind_cell.clear();
         self.spatial_bucket_idx.clear();
-        self.clear_uids();
     }
 
     /// Number of building instances.
@@ -502,12 +405,12 @@ impl EntityMap {
         self.release_for(slot, None);
     }
 
-    pub fn release_for(&mut self, slot: usize, claimer_uid: Option<crate::components::EntityUid>) {
+    pub fn release_for(&mut self, slot: usize, claimer: Option<Entity>) {
         if let Some(inst) = self.instances.get_mut(slot) {
             inst.occupants = inst.occupants.saturating_sub(1);
-            if let Some(uid) = claimer_uid {
+            if let Some(claimer_entity) = claimer {
                 if let Some(queue) = self.worksite_claim_queue.get_mut(&slot) {
-                    if let Some(pos) = queue.iter().position(|&u| u == uid) {
+                    if let Some(pos) = queue.iter().position(|&u| u == claimer_entity) {
                         queue.remove(pos);
                     }
                     if queue.is_empty() {
@@ -533,12 +436,12 @@ impl EntityMap {
     pub fn is_worksite_harvest_turn(
         &self,
         slot: usize,
-        claimer_uid: crate::components::EntityUid,
+        claimer: Entity,
     ) -> bool {
         self.worksite_claim_queue
             .get(&slot)
             .and_then(|queue| queue.first().copied())
-            .is_none_or(|front| front == claimer_uid)
+            .is_none_or(|front| front == claimer)
     }
 
     // ── NPC instance API ───────────────────────────────────────────────
@@ -580,7 +483,6 @@ impl EntityMap {
             slot
         );
         self.entities.remove(&slot);
-        self.unregister_uid(slot);
         if let Some(entry) = self.npcs.remove(&slot) {
             if let Some(slots) = self.npc_by_town.get_mut(&entry.town_idx) {
                 slots.remove(slot);
@@ -623,13 +525,6 @@ impl EntityMap {
     pub fn clear_npcs(&mut self) {
         for &slot in self.npcs.keys() {
             self.entities.remove(&slot);
-            // UID cleanup: remove slot's UID mappings
-            if let Some(uid) = self.slot_to_uid.remove(&slot) {
-                self.uid_to_slot.remove(&uid);
-                if let Some(entity) = self.uid_to_entity.remove(&uid) {
-                    self.entity_to_uid.remove(&entity);
-                }
-            }
         }
         self.npcs.clear();
         self.npc_by_town.clear();
@@ -1028,7 +923,7 @@ impl EntityMap {
         expected_kind: crate::world::BuildingKind,
         expected_town: Option<u32>,
         max_occupants: i32,
-        claimer_uid: Option<crate::components::EntityUid>,
+        claimer: Option<Entity>,
     ) -> Option<ClaimedWorksite> {
         let valid = self.instances.get(slot).is_some_and(|inst| {
             inst.kind == expected_kind
@@ -1038,10 +933,10 @@ impl EntityMap {
         if valid {
             let inst = self.instances.get_mut(slot).expect("slot validated above");
             inst.occupants += 1;
-            if let Some(uid) = claimer_uid {
+            if let Some(claimer_entity) = claimer {
                 let queue = self.worksite_claim_queue.entry(slot).or_default();
-                if !queue.contains(&uid) {
-                    queue.push(uid);
+                if !queue.contains(&claimer_entity) {
+                    queue.push(claimer_entity);
                 }
             }
             Some(ClaimedWorksite {

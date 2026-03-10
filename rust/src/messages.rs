@@ -23,14 +23,14 @@ pub struct SpawnNpcMsg {
     pub work_y: f32,
     pub starting_post: i32,                                 // -1 = none
     pub attack_type: i32,                                   // 0=melee, 1=ranged
-    pub uid_override: Option<crate::components::EntityUid>, // None = allocate fresh
+    pub entity_override: Option<Entity>, // None = allocate fresh (save/load sets explicitly)
 }
 
 /// Unified damage message for both NPCs and buildings.
-/// Target identified by EntityUid (stable identity). damage_system resolves UID → slot.
+/// Target identified by Entity. damage_system resolves via ECS query.
 #[derive(Message, Clone)]
 pub struct DamageMsg {
-    pub target: crate::components::EntityUid,
+    pub target: Entity,
     pub amount: f32,
     pub attacker: i32,         // NPC slot of attacker (-1 = tower/unknown)
     pub attacker_faction: i32, // for combat log attribution
@@ -111,11 +111,11 @@ pub enum WorkIntent {
         from: Vec2,
     },
     /// Release current worksite, clear NpcWorkState.
-    /// `uid`: carried from sender so resolver doesn't depend on component state
+    /// `worksite`: carried from sender so resolver doesn't depend on component state
     /// (decision_system write-back may clear the component before resolver runs).
     Release {
         entity: Entity,
-        uid: Option<crate::components::EntityUid>,
+        worksite: Option<Entity>,
     },
     /// Atomic release + re-claim at a new worksite.
     Retarget {

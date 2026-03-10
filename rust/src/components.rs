@@ -7,16 +7,8 @@ use bevy::reflect::Reflect;
 // CORE COMPONENTS
 // ============================================================================
 
-/// Stable identity for gameplay cross-references. Monotonically increasing u64 counter.
-/// Survives slot recycling — unlike GpuSlot, an EntityUid is never reused.
-/// EntityUid(0) is reserved as "none/invalid".
-#[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug, Reflect)]
-#[reflect(Component)]
-pub struct EntityUid(pub u64);
-
 /// Links a Bevy entity to its unified slot in the GPU entity buffers.
 /// Both NPCs and buildings get an GpuSlot(n) where n = GPU buffer index.
-/// GpuSlot is a dense GPU address, NOT a stable identity — use EntityUid for cross-references.
 #[derive(Component, Clone, Copy, Reflect)]
 #[reflect(Component)]
 pub struct GpuSlot(pub usize);
@@ -152,7 +144,7 @@ pub struct PatrolRoute {
 #[derive(Component, Default, Clone, Copy, Reflect)]
 #[reflect(Component)]
 pub struct NpcWorkState {
-    pub worksite: Option<EntityUid>,
+    pub worksite: Option<Entity>,
 }
 
 /// Unified carry component for ALL NPCs. Always present — replaces the old fragmented
@@ -639,7 +631,7 @@ impl ProductionState {
 #[derive(Component, Clone, Default, Reflect)]
 #[reflect(Component)]
 pub struct SpawnerState {
-    pub npc_uid: Option<EntityUid>,
+    pub npc_slot: Option<usize>,
     pub respawn_timer: f32,
 }
 

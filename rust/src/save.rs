@@ -31,7 +31,7 @@ pub struct BuildingStateSnapshot {
     pub production_ready: bool,
     pub production_progress: f32,
     pub under_construction: f32,
-    pub npc_uid: Option<EntityUid>,
+    pub npc_slot: Option<usize>,
     pub respawn_timer: f32,
 }
 
@@ -650,7 +650,6 @@ pub fn collect_save_data(
     migration_state: &MigrationState,
     endless: &EndlessMode,
     npcs: Vec<NpcSaveData>,
-    uid_alloc: &NextEntityUid,
     next_loot_id: &crate::resources::NextLootItemId,
     town_equipment: &[Vec<crate::constants::LootItem>],
     merchant_inv: &crate::resources::MerchantInventory,
@@ -735,17 +734,14 @@ pub fn collect_save_data(
         .filter(|i| crate::constants::building_def(i.kind).spawner.is_some())
         .map(|i| {
             let bs = bld_state.get(&i.slot);
-            let npc_uid = bs.and_then(|s| s.npc_uid);
+            let npc_slot = bs.and_then(|s| s.npc_slot);
             SpawnerSave {
                 building_kind: crate::constants::tileset_index(i.kind) as i32,
                 town_idx: i.town_idx as i32,
                 position: v2(i.position),
-                npc_gpu_slot: npc_uid
-                    .and_then(|uid| entity_map.slot_for_uid(uid))
-                    .map(|s| s as i32)
-                    .unwrap_or(-1),
+                npc_gpu_slot: npc_slot.map(|s| s as i32).unwrap_or(-1),
                 respawn_timer: bs.map_or(-1.0, |s| s.respawn_timer),
-                npc_uid: npc_uid.map(|uid| uid.0),
+                npc_uid: npc_slot.and_then(|s| entity_map.entities.get(&s).map(|e| e.to_bits())),
                 under_construction: bs.map_or(0.0, |s| s.under_construction),
             }
         })
@@ -767,7 +763,7 @@ pub fn collect_save_data(
             members: s
                 .members
                 .iter()
-                .filter_map(|uid| entity_map.slot_for_uid(*uid))
+                .filter_map(|e| entity_map.slot_for_entity(*e))
                 .collect(),
             target: s.target.map(v2),
             target_size: s.target_size,
@@ -778,7 +774,7 @@ pub fn collect_save_data(
             wave_min_start: s.wave_min_start,
             wave_retreat_below_pct: s.wave_retreat_below_pct,
             owner: s.owner,
-            member_uids: Some(s.members.iter().map(|uid| uid.0).collect()),
+            member_uids: Some(s.members.iter().map(|e| e.to_bits()).collect()),
         })
         .collect();
 
@@ -882,7 +878,7 @@ pub fn collect_save_data(
                 starting_food: g.starting_food,
                 starting_gold: g.starting_gold,
             }),
-        next_entity_uid: Some(uid_alloc.0),
+        next_entity_uid: None, // legacy field, no longer used
         next_loot_item_id: next_loot_id.next,
         town_inventory: town_equipment.to_vec(),
         merchant_stocks: merchant_inv.stocks.clone(),
@@ -1074,7 +1070,7 @@ pub fn apply_save(
             .as_ref()
             .map(|uids| {
                 uids.iter()
-                    .map(|&u| crate::components::EntityUid(u))
+                    .map(|&u| Entity::from_bits(u))
                     .collect()
             })
             .unwrap_or_default(); // old saves: empty until post-spawn fixup
@@ -1327,7 +1323,7 @@ pub fn collect_npc_data(
             faction: npc.faction,
             town_id: npc.town_idx,
             health: health_q.get(npc.entity).map(|h| h.0).unwrap_or(100.0),
-            uid: entity_map.uid_for_slot(idx).map(|u| u.0),
+            uid: entity_map.entities.get(&idx).map(|e| e.to_bits()),
             energy: if has_energy_q.get(npc.entity).is_ok() {
                 energy_q.get(npc.entity).map(|e| e.0).unwrap_or(100.0)
             } else {
@@ -1364,7 +1360,7 @@ pub fn collect_npc_data(
                 .get(npc.entity)
                 .ok()
                 .and_then(|ws| ws.worksite)
-                .and_then(|uid| entity_map.instance_by_uid(uid).map(|i| v2(i.position))),
+                .and_then(|e| entity_map.instance_by_entity(e).map(|i| v2(i.position))),
             squad_id: squad_id_q.get(npc.entity).ok().map(|s| s.0),
             carried_food: carried_loot_q
                 .get(npc.entity)
@@ -1518,7 +1514,7 @@ fn collect_building_state_snapshot(
         }
         if let Some(ps) = ps { s.production_ready = ps.ready; s.production_progress = ps.progress; }
         if let Some(cp) = cp { s.under_construction = cp.0; }
-        if let Some(sp) = sp { s.npc_uid = sp.npc_uid; s.respawn_timer = sp.respawn_timer; }
+        if let Some(sp) = sp { s.npc_slot = sp.npc_slot; s.respawn_timer = sp.respawn_timer; }
         map.insert(gpu_slot.0, s);
     }
     map
@@ -1559,7 +1555,6 @@ pub fn load_building_instances_from_save(
     entity_map: &mut EntityMap,
     world_data: &WorldData,
     world_size_px: f32,
-    uid_alloc: &mut NextEntityUid,
     commands: &mut Commands,
     gpu_updates: &mut MessageWriter<crate::messages::GpuUpdateMsg>,
 ) {
@@ -1578,9 +1573,9 @@ pub fn load_building_instances_from_save(
         }
         let hp = fountain_hps.and_then(|v| v.get(i).copied());
         let _ = world::place_building(
-            slot_alloc, entity_map, uid_alloc, commands, gpu_updates,
+            slot_alloc, entity_map, commands, gpu_updates,
             world::BuildingKind::Fountain, town.center, i as u32, town.faction,
-            0, 0, None, hp, None, None,
+            0, 0, hp, None, None,
         );
     }
 
@@ -1609,9 +1604,9 @@ pub fn load_building_instances_from_save(
             };
             let hp = kind_hps.and_then(|v| v.get(i).copied());
             let _ = world::place_building(
-                slot_alloc, entity_map, uid_alloc, commands, gpu_updates,
+                slot_alloc, entity_map, commands, gpu_updates,
                 def.kind, b.position, town_idx, faction,
-                b.patrol_order, b.wall_level, None, hp, None, None,
+                b.patrol_order, b.wall_level, hp, None, None,
             );
             // Restore miner home fields via ECS
             if def.kind == world::BuildingKind::MinerHome {
@@ -1640,13 +1635,15 @@ pub fn load_building_instances_from_save(
         }
     }
 
-    // Restore spawner state (npc_uid, respawn_timer, construction) from save data via ECS
+    // Restore spawner state (npc_entity, respawn_timer, construction) from save data via ECS.
+    // Restore spawner state. npc_slot uses the saved npc_gpu_slot directly.
     for s in &save.spawners {
         let pos = to_vec2(s.position);
         if let Some(slot) = entity_map.slot_at_position(pos) {
             if let Some(&entity) = entity_map.entities.get(&slot) {
+                let npc_slot = if s.npc_gpu_slot >= 0 { Some(s.npc_gpu_slot as usize) } else { None };
                 commands.entity(entity).insert(SpawnerState {
-                    npc_uid: s.npc_uid.map(crate::components::EntityUid),
+                    npc_slot,
                     respawn_timer: s.respawn_timer,
                 });
                 commands.entity(entity).insert(ConstructionProgress(s.under_construction));
@@ -1738,7 +1735,6 @@ pub fn save_game_system(
     npc_meta: Res<NpcMetaCache>,
     building_query: Query<(&Building, &GpuSlot, &Health), Without<Dead>>,
     nq: SaveNpcQueries,
-    uid_alloc: Res<NextEntityUid>,
     bld_component_q: Query<(
         &GpuSlot,
         Option<&WaypointOrder>,
@@ -1800,7 +1796,6 @@ pub fn save_game_system(
         &fs.migration_state,
         &fs.endless,
         npcs,
-        &uid_alloc,
         &fs.next_loot_id,
         &town_equipment,
         &fs.merchant_inv,
@@ -1837,7 +1832,6 @@ pub fn autosave_system(
     npc_meta: Res<NpcMetaCache>,
     building_query: Query<(&Building, &GpuSlot, &Health), Without<Dead>>,
     nq: SaveNpcQueries,
-    uid_alloc: Res<NextEntityUid>,
     bld_component_q: Query<(
         &GpuSlot,
         Option<&WaypointOrder>,
@@ -1911,7 +1905,6 @@ pub fn autosave_system(
         &fs.migration_state,
         &fs.endless,
         npcs,
-        &uid_alloc,
         &fs.next_loot_id,
         &town_equipment,
         &fs.merchant_inv,
@@ -1943,10 +1936,8 @@ pub fn spawn_npcs_from_save(
     world_data: &WorldData,
     combat_config: &CombatConfig,
     town_upgrade_levels: &[Vec<u8>],
-    uid_alloc: &mut NextEntityUid,
 ) {
     for npc in &save.npcs {
-        let uid_override = npc.uid.map(crate::components::EntityUid);
         let overrides = NpcSpawnOverrides {
             health: Some(npc.health),
             energy: Some(npc.energy),
@@ -1961,7 +1952,6 @@ pub fn spawn_npcs_from_save(
             carried_gold: npc.carried_gold,
             carried_equipment: npc.carried_equipment.clone(),
             squad_id: npc.squad_id,
-            uid_override,
         };
 
         // Patrol units always get starting_post=0 on load (patrol route rebuilt from world)
@@ -1992,7 +1982,6 @@ pub fn spawn_npcs_from_save(
             world_data,
             combat_config,
             town_upgrade_levels.get(npc.town_id as usize).map(|v| v.as_slice()).unwrap_or(&[]),
-            uid_alloc,
         );
     }
 }
@@ -2008,12 +1997,9 @@ pub fn restore_world_from_save(
     entity_map: &mut EntityMap,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
     combat_config: &CombatConfig,
-    uid_alloc: &mut NextEntityUid,
 ) {
     // Reset transient runtime resources.
     *entity_map = Default::default();
-    // Restore UID counter from save, or start fresh for old saves
-    uid_alloc.0 = save.next_entity_uid.unwrap_or(1);
     *tracking.pop_stats = Default::default();
     *tracking.combat_log = Default::default();
     *tracking.gpu_state = Default::default();
@@ -2090,7 +2076,6 @@ pub fn restore_world_from_save(
         entity_map,
         &ws.world_data,
         world_size_px,
-        uid_alloc,
         commands,
         gpu_updates,
     );
@@ -2115,16 +2100,15 @@ pub fn restore_world_from_save(
         &ws.world_data,
         combat_config,
         &town_data.upgrades,
-        uid_alloc,
     );
 
-    // Old-save fixup: convert legacy squad member slots to UIDs (NPCs are now spawned)
+    // Old-save fixup: convert legacy squad member slots to Entities (NPCs are now spawned)
     for (si, ss) in save.squads.iter().enumerate() {
         if ss.member_uids.is_none() && si < ws.squad_state.squads.len() {
             ws.squad_state.squads[si].members = ss
                 .members
                 .iter()
-                .filter_map(|&slot| entity_map.uid_for_slot(slot))
+                .filter_map(|&slot| entity_map.entities.get(&slot).copied())
                 .collect();
         }
     }
@@ -2146,7 +2130,6 @@ pub fn load_game_system(
     combat_config: Res<CombatConfig>,
     npc_query: Query<Entity, With<GpuSlot>>,
     marker_query: Query<Entity, With<FarmReadyMarker>>,
-    mut uid_alloc: ResMut<NextEntityUid>,
 ) {
     if load_msgs.read().next().is_none() {
         return;
@@ -2196,7 +2179,6 @@ pub fn load_game_system(
         &mut entity_map,
         &mut gpu_updates,
         &combat_config,
-        &mut uid_alloc,
     );
 
     toast.message = format!("Game Loaded ({} NPCs)", save.npcs.len());

@@ -20,7 +20,7 @@ use super::{BuildingInitParams, TestState};
 #[derive(Resource, Default)]
 pub struct SlotReuseTestState {
     /// UID of the player farm that the AI wave targets.
-    pub target_uid: Option<crate::components::EntityUid>,
+    pub target_entity: Option<Entity>,
     /// Slot index of the target (for direct EntityMap lookups in test).
     pub building_gpu_slot: Option<usize>,
     /// Position of the original target building.
@@ -60,7 +60,6 @@ pub fn setup(
     _spawn_writer: MessageWriter<crate::messages::SpawnNpcMsg>,
     mut state: SlotReuseSetup,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
-    mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
     mut town_index: ResMut<crate::resources::TownIndex>,
 ) {
     // 1 player town + 1 AI builder town, no raiders
@@ -83,7 +82,6 @@ pub fn setup(
         &mut faction_stats,
         &mut crate::resources::Reputation::default(),
         &mut state.raider_state,
-        &mut uid_alloc,
         &mut town_index,
         &mut commands,
         &mut gpu_updates,
@@ -107,10 +105,10 @@ pub fn setup(
             for i in 0..5 {
                 let offset = Vec2::new(32.0 * (i as f32 + 1.0), 64.0);
                 let _ = world::place_building(
-                    &mut slot_alloc, &mut bld.entity_map, &mut uid_alloc,
+                    &mut slot_alloc, &mut bld.entity_map,
                     &mut commands, &mut gpu_updates,
                     BuildingKind::ArcherHome, center + offset, ti as u32, faction,
-                    0, 0, None, None, None, None,
+                    0, 0, None, None, None,
                 );
             }
         }
@@ -127,10 +125,10 @@ pub fn setup(
                 .position(|t| t.faction == crate::constants::FACTION_PLAYER)
                 .unwrap_or(0);
             let _ = world::place_building(
-                &mut slot_alloc, &mut bld.entity_map, &mut uid_alloc,
+                &mut slot_alloc, &mut bld.entity_map,
                 &mut commands, &mut gpu_updates,
                 BuildingKind::Farm, farm_pos, player_ti as u32, 0,
-                0, 0, None, None, None, None,
+                0, 0, None, None, None,
             );
         }
     }
@@ -174,7 +172,6 @@ pub fn tick(
     mut local: ResMut<SlotReuseTestState>,
     mut health_q: Query<&mut Health>,
     world_data: Res<world::WorldData>,
-    mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
     mut commands: Commands,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
 ) {
@@ -194,9 +191,9 @@ pub fn tick(
                         if squad.wave_active {
                             // Found active wave — record target UID + slot
                             if let Some(cmd) = player.squad_cmd.get(&si) {
-                                if let Some(uid) = cmd.building_uid {
-                                    let slot = entity_map.slot_for_uid(uid);
-                                    local.target_uid = Some(uid);
+                                if let Some(entity) = cmd.building_uid {
+                                    let slot = entity_map.slot_for_entity(entity);
+                                    local.target_entity = Some(entity);
                                     local.building_gpu_slot = slot;
                                     local.target_pos = squad.target;
                                     local.attack_squad_idx = Some(si);
@@ -207,8 +204,8 @@ pub fn tick(
                                     test.pass_phase(
                                         elapsed,
                                         format!(
-                                            "wave active: squad {} → uid {} (slot {:?}) at {}",
-                                            si, uid.0, slot, pos_str,
+                                            "wave active: squad {} → entity {:?} (slot {:?}) at {}",
+                                            si, entity, slot, pos_str,
                                         ),
                                     );
                                     return;
@@ -295,10 +292,10 @@ pub fn tick(
                 let ai_faction = world_data.towns.get(ai_ti).map(|t| t.faction).unwrap_or(1);
                 let new_pos = Vec2::new(200.0, 200.0); // far from original target
                 let new_slot = world::place_building(
-                    &mut slot_alloc, &mut entity_map, &mut uid_alloc,
+                    &mut slot_alloc, &mut entity_map,
                     &mut commands, &mut gpu_updates,
                     BuildingKind::Farm, new_pos, ai_ti as u32, ai_faction,
-                    0, 0, None, None, None, None,
+                    0, 0, None, None, None,
                 );
 
                 if let Ok(ns) = new_slot {

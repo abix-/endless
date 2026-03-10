@@ -73,7 +73,7 @@ pub fn setup(
         work_y: -1.0,
         starting_post: -1,
         attack_type: 0,
-        uid_override: None,
+        entity_override: None,
     });
 
     // Spawn 5 weak raiders close by — high chance at least one drops equipment
@@ -93,7 +93,7 @@ pub fn setup(
             work_y: -1.0,
             starting_post: -1,
             attack_type: 0,
-            uid_override: None,
+            entity_override: None,
         });
     }
 

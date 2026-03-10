@@ -32,7 +32,6 @@ pub(super) fn setup(
     mut bld: BuildingInitParams,
     mut state: EndlessModeSetupState,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
-    mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
     mut commands: Commands,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
     mut town_index: ResMut<crate::resources::TownIndex>,
@@ -57,7 +56,6 @@ pub(super) fn setup(
         &mut faction_stats,
         &mut crate::resources::Reputation::default(),
         &mut state.raider_state,
-        &mut uid_alloc,
         &mut town_index,
         &mut commands,
         &mut gpu_updates,
@@ -102,7 +100,7 @@ pub fn tick(
             &crate::components::Building,
             &crate::components::Health,
             &crate::components::TownId,
-            &crate::components::EntityUid,
+            Entity,
         ),
         Without<crate::components::Dead>,
     >,
@@ -183,9 +181,9 @@ pub fn tick(
 
             if !test.get_flag("damage_sent") {
                 let max_hp = crate::constants::building_def(BuildingKind::Fountain).hp;
-                if let Some((_, _, _, uid)) = fountain {
+                if let Some((_, _, _, entity)) = fountain {
                     damage_writer.write(DamageMsg {
-                        target: *uid,
+                        target: entity,
                         amount: max_hp + 100.0,
                         attacker_faction: 2,
                         attacker: -1,
@@ -403,9 +401,9 @@ pub fn tick(
 
             if !test.get_flag("raider_damage_sent") {
                 let max_hp = crate::constants::building_def(BuildingKind::Fountain).hp;
-                if let Some((_, _, _, uid)) = fountain {
+                if let Some((_, _, _, entity)) = fountain {
                     damage_writer.write(DamageMsg {
-                        target: *uid,
+                        target: entity,
                         amount: max_hp + 100.0,
                         attacker_faction: 2,
                         attacker: -1,

@@ -10,21 +10,16 @@ Defined in: `rust/src/resources.rs`, `rust/src/world.rs`
 
 | Resource | Type | Writers | Readers |
 |----------|------|---------|---------|
-| EntityMap | `entities: HashMap<usize, Entity>` + `npcs: HashMap<usize, NpcEntry>` (6-field index: slot, entity, job, faction, town_idx, dead) + `npc_by_town: DenseSlotSet` secondary index + building instance data/indexes (`by_kind`, `by_kind_town`, `spawner_slots` — all `DenseSlotSet` for O(1) removal)/spatial grid + UID maps (see below) | spawn_npc_system (register_npc), death_system (unregister_npc), place_building | damage_system, attack_system, tower_system, economy, UI (unified slot → entity lookup for all entities; NPC gameplay state read via ECS queries on NpcEntry.entity) |
+| EntityMap | `entities: HashMap<usize, Entity>` + `npcs: HashMap<usize, NpcEntry>` (6-field index: slot, entity, job, faction, town_idx, dead) + `npc_by_town: DenseSlotSet` secondary index + building instance data/indexes (`by_kind`, `by_kind_town`, `spawner_slots` — all `DenseSlotSet` for O(1) removal)/spatial grid | spawn_npc_system (register_npc), death_system (unregister_npc), place_building | damage_system, attack_system, tower_system, economy, UI (unified slot → entity lookup for all entities; NPC gameplay state read via ECS queries on NpcEntry.entity) |
 | GpuSlotPool | `SlotPool` + `pending_resets` + `pending_frees` (max=MAX_ENTITIES=200K) | spawn_npc_system (alloc_reset), place_building_instance (alloc_reset), death_system (free) | GPU compute dispatch, populate_gpu_state (drains resets+frees), UI, tests |
-| NextEntityUid | `u64` counter (default=1, 0 reserved as "none") | spawn (materialize_npc), place_building_instance | spawn, economy (spawner respawn), save/load |
 
 `GpuSlotPool` wraps a `SlotPool` inner type with LIFO free list, plus lifecycle queues: `pending_resets` (GPU state wipe on alloc) and `pending_frees` (GPU hide on free). `alloc_reset()` allocates + queues reset, `free()` deallocates + queues hide. Both queues are drained by `populate_gpu_state` each frame before processing `GpuUpdateMsg` events. Query methods: `count()` returns high-water mark, `alive()` returns `next - free.len()`, `free_list()` / `next()` for debug display, `set_next()` / `free_list_mut()` for save/load. NPCs and buildings share one allocator — each entity's slot IS its GPU buffer index (no offset arithmetic). See [spawn.md](spawn.md).
 
-### EntityUid — Stable Identity
+### Identity Layers
 
-`EntityUid(u64)` is a monotonically increasing counter that provides stable identity for gameplay cross-references. Unlike `GpuSlot(usize)` which is recycled via LIFO free-list (creating ABA hazards), UIDs are never reused. `EntityUid(0)` is reserved as "none".
+**Two identity layers**: `Entity` = Bevy ECS handle (unique index+generation within a session, never reused while alive), `GpuSlot(usize)` = dense GPU buffer address (recycled via LIFO free-list).
 
-**Three identity layers**: `EntityUid` = stable gameplay identity (never reused), `Entity` = runtime ECS handle, `GpuSlot(usize)` = dense GPU buffer address (recycled).
-
-`EntityMap` maintains bidirectional UID maps: `uid_to_slot`/`slot_to_uid` (HashMap) and `uid_to_entity`/`entity_to_uid` (HashMap). Helper methods: `uid_for_slot(slot) -> Option<EntityUid>`, `slot_for_uid(uid) -> Option<usize>`, `entity_by_uid(uid) -> Option<Entity>`, `uid_by_entity(entity) -> Option<EntityUid>`, `instance_by_uid(uid) -> Option<&BuildingInstance>`. Registration via `register_uid(slot, uid, entity)` / `register_uid_slot_only(slot, uid)` (buildings before ECS entity exists) / `bind_uid_entity(uid, entity)` / `unregister_uid(slot)`. Debug-build bijection assertions after every register/unregister.
-
-All long-lived gameplay cross-references use `EntityUid`: `AiSquadCmdState.building_uid`, `SpawnerState.npc_uid`, `NpcWorkState.worksite`, `Squad.members`. No gameplay code stores raw slot indices as identity.
+All gameplay cross-references use `Entity` directly: `AiSquadCmdState.building_uid: Option<Entity>`, `SpawnerState.npc_slot: Option<usize>` (GPU slot, not Entity — spawner can't pre-allocate Entity before async spawn), `NpcWorkState.worksite: Option<Entity>`, `Squad.members: Vec<Entity>`, `DamageMsg.target: Entity`. Helper methods: `slot_for_entity(entity) -> Option<usize>` (linear scan), `instance_by_entity(entity) -> Option<&BuildingInstance>`.
 
 ## NPC UI Caches
 
@@ -305,7 +300,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 
 `SquadOwner` enum: `Player` (default) or `Town(usize)` (town_data_idx). Determines which town's military units get recruited into the squad.
 
-`Squad` fields: `members: Vec<EntityUid>` (NPC UIDs — stable across slot reuse), `target: Option<Vec2>` (world position or None), `target_size: usize` (desired member count, 0 = manual mode — no auto-recruit/dismiss), `patrol_enabled: bool`, `rest_when_tired: bool`, `owner: SquadOwner`, `wave_active: bool`, `wave_start_count: usize`, `wave_min_start: usize`, `wave_retreat_below_pct: usize`, `hold_fire: bool` (when true, members only attack ManualTarget — no auto-engage).
+`Squad` fields: `members: Vec<Entity>` (Bevy entities — stable identity within session), `target: Option<Vec2>` (world position or None), `target_size: usize` (desired member count, 0 = manual mode — no auto-recruit/dismiss), `patrol_enabled: bool`, `rest_when_tired: bool`, `owner: SquadOwner`, `wave_active: bool`, `wave_start_count: usize`, `wave_min_start: usize`, `wave_retreat_below_pct: usize`, `hold_fire: bool` (when true, members only attack ManualTarget — no auto-engage).
 
 `SquadId(i32)` ECS component inserted on military units when recruited into a squad. Removed on dismiss via `commands.entity().remove::<SquadId>()`. Units with `SquadId` walk to squad target instead of patrolling (see [behavior.md](behavior.md#squads)).
 
@@ -329,7 +324,7 @@ UI filtering: left panel and squad overlay only show `is_player()` squads. Hotke
 | AiPlayerState | `players: Vec<AiPlayer>` — one per non-player settlement | game_startup (populate), game_cleanup (reset) | ai_decision_system |
 | NpcDecisionConfig | `interval: f32` (seconds between Tier 3 decisions, default 2.0) | main_menu (from settings) | decision_system |
 
-`AiPlayer` fields: `town_data_idx` (WorldData.towns index), `grid_idx` (TownGrids index), `kind` (Builder or Raider), `personality` (Aggressive, Balanced, or Economic — randomly assigned at game start), `active` (bool — `ai_decision_system` skips inactive players; used by migration system to defer AI until town settles), `squad_indices: Vec<usize>` (indices into SquadState.squads), `squad_cmd: HashMap<usize, AiSquadCmdState>` (per-squad command state with independent cooldown + target identity via `building_uid: Option<EntityUid>`). `AiKind` determined by `Town.sprite_type`: 0 (fountain) = Builder, 1 (tent) = Raider.
+`AiPlayer` fields: `town_data_idx` (WorldData.towns index), `grid_idx` (TownGrids index), `kind` (Builder or Raider), `personality` (Aggressive, Balanced, or Economic — randomly assigned at game start), `active` (bool — `ai_decision_system` skips inactive players; used by migration system to defer AI until town settles), `squad_indices: Vec<usize>` (indices into SquadState.squads), `squad_cmd: HashMap<usize, AiSquadCmdState>` (per-squad command state with independent cooldown + target identity via `building_uid: Option<Entity>`). `AiKind` determined by `Town.sprite_type`: 0 (fountain) = Builder, 1 (tent) = Raider.
 
 Personality drives build order, upgrade priority, food reserve, town policies, and **squad behavior**:
 - **Aggressive**: military first (archer homes → waypoints → economy), zero food reserve, combat upgrades prioritized, miner homes = 1/3 of farmer homes. 3 squads: reserve (25% defense), 2 attack squads (55/45 split of remainder). Retargets every 15s, attacks nearest enemy anything.

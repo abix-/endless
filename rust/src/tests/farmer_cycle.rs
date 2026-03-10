@@ -81,7 +81,7 @@ pub fn tick(
     let spawned_from_homes = homes.iter().filter(|h| {
         entity_map.entities.get(&h.slot)
             .and_then(|&e| spawner_q.get(e).ok())
-            .is_some_and(|s| s.npc_uid.is_some())
+            .is_some_and(|s| s.npc_slot.is_some())
     }).count();
     let occupied_farms = farms.iter().filter(|f| f.occupants == 1).count();
     let overbooked_farms = farms.iter().filter(|f| f.occupants > 1).count();

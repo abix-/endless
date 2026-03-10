@@ -35,7 +35,7 @@ pub fn setup(mut params: TestSetupParams) {
         work_y: 256.0,
         starting_post: -1,
         attack_type: 0,
-        uid_override: None,
+        entity_override: None,
     });
 
     params.focus_camera(384.0, 320.0);

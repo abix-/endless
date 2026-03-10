@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 use crate::components::{
-    Activity, CachedStats, CarriedLoot, CombatState, Energy, EntityUid, Faction, GpuSlot, Health,
+    Activity, CachedStats, CarriedLoot, CombatState, Energy, Faction, GpuSlot, Health,
     Home, Job, ManualTarget, NpcEquipment, NpcFlags, NpcWorkState, Personality, PatrolRoute, Speed,
     SquadId, TownId,
 };
@@ -722,12 +722,13 @@ struct DebugParams {
 pub fn debug_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
     let p: DebugParams = parse_some(params)?;
 
-    // UID provided: auto-detect NPC vs building
+    // UID (slot) provided: auto-detect NPC vs building
     if let Some(uid) = p.uid {
-        let entity_uid = crate::components::EntityUid(uid);
+        let slot = uid as usize;
         let entity_map = world.resource::<EntityMap>();
-        let slot = entity_map.slot_for_uid(entity_uid)
-            .ok_or_else(|| brp_err(format!("no entity with uid {uid}")))?;
+        if entity_map.entities.get(&slot).is_none() {
+            return Err(brp_err(format!("no entity at slot {slot}")));
+        }
         let is_npc = entity_map.get_npc(slot).is_some();
         return if is_npc { debug_npc(world, uid, slot) } else { debug_building(world, uid, slot) };
     }
@@ -746,9 +747,12 @@ pub fn debug_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpRes
 }
 
 fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
+    // Resolve the target entity from uid (Entity::to_bits representation) or slot
+    let target_entity = Entity::from_bits(uid);
+
     // ECS query — split into nested tuples to stay under Bevy's 15-element QueryData limit
     let mut query = world.query::<(
-        &EntityUid, &GpuSlot, &Job, &Activity, &Health, &Energy, &Speed, &Home, &TownId,
+        Entity, &GpuSlot, &Job, &Activity, &Health, &Energy, &Speed, &Home, &TownId,
         &Faction, &CarriedLoot, &NpcWorkState, &NpcFlags, &CombatState,
         (&Personality, &CachedStats, &NpcEquipment,
          Option<&ManualTarget>, Option<&SquadId>, Option<&PatrolRoute>),
@@ -756,11 +760,11 @@ fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
 
     let mut npc_data: Option<Value> = None;
     for (
-        entity_uid, _gpu_slot, job, activity, health, energy, _speed, home, town_id,
+        entity, _gpu_slot, job, activity, health, energy, _speed, home, town_id,
         faction, carried_loot, work_state, flags, combat_state,
         (personality, stats, equipment, manual_target, squad_id, patrol_route),
     ) in query.iter(world) {
-        if entity_uid.0 != uid { continue; }
+        if entity != target_entity { continue; }
 
         // Equipment slots — uniform array for TOON CSV table
         let mut equip: Vec<Value> = Vec::new();
@@ -818,7 +822,7 @@ fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
             "loot_equipment": carried_loot.equipment.iter().map(|i| json!({
                 "name": &i.name, "rarity": i.rarity.label(),
             })).collect::<Vec<_>>(),
-            "worksite": work_state.worksite.map(|u| u.0),
+            "worksite": work_state.worksite.map(|e| e.to_bits()),
             "flags": flag_list,
             "manual_target": mt_str,
             "squad_id": squad_id.map(|s| s.0),
@@ -911,8 +915,8 @@ fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
 
     // Worksite detail
     if let Some(uid_val) = data["worksite"].as_u64() {
-        let uid = crate::components::EntityUid(uid_val);
-        if let Some(ws_slot) = entity_map.slot_for_uid(uid) {
+        let ws_entity = Entity::from_bits(uid_val);
+        if let Some(ws_slot) = entity_map.slot_for_entity(ws_entity) {
             if let Some(inst) = entity_map.get_instance(ws_slot) {
                 let max_occ = crate::constants::building_def(inst.kind)
                     .worksite.map_or(0, |w| w.max_occupants);
@@ -1077,7 +1081,7 @@ fn debug_building(world: &mut World, uid: u64, slot: usize) -> BrpResult {
             data["under_construction"] = json!(cp.0);
         }
         if let Some(ss) = world.get::<crate::components::SpawnerState>(e) {
-            data["npc_uid"] = json!(ss.npc_uid.map(|u| u.0));
+            data["npc_slot"] = json!(ss.npc_slot);
             data["respawn_timer"] = json!(ss.respawn_timer);
         }
         if let Some(mc) = world.get::<crate::components::MinerHomeConfig>(e) {
@@ -1118,11 +1122,11 @@ fn debug_squad(world: &mut World, idx: usize) -> BrpResult {
     // Resolve member details
     let entity_map = world.resource::<EntityMap>();
     let meta_cache = world.resource::<NpcMetaCache>();
-    let member_slots: Vec<(u64, Option<usize>, String)> = squad.members.iter().map(|uid| {
-        let slot = entity_map.slot_for_uid(*uid);
+    let member_slots: Vec<(u64, Option<usize>, String)> = squad.members.iter().map(|e| {
+        let slot = entity_map.slot_for_entity(*e);
         let name = slot.and_then(|s| meta_cache.0.get(s))
             .map(|m| m.name.clone()).unwrap_or_default();
-        (uid.0, slot, name)
+        (e.to_bits(), slot, name)
     }).collect();
 
     // ECS query for member stats — uniform fields for TOON CSV table
@@ -1388,11 +1392,11 @@ pub fn drain_remote_queues(
         let slot = inst.slot;
 
         // Send lethal damage so death_system handles entity despawn
-        let Some(uid) = world_state.entity_map.uid_for_slot(slot) else {
+        let Some(&target_entity) = world_state.entity_map.entities.get(&slot) else {
             continue;
         };
         damage_writer.write(crate::messages::DamageMsg {
-            target: uid,
+            target: target_entity,
             amount: f32::MAX,
             attacker: -1,
             attacker_faction: 0,

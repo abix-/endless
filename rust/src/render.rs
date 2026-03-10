@@ -489,7 +489,7 @@ fn click_to_select_system(
             let members: Vec<usize> = click.squad_state.squads[si as usize]
                 .members
                 .iter()
-                .filter_map(|uid| click.entity_map.slot_for_uid(*uid))
+                .filter_map(|uid| click.entity_map.slot_for_entity(*uid))
                 .filter(|&slot| {
                     click
                         .entity_map
@@ -782,7 +782,7 @@ fn click_to_select_system(
                 continue;
             }
             for &uid in &squad.members {
-                let Some(slot) = click.entity_map.slot_for_uid(uid) else {
+                let Some(slot) = click.entity_map.slot_for_entity(uid) else {
                     continue;
                 };
                 if let Some(&entity) = click.entity_map.entities.get(&slot) {
@@ -895,7 +895,7 @@ fn box_select_system(
                     if si < squad_state.squads.len() && squad_state.squads[si].is_player() {
                         // Remove DirectControl from old squad members being replaced
                         for &old_uid in &squad_state.squads[si].members {
-                            let Some(old_slot) = entity_map.slot_for_uid(old_uid) else {
+                            let Some(old_slot) = entity_map.slot_for_entity(old_uid) else {
                                 continue;
                             };
                             if !selected_set.contains(&old_slot) {
@@ -916,14 +916,14 @@ fn box_select_system(
                             }
                             squad_state.squads[qi].members.retain(|uid| {
                                 entity_map
-                                    .slot_for_uid(*uid)
+                                    .slot_for_entity(*uid)
                                     .is_some_and(|s| !selected_set.contains(&s))
                             });
                         }
                         // Set as the squad's members (replace, not append) — convert slots to UIDs
                         squad_state.squads[si].members = selected_slots
                             .iter()
-                            .filter_map(|&slot| entity_map.uid_for_slot(slot))
+                            .filter_map(|&slot| entity_map.entities.get(&slot).copied())
                             .collect();
                         // Update SquadId + DirectControl on each selected NPC
                         for &slot in &selected_slots {

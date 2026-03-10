@@ -416,7 +416,7 @@ pub fn decision_system(
             .unwrap_or_default();
         let mut worksite = work_state
             .worksite
-            .and_then(|uid| entity_map.slot_for_uid(uid));
+            .and_then(|ws| entity_map.slot_for_entity(ws));
         let has_patrol = npc_data.patrol_route_q.get(entity).is_ok();
         let mut patrol_current = npc_data
             .patrol_route_q
@@ -463,8 +463,8 @@ pub fn decision_system(
                                 .map(|ws| ws.drift_radius)
                                 .unwrap_or(0.0);
                             if current.distance(inst.position) > drift_radius {
-                                let uid = entity_map.uid_for_slot(slot);
-                                extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                                let uid = entity_map.entities.get(&slot).copied();
+                                extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
                                 worksite = None;
                                 worksite_deferred = true;
                                 npc_logs.push(
@@ -588,8 +588,8 @@ pub fn decision_system(
 
                                 if occupied_by_other {
                                     // Farm occupied — retarget via resolver
-                                    let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
-                                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                                    let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
+                                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
                                     extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
                                         entity, kind: BuildingKind::Farm, town_idx: town_idx_i32 as u32, from: current_pos,
                                     }));
@@ -609,8 +609,8 @@ pub fn decision_system(
                                         });
                                     if let Some((food, log_msg)) = harvest {
                                         // Harvest — release worksite, carry home
-                                        let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
-                                        extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                                        let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
+                                        extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
                                         worksite = None;
                                         worksite_deferred = true;
                                         combat_log.write(CombatLogMsg {
@@ -625,8 +625,8 @@ pub fn decision_system(
                                     } else {
                                         // Farm not ready — claim via resolver if not already owned, start working
                                         if !owns {
-                                            let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
-                                            extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                                            let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
+                                            extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
                                             extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
                                                 entity, kind: BuildingKind::Farm, town_idx: town_idx_i32 as u32, from: current_pos,
                                             }));
@@ -641,8 +641,8 @@ pub fn decision_system(
                                 }
                             } else {
                                 // No farm nearby — release and idle
-                                let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
-                                extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                                let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
+                                extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
                                 worksite = None;
                                 worksite_deferred = true;
                                 activity.kind = ActivityKind::Idle;
@@ -781,7 +781,7 @@ pub fn decision_system(
                         let mine_pos = if let ActivityKind::Mine { mine_pos } = activity.kind { mine_pos } else { Vec2::ZERO };
                         // Arrived at gold mine — check BuildingInstance for harvest or tend
                         let mine_slot = entity_map.slot_at_position(mine_pos);
-                        let miner_uid = entity_map.uid_by_entity(entity);
+                        let miner_uid = Some(entity);
                         let can_harvest_turn = mine_slot.is_none_or(|slot| {
                             miner_uid.is_none_or(|uid| entity_map.is_worksite_harvest_turn(slot, uid))
                         });
@@ -816,8 +816,8 @@ pub fn decision_system(
                                 }
                                 let gold_amount = ((base_gold as f32) * yield_mult).round() as i32;
                                 carried_loot.gold += gold_amount;
-                                let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
-                                extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                                let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
+                                extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
                                 worksite = None;
                                 worksite_deferred = true;
                                 activity.kind = ActivityKind::ReturnLoot;
@@ -980,8 +980,8 @@ pub fn decision_system(
                     if health / max_hp < effective_threshold {
                         // Clean up work state if fleeing mid-work
                         if matches!(activity.kind, ActivityKind::Mine { .. } | ActivityKind::Work { .. }) {
-                            let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
-                            extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                            let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
+                            extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
                             worksite = None;
                             worksite_deferred = true;
                         }
@@ -1053,8 +1053,8 @@ pub fn decision_system(
                             let dy = pos.y - origin.y;
                             if (dx * dx + dy * dy).sqrt() > leash_dist {
                                 if matches!(activity.kind, ActivityKind::Mine { .. } | ActivityKind::Work { .. }) {
-                                    let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
-                                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                                    let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
+                                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
                                     worksite = None;
                                     worksite_deferred = true;
                                 }
@@ -1200,8 +1200,8 @@ pub fn decision_system(
                     if occupied_by_other {
                         // Retarget via resolver — release old + claim new
                         let current_pos = npc_pos.unwrap_or_default();
-                        let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
-                        extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                        let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
+                        extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
                         extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
                             entity, kind: BuildingKind::Farm, town_idx: town_idx_i32 as u32, from: current_pos,
                         }));
@@ -1338,8 +1338,8 @@ pub fn decision_system(
                 && activity.kind != ActivityKind::ReturnLoot
                 && matches!(combat_state, CombatState::None)
             {
-                let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
-                extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
+                extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
                 worksite = None;
                 worksite_deferred = true;
                 activity.kind = ActivityKind::ReturnLoot;
@@ -1376,8 +1376,8 @@ pub fn decision_system(
                 let inst_snapshot = entity_map.get_instance(slot).map(|i| (i.kind, i.town_idx));
                 let Some((kind, inst_town)) = inst_snapshot else {
                     // Worksite destroyed — release and reassign
-                    let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
-                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                    let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
+                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
                     worksite = None;
                     worksite_deferred = true;
                     activity.kind = ActivityKind::Idle;
@@ -1392,8 +1392,8 @@ pub fn decision_system(
                 };
                 let def = building_def(kind);
                 let Some(ws) = def.worksite else {
-                    let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
-                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                    let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
+                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
                     worksite = None;
                     worksite_deferred = true;
                     activity.kind = ActivityKind::Idle;
@@ -1402,8 +1402,8 @@ pub fn decision_system(
 
                 // Validate: town match (only for town-scoped worksites like farms)
                 if ws.town_scoped && inst_town != town_idx_i32 as u32 {
-                    let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
-                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                    let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
+                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
                     worksite = None;
                     worksite_deferred = true;
                     activity.kind = ActivityKind::Idle;
@@ -1419,8 +1419,8 @@ pub fn decision_system(
 
                 // Contention: too many occupants → release and go home
                 if entity_map.occupant_count(slot) > ws.max_occupants {
-                    let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
-                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                    let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
+                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
                     worksite = None;
                     worksite_deferred = true;
                     activity.kind = ActivityKind::Idle;
@@ -1463,8 +1463,8 @@ pub fn decision_system(
                     if current.distance(ws_pos) > ws.drift_radius {
                         if kind == BuildingKind::GoldMine {
                             // Fair mining queue: leaving mine range forfeits queue position.
-                            let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
-                            extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                            let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
+                            extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
                             worksite = None;
                             worksite_deferred = true;
                             activity = Activity::new(ActivityKind::Mine { mine_pos: ws_pos });
@@ -1499,7 +1499,7 @@ pub fn decision_system(
 
                 // Harvest check: if production ready, harvest + apply yield mult + return home
                 let mut harvested = false;
-                let claimer_uid = entity_map.uid_by_entity(entity);
+                let claimer_uid = Some(entity);
                 let can_harvest_turn = if kind == BuildingKind::GoldMine {
                     claimer_uid.is_none_or(|uid| entity_map.is_worksite_harvest_turn(slot, uid))
                 } else {
@@ -1529,8 +1529,8 @@ pub fn decision_system(
                             });
                         }
                         let final_yield = ((base_yield as f32) * yield_mult).round() as i32;
-                        let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
-                        extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                        let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
+                        extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
                         worksite = None;
                         worksite_deferred = true;
                         match ws.harvest_item {
@@ -1562,8 +1562,8 @@ pub fn decision_system(
 
                 // Tired check: release worksite and go idle
                 if energy < ENERGY_TIRED_THRESHOLD {
-                    let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
-                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+                    let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
+                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
                     worksite = None;
                     worksite_deferred = true;
                     activity.kind = ActivityKind::Idle;
@@ -2018,8 +2018,8 @@ pub fn decision_system(
             && worksite.is_some()
             && !matches!(activity.kind, ActivityKind::Work { .. })
         {
-            let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
-            extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, uid }));
+            let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
+            extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
             worksite = None;
             worksite_deferred = true;
             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Released stale worksite");
@@ -2074,7 +2074,7 @@ pub fn decision_system(
         }
         if !worksite_deferred && worksite != orig_worksite {
             if let Ok(mut ws) = npc_data.work_state_q.get_mut(entity) {
-                ws.worksite = worksite.and_then(|s| entity_map.uid_for_slot(s));
+                ws.worksite = worksite.and_then(|s| entity_map.entities.get(&s).copied());
             }
         }
         if patrol_current != orig_patrol_current {

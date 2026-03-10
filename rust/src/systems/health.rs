@@ -73,7 +73,7 @@ pub fn damage_system(
     let mut damage_count = 0;
     for event in events.read() {
         damage_count += 1;
-        let Some(idx) = entity_map.slot_for_uid(event.target) else {
+        let Some(idx) = entity_map.slot_for_entity(event.target) else {
             continue;
         };
 
@@ -256,12 +256,12 @@ pub fn death_system(
             let pos = inst.position;
             let town_idx = inst.town_idx as usize;
 
-            // Orphaned NPC loses its home (npc_uid from SpawnerState ECS component)
-            let npc_uid = res.entity_map.entities.get(&idx)
+            // Orphaned NPC loses its home (npc_slot from SpawnerState ECS component)
+            let npc_slot = res.entity_map.entities.get(&idx)
                 .and_then(|&e| res.spawner_q.get(e).ok())
-                .and_then(|s| s.npc_uid);
-            if let Some(uid) = npc_uid {
-                if let Some(npc_entity) = res.entity_map.entity_by_uid(uid) {
+                .and_then(|s| s.npc_slot);
+            if let Some(slot) = npc_slot {
+                if let Some(&npc_entity) = res.entity_map.entities.get(&slot) {
                     if let Ok(mut home) = res.home_q.get_mut(npc_entity) {
                         home.0 = Vec2::new(-1.0, -1.0);
                     }
@@ -854,7 +854,7 @@ pub fn death_system(
 
         // Defer worksite release to centralized resolver
         res.work_intents.write(crate::messages::WorkIntentMsg(
-            crate::messages::WorkIntent::Release { entity, uid: worksite_uid },
+            crate::messages::WorkIntent::Release { entity, worksite: worksite_uid },
         ));
         if job == Job::Miner {
             res.dirty_writers
@@ -1356,7 +1356,6 @@ mod tests {
     // damage_system tests
     // ========================================================================
 
-    use crate::components::EntityUid;
     use crate::messages::DamageMsg;
     use crate::resources::{BuildingHealState, EntityMap, HealthDebug};
 
@@ -1395,15 +1394,14 @@ mod tests {
         app
     }
 
-    /// Spawn an NPC entity and register it in EntityMap with a UID.
-    fn spawn_damageable_npc(app: &mut App, slot: usize, uid: u64, hp: f32) -> Entity {
+    /// Spawn an NPC entity and register it in EntityMap.
+    fn spawn_damageable_npc(app: &mut App, slot: usize, _uid: u64, hp: f32) -> Entity {
         let entity = app.world_mut().spawn((
             GpuSlot(slot),
             Health(hp),
         )).id();
         let mut entity_map = app.world_mut().resource_mut::<EntityMap>();
         entity_map.register_npc(slot, entity, crate::components::Job::Archer, 0, 0);
-        entity_map.register_uid(slot, EntityUid(uid), entity);
         entity
     }
 
@@ -1412,7 +1410,7 @@ mod tests {
         let mut app = setup_damage_app();
         let npc = spawn_damageable_npc(&mut app, 0, 1, 100.0);
         app.world_mut().resource_mut::<PendingDamage>().0.push(DamageMsg {
-            target: EntityUid(1),
+            target: npc,
             amount: 30.0,
             attacker: -1,
             attacker_faction: 0,
@@ -1428,7 +1426,7 @@ mod tests {
         let mut app = setup_damage_app();
         let npc = spawn_damageable_npc(&mut app, 0, 1, 10.0);
         app.world_mut().resource_mut::<PendingDamage>().0.push(DamageMsg {
-            target: EntityUid(1),
+            target: npc,
             amount: 50.0,
             attacker: -1,
             attacker_faction: 0,
@@ -1441,12 +1439,13 @@ mod tests {
     }
 
     #[test]
-    fn damage_to_unknown_uid_ignored() {
+    fn damage_to_unknown_entity_ignored() {
         let mut app = setup_damage_app();
         let npc = spawn_damageable_npc(&mut app, 0, 1, 100.0);
-        // Send damage to a UID that doesn't exist
+        // Send damage to an entity that doesn't exist in EntityMap
+        let fake = Entity::from_raw_u32(999).unwrap();
         app.world_mut().resource_mut::<PendingDamage>().0.push(DamageMsg {
-            target: EntityUid(999),
+            target: fake,
             amount: 50.0,
             attacker: -1,
             attacker_faction: 0,
@@ -1473,8 +1472,8 @@ mod tests {
         let mut app = setup_damage_app();
         let npc = spawn_damageable_npc(&mut app, 0, 1, 100.0);
         let pending = &mut app.world_mut().resource_mut::<PendingDamage>().0;
-        pending.push(DamageMsg { target: EntityUid(1), amount: 20.0, attacker: -1, attacker_faction: 0 });
-        pending.push(DamageMsg { target: EntityUid(1), amount: 15.0, attacker: -1, attacker_faction: 0 });
+        pending.push(DamageMsg { target: npc, amount: 20.0, attacker: -1, attacker_faction: 0 });
+        pending.push(DamageMsg { target: npc, amount: 15.0, attacker: -1, attacker_faction: 0 });
 
         app.update();
         let hp = app.world().get::<Health>(npc).unwrap().0;
@@ -1488,7 +1487,7 @@ mod tests {
         // Mark NPC as dead in EntityMap
         app.world_mut().resource_mut::<EntityMap>().get_npc_mut(0).unwrap().dead = true;
         app.world_mut().resource_mut::<PendingDamage>().0.push(DamageMsg {
-            target: EntityUid(1),
+            target: npc,
             amount: 50.0,
             attacker: -1,
             attacker_faction: 0,
@@ -1503,7 +1502,6 @@ mod tests {
     fn damage_building_reduces_health() {
         let mut app = setup_damage_app();
         let slot = 0usize;
-        let uid = 1u64;
         let entity = app.world_mut().spawn((
             GpuSlot(slot),
             Health(200.0),
@@ -1520,10 +1518,9 @@ mod tests {
             faction: 0,
             occupants: 0,
         });
-        entity_map.register_uid(slot, EntityUid(uid), entity);
 
         app.world_mut().resource_mut::<PendingDamage>().0.push(DamageMsg {
-            target: EntityUid(uid),
+            target: entity,
             amount: 75.0,
             attacker: -1,
             attacker_faction: 1,

@@ -113,7 +113,7 @@ pub fn tick(
                     work_y: -1.0,
                     starting_post: -1,
                     attack_type: 0,
-                    uid_override: None,
+                    entity_override: None,
                 });
                 test.set_flag("respawned", true);
                 test.phase_name =

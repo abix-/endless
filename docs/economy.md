@@ -83,11 +83,11 @@ game_time_system (every frame)
 
 ### spawner_respawn_system
 - Runs when `game_time.hour_ticked` is true
-- Iterates `EntityMap.spawner_slots()` pre-built index (maintained on add/remove_instance) instead of scanning all buildings. Spawner state lives in `SpawnerState` ECS component (`npc_uid: Option<EntityUid>`, `respawn_timer: f32`), queried via `Query<(&mut SpawnerState, Option<&MinerHomeConfig>)>`.
-- Sentinel values: `npc_uid = None` (no NPC alive), `respawn_timer = -1.0` (not respawning), `>= 0.0` (countdown active)
-- If `npc_uid.is_some()` and NPC is dead (UID not in EntityMap): clears `npc_uid`, starts 12h respawn timer
+- Iterates `EntityMap.spawner_slots()` pre-built index (maintained on add/remove_instance) instead of scanning all buildings. Spawner state lives in `SpawnerState` ECS component (`npc_slot: Option<usize>`, `respawn_timer: f32`), queried via `Query<(&mut SpawnerState, Option<&MinerHomeConfig>)>`.
+- Sentinel values: `npc_slot = None` (no NPC alive), `respawn_timer = -1.0` (not respawning), `>= 0.0` (countdown active)
+- If `npc_slot.is_some()` and NPC is dead (slot not in EntityMap): clears `npc_slot`, starts 12h respawn timer
 - Timer decrements 1.0 per game hour; on expiry: allocates slot via `SlotAllocator`, emits `SpawnNpcMsg`, logs to `CombatLog`
-- All spawner buildings (world gen and player-built) start with `SpawnerState { npc_uid: None, respawn_timer: 0.0 }` — the system spawns the first NPC on the next hourly tick. No separate initial spawn function.
+- All spawner buildings (world gen and player-built) start with `SpawnerState { npc_slot: None, respawn_timer: 0.0 }` — the system spawns the first NPC on the next hourly tick. No separate initial spawn function.
 - Tombstoned entries (position.x < -9000) are skipped (building was destroyed)
 - Spawn mapping resolved by `world::resolve_spawner_npc()` (single source of truth, takes `&BuildingInstance`): FarmerHome → Farmer (nearest farm via `find_nearest_free` with kind-filtered spatial search as hint, no claim at spawn — farmer self-claims via behavior system), ArcherHome → Archer (nearest waypoint via `find_location_within_radius`), FighterHome → Fighter (nearest waypoint via `find_location_within_radius`), Tent → Raider (home = tent position), MinerHome → Miner (assigned mine from `MinerHomeConfig.assigned_mine` if set, otherwise nearest gold mine via `find_nearest_free`). All types look up faction from `world_data.towns[town_idx].faction`. Note: spawner_respawn_system does **not** pre-claim work slots — farmers self-claim via `find_farmer_farm_target()` in decision_system.
 
@@ -195,7 +195,7 @@ Raiders without a squad assignment wander near their town. Group attacks use squ
 | EntityMap (occupancy) | `BuildingInstance.occupants: i16` per building — slot-indexed claim/release/is_occupied/occupant_count methods on EntityMap | decision_system, death_cleanup |
 | MiningPolicy | discovered_mines per town, mine_enabled per mine | mining_policy_system (dirty-flag gated) |
 | RaiderState | max_pop, respawn_timers, forage_timers | raider_forage_system |
-| SpawnerState | ECS component `{ npc_uid: Option<EntityUid>, respawn_timer: f32 }` on spawner buildings | spawner_respawn_system, place_building |
+| SpawnerState | ECS component `{ npc_slot: Option<usize>, respawn_timer: f32 }` on spawner buildings | spawner_respawn_system, place_building |
 | ConstructionProgress | ECS component `(f32)` seconds remaining on building entities | construction_tick_system, growth_system (skip guard) |
 | PopulationStats | alive/working/dead per (job, town) | spawn, death, state transitions |
 

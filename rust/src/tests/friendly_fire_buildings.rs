@@ -28,7 +28,6 @@ pub fn setup(
     mut faction_stats: ResMut<FactionStats>,
     mut test_state: ResMut<TestState>,
     mut camera_query: Query<&mut Transform, With<MainCamera>>,
-    mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
     mut commands: Commands,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
 ) {
@@ -58,8 +57,8 @@ pub fn setup(
     for y in FARM_WALL_Y {
         let pos = Vec2::new(FARM_WALL_X, y);
         let _ = world::place_building(
-            &mut slot_alloc, &mut entity_map, &mut uid_alloc, &mut commands, &mut gpu_updates,
-            world::BuildingKind::Farm, pos, 0, 0, 0, 0, None, None, None, None,
+            &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
+            world::BuildingKind::Farm, pos, 0, 0, 0, 0, None, None, None,
         );
     }
 
@@ -78,7 +77,7 @@ pub fn setup(
         work_y: -1.0,
         starting_post: -1,
         attack_type: 1, // ranged
-        uid_override: None,
+        entity_override: None,
     });
 
     // Target dummy (faction 2, melee) so only one side shoots.
@@ -96,7 +95,7 @@ pub fn setup(
         work_y: -1.0,
         starting_post: -1,
         attack_type: 0, // melee
-        uid_override: None,
+        entity_override: None,
     });
 
     if let Ok(mut cam) = camera_query.single_mut() {

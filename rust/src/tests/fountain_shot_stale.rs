@@ -21,7 +21,6 @@ pub fn setup(
     mut faction_stats: ResMut<FactionStats>,
     mut test_state: ResMut<TestState>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
-    mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
     mut commands: Commands,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
 ) {
@@ -37,9 +36,9 @@ pub fn setup(
 
     // Create fountain instance directly
     let _ = world::place_building(
-        &mut slot_alloc, &mut entity_map, &mut uid_alloc, &mut commands, &mut gpu_updates,
+        &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
         world::BuildingKind::Fountain, Vec2::new(384.0, 384.0), 0, 0, 0, 0,
-        None, None, None, None,
+        None, None, None,
     );
 
     // One enemy NPC in fountain range; keep this NPC pinned in tick so tower fires repeatedly.
@@ -57,7 +56,7 @@ pub fn setup(
         work_y: -1.0,
         starting_post: -1,
         attack_type: 0,
-        uid_override: None,
+        entity_override: None,
     });
 
     if let Ok(mut cam) = camera_query.single_mut() {

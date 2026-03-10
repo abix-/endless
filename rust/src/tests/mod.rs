@@ -59,7 +59,6 @@ pub struct TestSetupParams<'w, 's> {
     pub test_state: ResMut<'w, TestState>,
     pub world_grid: ResMut<'w, world::WorldGrid>,
     pub camera_q: Query<'w, 's, &'static mut Transform, With<MainCamera>>,
-    pub uid_alloc: ResMut<'w, crate::resources::NextEntityUid>,
     pub commands: Commands<'w, 's>,
     pub gpu_updates: MessageWriter<'w, crate::messages::GpuUpdateMsg>,
     pub dirty_writers: crate::messages::DirtyWriters<'w>,
@@ -119,7 +118,6 @@ impl TestSetupParams<'_, '_> {
         let _ = world::place_building(
             &mut self.slot_alloc,
             &mut self.entity_map,
-            &mut self.uid_alloc,
             &mut self.commands,
             &mut self.gpu_updates,
             kind,
@@ -128,7 +126,6 @@ impl TestSetupParams<'_, '_> {
             faction,
             0,
             0,
-            None,
             None,
             None,
             Some(&mut self.dirty_writers),
@@ -146,7 +143,6 @@ impl TestSetupParams<'_, '_> {
         let _ = world::place_building(
             &mut self.slot_alloc,
             &mut self.entity_map,
-            &mut self.uid_alloc,
             &mut self.commands,
             &mut self.gpu_updates,
             world::BuildingKind::Waypoint,
@@ -155,7 +151,6 @@ impl TestSetupParams<'_, '_> {
             faction,
             patrol_order,
             0,
-            None,
             None,
             None,
             Some(&mut self.dirty_writers),
@@ -197,7 +192,7 @@ impl TestSetupParams<'_, '_> {
             work_y: -1.0,
             starting_post: -1,
             attack_type: 0,
-            uid_override: None,
+            entity_override: None,
         });
         slot
     }

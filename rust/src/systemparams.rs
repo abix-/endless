@@ -15,7 +15,6 @@ pub struct WorldState<'w> {
     pub dirty_writers: DirtyWriters<'w>,
     pub entity_slots: ResMut<'w, GpuSlotPool>,
     pub entity_map: ResMut<'w, EntityMap>,
-    pub uid_alloc: ResMut<'w, NextEntityUid>,
 }
 
 impl WorldState<'_> {
@@ -56,7 +55,6 @@ impl WorldState<'_> {
         crate::world::place_building(
             &mut self.entity_slots,
             &mut self.entity_map,
-            &mut self.uid_alloc,
             commands,
             gpu_updates,
             kind,
@@ -65,7 +63,6 @@ impl WorldState<'_> {
             faction,
             patrol_order,
             wall_level,
-            None,
             None,
             Some(crate::world::BuildContext {
                 grid: &mut self.grid,
@@ -134,7 +131,6 @@ impl WorldState<'_> {
         crate::world::place_building(
             &mut self.entity_slots,
             &mut self.entity_map,
-            &mut self.uid_alloc,
             commands,
             gpu_updates,
             new_kind,
@@ -143,7 +139,6 @@ impl WorldState<'_> {
             faction,
             0,
             0,
-            None,
             None,
             None, // no BuildContext — skip validation (already done)
             Some(&mut self.dirty_writers),

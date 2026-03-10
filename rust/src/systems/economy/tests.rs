@@ -771,7 +771,6 @@ fn setup_spawner_app() -> App {
     app.insert_resource(GameTime::default());
     app.insert_resource(EntityMap::default());
     app.insert_resource(GpuSlotPool::default());
-    app.insert_resource(crate::resources::NextEntityUid::default());
     app.insert_resource(CollectedSpawns::default());
     app.insert_resource(WorldData {
         towns: vec![crate::world::Town {
@@ -807,7 +806,7 @@ fn add_spawner_building(app: &mut App, slot: usize, kind: BuildingKind, respawn_
     let entity = app.world_mut().spawn((
         GpuSlot(slot),
         Building { kind },
-        SpawnerState { npc_uid: None, respawn_timer },
+        SpawnerState { npc_slot: None, respawn_timer },
     )).id();
     let mut em = app.world_mut().resource_mut::<EntityMap>();
     em.entities.insert(slot, entity);
@@ -855,7 +854,7 @@ fn spawner_assigns_uid_after_spawn() {
     app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
     app.update();
     let ss = app.world().get::<SpawnerState>(entity).unwrap();
-    assert!(ss.npc_uid.is_some(), "building should have npc_uid after spawn");
+    assert!(ss.npc_slot.is_some(), "building should have npc_slot after spawn");
     assert!((ss.respawn_timer - (-1.0)).abs() < 0.01, "timer should reset to -1.0");
 }
 
@@ -1002,13 +1001,12 @@ fn setup_squad_cleanup_app() -> App {
 
 #[test]
 fn squad_cleanup_skips_without_dirty() {
-    use crate::components::EntityUid;
     use crate::resources::SquadState;
     let mut app = setup_squad_cleanup_app();
-    // Add a dead member UID to squad
+    // Add a dead member entity to squad
     {
         let mut ss = app.world_mut().resource_mut::<SquadState>();
-        ss.squads[0].members.push(EntityUid(999));
+        ss.squads[0].members.push(Entity::from_raw_u32(999).unwrap());
     }
     app.update();
     let ss = app.world().resource::<SquadState>();
@@ -1017,13 +1015,12 @@ fn squad_cleanup_skips_without_dirty() {
 
 #[test]
 fn squad_cleanup_removes_dead_members() {
-    use crate::components::EntityUid;
     use crate::resources::SquadState;
     let mut app = setup_squad_cleanup_app();
-    // Add UID that doesn't exist in EntityMap → treated as dead
+    // Add entity that doesn't exist in EntityMap → treated as dead
     {
         let mut ss = app.world_mut().resource_mut::<SquadState>();
-        ss.squads[0].members.push(EntityUid(999));
+        ss.squads[0].members.push(Entity::from_raw_u32(999).unwrap());
     }
     app.insert_resource(SendSquadsDirty(true));
     app.update();
@@ -1033,7 +1030,6 @@ fn squad_cleanup_removes_dead_members() {
 
 #[test]
 fn squad_cleanup_retains_alive_members() {
-    use crate::components::EntityUid;
     use crate::resources::SquadState;
     let mut app = setup_squad_cleanup_app();
     // Register a live NPC in EntityMap
@@ -1046,11 +1042,10 @@ fn squad_cleanup_retains_alive_members() {
     {
         let mut em = app.world_mut().resource_mut::<EntityMap>();
         em.register_npc(0, entity, crate::components::Job::Archer, 0, 0);
-        em.register_uid(0, EntityUid(1), entity);
     }
     {
         let mut ss = app.world_mut().resource_mut::<SquadState>();
-        ss.squads[0].members.push(EntityUid(1));
+        ss.squads[0].members.push(entity);
     }
     app.insert_resource(SendSquadsDirty(true));
     app.update();

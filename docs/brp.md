@@ -57,7 +57,7 @@ BRP uses full Rust module paths. All types are in the `endless` crate:
 
 | Type | Fields / Variants | Notes |
 |------|-------------------|-------|
-| `EntityUid` | `u64` | Stable NPC/building identity |
+| `Entity` | Bevy Entity | Bevy ECS entity identity (index + generation) |
 | `GpuSlot` | `usize` | GPU buffer index |
 | `Position` | `x: f32, y: f32` | World-space position |
 | `Job` | Farmer, Archer, Raider, Fighter, Miner, Crossbow, Boat | Enum, serializes as string |
@@ -72,7 +72,7 @@ BRP uses full Rust module paths. All types are in the `endless` crate:
 | `BaseAttackType` | Melee, Ranged | |
 | `CachedStats` | damage, range, cooldown, projectile_speed, projectile_lifetime, max_health, speed, stamina, hp_regen, berserk_bonus | Resolved combat stats |
 | `NpcFlags` | healing, starving, direct_control, migrating, at_destination | Boolean flags |
-| `NpcWorkState` | worksite: Option\<EntityUid\> | Claimed worksite |
+| `NpcWorkState` | worksite: Option\<Entity\> | Claimed worksite |
 | `CarriedLoot` | food, gold, equipment | What NPC is carrying |
 | `NpcEquipment` | helm, armor, weapon, shield, gloves, boots, belt, amulet, ring1, ring2 | All Option\<LootItem\> |
 | `Personality` | trait1, trait2: Option\<TraitInstance\> | 0-2 spectrum traits |
@@ -187,7 +187,7 @@ curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
 - Simple enums serialize as strings: `"Farmer"`, `"Idle"`, `"Melee"`
 - Data enums serialize as objects: `{"Raiding":{"target":{"x":1.0,"y":2.0}}}`, `{"Fighting":{"origin":{"x":5.0,"y":10.0}}}`
 - Tuple structs serialize as their inner value: `Health` → `70.5`, `Faction` → `3`
-- Entity IDs are Bevy-internal u64 — not EntityUid or GpuSlot
+- Entity IDs are Bevy-internal u64 (index + generation) — not GpuSlot
 
 ## Custom Action Endpoints
 
@@ -343,13 +343,13 @@ Returns: `fps`, `frame_ms`, `ups`, `npc_count`, `entity_count`, and optionally `
 
 ### endless/debug
 
-Deep-inspect entities by EntityUid or resources by kind+index. Returns full data in TOON format.
+Deep-inspect entities by Entity bits (u64) or resources by kind+index. Returns full data in TOON format.
 
-**UID mode** (auto-detects NPC vs building):
+**Entity mode** (auto-detects NPC vs building):
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `uid` | u64 | yes | EntityUid value |
+| `uid` | u64 | yes | Entity::to_bits() value |
 
 **Kind+index mode** (resource-based lookups):
 

@@ -36,7 +36,6 @@ pub(super) fn setup(
     _spawn_writer: MessageWriter<crate::messages::SpawnNpcMsg>,
     mut state: AiBuildingSetupState,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
-    mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
     mut town_index: ResMut<crate::resources::TownIndex>,
 ) {
     config.gen_style = WorldGenStyle::Continents;
@@ -58,7 +57,7 @@ pub(super) fn setup(
         &mut faction_stats,
         &mut crate::resources::Reputation::default(),
         &mut state.raider_state,
-        &mut uid_alloc,
+
         &mut town_index,
         &mut commands,
         &mut gpu_updates,
