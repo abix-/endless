@@ -246,16 +246,16 @@ Current CRD compliance:
 
 | Entity     | Def Registry                    | Instance Pattern                          | Score |
 |------------|--------------------------------|------------------------------------------|-------|
-| NPCs       | NpcDef + NPC_REGISTRY          | ECS components + NpcMeta sidecar         | 80%   |
-| Buildings  | BuildingDef + BUILDING_REGISTRY| 2 representations (slim index + ECS)     | 90%   |
+| NPCs       | NpcDef + NPC_REGISTRY          | ECS components (NpcStats)                | 95%   |
+| Buildings  | BuildingDef + BUILDING_REGISTRY| slim spatial index + ECS components      | 90%   |
+| Activities | ActivityDef + ACTIVITY_REGISTRY| Activity component + fieldless kind      | 90%   |
+| Towns      | TownDef + TOWN_REGISTRY        | ECS town entities (TownAccess)           | 60%   |
 | Items      | None (procedural gen)          | LootItem + NpcEquipment                  | 60%   |
-| Activities | Inline match arms              | Activity component                       | 50%   |
-| Towns      | None (implicit)                | Scattered structs                        | 40%   |
 
 Can be done incrementally alongside other stages. Each chunk is independent.
 
 Chunk 1 — NPC Instance Cleanup (80% → 95%):
-- [ ] Move NpcMeta (name, level, XP) from NpcMetaCache parallel array onto ECS entities as components
+- [x] Move NpcMeta (name, level, XP) from NpcMetaCache parallel array onto ECS entities as NpcStats component
 - [ ] Simplify `materialize_npc()` — read NpcDef internally instead of 9+ loose params
 - [ ] Remove CombatConfig/JobStats duplication (reference NpcDef directly)
 
@@ -265,7 +265,7 @@ Chunk 2 — Building Instance Consolidation (70% → 90%):
 - [ ] Simplify `place_building()` signature — read BuildingDef internally
 
 Chunk 3 — TownDef Registry (40% → 80%):
-- [ ] Add TownDef struct + TOWN_REGISTRY (player, ai_builder, ai_raider templates)
+- [x] Add TownDef struct + TOWN_REGISTRY (player, ai_builder, ai_raider templates)
 - [ ] Data-driven town generation — template defines building layout, NPC roster, faction kind
 - [x] Consolidate Town + TownUpgrades + PolicySet under ECS town entities (TownAccess SystemParam, FoodStore/GoldStore/TownPolicy/TownUpgradeLevel/TownEquipment components)
 
