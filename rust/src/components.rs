@@ -199,67 +199,51 @@ pub enum Distraction {
 
 /// NPC activity — the single source of truth for what the NPC is doing.
 /// Movement destination is derived from the activity. No separate transit state.
-#[derive(Clone, Debug, Default, PartialEq, Reflect)]
+/// Fieldless registry key — per-instance data lives on `Activity` struct fields.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Reflect)]
 pub enum ActivityKind {
     #[default]
     Idle,
-    Work { worksite: usize },
+    Work,
     Patrol,
-    SquadAttack { target: Vec2 },
+    SquadAttack,
     Rest,
-    Heal { recover_until: f32 },
+    Heal,
     Wander,
-    Raid { target: Vec2 },
+    Raid,
     ReturnLoot,
-    Mine { mine_pos: Vec2 },
+    Mine,
 }
 
 impl ActivityKind {
-    /// Combat distraction level for this activity.
-    pub fn distraction(&self) -> Distraction {
-        match self {
-            Self::Rest | Self::Heal { .. } | Self::ReturnLoot => Distraction::None,
-            Self::Work { .. } | Self::Mine { .. } => Distraction::ByDamage,
-            _ => Distraction::ByEnemy,
-        }
-    }
-
-    /// Display label for UI/debug.
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::Idle => "Idle",
-            Self::Work { .. } => "Working",
-            Self::Patrol => "Patrol",
-            Self::SquadAttack { .. } => "Squad Attack",
-            Self::Rest => "Resting",
-            Self::Heal { .. } => "Healing",
-            Self::Wander => "Wandering",
-            Self::Raid { .. } => "Raiding",
-            Self::ReturnLoot => "Returning",
-            Self::Mine { .. } => "Mining",
-        }
-    }
-
+    pub fn def(&self) -> &'static crate::constants::ActivityDef { crate::constants::activity_def(*self) }
+    pub fn distraction(&self) -> Distraction { self.def().distraction }
+    pub fn label(&self) -> &'static str { self.def().label }
     /// Visual key for GPU dirty tracking (sleep icon overlay).
     pub fn visual_key(&self, at_dest: bool) -> u8 {
-        if matches!(self, Self::Rest) && at_dest { 1 } else { 0 }
+        if self.def().sleep_visual && at_dest { 1 } else { 0 }
     }
 }
 
 /// What the NPC is doing. Kind identifies the goal; ticks_waiting tracks
 /// how long the NPC has been at-destination for the current activity.
+/// Payload fields (target_pos, worksite, recover_until) are meaningful only
+/// for the activity kinds that use them — `kind` determines which apply.
 #[derive(Component, Clone, Debug, Default, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct Activity {
     pub kind: ActivityKind,
     pub ticks_waiting: u32,
+    pub target_pos: Vec2,
+    pub worksite: usize,
+    pub recover_until: f32,
 }
 
 impl Activity {
     pub fn name(&self) -> &'static str { self.kind.label() }
     pub fn visual_key(&self, at_dest: bool) -> u8 { self.kind.visual_key(at_dest) }
 
-    pub fn new(kind: ActivityKind) -> Self { Self { kind, ticks_waiting: 0 } }
+    pub fn new(kind: ActivityKind) -> Self { Self { kind, ..Default::default() } }
 }
 
 /// Whether the NPC is in combat. Orthogonal to Activity — a Raiding NPC can be Fighting.

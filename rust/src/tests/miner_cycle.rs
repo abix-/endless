@@ -78,7 +78,7 @@ pub fn tick(
                 && n.job == Job::Miner
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Mine { .. }))
+                    .is_ok_and(|a| a.kind == ActivityKind::Mine)
                 && npc_flags_q.get(n.entity).is_ok_and(|f| !f.at_destination)
         })
         .count();
@@ -89,7 +89,7 @@ pub fn tick(
                 && n.job == Job::Miner
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Mine { .. }))
+                    .is_ok_and(|a| a.kind == ActivityKind::Mine)
                 && npc_flags_q.get(n.entity).is_ok_and(|f| f.at_destination)
         })
         .count();

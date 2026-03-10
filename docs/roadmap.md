@@ -270,9 +270,10 @@ Chunk 3 — TownDef Registry (40% → 80%):
 - [x] Consolidate Town + TownUpgrades + PolicySet under ECS town entities (TownAccess SystemParam, FoodStore/GoldStore/TownPolicy/TownUpgradeLevel/TownEquipment components)
 
 Chunk 4 — ActivityDef Registry (50% → 90%):
-- [ ] Add ActivityDef struct + ACTIVITY_DEFS static table (label, distraction, visual_key per kind)
-- [ ] Replace inline match arms in ActivityKind methods with registry lookups
-- [ ] Adding a new activity = 1 enum variant + 1 registry entry
+- [x] Add ActivityDef struct + ACTIVITY_REGISTRY static table (label, distraction, sleep_visual, is_restful, is_working per kind)
+- [x] Make ActivityKind fieldless (Copy+Eq+Hash), move per-instance data to Activity struct fields (target_pos, worksite, recover_until)
+- [x] Replace inline match arms in ActivityKind methods with registry lookups (def().distraction, def().label, def().is_working, def().is_restful)
+- [x] Adding a new activity = 1 enum variant + 1 registry entry
 
 Chunk 5 — ItemDef Registry (60% → 85%):
 - [ ] Add ItemDef struct for item templates (base stats, sprite options, name patterns per slot+rarity)

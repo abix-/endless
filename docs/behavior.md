@@ -6,9 +6,10 @@ NPC decision-making and state transitions. All run in `Step::Behavior` after com
 
 **Unified Decision System**: All NPC decisions are handled by `decision_system` using a priority cascade. NPC state is modeled by two orthogonal components (concurrent state machines pattern):
 
-- `Activity` struct: what the NPC is *doing*. Contains `kind: ActivityKind` + `ticks_waiting: u32`. Payload fields (mine position, heal threshold, squad target) live inside variant data.
-- `ActivityKind` enum (10 variants): `Idle, Work { worksite }, Patrol, SquadAttack { target }, Rest, Heal { recover_until }, Wander, Raid { target }, ReturnLoot, Mine { mine_pos }`
-- `Distraction` enum: per-activity combat policy — `None` (Rest/Heal/ReturnLoot: never fight), `ByDamage` (Work/Mine: fight back only when hit), `ByEnemy` (Patrol/SquadAttack/Idle/Wander/Raid: engage nearby enemies). Queried via `activity.kind.distraction()`.
+- `Activity` struct: what the NPC is *doing*. Contains `kind: ActivityKind` + `ticks_waiting: u32` + payload fields (`target_pos: Vec2`, `worksite: usize`, `recover_until: f32`). The `kind` field determines which payload fields are meaningful.
+- `ActivityKind` enum (10 fieldless variants): `Idle, Work, Patrol, SquadAttack, Rest, Heal, Wander, Raid, ReturnLoot, Mine`. Derives `Copy + Eq + Hash`. Registry key — metadata lives in `ACTIVITY_REGISTRY` (constants.rs).
+- `ActivityDef` struct (constants.rs): per-kind metadata — `label`, `distraction`, `sleep_visual`, `is_restful`, `is_working`. Accessed via `kind.def()` or `activity_def(kind)`.
+- `Distraction` enum: per-activity combat policy — `None` (Rest/Heal/ReturnLoot: never fight), `ByDamage` (Work/Mine: fight back only when hit), `ByEnemy` (Patrol/SquadAttack/Idle/Wander/Raid: engage nearby enemies). Queried via `activity.kind.distraction()` (delegates to registry).
 - `CombatState` enum: whether the NPC is *fighting* (None, Fighting, Fleeing)
 - `NpcFlags::at_destination`: replaces the old transit/at-dest split — a single boolean distinguishes "walking to work" from "working at worksite"
 
@@ -99,24 +100,23 @@ Two concurrent state machines: `Activity.kind` (what NPC is doing) and `CombatSt
 ```
     Archer:               Farmer:               Miner:                Stealer (Raider):
     ┌──────────┐         ┌──────────┐         ┌──────────┐          ┌──────────┐
-    │  Patrol  │ spawn   │Work{ws:0}│ spawn   │  Idle    │ spawn    │  Idle    │ spawns idle
+    │  Patrol  │ spawn   │  Work    │ spawn   │  Idle    │ spawn    │  Idle    │ spawns idle
     └────┬─────┘         └────┬─────┘         └────┬─────┘          └────┬─────┘
          │ at_destination     │ at_destination      │ decision           │ decision_system
          ▼                    ▼                     ▼                    ▼
     ┌──────────┐         ┌──────────┐         ┌──────────┐       ┌──────────────────┐
-    │  Patrol  │ (wait)  │Work{ws:N}│ (tend)  │Mine{pos} │       │  Raid{target}    │
+    │  Patrol  │ (wait)  │  Work    │ (tend)  │  Mine    │       │     Raid         │
     │ at_dest  │         │ at_dest  │         └────┬─────┘       └────┬─────────────┘
     └────┬─────┘         └────┬─────┘              │ at_dest          │ at_dest
          │ 60 ticks          │ farm Ready          ▼                  ▼
          ▼                    ▼                ┌──────────┐       ┌──────────────────┐
-    next waypoint        ReturnLoot            │Mine{pos} │       │   ReturnLoot     │
+    next waypoint        ReturnLoot            │  Mine    │       │   ReturnLoot     │
     (Patrol, !at_dest)   (carry home)          │ at_dest  │       └────┬─────────────┘
          │                    │ delivery       │(4h cycle)│            │ proximity delivery
          │ squad target       ▼                └────┬─────┘            ▼
-         ▼               Work{ws:N}            ReturnLoot         deliver food, re-enter
+         ▼               Work                  ReturnLoot         deliver food, re-enter
     ┌────────────┐       (re-enter cycle)                          decision_system
     │SquadAttack │ (smooth multi-waypoint walk to squad target)
-    │ {target}   │
     └────┬───────┘
          │ at_destination
          ▼
@@ -125,7 +125,7 @@ Two concurrent state machines: `Activity.kind` (what NPC is doing) and `CombatSt
                   │ decision_system
                   ▼ (weighted random)
              ┌──────────┐                  ┌──────────────────────────┐
-             │  Rest    │ (tired→home)     │ Heal{recover_until:0.75} │
+             │  Rest    │ (tired→home)     │ Heal (recover_until=0.75)│
              └────┬─────┘                  └────┬─────────────────────┘
                   │ at_dest: sleeping            │ within 100px: healing
                   │ energy >= 90%                │ drift check: re-target

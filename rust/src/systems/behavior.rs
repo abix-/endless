@@ -435,7 +435,7 @@ pub fn decision_system(
             .unwrap_or_default();
 
         // Capture originals for conditional writeback
-        let orig_activity = activity.kind.clone();
+        let orig_activity = activity.kind;
         let orig_visual_key = (activity.visual_key(at_destination), carried_loot.visual_key());
         let orig_energy = energy;
         let orig_combat_state = std::mem::discriminant(&combat_state);
@@ -491,7 +491,7 @@ pub fn decision_system(
                 at_destination = false;
 
                 match activity.kind {
-                    ActivityKind::Patrol | ActivityKind::SquadAttack { .. } => {
+                    ActivityKind::Patrol | ActivityKind::SquadAttack => {
                         // Squad rest: tired squad members go home instead of entering OnDuty
                         if let Some(sid) = squad_id {
                             if let Some(squad) = squad_state.squads.get(sid as usize) {
@@ -552,12 +552,12 @@ pub fn decision_system(
                             "-> Resting",
                         );
                     }
-                    ActivityKind::Heal { .. } => {
+                    ActivityKind::Heal => {
                         let threshold = economy.towns.policy(town_idx_i32)
                             .map(|p| p.recovery_hp)
                             .unwrap_or(0.8)
                             .min(1.0);
-                        activity = Activity::new(ActivityKind::Heal { recover_until: threshold });
+                        activity = Activity { kind: ActivityKind::Heal, recover_until: threshold, ..Default::default() };
                         npc_logs.push(
                             idx,
                             game_time.day(),
@@ -566,7 +566,7 @@ pub fn decision_system(
                             "-> Healing",
                         );
                     }
-                    ActivityKind::Work { .. } => {
+                    ActivityKind::Work => {
                         // Farmers: find farm at work_target and start working
                         if job == Job::Farmer {
                             let current_pos = npc_pos.unwrap_or(home);
@@ -633,7 +633,8 @@ pub fn decision_system(
                                             worksite = None;
                                             worksite_deferred = true;
                                         }
-                                        activity.kind = ActivityKind::Work { worksite: 0 };
+                                        activity.kind = ActivityKind::Work;
+                                        activity.worksite = 0;
                                         pop_inc_working(&mut economy.pop_stats, job, town_idx_i32);
                                         submit_intent(&mut intents, entity, farm_pos.x, farm_pos.y, MovementPriority::JobRoute, "arrival:farm_work");
                                         npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working (tending)");
@@ -650,7 +651,8 @@ pub fn decision_system(
                             }
                         } else {
                             let current_pos = npc_pos.unwrap_or(Vec2::ZERO);
-                            activity.kind = ActivityKind::Work { worksite: 0 };
+                            activity.kind = ActivityKind::Work;
+                            activity.worksite = 0;
                             pop_inc_working(&mut economy.pop_stats, job, town_idx_i32);
                             submit_intent(
                                 &mut intents,
@@ -669,7 +671,7 @@ pub fn decision_system(
                             );
                         }
                     }
-                    ActivityKind::Raid { .. } => {
+                    ActivityKind::Raid => {
                         // Raider arrived at farm - check if ready to steal
                         if let Some(pos) = npc_pos {
                             let ready_farm_pos = find_location_within_radius(
@@ -740,7 +742,7 @@ pub fn decision_system(
                                     }
                                 });
                                 if let Some(farm_pos) = other_farm_pos {
-                                    activity = Activity::new(ActivityKind::Raid { target: farm_pos });
+                                    activity = Activity { kind: ActivityKind::Raid, target_pos: farm_pos, ..Default::default() };
                                     submit_intent(
                                         &mut intents,
                                         entity,
@@ -777,8 +779,8 @@ pub fn decision_system(
                             }
                         }
                     }
-                    ActivityKind::Mine { .. } => {
-                        let mine_pos = if let ActivityKind::Mine { mine_pos } = activity.kind { mine_pos } else { Vec2::ZERO };
+                    ActivityKind::Mine => {
+                        let mine_pos = activity.target_pos;
                         // Arrived at gold mine — check BuildingInstance for harvest or tend
                         let mine_slot = entity_map.slot_at_position(mine_pos);
                         let miner_uid = Some(entity);
@@ -842,7 +844,8 @@ pub fn decision_system(
                                     entity, kind: BuildingKind::GoldMine, town_idx: town_idx_i32 as u32, from: mine_pos,
                                 }));
                                 worksite_deferred = true;
-                                activity.kind = ActivityKind::Mine { mine_pos: Vec2::ZERO };
+                                activity.kind = ActivityKind::Mine;
+                                activity.target_pos = Vec2::ZERO;
                                 pop_inc_working(&mut economy.pop_stats, job, town_idx_i32);
                                 submit_intent(
                                     &mut intents,
@@ -910,12 +913,12 @@ pub fn decision_system(
                 if let Some(squad) = squad_state.squads.get(sid as usize) {
                     let squad_needs_rest = energy < ENERGY_TIRED_THRESHOLD
                         || (energy < ENERGY_WAKE_THRESHOLD
-                            && matches!(activity.kind, ActivityKind::Rest));
+                            && activity.kind == ActivityKind::Rest);
                     if squad.rest_when_tired && squad_needs_rest && home != Vec2::ZERO {
                         if combat_state.is_fighting() {
                             combat_state = CombatState::None;
                         }
-                        if !matches!(activity.kind, ActivityKind::Rest) {
+                        if activity.kind != ActivityKind::Rest {
                             activity.kind = ActivityKind::Rest;
                             submit_intent(
                                 &mut intents,
@@ -979,7 +982,7 @@ pub fn decision_system(
 
                     if health / max_hp < effective_threshold {
                         // Clean up work state if fleeing mid-work
-                        if matches!(activity.kind, ActivityKind::Mine { .. } | ActivityKind::Work { .. }) {
+                        if activity.kind.def().is_working {
                             let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
                             extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
                             worksite = None;
@@ -1016,12 +1019,10 @@ pub fn decision_system(
                 if healing_policy_active {
                     if let Some(town) = farms.world.towns.get(town_idx_usize) {
                         combat_state = CombatState::None;
-                        if !matches!(
-                            activity.kind,
-                            ActivityKind::Heal { .. }
-                        ) {
+                        if activity.kind != ActivityKind::Heal {
                             let threshold = economy.towns.policy(town_idx_i32).map(|p| p.recovery_hp).unwrap_or(0.8);
-                            activity.kind = ActivityKind::Heal { recover_until: threshold };
+                            activity.kind = ActivityKind::Heal;
+                            activity.recover_until = threshold;
                             submit_intent_scattered(
                                 &mut intents, entity, town.center.x, town.center.y, 128.0,
                                 idx, frame, MovementPriority::Survival, "combat:heal_fountain",
@@ -1052,7 +1053,7 @@ pub fn decision_system(
                             let dx = pos.x - origin.x;
                             let dy = pos.y - origin.y;
                             if (dx * dx + dy * dy).sqrt() > leash_dist {
-                                if matches!(activity.kind, ActivityKind::Mine { .. } | ActivityKind::Work { .. }) {
+                                if activity.kind.def().is_working {
                                     let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
                                     extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
                                     worksite = None;
@@ -1103,9 +1104,9 @@ pub fn decision_system(
                     if let Some(target) = squad.target {
                         let squad_needs_rest = energy < ENERGY_TIRED_THRESHOLD
                             || (energy < ENERGY_WAKE_THRESHOLD
-                                && matches!(activity.kind, ActivityKind::Rest));
+                                && activity.kind == ActivityKind::Rest);
                         if squad.rest_when_tired && squad_needs_rest && home != Vec2::ZERO {
-                            if !matches!(activity.kind, ActivityKind::Rest) {
+                            if activity.kind != ActivityKind::Rest {
                                 activity.kind = ActivityKind::Rest;
                                 submit_intent(
                                     &mut intents,
@@ -1125,14 +1126,12 @@ pub fn decision_system(
                                 && energy > 0.0
                                 && health / max_hp < p.recovery_hp
                             {
-                                if !matches!(
-                                    activity.kind,
-                                    ActivityKind::Heal { .. }
-                                ) {
+                                if activity.kind != ActivityKind::Heal {
                                     if let Some(town) = farms.world.towns.get(ti) {
                                         combat_state = CombatState::None;
                                         let threshold = p.recovery_hp;
-                                        activity.kind = ActivityKind::Heal { recover_until: threshold };
+                                        activity.kind = ActivityKind::Heal;
+                                        activity.recover_until = threshold;
                                         submit_intent_scattered(
                                             &mut intents, entity, town.center.x, town.center.y, 128.0,
                                             idx, frame, MovementPriority::Survival, "squad:heal_fountain",
@@ -1161,15 +1160,16 @@ pub fn decision_system(
                             "squad:target",
                         );
                         if at_destination {
-                            activity.kind = ActivityKind::SquadAttack { target };
+                            activity.kind = ActivityKind::SquadAttack;
+                            activity.target_pos = target;
                         }
                     } else if !squad.patrol_enabled {
                         // No target + patrol disabled: stop and wait (gathering phase)
                         if matches!(
                             activity.kind,
                             ActivityKind::Patrol
-                                | ActivityKind::SquadAttack { .. }
-                                | ActivityKind::Raid { .. }
+                                | ActivityKind::SquadAttack
+                                | ActivityKind::Raid
                         ) {
                             activity.kind = ActivityKind::Idle;
                             if let Some(pos) = npc_pos {
@@ -1191,7 +1191,7 @@ pub fn decision_system(
             // Farmer en-route retarget: if target farm became occupied, find another
             // ====================================================================
             if job == Job::Farmer
-                && matches!(activity.kind, ActivityKind::Work { .. })
+                && activity.kind == ActivityKind::Work
                 && (idx + frame).is_multiple_of(think_buckets)
             {
                 if let Some(wp) = worksite {
@@ -1252,7 +1252,7 @@ pub fn decision_system(
                 }
 
                 // Early arrival: GoingToHeal NPCs stop once inside healing range
-                if matches!(activity.kind, ActivityKind::Heal { .. }) {
+                if activity.kind == ActivityKind::Heal {
                     let town_idx = town_idx_i32 as usize;
                     if let Some(town) = farms.world.towns.get(town_idx) {
                         if let Some(current) = npc_pos {
@@ -1261,7 +1261,7 @@ pub fn decision_system(
                                     .map(|p| p.recovery_hp)
                                     .unwrap_or(0.8)
                                     .min(1.0);
-                                activity = Activity::new(ActivityKind::Heal { recover_until: threshold });
+                                activity = Activity { kind: ActivityKind::Heal, recover_until: threshold, ..Default::default() };
                                 npc_logs.push(
                                     idx,
                                     game_time.day(),
@@ -1281,8 +1281,8 @@ pub fn decision_system(
             // ====================================================================
             // Priority 4a: HealingAtFountain? -> Wake when HP recovered
             // ====================================================================
-            if let ActivityKind::Heal { recover_until } = activity.kind {
-                if health / max_hp >= recover_until.min(1.0) {
+            if activity.kind == ActivityKind::Heal {
+                if health / max_hp >= activity.recover_until.min(1.0) {
                     activity.kind = ActivityKind::Idle;
                     npc_logs.push(
                         idx,
@@ -1366,7 +1366,7 @@ pub fn decision_system(
             // Priority 5: Working/Mining + tired?
             // ====================================================================
             // Priority 5: Working at worksite (farm or mine)
-            let worksite_slot = if matches!(activity.kind, ActivityKind::Work { .. } | ActivityKind::Mine { .. }) {
+            let worksite_slot = if activity.kind.def().is_working {
                 worksite
             } else {
                 None
@@ -1467,7 +1467,7 @@ pub fn decision_system(
                             extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
                             worksite = None;
                             worksite_deferred = true;
-                            activity = Activity::new(ActivityKind::Mine { mine_pos: ws_pos });
+                            activity = Activity { kind: ActivityKind::Mine, target_pos: ws_pos, ..Default::default() };
                             submit_intent(
                                 &mut intents,
                                 entity,
@@ -1652,7 +1652,8 @@ pub fn decision_system(
                     if let Some(town) = farms.world.towns.get(town_idx) {
                         let center = town.center;
                         let threshold = policy.map(|p| p.recovery_hp).unwrap_or(0.8);
-                        activity.kind = ActivityKind::Heal { recover_until: threshold };
+                        activity.kind = ActivityKind::Heal;
+                        activity.recover_until = threshold;
                         submit_intent_scattered(
                             &mut intents, entity, center.x, center.y, 128.0,
                             idx, frame, MovementPriority::Survival, "idle:heal_fountain",
@@ -1829,7 +1830,8 @@ pub fn decision_system(
                                     town_idx: town_idx_i32 as u32,
                                     from: current_pos,
                                 }));
-                                activity.kind = ActivityKind::Work { worksite: 0 };
+                                activity.kind = ActivityKind::Work;
+                                activity.worksite = 0;
                                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm claim → resolver");
                             } else {
                                 // No available farm — clear stale target and wander
@@ -1894,7 +1896,7 @@ pub fn decision_system(
                             };
 
                             if let Some(mine_pos) = mine_target {
-                                activity = Activity::new(ActivityKind::Mine { mine_pos });
+                                activity = Activity { kind: ActivityKind::Mine, target_pos: mine_pos, ..Default::default() };
                                 submit_intent(
                                     &mut intents,
                                     entity,
@@ -2016,7 +2018,7 @@ pub fn decision_system(
         if !worksite_deferred
             && job == Job::Farmer
             && worksite.is_some()
-            && !matches!(activity.kind, ActivityKind::Work { .. })
+            && activity.kind != ActivityKind::Work
         {
             let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
             extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
@@ -2294,12 +2296,12 @@ mod tests {
     fn non_on_duty_activity_unchanged() {
         let mut app = setup_on_duty_app();
         let npc = app.world_mut().spawn((
-            Activity::new(ActivityKind::Work { worksite: 0 }),
+            Activity::new(ActivityKind::Work),
             CombatState::None,
         )).id();
 
         app.update();
         let activity = app.world().get::<Activity>(npc).unwrap();
-        assert!(matches!(activity.kind, ActivityKind::Work { .. }), "non-OnDuty activity should not change");
+        assert!(activity.kind == ActivityKind::Work, "non-OnDuty activity should not change");
     }
 }

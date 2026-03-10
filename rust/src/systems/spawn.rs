@@ -220,7 +220,7 @@ pub fn materialize_npc(
     } else if patrol_route.is_some() {
         Activity::new(ActivityKind::Patrol)
     } else if initial_work_target.is_some() {
-        Activity::new(ActivityKind::Work { worksite: 0 })
+        Activity::new(ActivityKind::Work)
     } else {
         activity
     };

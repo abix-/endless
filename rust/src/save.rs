@@ -466,35 +466,35 @@ pub enum ActivitySave {
 
 impl ActivitySave {
     fn from_activity(a: &Activity) -> Self {
-        match &a.kind {
+        match a.kind {
             ActivityKind::Idle => Self::Idle,
-            ActivityKind::Work { .. } => Self::Working,
+            ActivityKind::Work => Self::Working,
             ActivityKind::Patrol => Self::OnDuty { ticks_waiting: a.ticks_waiting },
-            ActivityKind::SquadAttack { .. } => Self::SquadTarget,
+            ActivityKind::SquadAttack => Self::SquadTarget,
             ActivityKind::Rest => Self::Resting,
-            ActivityKind::Heal { recover_until } => Self::HealingAtFountain { recover_until: *recover_until },
+            ActivityKind::Heal => Self::HealingAtFountain { recover_until: a.recover_until },
             ActivityKind::Wander => Self::Wandering,
-            ActivityKind::Raid { target } => Self::Raiding { target: v2(*target) },
+            ActivityKind::Raid => Self::Raiding { target: v2(a.target_pos) },
             ActivityKind::ReturnLoot => Self::Returning { loot: vec![] },
-            ActivityKind::Mine { mine_pos } => Self::Mining { mine_pos: v2(*mine_pos) },
+            ActivityKind::Mine => Self::Mining { mine_pos: v2(a.target_pos) },
         }
     }
 
     fn to_activity(&self) -> Activity {
         match self {
             Self::Idle => Activity::default(),
-            Self::Working | Self::GoingToWork => Activity::new(ActivityKind::Work { worksite: 0 }),
-            Self::OnDuty { ticks_waiting } => Activity { kind: ActivityKind::Patrol, ticks_waiting: *ticks_waiting },
+            Self::Working | Self::GoingToWork => Activity::new(ActivityKind::Work),
+            Self::OnDuty { ticks_waiting } => Activity { kind: ActivityKind::Patrol, ticks_waiting: *ticks_waiting, ..Default::default() },
             Self::Patrolling => Activity::new(ActivityKind::Patrol),
-            Self::SquadTarget => Activity::new(ActivityKind::SquadAttack { target: Vec2::ZERO }),
+            Self::SquadTarget => Activity::new(ActivityKind::SquadAttack),
             Self::GoingToRest | Self::Resting => Activity::new(ActivityKind::Rest),
-            Self::GoingToHeal => Activity::new(ActivityKind::Heal { recover_until: 100.0 }),
-            Self::HealingAtFountain { recover_until } => Activity::new(ActivityKind::Heal { recover_until: *recover_until }),
+            Self::GoingToHeal => Activity { kind: ActivityKind::Heal, recover_until: 100.0, ..Default::default() },
+            Self::HealingAtFountain { recover_until } => Activity { kind: ActivityKind::Heal, recover_until: *recover_until, ..Default::default() },
             Self::Wandering => Activity::new(ActivityKind::Wander),
-            Self::Raiding { target } => Activity::new(ActivityKind::Raid { target: to_vec2(*target) }),
+            Self::Raiding { target } => Activity { kind: ActivityKind::Raid, target_pos: to_vec2(*target), ..Default::default() },
             Self::Returning { .. } => Activity::new(ActivityKind::ReturnLoot),
-            Self::Mining { mine_pos } => Activity::new(ActivityKind::Mine { mine_pos: to_vec2(*mine_pos) }),
-            Self::MiningAtMine => Activity::new(ActivityKind::Mine { mine_pos: Vec2::ZERO }),
+            Self::Mining { mine_pos } => Activity { kind: ActivityKind::Mine, target_pos: to_vec2(*mine_pos), ..Default::default() },
+            Self::MiningAtMine => Activity::new(ActivityKind::Mine),
         }
     }
 }

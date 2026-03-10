@@ -1,7 +1,7 @@
 //! Constants - Tuning parameters for the NPC system
 
 use bevy::reflect::Reflect;
-use crate::components::{BaseAttackType, Job};
+use crate::components::{ActivityKind, BaseAttackType, Distraction, Job};
 use crate::world::BuildingKind;
 
 /// Maximum NPCs the system can handle. NPC GPU buffers are pre-allocated to this size.
@@ -1190,6 +1190,34 @@ pub fn npc_def(job: Job) -> &'static NpcDef {
         .iter()
         .find(|d| d.job == job)
         .unwrap_or_else(|| panic!("no NpcDef for {:?}", job))
+}
+
+// ── Activity registry ─────────────────────────────────────────────
+
+pub struct ActivityDef {
+    pub activity: ActivityKind,
+    pub label: &'static str,
+    pub distraction: Distraction,
+    pub sleep_visual: bool,
+    pub is_restful: bool,
+    pub is_working: bool,
+}
+
+pub const ACTIVITY_REGISTRY: &[ActivityDef] = &[
+    ActivityDef { activity: ActivityKind::Idle,        label: "Idle",         distraction: Distraction::ByEnemy,  sleep_visual: false, is_restful: false, is_working: false },
+    ActivityDef { activity: ActivityKind::Work,        label: "Working",      distraction: Distraction::ByDamage, sleep_visual: false, is_restful: false, is_working: true },
+    ActivityDef { activity: ActivityKind::Patrol,      label: "Patrol",       distraction: Distraction::ByEnemy,  sleep_visual: false, is_restful: false, is_working: false },
+    ActivityDef { activity: ActivityKind::SquadAttack, label: "Squad Attack", distraction: Distraction::ByEnemy,  sleep_visual: false, is_restful: false, is_working: false },
+    ActivityDef { activity: ActivityKind::Rest,        label: "Resting",      distraction: Distraction::None,     sleep_visual: true,  is_restful: true,  is_working: false },
+    ActivityDef { activity: ActivityKind::Heal,        label: "Healing",      distraction: Distraction::None,     sleep_visual: false, is_restful: true,  is_working: false },
+    ActivityDef { activity: ActivityKind::Wander,      label: "Wandering",    distraction: Distraction::ByEnemy,  sleep_visual: false, is_restful: false, is_working: false },
+    ActivityDef { activity: ActivityKind::Raid,        label: "Raiding",      distraction: Distraction::ByEnemy,  sleep_visual: false, is_restful: false, is_working: false },
+    ActivityDef { activity: ActivityKind::ReturnLoot,  label: "Returning",    distraction: Distraction::None,     sleep_visual: false, is_restful: false, is_working: false },
+    ActivityDef { activity: ActivityKind::Mine,        label: "Mining",       distraction: Distraction::ByDamage, sleep_visual: false, is_restful: false, is_working: true },
+];
+
+pub fn activity_def(kind: ActivityKind) -> &'static ActivityDef {
+    ACTIVITY_REGISTRY.iter().find(|d| d.activity == kind).unwrap()
 }
 
 /// Size of push constants passed to the compute shader.

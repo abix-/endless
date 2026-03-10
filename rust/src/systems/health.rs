@@ -421,7 +421,7 @@ pub fn death_system(
                             }
                         }
                         if let Ok(mut act) = res.activity_q.get_mut(atk.entity) {
-                            if !matches!(act.kind, ActivityKind::ReturnLoot) {
+                            if act.kind != ActivityKind::ReturnLoot {
                                 act.kind = ActivityKind::ReturnLoot;
                             }
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty {
@@ -639,7 +639,7 @@ pub fn death_system(
                         }
                     }
                     if let Ok(mut act) = res.activity_q.get_mut(k_entity) {
-                        if !matches!(act.kind, ActivityKind::ReturnLoot) {
+                        if act.kind != ActivityKind::ReturnLoot {
                             act.kind = ActivityKind::ReturnLoot;
                         }
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: k_slot }));
@@ -848,7 +848,7 @@ pub fn death_system(
         // NPC cleanup
         pop_dec_alive(&mut res.pop_stats, job, town_idx);
         pop_inc_dead(&mut res.pop_stats, job, town_idx);
-        if matches!(activity.kind, ActivityKind::Work { .. } | ActivityKind::Mine { .. }) {
+        if activity.kind.def().is_working {
             pop_dec_working(&mut res.pop_stats, job, town_idx);
         }
 

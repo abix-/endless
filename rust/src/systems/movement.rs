@@ -482,7 +482,7 @@ mod tests {
         app.world_mut().spawn((
             GpuSlot(0),
             Position { x: 0.0, y: 0.0 },
-            Activity::new(ActivityKind::Work { worksite: 0 }),
+            Activity::new(ActivityKind::Work),
             NpcFlags::default(),
             NpcPath { waypoints: vec![IVec2::new(100, 200)], current: 0, goal_world: Vec2::new(100.0, 200.0), path_cooldown: 0.0 },
         ));
@@ -500,7 +500,7 @@ mod tests {
         app.world_mut().spawn((
             GpuSlot(0),
             Position { x: 0.0, y: 0.0 },
-            Activity::new(ActivityKind::Work { worksite: 0 }),
+            Activity::new(ActivityKind::Work),
             NpcFlags::default(),
             NpcPath::default(),
         ));

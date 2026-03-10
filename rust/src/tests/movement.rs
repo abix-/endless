@@ -73,7 +73,7 @@ pub fn tick(
             !n.dead
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Work { .. }))
+                    .is_ok_and(|a| a.kind == ActivityKind::Work)
         })
         .count();
     let going_rest = entity_map

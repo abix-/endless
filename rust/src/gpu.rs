@@ -485,7 +485,7 @@ fn write_npc_visual(
 
     // Layer 5: Status (sleep icon)
     let at_dest = npc_flags_q.get(entity).is_ok_and(|f| f.at_destination);
-    let (sc, sr, sa) = if npc_activity.is_some_and(|a| matches!(a.kind, ActivityKind::Rest)) && at_dest {
+    let (sc, sr, sa) = if npc_activity.is_some_and(|a| a.kind == ActivityKind::Rest) && at_dest {
         (0.0, 0.0, 3.0)
     } else {
         (-1.0, 0.0, 0.0)

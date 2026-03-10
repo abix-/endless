@@ -94,7 +94,7 @@ pub fn tick(
                 && n.job == Job::Farmer
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Work { .. }))
+                    .is_ok_and(|a| a.kind == ActivityKind::Work)
                 && npc_flags_q.get(n.entity).is_ok_and(|f| !f.at_destination)
         })
         .count();
@@ -105,7 +105,7 @@ pub fn tick(
                 && n.job == Job::Farmer
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Work { .. }))
+                    .is_ok_and(|a| a.kind == ActivityKind::Work)
                 && npc_flags_q.get(n.entity).is_ok_and(|f| f.at_destination)
         })
         .count();

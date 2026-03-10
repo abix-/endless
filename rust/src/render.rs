@@ -547,7 +547,7 @@ fn click_to_select_system(
                             .insert(ManualTarget::Npc(enemy_slot));
                         // Wake resting NPCs on move command
                         if let Ok(mut act) = activity_q.get_mut(entity) {
-                            if matches!(act.kind, ActivityKind::Rest) {
+                            if act.kind == ActivityKind::Rest {
                                 *act = Activity::default();
                             }
                         }
@@ -597,7 +597,7 @@ fn click_to_select_system(
                         let entity = npc.entity;
                         commands.entity(entity).insert(mt.clone());
                         if let Ok(mut act) = activity_q.get_mut(entity) {
-                            if matches!(act.kind, ActivityKind::Rest) {
+                            if act.kind == ActivityKind::Rest {
                                 *act = Activity::default();
                             }
                         }
