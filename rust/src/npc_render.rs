@@ -677,6 +677,7 @@ fn build_building_body_instances(
     gpu_state: Res<crate::gpu::EntityGpuState>,
     entity_map: Res<crate::resources::EntityMap>,
     mut instances: ResMut<BuildingBodyInstances>,
+    construction_q: Query<&crate::components::ConstructionProgress>,
 ) {
     instances.0.clear();
     for inst in entity_map.iter_instances() {
@@ -711,9 +712,12 @@ fn build_building_body_instances(
         let faction = gpu_state.factions.get(idx).copied().unwrap_or(0);
         // During construction, pass progress fraction (0→0.999) so shader clips sprite.
         // Fully-built buildings pass real HP (always >> 1.0), so shader skips the clip.
-        let health = if inst.under_construction > 0.0 {
+        let under_construction = entity_map.entities.get(&idx)
+            .and_then(|&e| construction_q.get(e).ok())
+            .map_or(0.0, |c| c.0);
+        let health = if under_construction > 0.0 {
             let total = crate::constants::BUILDING_CONSTRUCT_SECS;
-            ((total - inst.under_construction) / total).clamp(0.0, 0.999)
+            ((total - under_construction) / total).clamp(0.0, 0.999)
         } else {
             gpu_state.healths.get(idx).copied().unwrap_or(0.0)
         };
@@ -749,21 +753,24 @@ fn build_building_body_instances(
 /// Runs in main world PostUpdate. Future visual features push here instead of adding new resources.
 fn build_overlay_instances(
     mut overlay: ResMut<OverlayInstances>,
-    entity_map: Res<crate::resources::EntityMap>,
     building_hp: Res<crate::resources::BuildingHpRender>,
+    production_q: Query<(
+        &crate::components::Position,
+        &crate::components::Building,
+        &crate::components::ProductionState,
+        &crate::components::ConstructionProgress,
+    )>,
 ) {
     overlay.0.clear();
 
-    for inst in entity_map.iter_growable() {
-        let pos = inst.position;
-        if pos.x < -9000.0 || inst.under_construction > 0.0 {
+    for (pos, building, production, construction) in &production_q {
+        if pos.x < -9000.0 || construction.0 > 0.0 {
             continue;
         }
 
-        let ready = inst.growth_ready;
-        match inst.kind {
+        match building.kind {
             crate::world::BuildingKind::Farm => {
-                let color = if ready {
+                let color = if production.ready {
                     [1.0, 0.85, 0.0, 1.0]
                 } else {
                     [0.4, 0.8, 0.2, 1.0]
@@ -772,7 +779,7 @@ fn build_overlay_instances(
                     position: [pos.x, pos.y],
                     sprite: [24.0, 9.0],
                     color,
-                    health: inst.growth_progress.clamp(0.0, 1.0),
+                    health: production.progress.clamp(0.0, 1.0),
                     flash: 0.0,
                     scale: 32.0,
                     atlas_id: 1.0,
@@ -784,7 +791,7 @@ fn build_overlay_instances(
                     position: [pos.x, pos.y + 24.0],
                     sprite: [0.0, 0.0],
                     color: [1.0, 0.85, 0.0, 1.0],
-                    health: inst.growth_progress.clamp(0.0, 1.0),
+                    health: production.progress.clamp(0.0, 1.0),
                     flash: 0.0,
                     scale: 24.0,
                     atlas_id: 6.0,

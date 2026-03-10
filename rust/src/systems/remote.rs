@@ -914,7 +914,11 @@ fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
                 data["worksite_kind"] = json!(format!("{:?}", inst.kind));
                 data["worksite_occupants"] = json!(inst.occupants);
                 data["worksite_max_occ"] = json!(max_occ);
-                data["worksite_growth"] = json!(format!("{:.0}%", inst.growth_progress * 100.0));
+                let growth_pct = entity_map.entities.get(&ws_slot)
+                    .and_then(|&e| world.get::<crate::components::ProductionState>(e))
+                    .map(|ps| ps.progress * 100.0)
+                    .unwrap_or(0.0);
+                data["worksite_growth"] = json!(format!("{:.0}%", growth_pct));
             }
         }
     }
@@ -1002,13 +1006,16 @@ fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
 }
 
 fn debug_building(world: &mut World, uid: u64, slot: usize) -> BrpResult {
-    let entity_map = world.resource::<EntityMap>();
+    let (inst, bld_entity) = {
+        let entity_map = world.resource::<EntityMap>();
+        let inst = entity_map.get_instance(slot)
+            .ok_or_else(|| brp_err(format!("no building with uid {}", uid)))?
+            .clone();
+        let bld_entity = entity_map.entities.get(&slot).copied();
+        (inst, bld_entity)
+    };
     let world_data = world.resource::<WorldData>();
     let game_time = world.resource::<GameTime>();
-
-    let inst = entity_map.get_instance(slot)
-        .ok_or_else(|| brp_err(format!("no building with uid {}", uid)))?
-        .clone();
 
     let def = crate::constants::building_def(inst.kind);
     let town_name = world_data.towns.get(inst.town_idx as usize)
@@ -1022,8 +1029,8 @@ fn debug_building(world: &mut World, uid: u64, slot: usize) -> BrpResult {
     let (col, row) = grid.world_to_grid(inst.position);
 
     // HP from entity
-    let hp = entity_map.entities.get(&slot)
-        .and_then(|&e| world.get::<Health>(e))
+    let hp = bld_entity
+        .and_then(|e| world.get::<Health>(e))
         .map(|h| h.0)
         .unwrap_or(0.0);
 
@@ -1041,10 +1048,10 @@ fn debug_building(world: &mut World, uid: u64, slot: usize) -> BrpResult {
         "max_hp": def.hp,
         "town_idx": inst.town_idx,
         "occupants": inst.occupants,
-        "growth": format!("{:.0}%", inst.growth_progress * 100.0),
-        "under_construction": inst.under_construction,
-        "npc_uid": inst.npc_uid.map(|u| u.0),
-        "respawn_timer": inst.respawn_timer,
+        "growth": "0%",
+        "under_construction": 0.0f32,
+        "npc_uid": serde_json::Value::Null,
+        "respawn_timer": 0.0f32,
     });
 
     // Sprite/visual data
@@ -1056,24 +1063,34 @@ fn debug_building(world: &mut World, uid: u64, slot: usize) -> BrpResult {
         data["sprite_atlas"] = json!(gpu_data.sprite_indices[si + 2]);
     }
 
+    // ECS component data
+    if let Some(e) = bld_entity {
+        if let Some(ps) = world.get::<crate::components::ProductionState>(e) {
+            data["growth"] = json!(format!("{:.0}%", ps.progress * 100.0));
+        }
+        if let Some(cp) = world.get::<crate::components::ConstructionProgress>(e) {
+            data["under_construction"] = json!(cp.0);
+        }
+        if let Some(ss) = world.get::<crate::components::SpawnerState>(e) {
+            data["npc_uid"] = json!(ss.npc_uid.map(|u| u.0));
+            data["respawn_timer"] = json!(ss.respawn_timer);
+        }
+        if let Some(mc) = world.get::<crate::components::MinerHomeConfig>(e) {
+            data["assigned_mine_x"] = json!(mc.assigned_mine.map(|v| v.x as i32));
+            data["assigned_mine_y"] = json!(mc.assigned_mine.map(|v| v.y as i32));
+            data["manual_mine"] = json!(mc.manual_mine);
+        }
+        if let Some(wl) = world.get::<crate::components::WallLevel>(e) {
+            data["wall_level"] = json!(wl.0);
+        }
+    }
+
     // Worksite info
     if let Some(ws) = def.worksite {
         data["ws_max_occ"] = json!(ws.max_occupants);
         data["ws_drift"] = json!(ws.drift_radius);
         data["ws_harvest"] = json!(format!("{:?}", ws.harvest_item));
         data["ws_town_scoped"] = json!(ws.town_scoped);
-    }
-
-    // Miner home extras
-    if inst.kind == BuildingKind::MinerHome {
-        data["assigned_mine_x"] = json!(inst.assigned_mine.map(|v| v.x as i32));
-        data["assigned_mine_y"] = json!(inst.assigned_mine.map(|v| v.y as i32));
-        data["manual_mine"] = json!(inst.manual_mine);
-    }
-
-    // Wall level
-    if inst.kind == BuildingKind::Wall {
-        data["wall_level"] = json!(inst.wall_level);
     }
 
     data["day"] = json!(game_time.day());

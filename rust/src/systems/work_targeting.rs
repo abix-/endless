@@ -20,7 +20,17 @@ pub fn resolve_work_targets(
     mut work_state_q: Query<&mut NpcWorkState>,
     mut activity_q: Query<&mut crate::components::Activity>,
     mut path_queue: ResMut<PathRequestQueue>,
+    production_q: Query<&ProductionState, With<Building>>,
 ) {
+    // Pre-collect production state so score closures can access it without ECS borrow conflicts
+    let production_map: std::collections::HashMap<usize, (bool, f32)> = entity_map
+        .iter_instances()
+        .filter_map(|inst| {
+            let entity = entity_map.entities.get(&inst.slot)?;
+            let ps = production_q.get(*entity).ok()?;
+            Some((inst.slot, (ps.ready, ps.progress)))
+        })
+        .collect();
     for WorkIntentMsg(intent) in intents.read() {
         match intent {
             WorkIntent::Release { entity, uid } => {
@@ -29,11 +39,11 @@ pub fn resolve_work_targets(
             }
             WorkIntent::Claim { entity, kind, town_idx, from } => {
                 release_worksite(*entity, &mut entity_map, &mut work_state_q);
-                claim_worksite(*entity, *kind, *town_idx, *from, &mut entity_map, &mut work_state_q, &mut activity_q, &mut path_queue);
+                claim_worksite(*entity, *kind, *town_idx, *from, &mut entity_map, &mut work_state_q, &mut activity_q, &mut path_queue, &production_map);
             }
             WorkIntent::Retarget { entity, kind, town_idx, from } => {
                 release_worksite(*entity, &mut entity_map, &mut work_state_q);
-                claim_worksite(*entity, *kind, *town_idx, *from, &mut entity_map, &mut work_state_q, &mut activity_q, &mut path_queue);
+                claim_worksite(*entity, *kind, *town_idx, *from, &mut entity_map, &mut work_state_q, &mut activity_q, &mut path_queue, &production_map);
             }
         }
     }
@@ -79,6 +89,7 @@ fn claim_worksite(
     work_state_q: &mut Query<&mut NpcWorkState>,
     activity_q: &mut Query<&mut crate::components::Activity>,
     path_queue: &mut PathRequestQueue,
+    production_map: &std::collections::HashMap<usize, (bool, f32)>,
 ) {
     let claimer_uid = entity_map.uid_by_entity(entity);
     let max_occupants = match building_def(kind).worksite {
@@ -88,8 +99,8 @@ fn claim_worksite(
 
     // Spatial search for best worksite
     let result = match kind {
-        BuildingKind::Farm => find_farm_target(from, entity_map, town_idx),
-        BuildingKind::GoldMine => find_mine_target(from, entity_map, town_idx),
+        BuildingKind::Farm => find_farm_target(from, entity_map, town_idx, production_map),
+        BuildingKind::GoldMine => find_mine_target(from, entity_map, town_idx, production_map),
         _ => return,
     };
 
@@ -127,7 +138,12 @@ fn claim_worksite(
 }
 
 /// Find best available farm for a farmer. Returns (slot, position, search_radius).
-pub(crate) fn find_farm_target(from: Vec2, entity_map: &EntityMap, town_idx: u32) -> Option<(usize, Vec2, f32)> {
+pub(crate) fn find_farm_target(
+    from: Vec2,
+    entity_map: &EntityMap,
+    town_idx: u32,
+    production_map: &std::collections::HashMap<usize, (bool, f32)>,
+) -> Option<(usize, Vec2, f32)> {
     let max_occ = building_def(BuildingKind::Farm).worksite.expect("Farm has worksite").max_occupants;
     entity_map.find_nearest_worksite(
         from,
@@ -139,8 +155,9 @@ pub(crate) fn find_farm_target(from: Vec2, entity_map: &EntityMap, town_idx: u32
             if inst.occupants as i32 >= max_occ {
                 return None;
             }
-            let not_ready: u8 = if inst.growth_ready { 0 } else { 1 };
-            let inv_growth = (1.0 - inst.growth_progress).to_bits();
+            let (ready, progress) = production_map.get(&inst.slot).copied().unwrap_or((false, 0.0));
+            let not_ready: u8 = if ready { 0 } else { 1 };
+            let inv_growth = (1.0 - progress).to_bits();
             let d2 = (inst.position - from).length_squared().to_bits();
             Some((not_ready, inv_growth, d2))
         },
@@ -148,7 +165,12 @@ pub(crate) fn find_farm_target(from: Vec2, entity_map: &EntityMap, town_idx: u32
     .map(|r| (r.slot, r.position, r.radius_used))
 }
 
-fn find_mine_target(from: Vec2, entity_map: &EntityMap, town_idx: u32) -> Option<(usize, Vec2, f32)> {
+fn find_mine_target(
+    from: Vec2,
+    entity_map: &EntityMap,
+    town_idx: u32,
+    production_map: &std::collections::HashMap<usize, (bool, f32)>,
+) -> Option<(usize, Vec2, f32)> {
     entity_map.find_nearest_worksite(
         from,
         BuildingKind::GoldMine,
@@ -156,7 +178,8 @@ fn find_mine_target(from: Vec2, entity_map: &EntityMap, town_idx: u32) -> Option
         WorksiteFallback::AnyTown,
         6400.0,
         |inst| {
-            let priority = if inst.growth_ready {
+            let (ready, _) = production_map.get(&inst.slot).copied().unwrap_or((false, 0.0));
+            let priority = if ready {
                 0u8
             } else if inst.occupants == 0 {
                 1

@@ -23,10 +23,7 @@ pub fn setup(mut params: TestSetupParams) {
     for i in 0..3 {
         let fx = 192.0 + (i as f32 * 128.0);
         params.add_building(crate::world::BuildingKind::Farm, fx, FARM_Y, 0);
-        if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(fx, FARM_Y)) {
-            inst.growth_ready = true;
-            inst.growth_progress = 1.0;
-        }
+        params.set_production_ready(Vec2::new(fx, FARM_Y));
         params.add_building(crate::world::BuildingKind::FarmerHome, fx, HOME_Y, 0);
     }
     params.init_economy(1);

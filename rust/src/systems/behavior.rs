@@ -107,6 +107,8 @@ pub fn arrival_system(
         ),
         (Without<Building>, Without<Dead>),
     >,
+    _production_q: Query<&mut ProductionState>,
+    _miner_cfg_q: Query<&MinerHomeConfig>,
 ) {
     if game_time.is_paused() {
         return;
@@ -304,13 +306,15 @@ pub fn decision_system(
     game_time: Res<GameTime>,
     mut extras: DecisionExtras,
     npc_config: Res<crate::resources::NpcDecisionConfig>,
-    mut entity_map: ResMut<EntityMap>,
+    entity_map: Res<EntityMap>,
     mut npc_state: DecisionNpcState,
     mut npc_data: NpcDataQueries,
     decision_npc_q: Query<
         (Entity, &GpuSlot, &Job, &TownId, &Faction),
         (Without<Building>, Without<Dead>),
     >,
+    miner_cfg_q: Query<&MinerHomeConfig>,
+    mut production_q: Query<&mut ProductionState>,
 ) {
     if game_time.is_paused() {
         return;
@@ -597,11 +601,16 @@ pub fn decision_system(
                                     worksite_deferred = true;
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm occupied → retarget");
                                 } else if entity_map.get_instance(farm_slot).is_some() {
-                                    // Check if farm ready for harvest
-                                    let harvest = entity_map.get_instance_mut(farm_slot).and_then(|inst| {
-                                        let food = inst.harvest();
-                                        if food > 0 { Some((food, inst.harvest_log_msg(food))) } else { None }
-                                    });
+                                    // Check if farm ready for harvest via ECS ProductionState
+                                    let harvest = entity_map.entities.get(&farm_slot)
+                                        .and_then(|&e| production_q.get_mut(e).ok())
+                                        .and_then(|mut ps| {
+                                            let food = ps.harvest(BuildingKind::Farm);
+                                            if food > 0 {
+                                                let pos = entity_map.get_instance(farm_slot).map_or(Vec2::ZERO, |i| i.position);
+                                                Some((food, ProductionState::harvest_log_msg(BuildingKind::Farm, pos, food)))
+                                            } else { None }
+                                        });
                                     if let Some((food, log_msg)) = harvest {
                                         // Harvest — release worksite, carry home
                                         let uid = worksite.and_then(|s| entity_map.uid_for_slot(s));
@@ -674,17 +683,18 @@ pub fn decision_system(
                                 FARM_ARRIVAL_RADIUS,
                             )
                             .and_then(|(_, fp)| {
-                                entity_map
-                                    .find_farm_at(fp)
-                                    .filter(|i| i.growth_ready)
-                                    .map(|_| fp)
+                                let slot = entity_map.slot_at_position(fp)?;
+                                let e = *entity_map.entities.get(&slot)?;
+                                let ps = production_q.get(e).ok()?;
+                                if ps.ready { Some(fp) } else { None }
                             });
 
                             if let Some(fp) = ready_farm_pos {
-                                let food = entity_map
-                                    .find_farm_at_mut(fp)
-                                    .map(|i| {
-                                        let f = i.harvest();
+                                let food = entity_map.slot_at_position(fp)
+                                    .and_then(|slot| entity_map.entities.get(&slot).copied())
+                                    .and_then(|e| production_q.get_mut(e).ok())
+                                    .map(|mut ps| {
+                                        let f = ps.harvest(BuildingKind::Farm);
                                         if f > 0 {
                                             combat_log.write(CombatLogMsg {
                                                 kind: CombatEventKind::Harvest,
@@ -692,7 +702,7 @@ pub fn decision_system(
                                                 day: game_time.day(),
                                                 hour: game_time.hour(),
                                                 minute: game_time.minute(),
-                                                message: i.harvest_log_msg(f),
+                                                message: ProductionState::harvest_log_msg(BuildingKind::Farm, fp, f),
                                                 location: None,
                                             });
                                         }
@@ -779,8 +789,12 @@ pub fn decision_system(
                         let can_harvest_turn = mine_slot.is_none_or(|slot| {
                             miner_uid.is_none_or(|uid| entity_map.is_worksite_harvest_turn(slot, uid))
                         });
-                        if let Some(inst) = entity_map.find_mine_at_mut(mine_pos) {
-                            if inst.growth_ready && can_harvest_turn {
+                        let mine_entity = mine_slot.and_then(|s| entity_map.entities.get(&s).copied());
+                        let mine_ready = mine_entity
+                            .and_then(|e| production_q.get(e).ok())
+                            .is_some_and(|ps| ps.ready);
+                        if mine_entity.is_some() {
+                            if mine_ready && can_harvest_turn {
                                 // Mine ready — harvest immediately
                                 let town_levels =
                                     extras.town_upgrades.town_levels(town_idx_i32 as usize);
@@ -789,7 +803,10 @@ pub fn decision_system(
                                     "Miner",
                                     UpgradeStatKind::Yield,
                                 );
-                                let base_gold = inst.harvest();
+                                let base_gold = mine_entity
+                                    .and_then(|e| production_q.get_mut(e).ok())
+                                    .map(|mut ps| ps.harvest(BuildingKind::GoldMine))
+                                    .unwrap_or(0);
                                 if base_gold > 0 {
                                     combat_log.write(CombatLogMsg {
                                         kind: CombatEventKind::Harvest,
@@ -797,7 +814,7 @@ pub fn decision_system(
                                         day: game_time.day(),
                                         hour: game_time.hour(),
                                         minute: game_time.minute(),
-                                        message: inst.harvest_log_msg(base_gold),
+                                        message: ProductionState::harvest_log_msg(BuildingKind::GoldMine, mine_pos, base_gold),
                                         location: None,
                                     });
                                 }
@@ -1487,7 +1504,7 @@ pub fn decision_system(
                     }
                 }
 
-                // Harvest check: if growth_ready, harvest + apply yield mult + return home
+                // Harvest check: if production ready, harvest + apply yield mult + return home
                 let mut harvested = false;
                 let claimer_uid = entity_map.uid_by_entity(entity);
                 let can_harvest_turn = if kind == BuildingKind::GoldMine {
@@ -1495,13 +1512,18 @@ pub fn decision_system(
                 } else {
                     true
                 };
-                if let Some(inst) = entity_map.get_instance_mut(slot) {
-                    if inst.growth_ready && can_harvest_turn {
+                let ws_entity = entity_map.entities.get(&slot).copied();
+                let ws_ready = ws_entity
+                    .and_then(|e| production_q.get(e).ok())
+                    .is_some_and(|ps| ps.ready);
+                if ws_ready && can_harvest_turn {
+                    if let Some(mut ps) = ws_entity.and_then(|e| production_q.get_mut(e).ok()) {
                         let town_levels =
                             extras.town_upgrades.town_levels(town_idx_i32 as usize);
                         let yield_mult =
                             UPGRADES.stat_mult(&town_levels, ws.upgrade_job, UpgradeStatKind::Yield);
-                        let base_yield = inst.harvest();
+                        let ws_pos = entity_map.get_instance(slot).map_or(Vec2::ZERO, |i| i.position);
+                        let base_yield = ps.harvest(kind);
                         if base_yield > 0 {
                             combat_log.write(CombatLogMsg {
                                 kind: CombatEventKind::Harvest,
@@ -1509,7 +1531,7 @@ pub fn decision_system(
                                 day: game_time.day(),
                                 hour: game_time.hour(),
                                 minute: game_time.minute(),
-                                message: inst.harvest_log_msg(base_yield),
+                                message: ProductionState::harvest_log_msg(kind, ws_pos, base_yield),
                                 location: None,
                             });
                         }
@@ -1806,7 +1828,9 @@ pub fn decision_system(
                         Job::Farmer => {
                             let current_pos = npc_pos.unwrap_or(home);
                             // Probe for available farm (read-only); defer claim to resolver
-                            if find_farmer_farm_target(current_pos, &entity_map, town_idx_i32 as u32).is_some() {
+                            // Probe only — production state doesn't affect availability check
+                            let empty_map = std::collections::HashMap::new();
+                            if find_farmer_farm_target(current_pos, &entity_map, town_idx_i32 as u32, &empty_map).is_some() {
                                 extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
                                     entity,
                                     kind: BuildingKind::Farm,
@@ -1826,16 +1850,28 @@ pub fn decision_system(
                             }
                         }
                         Job::Miner => {
-                            // Check for manually assigned mine (via miner home UI)
+                            // Check for manually assigned mine (via miner home ECS component)
                             let assigned = entity_map
                                 .find_by_position(home)
                                 .filter(|inst| inst.kind == BuildingKind::MinerHome)
-                                .and_then(|inst| inst.assigned_mine);
+                                .and_then(|inst| entity_map.entities.get(&inst.slot).copied())
+                                .and_then(|e| miner_cfg_q.get(e).ok())
+                                .and_then(|cfg| cfg.assigned_mine);
 
                             let mine_target = if let Some(assigned_pos) = assigned {
                                 Some(assigned_pos)
                             } else {
                                 let current_pos = npc_pos.unwrap_or(home);
+                                // Pre-collect production readiness for score closure
+                                // (closure borrows entity_map, can't query ECS from inside)
+                                let mine_ready: std::collections::HashMap<usize, bool> = entity_map
+                                    .iter_kind(BuildingKind::GoldMine)
+                                    .filter_map(|inst| {
+                                        let e = *entity_map.entities.get(&inst.slot)?;
+                                        let ready = production_q.get(e).is_ok_and(|ps| ps.ready);
+                                        Some((inst.slot, ready))
+                                    })
+                                    .collect();
                                 // Spatial cell-ring search: ready > unoccupied > occupied, then nearest
                                 entity_map
                                     .find_nearest_worksite(
@@ -1845,7 +1881,8 @@ pub fn decision_system(
                                         crate::resources::WorksiteFallback::AnyTown,
                                         6400.0,
                                         |inst| {
-                                            let priority = if inst.growth_ready {
+                                            let ready = mine_ready.get(&inst.slot).copied().unwrap_or(false);
+                                            let priority = if ready {
                                                 0u8
                                             } else if inst.occupants == 0 {
                                                 1
@@ -2077,12 +2114,13 @@ pub fn on_duty_tick_system(
 
 /// Rebuild all guards' patrol routes when WorldData changes (waypoint added/removed/reordered).
 pub fn rebuild_patrol_routes_system(
-    mut entity_map: ResMut<EntityMap>,
+    entity_map: Res<EntityMap>,
     mut patrols_dirty: MessageReader<crate::messages::PatrolsDirtyMsg>,
     mut patrol_swaps: MessageReader<crate::messages::PatrolSwapMsg>,
     mut patrol_route_q: Query<&mut PatrolRoute>,
     mut commands: Commands,
     patrol_npc_q: Query<(Entity, &GpuSlot, &Job, &TownId), (Without<Building>, Without<Dead>)>,
+    mut waypoint_q: Query<&mut WaypointOrder, With<Building>>,
 ) {
     if patrols_dirty.read().count() == 0 {
         return;
@@ -2091,19 +2129,23 @@ pub fn rebuild_patrol_routes_system(
     // Apply pending patrol order swap from UI
     if let Some(swap) = patrol_swaps.read().last() {
         let (sa, sb) = (swap.slot_a, swap.slot_b);
-        let order_a = entity_map
-            .get_instance(sa)
-            .map(|i| i.patrol_order)
+        let order_a = entity_map.entities.get(&sa)
+            .and_then(|&e| waypoint_q.get(e).ok())
+            .map(|w| w.0)
             .unwrap_or(0);
-        let order_b = entity_map
-            .get_instance(sb)
-            .map(|i| i.patrol_order)
+        let order_b = entity_map.entities.get(&sb)
+            .and_then(|&e| waypoint_q.get(e).ok())
+            .map(|w| w.0)
             .unwrap_or(0);
-        if let Some(inst) = entity_map.get_instance_mut(sa) {
-            inst.patrol_order = order_b;
+        if let Some(&entity) = entity_map.entities.get(&sa) {
+            if let Ok(mut w) = waypoint_q.get_mut(entity) {
+                w.0 = order_b;
+            }
         }
-        if let Some(inst) = entity_map.get_instance_mut(sb) {
-            inst.patrol_order = order_a;
+        if let Some(&entity) = entity_map.entities.get(&sb) {
+            if let Ok(mut w) = waypoint_q.get_mut(entity) {
+                w.0 = order_a;
+            }
         }
     }
 
@@ -2121,7 +2163,7 @@ pub fn rebuild_patrol_routes_system(
         let tid = town_idx as u32;
         town_routes
             .entry(tid)
-            .or_insert_with(|| crate::systems::spawn::build_patrol_route(&entity_map, tid));
+            .or_insert_with(|| crate::systems::spawn::build_patrol_route_ecs(&entity_map, tid, &waypoint_q));
     }
 
     // Write routes back via ECS

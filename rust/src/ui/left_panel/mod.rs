@@ -109,6 +109,9 @@ pub struct FactionsParams<'w, 's> {
     gpu_state: Res<'w, GpuReadState>,
     pop_stats: Res<'w, PopulationStats>,
     faction_select: MessageReader<'w, 's, crate::messages::SelectFactionMsg>,
+    miner_cfg_q: Query<'w, 's, &'static MinerHomeConfig>,
+    spawner_q: Query<'w, 's, &'static SpawnerState>,
+    waypoint_q: Query<'w, 's, &'static WaypointOrder, With<Building>>,
 }
 
 #[derive(Clone)]
@@ -385,10 +388,11 @@ pub fn left_panel_system(
                     &mut dirty_writers,
                     &mut jump_target,
                     &mut factions.ai_state,
+                    &factions.miner_cfg_q,
                 ),
                 LeftPanelTab::Patrols => {
                     patrol_swap =
-                        patrols_content(ui, &world_data, &factions.entity_map, &mut jump_target);
+                        patrols_content(ui, &world_data, &factions.entity_map, &mut jump_target, &factions.waypoint_q);
                 }
                 LeftPanelTab::Squads => squads_content(
                     ui,
@@ -522,6 +526,7 @@ fn policies_content(
     dirty_writers: &mut crate::messages::DirtyWriters,
     jump_target: &mut Option<Vec2>,
     ai_state: &mut AiPlayerState,
+    miner_cfg_q: &Query<&MinerHomeConfig>,
 ) {
     let town_idx = world_data
         .towns
@@ -713,10 +718,12 @@ fn policies_content(
     // Count auto-assigned miners per mine (keyed by mine slot)
     let mut assigned_per_mine: HashMap<usize, usize> = HashMap::new();
     for inst in entity_map.iter_kind_for_town(BuildingKind::MinerHome, town_idx as u32) {
-        if inst.manual_mine {
+        let Some(&entity) = entity_map.entities.get(&inst.slot) else { continue; };
+        let Ok(mc) = miner_cfg_q.get(entity) else { continue; };
+        if mc.manual_mine {
             continue;
         }
-        let Some(mine_pos) = inst.assigned_mine else {
+        let Some(mine_pos) = mc.assigned_mine else {
             continue;
         };
         if let Some(mine_inst) = entity_map.find_by_position(mine_pos) {
@@ -790,6 +797,7 @@ fn patrols_content(
     world_data: &WorldData,
     entity_map: &EntityMap,
     jump_target: &mut Option<Vec2>,
+    waypoint_q: &Query<&WaypointOrder, With<Building>>,
 ) -> Option<(usize, usize)> {
     let town_pair_idx = world_data
         .towns
@@ -802,10 +810,15 @@ fn patrols_content(
     }
 
     // Collect waypoints for this town from EntityMap, sorted by patrol_order
-    // Collect waypoints: (slot, patrol_order, position), sorted by patrol_order
     let mut posts: Vec<(usize, u32, Vec2)> = entity_map
         .iter_kind_for_town(BuildingKind::Waypoint, town_pair_idx)
-        .map(|inst| (inst.slot, inst.patrol_order, inst.position))
+        .map(|inst| {
+            let order = entity_map.entities.get(&inst.slot)
+                .and_then(|&e| waypoint_q.get(e).ok())
+                .map(|w| w.0)
+                .unwrap_or(0);
+            (inst.slot, order, inst.position)
+        })
         .collect();
     posts.sort_by_key(|(_, order, _)| *order);
 
@@ -1118,7 +1131,12 @@ fn rebuild_factions_cache(
                     let count = factions
                         .entity_map
                         .iter_kind_for_town(def.kind, tdi as u32)
-                        .filter(|i| i.npc_uid.is_some() && is_alive(i.position))
+                        .filter(|i| {
+                            let has_npc = factions.entity_map.entities.get(&i.slot)
+                                .and_then(|&e| factions.spawner_q.get(e).ok())
+                                .is_some_and(|s| s.npc_uid.is_some());
+                            has_npc && is_alive(i.position)
+                        })
                         .count();
                     (def.kind, count)
                 })

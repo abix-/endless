@@ -20,8 +20,15 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
     });
     // 1 farm near town — starts Growing at 95%
     params.add_building(crate::world::BuildingKind::Farm, 384.0, 320.0, 0);
-    if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(384.0, 320.0)) {
-        inst.growth_progress = 0.95;
+    // Set production progress to 95% via ECS
+    if let Some(inst) = params.entity_map.find_by_position(Vec2::new(384.0, 320.0)) {
+        let slot = inst.slot;
+        if let Some(&entity) = params.entity_map.entities.get(&slot) {
+            params.commands.entity(entity).insert(crate::components::ProductionState {
+                ready: false,
+                progress: 0.95,
+            });
+        }
     }
 
     params.init_economy(2);
@@ -29,12 +36,7 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
     raider_state.init(1, 5);
     // Tent spawner so a raider can spawn via spawner_respawn_system
     params.add_building(crate::world::BuildingKind::Tent, 384.0, 128.0, 1);
-    if let Some(inst) = params
-        .entity_map
-        .find_by_position_mut(Vec2::new(384.0, 128.0))
-    {
-        inst.respawn_timer = 0.0;
-    }
+    // SpawnerState inserted by place_building with respawn_timer = 0.0 by default
     params.game_time.time_scale = 1.0;
 
     // Spawn 1 farmer to tend the farm (speeds growth)
@@ -65,6 +67,7 @@ pub fn tick(
     food_storage: Res<FoodStorage>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
+    production_q: Query<&crate::components::ProductionState, With<crate::components::Building>>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else {
         return;
@@ -73,8 +76,11 @@ pub fn tick(
     let farm_inst = entity_map
         .iter_kind(crate::world::BuildingKind::Farm)
         .next();
-    let farm_ready = farm_inst.map(|i| i.growth_ready).unwrap_or(false);
-    let farm_progress = farm_inst.map(|i| i.growth_progress).unwrap_or(0.0);
+    let farm_ps = farm_inst
+        .and_then(|i| entity_map.entities.get(&i.slot))
+        .and_then(|&e| production_q.get(e).ok());
+    let farm_ready = farm_ps.map(|ps| ps.ready).unwrap_or(false);
+    let farm_progress = farm_ps.map(|ps| ps.progress).unwrap_or(0.0);
     let town_food = food_storage.food.first().copied().unwrap_or(0);
     let raider_food = food_storage.food.get(1).copied().unwrap_or(0);
 

@@ -1,5 +1,5 @@
 use super::*;
-use crate::components::{Building, CachedStats, Dead, Energy, GpuSlot, Health, NpcFlags};
+use crate::components::{Building, CachedStats, ConstructionProgress, Dead, Energy, GpuSlot, Health, NpcFlags, ProductionState, SpawnerState, TownId, Position};
 use crate::messages::GpuUpdateMsg;
 use crate::resources::GameTime;
 use bevy::time::TimeUpdateStrategy;
@@ -225,27 +225,14 @@ fn setup_construction_app() -> App {
     app
 }
 
-fn test_building_instance(slot: usize, kind: BuildingKind, under_construction: f32) -> BuildingInstance {
+fn test_building_instance(slot: usize, kind: BuildingKind, _under_construction: f32) -> BuildingInstance {
     BuildingInstance {
         kind,
         position: Vec2::ZERO,
         town_idx: 0,
         slot,
         faction: 0,
-        patrol_order: 0,
-        assigned_mine: None,
-        manual_mine: false,
-        wall_level: 0,
-        npc_uid: None,
-        respawn_timer: -1.0,
-        growth_ready: false,
-        growth_progress: 0.0,
         occupants: 0,
-        under_construction,
-        kills: 0,
-        xp: 0,
-        upgrade_levels: vec![],
-        auto_upgrade_flags: vec![],
     }
 }
 
@@ -254,6 +241,8 @@ fn spawn_constructing_building(app: &mut App, slot: usize, kind: BuildingKind, s
         GpuSlot(slot),
         Health(0.01),
         Building { kind },
+        ConstructionProgress(secs_left),
+        ProductionState::default(),
     )).id();
     let mut entity_map = app.world_mut().resource_mut::<EntityMap>();
     entity_map.entities.insert(slot, entity);
@@ -264,12 +253,12 @@ fn spawn_constructing_building(app: &mut App, slot: usize, kind: BuildingKind, s
 #[test]
 fn construction_ticks_down() {
     let mut app = setup_construction_app();
-    spawn_constructing_building(&mut app, 0, BuildingKind::Tower, 10.0);
+    let entity = spawn_constructing_building(&mut app, 0, BuildingKind::Tower, 10.0);
 
     app.update();
-    let inst = app.world().resource::<EntityMap>().get_instance(0).unwrap();
-    assert!(inst.under_construction < 10.0, "construction timer should tick down: {}", inst.under_construction);
-    assert!(inst.under_construction > 0.0, "should not be complete yet");
+    let cp = app.world().get::<ConstructionProgress>(entity).unwrap().0;
+    assert!(cp < 10.0, "construction timer should tick down: {}", cp);
+    assert!(cp > 0.0, "should not be complete yet");
 }
 
 #[test]
@@ -281,8 +270,8 @@ fn construction_completes() {
     for _ in 0..5 {
         app.update();
     }
-    let inst = app.world().resource::<EntityMap>().get_instance(0).unwrap();
-    assert!(inst.under_construction <= 0.0, "construction should complete: {}", inst.under_construction);
+    let cp = app.world().get::<ConstructionProgress>(entity).unwrap().0;
+    assert!(cp <= 0.0, "construction should complete: {}", cp);
 
     // Health should be set to full building HP
     let hp = app.world().get::<Health>(entity).unwrap().0;
@@ -294,11 +283,11 @@ fn construction_completes() {
 fn construction_paused_no_progress() {
     let mut app = setup_construction_app();
     app.world_mut().resource_mut::<GameTime>().paused = true;
-    spawn_constructing_building(&mut app, 0, BuildingKind::Farm, 5.0);
+    let entity = spawn_constructing_building(&mut app, 0, BuildingKind::Farm, 5.0);
 
     app.update();
-    let inst = app.world().resource::<EntityMap>().get_instance(0).unwrap();
-    assert!((inst.under_construction - 5.0).abs() < f32::EPSILON, "paused: construction should not progress: {}", inst.under_construction);
+    let cp = app.world().get::<ConstructionProgress>(entity).unwrap().0;
+    assert!((cp - 5.0).abs() < f32::EPSILON, "paused: construction should not progress: {}", cp);
 }
 
 #[test]
@@ -433,9 +422,17 @@ fn setup_growth_app() -> App {
 fn add_farm(app: &mut App, slot: usize, tended: bool) {
     let mut inst = test_building_instance(slot, BuildingKind::Farm, 0.0);
     inst.occupants = if tended { 1 } else { 0 };
-    inst.growth_progress = 0.0;
-    inst.growth_ready = false;
-    app.world_mut().resource_mut::<EntityMap>().add_instance(inst);
+    let entity = app.world_mut().spawn((
+        GpuSlot(slot),
+        Building { kind: BuildingKind::Farm },
+        TownId(0),
+        Position { x: 0.0, y: 0.0 },
+        ConstructionProgress(0.0),
+        ProductionState { ready: false, progress: 0.0 },
+    )).id();
+    let mut em = app.world_mut().resource_mut::<EntityMap>();
+    em.entities.insert(slot, entity);
+    em.add_instance(inst);
 }
 
 #[test]
@@ -444,8 +441,9 @@ fn farm_grows_when_tended() {
     add_farm(&mut app, 0, true);
 
     app.update();
-    let inst = app.world().resource::<EntityMap>().get_instance(0).unwrap();
-    assert!(inst.growth_progress > 0.0, "tended farm should grow: {}", inst.growth_progress);
+    let entity = *app.world().resource::<EntityMap>().entities.get(&0).unwrap();
+    let ps = app.world().get::<ProductionState>(entity).unwrap();
+    assert!(ps.progress > 0.0, "tended farm should grow: {}", ps.progress);
 }
 
 #[test]
@@ -454,8 +452,9 @@ fn farm_grows_untended_at_base_rate() {
     add_farm(&mut app, 0, false);
 
     app.update();
-    let inst = app.world().resource::<EntityMap>().get_instance(0).unwrap();
-    assert!(inst.growth_progress > 0.0, "untended farm should still grow at base rate: {}", inst.growth_progress);
+    let entity = *app.world().resource::<EntityMap>().entities.get(&0).unwrap();
+    let ps = app.world().get::<ProductionState>(entity).unwrap();
+    assert!(ps.progress > 0.0, "untended farm should still grow at base rate: {}", ps.progress);
 }
 
 #[test]
@@ -465,25 +464,35 @@ fn tended_farm_grows_faster() {
     add_farm(&mut app, 1, true);
 
     app.update();
-    let untended = app.world().resource::<EntityMap>().get_instance(0).unwrap().growth_progress;
-    let tended = app.world().resource::<EntityMap>().get_instance(1).unwrap().growth_progress;
+    let e0 = *app.world().resource::<EntityMap>().entities.get(&0).unwrap();
+    let e1 = *app.world().resource::<EntityMap>().entities.get(&1).unwrap();
+    let untended = app.world().get::<ProductionState>(e0).unwrap().progress;
+    let tended = app.world().get::<ProductionState>(e1).unwrap().progress;
     assert!(tended > untended, "tended should grow faster: tended={tended}, untended={untended}");
 }
 
 #[test]
 fn farm_becomes_ready() {
     let mut app = setup_growth_app();
-    let mut inst = test_building_instance(0, BuildingKind::Farm, 0.0);
-    inst.occupants = 1;
-    inst.growth_progress = 0.99;
-    app.world_mut().resource_mut::<EntityMap>().add_instance(inst);
+    let inst = test_building_instance(0, BuildingKind::Farm, 0.0);
+    let entity = app.world_mut().spawn((
+        GpuSlot(0),
+        Building { kind: BuildingKind::Farm },
+        TownId(0),
+        Position { x: 0.0, y: 0.0 },
+        ConstructionProgress(0.0),
+        ProductionState { ready: false, progress: 0.99 },
+    )).id();
+    let mut em = app.world_mut().resource_mut::<EntityMap>();
+    em.entities.insert(0, entity);
+    em.add_instance(inst);
 
     for _ in 0..50 {
         app.update();
     }
-    let inst = app.world().resource::<EntityMap>().get_instance(0).unwrap();
-    assert!(inst.growth_ready, "farm should become ready");
-    assert!((inst.growth_progress - 1.0).abs() < f32::EPSILON, "progress should cap at 1.0");
+    let ps = app.world().get::<ProductionState>(entity).unwrap();
+    assert!(ps.ready, "farm should become ready");
+    assert!((ps.progress - 1.0).abs() < f32::EPSILON, "progress should cap at 1.0");
 }
 
 #[test]
@@ -493,20 +502,30 @@ fn growth_paused_no_change() {
     add_farm(&mut app, 0, true);
 
     app.update();
-    let inst = app.world().resource::<EntityMap>().get_instance(0).unwrap();
-    assert!(inst.growth_progress < f32::EPSILON, "paused: farm should not grow");
+    let entity = *app.world().resource::<EntityMap>().entities.get(&0).unwrap();
+    let ps = app.world().get::<ProductionState>(entity).unwrap();
+    assert!(ps.progress < f32::EPSILON, "paused: farm should not grow");
 }
 
 #[test]
 fn mine_grows_only_when_tended() {
     let mut app = setup_growth_app();
-    let mut inst = test_building_instance(0, BuildingKind::GoldMine, 0.0);
-    inst.occupants = 0;
-    app.world_mut().resource_mut::<EntityMap>().add_instance(inst);
+    let inst = test_building_instance(0, BuildingKind::GoldMine, 0.0);
+    let entity = app.world_mut().spawn((
+        GpuSlot(0),
+        Building { kind: BuildingKind::GoldMine },
+        TownId(0),
+        Position { x: 0.0, y: 0.0 },
+        ConstructionProgress(0.0),
+        ProductionState { ready: false, progress: 0.0 },
+    )).id();
+    let mut em = app.world_mut().resource_mut::<EntityMap>();
+    em.entities.insert(0, entity);
+    em.add_instance(inst);
 
     app.update();
-    let progress = app.world().resource::<EntityMap>().get_instance(0).unwrap().growth_progress;
-    assert!(progress < f32::EPSILON, "mine with 0 workers should not grow: {progress}");
+    let ps = app.world().get::<ProductionState>(entity).unwrap();
+    assert!(ps.progress < f32::EPSILON, "mine with 0 workers should not grow: {}", ps.progress);
 }
 
 #[test]
@@ -514,11 +533,21 @@ fn mine_grows_with_workers() {
     let mut app = setup_growth_app();
     let mut inst = test_building_instance(0, BuildingKind::GoldMine, 0.0);
     inst.occupants = 2;
-    app.world_mut().resource_mut::<EntityMap>().add_instance(inst);
+    let entity = app.world_mut().spawn((
+        GpuSlot(0),
+        Building { kind: BuildingKind::GoldMine },
+        TownId(0),
+        Position { x: 0.0, y: 0.0 },
+        ConstructionProgress(0.0),
+        ProductionState { ready: false, progress: 0.0 },
+    )).id();
+    let mut em = app.world_mut().resource_mut::<EntityMap>();
+    em.entities.insert(0, entity);
+    em.add_instance(inst);
 
     app.update();
-    let progress = app.world().resource::<EntityMap>().get_instance(0).unwrap().growth_progress;
-    assert!(progress > 0.0, "mine with workers should grow: {progress}");
+    let ps = app.world().get::<ProductionState>(entity).unwrap();
+    assert!(ps.progress > 0.0, "mine with workers should grow: {}", ps.progress);
 }
 
 // ========================================================================
@@ -608,10 +637,17 @@ fn setup_farm_visual_app() -> App {
     app
 }
 
-fn add_farm_visual(app: &mut App, slot: usize, growth_ready: bool) {
-    let mut inst = test_building_instance(slot, BuildingKind::Farm, 0.0);
-    inst.growth_ready = growth_ready;
-    app.world_mut().resource_mut::<EntityMap>().add_instance(inst);
+fn add_farm_visual(app: &mut App, slot: usize, growth_ready: bool) -> Entity {
+    let inst = test_building_instance(slot, BuildingKind::Farm, 0.0);
+    let entity = app.world_mut().spawn((
+        GpuSlot(slot),
+        Building { kind: BuildingKind::Farm },
+        ProductionState { ready: growth_ready, progress: if growth_ready { 1.0 } else { 0.0 } },
+    )).id();
+    let mut em = app.world_mut().resource_mut::<EntityMap>();
+    em.entities.insert(slot, entity);
+    em.add_instance(inst);
+    entity
 }
 
 fn count_farm_markers(app: &mut App) -> usize {
@@ -647,18 +683,17 @@ fn farm_visual_no_marker_when_not_ready() {
 #[test]
 fn farm_visual_despawns_marker_when_no_longer_ready() {
     let mut app = setup_farm_visual_app();
-    add_farm_visual(&mut app, 5000, true);
+    let entity = add_farm_visual(&mut app, 5000, true);
     // Spawn the marker
     for _ in 0..4 {
         app.update();
     }
     assert!(count_farm_markers(&mut app) > 0, "precondition: marker exists");
-    // Set growth_ready to false
+    // Set growth_ready to false via ECS
     app.world_mut()
-        .resource_mut::<EntityMap>()
-        .get_instance_mut(5000)
+        .get_mut::<ProductionState>(entity)
         .unwrap()
-        .growth_ready = false;
+        .ready = false;
     for _ in 0..4 {
         app.update();
     }
@@ -723,11 +758,17 @@ fn setup_spawner_app() -> App {
     app
 }
 
-fn add_spawner_building(app: &mut App, slot: usize, kind: BuildingKind, respawn_timer: f32) {
-    let mut inst = test_building_instance(slot, kind, 0.0);
-    inst.respawn_timer = respawn_timer;
-    inst.npc_uid = None;
-    app.world_mut().resource_mut::<EntityMap>().add_instance(inst);
+fn add_spawner_building(app: &mut App, slot: usize, kind: BuildingKind, respawn_timer: f32) -> Entity {
+    let inst = test_building_instance(slot, kind, 0.0);
+    let entity = app.world_mut().spawn((
+        GpuSlot(slot),
+        Building { kind },
+        SpawnerState { npc_uid: None, respawn_timer },
+    )).id();
+    let mut em = app.world_mut().resource_mut::<EntityMap>();
+    em.entities.insert(slot, entity);
+    em.add_instance(inst);
+    entity
 }
 
 #[test]
@@ -744,11 +785,10 @@ fn spawner_skips_without_hour_tick() {
 fn spawner_counts_down_timer() {
     let mut app = setup_spawner_app();
     // Use a high timer so it won't reach 0 even with multiple FixedUpdate sub-ticks
-    add_spawner_building(&mut app, 5000, BuildingKind::ArcherHome, 50.0);
+    let entity = add_spawner_building(&mut app, 5000, BuildingKind::ArcherHome, 50.0);
     app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
     app.update();
-    let em = app.world().resource::<EntityMap>();
-    let timer = em.get_instance(5000).unwrap().respawn_timer;
+    let timer = app.world().get::<SpawnerState>(entity).unwrap().respawn_timer;
     assert!(timer < 50.0, "timer should decrement, got {timer}");
     assert!(timer >= 0.0, "timer should not go negative, got {timer}");
 }
@@ -767,13 +807,12 @@ fn spawner_spawns_when_timer_reaches_zero() {
 #[test]
 fn spawner_assigns_uid_after_spawn() {
     let mut app = setup_spawner_app();
-    add_spawner_building(&mut app, 5000, BuildingKind::ArcherHome, 1.0);
+    let entity = add_spawner_building(&mut app, 5000, BuildingKind::ArcherHome, 1.0);
     app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
     app.update();
-    let em = app.world().resource::<EntityMap>();
-    let inst = em.get_instance(5000).unwrap();
-    assert!(inst.npc_uid.is_some(), "building should have npc_uid after spawn");
-    assert!((inst.respawn_timer - (-1.0)).abs() < 0.01, "timer should reset to -1.0");
+    let ss = app.world().get::<SpawnerState>(entity).unwrap();
+    assert!(ss.npc_uid.is_some(), "building should have npc_uid after spawn");
+    assert!((ss.respawn_timer - (-1.0)).abs() < 0.01, "timer should reset to -1.0");
 }
 
 // -- mining_policy_system ------------------------------------------------

@@ -387,11 +387,13 @@ pub fn update_all_autotile(
 
 /// Resolve SpawnNpcMsg fields from a spawner entry's building_kind.
 /// Uses BUILDING_REGISTRY SpawnBehavior so new buildings with existing behaviors need no changes.
+/// `assigned_mine` comes from MinerHomeConfig ECS component (None for non-miner buildings).
 /// Returns (job, faction, work_x, work_y, starting_post, attack_type, npc_label, bld_label, work_slot).
 pub fn resolve_spawner_npc(
     inst: &crate::resources::BuildingInstance,
     towns: &[Town],
     entity_map: &crate::resources::EntityMap,
+    assigned_mine: Option<Vec2>,
 ) -> (
     i32,
     i32,
@@ -494,7 +496,7 @@ pub fn resolve_spawner_npc(
             )
         }
         SpawnBehavior::Miner => {
-            let (work_slot, mine) = if let Some(pos) = inst.assigned_mine {
+            let (work_slot, mine) = if let Some(pos) = assigned_mine {
                 (entity_map.slot_at_position(pos), pos)
             } else {
                 find_nearest_free(inst.position, entity_map, BuildingKind::GoldMine, None)
@@ -652,48 +654,32 @@ pub fn place_building(
         return Err("no GPU slots available");
     };
 
-    // Create BuildingInstance
+    // Create BuildingInstance (identity + occupancy only)
     let uid = uid_override.unwrap_or_else(|| uid_alloc.alloc());
-    let has_spawner = def.spawner.is_some();
     entity_map.add_instance(crate::resources::BuildingInstance {
         kind,
         position: snapped,
         town_idx,
         slot,
         faction,
-        patrol_order,
-        assigned_mine: None,
-        manual_mine: false,
-        wall_level,
-        npc_uid: None,
-        respawn_timer: if has_spawner { 0.0 } else { -2.0 },
-        growth_ready: false,
-        growth_progress: 0.0,
         occupants: 0,
-        under_construction: 0.0,
-        kills: 0,
-        xp: 0,
-        upgrade_levels: Vec::new(),
-        auto_upgrade_flags: Vec::new(),
     });
     entity_map.register_uid_slot_only(slot, uid);
 
-    // Runtime: set construction timer + suppress spawner
+    // Construction: runtime placement sets timer, load/init skips it
+    let under_construction = if ctx.is_some() {
+        crate::constants::BUILDING_CONSTRUCT_SECS
+    } else {
+        0.0
+    };
     let hp = if ctx.is_some() {
-        let Some(inst) = entity_map.get_instance_mut(slot) else {
-            return Err("slot missing after register");
-        };
-        inst.under_construction = crate::constants::BUILDING_CONSTRUCT_SECS;
-        if inst.respawn_timer >= 0.0 {
-            inst.respawn_timer = -1.0;
-        }
         hp_override.unwrap_or(0.01)
     } else {
         hp_override.unwrap_or(def.hp)
     };
 
-    // Spawn ECS entity
-    let ecmds = commands.spawn((
+    // Spawn ECS entity with all building state components
+    let mut ecmds = commands.spawn((
         GpuSlot(slot),
         Position::new(snapped.x, snapped.y),
         Health(hp),
@@ -701,7 +687,32 @@ pub fn place_building(
         TownId(town_idx as i32),
         Building { kind },
         uid,
+        ConstructionProgress(under_construction),
     ));
+    // Kind-specific state components
+    if def.worksite.is_some() {
+        ecmds.insert(ProductionState::default());
+    }
+    if def.spawner.is_some() {
+        // Suppress spawner during construction (timer=-1), arm on completion (timer=0)
+        let timer = if under_construction > 0.0 { -1.0 } else { 0.0 };
+        ecmds.insert(SpawnerState {
+            npc_uid: None,
+            respawn_timer: timer,
+        });
+    }
+    if def.is_tower {
+        ecmds.insert(TowerBuildingState::default());
+    }
+    if kind == BuildingKind::Waypoint {
+        ecmds.insert(WaypointOrder(patrol_order));
+    }
+    if kind == BuildingKind::Wall {
+        ecmds.insert(WallLevel(wall_level));
+    }
+    if kind == BuildingKind::MinerHome {
+        ecmds.insert(MinerHomeConfig::default());
+    }
     let entity = ecmds.id();
     entity_map.entities.insert(slot, entity);
     entity_map.bind_uid_entity(uid, entity);

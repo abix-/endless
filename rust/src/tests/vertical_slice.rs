@@ -34,10 +34,7 @@ pub fn setup(mut params: TestSetupParams) {
     // 5 farms near town 0 (pre-grown so farmers can harvest)
     for &(fx, fy) in &FARMS {
         params.add_building(world::BuildingKind::Farm, fx, fy, 0);
-        if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(fx, fy)) {
-            inst.growth_ready = true;
-            inst.growth_progress = 1.0;
-        }
+        params.set_production_ready(Vec2::new(fx, fy));
     }
 
     // 4 waypoints (square patrol around town)

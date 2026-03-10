@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-03-10
+
+- **BuildingInstance → slim spatial index** — migrated 11 gameplay fields off the 17-field `BuildingInstance` god struct into dedicated ECS components: `ProductionState` (ready/progress for farms+mines), `SpawnerState` (npc_uid/respawn_timer), `TowerBuildingState` (kills/xp/upgrade_levels/auto_upgrade_flags), `ConstructionProgress` (seconds remaining), `WaypointOrder` (patrol ordering), `WallLevel` (wall tier), `MinerHomeConfig` (assigned_mine/manual_mine). `BuildingInstance` is now a 6-field spatial index entry (kind, position, town_idx, slot, faction, occupants). Systems query ECS components directly instead of reaching into EntityMap. 71 call sites across 16 files updated. Pre-collected HashMap pattern for score closures that need both EntityMap spatial queries and ECS data. All 192 tests passing.
+
 ## 2026-03-09
 
 - **ActivityKind collapse** — refactored 15-variant `ActivityKind` enum down to 10 collapsed variants. Eliminated 9 transit variants (GoingToWork/Working→Work, GoingToRest/Resting→Rest, GoingToHeal/HealingAtFountain→Heal, OnDuty/Patrolling→Patrol, Mining/MiningAtMine→Mine, SquadTarget→SquadAttack, Returning→ReturnLoot). Transit vs at-dest now distinguished by `NpcFlags::at_destination` boolean. Payload fields (mine_pos, recover_until, target) moved into variant data. Added `Distraction` enum (None/ByDamage/ByEnemy) per activity for deterministic combat policy — `attack_system` uses `distraction() == None` instead of hardcoded skip list. Removed `ActivityDef` static registry, `is_transit()`, convenience constructors (`on_duty()`, `healing()`, `raiding()`, `mining()`).

@@ -55,6 +55,8 @@ pub struct DeathResources<'w, 's> {
     pub town_inventory: ResMut<'w, crate::resources::TownInventory>,
     pub equipment_q: Query<'w, 's, &'static crate::components::NpcEquipment>,
     pub reputation: ResMut<'w, crate::resources::Reputation>,
+    pub spawner_q: Query<'w, 's, &'static crate::components::SpawnerState, With<Building>>,
+    pub tower_bld_q: Query<'w, 's, &'static mut crate::components::TowerBuildingState, With<Building>>,
 }
 
 /// Unified damage system: applies damage to both NPCs and buildings.
@@ -256,9 +258,11 @@ pub fn death_system(
             let kind = inst.kind;
             let pos = inst.position;
             let town_idx = inst.town_idx as usize;
-            let npc_uid = inst.npc_uid;
 
-            // Orphaned NPC loses its home
+            // Orphaned NPC loses its home (npc_uid from SpawnerState ECS component)
+            let npc_uid = res.entity_map.entities.get(&idx)
+                .and_then(|&e| res.spawner_q.get(e).ok())
+                .and_then(|s| s.npc_uid);
             if let Some(uid) = npc_uid {
                 if let Some(npc_entity) = res.entity_map.entity_by_uid(uid) {
                     if let Ok(mut home) = res.home_q.get_mut(npc_entity) {
@@ -732,17 +736,15 @@ pub fn death_system(
                 res.faction_stats.inc_kills(tower_faction);
                 res.reputation.on_kill(tower_faction, faction);
 
-                let Some(inst) = res.entity_map.get_instance_mut(killer_slot) else { continue; };
-                inst.kills += 1;
-                let old_xp = inst.xp;
-                inst.xp += 100;
+                let Some(inst) = res.entity_map.get_instance(killer_slot) else { continue; };
+                let kind_name = if inst.kind == BuildingKind::Tower { "Tower" } else { "Fountain" };
+                let Some(&tower_entity) = res.entity_map.entities.get(&killer_slot) else { continue; };
+                let Ok(mut tbs) = res.tower_bld_q.get_mut(tower_entity) else { continue; };
+                tbs.kills += 1;
+                let old_xp = tbs.xp;
+                tbs.xp += 100;
                 let old_level = level_from_xp(old_xp);
-                let new_level = level_from_xp(inst.xp);
-                let kind_name = if inst.kind == BuildingKind::Tower {
-                    "Tower"
-                } else {
-                    "Fountain"
-                };
+                let new_level = level_from_xp(tbs.xp);
 
                 if new_level > old_level {
                     combat_log.write(CombatLogMsg {
@@ -1513,20 +1515,7 @@ mod tests {
             town_idx: 0,
             slot,
             faction: 0,
-            patrol_order: 0,
-            assigned_mine: None,
-            manual_mine: false,
-            wall_level: 0,
-            npc_uid: None,
-            respawn_timer: -1.0,
-            growth_ready: false,
-            growth_progress: 0.0,
             occupants: 0,
-            under_construction: 0.0,
-            kills: 0,
-            xp: 0,
-            upgrade_levels: vec![],
-            auto_upgrade_flags: vec![],
         });
         entity_map.register_uid(slot, EntityUid(uid), entity);
 

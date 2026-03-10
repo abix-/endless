@@ -195,9 +195,9 @@ pub fn materialize_npc(
 
     let trait_display = personality.trait_summary();
 
-    // Patrol route
+    // Patrol route — caller may pre-compute posts via build_patrol_route_ecs
     let patrol_route = if def.is_patrol_unit && starting_post >= 0 {
-        let patrol_posts = build_patrol_route(entity_map, town_idx as u32);
+        let patrol_posts = build_patrol_route_fallback(entity_map, town_idx as u32);
         if !patrol_posts.is_empty() {
             Some(PatrolRoute {
                 posts: patrol_posts,
@@ -390,11 +390,33 @@ pub fn spawn_npc_system(
     }
 }
 
+/// Build sorted patrol route without ECS query access — uses slot order as fallback.
+/// Used during save load and spawn_npc_system where WaypointOrder query isn't available.
+pub(crate) fn build_patrol_route_fallback(entity_map: &EntityMap, town_idx: u32) -> Vec<Vec2> {
+    let mut posts: Vec<(usize, Vec2)> = entity_map
+        .iter_kind_for_town(BuildingKind::Waypoint, town_idx)
+        .map(|inst| (inst.slot, inst.position))
+        .collect();
+    posts.sort_by_key(|(slot, _)| *slot);
+    posts.into_iter().map(|(_, pos)| pos).collect()
+}
+
 /// Build sorted patrol route from EntityMap for a given town.
-pub(crate) fn build_patrol_route(entity_map: &EntityMap, town_idx: u32) -> Vec<Vec2> {
+/// Accepts any query that can read WaypointOrder (immutable or mutable).
+pub(crate) fn build_patrol_route_ecs(
+    entity_map: &EntityMap,
+    town_idx: u32,
+    waypoint_q: &Query<&mut crate::components::WaypointOrder, With<crate::components::Building>>,
+) -> Vec<Vec2> {
     let mut posts: Vec<(u32, Vec2)> = entity_map
         .iter_kind_for_town(BuildingKind::Waypoint, town_idx)
-        .map(|inst| (inst.patrol_order, inst.position))
+        .map(|inst| {
+            let order = entity_map.entities.get(&inst.slot)
+                .and_then(|&e| waypoint_q.get(e).ok())
+                .map(|w| w.0)
+                .unwrap_or(0);
+            (order, inst.position)
+        })
         .collect();
     posts.sort_by_key(|(order, _)| *order);
     posts.into_iter().map(|(_, pos)| pos).collect()

@@ -55,26 +55,26 @@ game_time_system (every frame)
 - Other systems check `game_time.hour_ticked` instead of tracking their own timers
 
 ### construction_tick_system
-- Runs every frame, ticks `under_construction` countdown on newly placed buildings
-- All runtime-placed buildings (player + AI) start with `under_construction = BUILDING_CONSTRUCT_SECS` (10s at 1x speed), `respawn_timer = -1.0` (dormant), and `Health(0.01)`
-- Each frame: `under_construction -= game_time.delta()`, scales ECS Health proportionally (`progress * def.hp`), sends `SetHealth` GPU update
-- On completion (`<= 0.0`): sets `under_construction = 0.0`, arms spawner (`respawn_timer = 0.0`), sets full HP
-- World-gen buildings skip construction (`under_construction: 0.0`)
-- Growth system skips buildings with `under_construction > 0.0`
+- Runs every frame, ticks `ConstructionProgress` ECS component countdown on newly placed buildings
+- All runtime-placed buildings (player + AI) start with `ConstructionProgress(BUILDING_CONSTRUCT_SECS)` (10s at 1x speed), `SpawnerState { respawn_timer: -1.0 }` (dormant), and `Health(0.01)`
+- Each frame: `ConstructionProgress.0 -= game_time.delta()`, scales ECS Health proportionally (`progress * def.hp`), sends `SetHealth` GPU update
+- On completion (`<= 0.0`): sets `ConstructionProgress(0.0)`, arms spawner (`SpawnerState.respawn_timer = 0.0`), sets full HP
+- World-gen buildings skip construction (`ConstructionProgress(0.0)`)
+- Growth system skips buildings with `ConstructionProgress.0 > 0.0`
 - Rendering: `build_building_body_instances` overrides health field with construction progress fraction (0.0→0.999) so shader clips sprite bottom-to-top
-- Save/load: `under_construction` persisted in `SpawnerSave` and `FarmGrowthSave`
+- Save/load: construction progress persisted in `SpawnerSave` and `FarmGrowthSave`
 
 ### growth_system (unified farms + mines)
 - Runs every frame, advances growth based on elapsed game time
-- Iterates all building instances via `iter_instances_mut()`, matches on `BuildingKind::Farm` and `BuildingKind::GoldMine`
+- Queries ECS `(&GpuSlot, &Building, &TownId, &Position, &ConstructionProgress, &mut ProductionState)` — iterates only buildings with these components
 - Skips tombstoned entries (`position.x < -9000`) — destroyed farms/mines don't regrow
-- **BuildingInstance fields**: `growth_ready: bool` (false = growing, true = ready to harvest) and `growth_progress: f32` (0.0-1.0) on each Farm/Mine instance in `EntityMap`
+- **ECS component**: `ProductionState { ready: bool, progress: f32 }` on each Farm/Mine entity
 - **Hybrid growth model**:
   - Passive: `FARM_BASE_GROWTH_RATE` (0.08/hour) — ~12 game hours to full growth
   - Tended: `FARM_TENDED_GROWTH_RATE` (0.25/hour) — ~4 game hours with farmer working
 - Farm transitions to `Ready` when progress >= 1.0
-- Checks `inst.occupants >= 1` (slot-indexed on `BuildingInstance`) to determine if a farmer is tending
-- **FarmYield upgrade**: growth rate multiplied by `1.0 + level * 0.15` per-town (precomputed per-town `farm_mults` Vec, indexed by `inst.town_idx`)
+- Checks `entity_map.occupant_count(slot) >= 1` (slot-indexed occupancy on EntityMap) to determine if a farmer is tending
+- **FarmYield upgrade**: growth rate multiplied by `1.0 + level * 0.15` per-town (precomputed per-town `farm_mults` Vec, indexed by `town_id.0`)
 
 ### raider_forage_system
 - Runs when `game_time.hour_ticked` is true
@@ -83,13 +83,13 @@ game_time_system (every frame)
 
 ### spawner_respawn_system
 - Runs when `game_time.hour_ticked` is true
-- Iterates `EntityMap.spawner_slots()` pre-built index (maintained on add/remove_instance) instead of scanning all buildings. Spawner fields (`npc_gpu_slot: i32`, `respawn_timer: f32`) live directly on `BuildingInstance` — no separate SpawnerState resource.
-- Sentinel values: `npc_gpu_slot = -1` (no NPC alive), `respawn_timer = -2.0` (non-spawner building), `-1.0` (not respawning), `>= 0.0` (countdown active)
-- If `npc_gpu_slot >= 0` and NPC is dead (not in `EntityMap`): starts 12h respawn timer
+- Iterates `EntityMap.spawner_slots()` pre-built index (maintained on add/remove_instance) instead of scanning all buildings. Spawner state lives in `SpawnerState` ECS component (`npc_uid: Option<EntityUid>`, `respawn_timer: f32`), queried via `Query<(&mut SpawnerState, Option<&MinerHomeConfig>)>`.
+- Sentinel values: `npc_uid = None` (no NPC alive), `respawn_timer = -1.0` (not respawning), `>= 0.0` (countdown active)
+- If `npc_uid.is_some()` and NPC is dead (UID not in EntityMap): clears `npc_uid`, starts 12h respawn timer
 - Timer decrements 1.0 per game hour; on expiry: allocates slot via `SlotAllocator`, emits `SpawnNpcMsg`, logs to `CombatLog`
-- All spawner buildings (world gen and player-built) start with `respawn_timer: 0.0` and `npc_gpu_slot: -1` — the system spawns the first NPC on the next hourly tick. No separate initial spawn function.
+- All spawner buildings (world gen and player-built) start with `SpawnerState { npc_uid: None, respawn_timer: 0.0 }` — the system spawns the first NPC on the next hourly tick. No separate initial spawn function.
 - Tombstoned entries (position.x < -9000) are skipped (building was destroyed)
-- Spawn mapping resolved by `world::resolve_spawner_npc()` (single source of truth, takes `&BuildingInstance`): FarmerHome → Farmer (nearest farm via `find_nearest_free` with kind-filtered spatial search as hint, no claim at spawn — farmer self-claims via behavior system), ArcherHome → Archer (nearest waypoint via `find_location_within_radius`), FighterHome → Fighter (nearest waypoint via `find_location_within_radius`), Tent → Raider (home = tent position), MinerHome → Miner (assigned mine from `BuildingInstance.assigned_mine` if set, otherwise nearest gold mine via `find_nearest_free`). All types look up faction from `world_data.towns[town_idx].faction`. Note: spawner_respawn_system does **not** pre-claim work slots — farmers self-claim via `find_farmer_farm_target()` in decision_system.
+- Spawn mapping resolved by `world::resolve_spawner_npc()` (single source of truth, takes `&BuildingInstance`): FarmerHome → Farmer (nearest farm via `find_nearest_free` with kind-filtered spatial search as hint, no claim at spawn — farmer self-claims via behavior system), ArcherHome → Archer (nearest waypoint via `find_location_within_radius`), FighterHome → Fighter (nearest waypoint via `find_location_within_radius`), Tent → Raider (home = tent position), MinerHome → Miner (assigned mine from `MinerHomeConfig.assigned_mine` if set, otherwise nearest gold mine via `find_nearest_free`). All types look up faction from `world_data.towns[town_idx].faction`. Note: spawner_respawn_system does **not** pre-claim work slots — farmers self-claim via `find_farmer_farm_target()` in decision_system.
 
 ### starvation_system
 - Query-first: `(&GpuSlot, &Energy, &CachedStats, &mut NpcFlags, &mut Health)` with `Without<Building>, Without<Dead>` — no `EntityMap` dependency
@@ -118,9 +118,9 @@ Farms have a growth cycle instead of infinite food:
 
 ```
 
-**Farm harvest** uses `BuildingInstance::harvest()` (single source of truth for Ready → Growing transition):
-- `harvest(&mut self, combat_log, game_time, faction) -> i32` — resets `growth_ready` to false, `growth_progress` to 0.0, returns yield (farm=1 food, mine=MINE_EXTRACT_PER_CYCLE gold), logs to CombatLog. Returns 0 if not ready.
-- All farm harvest callers use `EntityMap::find_farm_at[_mut](pos)` for O(1) position-based lookup via spatial grid.
+**Farm harvest** uses `ProductionState::harvest()` (single source of truth for Ready → Growing transition):
+- `harvest(&mut self, combat_log, game_time, faction) -> i32` — resets `ready` to false, `progress` to 0.0, returns yield (farm=1 food, mine=MINE_EXTRACT_PER_CYCLE gold), logs to CombatLog. Returns 0 if not ready.
+- Callers look up the building entity via `entity_map.entities.get(&slot)` and query `&mut ProductionState`.
 - All callers enter `ActivityKind::ReturnLoot` and carry yield home — delivery happens via `arrival_system` proximity check. No caller instant-credits storage.
 - Called from 5 sites: arrival_system (working farmer harvest), decision_system (farmer Work arrival), decision_system (raider steal), decision_system (miner Mine arrival), decision_system (Mine at_dest harvest)
 
@@ -137,7 +137,7 @@ Farms have a growth cycle instead of infinite food:
 
 **Farm destruction**: Building removal from `EntityMap` handles cleanup. Tombstoned position (x < -9000) causes render pipeline to skip the crop sprite and `growth_system` to skip growth.
 
-**Visual feedback**: `farm_visual_system` watches `EntityMap` Farm instances for state transitions and spawns/despawns `FarmReadyMarker` entities (keyed by `farm_slot: usize` — building slot). Uses `Local<HashMap<usize, bool>>` to detect transitions without extra resources. Cadenced (see [performance.md](performance.md#fixed-cadence-systems)). `!ready → ready` spawns a marker; `ready → !ready` (harvest) despawns it.
+**Visual feedback**: `farm_visual_system` queries `(&GpuSlot, &ProductionState)` with `With<Building>` to watch for state transitions and spawns/despawns `FarmReadyMarker` entities (keyed by `farm_slot: usize` — building slot). Uses `Local<HashMap<usize, bool>>` to detect transitions without extra resources. Cadenced (see [performance.md](performance.md#fixed-cadence-systems)). `!ready → ready` spawns a marker; `ready → !ready` (harvest) despawns it.
 
 ## Starvation
 
@@ -188,14 +188,15 @@ Raiders without a squad assignment wander near their town. Group attacks use squ
 | GameTime | total_seconds, time_scale, paused, hour_ticked | game_time_system |
 | FoodStorage | `Vec<i32>` — food count per town | harvest, steal, forage, respawn |
 | Dirty/resource signals | Message types + resources (see [messages.md](messages.md)) | Message drain + consumer systems |
-| EntityMap | `BuildingInstance` with `growth_ready` + `growth_progress` fields (farms + mines) | growth_system, harvest/steal |
+| ProductionState | ECS component `{ ready: bool, progress: f32 }` on Farm/Mine entities | growth_system, harvest/steal |
 | GoldStorage | `Vec<i32>` — gold count per town | mining delivery, UI |
 | MineStates | gold, max_gold, positions per mine | mine_regen_system, mining behavior |
 | MinerProgressRender | positions + progress for active miners | sync_miner_progress_render → render world (ExtractResource) |
 | EntityMap (occupancy) | `BuildingInstance.occupants: i16` per building — slot-indexed claim/release/is_occupied/occupant_count methods on EntityMap | decision_system, death_cleanup |
 | MiningPolicy | discovered_mines per town, mine_enabled per mine | mining_policy_system (dirty-flag gated) |
 | RaiderState | max_pop, respawn_timers, forage_timers | raider_forage_system |
-| EntityMap | `BuildingInstance` with `npc_uid` + `respawn_timer` + `under_construction` fields | spawner_respawn_system, place_building, construction_tick_system |
+| SpawnerState | ECS component `{ npc_uid: Option<EntityUid>, respawn_timer: f32 }` on spawner buildings | spawner_respawn_system, place_building |
+| ConstructionProgress | ECS component `(f32)` seconds remaining on building entities | construction_tick_system, growth_system (skip guard) |
 | PopulationStats | alive/working/dead per (job, town) | spawn, death, state transitions |
 
 ## Constants
@@ -236,15 +237,15 @@ Both player build menu and AI player use `building_cost()` for affordability che
 
 ### mine_regen_system
 - Runs every frame, advances mine gold based on elapsed game time
-- Only regenerates when mine has no occupant (`inst.occupants == 0` via slot-indexed `BuildingInstance`)
+- Only regenerates when mine has no occupant (`entity_map.occupant_count(slot) == 0` via slot-indexed occupancy)
 - Rate: `MINE_REGEN_RATE` (2.0 gold/hour), capped at `MINE_MAX_GOLD` (200.0) per mine
 - Uses `MineStates` resource — parallel Vecs of gold, max_gold, and positions per mine
 
 ### mining_policy_system
 - Gated by `MessageReader<MiningDirtyMsg>` — only runs when mining topology/policy changes (radius slider, mine toggle, miner spawn/death)
 - **Discovery**: scans `EntityMap.iter_kind(GoldMine)` within `PolicySet.mining_radius` of each faction-0 town center, populates `MiningPolicy.discovered_mines[town_idx]`
-- **Distribution**: collects alive auto-assigned miners per town (skips `manual_mine == true` on `BuildingInstance`), round-robin assigns across enabled discovered mines via `BuildingInstance.assigned_mine`
-- **Stale clearing**: if assigned mine falls outside radius or disabled, clears `assigned_mine` on auto-assigned miners
+- **Distribution**: collects alive auto-assigned miners per town (skips `MinerHomeConfig.manual_mine == true`), round-robin assigns across enabled discovered mines via `MinerHomeConfig.assigned_mine`
+- **Stale clearing**: if assigned mine falls outside radius or disabled, clears `assigned_mine` on auto-assigned miner homes
 - **mine_enabled**: keyed by GPU slot (`HashMap<usize, bool>`) instead of sequential index, decoupled from WorldData ordering
 - `MAX_MINE_OCCUPANCY` in `constants.rs` limits concurrent miners per mine; behavior system (`decision_system`) skips full mines
 
@@ -303,7 +304,7 @@ migration_settle_system (every frame, early-returns if no active migration)
         │
         ▼ YES: settle town
         ├─ Town center = settle_target (verified land cell, not NPC centroid)
-        ├─ spawner fields set on BuildingInstance for each tent
+        ├─ SpawnerState ECS component set on each tent entity
         ├─ stamp_dirt() around town
         ├─ Activate AiPlayer (active = true)
         ├─ Remove Migrating from members, update Home to settle_target

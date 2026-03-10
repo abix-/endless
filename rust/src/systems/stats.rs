@@ -1146,24 +1146,22 @@ pub fn auto_upgrade_system(
 /// Auto-buy cheapest tower upgrade each game-hour for towers with auto_upgrade enabled.
 pub fn auto_tower_upgrade_system(
     game_time: Res<crate::resources::GameTime>,
-    mut entity_map: ResMut<crate::resources::EntityMap>,
+    mut towers_q: Query<(&crate::components::GpuSlot, &crate::components::TownId, &mut crate::components::TowerBuildingState)>,
     mut food_storage: ResMut<crate::resources::FoodStorage>,
     mut gold_storage: ResMut<crate::resources::GoldStorage>,
     policies: Res<crate::resources::TownPolicies>,
+    _entity_map: Res<crate::resources::EntityMap>,
 ) {
     if !game_time.hour_ticked {
         return;
     }
     let tower_upgrades = crate::constants::TOWER_UPGRADES;
-    // Collect tower data to avoid borrow conflict on entity_map
-    let towers: Vec<(usize, u32, Vec<u8>, Vec<bool>)> = entity_map
-        .iter_kind(crate::world::BuildingKind::Tower)
-        .filter(|i| i.auto_upgrade_flags.iter().any(|&f| f))
-        .map(|i| (i.slot, i.town_idx, i.upgrade_levels.clone(), i.auto_upgrade_flags.clone()))
-        .collect();
 
-    for (slot, town_idx, upgrade_levels, auto_flags) in towers {
-        let ti = town_idx as usize;
+    for (_gpu_slot, town_id, mut tower) in &mut towers_q {
+        if !tower.auto_upgrade_flags.iter().any(|&f| f) {
+            continue;
+        }
+        let ti = town_id.0 as usize;
         let (rf, rg) = policies
             .policies
             .get(ti)
@@ -1173,12 +1171,12 @@ pub fn auto_tower_upgrade_system(
         let gold = (gold_storage.gold.get(ti).copied().unwrap_or(0) - rg).max(0);
 
         // Find cheapest affordable upgrade among auto-flagged stats
-        let mut best: Option<(i32, usize)> = None; // (total_cost, index)
+        let mut best: Option<(i32, usize)> = None;
         for (i, upg) in tower_upgrades.iter().enumerate() {
-            if !auto_flags.get(i).copied().unwrap_or(false) {
+            if !tower.auto_upgrade_flags.get(i).copied().unwrap_or(false) {
                 continue;
             }
-            let lv = upgrade_levels.get(i).copied().unwrap_or(0);
+            let lv = tower.upgrade_levels.get(i).copied().unwrap_or(0);
             let cost_mult = upgrade_cost(lv);
             let can_afford = upg.cost.iter().all(|(res, base)| {
                 let total = base * cost_mult;
@@ -1197,9 +1195,8 @@ pub fn auto_tower_upgrade_system(
 
         if let Some((_, idx)) = best {
             let upg = &tower_upgrades[idx];
-            let lv = upgrade_levels.get(idx).copied().unwrap_or(0);
+            let lv = tower.upgrade_levels.get(idx).copied().unwrap_or(0);
             let cost_mult = upgrade_cost(lv);
-            // Deduct resources
             for (res, base) in upg.cost {
                 let total = base * cost_mult;
                 match res {
@@ -1211,13 +1208,11 @@ pub fn auto_tower_upgrade_system(
                     }
                 }
             }
-            // Increment upgrade level
-            if let Some(inst) = entity_map.get_instance_mut(slot) {
-                while inst.upgrade_levels.len() <= idx {
-                    inst.upgrade_levels.push(0);
-                }
-                inst.upgrade_levels[idx] += 1;
+            // Increment upgrade level on ECS component
+            while tower.upgrade_levels.len() <= idx {
+                tower.upgrade_levels.push(0);
             }
+            tower.upgrade_levels[idx] += 1;
         }
     }
 }
@@ -1787,32 +1782,40 @@ mod tests {
     }
 
     fn add_tower(app: &mut App, slot: usize, auto_flags: Vec<bool>) {
+        use crate::components::*;
         use crate::resources::BuildingInstance;
         use crate::world::BuildingKind;
+        let num = auto_flags.len();
         let inst = BuildingInstance {
             kind: BuildingKind::Tower,
             position: bevy::math::Vec2::ZERO,
             town_idx: 0,
             slot,
             faction: 0,
-            patrol_order: 0,
-            assigned_mine: None,
-            manual_mine: false,
-            wall_level: 0,
-            npc_uid: None,
-            respawn_timer: -1.0,
-            growth_ready: false,
-            growth_progress: 0.0,
             occupants: 0,
-            under_construction: 0.0,
-            kills: 0,
-            xp: 0,
-            upgrade_levels: vec![0; auto_flags.len()],
-            auto_upgrade_flags: auto_flags,
         };
         app.world_mut()
             .resource_mut::<crate::resources::EntityMap>()
             .add_instance(inst);
+        // Spawn ECS entity so Query<TowerBuildingState> finds it
+        let entity = app.world_mut().spawn((
+            GpuSlot(slot),
+            TownId(0),
+            Building { kind: BuildingKind::Tower },
+            TowerBuildingState {
+                kills: 0,
+                xp: 0,
+                upgrade_levels: vec![0; num],
+                auto_upgrade_flags: auto_flags,
+            },
+        )).id();
+        app.world_mut().resource_mut::<crate::resources::EntityMap>().entities.insert(slot, entity);
+    }
+
+    fn get_tower_state(app: &App, slot: usize) -> crate::components::TowerBuildingState {
+        let em = app.world().resource::<crate::resources::EntityMap>();
+        let entity = em.entities[&slot];
+        app.world().get::<crate::components::TowerBuildingState>(entity).unwrap().clone()
     }
 
     #[test]
@@ -1821,10 +1824,9 @@ mod tests {
         let num_tower_upgrades = crate::constants::TOWER_UPGRADES.len();
         add_tower(&mut app, 5000, vec![true; num_tower_upgrades]);
         app.update();
-        let em = app.world().resource::<crate::resources::EntityMap>();
-        let inst = em.get_instance(5000).unwrap();
+        let tower = get_tower_state(&app, 5000);
         assert!(
-            inst.upgrade_levels.iter().all(|&l| l == 0),
+            tower.upgrade_levels.iter().all(|&l| l == 0),
             "no upgrades should apply without hour_ticked"
         );
     }
@@ -1838,9 +1840,8 @@ mod tests {
             .resource_mut::<crate::resources::GameTime>()
             .hour_ticked = true;
         app.update();
-        let em = app.world().resource::<crate::resources::EntityMap>();
-        let inst = em.get_instance(5000).unwrap();
-        let total_upgrades: u8 = inst.upgrade_levels.iter().sum();
+        let tower = get_tower_state(&app, 5000);
+        let total_upgrades: u8 = tower.upgrade_levels.iter().sum();
         assert!(
             total_upgrades > 0,
             "should buy at least one tower upgrade on hour tick"
@@ -1873,9 +1874,8 @@ mod tests {
             .resource_mut::<crate::resources::GameTime>()
             .hour_ticked = true;
         app.update();
-        let em = app.world().resource::<crate::resources::EntityMap>();
-        let inst = em.get_instance(5000).unwrap();
-        let total_upgrades: u8 = inst.upgrade_levels.iter().sum();
+        let tower = get_tower_state(&app, 5000);
+        let total_upgrades: u8 = tower.upgrade_levels.iter().sum();
         assert_eq!(total_upgrades, 0, "should not upgrade when all flags are false");
     }
 }

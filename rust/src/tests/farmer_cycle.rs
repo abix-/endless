@@ -60,6 +60,7 @@ pub fn tick(
     mut test: ResMut<TestState>,
     activity_q: Query<&Activity>,
     npc_flags_q: Query<&NpcFlags>,
+    spawner_q: Query<&crate::components::SpawnerState, With<crate::components::Building>>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else {
         return;
@@ -77,7 +78,11 @@ pub fn tick(
         .iter_kind_for_town(BuildingKind::Farm, 0)
         .collect();
 
-    let spawned_from_homes = homes.iter().filter(|h| h.npc_uid.is_some()).count();
+    let spawned_from_homes = homes.iter().filter(|h| {
+        entity_map.entities.get(&h.slot)
+            .and_then(|&e| spawner_q.get(e).ok())
+            .is_some_and(|s| s.npc_uid.is_some())
+    }).count();
     let occupied_farms = farms.iter().filter(|f| f.occupants == 1).count();
     let overbooked_farms = farms.iter().filter(|f| f.occupants > 1).count();
     let total_occupants: i32 = farms.iter().map(|f| f.occupants as i32).sum();

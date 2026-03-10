@@ -162,6 +162,19 @@ impl TestSetupParams<'_, '_> {
         );
     }
 
+    /// Set a building's ProductionState to ready at the given position.
+    pub fn set_production_ready(&mut self, pos: Vec2) {
+        if let Some(inst) = self.entity_map.find_by_position(pos) {
+            let slot = inst.slot;
+            if let Some(&entity) = self.entity_map.entities.get(&slot) {
+                self.commands.entity(entity).insert(crate::components::ProductionState {
+                    ready: true,
+                    progress: 1.0,
+                });
+            }
+        }
+    }
+
     /// Init food_storage + faction_stats for N towns.
     pub fn init_economy(&mut self, town_count: usize) {
         self.food_storage.init(town_count);

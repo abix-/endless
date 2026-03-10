@@ -17,15 +17,9 @@ pub fn setup_movement(mut params: TestSetupParams) {
     params.add_town("CoalesceTown");
     params.world_data.towns[0].center = Vec2::new(384.0, 384.0);
     params.add_building(crate::world::BuildingKind::Farm, 384.0, FARM_Y, 0);
-    if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(384.0, FARM_Y)) {
-        inst.growth_ready = true;
-        inst.growth_progress = 1.0;
-    }
+    params.set_production_ready(Vec2::new(384.0, FARM_Y));
     params.add_building(crate::world::BuildingKind::Farm, 512.0, FARM_Y, 0);
-    if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(512.0, FARM_Y)) {
-        inst.growth_ready = true;
-        inst.growth_progress = 1.0;
-    }
+    params.set_production_ready(Vec2::new(512.0, FARM_Y));
     params.add_building(crate::world::BuildingKind::FarmerHome, 384.0, HOME_Y, 0);
     params.add_building(crate::world::BuildingKind::FarmerHome, 512.0, HOME_Y, 0);
     params.init_economy(1);

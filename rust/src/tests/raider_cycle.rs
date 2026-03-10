@@ -22,10 +22,7 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
     for i in 0..3 {
         let fx = 320.0 + (i as f32 * 64.0);
         params.add_building(crate::world::BuildingKind::Farm, fx, 320.0, 0);
-        if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(fx, 320.0)) {
-            inst.growth_ready = true;
-            inst.growth_progress = 1.0;
-        }
+        params.set_production_ready(Vec2::new(fx, 320.0));
     }
     params.init_economy(2);
     params.food_storage.food[0] = 10; // villager food

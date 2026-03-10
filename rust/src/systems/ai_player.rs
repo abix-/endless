@@ -13,7 +13,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use rand::Rng;
 
-use crate::components::{Building, Dead, Job, TownId};
+use crate::components::{Building, Dead, Job, TownId, WaypointOrder};
 use crate::constants::UpgradeStatKind;
 use crate::constants::*;
 use crate::resources::*;
@@ -40,6 +40,7 @@ pub struct AiBuildRes<'w, 's> {
     gpu_updates: MessageWriter<'w, crate::messages::GpuUpdateMsg>,
     policies: ResMut<'w, TownPolicies>,
     commands: Commands<'w, 's>,
+    waypoint_q: Query<'w, 's, &'static mut WaypointOrder, With<Building>>,
 }
 
 /// Bundled dirty-flag message readers for ai_dirty_drain_system.
@@ -101,16 +102,17 @@ pub fn initial_mining_radius(entity_map: &EntityMap, center: Vec2) -> f32 {
     }
 }
 
+/// Returns Vec<(slot, new_order)> for the caller to apply to WaypointOrder ECS components.
 fn recalc_waypoint_patrol_order_clockwise(
     world_data: &mut WorldData,
     entity_map: &mut EntityMap,
     town_idx: u32,
-) {
+) -> Vec<(usize, u32)> {
     // Rebuild patrol order from geometry, not history:
     // sort all living waypoints of this town by angle around town center.
     // This guarantees stable clockwise ordering after add/remove operations.
     let Some(center) = world_data.towns.get(town_idx as usize).map(|t| t.center) else {
-        return;
+        return Vec::new();
     };
 
     // Collect (slot, position) for living waypoints of this town
@@ -140,11 +142,7 @@ fn recalc_waypoint_patrol_order_clockwise(
             })
     });
 
-    for (order, &(slot, _)) in entries.iter().enumerate() {
-        if let Some(inst) = entity_map.get_instance_mut(slot) {
-            inst.patrol_order = order as u32;
-        }
-    }
+    entries.iter().enumerate().map(|(order, &(slot, _))| (slot, order as u32)).collect()
 }
 
 #[derive(Clone, Default)]
@@ -1173,6 +1171,7 @@ fn sync_town_perimeter_waypoints(
     town_data_idx: usize,
     personality: AiPersonality,
     road_style: RoadStyle,
+    waypoint_q: &mut Query<&mut WaypointOrder, With<Building>>,
 ) -> usize {
     // Keep exactly one perimeter ring, but only prune inner/old waypoints
     // after the new outer ring is fully established.
@@ -1243,7 +1242,14 @@ fn sync_town_perimeter_waypoints(
         }
     }
     if removed > 0 {
-        recalc_waypoint_patrol_order_clockwise(&mut world.world_data, &mut world.entity_map, ti);
+        let orders = recalc_waypoint_patrol_order_clockwise(&mut world.world_data, &mut world.entity_map, ti);
+        for (slot, order) in orders {
+            if let Some(&entity) = world.entity_map.entities.get(&slot) {
+                if let Ok(mut w) = waypoint_q.get_mut(entity) {
+                    w.0 = order;
+                }
+            }
+        }
     }
     removed
 }
@@ -1257,6 +1263,7 @@ pub fn sync_patrol_perimeter_system(
     mut damage_writer: MessageWriter<crate::messages::DamageMsg>,
     game_time: Res<GameTime>,
     mut perimeter_dirty: ResMut<PerimeterSyncDirty>,
+    mut waypoint_q: Query<&mut WaypointOrder, With<Building>>,
 ) {
     // Flag-gated system: only runs when perimeter_dirty_drain_system detected dirty messages.
     if !perimeter_dirty.0 {
@@ -1282,6 +1289,7 @@ pub fn sync_patrol_perimeter_system(
             town_idx,
             personality,
             road_style,
+            &mut waypoint_q,
         );
     }
 
@@ -2427,11 +2435,18 @@ fn execute_action(
                 )
                 .is_ok()
             {
-                recalc_waypoint_patrol_order_clockwise(
+                let orders = recalc_waypoint_patrol_order_clockwise(
                     &mut res.world.world_data,
                     &mut res.world.entity_map,
                     ctx.ti,
                 );
+                for (slot, order) in orders {
+                    if let Some(&entity) = res.world.entity_map.entities.get(&slot) {
+                        if let Ok(mut w) = res.waypoint_q.get_mut(entity) {
+                            w.0 = order;
+                        }
+                    }
+                }
                 Some("built waypoint".into())
             } else {
                 None

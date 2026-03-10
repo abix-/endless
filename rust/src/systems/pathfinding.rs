@@ -698,20 +698,7 @@ mod tests {
             slot,
             town_idx: 0,
             faction: 0,
-            patrol_order: 0,
-            assigned_mine: None,
-            manual_mine: false,
-            wall_level: 1,
-            npc_uid: None,
-            respawn_timer: -1.0,
-            growth_ready: false,
-            growth_progress: 0.0,
             occupants: 0,
-            under_construction: 0.0,
-            kills: 0,
-            xp: 0,
-            upgrade_levels: Vec::new(),
-            auto_upgrade_flags: Vec::new(),
         });
     }
 

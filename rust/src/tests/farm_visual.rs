@@ -11,8 +11,14 @@ pub fn setup(mut params: TestSetupParams) {
     params.add_town("FarmVisTown");
     params.add_building(crate::world::BuildingKind::Farm, 384.0, 320.0, 0);
     // Set progress near ready so transition happens within 30s
-    if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(384.0, 320.0)) {
-        inst.growth_progress = 0.95;
+    if let Some(inst) = params.entity_map.find_by_position(Vec2::new(384.0, 320.0)) {
+        let slot = inst.slot;
+        if let Some(&entity) = params.entity_map.entities.get(&slot) {
+            params.commands.entity(entity).insert(crate::components::ProductionState {
+                ready: false,
+                progress: 0.95,
+            });
+        }
     }
     params.init_economy(1);
     params.game_time.time_scale = 1.0;
@@ -45,6 +51,7 @@ pub fn tick(
     entity_map: Res<EntityMap>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
+    production_q: Query<&crate::components::ProductionState, With<crate::components::Building>>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else {
         return;
@@ -53,8 +60,11 @@ pub fn tick(
     let farm_inst = entity_map
         .iter_kind(crate::world::BuildingKind::Farm)
         .next();
-    let farm_ready = farm_inst.map(|i| i.growth_ready);
-    let farm_progress = farm_inst.map(|i| i.growth_progress).unwrap_or(0.0);
+    let farm_ps = farm_inst
+        .and_then(|i| entity_map.entities.get(&i.slot))
+        .and_then(|&e| production_q.get(e).ok());
+    let farm_ready = farm_ps.map(|ps| ps.ready);
+    let farm_progress = farm_ps.map(|ps| ps.progress).unwrap_or(0.0);
     let marker_count = marker_query.iter().count();
 
     match test.phase {

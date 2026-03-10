@@ -16,6 +16,25 @@ use crate::systems::stats::{
 };
 use crate::world::{self, WorldCell, WorldData, WorldGrid};
 
+/// Per-slot building ECS component snapshot for saving.
+/// Collected from ECS queries before calling `collect_save_data`.
+#[derive(Default)]
+pub struct BuildingStateSnapshot {
+    pub patrol_order: u32,
+    pub assigned_mine: Option<Vec2>,
+    pub manual_mine: bool,
+    pub wall_level: u8,
+    pub kills: i32,
+    pub xp: i32,
+    pub upgrade_levels: Vec<u8>,
+    pub auto_upgrade_flags: Vec<bool>,
+    pub production_ready: bool,
+    pub production_progress: f32,
+    pub under_construction: f32,
+    pub npc_uid: Option<EntityUid>,
+    pub respawn_timer: f32,
+}
+
 // ============================================================================
 // REPUTATION MIGRATION: old saves have Vec<f32>, new saves have Vec<Vec<f32>>
 // ============================================================================
@@ -636,6 +655,7 @@ pub fn collect_save_data(
     town_inventory: &crate::resources::TownInventory,
     merchant_inv: &crate::resources::MerchantInventory,
     faction_list: &crate::resources::FactionList,
+    bld_state: &std::collections::HashMap<usize, BuildingStateSnapshot>,
 ) -> SaveData {
     // Terrain + buildings
     let terrain: Vec<u8> = grid.cells.iter().map(|c| biome_to_u8(c.terrain)).collect();
@@ -666,17 +686,20 @@ pub fn collect_save_data(
         insts.sort_by_key(|i| i.slot);
         let placed: Vec<world::PlacedBuilding> = insts
             .iter()
-            .map(|inst| world::PlacedBuilding {
-                position: inst.position,
-                town_idx: inst.town_idx,
-                patrol_order: inst.patrol_order,
-                assigned_mine: inst.assigned_mine,
-                manual_mine: inst.manual_mine,
-                wall_level: inst.wall_level,
-                kills: inst.kills,
-                xp: inst.xp,
-                upgrade_levels: inst.upgrade_levels.clone(),
-                auto_upgrade_flags: inst.auto_upgrade_flags.clone(),
+            .map(|inst| {
+                let bs = bld_state.get(&inst.slot);
+                world::PlacedBuilding {
+                    position: inst.position,
+                    town_idx: inst.town_idx,
+                    patrol_order: bs.map_or(0, |s| s.patrol_order),
+                    assigned_mine: bs.and_then(|s| s.assigned_mine),
+                    manual_mine: bs.is_some_and(|s| s.manual_mine),
+                    wall_level: bs.map_or(0, |s| s.wall_level),
+                    kills: bs.map_or(0, |s| s.kills),
+                    xp: bs.map_or(0, |s| s.xp),
+                    upgrade_levels: bs.map(|s| s.upgrade_levels.clone()).unwrap_or_default(),
+                    auto_upgrade_flags: bs.map(|s| s.auto_upgrade_flags.clone()).unwrap_or_default(),
+                }
             })
             .collect();
         building_data.insert(key.to_string(), serde_json::to_value(&placed).expect("building serialization"));
@@ -693,32 +716,38 @@ pub fn collect_save_data(
         })
         .collect();
 
-    // Farm growth (serialized from BuildingInstance growth fields)
+    // Farm growth (serialized from ECS ProductionState/ConstructionProgress)
     let farm_growth: Vec<FarmGrowthSave> = entity_map
         .iter_kind(crate::world::BuildingKind::Farm)
-        .map(|i| FarmGrowthSave {
-            state: if i.growth_ready { 1 } else { 0 },
-            progress: i.growth_progress,
-            under_construction: i.under_construction,
+        .map(|i| {
+            let bs = bld_state.get(&i.slot);
+            FarmGrowthSave {
+                state: if bs.is_some_and(|s| s.production_ready) { 1 } else { 0 },
+                progress: bs.map_or(0.0, |s| s.production_progress),
+                under_construction: bs.map_or(0.0, |s| s.under_construction),
+            }
         })
         .collect();
 
-    // Spawners (serialized from EntityMap spawner instances)
+    // Spawners (serialized from ECS SpawnerState/ConstructionProgress)
     let spawners: Vec<SpawnerSave> = entity_map
         .iter_instances()
         .filter(|i| crate::constants::building_def(i.kind).spawner.is_some())
-        .map(|i| SpawnerSave {
-            building_kind: crate::constants::tileset_index(i.kind) as i32,
-            town_idx: i.town_idx as i32,
-            position: v2(i.position),
-            npc_gpu_slot: i
-                .npc_uid
-                .and_then(|uid| entity_map.slot_for_uid(uid))
-                .map(|s| s as i32)
-                .unwrap_or(-1),
-            respawn_timer: i.respawn_timer,
-            npc_uid: i.npc_uid.map(|uid| uid.0),
-            under_construction: i.under_construction,
+        .map(|i| {
+            let bs = bld_state.get(&i.slot);
+            let npc_uid = bs.and_then(|s| s.npc_uid);
+            SpawnerSave {
+                building_kind: crate::constants::tileset_index(i.kind) as i32,
+                town_idx: i.town_idx as i32,
+                position: v2(i.position),
+                npc_gpu_slot: npc_uid
+                    .and_then(|uid| entity_map.slot_for_uid(uid))
+                    .map(|s| s as i32)
+                    .unwrap_or(-1),
+                respawn_timer: bs.map_or(-1.0, |s| s.respawn_timer),
+                npc_uid: npc_uid.map(|uid| uid.0),
+                under_construction: bs.map_or(0.0, |s| s.under_construction),
+            }
         })
         .collect();
 
@@ -813,10 +842,13 @@ pub fn collect_save_data(
         farm_growth,
         mine_growth: entity_map
             .iter_kind(crate::world::BuildingKind::GoldMine)
-            .map(|i| FarmGrowthSave {
-                state: if i.growth_ready { 1 } else { 0 },
-                progress: i.growth_progress,
-                under_construction: i.under_construction,
+            .map(|i| {
+                let bs = bld_state.get(&i.slot);
+                FarmGrowthSave {
+                    state: if bs.is_some_and(|s| s.production_ready) { 1 } else { 0 },
+                    progress: bs.map_or(0.0, |s| s.production_progress),
+                    under_construction: bs.map_or(0.0, |s| s.under_construction),
+                }
             })
             .collect(),
         spawners,
@@ -1457,6 +1489,39 @@ fn collect_building_hp(
     map
 }
 
+/// Collect all building ECS component data into a per-slot snapshot for saving.
+fn collect_building_state_snapshot(
+    q: &Query<(
+        &GpuSlot,
+        Option<&WaypointOrder>,
+        Option<&MinerHomeConfig>,
+        Option<&WallLevel>,
+        Option<&TowerBuildingState>,
+        Option<&ProductionState>,
+        Option<&ConstructionProgress>,
+        Option<&SpawnerState>,
+    ), With<Building>>,
+) -> std::collections::HashMap<usize, BuildingStateSnapshot> {
+    let mut map = std::collections::HashMap::new();
+    for (gpu_slot, wp, mc, wl, ts, ps, cp, sp) in q.iter() {
+        let mut s = BuildingStateSnapshot::default();
+        if let Some(wp) = wp { s.patrol_order = wp.0; }
+        if let Some(mc) = mc { s.assigned_mine = mc.assigned_mine; s.manual_mine = mc.manual_mine; }
+        if let Some(wl) = wl { s.wall_level = wl.0; }
+        if let Some(ts) = ts {
+            s.kills = ts.kills;
+            s.xp = ts.xp;
+            s.upgrade_levels = ts.upgrade_levels.clone();
+            s.auto_upgrade_flags = ts.auto_upgrade_flags.clone();
+        }
+        if let Some(ps) = ps { s.production_ready = ps.ready; s.production_progress = ps.progress; }
+        if let Some(cp) = cp { s.under_construction = cp.0; }
+        if let Some(sp) = sp { s.npc_uid = sp.npc_uid; s.respawn_timer = sp.respawn_timer; }
+        map.insert(gpu_slot.0, s);
+    }
+    map
+}
+
 /// Convert old HP format (save_key → Vec<f32>) to slot-keyed HashMap.
 pub fn convert_building_hp_to_slots(
     old_hp: &std::collections::HashMap<String, Vec<f32>>,
@@ -1546,32 +1611,44 @@ pub fn load_building_instances_from_save(
                 def.kind, b.position, town_idx, faction,
                 b.patrol_order, b.wall_level, None, hp, None, None,
             );
-            // Restore miner home fields
+            // Restore miner home fields via ECS
             if def.kind == world::BuildingKind::MinerHome {
-                if let Some(inst) = entity_map.find_by_position_mut(b.position) {
-                    inst.assigned_mine = b.assigned_mine;
-                    inst.manual_mine = b.manual_mine;
+                if let Some(slot) = entity_map.slot_at_position(b.position) {
+                    if let Some(&entity) = entity_map.entities.get(&slot) {
+                        commands.entity(entity).insert(MinerHomeConfig {
+                            assigned_mine: b.assigned_mine,
+                            manual_mine: b.manual_mine,
+                        });
+                    }
                 }
             }
-            // Restore tower kills/xp/upgrades
+            // Restore tower kills/xp/upgrades via ECS
             if b.kills > 0 || b.xp > 0 || !b.upgrade_levels.is_empty() || !b.auto_upgrade_flags.is_empty() {
-                if let Some(inst) = entity_map.find_by_position_mut(b.position) {
-                    inst.kills = b.kills;
-                    inst.xp = b.xp;
-                    inst.upgrade_levels = b.upgrade_levels.clone();
-                    inst.auto_upgrade_flags = b.auto_upgrade_flags.clone();
+                if let Some(slot) = entity_map.slot_at_position(b.position) {
+                    if let Some(&entity) = entity_map.entities.get(&slot) {
+                        commands.entity(entity).insert(TowerBuildingState {
+                            kills: b.kills,
+                            xp: b.xp,
+                            upgrade_levels: b.upgrade_levels.clone(),
+                            auto_upgrade_flags: b.auto_upgrade_flags.clone(),
+                        });
+                    }
                 }
             }
         }
     }
 
-    // Restore spawner state (npc_uid, respawn_timer) from save data
+    // Restore spawner state (npc_uid, respawn_timer, construction) from save data via ECS
     for s in &save.spawners {
         let pos = to_vec2(s.position);
-        if let Some(inst) = entity_map.find_by_position_mut(pos) {
-            inst.npc_uid = s.npc_uid.map(crate::components::EntityUid);
-            inst.respawn_timer = s.respawn_timer;
-            inst.under_construction = s.under_construction;
+        if let Some(slot) = entity_map.slot_at_position(pos) {
+            if let Some(&entity) = entity_map.entities.get(&slot) {
+                commands.entity(entity).insert(SpawnerState {
+                    npc_uid: s.npc_uid.map(crate::components::EntityUid),
+                    respawn_timer: s.respawn_timer,
+                });
+                commands.entity(entity).insert(ConstructionProgress(s.under_construction));
+            }
         }
     }
 
@@ -1581,8 +1658,8 @@ pub fn load_building_instances_from_save(
     );
 }
 
-/// Rebuild growth states from EntityMap instances + save data.
-pub fn restore_growth_from_save(save: &SaveData, entity_map: &mut EntityMap) {
+/// Rebuild growth states from save data → ECS components.
+pub fn restore_growth_from_save(save: &SaveData, entity_map: &EntityMap, commands: &mut Commands) {
     // Farms — sort by slot to match save order
     let mut farm_slots: Vec<usize> = entity_map
         .iter_kind(world::BuildingKind::Farm)
@@ -1595,11 +1672,13 @@ pub fn restore_growth_from_save(save: &SaveData, entity_map: &mut EntityMap) {
         &save.farm_growth[..]
     };
     for (i, &slot) in farm_slots.iter().enumerate() {
-        if let Some(inst) = entity_map.get_instance_mut(slot) {
-            if let Some(fg) = farm_growth.get(i) {
-                inst.growth_ready = fg.state == 1;
-                inst.growth_progress = fg.progress;
-                inst.under_construction = fg.under_construction;
+        if let Some(fg) = farm_growth.get(i) {
+            if let Some(&entity) = entity_map.entities.get(&slot) {
+                commands.entity(entity).insert(ProductionState {
+                    ready: fg.state == 1,
+                    progress: fg.progress,
+                });
+                commands.entity(entity).insert(ConstructionProgress(fg.under_construction));
             }
         }
     }
@@ -1611,11 +1690,13 @@ pub fn restore_growth_from_save(save: &SaveData, entity_map: &mut EntityMap) {
         .collect();
     mine_slots.sort();
     for (i, &slot) in mine_slots.iter().enumerate() {
-        if let Some(inst) = entity_map.get_instance_mut(slot) {
-            if let Some(mg) = save.mine_growth.get(i) {
-                inst.growth_ready = mg.state == 1;
-                inst.growth_progress = mg.progress;
-                inst.under_construction = mg.under_construction;
+        if let Some(mg) = save.mine_growth.get(i) {
+            if let Some(&entity) = entity_map.entities.get(&slot) {
+                commands.entity(entity).insert(ProductionState {
+                    ready: mg.state == 1,
+                    progress: mg.progress,
+                });
+                commands.entity(entity).insert(ConstructionProgress(mg.under_construction));
             }
         }
     }
@@ -1656,6 +1737,16 @@ pub fn save_game_system(
     building_query: Query<(&Building, &GpuSlot, &Health), Without<Dead>>,
     nq: SaveNpcQueries,
     uid_alloc: Res<NextEntityUid>,
+    bld_component_q: Query<(
+        &GpuSlot,
+        Option<&WaypointOrder>,
+        Option<&MinerHomeConfig>,
+        Option<&WallLevel>,
+        Option<&TowerBuildingState>,
+        Option<&ProductionState>,
+        Option<&ConstructionProgress>,
+        Option<&SpawnerState>,
+    ), With<Building>>,
 ) {
     if save_msgs.read().next().is_none() {
         return;
@@ -1679,6 +1770,7 @@ pub fn save_game_system(
         &nq.has_energy_q,
     );
     let building_hp = collect_building_hp(&building_query, &entity_map);
+    let bld_state = collect_building_state_snapshot(&bld_component_q);
     let data = collect_save_data(
         &ws.grid,
         &ws.world_data,
@@ -1704,6 +1796,7 @@ pub fn save_game_system(
         &fs.town_inventory,
         &fs.merchant_inv,
         &fs.faction_list,
+        &bld_state,
     );
 
     let result = if let Some(path) = request.save_path.take() {
@@ -1736,6 +1829,16 @@ pub fn autosave_system(
     building_query: Query<(&Building, &GpuSlot, &Health), Without<Dead>>,
     nq: SaveNpcQueries,
     uid_alloc: Res<NextEntityUid>,
+    bld_component_q: Query<(
+        &GpuSlot,
+        Option<&WaypointOrder>,
+        Option<&MinerHomeConfig>,
+        Option<&WallLevel>,
+        Option<&TowerBuildingState>,
+        Option<&ProductionState>,
+        Option<&ConstructionProgress>,
+        Option<&SpawnerState>,
+    ), With<Building>>,
 ) {
     if request.autosave_hours <= 0 || !ws.game_time.hour_ticked {
         return;
@@ -1772,6 +1875,7 @@ pub fn autosave_system(
         &nq.has_energy_q,
     );
     let building_hp = collect_building_hp(&building_query, &entity_map);
+    let bld_state = collect_building_state_snapshot(&bld_component_q);
     let data = collect_save_data(
         &ws.grid,
         &ws.world_data,
@@ -1797,6 +1901,7 @@ pub fn autosave_system(
         &fs.town_inventory,
         &fs.merchant_inv,
         &fs.faction_list,
+        &bld_state,
     );
 
     match write_save_to(&data, &path) {
@@ -1974,7 +2079,7 @@ pub fn restore_world_from_save(
             world::update_all_autotile(&ws.grid, entity_map, def.kind, gpu_updates);
         }
     }
-    restore_growth_from_save(save, entity_map);
+    restore_growth_from_save(save, entity_map, commands);
     ws.grid.init_pathfind_costs();
     ws.grid.sync_building_costs(entity_map);
     ws.grid.sync_town_buildability(&ws.world_data.towns, entity_map);

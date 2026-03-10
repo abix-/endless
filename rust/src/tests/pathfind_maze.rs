@@ -77,10 +77,7 @@ pub fn setup(mut params: TestSetupParams, config: Res<PathfindMazeConfig>) {
     // Farm bottom-right of maze (mark as ready so farmers go to it)
     let (fx, fy) = gw(23, 22);
     params.add_building(crate::world::BuildingKind::Farm, fx, fy, 0);
-    if let Some(inst) = params.entity_map.find_farm_at_mut(Vec2::new(fx, fy)) {
-        inst.growth_ready = true;
-        inst.growth_progress = 1.0;
-    }
+    params.set_production_ready(Vec2::new(fx, fy));
 
     // Bed near the home area for resting
     let (bx, by) = gw(2, 1);

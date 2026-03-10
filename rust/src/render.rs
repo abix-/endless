@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use bevy::sprite_render::{AlphaMode2d, TileData, TilemapChunk, TilemapChunkTileData};
 
 use crate::components::{
-    Activity, Building, Dead, Faction, GpuSlot, Job, ManualTarget, ActivityKind, NpcFlags, Position, SquadId,
+    Activity, Building, Dead, Faction, GpuSlot, Job, ManualTarget, ActivityKind, MinerHomeConfig, NpcFlags, Position, SquadId,
 };
 use crate::gpu::RenderFrameConfig;
 use crate::messages::{SelectFactionMsg, TerrainDirtyMsg};
@@ -444,6 +444,7 @@ fn click_to_select_system(
     mut commands: Commands,
     mut npc_flags_q: Query<&mut NpcFlags>,
     mut activity_q: Query<&mut Activity>,
+    mut miner_cfg_q: Query<&mut MinerHomeConfig>,
 ) {
     // Right-click: squad target placement, DirectControl micro, or cancel mine assignment
     if mouse.just_pressed(MouseButton::Right) {
@@ -657,9 +658,11 @@ fn click_to_select_system(
             .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
         if let Some((dist, mine_pos)) = best {
             if dist < snap_radius {
-                if let Some(inst) = click.entity_map.get_instance_mut(mh_slot) {
-                    inst.manual_mine = true;
-                    inst.assigned_mine = Some(mine_pos);
+                if let Some(&entity) = click.entity_map.entities.get(&mh_slot) {
+                    if let Ok(mut cfg) = miner_cfg_q.get_mut(entity) {
+                        cfg.manual_mine = true;
+                        cfg.assigned_mine = Some(mine_pos);
+                    }
                 }
             }
         }

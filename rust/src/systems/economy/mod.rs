@@ -91,8 +91,13 @@ pub fn game_time_system(time: Res<Time>, mut game_time: ResMut<GameTime>) {
 pub fn construction_tick_system(
     time: Res<Time>,
     game_time: Res<GameTime>,
-    mut entity_map: ResMut<EntityMap>,
-    mut health_q: Query<&mut Health, With<Building>>,
+    mut buildings_q: Query<(
+        &GpuSlot,
+        &Building,
+        &mut ConstructionProgress,
+        &mut Health,
+        Option<&mut SpawnerState>,
+    )>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
 ) {
     if game_time.is_paused() {
@@ -100,45 +105,29 @@ pub fn construction_tick_system(
     }
     let dt = game_time.delta(&time);
 
-    // Collect slots needing update (can't mutate EntityMap while iterating)
-    let constructing: Vec<usize> = entity_map
-        .iter_instances()
-        .filter(|i| i.under_construction > 0.0)
-        .map(|i| i.slot)
-        .collect();
-
-    for slot in constructing {
-        let (kind, finished, new_hp) = {
-            let Some(inst) = entity_map.get_instance_mut(slot) else { continue; };
-            inst.under_construction -= dt;
-            let total = crate::constants::BUILDING_CONSTRUCT_SECS;
-            if inst.under_construction <= 0.0 {
-                // Construction complete
-                inst.under_construction = 0.0;
-                let def = crate::constants::building_def(inst.kind);
-                if def.spawner.is_some() {
-                    inst.respawn_timer = 0.0; // arm spawner
-                }
-                (inst.kind, true, def.hp)
-            } else {
-                let progress = (total - inst.under_construction) / total;
-                let def = crate::constants::building_def(inst.kind);
-                let hp = (progress * def.hp).max(0.01);
-                (inst.kind, false, hp)
-            }
-        };
-        // Update ECS health
-        if let Some(&entity) = entity_map.entities.get(&slot) {
-            if let Ok(mut health) = health_q.get_mut(entity) {
-                health.0 = new_hp;
-            }
+    for (gpu_slot, building, mut construction, mut health, spawner) in &mut buildings_q {
+        if construction.0 <= 0.0 {
+            continue;
         }
-        // Update GPU health buffer
+        let slot = gpu_slot.0;
+        construction.0 -= dt;
+        let total = crate::constants::BUILDING_CONSTRUCT_SECS;
+        let new_hp = if construction.0 <= 0.0 {
+            construction.0 = 0.0;
+            // Arm spawner on completion
+            if let Some(mut sp) = spawner {
+                sp.respawn_timer = 0.0;
+            }
+            crate::constants::building_def(building.kind).hp
+        } else {
+            let progress = (total - construction.0) / total;
+            (progress * crate::constants::building_def(building.kind).hp).max(0.01)
+        };
+        health.0 = new_hp;
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth {
             idx: slot,
             health: new_hp,
         }));
-        let _ = (kind, finished); // suppress unused warnings
     }
 }
 
@@ -146,14 +135,22 @@ pub fn construction_tick_system(
 // GROWTH SYSTEM (farms + mines)
 // ============================================================================
 
-/// Unified growth system for farms and mines.
+/// Unified production system for farms and mines.
 /// - Farms: passive + tended rates (unchanged). Upgrade-scaled by FarmYield.
-/// - Mines: tended-only (MINE_TENDED_GROWTH_RATE). Zero growth when unoccupied.
+/// - Mines: tended-only (MINE_TENDED_GROWTH_RATE). Zero production when unoccupied.
 pub fn growth_system(
     time: Res<Time>,
     game_time: Res<GameTime>,
-    mut entity_map: ResMut<EntityMap>,
+    entity_map: Res<EntityMap>,
     upgrades: Res<TownUpgrades>,
+    mut production_q: Query<(
+        &GpuSlot,
+        &Building,
+        &TownId,
+        &Position,
+        &ConstructionProgress,
+        &mut ProductionState,
+    )>,
 ) {
     if game_time.is_paused() {
         return;
@@ -161,7 +158,7 @@ pub fn growth_system(
 
     let hours_elapsed = game_time.delta(&time) / game_time.seconds_per_hour;
 
-    // Precompute per-town farm yield multiplier (avoids per-farm Vec clone + string lookup)
+    // Precompute per-town farm yield multiplier
     let max_towns = upgrades.levels.len();
     let mut farm_mults: Vec<f32> = Vec::with_capacity(max_towns);
     for t in 0..max_towns {
@@ -169,33 +166,34 @@ pub fn growth_system(
         farm_mults.push(UPGRADES.stat_mult(&levels, "Farmer", UpgradeStatKind::Yield));
     }
 
-    for inst in entity_map.iter_instances_mut() {
-        if inst.position.x < -9000.0 || inst.growth_ready || inst.under_construction > 0.0 {
+    for (gpu_slot, building, town_id, pos, construction, mut production) in &mut production_q {
+        if pos.x < -9000.0 || production.ready || construction.0 > 0.0 {
             continue;
         }
-        match inst.kind {
+        let slot = gpu_slot.0;
+        match building.kind {
             BuildingKind::Farm => {
-                let is_tended = inst.occupants >= 1;
+                let is_tended = entity_map.occupant_count(slot) >= 1;
                 let base_rate = if is_tended {
                     FARM_TENDED_GROWTH_RATE
                 } else {
                     FARM_BASE_GROWTH_RATE
                 };
                 let mult = farm_mults
-                    .get(inst.town_idx as usize)
+                    .get(town_id.0 as usize)
                     .copied()
                     .unwrap_or(1.0);
                 let growth_rate = base_rate * mult;
                 if growth_rate > 0.0 {
-                    inst.growth_progress += growth_rate * hours_elapsed;
-                    if inst.growth_progress >= 1.0 {
-                        inst.growth_ready = true;
-                        inst.growth_progress = 1.0;
+                    production.progress += growth_rate * hours_elapsed;
+                    if production.progress >= 1.0 {
+                        production.ready = true;
+                        production.progress = 1.0;
                     }
                 }
             }
             BuildingKind::GoldMine => {
-                let worker_count = inst.occupants as i32;
+                let worker_count = entity_map.occupant_count(slot);
                 let growth_rate = if worker_count > 0 {
                     crate::constants::MINE_TENDED_GROWTH_RATE
                         * crate::constants::mine_productivity_mult(worker_count)
@@ -203,10 +201,10 @@ pub fn growth_system(
                     0.0
                 };
                 if growth_rate > 0.0 {
-                    inst.growth_progress += growth_rate * hours_elapsed;
-                    if inst.growth_progress >= 1.0 {
-                        inst.growth_ready = true;
-                        inst.growth_progress = 1.0;
+                    production.progress += growth_rate * hours_elapsed;
+                    if production.progress >= 1.0 {
+                        production.ready = true;
+                        production.progress = 1.0;
                     }
                 }
             }
@@ -301,8 +299,8 @@ pub fn starvation_system(
 /// Growing→Ready: spawn marker. Ready→Growing (harvest): despawn marker.
 pub fn farm_visual_system(
     mut commands: Commands,
-    entity_map: Res<EntityMap>,
     markers: Query<(Entity, &FarmReadyMarker)>,
+    farms_q: Query<(&GpuSlot, &ProductionState), With<Building>>,
     mut prev_ready: Local<HashMap<usize, bool>>,
     mut frame_count: Local<u32>,
 ) {
@@ -312,20 +310,19 @@ pub fn farm_visual_system(
         return;
     }
 
-    for inst in entity_map.iter_kind(BuildingKind::Farm) {
-        let was_ready = prev_ready.get(&inst.slot).copied().unwrap_or(false);
-        if inst.growth_ready && !was_ready {
-            commands.spawn(FarmReadyMarker {
-                farm_slot: inst.slot,
-            });
-        } else if !inst.growth_ready && was_ready {
+    for (gpu_slot, production) in &farms_q {
+        let slot = gpu_slot.0;
+        let was_ready = prev_ready.get(&slot).copied().unwrap_or(false);
+        if production.ready && !was_ready {
+            commands.spawn(FarmReadyMarker { farm_slot: slot });
+        } else if !production.ready && was_ready {
             for (entity, marker) in markers.iter() {
-                if marker.farm_slot == inst.slot {
+                if marker.farm_slot == slot {
                     commands.entity(entity).despawn();
                 }
             }
         }
-        prev_ready.insert(inst.slot, inst.growth_ready);
+        prev_ready.insert(slot, production.ready);
     }
 }
 
@@ -333,18 +330,19 @@ pub fn farm_visual_system(
 // BUILDING SPAWNER SYSTEM
 // ============================================================================
 
-/// Detects dead NPCs linked to House/Barracks/Tent buildings, counts down respawn timers,
+/// Detects dead NPCs linked to spawner buildings, counts down respawn timers,
 /// and spawns replacements via GpuSlotPool + SpawnNpcMsg.
 /// Only runs when game_time.hour_ticked is true.
 pub fn spawner_respawn_system(
     game_time: Res<GameTime>,
-    mut entity_map: ResMut<EntityMap>,
+    entity_map: ResMut<EntityMap>,
     mut slots: ResMut<GpuSlotPool>,
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     world_data: Res<WorldData>,
     mut combat_log: MessageWriter<CombatLogMsg>,
     mut dirty_writers: crate::messages::DirtyWriters,
     mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
+    mut spawner_q: Query<(&mut SpawnerState, Option<&MinerHomeConfig>)>,
 ) {
     if !game_time.hour_ticked {
         return;
@@ -357,41 +355,40 @@ pub fn spawner_respawn_system(
         let Some(inst) = entity_map.get_instance(bld_slot) else {
             continue;
         };
+        let Some(&entity) = entity_map.entities.get(&bld_slot) else {
+            continue;
+        };
+        let Ok((mut spawner, miner_cfg)) = spawner_q.get_mut(entity) else {
+            continue;
+        };
 
         // Check if linked NPC died (UID no longer maps to a live slot)
-        if let Some(npc_uid) = inst.npc_uid {
+        if let Some(npc_uid) = spawner.npc_uid {
             let npc_alive = entity_map
                 .slot_for_uid(npc_uid)
                 .map(|s| entity_map.entities.contains_key(&s))
                 .unwrap_or(false);
             if !npc_alive {
                 let is_miner_home = inst.kind == BuildingKind::MinerHome;
-                if let Some(inst_mut) = entity_map.get_instance_mut(bld_slot) {
-                    inst_mut.npc_uid = None;
-                    inst_mut.respawn_timer = SPAWNER_RESPAWN_HOURS;
-                }
+                spawner.npc_uid = None;
+                spawner.respawn_timer = SPAWNER_RESPAWN_HOURS;
                 if is_miner_home {
                     dirty_writers.mining.write(crate::messages::MiningDirtyMsg);
                 }
             }
         }
 
-        let Some(inst) = entity_map.get_instance(bld_slot) else {
-            continue;
-        };
         // Count down respawn timer (>= 0.0 catches newly-built spawners at 0.0)
-        if inst.respawn_timer >= 0.0 {
-            let new_timer = inst.respawn_timer - 1.0;
-            if let Some(inst_mut) = entity_map.get_instance_mut(bld_slot) {
-                inst_mut.respawn_timer = new_timer;
-            }
-            if new_timer <= 0.0 {
+        if spawner.respawn_timer >= 0.0 {
+            spawner.respawn_timer -= 1.0;
+            if spawner.respawn_timer <= 0.0 {
                 // Spawn replacement NPC
                 let Some(slot) = slots.alloc_reset() else { continue };
                 let Some(inst) = entity_map.get_instance(bld_slot) else {
                     continue;
                 };
                 let town_data_idx = inst.town_idx as usize;
+                let assigned_mine = miner_cfg.and_then(|c| c.assigned_mine);
 
                 let (
                     job,
@@ -403,7 +400,7 @@ pub fn spawner_respawn_system(
                     job_name,
                     building_name,
                     _work_slot,
-                ) = world::resolve_spawner_npc(inst, &world_data.towns, &entity_map);
+                ) = world::resolve_spawner_npc(inst, &world_data.towns, &entity_map, assigned_mine);
 
                 let pos = inst.position;
                 let is_miner_home = inst.kind == BuildingKind::MinerHome;
@@ -423,10 +420,8 @@ pub fn spawner_respawn_system(
                     attack_type,
                     uid_override: Some(npc_uid),
                 });
-                if let Some(inst_mut) = entity_map.get_instance_mut(bld_slot) {
-                    inst_mut.npc_uid = Some(npc_uid);
-                    inst_mut.respawn_timer = -1.0;
-                }
+                spawner.npc_uid = Some(npc_uid);
+                spawner.respawn_timer = -1.0;
                 if is_miner_home {
                     dirty_writers.mining.write(crate::messages::MiningDirtyMsg);
                 }
@@ -448,10 +443,12 @@ pub fn spawner_respawn_system(
 /// Rebuild auto-mining discovery + assignments when mining topology/policy changes.
 pub fn mining_policy_system(
     world_data: Res<WorldData>,
-    mut entity_map: ResMut<EntityMap>,
+    entity_map: Res<EntityMap>,
     policies: Res<TownPolicies>,
     mut mining: ResMut<MiningPolicy>,
     mut mining_dirty: MessageReader<crate::messages::MiningDirtyMsg>,
+    spawner_q: Query<&SpawnerState>,
+    mut miner_cfg_q: Query<&mut MinerHomeConfig>,
 ) {
     if mining_dirty.read().count() == 0 {
         return;
@@ -511,35 +508,34 @@ pub fn mining_policy_system(
             })
             .collect();
 
-        // Collect auto-assign miner home slots (O(town's miner homes) instead of O(all spawners))
+        // Collect auto-assign miner home slots via ECS components
         let auto_home_slots: Vec<usize> = entity_map
             .iter_kind_for_town(BuildingKind::MinerHome, town_idx as u32)
             .filter(|inst| {
-                !inst.manual_mine
-                    && inst.npc_uid.is_some()
-                    && inst
-                        .npc_uid
-                        .and_then(|uid| entity_map.slot_for_uid(uid))
-                        .map(|s| entity_map.entities.contains_key(&s))
-                        .unwrap_or(false)
+                let Some(&entity) = entity_map.entities.get(&inst.slot) else { return false };
+                let Ok(cfg) = miner_cfg_q.get(entity) else { return false };
+                if cfg.manual_mine { return false; }
+                let Ok(sp) = spawner_q.get(entity) else { return false };
+                sp.npc_uid
+                    .and_then(|uid| entity_map.slot_for_uid(uid))
+                    .map(|s| entity_map.entities.contains_key(&s))
+                    .unwrap_or(false)
             })
             .map(|inst| inst.slot)
             .collect();
 
         // Clear stale assignments (mine disabled or no longer discovered)
         for &slot in &auto_home_slots {
-            let Some(inst) = entity_map.get_instance(slot) else {
-                continue;
-            };
-            if let Some(pos) = inst.assigned_mine {
+            let Some(&entity) = entity_map.entities.get(&slot) else { continue };
+            let Ok(cfg) = miner_cfg_q.get(entity) else { continue };
+            if let Some(pos) = cfg.assigned_mine {
                 let cell = (
                     (pos.x / TOWN_GRID_SPACING).floor() as i32,
                     (pos.y / TOWN_GRID_SPACING).floor() as i32,
                 );
-                let still_enabled = enabled_grid_cells.contains(&cell);
-                if !still_enabled {
-                    if let Some(inst_mut) = entity_map.get_instance_mut(slot) {
-                        inst_mut.assigned_mine = None;
+                if !enabled_grid_cells.contains(&cell) {
+                    if let Ok(mut cfg_mut) = miner_cfg_q.get_mut(entity) {
+                        cfg_mut.assigned_mine = None;
                     }
                 }
             }
@@ -547,8 +543,9 @@ pub fn mining_policy_system(
 
         if enabled_positions.is_empty() {
             for &slot in &auto_home_slots {
-                if let Some(inst_mut) = entity_map.get_instance_mut(slot) {
-                    inst_mut.assigned_mine = None;
+                let Some(&entity) = entity_map.entities.get(&slot) else { continue };
+                if let Ok(mut cfg) = miner_cfg_q.get_mut(entity) {
+                    cfg.assigned_mine = None;
                 }
             }
             continue;
@@ -557,8 +554,9 @@ pub fn mining_policy_system(
         // Round-robin assign mines to auto homes
         for (i, &slot) in auto_home_slots.iter().enumerate() {
             let mine_pos = enabled_positions[i % enabled_positions.len()];
-            if let Some(inst_mut) = entity_map.get_instance_mut(slot) {
-                inst_mut.assigned_mine = Some(mine_pos);
+            let Some(&entity) = entity_map.entities.get(&slot) else { continue };
+            if let Ok(mut cfg) = miner_cfg_q.get_mut(entity) {
+                cfg.assigned_mine = Some(mine_pos);
             }
         }
     }

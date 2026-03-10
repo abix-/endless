@@ -463,6 +463,13 @@ pub struct BuildingInspectorData<'w, 's> {
     pub merchant_inv: ResMut<'w, MerchantInventory>,
     pub town_inventory: ResMut<'w, TownInventory>,
     pub next_loot_id: ResMut<'w, NextLootItemId>,
+    pub tower_bld_q: Query<'w, 's, &'static mut TowerBuildingState, With<Building>>,
+    pub miner_cfg_q: Query<'w, 's, &'static mut MinerHomeConfig>,
+    pub production_q: Query<'w, 's, &'static ProductionState, With<Building>>,
+    pub construction_q: Query<'w, 's, &'static ConstructionProgress, With<Building>>,
+    pub spawner_q: Query<'w, 's, &'static SpawnerState, With<Building>>,
+    pub wall_level_q: Query<'w, 's, &'static mut WallLevel, With<Building>>,
+    pub waypoint_order_q: Query<'w, 's, &'static WaypointOrder, With<Building>>,
 }
 
 #[derive(SystemParam)]
@@ -726,16 +733,14 @@ fn tower_upgrade_window(
         return;
     }
 
-    // Read tower data (clone to avoid borrow conflict)
-    let (level, upgrade_levels, auto_flags, town_idx) = {
-        let Some(inst) = bld.entity_map.get_instance(slot) else { return; };
-        (
-            level_from_xp(inst.xp),
-            inst.upgrade_levels.clone(),
-            inst.auto_upgrade_flags.clone(),
-            inst.town_idx as usize,
-        )
-    };
+    // Read tower data from ECS TowerBuildingState + EntityMap for town_idx
+    let Some(inst) = bld.entity_map.get_instance(slot) else { return; };
+    let town_idx = inst.town_idx as usize;
+    let Some(&tower_entity) = bld.entity_map.entities.get(&slot) else { return; };
+    let Ok(tbs) = bld.tower_bld_q.get(tower_entity) else { return; };
+    let level = level_from_xp(tbs.xp);
+    let upgrade_levels = tbs.upgrade_levels.clone();
+    let auto_flags = tbs.auto_upgrade_flags.clone();
 
     let food = bld.food_storage.food.get(town_idx).copied().unwrap_or(0);
     let gold = bld.gold_storage.gold.get(town_idx).copied().unwrap_or(0);
@@ -781,11 +786,11 @@ fn tower_upgrade_window(
                                 .on_hover_text("Auto-buy this upgrade each game-hour")
                                 .changed()
                             {
-                                if let Some(inst) = bld.entity_map.get_instance_mut(slot) {
-                                    while inst.auto_upgrade_flags.len() <= i {
-                                        inst.auto_upgrade_flags.push(false);
+                                if let Ok(mut tbs) = bld.tower_bld_q.get_mut(tower_entity) {
+                                    while tbs.auto_upgrade_flags.len() <= i {
+                                        tbs.auto_upgrade_flags.push(false);
                                     }
-                                    inst.auto_upgrade_flags[i] = auto;
+                                    tbs.auto_upgrade_flags[i] = auto;
                                 }
                             }
                             ui.label(egui::RichText::new(upg.label).heading());
@@ -846,11 +851,11 @@ fn tower_upgrade_window(
                                 }
                             }
                             // Increment upgrade level
-                            if let Some(inst) = bld.entity_map.get_instance_mut(slot) {
-                                while inst.upgrade_levels.len() <= i {
-                                    inst.upgrade_levels.push(0);
+                            if let Ok(mut tbs) = bld.tower_bld_q.get_mut(tower_entity) {
+                                while tbs.upgrade_levels.len() <= i {
+                                    tbs.upgrade_levels.push(0);
                                 }
-                                inst.upgrade_levels[i] += 1;
+                                tbs.upgrade_levels[i] += 1;
                             }
                         }
                     });
@@ -1755,20 +1760,20 @@ fn inspector_content(
                 if let Some(action) = mine_assignment_ui(
                     ui,
                     world_data,
-                    &mut bld_data.entity_map,
+                    &bld_data.entity_map,
                     mh_slot,
                     hp,
                     dirty_writers,
                     ui_state,
+                    &mut bld_data.miner_cfg_q,
                 ) {
                     return Some(action);
                 }
                 // Show mine productivity when actively mining
                 if is_mining_at_mine {
-                    let mine_pos = bld_data
-                        .entity_map
-                        .get_instance(mh_slot)
-                        .and_then(|i| i.assigned_mine);
+                    let mine_pos = bld_data.entity_map.entities.get(&mh_slot)
+                        .and_then(|&e| bld_data.miner_cfg_q.get(e).ok())
+                        .and_then(|mc| mc.assigned_mine);
                     if let Some(mine_pos) = mine_pos {
                         let occupants = bld_data
                             .entity_map
@@ -1958,15 +1963,16 @@ fn selected_building_info(
 fn mine_assignment_ui(
     ui: &mut egui::Ui,
     _world_data: &mut WorldData,
-    entity_map: &mut EntityMap,
+    entity_map: &EntityMap,
     mh_slot: usize,
     ref_pos: Vec2,
     dirty_writers: &mut crate::messages::DirtyWriters,
     ui_state: &mut UiState,
+    miner_cfg_q: &mut Query<&mut MinerHomeConfig>,
 ) -> Option<InspectorAction> {
-    let (assigned, manual) = entity_map
-        .get_instance(mh_slot)
-        .map(|inst| (inst.assigned_mine, inst.manual_mine))
+    let mh_entity = entity_map.entities.get(&mh_slot).copied();
+    let (assigned, manual) = mh_entity
+        .and_then(|e| miner_cfg_q.get(e).ok().map(|mc| (mc.assigned_mine, mc.manual_mine)))
         .unwrap_or((None, false));
     let mut action = None;
     if let Some(mine_pos) = assigned {
@@ -1992,17 +1998,21 @@ fn mine_assignment_ui(
     });
     ui.horizontal(|ui| {
         if ui.button("Set Mine").clicked() {
-            if let Some(inst) = entity_map.get_instance_mut(mh_slot) {
-                inst.manual_mine = true;
+            if let Some(e) = mh_entity {
+                if let Ok(mut mc) = miner_cfg_q.get_mut(e) {
+                    mc.manual_mine = true;
+                }
             }
             dirty_writers.mining.write(crate::messages::MiningDirtyMsg);
             ui_state.assigning_mine = Some(mh_slot);
         }
         if assigned.is_some() || manual {
             if ui.button("Clear").clicked() {
-                if let Some(inst) = entity_map.get_instance_mut(mh_slot) {
-                    inst.manual_mine = false;
-                    inst.assigned_mine = None;
+                if let Some(e) = mh_entity {
+                    if let Ok(mut mc) = miner_cfg_q.get_mut(e) {
+                        mc.manual_mine = false;
+                        mc.assigned_mine = None;
+                    }
                 }
                 dirty_writers.mining.write(crate::messages::MiningDirtyMsg);
             }
@@ -2046,18 +2056,17 @@ fn building_inspector_content(
         ui.label("Faction: Unowned");
     }
 
-    // Construction status
-    let is_constructing = bld
-        .entity_map
-        .find_by_position(world_pos)
-        .is_some_and(|inst| inst.under_construction > 0.0);
-    if let Some(inst) = bld
-        .entity_map
-        .find_by_position(world_pos)
-        .filter(|inst| inst.under_construction > 0.0)
-    {
+    // Construction status from ECS ConstructionProgress
+    let bld_slot = bld.entity_map.slot_at_position(world_pos);
+    let bld_entity = bld_slot.and_then(|s| bld.entity_map.entities.get(&s).copied());
+    let construction_remaining = bld_entity
+        .and_then(|e| bld.construction_q.get(e).ok())
+        .map(|cp| cp.0)
+        .unwrap_or(0.0);
+    let is_constructing = construction_remaining > 0.0;
+    if is_constructing {
         let total = crate::constants::BUILDING_CONSTRUCT_SECS;
-        let progress = ((total - inst.under_construction) / total).clamp(0.0, 1.0);
+        let progress = ((total - construction_remaining) / total).clamp(0.0, 1.0);
         ui.colored_label(egui::Color32::from_rgb(200, 200, 40), "Under Construction");
         ui.horizontal(|ui| {
             ui.label("Progress:");
@@ -2066,7 +2075,7 @@ fn building_inspector_content(
                     .text(format!(
                         "{:.0}% ({:.1}s)",
                         progress * 100.0,
-                        inst.under_construction
+                        construction_remaining
                     ))
                     .fill(egui::Color32::from_rgb(200, 160, 40)),
             );
@@ -2076,33 +2085,25 @@ fn building_inspector_content(
     // Per-type details (hidden during construction)
     if !is_constructing { match kind {
         BuildingKind::Farm => {
-            if let Some(inst) = bld.entity_map.find_farm_at(world_pos) {
-                let state_name = if inst.growth_ready {
-                    "Ready to harvest"
-                } else {
-                    "Growing"
-                };
+            if let Some(ps) = bld_entity.and_then(|e| bld.production_q.get(e).ok()) {
+                let state_name = if ps.ready { "Ready to harvest" } else { "Growing" };
                 ui.label(format!("Status: {}", state_name));
 
-                let color = if inst.growth_ready {
+                let color = if ps.ready {
                     egui::Color32::from_rgb(200, 200, 60)
                 } else {
                     egui::Color32::from_rgb(80, 180, 80)
                 };
-                let progress = inst.growth_progress;
                 ui.horizontal(|ui| {
                     ui.label("Growth:");
                     ui.add(
-                        egui::ProgressBar::new(progress)
-                            .text(format!("{:.0}%", progress * 100.0))
+                        egui::ProgressBar::new(ps.progress)
+                            .text(format!("{:.0}%", ps.progress * 100.0))
                             .fill(color),
                     );
                 });
 
-                // Show farmer working here
-                let occupants = bld
-                    .entity_map
-                    .slot_at_position(world_pos)
+                let occupants = bld_slot
                     .map(|s| bld.entity_map.occupant_count(s))
                     .unwrap_or(0);
                 ui.label(format!("Farmers: {}", occupants));
@@ -2110,9 +2111,11 @@ fn building_inspector_content(
         }
 
         BuildingKind::Waypoint => {
-            if let Some(inst) = bld.entity_map.find_by_position(world_pos) {
-                ui.label(format!("Patrol order: {}", inst.patrol_order));
-            }
+            let order = bld_entity
+                .and_then(|e| bld.waypoint_order_q.get(e).ok())
+                .map(|w| w.0)
+                .unwrap_or(0);
+            ui.label(format!("Patrol order: {}", order));
         }
 
         BuildingKind::Fountain => {
@@ -2133,16 +2136,14 @@ fn building_inspector_content(
                 tower.proj_lifetime
             ));
 
-            // Kills / XP / Level
-            if let Some(slot) = bld.entity_map.slot_at_position(world_pos) {
-                if let Some(inst) = bld.entity_map.get_instance(slot) {
-                    let level = level_from_xp(inst.xp);
-                    let xp_next = (level + 1) * (level + 1) * 100;
-                    ui.label(format!(
-                        "Kills: {}  Lv.{}  XP: {}/{}",
-                        inst.kills, level, inst.xp, xp_next
-                    ));
-                }
+            // Kills / XP / Level from TowerBuildingState
+            if let Some(tbs) = bld_entity.and_then(|e| bld.tower_bld_q.get(e).ok()) {
+                let level = level_from_xp(tbs.xp);
+                let xp_next = (level + 1) * (level + 1) * 100;
+                ui.label(format!(
+                    "Kills: {}  Lv.{}  XP: {}/{}",
+                    tbs.kills, level, tbs.xp, xp_next
+                ));
             }
 
             // Town food — town_idx is direct index into food_storage
@@ -2177,30 +2178,26 @@ fn building_inspector_content(
                     dirty_writers.mining.write(crate::messages::MiningDirtyMsg);
                 }
             }
-            if let Some(inst) = bld.entity_map.find_mine_at(world_pos) {
-                let progress = inst.growth_progress;
-                let ready = inst.growth_ready;
-                let label = if ready {
-                    "Ready to harvest"
+            if let Some(ps) = bld_entity.and_then(|e| bld.production_q.get(e).ok()) {
+                let label = if ps.ready {
+                    "Ready to harvest".to_string()
                 } else {
-                    &format!("Growing: {:.0}%", progress * 100.0)
+                    format!("Growing: {:.0}%", ps.progress * 100.0)
                 };
-                ui.label(label);
-                let color = if ready {
+                ui.label(&label);
+                let color = if ps.ready {
                     egui::Color32::from_rgb(200, 180, 40)
-                } else if progress > 0.0 {
+                } else if ps.progress > 0.0 {
                     egui::Color32::from_rgb(160, 140, 40)
                 } else {
                     egui::Color32::from_rgb(100, 100, 100)
                 };
                 ui.add(
-                    egui::ProgressBar::new(progress)
-                        .text(format!("{:.0}%", progress * 100.0))
+                    egui::ProgressBar::new(ps.progress)
+                        .text(format!("{:.0}%", ps.progress * 100.0))
                         .fill(color),
                 );
-                let occupants = bld
-                    .entity_map
-                    .slot_at_position(world_pos)
+                let occupants = bld_slot
                     .map(|s| bld.entity_map.occupant_count(s))
                     .unwrap_or(0);
                 if occupants > 0 {
@@ -2216,8 +2213,9 @@ fn building_inspector_content(
 
         BuildingKind::Wall => {
             // Wall tier info + upgrade button
-            if let Some(wall_inst) = bld.entity_map.find_by_position(world_pos) {
-                let level = wall_inst.wall_level.max(1) as usize;
+            if let Some(_wall_inst) = bld.entity_map.find_by_position(world_pos) {
+                let wall_lv = bld_entity.and_then(|e| bld.wall_level_q.get(e).ok()).map(|w| w.0).unwrap_or(1);
+                let level = wall_lv.max(1) as usize;
                 let tier_name = WALL_TIER_NAMES.get(level - 1).unwrap_or(&"Wall");
                 let tier_hp = WALL_TIER_HP.get(level - 1).copied().unwrap_or(80.0);
                 ui.label(format!("Tier: {} (Lv.{})", tier_name, level));
@@ -2225,11 +2223,8 @@ fn building_inspector_content(
 
                 // Show current HP from building entity
                 {
-                    let hp = bld
-                        .entity_map
-                        .entities
-                        .get(&wall_inst.slot)
-                        .and_then(|&e| bld.building_health.get(e).ok())
+                    let hp = bld_entity
+                        .and_then(|e| bld.building_health.get(e).ok())
                         .map(|h| h.0);
                     if let Some(hp) = hp {
                         let color = if hp > tier_hp * 0.5 {
@@ -2294,18 +2289,15 @@ fn building_inspector_content(
                                 }
                             }
                         }
-                        // Upgrade wall level + HP
+                        // Upgrade wall level + HP via ECS
                         let new_level = (level + 1) as u8;
                         let new_hp = WALL_TIER_HP[level]; // level is 0-indexed for next tier
-                        // Dual-write wall_level to WorldData
-                        if let Some(slot) = bld.entity_map.slot_at_position(world_pos) {
-                            if let Some(inst) = bld.entity_map.get_instance_mut(slot) {
-                                inst.wall_level = new_level;
+                        if let Some(e) = bld_entity {
+                            if let Ok(mut wl) = bld.wall_level_q.get_mut(e) {
+                                wl.0 = new_level;
                             }
-                            if let Some(&entity) = bld.entity_map.entities.get(&slot) {
-                                if let Ok(mut health) = bld.building_health.get_mut(entity) {
-                                    health.0 = new_hp;
-                                }
+                            if let Ok(mut health) = bld.building_health.get_mut(e) {
+                                health.0 = new_hp;
                             }
                         }
                         dirty_writers
@@ -2319,10 +2311,12 @@ fn building_inspector_content(
         }
 
         BuildingKind::Tower => {
-            // Resolve per-instance stats
-            let (level, upgrade_levels_clone, slot) = bld.entity_map.find_by_position(world_pos)
-                .map(|inst| (level_from_xp(inst.xp), inst.upgrade_levels.clone(), inst.slot))
-                .unwrap_or((0, Vec::new(), usize::MAX));
+            // Resolve per-instance stats from ECS TowerBuildingState
+            let slot = bld_slot.unwrap_or(usize::MAX);
+            let (level, upgrade_levels_clone) = bld_entity
+                .and_then(|e| bld.tower_bld_q.get(e).ok())
+                .map(|tbs| (level_from_xp(tbs.xp), tbs.upgrade_levels.clone()))
+                .unwrap_or((0, Vec::new()));
             let stats = resolve_tower_instance_stats(level, &upgrade_levels_clone);
 
             // Tower combat stats (resolved)
@@ -2355,11 +2349,11 @@ fn building_inspector_content(
             }
 
             // Kills / XP / Level
-            if let Some(inst) = bld.entity_map.find_by_position(world_pos) {
+            if let Some(tbs) = bld_entity.and_then(|e| bld.tower_bld_q.get(e).ok()) {
                 let xp_next = (level + 1) * (level + 1) * 100;
                 ui.label(format!(
                     "Kills: {}  Lv.{}  XP: {}/{}",
-                    inst.kills, level, inst.xp, xp_next
+                    tbs.kills, level, tbs.xp, xp_next
                 ));
             }
 
@@ -2474,7 +2468,11 @@ fn building_inspector_content(
                     .filter(|i| crate::constants::building_def(i.kind).spawner.is_some())
                 {
                     ui.label(format!("Spawns: {}", spawns_label));
-                    if let Some(npc_uid) = inst.npc_uid {
+                    let spawner_state = bld.entity_map.entities.get(&inst.slot)
+                        .and_then(|&e| bld.spawner_q.get(e).ok());
+                    let npc_uid_opt = spawner_state.and_then(|s| s.npc_uid);
+                    let respawn_timer = spawner_state.map(|s| s.respawn_timer).unwrap_or(0.0);
+                    if let Some(npc_uid) = npc_uid_opt {
                         if let Some(slot) = bld.entity_map.slot_for_uid(npc_uid) {
                             if let Some(action) = npc_link(ui, meta_cache, slot) {
                                 return Some(action);
@@ -2522,10 +2520,10 @@ fn building_inspector_content(
                                 ));
                             }
                         }
-                    } else if inst.respawn_timer > 0.0 {
+                    } else if respawn_timer > 0.0 {
                         ui.colored_label(
                             egui::Color32::from_rgb(200, 200, 40),
-                            format!("Respawning in {:.0}h", inst.respawn_timer),
+                            format!("Respawning in {:.0}h", respawn_timer),
                         );
                     } else {
                         ui.colored_label(egui::Color32::from_rgb(200, 200, 40), "Spawning...");
@@ -2542,11 +2540,12 @@ fn building_inspector_content(
                         if let Some(action) = mine_assignment_ui(
                             ui,
                             world_data,
-                            &mut bld.entity_map,
+                            &bld.entity_map,
                             mh_slot,
                             world_pos,
                             dirty_writers,
                             ui_state,
+                            &mut bld.miner_cfg_q,
                         ) {
                             return Some(action);
                         }
@@ -2601,10 +2600,10 @@ fn building_inspector_content(
                 );
                 // Spawner NPC state
                 if let Some(spawner) = def.spawner {
-                    if let Some(inst) = bld.entity_map.find_by_position(world_pos) {
-                        let spawns_label = npc_def(Job::from_i32(spawner.job)).label;
-                        info.push_str(&format!("Spawns: {}\n", spawns_label));
-                        if let Some(npc_uid) = inst.npc_uid {
+                    let spawns_label = npc_def(Job::from_i32(spawner.job)).label;
+                    info.push_str(&format!("Spawns: {}\n", spawns_label));
+                    if let Some(ss) = bld_entity.and_then(|e| bld.spawner_q.get(e).ok()) {
+                        if let Some(npc_uid) = ss.npc_uid {
                             if let Some(npc_slot) = bld.entity_map.slot_for_uid(npc_uid) {
                                 if npc_slot < meta_cache.0.len() {
                                     let meta = &meta_cache.0[npc_slot];
@@ -2614,8 +2613,8 @@ fn building_inspector_content(
                                     ));
                                 }
                             }
-                        } else if inst.respawn_timer > 0.0 {
-                            info.push_str(&format!("Respawning in {:.0}h\n", inst.respawn_timer));
+                        } else if ss.respawn_timer > 0.0 {
+                            info.push_str(&format!("Respawning in {:.0}h\n", ss.respawn_timer));
                         }
                     }
                 }

@@ -591,6 +591,97 @@ pub struct FarmReadyMarker {
 }
 
 // ============================================================================
+// BUILDING STATE COMPONENTS (CRD pattern: runtime state on ECS entities)
+// ============================================================================
+
+/// Production cycle for worksites (farms grow food, mines extract gold).
+/// Replaces BuildingInstance.growth_ready/growth_progress.
+/// Occupants tracked by EntityMap (worksite claim counter).
+#[derive(Component, Clone, Default, Reflect)]
+#[reflect(Component)]
+pub struct ProductionState {
+    pub ready: bool,
+    pub progress: f32,
+}
+
+impl ProductionState {
+    /// Harvest a Ready worksite. Resets to Growing, returns yield.
+    pub fn harvest(&mut self, kind: crate::world::BuildingKind) -> i32 {
+        if !self.ready {
+            return 0;
+        }
+        self.ready = false;
+        self.progress = 0.0;
+        match kind {
+            crate::world::BuildingKind::Farm => 1,
+            crate::world::BuildingKind::GoldMine => crate::constants::MINE_EXTRACT_PER_CYCLE,
+            _ => 0,
+        }
+    }
+
+    /// Log message for a harvest event.
+    pub fn harvest_log_msg(kind: crate::world::BuildingKind, pos: Vec2, yield_amount: i32) -> String {
+        match kind {
+            crate::world::BuildingKind::Farm => format!(
+                "Farm harvested at ({:.0},{:.0})",
+                pos.x, pos.y
+            ),
+            crate::world::BuildingKind::GoldMine => {
+                format!("Mine harvested ({} gold)", yield_amount)
+            }
+            _ => String::new(),
+        }
+    }
+}
+
+/// Spawner building state (homes that produce NPCs).
+/// Replaces BuildingInstance.npc_uid/respawn_timer.
+#[derive(Component, Clone, Default, Reflect)]
+#[reflect(Component)]
+pub struct SpawnerState {
+    pub npc_uid: Option<EntityUid>,
+    pub respawn_timer: f32,
+}
+
+/// Tower/Fountain per-building combat stats.
+/// Replaces BuildingInstance.kills/xp/upgrade_levels/auto_upgrade_flags.
+#[derive(Component, Clone, Default, Reflect)]
+#[reflect(Component)]
+pub struct TowerBuildingState {
+    pub kills: i32,
+    pub xp: i32,
+    pub upgrade_levels: Vec<u8>,
+    pub auto_upgrade_flags: Vec<bool>,
+}
+
+/// Building under construction (seconds remaining; 0 = complete).
+/// Replaces BuildingInstance.under_construction.
+#[derive(Component, Clone, Copy, Default, Reflect)]
+#[reflect(Component)]
+pub struct ConstructionProgress(pub f32);
+
+/// Waypoint patrol order within a town.
+/// Replaces BuildingInstance.patrol_order.
+#[derive(Component, Clone, Copy, Reflect)]
+#[reflect(Component)]
+pub struct WaypointOrder(pub u32);
+
+/// Wall upgrade level.
+/// Replaces BuildingInstance.wall_level.
+#[derive(Component, Clone, Copy, Default, Reflect)]
+#[reflect(Component)]
+pub struct WallLevel(pub u8);
+
+/// Miner home assignment config.
+/// Replaces BuildingInstance.assigned_mine/manual_mine.
+#[derive(Component, Clone, Default, Reflect)]
+#[reflect(Component)]
+pub struct MinerHomeConfig {
+    pub assigned_mine: Option<Vec2>,
+    pub manual_mine: bool,
+}
+
+// ============================================================================
 // BEHAVIOR CONFIG COMPONENTS (generic, attach to any NPC)
 // ============================================================================
 

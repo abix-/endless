@@ -92,7 +92,9 @@ impl DenseSlotSet {
     pub fn clear(&mut self) { self.0.clear(); }
 }
 
-/// A single placed building instance. All runtime state for one building.
+/// Lightweight building index entry in EntityMap. All gameplay state lives on ECS components.
+/// Provides slot↔Entity mapping and identity fields for fast iteration/spatial queries.
+/// Parallel to NpcEntry: identity + occupancy only, no gameplay state.
 #[derive(Clone)]
 pub struct BuildingInstance {
     pub kind: crate::world::BuildingKind,
@@ -100,51 +102,7 @@ pub struct BuildingInstance {
     pub town_idx: u32,
     pub slot: usize,
     pub faction: i32,
-    // Kind-specific fields (zero/None for non-applicable kinds)
-    pub patrol_order: u32,                             // Waypoint only
-    pub assigned_mine: Option<Vec2>,                   // MinerHome only
-    pub manual_mine: bool,                             // MinerHome only
-    pub wall_level: u8,                                // Wall only
-    pub npc_uid: Option<crate::components::EntityUid>, // Spawner buildings only (None = no NPC alive)
-    pub respawn_timer: f32,   // Spawner buildings only (-1.0 = not respawning)
-    pub growth_ready: bool,   // Farm/Mine only (false = growing, true = ready to harvest)
-    pub growth_progress: f32, // Farm/Mine only (0.0 to 1.0)
-    pub occupants: i16,       // Farm/Mine only — number of NPCs working here
-    pub under_construction: f32, // Seconds remaining; 0.0 = complete, >0 = constructing
-    pub kills: i32,              // Tower/Fountain only — kill counter
-    pub xp: i32,                 // Tower/Fountain only — XP (same scale as NPC: +100 per kill)
-    pub upgrade_levels: Vec<u8>, // Tower only — per-stat upgrade levels (indices match TOWER_UPGRADES)
-    pub auto_upgrade_flags: Vec<bool>, // Tower only — per-stat auto-buy flags (indices match TOWER_UPGRADES)
-}
-
-impl BuildingInstance {
-    /// Harvest a Ready farm/mine. Resets to Growing, returns yield (farm=1 food, mine=MINE_EXTRACT_PER_CYCLE gold). Returns 0 if not Ready.
-    pub fn harvest(&mut self) -> i32 {
-        if !self.growth_ready {
-            return 0;
-        }
-        self.growth_ready = false;
-        self.growth_progress = 0.0;
-        match self.kind {
-            crate::world::BuildingKind::Farm => 1,
-            crate::world::BuildingKind::GoldMine => crate::constants::MINE_EXTRACT_PER_CYCLE,
-            _ => 0,
-        }
-    }
-
-    /// Log message for a harvest event.
-    pub fn harvest_log_msg(&self, yield_amount: i32) -> String {
-        match self.kind {
-            crate::world::BuildingKind::Farm => format!(
-                "Farm harvested at ({:.0},{:.0})",
-                self.position.x, self.position.y
-            ),
-            crate::world::BuildingKind::GoldMine => {
-                format!("Mine harvested ({} gold)", yield_amount)
-            }
-            _ => String::new(),
-        }
-    }
+    pub occupants: i16, // worksite claim counter (managed by try_claim_worksite/release)
 }
 
 
@@ -382,7 +340,7 @@ impl EntityMap {
         let gc = (inst.position.x / TOWN_GRID_SPACING).floor() as i32;
         let gr = (inst.position.y / TOWN_GRID_SPACING).floor() as i32;
         self.by_grid_cell.insert((gc, gr), slot);
-        let is_spawner = inst.respawn_timer > -2.0;
+        let is_spawner = crate::constants::building_def(inst.kind).spawner.is_some();
         let pos = inst.position;
         self.instances.insert(slot, inst);
         self.spatial_insert(slot, pos);
@@ -520,11 +478,6 @@ impl EntityMap {
     pub fn find_mine_at_mut(&mut self, pos: Vec2) -> Option<&mut BuildingInstance> {
         self.find_by_position_mut(pos)
             .filter(|i| i.kind == crate::world::BuildingKind::GoldMine)
-    }
-
-    pub fn iter_growable(&self) -> impl Iterator<Item = &BuildingInstance> {
-        self.iter_kind(crate::world::BuildingKind::Farm)
-            .chain(self.iter_kind(crate::world::BuildingKind::GoldMine))
     }
 
     pub fn slot_at_position(&self, pos: Vec2) -> Option<usize> {

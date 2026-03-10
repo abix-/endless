@@ -495,6 +495,7 @@ pub fn building_tower_system(
     mut proj_updates: MessageWriter<ProjGpuUpdateMsg>,
     mut sfx_writer: MessageWriter<crate::resources::PlaySfxMsg>,
     mut building_health: Query<&mut Health, (With<Building>, Without<Dead>)>,
+    tower_bld_q: Query<&crate::components::TowerBuildingState, With<Building>>,
 ) {
     let dt = game_time.delta(&time);
     // --- Towns: sync state, refresh enabled from sprite_type == 0 (fountain) every tick ---
@@ -589,9 +590,13 @@ pub fn building_tower_system(
             .is_some_and(|i| i.kind == BuildingKind::Tower)
     });
 
-    // Collect tower data (slot, position, faction, level, upgrade_levels) to avoid borrow conflicts
+    // Collect tower data (slot, position, faction, xp, upgrade_levels) from ECS
     let towers: Vec<_> = entity_map.iter_kind(BuildingKind::Tower)
-        .map(|inst| (inst.slot, inst.position, inst.faction, inst.xp, inst.upgrade_levels.clone()))
+        .filter_map(|inst| {
+            let entity = entity_map.entities.get(&inst.slot)?;
+            let tbs = tower_bld_q.get(*entity).ok()?;
+            Some((inst.slot, inst.position, inst.faction, tbs.xp, tbs.upgrade_levels.clone()))
+        })
         .collect();
 
     for (slot, src, faction, xp, upgrade_levels) in &towers {
