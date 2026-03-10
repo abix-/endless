@@ -44,7 +44,7 @@ use resources::{
     DebugFlags, Difficulty, EndlessMode, EntityMap, FactionList, FactionStats, FollowSelected, Reputation,
     GameAudio, GameConfig, GameTime, GpuReadState, GpuSlotPool, HealingZoneCache,
     HealthDebug, HelpCatalog, KillStats, MigrationState, MiningPolicy,
-    NextLootItemId, NpcLogCache, NpcMetaCache, NpcTargetThrashDebug, PlaySfxMsg,
+    NextLootItemId, NpcLogCache, NpcTargetThrashDebug, PlaySfxMsg,
     DeltaTime, PopulationStats, ProjHitState, ProjPositionState, ProjSlotAllocator, RaiderState,
     SelectedBuilding, SelectedNpc, SquadState, SystemTimings, TowerState,
     MerchantInventory, TutorialState, UiState, UpsCounter,
@@ -313,7 +313,6 @@ pub fn build_app(app: &mut App) {
         .init_resource::<SelectedNpc>()
         .init_resource::<SelectedBuilding>()
         .init_resource::<FollowSelected>()
-        .init_resource::<NpcMetaCache>()
         .init_resource::<NpcLogCache>()
         .init_resource::<DebugFlags>()
         .init_resource::<GpuReadState>()
@@ -425,6 +424,7 @@ pub fn build_app(app: &mut App) {
         .register_type::<components::Stealer>()
         .register_type::<components::HasEnergy>()
         .register_type::<components::NpcEquipment>()
+        .register_type::<components::NpcStats>()
         .register_type::<components::LastHitBy>()
         .register_type::<components::Building>()
         .register_type::<components::FarmReadyMarker>()

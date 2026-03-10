@@ -1282,7 +1282,7 @@ pub struct SaveToast {
 /// Collect NPC save data from EntityMap NpcInstances + ECS queries.
 pub fn collect_npc_data(
     entity_map: &EntityMap,
-    npc_meta: &NpcMetaCache,
+    npc_stats_q: &Query<&NpcStats>,
     squad_id_q: &Query<&SquadId>,
     activity_q: &Query<&Activity>,
     position_q: &Query<&Position>,
@@ -1303,7 +1303,7 @@ pub fn collect_npc_data(
             continue;
         }
         let idx = npc.slot;
-        let meta = &npc_meta.0[idx];
+        let stats = npc_stats_q.get(npc.entity).cloned().unwrap_or_default();
 
         npcs.push(NpcSaveData {
             slot: idx,
@@ -1341,9 +1341,9 @@ pub fn collect_npc_data(
                 .get(npc.entity)
                 .map(PersonalitySave::from_personality)
                 .unwrap_or_default(),
-            name: meta.name.clone(),
-            level: meta.level,
-            xp: meta.xp,
+            name: stats.name.clone(),
+            level: crate::systems::stats::level_from_xp(stats.xp),
+            xp: stats.xp,
             attack_type: match attack_type_q
                 .get(npc.entity)
                 .copied()
@@ -1433,13 +1433,13 @@ pub struct SaveNpcQueries<'w, 's> {
     pub carried_loot_q: Query<'w, 's, &'static CarriedLoot>,
     pub equipment_q: Query<'w, 's, &'static NpcEquipment>,
     pub has_energy_q: Query<'w, 's, &'static HasEnergy>,
+    pub npc_stats_q: Query<'w, 's, &'static NpcStats>,
 }
 
 /// NPC tracking resources for load.
 #[derive(SystemParam)]
 pub struct LoadNpcTracking<'w> {
     pub pop_stats: ResMut<'w, PopulationStats>,
-    pub npc_meta: ResMut<'w, NpcMetaCache>,
     pub slots: ResMut<'w, GpuSlotPool>,
     pub combat_log: ResMut<'w, CombatLog>,
     pub gpu_state: ResMut<'w, GpuReadState>,
@@ -1732,7 +1732,6 @@ pub fn save_game_system(
     ws: SaveWorldState,
     fs: SaveFactionState,
     entity_map: Res<EntityMap>,
-    npc_meta: Res<NpcMetaCache>,
     building_query: Query<(&Building, &GpuSlot, &Health), Without<Dead>>,
     nq: SaveNpcQueries,
     bld_component_q: Query<(
@@ -1752,7 +1751,7 @@ pub fn save_game_system(
 
     let npcs = collect_npc_data(
         &entity_map,
-        &npc_meta,
+        &nq.npc_stats_q,
         &nq.squad_id_q,
         &nq.activity_q,
         &nq.position_q,
@@ -1829,7 +1828,6 @@ pub fn autosave_system(
     ws: SaveWorldState,
     fs: SaveFactionState,
     entity_map: Res<EntityMap>,
-    npc_meta: Res<NpcMetaCache>,
     building_query: Query<(&Building, &GpuSlot, &Health), Without<Dead>>,
     nq: SaveNpcQueries,
     bld_component_q: Query<(
@@ -1862,7 +1860,7 @@ pub fn autosave_system(
 
     let npcs = collect_npc_data(
         &entity_map,
-        &npc_meta,
+        &nq.npc_stats_q,
         &nq.squad_id_q,
         &nq.activity_q,
         &nq.position_q,
@@ -1931,7 +1929,6 @@ pub fn spawn_npcs_from_save(
     commands: &mut Commands,
     entity_map: &mut EntityMap,
     pop_stats: &mut PopulationStats,
-    npc_meta: &mut NpcMetaCache,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
     world_data: &WorldData,
     combat_config: &CombatConfig,
@@ -1977,7 +1974,6 @@ pub fn spawn_npcs_from_save(
             commands,
             entity_map,
             pop_stats,
-            npc_meta,
             gpu_updates,
             world_data,
             combat_config,
@@ -2095,7 +2091,6 @@ pub fn restore_world_from_save(
         commands,
         entity_map,
         &mut tracking.pop_stats,
-        &mut tracking.npc_meta,
         gpu_updates,
         &ws.world_data,
         combat_config,

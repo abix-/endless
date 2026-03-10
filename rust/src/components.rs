@@ -391,6 +391,21 @@ impl Faction {
 pub struct AttackTimer(pub f32);
 
 // ============================================================================
+// NPC PROGRESSION
+// ============================================================================
+
+/// Per-NPC progression stats. Mirrors TowerBuildingState for buildings.
+/// Level derived via level_from_xp(xp) — not stored.
+/// Replaces NpcMetaCache sidecar — all other fields live on existing components
+/// (Job, TownId, Personality::trait_summary()).
+#[derive(Component, Clone, Default, Reflect)]
+#[reflect(Component)]
+pub struct NpcStats {
+    pub name: String,
+    pub xp: i32,
+}
+
+// ============================================================================
 // STEALING / EQUIPMENT COMPONENTS
 // ============================================================================
 

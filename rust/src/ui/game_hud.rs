@@ -63,14 +63,16 @@ enum InspectorAction {
 }
 
 /// Render an NPC name as a clickable link. Returns action if clicked.
-fn npc_link(ui: &mut egui::Ui, meta_cache: &NpcMetaCache, slot: usize) -> Option<InspectorAction> {
-    if slot < meta_cache.0.len() {
-        let meta = &meta_cache.0[slot];
-        if ui
-            .link(format!("{} (Lv.{})", meta.name, meta.level))
-            .clicked()
-        {
-            return Some(InspectorAction::SelectNpc(slot as i32));
+fn npc_link(ui: &mut egui::Ui, npc_stats_q: &Query<&mut NpcStats>, entity_map: &EntityMap, slot: usize) -> Option<InspectorAction> {
+    if let Some(npc) = entity_map.get_npc(slot) {
+        if let Ok(stats) = npc_stats_q.get(npc.entity) {
+            let level = crate::systems::stats::level_from_xp(stats.xp);
+            if ui
+                .link(format!("{} (Lv.{})", stats.name, level))
+                .clicked()
+            {
+                return Some(InspectorAction::SelectNpc(slot as i32));
+            }
         }
     }
     None
@@ -535,7 +537,7 @@ pub struct InspectorUiState {
 pub fn bottom_panel_system(
     mut contexts: EguiContexts,
     mut data: BottomPanelData,
-    mut meta_cache: ResMut<NpcMetaCache>,
+    mut npc_stats_q: Query<&mut NpcStats>,
     mut bld_data: BuildingInspectorData,
     mut world_data: ResMut<WorldData>,
     gpu_state: Res<GpuReadState>,
@@ -585,9 +587,13 @@ pub fn bottom_panel_system(
             .show(ctx, |ui| {
                 if has_npc && has_building {
                     let npc_label = if data.selected.0 >= 0
-                        && (data.selected.0 as usize) < meta_cache.0.len()
+                        && bld_data.entity_map.get_npc(data.selected.0 as usize).is_some()
                     {
-                        format!("NPC: {}", meta_cache.0[data.selected.0 as usize].name)
+                        let npc_name = bld_data.entity_map.get_npc(data.selected.0 as usize)
+                            .and_then(|n| npc_stats_q.get(n.entity).ok())
+                            .map(|s| s.name.clone())
+                            .unwrap_or_default();
+                        format!("NPC: {}", npc_name)
                     } else {
                         "NPC".to_string()
                     };
@@ -624,7 +630,7 @@ pub fn bottom_panel_system(
                         let action = inspector_content(
                             ui,
                             &mut data,
-                            &mut meta_cache,
+                            &mut npc_stats_q,
                             rename,
                             &mut tabs.npc_tab,
                             &mut bld_data,
@@ -1281,7 +1287,7 @@ fn dc_group_inspector(
 fn inspector_content(
     ui: &mut egui::Ui,
     data: &mut BottomPanelData,
-    meta_cache: &mut NpcMetaCache,
+    npc_stats_q: &mut Query<&mut NpcStats>,
     rename_state: &mut InspectorRenameState,
     npc_tab: &mut InspectorNpcTab,
     bld_data: &mut BuildingInspectorData,
@@ -1310,7 +1316,7 @@ fn inspector_content(
                 world_data,
                 mining_policy,
                 dirty_writers,
-                meta_cache,
+                npc_stats_q,
                 ui_state,
                 settings,
                 gpu_state,
@@ -1344,7 +1350,7 @@ fn inspector_content(
                 world_data,
                 mining_policy,
                 dirty_writers,
-                meta_cache,
+                npc_stats_q,
                 ui_state,
                 settings,
                 gpu_state,
@@ -1367,9 +1373,6 @@ fn inspector_content(
         return None;
     }
     let idx = sel as usize;
-    if idx >= meta_cache.0.len() {
-        return None;
-    }
     if bld_data.entity_map.get_npc(idx).is_none() {
         rename_state.slot = -1;
         rename_state.text.clear();
@@ -1380,7 +1383,7 @@ fn inspector_content(
                 world_data,
                 mining_policy,
                 dirty_writers,
-                meta_cache,
+                npc_stats_q,
                 ui_state,
                 settings,
                 gpu_state,
@@ -1393,9 +1396,13 @@ fn inspector_content(
         return None;
     }
 
+    let npc_entity = bld_data.entity_map.get_npc(idx).map(|n| n.entity);
     if rename_state.slot != sel {
         rename_state.slot = sel;
-        rename_state.text = meta_cache.0[idx].name.clone();
+        rename_state.text = npc_entity
+            .and_then(|e| npc_stats_q.get(e).ok())
+            .map(|s| s.name.clone())
+            .unwrap_or_default();
     }
 
     ui.horizontal_wrapped(|ui| {
@@ -1417,23 +1424,30 @@ fn inspector_content(
             let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             if (ui.button("Rename").clicked() || enter) && !rename_state.text.trim().is_empty() {
                 let new_name = rename_state.text.trim().to_string();
-                meta_cache.0[idx].name = new_name.clone();
+                if let Some(e) = npc_entity {
+                    if let Ok(mut s) = npc_stats_q.get_mut(e) {
+                        s.name = new_name.clone();
+                    }
+                }
                 rename_state.text = new_name;
             }
         });
     }
 
-    let meta = &meta_cache.0[idx];
+    let npc_stats = npc_entity.and_then(|e| npc_stats_q.get(e).ok());
+    let npc_xp = npc_stats.map(|s| s.xp).unwrap_or(0);
+    let npc_level = crate::systems::stats::level_from_xp(npc_xp);
+    let npc_job = bld_data.entity_map.get_npc(idx).map(|n| n.job);
 
     if show_overview {
         tipped(
             ui,
             format!(
                 "{} Lv.{}  XP: {}/{}",
-                crate::job_name(meta.job),
-                meta.level,
-                meta.xp,
-                (meta.level + 1) * (meta.level + 1) * 100
+                npc_job.map(|j| j.label()).unwrap_or("?"),
+                npc_level,
+                npc_xp,
+                (npc_level + 1) * (npc_level + 1) * 100
             ),
             catalog.0.get("npc_level").unwrap_or(&""),
         );
@@ -1525,7 +1539,7 @@ fn inspector_content(
         ui.label(egui::RichText::new("Loadout").strong());
     }
     let mut squad_id: Option<i32> = None;
-    let job = Job::from_i32(meta.job);
+    let job = npc_job.unwrap_or(Job::Farmer);
     let can_equip = !npc_def(job).equip_slots.is_empty();
     if let Some(npc) = bld_data.entity_map.get_npc(idx) {
         if show_loadout {
@@ -1588,8 +1602,9 @@ fn inspector_content(
     }
 
     // Town name
-    if show_overview && meta.town_id >= 0 {
-        if let Some(town) = world_data.towns.get(meta.town_id as usize) {
+    let npc_town_idx = bld_data.entity_map.get_npc(idx).map(|n| n.town_idx).unwrap_or(-1);
+    if show_overview && npc_town_idx >= 0 {
+        if let Some(town) = world_data.towns.get(npc_town_idx as usize) {
             ui.label(format!("Town: {}", town.name));
         }
     }
@@ -1744,7 +1759,7 @@ fn inspector_content(
     }
 
     // Mine assignment for miners (same UI as MinerHome building inspector)
-    if show_overview && meta.job == 4 {
+    if show_overview && npc_job == Some(Job::Miner) {
         if let Some(hp) = home_pos {
             let mh_slot = bld_data
                 .entity_map
@@ -1844,7 +1859,8 @@ fn inspector_content(
             } else {
                 "?".into()
             };
-            let xp_next = (meta.level + 1) * (meta.level + 1) * 100;
+            let npc_name = npc_stats.map(|s| s.name.as_str()).unwrap_or("?");
+            let xp_next = (npc_level + 1) * (npc_level + 1) * 100;
             let mut info = format!(
                 "NPC #{idx} \"{name}\" {job} Lv.{level}  XP: {xp}/{xp_next}\n\
                  Slot: {idx}  Entity: {entity}\n\
@@ -1854,10 +1870,10 @@ fn inspector_content(
                  State: {state}\n\
                  Activity: {activity}\n",
                 idx = idx,
-                name = meta.name,
-                job = crate::job_name(meta.job),
-                level = meta.level,
-                xp = meta.xp,
+                name = npc_name,
+                job = npc_job.map(|j| j.label()).unwrap_or("?"),
+                level = npc_level,
+                xp = npc_xp,
                 xp_next = xp_next,
                 entity = entity_str,
                 hp = hp,
@@ -2024,7 +2040,7 @@ fn building_inspector_content(
     world_data: &mut WorldData,
     mining_policy: &mut MiningPolicy,
     dirty_writers: &mut crate::messages::DirtyWriters,
-    meta_cache: &NpcMetaCache,
+    npc_stats_q: &mut Query<&mut NpcStats>,
     ui_state: &mut UiState,
     settings: &UserSettings,
     gpu_state: &GpuReadState,
@@ -2472,7 +2488,7 @@ fn building_inspector_content(
                     let respawn_timer = spawner_state.map(|s| s.respawn_timer).unwrap_or(0.0);
                     if let Some(slot) = npc_slot_opt {
                         if bld.entity_map.get_npc(slot).is_some() {
-                            if let Some(action) = npc_link(ui, meta_cache, slot) {
+                            if let Some(action) = npc_link(ui, npc_stats_q, &bld.entity_map, slot) {
                                 return Some(action);
                             }
                             ui.colored_label(egui::Color32::from_rgb(80, 200, 80), "Alive");
@@ -2602,12 +2618,14 @@ fn building_inspector_content(
                     info.push_str(&format!("Spawns: {}\n", spawns_label));
                     if let Some(ss) = bld_entity.and_then(|e| bld.spawner_q.get(e).ok()) {
                         if let Some(npc_slot) = ss.npc_slot {
-                            if npc_slot < meta_cache.0.len() {
-                                let meta = &meta_cache.0[npc_slot];
-                                let npc_entity = bld.entity_map.entities.get(&npc_slot);
+                            if let Some(npc) = bld.entity_map.get_npc(npc_slot) {
+                                let npc_entity = Some(npc.entity);
+                                let (name, level) = npc_stats_q.get(npc.entity)
+                                    .map(|s| (s.name.as_str(), crate::systems::stats::level_from_xp(s.xp)))
+                                    .unwrap_or(("?", 0));
                                 info.push_str(&format!(
                                     "NPC: {} (Lv.{}) slot={} entity={:?}\n",
-                                    meta.name, meta.level, npc_slot, npc_entity
+                                    name, level, npc_slot, npc_entity
                                 ));
                             }
                         } else if ss.respawn_timer > 0.0 {

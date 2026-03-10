@@ -394,7 +394,7 @@ pub fn left_panel_system(
                 LeftPanelTab::Squads => squads_content(
                     ui,
                     &mut squad,
-                    &roster.meta_cache,
+                    &roster.npc_stats_q,
                     &world_data,
                     &mut dirty_writers,
                 ),
@@ -402,7 +402,7 @@ pub fn left_panel_system(
                     ui,
                     &mut inventory,
                     &roster.selected,
-                    &roster.meta_cache,
+                    &roster.npc_stats_q,
                     &factions.entity_map,
                     &mut ui_state,
                     &mut factions.town_access,
@@ -862,7 +862,7 @@ fn patrols_content(
 fn squads_content(
     ui: &mut egui::Ui,
     squad: &mut SquadParams,
-    meta_cache: &NpcMetaCache,
+    npc_stats_q: &Query<&mut NpcStats>,
     _world_data: &WorldData,
     dirty_writers: &mut crate::messages::DirtyWriters,
 ) {
@@ -976,9 +976,9 @@ fn squads_content(
             .iter()
             .copied()
             .filter(|e| {
-                squad.entity_map.slot_for_entity(*e).is_some_and(|slot| {
-                    slot < meta_cache.0.len() && meta_cache.0[slot].job == job_id
-                })
+                squad.entity_map.slot_for_entity(*e)
+                    .and_then(|s| squad.entity_map.get_npc(s))
+                    .is_some_and(|n| n.job as i32 == job_id)
             })
             .collect();
         let avail_count = available.len();
@@ -1046,11 +1046,12 @@ fn squads_content(
                 let Some(slot) = squad.entity_map.slot_for_entity(entity) else {
                     continue;
                 };
-                if slot >= meta_cache.0.len() {
+                let Some(npc) = squad.entity_map.get_npc(slot) else {
                     continue;
-                }
-                let meta = &meta_cache.0[slot];
-                if meta.name.is_empty() {
+                };
+                let stats = npc_stats_q.get(npc.entity).ok();
+                let name = stats.map(|s| s.name.as_str()).unwrap_or("");
+                if name.is_empty() {
                     continue;
                 }
 
@@ -1061,12 +1062,13 @@ fn squads_content(
                     String::new()
                 };
 
+                let level = stats.map(|s| crate::systems::stats::level_from_xp(s.xp)).unwrap_or(0);
                 ui.horizontal(|ui| {
-                    let (r, g, b) = npc_def(Job::from_i32(meta.job)).ui_color;
+                    let (r, g, b) = npc_def(npc.job).ui_color;
                     let job_color = egui::Color32::from_rgb(r, g, b);
-                    ui.colored_label(job_color, &meta.name);
-                    ui.label(Job::from_i32(meta.job).label());
-                    ui.label(format!("Lv.{}", meta.level));
+                    ui.colored_label(job_color, name);
+                    ui.label(npc.job.label());
+                    ui.label(format!("Lv.{}", level));
                     if !hp_str.is_empty() {
                         ui.label(hp_str);
                     }

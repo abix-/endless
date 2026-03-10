@@ -763,17 +763,6 @@ impl PathfindStats {
 
 const NPC_LOG_CAPACITY: usize = 100;
 
-/// Per-NPC metadata for UI display (names, levels, traits).
-#[derive(Clone, Default)]
-pub struct NpcMeta {
-    pub name: String,
-    pub level: i32,
-    pub xp: i32,
-    pub trait_display: String,
-    pub town_id: i32,
-    pub job: i32,
-}
-
 /// A single log entry for an NPC's activity history.
 #[derive(Clone)]
 pub struct NpcLogEntry {
@@ -781,16 +770,6 @@ pub struct NpcLogEntry {
     pub hour: i32,
     pub minute: i32,
     pub message: Cow<'static, str>,
-}
-
-/// Per-NPC metadata cache (names, levels, traits). Indexed by slot.
-#[derive(Resource)]
-pub struct NpcMetaCache(pub Vec<NpcMeta>);
-
-impl Default for NpcMetaCache {
-    fn default() -> Self {
-        Self(vec![NpcMeta::default(); MAX_NPC_COUNT])
-    }
 }
 
 /// Per-NPC activity logs. Indexed by slot. 500 entries max per NPC.

@@ -846,7 +846,6 @@ fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
 
     // Resource-based data (immutable borrows after query)
     let entity_map = world.resource::<EntityMap>();
-    let meta_cache = world.resource::<NpcMetaCache>();
     let npc_logs = world.resource::<NpcLogCache>();
     let thrash = world.resource::<NpcTargetThrashDebug>();
     let gpu_state = world.resource::<GpuReadState>();
@@ -855,13 +854,16 @@ fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
     let squad_state = world.resource::<SquadState>();
     let game_time = world.resource::<GameTime>();
 
-    // NpcMeta (name, level, xp)
-    if let Some(meta) = meta_cache.0.get(slot) {
-        let xp_next = (meta.level + 1) * (meta.level + 1) * 100;
-        data["name"] = json!(meta.name);
-        data["level"] = json!(meta.level);
-        data["xp"] = json!(meta.xp);
-        data["xp_next"] = json!(xp_next);
+    // NpcStats (name, xp → level)
+    if let Some(npc) = entity_map.get_npc(slot) {
+        if let Some(stats) = world.get::<crate::components::NpcStats>(npc.entity) {
+            let level = crate::systems::stats::level_from_xp(stats.xp);
+            let xp_next = (level + 1) * (level + 1) * 100;
+            data["name"] = json!(stats.name);
+            data["level"] = json!(level);
+            data["xp"] = json!(stats.xp);
+            data["xp_next"] = json!(xp_next);
+        }
     }
 
     // Town name + faction name
@@ -1121,11 +1123,10 @@ fn debug_squad(world: &mut World, idx: usize) -> BrpResult {
 
     // Resolve member details
     let entity_map = world.resource::<EntityMap>();
-    let meta_cache = world.resource::<NpcMetaCache>();
     let member_slots: Vec<(u64, Option<usize>, String)> = squad.members.iter().map(|e| {
         let slot = entity_map.slot_for_entity(*e);
-        let name = slot.and_then(|s| meta_cache.0.get(s))
-            .map(|m| m.name.clone()).unwrap_or_default();
+        let name = world.get::<crate::components::NpcStats>(*e)
+            .map(|s| s.name.clone()).unwrap_or_default();
         (e.to_bits(), slot, name)
     }).collect();
 

@@ -36,7 +36,7 @@ pub(crate) fn inventory_content(
     ui: &mut egui::Ui,
     inv: &mut InventoryParams,
     selected_npc: &SelectedNpc,
-    meta_cache: &NpcMetaCache,
+    npc_stats_q: &Query<&mut NpcStats>,
     entity_map: &EntityMap,
     ui_state: &mut UiState,
     town_access: &mut crate::systemparams::TownAccess<'_, '_>,
@@ -84,8 +84,8 @@ pub(crate) fn inventory_content(
         if let Some(npc) = entity_map.get_npc(sel as usize) {
             if let Ok((_, equip, job, _town_id, _)) = inv.equipment_q.get(npc.entity) {
                 let def = npc_def(*job);
-                let name = meta_cache.0.get(sel as usize)
-                    .map(|m| m.name.as_str())
+                let name = npc_stats_q.get(npc.entity)
+                    .map(|s| s.name.as_str())
                     .unwrap_or("NPC");
                 ui.label(
                     egui::RichText::new(format!("{} — {:?}", name, job))
@@ -206,12 +206,12 @@ pub(crate) fn inventory_content(
     }
     let mut equipped_entries: Vec<EquippedEntry> = Vec::new();
     if view >= 1 {
-        for (entity, equip, job, tid, gpu_slot) in inv.equipment_q.iter() {
+        for (entity, equip, job, tid, _gpu_slot) in inv.equipment_q.iter() {
             if tid.0 != town_idx as i32 { continue; }
             let def = npc_def(*job);
             if def.equip_slots.is_empty() { continue; }
-            let name = meta_cache.0.get(gpu_slot.0)
-                .map(|m| m.name.as_str())
+            let name = npc_stats_q.get(entity)
+                .map(|s| s.name.as_str())
                 .unwrap_or("NPC");
             let owner = format!("{} ({:?})", name, job);
             for item in equip.all_items() {

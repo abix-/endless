@@ -7,7 +7,7 @@ use crate::messages::{DamageMsg, DirtyWriters, GpuUpdate, GpuUpdateMsg};
 use crate::resources::{
     ActiveHealingSlots, BuildingHealState, CombatEventKind, EndlessMode, EntityMap, FactionStats,
     GameTime, GpuReadState, GpuSlotPool, HealingZoneCache, HealthDebug,
-    KillStats, NpcMetaCache, PopulationStats, SelectedBuilding, SelectedNpc,
+    KillStats, PopulationStats, SelectedBuilding, SelectedNpc,
     SquadState,
 };
 use bevy::ecs::system::SystemParam;
@@ -187,7 +187,7 @@ pub fn death_system(
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut combat_log: MessageWriter<CombatLogMsg>,
     mut game_time: ResMut<GameTime>,
-    mut npc_meta: ResMut<NpcMetaCache>,
+    mut npc_stats_q: Query<&mut NpcStats>,
     mut selected: ResMut<SelectedNpc>,
     squad_state: Res<SquadState>,
     mut town_access: crate::systemparams::TownAccess,
@@ -448,8 +448,8 @@ pub fn death_system(
                             ItemKind::Food => "food",
                             ItemKind::Gold => "gold",
                         };
-                        let killer_name = &npc_meta.0[atk_slot].name;
-                        let killer_job = crate::job_name(npc_meta.0[atk_slot].job);
+                        let killer_name = npc_stats_q.get(atk_entity).map(|s| s.name.clone()).unwrap_or_default();
+                        let killer_job = res.entity_map.get_npc(atk_slot).map(|n| n.job.label()).unwrap_or("?");
                         combat_log.write(CombatLogMsg {
                             kind: CombatEventKind::Loot,
                             faction: atk_faction,
@@ -539,12 +539,15 @@ pub fn death_system(
                 res.faction_stats.inc_kills(k_faction);
                 res.reputation.on_kill(k_faction, faction);
 
-                let meta = &mut npc_meta.0[k_slot];
-                let old_xp = meta.xp;
-                meta.xp += 100;
+                let (old_xp, new_xp) = if let Ok(mut stats) = npc_stats_q.get_mut(k_entity) {
+                    let old = stats.xp;
+                    stats.xp += 100;
+                    (old, stats.xp)
+                } else {
+                    (0, 100)
+                };
                 let old_level = level_from_xp(old_xp);
-                let new_level = level_from_xp(meta.xp);
-                meta.level = new_level;
+                let new_level = level_from_xp(new_xp);
 
                 if new_level > old_level {
                     let old_max = res
@@ -598,8 +601,8 @@ pub fn death_system(
                         speed: new_speed,
                     }));
 
-                    let name = &meta.name;
-                    let job_str = crate::job_name(meta.job);
+                    let name = npc_stats_q.get(k_entity).map(|s| s.name.as_str()).unwrap_or("?");
+                    let job_str = killer.job.label();
                     combat_log.write(CombatLogMsg {
                         kind: CombatEventKind::LevelUp,
                         faction: k_faction,
@@ -613,11 +616,11 @@ pub fn death_system(
 
                 // NPC kill loot
                 let drops = npc_def(job).loot_drop;
-                let drop = &drops[(meta.xp as usize) % drops.len()];
+                let drop = &drops[(new_xp as usize) % drops.len()];
                 let amount = if drop.min == drop.max {
                     drop.min
                 } else {
-                    drop.min + (meta.xp % (drop.max - drop.min + 1))
+                    drop.min + (new_xp % (drop.max - drop.min + 1))
                 };
                 if amount > 0 {
                     let dc_keep_fighting = res
@@ -657,8 +660,8 @@ pub fn death_system(
                         ItemKind::Food => "food",
                         ItemKind::Gold => "gold",
                     };
-                    let killer_name = &npc_meta.0[k_slot].name;
-                    let killer_job = crate::job_name(npc_meta.0[k_slot].job);
+                    let killer_name = npc_stats_q.get(k_entity).map(|s| s.name.as_str()).unwrap_or("?");
+                    let killer_job = killer.job.label();
                     combat_log.write(CombatLogMsg {
                         kind: CombatEventKind::Loot,
                         faction: k_faction,
@@ -686,8 +689,8 @@ pub fn death_system(
                             cl.equipment.push(item);
                         }
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: k_slot }));
-                        let killer_name = &npc_meta.0[k_slot].name;
-                        let killer_job = crate::job_name(npc_meta.0[k_slot].job);
+                        let killer_name = npc_stats_q.get(k_entity).map(|s| s.name.as_str()).unwrap_or("?");
+                        let killer_job = killer.job.label();
                         combat_log.write(CombatLogMsg {
                             kind: CombatEventKind::Loot,
                             faction: k_faction,
@@ -882,12 +885,14 @@ pub fn death_system(
         }
 
         // Combat log: death event
-        let meta = &npc_meta.0[slot];
-        let job_str = crate::job_name(meta.job);
-        let msg = if meta.name.is_empty() {
-            format!("{} #{} died", job_str, slot)
-        } else {
-            format!("{} '{}' Lv.{} died", job_str, meta.name, meta.level)
+        let npc_entry = res.entity_map.get_npc(slot);
+        let job_str = npc_entry.map(|n| n.job.label()).unwrap_or("?");
+        let stats = npc_entry.and_then(|n| npc_stats_q.get(n.entity).ok());
+        let msg = match stats {
+            Some(s) if !s.name.is_empty() => {
+                format!("{} '{}' Lv.{} died", job_str, s.name, level_from_xp(s.xp))
+            }
+            _ => format!("{} #{} died", job_str, slot),
         };
         combat_log.write(CombatLogMsg {
             kind: CombatEventKind::Kill,

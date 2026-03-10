@@ -8,7 +8,6 @@ use crate::constants::{
     TOWN_UPGRADES, TowerStats, UpgradeStatDef, UpgradeStatKind, npc_def,
 };
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
-use crate::resources::NpcMetaCache;
 use crate::systemparams::{EconomyState, WorldState};
 use bevy::prelude::*;
 use std::collections::HashMap;
@@ -819,7 +818,7 @@ pub fn process_upgrades_system(
     mut queue: MessageReader<UpgradeMsg>,
     mut economy: EconomyState,
     config: Res<CombatConfig>,
-    meta_cache: Res<NpcMetaCache>,
+    npc_stats_q: Query<&crate::components::NpcStats>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut world_state: WorldState,
     mut cached_stats_q: Query<&mut crate::components::CachedStats>,
@@ -895,7 +894,7 @@ pub fn process_upgrades_system(
             };
             let entity = npc.entity;
 
-            let npc_level = meta_cache.0[slot].level;
+            let npc_level = npc_stats_q.get(entity).map(|s| level_from_xp(s.xp)).unwrap_or(0);
             let old_max = cached_stats_q
                 .get(entity)
                 .map(|s| s.max_health)
@@ -972,8 +971,7 @@ pub fn process_equip_system(
     mut health_q: Query<&mut crate::components::Health, Without<crate::components::Building>>,
     config: Res<CombatConfig>,
     mut town_access: crate::systemparams::TownAccess,
-    meta_cache: Res<NpcMetaCache>,
-    entity_map: Res<crate::resources::EntityMap>,
+    npc_stats_q: Query<&crate::components::NpcStats>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
 ) {
     // Equip: TownEquipment → NpcEquipment
@@ -1010,7 +1008,7 @@ pub fn process_equip_system(
         *target = Some(item);
 
         // Re-resolve stats
-        let level = entity_map.get_npc(slot_idx).map(|n| meta_cache.0[n.slot].level).unwrap_or(0);
+        let level = npc_stats_q.get(msg.npc_entity).map(|s| level_from_xp(s.xp)).unwrap_or(0);
         let tl = town_access.upgrade_levels(town_id.0);
         re_resolve_npc_stats(
             msg.npc_entity, slot_idx, &eq, *job, *atk_type,
@@ -1041,7 +1039,7 @@ pub fn process_equip_system(
             teq.0.push(item);
         }
 
-        let level = entity_map.get_npc(slot_idx).map(|n| meta_cache.0[n.slot].level).unwrap_or(0);
+        let level = npc_stats_q.get(msg.npc_entity).map(|s| level_from_xp(s.xp)).unwrap_or(0);
         let tl = town_access.upgrade_levels(town_id.0);
         re_resolve_npc_stats(
             msg.npc_entity, slot_idx, &eq, *job, *atk_type,

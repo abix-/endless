@@ -35,8 +35,9 @@ pub fn roster_panel_system(
     mut contexts: EguiContexts,
     ui_state: Res<UiState>,
     mut selected: ResMut<SelectedNpc>,
-    meta_cache: Res<NpcMetaCache>,
     entity_map: Res<EntityMap>,
+    npc_stats_q: Query<&NpcStats>,
+    personality_q: Query<&Personality>,
     mut state: Local<RosterState>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     gpu_state: Res<GpuReadState>,
@@ -58,12 +59,14 @@ pub fn roster_panel_system(
         for npc in entity_map.iter_npcs() {
             if npc.dead { continue; }
             let idx = npc.slot;
-            let meta = &meta_cache.0[idx];
+            let job_i32 = npc.job as i32;
 
             // Job filter
-            if state.job_filter >= 0 && meta.job != state.job_filter {
+            if state.job_filter >= 0 && job_i32 != state.job_filter {
                 continue;
             }
+
+            let stats = npc_stats_q.get(npc.entity).ok();
 
             let state_str = if combat_state_q.get(npc.entity).is_ok_and(|cs| cs.is_fighting()) {
                 combat_state_q.get(npc.entity).map(|cs| cs.name().to_string()).unwrap_or_default()
@@ -73,13 +76,13 @@ pub fn roster_panel_system(
 
             rows.push(RosterRow {
                 slot: idx,
-                name: meta.name.clone(),
-                job: meta.job,
-                level: meta.level,
+                name: stats.map(|s| s.name.clone()).unwrap_or_default(),
+                job: job_i32,
+                level: stats.map(|s| crate::systems::stats::level_from_xp(s.xp)).unwrap_or(0),
                 hp: health_q.get(npc.entity).map(|h| h.0).unwrap_or(0.0),
                 max_hp: cached_stats_q.get(npc.entity).map(|s| s.max_health).unwrap_or(100.0),
                 state: state_str,
-                trait_name: meta.trait_display.clone(),
+                trait_name: personality_q.get(npc.entity).map(|p| p.trait_summary()).unwrap_or_default(),
             });
         }
 

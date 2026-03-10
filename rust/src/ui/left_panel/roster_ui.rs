@@ -36,8 +36,8 @@ struct RosterRow {
 #[derive(SystemParam)]
 pub struct RosterParams<'w, 's> {
     pub selected: ResMut<'w, SelectedNpc>,
-    pub meta_cache: ResMut<'w, NpcMetaCache>,
     pub entity_map: Res<'w, EntityMap>,
+    pub npc_stats_q: Query<'w, 's, &'static mut NpcStats>,
     pub camera_query: Query<'w, 's, &'static mut Transform, With<crate::render::MainCamera>>,
     gpu_state: Res<'w, GpuReadState>,
     activity_q: Query<'w, 's, &'static Activity>,
@@ -66,14 +66,15 @@ pub(crate) fn roster_content(
                 continue;
             }
             let idx = npc.slot;
-            let meta = &roster.meta_cache.0[idx];
             // Player faction only unless debug
             if !debug_all && npc.faction != crate::constants::FACTION_PLAYER {
                 continue;
             }
-            if state.job_filter >= 0 && meta.job != state.job_filter {
+            let job_i32 = npc.job as i32;
+            if state.job_filter >= 0 && job_i32 != state.job_filter {
                 continue;
             }
+            let stats = roster.npc_stats_q.get(npc.entity).ok();
             let state_str = if roster
                 .combat_state_q
                 .get(npc.entity)
@@ -93,9 +94,9 @@ pub(crate) fn roster_content(
             };
             rows.push(RosterRow {
                 slot: idx,
-                name: meta.name.clone(),
-                job: meta.job,
-                level: meta.level,
+                name: stats.map(|s| s.name.clone()).unwrap_or_default(),
+                job: job_i32,
+                level: stats.map(|s| crate::systems::stats::level_from_xp(s.xp)).unwrap_or(0),
                 hp: roster.health_q.get(npc.entity).map(|h| h.0).unwrap_or(0.0),
                 max_hp: roster
                     .cached_stats_q
@@ -166,10 +167,10 @@ pub(crate) fn roster_content(
     let selected_idx = roster.selected.0;
     if selected_idx >= 0 {
         let idx = selected_idx as usize;
-        if idx < roster.meta_cache.0.len() {
+        if let Some(npc) = roster.entity_map.get_npc(idx) {
             if state.rename_slot != selected_idx {
                 state.rename_slot = selected_idx;
-                state.rename_text = roster.meta_cache.0[idx].name.clone();
+                state.rename_text = roster.npc_stats_q.get(npc.entity).map(|s| s.name.clone()).unwrap_or_default();
             }
 
             ui.horizontal(|ui| {
@@ -178,7 +179,9 @@ pub(crate) fn roster_content(
                 let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 if (ui.button("Apply").clicked() || enter) && !state.rename_text.trim().is_empty() {
                     let new_name = state.rename_text.trim().to_string();
-                    roster.meta_cache.0[idx].name = new_name.clone();
+                    if let Ok(mut stats) = roster.npc_stats_q.get_mut(npc.entity) {
+                        stats.name = new_name.clone();
+                    }
                     state.rename_text = new_name;
                     state.frame_counter = 0;
                 }

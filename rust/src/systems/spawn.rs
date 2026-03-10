@@ -6,7 +6,7 @@ use crate::components::*;
 use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg, SpawnNpcMsg};
 use crate::messages::{DirtyWriters, MiningDirtyMsg, SquadsDirtyMsg};
 use crate::resources::{
-    CombatEventKind, EntityMap, FactionStats, GameTime, NpcMeta, NpcMetaCache, PopulationStats,
+    CombatEventKind, EntityMap, FactionStats, GameTime, PopulationStats,
 };
 use crate::systems::economy::*;
 use crate::systems::stats::{CombatConfig, resolve_combat_stats};
@@ -108,7 +108,6 @@ pub fn materialize_npc(
     commands: &mut Commands,
     entity_map: &mut EntityMap,
     pop_stats: &mut PopulationStats,
-    npc_meta: &mut NpcMetaCache,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
     _world_data: &WorldData,
     combat_config: &CombatConfig,
@@ -189,8 +188,6 @@ pub fn materialize_npc(
     let activity = overrides.activity.clone().unwrap_or_default();
     let combat_state = overrides.combat_state.clone().unwrap_or_default();
 
-    let trait_display = personality.trait_summary();
-
     // Patrol route — caller may pre-compute posts via build_patrol_route_ecs
     let patrol_route = if def.is_patrol_unit && starting_post >= 0 {
         let patrol_posts = build_patrol_route_fallback(entity_map, town_idx as u32);
@@ -266,6 +263,14 @@ pub fn materialize_npc(
         },
         // Pathfinding (empty until first path request)
         NpcPath::default(),
+        // Progression
+        NpcStats {
+            name: overrides
+                .name
+                .clone()
+                .unwrap_or_else(|| generate_name(job, idx)),
+            xp: overrides.xp.unwrap_or(0),
+        },
     ));
     if let Some(sq) = overrides.squad_id {
         ecmds.insert(SquadId(sq));
@@ -288,20 +293,6 @@ pub fn materialize_npc(
     entity_map.register_npc(idx, entity, job, faction_id, town_idx);
     pop_inc_alive(pop_stats, job, town_idx);
 
-    if idx < npc_meta.0.len() {
-        npc_meta.0[idx] = NpcMeta {
-            name: overrides
-                .name
-                .clone()
-                .unwrap_or_else(|| generate_name(job, idx)),
-            level,
-            xp: overrides.xp.unwrap_or(0),
-            trait_display,
-            town_id: town_idx,
-            job: job_id,
-        };
-    }
-
     // npc_by_town bookkeeping handled by register_npc inside entity_map
 }
 
@@ -316,7 +307,6 @@ pub fn spawn_npc_system(
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     world_data: Res<WorldData>,
     game_time: Res<GameTime>,
-    mut npc_meta: ResMut<NpcMetaCache>,
     mut combat_log: MessageWriter<CombatLogMsg>,
     combat_config: Res<CombatConfig>,
     town_access: crate::systemparams::TownAccess,
@@ -345,7 +335,6 @@ pub fn spawn_npc_system(
             &mut commands,
             &mut entity_map,
             &mut pop_stats,
-            &mut npc_meta,
             &mut gpu_updates,
             &world_data,
             &combat_config,

@@ -2466,7 +2466,6 @@ pub(crate) struct CleanupDebug<'w> {
 pub(crate) struct CleanupGameplay<'w> {
     auto_upgrade: ResMut<'w, AutoUpgrade>,
     npc_logs: ResMut<'w, NpcLogCache>,
-    npc_meta: ResMut<'w, NpcMetaCache>,
     migration: ResMut<'w, MigrationState>,
     tower_state: ResMut<'w, TowerState>,
     selected_npc: ResMut<'w, SelectedNpc>,
@@ -2569,7 +2568,6 @@ pub(crate) fn game_cleanup_system(
     // Reset gameplay resources
     *gameplay.auto_upgrade = Default::default();
     *gameplay.npc_logs = Default::default();
-    *gameplay.npc_meta = Default::default();
     *gameplay.migration = Default::default();
     *gameplay.tower_state = Default::default();
     *gameplay.selected_npc = Default::default();
