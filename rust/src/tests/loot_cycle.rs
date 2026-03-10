@@ -11,11 +11,10 @@ use super::{TestSetupParams, TestState};
 
 pub fn setup(
     mut params: TestSetupParams,
-    mut gold_storage: ResMut<GoldStorage>,
-    mut policies: ResMut<TownPolicies>,
     mut squad_state: ResMut<SquadState>,
-    mut town_inventory: ResMut<TownInventory>,
     mut next_loot_id: ResMut<NextLootItemId>,
+    mut commands: Commands,
+    mut town_index: ResMut<crate::resources::TownIndex>,
 ) {
     // Reset squad state to avoid interference
     for squad in squad_state.squads.iter_mut() {
@@ -36,18 +35,27 @@ pub fn setup(
         name: "RaiderCamp".into(),
         center: Vec2::new(384.0, 128.0),
         faction: 2,
-        sprite_type: 1,
+        kind: crate::constants::TownKind::AiRaider,
     area_level: 0,
     });
     params.init_economy(2);
-    gold_storage.init(2);
-    policies.policies.resize(2, PolicySet::default());
-    // Prevent archer from fleeing — fight to the death
-    policies.policies[0].archer_flee_hp = 0.0;
-    policies.policies[0].recovery_hp = 0.0;
-
-    // Init loot system
-    town_inventory.init(2);
+    // Spawn town entities with test-specific policies
+    let policy0 = PolicySet {
+        archer_flee_hp: 0.0,
+        recovery_hp: 0.0,
+        ..Default::default()
+    };
+    for (i, policy) in [policy0, PolicySet::default()].into_iter().enumerate() {
+        let entity = commands.spawn((
+            crate::components::TownMarker,
+            crate::components::FoodStore(0),
+            crate::components::GoldStore(0),
+            crate::components::TownPolicy(policy),
+            crate::components::TownUpgradeLevel::default(),
+            crate::components::TownEquipment::default(),
+        )).id();
+        town_index.0.insert(i as i32, entity);
+    }
     next_loot_id.next = 1;
 
     // Spawn 1 strong archer (faction 1) — will kill the raider
@@ -102,7 +110,7 @@ pub fn tick(
     carried_loot_q: Query<&CarriedLoot>,
     equipment_q: Query<&NpcEquipment>,
     cached_stats_q: Query<&CachedStats>,
-    town_inventory: Res<TownInventory>,
+    town_access: crate::systemparams::TownAccess,
     mut equip_writer: MessageWriter<crate::systems::stats::EquipItemMsg>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else {
@@ -131,10 +139,8 @@ pub fn tick(
     let archer_carried = carried_loot_q.get(archer.entity).ok();
     let archer_equip_count = archer_carried.map(|cl| cl.equipment.len()).unwrap_or(0);
 
-    let inv_count = town_inventory
-        .items.first()
-        .map(|v| v.len())
-        .unwrap_or(0);
+    let town_items = town_access.equipment(0).unwrap_or_default();
+    let inv_count = town_items.len();
 
     match test.phase {
         // Phase 1: Combat starts — at least one raider dies
@@ -218,8 +224,8 @@ pub fn tick(
         5 => {
             if !test.get_flag("equip_sent") {
                 // Try to equip the first item from town 0 inventory
-                if let Some(items) = town_inventory.items.first() {
-                    if let Some(item) = items.first() {
+                {
+                    if let Some(item) = town_items.first() {
                         let base_stats = cached_stats_q.get(archer.entity).ok();
                         if let Some(stats) = base_stats {
                             test.set_flag("equip_sent", true);

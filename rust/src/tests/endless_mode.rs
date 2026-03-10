@@ -26,8 +26,6 @@ pub(super) fn setup(
     mut world_data: ResMut<world::WorldData>,
     mut world_grid: ResMut<world::WorldGrid>,
     mut config: ResMut<world::WorldGenConfig>,
-    mut food_storage: ResMut<FoodStorage>,
-    mut gold_storage: ResMut<GoldStorage>,
     mut faction_stats: ResMut<FactionStats>,
 
     mut slot_alloc: ResMut<GpuSlotPool>,
@@ -37,6 +35,7 @@ pub(super) fn setup(
     mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
     mut commands: Commands,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
+    mut town_index: ResMut<crate::resources::TownIndex>,
 ) {
     config.gen_style = WorldGenStyle::Continents;
     config.num_towns = 1;
@@ -55,12 +54,11 @@ pub(super) fn setup(
         &mut crate::resources::FactionList::default(),
         &mut slot_alloc,
         &mut bld.entity_map,
-        &mut food_storage,
-        &mut gold_storage,
         &mut faction_stats,
         &mut crate::resources::Reputation::default(),
         &mut state.raider_state,
         &mut uid_alloc,
+        &mut town_index,
         &mut commands,
         &mut gpu_updates,
     );

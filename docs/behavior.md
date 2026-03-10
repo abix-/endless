@@ -40,7 +40,7 @@ Priority order (first match wins), with two-cadence top-of-loop bucket gating (s
 6. Patrol + time_to_advance? → next waypoint
 7. Idle → Score Eat/Rest/Work/Wander (wounded → fountain, tired → home)
 
-All checks are **policy-driven per town**. Flee thresholds come from `TownPolicies` resource (indexed by `TownId`), not per-entity `FleeThreshold` components. Raiders use a hardcoded 0.50 threshold. `archer_aggressive` and `farmer_fight_back` policies disable flee entirely for their respective jobs.
+All checks are **policy-driven per town**. Flee thresholds come from `TownPolicy` ECS components on town entities (accessed via `TownAccess.policy()`), not per-entity `FleeThreshold` components. Raiders use a hardcoded 0.50 threshold. `archer_aggressive` and `farmer_fight_back` policies disable flee entirely for their respective jobs.
 
 ## Utility AI (Weighted Random Decisions)
 
@@ -281,7 +281,7 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 - Increments `activity.ticks_waiting` each frame for NPCs with `ActivityKind::Patrol` where `CombatState` is not Fighting
 
 ### arrival_system (Proximity Checks)
-- **Proximity-based delivery** for ReturnLoot NPCs: matches `ActivityKind::ReturnLoot`, checks distance to home, delivers food and/or gold within DELIVERY_RADIUS (50px). All NPCs (including farmers) go `Idle` after delivery — the decision system re-evaluates the best target. Gold delivered to `GoldStorage` per town.
+- **Proximity-based delivery** for ReturnLoot NPCs: matches `ActivityKind::ReturnLoot`, checks distance to home, delivers food and/or gold within DELIVERY_RADIUS (50px). All NPCs (including farmers) go `Idle` after delivery — the decision system re-evaluates the best target. Gold delivered to `GoldStore` ECS component per town (via `TownAccess`).
 - **Worksite harvest + drift** handled entirely by `decision_system` Priority 5 unified worksite block (not arrival_system)
 - **Healing drift check** in decision_system: `Heal { .. }` NPCs pushed >100px from town center by separation physics get re-targeted to fountain (prevents deadlock where NPC is outside healing range but stuck in healing state)
 - **Heal early arrival** in decision_system: NPCs with `Heal { .. }` + `!at_destination` transition to healing (set `at_destination`) as soon as they're within 100px of town center

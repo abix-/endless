@@ -40,7 +40,7 @@ use crate::messages::{GpuUpdate, GpuUpdateMsg, ProjGpuUpdate, ProjGpuUpdateMsg};
 use crate::resources::{
     GameTime, GpuReadState, GpuSlotPool, NpcTargetThrashDebug, ProjHitState, ProjPositionState,
 };
-use crate::systems::stats::{self, TownUpgrades};
+use crate::systems::stats::{self};
 use crate::world::WorldData;
 
 // =============================================================================
@@ -1323,7 +1323,7 @@ fn update_gpu_data(
     mut config: ResMut<RenderFrameConfig>,
     slots: Res<GpuSlotPool>,
     dt: Res<crate::resources::DeltaTime>,
-    upgrades: Res<TownUpgrades>,
+    town_access: crate::systemparams::TownAccess,
     world_data: Res<WorldData>,
 ) {
     config.npc.count = slots.count() as u32;
@@ -1335,7 +1335,7 @@ fn update_gpu_data(
         .iter()
         .position(|t| t.faction == crate::constants::FACTION_PLAYER)
         .unwrap_or(0);
-    let levels = upgrades.town_levels(player_town_idx);
+    let levels = town_access.upgrade_levels(player_town_idx as i32);
     config.npc.dodge_unlocked = if stats::dodge_unlocked(&levels) { 1 } else { 0 };
 }
 

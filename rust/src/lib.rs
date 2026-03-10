@@ -41,13 +41,13 @@ use messages::{
 };
 use resources::{
     ActiveHealingSlots, AutoUpgrade, BuildMenuContext, BuildingHealState, CombatDebug, CombatLog,
-    DebugFlags, Difficulty, EndlessMode, EntityMap, FactionList, FactionStats, FollowSelected, FoodStorage, Reputation,
-    GameAudio, GameConfig, GameTime, GoldStorage, GpuReadState, GpuSlotPool, HealingZoneCache,
+    DebugFlags, Difficulty, EndlessMode, EntityMap, FactionList, FactionStats, FollowSelected, Reputation,
+    GameAudio, GameConfig, GameTime, GpuReadState, GpuSlotPool, HealingZoneCache,
     HealthDebug, HelpCatalog, KillStats, MigrationState, MiningPolicy,
     NextEntityUid, NextLootItemId, NpcLogCache, NpcMetaCache, NpcTargetThrashDebug, PlaySfxMsg,
     DeltaTime, PopulationStats, ProjHitState, ProjPositionState, ProjSlotAllocator, RaiderState,
-    SelectedBuilding, SelectedNpc, SquadState, SystemTimings, TowerState, TownPolicies,
-    TownInventory, MerchantInventory, TutorialState, UiState, UpsCounter,
+    SelectedBuilding, SelectedNpc, SquadState, SystemTimings, TowerState,
+    MerchantInventory, TutorialState, UiState, UpsCounter,
 };
 use systems::*;
 use systems::{AiPlayerConfig, AiPlayerState};
@@ -322,8 +322,7 @@ pub fn build_app(app: &mut App) {
         .init_resource::<GpuSlotPool>()
         .init_resource::<NextEntityUid>()
         .init_resource::<ProjSlotAllocator>()
-        .init_resource::<FoodStorage>()
-        .init_resource::<GoldStorage>()
+        .init_resource::<resources::TownIndex>()
         .init_resource::<FactionStats>()
         .init_resource::<FactionList>()
         .init_resource::<Reputation>()
@@ -355,19 +354,16 @@ pub fn build_app(app: &mut App) {
         .init_resource::<systems::ai_player::PerimeterSyncDirty>()
         .init_resource::<resources::NpcDecisionConfig>()
         .init_resource::<systems::stats::CombatConfig>()
-        .init_resource::<systems::stats::TownUpgrades>()
         .add_message::<systems::stats::UpgradeMsg>()
         .add_message::<systems::stats::EquipItemMsg>()
         .add_message::<systems::stats::UnequipItemMsg>()
         .add_message::<systems::stats::AutoEquipNowMsg>()
         .init_resource::<AutoUpgrade>()
-        .init_resource::<TownPolicies>()
         .init_resource::<MiningPolicy>()
         .init_resource::<save::SaveLoadRequest>()
         .init_resource::<save::SaveToast>()
         .init_resource::<GameAudio>()
         .init_resource::<NextLootItemId>()
-        .init_resource::<TownInventory>()
         .init_resource::<MerchantInventory>()
         .add_message::<PlaySfxMsg>()
         .insert_resource(settings::load_settings())
@@ -443,12 +439,9 @@ pub fn build_app(app: &mut App) {
         .register_type::<GameTime>()
         .register_type::<UpsCounter>()
         .register_type::<KillStats>()
-        .register_type::<FoodStorage>()
-        .register_type::<GoldStorage>()
         .register_type::<FactionStats>()
         .register_type::<resources::FactionStat>()
         .register_type::<resources::RemoteAllowedTowns>()
-        .register_type::<TownPolicies>()
         .register_type::<resources::PolicySet>()
         .register_type::<resources::WorkSchedule>()
         .register_type::<resources::OffDutyBehavior>()

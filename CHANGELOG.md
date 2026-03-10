@@ -2,6 +2,7 @@
 
 ## 2026-03-10
 
+- **ECS town entities** — migrated all Vec-indexed town resources (`FoodStorage`, `GoldStorage`, `TownPolicies`, `TownUpgrades`, `TownInventory`) to ECS components on per-town entities (`FoodStore`, `GoldStore`, `TownPolicy`, `TownUpgradeLevel`, `TownEquipment`). `TownAccess` SystemParam (`systemparams.rs`) wraps `TownIndex` (HashMap<i32, Entity>) + component queries for O(1) access. `TownKind` enum + `TownDef` registry drives town type identity (Player/AiBuilder/AiRaider). ~104 callsites across 16+ files migrated. All 5 Vec resource structs and their lib.rs registrations deleted. 192 tests passing.
 - **BuildingInstance → slim spatial index** — migrated 11 gameplay fields off the 17-field `BuildingInstance` god struct into dedicated ECS components: `ProductionState` (ready/progress for farms+mines), `SpawnerState` (npc_uid/respawn_timer), `TowerBuildingState` (kills/xp/upgrade_levels/auto_upgrade_flags), `ConstructionProgress` (seconds remaining), `WaypointOrder` (patrol ordering), `WallLevel` (wall tier), `MinerHomeConfig` (assigned_mine/manual_mine). `BuildingInstance` is now a 6-field spatial index entry (kind, position, town_idx, slot, faction, occupants). Systems query ECS components directly instead of reaching into EntityMap. 71 call sites across 16 files updated. Pre-collected HashMap pattern for score closures that need both EntityMap spatial queries and ECS data. All 192 tests passing.
 
 ## 2026-03-09

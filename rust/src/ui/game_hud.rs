@@ -16,7 +16,7 @@ use crate::render::MainCamera;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
 use crate::systems::stats::{
-    CombatConfig, TownUpgrades, UPGRADES, UnequipItemMsg, level_from_xp,
+    CombatConfig, UPGRADES, UnequipItemMsg, level_from_xp,
     resolve_tower_instance_stats, resolve_town_tower_stats,
 };
 use crate::ui::tipped;
@@ -140,8 +140,7 @@ pub fn top_bar_system(
     mut contexts: EguiContexts,
     game_time: Res<GameTime>,
     pop_stats: Res<PopulationStats>,
-    food_storage: Res<FoodStorage>,
-    gold_storage: Res<GoldStorage>,
+    town_access: crate::systemparams::TownAccess,
     world_data: Res<WorldData>,
     mut ui_state: ResMut<UiState>,
     entity_map: Res<EntityMap>,
@@ -369,8 +368,8 @@ pub fn top_bar_system(
                     ui.separator();
 
                     // Player stats (right-aligned) — player's town is index 0
-                    let town_food = food_storage.food.first().copied().unwrap_or(0);
-                    let town_gold = gold_storage.gold.first().copied().unwrap_or(0);
+                    let town_food = town_access.food(0);
+                    let town_gold = town_access.gold(0);
                     tipped(
                         ui,
                         egui::RichText::new(format!("Gold: {}", town_gold))
@@ -439,10 +438,8 @@ pub struct BottomPanelData<'w> {
 pub struct BuildingInspectorData<'w, 's> {
     selected_building: ResMut<'w, SelectedBuilding>,
     grid: Res<'w, WorldGrid>,
-    food_storage: ResMut<'w, FoodStorage>,
-    gold_storage: ResMut<'w, GoldStorage>,
+    town_access: crate::systemparams::TownAccess<'w, 's>,
     combat_config: Res<'w, CombatConfig>,
-    town_upgrades: Res<'w, TownUpgrades>,
     entity_map: ResMut<'w, EntityMap>,
     building_health: Query<'w, 's, &'static mut Health, With<Building>>,
     pub npc_flags_q: Query<'w, 's, &'static mut NpcFlags>,
@@ -461,7 +458,6 @@ pub struct BuildingInspectorData<'w, 's> {
     pub patrol_route_q: Query<'w, 's, &'static PatrolRoute>,
     pub last_hit_by_q: Query<'w, 's, &'static LastHitBy>,
     pub merchant_inv: ResMut<'w, MerchantInventory>,
-    pub town_inventory: ResMut<'w, TownInventory>,
     pub next_loot_id: ResMut<'w, NextLootItemId>,
     pub tower_bld_q: Query<'w, 's, &'static mut TowerBuildingState, With<Building>>,
     pub miner_cfg_q: Query<'w, 's, &'static mut MinerHomeConfig>,
@@ -742,8 +738,8 @@ fn tower_upgrade_window(
     let upgrade_levels = tbs.upgrade_levels.clone();
     let auto_flags = tbs.auto_upgrade_flags.clone();
 
-    let food = bld.food_storage.food.get(town_idx).copied().unwrap_or(0);
-    let gold = bld.gold_storage.gold.get(town_idx).copied().unwrap_or(0);
+    let food = bld.town_access.food(town_idx as i32);
+    let gold = bld.town_access.gold(town_idx as i32);
     let tower_upgrades = crate::constants::TOWER_UPGRADES;
 
     let mut open = true;
@@ -839,13 +835,13 @@ fn tower_upgrade_window(
                                 let total = base * cost_mult;
                                 match res {
                                     ResourceKind::Food => {
-                                        if let Some(f) = bld.food_storage.food.get_mut(town_idx) {
-                                            *f -= total;
+                                        if let Some(mut f) = bld.town_access.food_mut(town_idx as i32) {
+                                            f.0 -= total;
                                         }
                                     }
                                     ResourceKind::Gold => {
-                                        if let Some(g) = bld.gold_storage.gold.get_mut(town_idx) {
-                                            *g -= total;
+                                        if let Some(mut g) = bld.town_access.gold_mut(town_idx as i32) {
+                                            g.0 -= total;
                                         }
                                     }
                                 }
@@ -2121,7 +2117,7 @@ fn building_inspector_content(
         BuildingKind::Fountain => {
             // Healing + tower info
             let base_radius = bld.combat_config.heal_radius;
-            let levels = bld.town_upgrades.town_levels(town_idx);
+            let levels = bld.town_access.upgrade_levels(town_idx as i32);
             let upgrade_bonus =
                 UPGRADES.stat_level(&levels, "Town", UpgradeStatKind::FountainRange) as f32 * 24.0;
             let tower = resolve_town_tower_stats(&levels);
@@ -2146,10 +2142,8 @@ fn building_inspector_content(
                 ));
             }
 
-            // Town food — town_idx is direct index into food_storage
-            if let Some(&food) = bld.food_storage.food.get(town_idx) {
-                ui.label(format!("Food: {}", food));
-            }
+            let food = bld.town_access.food(town_idx as i32);
+            ui.label(format!("Food: {}", food));
         }
 
         BuildingKind::Bed => {
@@ -2255,12 +2249,8 @@ fn building_inspector_content(
                         .collect();
                     let next_name = WALL_TIER_NAMES[level];
                     let can_afford = costs.iter().all(|(r, amt)| match r {
-                        ResourceKind::Food => {
-                            bld.food_storage.food.get(town_idx).copied().unwrap_or(0) >= *amt
-                        }
-                        ResourceKind::Gold => {
-                            bld.gold_storage.gold.get(town_idx).copied().unwrap_or(0) >= *amt
-                        }
+                        ResourceKind::Food => bld.town_access.food(town_idx as i32) >= *amt,
+                        ResourceKind::Gold => bld.town_access.gold(town_idx as i32) >= *amt,
                     });
 
                     ui.separator();
@@ -2278,13 +2268,13 @@ fn building_inspector_content(
                         for (r, amt) in costs {
                             match r {
                                 ResourceKind::Food => {
-                                    if let Some(f) = bld.food_storage.food.get_mut(town_idx) {
-                                        *f -= amt;
+                                    if let Some(mut f) = bld.town_access.food_mut(town_idx as i32) {
+                                        f.0 -= amt;
                                     }
                                 }
                                 ResourceKind::Gold => {
-                                    if let Some(g) = bld.gold_storage.gold.get_mut(town_idx) {
-                                        *g -= amt;
+                                    if let Some(mut g) = bld.town_access.gold_mut(town_idx as i32) {
+                                        g.0 -= amt;
                                     }
                                 }
                             }
@@ -2377,7 +2367,7 @@ fn building_inspector_content(
                 for item in &stock.items {
                     let (r, g, b) = item.rarity.color();
                     let cost = item.rarity.gold_cost();
-                    let gold = bld.gold_storage.gold.get(tidx).copied().unwrap_or(0);
+                    let gold = bld.town_access.gold(tidx as i32);
                     let can_afford = gold >= cost;
                     ui.horizontal(|ui| {
                         ui.label(
@@ -2399,39 +2389,47 @@ fn building_inspector_content(
             if let Some(id) = buy_id {
                 if let Some(item) = bld.merchant_inv.remove(tidx, id) {
                     let cost = item.rarity.gold_cost();
-                    if let Some(g) = bld.gold_storage.gold.get_mut(tidx) {
-                        *g -= cost;
+                    if let Some(mut g) = bld.town_access.gold_mut(tidx as i32) {
+                        g.0 -= cost;
                     }
-                    bld.town_inventory.add(tidx, item);
+                    if let Some(mut eq) = bld.town_access.equipment_mut(tidx as i32) {
+                        eq.0.push(item);
+                    }
                 }
             }
 
-            // Sell section — items from TownInventory
+            // Sell section — items from town equipment
             ui.separator();
             ui.label("Sell from inventory:");
             let mut sell_id: Option<u64> = None;
-            if let Some(items) = bld.town_inventory.items.get(tidx) {
-                for item in items {
-                    let (r, g, b) = item.rarity.color();
-                    let sell_price = item.rarity.gold_cost() / 2;
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new(&item.name)
-                                .color(egui::Color32::from_rgb(r, g, b)),
-                        );
-                        ui.label(format!("{:?}", item.slot));
-                        if ui.button(format!("Sell {}g", sell_price)).clicked() {
-                            sell_id = Some(item.id);
-                        }
-                    });
-                }
+            let inv_items = bld.town_access.equipment(tidx as i32).unwrap_or_default();
+            for item in &inv_items {
+                let (r, g, b) = item.rarity.color();
+                let sell_price = item.rarity.gold_cost() / 2;
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(&item.name)
+                            .color(egui::Color32::from_rgb(r, g, b)),
+                    );
+                    ui.label(format!("{:?}", item.slot));
+                    if ui.button(format!("Sell {}g", sell_price)).clicked() {
+                        sell_id = Some(item.id);
+                    }
+                });
             }
+            drop(inv_items);
             // Process sell
             if let Some(id) = sell_id {
-                if let Some(item) = bld.town_inventory.remove(tidx, id) {
-                    let sell_price = item.rarity.gold_cost() / 2;
-                    if let Some(g) = bld.gold_storage.gold.get_mut(tidx) {
-                        *g += sell_price;
+                let sold_rarity = if let Some(mut eq) = bld.town_access.equipment_mut(tidx as i32) {
+                    eq.0.iter().position(|it| it.id == id).map(|pos| {
+                        let item = eq.0.swap_remove(pos);
+                        item.rarity
+                    })
+                } else { None };
+                if let Some(rarity) = sold_rarity {
+                    let sell_price = rarity.gold_cost() / 2;
+                    if let Some(mut g) = bld.town_access.gold_mut(tidx as i32) {
+                        g.0 += sell_price;
                     }
                 }
             }
@@ -2439,15 +2437,15 @@ fn building_inspector_content(
             // Reroll button
             ui.separator();
             let reroll_cost = 50;
-            let gold = bld.gold_storage.gold.get(tidx).copied().unwrap_or(0);
+            let gold = bld.town_access.gold(tidx as i32);
             let can_reroll = gold >= reroll_cost;
             let btn = ui.add_enabled(
                 can_reroll,
                 egui::Button::new(format!("Reroll Stock ({}g)", reroll_cost)),
             );
             if btn.clicked() && can_reroll {
-                if let Some(g) = bld.gold_storage.gold.get_mut(tidx) {
-                    *g -= reroll_cost;
+                if let Some(mut g) = bld.town_access.gold_mut(tidx as i32) {
+                    g.0 -= reroll_cost;
                 }
                 bld.merchant_inv.refresh(tidx, &mut bld.next_loot_id);
             }
@@ -3003,7 +3001,7 @@ pub fn faction_squad_overlay_system(
     let mut start_by_faction: HashMap<i32, Vec2> = HashMap::new();
     for town in world_data.towns.iter() {
         let entry = start_by_faction.entry(town.faction).or_insert(town.center);
-        if town.sprite_type == 0 {
+        if !town.is_raider() {
             *entry = town.center;
         }
     }

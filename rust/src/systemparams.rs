@@ -21,7 +21,7 @@ pub struct WorldState<'w> {
 impl WorldState<'_> {
     pub fn place_building(
         &mut self,
-        food_storage: &mut FoodStorage,
+        food: &mut i32,
         kind: crate::world::BuildingKind,
         town_data_idx: usize,
         world_pos: Vec2,
@@ -70,7 +70,7 @@ impl WorldState<'_> {
             Some(crate::world::BuildContext {
                 grid: &mut self.grid,
                 world_data: &self.world_data,
-                food_storage,
+                food,
                 cost,
             }),
             Some(&mut self.dirty_writers),
@@ -82,7 +82,7 @@ impl WorldState<'_> {
     /// Returns Ok if upgrade succeeded, Err if no upgradeable road found.
     pub fn upgrade_road(
         &mut self,
-        food_storage: &mut FoodStorage,
+        food: &mut i32,
         new_kind: crate::world::BuildingKind,
         town_data_idx: usize,
         world_pos: Vec2,
@@ -110,7 +110,6 @@ impl WorldState<'_> {
         // Cost = new road cost minus old road cost
         let upgrade_cost = crate::constants::building_cost(new_kind)
             - crate::constants::building_cost(old_kind);
-        let food = food_storage.food.get_mut(town_data_idx).ok_or("invalid town")?;
         if *food < upgrade_cost {
             return Err("not enough food");
         }
@@ -177,9 +176,87 @@ impl WorldState<'_> {
 
 /// Mutable economy resources shared by gameplay systems.
 #[derive(SystemParam)]
-pub struct EconomyState<'w> {
-    pub food_storage: ResMut<'w, FoodStorage>,
-    pub gold_storage: ResMut<'w, GoldStorage>,
+pub struct EconomyState<'w, 's> {
     pub pop_stats: ResMut<'w, PopulationStats>,
-    pub town_inventory: ResMut<'w, crate::resources::TownInventory>,
+    pub towns: TownAccess<'w, 's>,
+}
+
+/// ECS-backed town data access. Each town is an entity with FoodStore, GoldStore, etc.
+#[derive(SystemParam)]
+pub struct TownAccess<'w, 's> {
+    index: Res<'w, TownIndex>,
+    food: Query<'w, 's, &'static mut crate::components::FoodStore, With<crate::components::TownMarker>>,
+    gold: Query<'w, 's, &'static mut crate::components::GoldStore, With<crate::components::TownMarker>>,
+    policy: Query<'w, 's, &'static mut crate::components::TownPolicy, With<crate::components::TownMarker>>,
+    upgrades: Query<'w, 's, &'static mut crate::components::TownUpgradeLevel, With<crate::components::TownMarker>>,
+    equipment: Query<'w, 's, &'static mut crate::components::TownEquipment, With<crate::components::TownMarker>>,
+}
+
+impl TownAccess<'_, '_> {
+    pub fn entity(&self, town_idx: i32) -> Option<Entity> {
+        self.index.0.get(&town_idx).copied()
+    }
+
+    pub fn food(&self, town_idx: i32) -> i32 {
+        self.entity(town_idx)
+            .and_then(|e| self.food.get(e).ok())
+            .map(|f| f.0)
+            .unwrap_or(0)
+    }
+
+    pub fn food_mut(&mut self, town_idx: i32) -> Option<Mut<'_, crate::components::FoodStore>> {
+        let e = self.entity(town_idx)?;
+        self.food.get_mut(e).ok()
+    }
+
+    pub fn gold(&self, town_idx: i32) -> i32 {
+        self.entity(town_idx)
+            .and_then(|e| self.gold.get(e).ok())
+            .map(|g| g.0)
+            .unwrap_or(0)
+    }
+
+    pub fn gold_mut(&mut self, town_idx: i32) -> Option<Mut<'_, crate::components::GoldStore>> {
+        let e = self.entity(town_idx)?;
+        self.gold.get_mut(e).ok()
+    }
+
+    pub fn policy(&self, town_idx: i32) -> Option<crate::resources::PolicySet> {
+        let e = self.entity(town_idx)?;
+        self.policy.get(e).ok().map(|p| p.0.clone())
+    }
+
+    pub fn policy_mut(&mut self, town_idx: i32) -> Option<Mut<'_, crate::components::TownPolicy>> {
+        let e = self.entity(town_idx)?;
+        self.policy.get_mut(e).ok()
+    }
+
+    pub fn upgrade_levels(&self, town_idx: i32) -> Vec<u8> {
+        self.entity(town_idx)
+            .and_then(|e| self.upgrades.get(e).ok())
+            .map(|u| u.0.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn upgrade_level(&self, town_idx: i32, upgrade_idx: usize) -> u8 {
+        self.entity(town_idx)
+            .and_then(|e| self.upgrades.get(e).ok())
+            .and_then(|u| u.0.get(upgrade_idx).copied())
+            .unwrap_or(0)
+    }
+
+    pub fn upgrades_mut(&mut self, town_idx: i32) -> Option<Mut<'_, crate::components::TownUpgradeLevel>> {
+        let e = self.entity(town_idx)?;
+        self.upgrades.get_mut(e).ok()
+    }
+
+    pub fn equipment(&self, town_idx: i32) -> Option<Vec<crate::constants::LootItem>> {
+        let e = self.entity(town_idx)?;
+        self.equipment.get(e).ok().map(|eq| eq.0.clone())
+    }
+
+    pub fn equipment_mut(&mut self, town_idx: i32) -> Option<Mut<'_, crate::components::TownEquipment>> {
+        let e = self.entity(town_idx)?;
+        self.equipment.get_mut(e).ok()
+    }
 }

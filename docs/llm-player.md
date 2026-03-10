@@ -33,8 +33,9 @@ The built-in player reads ECS resources directly and sends game state as TOON to
 
 `systems/llm_player.rs`:
 - `LlmPlayerState` resource: timer, async receiver, subscriptions, pending queries, `last_command`/`last_payload`/`last_response` for settings panel inspector, `LlmStatus` enum (Idle/Sending/Thinking/Done)
-- `LlmReadState` SystemParam: read-only ECS access (WorldData, GameTime, FactionStats, PopulationStats, TownUpgrades, Reputation)
-- `LlmWriteState` SystemParam: write access (SquadState, FoodStorage, GoldStorage, ChatInbox)
+- `LlmReadState` SystemParam: read-only ECS access (WorldData, GameTime, FactionStats, PopulationStats, Reputation)
+- `LlmWriteState` SystemParam: write access (SquadState, ChatInbox)
+- `TownAccess` SystemParam: food/gold/upgrades/policies per town (replaces old Vec resources)
 - `build_state_json()`: builds `serde_json::Value` from ECS, serialized to TOON via `serde_toon2::to_string()` — flat per-town fields (compact building strings, squad counts, distance, reputation) for tabular TOON format + top-level own-town extras (your_squads, open_slots, inbox). Inbox uses flag-based delivery: only unsent messages (`!sent_to_llm`) are included, then marked `sent_to_llm = true`.
 - `parse_actions()`: parses CSV lines — splits on `, ` then `split_once(':')` for named key:value params
 - `execute_actions()`: routes parsed actions to ECS mutations (build, destroy, upgrade, policy, squad_target, chat, query, subscribe, unsubscribe). Combat log entries use `push_at` with world positions for camera-pan buttons. Chat action writes to `ChatInbox` only (not combat log) and marks the original player message as `has_reply = true`.

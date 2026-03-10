@@ -27,7 +27,7 @@ use crate::systems::ai_player::{
     AiPersonality, RoadStyle, cheapest_gold_upgrade_cost, debug_food_military_desire,
 };
 use crate::systems::stats::{
-    CombatConfig, TownUpgrades, UPGRADES, UpgradeMsg, branch_total, format_upgrade_cost,
+    CombatConfig, UPGRADES, UpgradeMsg, branch_total, format_upgrade_cost,
     missing_prereqs, resolve_town_tower_stats, upgrade_available, upgrade_count,
     upgrade_effect_summary, upgrade_unlocked,
 };
@@ -98,11 +98,9 @@ pub struct SquadParams<'w> {
 #[allow(dead_code)] // reputation used soon
 pub struct FactionsParams<'w, 's> {
     ai_state: ResMut<'w, AiPlayerState>,
-    food_storage: Res<'w, FoodStorage>,
-    gold_storage: ResMut<'w, GoldStorage>,
     reputation: ResMut<'w, Reputation>,
     faction_stats: Res<'w, FactionStats>,
-    upgrades: Res<'w, TownUpgrades>,
+    town_access: crate::systemparams::TownAccess<'w, 's>,
     combat_config: Res<'w, CombatConfig>,
     world_grid: Res<'w, WorldGrid>,
     entity_map: Res<'w, EntityMap>,
@@ -288,7 +286,6 @@ pub fn left_panel_system(
     mut contexts: bevy_egui::EguiContexts,
     mut ui_state: ResMut<UiState>,
     world_data: Res<WorldData>,
-    mut policies: ResMut<TownPolicies>,
     mut roster: RosterParams,
     mut upgrade: UpgradeParams,
     mut squad: SquadParams,
@@ -309,7 +306,7 @@ pub fn left_panel_system(
         if panel_state.was_open {
             panel_state.was_open = false;
             snapshot_collapsed_sections(ctx, &mut settings);
-            save_left_panel_state(&ui_state, &settings, &policies, &world_data, &factions.ai_state);
+            save_left_panel_state(&ui_state, &settings, &factions.town_access, &world_data, &factions.ai_state);
         }
         ui_state.factions_overlay_faction = None;
         panel_state.prev_tab = LeftPanelTab::Roster;
@@ -377,11 +374,11 @@ pub fn left_panel_system(
                     roster_content(ui, &mut roster, &mut roster_state, debug_all)
                 }
                 LeftPanelTab::Upgrades => {
-                    upgrade_content(ui, &mut upgrade, &factions.gold_storage, &world_data, &mut settings)
+                    upgrade_content(ui, &mut upgrade, &factions.town_access, &world_data, &mut settings)
                 }
                 LeftPanelTab::Policies => policies_content(
                     ui,
-                    &mut policies,
+                    &mut factions.town_access,
                     &world_data,
                     &factions.entity_map,
                     &mut profiler.mining_policy,
@@ -408,15 +405,13 @@ pub fn left_panel_system(
                     &roster.meta_cache,
                     &factions.entity_map,
                     &mut ui_state,
-                    &mut factions.gold_storage,
+                    &mut factions.town_access,
                 ),
                 LeftPanelTab::Factions => factions_content(
                     ui,
                     &factions,
-                    &factions.gold_storage,
                     &squad.squad_state,
                     &world_data,
-                    &policies,
                     &profiler.mining_policy,
                     &mut factions_cache,
                     &mut jump_target,
@@ -483,7 +478,7 @@ pub fn left_panel_system(
 fn save_left_panel_state(
     ui_state: &UiState,
     settings: &UserSettings,
-    policies: &TownPolicies,
+    town_access: &crate::systemparams::TownAccess<'_, '_>,
     world_data: &WorldData,
     ai_state: &AiPlayerState,
 ) {
@@ -499,8 +494,8 @@ fn save_left_panel_state(
         .iter()
         .position(|t| t.faction == crate::constants::FACTION_PLAYER)
         .unwrap_or(0);
-    if town_idx < policies.policies.len() {
-        saved.policy = policies.policies[town_idx].clone();
+    if let Some(p) = town_access.policy(town_idx as i32) {
+        saved.policy = p;
     }
     if let Some(player) = ai_state.players.iter().find(|p| p.town_data_idx == town_idx) {
         saved.ai_manager_active = player.active;
@@ -519,7 +514,7 @@ fn save_left_panel_state(
 
 fn policies_content(
     ui: &mut egui::Ui,
-    policies: &mut TownPolicies,
+    town_access: &mut crate::systemparams::TownAccess<'_, '_>,
     world_data: &WorldData,
     entity_map: &EntityMap,
     mining_policy: &mut MiningPolicy,
@@ -534,10 +529,11 @@ fn policies_content(
         .position(|t| t.faction == crate::constants::FACTION_PLAYER)
         .unwrap_or(0);
 
-    if town_idx >= policies.policies.len() {
-        policies.policies.resize(town_idx + 1, PolicySet::default());
-    }
-    let policy = &mut policies.policies[town_idx];
+    let Some(mut town_policy) = town_access.policy_mut(town_idx as i32) else {
+        ui.label("No policy data");
+        return;
+    };
+    let policy = &mut town_policy.0;
 
     if let Some(town) = world_data.towns.get(town_idx) {
         ui.small(format!("Town: {}", town.name));
@@ -1085,21 +1081,17 @@ fn squads_content(
 
 fn rebuild_factions_cache(
     factions: &FactionsParams,
-    gold_storage: &GoldStorage,
     squad_state: &SquadState,
     world_data: &WorldData,
     entity_map: &EntityMap,
-    policies: &TownPolicies,
     mining_policy: &MiningPolicy,
     cache: &mut FactionsCache,
 ) {
     fn push_snapshot(
         factions: &FactionsParams,
-        gold_storage: &GoldStorage,
         squad_state: &SquadState,
         world_data: &WorldData,
         entity_map: &EntityMap,
-        policies: &TownPolicies,
         mining_policy: &MiningPolicy,
         cache: &mut FactionsCache,
         tdi: usize,
@@ -1142,15 +1134,15 @@ fn rebuild_factions_cache(
                 })
                 .collect();
 
-        let food = factions.food_storage.food.get(tdi).copied().unwrap_or(0);
-        let gold = gold_storage.gold.get(tdi).copied().unwrap_or(0);
+        let food = factions.town_access.food(tdi as i32);
+        let gold = factions.town_access.gold(tdi as i32);
         let (alive, dead, kills) = factions
             .faction_stats
             .stats
             .get(faction as usize)
             .map(|s| (s.alive, s.dead, s.kills))
             .unwrap_or((0, 0, 0));
-        let upgrades = factions.upgrades.town_levels(tdi);
+        let upgrades = factions.town_access.upgrade_levels(tdi as i32);
         let next_upgrade = UPGRADES.nodes.iter().enumerate().find_map(|(idx, node)| {
             let level = upgrades.get(idx).copied().unwrap_or(0);
             if level >= 20 || !upgrade_unlocked(&upgrades, idx) {
@@ -1163,8 +1155,9 @@ fn rebuild_factions_cache(
             })
         });
 
-        let policy = policies.policies.get(tdi);
+        let policy = factions.town_access.policy(tdi as i32);
         let mining_radius = policy
+            .as_ref()
             .map(|p| p.mining_radius)
             .unwrap_or(crate::constants::DEFAULT_MINING_RADIUS);
         let mines_in_radius = entity_map
@@ -1284,7 +1277,7 @@ fn rebuild_factions_cache(
         // Gold desire: mirrors ai_player.rs logic.
         let (gold_desire, gold_desire_tip) = if let Some(p) = personality {
             let uw = p.upgrade_weights(crate::systems::ai_player::AiKind::Builder);
-            let levels = factions.upgrades.town_levels(tdi);
+            let levels = factions.town_access.upgrade_levels(tdi as i32);
             let cheapest = cheapest_gold_upgrade_cost(&uw, &levels, gold);
             let base = p.base_mining_desire();
             let gd = if cheapest > 0 {
@@ -1409,11 +1402,9 @@ fn rebuild_factions_cache(
     if let Some(player_tdi) = world_data.towns.iter().position(|t| t.faction == crate::constants::FACTION_PLAYER) {
         push_snapshot(
             factions,
-            gold_storage,
             squad_state,
             world_data,
             entity_map,
-            policies,
             mining_policy,
             cache,
             player_tdi,
@@ -1437,11 +1428,9 @@ fn rebuild_factions_cache(
             player.last_actions.iter().rev().cloned().collect();
         push_snapshot(
             factions,
-            gold_storage,
             squad_state,
             world_data,
             entity_map,
-            policies,
             mining_policy,
             cache,
             tdi,
@@ -1661,10 +1650,8 @@ fn build_faction_debug_string(snap: &AiSnapshot) -> String {
 fn factions_content(
     ui: &mut egui::Ui,
     factions: &FactionsParams,
-    gold_storage: &GoldStorage,
     squad_state: &SquadState,
     world_data: &WorldData,
-    policies: &TownPolicies,
     mining_policy: &MiningPolicy,
     cache: &mut FactionsCache,
     jump_target: &mut Option<Vec2>,
@@ -1677,11 +1664,9 @@ fn factions_content(
     if cache.frame_counter % 30 == 1 || cache.snapshots.is_empty() {
         rebuild_factions_cache(
             factions,
-            gold_storage,
             squad_state,
             world_data,
             &factions.entity_map,
-            policies,
             mining_policy,
             cache,
         );
@@ -1876,7 +1861,7 @@ fn factions_content(
 
     // -- Policies --
     tracked_section(ui, "Policies", false, "Policies", |ui| {
-            if let Some(policy) = policies.policies.get(snap.town_data_idx) {
+            if let Some(ref policy) = factions.town_access.policy(snap.town_data_idx as i32) {
                 let schedule_label = |s: WorkSchedule| SCHEDULE_OPTIONS[s as usize];
                 let off_duty_label = |o: OffDutyBehavior| OFF_DUTY_OPTIONS[o as usize];
                 egui::Grid::new(format!("intel_policies_grid_{}", snap.faction))

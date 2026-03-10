@@ -1069,31 +1069,10 @@ pub struct ProjHitState(pub Vec<[i32; 2]>);
 #[derive(Resource, Default)]
 pub struct ProjPositionState(pub Vec<f32>);
 
-/// Food storage per location. Replaces FOOD_STORAGE static.
-#[derive(Resource, Default, Reflect)]
-#[reflect(Resource)]
-pub struct FoodStorage {
-    pub food: Vec<i32>, // One entry per clan/location
-}
+/// O(1) lookup from town_idx → Bevy Entity for town ECS entities.
+#[derive(Resource, Default)]
+pub struct TownIndex(pub HashMap<i32, Entity>);
 
-impl FoodStorage {
-    pub fn init(&mut self, count: usize) {
-        self.food = vec![0; count];
-    }
-}
-
-/// Gold storage per town. Mirrors FoodStorage.
-#[derive(Resource, Default, Reflect)]
-#[reflect(Resource)]
-pub struct GoldStorage {
-    pub gold: Vec<i32>,
-}
-
-impl GoldStorage {
-    pub fn init(&mut self, count: usize) {
-        self.gold = vec![0; count];
-    }
-}
 
 /// Monotonic counter for unique loot item IDs.
 #[derive(Resource, Default)]
@@ -1109,38 +1088,6 @@ impl NextLootItemId {
     }
 }
 
-/// Per-town equipment inventory (unequipped items stored in town).
-#[derive(Resource, Default, Clone)]
-pub struct TownInventory {
-    pub items: Vec<Vec<crate::constants::LootItem>>,
-}
-
-impl TownInventory {
-    pub fn init(&mut self, town_count: usize) {
-        self.items.resize_with(town_count, Vec::new);
-    }
-
-    pub fn add(&mut self, town_idx: usize, item: crate::constants::LootItem) {
-        // Guard against usize::MAX from negative i32-to-usize casts
-        if town_idx > 1000 {
-            return;
-        }
-        if town_idx >= self.items.len() {
-            self.items.resize_with(town_idx + 1, Vec::new);
-        }
-        self.items[town_idx].push(item);
-    }
-
-    pub fn remove(&mut self, town_idx: usize, item_id: u64) -> Option<crate::constants::LootItem> {
-        let inv = self.items.get_mut(town_idx)?;
-        let pos = inv.iter().position(|i| i.id == item_id)?;
-        Some(inv.swap_remove(pos))
-    }
-
-    pub fn items(&self, town_idx: usize) -> &[crate::constants::LootItem] {
-        self.items.get(town_idx).map(|v| v.as_slice()).unwrap_or(&[])
-    }
-}
 
 /// Per-town merchant stock (items for sale + refresh timer).
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -1734,7 +1681,7 @@ fn default_policy_mining_radius() -> f32 {
 }
 
 /// Per-town behavior configuration. Controls flee thresholds, work schedules, off-duty behavior.
-#[derive(Clone, Debug, Reflect, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Reflect, serde::Serialize, serde::Deserialize)]
 pub struct PolicySet {
     pub eat_food: bool,
     #[serde(alias = "guard_aggressive")]
@@ -1906,20 +1853,6 @@ impl Difficulty {
     }
 }
 
-/// Per-town policy settings. Index matches WorldData.towns.
-#[derive(Resource, Reflect)]
-#[reflect(Resource)]
-pub struct TownPolicies {
-    pub policies: Vec<PolicySet>,
-}
-
-impl Default for TownPolicies {
-    fn default() -> Self {
-        Self {
-            policies: vec![PolicySet::default(); 16],
-        }
-    }
-}
 
 // ============================================================================
 // SQUADS

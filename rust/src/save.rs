@@ -12,7 +12,7 @@ use crate::settings::{ControlAction, UserSettings};
 use crate::systems::AiPlayerState;
 use crate::systems::spawn::{NpcSpawnOverrides, materialize_npc};
 use crate::systems::stats::{
-    CombatConfig, TownUpgrades, decode_auto_upgrade_flags, decode_upgrade_levels,
+    CombatConfig, decode_auto_upgrade_flags, decode_upgrade_levels,
 };
 use crate::world::{self, WorldCell, WorldData, WorldGrid};
 
@@ -635,11 +635,11 @@ pub fn collect_save_data(
     world_data: &WorldData,
     entity_map: &EntityMap,
     game_time: &GameTime,
-    food_storage: &FoodStorage,
-    gold_storage: &GoldStorage,
+    town_food: &[i32],
+    town_gold: &[i32],
     building_hp: std::collections::HashMap<String, Vec<f32>>,
-    upgrades: &TownUpgrades,
-    policies: &TownPolicies,
+    town_upgrades: &[Vec<u8>],
+    town_policies: &[crate::resources::PolicySet],
     auto_upgrade: &AutoUpgrade,
     squad_state: &SquadState,
     raider_state: &RaiderState,
@@ -652,7 +652,7 @@ pub fn collect_save_data(
     npcs: Vec<NpcSaveData>,
     uid_alloc: &NextEntityUid,
     next_loot_id: &crate::resources::NextLootItemId,
-    town_inventory: &crate::resources::TownInventory,
+    town_equipment: &[Vec<crate::constants::LootItem>],
     merchant_inv: &crate::resources::MerchantInventory,
     faction_list: &crate::resources::FactionList,
     bld_state: &std::collections::HashMap<usize, BuildingStateSnapshot>,
@@ -753,8 +753,8 @@ pub fn collect_save_data(
 
     let building_hp_save = building_hp;
 
-    // Upgrades (already Vec<Vec<u8>>)
-    let upgrades_save: Vec<Vec<u8>> = upgrades.levels.clone();
+    // Upgrades
+    let upgrades_save: Vec<Vec<u8>> = town_upgrades.to_vec();
 
     // Auto-upgrades (already Vec<Vec<bool>>)
     let auto_upgrades_save: Vec<Vec<bool>> = auto_upgrade.flags.clone();
@@ -837,8 +837,8 @@ pub fn collect_save_data(
         total_seconds: game_time.total_seconds,
         seconds_per_hour: game_time.seconds_per_hour,
         time_scale: game_time.time_scale,
-        food: food_storage.food.clone(),
-        gold: gold_storage.gold.clone(),
+        food: town_food.to_vec(),
+        gold: town_gold.to_vec(),
         farm_growth,
         mine_growth: entity_map
             .iter_kind(crate::world::BuildingKind::GoldMine)
@@ -854,7 +854,7 @@ pub fn collect_save_data(
         spawners,
         building_hp: building_hp_save,
         upgrades: upgrades_save,
-        policies: policies.policies.clone(),
+        policies: town_policies.to_vec(),
         auto_upgrades: auto_upgrades_save,
         squads,
         waypoint_attack: vec![],
@@ -884,7 +884,7 @@ pub fn collect_save_data(
             }),
         next_entity_uid: Some(uid_alloc.0),
         next_loot_item_id: next_loot_id.next,
-        town_inventory: town_inventory.items.clone(),
+        town_inventory: town_equipment.to_vec(),
         merchant_stocks: merchant_inv.stocks.clone(),
         endless_mode: endless.enabled,
         endless_strength: endless.strength_fraction,
@@ -969,16 +969,22 @@ pub fn read_save() -> Result<SaveData, String> {
 // APPLY SAVE (restore game state from SaveData)
 // ============================================================================
 
+/// Town data extracted from save for ECS entity population.
+pub struct SavedTownData {
+    pub food: Vec<i32>,
+    pub gold: Vec<i32>,
+    pub upgrades: Vec<Vec<u8>>,
+    pub policies: Vec<crate::resources::PolicySet>,
+    pub equipment: Vec<Vec<crate::constants::LootItem>>,
+}
+
 /// Apply save data to all game resources. Call after despawning all NPC entities.
+/// Returns town data for ECS entity population via spawn_town_entities.
 pub fn apply_save(
     save: &SaveData,
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
     game_time: &mut GameTime,
-    food_storage: &mut FoodStorage,
-    gold_storage: &mut GoldStorage,
-    upgrades: &mut TownUpgrades,
-    policies: &mut TownPolicies,
     auto_upgrade: &mut AutoUpgrade,
     squad_state: &mut SquadState,
     raider_state: &mut RaiderState,
@@ -990,9 +996,8 @@ pub fn apply_save(
     endless: &mut EndlessMode,
     slots: &mut GpuSlotPool,
     next_loot_id: &mut crate::resources::NextLootItemId,
-    town_inventory: &mut crate::resources::TownInventory,
     merchant_inv: &mut crate::resources::MerchantInventory,
-) {
+) -> SavedTownData {
     info!("Applying save version {}", save.version);
 
     // World grid
@@ -1039,25 +1044,18 @@ pub fn apply_save(
     game_time.hour_ticked = false;
     game_time.paused = game_time.time_scale <= 0.0;
 
-    // Economy
-    food_storage.food = save.food.clone();
-    gold_storage.gold = save.gold.clone();
-
-    // Growth states + spawner state are rebuilt in load_building_instances_from_save
-
-    // Upgrades
-    upgrades.levels = save
+    // Town data for ECS entities
+    let saved_food = save.food.clone();
+    let saved_gold = save.gold.clone();
+    let saved_upgrades: Vec<Vec<u8>> = save
         .upgrades
         .iter()
         .map(|v| decode_upgrade_levels(v))
         .collect();
-
-    // Policies
     let num_towns = world_data.towns.len();
-    policies.policies = save.policies.clone();
-    policies
-        .policies
-        .resize(num_towns.max(16), PolicySet::default());
+    let mut saved_policies = save.policies.clone();
+    saved_policies.resize(num_towns.max(16), PolicySet::default());
+    let saved_equipment = save.town_inventory.clone();
 
     // Auto-upgrades
     auto_upgrade.flags = save
@@ -1191,7 +1189,6 @@ pub fn apply_save(
 
     // Loot system
     next_loot_id.next = save.next_loot_item_id;
-    town_inventory.items = save.town_inventory.clone();
     merchant_inv.stocks = save.merchant_stocks.clone();
 
     // Slot allocator: rebuild from saved NPC slots
@@ -1208,6 +1205,14 @@ pub fn apply_save(
         if !used_slots.contains(&i) {
             slots.free_list_mut().push(i);
         }
+    }
+
+    SavedTownData {
+        food: saved_food,
+        gold: saved_gold,
+        upgrades: saved_upgrades,
+        policies: saved_policies,
+        equipment: saved_equipment,
     }
 }
 
@@ -1390,17 +1395,15 @@ use bevy::ecs::system::SystemParam;
 
 /// World state resources for save/load.
 #[derive(SystemParam)]
-pub struct SaveWorldState<'w> {
+pub struct SaveWorldState<'w, 's> {
     pub grid: ResMut<'w, WorldGrid>,
     pub world_data: ResMut<'w, WorldData>,
     pub game_time: ResMut<'w, GameTime>,
-    pub food_storage: ResMut<'w, FoodStorage>,
-    pub gold_storage: ResMut<'w, GoldStorage>,
-    pub upgrades: ResMut<'w, TownUpgrades>,
-    pub policies: ResMut<'w, TownPolicies>,
     pub auto_upgrade: ResMut<'w, AutoUpgrade>,
     pub squad_state: ResMut<'w, SquadState>,
     pub tower_state: ResMut<'w, TowerState>,
+    pub town_index: ResMut<'w, crate::resources::TownIndex>,
+    pub town_access: crate::systemparams::TownAccess<'w, 's>,
 }
 
 /// More world state + faction/AI resources.
@@ -1415,7 +1418,6 @@ pub struct SaveFactionState<'w> {
     pub migration_state: ResMut<'w, MigrationState>,
     pub endless: ResMut<'w, EndlessMode>,
     pub next_loot_id: ResMut<'w, crate::resources::NextLootItemId>,
-    pub town_inventory: ResMut<'w, crate::resources::TownInventory>,
     pub merchant_inv: ResMut<'w, crate::resources::MerchantInventory>,
 }
 
@@ -1771,16 +1773,23 @@ pub fn save_game_system(
     );
     let building_hp = collect_building_hp(&building_query, &entity_map);
     let bld_state = collect_building_state_snapshot(&bld_component_q);
+    // Collect town data from ECS entities
+    let n_towns = ws.world_data.towns.len();
+    let town_food: Vec<i32> = (0..n_towns).map(|i| ws.town_access.food(i as i32)).collect();
+    let town_gold: Vec<i32> = (0..n_towns).map(|i| ws.town_access.gold(i as i32)).collect();
+    let town_upgrades: Vec<Vec<u8>> = (0..n_towns).map(|i| ws.town_access.upgrade_levels(i as i32)).collect();
+    let town_policies: Vec<crate::resources::PolicySet> = (0..n_towns).map(|i| ws.town_access.policy(i as i32).unwrap_or_default()).collect();
+    let town_equipment: Vec<Vec<crate::constants::LootItem>> = (0..n_towns).map(|i| ws.town_access.equipment(i as i32).unwrap_or_default()).collect();
     let data = collect_save_data(
         &ws.grid,
         &ws.world_data,
         &entity_map,
         &ws.game_time,
-        &ws.food_storage,
-        &ws.gold_storage,
+        &town_food,
+        &town_gold,
         building_hp,
-        &ws.upgrades,
-        &ws.policies,
+        &town_upgrades,
+        &town_policies,
         &ws.auto_upgrade,
         &ws.squad_state,
         &fs.raider_state,
@@ -1793,7 +1802,7 @@ pub fn save_game_system(
         npcs,
         &uid_alloc,
         &fs.next_loot_id,
-        &fs.town_inventory,
+        &town_equipment,
         &fs.merchant_inv,
         &fs.faction_list,
         &bld_state,
@@ -1876,16 +1885,22 @@ pub fn autosave_system(
     );
     let building_hp = collect_building_hp(&building_query, &entity_map);
     let bld_state = collect_building_state_snapshot(&bld_component_q);
+    let n_towns = ws.world_data.towns.len();
+    let town_food: Vec<i32> = (0..n_towns).map(|i| ws.town_access.food(i as i32)).collect();
+    let town_gold: Vec<i32> = (0..n_towns).map(|i| ws.town_access.gold(i as i32)).collect();
+    let town_upgrades: Vec<Vec<u8>> = (0..n_towns).map(|i| ws.town_access.upgrade_levels(i as i32)).collect();
+    let town_policies: Vec<crate::resources::PolicySet> = (0..n_towns).map(|i| ws.town_access.policy(i as i32).unwrap_or_default()).collect();
+    let town_equipment: Vec<Vec<crate::constants::LootItem>> = (0..n_towns).map(|i| ws.town_access.equipment(i as i32).unwrap_or_default()).collect();
     let data = collect_save_data(
         &ws.grid,
         &ws.world_data,
         &entity_map,
         &ws.game_time,
-        &ws.food_storage,
-        &ws.gold_storage,
+        &town_food,
+        &town_gold,
         building_hp,
-        &ws.upgrades,
-        &ws.policies,
+        &town_upgrades,
+        &town_policies,
         &ws.auto_upgrade,
         &ws.squad_state,
         &fs.raider_state,
@@ -1898,7 +1913,7 @@ pub fn autosave_system(
         npcs,
         &uid_alloc,
         &fs.next_loot_id,
-        &fs.town_inventory,
+        &town_equipment,
         &fs.merchant_inv,
         &fs.faction_list,
         &bld_state,
@@ -1927,7 +1942,7 @@ pub fn spawn_npcs_from_save(
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
     world_data: &WorldData,
     combat_config: &CombatConfig,
-    upgrades: &TownUpgrades,
+    town_upgrade_levels: &[Vec<u8>],
     uid_alloc: &mut NextEntityUid,
 ) {
     for npc in &save.npcs {
@@ -1976,7 +1991,7 @@ pub fn spawn_npcs_from_save(
             gpu_updates,
             world_data,
             combat_config,
-            upgrades,
+            town_upgrade_levels.get(npc.town_id as usize).map(|v| v.as_slice()).unwrap_or(&[]),
             uid_alloc,
         );
     }
@@ -2009,15 +2024,11 @@ pub fn restore_world_from_save(
     tracking.tilemap_spawned.0 = false;
 
     // Apply save snapshot to world resources.
-    apply_save(
+    let town_data = apply_save(
         save,
         &mut ws.grid,
         &mut ws.world_data,
         &mut ws.game_time,
-        &mut ws.food_storage,
-        &mut ws.gold_storage,
-        &mut ws.upgrades,
-        &mut ws.policies,
         &mut ws.auto_upgrade,
         &mut ws.squad_state,
         &mut fs.raider_state,
@@ -2029,7 +2040,6 @@ pub fn restore_world_from_save(
         &mut fs.endless,
         &mut tracking.slots,
         &mut fs.next_loot_id,
-        &mut fs.town_inventory,
         &mut fs.merchant_inv,
     );
 
@@ -2044,12 +2054,10 @@ pub fn restore_world_from_save(
             towns: vec![],
         });
         for (ti, town) in ws.world_data.towns.iter().enumerate() {
-            let kind = if town.sprite_type == 1 {
-                FactionKind::AiRaider
-            } else if ti == 0 {
-                FactionKind::Player
-            } else {
-                FactionKind::AiBuilder
+            let kind = match town.kind {
+                crate::constants::TownKind::AiRaider => FactionKind::AiRaider,
+                crate::constants::TownKind::AiBuilder => FactionKind::AiBuilder,
+                crate::constants::TownKind::Player => FactionKind::Player,
             };
             let name = town.name.clone();
             fs.faction_list.factions.push(FactionData {
@@ -2061,6 +2069,18 @@ pub fn restore_world_from_save(
     } else {
         fs.faction_list.factions = save.faction_list.clone();
     }
+
+    // Spawn ECS town entities from loaded save data
+    world::spawn_town_entities(
+        commands,
+        &mut ws.town_index,
+        &ws.world_data.towns,
+        &town_data.food,
+        &town_data.gold,
+        &town_data.policies,
+        &town_data.upgrades,
+        &town_data.equipment,
+    );
 
     // Rebuild buildings from save payload.
     let world_size_px = ws.grid.width as f32 * ws.grid.cell_size;
@@ -2094,7 +2114,7 @@ pub fn restore_world_from_save(
         gpu_updates,
         &ws.world_data,
         combat_config,
-        &ws.upgrades,
+        &town_data.upgrades,
         uid_alloc,
     );
 

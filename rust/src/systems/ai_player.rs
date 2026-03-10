@@ -19,7 +19,7 @@ use crate::constants::*;
 use crate::resources::*;
 use crate::systemparams::WorldState;
 use crate::systems::stats::{
-    TownUpgrades, UPGRADES, expansion_cost, upgrade_available, upgrade_cost, upgrade_node,
+    UPGRADES, expansion_cost, upgrade_available, upgrade_cost, upgrade_node,
     upgrade_unlocked,
 };
 use crate::world::{self, BuildingKind, WorldData, WorldGrid};
@@ -35,10 +35,8 @@ use crate::world::{self, BuildingKind, WorldData, WorldGrid};
 #[derive(SystemParam)]
 pub struct AiBuildRes<'w, 's> {
     world: WorldState<'w>,
-    food_storage: ResMut<'w, FoodStorage>,
     upgrade_queue: MessageWriter<'w, crate::systems::stats::UpgradeMsg>,
     gpu_updates: MessageWriter<'w, crate::messages::GpuUpdateMsg>,
-    policies: ResMut<'w, TownPolicies>,
     commands: Commands<'w, 's>,
     waypoint_q: Query<'w, 's, &'static mut WaypointOrder, With<Building>>,
 }
@@ -1400,8 +1398,7 @@ pub fn ai_decision_system(
     config: Res<AiPlayerConfig>,
     mut ai_state: ResMut<AiPlayerState>,
     mut res: AiBuildRes,
-    upgrades: Res<TownUpgrades>,
-    gold_storage: Res<GoldStorage>,
+    mut town_access: crate::systemparams::TownAccess,
     mut combat_log: MessageWriter<crate::messages::CombatLogMsg>,
     game_time: Res<GameTime>,
     difficulty: Res<Difficulty>,
@@ -1464,20 +1461,18 @@ pub fn ai_decision_system(
             }
         }
 
-        let food = res.food_storage.food.get(tdi).copied().unwrap_or(0);
+        let mut food_val = town_access.food(tdi as i32);
+        let food = food_val;
         let spawner_count = snapshots.spawner_counts.get(&tdi).copied().unwrap_or(0);
-        let policy_reserves = res
-            .policies
-            .policies
-            .get(tdi)
+        let town_policy = town_access.policy(tdi as i32);
+        let policy_reserves = town_policy
+            .as_ref()
             .map(|p| (p.reserve_food, p.reserve_gold))
             .unwrap_or((0, 0));
         let reserve = personality.food_reserve_per_spawner() * spawner_count + policy_reserves.0;
         // Desire signals are computed once below and reused by action + upgrade scoring.
-        let mining_radius = res
-            .policies
-            .policies
-            .get(tdi)
+        let mining_radius = town_policy
+            .as_ref()
             .map(|p| p.mining_radius)
             .unwrap_or(crate::constants::DEFAULT_MINING_RADIUS);
         let Some(ctx) = TownContext::build(
@@ -1518,6 +1513,7 @@ pub fn ai_decision_system(
                     &ctx,
                     mines,
                     &mut res,
+                    &mut food_val,
                     snapshots.towns.get(&tdi),
                     personality,
                     road_style,
@@ -1621,8 +1617,8 @@ pub fn ai_decision_system(
 
         // Gold desire: driven by cheapest gold-costing upgrade the AI wants but can't afford.
         let uw = personality.upgrade_weights(kind);
-        let levels = upgrades.town_levels(tdi);
-        let gold = gold_storage.gold.get(tdi).copied().unwrap_or(0);
+        let levels = town_access.upgrade_levels(tdi as i32);
+        let gold = town_access.gold(tdi as i32);
         let cheapest_gold = cheapest_gold_upgrade_cost(&uw, &levels, gold);
         desires.gold_desire = if cheapest_gold > 0 {
             ((1.0 - gold as f32 / cheapest_gold as f32) * personality.gold_desire_mult())
@@ -1639,15 +1635,15 @@ pub fn ai_decision_system(
         desires.gold_desire = desires.gold_desire.max(desires.economy_desire);
 
         // --- Policy: eat_food toggle based on food desire ---
-        if let Some(policy) = res.policies.policies.get_mut(tdi) {
+        if let Some(mut policy) = town_access.policy_mut(tdi as i32) {
             let (off_threshold, on_threshold) = personality.eat_food_desire_thresholds();
-            let should_eat = if policy.eat_food {
+            let should_eat = if policy.0.eat_food {
                 desires.food_desire < off_threshold
             } else {
                 desires.food_desire < on_threshold
             };
-            if should_eat != policy.eat_food {
-                policy.eat_food = should_eat;
+            if should_eat != policy.0.eat_food {
+                policy.0.eat_food = should_eat;
                 let state = if should_eat { "on" } else { "off" };
                 log_ai(
                     &mut combat_log,
@@ -1793,15 +1789,24 @@ pub fn ai_decision_system(
             let Some(action) = weighted_pick(&build_scores) else {
                 break;
             };
+            let mut new_mr = None;
             let label = execute_action(
                 action,
                 &ctx,
                 &mut res,
+                &mut food_val,
+                mining_radius,
+                &mut new_mr,
                 snapshots.towns.get(&tdi),
                 personality,
                 road_style,
                 *difficulty,
             );
+            if let Some(mr) = new_mr {
+                if let Some(mut p) = town_access.policy_mut(tdi as i32) {
+                    p.0.mining_radius = mr;
+                }
+            }
             if let Some(what) = label {
                 snapshots.towns.remove(&tdi);
                 log_ai(
@@ -1856,8 +1861,8 @@ pub fn ai_decision_system(
         // Phase 2: Score and execute an UPGRADE action (if food/gold remain)
         // ================================================================
         if upgrade_enabled {
-        let food_after = res.food_storage.food.get(tdi).copied().unwrap_or(0);
-        let gold_after = gold_storage.gold.get(tdi).copied().unwrap_or(0);
+        let food_after = town_access.food(tdi as i32);
+        let gold_after = town_access.gold(tdi as i32);
         // Gold reservation: policy reserve + expansion upgrade hoard.
         let expansion_gold_reserve = policy_reserves.1 + if !ctx.has_slots {
             uw.iter()
@@ -1944,15 +1949,24 @@ pub fn ai_decision_system(
             }
 
             if let Some(action) = weighted_pick(&upgrade_scores) {
+                let mut new_mr = None;
                 let label = execute_action(
                     action,
                     &ctx,
                     &mut res,
+                    &mut food_val,
+                    mining_radius,
+                    &mut new_mr,
                     snapshots.towns.get(&tdi),
                     personality,
                     road_style,
                     *difficulty,
                 );
+                if let Some(mr) = new_mr {
+                    if let Some(mut p) = town_access.policy_mut(tdi as i32) {
+                        p.0.mining_radius = mr;
+                    }
+                }
                 if label.is_some() {
                     snapshots.towns.remove(&tdi);
                 }
@@ -1986,6 +2000,13 @@ pub fn ai_decision_system(
             }
         }
         } // upgrade_enabled
+
+        // Write back food changes from building actions to ECS
+        if food_val != food {
+            if let Some(mut f) = town_access.food_mut(tdi as i32) {
+                f.0 = food_val;
+            }
+        }
     }
 }
 
@@ -1995,13 +2016,14 @@ fn try_build_at_slot(
     label: &str,
     tdi: usize,
     res: &mut AiBuildRes,
+    food: &mut i32,
     col: usize,
     row: usize,
 ) -> Option<String> {
     let pos = res.world.grid.grid_to_world(col, row);
     res.world
         .place_building(
-            &mut res.food_storage,
+            food,
             kind,
             tdi,
             pos,
@@ -2039,6 +2061,7 @@ fn try_build_inner(
     tdi: usize,
     center: Vec2,
     res: &mut AiBuildRes,
+    food: &mut i32,
     area_level: i32,
     personality: AiPersonality,
     road_style: RoadStyle,
@@ -2052,7 +2075,7 @@ fn try_build_inner(
         personality,
         road_style,
     )?;
-    try_build_at_slot(kind, cost, label, tdi, res, col, row)
+    try_build_at_slot(kind, cost, label, tdi, res, food, col, row)
 }
 
 fn try_build_scored(
@@ -2061,6 +2084,7 @@ fn try_build_scored(
     tdi: usize,
     center: Vec2,
     res: &mut AiBuildRes,
+    food: &mut i32,
     area_level: i32,
     snapshot: Option<&AiTownSnapshot>,
     score_fn: fn(&AiTownSnapshot, (usize, usize)) -> i32,
@@ -2078,13 +2102,14 @@ fn try_build_scored(
         personality,
         road_style,
     )?;
-    try_build_at_slot(kind, building_cost(kind), label, tdi, res, col, row)
+    try_build_at_slot(kind, building_cost(kind), label, tdi, res, food, col, row)
 }
 
 fn try_build_miner_home(
     ctx: &TownContext,
     mines: &MineAnalysis,
     res: &mut AiBuildRes,
+    food: &mut i32,
     snapshot: Option<&AiTownSnapshot>,
     personality: AiPersonality,
     road_style: RoadStyle,
@@ -2125,6 +2150,7 @@ fn try_build_miner_home(
         "miner home",
         ctx.tdi,
         res,
+        food,
         slot.0,
         slot.1,
     )
@@ -2194,6 +2220,7 @@ fn count_road_candidates(
 fn try_build_road_grid(
     ctx: &TownContext,
     res: &mut AiBuildRes,
+    food: &mut i32,
     batch_size: usize,
     road_style: RoadStyle,
 ) -> Option<String> {
@@ -2270,8 +2297,7 @@ fn try_build_road_grid(
         if placed >= batch_size {
             break;
         }
-        let food = res.food_storage.food.get(ctx.tdi).copied().unwrap_or(0);
-        if food < cost {
+        if *food < cost {
             break;
         }
 
@@ -2279,7 +2305,7 @@ fn try_build_road_grid(
         if res
             .world
             .place_building(
-                &mut res.food_storage,
+                food,
                 BuildingKind::Road,
                 ctx.tdi,
                 pos,
@@ -2305,6 +2331,9 @@ fn execute_action(
     action: AiAction,
     ctx: &TownContext,
     res: &mut AiBuildRes,
+    food: &mut i32,
+    current_mining_radius: f32,
+    new_mining_radius: &mut Option<f32>,
     snapshot: Option<&AiTownSnapshot>,
     personality: AiPersonality,
     road_style: RoadStyle,
@@ -2320,6 +2349,7 @@ fn execute_action(
             ctx.tdi,
             ctx.center,
             res,
+            food,
             ctx.area_level,
             personality,
             road_style,
@@ -2336,6 +2366,7 @@ fn execute_action(
                 ctx.tdi,
                 ctx.center,
                 res,
+                food,
                 ctx.area_level,
                 snapshot,
                 score,
@@ -2355,6 +2386,7 @@ fn execute_action(
                 ctx.tdi,
                 ctx.center,
                 res,
+                food,
                 ctx.area_level,
                 snapshot,
                 score,
@@ -2368,6 +2400,7 @@ fn execute_action(
             ctx.tdi,
             ctx.center,
             res,
+            food,
             ctx.area_level,
             snapshot,
             archer_fill_score,
@@ -2380,6 +2413,7 @@ fn execute_action(
             ctx.tdi,
             ctx.center,
             res,
+            food,
             ctx.area_level,
             snapshot,
             archer_fill_score,
@@ -2390,18 +2424,15 @@ fn execute_action(
             let Some(mines) = &ctx.mines else {
                 return None;
             };
-            try_build_miner_home(ctx, mines, res, snapshot, personality, road_style)
+            try_build_miner_home(ctx, mines, res, food, snapshot, personality, road_style)
         }
         AiAction::ExpandMiningRadius => {
-            // Policy action, not building placement.
-            // Expands search radius for mines in fixed-size steps with max cap.
-            let policy = res.policies.policies.get_mut(ctx.tdi)?;
-            let old = policy.mining_radius;
+            let old = current_mining_radius;
             let new = (old + MINING_RADIUS_STEP).min(MAX_MINING_RADIUS);
             if new <= old {
                 return None;
             }
-            policy.mining_radius = new;
+            *new_mining_radius = Some(new);
             res.world
                 .dirty_writers
                 .mining
@@ -2425,7 +2456,7 @@ fn execute_action(
             if res
                 .world
                 .place_building(
-                    &mut res.food_storage,
+                    food,
                     world::BuildingKind::Waypoint,
                     ctx.tdi,
                     pos,
@@ -2453,7 +2484,7 @@ fn execute_action(
             }
         }
         AiAction::BuildRoads => {
-            try_build_road_grid(ctx, res, personality.road_batch_size(), road_style)
+            try_build_road_grid(ctx, res, food, personality.road_batch_size(), road_style)
         }
         AiAction::Upgrade(idx) => {
             res.upgrade_queue.write(crate::systems::stats::UpgradeMsg {

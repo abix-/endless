@@ -48,7 +48,7 @@ DamageMsg (from process_proj_hits)             GPU movement
           ├─ XP grant — NPC killer (LastHitBy → 100 XP, level-up, stat re-resolve)
           ├─ XP grant — tower killer (LastHitBy → BuildingInstance.xp += 100, .kills++)
           ├─ Loot — NPC killer (npc_def loot_drop → ActivityKind::ReturnLoot)
-          ├─ Loot — tower killer (npc_def loot_drop → FoodStorage/GoldStorage + flash)
+          ├─ Loot — tower killer (npc_def loot_drop → TownAccess food/gold + flash)
           ├─ despawn entity, HideNpc → GPU (-9999)
           ├─ Release NpcWorkState via WorkIntentMsg(Release { uid }) → resolved by resolve_work_targets
           ├─ Update FactionStats, KillStats, PopulationStats
@@ -149,9 +149,9 @@ For each dead entity:
 **NPC branch:**
 - **XP grant (NPC killer)**: if `LastHitBy` present and killer is NPC (via `entity_map.get_npc`), grants 100 XP, increments `FactionStats.inc_kills()`. Checks for level-up: `level_from_xp(new_xp) > level_from_xp(old_xp)`. On level-up: re-resolves `CachedStats`, updates `Speed`, rescales HP proportionally, sends GPU updates, emits `CombatEventKind::LevelUp`.
 - **Loot on kill (NPC killer)**: reads `npc_def(dead_job).loot_drop`, picks one deterministically via `xp % len`. Sets killer to `ActivityKind::ReturnLoot`, clears `CombatState::None`. DC keep-fighting override applies. Equipment loot: if `npc_def.equipment_drop_rate > 0`, rolls deterministic check — on success, `roll_loot_item()` generates a `LootItem` pushed to killer's `CarriedLoot.equipment`.
-- **Equipment drop on death**: victim's `NpcEquipment` items (via `all_items()`) and `CarriedLoot.equipment` each transfer to killer at 50% per-item (deterministic hash roll). NPC killers receive items in `CarriedLoot.equipment` (delivered to `TownInventory` on return home). Tower/fountain killers deposit directly to `TownInventory`.
+- **Equipment drop on death**: victim's `NpcEquipment` items (via `all_items()`) and `CarriedLoot.equipment` each transfer to killer at 50% per-item (deterministic hash roll). NPC killers receive items in `CarriedLoot.equipment` (delivered to `TownEquipment` on return home via `TownAccess`). Tower/fountain killers deposit directly to `TownEquipment`.
 - **XP grant (tower/fountain killer)**: if killer slot is a Fountain or Tower building (via `entity_map.get_instance`), grants 100 XP to `BuildingInstance.xp`, increments `BuildingInstance.kills` and `FactionStats.inc_kills()`. Same `level_from_xp()` formula as NPCs. Level-up emits `CombatEventKind::LevelUp` to combat log.
-- **Loot on kill (tower killer)**: same `npc_def(dead_job).loot_drop` table, deposited directly to `FoodStorage`/`GoldStorage` for the tower's town (towers can't carry). `SetDamageFlash` on tower for visual feedback. Loot event logged to combat log. Equipment from victim's `NpcEquipment` and `CarriedLoot.equipment` deposited to `TownInventory` at 50% per item.
+- **Loot on kill (tower killer)**: same `npc_def(dead_job).loot_drop` table, deposited directly to town's `FoodStore`/`GoldStore` ECS components via `TownAccess` (towers can't carry). `SetDamageFlash` on tower for visual feedback. Loot event logged to combat log. Equipment from victim's `NpcEquipment` and `CarriedLoot.equipment` deposited to `TownEquipment` at 50% per item.
 - Despawn entity, `GpuSlotPool.free(idx)` (allocator queues GPU hide cleanup), release AssignedFarm/WorkPosition
 - Update stats: `PopulationStats`, `FactionStats`, `KillStats`
 - Remove from `EntityMap.npc_by_town` (via `unregister_npc`), deselect if SelectedNpc matches

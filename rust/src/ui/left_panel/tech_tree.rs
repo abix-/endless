@@ -227,7 +227,7 @@ pub fn tech_tree_system(
     mut ui_state: ResMut<UiState>,
     world_data: Res<WorldData>,
     mut upgrade: super::UpgradeParams,
-    gold_storage: Res<GoldStorage>,
+    town_access: crate::systemparams::TownAccess,
     mut settings: ResMut<UserSettings>,
 ) -> Result {
     if !ui_state.tech_tree_open {
@@ -241,13 +241,8 @@ pub fn tech_tree_system(
         .iter()
         .position(|t| t.faction == FACTION_PLAYER)
         .unwrap_or(0);
-    let food = upgrade
-        .food_storage
-        .food
-        .get(town_idx)
-        .copied()
-        .unwrap_or(0);
-    let gold = gold_storage.gold.get(town_idx).copied().unwrap_or(0);
+    let food = town_access.food(town_idx as i32);
+    let gold = town_access.gold(town_idx as i32);
     let player_faction = world_data
         .towns
         .get(town_idx)
@@ -255,7 +250,7 @@ pub fn tech_tree_system(
         .unwrap_or(0);
     let villager_stats = upgrade.faction_stats.stats.get(player_faction);
     let alive = villager_stats.map(|s| s.alive).unwrap_or(0);
-    let levels = upgrade.upgrades.town_levels(town_idx);
+    let levels = town_access.upgrade_levels(town_idx as i32);
     let reg = &*UPGRADES;
 
     // Use tech_tree_tab from UiState if available, otherwise default 0

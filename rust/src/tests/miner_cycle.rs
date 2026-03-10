@@ -9,10 +9,9 @@ use bevy::prelude::*;
 
 use super::{TestSetupParams, TestState};
 
-pub fn setup(mut params: TestSetupParams, mut gold_storage: ResMut<GoldStorage>) {
+pub fn setup(mut params: TestSetupParams) {
     params.add_town("MinerTown");
     params.init_economy(1);
-    gold_storage.init(1);
     params.game_time.time_scale = 1.0;
 
     // Place MinerHome building at (384,384)
@@ -46,7 +45,7 @@ pub fn setup(mut params: TestSetupParams, mut gold_storage: ResMut<GoldStorage>)
 
 pub fn tick(
     entity_map: Res<EntityMap>,
-    gold_storage: Res<GoldStorage>,
+    town_access: crate::systemparams::TownAccess,
     time: Res<Time>,
     mut test: ResMut<TestState>,
     activity_q: Query<&Activity>,
@@ -70,7 +69,7 @@ pub fn tick(
         .and_then(|n| energy_q.get(n.entity).ok())
         .map(|e| e.0)
         .unwrap_or(100.0);
-    let gold = gold_storage.gold.first().copied().unwrap_or(0);
+    let gold = town_access.gold(0);
 
     let mining = entity_map
         .iter_npcs()

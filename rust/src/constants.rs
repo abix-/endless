@@ -2100,6 +2100,40 @@ pub fn building_cost(kind: BuildingKind) -> i32 {
 }
 
 // ============================================================================
+// TOWN REGISTRY — single source of truth for all town types
+// ============================================================================
+
+/// Town type identity. Replaces implicit `is_raider: bool` branching.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Reflect, serde::Serialize, serde::Deserialize)]
+pub enum TownKind {
+    Player,
+    AiBuilder,
+    AiRaider,
+}
+
+/// Complete town type definition — one entry per TownKind variant.
+#[derive(Clone, Copy, Debug)]
+pub struct TownDef {
+    pub kind: TownKind,
+    pub label: &'static str,
+    pub is_raider: bool,
+}
+
+pub const TOWN_REGISTRY: &[TownDef] = &[
+    TownDef { kind: TownKind::Player,    label: "Village",     is_raider: false },
+    TownDef { kind: TownKind::AiBuilder, label: "Settlement",  is_raider: false },
+    TownDef { kind: TownKind::AiRaider,  label: "Raider Camp", is_raider: true },
+];
+
+/// Look up town definition by kind. Panics if kind not in registry.
+pub fn town_def(kind: TownKind) -> &'static TownDef {
+    TOWN_REGISTRY
+        .iter()
+        .find(|d| d.kind == kind)
+        .unwrap_or_else(|| panic!("no TownDef for {:?}", kind))
+}
+
+// ============================================================================
 // ATLAS IDS (shared between gpu.rs, render.rs, and npc_render.wgsl)
 // ============================================================================
 

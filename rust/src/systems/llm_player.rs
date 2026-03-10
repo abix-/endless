@@ -84,13 +84,10 @@ fn load_prompt() -> String {
 #[derive(SystemParam)]
 pub struct LlmReadState<'w> {
     world_data: Res<'w, WorldData>,
-    food: Res<'w, FoodStorage>,
-    gold: Res<'w, GoldStorage>,
     game_time: Res<'w, GameTime>,
     faction_stats: Res<'w, FactionStats>,
     entity_map: Res<'w, EntityMap>,
     pop_stats: Res<'w, PopulationStats>,
-    town_upgrades: Res<'w, crate::systems::stats::TownUpgrades>,
     reputation: Res<'w, crate::resources::Reputation>,
     world_grid: Res<'w, crate::world::WorldGrid>,
 }
@@ -98,7 +95,6 @@ pub struct LlmReadState<'w> {
 /// Bundled mutable resources for executing actions.
 #[derive(SystemParam)]
 pub struct LlmWriteState<'w> {
-    policies: ResMut<'w, TownPolicies>,
     build_q: ResMut<'w, crate::systems::remote::RemoteBuildQueue>,
     destroy_q: ResMut<'w, crate::systems::remote::RemoteDestroyQueue>,
     upgrade_q: ResMut<'w, crate::systems::remote::RemoteUpgradeQueue>,
@@ -108,7 +104,7 @@ pub struct LlmWriteState<'w> {
 }
 
 /// Build game state JSON directly from ECS resources.
-fn build_state_json(read: &LlmReadState, write: &mut LlmWriteState, town_idx: usize, queries: &[String]) -> Value {
+fn build_state_json(read: &LlmReadState, write: &mut LlmWriteState, town_access: &crate::systemparams::TownAccess, town_idx: usize, queries: &[String]) -> Value {
     let own_center = read.world_data.towns.get(town_idx)
         .map(|t| t.center)
         .unwrap_or_default();
@@ -163,8 +159,8 @@ fn build_state_json(read: &LlmReadState, write: &mut LlmWriteState, town_idx: us
             "cy": town.center.y as i32,
             "dist": distance,
             "rep": rep,
-            "food": read.food.food.get(ti).copied().unwrap_or(0),
-            "gold": read.gold.gold.get(ti).copied().unwrap_or(0),
+            "food": town_access.food(ti as i32),
+            "gold": town_access.gold(ti as i32),
             "buildings": buildings_str,
             "squads": squad_count,
             "alive": town_alive.get(ti).copied().unwrap_or(0),
@@ -290,7 +286,7 @@ fn build_state_json(read: &LlmReadState, write: &mut LlmWriteState, town_idx: us
                 root["combat_log"] = json!(entries);
             }
             "upgrades" => {
-                let levels = read.town_upgrades.town_levels(town_idx);
+                let levels = town_access.upgrade_levels(town_idx as i32);
                 let registry = &crate::systems::stats::UPGRADES;
                 let upgrades: Vec<Value> = registry.nodes.iter().enumerate().map(|(i, node)| {
                     let lv = levels.get(i).copied().unwrap_or(0);
@@ -303,7 +299,7 @@ fn build_state_json(read: &LlmReadState, write: &mut LlmWriteState, town_idx: us
                 root["upgrades"] = json!(upgrades);
             }
             "policies" => {
-                if let Some(policy) = write.policies.policies.get(town_idx) {
+                if let Some(policy) = town_access.policy(town_idx as i32) {
                     root["policies"] = json!(policy);
                 }
             }
@@ -365,6 +361,7 @@ pub fn llm_player_system(
     time: Res<Time>,
     read: LlmReadState,
     mut write: LlmWriteState,
+    mut town_access: crate::systemparams::TownAccess,
     settings: Res<crate::settings::UserSettings>,
 ) {
     let town = state.town_idx;
@@ -396,7 +393,7 @@ pub fn llm_player_system(
             state.last_response = response.clone();
             let actions = parse_actions(&response);
             state.status = LlmStatus::Done(actions.len());
-            execute_actions(&actions, town, &read, &mut write, &mut state);
+            execute_actions(&actions, town, &read, &mut write, &mut town_access, &mut state);
             // Flag-based: messages marked sent_to_llm in build_state_json, no drain needed
         }
         PollResult::Waiting => {
@@ -427,7 +424,7 @@ pub fn llm_player_system(
             topics.push(t);
         }
     }
-    let state_json = build_state_json(&read, &mut write, town, &topics);
+    let state_json = build_state_json(&read, &mut write, &town_access, town, &topics);
 
     let prompt = state.prompt.clone();
     let toon_state = serde_toon2::to_string(&state_json).unwrap_or_default();
@@ -510,6 +507,7 @@ fn execute_actions(
     town: usize,
     read: &LlmReadState,
     write: &mut LlmWriteState,
+    town_access: &mut crate::systemparams::TownAccess,
     state: &mut LlmPlayerState,
 ) {
     let faction = read.world_data.towns.get(town)
@@ -530,19 +528,19 @@ fn execute_actions(
         let p = &action.params;
         match action.method.as_str() {
             "policy" => {
-                if let Some(policy) = write.policies.policies.get_mut(town) {
+                if let Some(mut policy) = town_access.policy_mut(town as i32) {
                     for (key, val) in p {
                         match key.as_str() {
-                            "eat_food" => { if let Ok(v) = val.parse::<bool>() { policy.eat_food = v; } }
-                            "archer_aggressive" => { if let Ok(v) = val.parse::<bool>() { policy.archer_aggressive = v; } }
-                            "archer_leash" => { if let Ok(v) = val.parse::<bool>() { policy.archer_leash = v; } }
-                            "farmer_fight_back" => { if let Ok(v) = val.parse::<bool>() { policy.farmer_fight_back = v; } }
-                            "prioritize_healing" => { if let Ok(v) = val.parse::<bool>() { policy.prioritize_healing = v; } }
-                            "farmer_flee_hp" => { if let Ok(v) = val.parse::<f32>() { policy.farmer_flee_hp = v.clamp(0.0, 1.0); } }
-                            "archer_flee_hp" => { if let Ok(v) = val.parse::<f32>() { policy.archer_flee_hp = v.clamp(0.0, 1.0); } }
-                            "recovery_hp" => { if let Ok(v) = val.parse::<f32>() { policy.recovery_hp = v.clamp(0.0, 1.0); } }
-                            "mining_radius" => { if let Ok(v) = val.parse::<f32>() { policy.mining_radius = v.clamp(0.0, 5000.0); } }
-                            "loot_threshold" => { if let Ok(v) = val.parse::<usize>() { policy.loot_threshold = v.clamp(1, 20); } }
+                            "eat_food" => { if let Ok(v) = val.parse::<bool>() { policy.0.eat_food = v; } }
+                            "archer_aggressive" => { if let Ok(v) = val.parse::<bool>() { policy.0.archer_aggressive = v; } }
+                            "archer_leash" => { if let Ok(v) = val.parse::<bool>() { policy.0.archer_leash = v; } }
+                            "farmer_fight_back" => { if let Ok(v) = val.parse::<bool>() { policy.0.farmer_fight_back = v; } }
+                            "prioritize_healing" => { if let Ok(v) = val.parse::<bool>() { policy.0.prioritize_healing = v; } }
+                            "farmer_flee_hp" => { if let Ok(v) = val.parse::<f32>() { policy.0.farmer_flee_hp = v.clamp(0.0, 1.0); } }
+                            "archer_flee_hp" => { if let Ok(v) = val.parse::<f32>() { policy.0.archer_flee_hp = v.clamp(0.0, 1.0); } }
+                            "recovery_hp" => { if let Ok(v) = val.parse::<f32>() { policy.0.recovery_hp = v.clamp(0.0, 1.0); } }
+                            "mining_radius" => { if let Ok(v) = val.parse::<f32>() { policy.0.mining_radius = v.clamp(0.0, 5000.0); } }
+                            "loot_threshold" => { if let Ok(v) = val.parse::<usize>() { policy.0.loot_threshold = v.clamp(1, 20); } }
                             _ => {}
                         }
                     }

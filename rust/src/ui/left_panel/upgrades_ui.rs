@@ -2,9 +2,7 @@ use super::*;
 
 #[derive(SystemParam)]
 pub struct UpgradeParams<'w> {
-    pub(crate) food_storage: Res<'w, FoodStorage>,
     pub(crate) faction_stats: Res<'w, FactionStats>,
-    pub(crate) upgrades: Res<'w, TownUpgrades>,
     pub(crate) queue: MessageWriter<'w, UpgradeMsg>,
     pub(crate) auto: ResMut<'w, AutoUpgrade>,
 }
@@ -16,7 +14,7 @@ pub struct UpgradeParams<'w> {
 pub(crate) fn upgrade_content(
     ui: &mut egui::Ui,
     upgrade: &mut UpgradeParams,
-    gold_storage: &GoldStorage,
+    town_access: &crate::systemparams::TownAccess<'_, '_>,
     world_data: &WorldData,
     settings: &mut UserSettings,
 ) {
@@ -25,21 +23,12 @@ pub(crate) fn upgrade_content(
         .iter()
         .position(|t| t.faction == crate::constants::FACTION_PLAYER)
         .unwrap_or(0);
-    let food = upgrade
-        .food_storage
-        .food
-        .get(town_idx)
-        .copied()
-        .unwrap_or(0);
-    let gold = gold_storage
-        .gold
-        .get(town_idx)
-        .copied()
-        .unwrap_or(0);
+    let food = town_access.food(town_idx as i32);
+    let gold = town_access.gold(town_idx as i32);
     let player_faction = world_data.towns.get(town_idx).map(|t| t.faction as usize).unwrap_or(0);
     let villager_stats = upgrade.faction_stats.stats.get(player_faction);
     let alive = villager_stats.map(|s| s.alive).unwrap_or(0);
-    let levels = upgrade.upgrades.town_levels(town_idx);
+    let levels = town_access.upgrade_levels(town_idx as i32);
 
     // Header: resources + town name
     ui.horizontal(|ui| {

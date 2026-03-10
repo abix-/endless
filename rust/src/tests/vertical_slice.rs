@@ -27,7 +27,7 @@ pub fn setup(mut params: TestSetupParams) {
         name: "Raiders".into(),
         center: Vec2::new(384.0, 128.0),
         faction: 2,
-        sprite_type: 1,
+        kind: crate::constants::TownKind::AiRaider,
     area_level: 0,
     });
 
@@ -75,7 +75,7 @@ pub fn setup(mut params: TestSetupParams) {
 
     // Resources
     params.init_economy(2);
-    params.food_storage.food[1] = 10;
+    if let Some(mut f) = params.town_access.food_mut(1) { f.0 = 10; }
     params.game_time.time_scale = 1.0;
 
     params.focus_camera(384.0, 384.0);

@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use rand::seq::SliceRandom;
 
-use crate::resources::{GoldStorage, Reputation, UiState};
+use crate::resources::{Reputation, UiState};
 use crate::world::WorldData;
 
 // ============================================================================
@@ -165,7 +165,7 @@ impl BlackjackState {
 pub fn blackjack_window_system(
     mut contexts: EguiContexts,
     mut ui_state: ResMut<UiState>,
-    mut gold_storage: ResMut<GoldStorage>,
+    mut town_access: crate::systemparams::TownAccess,
     mut reputation: ResMut<Reputation>,
     world_data: Res<WorldData>,
     mut state: Local<BlackjackState>,
@@ -194,7 +194,7 @@ pub fn blackjack_window_system(
             blackjack_content(
                 ui,
                 &mut state,
-                &mut gold_storage,
+                &mut town_access,
                 &mut reputation,
                 &world_data,
             );
@@ -214,7 +214,7 @@ pub fn blackjack_window_system(
 fn blackjack_content(
     ui: &mut egui::Ui,
     state: &mut BlackjackState,
-    gold_storage: &mut GoldStorage,
+    town_access: &mut crate::systemparams::TownAccess<'_, '_>,
     reputation: &mut Reputation,
     world_data: &WorldData,
 ) {
@@ -240,12 +240,8 @@ fn blackjack_content(
         }
     }
 
-    let player_gold = gold_storage.gold.get(player_town).copied().unwrap_or(0);
-    let opponent_gold = gold_storage
-        .gold
-        .get(state.opponent_town_idx)
-        .copied()
-        .unwrap_or(0);
+    let player_gold = town_access.gold(player_town as i32);
+    let opponent_gold = town_access.gold(state.opponent_town_idx as i32);
     // How opponent feels about player (faction 0)
     let rep = reputation.get(state.opponent_faction, 0);
 
@@ -311,7 +307,7 @@ fn blackjack_content(
         }
         BlackjackPhase::DealerTurn => {
             play_dealer(state);
-            resolve_hands(state, gold_storage, reputation, player_town);
+            resolve_hands(state, town_access, reputation, player_town);
             state.phase = BlackjackPhase::Result;
             render_table(ui, state, false);
             ui.add_space(12.0);
@@ -720,7 +716,7 @@ fn play_dealer(state: &mut BlackjackState) {
 
 fn resolve_hands(
     state: &mut BlackjackState,
-    gold: &mut GoldStorage,
+    town_access: &mut crate::systemparams::TownAccess<'_, '_>,
     reputation: &mut Reputation,
     player_town: usize,
 ) {
@@ -763,11 +759,11 @@ fn resolve_hands(
         state.results.push(result);
     }
 
-    if let Some(pg) = gold.gold.get_mut(player_town) {
-        *pg += total_net;
+    if let Some(mut pg) = town_access.gold_mut(player_town as i32) {
+        pg.0 += total_net;
     }
-    if let Some(og) = gold.gold.get_mut(state.opponent_town_idx) {
-        *og -= total_net;
+    if let Some(mut og) = town_access.gold_mut(state.opponent_town_idx as i32) {
+        og.0 -= total_net;
     }
 
     // Player is faction 0 — update how opponent feels about player

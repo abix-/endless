@@ -20,7 +20,7 @@ See [completed.md](completed.md) for completed work moved out of active stages.
 Stages 1-15, 18, 19: [x] Complete (see [completed.md](completed.md))
 
 **Current Sprint (priority order):**
-1. Loot cycle stress test — benchmark TownInventory growth under 50K NPCs over extended play, cap or prune unbounded accumulation
+1. Loot cycle stress test — benchmark TownEquipment growth under 50K NPCs over extended play, cap or prune unbounded accumulation
 2. Path recalculation on building place/remove (Stage 20) — dirty affected HPA* chunks, rebuild entrance nodes. Unblocks Stage 21 gates
 3. Entity sleeping (Stage 16 item 1) — camera-radius culling, 5-15ms/frame savings
 
@@ -75,12 +75,12 @@ Remaining:
 
 *Done when: raider dies → loot auto-acquired to killer's carry → NPC keeps fighting → threshold triggers return home → deposit to town inventory → player equips item on NPC → stats increase and sprite changes.*
 
-Design: no loot bags on the ground. Kill → loot goes directly into killer's `CarriedLoot` component → NPC keeps fighting → carry threshold triggers return home → deposit food/gold to storage + equipment to `TownInventory` → player equips via UI → stat bonus + sprite change.
+Design: no loot bags on the ground. Kill → loot goes directly into killer's `CarriedLoot` component → NPC keeps fighting → carry threshold triggers return home → deposit food/gold to storage + equipment to `TownEquipment` → player equips via UI → stat bonus + sprite change.
 
 All 6 chunks complete (see [completed.md](completed.md)): unified CarriedLoot, LootItem/Rarity/EquipmentSlot types, equipment drops + carry accumulation, NpcEquipment (9 D2 slots) + stat integration, Armory UI tab (I key), Merchant building (buy/sell/reroll), save/load persistence + loot-cycle test. Additional: auto-equip system (hourly, distributes items to best NPC), immediate Armory auto-equip actions (selected NPC or whole town via the same auto-equip rules), equipment drops on death (50% per item to killer), inventory/armory UI overhaul (Equipped/Unequipped/All views, slot filters, sorting, bulk sell common, comparison tooltips, multi-town support), and Inspector++ NPC tabs (Overview/Loadout/Economy/Log) with per-NPC personal log and carried-loot detail.
 
 Remaining:
-- [ ] Loot cycle stress test: benchmark `TownInventory` growth at 50K NPCs over extended play (2+ hours simulated). If unbounded, add inventory cap or periodic pruning of lowest-rarity items.
+- [ ] Loot cycle stress test: benchmark `TownEquipment` growth at 50K NPCs over extended play (2+ hours simulated). If unbounded, add inventory cap or periodic pruning of lowest-rarity items.
 
 **Stage 19: Code Health** — [x] Complete (see [completed.md](completed.md))
 
@@ -174,7 +174,7 @@ Chunk 4 — Economy & Sending:
 
 - [ ] Resource types: wood (Forest biome), stone (Rock biome), iron (ore nodes, rare)
 - [ ] Harvester buildings: lumber mill, quarry (same spawner pattern as FarmerHome/ArcherHome, 1 worker each)
-- [ ] Resource storage per town (like FoodStorage but for each type - gold already done via GoldStorage)
+- [ ] Resource storage per town (new resource types as ECS components on town entities, same pattern as FoodStore/GoldStore)
 - [ ] Building costs use mixed resources (walls=stone, archer homes=wood+stone, upgrades=food+iron, etc.)
 - [ ] Crafting: blacksmith building consumes iron -> produces weapons/armor (feeds into Stage 18 loot system)
 - [ ] Villager job assignment UI (drag workers between roles - farming, woodcutting, mining, smithing, military)
@@ -267,7 +267,7 @@ Chunk 2 — Building Instance Consolidation (70% → 90%):
 Chunk 3 — TownDef Registry (40% → 80%):
 - [ ] Add TownDef struct + TOWN_REGISTRY (player, ai_builder, ai_raider templates)
 - [ ] Data-driven town generation — template defines building layout, NPC roster, faction kind
-- [ ] Consolidate Town + TownUpgrades + PolicySet references under unified town identity
+- [x] Consolidate Town + TownUpgrades + PolicySet under ECS town entities (TownAccess SystemParam, FoodStore/GoldStore/TownPolicy/TownUpgradeLevel/TownEquipment components)
 
 Chunk 4 — ActivityDef Registry (50% → 90%):
 - [ ] Add ActivityDef struct + ACTIVITY_DEFS static table (label, distraction, visual_key per kind)

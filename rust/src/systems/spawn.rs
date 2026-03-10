@@ -10,7 +10,7 @@ use crate::resources::{
     CombatEventKind, EntityMap, FactionStats, GameTime, NpcMeta, NpcMetaCache, PopulationStats,
 };
 use crate::systems::economy::*;
-use crate::systems::stats::{CombatConfig, TownUpgrades, resolve_combat_stats};
+use crate::systems::stats::{CombatConfig, resolve_combat_stats};
 use crate::world::{BuildingKind, WorldData};
 
 // Name generation word lists
@@ -115,7 +115,7 @@ pub fn materialize_npc(
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
     _world_data: &WorldData,
     combat_config: &CombatConfig,
-    upgrades: &TownUpgrades,
+    town_levels: &[u8],
     uid_alloc: &mut NextEntityUid,
 ) {
     let idx = slot_idx;
@@ -138,7 +138,7 @@ pub fn materialize_npc(
         level,
         &personality,
         combat_config,
-        upgrades,
+        town_levels,
         overrides.equipment.total_weapon_bonus(),
         overrides.equipment.total_armor_bonus(),
     );
@@ -326,7 +326,7 @@ pub fn spawn_npc_system(
     mut npc_meta: ResMut<NpcMetaCache>,
     mut combat_log: MessageWriter<CombatLogMsg>,
     combat_config: Res<CombatConfig>,
-    upgrades: Res<TownUpgrades>,
+    town_access: crate::systemparams::TownAccess,
     mut dirty_writers: DirtyWriters,
     mut uid_alloc: ResMut<NextEntityUid>,
 ) {
@@ -361,7 +361,7 @@ pub fn spawn_npc_system(
             &mut gpu_updates,
             &world_data,
             &combat_config,
-            &upgrades,
+            &town_access.upgrade_levels(msg.town_idx),
             &mut uid_alloc,
         );
 

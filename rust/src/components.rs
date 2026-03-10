@@ -682,6 +682,39 @@ pub struct MinerHomeConfig {
 }
 
 // ============================================================================
+// TOWN ENTITY COMPONENTS (CRD pattern: runtime state on ECS town entities)
+// ============================================================================
+
+/// Marker component for town entities.
+#[derive(Component)]
+pub struct TownMarker;
+
+/// Town food storage.
+#[derive(Component, Default, Reflect)]
+#[reflect(Component)]
+pub struct FoodStore(pub i32);
+
+/// Town gold storage.
+#[derive(Component, Default, Reflect)]
+#[reflect(Component)]
+pub struct GoldStore(pub i32);
+
+/// Town behavior policies.
+#[derive(Component, Clone, Default, Reflect)]
+#[reflect(Component)]
+pub struct TownPolicy(pub crate::resources::PolicySet);
+
+/// Town upgrade levels (dynamic size, matches upgrade_count()).
+#[derive(Component, Clone, Default, Reflect)]
+#[reflect(Component)]
+pub struct TownUpgradeLevel(pub Vec<u8>);
+
+/// Town equipment inventory (unequipped items).
+#[derive(Component, Clone, Default, Reflect)]
+#[reflect(Component)]
+pub struct TownEquipment(pub Vec<crate::constants::LootItem>);
+
+// ============================================================================
 // BEHAVIOR CONFIG COMPONENTS (generic, attach to any NPC)
 // ============================================================================
 

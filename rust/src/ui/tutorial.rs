@@ -51,7 +51,7 @@ fn step_complete(
     ui_state: &UiState,
     world_data: &WorldData,
     entity_map: &EntityMap,
-    food_storage: &FoodStorage,
+    town_access: &crate::systemparams::TownAccess<'_, '_>,
     camera_pos: Vec2,
     selected_npc: &SelectedNpc,
     follow: &FollowSelected,
@@ -72,7 +72,7 @@ fn step_complete(
         5 => false,  // info-only
         6 => selected_npc.0 >= 0,
         7 => follow.0,
-        8 => pt < food_storage.food.len() && food_storage.food[pt] > 0,
+        8 => town_access.food(pt as i32) > 0,
         9 => false,  // info-only
         10 => {
             entity_map.count_for_town(BuildingKind::Waypoint, pt as u32)
@@ -111,7 +111,7 @@ pub fn tutorial_ui_system(
     ui_state: Res<UiState>,
     world_data: Res<WorldData>,
     entity_map: Res<EntityMap>,
-    food_storage: Res<FoodStorage>,
+    town_access: crate::systemparams::TownAccess,
     camera_query: Query<&Transform, With<MainCamera>>,
     selected_npc: Res<SelectedNpc>,
     follow: Res<FollowSelected>,
@@ -144,7 +144,7 @@ pub fn tutorial_ui_system(
         &ui_state,
         &world_data,
         &entity_map,
-        &food_storage,
+        &town_access,
         camera_pos,
         &selected_npc,
         &follow,

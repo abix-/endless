@@ -16,7 +16,7 @@ use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg, SpawnNpcMsg};
 use crate::resources::*;
 use crate::systemparams::{EconomyState, WorldState};
 use crate::systems::ai_player::{AiKind, AiPersonality, AiPlayer, AiPlayerState};
-use crate::systems::stats::{TownUpgrades, UPGRADES};
+use crate::systems::stats::UPGRADES;
 use crate::world::{self, Biome, BuildingKind, WorldData};
 
 // ============================================================================
@@ -142,7 +142,7 @@ pub fn growth_system(
     time: Res<Time>,
     game_time: Res<GameTime>,
     entity_map: Res<EntityMap>,
-    upgrades: Res<TownUpgrades>,
+    town_access: crate::systemparams::TownAccess,
     mut production_q: Query<(
         &GpuSlot,
         &Building,
@@ -151,6 +151,7 @@ pub fn growth_system(
         &ConstructionProgress,
         &mut ProductionState,
     )>,
+    world_data: Res<crate::world::WorldData>,
 ) {
     if game_time.is_paused() {
         return;
@@ -159,10 +160,10 @@ pub fn growth_system(
     let hours_elapsed = game_time.delta(&time) / game_time.seconds_per_hour;
 
     // Precompute per-town farm yield multiplier
-    let max_towns = upgrades.levels.len();
+    let max_towns = world_data.towns.len();
     let mut farm_mults: Vec<f32> = Vec::with_capacity(max_towns);
     for t in 0..max_towns {
-        let levels = upgrades.town_levels(t);
+        let levels = town_access.upgrade_levels(t as i32);
         farm_mults.push(UPGRADES.stat_mult(&levels, "Farmer", UpgradeStatKind::Yield));
     }
 
@@ -232,12 +233,14 @@ pub fn raider_forage_system(
     }
 
     for (town_idx, town) in world_data.towns.iter().enumerate() {
-        if town.faction != crate::constants::FACTION_PLAYER && town.faction != crate::constants::FACTION_NEUTRAL && town_idx < economy.food_storage.food.len() {
+        if town.faction != crate::constants::FACTION_PLAYER && town.faction != crate::constants::FACTION_NEUTRAL {
             if town_idx < raider_state.forage_timers.len() {
                 raider_state.forage_timers[town_idx] += 1.0;
                 if raider_state.forage_timers[town_idx] >= interval {
                     raider_state.forage_timers[town_idx] -= interval;
-                    economy.food_storage.food[town_idx] += RAIDER_FORAGE_RATE;
+                    if let Some(mut f) = economy.towns.food_mut(town_idx as i32) {
+                        f.0 += RAIDER_FORAGE_RATE;
+                    }
                 }
             }
         }
@@ -444,7 +447,7 @@ pub fn spawner_respawn_system(
 pub fn mining_policy_system(
     world_data: Res<WorldData>,
     entity_map: Res<EntityMap>,
-    policies: Res<TownPolicies>,
+    town_access: crate::systemparams::TownAccess,
     mut mining: ResMut<MiningPolicy>,
     mut mining_dirty: MessageReader<crate::messages::MiningDirtyMsg>,
     spawner_q: Query<&SpawnerState>,
@@ -465,9 +468,7 @@ pub fn mining_policy_system(
             mining.discovered_mines[town_idx].clear();
             continue;
         }
-        let radius = policies
-            .policies
-            .get(town_idx)
+        let radius = town_access.policy(town_idx as i32)
             .map(|p| p.mining_radius)
             .unwrap_or(crate::constants::DEFAULT_MINING_RADIUS);
         let r2 = radius * radius;
@@ -722,12 +723,10 @@ pub fn squad_cleanup_system(
 /// Per-town resources that need extending when a new faction spawns.
 #[derive(SystemParam)]
 pub struct MigrationResources<'w, 's> {
-    pub food_storage: ResMut<'w, FoodStorage>,
-    pub gold_storage: ResMut<'w, GoldStorage>,
     pub faction_stats: ResMut<'w, FactionStats>,
     pub faction_list: ResMut<'w, crate::resources::FactionList>,
     pub raider_state: ResMut<'w, RaiderState>,
-    pub policies: ResMut<'w, TownPolicies>,
+    pub town_index: ResMut<'w, crate::resources::TownIndex>,
     pub gpu_updates: MessageWriter<'w, GpuUpdateMsg>,
     pub npc_flags_q: Query<'w, 's, &'static mut NpcFlags>,
     pub home_q: Query<'w, 's, &'static mut Home>,
@@ -742,6 +741,7 @@ fn create_ai_town(
     entity_map: &EntityMap,
     res: &mut MigrationResources,
     ai_state: &mut AiPlayerState,
+    commands: &mut Commands,
     center: Vec2,
     is_raider: bool,
 ) -> (usize, i32) {
@@ -757,13 +757,16 @@ fn create_ai_town(
     } else {
         "Rival Town"
     };
-    let sprite_type = if is_raider { 1 } else { 0 };
-
+    let town_kind = if is_raider {
+        crate::constants::TownKind::AiRaider
+    } else {
+        crate::constants::TownKind::AiBuilder
+    };
     world_data.towns.push(world::Town {
         name: name.into(),
         center,
         faction: next_faction,
-        sprite_type,
+        kind: town_kind,
         area_level: 0,
     });
     let town_data_idx = world_data.towns.len() - 1;
@@ -780,19 +783,14 @@ fn create_ai_town(
         towns: vec![town_data_idx],
     });
 
-    // Extend per-town resources
+    // Extend per-town non-ECS resources
     let num_towns = world_data.towns.len();
-    res.food_storage.food.resize(num_towns, 0);
-    res.gold_storage.gold.resize(num_towns, 0);
     res.faction_stats
         .stats
         .resize(num_towns, FactionStat::default());
     res.raider_state.max_pop.resize(num_towns, 10);
     res.raider_state.respawn_timers.resize(num_towns, 0.0);
     res.raider_state.forage_timers.resize(num_towns, 0.0);
-    res.policies
-        .policies
-        .resize(num_towns, PolicySet::default());
 
     // Create AiPlayer with random personality and road style
     let ai_kind = if is_raider {
@@ -808,10 +806,8 @@ fn create_ai_town(
     ];
     let personality = personalities[rng.random_range(0..personalities.len())];
     let road_style = super::ai_player::RoadStyle::random(&mut rng);
-    if let Some(policy) = res.policies.policies.get_mut(town_data_idx) {
-        *policy = personality.default_policies();
-        policy.mining_radius = super::ai_player::initial_mining_radius(entity_map, center);
-    }
+    let mut policy = personality.default_policies();
+    policy.mining_radius = super::ai_player::initial_mining_radius(entity_map, center);
     ai_state.players.push(AiPlayer {
         town_data_idx,
         kind: ai_kind,
@@ -824,6 +820,17 @@ fn create_ai_town(
         squad_indices: Vec::new(),
         squad_cmd: HashMap::new(),
     });
+
+    // Spawn ECS town entity
+    let entity = commands.spawn((
+        crate::components::TownMarker,
+        crate::components::FoodStore(0),
+        crate::components::GoldStore(0),
+        crate::components::TownPolicy(policy),
+        crate::components::TownUpgradeLevel::default(),
+        crate::components::TownEquipment::default(),
+    )).id();
+    res.town_index.0.insert(town_data_idx as i32, entity);
 
     (town_data_idx, next_faction)
 }
@@ -881,7 +888,6 @@ pub fn endless_system(
     mut migration_state: ResMut<MigrationState>,
     mut world_state: WorldState,
     mut ai_state: ResMut<AiPlayerState>,
-    mut upgrades: ResMut<TownUpgrades>,
     mut combat_log: MessageWriter<CombatLogMsg>,
     game_time: Res<GameTime>,
     time: Res<Time>,
@@ -1098,20 +1104,26 @@ pub fn endless_system(
             &world_state.entity_map,
             &mut res,
             &mut ai_state,
+            &mut commands,
             mg.settle_target,
             is_raider,
         );
 
-        // Apply stored resources and upgrades
-        if let Some(food) = res.food_storage.food.get_mut(town_data_idx) {
-            *food = mg.starting_food;
+        // Apply stored resources and upgrades to town entity
+        if let Some(&entity) = res.town_index.0.get(&(town_data_idx as i32)) {
+            commands.entity(entity)
+                .insert(crate::components::FoodStore(mg.starting_food))
+                .insert(crate::components::GoldStore(mg.starting_gold))
+                .insert(crate::components::TownUpgradeLevel(mg.upgrade_levels.clone()));
         }
-        if let Some(gold) = res.gold_storage.gold.get_mut(town_data_idx) {
-            *gold = mg.starting_gold;
+        // Set starting resources on ECS town entity
+        if let Some(&entity) = res.town_index.0.get(&(town_data_idx as i32)) {
+            commands.entity(entity).insert((
+                crate::components::FoodStore(mg.starting_food),
+                crate::components::GoldStore(mg.starting_gold),
+                crate::components::TownUpgradeLevel(mg.upgrade_levels.clone()),
+            ));
         }
-        let num_towns = world_state.world_data.towns.len();
-        upgrades.levels.resize(num_towns, Vec::new());
-        upgrades.levels[town_data_idx] = mg.upgrade_levels.clone();
 
         // Place buildings directly into EntityMap
         world::place_buildings(

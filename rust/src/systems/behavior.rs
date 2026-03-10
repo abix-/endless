@@ -20,7 +20,7 @@ use crate::constants::*;
 use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg, WorkIntent, WorkIntentMsg};
 use crate::resources::{
     CombatEventKind, EntityMap, GameTime, GpuReadState, MovementPriority, PathRequestQueue,
-    NpcLogCache, OffDutyBehavior, SelectedNpc, SquadState, TownPolicies, WorkSchedule,
+    NpcLogCache, OffDutyBehavior, SelectedNpc, SquadState, WorkSchedule,
 };
 use crate::settings::UserSettings;
 use crate::systemparams::EconomyState;
@@ -76,9 +76,7 @@ pub struct DecisionExtras<'w> {
     pub combat_log: MessageWriter<'w, CombatLogMsg>,
     pub gpu_updates: MessageWriter<'w, GpuUpdateMsg>,
     pub work_intents: MessageWriter<'w, WorkIntentMsg>,
-    pub policies: Res<'w, TownPolicies>,
     pub squad_state: Res<'w, SquadState>,
-    pub town_upgrades: Res<'w, crate::systems::stats::TownUpgrades>,
     pub selected_npc: Res<'w, SelectedNpc>,
     pub settings: Res<'w, UserSettings>,
 }
@@ -143,8 +141,8 @@ pub fn arrival_system(
         // Read and drain CarriedLoot
         if let Ok(mut loot) = carried_loot_q.get_mut(entity) {
             if loot.food > 0 {
-                if town_idx < economy.food_storage.food.len() {
-                    economy.food_storage.food[town_idx] += loot.food;
+                if let Some(mut f) = economy.towns.food_mut(town_idx as i32) {
+                    f.0 += loot.food;
                 }
                 npc_logs.push(
                     idx,
@@ -155,8 +153,8 @@ pub fn arrival_system(
                 );
             }
             if loot.gold > 0 {
-                if town_idx < economy.gold_storage.gold.len() {
-                    economy.gold_storage.gold[town_idx] += loot.gold;
+                if let Some(mut g) = economy.towns.gold_mut(town_idx as i32) {
+                    g.0 += loot.gold;
                 }
                 npc_logs.push(
                     idx,
@@ -168,8 +166,10 @@ pub fn arrival_system(
             }
             if !loot.equipment.is_empty() {
                 let count = loot.equipment.len();
-                for item in loot.equipment.drain(..) {
-                    economy.town_inventory.add(town_idx, item);
+                if let Some(mut eq) = economy.towns.equipment_mut(town_idx as i32) {
+                    eq.0.append(&mut loot.equipment);
+                } else {
+                    loot.equipment.clear();
                 }
                 npc_logs.push(
                     idx,
@@ -326,7 +326,6 @@ pub fn decision_system(
 
     let npc_logs = &mut extras.npc_logs;
     let combat_log = &mut extras.combat_log;
-    let policies = &extras.policies;
     let squad_state = &extras.squad_state;
     let frame = DECISION_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let positions = &gpu_state.positions;
@@ -554,10 +553,7 @@ pub fn decision_system(
                         );
                     }
                     ActivityKind::Heal { .. } => {
-                        let town_idx = town_idx_i32 as usize;
-                        let threshold = policies
-                            .policies
-                            .get(town_idx)
+                        let threshold = economy.towns.policy(town_idx_i32)
                             .map(|p| p.recovery_hp)
                             .unwrap_or(0.8)
                             .min(1.0);
@@ -797,7 +793,7 @@ pub fn decision_system(
                             if mine_ready && can_harvest_turn {
                                 // Mine ready — harvest immediately
                                 let town_levels =
-                                    extras.town_upgrades.town_levels(town_idx_i32 as usize);
+                                    economy.towns.upgrade_levels(town_idx_i32);
                                 let yield_mult = UPGRADES.stat_mult(
                                     &town_levels,
                                     "Miner",
@@ -946,16 +942,16 @@ pub fn decision_system(
                 let flee_pct = match job {
                     Job::Raider => 0.50, // raiders always flee at 50%
                     Job::Archer | Job::Crossbow => {
-                        let p = policies.policies.get(town_idx_usize);
-                        if p.is_some_and(|p| p.archer_aggressive) {
+                        let p = economy.towns.policy(town_idx_i32);
+                        if p.as_ref().is_some_and(|p| p.archer_aggressive) {
                             0.0 // aggressive guards never flee
                         } else {
                             p.map(|p| p.archer_flee_hp).unwrap_or(0.15)
                         }
                     }
                     Job::Farmer | Job::Miner => {
-                        let p = policies.policies.get(town_idx_usize);
-                        if p.is_some_and(|p| p.farmer_fight_back) {
+                        let p = economy.towns.policy(town_idx_i32);
+                        if p.as_ref().is_some_and(|p| p.farmer_fight_back) {
                             0.0 // fight-back farmers/miners don't flee
                         } else {
                             p.map(|p| p.farmer_flee_hp).unwrap_or(0.30)
@@ -1014,7 +1010,7 @@ pub fn decision_system(
 
                 // Wounded + healing policy should override leash/return behavior.
                 let healing_policy_active =
-                    policies.policies.get(town_idx_usize).is_some_and(|p| {
+                    economy.towns.policy(town_idx_i32).is_some_and(|p| {
                         p.prioritize_healing && energy > 0.0 && health / max_hp < p.recovery_hp
                     });
                 if healing_policy_active {
@@ -1024,7 +1020,7 @@ pub fn decision_system(
                             activity.kind,
                             ActivityKind::Heal { .. }
                         ) {
-                            let threshold = policies.policies.get(town_idx_usize).map(|p| p.recovery_hp).unwrap_or(0.8);
+                            let threshold = economy.towns.policy(town_idx_i32).map(|p| p.recovery_hp).unwrap_or(0.8);
                             activity.kind = ActivityKind::Heal { recover_until: threshold };
                             submit_intent_scattered(
                                 &mut intents, entity, town.center.x, town.center.y, 128.0,
@@ -1044,9 +1040,8 @@ pub fn decision_system(
 
                 // Priority 2: Should leash? (per-entity LeashRange or policy archer_leash)
                 let should_leash = match job {
-                    Job::Archer | Job::Crossbow => policies
-                        .policies
-                        .get(town_idx_usize)
+                    Job::Archer | Job::Crossbow => economy.towns.policy(town_idx_i32)
+                        .as_ref()
                         .is_none_or(|p| p.archer_leash),
                     _ => leash_range_val.is_some(),
                 };
@@ -1125,7 +1120,7 @@ pub fn decision_system(
                         }
                         // Wounded: prioritize healing over squad target (prevents flee-engage oscillation)
                         let ti = town_idx_i32 as usize;
-                        if let Some(p) = policies.policies.get(ti) {
+                        if let Some(p) = economy.towns.policy(town_idx_i32) {
                             if p.prioritize_healing
                                 && energy > 0.0
                                 && health / max_hp < p.recovery_hp
@@ -1136,7 +1131,7 @@ pub fn decision_system(
                                 ) {
                                     if let Some(town) = farms.world.towns.get(ti) {
                                         combat_state = CombatState::None;
-                                        let threshold = policies.policies.get(ti).map(|pp| pp.recovery_hp).unwrap_or(0.8);
+                                        let threshold = p.recovery_hp;
                                         activity.kind = ActivityKind::Heal { recover_until: threshold };
                                         submit_intent_scattered(
                                             &mut intents, entity, town.center.x, town.center.y, 128.0,
@@ -1262,9 +1257,7 @@ pub fn decision_system(
                     if let Some(town) = farms.world.towns.get(town_idx) {
                         if let Some(current) = npc_pos {
                             if current.distance(town.center) <= HEAL_DRIFT_RADIUS {
-                                let threshold = policies
-                                    .policies
-                                    .get(town_idx)
+                                let threshold = economy.towns.policy(town_idx_i32)
                                     .map(|p| p.recovery_hp)
                                     .unwrap_or(0.8)
                                     .min(1.0);
@@ -1338,7 +1331,7 @@ pub fn decision_system(
             // ====================================================================
             // Priority 4c: Loot threshold — too much equipment, return home
             // ====================================================================
-            let loot_threshold = policies.policies.get(town_idx_i32 as usize)
+            let loot_threshold = economy.towns.policy(town_idx_i32)
                 .map(|p| p.loot_threshold).unwrap_or(3);
             if !npc_def(job).equip_slots.is_empty()
                 && carried_loot.equipment.len() >= loot_threshold
@@ -1519,7 +1512,7 @@ pub fn decision_system(
                 if ws_ready && can_harvest_turn {
                     if let Some(mut ps) = ws_entity.and_then(|e| production_q.get_mut(e).ok()) {
                         let town_levels =
-                            extras.town_upgrades.town_levels(town_idx_i32 as usize);
+                            economy.towns.upgrade_levels(town_idx_i32);
                         let yield_mult =
                             UPGRADES.stat_mult(&town_levels, ws.upgrade_job, UpgradeStatKind::Yield);
                         let ws_pos = entity_map.get_instance(slot).map_or(Vec2::ZERO, |i| i.position);
@@ -1646,16 +1639,15 @@ pub fn decision_system(
             let wander_m = behavior_mods.wander;
 
             let town_idx = town_idx_i32 as usize;
-            let policy = policies.policies.get(town_idx);
-            let food_available = policy.is_none_or(|p| p.eat_food)
-                && town_idx < economy.food_storage.food.len()
-                && economy.food_storage.food[town_idx] > 0;
+            let policy = economy.towns.policy(town_idx_i32);
+            let food_available = policy.as_ref().is_none_or(|p| p.eat_food)
+                && economy.towns.food(town_idx_i32) > 0;
             let mut scores: [(Action, f32); 5] = [(Action::Wander, 0.0); 5];
             let mut score_count: usize = 0;
 
             // Prioritize healing: wounded NPCs go to fountain before doing anything else
             // Skip if starving — HP capped at 50% until energy recovers
-            if let Some(p) = policy {
+            if let Some(p) = &policy {
                 if p.prioritize_healing && energy > 0.0 && health / max_hp < p.recovery_hp {
                     if let Some(town) = farms.world.towns.get(town_idx) {
                         let center = town.center;
@@ -1691,10 +1683,10 @@ pub fn decision_system(
 
             // Work schedule gate: per-job schedule
             let schedule = match job {
-                Job::Farmer | Job::Miner => policy
+                Job::Farmer | Job::Miner => policy.as_ref()
                     .map(|p| p.farmer_schedule)
                     .unwrap_or(WorkSchedule::Both),
-                Job::Archer | Job::Crossbow => policy
+                Job::Archer | Job::Crossbow => policy.as_ref()
                     .map(|p| p.archer_schedule)
                     .unwrap_or(WorkSchedule::Both),
                 _ => WorkSchedule::Both,
@@ -1735,10 +1727,10 @@ pub fn decision_system(
             // Off-duty behavior when work is gated out by schedule
             if !work_allowed {
                 let off_duty = match job {
-                    Job::Farmer | Job::Miner => policy
+                    Job::Farmer | Job::Miner => policy.as_ref()
                         .map(|p| p.farmer_off_duty)
                         .unwrap_or(OffDutyBehavior::GoToBed),
-                    Job::Archer | Job::Crossbow => policy
+                    Job::Archer | Job::Crossbow => policy.as_ref()
                         .map(|p| p.archer_off_duty)
                         .unwrap_or(OffDutyBehavior::GoToBed),
                     _ => OffDutyBehavior::GoToBed,
@@ -1795,19 +1787,19 @@ pub fn decision_system(
 
             match action {
                 Action::Eat => {
-                    if town_idx < economy.food_storage.food.len()
-                        && economy.food_storage.food[town_idx] > 0
-                    {
-                        let old_energy = energy;
-                        economy.food_storage.food[town_idx] -= 1;
-                        energy = 100.0;
-                        npc_logs.push(
-                            idx,
-                            game_time.day(),
-                            game_time.hour(),
-                            game_time.minute(),
-                            format!("Ate (e:{:.0}->{:.0})", old_energy, energy),
-                        );
+                    if let Some(mut f) = economy.towns.food_mut(town_idx_i32) {
+                        if f.0 > 0 {
+                            let old_energy = energy;
+                            f.0 -= 1;
+                            energy = 100.0;
+                            npc_logs.push(
+                                idx,
+                                game_time.day(),
+                                game_time.hour(),
+                                game_time.minute(),
+                                format!("Ate (e:{:.0}->{:.0})", old_energy, energy),
+                            );
+                        }
                     }
                 }
                 Action::Rest => {

@@ -15,7 +15,7 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
         name: "EcoRaider".into(),
         center: Vec2::new(384.0, 128.0),
         faction: 2,
-        sprite_type: 1,
+        kind: crate::constants::TownKind::AiRaider,
     area_level: 0,
     });
     // 1 farm near town — starts Growing at 95%
@@ -32,7 +32,7 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
     }
 
     params.init_economy(2);
-    params.food_storage.food[1] = 10; // raider town has food
+    if let Some(mut f) = params.town_access.food_mut(1) { f.0 = 10; } // raider town has food
     raider_state.init(1, 5);
     // Tent spawner so a raider can spawn via spawner_respawn_system
     params.add_building(crate::world::BuildingKind::Tent, 384.0, 128.0, 1);
@@ -64,7 +64,7 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
 
 pub fn tick(
     entity_map: Res<EntityMap>,
-    food_storage: Res<FoodStorage>,
+    town_access: crate::systemparams::TownAccess,
     time: Res<Time>,
     mut test: ResMut<TestState>,
     production_q: Query<&crate::components::ProductionState, With<crate::components::Building>>,
@@ -81,8 +81,8 @@ pub fn tick(
         .and_then(|&e| production_q.get(e).ok());
     let farm_ready = farm_ps.map(|ps| ps.ready).unwrap_or(false);
     let farm_progress = farm_ps.map(|ps| ps.progress).unwrap_or(0.0);
-    let town_food = food_storage.food.first().copied().unwrap_or(0);
-    let raider_food = food_storage.food.get(1).copied().unwrap_or(0);
+    let town_food = town_access.food(0);
+    let raider_food = town_access.food(1);
 
     match test.phase {
         // Phase 1: Farm is Growing

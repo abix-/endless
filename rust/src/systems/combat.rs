@@ -7,7 +7,7 @@ use crate::resources::{
     CombatDebug, EntityMap, GameTime, GpuReadState, MovementPriority, PathRequestQueue,
     ProjHitState, ProjSlotAllocator, TowerState,
 };
-use crate::systems::stats::{TownUpgrades, resolve_town_tower_stats};
+use crate::systems::stats::resolve_town_tower_stats;
 use crate::world::{BuildingKind, WorldData, is_alive};
 use bevy::prelude::*;
 
@@ -488,7 +488,7 @@ pub fn building_tower_system(
     game_time: Res<GameTime>,
     gpu_state: Res<GpuReadState>,
     world_data: Res<WorldData>,
-    upgrades: Res<TownUpgrades>,
+    town_access: crate::systemparams::TownAccess,
     entity_map: Res<EntityMap>,
     mut tower: ResMut<TowerState>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
@@ -498,7 +498,7 @@ pub fn building_tower_system(
     tower_bld_q: Query<&crate::components::TowerBuildingState, With<Building>>,
 ) {
     let dt = game_time.delta(&time);
-    // --- Towns: sync state, refresh enabled from sprite_type == 0 (fountain) every tick ---
+    // --- Towns: sync state, refresh enabled for non-raider towns (fountain) every tick ---
     while tower.town.timers.len() < world_data.towns.len() {
         tower.town.timers.push(0.0);
         tower.town.attack_enabled.push(false);
@@ -522,7 +522,7 @@ pub fn building_tower_system(
             }
         }
 
-        let stats = resolve_town_tower_stats(&upgrades.town_levels(i));
+        let stats = resolve_town_tower_stats(&town_access.upgrade_levels(i as i32));
         let pos = town.center;
         let faction = town.faction;
 

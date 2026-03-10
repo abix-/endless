@@ -15,7 +15,7 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
         name: "RaiderTown".into(),
         center: Vec2::new(384.0, 128.0),
         faction: 2,
-        sprite_type: 1,
+        kind: crate::constants::TownKind::AiRaider,
     area_level: 0,
     });
     // 3 farms near villager town — all Ready so raiders can steal
@@ -25,8 +25,7 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
         params.set_production_ready(Vec2::new(fx, 320.0));
     }
     params.init_economy(2);
-    params.food_storage.food[0] = 10; // villager food
-    params.food_storage.food[1] = 0; // raider raider town starts empty
+    if let Some(mut f) = params.town_access.food_mut(0) { f.0 = 10; } // villager food
     raider_state.init(1, 5);
     params.game_time.time_scale = 1.0;
 
@@ -57,7 +56,7 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
 
 pub fn tick(
     entity_map: Res<EntityMap>,
-    food_storage: Res<FoodStorage>,
+    town_access: crate::systemparams::TownAccess,
     time: Res<Time>,
     mut test: ResMut<TestState>,
     activity_q: Query<&Activity>,
@@ -95,7 +94,7 @@ pub fn tick(
             _ => {}
         }
     }
-    let raider_food = food_storage.food.get(1).copied().unwrap_or(0);
+    let raider_food = town_access.food(1);
 
     match test.phase {
         // Phase 1: 3 raiders dispatched → Raiding

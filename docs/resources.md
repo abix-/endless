@@ -131,14 +131,27 @@ Save/load: `FactionList` serialized in `SaveData`. Old saves without it get `Fac
 
 ## Food & Economy
 
+Town economic state (food, gold, policies, upgrades, equipment) lives on ECS town entities as components (`FoodStore`, `GoldStore`, `TownPolicy`, `TownUpgradeLevel`, `TownEquipment`). Systems access them via `TownAccess` SystemParam (see below).
+
 | Resource | Data | Writers | Readers |
 |----------|------|---------|---------|
-| FoodStorage | `Vec<i32>` — food count per town | economy systems (arrival, eating) | economy systems, UI |
-| GoldStorage | `Vec<i32>` — gold count per town | mining delivery (arrival_system) | UI (top bar) |
+| TownIndex | `HashMap<i32, Entity>` — town_idx → Entity | world gen, save/load | TownAccess (all systems) |
 | MiningPolicy | `discovered_mines: Vec<Vec<usize>>`, `mine_enabled: HashMap<usize, bool>` (keyed by GPU slot) | mining_policy_system | UI (policies tab, mine inspector) |
-| Food flow signals | `FoodStorage` + system-local logic | economy systems | economy systems, UI |
 
-`FoodStorage.init(count)` initializes per-town counters. Villager towns and raider towns share the same indexing.
+### TownAccess SystemParam
+
+`TownAccess` (`systemparams.rs`) wraps `TownIndex` + component queries for O(1) town data access:
+
+| Method | Returns | Mutates |
+|--------|---------|---------|
+| `food(idx)` / `food_mut(idx)` | `i32` / `Option<Mut<FoodStore>>` | No / Yes |
+| `gold(idx)` / `gold_mut(idx)` | `i32` / `Option<Mut<GoldStore>>` | No / Yes |
+| `policy(idx)` / `policy_mut(idx)` | `Option<PolicySet>` / `Option<Mut<TownPolicy>>` | No / Yes |
+| `upgrade_levels(idx)` / `upgrade_level(idx, i)` | `Vec<u8>` / `u8` | No |
+| `upgrades_mut(idx)` | `Option<Mut<TownUpgradeLevel>>` | Yes |
+| `equipment(idx)` / `equipment_mut(idx)` | `Option<Vec<LootItem>>` / `Option<Mut<TownEquipment>>` | No / Yes |
+
+Town entities are spawned in world gen and save/load with: `TownMarker`, `FoodStore(0)`, `GoldStore(0)`, `TownPolicy(default)`, `TownUpgradeLevel::default()`, `TownEquipment::default()`.
 
 ## Raider Towns
 
@@ -185,7 +198,7 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 | Resource | Data | Defined In | Purpose |
 |----------|------|------------|---------|
 | CombatConfig | `HashMap<Job, JobStats>` + `HashMap<BaseAttackType, AttackTypeStats>` + heal_rate + heal_radius | `systems/stats.rs` | All NPC base stats — resolved via `resolve_combat_stats()` |
-| TownUpgrades | `Vec<Vec<u8>>` per town (dynamic width = `upgrade_count()`) | `systems/stats.rs` | Per-town upgrade levels, indexed by dynamic registry layout |
+| TownUpgradeLevel | ECS component `Vec<u8>` per town entity (dynamic width = `upgrade_count()`) | town entities | Per-town upgrade levels, accessed via `TownAccess.upgrade_levels()` |
 | UpgradeMsg | Message `{ town_idx, upgrade_idx }` | `systems/stats.rs` | Upgrade purchase request from UI/auto/AI, consumed by `process_upgrades_system` |
 | AutoUpgrade | `Vec<Vec<bool>>` per town (dynamic width = `upgrade_count()`) | `resources.rs` | Per-upgrade auto-buy flags; `auto_upgrade_system` emits `UpgradeMsg` each game hour for affordable enabled upgrades |
 
@@ -193,7 +206,7 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 
 `UPGRADES` is the single source of truth for upgrade metadata — a global `LazyLock<UpgradeRegistry>` built from `NPC_REGISTRY` + `TOWN_UPGRADES` at startup. `UpgradeRegistry` contains dynamic `nodes`, UI `branches`, and an `(category, stat_kind) -> index` map. `UpgradeNode` includes: `label`, `short`, `tooltip`, `category`, `stat_kind`, `pct`, `cost`, `display`, `prereqs: Vec<(usize, u8)>`, and flags (`is_combat_stat`, `invalidates_healing`, `triggers_expansion`, `custom_cost`).
 
-`TownUpgrades` stores dynamic per-town level vectors sized to `upgrade_count()`, and save/load uses decode helpers that pad older saves when new upgrades are added. Shared helpers gate all purchase paths: `upgrade_unlocked(levels, idx)` (prereqs), `upgrade_available(levels, idx, food, gold)` (prereqs + affordability), `deduct_upgrade_cost(...)`, `missing_prereqs(...)`, and `format_upgrade_cost(...)`. `UpgradeMsg` decouples writers from processing: UI, auto-upgrade, and AI emit messages; `process_upgrades_system` validates, deducts, increments, and re-resolves affected stats.
+`TownUpgradeLevel` (ECS component on town entities) stores dynamic per-town level vectors sized to `upgrade_count()`, and save/load uses decode helpers that pad older saves when new upgrades are added. Shared helpers gate all purchase paths: `upgrade_unlocked(levels, idx)` (prereqs), `upgrade_available(levels, idx, food, gold)` (prereqs + affordability), `deduct_upgrade_cost(...)`, `missing_prereqs(...)`, and `format_upgrade_cost(...)`. `UpgradeMsg` decouples writers from processing: UI, auto-upgrade, and AI emit messages; `process_upgrades_system` validates, deducts, increments, and re-resolves affected stats.
 
 UI tree layout is driven by `UPGRADES.branches` (generated during registry build), not a hardcoded render-order array. `branch_total()` sums category levels, and `upgrade_effect_summary()` formats current/next effects (percentage, cooldown reduction, unlock, flat, discrete).
 
@@ -235,7 +248,7 @@ UI tree layout is driven by `UPGRADES.branches` (generated during registry build
 
 | Resource | Data | Writers | Readers |
 |----------|------|---------|---------|
-| TownPolicies | `Vec<PolicySet>` — per-town behavior configuration (16 slots default) | left_panel (UI) | decision_system, behavior systems |
+| TownPolicy | ECS component `PolicySet` per town entity | left_panel (UI) | decision_system, behavior systems — accessed via `TownAccess.policy()` |
 
 `PolicySet` fields: `eat_food` (bool), `archer_aggressive` (bool), `archer_leash` (bool), `farmer_fight_back` (bool), `prioritize_healing` (bool), `farmer_flee_hp` (f32, 0.0-1.0), `archer_flee_hp` (f32), `recovery_hp` (f32), `farmer_schedule` (WorkSchedule enum), `archer_schedule` (WorkSchedule enum), `farmer_off_duty` (OffDutyBehavior enum), `archer_off_duty` (OffDutyBehavior enum), `mining_radius` (f32), `reserve_food` (i32, default 0), `reserve_gold` (i32, default 0).
 
@@ -282,7 +295,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 
 `CombatLog` has two ring buffers: `entries` (max 200) for normal events and `priority_entries` (max 200) for Raid/Ai events — this prevents high-frequency combat events from pushing out important strategic entries. 7 event kinds: Kill, Spawn, Raid, Harvest, LevelUp, Ai, BuildingDamage. Each entry has day/hour/minute timestamps, a `faction: i32` (-1=global, 0=player, 1+=AI), a message string, and an optional `location: Option<Vec2>` (world position for camera-pan button). `push()` evicts oldest when at capacity; `push_at()` routes to the correct buffer by kind. `iter_all()` chains both buffers for display. Raid entries for wave-started events include the target position as location. AI entries (purple in HUD) log build/unlock/upgrade actions; Raid entries (orange) log migration arrivals, town settlements, and wave start/end. Combat log UI has "All"/"Mine" faction filter dropdown — "Mine" shows player (0) and global (-1) events only. Entries with a location show a clickable ">>" button that pans the camera to the target position.
 
-`PolicySet` is serializable (`serde::Serialize + Deserialize`) and persisted as part of `UserSettings`. Loaded into `TownPolicies` on game startup, saved when leaving the Policies tab in the left panel.
+`PolicySet` is serializable (`serde::Serialize + Deserialize`) and persisted as part of `UserSettings`. Loaded into `TownPolicy` ECS components on game startup, saved when leaving the Policies tab in the left panel.
 
 ## Squads
 

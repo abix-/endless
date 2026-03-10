@@ -186,10 +186,10 @@ Raiders without a squad assignment wander near their town. Group attacks use squ
 | Resource | Purpose | Updated By |
 |----------|---------|------------|
 | GameTime | total_seconds, time_scale, paused, hour_ticked | game_time_system |
-| FoodStorage | `Vec<i32>` — food count per town | harvest, steal, forage, respawn |
+| FoodStore | ECS component `i32` per town entity — via `TownAccess.food()` | harvest, steal, forage, respawn |
 | Dirty/resource signals | Message types + resources (see [messages.md](messages.md)) | Message drain + consumer systems |
 | ProductionState | ECS component `{ ready: bool, progress: f32 }` on Farm/Mine entities | growth_system, harvest/steal |
-| GoldStorage | `Vec<i32>` — gold count per town | mining delivery, UI |
+| GoldStore | ECS component `i32` per town entity — via `TownAccess.gold()` | mining delivery, UI |
 | MineStates | gold, max_gold, positions per mine | mine_regen_system, mining behavior |
 | MinerProgressRender | positions + progress for active miners | sync_miner_progress_render → render world (ExtractResource) |
 | EntityMap (occupancy) | `BuildingInstance.occupants: i16` per building — slot-indexed claim/release/is_occupied/occupant_count methods on EntityMap | decision_system, death_cleanup |

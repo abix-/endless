@@ -170,13 +170,12 @@ pub(crate) fn build_menu_system(
     mut ui_state: ResMut<UiState>,
     mut build_ctx: ResMut<BuildMenuContext>,
     world_data: Res<world::WorldData>,
-    food_storage: Res<FoodStorage>,
+    town_access: crate::systemparams::TownAccess,
     entity_map: Res<EntityMap>,
     user_settings: Res<UserSettings>,
     _difficulty: Res<Difficulty>,
     sprites: Res<SpriteAssets>,
     mut images: ResMut<Assets<Image>>,
-    upgrades: Res<crate::systems::TownUpgrades>,
     mut cache: Local<BuildSpriteCache>,
 ) -> Result {
     // Initialize sprite cache (one-time, before borrowing egui context)
@@ -227,7 +226,7 @@ pub(crate) fn build_menu_system(
         return Ok(());
     };
     let is_raider = town.faction > crate::constants::FACTION_PLAYER;
-    let food = food_storage.food.get(town_data_idx).copied().unwrap_or(0);
+    let food = town_access.food(town_data_idx as i32);
     let text_scale = user_settings.build_menu_text_scale.clamp(0.7, 2.0);
     let label_size = 13.0 * text_scale;
     let help_size = 11.0 * text_scale;
@@ -308,7 +307,7 @@ pub(crate) fn build_menu_system(
                         use crate::constants::UpgradeStatKind as USK;
                         use crate::systems::stats::UPGRADES;
                         let tidx = build_ctx.town_data_idx.unwrap_or(0);
-                        let levels = upgrades.town_levels(tidx);
+                        let levels = town_access.upgrade_levels(tidx as i32);
                         let required_unlock = match def.kind {
                             BuildingKind::StoneRoad => Some(USK::UnlockStoneRoad),
                             BuildingKind::MetalRoad => Some(USK::UnlockMetalRoad),

@@ -2,7 +2,6 @@ use super::*;
 
 #[derive(SystemParam)]
 pub struct InventoryParams<'w, 's> {
-    pub town_inventory: ResMut<'w, TownInventory>,
     pub equipment_q: Query<'w, 's, (Entity, &'static NpcEquipment, &'static Job, &'static TownId, &'static GpuSlot)>,
     pub equip_writer: MessageWriter<'w, crate::systems::stats::EquipItemMsg>,
     pub unequip_writer: MessageWriter<'w, crate::systems::stats::UnequipItemMsg>,
@@ -40,7 +39,7 @@ pub(crate) fn inventory_content(
     meta_cache: &NpcMetaCache,
     entity_map: &EntityMap,
     ui_state: &mut UiState,
-    gold_storage: &mut crate::resources::GoldStorage,
+    town_access: &mut crate::systemparams::TownAccess<'_, '_>,
 ) {
     // Derive town from selected NPC, fallback to player town 0
     let sel = selected_npc.0;
@@ -163,12 +162,8 @@ pub(crate) fn inventory_content(
         ui.separator();
     }
 
-    let town_item_count = inv
-        .town_inventory
-        .items
-        .get(town_idx)
-        .map(|v| v.len())
-        .unwrap_or(0);
+    let town_items_pre = town_access.equipment(town_idx as i32).unwrap_or_default();
+    let town_item_count = town_items_pre.len();
     ui.horizontal(|ui| {
         let can_town_auto = town_item_count > 0;
         let town_btn = ui.add_enabled(can_town_auto, egui::Button::new("Auto-equip Town Now"));
@@ -232,39 +227,43 @@ pub(crate) fn inventory_content(
     let show_unequipped = view == 0 || view == 2;
 
     if show_unequipped {
-        // Bulk sell Common — must happen before borrowing items slice
-        {
-            let common_count = inv.town_inventory.items.get(town_idx).map(|v| v.iter().filter(|it| it.rarity == Rarity::Common).count()).unwrap_or(0);
-            if common_count > 0 {
-                let total_gold: i32 = common_count as i32 * (Rarity::Common.gold_cost() / 2);
-                if ui
-                    .button(format!(
-                        "Sell All Common ({} items, +{}g)",
-                        common_count, total_gold
-                    ))
-                    .clicked()
-                {
-                    let common_ids: Vec<u64> = inv.town_inventory.items.get(town_idx)
-                        .map(|v| v.iter().filter(|it| it.rarity == Rarity::Common).map(|it| it.id).collect())
-                        .unwrap_or_default();
+        // Bulk sell Common
+        let common_count = town_items_pre.iter().filter(|it| it.rarity == Rarity::Common).count();
+        if common_count > 0 {
+            let total_gold: i32 = common_count as i32 * (Rarity::Common.gold_cost() / 2);
+            if ui
+                .button(format!(
+                    "Sell All Common ({} items, +{}g)",
+                    common_count, total_gold
+                ))
+                .clicked()
+            {
+                let common_ids: Vec<u64> = town_items_pre
+                    .iter()
+                    .filter(|it| it.rarity == Rarity::Common)
+                    .map(|it| it.id)
+                    .collect();
+                // Remove commons from equipment, then add gold
+                let mut removed = 0i32;
+                if let Some(mut eq) = town_access.equipment_mut(town_idx as i32) {
                     for id in common_ids {
-                        if inv.town_inventory.remove(town_idx, id).is_some() {
-                            if let Some(g) = gold_storage.gold.get_mut(town_idx) {
-                                *g += Rarity::Common.gold_cost() / 2;
-                            }
+                        if let Some(pos) = eq.0.iter().position(|it| it.id == id) {
+                            eq.0.swap_remove(pos);
+                            removed += 1;
                         }
+                    }
+                }
+                if removed > 0 {
+                    if let Some(mut g) = town_access.gold_mut(town_idx as i32) {
+                        g.0 += removed * (Rarity::Common.gold_cost() / 2);
                     }
                 }
             }
         }
     }
 
-    let items = inv
-        .town_inventory
-        .items
-        .get(town_idx)
-        .map(|v| v.as_slice())
-        .unwrap_or(&[]);
+    // Get fresh items after potential sell
+    let items = town_access.equipment(town_idx as i32).unwrap_or_default();
 
     // Header with counts
     let unequipped_count = items.len();

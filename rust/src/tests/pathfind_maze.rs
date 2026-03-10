@@ -84,7 +84,7 @@ pub fn setup(mut params: TestSetupParams, config: Res<PathfindMazeConfig>) {
     params.add_bed(bx, by);
 
     params.init_economy(1);
-    params.food_storage.food[0] = 500;
+    if let Some(mut f) = params.town_access.food_mut(0) { f.0 = 500; }
 
     // Camera centered on maze
     params.focus_camera(800.0, 800.0);

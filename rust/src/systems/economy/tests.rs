@@ -344,14 +344,11 @@ fn setup_forage_app() -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
     app.insert_resource(GameTime::default());
-    app.insert_resource(FoodStorage { food: vec![0, 0] });
-    app.insert_resource(GoldStorage { gold: vec![0, 0] });
     app.insert_resource(PopulationStats::default());
-    app.insert_resource(TownInventory::default());
     app.insert_resource(WorldData {
         towns: vec![
-            crate::world::Town { name: "Player".into(), center: Vec2::ZERO, faction: 1, sprite_type: 0, area_level: 0 },
-            crate::world::Town { name: "Raider".into(), center: Vec2::new(1000.0, 0.0), faction: 2, sprite_type: 1, area_level: 0 },
+            crate::world::Town { name: "Player".into(), center: Vec2::ZERO, faction: 1, kind: crate::constants::TownKind::Player, area_level: 0 },
+            crate::world::Town { name: "Raider".into(), center: Vec2::new(1000.0, 0.0), faction: 2, kind: crate::constants::TownKind::AiRaider, area_level: 0 },
         ],
     });
     app.insert_resource(crate::settings::UserSettings::default());
@@ -359,6 +356,27 @@ fn setup_forage_app() -> App {
     app.insert_resource(TimeUpdateStrategy::ManualDuration(
         std::time::Duration::from_secs_f32(1.0),
     ));
+    // Spawn ECS town entities and register TownIndex
+    let mut town_index = crate::resources::TownIndex::default();
+    let e0 = app.world_mut().spawn((
+        crate::components::TownMarker,
+        crate::components::FoodStore(0),
+        crate::components::GoldStore(0),
+        crate::components::TownPolicy::default(),
+        crate::components::TownUpgradeLevel::default(),
+        crate::components::TownEquipment::default(),
+    )).id();
+    let e1 = app.world_mut().spawn((
+        crate::components::TownMarker,
+        crate::components::FoodStore(0),
+        crate::components::GoldStore(0),
+        crate::components::TownPolicy::default(),
+        crate::components::TownUpgradeLevel::default(),
+        crate::components::TownEquipment::default(),
+    )).id();
+    town_index.0.insert(0, e0);
+    town_index.0.insert(1, e1);
+    app.insert_resource(town_index);
     app.add_systems(FixedUpdate, raider_forage_system);
     app.update();
     app.update();
@@ -374,7 +392,9 @@ fn raider_forage_adds_food_on_hour_tick() {
     app.world_mut().resource_mut::<RaiderState>().forage_timers[1] = interval - 1.0;
 
     app.update();
-    let food = app.world().resource::<FoodStorage>().food[1];
+    let town_index = app.world().resource::<crate::resources::TownIndex>();
+    let e1 = town_index.0[&1];
+    let food = app.world().get::<crate::components::FoodStore>(e1).unwrap().0;
     assert!(food > 0, "raider town should gain food from foraging: {food}");
 }
 
@@ -384,7 +404,9 @@ fn raider_forage_skips_without_hour_tick() {
     app.world_mut().resource_mut::<GameTime>().hour_ticked = false;
 
     app.update();
-    let food = app.world().resource::<FoodStorage>().food[1];
+    let town_index = app.world().resource::<crate::resources::TownIndex>();
+    let e1 = town_index.0[&1];
+    let food = app.world().get::<crate::components::FoodStore>(e1).unwrap().0;
     assert_eq!(food, 0, "no foraging without hour tick");
 }
 
@@ -396,7 +418,9 @@ fn raider_forage_player_town_unaffected() {
     app.world_mut().resource_mut::<RaiderState>().forage_timers[1] = interval - 1.0;
 
     app.update();
-    let food = app.world().resource::<FoodStorage>().food[0];
+    let town_index = app.world().resource::<crate::resources::TownIndex>();
+    let e0 = town_index.0[&0];
+    let food = app.world().get::<crate::components::FoodStore>(e0).unwrap().0;
     assert_eq!(food, 0, "player town should not get raider forage food");
 }
 
@@ -409,7 +433,27 @@ fn setup_growth_app() -> App {
     app.add_plugins(MinimalPlugins);
     app.insert_resource(GameTime::default());
     app.insert_resource(EntityMap::default());
-    app.insert_resource(crate::systems::stats::TownUpgrades { levels: vec![vec![0; crate::systems::stats::upgrade_count()]] });
+    app.insert_resource(WorldData {
+        towns: vec![crate::world::Town {
+            name: "TestTown".to_string(),
+            center: Vec2::new(500.0, 500.0),
+            faction: 1,
+            kind: crate::constants::TownKind::Player,
+            area_level: 0,
+        }],
+    });
+    // Spawn ECS town entity for TownAccess
+    let mut town_index = crate::resources::TownIndex::default();
+    let entity = app.world_mut().spawn((
+        crate::components::TownMarker,
+        crate::components::FoodStore(0),
+        crate::components::GoldStore(0),
+        crate::components::TownPolicy::default(),
+        crate::components::TownUpgradeLevel::default(),
+        crate::components::TownEquipment::default(),
+    )).id();
+    town_index.0.insert(0, entity);
+    app.insert_resource(town_index);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(
         std::time::Duration::from_secs_f32(1.0),
     ));
@@ -563,7 +607,7 @@ fn setup_merchant_app() -> App {
     app.insert_resource(NextLootItemId::default());
     app.insert_resource(WorldData {
         towns: vec![
-            crate::world::Town { name: "Town".into(), center: Vec2::ZERO, faction: 0, sprite_type: 0, area_level: 0 },
+            crate::world::Town { name: "Town".into(), center: Vec2::ZERO, faction: 0, kind: crate::constants::TownKind::Player, area_level: 0 },
         ],
     });
     app.insert_resource(TimeUpdateStrategy::ManualDuration(
@@ -734,7 +778,7 @@ fn setup_spawner_app() -> App {
             name: "TestTown".to_string(),
             center: Vec2::new(500.0, 500.0),
             faction: 0,
-            sprite_type: 0,
+            kind: crate::constants::TownKind::Player,
         area_level: 0,
         }],
     });
@@ -834,7 +878,6 @@ fn setup_mining_app() -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
     app.insert_resource(EntityMap::default());
-    app.insert_resource(TownPolicies::default());
     app.insert_resource(MiningPolicy::default());
     app.insert_resource(SendMiningDirty(false));
     app.insert_resource(WorldData {
@@ -842,10 +885,22 @@ fn setup_mining_app() -> App {
             name: "TestTown".to_string(),
             center: Vec2::new(500.0, 500.0),
             faction: 1,
-            sprite_type: 0,
-        area_level: 0,
+            kind: crate::constants::TownKind::Player,
+            area_level: 0,
         }],
     });
+    // Spawn ECS town entity for TownAccess
+    let mut town_index = crate::resources::TownIndex::default();
+    let entity = app.world_mut().spawn((
+        crate::components::TownMarker,
+        crate::components::FoodStore(0),
+        crate::components::GoldStore(0),
+        crate::components::TownPolicy::default(),
+        crate::components::TownUpgradeLevel::default(),
+        crate::components::TownEquipment::default(),
+    )).id();
+    town_index.0.insert(0, entity);
+    app.insert_resource(town_index);
     app.add_message::<crate::messages::MiningDirtyMsg>();
     app.insert_resource(TimeUpdateStrategy::ManualDuration(
         std::time::Duration::from_secs_f32(1.0),
@@ -931,7 +986,7 @@ fn setup_squad_cleanup_app() -> App {
             name: "TestTown".to_string(),
             center: Vec2::new(500.0, 500.0),
             faction: 0,
-            sprite_type: 0,
+            kind: crate::constants::TownKind::Player,
         area_level: 0,
         }],
     });

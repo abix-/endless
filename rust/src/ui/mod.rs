@@ -22,7 +22,7 @@ use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
 use crate::settings::{self, ControlAction, ControlGroup, UserSettings};
 use crate::systemparams::WorldState;
-use crate::systems::{AiPersonality, AiPlayerState, TownUpgrades};
+use crate::systems::{AiPersonality, AiPlayerState};
 use crate::systems::ai_player::RoadStyle;
 use crate::world::{self, BuildingKind, WorldGenConfig};
 
@@ -811,10 +811,8 @@ pub fn ui_toggle_system(
 // SystemParam bundle for startup to stay under 16-param limit
 #[derive(SystemParam)]
 struct StartupExtra<'w> {
-    policies: ResMut<'w, TownPolicies>,
     ai_state: ResMut<'w, AiPlayerState>,
     combat_log: MessageWriter<'w, crate::messages::CombatLogMsg>,
-    gold_storage: ResMut<'w, GoldStorage>,
     reputation: ResMut<'w, Reputation>,
     auto_upgrade: ResMut<'w, AutoUpgrade>,
     mining_policy: ResMut<'w, MiningPolicy>,
@@ -899,7 +897,6 @@ fn game_startup_system(
     mut commands: Commands,
     config: Res<WorldGenConfig>,
     mut world_state: WorldState,
-    mut food_storage: ResMut<FoodStorage>,
     mut faction_list: ResMut<crate::resources::FactionList>,
     mut faction_stats: ResMut<FactionStats>,
     mut raider_state: ResMut<RaiderState>,
@@ -909,6 +906,7 @@ fn game_startup_system(
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     mut extra: StartupExtra,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
+    mut town_index: ResMut<crate::resources::TownIndex>,
 ) {
     // If game_load_system already populated the world, skip world gen.
     // The flag was cleared by game_load_system, but we can detect load happened
@@ -928,12 +926,11 @@ fn game_startup_system(
         &mut faction_list,
         &mut world_state.entity_slots,
         &mut world_state.entity_map,
-        &mut food_storage,
-        &mut extra.gold_storage,
         &mut faction_stats,
         &mut extra.reputation,
         &mut raider_state,
         &mut world_state.uid_alloc,
+        &mut town_index,
         &mut commands,
         &mut gpu_updates,
     );
@@ -954,8 +951,8 @@ fn game_startup_system(
         .iter()
         .position(|t| t.faction == crate::constants::FACTION_PLAYER)
         .unwrap_or(0);
-    if town_idx < extra.policies.policies.len() {
-        extra.policies.policies[town_idx] = saved.policy;
+    if let Some(&e) = town_index.0.get(&(town_idx as i32)) {
+        commands.entity(e).insert(crate::components::TownPolicy(saved.policy));
     }
     if !saved.auto_upgrades.is_empty() && town_idx < extra.auto_upgrade.flags.len() {
         let flags = &mut extra.auto_upgrade.flags[town_idx];
@@ -964,14 +961,15 @@ fn game_startup_system(
 
     // Apply personality-based policies + log AI players joining
     for player in &ai_players {
-        if let Some(policy) = extra.policies.policies.get_mut(player.town_data_idx) {
-            *policy = player.personality.default_policies();
-            if let Some(town) = world_state.world_data.towns.get(player.town_data_idx) {
-                policy.mining_radius = crate::systems::ai_player::initial_mining_radius(
-                    &world_state.entity_map,
-                    town.center,
-                );
-            }
+        let mut policy = player.personality.default_policies();
+        if let Some(town) = world_state.world_data.towns.get(player.town_data_idx) {
+            policy.mining_radius = crate::systems::ai_player::initial_mining_radius(
+                &world_state.entity_map,
+                town.center,
+            );
+        }
+        if let Some(&e) = town_index.0.get(&(player.town_data_idx as i32)) {
+            commands.entity(e).insert(crate::components::TownPolicy(policy));
         }
         if let Some(town) = world_state.world_data.towns.get(player.town_data_idx) {
             extra.combat_log.write(crate::messages::CombatLogMsg {
@@ -1374,8 +1372,7 @@ fn game_over_system(
     mut next_state: ResMut<NextState<AppState>>,
     faction_stats: Res<FactionStats>,
     kill_stats: Res<crate::resources::KillStats>,
-    food_storage: Res<FoodStorage>,
-    gold_storage: Res<GoldStorage>,
+    town_access: crate::systemparams::TownAccess,
     world_data: Res<crate::world::WorldData>,
 ) -> Result {
     if !ui_state.game_over {
@@ -1410,8 +1407,8 @@ fn game_over_system(
                 .first()
                 .map(|s| (s.alive, s.dead, s.kills))
                 .unwrap_or((0, 0, 0));
-            let food = food_storage.food.get(player_town).copied().unwrap_or(0);
-            let gold = gold_storage.gold.get(player_town).copied().unwrap_or(0);
+            let food = town_access.food(player_town as i32);
+            let gold = town_access.gold(player_town as i32);
 
             egui::Grid::new("game_over_stats").num_columns(2).spacing([20.0, 4.0]).show(ui, |ui| {
                 ui.label("Survived:");
@@ -1549,7 +1546,7 @@ fn build_place_click_system(
     mut egui_contexts: bevy_egui::EguiContexts,
     mut build_ctx: ResMut<BuildMenuContext>,
     mut world_state: WorldState,
-    mut food_storage: ResMut<FoodStorage>,
+    mut town_access: crate::systemparams::TownAccess,
     mut combat_log: MessageWriter<crate::messages::CombatLogMsg>,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
     mut damage_writer: MessageWriter<crate::messages::DamageMsg>,
@@ -1583,6 +1580,16 @@ fn build_place_click_system(
     };
     let center = town.center;
     let town_name = town.name.clone();
+    // Track food locally; write back to ECS at function exits that modify it
+    let mut food_val = town_access.food(town_data_idx as i32);
+    // Macro to write back food changes to ECS
+    macro_rules! sync_food {
+        () => {
+            if let Some(mut f) = town_access.food_mut(town_data_idx as i32) {
+                f.0 = food_val;
+            }
+        };
+    }
     let Ok(window) = windows.single() else { return };
     let Some(cursor_pos) = window.cursor_position() else {
         return;
@@ -1653,7 +1660,7 @@ fn build_place_click_system(
         let cost = crate::constants::building_cost(kind);
         if world_state
             .place_building(
-                &mut food_storage,
+                &mut food_val,
                 kind,
                 town_data_idx,
                 world_pos,
@@ -1674,6 +1681,7 @@ fn build_place_click_system(
                 location: None,
             });
         }
+        sync_food!();
         return;
     }
 
@@ -1703,14 +1711,14 @@ fn build_place_click_system(
         for (sc, sr) in slots_on_line(start, end) {
             let cell_pos = world_state.grid.grid_to_world(sc, sr);
             match world_state.place_building(
-                &mut food_storage, kind, town_data_idx, cell_pos, cost,
+                &mut food_val, kind, town_data_idx, cell_pos, cost,
                 &mut gpu_updates, &mut commands,
             ) {
                 Ok(()) => { placed += 1; }
                 Err("cell already has a building") => {
                     // Try upgrading existing road
                     if world_state.upgrade_road(
-                        &mut food_storage, kind, town_data_idx, cell_pos,
+                        &mut food_val, kind, town_data_idx, cell_pos,
                         &mut gpu_updates, &mut commands,
                     ).is_ok() {
                         upgraded += 1;
@@ -1739,6 +1747,7 @@ fn build_place_click_system(
                 location: None,
             });
         }
+        sync_food!();
         return;
     }
 
@@ -1758,7 +1767,7 @@ fn build_place_click_system(
 
         world_state
             .place_building(
-                &mut food_storage,
+                &mut food_val,
                 kind,
                 town_data_idx,
                 pos,
@@ -1818,6 +1827,7 @@ fn build_place_click_system(
             location: None,
         });
     }
+    sync_food!();
 }
 
 /// Marker component for slot indicator sprite entities.
@@ -1850,7 +1860,7 @@ fn build_ghost_system(
     mut build_ctx: ResMut<BuildMenuContext>,
     grid: Res<world::WorldGrid>,
     world_data: Res<world::WorldData>,
-    food_storage: Res<FoodStorage>,
+    town_access: crate::systemparams::TownAccess,
     entity_map: Res<EntityMap>,
     mut ghost_query: Query<
         (Entity, &mut Transform, &mut Sprite),
@@ -1971,7 +1981,7 @@ fn build_ghost_system(
 
         let cost = crate::constants::building_cost(kind);
         let town_idx = build_ctx.town_data_idx.unwrap_or(0);
-        let mut budget = food_storage.food.get(town_idx).copied().unwrap_or(0);
+        let mut budget = town_access.food(town_idx as i32);
         let ghost_image = build_ctx
             .ghost_sprites
             .get(&kind)
@@ -2116,7 +2126,7 @@ fn build_ghost_system(
             _ => vec![(gc, gr)],
         };
         let cost = crate::constants::building_cost(kind);
-        let mut budget = food_storage.food.get(town_data_idx).copied().unwrap_or(0);
+        let mut budget = town_access.food(town_data_idx as i32);
 
         for (slot_col, slot_row) in path {
             let visible_slot = grid.can_town_build(slot_col, slot_row, town_data_idx as u16)
@@ -2432,7 +2442,6 @@ fn process_destroy_system(
 #[derive(SystemParam)]
 pub(crate) struct CleanupWorld<'w> {
     world_state: WorldState<'w>,
-    food_storage: ResMut<'w, FoodStorage>,
     faction_stats: ResMut<'w, FactionStats>,
     gpu_state: ResMut<'w, GpuReadState>,
     render_config: ResMut<'w, crate::gpu::RenderFrameConfig>,
@@ -2443,7 +2452,7 @@ pub(crate) struct CleanupWorld<'w> {
     tilemap_spawned: ResMut<'w, crate::render::TilemapSpawned>,
     build_menu_ctx: ResMut<'w, BuildMenuContext>,
     ai_state: ResMut<'w, AiPlayerState>,
-    gold_storage: ResMut<'w, GoldStorage>,
+    town_index: ResMut<'w, crate::resources::TownIndex>,
 }
 
 #[derive(SystemParam)]
@@ -2458,8 +2467,6 @@ pub(crate) struct CleanupDebug<'w> {
 
 #[derive(SystemParam)]
 pub(crate) struct CleanupGameplay<'w> {
-    upgrades: ResMut<'w, TownUpgrades>,
-    policies: ResMut<'w, TownPolicies>,
     auto_upgrade: ResMut<'w, AutoUpgrade>,
     npc_logs: ResMut<'w, NpcLogCache>,
     npc_meta: ResMut<'w, NpcMetaCache>,
@@ -2481,7 +2488,6 @@ pub(crate) struct CleanupUi<'w> {
     healing_cache: ResMut<'w, HealingZoneCache>,
     active_healing: ResMut<'w, ActiveHealingSlots>,
     endless: ResMut<'w, EndlessMode>,
-    town_inventory: ResMut<'w, TownInventory>,
     merchant_inv: ResMut<'w, MerchantInventory>,
     next_loot_id: ResMut<'w, NextLootItemId>,
 }
@@ -2520,10 +2526,15 @@ pub(crate) fn game_cleanup_system(
         commands.entity(entity).despawn();
     }
 
+    // Despawn town entities
+    for &entity in world.town_index.0.values() {
+        commands.entity(entity).despawn();
+    }
+    world.town_index.0.clear();
+
     // Reset world resources
     world.world_state.entity_slots.reset();
     *world.world_state.world_data = Default::default();
-    *world.food_storage = Default::default();
     *world.faction_stats = Default::default();
     *world.gpu_state = Default::default();
     *world.game_time = Default::default();
@@ -2531,7 +2542,6 @@ pub(crate) fn game_cleanup_system(
     world.tilemap_spawned.0 = false;
     *world.build_menu_ctx = Default::default();
     *world.ai_state = Default::default();
-    *world.gold_storage = Default::default();
     world.render_config.npc = Default::default();
     world.render_config.proj = Default::default();
     *world.npc_gpu_state = Default::default();
@@ -2556,13 +2566,10 @@ pub(crate) fn game_cleanup_system(
     ui.healing_cache.by_faction.clear();
     *ui.active_healing = Default::default();
     *ui.endless = Default::default();
-    *ui.town_inventory = Default::default();
     *ui.merchant_inv = Default::default();
     *ui.next_loot_id = Default::default();
 
     // Reset gameplay resources
-    *gameplay.upgrades = Default::default();
-    *gameplay.policies = Default::default();
     *gameplay.auto_upgrade = Default::default();
     *gameplay.npc_logs = Default::default();
     *gameplay.npc_meta = Default::default();

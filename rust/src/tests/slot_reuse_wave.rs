@@ -52,8 +52,6 @@ pub fn setup(
     mut world_data: ResMut<world::WorldData>,
     mut world_grid: ResMut<world::WorldGrid>,
     mut config: ResMut<world::WorldGenConfig>,
-    mut food_storage: ResMut<FoodStorage>,
-    mut gold_storage: ResMut<GoldStorage>,
     mut faction_stats: ResMut<FactionStats>,
 
     mut slot_alloc: ResMut<GpuSlotPool>,
@@ -62,8 +60,8 @@ pub fn setup(
     _spawn_writer: MessageWriter<crate::messages::SpawnNpcMsg>,
     mut state: SlotReuseSetup,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
-    mut policies: ResMut<TownPolicies>,
     mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
+    mut town_index: ResMut<crate::resources::TownIndex>,
 ) {
     // 1 player town + 1 AI builder town, no raiders
     config.gen_style = WorldGenStyle::Continents;
@@ -82,12 +80,11 @@ pub fn setup(
         &mut crate::resources::FactionList::default(),
         &mut slot_alloc,
         &mut bld.entity_map,
-        &mut food_storage,
-        &mut gold_storage,
         &mut faction_stats,
         &mut crate::resources::Reputation::default(),
         &mut state.raider_state,
         &mut uid_alloc,
+        &mut town_index,
         &mut commands,
         &mut gpu_updates,
     );
@@ -95,9 +92,9 @@ pub fn setup(
 
     // Give AI town plenty of food for spawning archers
     for player in &state.ai_state.players {
-        let ti = player.town_data_idx;
-        if let Some(f) = food_storage.food.get_mut(ti) {
-            *f = 500;
+        let ti = player.town_data_idx as i32;
+        if let Some(&e) = town_index.0.get(&ti) {
+            commands.entity(e).insert(crate::components::FoodStore(500));
         }
     }
 
@@ -142,11 +139,6 @@ pub fn setup(
     for player in &mut state.ai_state.players {
         player.personality = AiPersonality::Aggressive;
     }
-
-    // Ensure policies exist for all towns
-    policies
-        .policies
-        .resize(world_data.towns.len(), PolicySet::default());
 
     state.ai_config.decision_interval = 1.0;
     state.endless.enabled = true;

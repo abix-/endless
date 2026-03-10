@@ -6,7 +6,7 @@ use crate::messages::CombatLogMsg;
 use crate::messages::{DamageMsg, DirtyWriters, GpuUpdate, GpuUpdateMsg};
 use crate::resources::{
     ActiveHealingSlots, BuildingHealState, CombatEventKind, EndlessMode, EntityMap, FactionStats,
-    FoodStorage, GameTime, GoldStorage, GpuReadState, GpuSlotPool, HealingZoneCache, HealthDebug,
+    GameTime, GpuReadState, GpuSlotPool, HealingZoneCache, HealthDebug,
     KillStats, NpcMetaCache, PopulationStats, SelectedBuilding, SelectedNpc,
     SquadState,
 };
@@ -16,7 +16,7 @@ use bevy::prelude::*;
 use crate::constants::{ItemKind, UpgradeStatKind, building_def, npc_def};
 use crate::systems::economy::*;
 use crate::systems::stats::{
-    CombatConfig, TownUpgrades, UPGRADES, level_from_xp, resolve_combat_stats,
+    CombatConfig, UPGRADES, level_from_xp, resolve_combat_stats,
 };
 use crate::world::{BuildingKind, WorldData, WorldGrid};
 
@@ -52,7 +52,6 @@ pub struct DeathResources<'w, 's> {
     pub work_intents: MessageWriter<'w, crate::messages::WorkIntentMsg>,
     pub gpu_state: Res<'w, crate::gpu::EntityGpuState>,
     pub next_loot_id: ResMut<'w, crate::resources::NextLootItemId>,
-    pub town_inventory: ResMut<'w, crate::resources::TownInventory>,
     pub equipment_q: Query<'w, 's, &'static crate::components::NpcEquipment>,
     pub reputation: ResMut<'w, crate::resources::Reputation>,
     pub spawner_q: Query<'w, 's, &'static crate::components::SpawnerState, With<Building>>,
@@ -191,9 +190,7 @@ pub fn death_system(
     mut npc_meta: ResMut<NpcMetaCache>,
     mut selected: ResMut<SelectedNpc>,
     squad_state: Res<SquadState>,
-    upgrades: Res<TownUpgrades>,
-    mut food_storage: ResMut<FoodStorage>,
-    mut gold_storage: ResMut<GoldStorage>,
+    mut town_access: crate::systemparams::TownAccess,
     config: Res<CombatConfig>,
     mut intents: ResMut<crate::resources::PathRequestQueue>,
     mut ui_state: ResMut<crate::resources::UiState>,
@@ -362,7 +359,7 @@ pub fn death_system(
                         .world_data
                         .towns
                         .get(town_idx)
-                        .map(|t| t.sprite_type == 1)
+                        .map(|t| t.is_raider())
                         .unwrap_or(true);
                     let player_town = res
                         .world_data
@@ -370,16 +367,16 @@ pub fn death_system(
                         .iter()
                         .position(|t| t.faction == crate::constants::FACTION_PLAYER)
                         .unwrap_or(0);
-                    let player_levels = upgrades.town_levels(player_town);
+                    let player_levels = town_access.upgrade_levels(player_town as i32);
                     let frac = res.endless.strength_fraction;
                     let scaled_levels: Vec<u8> = player_levels
                         .iter()
                         .map(|&lv| (lv as f32 * frac).round() as u8)
                         .collect();
-                    let starting_food = (food_storage.food.get(player_town).copied().unwrap_or(0)
+                    let starting_food = (town_access.food(player_town as i32)
                         as f32
                         * frac) as i32;
-                    let starting_gold = (gold_storage.gold.get(player_town).copied().unwrap_or(0)
+                    let starting_gold = (town_access.gold(player_town as i32)
                         as f32
                         * frac) as i32;
                     res.endless
@@ -571,7 +568,7 @@ pub fn death_system(
                         new_level,
                         &pers,
                         &config,
-                        &upgrades,
+                        &town_access.upgrade_levels(killer.town_idx),
                         wb,
                         ab,
                     );
@@ -770,13 +767,13 @@ pub fn death_system(
                 if amount > 0 {
                     match drop.item {
                         ItemKind::Food => {
-                            if tower_town < food_storage.food.len() {
-                                food_storage.food[tower_town] += amount;
+                            if let Some(mut f) = town_access.food_mut(tower_town as i32) {
+                                f.0 += amount;
                             }
                         }
                         ItemKind::Gold => {
-                            if tower_town < gold_storage.gold.len() {
-                                gold_storage.gold[tower_town] += amount;
+                            if let Some(mut g) = town_access.gold_mut(tower_town as i32) {
+                                g.0 += amount;
                             }
                         }
                     }
@@ -799,7 +796,7 @@ pub fn death_system(
                     });
                 }
 
-                // Equipment drop from victim → TownInventory (towers can't carry)
+                // Equipment drop from victim → town equipment (towers can't carry)
                 let equip_rate = npc_def(job).equipment_drop_rate;
                 if equip_rate > 0.0 {
                     let roll = ((slot as u32).wrapping_mul(2654435761) % 1000) as f32 / 1000.0;
@@ -808,7 +805,9 @@ pub fn death_system(
                         let item = crate::constants::roll_loot_item(id, slot as u32);
                         let rarity_label = item.rarity.label();
                         let item_name = item.name.clone();
-                        res.town_inventory.add(tower_town, item);
+                        if let Some(mut eq) = town_access.equipment_mut(tower_town as i32) {
+                            eq.0.push(item);
+                        }
                         combat_log.write(CombatLogMsg {
                             kind: CombatEventKind::Loot,
                             faction: tower_faction,
@@ -824,19 +823,23 @@ pub fn death_system(
                     }
                 }
 
-                // Victim's carried equipment → TownInventory
+                // Victim's carried equipment → town equipment
                 for carried_item in dead_carried_equip.iter() {
                     let transfer_roll = (carried_item.id.wrapping_mul(2654435761) % 100) as f32;
                     if transfer_roll < 50.0 {
-                        res.town_inventory.add(tower_town, carried_item.clone());
+                        if let Some(mut eq) = town_access.equipment_mut(tower_town as i32) {
+                            eq.0.push(carried_item.clone());
+                        }
                     }
                 }
 
-                // Victim's equipped items → TownInventory (50% per item)
+                // Victim's equipped items → town equipment (50% per item)
                 for eq_item in dead_equipped_items.iter() {
                     let transfer_roll = (eq_item.id.wrapping_mul(2654435761).wrapping_add(7) % 100) as f32;
                     if transfer_roll < 50.0 {
-                        res.town_inventory.add(tower_town, eq_item.clone());
+                        if let Some(mut eq) = town_access.equipment_mut(tower_town as i32) {
+                            eq.0.push(eq_item.clone());
+                        }
                     }
                 }
             }
@@ -912,7 +915,7 @@ pub fn update_healing_zone_cache(
     mut healing_dirty: MessageReader<crate::messages::HealingZonesDirtyMsg>,
     world_data: Res<WorldData>,
     combat_config: Res<CombatConfig>,
-    upgrades: Res<TownUpgrades>,
+    town_access: crate::systemparams::TownAccess,
 ) {
     if healing_dirty.read().count() == 0 {
         return;
@@ -932,7 +935,7 @@ pub fn update_healing_zone_cache(
         if town.faction <= crate::constants::FACTION_NEUTRAL {
             continue;
         }
-        let town_levels = upgrades.town_levels(town_idx);
+        let town_levels = town_access.upgrade_levels(town_idx as i32);
         let heal_mult = UPGRADES.stat_mult(&town_levels, "Town", UpgradeStatKind::Healing);
         let radius_lvl = UPGRADES.stat_level(&town_levels, "Town", UpgradeStatKind::FountainRange);
         let radius = combat_config.heal_radius + radius_lvl as f32 * 24.0;
@@ -1556,12 +1559,23 @@ mod tests {
                 name: "TestTown".to_string(),
                 center: Vec2::new(500.0, 500.0),
                 faction: 1,
-                sprite_type: 0,
+                kind: crate::constants::TownKind::Player,
                 area_level: 0,
             }],
         });
         app.insert_resource(CombatConfig::default());
-        app.insert_resource(TownUpgrades::default());
+        // Spawn ECS town entity for TownAccess
+        let mut town_index = crate::resources::TownIndex::default();
+        let entity = app.world_mut().spawn((
+            crate::components::TownMarker,
+            crate::components::FoodStore(0),
+            crate::components::GoldStore(0),
+            crate::components::TownPolicy::default(),
+            crate::components::TownUpgradeLevel::default(),
+            crate::components::TownEquipment::default(),
+        )).id();
+        town_index.0.insert(0, entity);
+        app.insert_resource(town_index);
         app.insert_resource(SendHealingDirty(false));
         app.add_message::<crate::messages::HealingZonesDirtyMsg>();
         app.insert_resource(TimeUpdateStrategy::ManualDuration(
@@ -1609,7 +1623,7 @@ mod tests {
                 name: "Abandoned".to_string(),
                 center: Vec2::ZERO,
                 faction: -1,
-                sprite_type: 0,
+                kind: crate::constants::TownKind::Player,
                 area_level: 0,
             }],
         });
@@ -1629,8 +1643,8 @@ mod tests {
         let mut app = setup_healing_cache_app();
         app.insert_resource(WorldData {
             towns: vec![
-                Town { name: "A".to_string(), center: Vec2::new(100.0, 100.0), faction: 1, sprite_type: 0, area_level: 0 },
-                Town { name: "B".to_string(), center: Vec2::new(900.0, 900.0), faction: 2, sprite_type: 1, area_level: 0 },
+                Town { name: "A".to_string(), center: Vec2::new(100.0, 100.0), faction: 1, kind: crate::constants::TownKind::Player, area_level: 0 },
+                Town { name: "B".to_string(), center: Vec2::new(900.0, 900.0), faction: 2, kind: crate::constants::TownKind::AiRaider, area_level: 0 },
             ],
         });
         app.insert_resource(SendHealingDirty(true));

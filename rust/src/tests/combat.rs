@@ -13,12 +13,12 @@ pub fn setup(
     mut slot_alloc: ResMut<GpuSlotPool>,
     mut spawn_events: MessageWriter<SpawnNpcMsg>,
     mut world_data: ResMut<world::WorldData>,
-    mut food_storage: ResMut<FoodStorage>,
     mut faction_stats: ResMut<FactionStats>,
-    mut policies: ResMut<TownPolicies>,
     mut squad_state: ResMut<SquadState>,
     mut test_state: ResMut<TestState>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
+    mut commands: Commands,
+    mut town_index: ResMut<crate::resources::TownIndex>,
 ) {
     // Keep this test deterministic even after user/debug squad interactions.
     for squad in squad_state.squads.iter_mut() {
@@ -43,23 +43,34 @@ pub fn setup(
         name: "Town".into(),
         center: Vec2::new(384.0, 384.0),
         faction: 1,
-        sprite_type: 0,
+        kind: crate::constants::TownKind::Player,
     area_level: 0,
     });
     world_data.towns.push(world::Town {
         name: "Raider Town".into(),
         center: Vec2::new(384.0, 192.0),
         faction: 2,
-        sprite_type: 1,
+        kind: crate::constants::TownKind::AiRaider,
     area_level: 0,
     });
-    food_storage.init(2);
     faction_stats.init(3);
-    policies.policies.resize(2, PolicySet::default());
-    // Test-scene override: archers flee at 5% HP.
-    policies.policies[0].archer_flee_hp = 0.05;
-    // Keep combat test focused on fighting (avoid early heal breakoff).
-    policies.policies[0].recovery_hp = 0.05;
+    // Spawn town entities with test-specific policies
+    let policy0 = PolicySet {
+        archer_flee_hp: 0.05,
+        recovery_hp: 0.05,
+        ..Default::default()
+    };
+    for (i, policy) in [policy0, PolicySet::default()].into_iter().enumerate() {
+        let entity = commands.spawn((
+            crate::components::TownMarker,
+            crate::components::FoodStore(0),
+            crate::components::GoldStore(0),
+            crate::components::TownPolicy(policy),
+            crate::components::TownUpgradeLevel::default(),
+            crate::components::TownEquipment::default(),
+        )).id();
+        town_index.0.insert(i as i32, entity);
+    }
 
     // Spawn 1 guard (faction 1) and 1 raider (faction 2) close together.
     let slot0 = slot_alloc.alloc_reset().expect("slot alloc");

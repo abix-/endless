@@ -476,46 +476,6 @@ pub fn upgrade_effect_summary(idx: usize, level: u8) -> (String, String) {
     }
 }
 
-/// Per-town upgrade levels (dynamic size, matches UPGRADES.count()).
-#[derive(Resource)]
-pub struct TownUpgrades {
-    pub levels: Vec<Vec<u8>>,
-}
-
-impl TownUpgrades {
-    pub fn town_levels(&self, town_idx: usize) -> Vec<u8> {
-        let count = upgrade_count();
-        self.levels
-            .get(town_idx)
-            .map(|v| {
-                let mut r = v.clone();
-                r.resize(count, 0);
-                r
-            })
-            .unwrap_or_else(|| vec![0; count])
-    }
-
-    /// Ensure the levels vec has at least `n` entries.
-    pub fn ensure_towns(&mut self, n: usize) {
-        let count = upgrade_count();
-        while self.levels.len() < n {
-            self.levels.push(vec![0; count]);
-        }
-        // Pad existing entries if upgrade count grew
-        for v in &mut self.levels {
-            v.resize(count, 0);
-        }
-    }
-}
-
-impl Default for TownUpgrades {
-    fn default() -> Self {
-        let count = upgrade_count();
-        Self {
-            levels: vec![vec![0; count]; 16],
-        }
-    }
-}
 
 /// Upgrade purchase request message. Replaces the old UpgradeQueue resource.
 /// Writers: UI left_panel, auto_upgrade_system, ai_player. Reader: process_upgrades_system.
@@ -759,11 +719,11 @@ fn is_combat_upgrade(idx: usize) -> bool {
 pub fn resolve_combat_stats(
     job: Job,
     attack_type: BaseAttackType,
-    town_idx: i32,
+    _town_idx: i32,
     level: i32,
     personality: &Personality,
     config: &CombatConfig,
-    upgrades: &TownUpgrades,
+    town_levels: &[u8],
     weapon_bonus: f32,
     armor_bonus: f32,
 ) -> CachedStats {
@@ -777,25 +737,20 @@ pub fn resolve_combat_stats(
     let trait_mods = personality.get_stat_mods();
     let level_mult = 1.0 + level as f32 * 0.01;
 
-    let town_idx_usize = if town_idx >= 0 {
-        town_idx as usize
-    } else {
-        usize::MAX
-    };
-    let town = upgrades.town_levels(town_idx_usize);
+    let town = town_levels;
     let reg = &*UPGRADES;
 
     // Use NpcDef.upgrade_category to look up all upgrades dynamically
     let cat = def.upgrade_category.unwrap_or("");
-    let upgrade_hp = reg.stat_mult(&town, cat, UpgradeStatKind::Hp);
-    let upgrade_dmg = reg.stat_mult(&town, cat, UpgradeStatKind::Attack);
-    let upgrade_range = reg.stat_mult(&town, cat, UpgradeStatKind::Range);
-    let upgrade_speed = reg.stat_mult(&town, cat, UpgradeStatKind::MoveSpeed);
-    let cooldown_mult = reg.stat_mult(&town, cat, UpgradeStatKind::AttackSpeed);
-    let upgrade_proj_speed = reg.stat_mult(&town, cat, UpgradeStatKind::ProjectileSpeed);
-    let upgrade_proj_life = reg.stat_mult(&town, cat, UpgradeStatKind::ProjectileLifetime);
-    let stamina_mult = reg.stat_mult(&town, cat, UpgradeStatKind::Stamina);
-    let hp_regen_level = reg.stat_level(&town, cat, UpgradeStatKind::HpRegen) as f32;
+    let upgrade_hp = reg.stat_mult(town, cat, UpgradeStatKind::Hp);
+    let upgrade_dmg = reg.stat_mult(town, cat, UpgradeStatKind::Attack);
+    let upgrade_range = reg.stat_mult(town, cat, UpgradeStatKind::Range);
+    let upgrade_speed = reg.stat_mult(town, cat, UpgradeStatKind::MoveSpeed);
+    let cooldown_mult = reg.stat_mult(town, cat, UpgradeStatKind::AttackSpeed);
+    let upgrade_proj_speed = reg.stat_mult(town, cat, UpgradeStatKind::ProjectileSpeed);
+    let upgrade_proj_life = reg.stat_mult(town, cat, UpgradeStatKind::ProjectileLifetime);
+    let stamina_mult = reg.stat_mult(town, cat, UpgradeStatKind::Stamina);
+    let hp_regen_level = reg.stat_level(town, cat, UpgradeStatKind::HpRegen) as f32;
 
     CachedStats {
         damage: job_base.damage * upgrade_dmg * trait_mods.damage * level_mult * (1.0 + weapon_bonus),
@@ -822,7 +777,7 @@ pub fn re_resolve_npc_stats(
     level: i32,
     personality: &Personality,
     config: &CombatConfig,
-    upgrades: &TownUpgrades,
+    town_levels: &[u8],
     cached_stats_q: &mut Query<&mut CachedStats>,
     speed_q: &mut Query<&mut crate::components::Speed>,
     health_q: &mut Query<&mut crate::components::Health, Without<crate::components::Building>>,
@@ -833,7 +788,7 @@ pub fn re_resolve_npc_stats(
         .map(|s| s.max_health)
         .unwrap_or(100.0);
     let new_cached = resolve_combat_stats(
-        job, attack_type, town_idx, level, personality, config, upgrades,
+        job, attack_type, town_idx, level, personality, config, town_levels,
         equipment.total_weapon_bonus(), equipment.total_armor_bonus(),
     );
     let new_speed = new_cached.speed;
@@ -862,7 +817,6 @@ pub fn re_resolve_npc_stats(
 /// Drains UpgradeMsg messages, applies upgrades, re-resolves affected NPC stats.
 pub fn process_upgrades_system(
     mut queue: MessageReader<UpgradeMsg>,
-    mut upgrades: ResMut<TownUpgrades>,
     mut economy: EconomyState,
     config: Res<CombatConfig>,
     meta_cache: Res<NpcMetaCache>,
@@ -881,26 +835,10 @@ pub fn process_upgrades_system(
         if upgrade_idx >= count {
             continue;
         }
-        if town_idx >= upgrades.levels.len() {
-            continue;
-        }
-        // Ensure upgrade vec is long enough
-        upgrades.levels[town_idx].resize(count, 0);
-
         // Prereq + affordability gate
-        let levels = upgrades.town_levels(town_idx);
-        let mut food = economy
-            .food_storage
-            .food
-            .get(town_idx)
-            .copied()
-            .unwrap_or(0);
-        let mut gold = economy
-            .gold_storage
-            .gold
-            .get(town_idx)
-            .copied()
-            .unwrap_or(0);
+        let levels = economy.towns.upgrade_levels(town_idx as i32);
+        let mut food = economy.towns.food(town_idx as i32);
+        let mut gold = economy.towns.gold(town_idx as i32);
         if !upgrade_available(&levels, upgrade_idx, food, gold) {
             continue;
         }
@@ -908,13 +846,17 @@ pub fn process_upgrades_system(
         // Deduct cost and increment level
         let level = levels[upgrade_idx];
         deduct_upgrade_cost(upgrade_idx, level, &mut food, &mut gold);
-        if let Some(f) = economy.food_storage.food.get_mut(town_idx) {
-            *f = food;
+        if let Some(mut f) = economy.towns.food_mut(town_idx as i32) {
+            f.0 = food;
         }
-        if let Some(g) = economy.gold_storage.gold.get_mut(town_idx) {
-            *g = gold;
+        if let Some(mut g) = economy.towns.gold_mut(town_idx as i32) {
+            g.0 = gold;
         }
-        upgrades.levels[town_idx][upgrade_idx] = level.saturating_add(1);
+        if let Some(mut u) = economy.towns.upgrades_mut(town_idx as i32) {
+            if upgrade_idx < u.0.len() {
+                u.0[upgrade_idx] = level.saturating_add(1);
+            }
+        }
 
         let node = &UPGRADES.nodes[upgrade_idx];
 
@@ -945,6 +887,7 @@ pub fn process_upgrades_system(
             continue;
         }
 
+        let town_levels = economy.towns.upgrade_levels(town_idx as i32);
         let slots: Vec<usize> = world_state.entity_map.slots_for_town(town_idx as i32).to_vec();
         for slot in slots {
             let Some(npc) = world_state.entity_map.get_npc(slot) else {
@@ -972,7 +915,7 @@ pub fn process_upgrades_system(
                 npc_level,
                 &pers,
                 &config,
-                &upgrades,
+                &town_levels,
                 wb,
                 ab,
             );
@@ -1027,21 +970,24 @@ pub fn process_equip_system(
     mut cached_stats_q: Query<&mut CachedStats>,
     mut speed_q: Query<&mut crate::components::Speed>,
     mut health_q: Query<&mut crate::components::Health, Without<crate::components::Building>>,
-    mut town_inventory: ResMut<crate::resources::TownInventory>,
     config: Res<CombatConfig>,
-    upgrades: Res<TownUpgrades>,
+    mut town_access: crate::systemparams::TownAccess,
     meta_cache: Res<NpcMetaCache>,
     entity_map: Res<crate::resources::EntityMap>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
 ) {
-    // Equip: TownInventory → NpcEquipment
+    // Equip: TownEquipment → NpcEquipment
     for msg in equip_msgs.read() {
-        let Some(item) = town_inventory.remove(msg.town_idx, msg.item_id) else {
-            continue;
+        let item = {
+            let Some(mut eq) = town_access.equipment_mut(msg.town_idx as i32) else { continue };
+            let Some(pos) = eq.0.iter().position(|i| i.id == msg.item_id) else { continue };
+            eq.0.swap_remove(pos)
         };
         let Ok((mut eq, gpu_slot, job, town_id, atk_type, pers)) = equipment_q.get_mut(msg.npc_entity) else {
             // NPC gone — put item back
-            town_inventory.add(msg.town_idx, item);
+            if let Some(mut teq) = town_access.equipment_mut(msg.town_idx as i32) {
+                teq.0.push(item);
+            }
             continue;
         };
         let slot_idx = gpu_slot.0;
@@ -1057,20 +1003,23 @@ pub fn process_equip_system(
 
         // Swap out old item if present
         if let Some(old) = target.take() {
-            town_inventory.add(msg.town_idx, old);
+            if let Some(mut teq) = town_access.equipment_mut(msg.town_idx as i32) {
+                teq.0.push(old);
+            }
         }
         *target = Some(item);
 
         // Re-resolve stats
         let level = entity_map.get_npc(slot_idx).map(|n| meta_cache.0[n.slot].level).unwrap_or(0);
+        let tl = town_access.upgrade_levels(town_id.0);
         re_resolve_npc_stats(
             msg.npc_entity, slot_idx, &eq, *job, *atk_type,
-            town_id.0, level, pers, &config, &upgrades,
+            town_id.0, level, pers, &config, &tl,
             &mut cached_stats_q, &mut speed_q, &mut health_q, &mut gpu_updates,
         );
     }
 
-    // Unequip: NpcEquipment → TownInventory
+    // Unequip: NpcEquipment → TownEquipment
     for msg in unequip_msgs.read() {
         let Ok((mut eq, gpu_slot, job, town_id, atk_type, pers)) = equipment_q.get_mut(msg.npc_entity) else {
             continue;
@@ -1088,12 +1037,15 @@ pub fn process_equip_system(
         let Some(item) = source.take() else {
             continue; // slot was empty
         };
-        town_inventory.add(town_id.0 as usize, item);
+        if let Some(mut teq) = town_access.equipment_mut(town_id.0) {
+            teq.0.push(item);
+        }
 
         let level = entity_map.get_npc(slot_idx).map(|n| meta_cache.0[n.slot].level).unwrap_or(0);
+        let tl = town_access.upgrade_levels(town_id.0);
         re_resolve_npc_stats(
             msg.npc_entity, slot_idx, &eq, *job, *atk_type,
-            town_id.0, level, pers, &config, &upgrades,
+            town_id.0, level, pers, &config, &tl,
             &mut cached_stats_q, &mut speed_q, &mut health_q, &mut gpu_updates,
         );
     }
@@ -1107,10 +1059,7 @@ pub fn process_equip_system(
 pub fn auto_upgrade_system(
     game_time: Res<crate::resources::GameTime>,
     auto: Res<crate::resources::AutoUpgrade>,
-    upgrades: Res<TownUpgrades>,
-    food_storage: Res<crate::resources::FoodStorage>,
-    gold_storage: Res<crate::resources::GoldStorage>,
-    policies: Res<crate::resources::TownPolicies>,
+    town_access: crate::systemparams::TownAccess,
     mut queue: MessageWriter<UpgradeMsg>,
 ) {
     if !game_time.hour_ticked {
@@ -1119,12 +1068,11 @@ pub fn auto_upgrade_system(
 
     let count = upgrade_count();
     for (town_idx, flags) in auto.flags.iter().enumerate() {
-        let levels = upgrades.town_levels(town_idx);
-        let raw_food = food_storage.food.get(town_idx).copied().unwrap_or(0);
-        let raw_gold = gold_storage.gold.get(town_idx).copied().unwrap_or(0);
-        let (rf, rg) = policies
-            .policies
-            .get(town_idx)
+        let ti = town_idx as i32;
+        let levels = town_access.upgrade_levels(ti);
+        let raw_food = town_access.food(ti);
+        let raw_gold = town_access.gold(ti);
+        let (rf, rg) = town_access.policy(ti)
             .map(|p| (p.reserve_food, p.reserve_gold))
             .unwrap_or((0, 0));
         let food = (raw_food - rf).max(0);
@@ -1147,9 +1095,7 @@ pub fn auto_upgrade_system(
 pub fn auto_tower_upgrade_system(
     game_time: Res<crate::resources::GameTime>,
     mut towers_q: Query<(&crate::components::GpuSlot, &crate::components::TownId, &mut crate::components::TowerBuildingState)>,
-    mut food_storage: ResMut<crate::resources::FoodStorage>,
-    mut gold_storage: ResMut<crate::resources::GoldStorage>,
-    policies: Res<crate::resources::TownPolicies>,
+    mut town_access: crate::systemparams::TownAccess,
     _entity_map: Res<crate::resources::EntityMap>,
 ) {
     if !game_time.hour_ticked {
@@ -1161,14 +1107,12 @@ pub fn auto_tower_upgrade_system(
         if !tower.auto_upgrade_flags.iter().any(|&f| f) {
             continue;
         }
-        let ti = town_id.0 as usize;
-        let (rf, rg) = policies
-            .policies
-            .get(ti)
+        let ti = town_id.0;
+        let (rf, rg) = town_access.policy(ti)
             .map(|p| (p.reserve_food, p.reserve_gold))
             .unwrap_or((0, 0));
-        let food = (food_storage.food.get(ti).copied().unwrap_or(0) - rf).max(0);
-        let gold = (gold_storage.gold.get(ti).copied().unwrap_or(0) - rg).max(0);
+        let food = (town_access.food(ti) - rf).max(0);
+        let gold = (town_access.gold(ti) - rg).max(0);
 
         // Find cheapest affordable upgrade among auto-flagged stats
         let mut best: Option<(i32, usize)> = None;
@@ -1201,10 +1145,10 @@ pub fn auto_tower_upgrade_system(
                 let total = base * cost_mult;
                 match res {
                     crate::constants::ResourceKind::Food => {
-                        if let Some(f) = food_storage.food.get_mut(ti) { *f -= total; }
+                        if let Some(mut f) = town_access.food_mut(ti) { f.0 -= total; }
                     }
                     crate::constants::ResourceKind::Gold => {
-                        if let Some(g) = gold_storage.gold.get_mut(ti) { *g -= total; }
+                        if let Some(mut g) = town_access.gold_mut(ti) { g.0 -= total; }
                     }
                 }
             }
@@ -1221,17 +1165,18 @@ pub fn auto_tower_upgrade_system(
 // AUTO-EQUIP SYSTEM
 // ============================================================================
 
-/// Once per game hour, auto-equip items from TownInventory onto NPCs.
+/// Once per game hour, auto-equip items from TownEquipment onto NPCs.
 /// Picks the NPC with the lowest bonus in the matching slot (or empty slot first).
 pub fn auto_equip_system(
     game_time: Res<crate::resources::GameTime>,
-    town_inventory: Res<crate::resources::TownInventory>,
+    town_access: crate::systemparams::TownAccess,
     equipment_q: Query<
         (Entity, &crate::components::NpcEquipment, &Job, &crate::components::TownId),
         (Without<crate::components::Building>, Without<crate::components::Dead>),
     >,
     mut auto_now: MessageReader<AutoEquipNowMsg>,
     mut equip_writer: MessageWriter<EquipItemMsg>,
+    world_data: Res<crate::world::WorldData>,
 ) {
     let manual_requests: Vec<AutoEquipNowMsg> = auto_now.read().cloned().collect();
     if !game_time.hour_ticked && manual_requests.is_empty() {
@@ -1239,7 +1184,7 @@ pub fn auto_equip_system(
     }
 
     let mut run_for_scope = |town_idx: usize, only_entity: Option<Entity>| {
-        let Some(items) = town_inventory.items.get(town_idx) else {
+        let Some(items) = town_access.equipment(town_idx as i32) else {
             return;
         };
         if items.is_empty() {
@@ -1260,7 +1205,7 @@ pub fn auto_equip_system(
         // Track items we've already queued for equip this cycle (avoid double-assign)
         let mut assigned_items: Vec<u64> = Vec::new();
 
-        for item in items {
+        for item in &items {
             if assigned_items.contains(&item.id) {
                 continue;
             }
@@ -1311,7 +1256,7 @@ pub fn auto_equip_system(
     };
 
     if game_time.hour_ticked {
-        for town_idx in 0..town_inventory.items.len() {
+        for town_idx in 0..world_data.towns.len() {
             run_for_scope(town_idx, None);
         }
     }
@@ -1543,8 +1488,8 @@ mod tests {
         CombatConfig::default()
     }
 
-    fn empty_upgrades() -> TownUpgrades {
-        TownUpgrades { levels: vec![vec![0u8; upgrade_count()]] }
+    fn empty_upgrades() -> Vec<u8> {
+        vec![0u8; upgrade_count()]
     }
 
     #[test]
@@ -1681,15 +1626,24 @@ mod tests {
     }
 
     fn setup_auto_upgrade_app() -> App {
+        use crate::components::*;
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
         app.insert_resource(crate::resources::GameTime::default());
-        app.insert_resource(TownUpgrades::default());
         app.insert_resource(crate::resources::AutoUpgrade::default());
-        app.insert_resource(crate::resources::FoodStorage { food: vec![0] });
-        app.insert_resource(crate::resources::GoldStorage { gold: vec![0] });
-        app.insert_resource(crate::resources::TownPolicies::default());
         app.insert_resource(CollectedUpgrades::default());
+        // Spawn ECS town entity for TownAccess
+        let mut town_index = crate::resources::TownIndex::default();
+        let entity = app.world_mut().spawn((
+            TownMarker,
+            FoodStore(0),
+            GoldStore(0),
+            TownPolicy::default(),
+            TownUpgradeLevel::default(),
+            TownEquipment::default(),
+        )).id();
+        town_index.0.insert(0, entity);
+        app.insert_resource(town_index);
         app.add_message::<UpgradeMsg>();
         app.insert_resource(TimeUpdateStrategy::ManualDuration(
             std::time::Duration::from_secs_f32(1.0),
@@ -1698,6 +1652,19 @@ mod tests {
         app.update();
         app.update();
         app
+    }
+
+    fn set_town_resources(app: &mut App, town_idx: i32, food: i32, gold: i32) {
+        let entity = app.world().resource::<crate::resources::TownIndex>().0[&town_idx];
+        app.world_mut().get_mut::<crate::components::FoodStore>(entity).unwrap().0 = food;
+        app.world_mut().get_mut::<crate::components::GoldStore>(entity).unwrap().0 = gold;
+    }
+
+    fn get_town_food_gold(app: &App, town_idx: i32) -> (i32, i32) {
+        let entity = app.world().resource::<crate::resources::TownIndex>().0[&town_idx];
+        let food = app.world().get::<crate::components::FoodStore>(entity).unwrap().0;
+        let gold = app.world().get::<crate::components::GoldStore>(entity).unwrap().0;
+        (food, gold)
     }
 
     #[test]
@@ -1710,8 +1677,7 @@ mod tests {
             auto.flags[0][0] = true;
         }
         // Give plenty of resources
-        app.world_mut().resource_mut::<crate::resources::FoodStorage>().food = vec![999999];
-        app.world_mut().resource_mut::<crate::resources::GoldStorage>().gold = vec![999999];
+        set_town_resources(&mut app, 0, 999999, 999999);
         app.update();
         let collected = app.world().resource::<CollectedUpgrades>();
         assert!(collected.0.is_empty(), "no upgrades should fire without hour_ticked");
@@ -1725,8 +1691,7 @@ mod tests {
             auto.ensure_towns(1);
             auto.flags[0][0] = true;
         }
-        app.world_mut().resource_mut::<crate::resources::FoodStorage>().food = vec![999999];
-        app.world_mut().resource_mut::<crate::resources::GoldStorage>().gold = vec![999999];
+        set_town_resources(&mut app, 0, 999999, 999999);
         app.world_mut().resource_mut::<crate::resources::GameTime>().hour_ticked = true;
         app.update();
         let collected = app.world().resource::<CollectedUpgrades>();
@@ -1739,8 +1704,7 @@ mod tests {
     fn auto_upgrade_skips_disabled_flags() {
         let mut app = setup_auto_upgrade_app();
         // All flags default to false
-        app.world_mut().resource_mut::<crate::resources::FoodStorage>().food = vec![999999];
-        app.world_mut().resource_mut::<crate::resources::GoldStorage>().gold = vec![999999];
+        set_town_resources(&mut app, 0, 999999, 999999);
         app.world_mut().resource_mut::<crate::resources::GameTime>().hour_ticked = true;
         app.update();
         let collected = app.world().resource::<CollectedUpgrades>();
@@ -1765,13 +1729,23 @@ mod tests {
     // -- auto_tower_upgrade_system -------------------------------------------
 
     fn setup_auto_tower_app() -> App {
+        use crate::components::*;
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
         app.insert_resource(crate::resources::GameTime::default());
         app.insert_resource(crate::resources::EntityMap::default());
-        app.insert_resource(crate::resources::FoodStorage { food: vec![100] });
-        app.insert_resource(crate::resources::GoldStorage { gold: vec![100] });
-        app.insert_resource(crate::resources::TownPolicies::default());
+        // Spawn ECS town entity for TownAccess
+        let mut town_index = crate::resources::TownIndex::default();
+        let entity = app.world_mut().spawn((
+            TownMarker,
+            FoodStore(100),
+            GoldStore(100),
+            TownPolicy::default(),
+            TownUpgradeLevel::default(),
+            TownEquipment::default(),
+        )).id();
+        town_index.0.insert(0, entity);
+        app.insert_resource(town_index);
         app.insert_resource(TimeUpdateStrategy::ManualDuration(
             std::time::Duration::from_secs_f32(1.0),
         ));
@@ -1857,8 +1831,7 @@ mod tests {
             .resource_mut::<crate::resources::GameTime>()
             .hour_ticked = true;
         app.update();
-        let food = app.world().resource::<crate::resources::FoodStorage>().food[0];
-        let gold = app.world().resource::<crate::resources::GoldStorage>().gold[0];
+        let (food, gold) = get_town_food_gold(&app, 0);
         assert!(
             food < 100 || gold < 100,
             "resources should be deducted after purchase, food={food} gold={gold}"

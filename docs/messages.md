@@ -140,7 +140,7 @@ Two allocators share a `SlotPool` inner type (LIFO free list, high-water mark tr
 | PopulationStats | Alive/working/dead counts per job+town | spawn/death/state systems | UI queries |
 | KillStats | archer_kills, villager_kills | death_system | UI queries |
 | SelectedNpc | Currently selected NPC index | (external input) | UI queries |
-| FoodStorage | Per-town food counts | economy systems | economy systems |
+| FoodStore/GoldStore | ECS components on town entities (via TownAccess) | economy systems | economy systems, UI |
 | GameConfig | World size, NPC counts, thresholds | drain_game_config (from staging) | spawn, economy |
 | GameTime | Total hours, day/night, time scale, paused | game_time_system | behavior, economy |
 

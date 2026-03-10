@@ -53,7 +53,7 @@ pub struct TestSetupParams<'w, 's> {
     pub spawn_events: MessageWriter<'w, SpawnNpcMsg>,
     pub world_data: ResMut<'w, world::WorldData>,
     pub entity_map: ResMut<'w, EntityMap>,
-    pub food_storage: ResMut<'w, FoodStorage>,
+    pub town_access: crate::systemparams::TownAccess<'w, 's>,
     pub faction_stats: ResMut<'w, FactionStats>,
     pub game_time: ResMut<'w, GameTime>,
     pub test_state: ResMut<'w, TestState>,
@@ -98,7 +98,7 @@ impl TestSetupParams<'_, '_> {
             name: name.into(),
             center: Vec2::new(384.0, 384.0),
             faction: crate::constants::FACTION_PLAYER,
-            sprite_type: 0,
+            kind: crate::constants::TownKind::Player,
             area_level: 0,
         });
     }
@@ -175,9 +175,8 @@ impl TestSetupParams<'_, '_> {
         }
     }
 
-    /// Init food_storage + faction_stats for N towns.
+    /// Init faction_stats for N towns.
     pub fn init_economy(&mut self, town_count: usize) {
-        self.food_storage.init(town_count);
         self.faction_stats.init(town_count + 1);
     }
 

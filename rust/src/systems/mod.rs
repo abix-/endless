@@ -28,7 +28,7 @@ pub use health::*;
 pub use movement::*;
 pub use spawn::*;
 pub use stats::{
-    CombatConfig, TownUpgrades, UPGRADES, UpgradeMsg, auto_upgrade_system, expansion_cost,
+    CombatConfig, UPGRADES, UpgradeMsg, auto_upgrade_system, expansion_cost,
     level_from_xp, process_upgrades_system, resolve_combat_stats, resolve_tower_instance_stats,
     upgrade_cost, upgrade_count,
 };

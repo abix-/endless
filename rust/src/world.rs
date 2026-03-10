@@ -39,7 +39,7 @@ use crate::constants::{
 use crate::messages::{BuildingGridDirtyMsg, DirtyWriters};
 use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg};
 use crate::resources::{
-    CombatEventKind, EntityMap, FactionStats, FoodStorage, GameTime, GoldStorage, GpuSlotPool,
+    CombatEventKind, EntityMap, FactionStats, GameTime, GpuSlotPool,
     RaiderState,
 };
 
@@ -74,10 +74,22 @@ pub struct Town {
     #[serde(with = "vec2_as_array")]
     pub center: Vec2,
     pub faction: i32,     // 0=Neutral, 1=Player, 2+=AI factions
-    pub sprite_type: i32, // 0=fountain, 1=tent
+    /// Town type identity (Player, AiBuilder, AiRaider).
+    #[serde(default = "default_town_kind")]
+    pub kind: crate::constants::TownKind,
     /// Build area expansion level. 0 = base 8x8, each level adds 1 ring.
     #[serde(default)]
     pub area_level: i32,
+}
+
+fn default_town_kind() -> crate::constants::TownKind {
+    crate::constants::TownKind::Player
+}
+
+impl Town {
+    pub fn is_raider(&self) -> bool {
+        crate::constants::town_def(self.kind).is_raider
+    }
 }
 
 /// Unified placed-building record. All building kinds (except Town) use this struct.
@@ -574,7 +586,7 @@ fn push_building_gpu_updates(
 pub struct BuildContext<'a> {
     pub grid: &'a mut WorldGrid,
     pub world_data: &'a WorldData,
-    pub food_storage: &'a mut FoodStorage,
+    pub food: &'a mut i32,
     pub cost: i32,
 }
 
@@ -633,15 +645,10 @@ pub fn place_building(
             }
         }
 
-        let food = ctx
-            .food_storage
-            .food
-            .get_mut(town_idx as usize)
-            .ok_or("invalid town")?;
-        if *food < ctx.cost {
+        if *ctx.food < ctx.cost {
             return Err("not enough food");
         }
-        *food -= ctx.cost;
+        *ctx.food -= ctx.cost;
 
         (snapped, gc, gr)
     } else {
@@ -764,7 +771,7 @@ fn create_ai_players(
         let is_ai = faction_list.factions.get(town.faction as usize)
             .is_some_and(|f| matches!(f.kind, FactionKind::AiBuilder | FactionKind::AiRaider));
         if is_ai {
-            let kind = if town.sprite_type == 1 {
+            let kind = if town.is_raider() {
                 AiKind::Raider
             } else {
                 AiKind::Builder
@@ -812,12 +819,11 @@ pub fn setup_world(
     faction_list: &mut crate::resources::FactionList,
     slot_alloc: &mut GpuSlotPool,
     entity_map: &mut EntityMap,
-    food_storage: &mut FoodStorage,
-    gold_storage: &mut GoldStorage,
     faction_stats: &mut FactionStats,
     reputation: &mut crate::resources::Reputation,
     raider_state: &mut RaiderState,
     uid_alloc: &mut crate::resources::NextEntityUid,
+    town_index: &mut crate::resources::TownIndex,
     commands: &mut Commands,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
 ) -> Vec<crate::systems::AiPlayer> {
@@ -831,13 +837,17 @@ pub fn setup_world(
     grid.sync_building_costs(entity_map);
     grid.sync_town_buildability(&world_data.towns, entity_map);
 
-    let n_towns = world_data.towns.len();
     let n_factions = faction_list.factions.len();
-    food_storage.init(n_towns);
-    gold_storage.init(n_towns);
     faction_stats.init(n_factions);
     reputation.init(n_factions);
-    raider_state.init(n_towns, 10);
+    raider_state.init(world_data.towns.len(), 10);
+
+    // Spawn ECS town entities with defaults (world gen starts at 0)
+    spawn_town_entities(
+        commands, town_index, &world_data.towns,
+        &[], &[],
+        &[], &[], &[],
+    );
 
     create_ai_players(world_data, faction_list)
 }
@@ -1976,7 +1986,7 @@ pub fn generate_world(
             name,
             center,
             faction,
-            sprite_type: 0,
+            kind: crate::constants::TownKind::Player,
             area_level: 0,
         });
         let town_idx = town_data_idx as u32;
@@ -2037,7 +2047,7 @@ pub fn generate_world(
             name,
             center,
             faction,
-            sprite_type: 0,
+            kind: crate::constants::TownKind::AiBuilder,
             area_level: 0,
         });
         let town_idx = town_data_idx as u32;
@@ -2093,7 +2103,7 @@ pub fn generate_world(
             name: "Raider Town".into(),
             center,
             faction,
-            sprite_type: 1,
+            kind: crate::constants::TownKind::AiRaider,
             area_level: 0,
         });
         let town_idx = town_data_idx as u32;
@@ -2178,6 +2188,43 @@ pub fn generate_world(
             "classic"
         }
     );
+}
+
+/// Spawn ECS town entities for all towns in `world_data.towns`.
+/// Each entity gets `TownMarker` + state components. Populates `TownIndex` for O(1) lookup.
+/// Called from both world gen (defaults) and save load (with saved values).
+pub fn spawn_town_entities(
+    commands: &mut Commands,
+    town_index: &mut crate::resources::TownIndex,
+    towns: &[Town],
+    food: &[i32],
+    gold: &[i32],
+    policies: &[crate::resources::PolicySet],
+    upgrade_levels: &[Vec<u8>],
+    inventories: &[Vec<crate::constants::LootItem>],
+) {
+    use crate::components::*;
+
+    town_index.0.clear();
+    let upgrade_count = crate::systems::stats::upgrade_count();
+
+    for (idx, _town) in towns.iter().enumerate() {
+        let f = food.get(idx).copied().unwrap_or(0);
+        let g = gold.get(idx).copied().unwrap_or(0);
+        let p = policies.get(idx).cloned().unwrap_or_default();
+        let u = upgrade_levels.get(idx).cloned().unwrap_or_else(|| vec![0u8; upgrade_count]);
+        let inv = inventories.get(idx).cloned().unwrap_or_default();
+
+        let entity = commands.spawn((
+            TownMarker,
+            FoodStore(f),
+            GoldStore(g),
+            TownPolicy(p),
+            TownUpgradeLevel(u),
+            TownEquipment(inv),
+        )).id();
+        town_index.0.insert(idx as i32, entity);
+    }
 }
 
 /// Place buildings for a town. Unified builder for both AI kinds:

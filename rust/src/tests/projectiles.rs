@@ -13,7 +13,6 @@ pub fn setup(
     mut slot_alloc: ResMut<GpuSlotPool>,
     mut spawn_events: MessageWriter<SpawnNpcMsg>,
     mut world_data: ResMut<world::WorldData>,
-    mut food_storage: ResMut<FoodStorage>,
     mut faction_stats: ResMut<FactionStats>,
     mut test_state: ResMut<TestState>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
@@ -22,17 +21,16 @@ pub fn setup(
         name: "Archers".into(),
         center: Vec2::new(384.0, 384.0),
         faction: 1,
-        sprite_type: 0,
+        kind: crate::constants::TownKind::Player,
     area_level: 0,
     });
     world_data.towns.push(world::Town {
         name: "Targets".into(),
         center: Vec2::new(384.0, 192.0),
         faction: 2,
-        sprite_type: 1,
+        kind: crate::constants::TownKind::AiRaider,
     area_level: 0,
     });
-    food_storage.init(2);
     faction_stats.init(3);
 
     // 2 ranged fighters on opposing factions, within range (300px)

@@ -18,7 +18,6 @@ pub fn setup(
     mut entity_map: ResMut<EntityMap>,
     mut spawn_events: MessageWriter<SpawnNpcMsg>,
     mut world_data: ResMut<world::WorldData>,
-    mut food_storage: ResMut<FoodStorage>,
     mut faction_stats: ResMut<FactionStats>,
     mut test_state: ResMut<TestState>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
@@ -31,10 +30,9 @@ pub fn setup(
         name: "FountainTown".into(),
         center: Vec2::new(384.0, 384.0),
         faction: 1,
-        sprite_type: 0,
+        kind: crate::constants::TownKind::Player,
     area_level: 0,
     });
-    food_storage.init(1);
     faction_stats.init(3);
 
     // Create fountain instance directly

@@ -98,10 +98,7 @@ BRP uses full Rust module paths. All types are in the `endless` crate:
 | `GameTime` | total_seconds, seconds_per_hour, start_hour, time_scale, paused, last_hour, hour_ticked | Derive day/hour/minute |
 | `UpsCounter` | ticks_this_second, display_ups | Updates per second |
 | `KillStats` | archer_kills, villager_kills | UI kill counters |
-| `FoodStorage` | food: Vec\<i32\> | Per-town food |
-| `GoldStorage` | gold: Vec\<i32\> | Per-town gold |
 | `FactionStats` | stats: Vec\<FactionStat\> | Per-faction alive/dead/kills |
-| `TownPolicies` | policies: Vec\<PolicySet\> | Per-town behavior config |
 | `Difficulty` | Easy, Normal, Hard | Game difficulty |
 
 ### Nested Types
@@ -123,18 +120,6 @@ BRP uses full Rust module paths. All types are in the `endless` crate:
 curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"world.get_resources","params":{"resource":"endless::resources::GameTime"},"id":1}'
 # → {"value":{"total_seconds":136.8,"seconds_per_hour":5.0,"start_hour":6,"time_scale":1.0,"paused":false,...}}
-
-# Food per town
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"world.get_resources","params":{"resource":"endless::resources::FoodStorage"},"id":1}'
-
-# Gold per town
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"world.get_resources","params":{"resource":"endless::resources::GoldStorage"},"id":1}'
-
-# Town policies (flee thresholds, schedules, off-duty behavior)
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"world.get_resources","params":{"resource":"endless::resources::TownPolicies"},"id":1}'
 
 # Faction stats (alive/dead/kills per faction)
 curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
@@ -225,7 +210,7 @@ Returns TOON with: day, hour, minute, paused, time_scale, town_idx, town_name, f
 
 - `inbox`: read-only — messages persist in `ChatInbox` across reads (flag-based `sent_to_llm` dedup for LLM delivery)
 - `combat_log`: last 20 events from `RemoteCombatLogRing` resource, filtered to town's faction
-- `upgrades`: per-town levels from `TownUpgrades`, costs from `UPGRADES` registry
+- `upgrades`: per-town levels from `TownUpgradeLevel` ECS components (via `TownAccess`), costs from `UPGRADES` registry
 - `npcs`: compact format — `Archer: 8 (Patrolling:5 OnDuty:3)` collapsed from verbose per-activity keys
 
 ### endless/build

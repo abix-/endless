@@ -267,15 +267,13 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
     let paused = game_time.paused;
     let time_scale = game_time.time_scale;
 
-    let food = world.resource::<FoodStorage>();
-    let gold = world.resource::<GoldStorage>();
     let faction_stats = world.resource::<FactionStats>();
     let entity_map = world.resource::<EntityMap>();
     let grid = world.resource::<crate::world::WorldGrid>();
     let world_data = world.resource::<WorldData>();
     let allowed = world.resource::<RemoteAllowedTowns>();
     let squad_state = world.resource::<SquadState>();
-    let town_upgrades = world.resource::<crate::systems::stats::TownUpgrades>();
+    let town_index = world.resource::<crate::resources::TownIndex>();
     let log_ring = world.resource::<RemoteCombatLogRing>();
 
     let factions: Vec<(usize, i32, i32, i32)> = faction_stats
@@ -293,8 +291,9 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
     let town = world_data.towns.get(target_town);
     let town_name = town.map(|t| t.name.clone()).unwrap_or_default();
     let town_faction = town.map(|t| t.faction).unwrap_or(0);
-    let town_food = food.food.get(target_town).copied().unwrap_or(0);
-    let town_gold = gold.gold.get(target_town).copied().unwrap_or(0);
+    let town_entity = town_index.0.get(&(target_town as i32)).copied();
+    let town_food = town_entity.and_then(|e| world.get::<crate::components::FoodStore>(e)).map(|f| f.0).unwrap_or(0);
+    let town_gold = town_entity.and_then(|e| world.get::<crate::components::GoldStore>(e)).map(|g| g.0).unwrap_or(0);
 
     // Buildings
     let buildings: Vec<(String, usize, usize)> = if let Some(_t) = town {
@@ -329,7 +328,10 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
         .collect();
 
     // Upgrades
-    let levels = town_upgrades.town_levels(target_town);
+    let levels = town_entity
+        .and_then(|e| world.get::<crate::components::TownUpgradeLevel>(e))
+        .map(|u| u.0.clone())
+        .unwrap_or_default();
     let upgrade_nodes = &crate::systems::stats::UPGRADES.nodes;
     let upgrades: Vec<(usize, String, u8, String, String)> = upgrade_nodes.iter().enumerate()
         .map(|(i, node)| {
@@ -510,8 +512,10 @@ pub fn policy_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpRe
     check_town_allowed(world, p.town)?;
 
     let parts = {
-        let mut policies = world.resource_mut::<TownPolicies>();
-        let policy = policies.policies.get_mut(p.town).ok_or_else(|| brp_err(format!("town {} out of range", p.town)))?;
+        let town_entity = world.resource::<crate::resources::TownIndex>().0.get(&(p.town as i32)).copied()
+            .ok_or_else(|| brp_err(format!("town {} out of range", p.town)))?;
+        let policy = &mut world.get_mut::<crate::components::TownPolicy>(town_entity)
+            .ok_or_else(|| brp_err(format!("town {} missing TownPolicy", p.town)))?.0;
 
         // Diff: only log fields that actually change
         let mut parts = Vec::new();
@@ -843,7 +847,7 @@ fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
     let thrash = world.resource::<NpcTargetThrashDebug>();
     let gpu_state = world.resource::<GpuReadState>();
     let world_data = world.resource::<WorldData>();
-    let policies = world.resource::<TownPolicies>();
+    let town_index = world.resource::<crate::resources::TownIndex>();
     let squad_state = world.resource::<SquadState>();
     let game_time = world.resource::<GameTime>();
 
@@ -863,7 +867,8 @@ fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
             data["town_name"] = json!(town.name);
             data["faction_name"] = json!(format!("{} (F{})", town.name, town.faction));
         }
-        if let Some(p) = policies.policies.get(town_id as usize) {
+        let p_opt = town_index.0.get(&town_id).and_then(|&e| world.get::<crate::components::TownPolicy>(e)).map(|tp| tp.0.clone());
+        if let Some(p) = p_opt {
             data["policy_eat_food"] = json!(p.eat_food);
             data["policy_aggressive"] = json!(p.archer_aggressive);
             data["policy_leash"] = json!(p.archer_leash);
@@ -1171,14 +1176,16 @@ fn debug_town(world: &mut World, idx: usize) -> BrpResult {
     let center = [town.center.x, town.center.y];
     let area_level = town.area_level;
 
-    let food = world.resource::<FoodStorage>().food.get(idx).copied().unwrap_or(0);
-    let gold = world.resource::<GoldStorage>().gold.get(idx).copied().unwrap_or(0);
+    let town_index = world.resource::<crate::resources::TownIndex>();
+    let town_entity = town_index.0.get(&(idx as i32)).copied();
+    let food = town_entity.and_then(|e| world.get::<crate::components::FoodStore>(e)).map(|f| f.0).unwrap_or(0);
+    let gold = town_entity.and_then(|e| world.get::<crate::components::GoldStore>(e)).map(|g| g.0).unwrap_or(0);
     let faction_stat = world.resource::<FactionStats>().stats.get(faction as usize).cloned();
     let game_time = world.resource::<GameTime>();
     let (day, hour, minute) = (game_time.day(), game_time.hour(), game_time.minute());
 
     // Policies inline
-    let policy = world.resource::<TownPolicies>().policies.get(idx).cloned();
+    let policy = town_entity.and_then(|e| world.get::<crate::components::TownPolicy>(e)).map(|tp| tp.0.clone());
 
     // Squads belonging to this town
     let squad_state = world.resource::<SquadState>();
@@ -1253,9 +1260,12 @@ fn debug_town(world: &mut World, idx: usize) -> BrpResult {
 }
 
 fn debug_policy(world: &mut World, idx: usize) -> BrpResult {
-    let policies = world.resource::<TownPolicies>();
-    let p = policies.policies.get(idx)
-        .ok_or_else(|| brp_err(format!("no policy at index {idx} (max {})", policies.policies.len())))?;
+    let town_index = world.resource::<crate::resources::TownIndex>();
+    let town_entity = town_index.0.get(&(idx as i32)).copied()
+        .ok_or_else(|| brp_err(format!("no town at index {idx}")))?;
+    let p = world.get::<crate::components::TownPolicy>(town_entity)
+        .ok_or_else(|| brp_err(format!("town {idx} missing TownPolicy")))?
+        .0.clone();
     let world_data = world.resource::<WorldData>();
     let town_name = world_data.towns.get(idx).map(|t| t.name.as_str()).unwrap_or("?");
     let game_time = world.resource::<GameTime>();
@@ -1323,7 +1333,7 @@ pub fn drain_remote_queues(
     mut llm_log_q: ResMut<RemoteLlmLogQueue>,
     mut log_ring: ResMut<RemoteCombatLogRing>,
     mut world_state: WorldState,
-    mut food_storage: ResMut<FoodStorage>,
+    mut town_access: crate::systemparams::TownAccess,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut combat_log: MessageWriter<crate::messages::CombatLogMsg>,
     mut damage_writer: MessageWriter<crate::messages::DamageMsg>,
@@ -1340,8 +1350,9 @@ pub fn drain_remote_queues(
         let pos = world_state.grid.grid_to_world(build.col, build.row);
         let cost = building_cost(build.kind);
 
+        let mut food_val = town_access.food(build.town as i32);
         let _ = world_state.place_building(
-            &mut food_storage,
+            &mut food_val,
             build.kind,
             build.town,
             pos,
@@ -1349,6 +1360,9 @@ pub fn drain_remote_queues(
             &mut gpu_updates,
             &mut commands,
         );
+        if let Some(mut f) = town_access.food_mut(build.town as i32) {
+            f.0 = food_val;
+        }
     }
 
     // Drain destroy queue

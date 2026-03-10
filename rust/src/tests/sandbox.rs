@@ -26,8 +26,6 @@ pub(super) fn setup(
     mut world_data: ResMut<world::WorldData>,
     mut world_grid: ResMut<world::WorldGrid>,
     mut config: ResMut<world::WorldGenConfig>,
-    mut food_storage: ResMut<FoodStorage>,
-    mut gold_storage: ResMut<GoldStorage>,
     mut faction_stats: ResMut<FactionStats>,
 
     mut slot_alloc: ResMut<GpuSlotPool>,
@@ -36,6 +34,7 @@ pub(super) fn setup(
     mut state: SandboxState,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     mut uid_alloc: ResMut<crate::resources::NextEntityUid>,
+    mut town_index: ResMut<crate::resources::TownIndex>,
 ) {
     config.gen_style = WorldGenStyle::Continents;
     config.num_towns = 1;
@@ -53,33 +52,26 @@ pub(super) fn setup(
         &mut crate::resources::FactionList::default(),
         &mut slot_alloc,
         &mut bld.entity_map,
-        &mut food_storage,
-        &mut gold_storage,
         &mut faction_stats,
         &mut crate::resources::Reputation::default(),
         &mut state.raider_state,
         &mut uid_alloc,
+        &mut town_index,
         &mut commands,
         &mut gpu_updates,
     );
     state.ai_state.players = ai_players;
 
-    // 100K food + gold for player town (index 0)
-    if let Some(f) = food_storage.food.get_mut(0) {
-        *f = 100_000;
+    // 100K food + gold for all towns via ECS
+    if let Some(&e) = town_index.0.get(&0) {
+        commands.entity(e).insert(crate::components::FoodStore(100_000));
+        commands.entity(e).insert(crate::components::GoldStore(100_000));
     }
-    if let Some(g) = gold_storage.gold.get_mut(0) {
-        *g = 100_000;
-    }
-
-    // Give AI town resources too
     for player in &state.ai_state.players {
-        let ti = player.town_data_idx;
-        if let Some(f) = food_storage.food.get_mut(ti) {
-            *f = 100_000;
-        }
-        if let Some(g) = gold_storage.gold.get_mut(ti) {
-            *g = 100_000;
+        let ti = player.town_data_idx as i32;
+        if let Some(&e) = town_index.0.get(&ti) {
+            commands.entity(e).insert(crate::components::FoodStore(100_000));
+            commands.entity(e).insert(crate::components::GoldStore(100_000));
         }
     }
 

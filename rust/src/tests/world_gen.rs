@@ -11,7 +11,6 @@ pub fn setup(
     mut world_data: ResMut<world::WorldData>,
     mut world_grid: ResMut<world::WorldGrid>,
     config: Res<world::WorldGenConfig>,
-    mut food_storage: ResMut<FoodStorage>,
     mut faction_stats: ResMut<FactionStats>,
 
     mut slot_alloc: ResMut<GpuSlotPool>,
@@ -39,7 +38,6 @@ pub fn setup(
 
     // Init supporting resources based on generated world
     let total_towns = world_data.towns.len();
-    food_storage.init(total_towns);
     faction_stats.init(total_towns);
 
     if let Some(town) = world_data.towns.first() {
