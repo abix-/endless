@@ -67,7 +67,7 @@ BRP uses full Rust module paths. All types are in the `endless` crate:
 | `Home` | `Vec2` | Rest position, (-1,-1) = homeless |
 | `Health` | `f32` | Current HP |
 | `Faction` | `i32` | 0=player, 1+=AI/raider |
-| `Activity` | Idle, Working, OnDuty, Patrolling, GoingToWork, GoingToRest, Resting, GoingToHeal, HealingAtFountain, Wandering, Raiding, Returning, Mining, MiningAtMine | Current behavior state |
+| `Activity` | Idle, Work{worksite}, Patrol, SquadAttack{target}, Rest, Heal{recover_until}, Wander, Raid{target}, ReturnLoot, Mine{mine_pos} | Current behavior state (at_destination flag distinguishes transit vs at-dest) |
 | `CombatState` | None, Fighting{origin}, Fleeing | Orthogonal to Activity |
 | `BaseAttackType` | Melee, Ranged | |
 | `CachedStats` | damage, range, cooldown, projectile_speed, projectile_lifetime, max_health, speed, stamina, hp_regen, berserk_bonus | Resolved combat stats |

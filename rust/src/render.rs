@@ -9,11 +9,11 @@ use bevy::prelude::*;
 use bevy::sprite_render::{AlphaMode2d, TileData, TilemapChunk, TilemapChunkTileData};
 
 use crate::components::{
-    Activity, ActivityKind, Building, Dead, Faction, GpuSlot, Job, ManualTarget, NpcFlags, Position, SquadId,
+    Activity, Building, Dead, Faction, GpuSlot, Job, ManualTarget, ActivityKind, NpcFlags, Position, SquadId,
 };
 use crate::gpu::RenderFrameConfig;
 use crate::messages::{SelectFactionMsg, TerrainDirtyMsg};
-use crate::resources::{EntityMap, LeftPanelTab, SelectedBuilding, SelectedNpc};
+use crate::resources::{EntityMap, LeftPanelTab, SelectedBuilding, SelectedNpc, UiState};
 use crate::settings::{ControlAction, UserSettings};
 use crate::world::{
     BuildingKind, TERRAIN_TILES, WorldData, WorldGrid, build_building_atlas, build_extras_atlas,
@@ -324,8 +324,14 @@ fn camera_zoom_system(
     windows: Query<&Window>,
     mut query: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
     mut egui_contexts: bevy_egui::EguiContexts,
+    ui_state: Res<UiState>,
     user_settings: Res<UserSettings>,
 ) {
+    // Tech tree owns mouse-wheel behavior while open.
+    if ui_state.tech_tree_open {
+        return;
+    }
+
     // Don't zoom when scrolling over UI panels (combat log, etc.)
     if let Ok(ctx) = egui_contexts.ctx_mut() {
         if ctx.wants_pointer_input() || ctx.is_pointer_over_area() {
@@ -540,7 +546,7 @@ fn click_to_select_system(
                             .insert(ManualTarget::Npc(enemy_slot));
                         // Wake resting NPCs on move command
                         if let Ok(mut act) = activity_q.get_mut(entity) {
-                            if matches!(act.kind, ActivityKind::GoingToRest | ActivityKind::Resting) {
+                            if matches!(act.kind, ActivityKind::Rest) {
                                 *act = Activity::default();
                             }
                         }
@@ -590,7 +596,7 @@ fn click_to_select_system(
                         let entity = npc.entity;
                         commands.entity(entity).insert(mt.clone());
                         if let Ok(mut act) = activity_q.get_mut(entity) {
-                            if matches!(act.kind, ActivityKind::GoingToRest | ActivityKind::Resting) {
+                            if matches!(act.kind, ActivityKind::Rest) {
                                 *act = Activity::default();
                             }
                         }

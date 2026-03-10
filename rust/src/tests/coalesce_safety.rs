@@ -200,7 +200,7 @@ pub fn tick_arrival(
             if let Some(npc) = npc {
                 let still_arrived = npc_flags_q.get(npc.entity).is_ok_and(|f| f.at_destination);
                 let activity = activity_q.get(npc.entity).ok();
-                let is_stable = still_arrived || activity.is_some_and(|a| !a.is_transit());
+                let is_stable = still_arrived;
                 test.phase_name = format!(
                     "slot {arrived_slot} arrived={still_arrived} act={:?}",
                     activity

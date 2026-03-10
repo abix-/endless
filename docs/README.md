@@ -39,8 +39,8 @@ UI-selectable integration tests run inside the full Bevy app via a bevy_egui men
 | `spawning` | 4 | Spawn entities, kill via health=0, slot freed, slot reused |
 | `energy` | 3 | Energy starts at 100, drains over time, reaches ENERGY_HUNGRY |
 | `movement` | 3 | Path-driven waypoint advancement, GPU positions update, AtDestination on arrival |
-| `archer-patrol` | 5 | OnDuty → Patrolling → OnDuty → rest when tired → resume |
-| `farmer-cycle` | 5 | GoingToWork → Working → tired → rest → recover → return |
+| `archer-patrol` | 5 | Patrol(guard) → Patrol(walk) → Patrol(guard) → rest when tired → resume |
+| `farmer-cycle` | 5 | Work(transit) → Work(at_dest) → tired → rest → recover → return |
 | `raider-cycle` | 5 | Dispatch group → arrive at farm → steal → return → deliver |
 | `combat` | 6 | GPU targeting → Fighting → damage → health drop → death → slot freed |
 | `projectiles` | 4 | Ranged targeting → projectile spawn → hit + damage → slot freed |
@@ -134,7 +134,7 @@ Frame execution order ───────────────────�
 | [rendering.md](rendering.md) | TilemapChunk terrain, GPU instanced buildings/NPCs/equipment, 4-atlas pipeline (char/world/extras/building), explicit sort-key pass ordering, RenderCommand pattern, camera controls, health bars | 8/10 |
 | [combat.md](combat.md) | Attack → damage → death → XP grant → cleanup, slot recycling | 8/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation, DRY save-load via materialize_npc | 8/10 |
-| [behavior.md](behavior.md) | Decision system, utility AI, state machine, energy, patrol, flee/leash (bucketing formulas → performance.md) | 8/10 |
+| [behavior.md](behavior.md) | Decision system (10-variant ActivityKind + Distraction enum), utility AI, at_destination flag, energy, patrol, flee/leash (bucketing formulas → performance.md) | 8/10 |
 | [ai-player.md](ai-player.md) | AI decision loop, hunger system, building scoring, slot placement, squad commander, migration | 8/10 |
 | [economy.md](economy.md) | Farm growth, food theft, starvation, raider foraging, spawner respawn (BuildingInstance fields), dynamic raider town migration (spawn→boat→disembark→walk→settle) | 8/10 |
 | [messages.md](messages.md) | Message flow, GpuUpdateMsg, GAME_CONFIG_STAGING, readback resources (authority → [authority.md](authority.md)) | 7/10 |

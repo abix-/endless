@@ -92,7 +92,8 @@ pub fn tick(
                 && n.job == Job::Archer
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| a.kind == ActivityKind::OnDuty)
+                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Patrol))
+                && _npc_flags_q.get(n.entity).is_ok_and(|f| f.at_destination)
         })
         .count();
     let patrolling = entity_map
@@ -102,7 +103,8 @@ pub fn tick(
                 && n.job == Job::Archer
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| a.kind == ActivityKind::Patrolling)
+                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Patrol))
+                && _npc_flags_q.get(n.entity).is_ok_and(|f| !f.at_destination)
         })
         .count();
     let resting = entity_map
@@ -112,7 +114,8 @@ pub fn tick(
                 && n.job == Job::Archer
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| a.kind == ActivityKind::Resting)
+                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Rest))
+                && _npc_flags_q.get(n.entity).is_ok_and(|f| f.at_destination)
         })
         .count();
     let going_rest = entity_map
@@ -122,7 +125,8 @@ pub fn tick(
                 && n.job == Job::Archer
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| a.kind == ActivityKind::GoingToRest)
+                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Rest))
+                && _npc_flags_q.get(n.entity).is_ok_and(|f| !f.at_destination)
         })
         .count();
 
@@ -149,7 +153,7 @@ pub fn tick(
                     .iter_npcs()
                     .find_map(|n| {
                         activity_q.get(n.entity).ok().and_then(|a| {
-                            if a.kind == ActivityKind::OnDuty {
+                            if matches!(a.kind, ActivityKind::Patrol) && _npc_flags_q.get(n.entity).is_ok_and(|f| f.at_destination) {
                                 Some(a.ticks_waiting)
                             } else {
                                 None

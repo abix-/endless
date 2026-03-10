@@ -88,12 +88,12 @@ Job-specific optional components:
 
 | Job | Optional Components |
 |-----|------------|
-| Archer | HasEnergy, PatrolRoute, EquippedWeapon, EquippedHelmet, `Activity::on_duty()` |
-| Crossbow | HasEnergy, PatrolRoute, EquippedWeapon, EquippedHelmet, `Activity::on_duty()` |
+| Archer | HasEnergy, PatrolRoute, EquippedWeapon, EquippedHelmet, `Activity::new(ActivityKind::Patrol)` |
+| Crossbow | HasEnergy, PatrolRoute, EquippedWeapon, EquippedHelmet, `Activity::new(ActivityKind::Patrol)` |
 | Farmer | HasEnergy |
 | Miner | HasEnergy |
 | Raider | HasEnergy, Stealer, LeashRange(400), EquippedWeapon |
-| Fighter | HasEnergy, PatrolRoute, `Activity::on_duty()` |
+| Fighter | HasEnergy, PatrolRoute, `Activity::new(ActivityKind::Patrol)` |
 
 GPU writes (all jobs): `SetPosition`, `SetTarget` (spawn position; save-restore path may set work position for farmers), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`, `SetSpriteFrame` (job-based sprite from constants.rs), `SetFlags` (bit 0 = 1 for military jobs via `job.is_military()`, 0 for farmers/miners — controls GPU combat scan tier). Fresh spawns start with `NpcWorkState { worksite: None }` — behavior system assigns work via `WorkIntentMsg` later. Save/restore path may restore explicit `worksite` (converted from slot to EntityUid via `uid_for_slot`). Colors and equipment sprites are derived from ECS component data by `build_visual_upload` (queries `EquippedWeapon/Helmet/Armor` components).
 

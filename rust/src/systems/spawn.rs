@@ -222,9 +222,9 @@ pub fn materialize_npc(
     let activity = if overrides.activity.is_some() {
         activity // save-loaded activity takes precedence
     } else if patrol_route.is_some() {
-        Activity::on_duty()
+        Activity::new(ActivityKind::Patrol)
     } else if initial_work_target.is_some() {
-        Activity::new(ActivityKind::GoingToWork)
+        Activity::new(ActivityKind::Work { worksite: 0 })
     } else {
         activity
     };

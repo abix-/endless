@@ -34,13 +34,14 @@ const ROW_ARCHER: usize = 0;
 const ROW_FARMER: usize = 1;
 const ROW_RAIDER: usize = 2;
 const ROW_FIGHTER: usize = 3;
-const NUM_ROWS: usize = 4;
+const ROW_CROSSBOW: usize = 4;
+const NUM_ROWS: usize = 5;
 
-const ROW_LABELS: [&str; NUM_ROWS] = ["Archer", "Farmer", "Raider", "Fighter"];
+const ROW_LABELS: [&str; NUM_ROWS] = ["Archer", "Farmer", "Raider", "Fighter", "Crossbow"];
 const COL_LABELS: [&str; NUM_COLS] = [
-    "Body", "+Weapon", "+Helmet", "Item", "Sleep", "Heal", "Full",
+    "Default", "+Sword", "+Helmet", "Carrying", "Sleeping", "Healing", "Full Kit",
 ];
-const ROW_JOBS: [i32; NUM_ROWS] = [1, 0, 2, 3]; // Archer, Farmer, Raider, Fighter
+const ROW_JOBS: [i32; NUM_ROWS] = [1, 0, 2, 3, 5]; // Archer, Farmer, Raider, Fighter, Crossbow
 
 fn grid_pos(row: usize, col: usize) -> Vec2 {
     Vec2::new(
@@ -142,68 +143,67 @@ pub fn tick(
                 };
                 let e = npc.entity;
 
-                // Build NpcEquipment override based on column
-                let clear_eq = NpcEquipment::default();
+                // Use NpcEquipment::default() as base — NpcDef fallbacks
+                // provide the real game-accurate baseline (e.g. archer shows sword).
+                let make_item = |slot, name: &str, sprite| crate::constants::LootItem {
+                    id: 0, slot, rarity: crate::constants::Rarity::Uncommon,
+                    name: name.into(), sprite, stat_bonus: 0.1,
+                };
+
                 match col {
                     COL_BODY => {
-                        commands.entity(e).insert(clear_eq);
+                        // Default spawn look — NpcDef weapon/helm fallbacks apply
                     }
                     COL_WEAPON => {
-                        let mut eq = clear_eq;
-                        eq.weapon = Some(crate::constants::LootItem {
-                            id: 0,
-                            slot: crate::constants::EquipmentSlot::Weapon,
-                            rarity: crate::constants::Rarity::Common,
-                            name: "Sword".into(),
-                            sprite: EQUIP_SWORD,
-                            stat_bonus: 0.0,
+                        commands.entity(e).insert(NpcEquipment {
+                            weapon: Some(make_item(EquipmentSlot::Weapon, "Sword", EQUIP_SWORD)),
+                            ..Default::default()
                         });
-                        commands.entity(e).insert(eq);
                     }
                     COL_HELMET => {
-                        let mut eq = clear_eq;
-                        eq.helm = Some(crate::constants::LootItem {
-                            id: 0,
-                            slot: crate::constants::EquipmentSlot::Helm,
-                            rarity: crate::constants::Rarity::Common,
-                            name: "Helmet".into(),
-                            sprite: EQUIP_HELMET,
-                            stat_bonus: 0.0,
+                        commands.entity(e).insert(NpcEquipment {
+                            helm: Some(make_item(EquipmentSlot::Helm, "Helmet", EQUIP_HELMET)),
+                            ..Default::default()
                         });
-                        commands.entity(e).insert(eq);
                     }
                     COL_ITEM => {
-                        commands.entity(e).insert(clear_eq);
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
-                            idx: slot,
-                            col: FOOD_SPRITE.0,
-                            row: FOOD_SPRITE.1,
-                            atlas: 1.0,
-                        }));
+                        commands.entity(e).insert(CarriedLoot {
+                            food: 5,
+                            gold: 0,
+                            equipment: Vec::new(),
+                        });
                     }
                     COL_SLEEP => {
-                        commands.entity(e).insert(clear_eq);
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
-                            idx: slot,
-                            col: SLEEP_SPRITE.0,
-                            row: SLEEP_SPRITE.1,
-                            atlas: 0.0,
-                        }));
+                        commands.entity(e).insert(Activity {
+                            kind: ActivityKind::Rest,
+                            ..default()
+                        });
                     }
                     COL_HEAL => {
-                        commands.entity(e).insert(clear_eq);
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
-                            idx: slot,
-                            col: HEAL_SPRITE.0,
-                            row: HEAL_SPRITE.1,
-                            atlas: 0.0,
-                        }));
+                        commands.entity(e).insert(NpcFlags {
+                            healing: true,
+                            ..default()
+                        });
                     }
                     COL_FULL => {
-                        // Full: keep all equipment as spawned
+                        commands.entity(e).insert(NpcEquipment {
+                            weapon: Some(make_item(EquipmentSlot::Weapon, "Sword", EQUIP_SWORD)),
+                            helm: Some(make_item(EquipmentSlot::Helm, "Helmet", EQUIP_HELMET)),
+                            armor: Some(make_item(EquipmentSlot::Armor, "Chainmail", (40.0, 0.0))),
+                            ..Default::default()
+                        });
+                        commands.entity(e).insert(CarriedLoot {
+                            food: 0,
+                            gold: 3,
+                            equipment: Vec::new(),
+                        });
                     }
                     _ => {}
                 }
+
+                // Test scene mutates ECS components directly (equipment/activity/flags/loot).
+                // Force visual re-pack so GPU equip/status layers reflect the new components.
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: slot }));
             }
         }
 
@@ -239,6 +239,7 @@ pub fn tick(
             .fixed_pos(screen)
             .pivot(egui::Align2::CENTER_BOTTOM)
             .interactable(false)
+            .order(egui::Order::Background)
             .show(ctx, |ui| {
                 ui.label(
                     egui::RichText::new(label)
@@ -257,12 +258,14 @@ pub fn tick(
             .fixed_pos(screen)
             .pivot(egui::Align2::CENTER_CENTER)
             .interactable(false)
+            .order(egui::Order::Background)
             .show(ctx, |ui| {
                 let color = match row {
                     ROW_ARCHER => egui::Color32::from_rgb(77, 102, 255),
                     ROW_FARMER => egui::Color32::from_rgb(102, 255, 102),
                     ROW_RAIDER => egui::Color32::from_rgb(255, 102, 102),
                     ROW_FIGHTER => egui::Color32::from_rgb(255, 255, 102),
+                    ROW_CROSSBOW => egui::Color32::from_rgb(140, 60, 220),
                     _ => egui::Color32::WHITE,
                 };
                 ui.label(
@@ -288,6 +291,7 @@ pub fn tick(
                         ROW_FARMER => npc_def(Job::Farmer).sprite,
                         ROW_RAIDER => npc_def(Job::Raider).sprite,
                         ROW_FIGHTER => npc_def(Job::Fighter).sprite,
+                        ROW_CROSSBOW => npc_def(Job::Crossbow).sprite,
                         _ => (0.0, 0.0),
                     };
                     format!("({:.0},{:.0})", sc, sr)
@@ -295,9 +299,9 @@ pub fn tick(
                 COL_WEAPON => format!("wep({:.0},{:.0})", EQUIP_SWORD.0, EQUIP_SWORD.1),
                 COL_HELMET => format!("hlm({:.0},{:.0})", EQUIP_HELMET.0, EQUIP_HELMET.1),
                 COL_ITEM => format!("food({:.0},{:.0})", FOOD_SPRITE.0, FOOD_SPRITE.1),
-                COL_SLEEP => format!("zzz({:.0},{:.0})", SLEEP_SPRITE.0, SLEEP_SPRITE.1),
-                COL_HEAL => format!("heal({:.0},{:.0})", HEAL_SPRITE.0, HEAL_SPRITE.1),
-                COL_FULL => "all".into(),
+                COL_SLEEP => "zzz".into(),
+                COL_HEAL => "heal".into(),
+                COL_FULL => "full kit".into(),
                 _ => String::new(),
             };
 
@@ -305,6 +309,7 @@ pub fn tick(
                 .fixed_pos(screen)
                 .pivot(egui::Align2::CENTER_TOP)
                 .interactable(false)
+                .order(egui::Order::Background)
                 .show(ctx, |ui| {
                     ui.label(
                         egui::RichText::new(info)

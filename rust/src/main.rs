@@ -9,6 +9,51 @@
 
 use bevy::prelude::*;
 
+const SURFACE_CRASH_MARKERS: &[&str] = &[
+    "Surface is not configured for presentation",
+    "Invalid surface",
+];
+
+fn crash_log_path_near_exe() -> std::path::PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("crash.log")))
+        .unwrap_or_else(|| std::path::PathBuf::from("crash.log"))
+}
+
+/// If the previous run crashed with the known DX12/wgpu surface-presentation issue,
+/// apply a safer startup profile so users can recover without editing files manually.
+fn apply_surface_crash_recovery(settings: &mut endless::settings::UserSettings) {
+    #[cfg(target_os = "windows")]
+    {
+        // Only intervene when backend is Auto or DX12.
+        if settings.gpu_backend != 0 && settings.gpu_backend != 2 {
+            return;
+        }
+
+        let crash_log = crash_log_path_near_exe();
+        let Ok(content) = std::fs::read_to_string(&crash_log) else {
+            return;
+        };
+        if !SURFACE_CRASH_MARKERS.iter().any(|m| content.contains(m)) {
+            return;
+        }
+
+        settings.gpu_backend = 1; // Vulkan
+        settings.fullscreen = false;
+        settings.window_maximized = true;
+        endless::settings::save_settings(settings);
+
+        // Rename the consumed crash log so we don't keep forcing fallback forever.
+        let recovered = crash_log.with_file_name("crash.recovered.log");
+        let _ = std::fs::rename(&crash_log, recovered);
+
+        eprintln!(
+            "Detected prior surface presentation crash. Auto-switched backend to Vulkan and windowed mode."
+        );
+    }
+}
+
 /// Install a panic hook that shows a native crash dialog, copies details to
 /// clipboard, and writes a crash.log file. Must be called before anything else.
 fn install_crash_handler() {
@@ -62,6 +107,12 @@ fn install_crash_handler() {
              {message}\n\
              at {location}\n\n"
         );
+        if SURFACE_CRASH_MARKERS.iter().any(|m| message.contains(m)) {
+            dialog.push_str(
+                "Likely graphics-backend instability.\n\
+                 Relaunch and use Graphics Backend = Vulkan if needed.\n\n",
+            );
+        }
         if clipboard_ok {
             dialog.push_str("Crash details copied to clipboard.\n");
         }
@@ -118,7 +169,8 @@ fn main() {
 
     // Apply GPU backend preference before wgpu initializes.
     // Safety: called in main() before any threads are spawned.
-    let saved_settings = endless::settings::load_settings();
+    let mut saved_settings = endless::settings::load_settings();
+    apply_surface_crash_recovery(&mut saved_settings);
     match saved_settings.gpu_backend {
         1 => unsafe { std::env::set_var("WGPU_BACKEND", "vulkan") },
         2 => unsafe { std::env::set_var("WGPU_BACKEND", "dx12") },
@@ -135,14 +187,22 @@ fn main() {
         },
     });
 
+    // Build window from saved settings to avoid surface race condition.
+    // Previously created at 1280×720 then mutated in Startup, causing wgpu
+    // "Invalid surface" crashes during the OS window-state transition.
+    let initial_window = {
+        let mut w = Window {
+            title: "Endless".into(),
+            ..default()
+        };
+        endless::settings::apply_video_settings_to_window(&mut w, &saved_settings);
+        w
+    };
+
     app.add_plugins(
         DefaultPlugins
             .set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: "Endless".into(),
-                    resolution: (1280, 720).into(),
-                    ..default()
-                }),
+                primary_window: Some(initial_window),
                 ..default()
             })
             .set(bevy::log::LogPlugin {

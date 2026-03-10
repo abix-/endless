@@ -30,7 +30,7 @@ This contract prevents that class of bug.
 | GpuSlot | CPU | Internal | Links Bevy entity to GPU slot index (unified namespace for NPCs + buildings). |
 | Job | CPU | Internal | Archer, Farmer, Raider, Fighter, Miner — determines behavior. |
 | Energy | CPU | Internal | Drives tired/rest decisions (drain/recover rates). |
-| State markers | CPU | Internal | Dead, InCombat, Patrolling, OnDuty, Resting, Raiding, etc. |
+| State markers | CPU | Internal | Dead, InCombat, ActivityKind (Patrol/Rest/Raid/etc.), NpcFlags.at_destination |
 | Config components | CPU | Internal | FleeThreshold, LeashRange, WoundedThreshold, Stealer. |
 | AttackTimer | CPU | Internal | Cooldown between attacks. |
 | AttackStats | CPU | Internal | melee(range=100, cooldown=1.0) or ranged(range=200, cooldown=1.5). |

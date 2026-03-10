@@ -879,9 +879,6 @@ pub fn roll_loot_item(id: u64, seed: u32) -> LootItem {
     }
 }
 
-/// Maximum equipment items an NPC carries before returning home.
-pub const LOOT_CARRY_THRESHOLD: usize = 3;
-
 /// Complete NPC type definition — one entry per Job variant.
 #[derive(Clone, Copy, Debug)]
 pub struct NpcDef {
@@ -905,8 +902,6 @@ pub struct NpcDef {
     // Spawn component flags
     pub has_energy: bool,
     pub has_attack_timer: bool,
-    pub weapon: Option<(f32, f32)>,
-    pub helmet: Option<(f32, f32)>,
     pub stealer: bool,
     pub leash_range: Option<f32>,
     /// UI text color for roster/panels (softer than GPU sprite `color`).
@@ -946,8 +941,6 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         is_military: false,
         has_energy: true,
         has_attack_timer: false,
-        weapon: None,
-        helmet: None,
         stealer: false,
         leash_range: None,
         ui_color: (80, 200, 80),
@@ -980,8 +973,6 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         is_military: true,
         has_energy: true,
         has_attack_timer: true,
-        weapon: Some(EQUIP_SWORD),
-        helmet: Some(EQUIP_HELMET),
         stealer: false,
         leash_range: None,
         ui_color: (80, 100, 220),
@@ -1021,8 +1012,6 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         is_military: true,
         has_energy: true,
         has_attack_timer: true,
-        weapon: Some(EQUIP_SWORD),
-        helmet: None,
         stealer: true,
         leash_range: Some(800.0),
         ui_color: (220, 80, 80),
@@ -1062,8 +1051,6 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         is_military: true,
         has_energy: true,
         has_attack_timer: true,
-        weapon: None,
-        helmet: None,
         stealer: false,
         leash_range: None,
         ui_color: (220, 220, 80),
@@ -1103,8 +1090,6 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         is_military: false,
         has_energy: true,
         has_attack_timer: false,
-        weapon: None,
-        helmet: None,
         stealer: false,
         leash_range: None,
         ui_color: (160, 110, 60),
@@ -1142,8 +1127,6 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         is_military: true,
         has_energy: true,
         has_attack_timer: true,
-        weapon: Some(EQUIP_SWORD),
-        helmet: Some(EQUIP_HELMET),
         stealer: false,
         leash_range: None,
         ui_color: (140, 60, 220),
@@ -1183,8 +1166,6 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         is_military: false,
         has_energy: false,
         has_attack_timer: false,
-        weapon: None,
-        helmet: None,
         stealer: false,
         leash_range: None,
         ui_color: (180, 140, 80),

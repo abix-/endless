@@ -501,6 +501,8 @@ struct PolicyParams {
     recovery_hp: Option<f32>,
     #[serde(default)]
     mining_radius: Option<f32>,
+    #[serde(default)]
+    loot_threshold: Option<usize>,
 }
 
 pub fn policy_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
@@ -522,6 +524,7 @@ pub fn policy_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpRe
         if let Some(v) = p.archer_flee_hp { let v = v.clamp(0.0, 1.0); if (v - policy.archer_flee_hp).abs() > f32::EPSILON { parts.push(format!("archer_flee_hp={v:.1}")); } policy.archer_flee_hp = v; }
         if let Some(v) = p.recovery_hp { let v = v.clamp(0.0, 1.0); if (v - policy.recovery_hp).abs() > f32::EPSILON { parts.push(format!("recovery_hp={v:.1}")); } policy.recovery_hp = v; }
         if let Some(v) = p.mining_radius { let v = v.clamp(0.0, 5000.0); if (v - policy.mining_radius).abs() > f32::EPSILON { parts.push(format!("mining_radius={v:.0}")); } policy.mining_radius = v; }
+        if let Some(v) = p.loot_threshold { let v = v.clamp(1, 20); if v != policy.loot_threshold { parts.push(format!("loot_threshold={v}")); } policy.loot_threshold = v; }
         parts
     };
     if !parts.is_empty() {

@@ -59,6 +59,7 @@ pub fn tick(
     time: Res<Time>,
     mut test: ResMut<TestState>,
     activity_q: Query<&Activity>,
+    npc_flags_q: Query<&NpcFlags>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else {
         return;
@@ -88,7 +89,8 @@ pub fn tick(
                 && n.job == Job::Farmer
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| a.kind == ActivityKind::GoingToWork)
+                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Work { .. }))
+                && npc_flags_q.get(n.entity).is_ok_and(|f| !f.at_destination)
         })
         .count();
     let working = entity_map
@@ -98,7 +100,8 @@ pub fn tick(
                 && n.job == Job::Farmer
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| a.kind == ActivityKind::Working)
+                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Work { .. }))
+                && npc_flags_q.get(n.entity).is_ok_and(|f| f.at_destination)
         })
         .count();
     let idle = entity_map
@@ -108,7 +111,7 @@ pub fn tick(
                 && n.job == Job::Farmer
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| a.kind == ActivityKind::Idle)
+                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Idle))
         })
         .count();
     let wandering = entity_map
@@ -118,7 +121,7 @@ pub fn tick(
                 && n.job == Job::Farmer
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| a.kind == ActivityKind::Wandering)
+                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Wander))
         })
         .count();
 

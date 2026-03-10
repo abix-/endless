@@ -121,19 +121,19 @@ Farms have a growth cycle instead of infinite food:
 **Farm harvest** uses `BuildingInstance::harvest()` (single source of truth for Ready → Growing transition):
 - `harvest(&mut self, combat_log, game_time, faction) -> i32` — resets `growth_ready` to false, `growth_progress` to 0.0, returns yield (farm=1 food, mine=MINE_EXTRACT_PER_CYCLE gold), logs to CombatLog. Returns 0 if not ready.
 - All farm harvest callers use `EntityMap::find_farm_at[_mut](pos)` for O(1) position-based lookup via spatial grid.
-- All callers enter `Activity::Returning { loot }` and carry yield home — delivery happens via `arrival_system` proximity check. No caller instant-credits storage.
-- Called from 5 sites: arrival_system (working farmer harvest), decision_system (farmer GoingToWork arrival), decision_system (raider steal), decision_system (miner Mining arrival), decision_system (MiningAtMine harvest)
+- All callers enter `ActivityKind::ReturnLoot` and carry yield home — delivery happens via `arrival_system` proximity check. No caller instant-credits storage.
+- Called from 5 sites: arrival_system (working farmer harvest), decision_system (farmer Work arrival), decision_system (raider steal), decision_system (miner Mine arrival), decision_system (Mine at_dest harvest)
 
 **Farmer harvest** (visible food transport):
-- Working farmer at farm: `decision_system` detects Ready farm at arrival, calls `harvest()`, sends `WorkIntent::Release` (resolver releases occupancy + clears `NpcWorkState.worksite`), enters `Returning { loot: [(Food, 1)] }` targeting home. Farmer visibly carries food sprite home.
-- GoingToWork arrival: checks worksite slot, sends `WorkIntent::Retarget` if occupied by another. If Ready, `harvest()` + `WorkIntent::Release` + `Returning`. If not Ready, `Working` (tending).
+- Working farmer at farm: `decision_system` detects Ready farm at arrival (`at_destination`), calls `harvest()`, sends `WorkIntent::Release` (resolver releases occupancy + clears `NpcWorkState.worksite`), enters `ReturnLoot` targeting home. Farmer visibly carries food sprite home.
+- Work arrival: checks worksite slot, sends `WorkIntent::Retarget` if occupied by another. If Ready, `harvest()` + `WorkIntent::Release` + `ReturnLoot`. If not Ready, stays `Work` (tending at worksite).
 - On delivery at home: farmer goes `Idle` — decision system re-evaluates best target (may pick a different farm if one is Ready). Dynamic work→carry→deliver→re-evaluate cycle.
 
-**Raider steal** (decision_system, Raiding arrival):
+**Raider steal** (decision_system, Raid arrival):
 - Uses `find_location_within_radius()` to find farm within FARM_ARRIVAL_RADIUS
-- Only steals if farm is Ready — `harvest()` resets farm, enters `Returning { loot: Food }`
+- Only steals if farm is Ready — `harvest()` resets farm, enters `ReturnLoot`
 - If farm not ready: find a different farm (excludes current position, skips tombstoned); if no other farm found, return home
-- Logs "Stole food → Returning" vs "Farm not ready, seeking another" vs "No other farms, returning"
+- Logs "Stole food → ReturnLoot" vs "Farm not ready, seeking another" vs "No other farms, returning"
 
 **Farm destruction**: Building removal from `EntityMap` handles cleanup. Tombstoned position (x < -9000) causes render pipeline to skip the crop sprite and `growth_system` to skip growth.
 

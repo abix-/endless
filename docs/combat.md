@@ -41,13 +41,13 @@ DamageMsg (from process_proj_hits)             GPU movement
       ├─ Building branch:
       │   ├─ destroy_building (grid clear, wall auto-tile)
       │   ├─ Fountain → deactivate AI, endless respawn queue
-      │   ├─ Loot to attacker (LastHitBy → Activity::Returning)
+      │   ├─ Loot to attacker (LastHitBy → ActivityKind::ReturnLoot)
       │   ├─ Hide + SetHealth(0), GpuSlotPool.free(idx)
       │   └─ remove_by_slot (slot_to_entity + instances + by_kind)
       └─ NPC branch:
           ├─ XP grant — NPC killer (LastHitBy → 100 XP, level-up, stat re-resolve)
           ├─ XP grant — tower killer (LastHitBy → BuildingInstance.xp += 100, .kills++)
-          ├─ Loot — NPC killer (npc_def loot_drop → Activity::Returning)
+          ├─ Loot — NPC killer (npc_def loot_drop → ActivityKind::ReturnLoot)
           ├─ Loot — tower killer (npc_def loot_drop → FoodStorage/GoldStorage + flash)
           ├─ despawn entity, HideNpc → GPU (-9999)
           ├─ Release NpcWorkState via WorkIntentMsg(Release { uid }) → resolved by resolve_work_targets
@@ -91,7 +91,7 @@ Execution order is **chained** — each system completes before the next starts.
 - **Manual target override**: if NPC has `ManualTarget::Npc(slot)`, uses that slot as target instead of GPU `combat_targets[i]`. Auto-clears `ManualTarget` when target's GPU health <= 0 (dead). `ManualTarget::Building` and `ManualTarget::Position` variants fall through to GPU auto-targeting. `ManualTarget` is matched by reference (no clone per-NPC per-frame). See [behavior.md](behavior.md#squads) for how `ManualTarget` is set.
 - **Hold fire**: if NPC's squad has `hold_fire == true` and no `ManualTarget`, target is set to -1 (skip auto-engage). Reads `SquadState` via `SquadId`.
 - Falls back to `GpuReadState.combat_targets` for NPCs without manual target or hold-fire.
-- **Skips** NPCs with `ActivityKind::Returning`, `ActivityKind::GoingToRest`, `ActivityKind::Resting`, `ActivityKind::GoingToHeal`, or `ActivityKind::HealingAtFountain` (prevents combat while heading home, resting, or healing)
+- **Skips** NPCs whose `activity.kind.distraction() == Distraction::None` — i.e. `ActivityKind::ReturnLoot`, `ActivityKind::Rest`, `ActivityKind::Heal { .. }` (prevents combat while carrying loot home, resting, or healing)
 - **Unified GPU targeting**: `combat_targets[i]` returns a unified entity slot. Building vs NPC is determined by `entity_map.get_instance()` presence check. One code path for all target types.
 - **Building targets** (target has instance in `EntityMap`):
   - **Roads skipped**: `BuildingKind::Road` targets are ignored (roads are untargetable — also filtered via `ENTITY_FLAG_UNTARGETABLE` in GPU compute shader)
@@ -143,12 +143,12 @@ For each dead entity:
 - Calls `destroy_building()` for grid cleanup (grid cell clear + wall auto-tile + combat log — no entity lifecycle)
 - Emits `mark_building_changed(kind)` dirty signals
 - **Fountain death**: deactivates AI player for that town. In endless mode, queues replacement AI (`PendingAiSpawn`) scaled to player strength.
-- **Building loot**: `BuildingDef::loot_drop()` returns `cost / 2` as food. Uses `LastHitBy` to find attacker, looks up attacker entity via `params.p1()`. Attacker set to `Activity::Returning { loot }`, targets home. DC keep-fighting override skips disengage + home target when `dc_no_return`.
+- **Building loot**: `BuildingDef::loot_drop()` returns `cost / 2` as food. Uses `LastHitBy` to find attacker, looks up attacker entity via `params.p1()`. Attacker set to `ActivityKind::ReturnLoot`, targets home. DC keep-fighting override skips disengage + home target when `dc_no_return`.
 - `remove_by_slot(idx)` (clears `entities` + `instances` + `by_kind`), `GpuSlotPool.free(idx)` (allocator queues GPU hide cleanup — position=-9999, health=0, speed=0, flags=0)
 
 **NPC branch:**
 - **XP grant (NPC killer)**: if `LastHitBy` present and killer is NPC (via `entity_map.get_npc`), grants 100 XP, increments `FactionStats.inc_kills()`. Checks for level-up: `level_from_xp(new_xp) > level_from_xp(old_xp)`. On level-up: re-resolves `CachedStats`, updates `Speed`, rescales HP proportionally, sends GPU updates, emits `CombatEventKind::LevelUp`.
-- **Loot on kill (NPC killer)**: reads `npc_def(dead_job).loot_drop`, picks one deterministically via `xp % len`. Sets killer to `Activity::Returning { loot }`, clears `CombatState::None`. DC keep-fighting override applies. Equipment loot: if `npc_def.equipment_drop_rate > 0`, rolls deterministic check — on success, `roll_loot_item()` generates a `LootItem` pushed to killer's `CarriedLoot.equipment`.
+- **Loot on kill (NPC killer)**: reads `npc_def(dead_job).loot_drop`, picks one deterministically via `xp % len`. Sets killer to `ActivityKind::ReturnLoot`, clears `CombatState::None`. DC keep-fighting override applies. Equipment loot: if `npc_def.equipment_drop_rate > 0`, rolls deterministic check — on success, `roll_loot_item()` generates a `LootItem` pushed to killer's `CarriedLoot.equipment`.
 - **Equipment drop on death**: victim's `NpcEquipment` items (via `all_items()`) and `CarriedLoot.equipment` each transfer to killer at 50% per-item (deterministic hash roll). NPC killers receive items in `CarriedLoot.equipment` (delivered to `TownInventory` on return home). Tower/fountain killers deposit directly to `TownInventory`.
 - **XP grant (tower/fountain killer)**: if killer slot is a Fountain or Tower building (via `entity_map.get_instance`), grants 100 XP to `BuildingInstance.xp`, increments `BuildingInstance.kills` and `FactionStats.inc_kills()`. Same `level_from_xp()` formula as NPCs. Level-up emits `CombatEventKind::LevelUp` to combat log.
 - **Loot on kill (tower killer)**: same `npc_def(dead_job).loot_drop` table, deposited directly to `FoodStorage`/`GoldStorage` for the tower's town (towers can't carry). `SetDamageFlash` on tower for visual feedback. Loot event logged to combat log. Equipment from victim's `NpcEquipment` and `CarriedLoot.equipment` deposited to `TownInventory` at 50% per item.

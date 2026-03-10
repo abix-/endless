@@ -160,7 +160,7 @@ pub fn tick(
                     !n.dead
                         && activity_q
                             .get(n.entity)
-                            .is_ok_and(|a| a.kind == ActivityKind::Working)
+                            .is_ok_and(|a| matches!(a.kind, ActivityKind::Work { .. }))
                 })
                 .count();
             let going_to_work = entity_map
@@ -169,7 +169,7 @@ pub fn tick(
                     !n.dead
                         && activity_q
                             .get(n.entity)
-                            .is_ok_and(|a| a.kind == ActivityKind::GoingToWork)
+                            .is_ok_and(|a| matches!(a.kind, ActivityKind::Work { .. }))
                 })
                 .count();
             test.phase_name = format!("working={} going_to_work={}", working, going_to_work);
@@ -184,7 +184,7 @@ pub fn tick(
                     .count();
                 let transit = entity_map
                     .iter_npcs()
-                    .filter(|n| !n.dead && activity_q.get(n.entity).is_ok_and(|a| a.is_transit()))
+                    .filter(|n| !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| !f.at_destination))
                     .count();
                 test.fail_phase(
                     elapsed,
@@ -203,7 +203,7 @@ pub fn tick(
                     !n.dead
                         && activity_q
                             .get(n.entity)
-                            .is_ok_and(|a| a.kind == ActivityKind::Raiding)
+                            .is_ok_and(|a| matches!(a.kind, ActivityKind::Raid { .. }))
                 })
                 .count();
             test.phase_name = format!("raiding={}/3", raiding);

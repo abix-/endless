@@ -31,7 +31,7 @@ use bevy::{
 };
 use std::borrow::Cow;
 
-use crate::components::{ActivityKind, Building, Dead, Faction, GpuSlot, Job};
+use crate::components::{Building, Dead, Faction, GpuSlot, Job, ActivityKind};
 use crate::constants::{
     FOOD_SPRITE, GOLD_SPRITE, MAX_ENTITIES, MAX_NPC_COUNT,
     MAX_PROJECTILES as MAX_PROJECTILE_COUNT, PROJECTILE_HIT_HALF_LENGTH, PROJECTILE_HIT_HALF_WIDTH,
@@ -42,6 +42,34 @@ use crate::resources::{
 };
 use crate::systems::stats::{self, TownUpgrades};
 use crate::world::WorldData;
+
+// =============================================================================
+// WGPU ERROR HANDLER
+// =============================================================================
+
+/// Replace wgpu's default panic-on-error with a warning logger.
+/// Surface validation errors (Invalid surface, not configured for presentation)
+/// become non-fatal — Bevy reconfigures the surface next frame automatically.
+fn set_wgpu_error_handler(render_device: Res<RenderDevice>) {
+    render_device
+        .wgpu_device()
+        .on_uncaptured_error(std::sync::Arc::new(|error| {
+            let msg = format!("[{:?}] {error}", std::time::SystemTime::now());
+            warn!("wgpu error (non-fatal): {error}");
+            if let Ok(exe) = std::env::current_exe() {
+                if let Some(dir) = exe.parent() {
+                    let _ = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(dir.join("wgpu_errors.log"))
+                        .and_then(|mut f| {
+                            use std::io::Write;
+                            writeln!(f, "{msg}")
+                        });
+                }
+            }
+        }));
+}
 
 // =============================================================================
 // CONSTANTS
@@ -407,10 +435,10 @@ fn write_npc_visual(
     let eq = idx * 28;
 
     // Layers 0-3: equipment sprites from NpcEquipment (armor, helm, weapon, shield)
-    let (ac, ar, hc, hr, wc, wr, sc_eq, sr_eq) = if let Ok((npc_eq, eq_job)) = equipment_q.get(entity) {
+    let (ac, ar, hc, hr, wc, wr, sc_eq, sr_eq) = if let Ok((npc_eq, _)) = equipment_q.get(entity) {
         let a = npc_eq.armor_sprite();
-        let h = npc_eq.helm_sprite(*eq_job);
-        let w = npc_eq.weapon_sprite(*eq_job);
+        let h = npc_eq.helm_sprite();
+        let w = npc_eq.weapon_sprite();
         let s = npc_eq.shield_sprite();
         (a.0, a.1, h.0, h.1, w.0, w.1, s.0, s.1)
     } else {
@@ -456,7 +484,8 @@ fn write_npc_visual(
     upload.equip_data[eq + 19] = 0.0;
 
     // Layer 5: Status (sleep icon)
-    let (sc, sr, sa) = if npc_activity.is_some_and(|a| a.kind == ActivityKind::Resting) {
+    let at_dest = npc_flags_q.get(entity).is_ok_and(|f| f.at_destination);
+    let (sc, sr, sa) = if npc_activity.is_some_and(|a| matches!(a.kind, ActivityKind::Rest)) && at_dest {
         (0.0, 0.0, 3.0)
     } else {
         (-1.0, 0.0, 0.0)
@@ -1257,7 +1286,11 @@ impl Plugin for GpuComputePlugin {
         render_app
             .add_systems(
                 RenderStartup,
-                (init_npc_compute_pipeline, init_proj_compute_pipeline),
+                (
+                    set_wgpu_error_handler,
+                    init_npc_compute_pipeline,
+                    init_proj_compute_pipeline,
+                ),
             )
             .add_systems(
                 Render,

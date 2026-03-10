@@ -68,7 +68,7 @@ pub fn tick(
 
     let transit = entity_map
         .iter_npcs()
-        .filter(|n| !n.dead && activity_q.get(n.entity).is_ok_and(|a| a.is_transit()))
+        .filter(|n| !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| !f.at_destination))
         .count();
     let working = entity_map
         .iter_npcs()
@@ -76,7 +76,7 @@ pub fn tick(
             !n.dead
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| a.kind == ActivityKind::Working)
+                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Work { .. }))
         })
         .count();
     let going_rest = entity_map
@@ -85,7 +85,8 @@ pub fn tick(
             !n.dead
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| a.kind == ActivityKind::GoingToRest)
+                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Rest))
+                && npc_flags_q.get(n.entity).is_ok_and(|f| !f.at_destination)
         })
         .count();
     let resting = entity_map
@@ -94,7 +95,8 @@ pub fn tick(
             !n.dead
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| a.kind == ActivityKind::Resting)
+                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Rest))
+                && npc_flags_q.get(n.entity).is_ok_and(|f| f.at_destination)
         })
         .count();
 

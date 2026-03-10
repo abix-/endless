@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 
-use crate::components::{Activity, ActivityKind, Building, CachedStats, Dead, Energy, GpuSlot};
+use crate::components::{Activity, Building, CachedStats, Dead, Energy, GpuSlot, ActivityKind};
 use crate::resources::GameTime;
 
 /// Energy recovery/drain rates (per game hour)
@@ -25,10 +25,7 @@ pub fn energy_system(
     let hours_elapsed = game_time.delta(&time) / game_time.seconds_per_hour;
 
     for (_es, mut energy, activity, stats) in energy_q.iter_mut() {
-        if matches!(
-            activity.kind,
-            ActivityKind::Resting | ActivityKind::HealingAtFountain
-        ) {
+        if matches!(activity.kind, ActivityKind::Rest | ActivityKind::Heal { .. }) {
             energy.0 = (energy.0 + ENERGY_RECOVER_PER_HOUR * hours_elapsed).min(100.0);
         } else {
             energy.0 = (energy.0 - ENERGY_DRAIN_PER_HOUR * stats.stamina * hours_elapsed).max(0.0);
@@ -80,7 +77,7 @@ mod tests {
     #[test]
     fn energy_drains_while_working() {
         let mut app = setup_app();
-        let npc = spawn_npc(&mut app, Activity::new(ActivityKind::Working), 100.0);
+        let npc = spawn_npc(&mut app, Activity::new(ActivityKind::Work { worksite: 0 }), 100.0);
 
         app.update();
         let energy = app.world().get::<Energy>(npc).unwrap().0;
@@ -90,7 +87,7 @@ mod tests {
     #[test]
     fn energy_recovers_while_resting() {
         let mut app = setup_app();
-        let npc = spawn_npc(&mut app, Activity::new(ActivityKind::Resting), 50.0);
+        let npc = spawn_npc(&mut app, Activity::new(ActivityKind::Rest), 50.0);
 
         app.update();
         let energy = app.world().get::<Energy>(npc).unwrap().0;
@@ -100,7 +97,7 @@ mod tests {
     #[test]
     fn energy_recovers_while_healing_at_fountain() {
         let mut app = setup_app();
-        let npc = spawn_npc(&mut app, Activity::healing(100.0), 50.0);
+        let npc = spawn_npc(&mut app, Activity::new(ActivityKind::Heal { recover_until: 100.0 }), 50.0);
 
         app.update();
         let energy = app.world().get::<Energy>(npc).unwrap().0;
@@ -110,7 +107,7 @@ mod tests {
     #[test]
     fn energy_capped_at_100() {
         let mut app = setup_app();
-        let npc = spawn_npc(&mut app, Activity::new(ActivityKind::Resting), 99.9);
+        let npc = spawn_npc(&mut app, Activity::new(ActivityKind::Rest), 99.9);
 
         for _ in 0..100 {
             app.update();
@@ -122,7 +119,7 @@ mod tests {
     #[test]
     fn energy_floored_at_0() {
         let mut app = setup_app();
-        let npc = spawn_npc(&mut app, Activity::new(ActivityKind::Working), 0.1);
+        let npc = spawn_npc(&mut app, Activity::new(ActivityKind::Work { worksite: 0 }), 0.1);
 
         for _ in 0..1000 {
             app.update();
@@ -135,7 +132,7 @@ mod tests {
     fn energy_paused_no_change() {
         let mut app = setup_app();
         app.world_mut().resource_mut::<GameTime>().paused = true;
-        let npc = spawn_npc(&mut app, Activity::new(ActivityKind::Working), 75.0);
+        let npc = spawn_npc(&mut app, Activity::new(ActivityKind::Work { worksite: 0 }), 75.0);
 
         app.update();
         let energy = app.world().get::<Energy>(npc).unwrap().0;
@@ -148,14 +145,14 @@ mod tests {
 
         // NPC with stamina 1.0 (normal)
         let npc_normal = app.world_mut().spawn((
-            GpuSlot(0), Energy(100.0), Activity::new(ActivityKind::Working), test_cached_stats(),
+            GpuSlot(0), Energy(100.0), Activity::new(ActivityKind::Work { worksite: 0 }), test_cached_stats(),
         )).id();
 
         // NPC with stamina 0.5 (slower drain)
         let mut slow_stats = test_cached_stats();
         slow_stats.stamina = 0.5;
         let npc_slow = app.world_mut().spawn((
-            GpuSlot(1), Energy(100.0), Activity::new(ActivityKind::Working), slow_stats,
+            GpuSlot(1), Energy(100.0), Activity::new(ActivityKind::Work { worksite: 0 }), slow_stats,
         )).id();
 
         app.update();
@@ -168,7 +165,7 @@ mod tests {
     fn dead_npcs_excluded() {
         let mut app = setup_app();
         let npc = app.world_mut().spawn((
-            GpuSlot(0), Energy(100.0), Activity::new(ActivityKind::Working), test_cached_stats(), Dead,
+            GpuSlot(0), Energy(100.0), Activity::new(ActivityKind::Work { worksite: 0 }), test_cached_stats(), Dead,
         )).id();
 
         app.update();

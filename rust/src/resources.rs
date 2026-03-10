@@ -1761,7 +1761,12 @@ pub struct PolicySet {
     /// AI manager won't spend gold below this amount.
     #[serde(default)]
     pub reserve_gold: i32,
+    /// Equipment count that triggers NPC return-home to deposit loot.
+    #[serde(default = "default_loot_threshold")]
+    pub loot_threshold: usize,
 }
+
+fn default_loot_threshold() -> usize { 3 }
 
 impl Default for PolicySet {
     fn default() -> Self {
@@ -1781,6 +1786,7 @@ impl Default for PolicySet {
             mining_radius: crate::constants::DEFAULT_MINING_RADIUS,
             reserve_food: 0,
             reserve_gold: 0,
+            loot_threshold: 3,
         }
     }
 }

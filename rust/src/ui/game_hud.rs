@@ -1629,7 +1629,7 @@ fn inspector_content(
         };
         faction_id = Some(npc.faction);
         let npc_act = bld_data.activity_q.get(npc.entity).ok();
-        is_mining_at_mine = npc_act.is_some_and(|a| a.kind == ActivityKind::MiningAtMine);
+        is_mining_at_mine = npc_act.is_some_and(|a| matches!(a.kind, ActivityKind::Mine { .. }));
         activity_debug = npc_act.map(|a| format!("{:?}", a)).unwrap_or_default();
 
         if let Ok(cl) = bld_data.carried_loot_q.get(npc.entity) {
@@ -2631,12 +2631,16 @@ fn building_inspector_content(
 // ============================================================================
 
 /// Draw a target indicator line from selected NPC to its movement target.
+/// Shows full A* path through all remaining waypoints when pathfinding is active.
 /// Uses egui painter on the background layer so it renders over the game viewport.
 pub fn target_overlay_system(
     mut contexts: EguiContexts,
     selected: Res<SelectedNpc>,
     gpu_state: Res<GpuReadState>,
     buffer_writes: Res<EntityGpuState>,
+    entity_map: Res<crate::entity_map::EntityMap>,
+    grid: Res<WorldGrid>,
+    path_q: Query<&NpcPath>,
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
     windows: Query<&Window>,
 ) -> Result {
@@ -2682,30 +2686,56 @@ pub fn target_overlay_system(
     let viewport = egui::Vec2::new(window.width(), window.height());
     let center = viewport * 0.5;
 
-    // World->screen conversion (flip Y)
-    let npc_screen = egui::Pos2::new(
-        center.x + (npc_x - cam.x) * zoom,
-        center.y - (npc_y - cam.y) * zoom,
-    );
-    let tgt_screen = egui::Pos2::new(
-        center.x + (tgt_x - cam.x) * zoom,
-        center.y - (tgt_y - cam.y) * zoom,
-    );
+    let to_screen = |wx: f32, wy: f32| -> egui::Pos2 {
+        egui::Pos2::new(
+            center.x + (wx - cam.x) * zoom,
+            center.y - (wy - cam.y) * zoom,
+        )
+    };
+
+    let npc_screen = to_screen(npc_x, npc_y);
 
     let ctx = contexts.ctx_mut()?;
     let painter = ctx.layer_painter(egui::LayerId::background());
-
-    // Line from NPC to target
     let line_color = egui::Color32::from_rgba_unmultiplied(255, 220, 50, 200);
-    painter.line_segment([npc_screen, tgt_screen], egui::Stroke::new(2.5, line_color));
+    let stroke = egui::Stroke::new(2.5, line_color);
+    let dot_color = egui::Color32::from_rgba_unmultiplied(255, 220, 50, 160);
 
-    // Diamond marker at target
+    // Try to get the full A* path for this NPC
+    let npc_path = entity_map
+        .entities
+        .get(&idx)
+        .and_then(|&entity| path_q.get(entity).ok());
+
+    let final_screen = if let Some(path) = npc_path.filter(|p| p.current < p.waypoints.len()) {
+        // Draw full path: NPC → remaining waypoints → goal_world
+        let mut prev = npc_screen;
+        for wp in &path.waypoints[path.current..] {
+            let world_pos = grid.grid_to_world(wp.x as usize, wp.y as usize);
+            let wp_screen = to_screen(world_pos.x, world_pos.y);
+            painter.line_segment([prev, wp_screen], stroke);
+            // Small dot at intermediate waypoint
+            painter.circle_filled(wp_screen, 3.0, dot_color);
+            prev = wp_screen;
+        }
+        // Final segment from last waypoint to goal_world
+        let goal_screen = to_screen(path.goal_world.x, path.goal_world.y);
+        painter.line_segment([prev, goal_screen], stroke);
+        goal_screen
+    } else {
+        // No A* path — single line to GPU target (direct movement)
+        let tgt_screen = to_screen(tgt_x, tgt_y);
+        painter.line_segment([npc_screen, tgt_screen], stroke);
+        tgt_screen
+    };
+
+    // Diamond marker at final destination
     let s = 7.0;
     let diamond = [
-        egui::Pos2::new(tgt_screen.x, tgt_screen.y - s),
-        egui::Pos2::new(tgt_screen.x + s, tgt_screen.y),
-        egui::Pos2::new(tgt_screen.x, tgt_screen.y + s),
-        egui::Pos2::new(tgt_screen.x - s, tgt_screen.y),
+        egui::Pos2::new(final_screen.x, final_screen.y - s),
+        egui::Pos2::new(final_screen.x + s, final_screen.y),
+        egui::Pos2::new(final_screen.x, final_screen.y + s),
+        egui::Pos2::new(final_screen.x - s, final_screen.y),
     ];
     let fill = egui::Color32::from_rgba_unmultiplied(255, 220, 50, 240);
     painter.add(egui::Shape::convex_polygon(

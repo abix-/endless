@@ -2256,20 +2256,22 @@ fn draw_slot_indicators(
     let area_level = town.area_level;
 
     let cell = crate::constants::TOWN_GRID_SPACING;
-    let indicator_z = 0.1;
+    // Keep indicators just above terrain (-1.0) so they remain visible when terrain sprites are enabled.
+    let indicator_z = -0.2;
 
     // Lazy-init cached mesh and material handles
     let mesh_h = cache.mesh.get_or_insert_with(|| {
         meshes.add(Rectangle::from_size(Vec2::splat(cell)))
     }).clone();
     let base_h = cache.base_mat.get_or_insert_with(|| {
-        color_materials.add(ColorMaterial::from(Color::srgba(0.2, 0.6, 0.2, 0.15)))
+        color_materials.add(ColorMaterial::from(Color::srgba(0.2, 0.9, 0.2, 0.32)))
     }).clone();
+    // Keep all buildable indicators visually consistent: green for any valid placement zone.
     let road_h = cache.road_mat.get_or_insert_with(|| {
-        color_materials.add(ColorMaterial::from(Color::srgba(0.2, 0.5, 0.7, 0.15)))
+        color_materials.add(ColorMaterial::from(Color::srgba(0.2, 0.9, 0.2, 0.32)))
     }).clone();
     let chain_h = cache.chain_mat.get_or_insert_with(|| {
-        color_materials.add(ColorMaterial::from(Color::srgba(0.5, 0.5, 0.2, 0.12)))
+        color_materials.add(ColorMaterial::from(Color::srgba(0.2, 0.9, 0.2, 0.28)))
     }).clone();
 
     let is_road_selected = build_ctx

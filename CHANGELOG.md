@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-03-09
+
+- **ActivityKind collapse** — refactored 15-variant `ActivityKind` enum down to 10 collapsed variants. Eliminated 9 transit variants (GoingToWork/Working→Work, GoingToRest/Resting→Rest, GoingToHeal/HealingAtFountain→Heal, OnDuty/Patrolling→Patrol, Mining/MiningAtMine→Mine, SquadTarget→SquadAttack, Returning→ReturnLoot). Transit vs at-dest now distinguished by `NpcFlags::at_destination` boolean. Payload fields (mine_pos, recover_until, target) moved into variant data. Added `Distraction` enum (None/ByDamage/ByEnemy) per activity for deterministic combat policy — `attack_system` uses `distraction() == None` instead of hardcoded skip list. Removed `ActivityDef` static registry, `is_transit()`, convenience constructors (`on_duty()`, `healing()`, `raiding()`, `mining()`).
+
 ## 2026-03-08s
 
 - **Tech tree redesign** — full rewrite of `tech_tree.rs`. Top-down node graph layout (was left-to-right). Tab bar per upgrade branch (Farmer/Archer/Fighter/Crossbow/Miner/Town) with total counts, persisted via `UiState.tech_tree_tab`. Nodes are 140x52px with full labels ("Attack Speed" not "AtkSpd"), level + effect status, and cost hints. Layout algorithm: spread by depth row → center parents above children → resolve sibling collisions. Connection lines use right-angle painter segments. Node boxes use `child_ui` with real egui widgets (Checkbox, Label) instead of manual painter + allocate_rect.

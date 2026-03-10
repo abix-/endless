@@ -246,50 +246,36 @@ Not yet ported to `npc_compute.wgsl`.
 
 Bevy ECS represents states as marker components, not enums.
 
-**Traditional state machine:**
-```rust
-enum ArcherState { Patrolling, OnDuty, Resting, GoingToRest }
-```
-
-**ECS state machine:** States are separate components. An entity has exactly one state component at a time.
-
+**Collapsed enum approach** (Endless uses this — Factorio command model):
 ```rust
 #[derive(Component)]
-struct Patrolling;
+struct Activity {
+    kind: ActivityKind,       // what the NPC is doing
+    ticks_waiting: u32,       // guard counter for patrol
+}
 
-#[derive(Component)]
-struct OnDuty { ticks_waiting: u32 }
-
-#[derive(Component)]
-struct Resting;
-
-#[derive(Component)]
-struct GoingToRest;
-```
-
-**Why markers?**
-- Queries filter by component: `Query<&Archer, With<Patrolling>>` only matches patrolling guards
-- State transitions = add/remove components
-- Each state can have its own data (`OnDuty` has `ticks_waiting`, others don't need it)
-
-**State transitions:**
-```rust
-fn transition_to_rest(
-    mut commands: Commands,
-    tired_archers: Query<Entity, (With<Archer>, With<Patrolling>)>,
-    energy: Query<&Energy>,
-) {
-    for entity in tired_archers.iter() {
-        if energy.get(entity).unwrap().0 < ENERGY_HUNGRY {
-            commands.entity(entity)
-                .remove::<Patrolling>()
-                .insert(GoingToRest);
-        }
-    }
+enum ActivityKind {
+    Idle,
+    Work { worksite: usize },
+    Patrol,                   // walking or guarding (at_destination distinguishes)
+    SquadAttack { target: Vec2 },
+    Rest,                     // walking home or sleeping (at_destination distinguishes)
+    Heal { recover_until: f32 },
+    Wander,
+    Raid { target: Vec2 },
+    ReturnLoot,
+    Mine { mine_pos: Vec2 },
 }
 ```
 
-Used in: All NPC behavior (Patrolling, OnDuty, Working, Resting, GoingToRest, GoingToWork, Raiding, Returning, Recovering, Wandering)
+**Why collapsed enum + at_destination flag?**
+- Single `Activity` component — no archetype churn from add/remove
+- `NpcFlags::at_destination` boolean replaces 9 separate transit variants
+- Payload data lives in variant fields, not extra struct fields
+- `Distraction` enum per-variant controls combat policy (None/ByDamage/ByEnemy)
+- Query `&Activity` once, match on `kind` — no multi-component state queries
+
+Used in: All NPC behavior (Patrol, Work, Rest, Heal, Raid, ReturnLoot, Mine, Wander, SquadAttack)
 
 ---
 
@@ -391,7 +377,7 @@ NPCs spawn with 0-2 spectrum traits (7 axes, 14 names). Each axis has signed mag
 | Asymmetric Push | Can't enter crowds | Moving NPCs push through settled |
 | TCP Dodge | Head-on collisions | Perpendicular dodge on approach |
 | ECS | DOD ergonomics | Entity/Component/System pattern |
-| ECS States | State machine in ECS | Marker components per state |
+| ECS States | State machine in ECS | Collapsed ActivityKind enum + at_destination flag |
 | World Resources | Static world data | Singleton Resources, not Entities |
 | Pipelined Rendering | CPU/GPU sync overhead | Parallel main + render worlds |
 

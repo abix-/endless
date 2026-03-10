@@ -50,6 +50,7 @@ pub fn tick(
     time: Res<Time>,
     mut test: ResMut<TestState>,
     activity_q: Query<&Activity>,
+    npc_flags_q: Query<&NpcFlags>,
     mut energy_q: Query<&mut Energy>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else {
@@ -78,7 +79,8 @@ pub fn tick(
                 && n.job == Job::Miner
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| a.kind == ActivityKind::Mining)
+                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Mine { .. }))
+                && npc_flags_q.get(n.entity).is_ok_and(|f| !f.at_destination)
         })
         .count();
     let mining_at_mine = entity_map
@@ -88,7 +90,8 @@ pub fn tick(
                 && n.job == Job::Miner
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| a.kind == ActivityKind::MiningAtMine)
+                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Mine { .. }))
+                && npc_flags_q.get(n.entity).is_ok_and(|f| f.at_destination)
         })
         .count();
     let returning = entity_map
@@ -98,7 +101,7 @@ pub fn tick(
                 && n.job == Job::Miner
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| a.kind == ActivityKind::Returning)
+                    .is_ok_and(|a| matches!(a.kind, ActivityKind::ReturnLoot))
         })
         .count();
     let idle = entity_map
@@ -108,7 +111,7 @@ pub fn tick(
                 && n.job == Job::Miner
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| a.kind == ActivityKind::Idle)
+                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Idle))
         })
         .count();
     let going_rest = entity_map
@@ -118,7 +121,8 @@ pub fn tick(
                 && n.job == Job::Miner
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| a.kind == ActivityKind::GoingToRest)
+                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Rest))
+                && npc_flags_q.get(n.entity).is_ok_and(|f| !f.at_destination)
         })
         .count();
     let resting = entity_map
@@ -128,7 +132,8 @@ pub fn tick(
                 && n.job == Job::Miner
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| a.kind == ActivityKind::Resting)
+                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Rest))
+                && npc_flags_q.get(n.entity).is_ok_and(|f| f.at_destination)
         })
         .count();
 

@@ -261,7 +261,10 @@ fn vertex_npc(in: NpcVertexInput) -> VertexOutput {
         health = 1.0; // suppress NPC HP bar; BuildingHpRender handles via atlas_id=5
     }
 
-    out.clip_position = world_to_clip(pos + in.quad_pos * scale);
+    // Float carried-item icon above NPC head (layer 4 = carried loot)
+    var y_offset: f32 = 0.0;
+    if layer == 4u || layer == 5u { y_offset = 30.0; }
+    out.clip_position = world_to_clip(pos + vec2<f32>(0.0, y_offset) + in.quad_pos * scale);
     out.uv = calc_uv(sprite_col, sprite_row, atlas_id, in.quad_uv);
     out.color = color;
     out.health = health;

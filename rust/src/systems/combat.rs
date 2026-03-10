@@ -151,14 +151,7 @@ pub fn attack_system(
         let cached_cooldown = stats.cooldown;
         let cached_proj_speed = stats.projectile_speed;
         let cached_proj_lifetime = stats.projectile_lifetime;
-        let activity_skip = matches!(
-            activity.kind,
-            ActivityKind::Returning
-                | ActivityKind::GoingToRest
-                | ActivityKind::Resting
-                | ActivityKind::GoingToHeal
-                | ActivityKind::HealingAtFountain
-        );
+        let activity_skip = activity.kind.distraction() == Distraction::None;
         let squad_id_val = squad_id_opt.map(|s| s.0);
         let is_fighting = aq
             .combat_state_q

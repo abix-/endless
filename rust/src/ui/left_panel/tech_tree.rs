@@ -1,4 +1,4 @@
-//! Visual tech tree window — top-down node graph with tabbed branches.
+//! Visual tech tree window - top-down node graph with tabbed branches.
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
@@ -13,10 +13,10 @@ use crate::systems::stats::{
 use crate::world::WorldData;
 
 // Layout constants
-const NODE_W: f32 = 140.0;
-const NODE_H: f32 = 52.0;
-const COL_SPACING: f32 = 160.0;
-const ROW_SPACING: f32 = 70.0;
+const NODE_W: f32 = 176.0;
+const NODE_H: f32 = 76.0;
+const COL_SPACING: f32 = 192.0;
+const ROW_SPACING: f32 = 92.0;
 
 /// Node visual state.
 #[derive(Clone, Copy)]
@@ -47,34 +47,34 @@ fn node_state(levels: &[u8], idx: usize, food: i32, gold: i32) -> NodeState {
 
 fn node_bg(state: NodeState) -> egui::Color32 {
     match state {
-        NodeState::Locked => egui::Color32::from_gray(30),
-        NodeState::Unlocked => egui::Color32::from_gray(50),
-        NodeState::Available => egui::Color32::from_rgb(25, 65, 25),
-        NodeState::Maxed => egui::Color32::from_rgb(30, 30, 80),
+        NodeState::Locked => egui::Color32::from_rgb(26, 30, 38),
+        NodeState::Unlocked => egui::Color32::from_rgb(38, 45, 58),
+        NodeState::Available => egui::Color32::from_rgb(22, 74, 48),
+        NodeState::Maxed => egui::Color32::from_rgb(40, 52, 88),
     }
 }
 
 fn node_border(state: NodeState) -> egui::Stroke {
     match state {
-        NodeState::Locked => egui::Stroke::new(1.0, egui::Color32::from_gray(55)),
-        NodeState::Unlocked => egui::Stroke::new(1.0, egui::Color32::from_gray(100)),
-        NodeState::Available => egui::Stroke::new(2.0, egui::Color32::from_rgb(120, 200, 60)),
-        NodeState::Maxed => egui::Stroke::new(1.5, egui::Color32::from_rgb(80, 80, 180)),
+        NodeState::Locked => egui::Stroke::new(1.0, egui::Color32::from_rgb(66, 72, 84)),
+        NodeState::Unlocked => egui::Stroke::new(1.0, egui::Color32::from_rgb(98, 110, 132)),
+        NodeState::Available => egui::Stroke::new(2.0, egui::Color32::from_rgb(112, 221, 141)),
+        NodeState::Maxed => egui::Stroke::new(1.5, egui::Color32::from_rgb(150, 174, 255)),
     }
 }
 
 fn node_text_color(state: NodeState) -> egui::Color32 {
     match state {
-        NodeState::Locked => egui::Color32::from_gray(80),
+        NodeState::Locked => egui::Color32::from_gray(124),
         _ => egui::Color32::from_gray(220),
     }
 }
 
 fn line_color(unlocked: bool) -> egui::Color32 {
     if unlocked {
-        egui::Color32::from_gray(120)
+        egui::Color32::from_rgb(106, 126, 150)
     } else {
-        egui::Color32::from_gray(40)
+        egui::Color32::from_gray(46)
     }
 }
 
@@ -105,7 +105,7 @@ fn layout_branch_topdown(
         depth_rows[depth as usize].push(idx);
     }
 
-    // Phase 1: initial placement — spread each row evenly
+    // Phase 1: initial placement - spread each row evenly
     let mut node_pos: std::collections::HashMap<usize, (f32, f32)> =
         std::collections::HashMap::new();
 
@@ -194,7 +194,10 @@ fn layout_branch_topdown(
 
     let mut max_x = 0.0_f32;
     let mut max_y = 0.0_f32;
-    for (&idx, &(x, y)) in &node_pos {
+    for &(idx, _depth) in &branch.entries {
+        let Some(&(x, y)) = node_pos.get(&idx) else {
+            continue;
+        };
         let px = x + offset_x - NODE_W / 2.0;
         let py = y;
         placed.push(PlacedNode {
@@ -204,6 +207,15 @@ fn layout_branch_topdown(
         max_x = max_x.max(px + NODE_W);
         max_y = max_y.max(py + NODE_H);
     }
+
+    placed.sort_by(|a, b| {
+        a.rect
+            .min
+            .y
+            .total_cmp(&b.rect.min.y)
+            .then_with(|| a.rect.min.x.total_cmp(&b.rect.min.x))
+            .then_with(|| a.idx.cmp(&b.idx))
+    });
 
     let content_w = max_x - origin.x + 20.0;
     let content_h = max_y - origin.y + 20.0;
@@ -265,6 +277,11 @@ pub fn tech_tree_system(
                 ui.separator();
                 ui.label(egui::RichText::new(format!("Villagers: {alive}")).strong());
             });
+            ui.label(
+                egui::RichText::new("Click a node to buy. Use Auto to queue hourly buys.")
+                    .small()
+                    .color(egui::Color32::from_gray(160)),
+            );
             ui.add_space(4.0);
 
             // Tab bar
@@ -304,7 +321,7 @@ pub fn tech_tree_system(
                                     let unlocked = upgrade_unlocked(&levels, pn.idx);
                                     let color = line_color(unlocked);
                                     let stroke = egui::Stroke::new(1.5, color);
-                                    // Parent bottom-center → child top-center
+                                    // Parent bottom-center -> child top-center
                                     let from = egui::pos2(
                                         parent.rect.center().x,
                                         parent.rect.bottom(),
@@ -328,40 +345,52 @@ pub fn tech_tree_system(
                             }
                         }
 
-                        // Draw node boxes using child_ui with real widgets
+                        // Draw node boxes with proper egui child layout
                         for pn in &placed {
                             let node = &reg.nodes[pn.idx];
                             let lv = levels.get(pn.idx).copied().unwrap_or(0);
                             let state = node_state(&levels, pn.idx, food, gold);
                             let node_idx = pn.idx;
 
-                            // Background + border (painter is fine for decorative bg)
-                            let painter = ui.painter();
-                            painter.rect_filled(pn.rect, 6.0, node_bg(state));
-                            painter.rect_stroke(
-                                pn.rect,
-                                6.0,
-                                node_border(state),
-                                egui::StrokeKind::Outside,
-                            );
-
-                            // Node interaction FIRST so checkbox (later) takes priority
+                            // Node interaction region is registered before child widgets so
+                            // checkbox controls stay clickable on top.
                             let node_resp = ui.interact(
                                 pn.rect,
                                 egui::Id::new(("tech_node", node_idx)),
                                 egui::Sense::click() | egui::Sense::hover(),
                             );
 
-                            // Child UI inside the node rect for real widget layout
+                            // Background + border via painter (decorative only)
+                            let painter = ui.painter();
+                            let mut fill = node_bg(state);
+                            if node_resp.hovered() {
+                                fill = fill.gamma_multiply(1.12);
+                            }
+                            painter.rect_filled(
+                                pn.rect.translate(egui::vec2(0.0, 2.0)),
+                                8.0,
+                                egui::Color32::from_black_alpha(50),
+                            );
+                            painter.rect_filled(pn.rect, 8.0, fill);
+                            painter.rect_stroke(
+                                pn.rect,
+                                8.0,
+                                node_border(state),
+                                egui::StrokeKind::Outside,
+                            );
+
+                            // Child UI for real widgets; advance_cursor_after_rect
+                            // tells the parent ScrollArea this space is used.
+                            let inner = pn.rect.shrink(3.0);
                             let mut child = ui.new_child(
                                 egui::UiBuilder::new()
-                                    .max_rect(pn.rect.shrink(3.0))
+                                    .max_rect(inner)
                                     .layout(egui::Layout::top_down(egui::Align::Center)),
                             );
 
                             let text_color = node_text_color(state);
 
-                            // Row 1: checkbox + label
+                            // Row 1: auto-buy checkbox + label
                             child.horizontal(|ui| {
                                 if !matches!(state, NodeState::Locked) {
                                     upgrade.auto.ensure_towns(town_idx + 1);
@@ -370,16 +399,25 @@ pub fn tech_tree_system(
                                     let auto_flag =
                                         &mut upgrade.auto.flags[town_idx][node_idx];
                                     let prev = *auto_flag;
-                                    ui.checkbox(auto_flag, "")
-                                        .on_hover_text("Auto-buy each game hour");
+                                    ui.push_id(("auto_checkbox", node_idx), |ui| {
+                                        ui.add(egui::Checkbox::without_text(auto_flag))
+                                            .on_hover_text("Auto-buy each game hour");
+                                    });
                                     if *auto_flag != prev {
                                         settings.auto_upgrades =
                                             upgrade.auto.flags[town_idx].clone();
                                     }
+                                    ui.label(
+                                        egui::RichText::new("Auto")
+                                            .size(10.0)
+                                            .color(egui::Color32::from_gray(150)),
+                                    );
+                                } else {
+                                    ui.add_space(40.0);
                                 }
                                 ui.label(
                                     egui::RichText::new(node.label)
-                                        .size(12.0)
+                                        .size(12.5)
                                         .color(text_color),
                                 );
                             });
@@ -404,18 +442,41 @@ pub fn tech_tree_system(
                                 NodeState::Maxed => egui::Color32::from_rgb(120, 120, 200),
                                 _ => egui::Color32::from_gray(150),
                             };
-                            child.label(
-                                egui::RichText::new(&status)
-                                    .size(10.0)
-                                    .color(status_color),
-                            );
+                            child.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new(&status)
+                                        .size(10.0)
+                                        .color(status_color),
+                                );
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        let cost_text = format_upgrade_cost(node_idx, lv);
+                                        let cost_color = match state {
+                                            NodeState::Available => {
+                                                egui::Color32::from_rgb(140, 220, 140)
+                                            }
+                                            NodeState::Locked => egui::Color32::from_gray(105),
+                                            _ => egui::Color32::from_gray(165),
+                                        };
+                                        ui.label(
+                                            egui::RichText::new(cost_text)
+                                                .size(10.0)
+                                                .color(cost_color),
+                                        );
+                                    },
+                                );
+                            });
 
-                            // Tooltip + click-to-buy on the node rect
+                            // Advance parent cursor so ScrollArea knows the space
+                            ui.advance_cursor_after_rect(pn.rect);
+
+                            // Tooltip
                             node_resp.clone().on_hover_ui(|ui| {
                                 ui.label(egui::RichText::new(node.label).strong());
                                 ui.label(node.tooltip);
                                 let (now, next) = upgrade_effect_summary(node_idx, lv);
-                                ui.label(format!("{} → {}", now, next));
+                                ui.label(format!("{} -> {}", now, next));
                                 if matches!(state, NodeState::Available | NodeState::Unlocked) {
                                     let cost = format_upgrade_cost(node_idx, lv);
                                     ui.label(format!("Cost: {}", cost));
@@ -428,6 +489,7 @@ pub fn tech_tree_system(
                                 }
                             });
 
+                            // Click to buy
                             if node_resp.clicked() && matches!(state, NodeState::Available) {
                                 upgrade.queue.write(UpgradeMsg {
                                     town_idx,
@@ -445,3 +507,4 @@ pub fn tech_tree_system(
 
     Ok(())
 }
+

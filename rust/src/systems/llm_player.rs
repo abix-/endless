@@ -542,6 +542,7 @@ fn execute_actions(
                             "archer_flee_hp" => { if let Ok(v) = val.parse::<f32>() { policy.archer_flee_hp = v.clamp(0.0, 1.0); } }
                             "recovery_hp" => { if let Ok(v) = val.parse::<f32>() { policy.recovery_hp = v.clamp(0.0, 1.0); } }
                             "mining_radius" => { if let Ok(v) = val.parse::<f32>() { policy.mining_radius = v.clamp(0.0, 5000.0); } }
+                            "loot_threshold" => { if let Ok(v) = val.parse::<usize>() { policy.loot_threshold = v.clamp(1, 20); } }
                             _ => {}
                         }
                     }
