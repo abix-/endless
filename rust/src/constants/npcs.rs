@@ -14,11 +14,100 @@ pub struct AttackTypeStats {
     pub projectile_lifetime: f32,
 }
 
-/// What kind of item an NPC can carry or drop.
+/// Unified item type — resources (stackable) and equipment (unique instances).
+/// Serves as the K8s `kind` discriminator for the item registry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Reflect, serde::Serialize, serde::Deserialize)]
 pub enum ItemKind {
+    // Resources (stackable, integer quantities)
     Food,
     Gold,
+    // Equipment (unique instances with procedural stats)
+    Helm,
+    Armor,
+    Weapon,
+    Shield,
+    Gloves,
+    Boots,
+    Belt,
+    Amulet,
+    Ring,
+}
+
+impl ItemKind {
+    pub fn is_equipment(self) -> bool { !item_def(self).stackable }
+    pub fn is_resource(self) -> bool { item_def(self).stackable }
+    pub fn label(self) -> &'static str { item_def(self).label }
+}
+
+/// All equipment item kinds (excludes resources).
+pub const ALL_EQUIP_KINDS: &[ItemKind] = &[
+    ItemKind::Helm,
+    ItemKind::Armor,
+    ItemKind::Weapon,
+    ItemKind::Shield,
+    ItemKind::Gloves,
+    ItemKind::Boots,
+    ItemKind::Belt,
+    ItemKind::Amulet,
+    ItemKind::Ring,
+];
+
+// ============================================================================
+// ITEM SPRITES & NAMES (referenced by ITEM_REGISTRY)
+// ============================================================================
+
+/// Sprite options per item kind (atlas col, row). Visible slots have distinct sprites.
+const WEAPON_SPRITES: &[(f32, f32)] = &[(45.0, 6.0), (46.0, 6.0), (47.0, 6.0), (44.0, 6.0)];
+const ARMOR_SPRITES: &[(f32, f32)] = &[(40.0, 0.0), (41.0, 0.0), (42.0, 0.0)];
+const HELM_SPRITES: &[(f32, f32)] = &[(28.0, 0.0), (29.0, 0.0), (30.0, 0.0)];
+const SHIELD_SPRITES: &[(f32, f32)] = &[(43.0, 6.0), (44.0, 7.0), (45.0, 7.0)];
+
+/// Name generation tables per item kind.
+const ITEM_PREFIXES: &[&str] = &["Iron", "Steel", "Bronze", "Silver", "Dark", "Ancient", "Blessed"];
+const WEAPON_NAMES: &[&str] = &["Sword", "Axe", "Spear", "Mace", "Blade"];
+const ARMOR_NAMES: &[&str] = &["Chainmail", "Plate", "Leather", "Brigandine", "Cuirass"];
+const HELM_NAMES: &[&str] = &["Helm", "Crown", "Circlet", "Coif", "Casque"];
+const SHIELD_NAMES: &[&str] = &["Shield", "Buckler", "Kite Shield", "Pavise", "Targe"];
+const GLOVE_NAMES: &[&str] = &["Gauntlets", "Bracers", "Grips", "Wraps", "Vambraces"];
+const BOOT_NAMES: &[&str] = &["Greaves", "Boots", "Sabatons", "Treads", "Striders"];
+const BELT_NAMES: &[&str] = &["Belt", "Sash", "Girdle", "Cord", "Binding"];
+const AMULET_NAMES: &[&str] = &["Amulet", "Pendant", "Talisman", "Charm", "Medallion"];
+const RING_NAMES: &[&str] = &["Ring", "Band", "Signet", "Loop", "Circle"];
+
+// ============================================================================
+// ITEM REGISTRY (CRD → etcd)
+// ============================================================================
+
+/// Item template — one entry per ItemKind variant.
+#[derive(Clone, Debug)]
+pub struct ItemDef {
+    pub kind: ItemKind,
+    /// Display label for UI.
+    pub label: &'static str,
+    /// Atlas sprites for this item type. Empty = no visual (stat-only or resource).
+    pub sprites: &'static [(f32, f32)],
+    /// Base names for procedural name generation. Empty for resources.
+    pub names: &'static [&'static str],
+    /// Whether this item stacks as an integer count (Food, Gold) vs unique instances (equipment).
+    pub stackable: bool,
+}
+
+pub const ITEM_REGISTRY: &[ItemDef] = &[
+    ItemDef { kind: ItemKind::Food,    label: "Food",    sprites: &[], names: &[],           stackable: true },
+    ItemDef { kind: ItemKind::Gold,    label: "Gold",    sprites: &[], names: &[],           stackable: true },
+    ItemDef { kind: ItemKind::Helm,    label: "Helm",    sprites: HELM_SPRITES,   names: HELM_NAMES,   stackable: false },
+    ItemDef { kind: ItemKind::Armor,   label: "Armor",   sprites: ARMOR_SPRITES,  names: ARMOR_NAMES,  stackable: false },
+    ItemDef { kind: ItemKind::Weapon,  label: "Weapon",  sprites: WEAPON_SPRITES, names: WEAPON_NAMES, stackable: false },
+    ItemDef { kind: ItemKind::Shield,  label: "Shield",  sprites: SHIELD_SPRITES, names: SHIELD_NAMES, stackable: false },
+    ItemDef { kind: ItemKind::Gloves,  label: "Gloves",  sprites: &[],            names: GLOVE_NAMES,  stackable: false },
+    ItemDef { kind: ItemKind::Boots,   label: "Boots",   sprites: &[],            names: BOOT_NAMES,   stackable: false },
+    ItemDef { kind: ItemKind::Belt,    label: "Belt",    sprites: &[],            names: BELT_NAMES,   stackable: false },
+    ItemDef { kind: ItemKind::Amulet,  label: "Amulet",  sprites: &[],            names: AMULET_NAMES, stackable: false },
+    ItemDef { kind: ItemKind::Ring,    label: "Ring",     sprites: &[],            names: RING_NAMES,   stackable: false },
+];
+
+pub fn item_def(kind: ItemKind) -> &'static ItemDef {
+    ITEM_REGISTRY.iter().find(|d| d.kind == kind).expect("missing ItemDef")
 }
 
 /// Loot dropped when an NPC dies.
@@ -28,39 +117,6 @@ pub struct LootDrop {
     pub min: i32,
     pub max: i32,
 }
-
-// ============================================================================
-// EQUIPMENT & LOOT TYPES
-// ============================================================================
-
-/// Equipment slot on an NPC.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Reflect, serde::Serialize, serde::Deserialize)]
-pub enum EquipmentSlot {
-    // Sprite-visible slots
-    Helm,
-    Armor,
-    Weapon,
-    Shield,
-    // Stat-only slots
-    Gloves,
-    Boots,
-    Belt,
-    Amulet,
-    Ring,
-}
-
-/// All equipment slot variants for iteration.
-pub const ALL_EQUIPMENT_SLOTS: &[EquipmentSlot] = &[
-    EquipmentSlot::Helm,
-    EquipmentSlot::Armor,
-    EquipmentSlot::Weapon,
-    EquipmentSlot::Shield,
-    EquipmentSlot::Gloves,
-    EquipmentSlot::Boots,
-    EquipmentSlot::Belt,
-    EquipmentSlot::Amulet,
-    EquipmentSlot::Ring,
-];
 
 /// Rarity tier for loot items.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Reflect, serde::Serialize, serde::Deserialize)]
@@ -122,45 +178,13 @@ const RARITY_WEIGHTS: [(Rarity, u32); 4] = [
 #[derive(Clone, Debug, Reflect, serde::Serialize, serde::Deserialize)]
 pub struct LootItem {
     pub id: u64,
-    pub slot: EquipmentSlot,
+    pub kind: ItemKind,
     pub rarity: Rarity,
     /// Fractional stat bonus (e.g. 0.15 = +15% damage or HP).
     pub stat_bonus: f32,
     /// Atlas sprite (col, row).
     pub sprite: (f32, f32),
     pub name: String,
-}
-
-/// Sprite options per slot (atlas col, row). Visible slots have distinct sprites.
-const WEAPON_SPRITES: &[(f32, f32)] = &[(45.0, 6.0), (46.0, 6.0), (47.0, 6.0), (44.0, 6.0)];
-const ARMOR_SPRITES: &[(f32, f32)] = &[(40.0, 0.0), (41.0, 0.0), (42.0, 0.0)];
-const HELM_SPRITES: &[(f32, f32)] = &[(28.0, 0.0), (29.0, 0.0), (30.0, 0.0)];
-const SHIELD_SPRITES: &[(f32, f32)] = &[(43.0, 6.0), (44.0, 7.0), (45.0, 7.0)];
-
-/// Name generation tables per slot.
-const ITEM_PREFIXES: &[&str] = &["Iron", "Steel", "Bronze", "Silver", "Dark", "Ancient", "Blessed"];
-const WEAPON_NAMES: &[&str] = &["Sword", "Axe", "Spear", "Mace", "Blade"];
-const ARMOR_NAMES: &[&str] = &["Chainmail", "Plate", "Leather", "Brigandine", "Cuirass"];
-const HELM_NAMES: &[&str] = &["Helm", "Crown", "Circlet", "Coif", "Casque"];
-const SHIELD_NAMES: &[&str] = &["Shield", "Buckler", "Kite Shield", "Pavise", "Targe"];
-const GLOVE_NAMES: &[&str] = &["Gauntlets", "Bracers", "Grips", "Wraps", "Vambraces"];
-const BOOT_NAMES: &[&str] = &["Greaves", "Boots", "Sabatons", "Treads", "Striders"];
-const BELT_NAMES: &[&str] = &["Belt", "Sash", "Girdle", "Cord", "Binding"];
-const AMULET_NAMES: &[&str] = &["Amulet", "Pendant", "Talisman", "Charm", "Medallion"];
-const RING_NAMES: &[&str] = &["Ring", "Band", "Signet", "Loop", "Circle"];
-
-fn slot_names(slot: EquipmentSlot) -> &'static [&'static str] {
-    match slot {
-        EquipmentSlot::Weapon => WEAPON_NAMES,
-        EquipmentSlot::Armor => ARMOR_NAMES,
-        EquipmentSlot::Helm => HELM_NAMES,
-        EquipmentSlot::Shield => SHIELD_NAMES,
-        EquipmentSlot::Gloves => GLOVE_NAMES,
-        EquipmentSlot::Boots => BOOT_NAMES,
-        EquipmentSlot::Belt => BELT_NAMES,
-        EquipmentSlot::Amulet => AMULET_NAMES,
-        EquipmentSlot::Ring => RING_NAMES,
-    }
 }
 
 /// Roll a random loot item using deterministic seed.
@@ -177,36 +201,34 @@ pub fn roll_loot_item(id: u64, seed: u32) -> LootItem {
         }
     }
 
-    // Slot roll (uniform across all 9 slot types)
-    let slot_seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
-    let slot = ALL_EQUIPMENT_SLOTS[slot_seed as usize % ALL_EQUIPMENT_SLOTS.len()];
+    // Kind roll (uniform across all 9 equipment types)
+    let kind_seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
+    let kind = ALL_EQUIP_KINDS[kind_seed as usize % ALL_EQUIP_KINDS.len()];
+    let def = item_def(kind);
 
     // Stat bonus within rarity range
-    let stat_seed = slot_seed.wrapping_mul(1103515245).wrapping_add(12345);
+    let stat_seed = kind_seed.wrapping_mul(1103515245).wrapping_add(12345);
     let (min_stat, max_stat) = rarity.stat_range();
     let t = (stat_seed % 1000) as f32 / 1000.0;
     let stat_bonus = min_stat + t * (max_stat - min_stat);
 
-    // Sprite from curated list (visible slots) or sentinel (stat-only slots)
+    // Sprite from registry (visible slots) or sentinel (stat-only/resource)
     let sprite_seed = stat_seed.wrapping_mul(1103515245).wrapping_add(12345);
-    let sprite = match slot {
-        EquipmentSlot::Weapon => WEAPON_SPRITES[sprite_seed as usize % WEAPON_SPRITES.len()],
-        EquipmentSlot::Armor => ARMOR_SPRITES[sprite_seed as usize % ARMOR_SPRITES.len()],
-        EquipmentSlot::Helm => HELM_SPRITES[sprite_seed as usize % HELM_SPRITES.len()],
-        EquipmentSlot::Shield => SHIELD_SPRITES[sprite_seed as usize % SHIELD_SPRITES.len()],
-        _ => (-1.0, 0.0), // stat-only slots have no sprite
+    let sprite = if def.sprites.is_empty() {
+        (-1.0, 0.0)
+    } else {
+        def.sprites[sprite_seed as usize % def.sprites.len()]
     };
 
-    // Name
+    // Name from registry
     let name_seed = sprite_seed.wrapping_mul(1103515245).wrapping_add(12345);
-    let names = slot_names(slot);
     let prefix = ITEM_PREFIXES[name_seed as usize % ITEM_PREFIXES.len()];
-    let base = names[(name_seed >> 8) as usize % names.len()];
+    let base = def.names[(name_seed >> 8) as usize % def.names.len()];
     let name = format!("{} {}", prefix, base);
 
     LootItem {
         id,
-        slot,
+        kind,
         rarity,
         stat_bonus,
         sprite,
@@ -256,7 +278,7 @@ pub struct NpcDef {
     /// Chance (0.0–1.0) this NPC type drops equipment when killed.
     pub equipment_drop_rate: f32,
     /// Which equipment slots this NPC type can equip (military: Weapon+Armor, others: none).
-    pub equip_slots: &'static [EquipmentSlot],
+    pub equip_slots: &'static [ItemKind],
 }
 
 pub const NPC_REGISTRY: &[NpcDef] = &[
@@ -329,7 +351,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
             },
         ],
         equipment_drop_rate: 0.0,
-        equip_slots: ALL_EQUIPMENT_SLOTS,
+        equip_slots: ALL_EQUIP_KINDS,
     },
     NpcDef {
         job: Job::Raider,
@@ -368,7 +390,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
             },
         ],
         equipment_drop_rate: 0.30,
-        equip_slots: ALL_EQUIPMENT_SLOTS,
+        equip_slots: ALL_EQUIP_KINDS,
     },
     NpcDef {
         job: Job::Fighter,
@@ -407,7 +429,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
             },
         ],
         equipment_drop_rate: 0.0,
-        equip_slots: ALL_EQUIPMENT_SLOTS,
+        equip_slots: ALL_EQUIP_KINDS,
     },
     NpcDef {
         job: Job::Miner,
@@ -483,7 +505,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
             },
         ],
         equipment_drop_rate: 0.0,
-        equip_slots: ALL_EQUIPMENT_SLOTS,
+        equip_slots: ALL_EQUIP_KINDS,
     },
     NpcDef {
         job: Job::Boat,

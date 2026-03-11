@@ -410,7 +410,7 @@ mod tests {
     fn roll_loot_item_deterministic() {
         let a = roll_loot_item(1, 42);
         let b = roll_loot_item(1, 42);
-        assert_eq!(a.slot, b.slot);
+        assert_eq!(a.kind, b.kind);
         assert_eq!(a.rarity, b.rarity);
         assert!((a.stat_bonus - b.stat_bonus).abs() < f32::EPSILON);
         assert_eq!(a.name, b.name);
@@ -421,7 +421,7 @@ mod tests {
         let a = roll_loot_item(1, 42);
         let b = roll_loot_item(1, 9999);
         // Different seeds should produce different items (extremely unlikely to collide)
-        assert!(a.slot != b.slot || a.rarity != b.rarity || a.name != b.name,
+        assert!(a.kind != b.kind || a.rarity != b.rarity || a.name != b.name,
             "different seeds should usually produce different items");
     }
 

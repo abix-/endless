@@ -145,8 +145,8 @@ pub fn tick(
 
                 // Use NpcEquipment::default() as base — NpcDef fallbacks
                 // provide the real game-accurate baseline (e.g. archer shows sword).
-                let make_item = |slot, name: &str, sprite| crate::constants::LootItem {
-                    id: 0, slot, rarity: crate::constants::Rarity::Uncommon,
+                let make_item = |kind, name: &str, sprite| crate::constants::LootItem {
+                    id: 0, kind, rarity: crate::constants::Rarity::Uncommon,
                     name: name.into(), sprite, stat_bonus: 0.1,
                 };
 
@@ -156,13 +156,13 @@ pub fn tick(
                     }
                     COL_WEAPON => {
                         commands.entity(e).insert(NpcEquipment {
-                            weapon: Some(make_item(EquipmentSlot::Weapon, "Sword", EQUIP_SWORD)),
+                            weapon: Some(make_item(ItemKind::Weapon, "Sword", EQUIP_SWORD)),
                             ..Default::default()
                         });
                     }
                     COL_HELMET => {
                         commands.entity(e).insert(NpcEquipment {
-                            helm: Some(make_item(EquipmentSlot::Helm, "Helmet", EQUIP_HELMET)),
+                            helm: Some(make_item(ItemKind::Helm, "Helmet", EQUIP_HELMET)),
                             ..Default::default()
                         });
                     }
@@ -187,9 +187,9 @@ pub fn tick(
                     }
                     COL_FULL => {
                         commands.entity(e).insert(NpcEquipment {
-                            weapon: Some(make_item(EquipmentSlot::Weapon, "Sword", EQUIP_SWORD)),
-                            helm: Some(make_item(EquipmentSlot::Helm, "Helmet", EQUIP_HELMET)),
-                            armor: Some(make_item(EquipmentSlot::Armor, "Chainmail", (40.0, 0.0))),
+                            weapon: Some(make_item(ItemKind::Weapon, "Sword", EQUIP_SWORD)),
+                            helm: Some(make_item(ItemKind::Helm, "Helmet", EQUIP_HELMET)),
+                            armor: Some(make_item(ItemKind::Armor, "Chainmail", (40.0, 0.0))),
                             ..Default::default()
                         });
                         commands.entity(e).insert(CarriedLoot {

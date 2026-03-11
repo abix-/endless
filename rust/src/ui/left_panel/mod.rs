@@ -20,7 +20,7 @@ use std::collections::HashMap;
 
 use crate::components::*;
 use crate::constants::UpgradeStatKind;
-use crate::constants::{ALL_EQUIPMENT_SLOTS, BUILDING_REGISTRY, DisplayCategory, EquipmentSlot, FOUNTAIN_TOWER, Rarity, npc_def};
+use crate::constants::{ALL_EQUIP_KINDS, BUILDING_REGISTRY, DisplayCategory, FOUNTAIN_TOWER, ItemKind, Rarity, npc_def};
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
 use crate::systems::ai_player::{

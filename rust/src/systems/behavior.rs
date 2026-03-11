@@ -1536,6 +1536,7 @@ pub fn decision_system(
                         match ws.harvest_item {
                             ItemKind::Food => carried_loot.food += final_yield,
                             ItemKind::Gold => carried_loot.gold += final_yield,
+                            _ => {}
                         }
                         activity.kind = ActivityKind::ReturnLoot;
                         submit_intent(

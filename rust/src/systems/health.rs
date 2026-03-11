@@ -418,6 +418,7 @@ pub fn death_system(
                             match drop.item {
                                 ItemKind::Food => cl.food += amount,
                                 ItemKind::Gold => cl.gold += amount,
+                                _ => {}
                             }
                         }
                         if let Ok(mut act) = res.activity_q.get_mut(atk.entity) {
@@ -447,6 +448,7 @@ pub fn death_system(
                         let item_name = match drop.item {
                             ItemKind::Food => "food",
                             ItemKind::Gold => "gold",
+                            _ => "item",
                         };
                         let killer_name = npc_stats_q.get(atk_entity).map(|s| s.name.clone()).unwrap_or_default();
                         let killer_job = res.entity_map.get_npc(atk_slot).map(|n| n.job.label()).unwrap_or("?");
@@ -639,6 +641,7 @@ pub fn death_system(
                         match drop.item {
                             ItemKind::Food => cl.food += amount,
                             ItemKind::Gold => cl.gold += amount,
+                            _ => {}
                         }
                     }
                     if let Ok(mut act) = res.activity_q.get_mut(k_entity) {
@@ -659,6 +662,7 @@ pub fn death_system(
                     let item_name = match drop.item {
                         ItemKind::Food => "food",
                         ItemKind::Gold => "gold",
+                        _ => "item",
                     };
                     let killer_name = npc_stats_q.get(k_entity).map(|s| s.name.as_str()).unwrap_or("?");
                     let killer_job = killer.job.label();
@@ -779,6 +783,7 @@ pub fn death_system(
                                 g.0 += amount;
                             }
                         }
+                        _ => {}
                     }
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetDamageFlash {
                         idx: killer_slot,
@@ -787,6 +792,7 @@ pub fn death_system(
                     let item_name = match drop.item {
                         ItemKind::Food => "food",
                         ItemKind::Gold => "gold",
+                        _ => "item",
                     };
                     combat_log.write(CombatLogMsg {
                         kind: CombatEventKind::Loot,

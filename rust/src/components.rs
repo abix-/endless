@@ -485,9 +485,9 @@ impl NpcEquipment {
     }
 
     /// Get slot by enum.
-    pub fn slot(&self, slot: crate::constants::EquipmentSlot) -> &Option<crate::constants::LootItem> {
-        use crate::constants::EquipmentSlot::*;
-        match slot {
+    pub fn slot(&self, kind: crate::constants::ItemKind) -> &Option<crate::constants::LootItem> {
+        use crate::constants::ItemKind::*;
+        match kind {
             Helm => &self.helm,
             Armor => &self.armor,
             Weapon => &self.weapon,
@@ -497,13 +497,17 @@ impl NpcEquipment {
             Belt => &self.belt,
             Amulet => &self.amulet,
             Ring => &self.ring1,
+            Food | Gold => {
+                const NONE: Option<crate::constants::LootItem> = None;
+                &NONE
+            }
         }
     }
 
     /// Get mutable slot by enum.
-    pub fn slot_mut(&mut self, slot: crate::constants::EquipmentSlot) -> &mut Option<crate::constants::LootItem> {
-        use crate::constants::EquipmentSlot::*;
-        match slot {
+    pub fn slot_mut(&mut self, kind: crate::constants::ItemKind) -> &mut Option<crate::constants::LootItem> {
+        use crate::constants::ItemKind::*;
+        match kind {
             Helm => &mut self.helm,
             Armor => &mut self.armor,
             Weapon => &mut self.weapon,
@@ -513,6 +517,7 @@ impl NpcEquipment {
             Belt => &mut self.belt,
             Amulet => &mut self.amulet,
             Ring => &mut self.ring1,
+            Food | Gold => unreachable!("slot_mut called with resource ItemKind"),
         }
     }
 

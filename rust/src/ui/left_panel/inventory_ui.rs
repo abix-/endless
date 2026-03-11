@@ -18,20 +18,6 @@ fn rarity_color(rarity: Rarity) -> egui::Color32 {
     egui::Color32::from_rgb(r, g, b)
 }
 
-fn slot_label(slot: EquipmentSlot) -> &'static str {
-    match slot {
-        EquipmentSlot::Helm => "Helm",
-        EquipmentSlot::Armor => "Armor",
-        EquipmentSlot::Weapon => "Weapon",
-        EquipmentSlot::Shield => "Shield",
-        EquipmentSlot::Gloves => "Gloves",
-        EquipmentSlot::Boots => "Boots",
-        EquipmentSlot::Belt => "Belt",
-        EquipmentSlot::Amulet => "Amulet",
-        EquipmentSlot::Ring => "Ring",
-    }
-}
-
 pub(crate) fn inventory_content(
     ui: &mut egui::Ui,
     inv: &mut InventoryParams,
@@ -97,8 +83,8 @@ pub(crate) fn inventory_content(
                     ui.label("(non-military — cannot equip)");
                 } else {
                     selected_equip = Some(equip);
-                    for &slot in ALL_EQUIPMENT_SLOTS {
-                        if slot == EquipmentSlot::Ring {
+                    for &slot in ALL_EQUIP_KINDS {
+                        if slot == ItemKind::Ring {
                             for (ring_idx, ring) in
                                 [&equip.ring1, &equip.ring2].iter().enumerate()
                             {
@@ -131,7 +117,7 @@ pub(crate) fn inventory_content(
                         } else {
                             ui.horizontal(|ui| {
                                 let item_opt = equip.slot(slot);
-                                ui.label(format!("{}:", slot_label(slot)));
+                                ui.label(format!("{}:", slot.label()));
                                 if let Some(item) = item_opt {
                                     ui.label(
                                         egui::RichText::new(&item.name)
@@ -215,7 +201,7 @@ pub(crate) fn inventory_content(
                 .unwrap_or("NPC");
             let owner = format!("{} ({:?})", name, job);
             for item in equip.all_items() {
-                let ring_index = if item.slot == EquipmentSlot::Ring {
+                let ring_index = if item.kind == ItemKind::Ring {
                     if equip.ring2.as_ref().map(|r| r.id) == Some(item.id) { 1 } else { 0 }
                 } else { 0 };
                 equipped_entries.push(EquippedEntry { owner: owner.clone(), entity, item, ring_index });
@@ -277,15 +263,15 @@ pub(crate) fn inventory_content(
     // Slot filter buttons with counts (count from visible items)
     let filter = &mut ui_state.inv_slot_filter;
     ui.horizontal_wrapped(|ui| {
-        for (i, &slot) in ALL_EQUIPMENT_SLOTS.iter().enumerate() {
+        for (i, &slot) in ALL_EQUIP_KINDS.iter().enumerate() {
             let bit = 1u16 << i;
             let enabled = *filter & bit != 0;
             let mut count = 0usize;
-            if show_unequipped { count += items.iter().filter(|it| it.slot == slot).count(); }
-            if view >= 1 { count += equipped_entries.iter().filter(|e| e.item.slot == slot).count(); }
+            if show_unequipped { count += items.iter().filter(|it| it.kind == slot).count(); }
+            if view >= 1 { count += equipped_entries.iter().filter(|e| e.item.kind == slot).count(); }
             // Deduplicate for All mode — equipped already counted separately
-            if view == 2 { count = items.iter().filter(|it| it.slot == slot).count() + equipped_entries.iter().filter(|e| e.item.slot == slot).count(); }
-            let label = format!("{} ({})", slot_label(slot), count);
+            if view == 2 { count = items.iter().filter(|it| it.kind == slot).count() + equipped_entries.iter().filter(|e| e.item.kind == slot).count(); }
+            let label = format!("{} ({})", slot.label(), count);
             if ui.selectable_label(enabled, label).clicked() {
                 *filter ^= bit;
             }
@@ -296,14 +282,14 @@ pub(crate) fn inventory_content(
     // Can equip if a valid military NPC from this town is selected
     let npc_entity = selected_military_entity;
 
-    let slot_passes_filter = |slot: EquipmentSlot| -> bool {
-        let idx = ALL_EQUIPMENT_SLOTS.iter().position(|&s| s == slot).unwrap_or(0);
+    let slot_passes_filter = |kind: ItemKind| -> bool {
+        let idx = ALL_EQUIP_KINDS.iter().position(|&s| s == kind).unwrap_or(0);
         filter_val & (1u16 << idx) != 0
     };
 
     // Check if there's anything to show
-    let has_unequipped = show_unequipped && items.iter().any(|it| slot_passes_filter(it.slot));
-    let has_equipped = view >= 1 && equipped_entries.iter().any(|e| slot_passes_filter(e.item.slot));
+    let has_unequipped = show_unequipped && items.iter().any(|it| slot_passes_filter(it.kind));
+    let has_equipped = view >= 1 && equipped_entries.iter().any(|e| slot_passes_filter(e.item.kind));
     if !has_unequipped && !has_equipped {
         ui.label("No items to show.");
         return;
@@ -316,14 +302,14 @@ pub(crate) fn inventory_content(
             if view >= 1 {
                 // Sort equipped entries
                 equipped_entries.sort_by(|a, b| {
-                    let sa = ALL_EQUIPMENT_SLOTS.iter().position(|&s| s == a.item.slot).unwrap_or(0);
-                    let sb = ALL_EQUIPMENT_SLOTS.iter().position(|&s| s == b.item.slot).unwrap_or(0);
+                    let sa = ALL_EQUIP_KINDS.iter().position(|&s| s == a.item.kind).unwrap_or(0);
+                    let sb = ALL_EQUIP_KINDS.iter().position(|&s| s == b.item.kind).unwrap_or(0);
                     sa.cmp(&sb)
                         .then(rarity_ord(b.item.rarity).cmp(&rarity_ord(a.item.rarity)))
                         .then(b.item.stat_bonus.partial_cmp(&a.item.stat_bonus).unwrap_or(std::cmp::Ordering::Equal))
                 });
                 for entry in &equipped_entries {
-                    if !slot_passes_filter(entry.item.slot) { continue; }
+                    if !slot_passes_filter(entry.item.kind) { continue; }
                     ui.horizontal(|ui| {
                         ui.label(
                             egui::RichText::new(&entry.item.name)
@@ -331,7 +317,7 @@ pub(crate) fn inventory_content(
                         );
                         ui.label(format!(
                             "{} +{:.0}%",
-                            slot_label(entry.item.slot),
+                            entry.item.kind.label(),
                             entry.item.stat_bonus * 100.0,
                         ));
                         ui.label(
@@ -343,7 +329,7 @@ pub(crate) fn inventory_content(
                             inv.unequip_writer.write(
                                 crate::systems::stats::UnequipItemMsg {
                                     npc_entity: entry.entity,
-                                    slot: entry.item.slot,
+                                    slot: entry.item.kind,
                                     ring_index: entry.ring_index,
                                 },
                             );
@@ -359,11 +345,11 @@ pub(crate) fn inventory_content(
             if show_unequipped {
                 let mut sorted: Vec<&crate::constants::LootItem> = items
                     .iter()
-                    .filter(|it| slot_passes_filter(it.slot))
+                    .filter(|it| slot_passes_filter(it.kind))
                     .collect();
                 sorted.sort_by(|a, b| {
-                    let slot_a = ALL_EQUIPMENT_SLOTS.iter().position(|&s| s == a.slot).unwrap_or(0);
-                    let slot_b = ALL_EQUIPMENT_SLOTS.iter().position(|&s| s == b.slot).unwrap_or(0);
+                    let slot_a = ALL_EQUIP_KINDS.iter().position(|&s| s == a.kind).unwrap_or(0);
+                    let slot_b = ALL_EQUIP_KINDS.iter().position(|&s| s == b.kind).unwrap_or(0);
                     slot_a.cmp(&slot_b)
                         .then(rarity_ord(b.rarity).cmp(&rarity_ord(a.rarity)))
                         .then(b.stat_bonus.partial_cmp(&a.stat_bonus).unwrap_or(std::cmp::Ordering::Equal))
@@ -376,7 +362,7 @@ pub(crate) fn inventory_content(
                         );
                         ui.label(format!(
                             "{} +{:.0}%",
-                            slot_label(item.slot),
+                            item.kind.label(),
                             item.stat_bonus * 100.0
                         ));
                         if view == 2 {
@@ -402,13 +388,13 @@ pub(crate) fn inventory_content(
                     // Comparison tooltip when NPC is selected
                     if let Some(equip) = selected_equip {
                         if resp.hovered() {
-                            let current = match item.slot {
-                                EquipmentSlot::Ring => {
+                            let current = match item.kind {
+                                ItemKind::Ring => {
                                     let b1 = equip.ring1.as_ref().map(|i| i.stat_bonus).unwrap_or(0.0);
                                     let b2 = equip.ring2.as_ref().map(|i| i.stat_bonus).unwrap_or(0.0);
                                     b1.min(b2)
                                 }
-                                _ => equip.slot(item.slot).as_ref().map(|i| i.stat_bonus).unwrap_or(0.0),
+                                _ => equip.slot(item.kind).as_ref().map(|i| i.stat_bonus).unwrap_or(0.0),
                             };
                             let diff = item.stat_bonus - current;
                             let arrow = if diff > 0.0 { "▲" } else if diff < 0.0 { "▼" } else { "=" };

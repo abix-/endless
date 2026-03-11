@@ -1544,18 +1544,18 @@ fn inspector_content(
     if let Some(npc) = bld_data.entity_map.get_npc(idx) {
         if show_loadout {
             if let Ok(eq) = bld_data.equipment_q.get(npc.entity) {
-                use crate::constants::EquipmentSlot;
-                let slots: &[(&str, &Option<crate::constants::LootItem>, EquipmentSlot, u8)] = &[
-                    ("Weapon", &eq.weapon, EquipmentSlot::Weapon, 0),
-                    ("Helm", &eq.helm, EquipmentSlot::Helm, 0),
-                    ("Armor", &eq.armor, EquipmentSlot::Armor, 0),
-                    ("Shield", &eq.shield, EquipmentSlot::Shield, 0),
-                    ("Gloves", &eq.gloves, EquipmentSlot::Gloves, 0),
-                    ("Boots", &eq.boots, EquipmentSlot::Boots, 0),
-                    ("Belt", &eq.belt, EquipmentSlot::Belt, 0),
-                    ("Amulet", &eq.amulet, EquipmentSlot::Amulet, 0),
-                    ("Ring 1", &eq.ring1, EquipmentSlot::Ring, 0),
-                    ("Ring 2", &eq.ring2, EquipmentSlot::Ring, 1),
+                use crate::constants::ItemKind;
+                let slots: &[(&str, &Option<crate::constants::LootItem>, ItemKind, u8)] = &[
+                    ("Weapon", &eq.weapon, ItemKind::Weapon, 0),
+                    ("Helm", &eq.helm, ItemKind::Helm, 0),
+                    ("Armor", &eq.armor, ItemKind::Armor, 0),
+                    ("Shield", &eq.shield, ItemKind::Shield, 0),
+                    ("Gloves", &eq.gloves, ItemKind::Gloves, 0),
+                    ("Boots", &eq.boots, ItemKind::Boots, 0),
+                    ("Belt", &eq.belt, ItemKind::Belt, 0),
+                    ("Amulet", &eq.amulet, ItemKind::Amulet, 0),
+                    ("Ring 1", &eq.ring1, ItemKind::Ring, 0),
+                    ("Ring 2", &eq.ring2, ItemKind::Ring, 1),
                 ];
                 let mut any = false;
                 for &(label, item_opt, slot, ring_index) in slots {
@@ -1656,7 +1656,7 @@ fn inspector_content(
                 .equipment
                 .iter()
                 .take(4)
-                .map(|it| format!("{} ({:?} +{:.0}%)", it.name, it.slot, it.stat_bonus * 100.0))
+                .map(|it| format!("{} ({:?} +{:.0}%)", it.name, it.kind, it.stat_bonus * 100.0))
                 .collect();
             carried_equip_more = cl.equipment.len().saturating_sub(carried_equip_preview.len());
         }
@@ -2390,7 +2390,7 @@ fn building_inspector_content(
                             egui::RichText::new(&item.name)
                                 .color(egui::Color32::from_rgb(r, g, b)),
                         );
-                        ui.label(format!("{:?} +{:.0}%", item.slot, item.stat_bonus * 100.0));
+                        ui.label(format!("{:?} +{:.0}%", item.kind, item.stat_bonus * 100.0));
                         let btn = ui.add_enabled(
                             can_afford,
                             egui::Button::new(format!("Buy {}g", cost)),
@@ -2427,7 +2427,7 @@ fn building_inspector_content(
                         egui::RichText::new(&item.name)
                             .color(egui::Color32::from_rgb(r, g, b)),
                     );
-                    ui.label(format!("{:?}", item.slot));
+                    ui.label(format!("{:?}", item.kind));
                     if ui.button(format!("Sell {}g", sell_price)).clicked() {
                         sell_id = Some(item.id);
                     }

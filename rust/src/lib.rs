@@ -448,7 +448,6 @@ pub fn build_app(app: &mut App) {
         // Reflected nested types
         .register_type::<constants::LootItem>()
         .register_type::<constants::ItemKind>()
-        .register_type::<constants::EquipmentSlot>()
         .register_type::<constants::Rarity>()
         .register_type::<world::BuildingKind>()
         .register_type::<Difficulty>()

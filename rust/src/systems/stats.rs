@@ -476,7 +476,7 @@ pub struct EquipItemMsg {
 #[derive(Message, Clone)]
 pub struct UnequipItemMsg {
     pub npc_entity: Entity,
-    pub slot: crate::constants::EquipmentSlot,
+    pub slot: crate::constants::ItemKind,
     pub ring_index: u8, // 0=ring1, 1=ring2 (ignored for non-Ring)
 }
 
@@ -968,12 +968,12 @@ pub fn process_equip_system(
         let slot_idx = gpu_slot.0;
 
         // Determine target field. Ring special case: prefer empty ring1, else ring2.
-        use crate::constants::EquipmentSlot;
-        let target: &mut Option<crate::constants::LootItem> = match item.slot {
-            EquipmentSlot::Ring => {
+        use crate::constants::ItemKind;
+        let target: &mut Option<crate::constants::LootItem> = match item.kind {
+            ItemKind::Ring => {
                 if eq.ring1.is_none() { &mut eq.ring1 } else { &mut eq.ring2 }
             }
-            _ => eq.slot_mut(item.slot),
+            _ => eq.slot_mut(item.kind),
         };
 
         // Swap out old item if present
@@ -1001,9 +1001,9 @@ pub fn process_equip_system(
         };
         let slot_idx = gpu_slot.0;
 
-        use crate::constants::EquipmentSlot;
+        use crate::constants::ItemKind;
         let source: &mut Option<crate::constants::LootItem> = match msg.slot {
-            EquipmentSlot::Ring => {
+            ItemKind::Ring => {
                 if msg.ring_index == 1 { &mut eq.ring2 } else { &mut eq.ring1 }
             }
             _ => eq.slot_mut(msg.slot),
@@ -1185,7 +1185,7 @@ pub fn auto_equip_system(
                 continue;
             }
 
-            let slot = item.slot;
+            let slot = item.kind;
 
             // Find best NPC candidate: empty slot first, then biggest upgrade margin
             let mut best: Option<(Entity, f32)> = None; // (entity, current_bonus)
@@ -1197,9 +1197,9 @@ pub fn auto_equip_system(
                 }
 
                 // Get current bonus in this slot
-                use crate::constants::EquipmentSlot;
+                use crate::constants::ItemKind;
                 let current_bonus = match slot {
-                    EquipmentSlot::Ring => {
+                    ItemKind::Ring => {
                         // For rings, check both slots — use the lower one
                         let b1 = equip.ring1.as_ref().map(|i| i.stat_bonus).unwrap_or(0.0);
                         let b2 = equip.ring2.as_ref().map(|i| i.stat_bonus).unwrap_or(0.0);

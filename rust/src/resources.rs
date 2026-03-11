@@ -1341,7 +1341,7 @@ pub struct UiState {
     pub tower_upgrade_slot: Option<usize>,
     /// Casino blackjack popup open.
     pub casino_open: bool,
-    /// Inventory slot filter — bitfield of enabled EquipmentSlot variants (all on by default).
+    /// Inventory slot filter — bitfield of enabled equipment ItemKind variants (all on by default).
     pub inv_slot_filter: u16,
     /// Inventory view mode: 0=Unequipped, 1=Equipped, 2=All.
     pub inv_view_mode: u8,
