@@ -1973,12 +1973,12 @@ fn factions_content(
     });
 
     // -- Economy Stats (collapsed by default) --
-    let archer_base = factions.combat_config.jobs.get(&Job::Archer);
-    let fighter_base = factions.combat_config.jobs.get(&Job::Fighter);
-    let crossbow_base = factions.combat_config.jobs.get(&Job::Crossbow);
-    let crossbow_atk = npc_def(Job::Crossbow).attack_override.as_ref();
-    let farmer_base = factions.combat_config.jobs.get(&Job::Farmer);
-    let miner_base = factions.combat_config.jobs.get(&Job::Miner);
+    let archer_def = npc_def(Job::Archer);
+    let fighter_def = npc_def(Job::Fighter);
+    let crossbow_def = npc_def(Job::Crossbow);
+    let crossbow_atk = crossbow_def.attack_override.as_ref();
+    let farmer_def = npc_def(Job::Farmer);
+    let miner_def = npc_def(Job::Miner);
     let ranged_base = factions.combat_config.attacks.get(&BaseAttackType::Ranged);
     let melee_base = factions.combat_config.attacks.get(&BaseAttackType::Melee);
 
@@ -2001,38 +2001,34 @@ fn factions_content(
             .num_columns(2)
             .striped(true)
             .show(ui, |ui| {
-                if let Some(base) = farmer_base {
-                    ui.label("Farmer HP");
-                    ui.label(format!(
-                        "{:.0} -> {:.0}",
-                        base.max_health,
-                        base.max_health * farmer_hp_mult
-                    ));
-                    ui.end_row();
-                    ui.label("Farmer Speed");
-                    ui.label(format!(
-                        "{:.0} -> {:.0}",
-                        base.speed,
-                        base.speed * farmer_speed_mult
-                    ));
-                    ui.end_row();
-                }
-                if let Some(base) = miner_base {
-                    ui.label("Miner HP");
-                    ui.label(format!(
-                        "{:.0} -> {:.0}",
-                        base.max_health,
-                        base.max_health * miner_hp_mult
-                    ));
-                    ui.end_row();
-                    ui.label("Miner Speed");
-                    ui.label(format!(
-                        "{:.0} -> {:.0}",
-                        base.speed,
-                        base.speed * miner_speed_mult
-                    ));
-                    ui.end_row();
-                }
+                ui.label("Farmer HP");
+                ui.label(format!(
+                    "{:.0} -> {:.0}",
+                    farmer_def.base_hp,
+                    farmer_def.base_hp * farmer_hp_mult
+                ));
+                ui.end_row();
+                ui.label("Farmer Speed");
+                ui.label(format!(
+                    "{:.0} -> {:.0}",
+                    farmer_def.base_speed,
+                    farmer_def.base_speed * farmer_speed_mult
+                ));
+                ui.end_row();
+                ui.label("Miner HP");
+                ui.label(format!(
+                    "{:.0} -> {:.0}",
+                    miner_def.base_hp,
+                    miner_def.base_hp * miner_hp_mult
+                ));
+                ui.end_row();
+                ui.label("Miner Speed");
+                ui.label(format!(
+                    "{:.0} -> {:.0}",
+                    miner_def.base_speed,
+                    miner_def.base_speed * miner_speed_mult
+                ));
+                ui.end_row();
                 ui.label("Food Yield");
                 ui.label(format!("{:.0}% of base", farm_yield_mult * 100.0));
                 ui.end_row();
@@ -2101,29 +2097,27 @@ fn factions_content(
             .num_columns(2)
             .striped(true)
             .show(ui, |ui| {
-                if let Some(base) = archer_base {
-                    ui.label("HP (Archer)");
-                    ui.label(format!(
-                        "{:.0} -> {:.0}",
-                        base.max_health,
-                        base.max_health * archer_hp_mult
-                    ));
-                    ui.end_row();
-                    ui.label("Damage (Archer)");
-                    ui.label(format!(
-                        "{:.1} -> {:.1}",
-                        base.damage,
-                        base.damage * archer_dmg_mult
-                    ));
-                    ui.end_row();
-                    ui.label("Move Speed (Archer)");
-                    ui.label(format!(
-                        "{:.0} -> {:.0}",
-                        base.speed,
-                        base.speed * archer_speed_mult
-                    ));
-                    ui.end_row();
-                }
+                ui.label("HP (Archer)");
+                ui.label(format!(
+                    "{:.0} -> {:.0}",
+                    archer_def.base_hp,
+                    archer_def.base_hp * archer_hp_mult
+                ));
+                ui.end_row();
+                ui.label("Damage (Archer)");
+                ui.label(format!(
+                    "{:.1} -> {:.1}",
+                    archer_def.base_damage,
+                    archer_def.base_damage * archer_dmg_mult
+                ));
+                ui.end_row();
+                ui.label("Move Speed (Archer)");
+                ui.label(format!(
+                    "{:.0} -> {:.0}",
+                    archer_def.base_speed,
+                    archer_def.base_speed * archer_speed_mult
+                ));
+                ui.end_row();
                 if let Some(base) = ranged_base {
                     ui.label("Detection Range (Archer)");
                     ui.label(format!(
@@ -2158,29 +2152,27 @@ fn factions_content(
                 ui.separator();
                 ui.end_row();
 
-                if let Some(base) = fighter_base {
-                    ui.label("HP (Fighter)");
-                    ui.label(format!(
-                        "{:.0} -> {:.0}",
-                        base.max_health,
-                        base.max_health * fighter_hp_mult
-                    ));
-                    ui.end_row();
-                    ui.label("Damage (Fighter)");
-                    ui.label(format!(
-                        "{:.1} -> {:.1}",
-                        base.damage,
-                        base.damage * fighter_dmg_mult
-                    ));
-                    ui.end_row();
-                    ui.label("Move Speed (Fighter)");
-                    ui.label(format!(
-                        "{:.0} -> {:.0}",
-                        base.speed,
-                        base.speed * fighter_speed_mult
-                    ));
-                    ui.end_row();
-                }
+                ui.label("HP (Fighter)");
+                ui.label(format!(
+                    "{:.0} -> {:.0}",
+                    fighter_def.base_hp,
+                    fighter_def.base_hp * fighter_hp_mult
+                ));
+                ui.end_row();
+                ui.label("Damage (Fighter)");
+                ui.label(format!(
+                    "{:.1} -> {:.1}",
+                    fighter_def.base_damage,
+                    fighter_def.base_damage * fighter_dmg_mult
+                ));
+                ui.end_row();
+                ui.label("Move Speed (Fighter)");
+                ui.label(format!(
+                    "{:.0} -> {:.0}",
+                    fighter_def.base_speed,
+                    fighter_def.base_speed * fighter_speed_mult
+                ));
+                ui.end_row();
                 if let Some(base) = melee_base {
                     ui.label("Attack Cooldown (Fighter)");
                     ui.label(format!(
@@ -2205,29 +2197,27 @@ fn factions_content(
                 ui.separator();
                 ui.end_row();
 
-                if let Some(base) = crossbow_base {
-                    ui.label("HP (Crossbow)");
-                    ui.label(format!(
-                        "{:.0} -> {:.0}",
-                        base.max_health,
-                        base.max_health * xbow_hp_mult
-                    ));
-                    ui.end_row();
-                    ui.label("Damage (Crossbow)");
-                    ui.label(format!(
-                        "{:.1} -> {:.1}",
-                        base.damage,
-                        base.damage * xbow_dmg_mult
-                    ));
-                    ui.end_row();
-                    ui.label("Move Speed (Crossbow)");
-                    ui.label(format!(
-                        "{:.0} -> {:.0}",
-                        base.speed,
-                        base.speed * xbow_speed_mult
-                    ));
-                    ui.end_row();
-                }
+                ui.label("HP (Crossbow)");
+                ui.label(format!(
+                    "{:.0} -> {:.0}",
+                    crossbow_def.base_hp,
+                    crossbow_def.base_hp * xbow_hp_mult
+                ));
+                ui.end_row();
+                ui.label("Damage (Crossbow)");
+                ui.label(format!(
+                    "{:.1} -> {:.1}",
+                    crossbow_def.base_damage,
+                    crossbow_def.base_damage * xbow_dmg_mult
+                ));
+                ui.end_row();
+                ui.label("Move Speed (Crossbow)");
+                ui.label(format!(
+                    "{:.0} -> {:.0}",
+                    crossbow_def.base_speed,
+                    crossbow_def.base_speed * xbow_speed_mult
+                ));
+                ui.end_row();
                 if let Some(base) = crossbow_atk {
                     ui.label("Detection Range (Crossbow)");
                     ui.label(format!(

@@ -400,7 +400,7 @@ pub fn update_all_autotile(
 /// Resolve SpawnNpcMsg fields from a spawner entry's building_kind.
 /// Uses BUILDING_REGISTRY SpawnBehavior so new buildings with existing behaviors need no changes.
 /// `assigned_mine` comes from MinerHomeConfig ECS component (None for non-miner buildings).
-/// Returns (job, faction, work_x, work_y, starting_post, attack_type, npc_label, bld_label, work_slot).
+/// Returns (job, faction, work_x, work_y, starting_post, npc_label, bld_label, work_slot).
 pub fn resolve_spawner_npc(
     inst: &crate::resources::BuildingInstance,
     towns: &[Town],
@@ -411,7 +411,6 @@ pub fn resolve_spawner_npc(
     i32,
     f32,
     f32,
-    i32,
     i32,
     &'static str,
     &'static str,
@@ -437,7 +436,6 @@ pub fn resolve_spawner_npc(
             -1.0,
             -1.0,
             -1,
-            0,
             "Raider",
             "Unknown",
             None,
@@ -463,7 +461,6 @@ pub fn resolve_spawner_npc(
                 farm.x,
                 farm.y,
                 -1,
-                spawner.attack_type,
                 npc_label,
                 def.label,
                 work_slot,
@@ -484,7 +481,6 @@ pub fn resolve_spawner_npc(
                 -1.0,
                 -1.0,
                 post_idx,
-                spawner.attack_type,
                 npc_label,
                 def.label,
                 None,
@@ -501,7 +497,6 @@ pub fn resolve_spawner_npc(
                 -1.0,
                 -1.0,
                 -1,
-                spawner.attack_type,
                 npc_label,
                 def.label,
                 None,
@@ -521,7 +516,6 @@ pub fn resolve_spawner_npc(
                 mine.x,
                 mine.y,
                 -1,
-                spawner.attack_type,
                 npc_label,
                 def.label,
                 work_slot,

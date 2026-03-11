@@ -76,7 +76,6 @@ pub fn setup(
         work_x: -1.0,
         work_y: -1.0,
         starting_post: -1,
-        attack_type: 1, // ranged
         entity_override: None,
     });
 
@@ -94,7 +93,6 @@ pub fn setup(
         work_x: -1.0,
         work_y: -1.0,
         starting_post: -1,
-        attack_type: 0, // melee
         entity_override: None,
     });
 

@@ -1601,7 +1601,6 @@ pub enum SpawnBehavior {
 #[derive(Clone, Copy, Debug)]
 pub struct SpawnerDef {
     pub job: i32, // Job::from_i32 index (0=Farmer, 1=Archer, 2=Raider, 4=Miner, 5=Crossbow)
-    pub attack_type: i32, // 0=melee, 1=ranged bow, 2=ranged xbow
     pub behavior: SpawnBehavior,
 }
 
@@ -1784,7 +1783,6 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         on_place: OnPlace::None,
         spawner: Some(SpawnerDef {
             job: 0,
-            attack_type: 0,
             behavior: SpawnBehavior::FindNearestFarm,
         }),
         save_key: Some("farmer_homes"),
@@ -1810,7 +1808,6 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         on_place: OnPlace::None,
         spawner: Some(SpawnerDef {
             job: 1,
-            attack_type: 1,
             behavior: SpawnBehavior::FindNearestWaypoint,
         }),
         save_key: Some("archer_homes"),
@@ -1836,7 +1833,6 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         on_place: OnPlace::None,
         spawner: Some(SpawnerDef {
             job: 2,
-            attack_type: 0,
             behavior: SpawnBehavior::Raider,
         }),
         save_key: Some("tents"),
@@ -1890,7 +1886,6 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         on_place: OnPlace::None,
         spawner: Some(SpawnerDef {
             job: 4,
-            attack_type: 0,
             behavior: SpawnBehavior::Miner,
         }),
         save_key: Some("miner_homes"),
@@ -1916,7 +1911,6 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         on_place: OnPlace::None,
         spawner: Some(SpawnerDef {
             job: 5,
-            attack_type: 2,
             behavior: SpawnBehavior::FindNearestWaypoint,
         }),
         save_key: Some("crossbow_homes"),
@@ -1942,7 +1936,6 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         on_place: OnPlace::None,
         spawner: Some(SpawnerDef {
             job: 3,
-            attack_type: 0,
             behavior: SpawnBehavior::FindNearestWaypoint,
         }),
         save_key: Some("fighter_homes"),

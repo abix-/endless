@@ -395,7 +395,6 @@ pub fn spawner_respawn_system(
                     work_x,
                     work_y,
                     starting_post,
-                    attack_type,
                     job_name,
                     building_name,
                     _work_slot,
@@ -415,7 +414,6 @@ pub fn spawner_respawn_system(
                     work_x,
                     work_y,
                     starting_post,
-                    attack_type,
                     entity_override: None,
                 });
                 spawner.npc_slot = Some(slot);
@@ -965,7 +963,6 @@ pub fn endless_system(
                         work_x: -1.0,
                         work_y: -1.0,
                         starting_post: -1,
-                        attack_type: 0,
                         entity_override: None,
                     });
                     mg.member_slots.push(slot);
@@ -1250,7 +1247,6 @@ pub fn endless_system(
             work_x: -1.0,
             work_y: -1.0,
             starting_post: -1,
-            attack_type: 0,
             entity_override: None,
         });
     }

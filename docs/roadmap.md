@@ -254,10 +254,10 @@ Current CRD compliance:
 
 Can be done incrementally alongside other stages. Each chunk is independent.
 
-Chunk 1 — NPC Instance Cleanup (80% → 95%):
+Chunk 1 — NPC Instance Cleanup (80% → 95%): ✅
 - [x] Move NpcMeta (name, level, XP) from NpcMetaCache parallel array onto ECS entities as NpcStats component
-- [ ] Simplify `materialize_npc()` — read NpcDef internally instead of 9+ loose params
-- [ ] Remove CombatConfig/JobStats duplication (reference NpcDef directly)
+- [x] Simplify `materialize_npc()` — read NpcDef internally, removed attack_type_id + WorldData params
+- [x] Remove CombatConfig/JobStats duplication (resolve_combat_stats reads NpcDef.base_hp/damage/speed directly)
 
 Chunk 2 — Building Instance Consolidation (70% → 90%):
 - [x] Replace BuildingInstance god struct with ECS components: ProductionState, TowerBuildingState, SpawnerState, ConstructionProgress, WaypointOrder, WallLevel, MinerHomeConfig

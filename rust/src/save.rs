@@ -1930,7 +1930,6 @@ pub fn spawn_npcs_from_save(
     entity_map: &mut EntityMap,
     pop_stats: &mut PopulationStats,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
-    world_data: &WorldData,
     combat_config: &CombatConfig,
     town_upgrade_levels: &[Vec<u8>],
 ) {
@@ -1969,13 +1968,11 @@ pub fn spawn_npcs_from_save(
             npc.home,
             npc.work_position,
             starting_post,
-            npc.attack_type as i32,
             &overrides,
             commands,
             entity_map,
             pop_stats,
             gpu_updates,
-            world_data,
             combat_config,
             town_upgrade_levels.get(npc.town_id as usize).map(|v| v.as_slice()).unwrap_or(&[]),
         );
@@ -2092,7 +2089,6 @@ pub fn restore_world_from_save(
         entity_map,
         &mut tracking.pop_stats,
         gpu_updates,
-        &ws.world_data,
         combat_config,
         &town_data.upgrades,
     );

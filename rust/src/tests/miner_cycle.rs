@@ -34,7 +34,6 @@ pub fn setup(mut params: TestSetupParams) {
         work_x: 384.0,
         work_y: 256.0,
         starting_post: -1,
-        attack_type: 0,
         entity_override: None,
     });
 

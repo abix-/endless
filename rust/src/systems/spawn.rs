@@ -10,7 +10,7 @@ use crate::resources::{
 };
 use crate::systems::economy::*;
 use crate::systems::stats::{CombatConfig, resolve_combat_stats};
-use crate::world::{BuildingKind, WorldData};
+use crate::world::BuildingKind;
 
 // Name generation word lists
 const ADJECTIVES: &[&str] = &[
@@ -103,23 +103,18 @@ pub fn materialize_npc(
     home: [f32; 2],
     work_pos: Option<[f32; 2]>,
     starting_post: i32,
-    attack_type_id: i32,
     overrides: &NpcSpawnOverrides,
     commands: &mut Commands,
     entity_map: &mut EntityMap,
     pop_stats: &mut PopulationStats,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
-    _world_data: &WorldData,
     combat_config: &CombatConfig,
     town_levels: &[u8],
 ) {
     let idx = slot_idx;
     let job = Job::from_i32(job_id);
-    let attack_type = if attack_type_id == 1 {
-        BaseAttackType::Ranged
-    } else {
-        BaseAttackType::Melee
-    };
+    let def = crate::constants::npc_def(job);
+    let attack_type = def.default_attack_type;
     let personality = overrides
         .personality
         .clone()
@@ -148,7 +143,6 @@ pub fn materialize_npc(
     } else {
         (x, y)
     };
-    let def = crate::constants::npc_def(job);
     let (sprite_col, sprite_row) = def.sprite;
 
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition { idx, x, y }));
@@ -305,7 +299,6 @@ pub fn spawn_npc_system(
     mut pop_stats: ResMut<PopulationStats>,
     mut faction_stats: ResMut<FactionStats>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
-    world_data: Res<WorldData>,
     game_time: Res<GameTime>,
     mut combat_log: MessageWriter<CombatLogMsg>,
     combat_config: Res<CombatConfig>,
@@ -330,13 +323,11 @@ pub fn spawn_npc_system(
             [msg.home_x, msg.home_y],
             work_pos,
             msg.starting_post,
-            msg.attack_type,
             &overrides,
             &mut commands,
             &mut entity_map,
             &mut pop_stats,
             &mut gpu_updates,
-            &world_data,
             &combat_config,
             &town_access.upgrade_levels(msg.town_idx),
         );

@@ -55,7 +55,6 @@ pub fn setup(
         work_x: -1.0,
         work_y: -1.0,
         starting_post: -1,
-        attack_type: 0,
         entity_override: None,
     });
 

@@ -47,7 +47,6 @@ pub fn setup(
         work_x: -1.0,
         work_y: -1.0,
         starting_post: -1,
-        attack_type: 1, // ranged
         entity_override: None,
     });
     let slot1 = slot_alloc.alloc_reset().expect("slot alloc");
@@ -63,7 +62,6 @@ pub fn setup(
         work_x: -1.0,
         work_y: -1.0,
         starting_post: -1,
-        attack_type: 1, // ranged
         entity_override: None,
     });
 

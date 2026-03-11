@@ -53,7 +53,6 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
         work_x: 384.0,
         work_y: 320.0,
         starting_post: -1,
-        attack_type: 0,
         entity_override: None,
     });
 

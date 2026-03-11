@@ -86,7 +86,6 @@ pub fn setup(
         work_x: -1.0,
         work_y: -1.0,
         starting_post: -1, // no patrol — just stands there
-        attack_type: 0,
         entity_override: None,
     });
     let slot1 = slot_alloc.alloc_reset().expect("slot alloc");
@@ -102,7 +101,6 @@ pub fn setup(
         work_x: -1.0,
         work_y: -1.0,
         starting_post: -1,
-        attack_type: 0,
         entity_override: None,
     });
 

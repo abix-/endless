@@ -21,8 +21,7 @@ pub struct SpawnNpcMsg {
     pub home_y: f32,
     pub work_x: f32, // -1 = none
     pub work_y: f32,
-    pub starting_post: i32,                                 // -1 = none
-    pub attack_type: i32,                                   // 0=melee, 1=ranged
+    pub starting_post: i32,              // -1 = none
     pub entity_override: Option<Entity>, // None = allocate fresh (save/load sets explicitly)
 }
 

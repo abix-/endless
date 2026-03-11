@@ -17,19 +17,10 @@ use std::sync::LazyLock;
 // COMBAT CONFIG (replaces scattered constants)
 // ============================================================================
 
-/// Per-job identity stats. Determines "what kind of NPC is this?"
-#[derive(Clone, Debug)]
-pub struct JobStats {
-    pub max_health: f32,
-    pub damage: f32,
-    pub speed: f32,
-}
-
-/// Central combat configuration. All NPC stats resolve from this.
-/// Base job stats populated from NPC_REGISTRY.
+/// Central combat configuration. Attack defaults + healing constants.
+/// Per-job base stats (hp, damage, speed) live on NpcDef in NPC_REGISTRY.
 #[derive(Resource)]
 pub struct CombatConfig {
-    pub jobs: HashMap<Job, JobStats>,
     pub attacks: HashMap<BaseAttackType, AttackTypeStats>,
     pub heal_rate: f32,
     pub heal_radius: f32,
@@ -37,18 +28,6 @@ pub struct CombatConfig {
 
 impl Default for CombatConfig {
     fn default() -> Self {
-        let mut jobs = HashMap::new();
-        for def in NPC_REGISTRY {
-            jobs.insert(
-                def.job,
-                JobStats {
-                    max_health: def.base_hp,
-                    damage: def.base_damage,
-                    speed: def.base_speed,
-                },
-            );
-        }
-
         let mut attacks = HashMap::new();
         attacks.insert(
             BaseAttackType::Melee,
@@ -70,7 +49,6 @@ impl Default for CombatConfig {
         );
 
         Self {
-            jobs,
             attacks,
             heal_rate: 5.0,
             heal_radius: 300.0,
@@ -726,7 +704,6 @@ pub fn resolve_combat_stats(
     weapon_bonus: f32,
     armor_bonus: f32,
 ) -> CachedStats {
-    let job_base = config.jobs.get(&job).expect("missing job stats");
     let def = npc_def(job);
     let default_atk = config
         .attacks
@@ -752,13 +729,13 @@ pub fn resolve_combat_stats(
     let hp_regen_level = reg.stat_level(town, cat, UpgradeStatKind::HpRegen) as f32;
 
     CachedStats {
-        damage: job_base.damage * upgrade_dmg * trait_mods.damage * level_mult * (1.0 + weapon_bonus),
+        damage: def.base_damage * upgrade_dmg * trait_mods.damage * level_mult * (1.0 + weapon_bonus),
         range: atk_base.range * upgrade_range * trait_mods.range,
         cooldown: atk_base.cooldown * cooldown_mult * trait_mods.cooldown,
         projectile_speed: atk_base.projectile_speed * upgrade_proj_speed,
         projectile_lifetime: atk_base.projectile_lifetime * upgrade_proj_life,
-        max_health: job_base.max_health * upgrade_hp * trait_mods.hp * level_mult * (1.0 + armor_bonus),
-        speed: job_base.speed * upgrade_speed * trait_mods.speed,
+        max_health: def.base_hp * upgrade_hp * trait_mods.hp * level_mult * (1.0 + armor_bonus),
+        speed: def.base_speed * upgrade_speed * trait_mods.speed,
         stamina: stamina_mult,
         hp_regen: hp_regen_level * 0.5,
         berserk_bonus: trait_mods.berserk_bonus,
@@ -1499,12 +1476,12 @@ mod tests {
             Job::Archer, BaseAttackType::Ranged, 0, 0,
             &personality, &config, &upgrades, 0.0, 0.0,
         );
-        let job_stats = config.jobs.get(&Job::Archer).unwrap();
+        let def = npc_def(Job::Archer);
         // With no upgrades, no level, no equipment, no traits:
         // damage = base_damage * 1.0 * 1.0 * 1.0 * 1.0
-        assert!((stats.damage - job_stats.damage).abs() < 0.01, "damage: {} vs {}", stats.damage, job_stats.damage);
-        assert!((stats.max_health - job_stats.max_health).abs() < 0.01, "hp: {} vs {}", stats.max_health, job_stats.max_health);
-        assert!((stats.speed - job_stats.speed).abs() < 0.01, "speed: {} vs {}", stats.speed, job_stats.speed);
+        assert!((stats.damage - def.base_damage).abs() < 0.01, "damage: {} vs {}", stats.damage, def.base_damage);
+        assert!((stats.max_health - def.base_hp).abs() < 0.01, "hp: {} vs {}", stats.max_health, def.base_hp);
+        assert!((stats.speed - def.base_speed).abs() < 0.01, "speed: {} vs {}", stats.speed, def.base_speed);
         assert_eq!(stats.berserk_bonus, 0.0);
     }
 
