@@ -118,6 +118,7 @@ Frame execution order ────────────────▶ [frame
 | [performance.md](performance.md) | Complete perf authority: GPU patterns, CPU cadencing, data access rules, anti-patterns, PR review | 9/10 |
 | [brp.md](brp.md) | Live game data access via HTTP JSON-RPC (localhost:15702), reflected types, query examples | 9/10 |
 | [llm-player.md](llm-player.md) | Built-in LLM player (claude --print), external player setup, data model, token budget | - |
+| [k8s.md](k8s.md) | CRD architecture (Def→Instance→Controller), K8s mapping, compliance checklist | - |
 | [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
 | [roadmap.md](roadmap.md) | Feature tracking, migration plan | - |
 
@@ -137,7 +138,11 @@ rust/
     render.rs             # Camera, texture atlases, click/box select, tilemap chunks → [rendering.md]
     messages.rs           # Static message queues, GpuUpdate variants, DirtyWriters → [messages.md]
     components.rs         # All ECS components (NPC, building, town, equipment, traits)
-    constants.rs          # NPC_REGISTRY, BUILDING_REGISTRY, ACTIVITY_REGISTRY, upgrade arrays, tuning constants
+    constants/
+      mod.rs              # Tuning constants (behavior, projectile, raider, tower, tile flags, town registry)
+      upgrades.rs         # UpgradeStatDef, ResourceKind, upgrade tables (military, farmer, miner, tower, town)
+      npcs.rs             # NPC_REGISTRY, ACTIVITY_REGISTRY, equipment/loot types, roll_loot_item
+      buildings.rs        # BUILDING_REGISTRY, BuildingDef, TileSpec, autotile helpers
     entity_map.rs         # DenseSlotMap, EntityMap (slot↔entity index + building spatial grid)
     resources.rs          # Bevy resources (GpuSlotPool, GameTime, UiState, squads, factions, reputation)
     systemparams.rs       # TownAccess and other shared SystemParam bundles
