@@ -1527,7 +1527,6 @@ mod tests {
             town_idx: 0,
             slot,
             faction: 0,
-            occupants: 0,
         });
 
         app.world_mut().resource_mut::<PendingDamage>().0.push(DamageMsg {
@@ -1568,7 +1567,6 @@ mod tests {
                 center: Vec2::new(500.0, 500.0),
                 faction: 1,
                 kind: crate::constants::TownKind::Player,
-                area_level: 0,
             }],
         });
         app.insert_resource(CombatConfig::default());
@@ -1632,7 +1630,6 @@ mod tests {
                 center: Vec2::ZERO,
                 faction: -1,
                 kind: crate::constants::TownKind::Player,
-                area_level: 0,
             }],
         });
         app.insert_resource(SendHealingDirty(true));
@@ -1651,8 +1648,8 @@ mod tests {
         let mut app = setup_healing_cache_app();
         app.insert_resource(WorldData {
             towns: vec![
-                Town { name: "A".to_string(), center: Vec2::new(100.0, 100.0), faction: 1, kind: crate::constants::TownKind::Player, area_level: 0 },
-                Town { name: "B".to_string(), center: Vec2::new(900.0, 900.0), faction: 2, kind: crate::constants::TownKind::AiRaider, area_level: 0 },
+                Town { name: "A".to_string(), center: Vec2::new(100.0, 100.0), faction: 1, kind: crate::constants::TownKind::Player },
+                Town { name: "B".to_string(), center: Vec2::new(900.0, 900.0), faction: 2, kind: crate::constants::TownKind::AiRaider },
             ],
         });
         app.insert_resource(SendHealingDirty(true));

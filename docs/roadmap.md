@@ -247,10 +247,10 @@ Current CRD compliance:
 | Entity     | Def Registry                    | Instance Pattern                          | Score |
 |------------|--------------------------------|------------------------------------------|-------|
 | NPCs       | NpcDef + NPC_REGISTRY          | ECS components (NpcStats)                | 95%   |
-| Buildings  | BuildingDef + BUILDING_REGISTRY| slim spatial index + ECS components      | 95%   |
-| Activities | ActivityDef + ACTIVITY_REGISTRY| Activity component + fieldless kind      | 90%   |
-| Towns      | TownDef + TOWN_REGISTRY        | ECS town entities (TownAccess)           | 80%   |
-| Items      | None (procedural gen)          | LootItem + NpcEquipment                  | 60%   |
+| Buildings  | BuildingDef + BUILDING_REGISTRY| 5-field identity index + ECS components  | 100%  |
+| Activities | ActivityDef + ACTIVITY_REGISTRY| Activity component + fieldless kind      | 100%  |
+| Towns      | TownDef + TOWN_REGISTRY        | Slim 4-field index + ECS (TownAccess)    | 100%  |
+| Items      | ItemDef + ITEM_REGISTRY        | LootItem + NpcEquipment                  | 85%   |
 
 Can be done incrementally alongside other stages. Each chunk is independent.
 
@@ -261,7 +261,7 @@ Chunk 1 — NPC Instance Cleanup (80% → 95%): ✅
 
 Chunk 2 — Building Instance Consolidation (70% → 90%): ✅
 - [x] Replace BuildingInstance god struct with ECS components: ProductionState, TowerBuildingState, SpawnerState, ConstructionProgress, WaypointOrder, WallLevel, MinerHomeConfig
-- [x] Slim BuildingInstance to 6-field spatial index (kind, position, town_idx, slot, faction, occupants)
+- [x] Slim BuildingInstance to 5-field identity index (kind, position, town_idx, slot, faction) — occupancy in separate EntityMap.occupancy map
 - [x] Simplify `place_building()` signature — BuildingOverrides struct replaces 3 loose params (patrol_order, wall_level, hp)
 
 Chunk 3 — TownDef Registry (40% → 80%): ✅
@@ -275,10 +275,10 @@ Chunk 4 — ActivityDef Registry (50% → 90%):
 - [x] Replace inline match arms in ActivityKind methods with registry lookups (def().distraction, def().label, def().is_working, def().is_restful)
 - [x] Adding a new activity = 1 enum variant + 1 registry entry
 
-Chunk 5 — ItemDef Registry (60% → 85%):
-- [ ] Add ItemDef struct for item templates (base stats, sprite options, name patterns per slot+rarity)
-- [ ] Procedural generation references ItemDef templates with random variation
-- [ ] Unifies sprite tables + name generation + stat ranges into one registry
+Chunk 5 — ItemDef Registry (60% → 85%): ✅
+- [x] Add ItemDef struct for item templates (base stats, sprite options, name patterns per slot+rarity)
+- [x] Procedural generation references ItemDef templates with random variation
+- [x] Unifies sprite tables + name generation + stat ranges into one registry
 
 Sound (bevy_audio) woven into stages. Done: arrow shoot SFX, NPC death SFX (24 variants), spatial camera culling, per-kind dedup. Remaining: building place, wall hit, loot pickup (Stages 17-21); element sounds + wave horn (Stage 25).
 

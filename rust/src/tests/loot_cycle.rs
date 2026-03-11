@@ -36,7 +36,6 @@ pub fn setup(
         center: Vec2::new(384.0, 128.0),
         faction: 2,
         kind: crate::constants::TownKind::AiRaider,
-    area_level: 0,
     });
     params.init_economy(2);
     // Spawn town entities with test-specific policies

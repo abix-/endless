@@ -777,7 +777,6 @@ mod tests {
             slot,
             town_idx: 0,
             faction: 0,
-            occupants: 0,
         });
     }
 

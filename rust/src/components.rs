@@ -710,6 +710,11 @@ pub struct TownUpgradeLevel(pub Vec<u8>);
 #[reflect(Component)]
 pub struct TownEquipment(pub Vec<crate::constants::LootItem>);
 
+/// Town build-area expansion level. 0 = base 8x8, each level adds 1 ring.
+#[derive(Component, Clone, Default, Reflect)]
+#[reflect(Component)]
+pub struct TownAreaLevel(pub i32);
+
 // ============================================================================
 // BEHAVIOR CONFIG COMPONENTS (generic, attach to any NPC)
 // ============================================================================

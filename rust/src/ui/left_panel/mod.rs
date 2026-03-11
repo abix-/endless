@@ -1302,7 +1302,7 @@ fn rebuild_factions_cache(
         // Economy desire = 1 - slot_fullness = empty_slots / total_slots (mirrors ai_player.rs).
         let (economy_desire, economy_desire_tip) = if personality.is_some() {
             let (empty, total, fullness) = world_data.towns.get(tdi)
-                .map(|town| {
+                .map(|_town| {
                     let empty = crate::world::empty_slots(
                         tdi,
                         center,
@@ -1310,7 +1310,7 @@ fn rebuild_factions_cache(
                         &factions.entity_map,
                     )
                     .len();
-                    let (min_r, max_r, min_c, max_c) = crate::world::build_bounds(town.area_level, center, &factions.world_grid);
+                    let (min_r, max_r, min_c, max_c) = crate::world::build_bounds(factions.town_access.area_level(tdi as i32), center, &factions.world_grid);
                     let total = ((max_r - min_r + 1) * (max_c - min_c + 1) - 1) as f32;
                     (empty, total, 1.0 - empty as f32 / total.max(1.0))
                 })

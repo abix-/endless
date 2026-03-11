@@ -16,7 +16,6 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
         center: Vec2::new(384.0, 128.0),
         faction: 2,
         kind: crate::constants::TownKind::AiRaider,
-    area_level: 0,
     });
     // 1 farm near town — starts Growing at 95%
     params.add_building(crate::world::BuildingKind::Farm, 384.0, 320.0, 0);

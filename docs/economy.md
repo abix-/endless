@@ -192,7 +192,7 @@ Raiders without a squad assignment wander near their town. Group attacks use squ
 | GoldStore | ECS component `i32` per town entity — via `TownAccess.gold()` | mining delivery, UI |
 | MineStates | gold, max_gold, positions per mine | mine_regen_system, mining behavior |
 | MinerProgressRender | positions + progress for active miners | sync_miner_progress_render → render world (ExtractResource) |
-| EntityMap (occupancy) | `BuildingInstance.occupants: i16` per building — slot-indexed claim/release/is_occupied/occupant_count methods on EntityMap | decision_system, death_cleanup |
+| EntityMap (occupancy) | `EntityMap.occupancy: DenseSlotMap<i16>` — slot-indexed claim/release/is_occupied/occupant_count methods | decision_system, death_cleanup |
 | MiningPolicy | discovered_mines per town, mine_enabled per mine | mining_policy_system (dirty-flag gated) |
 | RaiderState | max_pop, respawn_timers, forage_timers | raider_forage_system |
 | SpawnerState | ECS component `{ npc_slot: Option<usize>, respawn_timer: f32 }` on spawner buildings | spawner_respawn_system, place_building |

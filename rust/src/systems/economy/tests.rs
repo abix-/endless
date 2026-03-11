@@ -232,7 +232,6 @@ fn test_building_instance(slot: usize, kind: BuildingKind, _under_construction: 
         town_idx: 0,
         slot,
         faction: 0,
-        occupants: 0,
     }
 }
 
@@ -347,8 +346,8 @@ fn setup_forage_app() -> App {
     app.insert_resource(PopulationStats::default());
     app.insert_resource(WorldData {
         towns: vec![
-            crate::world::Town { name: "Player".into(), center: Vec2::ZERO, faction: 1, kind: crate::constants::TownKind::Player, area_level: 0 },
-            crate::world::Town { name: "Raider".into(), center: Vec2::new(1000.0, 0.0), faction: 2, kind: crate::constants::TownKind::AiRaider, area_level: 0 },
+            crate::world::Town { name: "Player".into(), center: Vec2::ZERO, faction: 1, kind: crate::constants::TownKind::Player },
+            crate::world::Town { name: "Raider".into(), center: Vec2::new(1000.0, 0.0), faction: 2, kind: crate::constants::TownKind::AiRaider },
         ],
     });
     app.insert_resource(crate::settings::UserSettings::default());
@@ -439,7 +438,6 @@ fn setup_growth_app() -> App {
             center: Vec2::new(500.0, 500.0),
             faction: 1,
             kind: crate::constants::TownKind::Player,
-            area_level: 0,
         }],
     });
     // Spawn ECS town entity for TownAccess
@@ -464,8 +462,7 @@ fn setup_growth_app() -> App {
 }
 
 fn add_farm(app: &mut App, slot: usize, tended: bool) {
-    let mut inst = test_building_instance(slot, BuildingKind::Farm, 0.0);
-    inst.occupants = if tended { 1 } else { 0 };
+    let inst = test_building_instance(slot, BuildingKind::Farm, 0.0);
     let entity = app.world_mut().spawn((
         GpuSlot(slot),
         Building { kind: BuildingKind::Farm },
@@ -477,6 +474,9 @@ fn add_farm(app: &mut App, slot: usize, tended: bool) {
     let mut em = app.world_mut().resource_mut::<EntityMap>();
     em.set_entity(slot, entity);
     em.add_instance(inst);
+    if tended {
+        em.set_occupancy(slot, 1);
+    }
 }
 
 #[test]
@@ -575,8 +575,7 @@ fn mine_grows_only_when_tended() {
 #[test]
 fn mine_grows_with_workers() {
     let mut app = setup_growth_app();
-    let mut inst = test_building_instance(0, BuildingKind::GoldMine, 0.0);
-    inst.occupants = 2;
+    let inst = test_building_instance(0, BuildingKind::GoldMine, 0.0);
     let entity = app.world_mut().spawn((
         GpuSlot(0),
         Building { kind: BuildingKind::GoldMine },
@@ -588,6 +587,7 @@ fn mine_grows_with_workers() {
     let mut em = app.world_mut().resource_mut::<EntityMap>();
     em.set_entity(0, entity);
     em.add_instance(inst);
+    em.set_occupancy(0, 2);
 
     app.update();
     let ps = app.world().get::<ProductionState>(entity).unwrap();
@@ -607,7 +607,7 @@ fn setup_merchant_app() -> App {
     app.insert_resource(NextLootItemId::default());
     app.insert_resource(WorldData {
         towns: vec![
-            crate::world::Town { name: "Town".into(), center: Vec2::ZERO, faction: 0, kind: crate::constants::TownKind::Player, area_level: 0 },
+            crate::world::Town { name: "Town".into(), center: Vec2::ZERO, faction: 0, kind: crate::constants::TownKind::Player },
         ],
     });
     app.insert_resource(TimeUpdateStrategy::ManualDuration(
@@ -778,7 +778,6 @@ fn setup_spawner_app() -> App {
             center: Vec2::new(500.0, 500.0),
             faction: 0,
             kind: crate::constants::TownKind::Player,
-        area_level: 0,
         }],
     });
     // Register all message types needed by DirtyWriters + system
@@ -885,7 +884,6 @@ fn setup_mining_app() -> App {
             center: Vec2::new(500.0, 500.0),
             faction: 1,
             kind: crate::constants::TownKind::Player,
-            area_level: 0,
         }],
     });
     // Spawn ECS town entity for TownAccess
@@ -986,7 +984,6 @@ fn setup_squad_cleanup_app() -> App {
             center: Vec2::new(500.0, 500.0),
             faction: 0,
             kind: crate::constants::TownKind::Player,
-        area_level: 0,
         }],
     });
     app.add_message::<crate::messages::SquadsDirtyMsg>();

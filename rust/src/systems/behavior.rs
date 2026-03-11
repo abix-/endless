@@ -731,7 +731,7 @@ pub fn decision_system(
                                     entity_map.spatial_cell_size().max(256.0) * 8.0;
                                 let mut best_d2 = f32::MAX;
                                 let mut other_farm_pos: Option<Vec2> = None;
-                                entity_map.for_each_nearby_kind(pos, raid_search_radius, BuildingKind::Farm, |f| {
+                                entity_map.for_each_nearby_kind(pos, raid_search_radius, BuildingKind::Farm, |f, _| {
                                     if f.position.distance(pos) <= FARM_ARRIVAL_RADIUS {
                                         return;
                                     }
@@ -1875,18 +1875,18 @@ pub fn decision_system(
                                         town_idx_i32 as u32,
                                         crate::resources::WorksiteFallback::AnyTown,
                                         6400.0,
-                                        |inst| {
+                                        |inst, occ| {
                                             let ready = mine_ready.get(&inst.slot).copied().unwrap_or(false);
                                             let priority = if ready {
                                                 0u8
-                                            } else if inst.occupants == 0 {
+                                            } else if occ == 0 {
                                                 1
                                             } else {
                                                 2
                                             };
                                             Some((
                                                 priority,
-                                                inst.occupants as u16,
+                                                occ as u16,
                                                 inst.position
                                                     .distance_squared(current_pos)
                                                     .to_bits(),

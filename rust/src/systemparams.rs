@@ -181,6 +181,7 @@ pub struct TownAccess<'w, 's> {
     policy: Query<'w, 's, &'static mut crate::components::TownPolicy, With<crate::components::TownMarker>>,
     upgrades: Query<'w, 's, &'static mut crate::components::TownUpgradeLevel, With<crate::components::TownMarker>>,
     equipment: Query<'w, 's, &'static mut crate::components::TownEquipment, With<crate::components::TownMarker>>,
+    area: Query<'w, 's, &'static mut crate::components::TownAreaLevel, With<crate::components::TownMarker>>,
 }
 
 impl TownAccess<'_, '_> {
@@ -249,5 +250,20 @@ impl TownAccess<'_, '_> {
     pub fn equipment_mut(&mut self, town_idx: i32) -> Option<Mut<'_, crate::components::TownEquipment>> {
         let e = self.entity(town_idx)?;
         self.equipment.get_mut(e).ok()
+    }
+
+    pub fn area_level(&self, town_idx: i32) -> i32 {
+        self.entity(town_idx)
+            .and_then(|e| self.area.get(e).ok())
+            .map(|a| a.0)
+            .unwrap_or(0)
+    }
+
+    pub fn set_area_level(&mut self, town_idx: i32, val: i32) {
+        if let Some(e) = self.entity(town_idx) {
+            if let Ok(mut a) = self.area.get_mut(e) {
+                a.0 = val;
+            }
+        }
     }
 }

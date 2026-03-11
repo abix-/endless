@@ -22,14 +22,12 @@ pub fn setup(
         center: Vec2::new(384.0, 384.0),
         faction: 1,
         kind: crate::constants::TownKind::Player,
-    area_level: 0,
     });
     world_data.towns.push(world::Town {
         name: "Targets".into(),
         center: Vec2::new(384.0, 192.0),
         faction: 2,
         kind: crate::constants::TownKind::AiRaider,
-    area_level: 0,
     });
     faction_stats.init(3);
 

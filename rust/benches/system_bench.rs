@@ -160,7 +160,6 @@ fn populate_npcs(app: &mut App, count: usize) {
             center: Vec2::new(800.0, 800.0),
             faction: 1,
             kind: TownKind::Player,
-            area_level: 0,
         });
     }
     {
@@ -609,7 +608,6 @@ fn bench_building_tower_system(c: &mut Criterion) {
                             town_idx: 0,
                             slot,
                             faction: 1,
-                            occupants: 0,
                         });
                     }
                     // Set enemy faction on some NPCs in GpuReadState so towers have targets
@@ -777,7 +775,6 @@ fn bench_spawner_respawn_system(c: &mut Criterion) {
                             town_idx: 0,
                             slot,
                             faction: 1,
-                            occupants: 0,
                         });
                     }
                     // Set hour_ticked so system doesn't early-return
@@ -861,7 +858,7 @@ fn populate_growable_buildings(app: &mut App, count: usize) {
         let y = 100.0 + (i / 224) as f32 * 32.0;
         let is_farm = i % 2 == 0;
         let kind = if is_farm { world::BuildingKind::Farm } else { world::BuildingKind::GoldMine };
-        let occupants: i16 = if i % 4 == 0 { 1 } else { 0 }; // 25% tended
+        let tended = i % 4 == 0; // 25% tended
         let entity = world.spawn((
             GpuSlot(slot),
             Position { x, y },
@@ -872,10 +869,10 @@ fn populate_growable_buildings(app: &mut App, count: usize) {
             ConstructionProgress(0.0),
             ProductionState { ready: false, progress: 0.0 },
         )).id();
-        building_entities.push((entity, slot, x, y, kind, occupants));
+        building_entities.push((entity, slot, x, y, kind, tended));
     }
     let mut em = world.resource_mut::<EntityMap>();
-    for &(entity, slot, x, y, kind, occupants) in &building_entities {
+    for &(entity, slot, x, y, kind, tended) in &building_entities {
         em.set_entity(slot, entity);
         em.add_instance(BuildingInstance {
             kind,
@@ -883,8 +880,10 @@ fn populate_growable_buildings(app: &mut App, count: usize) {
             town_idx: 0,
             slot,
             faction: 1,
-            occupants,
         });
+        if tended {
+            em.set_occupancy(slot, 1);
+        }
     }
 }
 
@@ -970,7 +969,6 @@ fn bench_construction_tick_system(c: &mut Criterion) {
                             town_idx: 0,
                             slot,
                             faction: 1,
-                            occupants: 0,
                         });
                     }
                 }

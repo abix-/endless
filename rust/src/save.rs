@@ -635,6 +635,7 @@ pub fn collect_save_data(
     world_data: &WorldData,
     entity_map: &EntityMap,
     game_time: &GameTime,
+    town_area_levels: &[i32],
     town_food: &[i32],
     town_gold: &[i32],
     building_hp: std::collections::HashMap<String, Vec<f32>>,
@@ -704,14 +705,14 @@ pub fn collect_save_data(
         building_data.insert(key.to_string(), serde_json::to_value(&placed).expect("building serialization"));
     }
 
-    // Town grids (legacy compat — area_level now lives in Town struct)
+    // Town grids — area_level from ECS TownAreaLevel component
     let town_grids_save: Vec<TownGridSave> = world_data
         .towns
         .iter()
         .enumerate()
-        .map(|(i, t)| TownGridSave {
+        .map(|(i, _t)| TownGridSave {
             town_data_idx: i,
-            area_level: t.area_level,
+            area_level: town_area_levels.get(i).copied().unwrap_or(0),
         })
         .collect();
 
@@ -967,6 +968,7 @@ pub fn read_save() -> Result<SaveData, String> {
 
 /// Town data extracted from save for ECS entity population.
 pub struct SavedTownData {
+    pub area_levels: Vec<i32>,
     pub food: Vec<i32>,
     pub gold: Vec<i32>,
     pub upgrades: Vec<Vec<u8>>,
@@ -1023,10 +1025,11 @@ pub fn apply_save(
         world_data.towns = serde_json::from_value(val.clone()).unwrap_or_default();
     }
 
-    // Migrate area_level from legacy town_grids into Town structs
+    // Collect area_levels from TownGridSave for ECS TownAreaLevel components
+    let mut saved_area_levels = vec![0i32; world_data.towns.len()];
     for tg in &save.town_grids {
-        if let Some(town) = world_data.towns.get_mut(tg.town_data_idx) {
-            town.area_level = town.area_level.max(tg.area_level);
+        if let Some(al) = saved_area_levels.get_mut(tg.town_data_idx) {
+            *al = (*al).max(tg.area_level);
         }
     }
     grid.init_town_buildable();
@@ -1204,6 +1207,7 @@ pub fn apply_save(
     }
 
     SavedTownData {
+        area_levels: saved_area_levels,
         food: saved_food,
         gold: saved_gold,
         upgrades: saved_upgrades,
@@ -1772,6 +1776,7 @@ pub fn save_game_system(
     let bld_state = collect_building_state_snapshot(&bld_component_q);
     // Collect town data from ECS entities
     let n_towns = ws.world_data.towns.len();
+    let town_area_levels: Vec<i32> = (0..n_towns).map(|i| ws.town_access.area_level(i as i32)).collect();
     let town_food: Vec<i32> = (0..n_towns).map(|i| ws.town_access.food(i as i32)).collect();
     let town_gold: Vec<i32> = (0..n_towns).map(|i| ws.town_access.gold(i as i32)).collect();
     let town_upgrades: Vec<Vec<u8>> = (0..n_towns).map(|i| ws.town_access.upgrade_levels(i as i32)).collect();
@@ -1782,6 +1787,7 @@ pub fn save_game_system(
         &ws.world_data,
         &entity_map,
         &ws.game_time,
+        &town_area_levels,
         &town_food,
         &town_gold,
         building_hp,
@@ -1880,6 +1886,7 @@ pub fn autosave_system(
     let building_hp = collect_building_hp(&building_query, &entity_map);
     let bld_state = collect_building_state_snapshot(&bld_component_q);
     let n_towns = ws.world_data.towns.len();
+    let town_area_levels: Vec<i32> = (0..n_towns).map(|i| ws.town_access.area_level(i as i32)).collect();
     let town_food: Vec<i32> = (0..n_towns).map(|i| ws.town_access.food(i as i32)).collect();
     let town_gold: Vec<i32> = (0..n_towns).map(|i| ws.town_access.gold(i as i32)).collect();
     let town_upgrades: Vec<Vec<u8>> = (0..n_towns).map(|i| ws.town_access.upgrade_levels(i as i32)).collect();
@@ -1890,6 +1897,7 @@ pub fn autosave_system(
         &ws.world_data,
         &entity_map,
         &ws.game_time,
+        &town_area_levels,
         &town_food,
         &town_gold,
         building_hp,
@@ -2056,6 +2064,7 @@ pub fn restore_world_from_save(
         commands,
         &mut ws.town_index,
         &ws.world_data.towns,
+        &town_data.area_levels,
         &town_data.food,
         &town_data.gold,
         &town_data.policies,
@@ -2082,7 +2091,7 @@ pub fn restore_world_from_save(
     restore_growth_from_save(save, entity_map, commands);
     ws.grid.init_pathfind_costs();
     ws.grid.sync_building_costs(entity_map);
-    ws.grid.sync_town_buildability(&ws.world_data.towns, entity_map);
+    ws.grid.sync_town_buildability(&ws.world_data.towns, &town_data.area_levels, entity_map);
 
     // Rebuild NPCs from save payload.
     spawn_npcs_from_save(

@@ -50,9 +50,9 @@ Static world data, immutable after initialization.
 | Resource | Data | Purpose |
 |----------|------|---------|
 | WorldData | towns: `Vec<Town>` | Town center positions, factions, names |
-| EntityMap (occupancy) | `BuildingInstance.occupants: i16` — slot-indexed worker count | Building assignment via EntityMap methods: claim(slot)/release(slot)/is_occupied(slot)/occupant_count(slot) |
+| EntityMap (occupancy) | `EntityMap.occupancy: DenseSlotMap<i16>` — slot-indexed worker count | Building assignment via EntityMap methods: claim(slot)/release(slot)/is_occupied(slot)/occupant_count(slot)/set_occupancy(slot, count) |
 | MineStates | `Vec<f32>` gold + `Vec<f32>` max_gold + `Vec<Vec2>` positions | Per-mine gold tracking |
-| EntityMap (building data) | `BuildingInstance` storage + 256px spatial grid + `DenseSlotMap<BuildingInstance>` cache indexes (by_kind, by_kind_town — direct `values()` iteration, zero HashMap indirection) + `DenseSlotSet` (spawner_slots) + by_grid_cell (all inside EntityMap) | Sole source of truth for building spatial index (no WorldData.buildings, no WorldCell.building); stores slim `BuildingInstance` (kind, position, town_idx, slot, faction, occupants — 6 fields); all gameplay state (production, spawner, tower, construction, waypoint order, wall level, miner config) lives in ECS components on building entities; methods: `add_instance`/`remove_instance`/`remove_by_slot`/`get_instance[_mut]`/`find_by_position`/`iter_kind`/`iter_kind_for_town`/`count_for_town`/`building_counts`/`gold_mine_index`/`for_each_nearby` (spatial)/`for_each_nearby_kind_town`/`for_each_nearby_kind`/`for_each_ring_kind_town`/`for_each_ring_kind`/`find_nearest_worksite`/`try_claim_worksite`/`iter_instances`/`has_building_at` (grid-coord presence check)/`get_at_grid` (grid-coord instance lookup)/`claim`/`release`/`occupant_count`/`is_occupied`/`slot_at_position`; entity lookup via `entities.get(&slot)` (unified); `slot` is the sole runtime identity |
+| EntityMap (building data) | `BuildingInstance` storage + 256px spatial grid + `DenseSlotMap<BuildingInstance>` cache indexes (by_kind, by_kind_town — direct `values()` iteration, zero HashMap indirection) + `DenseSlotSet` (spawner_slots) + by_grid_cell (all inside EntityMap) | Sole source of truth for building spatial index (no WorldData.buildings, no WorldCell.building); stores slim `BuildingInstance` (kind, position, town_idx, slot, faction — 5 identity fields); occupancy tracked separately in `EntityMap.occupancy`; all gameplay state (production, spawner, tower, construction, waypoint order, wall level, miner config, occupancy) lives outside the index struct; methods: `add_instance`/`remove_instance`/`remove_by_slot`/`get_instance[_mut]`/`find_by_position`/`iter_kind`/`iter_kind_for_town`/`count_for_town`/`building_counts`/`gold_mine_index`/`for_each_nearby` (spatial)/`for_each_nearby_kind_town`/`for_each_nearby_kind`/`for_each_ring_kind_town`/`for_each_ring_kind`/`find_nearest_worksite`/`try_claim_worksite`/`iter_instances`/`has_building_at` (grid-coord presence check)/`get_at_grid` (grid-coord instance lookup)/`claim`/`release`/`occupant_count`/`is_occupied`/`slot_at_position`; entity lookup via `entities.get(&slot)` (unified); `slot` is the sole runtime identity |
 | Dirty signaling | Concern-specific Bevy messages | `BuildingGridDirtyMsg`, `PatrolsDirtyMsg`, `PatrolPerimeterDirtyMsg`, `HealingZonesDirtyMsg`, `SquadsDirtyMsg`, `MiningDirtyMsg`, `PatrolSwapMsg`; `DirtyWriters<'w>` bundles writers and `emit_all()` covers startup/reset. See [messages.md](messages.md#dirty-signal-messages). |
 | BuildingHealState | `needs_healing: bool` | Persistent flag (not a message): set by `building_damage_system` on hits, cleared by `healing_system` when no damaged buildings remain |
 | ActiveHealingSlots | `slots: Vec<usize>`, `mark: Vec<u8>` (sized to MAX_ENTITIES) | Tracks NPC slots currently in healing zones. Sustain-check iterates only these. `mark[slot]` = O(1) membership. Reset on load/cleanup. |
@@ -63,7 +63,7 @@ Static world data, immutable after initialization.
 
 | Struct | Fields |
 |--------|--------|
-| Town | name, center (Vec2), faction (i32: 0=Neutral, 1=Player, 2+=AI), sprite_type (0=fountain, 1=tent) |
+| Town | name, center (Vec2), faction (i32: 0=Neutral, 1=Player, 2+=AI), kind (TownKind) — 4 identity fields, no gameplay state |
 
 `WorldData` contains only towns. All building instance data lives in `EntityMap` (building fields) — there is no `buildings` BTreeMap. `PlacedBuilding` remains in `save.rs` for backward-compatible deserialization of legacy save files.
 
@@ -88,18 +88,17 @@ Spatial queries (`find_nearest_location`, `find_location_within_radius`, `find_n
 
 ### Town Building Grid
 
-Per-town slot tracking for the building system. Each town (villager and raider) has a `TownGrid` with an `area_level: i32` controlling the buildable radius and a `town_data_idx` linking to its `WorldData.towns` entry. Initial base grid is 6x6, expandable via `expand_town_build_area()` which increments `area_level` (max 50x50 extent).
+Per-town building area tracking. Each town's buildable radius is controlled by `TownAreaLevel` ECS component (accessed via `TownAccess.area_level(town_idx)`). Initial base grid is 6x6, expandable via `expand_town_build_area()` which increments the area level (max 50x50 extent).
 
 All coordinates use the **world grid** — `(col, row)` as `(usize, usize)` where each cell = 32px. `WorldGrid::world_to_grid(pos)` converts pixel position to grid coords, `WorldGrid::grid_to_world(col, row)` converts back. No town-relative coordinate system exists.
 
 | Struct | Fields |
 |--------|--------|
-| TownGrid | town_data_idx: usize, area_level: i32 |
-| TownGrids | grids: `Vec<TownGrid>` (one per town — villager + raider) |
+| TownAreaLevel | ECS component `i32` per town entity — via `TownAccess.area_level()` / `set_area_level()` |
 | BuildMenuContext | town_data_idx: `Option<usize>`, selected_build: `Option<BuildingKind>`, destroy_mode: bool, drag_start_slot/drag_current_slot: `Option<(usize, usize)>` (world grid), ghost_sprites: `HashMap<BuildingKind, Handle<Image>>` |
 | DestroyRequest | `Option<(usize, usize)>` — (col, row) world grid, set by inspector, processed by `process_destroy_system` |
 
-Coordinate helpers: `build_bounds(area_level, center, grid) -> (min_col, max_col, min_row, max_row)` returns world grid bounds, `empty_slots(tg, center, grid, building_map)` returns `Vec<(usize, usize)>` of buildable world grid positions.
+Coordinate helpers: `build_bounds(area_level, center, grid) -> (min_col, max_col, min_row, max_row)` returns world grid bounds, `empty_slots(town_idx, center, grid, building_map)` returns `Vec<(usize, usize)>` of buildable world grid positions.
 
 Building placement: `place_building()` is the single entry point for all runtime building placement (player UI and AI, town-grid and wilderness). Takes `world_pos`, validates cell (exists, empty, not water), rejects foreign territory, deducts food, places on WorldGrid, creates `BuildingInstance` in `EntityMap`, auto-assigns waypoint `patrol_order`, pushes FarmStates for farms, registers spawner, spawns building entity (with `Building` marker + `Health` + `NpcIndex` + `Faction` + `TownId`), allocates building GPU slot, and marks DirtyFlags. `destroy_building()` shared helper consolidates all destroy side effects: spawner tombstone + combat log + wall auto-tile neighbor update — used by click-destroy, inspector-destroy, and waypoint pruning; callers send lethal DamageMsg for entity death. `is_alive(pos)` checks tombstone status (single source of truth for `pos.x > -9000.0`). `empty_slots(tg, center, grid, building_map)` scans a town grid for buildable cells using `EntityMap::has_building_at()` for occupancy checks. Fountains and gold mines cannot be destroyed.
 
@@ -144,8 +143,9 @@ Town economic state (food, gold, policies, upgrades, equipment) lives on ECS tow
 | `upgrade_levels(idx)` / `upgrade_level(idx, i)` | `Vec<u8>` / `u8` | No |
 | `upgrades_mut(idx)` | `Option<Mut<TownUpgradeLevel>>` | Yes |
 | `equipment(idx)` / `equipment_mut(idx)` | `Option<Vec<LootItem>>` / `Option<Mut<TownEquipment>>` | No / Yes |
+| `area_level(idx)` / `set_area_level(idx, val)` | `i32` / — | No / Yes |
 
-Town entities are spawned in world gen and save/load with: `TownMarker`, `FoodStore(0)`, `GoldStore(0)`, `TownPolicy(default)`, `TownUpgradeLevel::default()`, `TownEquipment::default()`.
+Town entities are spawned in world gen and save/load with: `TownMarker`, `TownAreaLevel(al)`, `FoodStore(0)`, `GoldStore(0)`, `TownPolicy(default)`, `TownUpgradeLevel::default()`, `TownEquipment::default()`.
 
 ## Raider Towns
 
@@ -340,7 +340,7 @@ Both unlock slots when full (sets terrain to Dirt) and buy upgrades with surplus
 |----------|------|---------|---------|
 | MigrationState | `active: Option<MigrationGroup>`, `check_timer: f32` | migration_spawn_system, migration_settle_system | migration_attach_system, migration_settle_system, save/load |
 
-`MigrationGroup` fields: `town_data_idx` (index into WorldData.towns for the raider town-to-be), `grid_idx` (TownGrids index), `member_slots: Vec<usize>` (NPC slot indices of migrating raiders), `boat_slot: Option<usize>` (NPC GPU slot for boat entity), `boat_pos: Vec2` (current boat position), `settle_target: Vec2` (destination chosen by `pick_settle_site`), `faction: i32`.
+`MigrationGroup` fields: `town_data_idx: Option<usize>` (set at settle — index into WorldData.towns), `member_slots: Vec<usize>` (NPC slot indices of migrating raiders), `boat_slot: Option<usize>` (NPC GPU slot for boat entity), `boat_pos: Vec2` (current boat position), `settle_target: Vec2` (destination chosen by `pick_settle_site`), `faction: i32`, `is_raider: bool`, `upgrade_levels: Vec<u8>`, `starting_food/starting_gold: i32`.
 
 `NpcFlags.migrating: bool` flag on NPCs that are part of an active migration group. Set via ECS query in `endless_system` (attach phase), cleared on settlement. Persisted in save via `MigrationSave.member_slots` and re-set on load.
 

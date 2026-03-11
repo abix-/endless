@@ -98,7 +98,6 @@ impl TestSetupParams<'_, '_> {
             center: Vec2::new(384.0, 384.0),
             faction: crate::constants::FACTION_PLAYER,
             kind: crate::constants::TownKind::Player,
-            area_level: 0,
         });
     }
 

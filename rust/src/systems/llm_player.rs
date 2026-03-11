@@ -237,6 +237,7 @@ fn build_state_json(read: &LlmReadState, write: &mut LlmWriteState, town_access:
     if all_empty.len() <= 3 {
         let interior = crate::world::find_interior_roads(
             town_idx, &read.world_grid, &read.entity_map, &read.world_data.towns,
+            town_access.area_level(town_idx as i32),
         );
         if !interior.is_empty() {
             let roads: Vec<Value> = interior.iter()

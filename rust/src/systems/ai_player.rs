@@ -839,12 +839,13 @@ fn build_town_snapshot(
     entity_map: &EntityMap,
     grid: &WorldGrid,
     town_data_idx: usize,
+    town_area_level: i32,
     personality: AiPersonality,
     road_style: RoadStyle,
 ) -> Option<AiTownSnapshot> {
     let town = world_data.towns.get(town_data_idx)?;
     let center = town.center;
-    let area_level = town.area_level;
+    let area_level = town_area_level;
     let ti = town_data_idx as u32;
 
     let (cc, cr) = grid.world_to_grid(center);
@@ -1167,6 +1168,7 @@ fn sync_town_perimeter_waypoints(
     damage_writer: &mut MessageWriter<crate::messages::DamageMsg>,
     game_time: &GameTime,
     town_data_idx: usize,
+    town_area_level: i32,
     personality: AiPersonality,
     road_style: RoadStyle,
     waypoint_q: &mut Query<&mut WaypointOrder, With<Building>>,
@@ -1177,7 +1179,7 @@ fn sync_town_perimeter_waypoints(
         return 0;
     };
     let center = town.center;
-    let area_level = town.area_level;
+    let area_level = town_area_level;
     let ti = town_data_idx as u32;
     let ideal_slots = personality.waypoint_ring_slots(area_level, center, &world.grid, road_style);
     if ideal_slots.is_empty() {
@@ -1262,6 +1264,7 @@ pub fn sync_patrol_perimeter_system(
     game_time: Res<GameTime>,
     mut perimeter_dirty: ResMut<PerimeterSyncDirty>,
     mut waypoint_q: Query<&mut WaypointOrder, With<Building>>,
+    town_access: crate::systemparams::TownAccess,
 ) {
     // Flag-gated system: only runs when perimeter_dirty_drain_system detected dirty messages.
     if !perimeter_dirty.0 {
@@ -1285,6 +1288,7 @@ pub fn sync_patrol_perimeter_system(
             &mut damage_writer,
             &game_time,
             town_idx,
+            town_access.area_level(town_idx as i32),
             personality,
             road_style,
             &mut waypoint_q,
@@ -1358,10 +1362,11 @@ impl TownContext {
         res: &AiBuildRes,
         kind: AiKind,
         mining_radius: f32,
+        town_area_level: i32,
     ) -> Option<Self> {
         let town = res.world.world_data.towns.get(tdi)?;
         let center = snapshot.map(|s| s.center).unwrap_or(town.center);
-        let area_level = town.area_level;
+        let area_level = town_area_level;
         let ti = tdi as u32;
         let empty_count = snapshot
             .map(|s| s.empty_slots.len())
@@ -1454,6 +1459,7 @@ pub fn ai_decision_system(
                 &res.world.entity_map,
                 &res.world.grid,
                 tdi,
+                town_access.area_level(tdi as i32),
                 personality,
                 road_style,
             ) {
@@ -1482,6 +1488,7 @@ pub fn ai_decision_system(
             &res,
             kind,
             mining_radius,
+            town_access.area_level(tdi as i32),
         ) else {
             continue;
         };
@@ -2644,7 +2651,7 @@ fn pick_raider_farm_target(
     let mut best_d2 = f32::MAX;
     let mut result: Option<(BuildingKind, Entity, Vec2)> = None;
     let r2 = AI_ATTACK_SEARCH_RADIUS * AI_ATTACK_SEARCH_RADIUS;
-    entity_map.for_each_nearby_kind(center, AI_ATTACK_SEARCH_RADIUS, BuildingKind::Farm, |inst| {
+    entity_map.for_each_nearby_kind(center, AI_ATTACK_SEARCH_RADIUS, BuildingKind::Farm, |inst, _| {
         if inst.faction == faction || inst.faction == crate::constants::FACTION_NEUTRAL {
             return;
         }
@@ -2679,7 +2686,7 @@ fn pick_ai_target_unclaimed(
         let mut result: Option<(BuildingKind, Entity, Vec2)> = None;
         let r2 = AI_ATTACK_SEARCH_RADIUS * AI_ATTACK_SEARCH_RADIUS;
         for &kind in allowed_kinds {
-            entity_map.for_each_nearby_kind(center, AI_ATTACK_SEARCH_RADIUS, kind, |inst| {
+            entity_map.for_each_nearby_kind(center, AI_ATTACK_SEARCH_RADIUS, kind, |inst, _| {
                 if inst.faction == faction || inst.faction == crate::constants::FACTION_NEUTRAL { return; }
                 let Some(&uid) = entity_map.entities.get(&inst.slot) else { return; };
                 if claimed.contains(&uid) { return; }

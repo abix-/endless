@@ -28,7 +28,6 @@ pub fn setup(mut params: TestSetupParams) {
         center: Vec2::new(384.0, 128.0),
         faction: 2,
         kind: crate::constants::TownKind::AiRaider,
-    area_level: 0,
     });
 
     // 5 farms near town 0 (pre-grown so farmers can harvest)

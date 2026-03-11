@@ -83,9 +83,9 @@ pub fn tick(
             .and_then(|&e| spawner_q.get(e).ok())
             .is_some_and(|s| s.npc_slot.is_some())
     }).count();
-    let occupied_farms = farms.iter().filter(|f| f.occupants == 1).count();
-    let overbooked_farms = farms.iter().filter(|f| f.occupants > 1).count();
-    let total_occupants: i32 = farms.iter().map(|f| f.occupants as i32).sum();
+    let occupied_farms = farms.iter().filter(|f| entity_map.occupant_count(f.slot) == 1).count();
+    let overbooked_farms = farms.iter().filter(|f| entity_map.occupant_count(f.slot) > 1).count();
+    let total_occupants: i32 = farms.iter().map(|f| entity_map.occupant_count(f.slot)).sum();
 
     let going_work = entity_map
         .iter_npcs()

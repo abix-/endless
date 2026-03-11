@@ -31,7 +31,7 @@ use bevy::{
 };
 use std::borrow::Cow;
 
-use crate::components::{Building, Dead, Faction, GpuSlot, Job, ActivityKind};
+use crate::components::{Building, Dead, Faction, GpuSlot, Job};
 use crate::constants::{
     FOOD_SPRITE, GOLD_SPRITE, MAX_ENTITIES, MAX_NPC_COUNT,
     MAX_PROJECTILES as MAX_PROJECTILE_COUNT, PROJECTILE_HIT_HALF_LENGTH, PROJECTILE_HIT_HALF_WIDTH,
@@ -485,7 +485,7 @@ fn write_npc_visual(
 
     // Layer 5: Status (sleep icon)
     let at_dest = npc_flags_q.get(entity).is_ok_and(|f| f.at_destination);
-    let (sc, sr, sa) = if npc_activity.is_some_and(|a| a.kind == ActivityKind::Rest) && at_dest {
+    let (sc, sr, sa) = if npc_activity.is_some_and(|a| a.kind.def().sleep_visual) && at_dest {
         (0.0, 0.0, 3.0)
     } else {
         (-1.0, 0.0, 0.0)

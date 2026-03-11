@@ -78,9 +78,6 @@ pub struct Town {
     /// Town type identity (Player, AiBuilder, AiRaider).
     #[serde(default = "default_town_kind")]
     pub kind: crate::constants::TownKind,
-    /// Build area expansion level. 0 = base 8x8, each level adds 1 ring.
-    #[serde(default)]
-    pub area_level: i32,
 }
 
 fn default_town_kind() -> crate::constants::TownKind {
@@ -235,10 +232,11 @@ pub fn find_interior_roads(
     grid: &WorldGrid,
     entity_map: &crate::resources::EntityMap,
     towns: &[Town],
+    area_level: i32,
 ) -> Vec<(usize, usize)> {
     let Some(town) = towns.get(town_idx) else { return Vec::new() };
     let ti = town_idx as u32;
-    let (min_c, max_c, min_r, max_r) = build_bounds(town.area_level, town.center, grid);
+    let (min_c, max_c, min_r, max_r) = build_bounds(area_level, town.center, grid);
     let w = grid.width;
     let h = grid.height;
 
@@ -660,14 +658,13 @@ pub fn place_building(
         return Err("no GPU slots available");
     };
 
-    // Create BuildingInstance (identity + occupancy only)
+    // Create BuildingInstance (identity only — occupancy tracked separately in EntityMap)
     entity_map.add_instance(crate::resources::BuildingInstance {
         kind,
         position: snapped,
         town_idx,
         slot,
         faction,
-        occupants: 0,
     });
     // Construction: runtime placement sets timer, load/init skips it
     let under_construction = if ctx.is_some() {
@@ -822,24 +819,24 @@ pub fn setup_world(
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
 ) -> Vec<crate::systems::AiPlayer> {
     entity_map.clear_buildings();
-    generate_world(
+    let area_levels = generate_world(
         config, grid, world_data, faction_list, slot_alloc, entity_map,
         commands, gpu_updates,
     );
     entity_map.init_spatial(grid.width as f32 * grid.cell_size);
     grid.init_pathfind_costs();
     grid.sync_building_costs(entity_map);
-    grid.sync_town_buildability(&world_data.towns, entity_map);
+    grid.sync_town_buildability(&world_data.towns, &area_levels, entity_map);
 
     let n_factions = faction_list.factions.len();
     faction_stats.init(n_factions);
     reputation.init(n_factions);
     raider_state.init(world_data.towns.len(), 10);
 
-    // Spawn ECS town entities with defaults (world gen starts at 0)
+    // Spawn ECS town entities with area_levels from world gen
     spawn_town_entities(
         commands, town_index, &world_data.towns,
-        &[], &[],
+        &area_levels, &[], &[],
         &[], &[], &[],
     );
 
@@ -849,9 +846,10 @@ pub fn setup_world(
 /// Expand one town's buildable area by one ring and convert new ring terrain to Dirt.
 pub fn expand_town_build_area(
     grid: &mut WorldGrid,
-    towns: &mut [Town],
-    entity_map: &EntityMap,
+    towns: &[Town],
+    _entity_map: &EntityMap,
     town_idx: usize,
+    area_level: &mut i32,
 ) -> Result<(), &'static str> {
     let Some(town) = towns.get(town_idx) else {
         return Err("invalid town index");
@@ -859,10 +857,10 @@ pub fn expand_town_build_area(
     let center = town.center;
 
     let (old_min_c, old_max_c, old_min_r, old_max_r) =
-        build_bounds(town.area_level, center, grid);
-    towns[town_idx].area_level += 1;
+        build_bounds(*area_level, center, grid);
+    *area_level += 1;
     let (new_min_c, new_max_c, new_min_r, new_max_r) =
-        build_bounds(towns[town_idx].area_level, center, grid);
+        build_bounds(*area_level, center, grid);
 
     for row in new_min_r..=new_max_r {
         for col in new_min_c..=new_max_c {
@@ -879,7 +877,6 @@ pub fn expand_town_build_area(
         }
     }
 
-    grid.sync_town_buildability(towns, entity_map);
     Ok(())
 }
 
@@ -963,7 +960,7 @@ pub fn find_location_within_radius(
     let r2 = radius * radius;
     let mut best_d2 = f32::MAX;
     let mut result: Option<(usize, Vec2)> = None;
-    entity_map.for_each_nearby_kind(from, radius, bkind, |inst| {
+    entity_map.for_each_nearby_kind(from, radius, bkind, |inst, _| {
         let dx = inst.position.x - from.x;
         let dy = inst.position.y - from.y;
         let d2 = dx * dx + dy * dy;
@@ -1015,8 +1012,8 @@ pub fn find_nearest_free(
         {
             let r = &mut result;
             let bd2 = &mut best_d2;
-            let mut check = |inst: &crate::resources::BuildingInstance| {
-                if inst.occupants >= 1 {
+            let mut check = |inst: &crate::resources::BuildingInstance, occ: i16| {
+                if occ >= 1 {
                     return;
                 }
                 let dx = inst.position.x - from.x;
@@ -1053,7 +1050,7 @@ pub fn find_within_radius(
     let r2 = radius * radius;
     let mut best_d2 = f32::MAX;
     let mut result: Option<(usize, Vec2)> = None;
-    entity_map.for_each_nearby_kind_town(from, radius, kind, town_idx, |inst| {
+    entity_map.for_each_nearby_kind_town(from, radius, kind, town_idx, |inst, _| {
         let dx = inst.position.x - from.x;
         let dy = inst.position.y - from.y;
         let d2 = dx * dx + dy * dy;
@@ -1732,6 +1729,7 @@ impl WorldGrid {
     pub fn sync_town_buildability(
         &mut self,
         towns: &[Town],
+        area_levels: &[i32],
         entity_map: &crate::resources::EntityMap,
     ) {
         self.clear_town_buildable();
@@ -1754,10 +1752,11 @@ impl WorldGrid {
             let min_col_cap = -cc;
             let max_col_cap = w as i32 - 1 - cc;
 
-            let min_row = (BASE_GRID_MIN - town.area_level).max(min_row_cap);
-            let max_row = (BASE_GRID_MAX + town.area_level).min(max_row_cap);
-            let min_col = (BASE_GRID_MIN - town.area_level).max(min_col_cap);
-            let max_col = (BASE_GRID_MAX + town.area_level).min(max_col_cap);
+            let al = area_levels.get(ti).copied().unwrap_or(0);
+            let min_row = (BASE_GRID_MIN - al).max(min_row_cap);
+            let max_row = (BASE_GRID_MAX + al).min(max_row_cap);
+            let min_col = (BASE_GRID_MIN - al).max(min_col_cap);
+            let max_col = (BASE_GRID_MAX + al).min(max_col_cap);
 
             for r in min_row..=max_row {
                 let gr = (cr + r) as usize;
@@ -1903,10 +1902,11 @@ pub fn generate_world(
 
     commands: &mut Commands,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
-) {
+) -> Vec<i32> {
     use crate::resources::{FactionData, FactionKind};
     use rand::Rng;
     let mut rng = rand::rng();
+    let mut area_levels: Vec<i32> = Vec::new();
 
     // Faction 0 = Neutral (gold mines, world objects)
     faction_list.factions.clear();
@@ -2000,12 +2000,14 @@ pub fn generate_world(
                 center,
                 faction,
                 kind: town_def.kind,
-                area_level: 0,
             });
+            let mut area_level = 0i32;
             place_buildings(
                 grid, world_data, center, town_data_idx as u32, config,
                 town_def.kind, slot_alloc, entity_map, commands, gpu_updates,
+                &mut area_level,
             );
+            area_levels.push(area_level);
         }
     }
 
@@ -2070,6 +2072,7 @@ pub fn generate_world(
         h,
         if is_continents { "continents" } else { "classic" },
     );
+    area_levels
 }
 
 /// Spawn ECS town entities for all towns in `world_data.towns`.
@@ -2079,6 +2082,7 @@ pub fn spawn_town_entities(
     commands: &mut Commands,
     town_index: &mut crate::resources::TownIndex,
     towns: &[Town],
+    area_levels: &[i32],
     food: &[i32],
     gold: &[i32],
     policies: &[crate::resources::PolicySet],
@@ -2091,6 +2095,7 @@ pub fn spawn_town_entities(
     let upgrade_count = crate::systems::stats::upgrade_count();
 
     for (idx, _town) in towns.iter().enumerate() {
+        let al = area_levels.get(idx).copied().unwrap_or(0);
         let f = food.get(idx).copied().unwrap_or(0);
         let g = gold.get(idx).copied().unwrap_or(0);
         let p = policies.get(idx).cloned().unwrap_or_default();
@@ -2099,6 +2104,7 @@ pub fn spawn_town_entities(
 
         let entity = commands.spawn((
             TownMarker,
+            TownAreaLevel(al),
             FoodStore(f),
             GoldStore(g),
             TownPolicy(p),
@@ -2124,6 +2130,7 @@ pub fn place_buildings(
 
     commands: &mut Commands,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
+    area_level: &mut i32,
 ) {
     let is_raider = town_def(town_kind).is_raider;
     let mut occupied = HashSet::new();
@@ -2227,9 +2234,7 @@ pub fn place_buildings(
         let col_need = (BASE_GRID_MIN - col).max(col - BASE_GRID_MAX).max(0);
         acc.max(row_need).max(col_need)
     });
-    if let Some(town) = world_data.towns.get_mut(town_idx as usize) {
-        town.area_level = town.area_level.max(required);
-    }
+    *area_level = (*area_level).max(required);
 }
 
 /// Generate `count` grid positions in a spiral pattern outward from (0,0), skipping occupied cells.

@@ -94,7 +94,7 @@ process_upgrades_system()   ← re-reconcile — upgrade purchased → re-resolv
 
 Key rule: the registry Def is the **source of truth** for base values (spec). Systems derive runtime state (status) from `Def × upgrades × equipment × level × personality`. If a base stat changes in the registry, all entities pick it up on next reconcile.
 
-## Building Example (95%)
+## Building Example (100%)
 
 Same pattern, different shape:
 
@@ -102,7 +102,7 @@ Same pattern, different shape:
 |-------|-------------|---------------|
 | **CRD** | Schema | `BuildingDef` struct — cost, hp, tile, tower_stats, spawner config |
 | **etcd** | Storage | `BUILDING_REGISTRY` array + `building_def(kind)` lookup |
-| **CR** | Instance | Slim `BuildingInstance` (6 fields) + ECS components: `ProductionState`, `TowerBuildingState`, `SpawnerState`, `ConstructionProgress`, `WaypointOrder`, `WallLevel`, `MinerHomeConfig` |
+| **CR** | Instance | Slim `BuildingInstance` (5 fields: kind, position, town_idx, slot, faction) + ECS components: `ProductionState`, `TowerBuildingState`, `SpawnerState`, `ConstructionProgress`, `WaypointOrder`, `WallLevel`, `MinerHomeConfig`. Occupancy tracked separately in `EntityMap.occupancy` |
 | **Controller** | Reconcile | `place_building()` reads BuildingDef → spawns entity + components. `BuildingOverrides` for initial config |
 
 ## 100% Compliance Checklist
@@ -116,14 +116,14 @@ An entity type is fully compliant when:
 - [x] **Controller:** Systems read Def at spawn/reconcile time, never cache Def fields on instances
 - [x] **Extensibility:** Adding a new variant = 1 enum variant + 1 registry entry
 
-NPCs and Buildings both satisfy all six. Use them as the reference when bringing other entity types to compliance.
+Buildings satisfy all six. Use Buildings as the reference when bringing other entity types to compliance.
 
 ## Current Compliance
 
 | Entity | CRD (schema) | etcd (registry) | CR (instance) | Controller | Score |
 |--------|-------------|-----------------|---------------|------------|-------|
 | NPCs | `NpcDef` | `NPC_REGISTRY` | ECS components (NpcStats, CachedStats, etc.) | `resolve_combat_stats`, `process_upgrades_system` | 95% |
-| Buildings | `BuildingDef` | `BUILDING_REGISTRY` | Slim `BuildingInstance` + ECS components | `place_building` | 95% |
-| Activities | `ActivityDef` | `ACTIVITY_REGISTRY` | Fieldless `ActivityKind` + `Activity` struct | `def()` lookups | 90% |
-| Towns | `TownDef` | `TOWN_REGISTRY` | ECS components via `TownAccess` SystemParam | spawn + economy systems | 80% |
+| Buildings | `BuildingDef` | `BUILDING_REGISTRY` | Slim `BuildingInstance` (5-field identity) + ECS components | `place_building` | 100% |
+| Activities | `ActivityDef` | `ACTIVITY_REGISTRY` | Fieldless `ActivityKind` + `Activity` struct | `def()` lookups | 100% |
+| Towns | `TownDef` | `TOWN_REGISTRY` | Slim 4-field index + ECS components via `TownAccess` SystemParam | spawn + economy systems | 100% |
 | Items | `ItemDef` | `ITEM_REGISTRY` + `item_def(kind)` | `LootItem` + `NpcEquipment` | `roll_loot_item()` reads `item_def()` | 85% |

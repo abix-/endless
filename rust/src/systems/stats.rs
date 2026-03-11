@@ -845,11 +845,22 @@ pub fn process_upgrades_system(
         }
 
         if node.triggers_expansion {
+            let mut al = economy.towns.area_level(town_idx as i32);
             let _ = crate::world::expand_town_build_area(
                 &mut world_state.grid,
-                &mut world_state.world_data.towns,
+                &world_state.world_data.towns,
                 &world_state.entity_map,
                 town_idx,
+                &mut al,
+            );
+            economy.towns.set_area_level(town_idx as i32, al);
+            // Rebuild buildability with updated area levels
+            let n = world_state.world_data.towns.len();
+            let area_levels: Vec<i32> = (0..n)
+                .map(|i| economy.towns.area_level(i as i32))
+                .collect();
+            world_state.grid.sync_town_buildability(
+                &world_state.world_data.towns, &area_levels, &world_state.entity_map,
             );
             world_state
                 .dirty_writers
@@ -1741,7 +1752,6 @@ mod tests {
             town_idx: 0,
             slot,
             faction: 0,
-            occupants: 0,
         };
         app.world_mut()
             .resource_mut::<crate::resources::EntityMap>()

@@ -750,7 +750,6 @@ fn create_ai_town(
         center,
         faction: next_faction,
         kind: town_kind,
-        area_level: 0,
     });
     let town_data_idx = world_data.towns.len() - 1;
 
@@ -798,6 +797,7 @@ fn create_ai_town(
     // Spawn ECS town entity
     let entity = commands.spawn((
         crate::components::TownMarker,
+        crate::components::TownAreaLevel(0),
         crate::components::FoodStore(0),
         crate::components::GoldStore(0),
         crate::components::TownPolicy(policy),
@@ -1097,6 +1097,7 @@ pub fn endless_system(
         }
 
         // Place buildings directly into EntityMap
+        let mut area_level = 0i32;
         world::place_buildings(
             &mut world_state.grid,
             &mut world_state.world_data,
@@ -1108,7 +1109,11 @@ pub fn endless_system(
             &mut world_state.entity_map,
             &mut commands,
             &mut res.gpu_updates,
+            &mut area_level,
         );
+        if let Some(&entity) = res.town_index.0.get(&(town_data_idx as i32)) {
+            commands.entity(entity).insert(crate::components::TownAreaLevel(area_level));
+        }
         world::stamp_dirt(&mut world_state.grid, &[mg.settle_target]);
 
         // Activate AI

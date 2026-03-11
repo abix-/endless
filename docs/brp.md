@@ -364,7 +364,7 @@ Deep-inspect entities by Entity bits (u64) or resources by kind+index. Returns f
 
 **Squad returns:** squad_index, members (with uid/name/job/activity/hp/energy), target, patrol_enabled, rest_when_tired, wave settings, owner, hold_fire.
 
-**Town returns:** town_index, name, faction, center, area_level, food, gold, npcs (job counts), buildings (kind counts), squads, policy, faction_stats.
+**Town returns:** town_index, name, faction, center, area_level (from `TownAreaLevel` ECS component), food, gold, npcs (job counts), buildings (kind counts), squads, policy, faction_stats.
 
 **Policy returns:** town_index, town_name, all policy fields.
 

@@ -153,8 +153,8 @@ pub(crate) fn find_farm_target(
         town_idx,
         WorksiteFallback::TownOnly,
         6400.0,
-        |inst| {
-            if inst.occupants as i32 >= max_occ {
+        |inst, occ| {
+            if occ as i32 >= max_occ {
                 return None;
             }
             let (ready, progress) = production_map.get(&inst.slot).copied().unwrap_or((false, 0.0));
@@ -179,11 +179,11 @@ fn find_mine_target(
         town_idx,
         WorksiteFallback::AnyTown,
         6400.0,
-        |inst| {
+        |inst, occ| {
             let (ready, _) = production_map.get(&inst.slot).copied().unwrap_or((false, 0.0));
             let priority = if ready {
                 0u8
-            } else if inst.occupants == 0 {
+            } else if occ == 0 {
                 1
             } else {
                 2

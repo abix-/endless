@@ -2238,6 +2238,7 @@ fn draw_slot_indicators(
     mut meshes: ResMut<Assets<Mesh>>,
     mut color_materials: ResMut<Assets<ColorMaterial>>,
     mut cache: Local<SlotIndicatorCache>,
+    town_access: crate::systemparams::TownAccess,
 ) {
     // Only rebuild when grid state changes or build selection changes
     if !grid.is_changed() && !build_ctx.is_changed() {
@@ -2260,7 +2261,7 @@ fn draw_slot_indicators(
         return;
     };
     let center = town.center;
-    let area_level = town.area_level;
+    let area_level = town_access.area_level(town_data_idx as i32);
 
     let cell = crate::constants::TOWN_GRID_SPACING;
     // Keep indicators just above terrain (-1.0) so they remain visible when terrain sprites are enabled.

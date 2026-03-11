@@ -94,7 +94,7 @@ impl DenseSlotSet {
 
 /// Lightweight building index entry in EntityMap. All gameplay state lives on ECS components.
 /// Provides slot↔Entity mapping and identity fields for fast iteration/spatial queries.
-/// Parallel to NpcEntry: identity + occupancy only, no gameplay state.
+/// Pure identity + spatial — no gameplay state. Occupancy tracked separately in EntityMap.occupancy.
 #[derive(Clone)]
 pub struct BuildingInstance {
     pub kind: crate::world::BuildingKind,
@@ -102,7 +102,6 @@ pub struct BuildingInstance {
     pub town_idx: u32,
     pub slot: usize,
     pub faction: i32,
-    pub occupants: i16, // worksite claim counter (managed by try_claim_worksite/release)
 }
 
 
@@ -137,6 +136,9 @@ pub struct EntityMap {
     by_kind_town: HashMap<(crate::world::BuildingKind, u32), DenseSlotMap<BuildingInstance>>,
     by_grid_cell: HashMap<(i32, i32), usize>,
     spawner_slots: DenseSlotSet,
+    /// Worksite occupant counts — slot→i16, managed by try_claim_worksite/release.
+    /// Separated from BuildingInstance to keep the index struct gameplay-free.
+    pub(crate) occupancy: DenseSlotMap<i16>,
 
     // NPC-specific data (index-only — gameplay state on ECS components)
     npcs: HashMap<usize, NpcEntry>,
@@ -261,6 +263,7 @@ impl EntityMap {
         let is_spawner = crate::constants::building_def(inst.kind).spawner.is_some();
         let pos = inst.position;
         self.instances.insert(slot, inst);
+        self.occupancy.insert(slot, 0);
         self.spatial_insert(slot, pos);
         if is_spawner {
             self.spawner_slots.insert(slot);
@@ -281,6 +284,7 @@ impl EntityMap {
             self.by_grid_cell.remove(&(gc, gr));
             self.spatial_remove(slot, inst.position);
             self.spawner_slots.remove(slot);
+            self.occupancy.remove(slot);
             self.worksite_claim_queue.remove(&slot);
             Some(inst)
         } else {
@@ -403,8 +407,8 @@ impl EntityMap {
     }
 
     pub fn release_for(&mut self, slot: usize, claimer: Option<Entity>) {
-        if let Some(inst) = self.instances.get_mut(slot) {
-            inst.occupants = inst.occupants.saturating_sub(1);
+        if let Some(occ) = self.occupancy.get_mut(slot) {
+            *occ = occ.saturating_sub(1);
             if let Some(claimer_entity) = claimer {
                 if let Some(queue) = self.worksite_claim_queue.get_mut(&slot) {
                     if let Some(pos) = queue.iter().position(|&u| u == claimer_entity) {
@@ -414,7 +418,7 @@ impl EntityMap {
                         self.worksite_claim_queue.remove(&slot);
                     }
                 }
-            } else if inst.occupants <= 0 {
+            } else if *occ <= 0 {
                 self.worksite_claim_queue.remove(&slot);
             }
         } else {
@@ -423,11 +427,17 @@ impl EntityMap {
     }
 
     pub fn occupant_count(&self, slot: usize) -> i32 {
-        self.instances.get(slot).map_or(0, |i| i.occupants as i32)
+        self.occupancy.get(slot).map_or(0, |&occ| occ as i32)
     }
 
     pub fn is_occupied(&self, slot: usize) -> bool {
-        self.instances.get(slot).is_some_and(|i| i.occupants >= 1)
+        self.occupancy.get(slot).is_some_and(|&occ| occ >= 1)
+    }
+
+    /// Directly set occupancy for a slot. Used by tests/benches; gameplay code should
+    /// use `try_claim_worksite`/`release` instead.
+    pub fn set_occupancy(&mut self, slot: usize, count: i16) {
+        self.occupancy.insert(slot, count);
     }
 
     pub fn is_worksite_harvest_turn(
@@ -659,7 +669,7 @@ impl EntityMap {
         self.spatial_cell_size
     }
 
-    pub fn for_each_nearby(&self, pos: Vec2, radius: f32, mut f: impl FnMut(&BuildingInstance)) {
+    pub fn for_each_nearby(&self, pos: Vec2, radius: f32, mut f: impl FnMut(&BuildingInstance, i16)) {
         if self.spatial_width == 0 {
             return;
         }
@@ -673,7 +683,8 @@ impl EntityMap {
             for cx in min_cx..=max_cx {
                 for &slot in &self.spatial_cells[row + cx] {
                     if let Some(inst) = self.instances.get(slot) {
-                        f(inst);
+                        let occ = self.occupancy.get(slot).copied().unwrap_or(0);
+                        f(inst, occ);
                     }
                 }
             }
@@ -697,7 +708,7 @@ impl EntityMap {
         radius: f32,
         kind: crate::world::BuildingKind,
         town_idx: u32,
-        mut f: impl FnMut(&BuildingInstance),
+        mut f: impl FnMut(&BuildingInstance, i16),
     ) {
         if self.spatial_width == 0 {
             return;
@@ -713,7 +724,8 @@ impl EntityMap {
                 if let Some(bucket) = self.spatial_kind_town.get(&(kind, town_idx, cell_idx)) {
                     for &slot in bucket {
                         if let Some(inst) = self.instances.get(slot) {
-                            f(inst);
+                            let occ = self.occupancy.get(slot).copied().unwrap_or(0);
+                            f(inst, occ);
                         }
                     }
                 }
@@ -727,7 +739,7 @@ impl EntityMap {
         pos: Vec2,
         radius: f32,
         kind: crate::world::BuildingKind,
-        mut f: impl FnMut(&BuildingInstance),
+        mut f: impl FnMut(&BuildingInstance, i16),
     ) {
         if self.spatial_width == 0 {
             return;
@@ -743,7 +755,8 @@ impl EntityMap {
                 if let Some(bucket) = self.spatial_kind_cell.get(&(kind, cell_idx)) {
                     for &slot in bucket {
                         if let Some(inst) = self.instances.get(slot) {
-                            f(inst);
+                            let occ = self.occupancy.get(slot).copied().unwrap_or(0);
+                            f(inst, occ);
                         }
                     }
                 }
@@ -761,7 +774,7 @@ impl EntityMap {
         outer_cell_r: usize,
         kind: crate::world::BuildingKind,
         town_idx: u32,
-        mut f: impl FnMut(&BuildingInstance),
+        mut f: impl FnMut(&BuildingInstance, i16),
     ) {
         if self.spatial_width == 0 {
             return;
@@ -791,7 +804,8 @@ impl EntityMap {
                 if let Some(bucket) = self.spatial_kind_town.get(&(kind, town_idx, cell_idx)) {
                     for &slot in bucket {
                         if let Some(inst) = self.instances.get(slot) {
-                            f(inst);
+                            let occ = self.occupancy.get(slot).copied().unwrap_or(0);
+                            f(inst, occ);
                         }
                     }
                 }
@@ -806,7 +820,7 @@ impl EntityMap {
         inner_cell_r: usize,
         outer_cell_r: usize,
         kind: crate::world::BuildingKind,
-        mut f: impl FnMut(&BuildingInstance),
+        mut f: impl FnMut(&BuildingInstance, i16),
     ) {
         if self.spatial_width == 0 {
             return;
@@ -835,7 +849,8 @@ impl EntityMap {
                 if let Some(bucket) = self.spatial_kind_cell.get(&(kind, cell_idx)) {
                     for &slot in bucket {
                         if let Some(inst) = self.instances.get(slot) {
-                            f(inst);
+                            let occ = self.occupancy.get(slot).copied().unwrap_or(0);
+                            f(inst, occ);
                         }
                     }
                 }
@@ -856,7 +871,7 @@ impl EntityMap {
         town_idx: u32,
         fallback: WorksiteFallback,
         max_radius: f32,
-        mut score: impl FnMut(&BuildingInstance) -> Option<S>,
+        mut score: impl FnMut(&BuildingInstance, i16) -> Option<S>,
     ) -> Option<WorksiteResult> {
         debug_assert!(town_idx != u32::MAX, "town_idx looks like -1 as u32");
         let max_cell_r = self.cell_radius(max_radius);
@@ -866,8 +881,8 @@ impl EntityMap {
         let mut prev_r: usize = 0;
         let mut cell_r: usize = 0; // start with center cell (r=0)
         loop {
-            self.for_each_ring_kind_town(from, prev_r, cell_r, kind, town_idx, |inst| {
-                if let Some(s) = score(inst) {
+            self.for_each_ring_kind_town(from, prev_r, cell_r, kind, town_idx, |inst, occ| {
+                if let Some(s) = score(inst, occ) {
                     if best.as_ref().is_none_or(|b| s < b.0) {
                         best = Some((s, inst.slot, inst.position));
                     }
@@ -889,8 +904,8 @@ impl EntityMap {
             prev_r = 0;
             cell_r = 0;
             loop {
-                self.for_each_ring_kind(from, prev_r, cell_r, kind, |inst| {
-                    if let Some(s) = score(inst) {
+                self.for_each_ring_kind(from, prev_r, cell_r, kind, |inst, occ| {
+                    if let Some(s) = score(inst, occ) {
                         if best.as_ref().is_none_or(|b| s < b.0) {
                             best = Some((s, inst.slot, inst.position));
                         }
@@ -925,23 +940,26 @@ impl EntityMap {
         max_occupants: i32,
         claimer: Option<Entity>,
     ) -> Option<ClaimedWorksite> {
+        let occ = self.occupancy.get(slot).copied().unwrap_or(0) as i32;
         let valid = self.instances.get(slot).is_some_and(|inst| {
             inst.kind == expected_kind
                 && expected_town.is_none_or(|t| inst.town_idx == t || inst.town_idx == crate::constants::TOWN_NONE)
-                && (inst.occupants as i32) < max_occupants
+                && occ < max_occupants
         });
         if valid {
-            let inst = self.instances.get_mut(slot).expect("slot validated above");
-            inst.occupants += 1;
+            if let Some(o) = self.occupancy.get_mut(slot) {
+                *o += 1;
+            }
             if let Some(claimer_entity) = claimer {
                 let queue = self.worksite_claim_queue.entry(slot).or_default();
                 if !queue.contains(&claimer_entity) {
                     queue.push(claimer_entity);
                 }
             }
+            let position = self.instances.get(slot).expect("validated above").position;
             Some(ClaimedWorksite {
                 slot,
-                position: inst.position,
+                position,
             })
         } else {
             None

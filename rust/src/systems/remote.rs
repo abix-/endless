@@ -923,7 +923,7 @@ fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
                 let max_occ = crate::constants::building_def(inst.kind)
                     .worksite.map_or(0, |w| w.max_occupants);
                 data["worksite_kind"] = json!(format!("{:?}", inst.kind));
-                data["worksite_occupants"] = json!(inst.occupants);
+                data["worksite_occupants"] = json!(entity_map.occupant_count(ws_slot));
                 data["worksite_max_occ"] = json!(max_occ);
                 let growth_pct = entity_map.entities.get(&ws_slot)
                     .and_then(|&e| world.get::<crate::components::ProductionState>(e))
@@ -1017,13 +1017,14 @@ fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
 }
 
 fn debug_building(world: &mut World, uid: u64, slot: usize) -> BrpResult {
-    let (inst, bld_entity) = {
+    let (inst, bld_entity, occupants) = {
         let entity_map = world.resource::<EntityMap>();
         let inst = entity_map.get_instance(slot)
             .ok_or_else(|| brp_err(format!("no building with uid {}", uid)))?
             .clone();
         let bld_entity = entity_map.entities.get(&slot).copied();
-        (inst, bld_entity)
+        let occupants = entity_map.occupant_count(slot);
+        (inst, bld_entity, occupants)
     };
     let world_data = world.resource::<WorldData>();
     let game_time = world.resource::<GameTime>();
@@ -1058,7 +1059,7 @@ fn debug_building(world: &mut World, uid: u64, slot: usize) -> BrpResult {
         "hp": hp,
         "max_hp": def.hp,
         "town_idx": inst.town_idx,
-        "occupants": inst.occupants,
+        "occupants": occupants,
         "growth": "0%",
         "under_construction": 0.0f32,
         "npc_uid": serde_json::Value::Null,
@@ -1179,10 +1180,13 @@ fn debug_town(world: &mut World, idx: usize) -> BrpResult {
     let name = town.name.clone();
     let faction = town.faction;
     let center = [town.center.x, town.center.y];
-    let area_level = town.area_level;
 
     let town_index = world.resource::<crate::resources::TownIndex>();
     let town_entity = town_index.0.get(&(idx as i32)).copied();
+    let area_level = town_entity
+        .and_then(|e| world.get::<crate::components::TownAreaLevel>(e))
+        .map(|a| a.0)
+        .unwrap_or(0);
     let food = town_entity.and_then(|e| world.get::<crate::components::FoodStore>(e)).map(|f| f.0).unwrap_or(0);
     let gold = town_entity.and_then(|e| world.get::<crate::components::GoldStore>(e)).map(|g| g.0).unwrap_or(0);
     let faction_stat = world.resource::<FactionStats>().stats.get(faction as usize).cloned();
