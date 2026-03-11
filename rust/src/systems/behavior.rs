@@ -482,7 +482,7 @@ pub fn decision_system(
             // ====================================================================
             // Priority 0: AtDestination -> Handle arrival transition
             // ====================================================================
-            if at_destination {
+            if at_destination && activity.kind != ActivityKind::Idle {
                 at_destination = false;
 
                 match activity.kind {
