@@ -189,36 +189,55 @@ impl HpaCache {
 
         let cols = width.div_ceil(HPA_CHUNK_SIZE);
         let rows = height.div_ceil(HPA_CHUNK_SIZE);
+        let all_chunks: hashbrown::HashSet<(usize, usize)> =
+            (0..cols).flat_map(|cc| (0..rows).map(move |cr| (cc, cr))).collect();
+        cache.build_chunks(costs, width, height, &all_chunks);
 
-        // Phase 1: Find entrance nodes at chunk boundaries
-        // Horizontal borders (between chunk rows)
+        cache
+    }
+
+    /// Scan borders and compute intra-chunk edges for a subset of chunks.
+    /// Shared by `build()` (all chunks) and `rebuild_chunks()` (affected only).
+    fn build_chunks(
+        &mut self,
+        costs: &[u16],
+        width: usize,
+        height: usize,
+        chunks: &hashbrown::HashSet<(usize, usize)>,
+    ) {
+        let cols = width.div_ceil(HPA_CHUNK_SIZE);
+        let rows = height.div_ceil(HPA_CHUNK_SIZE);
+
+        // Horizontal borders — scan if either side is in `chunks`
         for cr in 0..rows.saturating_sub(1) {
             let border_row = (cr + 1) * HPA_CHUNK_SIZE;
             if border_row >= height { continue; }
             for cc in 0..cols {
+                if !chunks.contains(&(cc, cr)) && !chunks.contains(&(cc, cr + 1)) { continue; }
                 let col_start = cc * HPA_CHUNK_SIZE;
                 let col_end = ((cc + 1) * HPA_CHUNK_SIZE).min(width);
-                cache.scan_border_horizontal(costs, width, height, border_row, col_start, col_end, cr, cc);
+                self.scan_border_horizontal(costs, width, height, border_row, col_start, col_end, cr, cc);
             }
         }
-        // Vertical borders (between chunk columns)
+        // Vertical borders — scan if either side is in `chunks`
         for cc in 0..cols.saturating_sub(1) {
             let border_col = (cc + 1) * HPA_CHUNK_SIZE;
             if border_col >= width { continue; }
             for cr in 0..rows {
+                if !chunks.contains(&(cc, cr)) && !chunks.contains(&(cc + 1, cr)) { continue; }
                 let row_start = cr * HPA_CHUNK_SIZE;
                 let row_end = ((cr + 1) * HPA_CHUNK_SIZE).min(height);
-                cache.scan_border_vertical(costs, width, height, border_col, row_start, row_end, cc, cr);
+                self.scan_border_vertical(costs, width, height, border_col, row_start, row_end, cc, cr);
             }
         }
-
-        // Phase 2: Precompute intra-chunk paths between all entrance pairs
-        let all_chunks: Vec<(usize, usize)> = cache.chunk_nodes.keys().copied().collect();
-        for chunk_key in all_chunks {
-            cache.compute_intra_chunk_edges(costs, width, height, chunk_key);
+        // Intra-chunk edges for all chunks in the set that have entrance nodes
+        let chunk_keys: Vec<(usize, usize)> = chunks.iter()
+            .copied()
+            .filter(|k| self.chunk_nodes.contains_key(k))
+            .collect();
+        for chunk_key in chunk_keys {
+            self.compute_intra_chunk_edges(costs, width, height, chunk_key);
         }
-
-        cache
     }
 
     /// Scan a horizontal border between chunk (cc, cr) and (cc, cr+1).
@@ -370,16 +389,60 @@ impl HpaCache {
     }
 
     /// Rebuild specific chunks (after building placement/destruction).
+    /// Incremental: removes nodes in affected chunks + neighbors, then re-scans borders
+    /// and recomputes intra-chunk edges for just those chunks.
     pub fn rebuild_chunks(&mut self, costs: &[u16], width: usize, height: usize, dirty_cells: &[usize]) {
-        let mut dirty_chunks: hashbrown::HashSet<(usize, usize)> = hashbrown::HashSet::new();
-        for &idx in dirty_cells {
-            let col = idx % width;
-            let row = idx / width;
-            dirty_chunks.insert((col / HPA_CHUNK_SIZE, row / HPA_CHUNK_SIZE));
+        let dirty: hashbrown::HashSet<(usize, usize)> = dirty_cells.iter()
+            .map(|&i| ((i % width) / HPA_CHUNK_SIZE, (i / width) / HPA_CHUNK_SIZE))
+            .collect();
+        if dirty.is_empty() { return; }
+        // Expand to neighbor chunks — border entrances are shared between adjacent chunks
+        let cols = width.div_ceil(HPA_CHUNK_SIZE);
+        let rows = height.div_ceil(HPA_CHUNK_SIZE);
+        let affected: hashbrown::HashSet<(usize, usize)> = dirty.iter()
+            .flat_map(|&(cc, cr)| [
+                Some((cc, cr)),
+                cc.checked_sub(1).map(|c| (c, cr)),
+                (cc + 1 < cols).then_some((cc + 1, cr)),
+                cr.checked_sub(1).map(|r| (cc, r)),
+                (cr + 1 < rows).then_some((cc, cr + 1)),
+            ].into_iter().flatten())
+            .collect();
+        self.remove_chunk_nodes(&affected);
+        self.build_chunks(costs, width, height, &affected);
+    }
+
+    /// Remove all nodes belonging to the given chunks. Compacts the node array
+    /// and remaps edge targets in surviving nodes.
+    fn remove_chunk_nodes(&mut self, chunks: &hashbrown::HashSet<(usize, usize)>) {
+        // Build remap: old index → new index (None if removed)
+        let mut remap: Vec<Option<usize>> = Vec::with_capacity(self.nodes.len());
+        let mut new_idx = 0usize;
+        for node in &self.nodes {
+            if chunks.contains(&node.chunk) {
+                remap.push(None);
+            } else {
+                remap.push(Some(new_idx));
+                new_idx += 1;
+            }
         }
-        if dirty_chunks.is_empty() { return; }
-        // Full rebuild — nodes are append-only so stale indices remain.
-        *self = Self::build(costs, width, height);
+        // Compact nodes, remap + filter edges pointing to removed nodes
+        let mut new_nodes = Vec::with_capacity(new_idx);
+        for (i, mut node) in self.nodes.drain(..).enumerate() {
+            if remap[i].is_none() { continue; }
+            node.edges.retain_mut(|e| {
+                if let Some(t) = remap[e.target] { e.target = t; true } else { false }
+            });
+            new_nodes.push(node);
+        }
+        self.nodes = new_nodes;
+        // Rebuild indexes from compacted nodes
+        self.pos_to_node.clear();
+        self.chunk_nodes.clear();
+        for (i, node) in self.nodes.iter().enumerate() {
+            self.pos_to_node.insert(node.pos, i);
+            self.chunk_nodes.entry(node.chunk).or_default().push(i);
+        }
     }
 }
 
@@ -625,7 +688,7 @@ pub fn sync_pathfind_costs_system(
 // PATH INVALIDATION
 // ============================================================================
 
-/// When buildings change, re-queue paths that might be affected.
+/// When buildings change, re-queue paths whose remaining waypoints overlap dirty chunks.
 /// Piggybacks on existing BuildingGridDirtyMsg.
 pub fn invalidate_paths_on_building_change(
     mut grid_dirty: MessageReader<BuildingGridDirtyMsg>,
@@ -638,13 +701,29 @@ pub fn invalidate_paths_on_building_change(
         return;
     }
 
-    // Re-queue NPCs with active paths (skipping those on cooldown).
-    // Future optimization: track which cells changed and only invalidate overlapping paths.
+    // Build set of dirty chunks from cells with building cost overrides
+    let dirty_cells = grid.dirty_cost_cells();
+    if dirty_cells.is_empty() {
+        return;
+    }
+    let dirty_chunks: hashbrown::HashSet<(usize, usize)> = dirty_cells.iter()
+        .map(|&i| ((i % grid.width) / HPA_CHUNK_SIZE, (i / grid.width) / HPA_CHUNK_SIZE))
+        .collect();
+
     for (entity, slot, path) in path_q.iter() {
         if path.waypoints.is_empty() || path.current >= path.waypoints.len() {
             continue;
         }
         if path.path_cooldown > 0.0 {
+            continue;
+        }
+
+        // Only invalidate if remaining waypoints cross a dirty chunk
+        let dominated = path.waypoints[path.current..].iter().any(|wp| {
+            let chunk = (wp.x as usize / HPA_CHUNK_SIZE, wp.y as usize / HPA_CHUNK_SIZE);
+            dirty_chunks.contains(&chunk)
+        });
+        if !dominated {
             continue;
         }
 
@@ -998,6 +1077,11 @@ mod tests {
         let mut app = setup_invalidate_app();
         let mut gpu = app.world_mut().resource_mut::<crate::resources::GpuReadState>();
         gpu.positions = vec![100.0, 100.0];
+        // Mark cell (5,5) as dirty so the NPC's waypoint overlaps the dirty chunk
+        let mut grid = app.world_mut().resource_mut::<WorldGrid>();
+        let idx = 5 * grid.width + 5;
+        grid.building_cost_cells.push(idx);
+        drop(grid);
         app.world_mut().spawn((
             GpuSlot(0),
             NpcPath {
@@ -1011,6 +1095,34 @@ mod tests {
         app.update();
         let queue = app.world().resource::<PathRequestQueue>();
         assert!(!queue.is_empty(), "should requeue NPC with active path on dirty");
+    }
+
+    #[test]
+    fn invalidate_skips_paths_outside_dirty_chunks() {
+        let mut app = setup_invalidate_app();
+        let mut gpu = app.world_mut().resource_mut::<crate::resources::GpuReadState>();
+        gpu.positions = vec![100.0, 100.0];
+        // Dirty cell at (8,8) — but NPC path goes to (2,2), different chunk on larger grids
+        // On a 10×10 grid with chunk_size=16, everything is chunk (0,0), so use a 40×40 grid
+        let grid = make_grid(40, 40);
+        app.insert_resource(grid);
+        let mut grid = app.world_mut().resource_mut::<WorldGrid>();
+        let idx = 30 * grid.width + 30; // cell (30,30) → chunk (1,1)
+        grid.building_cost_cells.push(idx);
+        drop(grid);
+        app.world_mut().spawn((
+            GpuSlot(0),
+            NpcPath {
+                waypoints: vec![IVec2::new(1, 1), IVec2::new(2, 2)], // chunk (0,0)
+                current: 0,
+                goal_world: Vec2::new(128.0, 128.0),
+                ..default()
+            },
+        ));
+        app.insert_resource(SendGridDirty(true));
+        app.update();
+        let queue = app.world().resource::<PathRequestQueue>();
+        assert!(queue.is_empty(), "should not requeue path that doesn't cross dirty chunk");
     }
 
     #[test]

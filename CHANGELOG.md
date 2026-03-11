@@ -4,6 +4,7 @@
 
 - **slot_for_entity O(n) → O(1)** — added `entity_to_slot: HashMap<Entity, usize>` reverse index to EntityMap, forming a bijection with existing `entities: HashMap<usize, Entity>`. New `set_entity()`/`remove_entity_mapping()` helpers maintain both maps. `slot_for_entity()` and `instance_by_entity()` now use O(1) lookup instead of `entities.iter().find()`. Fixes damage_system quadratic regression at 50K entities (145ms → sub-ms). 15+ callers across codebase benefit.
 - **Benchmark rewrite** — full rewrite of `benches/system_bench.rs` to match current ECS architecture (BuildingInstance 6-field slim struct, ECS town components, Entity-based DamageMsg, SpawnerState/ProductionState/ConstructionProgress components). Fixed 68 compilation errors from prior migrations.
+- **Incremental HPA* rebuild** — `HpaCache::rebuild_chunks()` now does targeted chunk rebuild instead of full cache rebuild on building changes. Extracted shared `build_chunks()` method (used by both `build()` and `rebuild_chunks()`). `remove_chunk_nodes()` compacts node array and remaps edge targets for affected chunks + neighbors. `invalidate_paths_on_building_change` now only re-queues NPCs whose remaining waypoints cross dirty chunks (was: all NPCs with active paths). Completes Stage 20 path recalculation item. 193 tests passing.
 
 ## 2026-03-10
 

@@ -21,7 +21,7 @@ Stages 1-15, 18, 19: [x] Complete (see [completed.md](completed.md))
 
 **Current Sprint (priority order):**
 1. Loot cycle stress test — benchmark TownEquipment growth under 50K NPCs over extended play, cap or prune unbounded accumulation
-2. Path recalculation on building place/remove (Stage 20) — dirty affected HPA* chunks, rebuild entrance nodes. Unblocks Stage 21 gates
+2. ~~Path recalculation on building place/remove (Stage 20) — dirty affected HPA* chunks, rebuild entrance nodes. Unblocks Stage 21 gates~~ ✓
 3. Entity sleeping (Stage 16 item 1) — camera-radius culling, 5-15ms/frame savings
 
 **Stage 16: Performance**
@@ -94,7 +94,7 @@ Remaining:
 - [x] Route spreading: successive A* calls inflate costs along found paths (PATH_SPREAD_COST=100, PATH_SPREAD_RADIUS=1) to spread NPC routes apart
 - [x] Intermediate waypoint relaxed threshold (96px vs 40px for final destination) prevents pile-up from boid separation
 - [x] Arrival detection parity for LOS/direct targets and waypoint paths: `gpu_position_readback` now marks `at_destination` for transit activities even when movement has no waypoints (direct `SetTarget`), with regression coverage for transit/no-path and non-transit/no-path cases
-- [ ] Path recalculation on building place/remove (incremental update, not full rebuild)
+- [x] Path recalculation on building place/remove (incremental update, not full rebuild)
 - [ ] Path validation: reject building placements that fully block access to critical locations
 
 Prerequisite for Stage 21 (wall gates) and Stage 25 (tower defense maze).

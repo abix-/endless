@@ -1529,8 +1529,8 @@ pub struct WorldGrid {
     /// Precomputed A* cost per cell. 0 = impassable, >0 = movement cost.
     /// Combines terrain + building data. Rebuilt incrementally on building changes.
     pub pathfind_costs: Vec<u16>,
-    /// Flat indices of cells with building cost overrides (for incremental revert).
-    building_cost_cells: Vec<usize>,
+    /// Flat indices of cells with building cost overrides (for incremental revert + path invalidation).
+    pub(crate) building_cost_cells: Vec<usize>,
     /// Hierarchical pathfinding cache (HPA*). Built on init, rebuilt on building changes.
     pub hpa_cache: Option<crate::systems::pathfinding::HpaCache>,
     /// Primary town owner per cell. u16::MAX = no owner.
@@ -1557,6 +1557,11 @@ impl Default for WorldGrid {
 }
 
 impl WorldGrid {
+    /// Flat indices of cells with building cost overrides (for targeted path invalidation).
+    pub fn dirty_cost_cells(&self) -> &[usize] {
+        &self.building_cost_cells
+    }
+
     /// Get cell reference by grid coordinates.
     pub fn cell(&self, col: usize, row: usize) -> Option<&WorldCell> {
         if col < self.width && row < self.height {

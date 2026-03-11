@@ -118,7 +118,7 @@ Custom HPA* (Hierarchical Pathfinding A*) replaces raw A* for cross-chunk paths.
 
 - **Build**: `HpaCache::build()` called in `init_pathfind_costs()`. Scans horizontal/vertical borders for entrance nodes, runs intra-chunk A* between all pairs, connects cross-border edges.
 - **Query**: `pathfind_hpa()` — same-chunk paths use chunk-bounded A* directly (small search space). Cross-chunk paths insert temporary start/goal nodes, A* on abstract graph, stitch cached paths.
-- **Update**: `HpaCache::rebuild_chunks()` called in `sync_building_costs()` when buildings change. Currently full rebuild (simpler for correctness with append-only node indices).
+- **Update**: `HpaCache::rebuild_chunks()` called in `sync_building_costs()` when buildings change. Incremental: removes nodes in dirty chunks + neighbors, re-scans borders and recomputes intra-chunk edges for affected chunks only. Shared `build_chunks()` method used by both `build()` and `rebuild_chunks()`.
 - **Heuristic**: Abstract graph A* uses `manhattan_distance × HPA_MIN_COST` (67 = road cost) for tight, admissible heuristic.
 
 ### Budgeted Pathfinding
