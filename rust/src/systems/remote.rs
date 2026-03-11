@@ -714,41 +714,51 @@ struct DebugParams {
     #[serde(default)]
     kind: Option<String>,
     #[serde(default)]
-    uid: Option<u64>,
+    entity: Option<String>,
     #[serde(default)]
     index: Option<usize>,
+}
+
+/// Parse `"489v9"` entity string → Bevy Entity.
+fn parse_entity_str(s: &str) -> Result<Entity, BrpError> {
+    let (idx_str, gen_str) = s.split_once('v')
+        .ok_or_else(|| brp_err(format!("invalid entity '{s}' — use format '489v9'")))?;
+    let index: u32 = idx_str.parse()
+        .map_err(|_| brp_err(format!("invalid entity index '{idx_str}'")))?;
+    let generation: u32 = gen_str.parse()
+        .map_err(|_| brp_err(format!("invalid entity generation '{gen_str}'")))?;
+    let ei = bevy::ecs::entity::EntityIndex::from_raw_u32(index)
+        .ok_or_else(|| brp_err(format!("invalid entity index '{idx_str}'")))?;
+    Ok(Entity::from_index_and_generation(ei, bevy::ecs::entity::EntityGeneration::from_bits(generation)))
 }
 
 pub fn debug_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
     let p: DebugParams = parse_some(params)?;
 
-    // UID (slot) provided: auto-detect NPC vs building
-    if let Some(uid) = p.uid {
-        let slot = uid as usize;
+    // Entity string provided: parse "489v9", resolve to slot, auto-detect NPC vs building
+    if let Some(ref s) = p.entity {
+        let entity = parse_entity_str(s)?;
         let entity_map = world.resource::<EntityMap>();
-        if entity_map.entities.get(&slot).is_none() {
-            return Err(brp_err(format!("no entity at slot {slot}")));
-        }
+        let slot = entity_map.slot_for_entity(entity)
+            .ok_or_else(|| brp_err(format!("no entity for {entity:?}")))?;
         let is_npc = entity_map.get_npc(slot).is_some();
-        return if is_npc { debug_npc(world, uid, slot) } else { debug_building(world, uid, slot) };
+        return if is_npc { debug_npc(world, entity, slot) } else { debug_building(world, entity, slot) };
     }
 
     // Kind + index for resource-based lookups
     let kind = p.kind.as_deref()
-        .ok_or_else(|| brp_err("provide 'uid' (npc/building) or 'kind'+'index' (squad/town/policy)"))?;
+        .ok_or_else(|| brp_err("provide 'entity' (npc/building) or 'kind'+'index' (squad/town/policy)"))?;
     let idx = p.index
         .ok_or_else(|| brp_err(format!("'index' required for kind '{kind}'")))?;
     match kind {
         "squad" => debug_squad(world, idx),
         "town" => debug_town(world, idx),
         "policy" => debug_policy(world, idx),
-        _ => Err(brp_err(format!("unknown kind: {kind} (use squad/town/policy, or pass 'uid' for npc/building)"))),
+        _ => Err(brp_err(format!("unknown kind: {kind} (use squad/town/policy, or pass 'entity' for npc/building)"))),
     }
 }
 
-fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
-    // Resolve the target entity from uid (Entity::to_bits representation) or slot
-    let target_entity = Entity::from_bits(uid);
+fn debug_npc(world: &mut World, target_entity: Entity, slot: usize) -> BrpResult {
 
     // ECS query — split into nested tuples to stay under Bevy's 15-element QueryData limit
     let mut query = world.query::<(
@@ -805,7 +815,8 @@ fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
         let trait_str = personality.trait_summary();
 
         npc_data = Some(json!({
-            "uid": uid,
+            "entity": target_entity.to_bits(),
+            "slot": slot,
             "job": format!("{:?}", job),
             "activity": activity.name(),
             "combat_state": combat_state.name(),
@@ -841,7 +852,7 @@ fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
     }
 
     let Some(mut data) = npc_data else {
-        return Err(brp_err(format!("no NPC with uid {}", uid)));
+        return Err(brp_err(format!("no NPC for entity {target_entity:?}")));
     };
 
     // Resource-based data (immutable borrows after query)
@@ -1016,11 +1027,11 @@ fn debug_npc(world: &mut World, uid: u64, slot: usize) -> BrpResult {
     toon_ok(data)
 }
 
-fn debug_building(world: &mut World, uid: u64, slot: usize) -> BrpResult {
+fn debug_building(world: &mut World, _entity: Entity, slot: usize) -> BrpResult {
     let (inst, bld_entity, occupants) = {
         let entity_map = world.resource::<EntityMap>();
         let inst = entity_map.get_instance(slot)
-            .ok_or_else(|| brp_err(format!("no building with uid {}", uid)))?
+            .ok_or_else(|| brp_err(format!("no building at slot {slot}")))?
             .clone();
         let bld_entity = entity_map.entities.get(&slot).copied();
         let occupants = entity_map.occupant_count(slot);
@@ -1047,7 +1058,8 @@ fn debug_building(world: &mut World, uid: u64, slot: usize) -> BrpResult {
         .unwrap_or(0.0);
 
     let mut data = json!({
-        "uid": uid,
+        "entity": _entity.to_bits(),
+        "slot": slot,
         "kind": format!("{:?}", inst.kind),
         "label": def.label,
         "town": town_name,

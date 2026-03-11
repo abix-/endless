@@ -2,6 +2,8 @@
 
 ## 2026-03-11
 
+- **BRP debug entity strings** — `endless/debug` endpoint changed from `"uid": 450` (u64 bits) to `"entity": "489v9"` (Bevy entity display format `<index>v<generation>`). Added `parse_entity_str()` parser, `slot_for_entity()` O(1) reverse lookup. Response JSON now includes both `entity` (bits) and `slot` fields. Error messages updated. `docs/brp.md` updated.
+- **loot_cycle test B0002 fix** — removed standalone `ResMut<TownIndex>` that conflicted with `TestSetupParams` containing `TownAccess` (which now owns `ResMut<TownIndex>`). Uses `params.town_access.town_index_mut()` instead.
 - **SystemParam bundle cleanup** — deleted `FarmParams` (1-field wrapper around `Res<WorldData>`, inlined into `decision_system`). Extracted `TestScenarioSetup` shared bundle in `tests/mod.rs` replacing 5 copy-pasted per-test bundles (`SandboxState`, `SlotReuseSetup`, `StressArcherTownsState`, `AiBuildingSetupState`, `EndlessModeSetupState`). `TownAccess.index` upgraded from `Res` to `ResMut`, added `town_index_mut()` accessor; `SaveWorldState` removed redundant `town_index` field.
 - **5 new system benchmarks** — added Criterion benchmarks for cooldown_system (58µs@50K), npc_regen_system (3µs@50K), on_duty_tick_system (59µs@50K), spawn_npc_system (spawn-count scaled), process_proj_hits (projectile-count scaled). NPC-scaled coverage: 10 → 13 systems, 3.5ms → 4.1ms at 50K. Added spawn-scaled and projectile-scaled benchmark tables to performance.md.
 - **resolve_work_targets early-return** — production_map HashMap was built from all building instances every tick even with 0 WorkIntentMsg messages. Moved the pre-collect inside the message processing block, behind an early-return guard.

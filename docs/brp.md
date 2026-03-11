@@ -349,7 +349,7 @@ Deep-inspect entities by Entity bits (u64) or resources by kind+index. Returns f
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `uid` | u64 | yes | Entity::to_bits() value |
+| `entity` | string | yes | `"489v9"` — Bevy entity display format (`<index>v<generation>`) |
 
 **Kind+index mode** (resource-based lookups):
 
@@ -358,9 +358,9 @@ Deep-inspect entities by Entity bits (u64) or resources by kind+index. Returns f
 | `kind` | string | yes | "squad", "town", or "policy" |
 | `index` | usize | yes | Index into the resource array |
 
-**NPC returns:** uid, slot, job, activity, combat_state, hp, max_hp, energy, home, faction, town, personality traits, equipment slots (with rarity/bonus), flags, manual_target, squad, patrol, carried loot, cached stats, kill/death counts.
+**NPC returns:** entity (bits), slot, job, activity, combat_state, hp, max_hp, energy, home, faction, town, personality traits, equipment slots (with rarity/bonus), flags, manual_target, squad, patrol, carried loot, cached stats, kill/death counts.
 
-**Building returns:** uid, slot, kind, label, town, faction, grid position, hp, max_hp, occupants, growth, under_construction, respawn_timer, worksite info, wall level, assigned mine.
+**Building returns:** entity (bits), slot, kind, label, town, faction, grid position, hp, max_hp, occupants, growth, under_construction, respawn_timer, worksite info, wall level, assigned mine.
 
 **Squad returns:** squad_index, members (with uid/name/job/activity/hp/energy), target, patrol_enabled, rest_when_tired, wave settings, owner, hold_fire.
 
@@ -369,9 +369,9 @@ Deep-inspect entities by Entity bits (u64) or resources by kind+index. Returns f
 **Policy returns:** town_index, town_name, all policy fields.
 
 ```bash
-# By UID (auto-detects NPC vs building)
+# By entity (auto-detects NPC vs building) — string or bits
 curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"endless/debug","params":{"uid":450},"id":1}'
+  -d '{"jsonrpc":"2.0","method":"endless/debug","params":{"entity":"489v9"},"id":1}'
 
 # By kind+index
 curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \

@@ -14,7 +14,6 @@ pub fn setup(
     mut squad_state: ResMut<SquadState>,
     mut next_loot_id: ResMut<NextLootItemId>,
     mut commands: Commands,
-    mut town_index: ResMut<crate::resources::TownIndex>,
 ) {
     // Reset squad state to avoid interference
     for squad in squad_state.squads.iter_mut() {
@@ -53,7 +52,7 @@ pub fn setup(
             crate::components::TownUpgradeLevel::default(),
             crate::components::TownEquipment::default(),
         )).id();
-        town_index.0.insert(i as i32, entity);
+        params.town_access.town_index_mut().0.insert(i as i32, entity);
     }
     next_loot_id.next = 1;
 
