@@ -1089,14 +1089,7 @@ impl MerchantInventory {
     }
 }
 
-/// What kind of faction this is — determines AI behavior and UI treatment.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Reflect)]
-pub enum FactionKind {
-    Neutral,
-    Player,
-    AiBuilder,
-    AiRaider,
-}
+pub use crate::constants::FactionKind;
 
 /// A faction in the game. Owns towns, buildings, and NPCs.
 #[derive(Clone, Debug, Serialize, Deserialize, Reflect)]

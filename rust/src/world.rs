@@ -35,6 +35,7 @@ mod opt_vec2_as_array {
 use crate::components::Job;
 use crate::constants::{
     BASE_GRID_MAX, BASE_GRID_MIN, MAX_GRID_EXTENT, NPC_REGISTRY, TOWN_GRID_SPACING,
+    TOWN_REGISTRY, TownKind, town_def,
 };
 use crate::messages::{BuildingGridDirtyMsg, DirtyWriters};
 use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg};
@@ -1875,6 +1876,17 @@ impl Default for WorldGenConfig {
     }
 }
 
+impl WorldGenConfig {
+    /// Town count by kind — bridges the 3 count fields for registry-driven loops.
+    pub fn count_for(&self, kind: TownKind) -> usize {
+        match kind {
+            TownKind::Player => self.num_towns,
+            TownKind::AiBuilder => self.ai_towns,
+            TownKind::AiRaider => self.raider_towns,
+        }
+    }
+}
+
 // ============================================================================
 // WORLD GENERATION
 // ============================================================================
@@ -1931,193 +1943,73 @@ pub fn generate_world(
     let mut all_positions: Vec<Vec2> = Vec::new();
     // Continents needs more attempts since many positions land in ocean
     let max_attempts = if is_continents { 5000 } else { 2000 };
-    // Step 2: Place player town centers
-    let mut player_positions: Vec<Vec2> = Vec::new();
-    let mut attempts = 0;
-    while player_positions.len() < config.num_towns && attempts < max_attempts {
-        attempts += 1;
-        let x = rng.random_range(config.world_margin..config.world_width - config.world_margin);
-        let y = rng.random_range(config.world_margin..config.world_height - config.world_margin);
-        let pos = Vec2::new(x, y);
-        // Continents: reject Water cells
-        if is_continents {
-            let (gc, gr) = grid.world_to_grid(pos);
-            if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) {
-                continue;
+    // Step 2: Place towns — single loop driven by TOWN_REGISTRY
+    for town_def in TOWN_REGISTRY {
+        let count = config.count_for(town_def.kind);
+        let mut positions: Vec<Vec2> = Vec::new();
+        let mut attempts = 0;
+        while positions.len() < count && attempts < max_attempts {
+            attempts += 1;
+            let x = rng.random_range(config.world_margin..config.world_width - config.world_margin);
+            let y = rng.random_range(config.world_margin..config.world_height - config.world_margin);
+            let pos = Vec2::new(x, y);
+            if is_continents {
+                let (gc, gr) = grid.world_to_grid(pos);
+                if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) {
+                    continue;
+                }
+            }
+            if all_positions
+                .iter()
+                .all(|e| pos.distance(*e) >= config.min_town_distance)
+            {
+                // Snap to grid cell center so fountain sprite aligns with its grid cell
+                let (gc, gr) = grid.world_to_grid(pos);
+                let pos = grid.grid_to_world(gc, gr);
+                positions.push(pos);
+                all_positions.push(pos);
             }
         }
-        if all_positions
-            .iter()
-            .all(|e| pos.distance(*e) >= config.min_town_distance)
-        {
-            // Snap to grid cell center so fountain sprite aligns with its grid cell
-            let (gc, gr) = grid.world_to_grid(pos);
-            let pos = grid.grid_to_world(gc, gr);
-            player_positions.push(pos);
-            all_positions.push(pos);
+        if positions.len() < count {
+            warn!(
+                "generate_world: only placed {}/{} {:?} towns",
+                positions.len(), count, town_def.kind,
+            );
+        }
+
+        for &center in &positions {
+            let name = if town_def.is_raider {
+                town_def.label.to_string()
+            } else {
+                let n = names
+                    .get(name_idx)
+                    .cloned()
+                    .unwrap_or_else(|| format!("{} {}", town_def.label, name_idx));
+                name_idx += 1;
+                n
+            };
+            let faction = faction_list.factions.len() as i32;
+            let town_data_idx = world_data.towns.len();
+            faction_list.factions.push(FactionData {
+                kind: town_def.kind.faction_kind(),
+                name: name.clone(),
+                towns: vec![town_data_idx],
+            });
+            world_data.towns.push(Town {
+                name,
+                center,
+                faction,
+                kind: town_def.kind,
+                area_level: 0,
+            });
+            place_buildings(
+                grid, world_data, center, town_data_idx as u32, config,
+                town_def.kind, slot_alloc, entity_map, commands, gpu_updates,
+            );
         }
     }
 
-    if player_positions.len() < config.num_towns {
-        warn!(
-            "generate_world: only placed {}/{} player towns",
-            player_positions.len(),
-            config.num_towns
-        );
-    }
-
-    // Register player towns — each gets its own faction
-    for &center in &player_positions {
-        let name = names
-            .get(name_idx)
-            .cloned()
-            .unwrap_or_else(|| format!("Town {}", name_idx));
-        name_idx += 1;
-        let faction = faction_list.factions.len() as i32;
-        let town_data_idx = world_data.towns.len();
-        faction_list.factions.push(FactionData {
-            kind: FactionKind::Player,
-            name: name.clone(),
-            towns: vec![town_data_idx],
-        });
-        world_data.towns.push(Town {
-            name,
-            center,
-            faction,
-            kind: crate::constants::TownKind::Player,
-            area_level: 0,
-        });
-        let town_idx = town_data_idx as u32;
-        place_buildings(
-            grid,
-            world_data,
-            center,
-            town_idx,
-            config,
-            false,
-            slot_alloc,
-            entity_map,
-            commands,
-            gpu_updates,
-        );
-    }
-
-    // Step 3: Place AI town centers (Builder AI, each gets unique faction)
-    let mut ai_town_positions: Vec<Vec2> = Vec::new();
-    attempts = 0;
-    while ai_town_positions.len() < config.ai_towns && attempts < max_attempts {
-        attempts += 1;
-        let x = rng.random_range(config.world_margin..config.world_width - config.world_margin);
-        let y = rng.random_range(config.world_margin..config.world_height - config.world_margin);
-        let pos = Vec2::new(x, y);
-        if is_continents {
-            let (gc, gr) = grid.world_to_grid(pos);
-            if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) {
-                continue;
-            }
-        }
-        if all_positions
-            .iter()
-            .all(|e| pos.distance(*e) >= config.min_town_distance)
-        {
-            let (gc, gr) = grid.world_to_grid(pos);
-            let pos = grid.grid_to_world(gc, gr);
-            ai_town_positions.push(pos);
-            all_positions.push(pos);
-        }
-    }
-
-    for &center in &ai_town_positions {
-        let name = names
-            .get(name_idx)
-            .cloned()
-            .unwrap_or_else(|| format!("AI Town {}", name_idx));
-        name_idx += 1;
-        let faction = faction_list.factions.len() as i32;
-        let town_data_idx = world_data.towns.len();
-        faction_list.factions.push(FactionData {
-            kind: FactionKind::AiBuilder,
-            name: name.clone(),
-            towns: vec![town_data_idx],
-        });
-        world_data.towns.push(Town {
-            name,
-            center,
-            faction,
-            kind: crate::constants::TownKind::AiBuilder,
-            area_level: 0,
-        });
-        let town_idx = town_data_idx as u32;
-        place_buildings(
-            grid,
-            world_data,
-            center,
-            town_idx,
-            config,
-            false,
-            slot_alloc,
-            entity_map,
-            commands,
-            gpu_updates,
-        );
-    }
-
-    // Step 4: Place raider town centers (Raider AI, each gets unique faction)
-    let mut raider_positions: Vec<Vec2> = Vec::new();
-    attempts = 0;
-    while raider_positions.len() < config.raider_towns && attempts < max_attempts {
-        attempts += 1;
-        let x = rng.random_range(config.world_margin..config.world_width - config.world_margin);
-        let y = rng.random_range(config.world_margin..config.world_height - config.world_margin);
-        let pos = Vec2::new(x, y);
-        if is_continents {
-            let (gc, gr) = grid.world_to_grid(pos);
-            if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) {
-                continue;
-            }
-        }
-        if all_positions
-            .iter()
-            .all(|e| pos.distance(*e) >= config.min_town_distance)
-        {
-            let (gc, gr) = grid.world_to_grid(pos);
-            let pos = grid.grid_to_world(gc, gr);
-            raider_positions.push(pos);
-            all_positions.push(pos);
-        }
-    }
-
-    for &center in &raider_positions {
-        let faction = faction_list.factions.len() as i32;
-        let town_data_idx = world_data.towns.len();
-        faction_list.factions.push(FactionData {
-            kind: FactionKind::AiRaider,
-            name: "Raider Town".into(),
-            towns: vec![town_data_idx],
-        });
-        world_data.towns.push(Town {
-            name: "Raider Town".into(),
-            center,
-            faction,
-            kind: crate::constants::TownKind::AiRaider,
-            area_level: 0,
-        });
-        let town_idx = town_data_idx as u32;
-        place_buildings(
-            grid,
-            world_data,
-            center,
-            town_idx,
-            config,
-            true,
-            slot_alloc,
-            entity_map,
-            commands,
-            gpu_updates,
-        );
-    }
-
-    // Step 5: Generate terrain
+    // Step 3: Generate terrain
     if is_continents {
         // Terrain already generated; stamp dirt clearings around settlements
         stamp_dirt(grid, &all_positions);
@@ -2125,7 +2017,7 @@ pub fn generate_world(
         generate_terrain(grid, &all_positions, &[]);
     }
 
-    // Step 6: Place gold mines in wilderness between settlements
+    // Step 4: Place gold mines in wilderness between settlements
     let total_mines = config.gold_mines_per_town * all_positions.len();
     let mut mine_positions: Vec<Vec2> = Vec::new();
     let mut mine_attempts = 0;
@@ -2169,19 +2061,14 @@ pub fn generate_world(
         mine_positions.push(snapped);
     }
 
+    let total_towns = world_data.towns.len();
     info!(
-        "generate_world: {} player towns, {} AI towns, {} raider towns, {} gold mines, grid {}x{} ({})",
-        player_positions.len(),
-        ai_town_positions.len(),
-        raider_positions.len(),
+        "generate_world: {} towns, {} gold mines, grid {}x{} ({})",
+        total_towns,
         mine_positions.len(),
         w,
         h,
-        if is_continents {
-            "continents"
-        } else {
-            "classic"
-        }
+        if is_continents { "continents" } else { "classic" },
     );
 }
 
@@ -2222,22 +2109,23 @@ pub fn spawn_town_entities(
     }
 }
 
-/// Place buildings for a town. Unified builder for both AI kinds:
-/// - Builder (`is_raider: false`): fountain + farms + village NPC homes + corner waypoints
-/// - Raider (`is_raider: true`): fountain + raider NPC homes (tents)
+/// Place buildings for a town. Layout driven by `TownDef` via `town_kind`:
+/// - Builder (is_raider=false): fountain + farms + village NPC homes + corner waypoints
+/// - Raider (is_raider=true): fountain + raider NPC homes (tents)
 pub fn place_buildings(
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
     center: Vec2,
     town_idx: u32,
     config: &WorldGenConfig,
-    is_raider: bool,
+    town_kind: TownKind,
     slot_alloc: &mut crate::resources::GpuSlotPool,
     entity_map: &mut EntityMap,
 
     commands: &mut Commands,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
 ) {
+    let is_raider = town_def(town_kind).is_raider;
     let mut occupied = HashSet::new();
     let faction = world_data
         .towns

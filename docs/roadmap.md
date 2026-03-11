@@ -22,7 +22,7 @@ Stages 1-15, 18, 19: [x] Complete (see [completed.md](completed.md))
 **Current Sprint (priority order):**
 1. Loot cycle stress test — benchmark TownEquipment growth under 50K NPCs over extended play, cap or prune unbounded accumulation
 2. ~~Path recalculation on building place/remove (Stage 20) — dirty affected HPA* chunks, rebuild entrance nodes. Unblocks Stage 21 gates~~ ✓
-3. Entity sleeping (Stage 16 item 1) — camera-radius culling, 5-15ms/frame savings
+3. ~~Entity sleeping (Stage 16 item 1) — camera-radius culling~~ not needed (saves ~0.7ms, not 5-15ms; breaks simulation fidelity)
 
 **Stage 16: Performance**
 
@@ -34,8 +34,8 @@ ECS source-of-truth migration complete (see [completed.md](completed.md)). ECS o
 
 Remaining performance items (sorted by expected savings):
 
-1. [ ] [High] Entity sleeping (Factorio-style): NPCs outside camera radius skip behavior/movement ticks. At 50k NPCs, typically 80%+ are off-camera.
-   Expected saving: ~5-15+ ms/frame CPU when most NPCs off-camera; near-zero if camera covers all.
+1. [x] ~~[High] Entity sleeping (Factorio-style): NPCs outside camera radius skip behavior/movement ticks.~~
+   Not needed — benchmarks show 10 NPC systems = 3.5ms at 50K (21.9% of budget). Sleeping saves ~0.7ms but breaks simulation fidelity. Budget gating, candidate-driven healing, and HPA* already achieved 50K@60fps.
 2. [ ] [Medium] Cache-friendly vectors for hot building iteration paths (keep HashMaps as authority, vectors for tight loops).
    Expected saving: ~1-3 ms/frame CPU on building-heavy ticks.
 3. [x] ~~[Medium] Pre-allocate `GpuReadState` vecs: readback observers create new Vecs per frame. At 50k entities, positions = 1.6MB allocation per frame.~~
@@ -249,7 +249,7 @@ Current CRD compliance:
 | NPCs       | NpcDef + NPC_REGISTRY          | ECS components (NpcStats)                | 95%   |
 | Buildings  | BuildingDef + BUILDING_REGISTRY| slim spatial index + ECS components      | 95%   |
 | Activities | ActivityDef + ACTIVITY_REGISTRY| Activity component + fieldless kind      | 90%   |
-| Towns      | TownDef + TOWN_REGISTRY        | ECS town entities (TownAccess)           | 60%   |
+| Towns      | TownDef + TOWN_REGISTRY        | ECS town entities (TownAccess)           | 80%   |
 | Items      | None (procedural gen)          | LootItem + NpcEquipment                  | 60%   |
 
 Can be done incrementally alongside other stages. Each chunk is independent.
@@ -264,9 +264,9 @@ Chunk 2 — Building Instance Consolidation (70% → 90%): ✅
 - [x] Slim BuildingInstance to 6-field spatial index (kind, position, town_idx, slot, faction, occupants)
 - [x] Simplify `place_building()` signature — BuildingOverrides struct replaces 3 loose params (patrol_order, wall_level, hp)
 
-Chunk 3 — TownDef Registry (40% → 80%):
+Chunk 3 — TownDef Registry (40% → 80%): ✅
 - [x] Add TownDef struct + TOWN_REGISTRY (player, ai_builder, ai_raider templates)
-- [ ] Data-driven town generation — template defines building layout, NPC roster, faction kind
+- [x] Data-driven town generation — single loop driven by TOWN_REGISTRY (TownKind::faction_kind(), TownDef.label fallback, count_for() helper)
 - [x] Consolidate Town + TownUpgrades + PolicySet under ECS town entities (TownAccess SystemParam, FoodStore/GoldStore/TownPolicy/TownUpgradeLevel/TownEquipment components)
 
 Chunk 4 — ActivityDef Registry (50% → 90%):
@@ -326,7 +326,7 @@ Implementation guides for upcoming stages. After delivery, spec content rolls in
 | Query-first + log gating + sub-profiling | 30,000 | 30,000 | 60+ | [x] done |
 | Visual upload + targets dirty tracking | 30,000 | 30,000 | 60+ | [x] done |
 | GPU iter + decision budgeting (items 1-2) | 50,000 | 50,000 | 60+ | [x] done |
-| Entity sleeping + healing (items 3-4) | 50,000 | 50,000 | 60+ | healing done, sleeping TBD |
+| Entity sleeping + healing (items 3-4) | 50,000 | 50,000 | 60+ | [x] healing done, sleeping not needed (0.7ms savings, breaks fidelity) |
 | Future (chunked tilemap) | 50,000+ | 50,000+ | 60+ | Planned |
 
 ## References

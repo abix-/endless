@@ -133,8 +133,8 @@ pub struct EntityMap {
 
     // Building-specific data (dense storage for cache-friendly iteration)
     instances: DenseSlotMap<BuildingInstance>,
-    by_kind: HashMap<crate::world::BuildingKind, DenseSlotSet>,
-    by_kind_town: HashMap<(crate::world::BuildingKind, u32), DenseSlotSet>,
+    by_kind: HashMap<crate::world::BuildingKind, DenseSlotMap<BuildingInstance>>,
+    by_kind_town: HashMap<(crate::world::BuildingKind, u32), DenseSlotMap<BuildingInstance>>,
     by_grid_cell: HashMap<(i32, i32), usize>,
     spawner_slots: DenseSlotSet,
 
@@ -250,11 +250,11 @@ impl EntityMap {
             self.spatial_remove(slot, old.position);
             self.spawner_slots.remove(slot);
         }
-        self.by_kind.entry(kind).or_default().insert(slot);
+        self.by_kind.entry(kind).or_default().insert(slot, inst.clone());
         self.by_kind_town
             .entry((kind, inst.town_idx))
             .or_default()
-            .insert(slot);
+            .insert(slot, inst.clone());
         let gc = (inst.position.x / TOWN_GRID_SPACING).floor() as i32;
         let gr = (inst.position.y / TOWN_GRID_SPACING).floor() as i32;
         self.by_grid_cell.insert((gc, gr), slot);
@@ -312,12 +312,7 @@ impl EntityMap {
         &self,
         kind: crate::world::BuildingKind,
     ) -> impl Iterator<Item = &BuildingInstance> {
-        let slots = self.by_kind.get(&kind);
-        let instances = &self.instances;
-        slots
-            .into_iter()
-            .flat_map(|v| v.as_slice().iter())
-            .filter_map(move |&s| instances.get(s))
+        self.by_kind.get(&kind).into_iter().flat_map(|m| m.values())
     }
 
     pub fn iter_kind_for_town(
@@ -325,32 +320,19 @@ impl EntityMap {
         kind: crate::world::BuildingKind,
         town_idx: u32,
     ) -> impl Iterator<Item = &BuildingInstance> {
-        let slots = self.by_kind_town.get(&(kind, town_idx));
-        let instances = &self.instances;
-        slots
-            .into_iter()
-            .flat_map(|v| v.as_slice().iter())
-            .filter_map(move |&s| instances.get(s))
+        self.by_kind_town.get(&(kind, town_idx)).into_iter().flat_map(|m| m.values())
     }
 
     pub fn count_for_town(&self, kind: crate::world::BuildingKind, town_idx: u32) -> usize {
-        self.iter_kind_for_town(kind, town_idx).count()
+        self.by_kind_town.get(&(kind, town_idx)).map_or(0, |m| m.len())
     }
 
     pub fn building_counts(&self, town_idx: u32) -> HashMap<crate::world::BuildingKind, usize> {
         let mut counts = HashMap::new();
-        for (kind, slots) in &self.by_kind {
-            let count = slots
-                .as_slice()
-                .iter()
-                .filter(|&&s| {
-                    self.instances
-                        .get(s)
-                        .is_some_and(|i| i.town_idx == town_idx)
-                })
-                .count();
+        for (&kind, map) in &self.by_kind {
+            let count = map.values().filter(|i| i.town_idx == town_idx).count();
             if count > 0 {
-                counts.insert(*kind, count);
+                counts.insert(kind, count);
             }
         }
         counts

@@ -20,6 +20,8 @@ use endless::systems::{
     damage_system, healing_system, resolve_movement_system,
     building_tower_system, death_system, spawner_respawn_system,
     growth_system, construction_tick_system,
+    energy_system, arrival_system, gpu_position_readback,
+    advance_waypoints_system,
 };
 use endless::gpu::populate_gpu_state;
 use endless::systems::stats;
@@ -242,6 +244,7 @@ fn populate_npcs(app: &mut App, count: usize) {
                     HasEnergy,
                     NpcEquipment::default(),
                     SquadId(0),
+                    NpcPath::default(),
                 ),
             ))
             .id();
@@ -988,6 +991,102 @@ fn bench_construction_tick_system(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_energy_system(c: &mut Criterion) {
+    let mut group = c.benchmark_group("energy_system");
+    for &count in COUNTS {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(count),
+            &count,
+            |b, &count| {
+                let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
+                populate_npcs(&mut app, count);
+                // Set game_time unpaused with non-zero delta
+                {
+                    let world = app.world_mut();
+                    let mut gt = world.resource_mut::<GameTime>();
+                    gt.time_scale = 1.0;
+                }
+                let _ = app.world_mut().run_system_once(energy_system);
+                b.iter(|| {
+                    let _ = app.world_mut().run_system_once(energy_system);
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+fn bench_arrival_system(c: &mut Criterion) {
+    let mut group = c.benchmark_group("arrival_system");
+    for &count in COUNTS {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(count),
+            &count,
+            |b, &count| {
+                let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
+                populate_npcs(&mut app, count);
+                {
+                    let world = app.world_mut();
+                    let mut gt = world.resource_mut::<GameTime>();
+                    gt.time_scale = 1.0;
+                }
+                let _ = app.world_mut().run_system_once(arrival_system);
+                b.iter(|| {
+                    let _ = app.world_mut().run_system_once(arrival_system);
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+fn bench_gpu_position_readback(c: &mut Criterion) {
+    let mut group = c.benchmark_group("gpu_position_readback");
+    for &count in COUNTS {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(count),
+            &count,
+            |b, &count| {
+                let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
+                populate_npcs(&mut app, count);
+                let _ = app.world_mut().run_system_once(gpu_position_readback);
+                b.iter(|| {
+                    let _ = app.world_mut().run_system_once(gpu_position_readback);
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+fn bench_advance_waypoints_system(c: &mut Criterion) {
+    let mut group = c.benchmark_group("advance_waypoints_system");
+    for &count in COUNTS {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(count),
+            &count,
+            |b, &count| {
+                let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
+                populate_npcs(&mut app, count);
+                {
+                    let world = app.world_mut();
+                    let mut gt = world.resource_mut::<GameTime>();
+                    gt.time_scale = 1.0;
+                }
+                let _ = app.world_mut().run_system_once(advance_waypoints_system);
+                b.iter(|| {
+                    let _ = app.world_mut().run_system_once(advance_waypoints_system);
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_decision_system,
@@ -1002,5 +1101,9 @@ criterion_group!(
     bench_populate_gpu_state,
     bench_growth_system,
     bench_construction_tick_system,
+    bench_energy_system,
+    bench_arrival_system,
+    bench_gpu_position_readback,
+    bench_advance_waypoints_system,
 );
 criterion_main!(benches);

@@ -16,7 +16,7 @@ Real-time kingdom builder: pure Bevy 0.18 ECS with GPU compute for 50K NPCs via 
 
 ## Rules
 
-- **NEVER use the Task tool to launch agents.** Do all work manually with direct tool calls (Read, Edit, Grep, Glob, Bash). If you think an agent would help, ask first — the answer will be no.
+- **NEVER use the Agent tool or Task tool.** Do all work manually with direct tool calls (Read, Edit, Grep, Glob, Bash). No subagents, no Explore agents, no Plan agents — nothing. If you think an agent would help, ask first — the answer will be no.
 
 ## Rust LSP (rust-analyzer)
 

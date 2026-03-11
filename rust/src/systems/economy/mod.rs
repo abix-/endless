@@ -734,8 +734,10 @@ fn create_ai_town(
     ai_state: &mut AiPlayerState,
     commands: &mut Commands,
     center: Vec2,
-    is_raider: bool,
+    town_kind: crate::constants::TownKind,
 ) -> (usize, i32) {
+    use crate::constants::town_def;
+    let def = town_def(town_kind);
     let next_faction = world_data
         .towns
         .iter()
@@ -743,18 +745,8 @@ fn create_ai_town(
         .max()
         .unwrap_or(0)
         + 1;
-    let name = if is_raider {
-        "Raider Town"
-    } else {
-        "Rival Town"
-    };
-    let town_kind = if is_raider {
-        crate::constants::TownKind::AiRaider
-    } else {
-        crate::constants::TownKind::AiBuilder
-    };
     world_data.towns.push(world::Town {
-        name: name.into(),
+        name: def.label.into(),
         center,
         faction: next_faction,
         kind: town_kind,
@@ -763,14 +755,9 @@ fn create_ai_town(
     let town_data_idx = world_data.towns.len() - 1;
 
     // Register in FactionList
-    let kind = if is_raider {
-        crate::resources::FactionKind::AiRaider
-    } else {
-        crate::resources::FactionKind::AiBuilder
-    };
     res.faction_list.factions.push(crate::resources::FactionData {
-        kind,
-        name: name.into(),
+        kind: town_kind.faction_kind(),
+        name: def.label.into(),
         towns: vec![town_data_idx],
     });
 
@@ -784,11 +771,7 @@ fn create_ai_town(
     res.raider_state.forage_timers.resize(num_towns, 0.0);
 
     // Create AiPlayer with random personality and road style
-    let ai_kind = if is_raider {
-        AiKind::Raider
-    } else {
-        AiKind::Builder
-    };
+    let ai_kind = if def.is_raider { AiKind::Raider } else { AiKind::Builder };
     let mut rng = rand::rng();
     let personalities = [
         AiPersonality::Aggressive,
@@ -1087,6 +1070,11 @@ pub fn endless_system(
         // === CREATE TOWN + SETTLE ===
         let is_raider = mg.is_raider;
         let member_slots = mg.member_slots.clone();
+        let town_kind = if is_raider {
+            crate::constants::TownKind::AiRaider
+        } else {
+            crate::constants::TownKind::AiBuilder
+        };
 
         let (town_data_idx, _faction) = create_ai_town(
             &world_state.grid,
@@ -1096,16 +1084,9 @@ pub fn endless_system(
             &mut ai_state,
             &mut commands,
             mg.settle_target,
-            is_raider,
+            town_kind,
         );
 
-        // Apply stored resources and upgrades to town entity
-        if let Some(&entity) = res.town_index.0.get(&(town_data_idx as i32)) {
-            commands.entity(entity)
-                .insert(crate::components::FoodStore(mg.starting_food))
-                .insert(crate::components::GoldStore(mg.starting_gold))
-                .insert(crate::components::TownUpgradeLevel(mg.upgrade_levels.clone()));
-        }
         // Set starting resources on ECS town entity
         if let Some(&entity) = res.town_index.0.get(&(town_data_idx as i32)) {
             commands.entity(entity).insert((
@@ -1122,7 +1103,7 @@ pub fn endless_system(
             mg.settle_target,
             town_data_idx as u32,
             &config,
-            is_raider,
+            town_kind,
             &mut world_state.entity_slots,
             &mut world_state.entity_map,
             &mut commands,
