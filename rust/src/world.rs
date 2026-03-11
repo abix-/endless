@@ -584,6 +584,14 @@ pub struct BuildContext<'a> {
     pub cost: i32,
 }
 
+/// Per-instance overrides for building placement. Fresh placements use Default (all zeros/None).
+#[derive(Default)]
+pub struct BuildingOverrides {
+    pub patrol_order: u32,
+    pub wall_level: u8,
+    pub hp: Option<f32>,
+}
+
 /// Unified building placement. Every code path that creates a building calls this.
 ///
 /// With `ctx: Some(BuildContext)` — runtime validated placement:
@@ -599,9 +607,7 @@ pub fn place_building(
     pos: Vec2,
     town_idx: u32,
     faction: i32,
-    patrol_order: u32,
-    wall_level: u8,
-    hp_override: Option<f32>,
+    overrides: &BuildingOverrides,
     mut ctx: Option<BuildContext>,
     dirty_writers: Option<&mut DirtyWriters>,
 ) -> Result<usize, &'static str> {
@@ -669,9 +675,9 @@ pub fn place_building(
         0.0
     };
     let hp = if ctx.is_some() {
-        hp_override.unwrap_or(0.01)
+        overrides.hp.unwrap_or(0.01)
     } else {
-        hp_override.unwrap_or(def.hp)
+        overrides.hp.unwrap_or(def.hp)
     };
 
     // Spawn ECS entity with all building state components
@@ -700,16 +706,16 @@ pub fn place_building(
         ecmds.insert(TowerBuildingState::default());
     }
     if kind == BuildingKind::Waypoint {
-        ecmds.insert(WaypointOrder(patrol_order));
+        ecmds.insert(WaypointOrder(overrides.patrol_order));
     }
     if kind == BuildingKind::Wall {
-        ecmds.insert(WallLevel(wall_level));
+        ecmds.insert(WallLevel(overrides.wall_level));
     }
     if kind == BuildingKind::MinerHome {
         ecmds.insert(MinerHomeConfig::default());
     }
     let entity = ecmds.id();
-    entity_map.entities.insert(slot, entity);
+    entity_map.set_entity(slot, entity);
 
     // GPU state
     push_building_gpu_updates(
@@ -2153,7 +2159,7 @@ pub fn generate_world(
         let _ = place_building(
             slot_alloc, entity_map, commands, gpu_updates,
             BuildingKind::GoldMine, snapped, crate::constants::TOWN_NONE, crate::constants::FACTION_NEUTRAL,
-            0, 0, None, None, None,
+            &Default::default(), None, None,
         );
         mine_positions.push(snapped);
     }
@@ -2254,7 +2260,7 @@ pub fn place_buildings(
     place(0, 0, center_kind, town_idx, &mut occupied);
     let _ = place_building(
         slot_alloc, entity_map, commands, gpu_updates,
-        center_kind, center, town_idx, faction, 0, 0, None, None, None,
+        center_kind, center, town_idx, faction, &Default::default(), None, None,
     );
 
     // Count NPC homes needed (raider units for raider towns, village units for builder towns)
@@ -2275,7 +2281,7 @@ pub fn place_buildings(
         let pos = place(row, col, BuildingKind::Farm, town_idx, &mut occupied);
         let _ = place_building(
             slot_alloc, entity_map, commands, gpu_updates,
-            BuildingKind::Farm, pos, town_idx, faction, 0, 0, None, None, None,
+            BuildingKind::Farm, pos, town_idx, faction, &Default::default(), None, None,
         );
     }
 
@@ -2292,7 +2298,7 @@ pub fn place_buildings(
             let pos = place(row, col, def.home_building, town_idx, &mut occupied);
             let _ = place_building(
                 slot_alloc, entity_map, commands, gpu_updates,
-                def.home_building, pos, town_idx, faction, 0, 0, None, None, None,
+                def.home_building, pos, town_idx, faction, &Default::default(), None, None,
             );
         }
     }
@@ -2315,8 +2321,9 @@ pub fn place_buildings(
             let post_pos = place(row, col, BuildingKind::Waypoint, town_idx, &mut occupied);
             let _ = place_building(
                 slot_alloc, entity_map, commands, gpu_updates,
-                BuildingKind::Waypoint, post_pos, town_idx, faction, order as u32, 0,
-                None, None, None,
+                BuildingKind::Waypoint, post_pos, town_idx, faction,
+                &BuildingOverrides { patrol_order: order as u32, ..Default::default() },
+                None, None,
             );
         }
     }

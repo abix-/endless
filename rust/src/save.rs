@@ -1561,6 +1561,7 @@ pub fn load_building_instances_from_save(
     use crate::constants::{BUILDING_REGISTRY, FACTION_NEUTRAL};
     entity_map.clear_buildings();
     entity_map.entities.clear();
+    entity_map.entity_to_slot.clear();
     entity_map.init_spatial(world_size_px);
 
     // HP lookup: per save_key (or "towns" for Fountain), indexed by ordinal
@@ -1575,7 +1576,7 @@ pub fn load_building_instances_from_save(
         let _ = world::place_building(
             slot_alloc, entity_map, commands, gpu_updates,
             world::BuildingKind::Fountain, town.center, i as u32, town.faction,
-            0, 0, hp, None, None,
+            &world::BuildingOverrides { hp, ..Default::default() }, None, None,
         );
     }
 
@@ -1606,7 +1607,8 @@ pub fn load_building_instances_from_save(
             let _ = world::place_building(
                 slot_alloc, entity_map, commands, gpu_updates,
                 def.kind, b.position, town_idx, faction,
-                b.patrol_order, b.wall_level, hp, None, None,
+                &world::BuildingOverrides { patrol_order: b.patrol_order, wall_level: b.wall_level, hp },
+                None, None,
             );
             // Restore miner home fields via ECS
             if def.kind == world::BuildingKind::MinerHome {

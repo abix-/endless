@@ -437,3 +437,50 @@ Compact record of performance fixes applied. Each entry preserves the root cause
 3. **Defer equipment extraction** — moved equipment queries inside `if last_hit_by >= 0` block. Starvation deaths skip 2 Vec allocations.
 
 **Pattern**: For any collection needing O(1) keyed access and cache-friendly iteration, use `DenseSlotMap<T>` (with data) or `DenseSlotSet` (slot-only). 500 deaths/frame: 7.8ms → 951µs.
+
+### slot_for_entity O(n) → O(1) via reverse index — 8× faster at 5K
+
+**Root cause**: `EntityMap::slot_for_entity(Entity)` did `self.entities.iter().find(...)` — O(n) linear scan of HashMap by value. Called per `DamageMsg`, per worksite release, per squad member lookup. N messages × N entities = O(n²) in damage_system.
+
+**Fix**: Added `entity_to_slot: HashMap<Entity, usize>` reverse index to EntityMap, maintained via `set_entity()`/`remove_entity_mapping()` helpers. `slot_for_entity` becomes `entity_to_slot.get(&entity).copied()` — O(1).
+
+**Pattern**: Bijection index — when a forward map (slot→entity) is frequently queried in reverse (entity→slot), add a parallel reverse HashMap. Documented in Canonical Key Model: "Secondary indexes are allowed for performance (`Entity -> slot`)". damage_system 5K: 1860µs → 228µs.
+
+## Benchmark History
+
+### 2026-03-10 — c55eefb
+
+| System | 1K | 5K | 10K | 25K | 50K |
+|--------|----|----|-----|-----|-----|
+| decision | 41µs | 75µs | 113µs | 231µs | 409µs |
+| damage | 189µs | 1860µs | 5740µs | 35267µs | 145470µs |
+| healing | 11µs | 35µs | 71µs | 181µs | 392µs |
+| attack | 23µs | 75µs | 148µs | 356µs | 818µs |
+| resolve_movement | 20µs | 49µs | 65µs | 119µs | 220µs |
+| resolve_movement_unbounded | 33µs | 92µs | 164µs | 387µs | 773µs |
+| populate_gpu_state | 182µs | 199µs | 231µs | 473µs | 1041µs |
+
+| Building system | 100 | 500 | 1K | 5K | 50K |
+|-----------------|-----|-----|----|-----|------|
+| building_tower | 15µs | 22µs | 31µs | 121µs | 1612µs |
+| growth | 13µs | 16µs | 21µs | 55µs | 654µs |
+| construction_tick | 7µs | 16µs | 28µs | 121µs | 1052µs |
+| spawner_respawn | 19µs | 34µs | 56µs | 226µs | 1930µs |
+
+| Death system | 100 | 500 | 1K | 5K | 25K |
+|-------------|-----|-----|----|-----|------|
+| death | 320µs | 1008µs | 2190µs | 12505µs | 65980µs |
+
+Combined 50K (decision+healing+attack+resolve_movement+populate_gpu_state): 2.9ms (18.0% of 16ms budget)
+
+Note: damage numbers from this run reflect O(n²) `slot_for_entity` bug (fixed in next entry).
+
+### 2026-03-10b — slot_for_entity O(n) → O(1) fix
+
+damage_system fix only (reverse index `entity_to_slot: HashMap<Entity, usize>` on EntityMap):
+
+| System | 1K | 5K |
+|--------|----|----|
+| damage | 200µs | 228µs |
+
+Previous (O(n²)): 189µs / 1860µs. At 5K: **88% faster**. Now O(n) — sublinear scaling because only count/10 entities are damaged.

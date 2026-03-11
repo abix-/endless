@@ -61,9 +61,7 @@ impl WorldState<'_> {
             world_pos,
             town_data_idx as u32,
             faction,
-            patrol_order,
-            wall_level,
-            None,
+            &crate::world::BuildingOverrides { patrol_order, wall_level, hp: None },
             Some(crate::world::BuildContext {
                 grid: &mut self.grid,
                 world_data: &self.world_data,
@@ -137,9 +135,7 @@ impl WorldState<'_> {
             snapped,
             town_data_idx as u32,
             faction,
-            0,
-            0,
-            None,
+            &Default::default(),
             None, // no BuildContext — skip validation (already done)
             Some(&mut self.dirty_writers),
         )

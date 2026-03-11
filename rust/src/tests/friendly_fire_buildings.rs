@@ -58,7 +58,7 @@ pub fn setup(
         let pos = Vec2::new(FARM_WALL_X, y);
         let _ = world::place_building(
             &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
-            world::BuildingKind::Farm, pos, 0, 0, 0, 0, None, None, None,
+            world::BuildingKind::Farm, pos, 0, 0, &Default::default(), None, None,
         );
     }
 

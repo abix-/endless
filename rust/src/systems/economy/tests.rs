@@ -245,7 +245,7 @@ fn spawn_constructing_building(app: &mut App, slot: usize, kind: BuildingKind, s
         ProductionState::default(),
     )).id();
     let mut entity_map = app.world_mut().resource_mut::<EntityMap>();
-    entity_map.entities.insert(slot, entity);
+    entity_map.set_entity(slot, entity);
     entity_map.add_instance(test_building_instance(slot, kind, secs_left));
     entity
 }
@@ -475,7 +475,7 @@ fn add_farm(app: &mut App, slot: usize, tended: bool) {
         ProductionState { ready: false, progress: 0.0 },
     )).id();
     let mut em = app.world_mut().resource_mut::<EntityMap>();
-    em.entities.insert(slot, entity);
+    em.set_entity(slot, entity);
     em.add_instance(inst);
 }
 
@@ -528,7 +528,7 @@ fn farm_becomes_ready() {
         ProductionState { ready: false, progress: 0.99 },
     )).id();
     let mut em = app.world_mut().resource_mut::<EntityMap>();
-    em.entities.insert(0, entity);
+    em.set_entity(0, entity);
     em.add_instance(inst);
 
     for _ in 0..50 {
@@ -564,7 +564,7 @@ fn mine_grows_only_when_tended() {
         ProductionState { ready: false, progress: 0.0 },
     )).id();
     let mut em = app.world_mut().resource_mut::<EntityMap>();
-    em.entities.insert(0, entity);
+    em.set_entity(0, entity);
     em.add_instance(inst);
 
     app.update();
@@ -586,7 +586,7 @@ fn mine_grows_with_workers() {
         ProductionState { ready: false, progress: 0.0 },
     )).id();
     let mut em = app.world_mut().resource_mut::<EntityMap>();
-    em.entities.insert(0, entity);
+    em.set_entity(0, entity);
     em.add_instance(inst);
 
     app.update();
@@ -689,7 +689,7 @@ fn add_farm_visual(app: &mut App, slot: usize, growth_ready: bool) -> Entity {
         ProductionState { ready: growth_ready, progress: if growth_ready { 1.0 } else { 0.0 } },
     )).id();
     let mut em = app.world_mut().resource_mut::<EntityMap>();
-    em.entities.insert(slot, entity);
+    em.set_entity(slot, entity);
     em.add_instance(inst);
     entity
 }
@@ -809,7 +809,7 @@ fn add_spawner_building(app: &mut App, slot: usize, kind: BuildingKind, respawn_
         SpawnerState { npc_slot: None, respawn_timer },
     )).id();
     let mut em = app.world_mut().resource_mut::<EntityMap>();
-    em.entities.insert(slot, entity);
+    em.set_entity(slot, entity);
     em.add_instance(inst);
     entity
 }

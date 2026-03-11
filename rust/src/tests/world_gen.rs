@@ -23,6 +23,7 @@ pub fn setup(
     // Generate the world using our config (default: 2 towns)
     entity_map.clear_buildings();
     entity_map.entities.clear();
+    entity_map.entity_to_slot.clear();
     world::generate_world(
         &config,
         &mut world_grid,

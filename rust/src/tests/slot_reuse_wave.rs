@@ -108,7 +108,7 @@ pub fn setup(
                     &mut slot_alloc, &mut bld.entity_map,
                     &mut commands, &mut gpu_updates,
                     BuildingKind::ArcherHome, center + offset, ti as u32, faction,
-                    0, 0, None, None, None,
+                    &Default::default(), None, None,
                 );
             }
         }
@@ -128,7 +128,7 @@ pub fn setup(
                 &mut slot_alloc, &mut bld.entity_map,
                 &mut commands, &mut gpu_updates,
                 BuildingKind::Farm, farm_pos, player_ti as u32, 0,
-                0, 0, None, None, None,
+                &Default::default(), None, None,
             );
         }
     }
@@ -295,7 +295,7 @@ pub fn tick(
                     &mut slot_alloc, &mut entity_map,
                     &mut commands, &mut gpu_updates,
                     BuildingKind::Farm, new_pos, ai_ti as u32, ai_faction,
-                    0, 0, None, None, None,
+                    &Default::default(), None, None,
                 );
 
                 if let Ok(ns) = new_slot {

@@ -55,6 +55,7 @@ fn build_bench_app() -> App {
         .add_message::<stats::UpgradeMsg>()
         .add_message::<stats::EquipItemMsg>()
         .add_message::<stats::UnequipItemMsg>()
+        .add_message::<stats::AutoEquipNowMsg>()
         .add_message::<DestroyBuildingMsg>()
         .add_message::<SelectFactionMsg>();
 
@@ -64,6 +65,7 @@ fn build_bench_app() -> App {
         .init_resource::<PopulationStats>()
         .init_resource::<GameConfig>()
         .init_resource::<GameTime>()
+        .init_resource::<DeltaTime>()
         .init_resource::<world::WorldData>()
         .init_resource::<HealthDebug>()
         .init_resource::<CombatDebug>()
@@ -75,17 +77,14 @@ fn build_bench_app() -> App {
         .init_resource::<SelectedNpc>()
         .init_resource::<SelectedBuilding>()
         .init_resource::<FollowSelected>()
-        .init_resource::<NpcMetaCache>()
         .init_resource::<NpcLogCache>()
         .init_resource::<DebugFlags>()
         .init_resource::<GpuReadState>()
         .init_resource::<ProjHitState>()
         .init_resource::<ProjPositionState>()
         .init_resource::<GpuSlotPool>()
-        .init_resource::<NextEntityUid>()
         .init_resource::<ProjSlotAllocator>()
-        .init_resource::<FoodStorage>()
-        .init_resource::<GoldStorage>()
+        .init_resource::<TownIndex>()
         .init_resource::<FactionStats>()
         .init_resource::<FactionList>()
         .init_resource::<Reputation>()
@@ -111,18 +110,30 @@ fn build_bench_app() -> App {
         .init_resource::<AiPlayerConfig>()
         .init_resource::<NpcDecisionConfig>()
         .init_resource::<stats::CombatConfig>()
-        .init_resource::<stats::TownUpgrades>()
         .init_resource::<AutoUpgrade>()
-        .init_resource::<TownPolicies>()
         .init_resource::<MiningPolicy>()
         .init_resource::<GameAudio>()
         .init_resource::<NextLootItemId>()
-        .init_resource::<TownInventory>()
         .init_resource::<MerchantInventory>()
         .init_resource::<EntityGpuState>()
         .insert_resource(endless::settings::UserSettings::default());
 
     app
+}
+
+/// Spawn a town entity with per-town components and register it in TownIndex + WorldData.
+fn spawn_bench_town(app: &mut App) {
+    let world = app.world_mut();
+    let entity = world.spawn((
+        TownMarker,
+        FoodStore(100_000),
+        GoldStore(100_000),
+        TownPolicy::default(),
+        TownUpgradeLevel::default(),
+        TownEquipment::default(),
+    )).id();
+    let mut town_index = world.resource_mut::<TownIndex>();
+    town_index.0.insert(0, entity);
 }
 
 /// Populate an app with `n` NPC entities and matching GPU state.
@@ -144,7 +155,7 @@ fn populate_npcs(app: &mut App, count: usize) {
             name: "BenchTown".into(),
             center: Vec2::new(800.0, 800.0),
             faction: 1,
-            sprite_type: 0,
+            kind: TownKind::Player,
             area_level: 0,
         });
     }
@@ -164,17 +175,6 @@ fn populate_npcs(app: &mut App, count: usize) {
             name: "Player".into(),
             towns: vec![0],
         });
-    }
-    // Give the town food so systems don't early-return on starvation
-    {
-        let mut food = world.resource_mut::<FoodStorage>();
-        food.init(1);
-        food.food[0] = 100_000;
-    }
-    {
-        let mut gold = world.resource_mut::<GoldStorage>();
-        gold.init(1);
-        gold.gold[0] = 100_000;
     }
 
     // Allocate GPU slots
@@ -301,6 +301,7 @@ fn bench_decision_system(c: &mut Criterion) {
             &count,
             |b, &count| {
                 let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
                 populate_npcs(&mut app, count);
                 let _ = app.world_mut().run_system_once(decision_system);
                 b.iter(|| {
@@ -320,6 +321,7 @@ fn bench_damage_system(c: &mut Criterion) {
             &count,
             |b, &count| {
                 let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
                 populate_npcs(&mut app, count);
                 let damage_count = count / 10;
                 let _ = app.world_mut().run_system_once(decision_system);
@@ -327,10 +329,10 @@ fn bench_damage_system(c: &mut Criterion) {
                     // Inject damage messages before each run
                     let _ = app.world_mut()
                         .run_system_once(move |mut writer: MessageWriter<DamageMsg>,
-                                               q: Query<(&GpuSlot, &Faction), Without<Building>>| {
-                            for (slot, faction) in q.iter().take(damage_count) {
+                                               q: Query<(Entity, &Faction), Without<Building>>| {
+                            for (entity, faction) in q.iter().take(damage_count) {
                                 writer.write(DamageMsg {
-                                    target: EntityUid(slot.0 as u64),
+                                    target: entity,
                                     amount: 5.0,
                                     attacker: -1,
                                     attacker_faction: if faction.0 == 1 { 2 } else { 1 },
@@ -353,6 +355,7 @@ fn bench_healing_system(c: &mut Criterion) {
             &count,
             |b, &count| {
                 let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
                 populate_npcs(&mut app, count);
                 // Damage 25% of NPCs so healing has work to do
                 let _ = app.world_mut().run_system_once(
@@ -385,6 +388,7 @@ fn bench_attack_system(c: &mut Criterion) {
             &count,
             |b, &count| {
                 let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
                 populate_npcs(&mut app, count);
                 // Set 10% of NPCs to Fighting with combat targets
                 {
@@ -424,6 +428,7 @@ fn bench_resolve_movement_system(c: &mut Criterion) {
             &count,
             |b, &count| {
                 let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
                 populate_npcs(&mut app, count);
                 // Initialize pathfind costs so A* has valid terrain data
                 {
@@ -486,6 +491,7 @@ fn bench_resolve_movement_unbounded(c: &mut Criterion) {
             &count,
             |b, &count| {
                 let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
                 populate_npcs(&mut app, count);
                 {
                     let world = app.world_mut();
@@ -549,6 +555,7 @@ fn bench_building_tower_system(c: &mut Criterion) {
             &tower_count,
             |b, &tower_count| {
                 let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
                 // Populate 5K enemy NPCs as targets
                 populate_npcs(&mut app, 5_000);
                 // Add a second (enemy) faction
@@ -590,27 +597,14 @@ fn bench_building_tower_system(c: &mut Criterion) {
                     // Register tower buildings in EntityMap
                     let mut em = world.resource_mut::<EntityMap>();
                     for &(entity, slot, x, y) in &tower_entities {
-                        em.entities.insert(slot, entity);
+                        em.set_entity(slot, entity);
                         em.add_instance(BuildingInstance {
                             kind: world::BuildingKind::Tower,
                             position: Vec2::new(x, y),
                             town_idx: 0,
                             slot,
                             faction: 1,
-                            patrol_order: 0,
-                            assigned_mine: None,
-                            manual_mine: false,
-                            wall_level: 0,
-                            npc_uid: None,
-                            respawn_timer: -1.0,
-                            growth_ready: false,
-                            growth_progress: 0.0,
                             occupants: 0,
-                            under_construction: 0.0,
-                            kills: 0,
-                            xp: 0,
-                            upgrade_levels: vec![],
-                            auto_upgrade_flags: vec![],
                         });
                     }
                     // Set enemy faction on some NPCs in GpuReadState so towers have targets
@@ -644,6 +638,7 @@ fn bench_death_system(c: &mut Criterion) {
             &death_count,
             |b, &death_count| {
                 let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
                 populate_npcs(&mut app, 50_000);
                 let _ = app.world_mut().run_system_once(death_system);
                 b.iter(|| {
@@ -739,8 +734,9 @@ fn bench_spawner_respawn_system(c: &mut Criterion) {
             &spawner_count,
             |b, &spawner_count| {
                 let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
                 populate_npcs(&mut app, 1_000); // base NPCs for world setup
-                // Create spawner building instances in EntityMap
+                // Create spawner building entities with SpawnerState component
                 {
                     let world = app.world_mut();
                     let mut building_slots = Vec::with_capacity(spawner_count);
@@ -752,30 +748,31 @@ fn bench_spawner_respawn_system(c: &mut Criterion) {
                             }
                         }
                     }
-                    let mut em = world.resource_mut::<EntityMap>();
+                    let mut building_entities = Vec::with_capacity(spawner_count);
                     for (i, &slot) in building_slots.iter().enumerate() {
                         let x = 100.0 + (i % 224) as f32 * 32.0;
                         let y = 100.0 + (i / 224) as f32 * 32.0;
+                        let entity = world.spawn((
+                            GpuSlot(slot),
+                            Position { x, y },
+                            Health(100.0),
+                            Faction(1),
+                            TownId(0),
+                            Building { kind: world::BuildingKind::FarmerHome },
+                            SpawnerState { npc_slot: None, respawn_timer: 0.0 },
+                        )).id();
+                        building_entities.push((entity, slot, x, y));
+                    }
+                    let mut em = world.resource_mut::<EntityMap>();
+                    for &(entity, slot, x, y) in &building_entities {
+                        em.set_entity(slot, entity);
                         em.add_instance(BuildingInstance {
                             kind: world::BuildingKind::FarmerHome,
                             position: Vec2::new(x, y),
                             town_idx: 0,
                             slot,
                             faction: 1,
-                            patrol_order: 0,
-                            assigned_mine: None,
-                            manual_mine: false,
-                            wall_level: 0,
-                            npc_uid: None,
-                            respawn_timer: 0.0, // ready to spawn
-                            growth_ready: false,
-                            growth_progress: 0.0,
                             occupants: 0,
-                            under_construction: 0.0,
-                            kills: 0,
-                            xp: 0,
-                            upgrade_levels: vec![],
-                            auto_upgrade_flags: vec![],
                         });
                     }
                     // Set hour_ticked so system doesn't early-return
@@ -788,13 +785,12 @@ fn bench_spawner_respawn_system(c: &mut Criterion) {
                     // Reset hour_ticked and spawner timers each iteration
                     let _ = app.world_mut().run_system_once(
                         move |mut game_time: ResMut<GameTime>,
-                              mut entity_map: ResMut<EntityMap>| {
+                              mut spawner_q: Query<&mut SpawnerState>| {
                             game_time.hour_ticked = true;
-                            // Reset respawn timers so spawners fire again
-                            for inst in entity_map.iter_instances_mut() {
-                                if inst.respawn_timer < 0.0 {
-                                    inst.respawn_timer = 0.0;
-                                    inst.npc_uid = None;
+                            for mut spawner in spawner_q.iter_mut() {
+                                if spawner.respawn_timer < 0.0 {
+                                    spawner.respawn_timer = 0.0;
+                                    spawner.npc_slot = None;
                                 }
                             }
                         },
@@ -815,6 +811,7 @@ fn bench_populate_gpu_state(c: &mut Criterion) {
             &count,
             |b, &count| {
                 let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
                 populate_npcs(&mut app, count);
                 // Warmup
                 let _ = app.world_mut().run_system_once(populate_gpu_state);
@@ -840,7 +837,7 @@ fn bench_populate_gpu_state(c: &mut Criterion) {
     group.finish();
 }
 
-/// Populate `count` farm/mine buildings in EntityMap for economy benchmarks.
+/// Populate `count` farm/mine buildings with ECS components for economy benchmarks.
 /// Half farms (some tended), half gold mines. All growable, none under construction.
 fn populate_growable_buildings(app: &mut App, count: usize) {
     let world = app.world_mut();
@@ -853,31 +850,35 @@ fn populate_growable_buildings(app: &mut App, count: usize) {
             }
         }
     }
-    let mut em = world.resource_mut::<EntityMap>();
+    let mut building_entities = Vec::with_capacity(count);
     for (i, &slot) in building_slots.iter().enumerate() {
         let x = 100.0 + (i % 224) as f32 * 32.0;
         let y = 100.0 + (i / 224) as f32 * 32.0;
         let is_farm = i % 2 == 0;
+        let kind = if is_farm { world::BuildingKind::Farm } else { world::BuildingKind::GoldMine };
+        let occupants: i16 = if i % 4 == 0 { 1 } else { 0 }; // 25% tended
+        let entity = world.spawn((
+            GpuSlot(slot),
+            Position { x, y },
+            Health(100.0),
+            Faction(1),
+            TownId(0),
+            Building { kind },
+            ConstructionProgress(0.0),
+            ProductionState { ready: false, progress: 0.0 },
+        )).id();
+        building_entities.push((entity, slot, x, y, kind, occupants));
+    }
+    let mut em = world.resource_mut::<EntityMap>();
+    for &(entity, slot, x, y, kind, occupants) in &building_entities {
+        em.set_entity(slot, entity);
         em.add_instance(BuildingInstance {
-            kind: if is_farm { world::BuildingKind::Farm } else { world::BuildingKind::GoldMine },
+            kind,
             position: Vec2::new(x, y),
             town_idx: 0,
             slot,
             faction: 1,
-            patrol_order: 0,
-            assigned_mine: None,
-            manual_mine: false,
-            wall_level: 0,
-            npc_uid: None,
-            respawn_timer: -1.0,
-            growth_ready: false,
-            growth_progress: 0.0,
-            occupants: if i % 4 == 0 { 1 } else { 0 }, // 25% tended
-            under_construction: 0.0,
-            kills: 0,
-            xp: 0,
-            upgrade_levels: vec![],
-            auto_upgrade_flags: vec![],
+            occupants,
         });
     }
 }
@@ -892,6 +893,7 @@ fn bench_growth_system(c: &mut Criterion) {
             &bcount,
             |b, &bcount| {
                 let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
                 populate_npcs(&mut app, 100); // minimal NPCs for world setup
                 populate_growable_buildings(&mut app, bcount);
                 // Warmup
@@ -899,10 +901,10 @@ fn bench_growth_system(c: &mut Criterion) {
                 b.iter(|| {
                     // Reset growth so system has work each iteration
                     let _ = app.world_mut().run_system_once(
-                        |mut entity_map: ResMut<EntityMap>| {
-                            for inst in entity_map.iter_instances_mut() {
-                                inst.growth_ready = false;
-                                inst.growth_progress = 0.5;
+                        |mut q: Query<&mut ProductionState>| {
+                            for mut ps in q.iter_mut() {
+                                ps.ready = false;
+                                ps.progress = 0.5;
                             }
                         },
                     );
@@ -924,6 +926,7 @@ fn bench_construction_tick_system(c: &mut Criterion) {
             &bcount,
             |b, &bcount| {
                 let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
                 populate_npcs(&mut app, 100);
                 // Populate buildings under construction
                 {
@@ -937,7 +940,7 @@ fn bench_construction_tick_system(c: &mut Criterion) {
                             }
                         }
                     }
-                    // Spawn ECS entities with Building + Health (construction_tick queries them)
+                    // Spawn ECS entities with Building + Health + ConstructionProgress
                     let mut entities_and_slots = Vec::with_capacity(bcount);
                     for (i, &slot) in building_slots.iter().enumerate() {
                         let x = 100.0 + (i % 224) as f32 * 32.0;
@@ -949,32 +952,20 @@ fn bench_construction_tick_system(c: &mut Criterion) {
                             Faction(1),
                             TownId(0),
                             Building { kind: world::BuildingKind::FarmerHome },
+                            ConstructionProgress(5.0),
                         )).id();
                         entities_and_slots.push((entity, slot, x, y));
                     }
                     let mut em = world.resource_mut::<EntityMap>();
                     for &(entity, slot, x, y) in &entities_and_slots {
-                        em.entities.insert(slot, entity);
+                        em.set_entity(slot, entity);
                         em.add_instance(BuildingInstance {
                             kind: world::BuildingKind::FarmerHome,
                             position: Vec2::new(x, y),
                             town_idx: 0,
                             slot,
                             faction: 1,
-                            patrol_order: 0,
-                            assigned_mine: None,
-                            manual_mine: false,
-                            wall_level: 0,
-                            npc_uid: None,
-                            respawn_timer: -1.0,
-                            growth_ready: false,
-                            growth_progress: 0.0,
                             occupants: 0,
-                            under_construction: 5.0, // 5 seconds remaining
-                            kills: 0,
-                            xp: 0,
-                            upgrade_levels: vec![],
-                            auto_upgrade_flags: vec![],
                         });
                     }
                 }
@@ -983,9 +974,9 @@ fn bench_construction_tick_system(c: &mut Criterion) {
                 b.iter(|| {
                     // Reset construction timers each iteration
                     let _ = app.world_mut().run_system_once(
-                        |mut entity_map: ResMut<EntityMap>| {
-                            for inst in entity_map.iter_instances_mut() {
-                                inst.under_construction = 5.0;
+                        |mut q: Query<&mut ConstructionProgress>| {
+                            for mut cp in q.iter_mut() {
+                                cp.0 = 5.0;
                             }
                         },
                     );

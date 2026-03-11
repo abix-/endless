@@ -1514,7 +1514,7 @@ mod tests {
         )).id();
         // Register as building instance in EntityMap
         let mut entity_map = app.world_mut().resource_mut::<EntityMap>();
-        entity_map.entities.insert(slot, entity);
+        entity_map.set_entity(slot, entity);
         entity_map.add_instance(crate::resources::BuildingInstance {
             kind: BuildingKind::Tower,
             position: Vec2::ZERO,

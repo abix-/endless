@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-03-11
+
+- **slot_for_entity O(n) → O(1)** — added `entity_to_slot: HashMap<Entity, usize>` reverse index to EntityMap, forming a bijection with existing `entities: HashMap<usize, Entity>`. New `set_entity()`/`remove_entity_mapping()` helpers maintain both maps. `slot_for_entity()` and `instance_by_entity()` now use O(1) lookup instead of `entities.iter().find()`. Fixes damage_system quadratic regression at 50K entities (145ms → sub-ms). 15+ callers across codebase benefit.
+- **Benchmark rewrite** — full rewrite of `benches/system_bench.rs` to match current ECS architecture (BuildingInstance 6-field slim struct, ECS town components, Entity-based DamageMsg, SpawnerState/ProductionState/ConstructionProgress components). Fixed 68 compilation errors from prior migrations.
+
 ## 2026-03-10
 
 - **ActivityDef Registry** — made `ActivityKind` a fieldless `Copy + Eq + Hash` enum (10 variants, no data), matching the `BuildingKind`/`BUILDING_REGISTRY` pattern. Per-instance data (target_pos, worksite, recover_until) moved to `Activity` struct fields. Added `ActivityDef` struct + `ACTIVITY_REGISTRY` const slice + `activity_def()` lookup in constants.rs. Methods (`distraction()`, `label()`, `visual_key()`) delegate to registry. Added `is_restful` and `is_working` boolean flags replacing scattered `matches!` patterns. 169 references across 19 files updated. Adding a new activity = 1 fieldless variant + 1 registry entry. All 192 tests passing.

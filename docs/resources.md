@@ -10,7 +10,7 @@ Defined in: `rust/src/resources.rs`, `rust/src/world.rs`
 
 | Resource | Type | Writers | Readers |
 |----------|------|---------|---------|
-| EntityMap | `entities: HashMap<usize, Entity>` + `npcs: HashMap<usize, NpcEntry>` (6-field index: slot, entity, job, faction, town_idx, dead) + `npc_by_town: DenseSlotSet` secondary index + building instance data/indexes (`by_kind`, `by_kind_town`, `spawner_slots` — all `DenseSlotSet` for O(1) removal)/spatial grid | spawn_npc_system (register_npc), death_system (unregister_npc), place_building | damage_system, attack_system, tower_system, economy, UI (unified slot → entity lookup for all entities; NPC gameplay state read via ECS queries on NpcEntry.entity) |
+| EntityMap | `entities: HashMap<usize, Entity>` + `entity_to_slot: HashMap<Entity, usize>` (reverse index, bijection) + `npcs: HashMap<usize, NpcEntry>` (6-field index: slot, entity, job, faction, town_idx, dead) + `npc_by_town: DenseSlotSet` secondary index + building instance data/indexes (`by_kind`, `by_kind_town`, `spawner_slots` — all `DenseSlotSet` for O(1) removal)/spatial grid | spawn_npc_system (register_npc), death_system (unregister_npc), place_building | damage_system, attack_system, tower_system, economy, UI (unified slot → entity lookup for all entities; NPC gameplay state read via ECS queries on NpcEntry.entity) |
 | GpuSlotPool | `SlotPool` + `pending_resets` + `pending_frees` (max=MAX_ENTITIES=200K) | spawn_npc_system (alloc_reset), place_building_instance (alloc_reset), death_system (free) | GPU compute dispatch, populate_gpu_state (drains resets+frees), UI, tests |
 
 `GpuSlotPool` wraps a `SlotPool` inner type with LIFO free list, plus lifecycle queues: `pending_resets` (GPU state wipe on alloc) and `pending_frees` (GPU hide on free). `alloc_reset()` allocates + queues reset, `free()` deallocates + queues hide. Both queues are drained by `populate_gpu_state` each frame before processing `GpuUpdateMsg` events. Query methods: `count()` returns high-water mark, `alive()` returns `next - free.len()`, `free_list()` / `next()` for debug display, `set_next()` / `free_list_mut()` for save/load. NPCs and buildings share one allocator — each entity's slot IS its GPU buffer index (no offset arithmetic). See [spawn.md](spawn.md).
@@ -19,7 +19,7 @@ Defined in: `rust/src/resources.rs`, `rust/src/world.rs`
 
 **Two identity layers**: `Entity` = Bevy ECS handle (unique index+generation within a session, never reused while alive), `GpuSlot(usize)` = dense GPU buffer address (recycled via LIFO free-list).
 
-All gameplay cross-references use `Entity` directly: `AiSquadCmdState.building_uid: Option<Entity>`, `SpawnerState.npc_slot: Option<usize>` (GPU slot, not Entity — spawner can't pre-allocate Entity before async spawn), `NpcWorkState.worksite: Option<Entity>`, `Squad.members: Vec<Entity>`, `DamageMsg.target: Entity`. Helper methods: `slot_for_entity(entity) -> Option<usize>` (linear scan), `instance_by_entity(entity) -> Option<&BuildingInstance>`.
+All gameplay cross-references use `Entity` directly: `AiSquadCmdState.building_uid: Option<Entity>`, `SpawnerState.npc_slot: Option<usize>` (GPU slot, not Entity — spawner can't pre-allocate Entity before async spawn), `NpcWorkState.worksite: Option<Entity>`, `Squad.members: Vec<Entity>`, `DamageMsg.target: Entity`. Helper methods: `slot_for_entity(entity) -> Option<usize>` (O(1) via `entity_to_slot` reverse index), `instance_by_entity(entity) -> Option<&BuildingInstance>`. Mutation helpers `set_entity(slot, entity)` / `remove_entity_mapping(slot)` maintain the bijection.
 
 ## NPC UI Caches
 
@@ -27,12 +27,11 @@ Pre-computed per-NPC data for UI queries, indexed by slot.
 
 | Resource | Per-NPC Data | Writers | Readers |
 |----------|-------------|---------|---------|
-| NpcMetaCache | name, level, xp, town_id, job | spawn_npc_system, death_system (XP grant), inspector rename | UI queries |
 | NpcLogCache | `VecDeque<NpcLogEntry>` (100 cap, circular, lazy init) | behavior/decision systems | UI queries |
 
 `NpcLogCache.push(idx, day, hour, minute, message)` adds timestamped entries. Oldest evicted at capacity.
 
-NPC state is derived at query time from ECS components (Activity, CombatState, Personality) via entity lookup from `NpcEntry.entity`, not cached. Trait display is cached in `NpcMeta.trait_display` at spawn time and also queried from `Personality` ECS component via `trait_summary()` in some UI panels. NPC rename edits `NpcMetaCache` directly from inspector UI.
+NPC state is derived at query time from ECS components (Activity, CombatState, Personality, NpcMeta) via entity lookup from `NpcEntry.entity`, not cached. NPC rename edits `NpcMeta` component directly from inspector UI.
 
 ## Population & Kill Stats
 

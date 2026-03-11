@@ -124,9 +124,7 @@ impl TestSetupParams<'_, '_> {
             Vec2::new(x, y),
             town_idx,
             faction,
-            0,
-            0,
-            None,
+            &Default::default(),
             None,
             Some(&mut self.dirty_writers),
         );
@@ -149,9 +147,7 @@ impl TestSetupParams<'_, '_> {
             Vec2::new(x, y),
             town_idx,
             faction,
-            patrol_order,
-            0,
-            None,
+            &world::BuildingOverrides { patrol_order, ..Default::default() },
             None,
             Some(&mut self.dirty_writers),
         );

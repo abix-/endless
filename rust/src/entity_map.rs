@@ -128,6 +128,8 @@ pub struct NpcEntry {
 pub struct EntityMap {
     /// ALL entities (NPCs + buildings) — unified slot→entity
     pub entities: HashMap<usize, Entity>,
+    /// Reverse index: entity→slot (bijection with `entities`)
+    pub(crate) entity_to_slot: HashMap<Entity, usize>,
 
     // Building-specific data (dense storage for cache-friendly iteration)
     instances: DenseSlotMap<BuildingInstance>,
@@ -169,26 +171,39 @@ struct SpatialBucketRef {
 }
 
 impl EntityMap {
+    // ── Entity ↔ slot bijection ────────────────────────────────────────
+
+    /// Register a slot↔entity mapping (forward + reverse).
+    pub fn set_entity(&mut self, slot: usize, entity: Entity) {
+        if let Some(old_entity) = self.entities.insert(slot, entity) {
+            self.entity_to_slot.remove(&old_entity);
+        }
+        self.entity_to_slot.insert(entity, slot);
+    }
+
+    /// Remove a slot↔entity mapping (forward + reverse).
+    fn remove_entity_mapping(&mut self, slot: usize) {
+        if let Some(entity) = self.entities.remove(&slot) {
+            self.entity_to_slot.remove(&entity);
+        }
+    }
+
+    /// Look up the slot for an entity. O(1) via reverse index.
+    pub fn slot_for_entity(&self, entity: Entity) -> Option<usize> {
+        self.entity_to_slot.get(&entity).copied()
+    }
+
     // ── Building instance API ──────────────────────────────────────────
 
     /// Look up a building instance by entity (resolves entity→slot→instance).
     pub fn instance_by_entity(&self, entity: Entity) -> Option<&BuildingInstance> {
-        // Reverse lookup: find slot for this entity, then get instance
-        self.entities.iter()
-            .find(|(_, e)| **e == entity)
-            .and_then(|(slot, _)| self.instances.get(*slot))
-    }
-
-    /// Look up the slot for an entity.
-    pub fn slot_for_entity(&self, entity: Entity) -> Option<usize> {
-        self.entities.iter()
-            .find(|(_, e)| **e == entity)
-            .map(|(slot, _)| *slot)
+        self.slot_for_entity(entity)
+            .and_then(|slot| self.instances.get(slot))
     }
 
     /// Remove a building by its slot. Removes entity mapping AND instance data.
     pub fn remove_by_slot(&mut self, slot: usize) {
-        self.entities.remove(&slot);
+        self.remove_entity_mapping(slot);
         self.remove_instance(slot);
     }
 
@@ -460,7 +475,7 @@ impl EntityMap {
             "duplicate NPC slot {}",
             slot
         );
-        self.entities.insert(slot, entity);
+        self.set_entity(slot, entity);
         self.npc_by_town.entry(town_idx).or_default().insert(slot);
         self.npcs.insert(
             slot,
@@ -482,7 +497,7 @@ impl EntityMap {
             "removing absent NPC slot {}",
             slot
         );
-        self.entities.remove(&slot);
+        self.remove_entity_mapping(slot);
         if let Some(entry) = self.npcs.remove(&slot) {
             if let Some(slots) = self.npc_by_town.get_mut(&entry.town_idx) {
                 slots.remove(slot);
@@ -523,8 +538,11 @@ impl EntityMap {
     }
 
     pub fn clear_npcs(&mut self) {
-        for &slot in self.npcs.keys() {
-            self.entities.remove(&slot);
+        let npc_slots: Vec<usize> = self.npcs.keys().copied().collect();
+        for slot in npc_slots {
+            if let Some(entity) = self.entities.remove(&slot) {
+                self.entity_to_slot.remove(&entity);
+            }
         }
         self.npcs.clear();
         self.npc_by_town.clear();

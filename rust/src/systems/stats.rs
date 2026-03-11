@@ -1758,7 +1758,7 @@ mod tests {
                 auto_upgrade_flags: auto_flags,
             },
         )).id();
-        app.world_mut().resource_mut::<crate::resources::EntityMap>().entities.insert(slot, entity);
+        app.world_mut().resource_mut::<crate::resources::EntityMap>().set_entity(slot, entity);
     }
 
     fn get_tower_state(app: &App, slot: usize) -> crate::components::TowerBuildingState {

@@ -247,7 +247,7 @@ Current CRD compliance:
 | Entity     | Def Registry                    | Instance Pattern                          | Score |
 |------------|--------------------------------|------------------------------------------|-------|
 | NPCs       | NpcDef + NPC_REGISTRY          | ECS components (NpcStats)                | 95%   |
-| Buildings  | BuildingDef + BUILDING_REGISTRY| slim spatial index + ECS components      | 90%   |
+| Buildings  | BuildingDef + BUILDING_REGISTRY| slim spatial index + ECS components      | 95%   |
 | Activities | ActivityDef + ACTIVITY_REGISTRY| Activity component + fieldless kind      | 90%   |
 | Towns      | TownDef + TOWN_REGISTRY        | ECS town entities (TownAccess)           | 60%   |
 | Items      | None (procedural gen)          | LootItem + NpcEquipment                  | 60%   |
@@ -259,10 +259,10 @@ Chunk 1 — NPC Instance Cleanup (80% → 95%): ✅
 - [x] Simplify `materialize_npc()` — read NpcDef internally, removed attack_type_id + WorldData params
 - [x] Remove CombatConfig/JobStats duplication (resolve_combat_stats reads NpcDef.base_hp/damage/speed directly)
 
-Chunk 2 — Building Instance Consolidation (70% → 90%):
+Chunk 2 — Building Instance Consolidation (70% → 90%): ✅
 - [x] Replace BuildingInstance god struct with ECS components: ProductionState, TowerBuildingState, SpawnerState, ConstructionProgress, WaypointOrder, WallLevel, MinerHomeConfig
 - [x] Slim BuildingInstance to 6-field spatial index (kind, position, town_idx, slot, faction, occupants)
-- [ ] Simplify `place_building()` signature — read BuildingDef internally
+- [x] Simplify `place_building()` signature — BuildingOverrides struct replaces 3 loose params (patrol_order, wall_level, hp)
 
 Chunk 3 — TownDef Registry (40% → 80%):
 - [x] Add TownDef struct + TOWN_REGISTRY (player, ai_builder, ai_raider templates)

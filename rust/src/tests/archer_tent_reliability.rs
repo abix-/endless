@@ -50,18 +50,18 @@ pub fn setup(
 
     let _home_a = world::place_building(
         &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
-        BuildingKind::ArcherHome, ARCHER_HOME_A, 0, 0, 0, 0, None, None, None,
+        BuildingKind::ArcherHome, ARCHER_HOME_A, 0, 0, &Default::default(), None, None,
     )
     .expect("archer home A slot alloc");
     let _home_b = world::place_building(
         &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
-        BuildingKind::ArcherHome, ARCHER_HOME_B, 0, 0, 0, 0, None, None, None,
+        BuildingKind::ArcherHome, ARCHER_HOME_B, 0, 0, &Default::default(), None, None,
     )
     .expect("archer home B slot alloc");
 
     let tent_slot = world::place_building(
         &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
-        BuildingKind::Tent, TENT_POS, 1, 1, 0, 0, None, None, None,
+        BuildingKind::Tent, TENT_POS, 1, 1, &Default::default(), None, None,
     )
     .expect("tent slot alloc");
     test_state
