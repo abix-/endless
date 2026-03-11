@@ -2,6 +2,7 @@
 
 ## 2026-03-11
 
+- **SystemParam bundle cleanup** — deleted `FarmParams` (1-field wrapper around `Res<WorldData>`, inlined into `decision_system`). Extracted `TestScenarioSetup` shared bundle in `tests/mod.rs` replacing 5 copy-pasted per-test bundles (`SandboxState`, `SlotReuseSetup`, `StressArcherTownsState`, `AiBuildingSetupState`, `EndlessModeSetupState`). `TownAccess.index` upgraded from `Res` to `ResMut`, added `town_index_mut()` accessor; `SaveWorldState` removed redundant `town_index` field.
 - **5 new system benchmarks** — added Criterion benchmarks for cooldown_system (58µs@50K), npc_regen_system (3µs@50K), on_duty_tick_system (59µs@50K), spawn_npc_system (spawn-count scaled), process_proj_hits (projectile-count scaled). NPC-scaled coverage: 10 → 13 systems, 3.5ms → 4.1ms at 50K. Added spawn-scaled and projectile-scaled benchmark tables to performance.md.
 - **resolve_work_targets early-return** — production_map HashMap was built from all building instances every tick even with 0 WorkIntentMsg messages. Moved the pre-collect inside the message processing block, behind an early-return guard.
 - **Split constants.rs into directory module** — `constants.rs` (2341 lines) → `constants/mod.rs` + `upgrades.rs` + `npcs.rs` + `buildings.rs` (~550-620 lines each). Upgrade stat types/tables → upgrades.rs, NPC/activity registries + loot system → npcs.rs, building registry + autotile → buildings.rs, remaining tuning constants + town registry → mod.rs. `pub use *` re-exports preserve all external imports. Zero behavior change, 16 tests passing.

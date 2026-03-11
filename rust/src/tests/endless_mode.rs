@@ -8,19 +8,9 @@ use crate::messages::DamageMsg;
 use crate::resources::*;
 use crate::systems::{AiKind, AiPlayerState};
 use crate::world::{self, BuildingKind, WorldGenStyle};
-use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
-use super::{BuildingInitParams, TestState};
-
-#[derive(SystemParam)]
-pub(super) struct EndlessModeSetupState<'w> {
-    endless: ResMut<'w, EndlessMode>,
-    ai_state: ResMut<'w, AiPlayerState>,
-    raider_state: ResMut<'w, RaiderState>,
-    test_state: ResMut<'w, TestState>,
-    game_time: ResMut<'w, GameTime>,
-}
+use super::{BuildingInitParams, TestScenarioSetup, TestState};
 
 pub(super) fn setup(
     mut world_data: ResMut<world::WorldData>,
@@ -30,7 +20,7 @@ pub(super) fn setup(
 
     mut slot_alloc: ResMut<GpuSlotPool>,
     mut bld: BuildingInitParams,
-    mut state: EndlessModeSetupState,
+    mut state: TestScenarioSetup,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     mut commands: Commands,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,

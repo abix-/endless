@@ -6,15 +6,14 @@
 //! near the AI town as a target. AI archers spawn from 5 archer homes.
 //! After wave dispatches, we destroy the target and reuse its slot to prove the bug.
 
-use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::components::Health;
 use crate::resources::*;
-use crate::systems::{AiPersonality, AiPlayerConfig, AiPlayerState};
+use crate::systems::{AiPersonality, AiPlayerState};
 use crate::world::{self, BuildingKind, WorldGenStyle};
 
-use super::{BuildingInitParams, TestState};
+use super::{BuildingInitParams, TestScenarioSetup, TestState};
 
 /// Persistent state across phases — tracks the target slot for verification.
 #[derive(Resource, Default)]
@@ -37,16 +36,6 @@ pub struct SlotReuseTestState {
     pub attack_squad_idx: Option<usize>,
 }
 
-#[derive(SystemParam)]
-pub struct SlotReuseSetup<'w> {
-    ai_state: ResMut<'w, AiPlayerState>,
-    ai_config: ResMut<'w, AiPlayerConfig>,
-    endless: ResMut<'w, EndlessMode>,
-    raider_state: ResMut<'w, RaiderState>,
-    test_state: ResMut<'w, TestState>,
-    game_time: ResMut<'w, GameTime>,
-}
-
 pub fn setup(
     mut commands: Commands,
     mut world_data: ResMut<world::WorldData>,
@@ -58,7 +47,7 @@ pub fn setup(
     mut bld: BuildingInitParams,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
     _spawn_writer: MessageWriter<crate::messages::SpawnNpcMsg>,
-    mut state: SlotReuseSetup,
+    mut state: TestScenarioSetup,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     mut town_index: ResMut<crate::resources::TownIndex>,
 ) {

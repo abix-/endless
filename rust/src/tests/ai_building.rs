@@ -3,25 +3,14 @@
 //! Phase 1: egui personality picker (Economic default).
 //! Phase 2: auto-passes, scene runs indefinitely for observation.
 
-use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
 use crate::resources::*;
-use crate::systems::{AiPersonality, AiPlayerConfig, AiPlayerState};
+use crate::systems::{AiPersonality, AiPlayerState};
 use crate::world::{self, WorldGenStyle};
 
-use super::{BuildingInitParams, TestState};
-
-#[derive(SystemParam)]
-pub(super) struct AiBuildingSetupState<'w> {
-    endless: ResMut<'w, EndlessMode>,
-    ai_state: ResMut<'w, AiPlayerState>,
-    ai_config: ResMut<'w, AiPlayerConfig>,
-    raider_state: ResMut<'w, RaiderState>,
-    test_state: ResMut<'w, TestState>,
-    game_time: ResMut<'w, GameTime>,
-}
+use super::{BuildingInitParams, TestScenarioSetup, TestState};
 
 pub(super) fn setup(
     mut commands: Commands,
@@ -34,7 +23,7 @@ pub(super) fn setup(
     mut bld: BuildingInitParams,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
     _spawn_writer: MessageWriter<crate::messages::SpawnNpcMsg>,
-    mut state: AiBuildingSetupState,
+    mut state: TestScenarioSetup,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     mut town_index: ResMut<crate::resources::TownIndex>,
 ) {

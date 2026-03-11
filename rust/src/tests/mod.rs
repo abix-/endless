@@ -70,6 +70,17 @@ pub struct BuildingInitParams<'w> {
     pub entity_map: ResMut<'w, EntityMap>,
 }
 
+/// Shared AI/endless scenario setup — replaces 5 per-test copy-paste bundles.
+#[derive(SystemParam)]
+pub struct TestScenarioSetup<'w> {
+    pub raider_state: ResMut<'w, RaiderState>,
+    pub test_state: ResMut<'w, TestState>,
+    pub game_time: ResMut<'w, GameTime>,
+    pub endless: ResMut<'w, EndlessMode>,
+    pub ai_state: ResMut<'w, crate::systems::AiPlayerState>,
+    pub ai_config: ResMut<'w, crate::systems::AiPlayerConfig>,
+}
+
 impl TestSetupParams<'_, '_> {
     /// Focus camera on a world position so the test scene is visible.
     pub fn focus_camera(&mut self, x: f32, y: f32) {

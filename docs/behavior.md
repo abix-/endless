@@ -15,10 +15,11 @@ NPC decision-making and state transitions. All run in `Step::Behavior` after com
 
 Activity is preserved through combat — a Raiding NPC stays `ActivityKind::Raid` while `CombatState::Fighting`. When combat ends, the NPC resumes its previous activity.
 
-The system uses **SystemParam bundles** for farm and economy parameters:
-- `FarmParams`: `EntityMap` (occupancy tracked via `EntityMap.occupancy` map)
-- `EconomyParams`: food storage, food events, population stats
-- `DecisionExtras`: npc logs, combat log, policies, squad state, town upgrades
+The system uses **SystemParam bundles** to stay under Bevy's 16-param limit:
+- `NpcDataQueries`: home, personality, leash, work state, patrol, carried loot, stealer, has_energy queries
+- `DecisionNpcState`: npc flags, squad, manual target, energy, combat state, health, cached stats, activity queries
+- `DecisionExtras`: npc logs, combat log, gpu updates, work intents, squad state, selected npc, settings
+- `EconomyState`: pop stats + `TownAccess`
 - `Res<EntityMap>`: sole source of truth for all building instance lookups (farms, waypoints, towns, gold mines)
 
 Priority order (first match wins), with two-cadence top-of-loop bucket gating (see [performance.md](performance.md#bucket-gated-decision-system) for formulas and scaling numbers):

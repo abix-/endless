@@ -2,24 +2,12 @@
 //! 1 player town + 1 AI builder town, 100K food + 100K gold, no raiders.
 //! Auto-completes after setup so the scene runs indefinitely.
 
-use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::resources::*;
-use crate::systems::{AiPlayerConfig, AiPlayerState};
 use crate::world::{self, WorldGenStyle};
 
-use super::{BuildingInitParams, TestState};
-
-#[derive(SystemParam)]
-pub(super) struct SandboxState<'w> {
-    raider_state: ResMut<'w, RaiderState>,
-    test_state: ResMut<'w, TestState>,
-    game_time: ResMut<'w, GameTime>,
-    endless: ResMut<'w, EndlessMode>,
-    ai_state: ResMut<'w, AiPlayerState>,
-    ai_config: ResMut<'w, AiPlayerConfig>,
-}
+use super::{BuildingInitParams, TestScenarioSetup, TestState};
 
 pub(super) fn setup(
     mut commands: Commands,
@@ -31,7 +19,7 @@ pub(super) fn setup(
     mut slot_alloc: ResMut<GpuSlotPool>,
     mut bld: BuildingInitParams,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
-    mut state: SandboxState,
+    mut state: TestScenarioSetup,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     mut town_index: ResMut<crate::resources::TownIndex>,
 ) {

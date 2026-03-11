@@ -144,6 +144,7 @@ Town economic state (food, gold, policies, upgrades, equipment) lives on ECS tow
 | `upgrades_mut(idx)` | `Option<Mut<TownUpgradeLevel>>` | Yes |
 | `equipment(idx)` / `equipment_mut(idx)` | `Option<Vec<LootItem>>` / `Option<Mut<TownEquipment>>` | No / Yes |
 | `area_level(idx)` / `set_area_level(idx, val)` | `i32` / — | No / Yes |
+| `town_index_mut()` | `&mut TownIndex` | Yes |
 
 Town entities are spawned in world gen and save/load with: `TownMarker`, `TownAreaLevel(al)`, `FoodStore(0)`, `GoldStore(0)`, `TownPolicy(default)`, `TownUpgradeLevel::default()`, `TownEquipment::default()`.
 

@@ -3,16 +3,15 @@
 //! - Configurable archer homes per town (default 1,000)
 //!   Verifies counts on phase 1, then leaves scene running for observation.
 
-use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
 use crate::components::Job;
 use crate::resources::*;
-use crate::systems::{AiPlayerConfig, AiPlayerState};
+use crate::systems::AiPlayerState;
 use crate::world::{self, BuildingKind, WorldGenStyle};
 
-use super::{BuildingInitParams, TestState};
+use super::{BuildingInitParams, TestScenarioSetup, TestState};
 
 const STRESS_AI_TOWNS: usize = 20;
 const DEFAULT_ARCHER_HOMES: usize = 100;
@@ -33,16 +32,6 @@ impl Default for StressArcherConfig {
     }
 }
 
-#[derive(SystemParam)]
-pub(super) struct StressArcherTownsState<'w> {
-    raider_state: ResMut<'w, RaiderState>,
-    test_state: ResMut<'w, TestState>,
-    game_time: ResMut<'w, GameTime>,
-    endless: ResMut<'w, EndlessMode>,
-    ai_state: ResMut<'w, AiPlayerState>,
-    ai_config: ResMut<'w, AiPlayerConfig>,
-}
-
 pub(super) fn setup(
     mut commands: Commands,
     mut world_data: ResMut<world::WorldData>,
@@ -53,7 +42,7 @@ pub(super) fn setup(
     mut slot_alloc: ResMut<GpuSlotPool>,
     mut bld: BuildingInitParams,
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
-    mut state: StressArcherTownsState,
+    mut state: TestScenarioSetup,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     stress_config: Res<StressArcherConfig>,
     mut town_index: ResMut<crate::resources::TownIndex>,

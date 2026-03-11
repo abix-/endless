@@ -1402,7 +1402,6 @@ pub struct SaveWorldState<'w, 's> {
     pub auto_upgrade: ResMut<'w, AutoUpgrade>,
     pub squad_state: ResMut<'w, SquadState>,
     pub tower_state: ResMut<'w, TowerState>,
-    pub town_index: ResMut<'w, crate::resources::TownIndex>,
     pub town_access: crate::systemparams::TownAccess<'w, 's>,
 }
 
@@ -2062,7 +2061,7 @@ pub fn restore_world_from_save(
     // Spawn ECS town entities from loaded save data
     world::spawn_town_entities(
         commands,
-        &mut ws.town_index,
+        ws.town_access.town_index_mut(),
         &ws.world_data.towns,
         &town_data.area_levels,
         &town_data.food,

@@ -37,11 +37,6 @@ use bevy::prelude::*;
 
 use bevy::ecs::system::SystemParam;
 
-/// Farm-related resources
-#[derive(SystemParam)]
-pub struct FarmParams<'w> {
-    pub world: Res<'w, WorldData>,
-}
 
 /// NPC gameplay data queries (bundled to stay under 16 params)
 #[derive(SystemParam)]
@@ -299,7 +294,7 @@ static DECISION_FRAME: std::sync::atomic::AtomicUsize = std::sync::atomic::Atomi
 /// 6. OnDuty + time_to_patrol? -> Patrol
 /// 7. Idle -> Score Eat/Rest/Work/Wander (wounded -> fountain, tired -> home)
 pub fn decision_system(
-    farms: FarmParams,
+    world_data: Res<WorldData>,
     mut economy: EconomyState,
     mut intents: ResMut<PathRequestQueue>,
     gpu_state: Res<GpuReadState>,
@@ -1017,7 +1012,7 @@ pub fn decision_system(
                         p.prioritize_healing && energy > 0.0 && health / max_hp < p.recovery_hp
                     });
                 if healing_policy_active {
-                    if let Some(town) = farms.world.towns.get(town_idx_usize) {
+                    if let Some(town) = world_data.towns.get(town_idx_usize) {
                         combat_state = CombatState::None;
                         if activity.kind != ActivityKind::Heal {
                             let threshold = economy.towns.policy(town_idx_i32).map(|p| p.recovery_hp).unwrap_or(0.8);
@@ -1127,7 +1122,7 @@ pub fn decision_system(
                                 && health / max_hp < p.recovery_hp
                             {
                                 if activity.kind != ActivityKind::Heal {
-                                    if let Some(town) = farms.world.towns.get(ti) {
+                                    if let Some(town) = world_data.towns.get(ti) {
                                         combat_state = CombatState::None;
                                         let threshold = p.recovery_hp;
                                         activity.kind = ActivityKind::Heal;
@@ -1254,7 +1249,7 @@ pub fn decision_system(
                 // Early arrival: GoingToHeal NPCs stop once inside healing range
                 if activity.kind == ActivityKind::Heal {
                     let town_idx = town_idx_i32 as usize;
-                    if let Some(town) = farms.world.towns.get(town_idx) {
+                    if let Some(town) = world_data.towns.get(town_idx) {
                         if let Some(current) = npc_pos {
                             if current.distance(town.center) <= HEAL_DRIFT_RADIUS {
                                 let threshold = economy.towns.policy(town_idx_i32)
@@ -1295,7 +1290,7 @@ pub fn decision_system(
                 } else {
                     // Drift check: separation physics pushes NPCs out of healing range
                     let town_idx = town_idx_i32 as usize;
-                    if let Some(town) = farms.world.towns.get(town_idx) {
+                    if let Some(town) = world_data.towns.get(town_idx) {
                         if let Some(current) = npc_pos {
                             if current.distance(town.center) > HEAL_DRIFT_RADIUS {
                                 submit_intent_scattered(
@@ -1650,7 +1645,7 @@ pub fn decision_system(
             // Skip if starving — HP capped at 50% until energy recovers
             if let Some(p) = &policy {
                 if p.prioritize_healing && energy > 0.0 && health / max_hp < p.recovery_hp {
-                    if let Some(town) = farms.world.towns.get(town_idx) {
+                    if let Some(town) = world_data.towns.get(town_idx) {
                         let center = town.center;
                         let threshold = policy.map(|p| p.recovery_hp).unwrap_or(0.8);
                         activity.kind = ActivityKind::Heal;
@@ -1747,7 +1742,7 @@ pub fn decision_system(
                     }
                     OffDutyBehavior::StayAtFountain => {
                         // Go to town center (fountain)
-                        if let Some(town) = farms.world.towns.get(town_idx) {
+                        if let Some(town) = world_data.towns.get(town_idx) {
                             let center = town.center;
                             activity.kind = ActivityKind::Wander;
                             submit_intent(

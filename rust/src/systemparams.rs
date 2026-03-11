@@ -175,7 +175,7 @@ pub struct EconomyState<'w, 's> {
 /// ECS-backed town data access. Each town is an entity with FoodStore, GoldStore, etc.
 #[derive(SystemParam)]
 pub struct TownAccess<'w, 's> {
-    index: Res<'w, TownIndex>,
+    index: ResMut<'w, TownIndex>,
     food: Query<'w, 's, &'static mut crate::components::FoodStore, With<crate::components::TownMarker>>,
     gold: Query<'w, 's, &'static mut crate::components::GoldStore, With<crate::components::TownMarker>>,
     policy: Query<'w, 's, &'static mut crate::components::TownPolicy, With<crate::components::TownMarker>>,
@@ -187,6 +187,10 @@ pub struct TownAccess<'w, 's> {
 impl TownAccess<'_, '_> {
     pub fn entity(&self, town_idx: i32) -> Option<Entity> {
         self.index.0.get(&town_idx).copied()
+    }
+
+    pub fn town_index_mut(&mut self) -> &mut TownIndex {
+        &mut self.index
     }
 
     pub fn food(&self, town_idx: i32) -> i32 {
