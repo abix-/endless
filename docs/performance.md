@@ -352,64 +352,79 @@ Legitimate violations of the rules above, tracked with exit criteria.
 
 ## Current Benchmark Results
 
-Run via `cargo bench --bench system_bench` (Criterion). Use `/benchmark` to execute and append results. Last full run: 2026-03-11.
+Run via `cargo bench --bench system_bench` (Criterion). Use `/benchmark` to execute and append results. Last full run: 2026-03-11b.
 
 ### NPC-scaled (vary entity count, 50K NPCs baseline)
 
 | System | 1K | 5K | 10K | 25K | 50K | Scaling |
 |--------|----|----|-----|-----|-----|---------|
-| decision | 38µs | 80µs | 130µs | 298µs | 543µs | O(n) |
-| damage | 19µs | 43µs | 55µs | 116µs | 225µs | O(n) |
-| healing | 12µs | 42µs | 82µs | 206µs | 440µs | O(n) |
-| attack | 22µs | 75µs | 140µs | 344µs | 693µs | O(n) |
-| resolve_movement | 18µs | 46µs | 62µs | 115µs | 211µs | O(n) HPA* |
-| resolve_movement_unbounded | 31µs | 87µs | 167µs | 375µs | 760µs | O(n) HPA* |
-| populate_gpu_state | 53µs | 193µs | 230µs | 529µs | 983µs | O(n) |
-| energy | 4µs | 10µs | 18µs | 40µs | 78µs | O(n) |
-| arrival | 15µs | 24µs | 32µs | 59µs | 102µs | O(n) |
-| gpu_position_readback | 5µs | 17µs | 29µs | 71µs | 156µs | O(n) |
-| advance_waypoints | 5µs | 13µs | 21µs | 48µs | 94µs | O(n) |
+| decision | 41µs | 71µs | 111µs | 220µs | 404µs | O(n) |
+| damage | 173µs | 189µs | 212µs | 393µs | 835µs | O(n) |
+| healing | 12µs | 45µs | 92µs | 231µs | 481µs | O(n) |
+| attack | 22µs | 72µs | 138µs | 331µs | 674µs | O(n) |
+| resolve_movement | 19µs | 45µs | 63µs | 115µs | 212µs | O(n) HPA* |
+| resolve_movement_unbounded | 33µs | 84µs | 156µs | 367µs | 723µs | O(n) HPA* |
+| populate_gpu_state | 53µs | 193µs | 226µs | 520µs | 958µs | O(n) |
+| energy | 3µs | 10µs | 19µs | 41µs | 79µs | O(n) |
+| arrival | 16µs | 23µs | 31µs | 52µs | 92µs | O(n) |
+| gpu_position_readback | 5µs | 19µs | 34µs | 82µs | 160µs | O(n) |
+| advance_waypoints | 5µs | 13µs | 22µs | 48µs | 92µs | O(n) |
+| cooldown | 5µs | 8µs | 14µs | 30µs | 58µs | O(n) |
+| npc_regen | 2µs | 2µs | 3µs | 2µs | 3µs | O(1)† |
+| on_duty_tick | 3µs | 8µs | 14µs | 30µs | 59µs | O(n) |
 
-Combined 50K (10 systems, excluding unbounded variant): 3.5ms (21.9% of 16ms budget).
+†npc_regen: O(1) because only 25% have hp_regen > 0; branch prediction skips most NPCs.
+
+Combined 50K (13 systems, excluding unbounded variant): 4.1ms (25.6% of 16ms budget).
 
 ### Building-scaled (vary building count)
 
 | System | 100 | 500 | 1K | 5K | 50K | Scaling |
 |--------|-----|-----|----|-----|------|---------|
-| building_tower | 14µs | 21µs | 30µs | 117µs | 1.5ms | O(n) |
-| growth | 14µs | 16µs | 21µs | 55µs | 628µs | O(n) |
-| construction_tick | 9µs | 14µs | 26µs | 99µs | 950µs | O(n) |
-
-500 towers (typical game) = 21µs, negligible. 50K towers = 1.5ms (improved from 5.0ms).
-Growth + construction at typical scale (1K buildings) = 47µs combined.
+| building_tower | 13µs | 18µs | 22µs | 61µs | 573µs | O(n) |
+| growth | 13µs | 17µs | 22µs | 55µs | 580µs | O(n) |
+| construction_tick | 6µs | 14µs | 24µs | 103µs | 927µs | O(n) |
 
 ### Spawner-scaled (vary spawner building count)
 
 | System | 100 | 500 | 1K | 5K | 50K | Scaling |
 |--------|-----|-----|----|-----|------|---------|
-| spawner_respawn | 19µs | 34µs | 59µs | 237µs | 1.7ms | O(n) |
+| spawner_respawn | 19µs | 37µs | 59µs | 233µs | 1.7ms | O(n) |
+
+### Spawn-scaled (materialize_npc per-spawn cost)
+
+| Spawns/frame | 10 | 50 | 100 | 500 | Scaling |
+|-------------|-----|------|------|------|---------|
+| spawn_npc | 993µs | 2.7ms | 3.7ms | 10.0ms | O(n) ~20µs/spawn |
+
+### Projectile-scaled (process_proj_hits)
+
+| Projectiles | 100 | 500 | 1K | 5K | Scaling |
+|------------|-----|------|-----|-----|---------|
+| process_proj_hits | 2µs | 2µs | 4µs | 10µs | O(n) |
 
 ### Death-scaled (full death→despawn→respawn cycle, fixed 50K NPCs)
 
 | Deaths/frame | 100 | 500 | 1K | 5K | 25K | Scaling |
 |-------------|-----|-----|----|-----|------|---------|
-| death_system | 245µs | 809µs | 1.6ms | 10.3ms | 54.7ms | O(n) ~2.0µs/death |
+| death_system | 270µs | 803µs | 1.6ms | 10.1ms | 54.0ms | O(n) ~1.6µs/death |
 
-500 deaths/frame (heavy combat) = 809µs (5% of budget).
+500 deaths/frame (heavy combat) = 803µs (5% of budget).
 
-### Budget Summary (50K entities, typical combat frame)
+### Budget Summary (50K NPCs + realistic 2K buildings, heavy combat frame)
 
 | Component | Cost | % of 16ms |
 |-----------|------|-----------|
-| 10 NPC-scaled systems | 3.5ms | 21.9% |
-| death_system (500 deaths) | 809µs | 5.1% |
-| building_tower (500 towers) | 21µs | 0.1% |
-| spawner_respawn (1K spawners) | 59µs | 0.4% |
-| growth (1K farms/mines) | 21µs | 0.1% |
-| construction_tick (1K buildings) | 26µs | 0.2% |
-| **Total measured** | **4.4ms** | **27.8%** |
+| 13 NPC-scaled systems (50K NPCs) | 4.1ms | 25.6% |
+| death_system (500 deaths) | 803µs | 5.0% |
+| process_proj_hits (1K projectiles) | 4µs | 0.0% |
+| building systems (2K buildings) | ~120µs | 0.8% |
+| spawner_respawn (2K spawners) | ~70µs | 0.4% |
+| **Total measured** | **5.1ms** | **31.9%** |
 
-Remaining budget for GPU compute, rendering, UI, and unmeasured systems: ~11.6ms (72%).
+Remaining budget for GPU compute, rendering, UI, and unmeasured systems: ~10.9ms (68%).
+
+Note: building systems at realistic counts (2K) are negligible. 50K-per-type stress tests are in the building-scaled tables above but don't represent real gameplay.
 
 ## Optimization Log
 
@@ -520,3 +535,47 @@ Added 4 new NPC system benchmarks (energy, arrival, gpu_position_readback, advan
 
 Combined 50K NPC-scaled (10 systems): 3.5ms (21.9% of 16ms budget)
 Combined 50K all measured: 4.4ms (27.8% of 16ms budget)
+
+### 2026-03-11b — b34f4e0
+
+Added 5 new benchmarks (cooldown, npc_regen, on_duty_tick, spawn_npc, process_proj_hits).
+Fixed resolve_work_targets: early-return when no WorkIntentMsg (was scanning all buildings every tick).
+
+| System | 1K | 5K | 10K | 25K | 50K |
+|--------|----|----|-----|-----|-----|
+| decision | 41µs | 71µs | 111µs | 220µs | 404µs |
+| damage | 173µs | 189µs | 212µs | 393µs | 835µs |
+| healing | 12µs | 45µs | 92µs | 231µs | 481µs |
+| attack | 22µs | 72µs | 138µs | 331µs | 674µs |
+| resolve_movement | 19µs | 45µs | 63µs | 115µs | 212µs |
+| resolve_movement_unbounded | 33µs | 84µs | 156µs | 367µs | 723µs |
+| populate_gpu_state | 53µs | 193µs | 226µs | 520µs | 958µs |
+| energy | 3µs | 10µs | 19µs | 41µs | 79µs |
+| arrival | 16µs | 23µs | 31µs | 52µs | 92µs |
+| gpu_position_readback | 5µs | 19µs | 34µs | 82µs | 160µs |
+| advance_waypoints | 5µs | 13µs | 22µs | 48µs | 92µs |
+| cooldown | 5µs | 8µs | 14µs | 30µs | 58µs |
+| npc_regen | 2µs | 2µs | 3µs | 2µs | 3µs |
+| on_duty_tick | 3µs | 8µs | 14µs | 30µs | 59µs |
+
+| Building system | 100 | 500 | 1K | 5K | 50K |
+|-----------------|-----|-----|----|-----|------|
+| building_tower | 13µs | 18µs | 22µs | 61µs | 573µs |
+| growth | 13µs | 17µs | 22µs | 55µs | 580µs |
+| construction_tick | 6µs | 14µs | 24µs | 103µs | 927µs |
+| spawner_respawn | 19µs | 37µs | 59µs | 233µs | 1705µs |
+
+| Spawns/frame | 10 | 50 | 100 | 500 |
+|-------------|-----|------|------|------|
+| spawn_npc | 993µs | 2691µs | 3657µs | 10041µs |
+
+| Projectiles | 100 | 500 | 1K | 5K |
+|------------|-----|------|-----|-----|
+| process_proj_hits | 2µs | 2µs | 4µs | 10µs |
+
+| Death system | 100 | 500 | 1K | 5K | 25K |
+|-------------|-----|-----|----|-----|------|
+| death | 270µs | 803µs | 1594µs | 10077µs | 53957µs |
+
+Combined 50K NPC-scaled (13 systems): 4.1ms (25.6% of 16ms budget)
+Combined 50K all measured (realistic 2K buildings): 5.1ms (31.9% of 16ms budget)

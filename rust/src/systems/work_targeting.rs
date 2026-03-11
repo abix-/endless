@@ -22,7 +22,13 @@ pub fn resolve_work_targets(
     mut path_queue: ResMut<PathRequestQueue>,
     production_q: Query<&ProductionState, With<Building>>,
 ) {
-    // Pre-collect production state so score closures can access it without ECS borrow conflicts
+    let msgs: Vec<_> = intents.read().collect();
+    if msgs.is_empty() {
+        return;
+    }
+
+    // Pre-collect production state only when there are messages to process.
+    // Only Claim/Retarget need it, but building the map is cheaper than checking each message type.
     let production_map: std::collections::HashMap<usize, (bool, f32)> = entity_map
         .iter_instances()
         .filter_map(|inst| {
@@ -31,7 +37,7 @@ pub fn resolve_work_targets(
             Some((inst.slot, (ps.ready, ps.progress)))
         })
         .collect();
-    for WorkIntentMsg(intent) in intents.read() {
+    for WorkIntentMsg(intent) in msgs {
         match intent {
             WorkIntent::Release { entity, worksite } => {
                 release_worksite_entity(*entity, *worksite, &mut entity_map);

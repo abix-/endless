@@ -12,7 +12,7 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use endless::components::*;
 use endless::constants::*;
-use endless::gpu::EntityGpuState;
+use endless::gpu::{EntityGpuState, ProjBufferWrites};
 use endless::messages::*;
 use endless::resources::*;
 use endless::systems::{
@@ -21,7 +21,8 @@ use endless::systems::{
     building_tower_system, death_system, spawner_respawn_system,
     growth_system, construction_tick_system,
     energy_system, arrival_system, gpu_position_readback,
-    advance_waypoints_system,
+    advance_waypoints_system, cooldown_system, npc_regen_system,
+    on_duty_tick_system, spawn_npc_system, process_proj_hits,
 };
 use endless::gpu::populate_gpu_state;
 use endless::systems::stats;
@@ -86,6 +87,7 @@ fn build_bench_app() -> App {
         .init_resource::<ProjPositionState>()
         .init_resource::<GpuSlotPool>()
         .init_resource::<ProjSlotAllocator>()
+        .init_resource::<ProjBufferWrites>()
         .init_resource::<TownIndex>()
         .init_resource::<FactionStats>()
         .init_resource::<FactionList>()
@@ -1087,6 +1089,203 @@ fn bench_advance_waypoints_system(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_cooldown_system(c: &mut Criterion) {
+    let mut group = c.benchmark_group("cooldown_system");
+    for &count in COUNTS {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(count),
+            &count,
+            |b, &count| {
+                let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
+                populate_npcs(&mut app, count);
+                // Set 50% of NPCs with active cooldowns (timer > 0)
+                let _ = app.world_mut().run_system_once(
+                    |mut q: Query<(&GpuSlot, &mut AttackTimer), Without<Building>>| {
+                        for (slot, mut timer) in q.iter_mut() {
+                            if slot.0 % 2 == 0 {
+                                timer.0 = 0.8;
+                            }
+                        }
+                    },
+                );
+                let _ = app.world_mut().run_system_once(cooldown_system);
+                b.iter(|| {
+                    let _ = app.world_mut().run_system_once(cooldown_system);
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+fn bench_npc_regen_system(c: &mut Criterion) {
+    let mut group = c.benchmark_group("npc_regen_system");
+    for &count in COUNTS {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(count),
+            &count,
+            |b, &count| {
+                let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
+                populate_npcs(&mut app, count);
+                // Give 25% of NPCs hp_regen > 0 and damage them
+                let _ = app.world_mut().run_system_once(
+                    move |mut q: Query<(&GpuSlot, &mut Health, &mut CachedStats), Without<Building>>| {
+                        for (slot, mut hp, mut stats) in q.iter_mut() {
+                            if slot.0 % 4 == 0 {
+                                stats.hp_regen = 2.0;
+                                hp.0 = 50.0;
+                            }
+                        }
+                    },
+                );
+                let _ = app.world_mut().run_system_once(npc_regen_system);
+                b.iter(|| {
+                    let _ = app.world_mut().run_system_once(npc_regen_system);
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+fn bench_on_duty_tick_system(c: &mut Criterion) {
+    let mut group = c.benchmark_group("on_duty_tick_system");
+    for &count in COUNTS {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(count),
+            &count,
+            |b, &count| {
+                let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
+                populate_npcs(&mut app, count);
+                // Give all NPCs PatrolRoute (on_duty_tick filters With<PatrolRoute>)
+                // In reality ~20% are guards, but bench worst-case
+                let _ = app.world_mut().run_system_once(
+                    |mut commands: Commands, q: Query<Entity, Without<Building>>| {
+                        for entity in q.iter() {
+                            commands.entity(entity).insert(Activity {
+                                kind: ActivityKind::Patrol,
+                                ..Default::default()
+                            });
+                        }
+                    },
+                );
+                app.world_mut().flush();
+                {
+                    let world = app.world_mut();
+                    let mut gt = world.resource_mut::<GameTime>();
+                    gt.time_scale = 1.0;
+                }
+                let _ = app.world_mut().run_system_once(on_duty_tick_system);
+                b.iter(|| {
+                    let _ = app.world_mut().run_system_once(on_duty_tick_system);
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+fn bench_spawn_npc_system(c: &mut Criterion) {
+    let mut group = c.benchmark_group("spawn_npc_system");
+    group.sample_size(20);
+    // Scale by spawn count per frame (message-driven system)
+    const SPAWN_COUNTS: &[usize] = &[10, 50, 100, 500];
+    for &spawn_count in SPAWN_COUNTS {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(spawn_count),
+            &spawn_count,
+            |b, &spawn_count| {
+                let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
+                populate_npcs(&mut app, 1_000); // base world setup
+                let _ = app.world_mut().run_system_once(spawn_npc_system);
+                b.iter(|| {
+                    // Inject spawn messages
+                    let _ = app.world_mut().run_system_once(
+                        move |mut writer: MessageWriter<SpawnNpcMsg>,
+                              mut pool: ResMut<GpuSlotPool>| {
+                            for i in 0..spawn_count {
+                                let Some(slot) = pool.alloc_reset() else { break };
+                                writer.write(SpawnNpcMsg {
+                                    slot_idx: slot,
+                                    x: (i % 100) as f32 * 16.0,
+                                    y: (i / 100) as f32 * 16.0,
+                                    job: 0, // Farmer
+                                    faction: 1,
+                                    town_idx: 0,
+                                    home_x: 800.0,
+                                    home_y: 800.0,
+                                    work_x: -1.0,
+                                    work_y: -1.0,
+                                    starting_post: -1,
+                                    entity_override: None,
+                                });
+                            }
+                        },
+                    );
+                    let _ = app.world_mut().run_system_once(spawn_npc_system);
+                    app.world_mut().flush();
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+fn bench_process_proj_hits(c: &mut Criterion) {
+    let mut group = c.benchmark_group("process_proj_hits");
+    group.sample_size(20);
+    // Scale by active projectile count
+    const PROJ_COUNTS: &[usize] = &[100, 500, 1_000, 5_000];
+    for &proj_count in PROJ_COUNTS {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(proj_count),
+            &proj_count,
+            |b, &proj_count| {
+                let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
+                populate_npcs(&mut app, 5_000);
+                // Allocate projectile slots and set up hit state
+                {
+                    let world = app.world_mut();
+                    let mut proj_alloc = world.resource_mut::<ProjSlotAllocator>();
+                    for _ in 0..proj_count {
+                        proj_alloc.alloc();
+                    }
+                    // Set up ProjBufferWrites with active projectiles
+                    let mut proj_writes = world.resource_mut::<ProjBufferWrites>();
+                    proj_writes.active.resize(proj_count, 1);
+                    proj_writes.damages.resize(proj_count, 10.0);
+                    proj_writes.shooters.resize(proj_count, 0);
+                    proj_writes.factions.resize(proj_count, 1);
+                }
+                let _ = app.world_mut().run_system_once(process_proj_hits);
+                b.iter(|| {
+                    // Populate hit state: 10% of projectiles hit a target
+                    {
+                        let world = app.world_mut();
+                        let mut hit_state = world.resource_mut::<ProjHitState>();
+                        hit_state.0.resize(proj_count, [0i32; 2]);
+                        for i in 0..proj_count {
+                            if i % 10 == 0 {
+                                // Hit target NPC slot i % 5000
+                                hit_state.0[i] = [(i % 5000) as i32, 0];
+                            } else {
+                                hit_state.0[i] = [-1, 0]; // no hit
+                            }
+                        }
+                    }
+                    let _ = app.world_mut().run_system_once(process_proj_hits);
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_decision_system,
@@ -1105,5 +1304,10 @@ criterion_group!(
     bench_arrival_system,
     bench_gpu_position_readback,
     bench_advance_waypoints_system,
+    bench_cooldown_system,
+    bench_npc_regen_system,
+    bench_on_duty_tick_system,
+    bench_spawn_npc_system,
+    bench_process_proj_hits,
 );
 criterion_main!(benches);
