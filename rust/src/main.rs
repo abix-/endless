@@ -14,6 +14,7 @@ const SURFACE_CRASH_MARKERS: &[&str] = &[
     "Invalid surface",
 ];
 
+#[cfg(target_os = "windows")]
 fn crash_log_path_near_exe() -> std::path::PathBuf {
     std::env::current_exe()
         .ok()
@@ -23,6 +24,7 @@ fn crash_log_path_near_exe() -> std::path::PathBuf {
 
 /// If the previous run crashed with the known DX12/wgpu surface-presentation issue,
 /// apply a safer startup profile so users can recover without editing files manually.
+#[allow(unused_variables)]
 fn apply_surface_crash_recovery(settings: &mut endless::settings::UserSettings) {
     #[cfg(target_os = "windows")]
     {
