@@ -11,9 +11,7 @@ use crate::resources::*;
 use crate::settings::{ControlAction, UserSettings};
 use crate::systems::AiPlayerState;
 use crate::systems::spawn::{NpcSpawnOverrides, materialize_npc};
-use crate::systems::stats::{
-    CombatConfig, decode_auto_upgrade_flags, decode_upgrade_levels,
-};
+use crate::systems::stats::{CombatConfig, decode_auto_upgrade_flags, decode_upgrade_levels};
 use crate::world::{self, WorldCell, WorldData, WorldGrid};
 
 /// Per-slot building ECS component snapshot for saving.
@@ -45,10 +43,12 @@ fn deserialize_reputation<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Vec<f32
         serde_json::Value::Array(arr) => {
             if arr.first().is_none_or(|v| v.is_array()) {
                 // New 2D format
-                serde_json::from_value(serde_json::Value::Array(arr)).map_err(serde::de::Error::custom)
+                serde_json::from_value(serde_json::Value::Array(arr))
+                    .map_err(serde::de::Error::custom)
             } else {
                 // Old 1D format — place in row 0
-                let old: Vec<f32> = serde_json::from_value(serde_json::Value::Array(arr)).map_err(serde::de::Error::custom)?;
+                let old: Vec<f32> = serde_json::from_value(serde_json::Value::Array(arr))
+                    .map_err(serde::de::Error::custom)?;
                 let n = old.len();
                 let mut matrix = vec![vec![0.0; n]; n];
                 if !matrix.is_empty() {
@@ -203,6 +203,10 @@ pub struct SaveData {
     pub food: Vec<i32>,
     #[serde(default)]
     pub gold: Vec<i32>,
+    #[serde(default)]
+    pub wood: Vec<i32>,
+    #[serde(default)]
+    pub stone: Vec<i32>,
 
     // Farm states
     pub farm_growth: Vec<FarmGrowthSave>,
@@ -338,6 +342,8 @@ pub struct SquadSave {
     pub owner: SquadOwner,
     #[serde(default)]
     pub member_uids: Option<Vec<u64>>,
+    #[serde(default)]
+    pub loot_threshold: Option<usize>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -394,6 +400,27 @@ fn default_true() -> bool {
 fn default_wave_retreat_below_pct() -> usize {
     50
 }
+
+fn load_squad_loot_threshold(
+    saved_loot_threshold: Option<usize>,
+    owner: SquadOwner,
+    saved_policies: &[PolicySet],
+    player_town_idx: usize,
+) -> usize {
+    saved_loot_threshold
+        .unwrap_or_else(|| {
+            let town_idx = match owner {
+                SquadOwner::Player => player_town_idx,
+                SquadOwner::Town(tdi) => tdi,
+            };
+            saved_policies
+                .get(town_idx)
+                .map(|policy| policy.loot_threshold)
+                .unwrap_or(DEFAULT_LOOT_THRESHOLD)
+        })
+        .clamp(1, MAX_LOOT_THRESHOLD)
+}
+
 fn default_endless_strength() -> f32 {
     0.75
 }
@@ -445,25 +472,37 @@ pub struct NpcSaveData {
 pub enum ActivitySave {
     Idle,
     Working,
-    OnDuty { ticks_waiting: u32 },
+    OnDuty {
+        ticks_waiting: u32,
+    },
     Patrolling,
     GoingToWork,
     GoingToRest,
     Resting,
     GoingToHeal,
-    HealingAtFountain { recover_until: f32 },
+    HealingAtFountain {
+        recover_until: f32,
+    },
     Wandering,
-    Raiding { target: [f32; 2] },
+    Raiding {
+        target: [f32; 2],
+    },
     /// Old saves had `loot: Vec<(ItemKind, i32)>` — kept as ignored field for backward compat.
     Returning {
         #[serde(default)]
         loot: Vec<(ItemKind, i32)>,
     },
-    Mining { mine_pos: [f32; 2] },
+    Mining {
+        mine_pos: [f32; 2],
+    },
     MiningAtMine,
     SquadTarget,
-    SquadTargetAt { target: [f32; 2] },
-    GoingToSquadTarget { target: [f32; 2] },
+    SquadTargetAt {
+        target: [f32; 2],
+    },
+    GoingToSquadTarget {
+        target: [f32; 2],
+    },
 }
 
 impl ActivitySave {
@@ -476,10 +515,14 @@ impl ActivitySave {
             },
             ActivityKind::Patrol => match a.phase {
                 ActivityPhase::Transit => Self::Patrolling,
-                _ => Self::OnDuty { ticks_waiting: a.ticks_waiting },
+                _ => Self::OnDuty {
+                    ticks_waiting: a.ticks_waiting,
+                },
             },
             ActivityKind::SquadAttack => match (a.phase, a.target) {
-                (ActivityPhase::Transit, ActivityTarget::SquadPoint(pos)) => Self::GoingToSquadTarget { target: v2(pos) },
+                (ActivityPhase::Transit, ActivityTarget::SquadPoint(pos)) => {
+                    Self::GoingToSquadTarget { target: v2(pos) }
+                }
                 (_, ActivityTarget::SquadPoint(pos)) => Self::SquadTargetAt { target: v2(pos) },
                 _ => Self::SquadTarget,
             },
@@ -489,7 +532,9 @@ impl ActivitySave {
             },
             ActivityKind::Heal => match a.phase {
                 ActivityPhase::Transit => Self::GoingToHeal,
-                _ => Self::HealingAtFountain { recover_until: a.recover_until },
+                _ => Self::HealingAtFountain {
+                    recover_until: a.recover_until,
+                },
             },
             ActivityKind::Wander => Self::Wandering,
             ActivityKind::Raid => match a.target {
@@ -499,7 +544,9 @@ impl ActivitySave {
             ActivityKind::ReturnLoot => Self::Returning { loot: vec![] },
             ActivityKind::Mine => match a.phase {
                 ActivityPhase::Holding => Self::MiningAtMine,
-                _ => Self::Mining { mine_pos: [0.0, 0.0] }, // position resolved from worksite at runtime
+                _ => Self::Mining {
+                    mine_pos: [0.0, 0.0],
+                }, // position resolved from worksite at runtime
             },
         }
     }
@@ -507,22 +554,104 @@ impl ActivitySave {
     fn to_activity(&self) -> Activity {
         match self {
             Self::Idle => Activity::default(),
-            Self::GoingToWork => Activity { kind: ActivityKind::Work, phase: ActivityPhase::Transit, target: ActivityTarget::Worksite, ..Default::default() },
-            Self::Working => Activity { kind: ActivityKind::Work, phase: ActivityPhase::Active, target: ActivityTarget::Worksite, ..Default::default() },
-            Self::OnDuty { ticks_waiting } => Activity { kind: ActivityKind::Patrol, phase: ActivityPhase::Holding, target: ActivityTarget::PatrolPost { route: 0, index: 0 }, ticks_waiting: *ticks_waiting, ..Default::default() },
-            Self::Patrolling => Activity { kind: ActivityKind::Patrol, phase: ActivityPhase::Transit, target: ActivityTarget::PatrolPost { route: 0, index: 0 }, ..Default::default() },
-            Self::SquadTarget => Activity { kind: ActivityKind::SquadAttack, phase: ActivityPhase::Holding, target: ActivityTarget::None, ..Default::default() },
-            Self::SquadTargetAt { target } => Activity { kind: ActivityKind::SquadAttack, phase: ActivityPhase::Holding, target: ActivityTarget::SquadPoint(to_vec2(*target)), ..Default::default() },
-            Self::GoingToSquadTarget { target } => Activity { kind: ActivityKind::SquadAttack, phase: ActivityPhase::Transit, target: ActivityTarget::SquadPoint(to_vec2(*target)), ..Default::default() },
-            Self::GoingToRest => Activity { kind: ActivityKind::Rest, phase: ActivityPhase::Transit, target: ActivityTarget::Home, ..Default::default() },
-            Self::Resting => Activity { kind: ActivityKind::Rest, phase: ActivityPhase::Active, target: ActivityTarget::Home, ..Default::default() },
-            Self::GoingToHeal => Activity { kind: ActivityKind::Heal, phase: ActivityPhase::Transit, target: ActivityTarget::Fountain, recover_until: 100.0, ..Default::default() },
-            Self::HealingAtFountain { recover_until } => Activity { kind: ActivityKind::Heal, phase: ActivityPhase::Active, target: ActivityTarget::Fountain, recover_until: *recover_until, ..Default::default() },
-            Self::Wandering => Activity { kind: ActivityKind::Wander, phase: ActivityPhase::Transit, ..Default::default() },
-            Self::Raiding { target } => Activity { kind: ActivityKind::Raid, phase: ActivityPhase::Transit, target: ActivityTarget::RaidPoint(to_vec2(*target)), ..Default::default() },
-            Self::Returning { .. } => Activity { kind: ActivityKind::ReturnLoot, phase: ActivityPhase::Transit, target: ActivityTarget::Dropoff, ..Default::default() },
-            Self::Mining { mine_pos: _ } => Activity { kind: ActivityKind::Mine, phase: ActivityPhase::Transit, target: ActivityTarget::Worksite, ..Default::default() },
-            Self::MiningAtMine => Activity { kind: ActivityKind::Mine, phase: ActivityPhase::Holding, target: ActivityTarget::Worksite, ..Default::default() },
+            Self::GoingToWork => Activity {
+                kind: ActivityKind::Work,
+                phase: ActivityPhase::Transit,
+                target: ActivityTarget::Worksite,
+                ..Default::default()
+            },
+            Self::Working => Activity {
+                kind: ActivityKind::Work,
+                phase: ActivityPhase::Active,
+                target: ActivityTarget::Worksite,
+                ..Default::default()
+            },
+            Self::OnDuty { ticks_waiting } => Activity {
+                kind: ActivityKind::Patrol,
+                phase: ActivityPhase::Holding,
+                target: ActivityTarget::PatrolPost { route: 0, index: 0 },
+                ticks_waiting: *ticks_waiting,
+                ..Default::default()
+            },
+            Self::Patrolling => Activity {
+                kind: ActivityKind::Patrol,
+                phase: ActivityPhase::Transit,
+                target: ActivityTarget::PatrolPost { route: 0, index: 0 },
+                ..Default::default()
+            },
+            Self::SquadTarget => Activity {
+                kind: ActivityKind::SquadAttack,
+                phase: ActivityPhase::Holding,
+                target: ActivityTarget::None,
+                ..Default::default()
+            },
+            Self::SquadTargetAt { target } => Activity {
+                kind: ActivityKind::SquadAttack,
+                phase: ActivityPhase::Holding,
+                target: ActivityTarget::SquadPoint(to_vec2(*target)),
+                ..Default::default()
+            },
+            Self::GoingToSquadTarget { target } => Activity {
+                kind: ActivityKind::SquadAttack,
+                phase: ActivityPhase::Transit,
+                target: ActivityTarget::SquadPoint(to_vec2(*target)),
+                ..Default::default()
+            },
+            Self::GoingToRest => Activity {
+                kind: ActivityKind::Rest,
+                phase: ActivityPhase::Transit,
+                target: ActivityTarget::Home,
+                ..Default::default()
+            },
+            Self::Resting => Activity {
+                kind: ActivityKind::Rest,
+                phase: ActivityPhase::Active,
+                target: ActivityTarget::Home,
+                ..Default::default()
+            },
+            Self::GoingToHeal => Activity {
+                kind: ActivityKind::Heal,
+                phase: ActivityPhase::Transit,
+                target: ActivityTarget::Fountain,
+                recover_until: 100.0,
+                ..Default::default()
+            },
+            Self::HealingAtFountain { recover_until } => Activity {
+                kind: ActivityKind::Heal,
+                phase: ActivityPhase::Active,
+                target: ActivityTarget::Fountain,
+                recover_until: *recover_until,
+                ..Default::default()
+            },
+            Self::Wandering => Activity {
+                kind: ActivityKind::Wander,
+                phase: ActivityPhase::Transit,
+                ..Default::default()
+            },
+            Self::Raiding { target } => Activity {
+                kind: ActivityKind::Raid,
+                phase: ActivityPhase::Transit,
+                target: ActivityTarget::RaidPoint(to_vec2(*target)),
+                ..Default::default()
+            },
+            Self::Returning { .. } => Activity {
+                kind: ActivityKind::ReturnLoot,
+                phase: ActivityPhase::Transit,
+                target: ActivityTarget::Dropoff,
+                ..Default::default()
+            },
+            Self::Mining { mine_pos: _ } => Activity {
+                kind: ActivityKind::Mine,
+                phase: ActivityPhase::Transit,
+                target: ActivityTarget::Worksite,
+                ..Default::default()
+            },
+            Self::MiningAtMine => Activity {
+                kind: ActivityKind::Mine,
+                phase: ActivityPhase::Holding,
+                target: ActivityTarget::Worksite,
+                ..Default::default()
+            },
         }
     }
 }
@@ -591,11 +720,9 @@ impl PersonalitySave {
         let map_trait = |t: &TraitSave| -> TraitInstance {
             let kind = if is_legacy {
                 // Legacy: 0=Brave→Courage, 1=Tough→Vitality, 2=Swift→Agility, 3=Focused→Diligence
-                TraitKind::from_legacy_id(t.kind as i32)
-                    .unwrap_or(TraitKind::Diligence)
+                TraitKind::from_legacy_id(t.kind as i32).unwrap_or(TraitKind::Diligence)
             } else {
-                TraitKind::from_id(t.kind as i32)
-                    .unwrap_or(TraitKind::Diligence)
+                TraitKind::from_id(t.kind as i32).unwrap_or(TraitKind::Diligence)
             };
             TraitInstance {
                 kind,
@@ -666,6 +793,8 @@ pub fn collect_save_data(
     town_area_levels: &[i32],
     town_food: &[i32],
     town_gold: &[i32],
+    town_wood: &[i32],
+    town_stone: &[i32],
     building_hp: std::collections::HashMap<String, Vec<f32>>,
     town_upgrades: &[Vec<u8>],
     town_policies: &[crate::resources::PolicySet],
@@ -726,11 +855,16 @@ pub fn collect_save_data(
                     kills: bs.map_or(0, |s| s.kills),
                     xp: bs.map_or(0, |s| s.xp),
                     upgrade_levels: bs.map(|s| s.upgrade_levels.clone()).unwrap_or_default(),
-                    auto_upgrade_flags: bs.map(|s| s.auto_upgrade_flags.clone()).unwrap_or_default(),
+                    auto_upgrade_flags: bs
+                        .map(|s| s.auto_upgrade_flags.clone())
+                        .unwrap_or_default(),
                 }
             })
             .collect();
-        building_data.insert(key.to_string(), serde_json::to_value(&placed).expect("building serialization"));
+        building_data.insert(
+            key.to_string(),
+            serde_json::to_value(&placed).expect("building serialization"),
+        );
     }
 
     // Town grids — area_level from ECS TownAreaLevel component
@@ -750,7 +884,11 @@ pub fn collect_save_data(
         .map(|i| {
             let bs = bld_state.get(&i.slot);
             FarmGrowthSave {
-                state: if bs.is_some_and(|s| s.production_ready) { 1 } else { 0 },
+                state: if bs.is_some_and(|s| s.production_ready) {
+                    1
+                } else {
+                    0
+                },
                 progress: bs.map_or(0.0, |s| s.production_progress),
                 under_construction: bs.map_or(0.0, |s| s.under_construction),
             }
@@ -804,6 +942,7 @@ pub fn collect_save_data(
             wave_retreat_below_pct: s.wave_retreat_below_pct,
             owner: s.owner,
             member_uids: Some(s.members.iter().map(|e| e.to_bits()).collect()),
+            loot_threshold: Some(s.loot_threshold),
         })
         .collect();
 
@@ -864,13 +1003,19 @@ pub fn collect_save_data(
         time_scale: game_time.time_scale,
         food: town_food.to_vec(),
         gold: town_gold.to_vec(),
+        wood: town_wood.to_vec(),
+        stone: town_stone.to_vec(),
         farm_growth,
         mine_growth: entity_map
             .iter_kind(crate::world::BuildingKind::GoldMine)
             .map(|i| {
                 let bs = bld_state.get(&i.slot);
                 FarmGrowthSave {
-                    state: if bs.is_some_and(|s| s.production_ready) { 1 } else { 0 },
+                    state: if bs.is_some_and(|s| s.production_ready) {
+                        1
+                    } else {
+                        0
+                    },
                     progress: bs.map_or(0.0, |s| s.production_progress),
                     under_construction: bs.map_or(0.0, |s| s.under_construction),
                 }
@@ -999,6 +1144,8 @@ pub struct SavedTownData {
     pub area_levels: Vec<i32>,
     pub food: Vec<i32>,
     pub gold: Vec<i32>,
+    pub wood: Vec<i32>,
+    pub stone: Vec<i32>,
     pub upgrades: Vec<Vec<u8>>,
     pub policies: Vec<crate::resources::PolicySet>,
     pub equipment: Vec<Vec<crate::constants::LootItem>>,
@@ -1074,6 +1221,8 @@ pub fn apply_save(
     // Town data for ECS entities
     let saved_food = save.food.clone();
     let saved_gold = save.gold.clone();
+    let saved_wood = save.wood.clone();
+    let saved_stone = save.stone.clone();
     let saved_upgrades: Vec<Vec<u8>> = save
         .upgrades
         .iter()
@@ -1083,6 +1232,11 @@ pub fn apply_save(
     let mut saved_policies = save.policies.clone();
     saved_policies.resize(num_towns.max(16), PolicySet::default());
     let saved_equipment = save.town_inventory.clone();
+    let player_town_idx = world_data
+        .towns
+        .iter()
+        .position(|town| town.faction == crate::constants::FACTION_PLAYER)
+        .unwrap_or(0);
 
     // Auto-upgrades
     auto_upgrade.flags = save
@@ -1099,11 +1253,7 @@ pub fn apply_save(
         let members = ss
             .member_uids
             .as_ref()
-            .map(|uids| {
-                uids.iter()
-                    .map(|&u| Entity::from_bits(u))
-                    .collect()
-            })
+            .map(|uids| uids.iter().map(|&u| Entity::from_bits(u)).collect())
             .unwrap_or_default(); // old saves: empty until post-spawn fixup
         squad_state.squads.push(Squad {
             members,
@@ -1117,6 +1267,12 @@ pub fn apply_save(
             wave_retreat_below_pct: ss.wave_retreat_below_pct.clamp(1, 100),
             owner: ss.owner,
             hold_fire: false,
+            loot_threshold: load_squad_loot_threshold(
+                ss.loot_threshold,
+                ss.owner,
+                &saved_policies,
+                player_town_idx,
+            ),
         });
     }
     // Ensure at least MAX_SQUADS player squads exist.
@@ -1238,6 +1394,8 @@ pub fn apply_save(
         area_levels: saved_area_levels,
         food: saved_food,
         gold: saved_gold,
+        wood: saved_wood,
+        stone: saved_stone,
         upgrades: saved_upgrades,
         policies: saved_policies,
         equipment: saved_equipment,
@@ -1520,32 +1678,50 @@ fn collect_building_hp(
 
 /// Collect all building ECS component data into a per-slot snapshot for saving.
 fn collect_building_state_snapshot(
-    q: &Query<(
-        &GpuSlot,
-        Option<&WaypointOrder>,
-        Option<&MinerHomeConfig>,
-        Option<&WallLevel>,
-        Option<&TowerBuildingState>,
-        Option<&ProductionState>,
-        Option<&ConstructionProgress>,
-        Option<&SpawnerState>,
-    ), With<Building>>,
+    q: &Query<
+        (
+            &GpuSlot,
+            Option<&WaypointOrder>,
+            Option<&MinerHomeConfig>,
+            Option<&WallLevel>,
+            Option<&TowerBuildingState>,
+            Option<&ProductionState>,
+            Option<&ConstructionProgress>,
+            Option<&SpawnerState>,
+        ),
+        With<Building>,
+    >,
 ) -> std::collections::HashMap<usize, BuildingStateSnapshot> {
     let mut map = std::collections::HashMap::new();
     for (gpu_slot, wp, mc, wl, ts, ps, cp, sp) in q.iter() {
         let mut s = BuildingStateSnapshot::default();
-        if let Some(wp) = wp { s.patrol_order = wp.0; }
-        if let Some(mc) = mc { s.assigned_mine = mc.assigned_mine; s.manual_mine = mc.manual_mine; }
-        if let Some(wl) = wl { s.wall_level = wl.0; }
+        if let Some(wp) = wp {
+            s.patrol_order = wp.0;
+        }
+        if let Some(mc) = mc {
+            s.assigned_mine = mc.assigned_mine;
+            s.manual_mine = mc.manual_mine;
+        }
+        if let Some(wl) = wl {
+            s.wall_level = wl.0;
+        }
         if let Some(ts) = ts {
             s.kills = ts.kills;
             s.xp = ts.xp;
             s.upgrade_levels = ts.upgrade_levels.clone();
             s.auto_upgrade_flags = ts.auto_upgrade_flags.clone();
         }
-        if let Some(ps) = ps { s.production_ready = ps.ready; s.production_progress = ps.progress; }
-        if let Some(cp) = cp { s.under_construction = cp.0; }
-        if let Some(sp) = sp { s.npc_slot = sp.npc_slot; s.respawn_timer = sp.respawn_timer; }
+        if let Some(ps) = ps {
+            s.production_ready = ps.ready;
+            s.production_progress = ps.progress;
+        }
+        if let Some(cp) = cp {
+            s.under_construction = cp.0;
+        }
+        if let Some(sp) = sp {
+            s.npc_slot = sp.npc_slot;
+            s.respawn_timer = sp.respawn_timer;
+        }
         map.insert(gpu_slot.0, s);
     }
     map
@@ -1605,9 +1781,20 @@ pub fn load_building_instances_from_save(
         }
         let hp = fountain_hps.and_then(|v| v.get(i).copied());
         let _ = world::place_building(
-            slot_alloc, entity_map, commands, gpu_updates,
-            world::BuildingKind::Fountain, town.center, i as u32, town.faction,
-            &world::BuildingOverrides { hp, ..Default::default() }, None, None,
+            slot_alloc,
+            entity_map,
+            commands,
+            gpu_updates,
+            world::BuildingKind::Fountain,
+            town.center,
+            i as u32,
+            town.faction,
+            &world::BuildingOverrides {
+                hp,
+                ..Default::default()
+            },
+            None,
+            None,
         );
     }
 
@@ -1636,10 +1823,21 @@ pub fn load_building_instances_from_save(
             };
             let hp = kind_hps.and_then(|v| v.get(i).copied());
             let _ = world::place_building(
-                slot_alloc, entity_map, commands, gpu_updates,
-                def.kind, b.position, town_idx, faction,
-                &world::BuildingOverrides { patrol_order: b.patrol_order, wall_level: b.wall_level, hp },
-                None, None,
+                slot_alloc,
+                entity_map,
+                commands,
+                gpu_updates,
+                def.kind,
+                b.position,
+                town_idx,
+                faction,
+                &world::BuildingOverrides {
+                    patrol_order: b.patrol_order,
+                    wall_level: b.wall_level,
+                    hp,
+                },
+                None,
+                None,
             );
             // Restore miner home fields via ECS
             if def.kind == world::BuildingKind::MinerHome {
@@ -1653,7 +1851,11 @@ pub fn load_building_instances_from_save(
                 }
             }
             // Restore tower kills/xp/upgrades via ECS
-            if b.kills > 0 || b.xp > 0 || !b.upgrade_levels.is_empty() || !b.auto_upgrade_flags.is_empty() {
+            if b.kills > 0
+                || b.xp > 0
+                || !b.upgrade_levels.is_empty()
+                || !b.auto_upgrade_flags.is_empty()
+            {
                 if let Some(slot) = entity_map.slot_at_position(b.position) {
                     if let Some(&entity) = entity_map.entities.get(&slot) {
                         commands.entity(entity).insert(TowerBuildingState {
@@ -1674,12 +1876,18 @@ pub fn load_building_instances_from_save(
         let pos = to_vec2(s.position);
         if let Some(slot) = entity_map.slot_at_position(pos) {
             if let Some(&entity) = entity_map.entities.get(&slot) {
-                let npc_slot = if s.npc_gpu_slot >= 0 { Some(s.npc_gpu_slot as usize) } else { None };
+                let npc_slot = if s.npc_gpu_slot >= 0 {
+                    Some(s.npc_gpu_slot as usize)
+                } else {
+                    None
+                };
                 commands.entity(entity).insert(SpawnerState {
                     npc_slot,
                     respawn_timer: s.respawn_timer,
                 });
-                commands.entity(entity).insert(ConstructionProgress(s.under_construction));
+                commands
+                    .entity(entity)
+                    .insert(ConstructionProgress(s.under_construction));
             }
         }
     }
@@ -1710,7 +1918,9 @@ pub fn restore_growth_from_save(save: &SaveData, entity_map: &EntityMap, command
                     ready: fg.state == 1,
                     progress: fg.progress,
                 });
-                commands.entity(entity).insert(ConstructionProgress(fg.under_construction));
+                commands
+                    .entity(entity)
+                    .insert(ConstructionProgress(fg.under_construction));
             }
         }
     }
@@ -1728,7 +1938,9 @@ pub fn restore_growth_from_save(save: &SaveData, entity_map: &EntityMap, command
                     ready: mg.state == 1,
                     progress: mg.progress,
                 });
-                commands.entity(entity).insert(ConstructionProgress(mg.under_construction));
+                commands
+                    .entity(entity)
+                    .insert(ConstructionProgress(mg.under_construction));
             }
         }
     }
@@ -1767,16 +1979,19 @@ pub fn save_game_system(
     entity_map: Res<EntityMap>,
     building_query: Query<(&Building, &GpuSlot, &Health), Without<Dead>>,
     nq: SaveNpcQueries,
-    bld_component_q: Query<(
-        &GpuSlot,
-        Option<&WaypointOrder>,
-        Option<&MinerHomeConfig>,
-        Option<&WallLevel>,
-        Option<&TowerBuildingState>,
-        Option<&ProductionState>,
-        Option<&ConstructionProgress>,
-        Option<&SpawnerState>,
-    ), With<Building>>,
+    bld_component_q: Query<
+        (
+            &GpuSlot,
+            Option<&WaypointOrder>,
+            Option<&MinerHomeConfig>,
+            Option<&WallLevel>,
+            Option<&TowerBuildingState>,
+            Option<&ProductionState>,
+            Option<&ConstructionProgress>,
+            Option<&SpawnerState>,
+        ),
+        With<Building>,
+    >,
 ) {
     if save_msgs.read().next().is_none() {
         return;
@@ -1803,12 +2018,30 @@ pub fn save_game_system(
     let bld_state = collect_building_state_snapshot(&bld_component_q);
     // Collect town data from ECS entities
     let n_towns = ws.world_data.towns.len();
-    let town_area_levels: Vec<i32> = (0..n_towns).map(|i| ws.town_access.area_level(i as i32)).collect();
-    let town_food: Vec<i32> = (0..n_towns).map(|i| ws.town_access.food(i as i32)).collect();
-    let town_gold: Vec<i32> = (0..n_towns).map(|i| ws.town_access.gold(i as i32)).collect();
-    let town_upgrades: Vec<Vec<u8>> = (0..n_towns).map(|i| ws.town_access.upgrade_levels(i as i32)).collect();
-    let town_policies: Vec<crate::resources::PolicySet> = (0..n_towns).map(|i| ws.town_access.policy(i as i32).unwrap_or_default()).collect();
-    let town_equipment: Vec<Vec<crate::constants::LootItem>> = (0..n_towns).map(|i| ws.town_access.equipment(i as i32).unwrap_or_default()).collect();
+    let town_area_levels: Vec<i32> = (0..n_towns)
+        .map(|i| ws.town_access.area_level(i as i32))
+        .collect();
+    let town_food: Vec<i32> = (0..n_towns)
+        .map(|i| ws.town_access.food(i as i32))
+        .collect();
+    let town_gold: Vec<i32> = (0..n_towns)
+        .map(|i| ws.town_access.gold(i as i32))
+        .collect();
+    let town_wood: Vec<i32> = (0..n_towns)
+        .map(|i| ws.town_access.wood(i as i32))
+        .collect();
+    let town_stone: Vec<i32> = (0..n_towns)
+        .map(|i| ws.town_access.stone(i as i32))
+        .collect();
+    let town_upgrades: Vec<Vec<u8>> = (0..n_towns)
+        .map(|i| ws.town_access.upgrade_levels(i as i32))
+        .collect();
+    let town_policies: Vec<crate::resources::PolicySet> = (0..n_towns)
+        .map(|i| ws.town_access.policy(i as i32).unwrap_or_default())
+        .collect();
+    let town_equipment: Vec<Vec<crate::constants::LootItem>> = (0..n_towns)
+        .map(|i| ws.town_access.equipment(i as i32).unwrap_or_default())
+        .collect();
     let data = collect_save_data(
         &ws.grid,
         &ws.world_data,
@@ -1817,6 +2050,8 @@ pub fn save_game_system(
         &town_area_levels,
         &town_food,
         &town_gold,
+        &town_wood,
+        &town_stone,
         building_hp,
         &town_upgrades,
         &town_policies,
@@ -1865,16 +2100,19 @@ pub fn autosave_system(
     entity_map: Res<EntityMap>,
     building_query: Query<(&Building, &GpuSlot, &Health), Without<Dead>>,
     nq: SaveNpcQueries,
-    bld_component_q: Query<(
-        &GpuSlot,
-        Option<&WaypointOrder>,
-        Option<&MinerHomeConfig>,
-        Option<&WallLevel>,
-        Option<&TowerBuildingState>,
-        Option<&ProductionState>,
-        Option<&ConstructionProgress>,
-        Option<&SpawnerState>,
-    ), With<Building>>,
+    bld_component_q: Query<
+        (
+            &GpuSlot,
+            Option<&WaypointOrder>,
+            Option<&MinerHomeConfig>,
+            Option<&WallLevel>,
+            Option<&TowerBuildingState>,
+            Option<&ProductionState>,
+            Option<&ConstructionProgress>,
+            Option<&SpawnerState>,
+        ),
+        With<Building>,
+    >,
 ) {
     if request.autosave_hours <= 0 || !ws.game_time.hour_ticked {
         return;
@@ -1913,12 +2151,30 @@ pub fn autosave_system(
     let building_hp = collect_building_hp(&building_query, &entity_map);
     let bld_state = collect_building_state_snapshot(&bld_component_q);
     let n_towns = ws.world_data.towns.len();
-    let town_area_levels: Vec<i32> = (0..n_towns).map(|i| ws.town_access.area_level(i as i32)).collect();
-    let town_food: Vec<i32> = (0..n_towns).map(|i| ws.town_access.food(i as i32)).collect();
-    let town_gold: Vec<i32> = (0..n_towns).map(|i| ws.town_access.gold(i as i32)).collect();
-    let town_upgrades: Vec<Vec<u8>> = (0..n_towns).map(|i| ws.town_access.upgrade_levels(i as i32)).collect();
-    let town_policies: Vec<crate::resources::PolicySet> = (0..n_towns).map(|i| ws.town_access.policy(i as i32).unwrap_or_default()).collect();
-    let town_equipment: Vec<Vec<crate::constants::LootItem>> = (0..n_towns).map(|i| ws.town_access.equipment(i as i32).unwrap_or_default()).collect();
+    let town_area_levels: Vec<i32> = (0..n_towns)
+        .map(|i| ws.town_access.area_level(i as i32))
+        .collect();
+    let town_food: Vec<i32> = (0..n_towns)
+        .map(|i| ws.town_access.food(i as i32))
+        .collect();
+    let town_gold: Vec<i32> = (0..n_towns)
+        .map(|i| ws.town_access.gold(i as i32))
+        .collect();
+    let town_wood: Vec<i32> = (0..n_towns)
+        .map(|i| ws.town_access.wood(i as i32))
+        .collect();
+    let town_stone: Vec<i32> = (0..n_towns)
+        .map(|i| ws.town_access.stone(i as i32))
+        .collect();
+    let town_upgrades: Vec<Vec<u8>> = (0..n_towns)
+        .map(|i| ws.town_access.upgrade_levels(i as i32))
+        .collect();
+    let town_policies: Vec<crate::resources::PolicySet> = (0..n_towns)
+        .map(|i| ws.town_access.policy(i as i32).unwrap_or_default())
+        .collect();
+    let town_equipment: Vec<Vec<crate::constants::LootItem>> = (0..n_towns)
+        .map(|i| ws.town_access.equipment(i as i32).unwrap_or_default())
+        .collect();
     let data = collect_save_data(
         &ws.grid,
         &ws.world_data,
@@ -1927,6 +2183,8 @@ pub fn autosave_system(
         &town_area_levels,
         &town_food,
         &town_gold,
+        &town_wood,
+        &town_stone,
         building_hp,
         &town_upgrades,
         &town_policies,
@@ -2011,7 +2269,10 @@ pub fn spawn_npcs_from_save(
             pop_stats,
             gpu_updates,
             combat_config,
-            town_upgrade_levels.get(npc.town_id as usize).map(|v| v.as_slice()).unwrap_or(&[]),
+            town_upgrade_levels
+                .get(npc.town_id as usize)
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]),
         );
     }
 }
@@ -2094,6 +2355,8 @@ pub fn restore_world_from_save(
         &town_data.area_levels,
         &town_data.food,
         &town_data.gold,
+        &town_data.wood,
+        &town_data.stone,
         &town_data.policies,
         &town_data.upgrades,
         &town_data.equipment,
@@ -2118,7 +2381,8 @@ pub fn restore_world_from_save(
     restore_growth_from_save(save, entity_map, commands);
     ws.grid.init_pathfind_costs();
     ws.grid.sync_building_costs(entity_map);
-    ws.grid.sync_town_buildability(&ws.world_data.towns, &town_data.area_levels, entity_map);
+    ws.grid
+        .sync_town_buildability(&ws.world_data.towns, &town_data.area_levels, entity_map);
 
     // Rebuild NPCs from save payload.
     spawn_npcs_from_save(
@@ -2230,40 +2494,60 @@ mod tests {
     fn assert_round_trip(activity: Activity) {
         let saved = ActivitySave::from_activity(&activity);
         let loaded = saved.to_activity();
-        assert_eq!(loaded.kind, activity.kind, "kind mismatch for {:?}", activity);
-        assert_eq!(loaded.phase, activity.phase, "phase mismatch for {:?}", activity);
-        assert_eq!(loaded.target, activity.target, "target mismatch for {:?}", activity);
+        assert_eq!(
+            loaded.kind, activity.kind,
+            "kind mismatch for {:?}",
+            activity
+        );
+        assert_eq!(
+            loaded.phase, activity.phase,
+            "phase mismatch for {:?}",
+            activity
+        );
+        assert_eq!(
+            loaded.target, activity.target,
+            "target mismatch for {:?}",
+            activity
+        );
     }
 
     #[test]
     fn round_trip_work_transit() {
         assert_round_trip(Activity {
-            kind: ActivityKind::Work, phase: ActivityPhase::Transit,
-            target: ActivityTarget::Worksite, ..Default::default()
+            kind: ActivityKind::Work,
+            phase: ActivityPhase::Transit,
+            target: ActivityTarget::Worksite,
+            ..Default::default()
         });
     }
 
     #[test]
     fn round_trip_work_active() {
         assert_round_trip(Activity {
-            kind: ActivityKind::Work, phase: ActivityPhase::Active,
-            target: ActivityTarget::Worksite, ..Default::default()
+            kind: ActivityKind::Work,
+            phase: ActivityPhase::Active,
+            target: ActivityTarget::Worksite,
+            ..Default::default()
         });
     }
 
     #[test]
     fn round_trip_mine_transit() {
         assert_round_trip(Activity {
-            kind: ActivityKind::Mine, phase: ActivityPhase::Transit,
-            target: ActivityTarget::Worksite, ..Default::default()
+            kind: ActivityKind::Mine,
+            phase: ActivityPhase::Transit,
+            target: ActivityTarget::Worksite,
+            ..Default::default()
         });
     }
 
     #[test]
     fn round_trip_mine_holding() {
         assert_round_trip(Activity {
-            kind: ActivityKind::Mine, phase: ActivityPhase::Holding,
-            target: ActivityTarget::Worksite, ..Default::default()
+            kind: ActivityKind::Mine,
+            phase: ActivityPhase::Holding,
+            target: ActivityTarget::Worksite,
+            ..Default::default()
         });
     }
 
@@ -2271,8 +2555,10 @@ mod tests {
     fn round_trip_squad_attack_with_target() {
         let target = Vec2::new(500.0, 300.0);
         assert_round_trip(Activity {
-            kind: ActivityKind::SquadAttack, phase: ActivityPhase::Holding,
-            target: ActivityTarget::SquadPoint(target), ..Default::default()
+            kind: ActivityKind::SquadAttack,
+            phase: ActivityPhase::Holding,
+            target: ActivityTarget::SquadPoint(target),
+            ..Default::default()
         });
     }
 
@@ -2280,32 +2566,41 @@ mod tests {
     fn round_trip_squad_attack_transit() {
         let target = Vec2::new(500.0, 300.0);
         assert_round_trip(Activity {
-            kind: ActivityKind::SquadAttack, phase: ActivityPhase::Transit,
-            target: ActivityTarget::SquadPoint(target), ..Default::default()
+            kind: ActivityKind::SquadAttack,
+            phase: ActivityPhase::Transit,
+            target: ActivityTarget::SquadPoint(target),
+            ..Default::default()
         });
     }
 
     #[test]
     fn round_trip_rest_transit() {
         assert_round_trip(Activity {
-            kind: ActivityKind::Rest, phase: ActivityPhase::Transit,
-            target: ActivityTarget::Home, ..Default::default()
+            kind: ActivityKind::Rest,
+            phase: ActivityPhase::Transit,
+            target: ActivityTarget::Home,
+            ..Default::default()
         });
     }
 
     #[test]
     fn round_trip_rest_active() {
         assert_round_trip(Activity {
-            kind: ActivityKind::Rest, phase: ActivityPhase::Active,
-            target: ActivityTarget::Home, ..Default::default()
+            kind: ActivityKind::Rest,
+            phase: ActivityPhase::Active,
+            target: ActivityTarget::Home,
+            ..Default::default()
         });
     }
 
     #[test]
     fn round_trip_heal_with_threshold() {
         let activity = Activity {
-            kind: ActivityKind::Heal, phase: ActivityPhase::Active,
-            target: ActivityTarget::Fountain, recover_until: 0.85, ..Default::default()
+            kind: ActivityKind::Heal,
+            phase: ActivityPhase::Active,
+            target: ActivityTarget::Fountain,
+            recover_until: 0.85,
+            ..Default::default()
         };
         let saved = ActivitySave::from_activity(&activity);
         let loaded = saved.to_activity();
@@ -2317,12 +2612,16 @@ mod tests {
     #[test]
     fn round_trip_patrol_transit_and_holding() {
         assert_round_trip(Activity {
-            kind: ActivityKind::Patrol, phase: ActivityPhase::Transit,
-            target: ActivityTarget::PatrolPost { route: 0, index: 0 }, ..Default::default()
+            kind: ActivityKind::Patrol,
+            phase: ActivityPhase::Transit,
+            target: ActivityTarget::PatrolPost { route: 0, index: 0 },
+            ..Default::default()
         });
         assert_round_trip(Activity {
-            kind: ActivityKind::Patrol, phase: ActivityPhase::Holding,
-            target: ActivityTarget::PatrolPost { route: 0, index: 0 }, ..Default::default()
+            kind: ActivityKind::Patrol,
+            phase: ActivityPhase::Holding,
+            target: ActivityTarget::PatrolPost { route: 0, index: 0 },
+            ..Default::default()
         });
     }
 
@@ -2330,16 +2629,47 @@ mod tests {
     fn round_trip_raid_with_position() {
         let pos = Vec2::new(200.0, 400.0);
         assert_round_trip(Activity {
-            kind: ActivityKind::Raid, phase: ActivityPhase::Transit,
-            target: ActivityTarget::RaidPoint(pos), ..Default::default()
+            kind: ActivityKind::Raid,
+            phase: ActivityPhase::Transit,
+            target: ActivityTarget::RaidPoint(pos),
+            ..Default::default()
         });
     }
 
     #[test]
     fn round_trip_return_loot() {
         assert_round_trip(Activity {
-            kind: ActivityKind::ReturnLoot, phase: ActivityPhase::Transit,
-            target: ActivityTarget::Dropoff, ..Default::default()
+            kind: ActivityKind::ReturnLoot,
+            phase: ActivityPhase::Transit,
+            target: ActivityTarget::Dropoff,
+            ..Default::default()
         });
+    }
+
+    #[test]
+    fn load_squad_loot_threshold_prefers_saved_squad_value() {
+        let mut policies = vec![PolicySet::default()];
+        policies[0].loot_threshold = 9;
+
+        assert_eq!(
+            load_squad_loot_threshold(Some(4), SquadOwner::Player, &policies, 0),
+            4
+        );
+    }
+
+    #[test]
+    fn load_squad_loot_threshold_uses_owner_policy_for_legacy_saves() {
+        let mut policies = vec![PolicySet::default(), PolicySet::default()];
+        policies[0].loot_threshold = 7;
+        policies[1].loot_threshold = 5;
+
+        assert_eq!(
+            load_squad_loot_threshold(None, SquadOwner::Player, &policies, 0),
+            7
+        );
+        assert_eq!(
+            load_squad_loot_threshold(None, SquadOwner::Town(1), &policies, 0),
+            5
+        );
     }
 }

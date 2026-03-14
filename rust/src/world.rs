@@ -34,14 +34,13 @@ mod opt_vec2_as_array {
 
 use crate::components::Job;
 use crate::constants::{
-    BASE_GRID_MAX, BASE_GRID_MIN, MAX_GRID_EXTENT, NPC_REGISTRY, TOWN_GRID_SPACING,
-    TOWN_REGISTRY, TownKind, town_def,
+    BASE_GRID_MAX, BASE_GRID_MIN, MAX_GRID_EXTENT, NPC_REGISTRY, TOWN_GRID_SPACING, TOWN_REGISTRY,
+    TownKind, town_def,
 };
 use crate::messages::{BuildingGridDirtyMsg, DirtyWriters};
 use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg};
 use crate::resources::{
-    CombatEventKind, EntityMap, FactionStats, GameTime, GpuSlotPool,
-    RaiderState,
+    CombatEventKind, EntityMap, FactionStats, GameTime, GpuSlotPool, RaiderState,
 };
 
 /// True if a position has not been tombstoned (i.e. the entity still exists).
@@ -74,7 +73,7 @@ pub struct Town {
     pub name: String,
     #[serde(with = "vec2_as_array")]
     pub center: Vec2,
-    pub faction: i32,     // 0=Neutral, 1=Player, 2+=AI factions
+    pub faction: i32, // 0=Neutral, 1=Player, 2+=AI factions
     /// Town type identity (Player, AiBuilder, AiRaider).
     #[serde(default = "default_town_kind")]
     pub kind: crate::constants::TownKind,
@@ -161,14 +160,17 @@ pub struct WorldData {
     pub towns: Vec<Town>,
 }
 
-
 /// Buildable slot bounds for a town (inclusive) in world grid coords: (min_col, max_col, min_row, max_row).
-pub fn build_bounds(area_level: i32, center: Vec2, grid: &WorldGrid) -> (usize, usize, usize, usize) {
+pub fn build_bounds(
+    area_level: i32,
+    center: Vec2,
+    grid: &WorldGrid,
+) -> (usize, usize, usize, usize) {
     let (center_col, center_row) = grid.world_to_grid(center);
     let cc = center_col as i32;
     let cr = center_row as i32;
     let half_neg = BASE_GRID_MIN - area_level; // negative
-    let half_pos = BASE_GRID_MAX + area_level;  // positive
+    let half_pos = BASE_GRID_MAX + area_level; // positive
     let min_col = (cc + half_neg).max(0) as usize;
     let max_col = (cc + half_pos).min(grid.width as i32 - 1) as usize;
     let min_row = (cr + half_neg).max(0) as usize;
@@ -178,11 +180,7 @@ pub fn build_bounds(area_level: i32, center: Vec2, grid: &WorldGrid) -> (usize, 
 
 /// Check if a road can be placed at this position for a town.
 /// Roads can extend 1 tile beyond existing buildable area (chain outward).
-pub fn is_road_placeable_for_town(
-    pos: Vec2,
-    town_idx: usize,
-    grid: &WorldGrid,
-) -> bool {
+pub fn is_road_placeable_for_town(pos: Vec2, town_idx: usize, grid: &WorldGrid) -> bool {
     let (gc, gr) = grid.world_to_grid(pos);
     // Already buildable?
     if grid.can_town_build(gc, gr, town_idx as u16) {
@@ -192,7 +190,9 @@ pub fn is_road_placeable_for_town(
     let ti = town_idx as u16;
     for dr in -1i32..=1 {
         for dc in -1i32..=1 {
-            if dr == 0 && dc == 0 { continue; }
+            if dr == 0 && dc == 0 {
+                continue;
+            }
             let nc = gc as i32 + dc;
             let nr = gr as i32 + dr;
             if nc >= 0 && nr >= 0 && grid.can_town_build(nc as usize, nr as usize, ti) {
@@ -215,9 +215,15 @@ pub fn empty_slots(
     let mut out = Vec::new();
     for row in 0..grid.height {
         for col in 0..grid.width {
-            if col == center_col && row == center_row { continue; } // skip town center
-            if !grid.can_town_build(col, row, ti) { continue; }
-            if entity_map.has_building_at(col as i32, row as i32) { continue; }
+            if col == center_col && row == center_row {
+                continue;
+            } // skip town center
+            if !grid.can_town_build(col, row, ti) {
+                continue;
+            }
+            if entity_map.has_building_at(col as i32, row as i32) {
+                continue;
+            }
             out.push((col, row));
         }
     }
@@ -234,7 +240,9 @@ pub fn find_interior_roads(
     towns: &[Town],
     area_level: i32,
 ) -> Vec<(usize, usize)> {
-    let Some(town) = towns.get(town_idx) else { return Vec::new() };
+    let Some(town) = towns.get(town_idx) else {
+        return Vec::new();
+    };
     let ti = town_idx as u32;
     let (min_c, max_c, min_r, max_r) = build_bounds(area_level, town.center, grid);
     let w = grid.width;
@@ -242,7 +250,11 @@ pub fn find_interior_roads(
 
     // Collect all roads for this town: (col, row, radius)
     let mut roads: Vec<(usize, usize, i32)> = Vec::new();
-    for kind in [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad] {
+    for kind in [
+        BuildingKind::Road,
+        BuildingKind::StoneRoad,
+        BuildingKind::MetalRoad,
+    ] {
         let radius = kind.road_build_radius().expect("road kind has radius");
         for inst in entity_map.iter_kind_for_town(kind, ti) {
             let (col, row) = grid.world_to_grid(inst.position);
@@ -258,10 +270,14 @@ pub fn find_interior_roads(
         // Check every cell this road covers
         'cell: for dr in -radius..=radius {
             let gr = rr as i32 + dr;
-            if gr < 0 || gr as usize >= h { continue; }
+            if gr < 0 || gr as usize >= h {
+                continue;
+            }
             for dc in -radius..=radius {
                 let gc = rc as i32 + dc;
-                if gc < 0 || gc as usize >= w { continue; }
+                if gc < 0 || gc as usize >= w {
+                    continue;
+                }
                 let col = gc as usize;
                 let row = gr as usize;
 
@@ -273,7 +289,9 @@ pub fn find_interior_roads(
                 // Covered by another road's radius?
                 let mut other_covers = false;
                 for (j, &(oc, or, orad)) in roads.iter().enumerate() {
-                    if j == i { continue; }
+                    if j == i {
+                        continue;
+                    }
                     if (col as i32 - oc as i32).abs() <= orad
                         && (row as i32 - or as i32).abs() <= orad
                     {
@@ -299,14 +317,17 @@ pub fn find_interior_roads(
 // BUILDING PLACEMENT / REMOVAL
 // ============================================================================
 
-
 /// Check if a grid cell contains a building of the given kind.
 /// For roads, matches any road tier so different tiers auto-connect.
 fn is_kind_at(entity_map: &EntityMap, col: usize, row: usize, kind: BuildingKind) -> bool {
     entity_map
         .get_at_grid(col as i32, row as i32)
         .is_some_and(|inst| {
-            if kind.is_road() { inst.kind.is_road() } else { inst.kind == kind }
+            if kind.is_road() {
+                inst.kind.is_road()
+            } else {
+                inst.kind == kind
+            }
         })
 }
 
@@ -363,7 +384,9 @@ pub fn update_autotile_around(
         };
         let neighbor_kind = inst.kind;
         if kind.is_road() {
-            if !neighbor_kind.is_road() { continue; }
+            if !neighbor_kind.is_road() {
+                continue;
+            }
         } else if neighbor_kind != kind {
             continue;
         }
@@ -429,16 +452,7 @@ pub fn resolve_spawner_npc(
             .get(inst.town_idx as usize)
             .map(|t| t.faction)
             .unwrap_or(1);
-        return (
-            2,
-            raider_faction,
-            -1.0,
-            -1.0,
-            -1,
-            "Raider",
-            "Unknown",
-            None,
-        );
+        return (2, raider_faction, -1.0, -1.0, -1, "Raider", "Unknown", None);
     };
 
     let npc_label = npc_def(Job::from_i32(spawner.job)).label;
@@ -742,10 +756,14 @@ pub fn place_building(
             let rr = gr as i32;
             for dr in -radius..=radius {
                 let row = (rr + dr) as usize;
-                if row >= ctx.grid.height { continue; }
+                if row >= ctx.grid.height {
+                    continue;
+                }
                 for dc in -radius..=radius {
                     let col = (rc + dc) as usize;
-                    if col >= ctx.grid.width { continue; }
+                    if col >= ctx.grid.width {
+                        continue;
+                    }
                     ctx.grid.add_town_buildable(col, row, ti16);
                 }
             }
@@ -757,7 +775,6 @@ pub fn place_building(
 
     Ok(slot)
 }
-
 
 /// Spawn one NPC per building spawner. Returns messages for the caller to write.
 /// Create AI players for all non-player towns with random personalities.
@@ -777,7 +794,9 @@ fn create_ai_players(
     let mut rng = rand::rng();
     let mut players = Vec::new();
     for (tdi, town) in world_data.towns.iter().enumerate() {
-        let is_ai = faction_list.factions.get(town.faction as usize)
+        let is_ai = faction_list
+            .factions
+            .get(town.faction as usize)
             .is_some_and(|f| matches!(f.kind, FactionKind::AiBuilder | FactionKind::AiRaider));
         if is_ai {
             let kind = if town.is_raider() {
@@ -838,8 +857,14 @@ pub fn setup_world(
 ) -> Vec<crate::systems::AiPlayer> {
     entity_map.clear_buildings();
     let area_levels = generate_world(
-        config, grid, world_data, faction_list, slot_alloc, entity_map,
-        commands, gpu_updates,
+        config,
+        grid,
+        world_data,
+        faction_list,
+        slot_alloc,
+        entity_map,
+        commands,
+        gpu_updates,
     );
     entity_map.init_spatial(grid.width as f32 * grid.cell_size);
     grid.init_pathfind_costs();
@@ -853,9 +878,17 @@ pub fn setup_world(
 
     // Spawn ECS town entities with area_levels from world gen
     spawn_town_entities(
-        commands, town_index, &world_data.towns,
-        &area_levels, &[], &[],
-        &[], &[], &[],
+        commands,
+        town_index,
+        &world_data.towns,
+        &area_levels,
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
     );
 
     create_ai_players(world_data, faction_list)
@@ -874,18 +907,14 @@ pub fn expand_town_build_area(
     };
     let center = town.center;
 
-    let (old_min_c, old_max_c, old_min_r, old_max_r) =
-        build_bounds(*area_level, center, grid);
+    let (old_min_c, old_max_c, old_min_r, old_max_r) = build_bounds(*area_level, center, grid);
     *area_level += 1;
-    let (new_min_c, new_max_c, new_min_r, new_max_r) =
-        build_bounds(*area_level, center, grid);
+    let (new_min_c, new_max_c, new_min_r, new_max_r) = build_bounds(*area_level, center, grid);
 
     for row in new_min_r..=new_max_r {
         for col in new_min_c..=new_max_c {
-            let is_old = row >= old_min_r
-                && row <= old_max_r
-                && col >= old_min_c
-                && col <= old_max_c;
+            let is_old =
+                row >= old_min_r && row <= old_max_r && col >= old_min_c && col <= old_max_c;
             if is_old {
                 continue;
             }
@@ -912,7 +941,6 @@ pub(crate) fn destroy_building(
     reason: &str,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
 ) -> Result<(), &'static str> {
-
     let inst = entity_map
         .get_at_grid(gc as i32, gr as i32)
         .ok_or("no building")?;
@@ -1090,7 +1118,19 @@ pub fn find_by_pos<W: Worksite>(sites: &[W], pos: Vec2) -> Option<usize> {
 // BUILDING SPATIAL GRID
 // ============================================================================
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord, Serialize, Deserialize, bevy::reflect::Reflect)]
+#[derive(
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Debug,
+    Hash,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+    bevy::reflect::Reflect,
+)]
 pub enum BuildingKind {
     Fountain,
     Bed,
@@ -1200,14 +1240,19 @@ impl Biome {
 /// Returns a value in `0..variants` that looks random but is stable for a given cell.
 /// Uses splitmix64 finalizer for excellent distribution on sequential inputs.
 #[inline]
-fn tile_hash(cell_index: usize, variants: usize) -> usize {
-    let mut h = cell_index as u64;
+fn splitmix64_hash(value: usize) -> u64 {
+    let mut h = value as u64;
     h ^= h >> 30;
     h = h.wrapping_mul(0xbf58476d1ce4e5b9);
     h ^= h >> 27;
     h = h.wrapping_mul(0x94d049bb133111eb);
     h ^= h >> 31;
-    h as usize % variants
+    h
+}
+
+#[inline]
+fn tile_hash(cell_index: usize, variants: usize) -> usize {
+    splitmix64_hash(cell_index) as usize % variants
 }
 
 // TileSpec is now in constants.rs (part of BUILDING_REGISTRY)
@@ -1232,17 +1277,17 @@ pub const TERRAIN_TILES: [TileSpec; 11] = [
 /// Layers with transparent pixels need a grass base underneath.
 /// Fully opaque tiles (grass, water, dirt) need no base.
 const TERRAIN_BASES: [Option<(u32, u32)>; 11] = [
-    None,           // 0: Grass A (opaque)
-    None,           // 1: Grass B (opaque)
-    Some((3, 16)),  // 2: Forest A (tree over Grass A)
-    Some((3, 16)),  // 3: Forest B
-    Some((3, 16)),  // 4: Forest C
-    Some((3, 16)),  // 5: Forest D
-    Some((3, 16)),  // 6: Forest E
-    Some((3, 16)),  // 7: Forest F
-    None,           // 8: Water (opaque)
-    Some((3, 16)),  // 9: Rock (quad has transparent pixels, needs Grass A base)
-    None,           // 10: Dirt (opaque)
+    None,          // 0: Grass A (opaque)
+    None,          // 1: Grass B (opaque)
+    Some((3, 16)), // 2: Forest A (tree over Grass A)
+    Some((3, 16)), // 3: Forest B
+    Some((3, 16)), // 4: Forest C
+    Some((3, 16)), // 5: Forest D
+    Some((3, 16)), // 6: Forest E
+    Some((3, 16)), // 7: Forest F
+    None,          // 8: Water (opaque)
+    Some((3, 16)), // 9: Rock (quad has transparent pixels, needs Grass A base)
+    None,          // 10: Dirt (opaque)
 ];
 
 /// Build the BUILDING_TILES array from the registry (for atlas construction).
@@ -1258,7 +1303,12 @@ pub fn building_tiles() -> Vec<crate::constants::TileSpec> {
 /// `bases` provides an optional base tile per layer -- layers with a base are pre-filled
 /// and subsequent sprites are alpha-composited on top (transparent pixels keep the base).
 /// Pass an empty slice for no bases (building atlas).
-fn build_tile_strip(atlas: &Image, tiles: &[TileSpec], extra: &[&Image], bases: &[Option<(u32, u32)>]) -> (Vec<u8>, u32) {
+fn build_tile_strip(
+    atlas: &Image,
+    tiles: &[TileSpec],
+    extra: &[&Image],
+    bases: &[Option<(u32, u32)>],
+) -> (Vec<u8>, u32) {
     let sprite = SPRITE_SIZE as u32; // 16 (source texel size)
     let out_size = ATLAS_CELL; // 64
     let scale = out_size / sprite; // 4x upscale from 16px source
@@ -1274,29 +1324,28 @@ fn build_tile_strip(atlas: &Image, tiles: &[TileSpec], extra: &[&Image], bases: 
     // Pre-fill layers that have a base tile so decorations composite
     // over terrain instead of showing a black/transparent background.
     // Cache rendered base tiles to avoid redundant blitting.
-    let mut base_cache: std::collections::HashMap<(u32, u32), Vec<u8>> = std::collections::HashMap::new();
+    let mut base_cache: std::collections::HashMap<(u32, u32), Vec<u8>> =
+        std::collections::HashMap::new();
     for (l, base_opt) in bases.iter().enumerate() {
         if let Some(&(base_col, base_row)) = base_opt.as_ref() {
-            let base_layer = base_cache
-                .entry((base_col, base_row))
-                .or_insert_with(|| {
-                    let src_x = base_col * cell_size;
-                    let src_y = base_row * cell_size;
-                    let mut buf = vec![0u8; layer_bytes];
-                    for ty in 0..sprite {
-                        for tx in 0..sprite {
-                            let si = ((src_y + ty) * atlas_width + (src_x + tx)) as usize * 4;
-                            for oy in 0..scale {
-                                for ox in 0..scale {
-                                    let di =
-                                        ((ty * scale + oy) * out_size + (tx * scale + ox)) as usize * 4;
-                                    buf[di..di + 4].copy_from_slice(&atlas_data[si..si + 4]);
-                                }
+            let base_layer = base_cache.entry((base_col, base_row)).or_insert_with(|| {
+                let src_x = base_col * cell_size;
+                let src_y = base_row * cell_size;
+                let mut buf = vec![0u8; layer_bytes];
+                for ty in 0..sprite {
+                    for tx in 0..sprite {
+                        let si = ((src_y + ty) * atlas_width + (src_x + tx)) as usize * 4;
+                        for oy in 0..scale {
+                            for ox in 0..scale {
+                                let di =
+                                    ((ty * scale + oy) * out_size + (tx * scale + ox)) as usize * 4;
+                                buf[di..di + 4].copy_from_slice(&atlas_data[si..si + 4]);
                             }
                         }
                     }
-                    buf
-                });
+                }
+                buf
+            });
             let off = l * layer_bytes;
             data[off..off + layer_bytes].copy_from_slice(base_layer);
         }
@@ -1304,19 +1353,26 @@ fn build_tile_strip(atlas: &Image, tiles: &[TileSpec], extra: &[&Image], bases: 
 
     // Blit a 16x16 source sprite with 2x upscale into a 32x32 quadrant at (dx, dy).
     // When `skip_transparent` is true, transparent source pixels preserve the base.
-    let blit_2x = |data: &mut [u8], layer: u32, col: u32, row: u32, dx: u32, dy: u32, skip_transparent: bool| {
+    let blit_2x = |data: &mut [u8],
+                   layer: u32,
+                   col: u32,
+                   row: u32,
+                   dx: u32,
+                   dy: u32,
+                   skip_transparent: bool| {
         let src_x = col * cell_size;
         let src_y = row * cell_size;
         for ty in 0..sprite {
             for tx in 0..sprite {
                 let si = ((src_y + ty) * atlas_width + (src_x + tx)) as usize * 4;
-                if skip_transparent && atlas_data[si + 3] == 0 { continue; }
+                if skip_transparent && atlas_data[si + 3] == 0 {
+                    continue;
+                }
                 for oy in 0..2u32 {
                     for ox in 0..2u32 {
                         let di = (layer * out_size * out_size
                             + (dy + ty * 2 + oy) * out_size
-                            + (dx + tx * 2 + ox))
-                            as usize
+                            + (dx + tx * 2 + ox)) as usize
                             * 4;
                         data[di..di + 4].copy_from_slice(&atlas_data[si..si + 4]);
                     }
@@ -1337,7 +1393,9 @@ fn build_tile_strip(atlas: &Image, tiles: &[TileSpec], extra: &[&Image], bases: 
                     for tx in 0..sprite {
                         let si = ((src_y + ty) * atlas_width + (src_x + tx)) as usize * 4;
                         let skip = bases.get(layer).is_some_and(|b| b.is_some());
-                        if skip && atlas_data[si + 3] == 0 { continue; }
+                        if skip && atlas_data[si + 3] == 0 {
+                            continue;
+                        }
                         for oy in 0..scale {
                             for ox in 0..scale {
                                 let di = (l * out_size * out_size
@@ -1501,7 +1559,9 @@ pub fn build_building_atlas(
         };
 
         let Some(ext_idx) = ext_idx else { continue };
-        let Some(strip_img) = extra.get(ext_idx) else { continue };
+        let Some(strip_img) = extra.get(ext_idx) else {
+            continue;
+        };
 
         // Extract source sprites: E-W at x=0, BR corner at x=66 (32px art with 1px+1px gaps)
         let ew_sprite = extract_sprite(strip_img, 0, 32);
@@ -1687,11 +1747,17 @@ impl WorldGrid {
 
     /// Build terrain base costs. Called once on world init/load.
     pub fn init_pathfind_costs(&mut self) {
-        self.pathfind_costs = self.cells.iter().map(|c| terrain_base_cost(c.terrain)).collect();
+        self.pathfind_costs = self
+            .cells
+            .iter()
+            .map(|c| terrain_base_cost(c.terrain))
+            .collect();
         self.building_cost_cells.clear();
         if self.width > 0 && self.height > 0 {
             self.hpa_cache = Some(crate::systems::pathfinding::HpaCache::build(
-                &self.pathfind_costs, self.width, self.height,
+                &self.pathfind_costs,
+                self.width,
+                self.height,
             ));
         }
     }
@@ -1706,13 +1772,26 @@ impl WorldGrid {
 
         self.apply_building_overlay(entity_map, BuildingKind::Wall, 0);
         // Apply road overlays — higher tiers override lower (iter order: dirt, stone, metal)
-        for kind in [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad] {
-            self.apply_building_overlay(entity_map, kind, kind.road_pathfind_cost().expect("road kind has cost"));
+        for kind in [
+            BuildingKind::Road,
+            BuildingKind::StoneRoad,
+            BuildingKind::MetalRoad,
+        ] {
+            self.apply_building_overlay(
+                entity_map,
+                kind,
+                kind.road_pathfind_cost().expect("road kind has cost"),
+            );
         }
         // Rebuild HPA* cache for affected chunks
         if !self.building_cost_cells.is_empty() && self.width > 0 {
             if let Some(ref mut cache) = self.hpa_cache {
-                cache.rebuild_chunks(&self.pathfind_costs, self.width, self.height, &self.building_cost_cells);
+                cache.rebuild_chunks(
+                    &self.pathfind_costs,
+                    self.width,
+                    self.height,
+                    &self.building_cost_cells,
+                );
             }
         }
     }
@@ -1762,7 +1841,10 @@ impl WorldGrid {
             return;
         }
         // Skip impassable cells (water, rock)
-        if matches!(self.cells[row * self.width + col].terrain, Biome::Water | Biome::Rock) {
+        if matches!(
+            self.cells[row * self.width + col].terrain,
+            Biome::Water | Biome::Rock
+        ) {
             return;
         }
         let idx = row * self.width + col;
@@ -1847,17 +1929,25 @@ impl WorldGrid {
 
             for r in min_row..=max_row {
                 let gr = (cr + r) as usize;
-                if gr >= h { continue; }
+                if gr >= h {
+                    continue;
+                }
                 for c in min_col..=max_col {
                     let gc = (cc + c) as usize;
-                    if gc >= w { continue; }
+                    if gc >= w {
+                        continue;
+                    }
                     self.add_town_buildable(gc, gr, ti16);
                 }
             }
         }
 
         // 2. Stamp road build radii
-        for kind in [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad] {
+        for kind in [
+            BuildingKind::Road,
+            BuildingKind::StoneRoad,
+            BuildingKind::MetalRoad,
+        ] {
             let radius = kind.road_build_radius().expect("road kind has radius");
             for inst in entity_map.iter_kind(kind) {
                 let ti16 = inst.town_idx as u16;
@@ -1866,10 +1956,14 @@ impl WorldGrid {
                 let rr = road_row as i32;
                 for dr in -radius..=radius {
                     let gr = (rr + dr) as usize;
-                    if gr >= h { continue; }
+                    if gr >= h {
+                        continue;
+                    }
                     for dc in -radius..=radius {
                         let gc = (rc + dc) as usize;
-                        if gc >= w { continue; }
+                        if gc >= w {
+                            continue;
+                        }
                         self.add_town_buildable(gc, gr, ti16);
                     }
                 }
@@ -1981,6 +2075,87 @@ impl WorldGenConfig {
     }
 }
 
+fn spawn_resource_nodes(
+    config: &WorldGenConfig,
+    grid: &WorldGrid,
+    slot_alloc: &mut crate::resources::GpuSlotPool,
+    entity_map: &mut EntityMap,
+    commands: &mut Commands,
+    gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
+) -> (usize, usize) {
+    let mut tree_positions: Vec<Vec2> = Vec::new();
+    let mut rock_positions: Vec<Vec2> = Vec::new();
+    let mut tree_count = 0usize;
+    let mut rock_count = 0usize;
+
+    for row in 0..grid.height {
+        for col in 0..grid.width {
+            let idx = row * grid.width + col;
+            let biome = grid.cells[idx].terrain;
+            let (kind, density, min_spacing, placed_positions) = match biome {
+                Biome::Forest => (
+                    BuildingKind::TreeNode,
+                    config.tree_density,
+                    crate::constants::TREE_MIN_SPACING,
+                    &mut tree_positions,
+                ),
+                Biome::Rock => (
+                    BuildingKind::RockNode,
+                    config.rock_density,
+                    crate::constants::ROCK_MIN_SPACING,
+                    &mut rock_positions,
+                ),
+                _ => continue,
+            };
+            if density <= 0.0 {
+                continue;
+            }
+
+            let threshold = (density as f64 * u64::MAX as f64) as u64;
+            if splitmix64_hash(idx) > threshold {
+                continue;
+            }
+            if entity_map.has_building_at(col as i32, row as i32) {
+                continue;
+            }
+
+            let pos = grid.grid_to_world(col, row);
+            let min_spacing_sq = min_spacing * min_spacing;
+            if placed_positions
+                .iter()
+                .any(|placed| placed.distance_squared(pos) < min_spacing_sq)
+            {
+                continue;
+            }
+
+            if place_building(
+                slot_alloc,
+                entity_map,
+                commands,
+                gpu_updates,
+                kind,
+                pos,
+                crate::constants::TOWN_NONE,
+                crate::constants::FACTION_NEUTRAL,
+                &Default::default(),
+                None,
+                None,
+            )
+            .is_ok()
+            {
+                placed_positions.push(pos);
+                match kind {
+                    BuildingKind::TreeNode => tree_count += 1,
+                    BuildingKind::RockNode => rock_count += 1,
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    (tree_count, rock_count)
+}
+
 // ============================================================================
 // WORLD GENERATION
 // ============================================================================
@@ -2046,7 +2221,8 @@ pub fn generate_world(
         while positions.len() < count && attempts < max_attempts {
             attempts += 1;
             let x = rng.random_range(config.world_margin..config.world_width - config.world_margin);
-            let y = rng.random_range(config.world_margin..config.world_height - config.world_margin);
+            let y =
+                rng.random_range(config.world_margin..config.world_height - config.world_margin);
             let pos = Vec2::new(x, y);
             if is_continents {
                 let (gc, gr) = grid.world_to_grid(pos);
@@ -2068,7 +2244,9 @@ pub fn generate_world(
         if positions.len() < count {
             warn!(
                 "generate_world: only placed {}/{} {:?} towns",
-                positions.len(), count, town_def.kind,
+                positions.len(),
+                count,
+                town_def.kind,
             );
         }
 
@@ -2098,8 +2276,16 @@ pub fn generate_world(
             });
             let mut area_level = 0i32;
             place_buildings(
-                grid, world_data, center, town_data_idx as u32, config,
-                town_def.kind, slot_alloc, entity_map, commands, gpu_updates,
+                grid,
+                world_data,
+                center,
+                town_data_idx as u32,
+                config,
+                town_def.kind,
+                slot_alloc,
+                entity_map,
+                commands,
+                gpu_updates,
                 &mut area_level,
             );
             area_levels.push(area_level);
@@ -2151,59 +2337,24 @@ pub fn generate_world(
         }
         let snapped = grid.grid_to_world(gc, gr);
         let _ = place_building(
-            slot_alloc, entity_map, commands, gpu_updates,
-            BuildingKind::GoldMine, snapped, crate::constants::TOWN_NONE, crate::constants::FACTION_NEUTRAL,
-            &Default::default(), None, None,
+            slot_alloc,
+            entity_map,
+            commands,
+            gpu_updates,
+            BuildingKind::GoldMine,
+            snapped,
+            crate::constants::TOWN_NONE,
+            crate::constants::FACTION_NEUTRAL,
+            &Default::default(),
+            None,
+            None,
         );
         mine_positions.push(snapped);
     }
 
-    // Step 5: Spawn tree and rock nodes on matching biome cells
-    let mut tree_count = 0usize;
-    let mut rock_count = 0usize;
-    for row in 0..grid.height {
-        for col in 0..grid.width {
-            let idx = row * grid.width + col;
-            let biome = grid.cells[idx].terrain;
-            let (kind, density) = match biome {
-                Biome::Forest => (BuildingKind::TreeNode, config.tree_density),
-                Biome::Rock => (BuildingKind::RockNode, config.rock_density),
-                _ => continue,
-            };
-            if density <= 0.0 {
-                continue;
-            }
-            // Deterministic pseudo-random selection using splitmix64 hash
-            let h = {
-                let mut v = idx as u64;
-                v ^= v >> 30;
-                v = v.wrapping_mul(0xbf58476d1ce4e5b9);
-                v ^= v >> 27;
-                v = v.wrapping_mul(0x94d049bb133111eb);
-                v ^= v >> 31;
-                v
-            };
-            let threshold = (density as f64 * u64::MAX as f64) as u64;
-            if h > threshold {
-                continue;
-            }
-            // Skip cells that already have a building (gold mine, town building, etc.)
-            if entity_map.has_building_at(col as i32, row as i32) {
-                continue;
-            }
-            let pos = grid.grid_to_world(col, row);
-            let _ = place_building(
-                slot_alloc, entity_map, commands, gpu_updates,
-                kind, pos, crate::constants::TOWN_NONE, crate::constants::FACTION_NEUTRAL,
-                &Default::default(), None, None,
-            );
-            match kind {
-                BuildingKind::TreeNode => tree_count += 1,
-                BuildingKind::RockNode => rock_count += 1,
-                _ => {}
-            }
-        }
-    }
+    // Step 5: Spawn tree and rock nodes on matching biome cells.
+    let (tree_count, rock_count) =
+        spawn_resource_nodes(config, grid, slot_alloc, entity_map, commands, gpu_updates);
 
     let total_towns = world_data.towns.len();
     info!(
@@ -2214,7 +2365,11 @@ pub fn generate_world(
         rock_count,
         w,
         h,
-        if is_continents { "continents" } else { "classic" },
+        if is_continents {
+            "continents"
+        } else {
+            "classic"
+        },
     );
     area_levels
 }
@@ -2229,6 +2384,8 @@ pub fn spawn_town_entities(
     area_levels: &[i32],
     food: &[i32],
     gold: &[i32],
+    wood: &[i32],
+    stone: &[i32],
     policies: &[crate::resources::PolicySet],
     upgrade_levels: &[Vec<u8>],
     inventories: &[Vec<crate::constants::LootItem>],
@@ -2242,21 +2399,28 @@ pub fn spawn_town_entities(
         let al = area_levels.get(idx).copied().unwrap_or(0);
         let f = food.get(idx).copied().unwrap_or(0);
         let g = gold.get(idx).copied().unwrap_or(0);
+        let w = wood.get(idx).copied().unwrap_or(0);
+        let s = stone.get(idx).copied().unwrap_or(0);
         let p = policies.get(idx).cloned().unwrap_or_default();
-        let u = upgrade_levels.get(idx).cloned().unwrap_or_else(|| vec![0u8; upgrade_count]);
+        let u = upgrade_levels
+            .get(idx)
+            .cloned()
+            .unwrap_or_else(|| vec![0u8; upgrade_count]);
         let inv = inventories.get(idx).cloned().unwrap_or_default();
 
-        let entity = commands.spawn((
-            TownMarker,
-            TownAreaLevel(al),
-            FoodStore(f),
-            GoldStore(g),
-            WoodStore(0),
-            StoneStore(0),
-            TownPolicy(p),
-            TownUpgradeLevel(u),
-            TownEquipment(inv),
-        )).id();
+        let entity = commands
+            .spawn((
+                TownMarker,
+                TownAreaLevel(al),
+                FoodStore(f),
+                GoldStore(g),
+                WoodStore(w),
+                StoneStore(s),
+                TownPolicy(p),
+                TownUpgradeLevel(u),
+                TownEquipment(inv),
+            ))
+            .id();
         town_index.0.insert(idx as i32, entity);
     }
 }
@@ -2305,8 +2469,17 @@ pub fn place_buildings(
     let center_kind = BuildingKind::Fountain;
     place(0, 0, center_kind, town_idx, &mut occupied);
     let _ = place_building(
-        slot_alloc, entity_map, commands, gpu_updates,
-        center_kind, center, town_idx, faction, &Default::default(), None, None,
+        slot_alloc,
+        entity_map,
+        commands,
+        gpu_updates,
+        center_kind,
+        center,
+        town_idx,
+        faction,
+        &Default::default(),
+        None,
+        None,
     );
 
     // Count NPC homes needed (raider units for raider towns, village units for builder towns)
@@ -2326,8 +2499,17 @@ pub fn place_buildings(
         };
         let pos = place(row, col, BuildingKind::Farm, town_idx, &mut occupied);
         let _ = place_building(
-            slot_alloc, entity_map, commands, gpu_updates,
-            BuildingKind::Farm, pos, town_idx, faction, &Default::default(), None, None,
+            slot_alloc,
+            entity_map,
+            commands,
+            gpu_updates,
+            BuildingKind::Farm,
+            pos,
+            town_idx,
+            faction,
+            &Default::default(),
+            None,
+            None,
         );
     }
 
@@ -2343,8 +2525,17 @@ pub fn place_buildings(
             };
             let pos = place(row, col, def.home_building, town_idx, &mut occupied);
             let _ = place_building(
-                slot_alloc, entity_map, commands, gpu_updates,
-                def.home_building, pos, town_idx, faction, &Default::default(), None, None,
+                slot_alloc,
+                entity_map,
+                commands,
+                gpu_updates,
+                def.home_building,
+                pos,
+                town_idx,
+                faction,
+                &Default::default(),
+                None,
+                None,
             );
         }
     }
@@ -2366,10 +2557,20 @@ pub fn place_buildings(
         for (order, (row, col)) in corners.into_iter().enumerate() {
             let post_pos = place(row, col, BuildingKind::Waypoint, town_idx, &mut occupied);
             let _ = place_building(
-                slot_alloc, entity_map, commands, gpu_updates,
-                BuildingKind::Waypoint, post_pos, town_idx, faction,
-                &BuildingOverrides { patrol_order: order as u32, ..Default::default() },
-                None, None,
+                slot_alloc,
+                entity_map,
+                commands,
+                gpu_updates,
+                BuildingKind::Waypoint,
+                post_pos,
+                town_idx,
+                faction,
+                &BuildingOverrides {
+                    patrol_order: order as u32,
+                    ..Default::default()
+                },
+                None,
+                None,
             );
         }
     }
@@ -2513,10 +2714,18 @@ pub fn clear_town_roads_and_dirt(
     commands: &mut Commands,
 ) {
     // Collect road slots for this town across all tiers (can't mutate while iterating)
-    let road_slots: Vec<usize> = [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad]
-        .iter()
-        .flat_map(|&kind| entity_map.iter_kind_for_town(kind, town_idx).map(|inst| inst.slot))
-        .collect();
+    let road_slots: Vec<usize> = [
+        BuildingKind::Road,
+        BuildingKind::StoneRoad,
+        BuildingKind::MetalRoad,
+    ]
+    .iter()
+    .flat_map(|&kind| {
+        entity_map
+            .iter_kind_for_town(kind, town_idx)
+            .map(|inst| inst.slot)
+    })
+    .collect();
 
     for slot in road_slots {
         // Despawn ECS entity
@@ -2617,7 +2826,10 @@ mod tests {
         grid.height = 10;
         grid.cell_size = 32.0;
         grid.cells = vec![
-            WorldCell { terrain: Biome::Grass, original_terrain: Biome::Grass };
+            WorldCell {
+                terrain: Biome::Grass,
+                original_terrain: Biome::Grass
+            };
             100
         ];
         grid.town_owner = vec![0u16; 100];
@@ -2642,60 +2854,220 @@ mod tests {
         app.update();
 
         // Road on forest -> rejected
-        app.world_mut().run_system_once(move |
-            mut slot_alloc: ResMut<crate::resources::GpuSlotPool>,
-            mut entity_map: ResMut<crate::resources::EntityMap>,
-            mut commands: Commands,
-            mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
-            mut grid: ResMut<WorldGrid>,
-            world_data: Res<WorldData>,
-        | {
-            let result = place_building(
-                &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
-                BuildingKind::Road, forest_pos, 0, 0,
-                &BuildingOverrides::default(),
-                Some(BuildContext { grid: &mut grid, world_data: &world_data, food: &mut 9999, cost: 10 }),
-                None,
-            );
-            assert_eq!(result, Err("cannot build road on forest"));
-        }).unwrap();
+        app.world_mut()
+            .run_system_once(
+                move |mut slot_alloc: ResMut<crate::resources::GpuSlotPool>,
+                      mut entity_map: ResMut<crate::resources::EntityMap>,
+                      mut commands: Commands,
+                      mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
+                      mut grid: ResMut<WorldGrid>,
+                      world_data: Res<WorldData>| {
+                    let result = place_building(
+                        &mut slot_alloc,
+                        &mut entity_map,
+                        &mut commands,
+                        &mut gpu_updates,
+                        BuildingKind::Road,
+                        forest_pos,
+                        0,
+                        0,
+                        &BuildingOverrides::default(),
+                        Some(BuildContext {
+                            grid: &mut grid,
+                            world_data: &world_data,
+                            food: &mut 9999,
+                            cost: 10,
+                        }),
+                        None,
+                    );
+                    assert_eq!(result, Err("cannot build road on forest"));
+                },
+            )
+            .unwrap();
 
         // Road on grass -> accepted
-        app.world_mut().run_system_once(move |
-            mut slot_alloc: ResMut<crate::resources::GpuSlotPool>,
-            mut entity_map: ResMut<crate::resources::EntityMap>,
-            mut commands: Commands,
-            mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
-            mut grid: ResMut<WorldGrid>,
-            world_data: Res<WorldData>,
-        | {
-            let result = place_building(
-                &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
-                BuildingKind::Road, grass_pos, 0, 0,
-                &BuildingOverrides::default(),
-                Some(BuildContext { grid: &mut grid, world_data: &world_data, food: &mut 9999, cost: 10 }),
-                None,
-            );
-            assert!(result.is_ok(), "road on grass should succeed: {:?}", result);
-        }).unwrap();
+        app.world_mut()
+            .run_system_once(
+                move |mut slot_alloc: ResMut<crate::resources::GpuSlotPool>,
+                      mut entity_map: ResMut<crate::resources::EntityMap>,
+                      mut commands: Commands,
+                      mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
+                      mut grid: ResMut<WorldGrid>,
+                      world_data: Res<WorldData>| {
+                    let result = place_building(
+                        &mut slot_alloc,
+                        &mut entity_map,
+                        &mut commands,
+                        &mut gpu_updates,
+                        BuildingKind::Road,
+                        grass_pos,
+                        0,
+                        0,
+                        &BuildingOverrides::default(),
+                        Some(BuildContext {
+                            grid: &mut grid,
+                            world_data: &world_data,
+                            food: &mut 9999,
+                            cost: 10,
+                        }),
+                        None,
+                    );
+                    assert!(result.is_ok(), "road on grass should succeed: {:?}", result);
+                },
+            )
+            .unwrap();
 
         // Waypoint on forest -> accepted (non-road buildings allowed)
+        app.world_mut()
+            .run_system_once(
+                move |mut slot_alloc: ResMut<crate::resources::GpuSlotPool>,
+                      mut entity_map: ResMut<crate::resources::EntityMap>,
+                      mut commands: Commands,
+                      mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
+                      mut grid: ResMut<WorldGrid>,
+                      world_data: Res<WorldData>| {
+                    let result = place_building(
+                        &mut slot_alloc,
+                        &mut entity_map,
+                        &mut commands,
+                        &mut gpu_updates,
+                        BuildingKind::Waypoint,
+                        forest_pos,
+                        0,
+                        0,
+                        &BuildingOverrides::default(),
+                        Some(BuildContext {
+                            grid: &mut grid,
+                            world_data: &world_data,
+                            food: &mut 9999,
+                            cost: 10,
+                        }),
+                        None,
+                    );
+                    assert!(
+                        result.is_ok(),
+                        "waypoint on forest should succeed: {:?}",
+                        result
+                    );
+                },
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn resource_nodes_follow_biomes_spacing_and_occupied_cells() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(crate::resources::EntityMap::default());
+        app.insert_resource(crate::resources::GpuSlotPool::default());
+        app.add_message::<crate::messages::GpuUpdateMsg>();
+
+        let mut grid = WorldGrid::default();
+        grid.width = 6;
+        grid.height = 4;
+        grid.cell_size = crate::constants::TOWN_GRID_SPACING;
+        grid.cells = vec![
+            WorldCell {
+                terrain: Biome::Grass,
+                original_terrain: Biome::Grass
+            };
+            grid.width * grid.height
+        ];
+        grid.town_owner = vec![u16::MAX; grid.width * grid.height];
+        for (col, row) in [(0, 0), (1, 0), (3, 0), (5, 0)] {
+            let idx = row * grid.width + col;
+            grid.cells[idx].terrain = Biome::Forest;
+            grid.cells[idx].original_terrain = Biome::Forest;
+        }
+        for (col, row) in [(0, 2), (1, 2), (3, 2)] {
+            let idx = row * grid.width + col;
+            grid.cells[idx].terrain = Biome::Rock;
+            grid.cells[idx].original_terrain = Biome::Rock;
+        }
+        let occupied_forest_pos = grid.grid_to_world(5, 0);
+
+        app.insert_resource(grid);
+        app.update();
+
         app.world_mut().run_system_once(move |
             mut slot_alloc: ResMut<crate::resources::GpuSlotPool>,
             mut entity_map: ResMut<crate::resources::EntityMap>,
             mut commands: Commands,
             mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
-            mut grid: ResMut<WorldGrid>,
-            world_data: Res<WorldData>,
         | {
             let result = place_building(
-                &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
-                BuildingKind::Waypoint, forest_pos, 0, 0,
+                &mut slot_alloc,
+                &mut entity_map,
+                &mut commands,
+                &mut gpu_updates,
+                BuildingKind::Waypoint,
+                occupied_forest_pos,
+                crate::constants::TOWN_NONE,
+                crate::constants::FACTION_NEUTRAL,
                 &BuildingOverrides::default(),
-                Some(BuildContext { grid: &mut grid, world_data: &world_data, food: &mut 9999, cost: 10 }),
+                None,
                 None,
             );
-            assert!(result.is_ok(), "waypoint on forest should succeed: {:?}", result);
+            assert!(result.is_ok(), "occupied cell setup should succeed: {:?}", result);
         }).unwrap();
+
+        let config = WorldGenConfig {
+            tree_density: 1.0,
+            rock_density: 1.0,
+            ..Default::default()
+        };
+        app.world_mut()
+            .run_system_once(
+                move |mut slot_alloc: ResMut<crate::resources::GpuSlotPool>,
+                      mut entity_map: ResMut<crate::resources::EntityMap>,
+                      mut commands: Commands,
+                      mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
+                      grid: Res<WorldGrid>| {
+                    let (tree_count, rock_count) = spawn_resource_nodes(
+                        &config,
+                        &grid,
+                        &mut slot_alloc,
+                        &mut entity_map,
+                        &mut commands,
+                        &mut gpu_updates,
+                    );
+
+                    assert_eq!(
+                        tree_count, 2,
+                        "adjacent forest cells should collapse by spacing"
+                    );
+                    assert_eq!(
+                        rock_count, 2,
+                        "adjacent rock cells should collapse by spacing"
+                    );
+
+                    assert_eq!(
+                        entity_map.get_at_grid(0, 0).map(|b| b.kind),
+                        Some(BuildingKind::TreeNode)
+                    );
+                    assert_eq!(entity_map.get_at_grid(1, 0).map(|b| b.kind), None);
+                    assert_eq!(
+                        entity_map.get_at_grid(3, 0).map(|b| b.kind),
+                        Some(BuildingKind::TreeNode)
+                    );
+                    assert_eq!(
+                        entity_map.get_at_grid(5, 0).map(|b| b.kind),
+                        Some(BuildingKind::Waypoint)
+                    );
+
+                    assert_eq!(
+                        entity_map.get_at_grid(0, 2).map(|b| b.kind),
+                        Some(BuildingKind::RockNode)
+                    );
+                    assert_eq!(entity_map.get_at_grid(1, 2).map(|b| b.kind), None);
+                    assert_eq!(
+                        entity_map.get_at_grid(3, 2).map(|b| b.kind),
+                        Some(BuildingKind::RockNode)
+                    );
+
+                    assert_eq!(entity_map.get_at_grid(2, 1).map(|b| b.kind), None);
+                },
+            )
+            .unwrap();
     }
 }
