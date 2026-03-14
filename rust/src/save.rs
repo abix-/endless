@@ -462,18 +462,25 @@ pub enum ActivitySave {
     Mining { mine_pos: [f32; 2] },
     MiningAtMine,
     SquadTarget,
+    SquadTargetAt { target: [f32; 2] },
 }
 
 impl ActivitySave {
     fn from_activity(a: &Activity) -> Self {
         match a.kind {
             ActivityKind::Idle => Self::Idle,
-            ActivityKind::Work => Self::Working,
+            ActivityKind::Work => match a.phase {
+                ActivityPhase::Transit => Self::GoingToWork,
+                _ => Self::Working,
+            },
             ActivityKind::Patrol => match a.phase {
                 ActivityPhase::Transit => Self::Patrolling,
                 _ => Self::OnDuty { ticks_waiting: a.ticks_waiting },
             },
-            ActivityKind::SquadAttack => Self::SquadTarget,
+            ActivityKind::SquadAttack => match a.target {
+                ActivityTarget::SquadPoint(pos) => Self::SquadTargetAt { target: v2(pos) },
+                _ => Self::SquadTarget,
+            },
             ActivityKind::Rest => match a.phase {
                 ActivityPhase::Transit => Self::GoingToRest,
                 _ => Self::Resting,
@@ -490,7 +497,7 @@ impl ActivitySave {
             ActivityKind::ReturnLoot => Self::Returning { loot: vec![] },
             ActivityKind::Mine => match a.phase {
                 ActivityPhase::Holding => Self::MiningAtMine,
-                _ => Self::MiningAtMine, // mine position resolved from worksite, not activity
+                _ => Self::Mining { mine_pos: [0.0, 0.0] }, // position resolved from worksite at runtime
             },
         }
     }
@@ -498,10 +505,12 @@ impl ActivitySave {
     fn to_activity(&self) -> Activity {
         match self {
             Self::Idle => Activity::default(),
-            Self::Working | Self::GoingToWork => Activity { kind: ActivityKind::Work, phase: ActivityPhase::Transit, target: ActivityTarget::Worksite, ..Default::default() },
+            Self::GoingToWork => Activity { kind: ActivityKind::Work, phase: ActivityPhase::Transit, target: ActivityTarget::Worksite, ..Default::default() },
+            Self::Working => Activity { kind: ActivityKind::Work, phase: ActivityPhase::Active, target: ActivityTarget::Worksite, ..Default::default() },
             Self::OnDuty { ticks_waiting } => Activity { kind: ActivityKind::Patrol, phase: ActivityPhase::Holding, target: ActivityTarget::PatrolPost { route: 0, index: 0 }, ticks_waiting: *ticks_waiting, ..Default::default() },
             Self::Patrolling => Activity { kind: ActivityKind::Patrol, phase: ActivityPhase::Transit, target: ActivityTarget::PatrolPost { route: 0, index: 0 }, ..Default::default() },
             Self::SquadTarget => Activity { kind: ActivityKind::SquadAttack, phase: ActivityPhase::Holding, target: ActivityTarget::None, ..Default::default() },
+            Self::SquadTargetAt { target } => Activity { kind: ActivityKind::SquadAttack, phase: ActivityPhase::Holding, target: ActivityTarget::SquadPoint(to_vec2(*target)), ..Default::default() },
             Self::GoingToRest => Activity { kind: ActivityKind::Rest, phase: ActivityPhase::Transit, target: ActivityTarget::Home, ..Default::default() },
             Self::Resting => Activity { kind: ActivityKind::Rest, phase: ActivityPhase::Active, target: ActivityTarget::Home, ..Default::default() },
             Self::GoingToHeal => Activity { kind: ActivityKind::Heal, phase: ActivityPhase::Transit, target: ActivityTarget::Fountain, recover_until: 100.0, ..Default::default() },
@@ -2207,5 +2216,119 @@ pub fn load_game_system(
 pub fn save_toast_tick_system(time: Res<Time>, mut toast: ResMut<SaveToast>) {
     if toast.timer > 0.0 {
         toast.timer -= time.delta_secs();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::components::*;
+
+    /// Round-trip: Activity -> ActivitySave -> Activity must preserve kind + phase + target.
+    fn assert_round_trip(activity: Activity) {
+        let saved = ActivitySave::from_activity(&activity);
+        let loaded = saved.to_activity();
+        assert_eq!(loaded.kind, activity.kind, "kind mismatch for {:?}", activity);
+        assert_eq!(loaded.phase, activity.phase, "phase mismatch for {:?}", activity);
+        assert_eq!(loaded.target, activity.target, "target mismatch for {:?}", activity);
+    }
+
+    #[test]
+    fn round_trip_work_transit() {
+        assert_round_trip(Activity {
+            kind: ActivityKind::Work, phase: ActivityPhase::Transit,
+            target: ActivityTarget::Worksite, ..Default::default()
+        });
+    }
+
+    #[test]
+    fn round_trip_work_active() {
+        assert_round_trip(Activity {
+            kind: ActivityKind::Work, phase: ActivityPhase::Active,
+            target: ActivityTarget::Worksite, ..Default::default()
+        });
+    }
+
+    #[test]
+    fn round_trip_mine_transit() {
+        assert_round_trip(Activity {
+            kind: ActivityKind::Mine, phase: ActivityPhase::Transit,
+            target: ActivityTarget::Worksite, ..Default::default()
+        });
+    }
+
+    #[test]
+    fn round_trip_mine_holding() {
+        assert_round_trip(Activity {
+            kind: ActivityKind::Mine, phase: ActivityPhase::Holding,
+            target: ActivityTarget::Worksite, ..Default::default()
+        });
+    }
+
+    #[test]
+    fn round_trip_squad_attack_with_target() {
+        let target = Vec2::new(500.0, 300.0);
+        assert_round_trip(Activity {
+            kind: ActivityKind::SquadAttack, phase: ActivityPhase::Holding,
+            target: ActivityTarget::SquadPoint(target), ..Default::default()
+        });
+    }
+
+    #[test]
+    fn round_trip_rest_transit() {
+        assert_round_trip(Activity {
+            kind: ActivityKind::Rest, phase: ActivityPhase::Transit,
+            target: ActivityTarget::Home, ..Default::default()
+        });
+    }
+
+    #[test]
+    fn round_trip_rest_active() {
+        assert_round_trip(Activity {
+            kind: ActivityKind::Rest, phase: ActivityPhase::Active,
+            target: ActivityTarget::Home, ..Default::default()
+        });
+    }
+
+    #[test]
+    fn round_trip_heal_with_threshold() {
+        let activity = Activity {
+            kind: ActivityKind::Heal, phase: ActivityPhase::Active,
+            target: ActivityTarget::Fountain, recover_until: 0.85, ..Default::default()
+        };
+        let saved = ActivitySave::from_activity(&activity);
+        let loaded = saved.to_activity();
+        assert_eq!(loaded.kind, ActivityKind::Heal);
+        assert_eq!(loaded.phase, ActivityPhase::Active);
+        assert_eq!(loaded.recover_until, 0.85);
+    }
+
+    #[test]
+    fn round_trip_patrol_transit_and_holding() {
+        assert_round_trip(Activity {
+            kind: ActivityKind::Patrol, phase: ActivityPhase::Transit,
+            target: ActivityTarget::PatrolPost { route: 0, index: 0 }, ..Default::default()
+        });
+        assert_round_trip(Activity {
+            kind: ActivityKind::Patrol, phase: ActivityPhase::Holding,
+            target: ActivityTarget::PatrolPost { route: 0, index: 0 }, ..Default::default()
+        });
+    }
+
+    #[test]
+    fn round_trip_raid_with_position() {
+        let pos = Vec2::new(200.0, 400.0);
+        assert_round_trip(Activity {
+            kind: ActivityKind::Raid, phase: ActivityPhase::Transit,
+            target: ActivityTarget::RaidPoint(pos), ..Default::default()
+        });
+    }
+
+    #[test]
+    fn round_trip_return_loot() {
+        assert_round_trip(Activity {
+            kind: ActivityKind::ReturnLoot, phase: ActivityPhase::Transit,
+            target: ActivityTarget::Dropoff, ..Default::default()
+        });
     }
 }
