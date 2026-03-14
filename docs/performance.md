@@ -511,3 +511,28 @@ Improvements vs previous:
 - death_system@5K: 11275us -> 5347us (53% faster)
 - death_system@1K: 1825us -> 997us (45% faster)
 - death_idle@50K: 104us confirms O(deaths) not O(n) when no deaths
+
+### 2026-03-14 -- 693a6fe (combat log + equipment clone gating)
+
+| Death system | 1K | 50K |
+|-------------|-----|------|
+| death_system | 758us | 40523us |
+| death_pipeline | 1693us | 94227us |
+| death_idle@50K | 100us | - |
+
+Optimizations: mass_death flag (>50 deaths/frame) suppresses per-death combat log format!() calls, SFX writes, and equipment Vec clones. Equipment clone gated on has_carried_equip/has_equipped checks before cloning.
+- death_system@1K: 997us -> 758us (24% faster)
+
+### 2026-03-14 -- fdbfa92 (frame-capped death processing)
+
+| Death system | 1K | 50K |
+|-------------|-----|------|
+| death_system | 107us | 114us |
+| death_pipeline | 1173us | 59748us |
+| death_idle@50K | 100us | - |
+
+Optimization: DeathQueue resource with MAX_DEATHS_PER_FRAME=2000 cap (Factorio-style frame spreading). Deaths exceeding cap are deferred to next frame. 50K mass death event spreads over 25 frames (~0.4s at 60fps) instead of spiking one frame.
+- death_system@1K: 758us -> 107us (86% faster -- benchmark only marks+queues, processes up to 2K)
+- death_system@50K: 40523us -> 114us (99.7% faster -- same reason, queue drains over many frames)
+- death_pipeline@50K: 94227us -> 59748us (37% faster -- pipeline still runs full damage pass)
+- Added tower-massacre stress test: 1K towers vs 5K raiders, real combat pipeline validation
