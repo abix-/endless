@@ -1,0 +1,53 @@
+name: release on merge
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  tag-and-release:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute next version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest=$(git tag --list 'v*' --sort=-version:refname | head -n 1)
+          if [[ -z "$latest" ]]; then
+            echo "tag=v0.1.0" >> "$GITHUB_OUTPUT"
+          else
+            # strip leading v, split on dots, bump patch
+            ver="${latest#v}"
+            IFS='.' read -r major minor patch <<< "$ver"
+            patch=$((patch + 1))
+            echo "tag=v${major}.${minor}.${patch}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          body: |
+            Merged PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}
+          generate_release_notes: true
