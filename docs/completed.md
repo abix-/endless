@@ -498,6 +498,21 @@ Completed items moved from roadmap for readability.
 - [x] System-level tests: headless `App::new()` + `FixedUpdate` tests for energy, regen, starvation, game_time, cooldown, damage, construction systems + population helpers (52 tests)
 - [x] Pure function tests: generate_name, generate_personality in spawn.rs (6 tests)
 
+### CRD Architecture (Stage 32 Chunks 1-3, 5)
+- [x] Chunk 1 -- NPC Instance Cleanup: NpcMeta moved to NpcStats ECS component, materialize_npc reads NpcDef internally, CombatConfig/JobStats duplication removed
+- [x] Chunk 2 -- Building Instance Consolidation: BuildingInstance god struct replaced with ECS components (ProductionState, TowerBuildingState, SpawnerState, ConstructionProgress, WaypointOrder, WallLevel, MinerHomeConfig), slim 5-field identity index, BuildingOverrides struct
+- [x] Chunk 3 -- TownDef Registry: TownDef + TOWN_REGISTRY, data-driven town generation, Town/TownUpgrades/PolicySet consolidated under ECS town entities (TownAccess SystemParam)
+- [x] Chunk 5 -- ItemDef Registry: ItemDef struct for item templates, procedural generation references templates, unified sprite/name/stat tables
+
+### Pathfinding (Stage 20)
+- [x] A* pathfinding on the world grid (pathfinding.rs, movement.rs)
+- [x] Terrain movement costs -- Grass/Dirt=100, Forest=143, Rock=2500, Water=5000
+- [x] NPC pathfinding integration: all NPCs use A* paths with LOS bypass for short distances
+- [x] Route spreading: PATH_SPREAD_COST=100, PATH_SPREAD_RADIUS=1
+- [x] Intermediate waypoint relaxed threshold (96px vs 40px for final destination)
+- [x] Arrival detection parity for LOS/direct targets and waypoint paths
+- [x] Path recalculation on building place/remove (incremental HPA* rebuild)
+
 ### NPC Activity Controller (Stage 32 Chunk 4)
 - [x] ActivityDef struct + ACTIVITY_REGISTRY static table (label, distraction, sleep_visual, is_restful, is_working per kind)
 - [x] ActivityKind fieldless (Copy+Eq+Hash), per-instance data on Activity struct fields

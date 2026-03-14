@@ -88,13 +88,9 @@ Remaining:
 
 *Done when: NPCs navigate around obstacles using A\* or flow fields instead of pure boids steering. Raiders path around walls to find openings. Placing a building that would fully block access is rejected.*
 
-- [x] A* pathfinding on the world grid (pathfinding.rs, movement.rs)
-- [x] Terrain movement costs — Grass/Dirt=100, Forest=143, Rock=2500, Water=5000 (high but passable so NPCs can escape if pushed by physics). Road speed multiplier applied separately in GPU shader.
-- [x] NPC pathfinding integration: all NPCs use A* paths for long-distance navigation with LOS bypass for short distances
-- [x] Route spreading: successive A* calls inflate costs along found paths (PATH_SPREAD_COST=100, PATH_SPREAD_RADIUS=1) to spread NPC routes apart
-- [x] Intermediate waypoint relaxed threshold (96px vs 40px for final destination) prevents pile-up from boid separation
-- [x] Arrival detection parity for LOS/direct targets and waypoint paths: `gpu_position_readback` now marks `at_destination` for transit activities even when movement has no waypoints (direct `SetTarget`), with regression coverage for transit/no-path and non-transit/no-path cases
-- [x] Path recalculation on building place/remove (incremental update, not full rebuild)
+A* pathfinding, terrain costs, NPC integration, route spreading, arrival parity, incremental rebuild complete (see [completed.md](completed.md)).
+
+Remaining:
 - [ ] Path validation: reject building placements that fully block access to critical locations
 
 Prerequisite for Stage 21 (wall gates) and Stage 25 (tower defense maze).
@@ -254,27 +250,7 @@ Current CRD compliance:
 
 Can be done incrementally alongside other stages. Each chunk is independent.
 
-Chunk 1 — NPC Instance Cleanup (80% → 95%): ✅
-- [x] Move NpcMeta (name, level, XP) from NpcMetaCache parallel array onto ECS entities as NpcStats component
-- [x] Simplify `materialize_npc()` — read NpcDef internally, removed attack_type_id + WorldData params
-- [x] Remove CombatConfig/JobStats duplication (resolve_combat_stats reads NpcDef.base_hp/damage/speed directly)
-
-Chunk 2 — Building Instance Consolidation (70% → 90%): ✅
-- [x] Replace BuildingInstance god struct with ECS components: ProductionState, TowerBuildingState, SpawnerState, ConstructionProgress, WaypointOrder, WallLevel, MinerHomeConfig
-- [x] Slim BuildingInstance to 5-field identity index (kind, position, town_idx, slot, faction) — occupancy in separate EntityMap.occupancy map
-- [x] Simplify `place_building()` signature — BuildingOverrides struct replaces 3 loose params (patrol_order, wall_level, hp)
-
-Chunk 3 — TownDef Registry (40% → 80%): ✅
-- [x] Add TownDef struct + TOWN_REGISTRY (player, ai_builder, ai_raider templates)
-- [x] Data-driven town generation — single loop driven by TOWN_REGISTRY (TownKind::faction_kind(), TownDef.label fallback, count_for() helper)
-- [x] Consolidate Town + TownUpgrades + PolicySet under ECS town entities (TownAccess SystemParam, FoodStore/GoldStore/TownPolicy/TownUpgradeLevel/TownEquipment components)
-
-Chunk 4 — ActivityDef Registry + NPC Activity Controller (50% → 100%): Done (see [completed.md](completed.md))
-
-Chunk 5 — ItemDef Registry (60% → 85%): ✅
-- [x] Add ItemDef struct for item templates (base stats, sprite options, name patterns per slot+rarity)
-- [x] Procedural generation references ItemDef templates with random variation
-- [x] Unifies sprite tables + name generation + stat ranges into one registry
+Chunks 1-5 complete (see [completed.md](completed.md)): NPC instance cleanup, building consolidation, TownDef registry, ActivityDef + activity controller, ItemDef registry.
 
 Sound (bevy_audio) woven into stages. Done: arrow shoot SFX, NPC death SFX (24 variants), spatial camera culling, per-kind dedup. Remaining: building place, wall hit, loot pickup (Stages 17-21); element sounds + wave horn (Stage 25).
 
@@ -285,9 +261,7 @@ Sound (bevy_audio) woven into stages. Done: arrow shoot SFX, NPC death SFX (24 v
 - [ ] Add regression tests that enforce no behavior drift between player and AI build flows, startup and respawn flows, and both destroy entry points
 
 ### Testing
-- [x] Unit test infrastructure: `#[cfg(test)]` modules in stats.rs, constants.rs, components.rs (65 pure function tests via `cargo test`)
-- [x] System-level tests: headless `App::new()` + `FixedUpdate` tests for energy, regen, starvation, game_time, cooldown, damage, construction systems + population helpers (52 tests)
-- [x] Pure function tests: generate_name, generate_personality in spawn.rs (6 tests)
+Test infrastructure complete (see [completed.md](completed.md)): unit tests, system-level tests, pure function tests. 246+ tests passing.
 
 ### UI & UX
 - [ ] Add `show_active_radius` debug toggle in Bevy UI
