@@ -1300,7 +1300,7 @@ pub fn named_save_path(name: &str) -> Option<std::path::PathBuf> {
     save_dir().map(|d| d.join(format!("{safe}.json")))
 }
 
-/// Toast notification state for save/load feedback.
+/// Toast notification state for transient user feedback (save/load, build errors, etc.).
 #[derive(Resource, Default)]
 pub struct SaveToast {
     pub message: String,
