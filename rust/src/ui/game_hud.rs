@@ -215,13 +215,12 @@ pub fn top_bar_system(
                 }
                 if ui
                     .selectable_label(
-                        ui_state.left_panel_open
-                            && ui_state.left_panel_tab == LeftPanelTab::Inventory,
+                        ui_state.armory_open,
                         "Armory",
                     )
                     .clicked()
                 {
-                    ui_state.toggle_left_tab(LeftPanelTab::Inventory);
+                    ui_state.toggle_armory();
                 }
                 if ui
                     .selectable_label(
@@ -786,6 +785,7 @@ fn tower_upgrade_window(
                     match res {
                         ResourceKind::Food => food >= total,
                         ResourceKind::Gold => gold >= total,
+                        ResourceKind::Wood | ResourceKind::Stone => false,
                     }
                 });
 
@@ -839,6 +839,8 @@ fn tower_upgrade_window(
                                 match res {
                                     ResourceKind::Food => format!("{} food", total),
                                     ResourceKind::Gold => format!("{} gold", total),
+                                    ResourceKind::Wood => format!("{} wood", total),
+                                    ResourceKind::Stone => format!("{} stone", total),
                                 }
                             })
                             .collect();
@@ -864,6 +866,7 @@ fn tower_upgrade_window(
                                             g.0 -= total;
                                         }
                                     }
+                                    ResourceKind::Wood | ResourceKind::Stone => {}
                                 }
                             }
                             // Increment upgrade level
@@ -1596,8 +1599,7 @@ fn inspector_content(
             }
             if can_equip {
                 if ui.small_button("Open Armory >").clicked() {
-                    ui_state.left_panel_open = true;
-                    ui_state.left_panel_tab = LeftPanelTab::Inventory;
+                    ui_state.open_armory();
                 }
             }
         }
@@ -2275,12 +2277,15 @@ fn building_inspector_content(
                         .map(|(r, amt)| match r {
                             ResourceKind::Food => format!("{} food", amt),
                             ResourceKind::Gold => format!("{} gold", amt),
+                            ResourceKind::Wood => format!("{} wood", amt),
+                            ResourceKind::Stone => format!("{} stone", amt),
                         })
                         .collect();
                     let next_name = WALL_TIER_NAMES[level];
                     let can_afford = costs.iter().all(|(r, amt)| match r {
                         ResourceKind::Food => bld.town_access.food(town_idx as i32) >= *amt,
                         ResourceKind::Gold => bld.town_access.gold(town_idx as i32) >= *amt,
+                        ResourceKind::Wood | ResourceKind::Stone => false,
                     });
 
                     ui.separator();
@@ -2307,6 +2312,7 @@ fn building_inspector_content(
                                         g.0 -= amt;
                                     }
                                 }
+                                ResourceKind::Wood | ResourceKind::Stone => {}
                             }
                         }
                         // Upgrade wall level + HP via ECS

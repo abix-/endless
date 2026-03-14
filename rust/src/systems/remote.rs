@@ -183,6 +183,8 @@ fn format_cost(cost: &[(crate::constants::ResourceKind, i32)]) -> String {
             let suffix = match kind {
                 crate::constants::ResourceKind::Food => "f",
                 crate::constants::ResourceKind::Gold => "g",
+                crate::constants::ResourceKind::Wood => "w",
+                crate::constants::ResourceKind::Stone => "s",
             };
             format!("{amt}{suffix}")
         })

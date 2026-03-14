@@ -569,6 +569,7 @@ fn can_afford_upgrade(idx: usize, level: u8, food: i32, gold: i32) -> bool {
         match kind {
             ResourceKind::Food => food >= total,
             ResourceKind::Gold => gold >= total,
+            ResourceKind::Wood | ResourceKind::Stone => false,
         }
     })
 }
@@ -588,6 +589,7 @@ pub fn deduct_upgrade_cost(idx: usize, level: u8, food: &mut i32, gold: &mut i32
         match kind {
             ResourceKind::Food => *food -= total,
             ResourceKind::Gold => *gold -= total,
+            ResourceKind::Wood | ResourceKind::Stone => {},
         }
     }
 }
@@ -625,6 +627,8 @@ pub fn format_upgrade_cost(idx: usize, level: u8) -> String {
             match kind {
                 ResourceKind::Food => format!("{total} food"),
                 ResourceKind::Gold => format!("{total} gold"),
+                ResourceKind::Wood => format!("{total} wood"),
+                ResourceKind::Stone => format!("{total} stone"),
             }
         })
         .collect::<Vec<_>>()
@@ -1113,6 +1117,7 @@ pub fn auto_tower_upgrade_system(
                 match res {
                     crate::constants::ResourceKind::Food => food >= total,
                     crate::constants::ResourceKind::Gold => gold >= total,
+                    crate::constants::ResourceKind::Wood | crate::constants::ResourceKind::Stone => false,
                 }
             });
             if can_afford {
@@ -1136,6 +1141,7 @@ pub fn auto_tower_upgrade_system(
                     crate::constants::ResourceKind::Gold => {
                         if let Some(mut g) = town_access.gold_mut(ti) { g.0 -= total; }
                     }
+                    crate::constants::ResourceKind::Wood | crate::constants::ResourceKind::Stone => {}
                 }
             }
             // Increment upgrade level on ECS component
