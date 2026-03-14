@@ -3085,6 +3085,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
         app.add_message::<CombatLogMsg>();
+        app.add_message::<crate::messages::DamageMsg>();
         app.add_message::<GpuUpdateMsg>();
         app.add_message::<WorkIntentMsg>();
         app.insert_resource(WorldData {
