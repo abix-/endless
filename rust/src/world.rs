@@ -1162,22 +1162,32 @@ pub enum Biome {
 
 impl Biome {
     /// Map biome + cell index to tileset array index (0-10) for TilemapChunk.
-    /// Grass alternates 0/1, Forest cycles 2-7, Water=8, Rock=9, Dirt=10.
+    /// Grass picks 0/1, Forest picks 2-7, Water=8, Rock=9, Dirt=10.
+    /// Uses a hash of the cell index for pseudo-random but deterministic variant selection,
+    /// avoiding visible checkerboard/cycle patterns from plain modulo.
     pub fn tileset_index(self, cell_index: usize) -> u16 {
         match self {
-            Biome::Grass => {
-                if cell_index.is_multiple_of(2) {
-                    0
-                } else {
-                    1
-                }
-            }
-            Biome::Forest => 2 + (cell_index % 6) as u16,
+            Biome::Grass => tile_hash(cell_index, 2) as u16,
+            Biome::Forest => 2 + tile_hash(cell_index, 6) as u16,
             Biome::Water => 8,
             Biome::Rock => 9,
             Biome::Dirt => 10,
         }
     }
+}
+
+/// Fast deterministic hash for tile variant selection.
+/// Returns a value in `0..variants` that looks random but is stable for a given cell.
+/// Uses splitmix64 finalizer for excellent distribution on sequential inputs.
+#[inline]
+fn tile_hash(cell_index: usize, variants: usize) -> usize {
+    let mut h = cell_index as u64;
+    h ^= h >> 30;
+    h = h.wrapping_mul(0xbf58476d1ce4e5b9);
+    h ^= h >> 27;
+    h = h.wrapping_mul(0x94d049bb133111eb);
+    h ^= h >> 31;
+    h as usize % variants
 }
 
 // TileSpec is now in constants.rs (part of BUILDING_REGISTRY)
