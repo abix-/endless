@@ -23,7 +23,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -36,6 +36,9 @@ jobs:
             g++ pkg-config \
             libx11-dev libasound2-dev libudev-dev \
             libwayland-dev libxkbcommon-dev
+
+      - name: Format
+        run: cargo fmt --check
 
       - name: Clippy
         run: cargo clippy --release -- -D warnings

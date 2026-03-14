@@ -295,10 +295,11 @@ Use this flow for each slice:
 2. Claim the issue if it is `ready`
 3. Create or update the slice branch
 4. Implement the smallest complete step
-5. Run the required tests
-6. Update docs if accepted behavior changed
-7. Open or update the PR
-8. Leave the handoff comment
+5. Run `cargo fmt` before committing
+6. Run the required tests
+7. Update docs if accepted behavior changed
+8. Open or update the PR
+9. Leave the handoff comment
 9. Remove `claimed` and the owner label, then add the opposite family handoff label:
    - Codex implementation -> `needs-claude`
    - Claude implementation -> `needs-codex`
