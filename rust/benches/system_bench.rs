@@ -244,6 +244,8 @@ fn populate_npcs(app: &mut App, count: usize) {
                     CarriedLoot {
                         food: 0,
                         gold: 0,
+                        wood: 0,
+                        stone: 0,
                         equipment: vec![],
                     },
                     Personality::default(),
