@@ -13,6 +13,15 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::constants::{ItemKind, UpgradeStatKind, building_def, npc_def};
+
+/// Frame-capped death queue. Deaths exceeding MAX_DEATHS_PER_FRAME are deferred to next frame.
+/// Prevents spike frames during mass death events (starvation waves, nuclear, etc.).
+const MAX_DEATHS_PER_FRAME: usize = 2000;
+
+#[derive(Resource, Default)]
+pub struct DeathQueue {
+    pub pending: Vec<usize>, // GPU slots of NPCs waiting to be processed
+}
 use crate::systems::economy::*;
 use crate::systems::stats::{CombatConfig, UPGRADES, level_from_xp, resolve_combat_stats};
 use crate::world::{BuildingKind, WorldData, WorldGrid};
@@ -20,6 +29,7 @@ use crate::world::{BuildingKind, WorldData, WorldGrid};
 /// Bundled resources for death_system — merged from CleanupResources + WorldState + BuildingDeathExtra.
 #[derive(SystemParam)]
 pub struct DeathResources<'w, 's> {
+    pub death_queue: ResMut<'w, DeathQueue>,
     pub entity_map: ResMut<'w, EntityMap>,
     pub pop_stats: ResMut<'w, PopulationStats>,
     pub faction_stats: ResMut<'w, FactionStats>,
@@ -217,22 +227,21 @@ pub fn death_system(
     mut intents: ResMut<crate::resources::PathRequestQueue>,
     mut ui_state: ResMut<crate::resources::UiState>,
 ) {
-    // Phase 1a: Collect dead NPCs (already marked Dead by damage_system)
+    // Phase 1a: Collect newly dead NPCs into the death queue
     let mut death_count = 0;
-    let dead_npc_slots: Vec<usize> = {
-        let mut newly_dead = Vec::new();
-        for (_entity, gpu_slot) in npc_dead_query.iter() {
-            let slot = gpu_slot.0;
-            if let Some(npc) = res.entity_map.get_npc_mut(slot) {
-                if !npc.dead {
-                    npc.dead = true;
-                    death_count += 1;
-                    newly_dead.push(slot);
-                }
+    for (_entity, gpu_slot) in npc_dead_query.iter() {
+        let slot = gpu_slot.0;
+        if let Some(npc) = res.entity_map.get_npc_mut(slot) {
+            if !npc.dead {
+                npc.dead = true;
+                death_count += 1;
+                res.death_queue.pending.push(slot);
             }
         }
-        newly_dead
-    };
+    }
+    // Drain up to MAX_DEATHS_PER_FRAME from the queue (rest deferred to next frame)
+    let cap = MAX_DEATHS_PER_FRAME.min(res.death_queue.pending.len());
+    let dead_npc_slots: Vec<usize> = res.death_queue.pending.drain(..cap).collect();
     let mass_death = dead_npc_slots.len() > 50;
 
     // Phase 1b: Mark newly dead buildings (deferred — processed next frame)
@@ -581,19 +590,27 @@ pub fn death_system(
         // XP grant: reward killer with XP, level-up, and NPC kill loot
         if last_hit_by >= 0 {
             // Only clone equipment when there's actually something to transfer
-            let has_carried_equip = res.carried_loot_q
+            let has_carried_equip = res
+                .carried_loot_q
                 .get(entity)
                 .is_ok_and(|cl| !cl.equipment.is_empty());
-            let has_equipped = res.equipment_q
+            let has_equipped = res
+                .equipment_q
                 .get(entity)
                 .is_ok_and(|eq| eq.weapon.is_some() || eq.armor.is_some() || eq.helm.is_some());
             let dead_carried_equip: Vec<crate::constants::LootItem> = if has_carried_equip {
-                res.carried_loot_q.get(entity).map(|cl| cl.equipment.clone()).unwrap_or_default()
+                res.carried_loot_q
+                    .get(entity)
+                    .map(|cl| cl.equipment.clone())
+                    .unwrap_or_default()
             } else {
                 Vec::new()
             };
             let dead_equipped_items: Vec<crate::constants::LootItem> = if has_equipped {
-                res.equipment_q.get(entity).map(|eq| eq.all_items().collect()).unwrap_or_default()
+                res.equipment_q
+                    .get(entity)
+                    .map(|eq| eq.all_items().collect())
+                    .unwrap_or_default()
             } else {
                 Vec::new()
             };

@@ -30,6 +30,7 @@ pub mod slot_reuse_wave;
 pub mod spawning;
 pub mod stress_archer_towns;
 pub mod terrain_visual;
+pub mod tower_massacre;
 pub mod vertical_slice;
 pub mod world_gen;
 
@@ -1036,6 +1037,25 @@ pub fn register_tests(app: &mut App) {
         loot_cycle::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("loot-cycle"))
+            .after(Step::Behavior),
+    );
+
+    // tower-massacre
+    registry.tests.push(TestEntry {
+        name: "tower-massacre".into(),
+        description: "25K towers vs 50K raiders: mass death performance stress test".into(),
+        phase_count: 2,
+        time_scale: 1.0,
+    });
+    app.add_systems(
+        OnEnter(AppState::Running),
+        tower_massacre::setup.run_if(test_is("tower-massacre")),
+    );
+    app.add_systems(
+        FixedUpdate,
+        tower_massacre::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("tower-massacre"))
             .after(Step::Behavior),
     );
 
