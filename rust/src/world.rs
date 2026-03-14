@@ -2538,3 +2538,105 @@ fn generate_terrain_continents(grid: &mut WorldGrid) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn road_blocked_on_forest_biome() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(crate::resources::EntityMap::default());
+        app.insert_resource(crate::resources::GpuSlotPool::default());
+        app.add_message::<crate::messages::GpuUpdateMsg>();
+
+        // 10x10 grid, all grass, town 0 owns everything
+        let mut grid = WorldGrid::default();
+        grid.width = 10;
+        grid.height = 10;
+        grid.cell_size = 32.0;
+        grid.cells = vec![
+            WorldCell { terrain: Biome::Grass, original_terrain: Biome::Grass };
+            100
+        ];
+        grid.town_owner = vec![0u16; 100];
+        // Set (5,5) to Forest
+        grid.cells[55].terrain = Biome::Forest;
+        grid.cells[55].original_terrain = Biome::Forest;
+
+        let world_data = WorldData {
+            towns: vec![Town {
+                name: "Test".into(),
+                center: Vec2::new(160.0, 160.0),
+                faction: 0,
+                kind: crate::constants::TownKind::Player,
+            }],
+        };
+
+        let forest_pos = grid.grid_to_world(5, 5);
+        let grass_pos = grid.grid_to_world(3, 3);
+
+        app.insert_resource(grid);
+        app.insert_resource(world_data);
+        app.update();
+
+        // Road on forest -> rejected
+        app.world_mut().run_system_once(move |
+            mut slot_alloc: ResMut<crate::resources::GpuSlotPool>,
+            mut entity_map: ResMut<crate::resources::EntityMap>,
+            mut commands: Commands,
+            mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
+            mut grid: ResMut<WorldGrid>,
+            world_data: Res<WorldData>,
+        | {
+            let result = place_building(
+                &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
+                BuildingKind::Road, forest_pos, 0, 0,
+                &BuildingOverrides::default(),
+                Some(BuildContext { grid: &mut grid, world_data: &world_data, food: &mut 9999, cost: 10 }),
+                None,
+            );
+            assert_eq!(result, Err("cannot build road on forest"));
+        }).unwrap();
+
+        // Road on grass -> accepted
+        app.world_mut().run_system_once(move |
+            mut slot_alloc: ResMut<crate::resources::GpuSlotPool>,
+            mut entity_map: ResMut<crate::resources::EntityMap>,
+            mut commands: Commands,
+            mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
+            mut grid: ResMut<WorldGrid>,
+            world_data: Res<WorldData>,
+        | {
+            let result = place_building(
+                &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
+                BuildingKind::Road, grass_pos, 0, 0,
+                &BuildingOverrides::default(),
+                Some(BuildContext { grid: &mut grid, world_data: &world_data, food: &mut 9999, cost: 10 }),
+                None,
+            );
+            assert!(result.is_ok(), "road on grass should succeed: {:?}", result);
+        }).unwrap();
+
+        // Waypoint on forest -> accepted (non-road buildings allowed)
+        app.world_mut().run_system_once(move |
+            mut slot_alloc: ResMut<crate::resources::GpuSlotPool>,
+            mut entity_map: ResMut<crate::resources::EntityMap>,
+            mut commands: Commands,
+            mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
+            mut grid: ResMut<WorldGrid>,
+            world_data: Res<WorldData>,
+        | {
+            let result = place_building(
+                &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
+                BuildingKind::Waypoint, forest_pos, 0, 0,
+                &BuildingOverrides::default(),
+                Some(BuildContext { grid: &mut grid, world_data: &world_data, food: &mut 9999, cost: 10 }),
+                None,
+            );
+            assert!(result.is_ok(), "waypoint on forest should succeed: {:?}", result);
+        }).unwrap();
+    }
+}
