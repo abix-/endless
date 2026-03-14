@@ -76,6 +76,7 @@ pub struct DecisionExtras<'w> {
     pub combat_log: MessageWriter<'w, CombatLogMsg>,
     pub gpu_updates: MessageWriter<'w, GpuUpdateMsg>,
     pub work_intents: MessageWriter<'w, WorkIntentMsg>,
+    pub damage: MessageWriter<'w, crate::messages::DamageMsg>,
     pub squad_state: Res<'w, SquadState>,
     pub selected_npc: Res<'w, SelectedNpc>,
     pub settings: Res<'w, UserSettings>,
@@ -164,6 +165,20 @@ pub fn arrival_system(
                     format!("Delivered {} gold", loot.gold),
                 );
             }
+            if loot.wood > 0 {
+                if let Some(mut w) = economy.towns.wood_mut(town_idx as i32) {
+                    w.0 += loot.wood;
+                }
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
+                    format!("Delivered {} wood", loot.wood));
+            }
+            if loot.stone > 0 {
+                if let Some(mut s) = economy.towns.stone_mut(town_idx as i32) {
+                    s.0 += loot.stone;
+                }
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
+                    format!("Delivered {} stone", loot.stone));
+            }
             if !loot.equipment.is_empty() {
                 let count = loot.equipment.len();
                 if let Some(mut eq) = economy.towns.equipment_mut(town_idx as i32) {
@@ -181,6 +196,8 @@ pub fn arrival_system(
             }
             loot.food = 0;
             loot.gold = 0;
+            loot.wood = 0;
+            loot.stone = 0;
         }
         if let Ok((_, slot, _, _, mut act, _, mut ws)) = npc_q.get_mut(entity) {
             *act = Activity::default();
@@ -1213,6 +1230,42 @@ pub fn decision_system(
                                 game_time.minute(),
                                 "No mine nearby -> Idle",
                             );
+                        }
+                    }
+                    ActivityKind::Chop | ActivityKind::Quarry => {
+                        // Arrived at resource node -- harvest (destroy node) and return
+                        let node_slot = worksite;
+                        let node_entity = node_slot.and_then(|s| entity_map.entities.get(&s).copied());
+                        if let Some(ne) = node_entity {
+                            // Destroy node via damage (death_system handles cleanup)
+                            extras.damage.write(crate::messages::DamageMsg {
+                                target: ne,
+                                amount: 9999.0,
+                                attacker: idx as i32,
+                                attacker_faction: faction_i32,
+                            });
+                            // Gain resource
+                            let resource_name = if activity.kind == ActivityKind::Chop {
+                                carried_loot.wood += 1;
+                                "wood"
+                            } else {
+                                carried_loot.stone += 1;
+                                "stone"
+                            };
+                            // Release worksite
+                            let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
+                            extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
+                            worksite = None;
+                            worksite_deferred = true;
+                            // Return home with loot
+                            transition_activity(&mut activity, ActivityKind::ReturnLoot, ActivityPhase::Transit, ActivityTarget::Dropoff, "arrival:harvest_return");
+                            submit_intent(&mut intents, entity, home.x, home.y, MovementPriority::JobRoute, "arrival:harvest_return");
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
+                                format!("Harvested 1 {} -> Returning", resource_name));
+                        } else {
+                            // Node gone -- return to idle
+                            transition_activity(&mut activity, ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None, "transition");
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Node gone -> Idle");
                         }
                     }
                     ActivityKind::Wander => {
