@@ -186,12 +186,11 @@ pub fn tick(
             test.pass_phase(
                 elapsed,
                 format!(
-                    "All {} raiders killed in {:.1}s ({:.0} frames)",
-                    dead_raiders,
-                    elapsed,
-                    elapsed * 60.0
+                    "All {} raiders killed in {:.1}s",
+                    dead_raiders, elapsed
                 ),
             );
+            test.complete(elapsed);
         }
 
         // Timeout after 120 seconds
