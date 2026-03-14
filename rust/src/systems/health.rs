@@ -231,6 +231,7 @@ pub fn death_system(
         }
         newly_dead
     };
+    let mass_death = dead_npc_slots.len() > 50;
 
     // Phase 1b: Mark newly dead buildings (deferred — processed next frame)
     for (entity, health) in building_mark_query.iter() {
@@ -535,34 +536,42 @@ pub fn death_system(
         if selected.0 == slot as i32 {
             selected.0 = -1;
         }
-        // Death SFX with spatial position from GPU state
-        let base = slot * 2;
-        if base + 1 < res.gpu_state.positions.len() {
-            let pos = Vec2::new(
-                res.gpu_state.positions[base],
-                res.gpu_state.positions[base + 1],
-            );
-            res.sfx_writer.write(crate::resources::PlaySfxMsg {
-                kind: crate::resources::SfxKind::Death,
-                position: Some(pos),
-            });
+        // Death SFX -- skip during mass death events to avoid 25K message writes
+        if !mass_death {
+            let base = slot * 2;
+            if base + 1 < res.gpu_state.positions.len() {
+                let pos = Vec2::new(
+                    res.gpu_state.positions[base],
+                    res.gpu_state.positions[base + 1],
+                );
+                res.sfx_writer.write(crate::resources::PlaySfxMsg {
+                    kind: crate::resources::SfxKind::Death,
+                    position: Some(pos),
+                });
+            }
         }
         commands.entity(entity).despawn();
         despawn_count += 1;
 
         // XP grant: reward killer with XP, level-up, and NPC kill loot
         if last_hit_by >= 0 {
-            // Extract equipment only when there's a killer (saves 2 Vec allocs for starvation deaths)
-            let dead_carried_equip: Vec<crate::constants::LootItem> = res
-                .carried_loot_q
+            // Only clone equipment when there's actually something to transfer
+            let has_carried_equip = res.carried_loot_q
                 .get(entity)
-                .map(|cl| cl.equipment.clone())
-                .unwrap_or_default();
-            let dead_equipped_items: Vec<crate::constants::LootItem> = res
-                .equipment_q
+                .is_ok_and(|cl| !cl.equipment.is_empty());
+            let has_equipped = res.equipment_q
                 .get(entity)
-                .map(|eq| eq.all_items().collect())
-                .unwrap_or_default();
+                .is_ok_and(|eq| eq.weapon.is_some() || eq.armor.is_some() || eq.helm.is_some());
+            let dead_carried_equip: Vec<crate::constants::LootItem> = if has_carried_equip {
+                res.carried_loot_q.get(entity).map(|cl| cl.equipment.clone()).unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            let dead_equipped_items: Vec<crate::constants::LootItem> = if has_equipped {
+                res.equipment_q.get(entity).map(|eq| eq.all_items().collect()).unwrap_or_default()
+            } else {
+                Vec::new()
+            };
             let killer_slot = last_hit_by as usize;
             if let Some(killer) = res.entity_map.get_npc(killer_slot) {
                 let k_slot = killer.slot;
@@ -641,15 +650,17 @@ pub fn death_system(
                         .map(|s| s.name.as_str())
                         .unwrap_or("?");
                     let job_str = killer.job.label();
-                    combat_log.write(CombatLogMsg {
-                        kind: CombatEventKind::LevelUp,
-                        faction: k_faction,
-                        day: game_time.day(),
-                        hour: game_time.hour(),
-                        minute: game_time.minute(),
-                        message: format!("{} '{}' reached Lv.{}", job_str, name, new_level),
-                        location: None,
-                    });
+                    if !mass_death {
+                        combat_log.write(CombatLogMsg {
+                            kind: CombatEventKind::LevelUp,
+                            faction: k_faction,
+                            day: game_time.day(),
+                            hour: game_time.hour(),
+                            minute: game_time.minute(),
+                            message: format!("{} '{}' reached Lv.{}", job_str, name, new_level),
+                            location: None,
+                        });
+                    }
                 }
 
                 // NPC kill loot
@@ -695,43 +706,12 @@ pub fn death_system(
                         );
                     }
 
-                    let item_name = match drop.item {
-                        ItemKind::Food => "food",
-                        ItemKind::Gold => "gold",
-                        _ => "item",
-                    };
-                    let killer_name = npc_stats_q
-                        .get(k_entity)
-                        .map(|s| s.name.as_str())
-                        .unwrap_or("?");
-                    let killer_job = killer.job.label();
-                    combat_log.write(CombatLogMsg {
-                        kind: CombatEventKind::Loot,
-                        faction: k_faction,
-                        day: game_time.day(),
-                        hour: game_time.hour(),
-                        minute: game_time.minute(),
-                        message: format!(
-                            "{} '{}' looted {} {}",
-                            killer_job, killer_name, amount, item_name
-                        ),
-                        location: None,
-                    });
-                }
-
-                // Equipment drop from victim's NpcDef
-                let equip_rate = npc_def(job).equipment_drop_rate;
-                if equip_rate > 0.0 {
-                    let roll = ((slot as u32).wrapping_mul(2654435761) % 1000) as f32 / 1000.0;
-                    if roll < equip_rate {
-                        let id = res.next_loot_id.alloc();
-                        let item = crate::constants::roll_loot_item(id, slot as u32);
-                        let rarity_label = item.rarity.label();
-                        let item_name = item.name.clone();
-                        if let Ok(mut cl) = res.carried_loot_q.get_mut(k_entity) {
-                            cl.equipment.push(item);
-                        }
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: k_slot }));
+                    if !mass_death {
+                        let item_name = match drop.item {
+                            ItemKind::Food => "food",
+                            ItemKind::Gold => "gold",
+                            _ => "item",
+                        };
                         let killer_name = npc_stats_q
                             .get(k_entity)
                             .map(|s| s.name.as_str())
@@ -745,10 +725,43 @@ pub fn death_system(
                             minute: game_time.minute(),
                             message: format!(
                                 "{} '{}' looted {} {}",
-                                killer_job, killer_name, rarity_label, item_name
+                                killer_job, killer_name, amount, item_name
                             ),
                             location: None,
                         });
+                    }
+                }
+
+                // Equipment drop from victim's NpcDef
+                let equip_rate = npc_def(job).equipment_drop_rate;
+                if equip_rate > 0.0 {
+                    let roll = ((slot as u32).wrapping_mul(2654435761) % 1000) as f32 / 1000.0;
+                    if roll < equip_rate {
+                        let id = res.next_loot_id.alloc();
+                        let item = crate::constants::roll_loot_item(id, slot as u32);
+                        if let Ok(mut cl) = res.carried_loot_q.get_mut(k_entity) {
+                            cl.equipment.push(item);
+                        }
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: k_slot }));
+                        if !mass_death {
+                            let killer_name = npc_stats_q
+                                .get(k_entity)
+                                .map(|s| s.name.as_str())
+                                .unwrap_or("?");
+                            let killer_job = killer.job.label();
+                            combat_log.write(CombatLogMsg {
+                                kind: CombatEventKind::Loot,
+                                faction: k_faction,
+                                day: game_time.day(),
+                                hour: game_time.hour(),
+                                minute: game_time.minute(),
+                                message: format!(
+                                    "{} '{}' looted equipment",
+                                    killer_job, killer_name
+                                ),
+                                location: None,
+                            });
+                        }
                     }
                 }
 
@@ -803,7 +816,7 @@ pub fn death_system(
                 let old_level = level_from_xp(old_xp);
                 let new_level = level_from_xp(tbs.xp);
 
-                if new_level > old_level {
+                if new_level > old_level && !mass_death {
                     combat_log.write(CombatLogMsg {
                         kind: CombatEventKind::LevelUp,
                         faction: tower_faction,
@@ -842,50 +855,49 @@ pub fn death_system(
                         idx: killer_slot,
                         intensity: 1.0,
                     }));
-                    let item_name = match drop.item {
-                        ItemKind::Food => "food",
-                        ItemKind::Gold => "gold",
-                        _ => "item",
-                    };
-                    combat_log.write(CombatLogMsg {
-                        kind: CombatEventKind::Loot,
-                        faction: tower_faction,
-                        day: game_time.day(),
-                        hour: game_time.hour(),
-                        minute: game_time.minute(),
-                        message: format!("{} looted {} {}", kind_name, amount, item_name),
-                        location: None,
-                    });
-                }
-
-                // Equipment drop from victim → town equipment (towers can't carry)
-                let equip_rate = npc_def(job).equipment_drop_rate;
-                if equip_rate > 0.0 {
-                    let roll = ((slot as u32).wrapping_mul(2654435761) % 1000) as f32 / 1000.0;
-                    if roll < equip_rate {
-                        let id = res.next_loot_id.alloc();
-                        let item = crate::constants::roll_loot_item(id, slot as u32);
-                        let rarity_label = item.rarity.label();
-                        let item_name = item.name.clone();
-                        if let Some(mut eq) = town_access.equipment_mut(tower_town as i32) {
-                            eq.0.push(item);
-                        }
+                    if !mass_death {
+                        let item_name = match drop.item {
+                            ItemKind::Food => "food",
+                            ItemKind::Gold => "gold",
+                            _ => "item",
+                        };
                         combat_log.write(CombatLogMsg {
                             kind: CombatEventKind::Loot,
                             faction: tower_faction,
                             day: game_time.day(),
                             hour: game_time.hour(),
                             minute: game_time.minute(),
-                            message: format!(
-                                "{} deposited {} {} to inventory",
-                                kind_name, rarity_label, item_name
-                            ),
+                            message: format!("{} looted {} {}", kind_name, amount, item_name),
                             location: None,
                         });
                     }
                 }
 
-                // Victim's carried equipment → town equipment
+                // Equipment drop from victim -> town equipment (towers can't carry)
+                let equip_rate = npc_def(job).equipment_drop_rate;
+                if equip_rate > 0.0 {
+                    let roll = ((slot as u32).wrapping_mul(2654435761) % 1000) as f32 / 1000.0;
+                    if roll < equip_rate {
+                        let id = res.next_loot_id.alloc();
+                        let item = crate::constants::roll_loot_item(id, slot as u32);
+                        if let Some(mut eq) = town_access.equipment_mut(tower_town as i32) {
+                            eq.0.push(item);
+                        }
+                        if !mass_death {
+                            combat_log.write(CombatLogMsg {
+                                kind: CombatEventKind::Loot,
+                                faction: tower_faction,
+                                day: game_time.day(),
+                                hour: game_time.hour(),
+                                minute: game_time.minute(),
+                                message: "Tower deposited equipment to inventory".into(),
+                                location: None,
+                            });
+                        }
+                    }
+                }
+
+                // Victim's carried equipment -> town equipment
                 for carried_item in dead_carried_equip.iter() {
                     let transfer_roll = (carried_item.id.wrapping_mul(2654435761) % 100) as f32;
                     if transfer_roll < 50.0 {
@@ -955,27 +967,42 @@ pub fn death_system(
         let npc_entry = res.entity_map.get_npc(slot);
         let job_str = npc_entry.map(|n| n.job.label()).unwrap_or("?");
         let stats = npc_entry.and_then(|n| npc_stats_q.get(n.entity).ok());
-        let msg = match stats {
-            Some(s) if !s.name.is_empty() => {
-                format!("{} '{}' Lv.{} died", job_str, s.name, level_from_xp(s.xp))
-            }
-            _ => format!("{} #{} died", job_str, slot),
-        };
-        combat_log.write(CombatLogMsg {
-            kind: CombatEventKind::Kill,
-            faction,
-            day: game_time.day(),
-            hour: game_time.hour(),
-            minute: game_time.minute(),
-            message: msg,
-            location: None,
-        });
+        if !mass_death {
+            let msg = match stats {
+                Some(s) if !s.name.is_empty() => {
+                    format!("{} '{}' Lv.{} died", job_str, s.name, level_from_xp(s.xp))
+                }
+                _ => format!("{} #{} died", job_str, slot),
+            };
+            combat_log.write(CombatLogMsg {
+                kind: CombatEventKind::Kill,
+                faction,
+                day: game_time.day(),
+                hour: game_time.hour(),
+                minute: game_time.minute(),
+                message: msg,
+                location: None,
+            });
+        }
 
         res.faction_stats.dec_alive(faction);
         res.faction_stats.inc_dead(faction);
 
         // npc_by_town cleanup handled by unregister_npc inside hide_npc
         hide_npc(slot, &mut res.entity_map, &mut res.slots, &mut gpu_updates);
+    }
+
+    // Mass death summary log (replaces N individual messages when >50 die in one frame)
+    if mass_death && !dead_npc_slots.is_empty() {
+        combat_log.write(CombatLogMsg {
+            kind: CombatEventKind::Kill,
+            faction: 0,
+            day: game_time.day(),
+            hour: game_time.hour(),
+            minute: game_time.minute(),
+            message: format!("{} NPCs died this frame", dead_npc_slots.len()),
+            location: None,
+        });
     }
 
     res.debug.despawned_this_frame = despawn_count;
