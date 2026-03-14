@@ -90,8 +90,10 @@ Required invariants:
 - each open issue carries exactly one state label from this list
 - auto-pick for Claude considers open issues labeled `needs-claude` first, then `ready`
 - auto-pick for Codex considers open issues labeled `needs-codex` first, then `ready`
+- no-argument `ai-collab` must first look for open issues already labeled `claimed` with the current owner label and resume the oldest one instead of claiming a new issue
 - auto-pick must ignore any issue labeled `waiting` or `claimed`
 - `claimed` requires exactly one owner label
+- each owner label should appear on at most one open issue; if an owner already has multiple open claimed issues, resume the oldest and do not claim another
 - `needs-claude` must remove `claimed`, `ready`, `needs-codex`, and all owner labels
 - `needs-codex` must remove `claimed`, `ready`, `needs-claude`, and all owner labels
 - `waiting` must remove `claimed` and all owner labels
@@ -214,19 +216,21 @@ No-argument claim algorithm:
    - Claude -> `needs-claude`
    - Codex -> `needs-codex`
 4. List open issues ordered oldest-first.
-5. Look first for the oldest issue labeled with the current family handoff label and not labeled `waiting` or `claimed`.
-6. If no family handoff issue exists, look for the oldest issue labeled `ready` and not labeled `waiting`, `claimed`, `needs-claude`, or `needs-codex`.
-7. Attempt to claim the first candidate by:
+5. Look first for the oldest open issue already labeled `claimed` with the current owner label.
+6. If one exists, resume that issue and do not claim a new one.
+7. If none exists, look for the oldest issue labeled with the current family handoff label and not labeled `waiting` or `claimed`.
+8. If no family handoff issue exists, look for the oldest issue labeled `ready` and not labeled `waiting`, `claimed`, `needs-claude`, or `needs-codex`.
+9. Attempt to claim the first new candidate by:
    - removing `ready` or the matching family handoff label
    - adding `claimed`
    - adding exactly one owner label for the current agent identity
    - posting the claim comment format below
-8. Re-read the issue and confirm:
+10. Re-read the issue and confirm:
    - `claimed` is present
    - `ready`, `needs-claude`, and `needs-codex` are absent
    - exactly one owner label is present
    - the owner label matches the current agent identity
-9. If claim confirmation fails, continue to the next candidate or exit cleanly if none remain.
+11. If claim confirmation fails, continue to the next candidate or exit cleanly if none remain.
 
 Claims do not expire automatically.
 A claim stays active until that agent finishes the current workflow step and changes labels as part of handoff.
