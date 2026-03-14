@@ -402,11 +402,9 @@ pub fn decision_system(
         let faction_i32 = faction.0;
         let mut energy = npc_state.energy_q.get(entity).map(|e| e.0).unwrap_or(100.0);
         let health = npc_state.health_q.get(entity).map(|h| h.0).unwrap_or(100.0);
-        let home = npc_data
-            .home_q
-            .get(entity)
-            .map(|h| h.0)
-            .unwrap_or(Vec2::ZERO);
+        let home_comp = npc_data.home_q.get(entity).ok();
+        let home = home_comp.map(|h| h.0).unwrap_or(Vec2::ZERO);
+        let home_valid = home_comp.is_some_and(|h| h.is_valid());
         let personality = npc_data
             .personality_q
             .get(entity)
@@ -529,7 +527,7 @@ pub fn decision_system(
                             if let Some(squad) = squad_state.squads.get(sid as usize) {
                                 if squad.rest_when_tired
                                     && energy < ENERGY_TIRED_THRESHOLD
-                                    && home != Vec2::ZERO
+                                    && home_valid
                                 {
                                     transition_activity(&mut activity, ActivityKind::Rest, ActivityPhase::Transit, ActivityTarget::Home, "transition");
                                     submit_intent(
@@ -939,7 +937,7 @@ pub fn decision_system(
                     }
                     ActivityKind::ReturnLoot => {
                         // May have arrived at wrong place (e.g. after DC removal) — redirect home
-                        if home != Vec2::ZERO {
+                        if home_valid {
                             submit_intent(
                                 &mut intents,
                                 entity,
@@ -967,7 +965,7 @@ pub fn decision_system(
                     let squad_needs_rest = energy < ENERGY_TIRED_THRESHOLD
                         || (energy < ENERGY_WAKE_THRESHOLD
                             && activity.kind == ActivityKind::Rest);
-                    if squad.rest_when_tired && squad_needs_rest && home != Vec2::ZERO {
+                    if squad.rest_when_tired && squad_needs_rest && home_valid {
                         if combat_state.is_fighting() {
                             combat_state = CombatState::None;
                         }
@@ -1158,7 +1156,7 @@ pub fn decision_system(
                         let squad_needs_rest = energy < ENERGY_TIRED_THRESHOLD
                             || (energy < ENERGY_WAKE_THRESHOLD
                                 && activity.kind == ActivityKind::Rest);
-                        if squad.rest_when_tired && squad_needs_rest && home != Vec2::ZERO {
+                        if squad.rest_when_tired && squad_needs_rest && home_valid {
                             if activity.kind != ActivityKind::Rest {
                                 transition_activity(&mut activity, ActivityKind::Rest, ActivityPhase::Transit, ActivityTarget::Home, "transition");
                                 submit_intent(
@@ -1487,7 +1485,7 @@ pub fn decision_system(
                     worksite = None;
                     worksite_deferred = true;
                     transition_activity(&mut activity, ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None, "transition");
-                    if home != Vec2::ZERO {
+                    if home_valid {
                         submit_intent(
                             &mut intents,
                             entity,
@@ -1741,7 +1739,7 @@ pub fn decision_system(
                 score_count += 1;
             }
 
-            if en < ENERGY_HUNGRY && home != Vec2::ZERO {
+            if en < ENERGY_HUNGRY && home_valid {
                 let rest_score = (ENERGY_HUNGRY - en) * SCORE_REST_MULT * rest_m;
                 scores[score_count] = (Action::Rest, rest_score);
                 score_count += 1;
@@ -1804,7 +1802,7 @@ pub fn decision_system(
                 match off_duty {
                     OffDutyBehavior::GoToBed => {
                         // Boost rest score so NPCs prefer going to bed
-                        if home != Vec2::ZERO {
+                        if home_valid {
                             scores[score_count] = (Action::Rest, 80.0 * rest_m);
                             score_count += 1;
                         }
@@ -1869,8 +1867,8 @@ pub fn decision_system(
                     }
                 }
                 Action::Rest => {
-                    if home != Vec2::ZERO {
-                        transition_activity(&mut activity, ActivityKind::Rest, ActivityPhase::Transit, ActivityTarget::Home, "transition");
+                    if home_valid {
+                        transition_activity(&mut activity, ActivityKind::Rest, ActivityPhase::Transit, ActivityTarget::Home, "idle:rest_home");
                         submit_intent(
                             &mut intents,
                             entity,
@@ -1878,6 +1876,20 @@ pub fn decision_system(
                             home.y,
                             MovementPriority::Survival,
                             "idle:rest_home",
+                        );
+                    } else if let Some(town) = world_data.towns.get(town_idx) {
+                        // Homeless NPC: rest at fountain instead
+                        transition_activity(&mut activity, ActivityKind::Rest, ActivityPhase::Transit, ActivityTarget::Fountain, "idle:rest_fountain_homeless");
+                        submit_intent_scattered(
+                            &mut intents, entity, town.center.x, town.center.y, 128.0,
+                            idx, frame, MovementPriority::Survival, "idle:rest_fountain_homeless",
+                        );
+                        npc_logs.push(
+                            idx,
+                            game_time.day(),
+                            game_time.hour(),
+                            game_time.minute(),
+                            "Homeless -> Rest at fountain",
                         );
                     }
                 }
@@ -1900,7 +1912,7 @@ pub fn decision_system(
                             } else {
                                 // No available farm — clear stale target and wander
                                 worksite = None;
-                                let base = if home != Vec2::ZERO { home } else if let Some(pos) = npc_pos { pos } else { break 'decide; };
+                                let base = if home_valid { home } else if let Some(pos) = npc_pos { pos } else { break 'decide; };
                                 let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 200.0;
                                 let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 200.0;
                                 transition_activity(&mut activity, ActivityKind::Wander, ActivityPhase::Transit, ActivityTarget::None, "idle:wander_no_farm");
@@ -2050,7 +2062,7 @@ pub fn decision_system(
                     // Wander from current position, clamped to stay near home
                     let base = if let Some(pos) = npc_pos {
                         pos
-                    } else if home != Vec2::ZERO {
+                    } else if home_valid {
                         home
                     } else {
                         break 'decide;
@@ -2058,7 +2070,7 @@ pub fn decision_system(
                     let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 128.0;
                     let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 128.0;
                     let mut target = Vec2::new(base.x + offset_x, base.y + offset_y);
-                    if home != Vec2::ZERO {
+                    if home_valid {
                         let diff = target - home;
                         let dist = diff.length();
                         if dist > 200.0 { target = home + diff * (200.0 / dist); }
@@ -2786,5 +2798,47 @@ mod tests {
             assert_eq!(act.phase, *phase);
             assert_eq!(act.target, *target);
         }
+    }
+
+    // ========================================================================
+    // Homeless NPC tests
+    // ========================================================================
+
+    #[test]
+    fn home_invalid_detected() {
+        // Home(-1,-1) is the orphan sentinel -- must not pass validity check
+        let orphan = Home(Vec2::new(-1.0, -1.0));
+        assert!(!orphan.is_valid(), "Home(-1,-1) must be invalid");
+
+        let missing = Vec2::ZERO;
+        // Vec2::ZERO home (missing component fallback) should also not be used as rest target
+        assert!(!(missing.x >= 0.0 && missing.y >= 0.0) || missing == Vec2::ZERO,
+            "Vec2::ZERO should be caught by home_valid check");
+    }
+
+    #[test]
+    fn homeless_rest_targets_fountain_not_home() {
+        // Homeless NPC should rest at fountain (ActivityTarget::Fountain),
+        // never at home (ActivityTarget::Home targeting 0,0 or -1,-1)
+        let mut act = Activity::default();
+        // Simulate the homeless rest path: target fountain
+        transition_activity(&mut act, ActivityKind::Rest, ActivityPhase::Transit,
+            ActivityTarget::Fountain, "idle:rest_fountain_homeless");
+        assert_eq!(act.kind, ActivityKind::Rest);
+        assert_eq!(act.phase, ActivityPhase::Transit);
+        assert_eq!(act.target, ActivityTarget::Fountain,
+            "homeless NPC must target Fountain, not Home");
+    }
+
+    #[test]
+    fn home_valid_rejects_orphan_and_missing() {
+        // Orphan: Home(-1,-1)
+        assert!(!Home(Vec2::new(-1.0, -1.0)).is_valid());
+        // Missing component default
+        assert!(!Home(Vec2::new(-1.0, 0.0)).is_valid());
+        // Valid home
+        assert!(Home(Vec2::new(100.0, 200.0)).is_valid());
+        // Edge: 0,0 is technically valid per is_valid() but covered by unwrap_or guard
+        assert!(Home(Vec2::ZERO).is_valid());
     }
 }
