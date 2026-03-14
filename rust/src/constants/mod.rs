@@ -511,8 +511,9 @@ mod tests {
             BuildingKind::FarmerHome, BuildingKind::ArcherHome, BuildingKind::Tent,
             BuildingKind::GoldMine, BuildingKind::MinerHome, BuildingKind::CrossbowHome,
             BuildingKind::FighterHome, BuildingKind::Road, BuildingKind::StoneRoad,
-            BuildingKind::MetalRoad, BuildingKind::Wall,
-            BuildingKind::Tower, BuildingKind::Merchant, BuildingKind::Casino,
+            BuildingKind::MetalRoad, BuildingKind::Wall, BuildingKind::Tower,
+            BuildingKind::Merchant, BuildingKind::Casino, BuildingKind::TreeNode,
+            BuildingKind::RockNode,
         ];
         for kind in kinds {
             let def = building_def(kind);

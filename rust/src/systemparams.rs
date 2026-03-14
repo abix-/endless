@@ -178,6 +178,8 @@ pub struct TownAccess<'w, 's> {
     index: ResMut<'w, TownIndex>,
     food: Query<'w, 's, &'static mut crate::components::FoodStore, With<crate::components::TownMarker>>,
     gold: Query<'w, 's, &'static mut crate::components::GoldStore, With<crate::components::TownMarker>>,
+    wood: Query<'w, 's, &'static mut crate::components::WoodStore, With<crate::components::TownMarker>>,
+    stone: Query<'w, 's, &'static mut crate::components::StoneStore, With<crate::components::TownMarker>>,
     policy: Query<'w, 's, &'static mut crate::components::TownPolicy, With<crate::components::TownMarker>>,
     upgrades: Query<'w, 's, &'static mut crate::components::TownUpgradeLevel, With<crate::components::TownMarker>>,
     equipment: Query<'w, 's, &'static mut crate::components::TownEquipment, With<crate::components::TownMarker>>,
@@ -215,6 +217,30 @@ impl TownAccess<'_, '_> {
     pub fn gold_mut(&mut self, town_idx: i32) -> Option<Mut<'_, crate::components::GoldStore>> {
         let e = self.entity(town_idx)?;
         self.gold.get_mut(e).ok()
+    }
+
+    pub fn wood(&self, town_idx: i32) -> i32 {
+        self.entity(town_idx)
+            .and_then(|e| self.wood.get(e).ok())
+            .map(|w| w.0)
+            .unwrap_or(0)
+    }
+
+    pub fn wood_mut(&mut self, town_idx: i32) -> Option<Mut<'_, crate::components::WoodStore>> {
+        let e = self.entity(town_idx)?;
+        self.wood.get_mut(e).ok()
+    }
+
+    pub fn stone(&self, town_idx: i32) -> i32 {
+        self.entity(town_idx)
+            .and_then(|e| self.stone.get(e).ok())
+            .map(|s| s.0)
+            .unwrap_or(0)
+    }
+
+    pub fn stone_mut(&mut self, town_idx: i32) -> Option<Mut<'_, crate::components::StoneStore>> {
+        let e = self.entity(town_idx)?;
+        self.stone.get_mut(e).ok()
     }
 
     pub fn policy(&self, town_idx: i32) -> Option<crate::resources::PolicySet> {

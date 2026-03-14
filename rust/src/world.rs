@@ -1110,6 +1110,8 @@ pub enum BuildingKind {
     Tower,
     Merchant,
     Casino,
+    TreeNode,
+    RockNode,
 }
 
 impl BuildingKind {
@@ -1919,6 +1921,10 @@ pub struct WorldGenConfig {
     pub ai_towns: usize,
     pub raider_towns: usize,
     pub gold_mines_per_town: usize,
+    /// Fraction of Forest cells that get a TreeNode (0.0-1.0).
+    pub tree_density: f32,
+    /// Fraction of Rock cells that get a RockNode (0.0-1.0).
+    pub rock_density: f32,
     pub town_names: Vec<String>,
 }
 
@@ -1941,6 +1947,8 @@ impl Default for WorldGenConfig {
             ai_towns: 1,
             raider_towns: 1,
             gold_mines_per_town: 2,
+            tree_density: 0.3,
+            rock_density: 0.2,
             town_names: vec![
                 "Miami".into(),
                 "Orlando".into(),
@@ -2194,6 +2202,8 @@ pub fn spawn_town_entities(
             TownAreaLevel(al),
             FoodStore(f),
             GoldStore(g),
+            WoodStore(0),
+            StoneStore(0),
             TownPolicy(p),
             TownUpgradeLevel(u),
             TownEquipment(inv),

@@ -740,6 +740,16 @@ pub struct FoodStore(pub i32);
 #[reflect(Component)]
 pub struct GoldStore(pub i32);
 
+/// Town wood storage.
+#[derive(Component, Default, Reflect)]
+#[reflect(Component)]
+pub struct WoodStore(pub i32);
+
+/// Town stone storage.
+#[derive(Component, Default, Reflect)]
+#[reflect(Component)]
+pub struct StoneStore(pub i32);
+
 /// Town behavior policies.
 #[derive(Component, Clone, Default, Reflect)]
 #[reflect(Component)]

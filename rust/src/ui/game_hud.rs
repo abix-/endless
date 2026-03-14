@@ -372,6 +372,20 @@ pub fn top_bar_system(
                     // Player stats (right-aligned) — player's town is index 0
                     let town_food = town_access.food(0);
                     let town_gold = town_access.gold(0);
+                    let town_wood = town_access.wood(0);
+                    let town_stone = town_access.stone(0);
+                    tipped(
+                        ui,
+                        egui::RichText::new(format!("Stone: {}", town_stone))
+                            .color(egui::Color32::from_rgb(170, 170, 180)),
+                        catalog.0.get("stone").unwrap_or(&""),
+                    );
+                    tipped(
+                        ui,
+                        egui::RichText::new(format!("Wood: {}", town_wood))
+                            .color(egui::Color32::from_rgb(150, 110, 70)),
+                        catalog.0.get("wood").unwrap_or(&""),
+                    );
                     tipped(
                         ui,
                         egui::RichText::new(format!("Gold: {}", town_gold))

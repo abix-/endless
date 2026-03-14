@@ -800,6 +800,8 @@ fn create_ai_town(
         crate::components::TownAreaLevel(0),
         crate::components::FoodStore(0),
         crate::components::GoldStore(0),
+        crate::components::WoodStore(0),
+        crate::components::StoneStore(0),
         crate::components::TownPolicy(policy),
         crate::components::TownUpgradeLevel::default(),
         crate::components::TownEquipment::default(),
@@ -1309,4 +1311,3 @@ pub fn merchant_tick_system(
 
 #[cfg(test)]
 mod tests;
-
