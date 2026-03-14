@@ -93,7 +93,7 @@ pub fn tick(
                         && n.job == Job::Farmer
                         && activity_q
                             .get(n.entity)
-                            .is_ok_and(|a| matches!(a.kind, ActivityKind::Rest))
+                            .is_ok_and(|a| a.kind == ActivityKind::Rest && a.phase == ActivityPhase::Active)
                 })
                 .map(|n| n.slot);
             test.phase_name = format!("e={:.0} resting={}", energy, resting.is_some());

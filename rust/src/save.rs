@@ -469,32 +469,48 @@ impl ActivitySave {
         match a.kind {
             ActivityKind::Idle => Self::Idle,
             ActivityKind::Work => Self::Working,
-            ActivityKind::Patrol => Self::OnDuty { ticks_waiting: a.ticks_waiting },
+            ActivityKind::Patrol => match a.phase {
+                ActivityPhase::Transit => Self::Patrolling,
+                _ => Self::OnDuty { ticks_waiting: a.ticks_waiting },
+            },
             ActivityKind::SquadAttack => Self::SquadTarget,
-            ActivityKind::Rest => Self::Resting,
-            ActivityKind::Heal => Self::HealingAtFountain { recover_until: a.recover_until },
+            ActivityKind::Rest => match a.phase {
+                ActivityPhase::Transit => Self::GoingToRest,
+                _ => Self::Resting,
+            },
+            ActivityKind::Heal => match a.phase {
+                ActivityPhase::Transit => Self::GoingToHeal,
+                _ => Self::HealingAtFountain { recover_until: a.recover_until },
+            },
             ActivityKind::Wander => Self::Wandering,
-            ActivityKind::Raid => Self::Raiding { target: v2(a.target_pos) },
+            ActivityKind::Raid => match a.target {
+                ActivityTarget::RaidPoint(pos) => Self::Raiding { target: v2(pos) },
+                _ => Self::Raiding { target: [0.0, 0.0] },
+            },
             ActivityKind::ReturnLoot => Self::Returning { loot: vec![] },
-            ActivityKind::Mine => Self::Mining { mine_pos: v2(a.target_pos) },
+            ActivityKind::Mine => match a.phase {
+                ActivityPhase::Holding => Self::MiningAtMine,
+                _ => Self::MiningAtMine, // mine position resolved from worksite, not activity
+            },
         }
     }
 
     fn to_activity(&self) -> Activity {
         match self {
             Self::Idle => Activity::default(),
-            Self::Working | Self::GoingToWork => Activity::new(ActivityKind::Work),
-            Self::OnDuty { ticks_waiting } => Activity { kind: ActivityKind::Patrol, ticks_waiting: *ticks_waiting, ..Default::default() },
-            Self::Patrolling => Activity::new(ActivityKind::Patrol),
-            Self::SquadTarget => Activity::new(ActivityKind::SquadAttack),
-            Self::GoingToRest | Self::Resting => Activity::new(ActivityKind::Rest),
-            Self::GoingToHeal => Activity { kind: ActivityKind::Heal, recover_until: 100.0, ..Default::default() },
-            Self::HealingAtFountain { recover_until } => Activity { kind: ActivityKind::Heal, recover_until: *recover_until, ..Default::default() },
-            Self::Wandering => Activity::new(ActivityKind::Wander),
-            Self::Raiding { target } => Activity { kind: ActivityKind::Raid, target_pos: to_vec2(*target), ..Default::default() },
-            Self::Returning { .. } => Activity::new(ActivityKind::ReturnLoot),
-            Self::Mining { mine_pos } => Activity { kind: ActivityKind::Mine, target_pos: to_vec2(*mine_pos), ..Default::default() },
-            Self::MiningAtMine => Activity::new(ActivityKind::Mine),
+            Self::Working | Self::GoingToWork => Activity { kind: ActivityKind::Work, phase: ActivityPhase::Transit, target: ActivityTarget::Worksite, ..Default::default() },
+            Self::OnDuty { ticks_waiting } => Activity { kind: ActivityKind::Patrol, phase: ActivityPhase::Holding, target: ActivityTarget::PatrolPost { route: 0, index: 0 }, ticks_waiting: *ticks_waiting, ..Default::default() },
+            Self::Patrolling => Activity { kind: ActivityKind::Patrol, phase: ActivityPhase::Transit, target: ActivityTarget::PatrolPost { route: 0, index: 0 }, ..Default::default() },
+            Self::SquadTarget => Activity { kind: ActivityKind::SquadAttack, phase: ActivityPhase::Holding, target: ActivityTarget::None, ..Default::default() },
+            Self::GoingToRest => Activity { kind: ActivityKind::Rest, phase: ActivityPhase::Transit, target: ActivityTarget::Home, ..Default::default() },
+            Self::Resting => Activity { kind: ActivityKind::Rest, phase: ActivityPhase::Active, target: ActivityTarget::Home, ..Default::default() },
+            Self::GoingToHeal => Activity { kind: ActivityKind::Heal, phase: ActivityPhase::Transit, target: ActivityTarget::Fountain, recover_until: 100.0, ..Default::default() },
+            Self::HealingAtFountain { recover_until } => Activity { kind: ActivityKind::Heal, phase: ActivityPhase::Active, target: ActivityTarget::Fountain, recover_until: *recover_until, ..Default::default() },
+            Self::Wandering => Activity { kind: ActivityKind::Wander, phase: ActivityPhase::Transit, ..Default::default() },
+            Self::Raiding { target } => Activity { kind: ActivityKind::Raid, phase: ActivityPhase::Transit, target: ActivityTarget::RaidPoint(to_vec2(*target)), ..Default::default() },
+            Self::Returning { .. } => Activity { kind: ActivityKind::ReturnLoot, phase: ActivityPhase::Transit, target: ActivityTarget::Dropoff, ..Default::default() },
+            Self::Mining { mine_pos: _ } => Activity { kind: ActivityKind::Mine, phase: ActivityPhase::Transit, target: ActivityTarget::Worksite, ..Default::default() },
+            Self::MiningAtMine => Activity { kind: ActivityKind::Mine, phase: ActivityPhase::Holding, target: ActivityTarget::Worksite, ..Default::default() },
         }
     }
 }

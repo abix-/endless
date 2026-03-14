@@ -358,7 +358,7 @@ Deep-inspect entities by Entity bits (u64) or resources by kind+index. Returns f
 | `kind` | string | yes | "squad", "town", or "policy" |
 | `index` | usize | yes | Index into the resource array |
 
-**NPC returns:** entity (bits), slot, job, activity, combat_state, hp, max_hp, energy, home, faction, town, personality traits, equipment slots (with rarity/bonus), flags, manual_target, squad, patrol, carried loot, cached stats, kill/death counts.
+**NPC returns:** entity (bits), slot, job, activity, activity_phase, activity_target, transition_reason, last_transition_frame, combat_state, hp, max_hp, energy, home, faction, town, personality traits, equipment slots (with rarity/bonus), flags, manual_target, squad, patrol, carried loot, cached stats, kill/death counts.
 
 **Building returns:** entity (bits), slot, kind, label, town, faction, grid position, hp, max_hp, occupants, growth, under_construction, respawn_timer, worksite info, wall level, assigned mine.
 

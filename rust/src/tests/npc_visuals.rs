@@ -176,6 +176,8 @@ pub fn tick(
                     COL_SLEEP => {
                         commands.entity(e).insert(Activity {
                             kind: ActivityKind::Rest,
+                            phase: ActivityPhase::Active,
+                            target: ActivityTarget::Home,
                             ..default()
                         });
                     }

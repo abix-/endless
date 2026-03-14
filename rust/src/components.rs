@@ -219,29 +219,74 @@ impl ActivityKind {
     pub fn def(&self) -> &'static crate::constants::ActivityDef { crate::constants::activity_def(*self) }
     pub fn distraction(&self) -> Distraction { self.def().distraction }
     pub fn label(&self) -> &'static str { self.def().label }
-    /// Visual key for GPU dirty tracking (sleep icon overlay).
-    pub fn visual_key(&self, at_dest: bool) -> u8 {
-        if self.def().sleep_visual && at_dest { 1 } else { 0 }
-    }
 }
 
-/// What the NPC is doing. Kind identifies the goal; ticks_waiting tracks
-/// how long the NPC has been at-destination for the current activity.
-/// Payload fields (target_pos, worksite, recover_until) are meaningful only
-/// for the activity kinds that use them — `kind` determines which apply.
-#[derive(Component, Clone, Debug, Default, PartialEq, Reflect)]
+/// Lifecycle progress within an activity. Small, generic, stable.
+/// New location types add target variants, not phase variants.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Reflect)]
+pub enum ActivityPhase {
+    #[default]
+    Ready,   // no active route; eligible for idle choice
+    Transit, // moving toward target
+    Active,  // performing sustained work/recovery at target
+    Holding, // at target, waiting on external condition (patrol wait, mine queue)
+}
+
+/// Where or what an activity is operating on.
+/// Destination identity lives here, not in ActivityPhase.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Reflect)]
+pub enum ActivityTarget {
+    #[default]
+    None,
+    Home,
+    Fountain,
+    PatrolPost { route: u16, index: u16 },
+    SquadPoint(Vec2),
+    Worksite,          // semantic: actual identity in NpcWorkState.worksite
+    RaidPoint(Vec2),   // enemy farm position
+    Dropoff,           // delivering loot to home
+    WanderPoint(Vec2), // random destination
+}
+
+/// What the NPC is doing. Kind identifies the goal; phase tracks lifecycle
+/// progress; target identifies the destination.
+/// `recover_until` is meaningful only for Heal (HP threshold).
+/// `reason` and `last_frame` are debug-only: why and when the last transition happened.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct Activity {
     pub kind: ActivityKind,
+    pub phase: ActivityPhase,
+    pub target: ActivityTarget,
     pub ticks_waiting: u32,
-    pub target_pos: Vec2,
-    pub worksite: usize,
     pub recover_until: f32,
+    #[reflect(ignore)]
+    pub reason: &'static str,
+    pub last_frame: u32,
+}
+
+impl Default for Activity {
+    fn default() -> Self {
+        Self {
+            kind: ActivityKind::default(),
+            phase: ActivityPhase::default(),
+            target: ActivityTarget::default(),
+            ticks_waiting: 0,
+            recover_until: 0.0,
+            reason: "",
+            last_frame: 0,
+        }
+    }
 }
 
 impl Activity {
     pub fn name(&self) -> &'static str { self.kind.label() }
-    pub fn visual_key(&self, at_dest: bool) -> u8 { self.kind.visual_key(at_dest) }
+
+    /// Visual key for GPU dirty tracking (sleep icon overlay).
+    /// Rest+Active shows sleep icon; all other states show normal.
+    pub fn visual_key(&self) -> u8 {
+        if self.kind.def().sleep_visual && self.phase == ActivityPhase::Active { 1 } else { 0 }
+    }
 
     pub fn new(kind: ActivityKind) -> Self { Self { kind, ..Default::default() } }
 }

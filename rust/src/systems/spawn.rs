@@ -179,7 +179,7 @@ pub fn materialize_npc(
     }));
 
     // Resolve spawn data
-    let activity = overrides.activity.clone().unwrap_or_default();
+    let activity = overrides.activity.unwrap_or_default();
     let combat_state = overrides.combat_state.clone().unwrap_or_default();
 
     // Patrol route — caller may pre-compute posts via build_patrol_route_ecs
@@ -232,7 +232,7 @@ pub fn materialize_npc(
         // State
         (
             NpcFlags::default(),
-            activity.clone(),
+            activity,
             Position { x, y },
             Home(home_vec),
         ),
