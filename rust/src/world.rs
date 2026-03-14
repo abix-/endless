@@ -627,6 +627,9 @@ pub fn place_building(
         if matches!(cell.terrain, Biome::Water | Biome::Rock) {
             return Err("cannot build on water or rock");
         }
+        if kind.is_road() && cell.terrain == Biome::Forest {
+            return Err("cannot build road on forest");
+        }
         if ctx.grid.is_foreign_territory(gc, gr, town_idx as u16) {
             return Err("cannot build in foreign territory");
         }
@@ -731,6 +734,21 @@ pub fn place_building(
     if let Some(ctx) = ctx {
         if crate::constants::building_def(kind).autotile {
             update_autotile_around(ctx.grid, entity_map, gc, gr, kind, gpu_updates);
+        }
+        // Roads expand the buildable area immediately so chained placement works
+        if let Some(radius) = kind.road_build_radius() {
+            let ti16 = town_idx as u16;
+            let rc = gc as i32;
+            let rr = gr as i32;
+            for dr in -radius..=radius {
+                let row = (rr + dr) as usize;
+                if row >= ctx.grid.height { continue; }
+                for dc in -radius..=radius {
+                    let col = (rc + dc) as usize;
+                    if col >= ctx.grid.width { continue; }
+                    ctx.grid.add_town_buildable(col, row, ti16);
+                }
+            }
         }
     }
     if let Some(dw) = dirty_writers {
@@ -1162,12 +1180,12 @@ pub enum Biome {
 
 impl Biome {
     /// Map biome + cell index to tileset array index (0-10) for TilemapChunk.
-    /// Grass picks 0/1, Forest picks 2-7, Water=8, Rock=9, Dirt=10.
+    /// Grass=0 (single variant), Forest picks 2-7, Water=8, Rock=9, Dirt=10.
     /// Uses a hash of the cell index for pseudo-random but deterministic variant selection,
     /// avoiding visible checkerboard/cycle patterns from plain modulo.
     pub fn tileset_index(self, cell_index: usize) -> u16 {
         match self {
-            Biome::Grass => tile_hash(cell_index, 2) as u16,
+            Biome::Grass => 0,
             Biome::Forest => 2 + tile_hash(cell_index, 6) as u16,
             Biome::Water => 8,
             Biome::Rock => 9,
