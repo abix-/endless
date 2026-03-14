@@ -28,9 +28,9 @@ use endless::systems::{
 use endless::world;
 
 // Entity counts to benchmark (Factorio-style scaling analysis)
-const COUNTS: &[usize] = &[1_000, 5_000, 10_000, 25_000, 50_000];
+const COUNTS: &[usize] = &[1_000, 50_000];
 const BENCH_TOTAL_NPCS: usize = 50_000;
-const DEATH_COUNTS: &[usize] = &[100, 500, 1_000, 5_000, 25_000];
+const DEATH_COUNTS: &[usize] = &[1_000, 50_000];
 
 struct DeathPipelineInput {
     app: App,
