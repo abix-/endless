@@ -497,3 +497,17 @@ Compact record of performance fixes applied. Each entry preserves the root cause
 
 Combined 50K NPC-scaled (14 systems): 5.2ms (32.3% of 16ms budget)
 Combined 50K all measured (realistic 2K buildings): 6.3ms (39.4% of 16ms budget)
+
+### 2026-03-14 -- 34bb036
+
+| Death system | 100 | 500 | 1K | 5K | 25K |
+|-------------|-----|-----|----|-----|------|
+| death_system | 208us | 618us | 997us | 5347us | 28072us |
+| death_pipeline | 390us | 1103us | 2004us | 11413us | 58525us |
+| death_idle@50K | 104us | - | - | - | - |
+
+Improvements vs previous:
+- death_system@25K: 57873us -> 28072us (51% faster)
+- death_system@5K: 11275us -> 5347us (53% faster)
+- death_system@1K: 1825us -> 997us (45% faster)
+- death_idle@50K: 104us confirms O(deaths) not O(n) when no deaths
