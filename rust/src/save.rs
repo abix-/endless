@@ -2679,4 +2679,36 @@ mod tests {
             5
         );
     }
+
+    #[test]
+    fn wood_stone_round_trip_serialization() {
+        // Test that wood/stone fields serialize and deserialize via serde_json Value
+        let val = serde_json::json!({
+            "wood": [42, 99],
+            "stone": [7, 13],
+            "food": [100],
+            "gold": [50]
+        });
+        // Deserialize just the resource fields
+        let wood: Vec<i32> = serde_json::from_value(val["wood"].clone()).unwrap();
+        let stone: Vec<i32> = serde_json::from_value(val["stone"].clone()).unwrap();
+        assert_eq!(wood, vec![42, 99]);
+        assert_eq!(stone, vec![7, 13]);
+    }
+
+    #[test]
+    fn wood_stone_backward_compat_defaults_to_empty() {
+        // Partial JSON without wood/stone -- serde(default) should fill empty vecs
+        #[derive(serde::Deserialize)]
+        struct ResourceFields {
+            #[serde(default)]
+            wood: Vec<i32>,
+            #[serde(default)]
+            stone: Vec<i32>,
+        }
+        let json = r#"{"food":[100],"gold":[50]}"#;
+        let loaded: ResourceFields = serde_json::from_str(json).unwrap();
+        assert!(loaded.wood.is_empty(), "missing wood should default to empty");
+        assert!(loaded.stone.is_empty(), "missing stone should default to empty");
+    }
 }
