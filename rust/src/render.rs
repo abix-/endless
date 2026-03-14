@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use bevy::sprite_render::{AlphaMode2d, TileData, TilemapChunk, TilemapChunkTileData};
 
 use crate::components::{
-    Activity, Building, Dead, Faction, GpuSlot, Job, ManualTarget, ActivityKind, MinerHomeConfig, NpcFlags, Position, SquadId,
+    Activity, Building, Dead, Faction, GpuSlot, Job, ManualTarget, ActivityKind, MinerHomeConfig, NpcFlags, SquadId,
 };
 use crate::gpu::RenderFrameConfig;
 use crate::messages::{SelectFactionMsg, TerrainDirtyMsg};
@@ -816,7 +816,8 @@ fn box_select_system(
     mut selected_building: ResMut<crate::resources::SelectedBuilding>,
     mut commands: Commands,
     mut npc_flags_q: Query<&mut NpcFlags>,
-    box_npc_q: Query<(&GpuSlot, &Job, &Faction, &Position), (Without<Building>, Without<Dead>)>,
+    box_npc_q: Query<(&GpuSlot, &Job, &Faction), (Without<Building>, Without<Dead>)>,
+    gpu_state: Res<crate::resources::GpuReadState>,
 ) {
     // Don't box-select while building or placing squad targets
     if build_ctx.selected_build.is_some() || squad_state.placing_target {
@@ -869,19 +870,27 @@ fn box_select_system(
                 let min_y = start.y.min(world_pos.y);
                 let max_y = start.y.max(world_pos.y);
 
+                let positions = &gpu_state.positions;
                 let mut selected_slots: Vec<usize> = Vec::new();
-                for (slot, job, faction, pos) in box_npc_q.iter() {
-                    if faction.0 != 0 {
+                for (slot, job, faction) in box_npc_q.iter() {
+                    // Player faction is 1; 0 is neutral and should never box-select.
+                    if faction.0 != crate::constants::FACTION_PLAYER {
                         continue;
-                    } // only player NPCs
+                    }
                     if !job.is_military() {
                         continue;
                     }
-                    if pos.x < -9000.0 {
+                    let i = slot.0;
+                    if i * 2 + 1 >= positions.len() {
                         continue;
                     }
-                    if pos.x >= min_x && pos.x <= max_x && pos.y >= min_y && pos.y <= max_y {
-                        selected_slots.push(slot.0);
+                    let px = positions[i * 2];
+                    let py = positions[i * 2 + 1];
+                    if px < -9000.0 {
+                        continue;
+                    }
+                    if px >= min_x && px <= max_x && py >= min_y && py <= max_y {
+                        selected_slots.push(i);
                     }
                 }
 
@@ -1107,5 +1116,219 @@ fn sync_terrain_visibility(
         if *v != vis {
             *v = vis;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use bevy::time::TimeUpdateStrategy;
+    use bevy_egui::EguiUserTextures;
+
+    fn setup_box_select_app() -> (
+        App,
+        Entity,
+        Entity,
+        Entity,
+        Entity,
+        Entity,
+    ) {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.insert_resource(ButtonInput::<MouseButton>::default());
+        app.insert_resource(crate::resources::SquadState::default());
+        app.insert_resource(crate::resources::BuildMenuContext::default());
+        app.insert_resource(EntityMap::default());
+        app.insert_resource(SelectedNpc(77));
+        app.insert_resource(SelectedBuilding {
+            active: true,
+            slot: Some(99),
+            ..Default::default()
+        });
+        app.insert_resource(crate::resources::GpuReadState {
+            positions: vec![
+                0.0, 0.0,      // selected player archer
+                5.0, 5.0,      // player farmer inside box (excluded)
+                0.0, 0.0,      // enemy archer inside box (excluded)
+                50.0, 50.0,    // player archer outside box
+                100.0, 100.0,  // previously selected direct-control archer
+            ],
+            npc_count: 5,
+            ..Default::default()
+        });
+        app.init_resource::<EguiUserTextures>();
+        app.add_systems(Update, box_select_system);
+
+        let window = Window {
+            resolution: (800, 600).into(),
+            ..Default::default()
+        };
+        app.world_mut().spawn(window);
+        app.world_mut().spawn((
+            MainCamera,
+            Transform::default(),
+            Projection::Orthographic(OrthographicProjection::default_2d()),
+        ));
+
+        let selected_archer = spawn_test_npc(
+            &mut app,
+            0,
+            Job::Archer,
+            crate::constants::FACTION_PLAYER,
+            false,
+        );
+        let player_farmer = spawn_test_npc(
+            &mut app,
+            1,
+            Job::Farmer,
+            crate::constants::FACTION_PLAYER,
+            false,
+        );
+        let enemy_archer = spawn_test_npc(&mut app, 2, Job::Archer, 2, false);
+        let outside_archer = spawn_test_npc(
+            &mut app,
+            3,
+            Job::Archer,
+            crate::constants::FACTION_PLAYER,
+            false,
+        );
+        let old_dc_archer = spawn_test_npc(
+            &mut app,
+            4,
+            Job::Archer,
+            crate::constants::FACTION_PLAYER,
+            true,
+        );
+
+        {
+            let mut squad_state = app.world_mut().resource_mut::<crate::resources::SquadState>();
+            squad_state.squads[0].members = vec![old_dc_archer];
+            squad_state.selected = 0;
+        }
+
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .clear();
+
+        (
+            app,
+            selected_archer,
+            player_farmer,
+            enemy_archer,
+            outside_archer,
+            old_dc_archer,
+        )
+    }
+
+    fn spawn_test_npc(
+        app: &mut App,
+        slot: usize,
+        job: Job,
+        faction: i32,
+        direct_control: bool,
+    ) -> Entity {
+        let entity = app.world_mut().spawn((
+            GpuSlot(slot),
+            job,
+            Faction(faction),
+            NpcFlags {
+                direct_control,
+                ..Default::default()
+            },
+        )).id();
+        app.world_mut()
+            .resource_mut::<EntityMap>()
+            .register_npc(slot, entity, job, faction, 0);
+        entity
+    }
+
+    fn set_cursor_position(app: &mut App, cursor: Vec2) {
+        let mut windows = app.world_mut().query::<&mut Window>();
+        let mut window = windows.single_mut(app.world_mut()).expect("single window");
+        window.set_cursor_position(Some(cursor));
+    }
+
+    #[test]
+    fn box_select_uses_gpu_positions_for_player_military_only() {
+        let (mut app, selected_archer, player_farmer, enemy_archer, outside_archer, old_dc_archer) =
+            setup_box_select_app();
+
+        set_cursor_position(&mut app, Vec2::new(390.0, 310.0));
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .clear();
+        set_cursor_position(&mut app, Vec2::new(410.0, 290.0));
+        app.update();
+
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .release(MouseButton::Left);
+        app.update();
+
+        let squad_state = app.world().resource::<crate::resources::SquadState>();
+        assert_eq!(squad_state.selected, 0);
+        assert_eq!(
+            squad_state.squads[0].members,
+            vec![selected_archer],
+            "box select should replace the selected squad with in-box player military NPCs"
+        );
+        assert!(
+            app.world()
+                .get::<NpcFlags>(selected_archer)
+                .is_some_and(|flags| flags.direct_control),
+            "selected player military NPC should gain direct control"
+        );
+        assert!(
+            app.world()
+                .get::<NpcFlags>(player_farmer)
+                .is_some_and(|flags| !flags.direct_control),
+            "player civilians inside the box should be excluded"
+        );
+        assert!(
+            app.world()
+                .get::<NpcFlags>(enemy_archer)
+                .is_some_and(|flags| !flags.direct_control),
+            "enemy NPCs inside the box should be excluded"
+        );
+        assert!(
+            app.world()
+                .get::<NpcFlags>(outside_archer)
+                .is_some_and(|flags| !flags.direct_control),
+            "player military NPCs outside the box should be excluded"
+        );
+        assert!(
+            app.world()
+                .get::<NpcFlags>(old_dc_archer)
+                .is_some_and(|flags| !flags.direct_control),
+            "replaced direct-control members should be cleared"
+        );
+        assert_eq!(app.world().resource::<SelectedNpc>().0, -1);
+        assert!(
+            !app.world().resource::<SelectedBuilding>().active,
+            "box select should clear building selection"
+        );
+        assert_eq!(
+            app.world().get::<SquadId>(selected_archer).map(|id| id.0),
+            Some(0),
+            "selected NPC should be assigned to the active squad"
+        );
+        assert!(
+            app.world().get::<SquadId>(player_farmer).is_none(),
+            "excluded civilians should not receive SquadId"
+        );
+        assert!(
+            app.world().get::<SquadId>(enemy_archer).is_none(),
+            "excluded enemies should not receive SquadId"
+        );
     }
 }

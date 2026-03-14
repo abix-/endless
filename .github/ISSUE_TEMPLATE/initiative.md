@@ -30,8 +30,10 @@ Short paragraph. What changes when this initiative is complete?
 ## Current Focus
 
 - Human:
-- Codex:
-- Claude:
+- codex-1:
+- codex-2:
+- claude-1:
+- claude-2:
 
 ## Acceptance
 
@@ -42,9 +44,10 @@ Short paragraph. What changes when this initiative is complete?
 Use short factual comments in this format:
 
 ```md
-## Handoff
+## <AgentName>
 - Changed:
 - Tests:
 - Open:
+- State:
 - Next:
 ```

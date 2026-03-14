@@ -19,9 +19,14 @@ Commands run:
 
 Call out the highest-risk parts of the PR.
 
+## Workflow State
+
+- Issue state transition:
+
 ## Handoff
 
 - Changed:
 - Tests:
 - Open:
+- State:
 - Next:

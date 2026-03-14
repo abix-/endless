@@ -18,11 +18,15 @@ assignees: ""
 
 - [ ] Set the GitHub milestone
 
+## Workflow State
+
+- [ ] Add `ready` when this slice is eligible for auto-pick
+
 ## Type
 
-- [ ] `design`
-- [ ] `code`
-- [ ] `testing`
+- [ ] `feature`
+- [ ] `bug`
+- [ ] `test`
 
 ## Scope
 
@@ -49,9 +53,10 @@ List exact commands here before closing the issue.
 Use short factual comments in this format:
 
 ```md
-## Handoff
+## <AgentName>
 - Changed:
 - Tests:
 - Open:
+- State:
 - Next:
 ```

@@ -579,3 +579,38 @@ Fixed resolve_work_targets: early-return when no WorkIntentMsg (was scanning all
 
 Combined 50K NPC-scaled (13 systems): 4.1ms (25.6% of 16ms budget)
 Combined 50K all measured (realistic 2K buildings): 5.1ms (31.9% of 16ms budget)
+
+### 2026-03-14 — d507a1e
+
+Activity controller refactor, box-select GPU position fix, road-on-forest validation, crossbow color fix.
+
+| System | 1K | 5K | 10K | 25K | 50K |
+|--------|----|----|-----|-----|-----|
+| decision | 47us | 76us | 118us | 225us | 396us |
+| damage | 183us | 191us | 218us | 406us | 932us |
+| healing | 12us | 42us | 84us | 227us | 493us |
+| attack | 23us | 78us | 144us | 355us | 726us |
+| resolve_movement | 19us | 46us | 63us | 117us | 221us |
+| resolve_movement_unbounded | 33us | 86us | 158us | 375us | 766us |
+| populate_gpu_state | 189us | 193us | 236us | 480us | 1035us |
+| energy | 5us | 11us | 20us | 45us | 95us |
+| arrival | 18us | 27us | 35us | 63us | 112us |
+| gpu_position_readback | 5us | 17us | 32us | 76us | 152us |
+| advance_waypoints | 5us | 15us | 25us | 58us | 113us |
+| cooldown | 4us | 8us | 14us | 31us | 61us |
+| npc_regen | 2us | 2us | 3us | 2us | 2us |
+| on_duty_tick | 4us | 8us | 15us | 32us | 61us |
+
+| Building system | 100 | 500 | 1K | 5K | 50K |
+|-----------------|-----|-----|----|-----|------|
+| building_tower | 15us | 19us | 24us | 65us | 652us |
+| growth | 14us | 18us | 24us | 61us | 636us |
+| construction_tick | 6us | 15us | 26us | 104us | 934us |
+| spawner_respawn | 28us | 39us | 64us | 267us | 2063us |
+
+| Death system | 100 | 500 | 1K | 5K | 25K |
+|-------------|-----|-----|----|-----|------|
+| death | 284us | 933us | 1825us | 11275us | 57873us |
+
+Combined 50K NPC-scaled (14 systems): 5.2ms (32.3% of 16ms budget)
+Combined 50K all measured (realistic 2K buildings): 6.3ms (39.4% of 16ms budget)
