@@ -1791,15 +1791,17 @@ impl WorldGrid {
     }
 }
 
-/// Terrain base cost for pathfinding (matches GPU shader speed multipliers).
-/// Higher cost = slower traversal. 0 = truly impassable (walls only).
-/// Water/Rock are expensive so NPCs avoid them but can escape if pushed there.
+/// Terrain base cost for CPU pathfinding.
+/// Higher cost = less desirable route. 0 = truly impassable (walls only).
+/// Water/Rock stay passable so NPCs can escape bad positions, but their route
+/// cost is intentionally inflated well above movement-speed differences so A*
+/// strongly avoids them.
 pub(crate) fn terrain_base_cost(biome: Biome) -> u16 {
     match biome {
         Biome::Grass | Biome::Dirt => 100,
         Biome::Forest => 143,
-        Biome::Rock => 500,
-        Biome::Water => 800,
+        Biome::Rock => 2500,
+        Biome::Water => 5000,
     }
 }
 
