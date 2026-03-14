@@ -2708,7 +2708,13 @@ mod tests {
         }
         let json = r#"{"food":[100],"gold":[50]}"#;
         let loaded: ResourceFields = serde_json::from_str(json).unwrap();
-        assert!(loaded.wood.is_empty(), "missing wood should default to empty");
-        assert!(loaded.stone.is_empty(), "missing stone should default to empty");
+        assert!(
+            loaded.wood.is_empty(),
+            "missing wood should default to empty"
+        );
+        assert!(
+            loaded.stone.is_empty(),
+            "missing stone should default to empty"
+        );
     }
 }

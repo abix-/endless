@@ -32,8 +32,8 @@ Do not commit implementation work directly to `main`.
 
 Use these rules consistently:
 
-- `ai-collab` works on the shared `dev` branch
-- do not create or switch to issue-specific branches or worktrees during normal `ai-collab` runs
+- `issue` works on the shared `dev` branch
+- do not create or switch to issue-specific branches or worktrees during normal `issue` runs
 - if the current branch is not `dev`, stop and resolve that before making code changes
 - push reviewed changes to `dev`
 - issue comments remain the handoff channel; use an existing `dev` PR as the review surface when one exists
@@ -136,7 +136,7 @@ Claim rules:
 
 MVP behavior:
 
-- registration happens only when `/ai-collab` or `$ai-collab` runs
+- registration happens only when `/issue` or `$issue` runs
 - Claude registers itself by running `C:/Users/Abix/.claude/ai-collab/Register-AiCollabAgent.ps1 -Family claude`
 - Codex registers itself by running `C:/Users/Abix/.claude/ai-collab/Register-AiCollabAgent.ps1 -Family codex`
 - the returned `agentId` is the owner label to use for the rest of that skill run
@@ -206,7 +206,7 @@ If the design is still moving, refine the spec doc first, then keep or move the 
 
 ## Claim Protocol
 
-Running `/ai-collab` or `$ai-collab` with no issue number means "claim the next eligible issue for this agent family."
+Running `/issue` or `$issue` with no issue number means "claim the next eligible issue for this agent family."
 
 No-argument claim algorithm:
 
@@ -357,8 +357,8 @@ If review finds a blocker:
 
 Use the shared workflow skill when you want either agent family to pick up one issue and carry it through the current workflow without extra prompting:
 
-- Claude: `/ai-collab 3`
-- Codex: `$ai-collab 3`
+- Claude: `/issue 3`
+- Codex: `$issue 3`
 - No argument: claim the next eligible `needs-<your-family>` issue, otherwise the next eligible `ready` issue, using the current process claim from `C:/Users/Abix/.claude/ai-collab/settings.json`
 
 Expected behavior:

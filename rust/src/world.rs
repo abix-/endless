@@ -516,12 +516,7 @@ pub fn resolve_spawner_npc(
             )
         }
         SpawnBehavior::FindNearestTreeNode => {
-            let found = find_nearest_free(
-                inst.position,
-                entity_map,
-                BuildingKind::TreeNode,
-                None,
-            );
+            let found = find_nearest_free(inst.position, entity_map, BuildingKind::TreeNode, None);
             let (work_slot, target) = found
                 .map(|(s, p)| (Some(s), p))
                 .unwrap_or((None, inst.position));
@@ -537,12 +532,7 @@ pub fn resolve_spawner_npc(
             )
         }
         SpawnBehavior::FindNearestRockNode => {
-            let found = find_nearest_free(
-                inst.position,
-                entity_map,
-                BuildingKind::RockNode,
-                None,
-            );
+            let found = find_nearest_free(inst.position, entity_map, BuildingKind::RockNode, None);
             let (work_slot, target) = found
                 .map(|(s, p)| (Some(s), p))
                 .unwrap_or((None, inst.position));

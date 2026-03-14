@@ -169,15 +169,25 @@ pub fn arrival_system(
                 if let Some(mut w) = economy.towns.wood_mut(town_idx as i32) {
                     w.0 += loot.wood;
                 }
-                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
-                    format!("Delivered {} wood", loot.wood));
+                npc_logs.push(
+                    idx,
+                    game_time.day(),
+                    game_time.hour(),
+                    game_time.minute(),
+                    format!("Delivered {} wood", loot.wood),
+                );
             }
             if loot.stone > 0 {
                 if let Some(mut s) = economy.towns.stone_mut(town_idx as i32) {
                     s.0 += loot.stone;
                 }
-                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
-                    format!("Delivered {} stone", loot.stone));
+                npc_logs.push(
+                    idx,
+                    game_time.day(),
+                    game_time.hour(),
+                    game_time.minute(),
+                    format!("Delivered {} stone", loot.stone),
+                );
             }
             if !loot.equipment.is_empty() {
                 let count = loot.equipment.len();
@@ -1235,7 +1245,8 @@ pub fn decision_system(
                     ActivityKind::Chop | ActivityKind::Quarry => {
                         // Arrived at resource node -- harvest (destroy node) and return
                         let node_slot = worksite;
-                        let node_entity = node_slot.and_then(|s| entity_map.entities.get(&s).copied());
+                        let node_entity =
+                            node_slot.and_then(|s| entity_map.entities.get(&s).copied());
                         if let Some(ne) = node_entity {
                             // Destroy node via damage (death_system handles cleanup)
                             extras.damage.write(crate::messages::DamageMsg {
@@ -1254,18 +1265,53 @@ pub fn decision_system(
                             };
                             // Release worksite
                             let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
-                            extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
+                            extras
+                                .work_intents
+                                .write(WorkIntentMsg(WorkIntent::Release {
+                                    entity,
+                                    worksite: uid,
+                                }));
                             worksite = None;
                             worksite_deferred = true;
                             // Return home with loot
-                            transition_activity(&mut activity, ActivityKind::ReturnLoot, ActivityPhase::Transit, ActivityTarget::Dropoff, "arrival:harvest_return");
-                            submit_intent(&mut intents, entity, home.x, home.y, MovementPriority::JobRoute, "arrival:harvest_return");
-                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
-                                format!("Harvested 1 {} -> Returning", resource_name));
+                            transition_activity(
+                                &mut activity,
+                                ActivityKind::ReturnLoot,
+                                ActivityPhase::Transit,
+                                ActivityTarget::Dropoff,
+                                "arrival:harvest_return",
+                            );
+                            submit_intent(
+                                &mut intents,
+                                entity,
+                                home.x,
+                                home.y,
+                                MovementPriority::JobRoute,
+                                "arrival:harvest_return",
+                            );
+                            npc_logs.push(
+                                idx,
+                                game_time.day(),
+                                game_time.hour(),
+                                game_time.minute(),
+                                format!("Harvested 1 {} -> Returning", resource_name),
+                            );
                         } else {
                             // Node gone -- return to idle
-                            transition_activity(&mut activity, ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None, "transition");
-                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Node gone -> Idle");
+                            transition_activity(
+                                &mut activity,
+                                ActivityKind::Idle,
+                                ActivityPhase::Ready,
+                                ActivityTarget::None,
+                                "transition",
+                            );
+                            npc_logs.push(
+                                idx,
+                                game_time.day(),
+                                game_time.hour(),
+                                game_time.minute(),
+                                "Node gone -> Idle",
+                            );
                         }
                     }
                     ActivityKind::Wander => {
@@ -2751,7 +2797,11 @@ pub fn decision_system(
                                     6400.0,
                                     |_inst, occ| {
                                         let priority = if occ == 0 { 0u8 } else { 1 };
-                                        Some((priority, occ as u16, _inst.position.distance_squared(current_pos).to_bits()))
+                                        Some((
+                                            priority,
+                                            occ as u16,
+                                            _inst.position.distance_squared(current_pos).to_bits(),
+                                        ))
                                     },
                                 )
                                 .map(|r| r.position);
@@ -2764,9 +2814,12 @@ pub fn decision_system(
                                     "transition",
                                 );
                                 submit_intent(
-                                    &mut intents, entity,
-                                    node_pos.x, node_pos.y,
-                                    MovementPriority::JobRoute, "idle:work_chop",
+                                    &mut intents,
+                                    entity,
+                                    node_pos.x,
+                                    node_pos.y,
+                                    MovementPriority::JobRoute,
+                                    "idle:work_chop",
                                 );
                             }
                         }
@@ -2781,7 +2834,11 @@ pub fn decision_system(
                                     6400.0,
                                     |_inst, occ| {
                                         let priority = if occ == 0 { 0u8 } else { 1 };
-                                        Some((priority, occ as u16, _inst.position.distance_squared(current_pos).to_bits()))
+                                        Some((
+                                            priority,
+                                            occ as u16,
+                                            _inst.position.distance_squared(current_pos).to_bits(),
+                                        ))
                                     },
                                 )
                                 .map(|r| r.position);
@@ -2794,9 +2851,12 @@ pub fn decision_system(
                                     "transition",
                                 );
                                 submit_intent(
-                                    &mut intents, entity,
-                                    node_pos.x, node_pos.y,
-                                    MovementPriority::JobRoute, "idle:work_quarry",
+                                    &mut intents,
+                                    entity,
+                                    node_pos.x,
+                                    node_pos.y,
+                                    MovementPriority::JobRoute,
+                                    "idle:work_quarry",
                                 );
                             }
                         }
