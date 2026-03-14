@@ -2158,11 +2158,60 @@ pub fn generate_world(
         mine_positions.push(snapped);
     }
 
+    // Step 5: Spawn tree and rock nodes on matching biome cells
+    let mut tree_count = 0usize;
+    let mut rock_count = 0usize;
+    for row in 0..grid.height {
+        for col in 0..grid.width {
+            let idx = row * grid.width + col;
+            let biome = grid.cells[idx].terrain;
+            let (kind, density) = match biome {
+                Biome::Forest => (BuildingKind::TreeNode, config.tree_density),
+                Biome::Rock => (BuildingKind::RockNode, config.rock_density),
+                _ => continue,
+            };
+            if density <= 0.0 {
+                continue;
+            }
+            // Deterministic pseudo-random selection using splitmix64 hash
+            let h = {
+                let mut v = idx as u64;
+                v ^= v >> 30;
+                v = v.wrapping_mul(0xbf58476d1ce4e5b9);
+                v ^= v >> 27;
+                v = v.wrapping_mul(0x94d049bb133111eb);
+                v ^= v >> 31;
+                v
+            };
+            let threshold = (density as f64 * u64::MAX as f64) as u64;
+            if h > threshold {
+                continue;
+            }
+            // Skip cells that already have a building (gold mine, town building, etc.)
+            if entity_map.has_building_at(col as i32, row as i32) {
+                continue;
+            }
+            let pos = grid.grid_to_world(col, row);
+            let _ = place_building(
+                slot_alloc, entity_map, commands, gpu_updates,
+                kind, pos, crate::constants::TOWN_NONE, crate::constants::FACTION_NEUTRAL,
+                &Default::default(), None, None,
+            );
+            match kind {
+                BuildingKind::TreeNode => tree_count += 1,
+                BuildingKind::RockNode => rock_count += 1,
+                _ => {}
+            }
+        }
+    }
+
     let total_towns = world_data.towns.len();
     info!(
-        "generate_world: {} towns, {} gold mines, grid {}x{} ({})",
+        "generate_world: {} towns, {} gold mines, {} trees, {} rocks, grid {}x{} ({})",
         total_towns,
         mine_positions.len(),
+        tree_count,
+        rock_count,
         w,
         h,
         if is_continents { "continents" } else { "classic" },
