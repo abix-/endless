@@ -537,7 +537,41 @@ Completed items moved from roadmap for readability.
 - [x] Default weapon sprites for archers/crossbowmen on spawn (NpcDef.default_weapon, fresh spawns only)
 - [x] cfg-gate crash recovery for cross-platform CI builds
 
+### Stage 16 Performance (completed items moved from roadmap)
+- [x] Entity sleeping evaluation: not needed -- benchmarks show 10 NPC systems = 3.5ms at 50K (21.9% of budget). Sleeping saves ~0.7ms but breaks simulation fidelity.
+- [x] Pre-allocate GpuReadState vecs: readback observers no longer create new Vecs per frame
+- [x] sync_building_hp_render gated behind BuildingHealState.needs_healing -- skips full building query when no buildings are damaged
+- [x] on_duty_tick_system narrowed to OnDuty archers only (With<PatrolRoute> filter -- ~200 patrol units vs 50K NPCs)
+- [x] Perf anti-pattern remediation pass: flash_dirty temp Vec, pathfinding dirty_chunks Vec->HashSet + dead code removal
+- [x] NpcsByTownCache removed -- EntityMap.npc_by_town is the single source of truth via slots_for_town()
+- [x] Event-driven death detection: damage_system inserts Dead marker on HP=0, death_system uses With<Dead> query instead of full NPC scan. Idle scan at 50K: 58ms -> 106us.
+
+### Performance Milestones (completed, moved from roadmap)
+- [x] CPU Bevy: 5,000 NPCs @ 60+ fps
+- [x] GPU physics: 10,000+ NPCs @ 140 fps
+- [x] Full behaviors: 10,000+ NPCs @ 140 fps
+- [x] Combat + projectiles: 10,000+ NPCs @ 140 fps
+- [x] GPU spatial grid: 10,000+ NPCs @ 140 fps
+- [x] Full game integration: 10,000 NPCs @ 130 fps
+- [x] Max scale tested: 50,000 NPCs (buffers sized)
+- [x] Worksite indexing + occupancy: 30,000 NPCs + 30,000 buildings @ 60+ fps
+- [x] Query-first + log gating + sub-profiling: 30,000 NPCs + 30,000 buildings @ 60+ fps
+- [x] Visual upload + targets dirty tracking: 30,000 NPCs + 30,000 buildings @ 60+ fps
+- [x] GPU iter + decision budgeting: 50,000 NPCs + 50,000 buildings @ 60+ fps
+- [x] Candidate-driven healing: 50,000 NPCs + 50,000 buildings @ 60+ fps
+
+### Sprint Items (completed, moved from roadmap)
+- [x] Path recalculation on building place/remove -- dirty affected HPA* chunks, rebuild entrance nodes
+- [x] Terrain tile variant randomization: splitmix64 hash instead of modulo for grass/forest tiles
+- [x] Tileset compositing: per-layer bases instead of global Grass A hardcode
+- [x] Rock tile transparency: grass base for rock quad layer
+- [x] Harvestable resources spec doc (docs/harvestable-resources.md)
+- [x] Worldgen spawns tree/rock nodes on Forest/Rock biome cells with min-spacing
+- [x] Save/load round-trip tests for wood/stone persistence + backward compat
+- [x] Loot magnet visual: homing projectiles (damage=0) fly from death position to killer NPC
+- [x] Homing target support in projectile compute shader (binding 18, per-projectile steering)
+
 ### Intentional Removals
-- [x] Sprite atlas browser tool — intentional removal (Godot dev tool, not needed in Bevy)
-- [x] World-space town labels — intentional removal (Godot scenes, not ported)
+- [x] Sprite atlas browser tool -- intentional removal (Godot dev tool, not needed in Bevy)
+- [x] World-space town labels -- intentional removal (Godot scenes, not ported)
 

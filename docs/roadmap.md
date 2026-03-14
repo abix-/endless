@@ -20,9 +20,7 @@ See [completed.md](completed.md) for completed work moved out of active stages.
 Stages 1-15, 18, 19: [x] Complete (see [completed.md](completed.md))
 
 **Current Sprint (priority order):**
-1. Loot cycle stress test — benchmark TownEquipment growth under 50K NPCs over extended play, cap or prune unbounded accumulation
-2. ~~Path recalculation on building place/remove (Stage 20) — dirty affected HPA* chunks, rebuild entrance nodes. Unblocks Stage 21 gates~~ ✓
-3. ~~Entity sleeping (Stage 16 item 1) — camera-radius culling~~ not needed (saves ~0.7ms, not 5-15ms; breaks simulation fidelity)
+1. Loot cycle stress test -- benchmark TownEquipment growth under 50K NPCs over extended play, cap or prune unbounded accumulation
 
 **Stage 16: Performance**
 
@@ -32,25 +30,14 @@ GPU extract, GPU-native rendering, linear scan elimination, worksite indexing, s
 
 ECS source-of-truth migration complete (see [completed.md](completed.md)). ECS owns all NPC gameplay state. EntityMap is index-only (slot↔Entity, grid, kind/town/spatial). No dual-writes. Hot loops use query-first + indexed lookup. GPU is movement authority; ECS Position is read-model synced in `gpu_position_readback`.
 
-Remaining performance items (sorted by expected savings):
+Remaining performance items:
 
-1. [x] ~~[High] Entity sleeping (Factorio-style): NPCs outside camera radius skip behavior/movement ticks.~~
-   Not needed — benchmarks show 10 NPC systems = 3.5ms at 50K (21.9% of budget). Sleeping saves ~0.7ms but breaks simulation fidelity. Budget gating, candidate-driven healing, and HPA* already achieved 50K@60fps.
-2. [ ] [Medium] Cache-friendly vectors for hot building iteration paths (keep HashMaps as authority, vectors for tight loops).
-   Expected saving: ~1-3 ms/frame CPU on building-heavy ticks.
-3. [x] ~~[Medium] Pre-allocate `GpuReadState` vecs: readback observers create new Vecs per frame. At 50k entities, positions = 1.6MB allocation per frame.~~
-   ~~Expected saving: ~0.5-1.5 ms/frame CPU plus allocator churn.~~
-4. [x] ~~[Medium] `sync_building_hp_render` gated behind `BuildingHealState.needs_healing` — skips full building query when no buildings are damaged (99%+ of frames).~~
-5. [x] ~~[Medium] `on_duty_tick_system` full iteration: narrow to OnDuty archers only.~~
-   ~~Expected saving: ~0.3-1.0 ms/frame CPU.~~ Added `With<PatrolRoute>` query filter — iterates ~200 patrol units instead of 50K NPCs.
-6. [x] ~~[Medium] Perf anti-pattern remediation pass: repeated query scans, `Vec::contains` → `HashSet`, per-item linear dedup.~~
-   ~~Expected saving: ~1-4 ms/frame total.~~ Audit found most patterns already remediated. Fixed: flash_dirty temp Vec, pathfinding dirty_chunks Vec→HashSet + dead code removal.
-7. [ ] [Low] `decision_system` remaining log pressure (~10 `format!` calls).
-8. [ ] [Low] `sync_terrain_tilemap` chunk granularity: rewrites all chunks on any terrain change.
-9. [ ] [Low] SystemTimings Mutex contention: replace with AtomicU32 + f32::to_bits.
-10. [x] ~~`NpcsByTownCache` removed — `EntityMap.npc_by_town` is the single source of truth via `slots_for_town()`.~~
-11. [ ] [Low] Perf guardrails: microbenchmarks + CI thresholds.
-12. [ ] [Low] Message signal regression tests.
+- [ ] [Medium] Cache-friendly vectors for hot building iteration paths (keep HashMaps as authority, vectors for tight loops).
+- [ ] [Low] `decision_system` remaining log pressure (~10 `format!` calls).
+- [ ] [Low] `sync_terrain_tilemap` chunk granularity: rewrites all chunks on any terrain change.
+- [ ] [Low] SystemTimings Mutex contention: replace with AtomicU32 + f32::to_bits.
+- [ ] [Low] Perf guardrails: microbenchmarks + CI thresholds.
+- [ ] [Low] Message signal regression tests.
 
 SystemParam bundle consolidation (code quality, not runtime perf):
 - [ ] [Low] Create `GameLog` bundle: `{ combat_log: MessageWriter<CombatLogMsg>, game_time: Res<GameTime>, timings: Res<SystemTimings> }` and migrate systems still carrying this triple directly.
@@ -234,23 +221,9 @@ Cavern entrances spawn on the surface map (naturally on Rock biome, or revealed 
 - [ ] Fog of war: underground areas revealed as NPCs explore, persists between visits
 - [ ] Creature respawn: caverns repopulate over time, making them replayable
 
-**Stage 32: CRD Architecture (Code Quality)**
+**Stage 32: CRD Architecture (Code Quality)** -- [x] Complete (see [completed.md](completed.md) and [k8s.md](k8s.md))
 
-*Done when: every entity type (NPC, Building, Town, Activity, Item) follows the Def→Instance→Controller pattern — static registry defines the type, ECS components hold all runtime state, systems reconcile.*
-
-Current CRD compliance:
-
-| Entity     | Def Registry                    | Instance Pattern                          | Score |
-|------------|--------------------------------|------------------------------------------|-------|
-| NPCs       | NpcDef + NPC_REGISTRY          | ECS components (NpcStats)                | 95%   |
-| Buildings  | BuildingDef + BUILDING_REGISTRY| 5-field identity index + ECS components  | 100%  |
-| Activities | ActivityDef + ACTIVITY_REGISTRY| Activity component + fieldless kind      | 100%  |
-| Towns      | TownDef + TOWN_REGISTRY        | Slim 4-field index + ECS (TownAccess)    | 100%  |
-| Items      | ItemDef + ITEM_REGISTRY        | LootItem + NpcEquipment                  | 85%   |
-
-Can be done incrementally alongside other stages. Each chunk is independent.
-
-Chunks 1-5 complete (see [completed.md](completed.md)): NPC instance cleanup, building consolidation, TownDef registry, ActivityDef + activity controller, ItemDef registry.
+All 5 entity types follow Def->Instance->Controller. CRD compliance table in [k8s.md](k8s.md).
 
 Sound (bevy_audio) woven into stages. Done: arrow shoot SFX, NPC death SFX (24 variants), spatial camera culling, per-kind dedup. Remaining: building place, wall hit, loot pickup (Stages 17-21); element sounds + wave horn (Stage 25).
 
@@ -261,7 +234,7 @@ Sound (bevy_audio) woven into stages. Done: arrow shoot SFX, NPC death SFX (24 v
 - [ ] Add regression tests that enforce no behavior drift between player and AI build flows, startup and respawn flows, and both destroy entry points
 
 ### Testing
-Test infrastructure complete (see [completed.md](completed.md)): unit tests, system-level tests, pure function tests. 246+ tests passing.
+Test infrastructure complete (see [completed.md](completed.md)). 260+ tests passing.
 
 ### UI & UX
 - [ ] Add `show_active_radius` debug toggle in Bevy UI
@@ -283,20 +256,10 @@ Implementation guides for upcoming stages. After delivery, spec content rolls in
 
 ## Performance
 
+All milestones through 50K NPCs + 50K buildings @ 60fps achieved (see [completed.md](completed.md)).
+
 | Milestone | NPCs | Buildings | FPS | Status |
 |-----------|------|-----------|-----|--------|
-| CPU Bevy | 5,000 | — | 60+ | [x] |
-| GPU physics | 10,000+ | — | 140 | [x] |
-| Full behaviors | 10,000+ | — | 140 | [x] |
-| Combat + projectiles | 10,000+ | — | 140 | [x] |
-| GPU spatial grid | 10,000+ | — | 140 | [x] |
-| Full game integration | 10,000 | — | 130 | [x] |
-| Max scale tested | 50,000 | — | TBD | [x] buffers sized |
-| Worksite indexing + occupancy | 30,000 | 30,000 | 60+ | [x] done |
-| Query-first + log gating + sub-profiling | 30,000 | 30,000 | 60+ | [x] done |
-| Visual upload + targets dirty tracking | 30,000 | 30,000 | 60+ | [x] done |
-| GPU iter + decision budgeting (items 1-2) | 50,000 | 50,000 | 60+ | [x] done |
-| Entity sleeping + healing (items 3-4) | 50,000 | 50,000 | 60+ | [x] healing done, sleeping not needed (0.7ms savings, breaks fidelity) |
 | Future (chunked tilemap) | 50,000+ | 50,000+ | 60+ | Planned |
 
 ## References
