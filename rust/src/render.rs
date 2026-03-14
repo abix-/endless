@@ -192,9 +192,10 @@ fn ortho_zoom(projection: &Projection) -> f32 {
 }
 
 /// Keyboard camera pan. Speed scales inversely with zoom for consistent screen-space feel.
+/// Uses wall-clock delta (not game-scaled DeltaTime) so camera speed is independent of game speed.
 fn camera_pan_system(
     keys: Res<ButtonInput<KeyCode>>,
-    dt: Res<crate::resources::DeltaTime>,
+    time: Res<Time>,
     mut query: Query<(&mut Transform, &Projection), With<MainCamera>>,
     user_settings: Res<UserSettings>,
     mut contexts: bevy_egui::EguiContexts,
@@ -228,7 +229,7 @@ fn camera_pan_system(
 
     if dir != Vec2::ZERO {
         let speed = user_settings.scroll_speed / ortho_zoom(projection);
-        let delta = dir.normalize() * speed * dt.0;
+        let delta = dir.normalize() * speed * time.delta_secs();
         transform.translation.x += delta.x;
         transform.translation.y += delta.y;
     }
@@ -280,9 +281,10 @@ fn camera_mouse_pan_system(
 }
 
 /// Pan camera when cursor hovers near screen edges.
+/// Uses wall-clock delta (not game-scaled DeltaTime) so camera speed is independent of game speed.
 fn camera_edge_pan_system(
     windows: Query<&Window>,
-    dt: Res<crate::resources::DeltaTime>,
+    time: Res<Time>,
     mut query: Query<(&mut Transform, &Projection), With<MainCamera>>,
     user_settings: Res<UserSettings>,
 ) {
@@ -312,7 +314,7 @@ fn camera_edge_pan_system(
             return;
         };
         let speed = user_settings.scroll_speed / ortho_zoom(projection);
-        let delta = dir.normalize() * speed * dt.0;
+        let delta = dir.normalize() * speed * time.delta_secs();
         transform.translation.x += delta.x;
         transform.translation.y += delta.y;
     }
