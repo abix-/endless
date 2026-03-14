@@ -284,6 +284,60 @@ fn submit_intent_scattered(
     queue.submit(entity, Vec2::new(center_x + ox, center_y + oy), priority, source);
 }
 
+#[inline]
+fn transition_to_rest(
+    activity: &mut Activity,
+    queue: &mut PathRequestQueue,
+    entity: Entity,
+    home_valid: bool,
+    home: Vec2,
+    town_center: Option<Vec2>,
+    idx: usize,
+    frame: usize,
+    priority: MovementPriority,
+    home_source: &'static str,
+    fountain_source: &'static str,
+) -> bool {
+    if home_valid {
+        transition_activity(
+            activity,
+            ActivityKind::Rest,
+            ActivityPhase::Transit,
+            ActivityTarget::Home,
+            home_source,
+        );
+        submit_intent(queue, entity, home.x, home.y, priority, home_source);
+        true
+    } else if let Some(center) = town_center {
+        transition_activity(
+            activity,
+            ActivityKind::Rest,
+            ActivityPhase::Transit,
+            ActivityTarget::Fountain,
+            fountain_source,
+        );
+        submit_intent_scattered(
+            queue,
+            entity,
+            center.x,
+            center.y,
+            128.0,
+            idx,
+            frame,
+            priority,
+            fountain_source,
+        );
+        true
+    } else {
+        false
+    }
+}
+
+#[inline]
+fn has_rest_destination(home_valid: bool, town_center: Option<Vec2>) -> bool {
+    home_valid || town_center.is_some()
+}
+
 /// Transition an NPC to a new activity state. Resets ticks_waiting.
 #[inline]
 fn transition_activity(
@@ -457,6 +511,7 @@ pub fn decision_system(
         } else {
             None
         };
+        let town_center = world_data.towns.get(town_idx_i32 as usize).map(|t| t.center);
         let mut carried_loot = npc_data
             .carried_loot_q
             .get(entity).cloned()
@@ -527,25 +582,29 @@ pub fn decision_system(
                             if let Some(squad) = squad_state.squads.get(sid as usize) {
                                 if squad.rest_when_tired
                                     && energy < ENERGY_TIRED_THRESHOLD
-                                    && home_valid
                                 {
-                                    transition_activity(&mut activity, ActivityKind::Rest, ActivityPhase::Transit, ActivityTarget::Home, "transition");
-                                    submit_intent(
+                                    if transition_to_rest(
+                                        &mut activity,
                                         &mut intents,
                                         entity,
-                                        home.x,
-                                        home.y,
+                                        home_valid,
+                                        home,
+                                        town_center,
+                                        idx,
+                                        frame,
                                         MovementPriority::Survival,
                                         "arrival:squad_rest",
-                                    );
-                                    npc_logs.push(
-                                        idx,
-                                        game_time.day(),
-                                        game_time.hour(),
-                                        game_time.minute(),
-                                        "Tired -> Rest (squad)",
-                                    );
-                                    break 'decide;
+                                        "arrival:squad_rest_fountain",
+                                    ) {
+                                        npc_logs.push(
+                                            idx,
+                                            game_time.day(),
+                                            game_time.hour(),
+                                            game_time.minute(),
+                                            "Tired -> Rest (squad)",
+                                        );
+                                        break 'decide;
+                                    }
                                 }
                             }
                         }
@@ -965,19 +1024,23 @@ pub fn decision_system(
                     let squad_needs_rest = energy < ENERGY_TIRED_THRESHOLD
                         || (energy < ENERGY_WAKE_THRESHOLD
                             && activity.kind == ActivityKind::Rest);
-                    if squad.rest_when_tired && squad_needs_rest && home_valid {
+                    if squad.rest_when_tired && squad_needs_rest {
                         if combat_state.is_fighting() {
                             combat_state = CombatState::None;
                         }
                         if activity.kind != ActivityKind::Rest {
-                            transition_activity(&mut activity, ActivityKind::Rest, ActivityPhase::Transit, ActivityTarget::Home, "transition");
-                            submit_intent(
+                            transition_to_rest(
+                                &mut activity,
                                 &mut intents,
                                 entity,
-                                home.x,
-                                home.y,
+                                home_valid,
+                                home,
+                                town_center,
+                                idx,
+                                frame,
                                 MovementPriority::Survival,
                                 "squad:rest_gate",
+                                "squad:rest_gate_fountain",
                             );
                         }
                         break 'decide;
@@ -1156,16 +1219,20 @@ pub fn decision_system(
                         let squad_needs_rest = energy < ENERGY_TIRED_THRESHOLD
                             || (energy < ENERGY_WAKE_THRESHOLD
                                 && activity.kind == ActivityKind::Rest);
-                        if squad.rest_when_tired && squad_needs_rest && home_valid {
+                        if squad.rest_when_tired && squad_needs_rest {
                             if activity.kind != ActivityKind::Rest {
-                                transition_activity(&mut activity, ActivityKind::Rest, ActivityPhase::Transit, ActivityTarget::Home, "transition");
-                                submit_intent(
+                                transition_to_rest(
+                                    &mut activity,
                                     &mut intents,
                                     entity,
-                                    home.x,
-                                    home.y,
+                                    home_valid,
+                                    home,
+                                    town_center,
+                                    idx,
+                                    frame,
                                     MovementPriority::Survival,
                                     "squad:rest_home",
+                                    "squad:rest_fountain",
                                 );
                             }
                             break 'decide;
@@ -1739,7 +1806,7 @@ pub fn decision_system(
                 score_count += 1;
             }
 
-            if en < ENERGY_HUNGRY && home_valid {
+            if en < ENERGY_HUNGRY && has_rest_destination(home_valid, town_center) {
                 let rest_score = (ENERGY_HUNGRY - en) * SCORE_REST_MULT * rest_m;
                 scores[score_count] = (Action::Rest, rest_score);
                 score_count += 1;
@@ -1802,7 +1869,7 @@ pub fn decision_system(
                 match off_duty {
                     OffDutyBehavior::GoToBed => {
                         // Boost rest score so NPCs prefer going to bed
-                        if home_valid {
+                        if has_rest_destination(home_valid, town_center) {
                             scores[score_count] = (Action::Rest, 80.0 * rest_m);
                             score_count += 1;
                         }
@@ -1867,23 +1934,19 @@ pub fn decision_system(
                     }
                 }
                 Action::Rest => {
-                    if home_valid {
-                        transition_activity(&mut activity, ActivityKind::Rest, ActivityPhase::Transit, ActivityTarget::Home, "idle:rest_home");
-                        submit_intent(
-                            &mut intents,
-                            entity,
-                            home.x,
-                            home.y,
-                            MovementPriority::Survival,
-                            "idle:rest_home",
-                        );
-                    } else if let Some(town) = world_data.towns.get(town_idx) {
-                        // Homeless NPC: rest at fountain instead
-                        transition_activity(&mut activity, ActivityKind::Rest, ActivityPhase::Transit, ActivityTarget::Fountain, "idle:rest_fountain_homeless");
-                        submit_intent_scattered(
-                            &mut intents, entity, town.center.x, town.center.y, 128.0,
-                            idx, frame, MovementPriority::Survival, "idle:rest_fountain_homeless",
-                        );
+                    if transition_to_rest(
+                        &mut activity,
+                        &mut intents,
+                        entity,
+                        home_valid,
+                        home,
+                        town_center,
+                        idx,
+                        frame,
+                        MovementPriority::Survival,
+                        "idle:rest_home",
+                        "idle:rest_fountain_homeless",
+                    ) && activity.target == ActivityTarget::Fountain {
                         npc_logs.push(
                             idx,
                             game_time.day(),
@@ -2264,8 +2327,19 @@ pub fn rebuild_patrol_routes_system(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::components::{Activity, Building, CombatState, Dead};
-    use crate::resources::GameTime;
+    use crate::components::{
+        Activity, Building, CachedStats, CombatState, Dead, Energy, Faction, FoodStore, GoldStore,
+        GpuSlot, Health, Home, NpcFlags, SquadId, TownAreaLevel, TownEquipment, TownMarker,
+        TownPolicy, TownUpgradeLevel, TownId,
+    };
+    use crate::entity_map::EntityMap;
+    use crate::messages::{CombatLogMsg, GpuUpdateMsg, WorkIntentMsg};
+    use crate::resources::{
+        GameTime, GpuReadState, NpcDecisionConfig, NpcLogCache, PathRequestQueue, PolicySet,
+        PopulationStats, SelectedNpc, SquadState, TownIndex,
+    };
+    use crate::world::Town;
+    use bevy::ecs::system::RunSystemOnce;
     use bevy::time::TimeUpdateStrategy;
 
     // ========================================================================
@@ -2282,6 +2356,76 @@ mod tests {
         app.add_systems(FixedUpdate, on_duty_tick_system);
         app.update();
         app.update();
+        app
+    }
+
+    fn test_cached_stats() -> CachedStats {
+        CachedStats {
+            damage: 5.0,
+            range: 100.0,
+            cooldown: 1.0,
+            projectile_speed: 0.0,
+            projectile_lifetime: 0.0,
+            max_health: 100.0,
+            speed: 100.0,
+            stamina: 1.0,
+            hp_regen: 0.0,
+            berserk_bonus: 0.0,
+        }
+    }
+
+    fn setup_decision_app(policy: PolicySet) -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_message::<CombatLogMsg>();
+        app.add_message::<GpuUpdateMsg>();
+        app.add_message::<WorkIntentMsg>();
+        app.insert_resource(WorldData {
+            towns: vec![Town {
+                name: "TestTown".into(),
+                center: Vec2::new(320.0, 320.0),
+                faction: 1,
+                kind: crate::constants::TownKind::Player,
+            }],
+        });
+        app.insert_resource(PopulationStats::default());
+        app.insert_resource(TownIndex::default());
+        app.insert_resource(PathRequestQueue::default());
+        app.insert_resource(GpuReadState {
+            positions: vec![64.0, 64.0],
+            npc_count: 1,
+            ..Default::default()
+        });
+        app.insert_resource(GameTime {
+            total_seconds: 16.0 * 5.0, // 22:55 -- night, so DayOnly jobs are off-duty
+            ..Default::default()
+        });
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.insert_resource(NpcLogCache::default());
+        app.insert_resource(NpcDecisionConfig {
+            interval: 0.0,
+            max_decisions_per_frame: 1,
+        });
+        app.insert_resource(EntityMap::default());
+        app.insert_resource(SquadState::default());
+        app.insert_resource(SelectedNpc::default());
+        let mut settings = crate::settings::UserSettings::default();
+        settings.npc_log_mode = crate::settings::NpcLogMode::All;
+        app.insert_resource(settings);
+        app.add_systems(FixedUpdate, decision_system);
+
+        let town_entity = app.world_mut().spawn((
+            TownMarker,
+            TownPolicy(policy),
+            FoodStore(0),
+            GoldStore(0),
+            TownUpgradeLevel::default(),
+            TownEquipment::default(),
+            TownAreaLevel::default(),
+        )).id();
+        app.world_mut().resource_mut::<TownIndex>().0.insert(0, town_entity);
         app
     }
 
@@ -2828,6 +2972,46 @@ mod tests {
         assert_eq!(act.phase, ActivityPhase::Transit);
         assert_eq!(act.target, ActivityTarget::Fountain,
             "homeless NPC must target Fountain, not Home");
+    }
+
+    #[test]
+    fn homeless_idle_can_score_rest_when_town_exists() {
+        assert!(has_rest_destination(false, Some(Vec2::new(320.0, 320.0))));
+        assert!(!has_rest_destination(false, None));
+    }
+
+    #[test]
+    fn homeless_squad_rest_gate_targets_fountain() {
+        DECISION_FRAME.store(0, std::sync::atomic::Ordering::Relaxed);
+
+        let mut app = setup_decision_app(PolicySet::default());
+        app.world_mut().resource_mut::<SquadState>().squads[0].rest_when_tired = true;
+        let npc = app.world_mut().spawn((
+            GpuSlot(0),
+            Job::Archer,
+            TownId(0),
+            Faction(1),
+            Energy(20.0),
+            Health(100.0),
+            Home(Vec2::new(-1.0, -1.0)),
+            NpcFlags::default(),
+            CombatState::None,
+            SquadId(0),
+            Activity {
+                kind: ActivityKind::Patrol,
+                phase: ActivityPhase::Transit,
+                target: ActivityTarget::PatrolPost { route: 0, index: 0 },
+                ..Default::default()
+            },
+            test_cached_stats(),
+        )).id();
+
+        app.world_mut().run_system_once(decision_system).unwrap();
+
+        let activity = app.world().get::<Activity>(npc).unwrap();
+        assert_eq!(activity.kind, ActivityKind::Rest);
+        assert_eq!(activity.phase, ActivityPhase::Transit);
+        assert_eq!(activity.target, ActivityTarget::Fountain);
     }
 
     #[test]
