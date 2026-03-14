@@ -498,6 +498,30 @@ Completed items moved from roadmap for readability.
 - [x] System-level tests: headless `App::new()` + `FixedUpdate` tests for energy, regen, starvation, game_time, cooldown, damage, construction systems + population helpers (52 tests)
 - [x] Pure function tests: generate_name, generate_personality in spawn.rs (6 tests)
 
+### NPC Activity Controller (Stage 32 Chunk 4)
+- [x] ActivityDef struct + ACTIVITY_REGISTRY static table (label, distraction, sleep_visual, is_restful, is_working per kind)
+- [x] ActivityKind fieldless (Copy+Eq+Hash), per-instance data on Activity struct fields
+- [x] Registry lookups replace inline match arms (def().distraction, def().label, etc.)
+- [x] NPC activity controller: explicit kind + phase + target model with transition helpers (transition_activity, transition_phase)
+- [x] All 10 activities use ActivityPhase (Ready/Transit/Active/Holding) + ActivityTarget (None/Home/Fountain/PatrolPost/SquadPoint/Worksite/RaidPoint/Dropoff/WanderPoint)
+- [x] Save round-trip preserves phase+target for all activity kinds (12 round-trip tests, GoingToWork/GoingToSquadTarget variants)
+- [x] Sleep visual driven by Activity::visual_key() instead of NpcFlags::at_destination
+- [x] Homeless NPC rest targets town fountain (Home reassigned to town.center on building destroy)
+- [x] transition_to_rest() helper consolidates fountain fallback logic across all rest entry points
+
+### Terrain & Rendering (v0.1.6)
+- [x] Terrain tileset compositing: build_tile_strip pre-fills layers with Grass A base, alpha-composites decorations (fixes black background on forest/rock tiles)
+- [x] Tile variant randomization: splitmix64 hash replaces modulo in Biome::tileset_index() (eliminates checkerboard/cycle patterns)
+- [x] Grass A only (single grass variant, no Grass B alternation)
+- [x] Pathfinding terrain costs: Rock 500->2500, Water 800->5000 (strong terrain avoidance, still passable for escape)
+- [x] Crossbow NPC color fixed from purple to blue matching archer faction color
+
+### UX Improvements (v0.1.6)
+- [x] Camera pan uses wall-clock delta (Time::delta_secs) instead of game-scaled DeltaTime -- camera speed constant regardless of game speed
+- [x] Toast notifications on failed building placement (reuses SaveToast resource, covers all 3 build paths + road upgrades + town-center rejection)
+- [x] Default weapon sprites for archers/crossbowmen on spawn (NpcDef.default_weapon, fresh spawns only)
+- [x] cfg-gate crash recovery for cross-platform CI builds
+
 ### Intentional Removals
 - [x] Sprite atlas browser tool — intentional removal (Godot dev tool, not needed in Bevy)
 - [x] World-space town labels — intentional removal (Godot scenes, not ported)
