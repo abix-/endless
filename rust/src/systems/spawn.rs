@@ -216,9 +216,10 @@ pub fn materialize_npc(
         activity
     };
 
-    // Equipment -- apply default weapon from NpcDef if no weapon equipped
+    // Equipment -- apply default weapon from NpcDef on fresh spawns only (not save restore)
     let mut npc_equipment = overrides.equipment.clone();
-    if npc_equipment.weapon.is_none() {
+    let is_fresh_spawn = overrides.activity.is_none();
+    if is_fresh_spawn && npc_equipment.weapon.is_none() {
         if let Some(sprite) = def.default_weapon {
             npc_equipment.weapon = Some(crate::constants::LootItem {
                 id: 0,
@@ -456,5 +457,26 @@ mod tests {
             }
             // No trait3 field exists — struct enforces max 2 by design
         }
+    }
+
+    #[test]
+    fn default_weapon_only_on_fresh_spawn() {
+        let def = crate::constants::npc_def(Job::Archer);
+        assert!(def.default_weapon.is_some(), "archer should have a default weapon");
+
+        // Fresh spawn: activity is None -> weapon should be applied
+        let fresh = NpcSpawnOverrides::default();
+        assert!(fresh.activity.is_none());
+        assert!(fresh.equipment.weapon.is_none());
+        let is_fresh = fresh.activity.is_none();
+        assert!(is_fresh, "default overrides = fresh spawn");
+
+        // Save restore: activity is Some -> weapon should NOT be applied
+        let restored = NpcSpawnOverrides {
+            activity: Some(Activity::default()),
+            ..Default::default()
+        };
+        let is_restored_fresh = restored.activity.is_none();
+        assert!(!is_restored_fresh, "overrides with activity = save restore, not fresh");
     }
 }
