@@ -99,7 +99,7 @@ pub fn tick(
             test.phase_name = format!("e={:.0} resting={}", energy, resting.is_some());
 
             if let Some(idx) = resting {
-                let eq_base = idx * 28 + 16; // layer 4 = status
+                let eq_base = idx * 28 + 20; // layer 5 = status
                 let col = upload.equip_data.get(eq_base).copied().unwrap_or(-1.0);
                 let atlas = upload.equip_data.get(eq_base + 2).copied().unwrap_or(0.0);
                 if col >= 0.0 && atlas >= 2.5 {

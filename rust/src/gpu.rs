@@ -484,8 +484,7 @@ fn write_npc_visual(
     upload.equip_data[eq + 19] = 0.0;
 
     // Layer 5: Status (sleep icon)
-    let at_dest = npc_flags_q.get(entity).is_ok_and(|f| f.at_destination);
-    let (sc, sr, sa) = if npc_activity.is_some_and(|a| a.kind.def().sleep_visual) && at_dest {
+    let (sc, sr, sa) = if npc_activity.is_some_and(|a| a.visual_key() == 1) {
         (0.0, 0.0, 3.0)
     } else {
         (-1.0, 0.0, 0.0)
