@@ -1209,8 +1209,8 @@ pub const TERRAIN_TILES: [TileSpec; 11] = [
 ];
 
 /// Per-layer base tile for terrain tileset compositing.
-/// Forest sprites have transparency and need a grass base underneath.
-/// Opaque tiles (grass, water, rock, dirt) need no base.
+/// Layers with transparent pixels need a grass base underneath.
+/// Fully opaque tiles (grass, water, dirt) need no base.
 const TERRAIN_BASES: [Option<(u32, u32)>; 11] = [
     None,           // 0: Grass A (opaque)
     None,           // 1: Grass B (opaque)
@@ -1221,7 +1221,7 @@ const TERRAIN_BASES: [Option<(u32, u32)>; 11] = [
     Some((3, 16)),  // 6: Forest E
     Some((3, 16)),  // 7: Forest F
     None,           // 8: Water (opaque)
-    None,           // 9: Rock (opaque quad)
+    Some((3, 16)),  // 9: Rock (quad has transparent pixels, needs Grass A base)
     None,           // 10: Dirt (opaque)
 ];
 
