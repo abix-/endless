@@ -61,6 +61,9 @@ struct ProjParams {
 // Per-entity flags (read only — bit 2 = UNTARGETABLE, skip collision)
 @group(0) @binding(17) var<storage, read> entity_flags: array<u32>;
 
+// Per-projectile homing targets. -1 = no homing.
+@group(0) @binding(18) var<storage, read_write> proj_homing_targets: array<i32>;
+
 @compute @workgroup_size(64, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let i = global_id.x;
@@ -112,8 +115,24 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     // Integrate position with simple Euler step.
     var pos = proj_positions[i];
-    let vel = proj_velocities[i];
+    var vel = proj_velocities[i];
     pos += vel * params.delta;
+
+    let homing_target = proj_homing_targets[i];
+    if (homing_target >= 0 && homing_target < i32(params.entity_count)) {
+        let target_pos = entity_positions[homing_target];
+        let to_target = target_pos - pos;
+        let dist = length(to_target);
+        if (dist > 1.0) {
+            let speed = length(vel);
+            if (speed > 0.0) {
+                let new_dir = to_target / dist;
+                vel = new_dir * speed;
+                proj_velocities[i] = vel;
+            }
+        }
+    }
+
     proj_positions[i] = pos;
 
     // Hit already recorded in a previous frame; do not re-hit.

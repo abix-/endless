@@ -20,6 +20,7 @@ fn fire_projectile(
     lifetime: f32,
     faction: i32,
     shooter: i32,
+    homing_target: i32,
     proj_alloc: &mut ProjSlotAllocator,
     proj_updates: &mut MessageWriter<ProjGpuUpdateMsg>,
     sfx_writer: &mut MessageWriter<crate::resources::PlaySfxMsg>,
@@ -41,6 +42,7 @@ fn fire_projectile(
             faction,
             shooter,
             lifetime,
+            homing_target,
         }));
         sfx_writer.write(crate::resources::PlaySfxMsg {
             kind: crate::resources::SfxKind::ArrowShoot,
@@ -49,6 +51,33 @@ fn fire_projectile(
         return true;
     }
     false
+}
+
+pub(crate) fn fire_loot_fly(
+    src: Vec2,
+    killer_pos: Vec2,
+    target_slot: usize,
+    proj_alloc: &mut ProjSlotAllocator,
+    proj_updates: &mut MessageWriter<ProjGpuUpdateMsg>,
+) {
+    let delta = killer_pos - src;
+    let dist = delta.length().max(1.0);
+    let dir = delta / dist;
+    let speed = 300.0;
+    if let Some(proj_slot) = proj_alloc.alloc() {
+        proj_updates.write(ProjGpuUpdateMsg(ProjGpuUpdate::Spawn {
+            idx: proj_slot,
+            x: src.x,
+            y: src.y,
+            vx: dir.x * speed,
+            vy: dir.y * speed,
+            damage: 0.0,
+            faction: -1,
+            shooter: -1,
+            lifetime: 1.5,
+            homing_target: target_slot as i32,
+        }));
+    }
 }
 
 /// ECS queries for attack_system (bundled to stay under 16-param limit).
@@ -286,6 +315,7 @@ pub fn attack_system(
                         cached_proj_lifetime,
                         faction_id,
                         i as i32,
+                        -1,
                         &mut proj_alloc,
                         &mut proj_updates,
                         &mut sfx_writer,
@@ -392,6 +422,7 @@ pub fn attack_system(
                     cached_proj_lifetime,
                     faction_id,
                     i as i32,
+                    -1,
                     &mut proj_alloc,
                     &mut proj_updates,
                     &mut sfx_writer,
@@ -602,6 +633,7 @@ pub fn building_tower_system(
             stats.proj_lifetime,
             faction,
             bld_slot as i32,
+            -1,
             &mut proj_alloc,
             &mut proj_updates,
             &mut sfx_writer,
@@ -678,6 +710,7 @@ pub fn building_tower_system(
             stats.proj_lifetime,
             *faction,
             *slot as i32,
+            -1,
             &mut proj_alloc,
             &mut proj_updates,
             &mut sfx_writer,
@@ -734,7 +767,10 @@ pub fn sync_building_hp_render(
 mod tests {
     use super::*;
     use crate::components::{AttackTimer, Building, Dead, GpuSlot};
-    use crate::resources::{CombatDebug, GameTime};
+    use crate::gpu::populate_proj_buffer_writes;
+    use crate::messages::ProjGpuUpdateMsg;
+    use crate::resources::{CombatDebug, GameTime, PlaySfxMsg, ProjHitState, ProjSlotAllocator};
+    use bevy::ecs::system::RunSystemOnce;
     use bevy::time::TimeUpdateStrategy;
 
     fn setup_app() -> App {
@@ -961,6 +997,97 @@ mod tests {
         assert!(
             render.positions.is_empty(),
             "should skip query when needs_healing is false"
+        );
+    }
+
+    #[test]
+    fn loot_fly_spawns_homing_zero_damage_projectile_without_sfx() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_message::<ProjGpuUpdateMsg>();
+        app.add_message::<PlaySfxMsg>();
+        app.insert_resource(ProjSlotAllocator::default());
+        app.insert_resource(crate::gpu::ProjBufferWrites::default());
+
+        app.world_mut()
+            .run_system_once(
+                |mut proj_alloc: ResMut<ProjSlotAllocator>,
+                 mut proj_updates: MessageWriter<ProjGpuUpdateMsg>| {
+                    fire_loot_fly(
+                        Vec2::new(10.0, 20.0),
+                        Vec2::new(110.0, 20.0),
+                        7,
+                        &mut proj_alloc,
+                        &mut proj_updates,
+                    );
+                },
+            )
+            .unwrap();
+        app.world_mut()
+            .run_system_once(populate_proj_buffer_writes)
+            .unwrap();
+
+        let writes = app.world().resource::<crate::gpu::ProjBufferWrites>();
+        assert_eq!(writes.active[0], 1);
+        assert_eq!(writes.damages[0], 0.0);
+        assert_eq!(writes.factions[0], -1);
+        assert_eq!(writes.shooters[0], -1);
+        assert_eq!(writes.homing_targets[0], 7);
+        assert!(
+            writes.velocities[0] > 0.0 && writes.velocities[1].abs() < 0.01,
+            "loot fly should start moving toward the killer"
+        );
+
+        let sfx_count = app
+            .world_mut()
+            .run_system_once(|mut reader: MessageReader<PlaySfxMsg>| reader.read().count())
+            .unwrap();
+        assert_eq!(sfx_count, 0, "loot fly should not emit arrow SFX");
+    }
+
+    #[test]
+    fn zero_damage_projectile_hit_does_not_emit_damage() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_message::<crate::messages::DamageMsg>();
+        app.add_message::<ProjGpuUpdateMsg>();
+        app.insert_resource(ProjSlotAllocator::default());
+        app.insert_resource(crate::gpu::ProjBufferWrites::default());
+        app.insert_resource(ProjHitState(vec![[0, 0]]));
+        app.insert_resource(crate::resources::EntityMap::default());
+
+        let slot = app
+            .world_mut()
+            .resource_mut::<ProjSlotAllocator>()
+            .alloc()
+            .expect("projectile slot");
+        {
+            let mut writes = app
+                .world_mut()
+                .resource_mut::<crate::gpu::ProjBufferWrites>();
+            writes.active[slot] = 1;
+            writes.damages[slot] = 0.0;
+            writes.shooters[slot] = -1;
+            writes.factions[slot] = -1;
+        }
+
+        app.world_mut().run_system_once(process_proj_hits).unwrap();
+
+        let damage_count = app
+            .world_mut()
+            .run_system_once(|mut reader: MessageReader<crate::messages::DamageMsg>| {
+                reader.read().count()
+            })
+            .unwrap();
+        let proj_update_count = app
+            .world_mut()
+            .run_system_once(|mut reader: MessageReader<ProjGpuUpdateMsg>| reader.read().count())
+            .unwrap();
+
+        assert_eq!(damage_count, 0, "zero-damage projectile should not damage");
+        assert_eq!(
+            proj_update_count, 1,
+            "hit should still recycle the projectile slot"
         );
     }
 }

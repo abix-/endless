@@ -862,6 +862,7 @@ pub struct ProjBufferWrites {
     pub factions: Vec<i32>,
     pub shooters: Vec<i32>,
     pub lifetimes: Vec<f32>,
+    pub homing_targets: Vec<i32>,
     pub active: Vec<i32>,
     pub hits: Vec<i32>, // [npc_idx, processed] per proj
     pub dirty: bool,
@@ -882,6 +883,7 @@ impl Default for ProjBufferWrites {
             factions: vec![0; max],
             shooters: vec![-1; max],
             lifetimes: vec![0.0; max],
+            homing_targets: vec![-1; max],
             active: vec![0; max],
             hits: vec![-1; max * 2], // -1 = no hit
             dirty: false,
@@ -905,6 +907,7 @@ impl ProjBufferWrites {
                 faction,
                 shooter,
                 lifetime,
+                homing_target,
             } => {
                 let i2 = *idx * 2;
                 if i2 + 1 < self.positions.len() {
@@ -916,6 +919,7 @@ impl ProjBufferWrites {
                     self.factions[*idx] = *faction;
                     self.shooters[*idx] = *shooter;
                     self.lifetimes[*idx] = *lifetime;
+                    self.homing_targets[*idx] = *homing_target;
                     self.active[*idx] = 1;
                     self.hits[i2] = -1;
                     self.hits[i2 + 1] = 0;
@@ -927,6 +931,7 @@ impl ProjBufferWrites {
             ProjGpuUpdate::Deactivate { idx } => {
                 if *idx < self.active.len() {
                     self.active[*idx] = 0;
+                    self.homing_targets[*idx] = -1;
                     // Reset hit record so GPU doesn't re-trigger
                     let i2 = *idx * 2;
                     if i2 + 1 < self.hits.len() {
@@ -1463,6 +1468,7 @@ pub struct ProjGpuBuffers {
     pub factions: Buffer,
     pub shooters: Buffer,
     pub lifetimes: Buffer,
+    pub homing_targets: Buffer,
     pub active: Buffer,
     pub hits: Buffer,
     pub grid_counts: Buffer,
@@ -2067,6 +2073,11 @@ fn init_proj_compute_pipeline(
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }),
+        homing_targets: render_device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("proj_homing_targets"),
+            contents: bytemuck::cast_slice(&vec![-1i32; max]),
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+        }),
         active: render_device.create_buffer(&BufferDescriptor {
             label: Some("proj_active"),
             size: (max * std::mem::size_of::<i32>()) as u64,
@@ -2095,36 +2106,37 @@ fn init_proj_compute_pipeline(
 
     commands.insert_resource(buffers);
 
-    // 18 bindings: 8 proj (rw) + 3 NPC (ro) + 2 NPC grid (ro) + 1 uniform + 2 proj grid (rw) + 1 half_sizes (ro) + 1 entity_flags (ro)
+    // 19 bindings: 9 proj (rw) + 3 NPC (ro) + 2 NPC grid (ro) + 1 uniform + 2 proj grid (rw) + 1 half_sizes (ro) + 1 entity_flags (ro)
     let bind_group_layout = BindGroupLayoutDescriptor::new(
         "ProjComputeLayout",
         &BindGroupLayoutEntries::sequential(
             ShaderStages::COMPUTE,
             (
-                // 0-7: projectile buffers (read_write)
+                // 0-8: projectile buffers (read_write)
                 storage_buffer::<Vec<[f32; 2]>>(false), // positions
                 storage_buffer::<Vec<[f32; 2]>>(false), // velocities
                 storage_buffer::<Vec<f32>>(false),      // damages
                 storage_buffer::<Vec<i32>>(false),      // factions
                 storage_buffer::<Vec<i32>>(false),      // shooters
                 storage_buffer::<Vec<f32>>(false),      // lifetimes
+                storage_buffer::<Vec<i32>>(false),      // homing_targets
                 storage_buffer::<Vec<i32>>(false),      // active
                 storage_buffer::<Vec<[i32; 2]>>(false), // hits
-                // 8-10: NPC buffers (read only)
+                // 9-11: NPC buffers (read only)
                 storage_buffer_read_only::<Vec<[f32; 2]>>(false), // npc_positions
                 storage_buffer_read_only::<Vec<i32>>(false),      // npc_factions
                 storage_buffer_read_only::<Vec<f32>>(false),      // npc_healths
-                // 11-12: NPC spatial grid (read only)
+                // 12-13: NPC spatial grid (read only)
                 storage_buffer_read_only::<Vec<i32>>(false), // grid_counts
                 storage_buffer_read_only::<Vec<i32>>(false), // grid_data
-                // 13: uniform params
+                // 14: uniform params
                 uniform_buffer::<ProjGpuData>(false),
-                // 14-15: projectile spatial grid (read_write)
+                // 15-16: projectile spatial grid (read_write)
                 storage_buffer::<Vec<i32>>(false), // proj_grid_counts
                 storage_buffer::<Vec<i32>>(false), // proj_grid_data
-                // 16: entity hitbox half-sizes (read only)
+                // 17: entity hitbox half-sizes (read only)
                 storage_buffer_read_only::<Vec<[f32; 2]>>(false), // entity_half_sizes
-                // 17: entity flags (read only — UNTARGETABLE skip)
+                // 18: entity flags (read only — UNTARGETABLE skip)
                 storage_buffer_read_only::<Vec<u32>>(false), // entity_flags
             ),
         ),
@@ -2179,6 +2191,7 @@ fn prepare_proj_bind_groups(
         proj.factions.as_entire_buffer_binding(),
         proj.shooters.as_entire_buffer_binding(),
         proj.lifetimes.as_entire_buffer_binding(),
+        proj.homing_targets.as_entire_buffer_binding(),
         proj.active.as_entire_buffer_binding(),
         proj.hits.as_entire_buffer_binding(),
         ent.positions.as_entire_buffer_binding(),
@@ -2221,7 +2234,6 @@ fn prepare_proj_bind_groups(
             storage_bindings.9.clone(),
             storage_bindings.10.clone(),
             storage_bindings.11.clone(),
-            storage_bindings.12.clone(),
             &ub0,
             proj.grid_counts.as_entire_buffer_binding(),
             proj.grid_data.as_entire_buffer_binding(),
@@ -2245,7 +2257,6 @@ fn prepare_proj_bind_groups(
             storage_bindings.9.clone(),
             storage_bindings.10.clone(),
             storage_bindings.11.clone(),
-            storage_bindings.12.clone(),
             &ub1,
             proj.grid_counts.as_entire_buffer_binding(),
             proj.grid_data.as_entire_buffer_binding(),
@@ -2269,7 +2280,6 @@ fn prepare_proj_bind_groups(
             storage_bindings.9.clone(),
             storage_bindings.10.clone(),
             storage_bindings.11.clone(),
-            storage_bindings.12.clone(),
             &ub2,
             proj.grid_counts.as_entire_buffer_binding(),
             proj.grid_data.as_entire_buffer_binding(),

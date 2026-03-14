@@ -1499,11 +1499,25 @@ fn extract_proj_data(
                     &[idx],
                     1,
                 );
+                write_dirty_i32(
+                    &render_queue,
+                    &gpu_bufs.homing_targets,
+                    &writes.homing_targets,
+                    &[idx],
+                    1,
+                );
                 write_dirty_i32(&render_queue, &gpu_bufs.active, &writes.active, &[idx], 1);
                 write_dirty_i32(&render_queue, &gpu_bufs.hits, &writes.hits, &[idx], 2);
             }
             // Deactivate: write only active flag + hit reset
             for &idx in &writes.deactivate_dirty_indices {
+                write_dirty_i32(
+                    &render_queue,
+                    &gpu_bufs.homing_targets,
+                    &writes.homing_targets,
+                    &[idx],
+                    1,
+                );
                 write_dirty_i32(&render_queue, &gpu_bufs.active, &writes.active, &[idx], 1);
                 write_dirty_i32(&render_queue, &gpu_bufs.hits, &writes.hits, &[idx], 2);
             }

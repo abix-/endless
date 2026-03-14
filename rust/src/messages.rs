@@ -252,6 +252,7 @@ pub enum ProjGpuUpdate {
         faction: i32,
         shooter: i32,
         lifetime: f32,
+        homing_target: i32,
     },
     /// Deactivate a projectile (hit processed by CPU).
     Deactivate { idx: usize },

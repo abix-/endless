@@ -3,7 +3,7 @@
 use crate::components::*;
 use crate::constants::STARVING_HP_CAP;
 use crate::messages::CombatLogMsg;
-use crate::messages::{DamageMsg, DirtyWriters, GpuUpdate, GpuUpdateMsg};
+use crate::messages::{DamageMsg, DirtyWriters, GpuUpdate, GpuUpdateMsg, ProjGpuUpdateMsg};
 use crate::resources::{
     ActiveHealingSlots, BuildingHealState, CombatEventKind, EndlessMode, EntityMap, FactionStats,
     GameTime, GpuReadState, GpuSlotPool, HealingZoneCache, HealthDebug, KillStats, PopulationStats,
@@ -55,8 +55,10 @@ pub struct DeathResources<'w, 's> {
     pub work_state_q: Query<'w, 's, &'static crate::components::NpcWorkState>,
     pub carried_loot_q: Query<'w, 's, &'static mut crate::components::CarriedLoot>,
     pub sfx_writer: MessageWriter<'w, crate::resources::PlaySfxMsg>,
+    pub proj_updates: MessageWriter<'w, ProjGpuUpdateMsg>,
     pub work_intents: MessageWriter<'w, crate::messages::WorkIntentMsg>,
     pub gpu_state: Res<'w, crate::gpu::EntityGpuState>,
+    pub proj_alloc: ResMut<'w, crate::resources::ProjSlotAllocator>,
     pub next_loot_id: ResMut<'w, crate::resources::NextLootItemId>,
     pub equipment_q: Query<'w, 's, &'static crate::components::NpcEquipment>,
     pub reputation: ResMut<'w, crate::resources::Reputation>,
@@ -462,6 +464,29 @@ pub fn death_system(
                             .unwrap_or(Vec2::ZERO);
                         let atk_faction = atk.faction;
                         let atk_slot = atk.slot;
+                        if !mass_death {
+                            let dead_base = idx * 2;
+                            let killer_base = atk_slot * 2;
+                            if killer_base + 1 < res.gpu_state.positions.len()
+                                && dead_base + 1 < res.gpu_state.positions.len()
+                            {
+                                let dead_pos = Vec2::new(
+                                    res.gpu_state.positions[dead_base],
+                                    res.gpu_state.positions[dead_base + 1],
+                                );
+                                let killer_pos = Vec2::new(
+                                    res.gpu_state.positions[killer_base],
+                                    res.gpu_state.positions[killer_base + 1],
+                                );
+                                crate::systems::combat::fire_loot_fly(
+                                    dead_pos,
+                                    killer_pos,
+                                    atk_slot,
+                                    &mut res.proj_alloc,
+                                    &mut res.proj_updates,
+                                );
+                            }
+                        }
                         if !dc_keep_fighting {
                             intents.submit(
                                 atk_entity,
@@ -705,6 +730,29 @@ pub fn death_system(
                             "loot:return",
                         );
                     }
+                    if !mass_death {
+                        let dead_base = slot * 2;
+                        let killer_base = k_slot * 2;
+                        if killer_base + 1 < res.gpu_state.positions.len()
+                            && dead_base + 1 < res.gpu_state.positions.len()
+                        {
+                            let dead_pos = Vec2::new(
+                                res.gpu_state.positions[dead_base],
+                                res.gpu_state.positions[dead_base + 1],
+                            );
+                            let killer_pos = Vec2::new(
+                                res.gpu_state.positions[killer_base],
+                                res.gpu_state.positions[killer_base + 1],
+                            );
+                            crate::systems::combat::fire_loot_fly(
+                                dead_pos,
+                                killer_pos,
+                                k_slot,
+                                &mut res.proj_alloc,
+                                &mut res.proj_updates,
+                            );
+                        }
+                    }
 
                     if !mass_death {
                         let item_name = match drop.item {
@@ -743,6 +791,29 @@ pub fn death_system(
                             cl.equipment.push(item);
                         }
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: k_slot }));
+                        if !mass_death {
+                            let dead_base = slot * 2;
+                            let killer_base = k_slot * 2;
+                            if killer_base + 1 < res.gpu_state.positions.len()
+                                && dead_base + 1 < res.gpu_state.positions.len()
+                            {
+                                let dead_pos = Vec2::new(
+                                    res.gpu_state.positions[dead_base],
+                                    res.gpu_state.positions[dead_base + 1],
+                                );
+                                let killer_pos = Vec2::new(
+                                    res.gpu_state.positions[killer_base],
+                                    res.gpu_state.positions[killer_base + 1],
+                                );
+                                crate::systems::combat::fire_loot_fly(
+                                    dead_pos,
+                                    killer_pos,
+                                    k_slot,
+                                    &mut res.proj_alloc,
+                                    &mut res.proj_updates,
+                                );
+                            }
+                        }
                         if !mass_death {
                             let killer_name = npc_stats_q
                                 .get(k_entity)
