@@ -463,6 +463,7 @@ pub enum ActivitySave {
     MiningAtMine,
     SquadTarget,
     SquadTargetAt { target: [f32; 2] },
+    GoingToSquadTarget { target: [f32; 2] },
 }
 
 impl ActivitySave {
@@ -477,8 +478,9 @@ impl ActivitySave {
                 ActivityPhase::Transit => Self::Patrolling,
                 _ => Self::OnDuty { ticks_waiting: a.ticks_waiting },
             },
-            ActivityKind::SquadAttack => match a.target {
-                ActivityTarget::SquadPoint(pos) => Self::SquadTargetAt { target: v2(pos) },
+            ActivityKind::SquadAttack => match (a.phase, a.target) {
+                (ActivityPhase::Transit, ActivityTarget::SquadPoint(pos)) => Self::GoingToSquadTarget { target: v2(pos) },
+                (_, ActivityTarget::SquadPoint(pos)) => Self::SquadTargetAt { target: v2(pos) },
                 _ => Self::SquadTarget,
             },
             ActivityKind::Rest => match a.phase {
@@ -511,6 +513,7 @@ impl ActivitySave {
             Self::Patrolling => Activity { kind: ActivityKind::Patrol, phase: ActivityPhase::Transit, target: ActivityTarget::PatrolPost { route: 0, index: 0 }, ..Default::default() },
             Self::SquadTarget => Activity { kind: ActivityKind::SquadAttack, phase: ActivityPhase::Holding, target: ActivityTarget::None, ..Default::default() },
             Self::SquadTargetAt { target } => Activity { kind: ActivityKind::SquadAttack, phase: ActivityPhase::Holding, target: ActivityTarget::SquadPoint(to_vec2(*target)), ..Default::default() },
+            Self::GoingToSquadTarget { target } => Activity { kind: ActivityKind::SquadAttack, phase: ActivityPhase::Transit, target: ActivityTarget::SquadPoint(to_vec2(*target)), ..Default::default() },
             Self::GoingToRest => Activity { kind: ActivityKind::Rest, phase: ActivityPhase::Transit, target: ActivityTarget::Home, ..Default::default() },
             Self::Resting => Activity { kind: ActivityKind::Rest, phase: ActivityPhase::Active, target: ActivityTarget::Home, ..Default::default() },
             Self::GoingToHeal => Activity { kind: ActivityKind::Heal, phase: ActivityPhase::Transit, target: ActivityTarget::Fountain, recover_until: 100.0, ..Default::default() },
@@ -2222,7 +2225,6 @@ pub fn save_toast_tick_system(time: Res<Time>, mut toast: ResMut<SaveToast>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::components::*;
 
     /// Round-trip: Activity -> ActivitySave -> Activity must preserve kind + phase + target.
     fn assert_round_trip(activity: Activity) {
@@ -2270,6 +2272,15 @@ mod tests {
         let target = Vec2::new(500.0, 300.0);
         assert_round_trip(Activity {
             kind: ActivityKind::SquadAttack, phase: ActivityPhase::Holding,
+            target: ActivityTarget::SquadPoint(target), ..Default::default()
+        });
+    }
+
+    #[test]
+    fn round_trip_squad_attack_transit() {
+        let target = Vec2::new(500.0, 300.0);
+        assert_round_trip(Activity {
+            kind: ActivityKind::SquadAttack, phase: ActivityPhase::Transit,
             target: ActivityTarget::SquadPoint(target), ..Default::default()
         });
     }
