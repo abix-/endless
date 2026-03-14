@@ -100,7 +100,10 @@ pub fn tick(
     match test.phase {
         // Phase 1: Farmers spawned and heading to farms
         1 => {
-            test.phase_name = format!("npcs={}/3 transit={} working={}", npc_count, transit, working);
+            test.phase_name = format!(
+                "npcs={}/3 transit={} working={}",
+                npc_count, transit, working
+            );
             if transit + working >= 3 {
                 test.pass_phase(elapsed, format!("transit={} working={}", transit, working));
             } else if npc_count >= 3 && elapsed > 0.5 {
@@ -123,10 +126,7 @@ pub fn tick(
             if elapsed > 10.0 {
                 test.fail_phase(
                     elapsed,
-                    format!(
-                        "transit={} working={} npcs={}",
-                        transit, working, npc_count
-                    ),
+                    format!("transit={} working={} npcs={}", transit, working, npc_count),
                 );
             }
         }
@@ -150,10 +150,7 @@ pub fn tick(
             if moved_count >= 1 {
                 test.pass_phase(elapsed, format!("moved={}", moved_count));
             } else if elapsed > 8.0 {
-                test.fail_phase(
-                    elapsed,
-                    format!("moved=0, len={}", positions.len()),
-                );
+                test.fail_phase(elapsed, format!("moved=0, len={}", positions.len()));
             }
         }
         // Phase 3: Farmers working at farms

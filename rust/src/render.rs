@@ -9,7 +9,8 @@ use bevy::prelude::*;
 use bevy::sprite_render::{AlphaMode2d, TileData, TilemapChunk, TilemapChunkTileData};
 
 use crate::components::{
-    Activity, Building, Dead, Faction, GpuSlot, Job, ManualTarget, ActivityKind, MinerHomeConfig, NpcFlags, SquadId,
+    Activity, ActivityKind, Building, Dead, Faction, GpuSlot, Job, ManualTarget, MinerHomeConfig,
+    NpcFlags, SquadId,
 };
 use crate::gpu::RenderFrameConfig;
 use crate::messages::{SelectFactionMsg, TerrainDirtyMsg};
@@ -201,7 +202,10 @@ fn camera_pan_system(
     mut contexts: bevy_egui::EguiContexts,
 ) {
     // Suppress camera pan when typing in a text field
-    if contexts.ctx_mut().is_ok_and(|ctx| ctx.wants_keyboard_input()) {
+    if contexts
+        .ctx_mut()
+        .is_ok_and(|ctx| ctx.wants_keyboard_input())
+    {
         return;
     }
     let Ok((mut transform, projection)) = query.single_mut() else {
@@ -522,12 +526,10 @@ fn click_to_select_system(
                 if px < -9000.0 {
                     continue;
                 }
-                let faction = click
-                    .entity_map
-                    .get_npc(i)
-                    .map(|n| n.faction)
-                    .unwrap_or(0);
-                if faction == crate::constants::FACTION_PLAYER || faction == crate::constants::FACTION_NEUTRAL {
+                let faction = click.entity_map.get_npc(i).map(|n| n.faction).unwrap_or(0);
+                if faction == crate::constants::FACTION_PLAYER
+                    || faction == crate::constants::FACTION_NEUTRAL
+                {
                     continue;
                 }
                 let dx = world_pos.x - px;
@@ -573,7 +575,9 @@ fn click_to_select_system(
                     let px = inst.position.x;
                     let py = inst.position.y;
                     let faction = inst.faction;
-                    if faction == crate::constants::FACTION_PLAYER || faction == crate::constants::FACTION_NEUTRAL {
+                    if faction == crate::constants::FACTION_PLAYER
+                        || faction == crate::constants::FACTION_NEUTRAL
+                    {
                         continue;
                     }
                     if px < -9000.0 {
@@ -1055,7 +1059,8 @@ fn spawn_world_tilemap(
     if let Some(img) = images.get(&building_atlas) {
         assert_eq!(
             img.height(),
-            crate::world::ATLAS_CELL * (btiles.len() + crate::constants::autotile_total_extra_layers()) as u32,
+            crate::world::ATLAS_CELL
+                * (btiles.len() + crate::constants::autotile_total_extra_layers()) as u32,
             "building atlas height mismatch"
         );
     }
@@ -1126,14 +1131,7 @@ mod tests {
     use bevy::time::TimeUpdateStrategy;
     use bevy_egui::EguiUserTextures;
 
-    fn setup_box_select_app() -> (
-        App,
-        Entity,
-        Entity,
-        Entity,
-        Entity,
-        Entity,
-    ) {
+    fn setup_box_select_app() -> (App, Entity, Entity, Entity, Entity, Entity) {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
         app.insert_resource(TimeUpdateStrategy::ManualDuration(
@@ -1151,11 +1149,11 @@ mod tests {
         });
         app.insert_resource(crate::resources::GpuReadState {
             positions: vec![
-                0.0, 0.0,      // selected player archer
-                5.0, 5.0,      // player farmer inside box (excluded)
-                0.0, 0.0,      // enemy archer inside box (excluded)
-                50.0, 50.0,    // player archer outside box
-                100.0, 100.0,  // previously selected direct-control archer
+                0.0, 0.0, // selected player archer
+                5.0, 5.0, // player farmer inside box (excluded)
+                0.0, 0.0, // enemy archer inside box (excluded)
+                50.0, 50.0, // player archer outside box
+                100.0, 100.0, // previously selected direct-control archer
             ],
             npc_count: 5,
             ..Default::default()
@@ -1205,7 +1203,9 @@ mod tests {
         );
 
         {
-            let mut squad_state = app.world_mut().resource_mut::<crate::resources::SquadState>();
+            let mut squad_state = app
+                .world_mut()
+                .resource_mut::<crate::resources::SquadState>();
             squad_state.squads[0].members = vec![old_dc_archer];
             squad_state.selected = 0;
         }
@@ -1232,15 +1232,18 @@ mod tests {
         faction: i32,
         direct_control: bool,
     ) -> Entity {
-        let entity = app.world_mut().spawn((
-            GpuSlot(slot),
-            job,
-            Faction(faction),
-            NpcFlags {
-                direct_control,
-                ..Default::default()
-            },
-        )).id();
+        let entity = app
+            .world_mut()
+            .spawn((
+                GpuSlot(slot),
+                job,
+                Faction(faction),
+                NpcFlags {
+                    direct_control,
+                    ..Default::default()
+                },
+            ))
+            .id();
         app.world_mut()
             .resource_mut::<EntityMap>()
             .register_npc(slot, entity, job, faction, 0);

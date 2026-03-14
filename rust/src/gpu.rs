@@ -33,8 +33,8 @@ use std::borrow::Cow;
 
 use crate::components::{Building, Dead, Faction, GpuSlot, Job};
 use crate::constants::{
-    FOOD_SPRITE, GOLD_SPRITE, MAX_ENTITIES, MAX_NPC_COUNT,
-    MAX_PROJECTILES as MAX_PROJECTILE_COUNT, PROJECTILE_HIT_HALF_LENGTH, PROJECTILE_HIT_HALF_WIDTH,
+    FOOD_SPRITE, GOLD_SPRITE, MAX_ENTITIES, MAX_NPC_COUNT, MAX_PROJECTILES as MAX_PROJECTILE_COUNT,
+    PROJECTILE_HIT_HALF_LENGTH, PROJECTILE_HIT_HALF_WIDTH,
 };
 use crate::messages::{GpuUpdate, GpuUpdateMsg, ProjGpuUpdate, ProjGpuUpdateMsg};
 use crate::resources::{
@@ -304,14 +304,24 @@ impl EntityGpuState {
             }
             GpuUpdate::SetHealth { idx, health } => {
                 if *idx < self.healths.len() {
-                    let max = self.max_healths.get(*idx).copied().unwrap_or(100.0).max(1.0);
+                    let max = self
+                        .max_healths
+                        .get(*idx)
+                        .copied()
+                        .unwrap_or(100.0)
+                        .max(1.0);
                     self.healths[*idx] = *health / max;
                     self.health_dirty_indices.push(*idx);
                 }
             }
             GpuUpdate::ApplyDamage { idx, amount } => {
                 if *idx < self.healths.len() {
-                    let max = self.max_healths.get(*idx).copied().unwrap_or(100.0).max(1.0);
+                    let max = self
+                        .max_healths
+                        .get(*idx)
+                        .copied()
+                        .unwrap_or(100.0)
+                        .max(1.0);
                     self.healths[*idx] = (self.healths[*idx] - amount / max).max(0.0);
                     self.health_dirty_indices.push(*idx);
                 }
@@ -1252,14 +1262,8 @@ impl Plugin for GpuComputePlugin {
             .init_resource::<NpcVisualUpload>()
             .init_resource::<ProjBufferWrites>()
             .init_resource::<ReadbackState>()
-            .add_systems(
-                Update,
-                (update_gpu_data, update_proj_gpu_data),
-            )
-            .add_systems(
-                FixedUpdate,
-                (populate_tile_flags, sync_readback_ranges),
-            )
+            .add_systems(Update, (update_gpu_data, update_proj_gpu_data))
+            .add_systems(FixedUpdate, (populate_tile_flags, sync_readback_ranges))
             .add_systems(
                 PostUpdate,
                 (populate_gpu_state, build_visual_upload).chain(),

@@ -712,7 +712,9 @@ fn build_building_body_instances(
         let faction = gpu_state.factions.get(idx).copied().unwrap_or(0);
         // During construction, pass progress fraction (0→0.999) so shader clips sprite.
         // Fully-built buildings pass real HP (always >> 1.0), so shader skips the clip.
-        let under_construction = entity_map.entities.get(&idx)
+        let under_construction = entity_map
+            .entities
+            .get(&idx)
             .and_then(|&e| construction_q.get(e).ok())
             .map_or(0.0, |c| c.0);
         let health = if under_construction > 0.0 {
@@ -2287,4 +2289,3 @@ fn queue_projs(
         }
     }
 }
-

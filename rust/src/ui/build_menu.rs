@@ -115,7 +115,9 @@ fn init_sprite_cache(
 
         let handle = match def.tile {
             TileSpec::External(path) => {
-                let Some(ext_h) = external_handle(path, sprites) else { continue; };
+                let Some(ext_h) = external_handle(path, sprites) else {
+                    continue;
+                };
                 // Autotile: extract just the first sprite from the strip
                 if def.autotile {
                     if let Some(ext_img) = images.get(ext_h) {
@@ -204,7 +206,10 @@ pub(crate) fn build_menu_system(
             if ui.add(btn).clicked() {
                 ui_state.build_menu_open = !ui_state.build_menu_open;
                 if ui_state.build_menu_open {
-                    build_ctx.town_data_idx = world_data.towns.iter().position(|t| t.faction == crate::constants::FACTION_PLAYER);
+                    build_ctx.town_data_idx = world_data
+                        .towns
+                        .iter()
+                        .position(|t| t.faction == crate::constants::FACTION_PLAYER);
                 } else {
                     build_ctx.selected_build = None;
                 }
@@ -216,7 +221,10 @@ pub(crate) fn build_menu_system(
     }
 
     if build_ctx.town_data_idx.is_none() {
-        build_ctx.town_data_idx = world_data.towns.iter().position(|t| t.faction == crate::constants::FACTION_PLAYER);
+        build_ctx.town_data_idx = world_data
+            .towns
+            .iter()
+            .position(|t| t.faction == crate::constants::FACTION_PLAYER);
     }
 
     let Some(town_data_idx) = build_ctx.town_data_idx else {
@@ -239,9 +247,17 @@ pub(crate) fn build_menu_system(
     // Fixed center-bottom anchor; max width shrinks to avoid overlapping panels
     let screen_w = ctx.content_rect().width();
     let left_panel_w: f32 = if ui_state.left_panel_open { 348.0 } else { 0.0 };
-    let inspector_w: f32 = if ui_state.inspector_visible { 306.0 } else { 0.0 };
+    let inspector_w: f32 = if ui_state.inspector_visible {
+        306.0
+    } else {
+        0.0
+    };
     let left_w = left_panel_w.max(inspector_w);
-    let right_w = if ui_state.combat_log_visible { 454.0 } else { 0.0 };
+    let right_w = if ui_state.combat_log_visible {
+        454.0
+    } else {
+        0.0
+    };
     let max_w = (screen_w - left_w - right_w - 16.0).max(300.0);
 
     let mut open = true;
@@ -256,7 +272,11 @@ pub(crate) fn build_menu_system(
         .frame(frame)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                for &cat in &[DisplayCategory::Economy, DisplayCategory::Military, DisplayCategory::Tower] {
+                for &cat in &[
+                    DisplayCategory::Economy,
+                    DisplayCategory::Military,
+                    DisplayCategory::Tower,
+                ] {
                     let label = match cat {
                         DisplayCategory::Economy => "Economy",
                         DisplayCategory::Military => "Military",
@@ -267,13 +287,20 @@ pub(crate) fn build_menu_system(
                     let (fill, text_color) = if active {
                         (egui::Color32::from_rgb(60, 70, 90), egui::Color32::WHITE)
                     } else {
-                        (egui::Color32::from_rgb(35, 35, 40), egui::Color32::from_rgb(140, 140, 140))
+                        (
+                            egui::Color32::from_rgb(35, 35, 40),
+                            egui::Color32::from_rgb(140, 140, 140),
+                        )
                     };
-                    let btn = egui::Button::new(
-                        egui::RichText::new(label).size(16.0).color(text_color),
-                    )
-                    .fill(fill)
-                    .corner_radius(egui::CornerRadius { nw: 4, ne: 4, sw: 0, se: 0 });
+                    let btn =
+                        egui::Button::new(egui::RichText::new(label).size(16.0).color(text_color))
+                            .fill(fill)
+                            .corner_radius(egui::CornerRadius {
+                                nw: 4,
+                                ne: 4,
+                                sw: 0,
+                                se: 0,
+                            });
                     if ui.add(btn).clicked() {
                         build_ctx.build_tab = cat;
                         if let Some(kind) = build_ctx.selected_build {
@@ -314,7 +341,9 @@ pub(crate) fn build_menu_system(
                             _ => None,
                         };
                         if let Some(unlock_kind) = required_unlock {
-                            let unlocked = UPGRADES.index_map.get(&("Town", unlock_kind))
+                            let unlocked = UPGRADES
+                                .index_map
+                                .get(&("Town", unlock_kind))
                                 .map(|&idx| levels.get(idx).copied().unwrap_or(0) >= 1)
                                 .unwrap_or(false);
                             if !unlocked {

@@ -25,7 +25,11 @@ pub(crate) fn upgrade_content(
         .unwrap_or(0);
     let food = town_access.food(town_idx as i32);
     let gold = town_access.gold(town_idx as i32);
-    let player_faction = world_data.towns.get(town_idx).map(|t| t.faction as usize).unwrap_or(0);
+    let player_faction = world_data
+        .towns
+        .get(town_idx)
+        .map(|t| t.faction as usize)
+        .unwrap_or(0);
     let villager_stats = upgrade.faction_stats.stats.get(player_faction);
     let alive = villager_stats.map(|s| s.alive).unwrap_or(0);
     let levels = town_access.upgrade_levels(town_idx as i32);

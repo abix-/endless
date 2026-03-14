@@ -8,9 +8,9 @@ use std::collections::{HashMap, HashSet};
 use crate::components::*;
 use crate::constants::UpgradeStatKind;
 use crate::constants::{
-    BOAT_SPEED, ENDLESS_RESPAWN_DELAY_HOURS, FARM_BASE_GROWTH_RATE,
-    FARM_TENDED_GROWTH_RATE, MIGRATION_BASE_SIZE, RAIDER_FORAGE_RATE, RAIDER_SETTLE_RADIUS,
-    SPAWNER_RESPAWN_HOURS, STARVING_HP_CAP, STARVING_SPEED_MULT, TOWN_GRID_SPACING,
+    BOAT_SPEED, ENDLESS_RESPAWN_DELAY_HOURS, FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE,
+    MIGRATION_BASE_SIZE, RAIDER_FORAGE_RATE, RAIDER_SETTLE_RADIUS, SPAWNER_RESPAWN_HOURS,
+    STARVING_HP_CAP, STARVING_SPEED_MULT, TOWN_GRID_SPACING,
 };
 use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg, SpawnNpcMsg};
 use crate::resources::*;
@@ -180,10 +180,7 @@ pub fn growth_system(
                 } else {
                     FARM_BASE_GROWTH_RATE
                 };
-                let mult = farm_mults
-                    .get(town_id.0 as usize)
-                    .copied()
-                    .unwrap_or(1.0);
+                let mult = farm_mults.get(town_id.0 as usize).copied().unwrap_or(1.0);
                 let growth_rate = base_rate * mult;
                 if growth_rate > 0.0 {
                     production.progress += growth_rate * hours_elapsed;
@@ -233,7 +230,9 @@ pub fn raider_forage_system(
     }
 
     for (town_idx, town) in world_data.towns.iter().enumerate() {
-        if town.faction != crate::constants::FACTION_PLAYER && town.faction != crate::constants::FACTION_NEUTRAL {
+        if town.faction != crate::constants::FACTION_PLAYER
+            && town.faction != crate::constants::FACTION_NEUTRAL
+        {
             if town_idx < raider_state.forage_timers.len() {
                 raider_state.forage_timers[town_idx] += 1.0;
                 if raider_state.forage_timers[town_idx] >= interval {
@@ -382,7 +381,9 @@ pub fn spawner_respawn_system(
             spawner.respawn_timer -= 1.0;
             if spawner.respawn_timer <= 0.0 {
                 // Spawn replacement NPC
-                let Some(slot) = slots.alloc_reset() else { continue };
+                let Some(slot) = slots.alloc_reset() else {
+                    continue;
+                };
                 let Some(inst) = entity_map.get_instance(bld_slot) else {
                     continue;
                 };
@@ -461,7 +462,8 @@ pub fn mining_policy_system(
             mining.discovered_mines[town_idx].clear();
             continue;
         }
-        let radius = town_access.policy(town_idx as i32)
+        let radius = town_access
+            .policy(town_idx as i32)
             .map(|p| p.mining_radius)
             .unwrap_or(crate::constants::DEFAULT_MINING_RADIUS);
         let r2 = radius * radius;
@@ -506,10 +508,18 @@ pub fn mining_policy_system(
         let auto_home_slots: Vec<usize> = entity_map
             .iter_kind_for_town(BuildingKind::MinerHome, town_idx as u32)
             .filter(|inst| {
-                let Some(&entity) = entity_map.entities.get(&inst.slot) else { return false };
-                let Ok(cfg) = miner_cfg_q.get(entity) else { return false };
-                if cfg.manual_mine { return false; }
-                let Ok(sp) = spawner_q.get(entity) else { return false };
+                let Some(&entity) = entity_map.entities.get(&inst.slot) else {
+                    return false;
+                };
+                let Ok(cfg) = miner_cfg_q.get(entity) else {
+                    return false;
+                };
+                if cfg.manual_mine {
+                    return false;
+                }
+                let Ok(sp) = spawner_q.get(entity) else {
+                    return false;
+                };
                 sp.npc_slot
                     .map(|s| entity_map.get_npc(s).is_some_and(|n| !n.dead))
                     .unwrap_or(false)
@@ -519,8 +529,12 @@ pub fn mining_policy_system(
 
         // Clear stale assignments (mine disabled or no longer discovered)
         for &slot in &auto_home_slots {
-            let Some(&entity) = entity_map.entities.get(&slot) else { continue };
-            let Ok(cfg) = miner_cfg_q.get(entity) else { continue };
+            let Some(&entity) = entity_map.entities.get(&slot) else {
+                continue;
+            };
+            let Ok(cfg) = miner_cfg_q.get(entity) else {
+                continue;
+            };
             if let Some(pos) = cfg.assigned_mine {
                 let cell = (
                     (pos.x / TOWN_GRID_SPACING).floor() as i32,
@@ -536,7 +550,9 @@ pub fn mining_policy_system(
 
         if enabled_positions.is_empty() {
             for &slot in &auto_home_slots {
-                let Some(&entity) = entity_map.entities.get(&slot) else { continue };
+                let Some(&entity) = entity_map.entities.get(&slot) else {
+                    continue;
+                };
                 if let Ok(mut cfg) = miner_cfg_q.get_mut(entity) {
                     cfg.assigned_mine = None;
                 }
@@ -547,7 +563,9 @@ pub fn mining_policy_system(
         // Round-robin assign mines to auto homes
         for (i, &slot) in auto_home_slots.iter().enumerate() {
             let mine_pos = enabled_positions[i % enabled_positions.len()];
-            let Some(&entity) = entity_map.entities.get(&slot) else { continue };
+            let Some(&entity) = entity_map.entities.get(&slot) else {
+                continue;
+            };
             if let Ok(mut cfg) = miner_cfg_q.get_mut(entity) {
                 cfg.assigned_mine = Some(mine_pos);
             }
@@ -624,8 +642,7 @@ pub fn squad_cleanup_system(
     // Phase 3: dismiss excess (target_size > 0 and members > target_size, all squads)
     for (si, squad) in squad_state.squads.iter_mut().enumerate() {
         if squad.target_size > 0 && squad.members.len() > squad.target_size {
-            let to_dismiss: Vec<Entity> =
-                squad.members.drain(squad.target_size..).collect();
+            let to_dismiss: Vec<Entity> = squad.members.drain(squad.target_size..).collect();
             for &entity in &to_dismiss {
                 let Some(slot) = entity_map.slot_for_entity(entity) else {
                     continue;
@@ -754,11 +771,13 @@ fn create_ai_town(
     let town_data_idx = world_data.towns.len() - 1;
 
     // Register in FactionList
-    res.faction_list.factions.push(crate::resources::FactionData {
-        kind: town_kind.faction_kind(),
-        name: def.label.into(),
-        towns: vec![town_data_idx],
-    });
+    res.faction_list
+        .factions
+        .push(crate::resources::FactionData {
+            kind: town_kind.faction_kind(),
+            name: def.label.into(),
+            towns: vec![town_data_idx],
+        });
 
     // Extend per-town non-ECS resources
     let num_towns = world_data.towns.len();
@@ -770,7 +789,11 @@ fn create_ai_town(
     res.raider_state.forage_timers.resize(num_towns, 0.0);
 
     // Create AiPlayer with random personality and road style
-    let ai_kind = if def.is_raider { AiKind::Raider } else { AiKind::Builder };
+    let ai_kind = if def.is_raider {
+        AiKind::Raider
+    } else {
+        AiKind::Builder
+    };
     let mut rng = rand::rng();
     let personalities = [
         AiPersonality::Aggressive,
@@ -795,17 +818,19 @@ fn create_ai_town(
     });
 
     // Spawn ECS town entity
-    let entity = commands.spawn((
-        crate::components::TownMarker,
-        crate::components::TownAreaLevel(0),
-        crate::components::FoodStore(0),
-        crate::components::GoldStore(0),
-        crate::components::WoodStore(0),
-        crate::components::StoneStore(0),
-        crate::components::TownPolicy(policy),
-        crate::components::TownUpgradeLevel::default(),
-        crate::components::TownEquipment::default(),
-    )).id();
+    let entity = commands
+        .spawn((
+            crate::components::TownMarker,
+            crate::components::TownAreaLevel(0),
+            crate::components::FoodStore(0),
+            crate::components::GoldStore(0),
+            crate::components::WoodStore(0),
+            crate::components::StoneStore(0),
+            crate::components::TownPolicy(policy),
+            crate::components::TownUpgradeLevel::default(),
+            crate::components::TownEquipment::default(),
+        ))
+        .id();
     res.town_index.0.insert(town_data_idx as i32, entity);
 
     (town_data_idx, next_faction)
@@ -1114,7 +1139,9 @@ pub fn endless_system(
             &mut area_level,
         );
         if let Some(&entity) = res.town_index.0.get(&(town_data_idx as i32)) {
-            commands.entity(entity).insert(crate::components::TownAreaLevel(area_level));
+            commands
+                .entity(entity)
+                .insert(crate::components::TownAreaLevel(area_level));
         }
         world::stamp_dirt(&mut world_state.grid, &[mg.settle_target]);
 
@@ -1293,7 +1320,9 @@ pub fn merchant_tick_system(
     // Ensure stocks vec is sized
     let town_count = world_data.towns.len();
     if merchant_inv.stocks.len() < town_count {
-        merchant_inv.stocks.resize_with(town_count, MerchantStock::default);
+        merchant_inv
+            .stocks
+            .resize_with(town_count, MerchantStock::default);
     }
 
     for town_idx in 0..town_count {

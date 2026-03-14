@@ -84,8 +84,12 @@ pub(super) fn setup(
     for player in &state.ai_state.players {
         let ti = player.town_data_idx as i32;
         if let Some(&e) = town_index.0.get(&ti) {
-            commands.entity(e).insert(crate::components::FoodStore(100_000));
-            commands.entity(e).insert(crate::components::GoldStore(100_000));
+            commands
+                .entity(e)
+                .insert(crate::components::FoodStore(100_000));
+            commands
+                .entity(e)
+                .insert(crate::components::GoldStore(100_000));
         }
     }
 
@@ -122,10 +126,8 @@ pub(super) fn tick(
     if test.phase == 1 {
         let ai_towns = ai_state.players.len();
         let homes_ok = ai_state.players.iter().all(|player| {
-            entity_map.count_for_town(
-                BuildingKind::ArcherHome,
-                player.town_data_idx as u32,
-            ) == archer_homes
+            entity_map.count_for_town(BuildingKind::ArcherHome, player.town_data_idx as u32)
+                == archer_homes
         });
 
         if ai_towns == STRESS_AI_TOWNS && homes_ok {
@@ -142,10 +144,8 @@ pub(super) fn tick(
                 .players
                 .iter()
                 .filter(|player| {
-                    entity_map.count_for_town(
-                        BuildingKind::ArcherHome,
-                        player.town_data_idx as u32,
-                    ) != archer_homes
+                    entity_map.count_for_town(BuildingKind::ArcherHome, player.town_data_idx as u32)
+                        != archer_homes
                 })
                 .count();
             test.fail_phase(
@@ -185,7 +185,9 @@ pub(super) fn ui(
             if homes > 0 {
                 ui.label(format!(
                     "Total: {} towns × {} = {} homes",
-                    STRESS_AI_TOWNS, homes, STRESS_AI_TOWNS * homes
+                    STRESS_AI_TOWNS,
+                    homes,
+                    STRESS_AI_TOWNS * homes
                 ));
             }
             ui.add_space(4.0);

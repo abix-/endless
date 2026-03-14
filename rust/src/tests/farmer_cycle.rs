@@ -78,14 +78,28 @@ pub fn tick(
         .iter_kind_for_town(BuildingKind::Farm, 0)
         .collect();
 
-    let spawned_from_homes = homes.iter().filter(|h| {
-        entity_map.entities.get(&h.slot)
-            .and_then(|&e| spawner_q.get(e).ok())
-            .is_some_and(|s| s.npc_slot.is_some())
-    }).count();
-    let occupied_farms = farms.iter().filter(|f| entity_map.occupant_count(f.slot) == 1).count();
-    let overbooked_farms = farms.iter().filter(|f| entity_map.occupant_count(f.slot) > 1).count();
-    let total_occupants: i32 = farms.iter().map(|f| entity_map.occupant_count(f.slot)).sum();
+    let spawned_from_homes = homes
+        .iter()
+        .filter(|h| {
+            entity_map
+                .entities
+                .get(&h.slot)
+                .and_then(|&e| spawner_q.get(e).ok())
+                .is_some_and(|s| s.npc_slot.is_some())
+        })
+        .count();
+    let occupied_farms = farms
+        .iter()
+        .filter(|f| entity_map.occupant_count(f.slot) == 1)
+        .count();
+    let overbooked_farms = farms
+        .iter()
+        .filter(|f| entity_map.occupant_count(f.slot) > 1)
+        .count();
+    let total_occupants: i32 = farms
+        .iter()
+        .map(|f| entity_map.occupant_count(f.slot))
+        .sum();
 
     let going_work = entity_map
         .iter_npcs()
@@ -141,7 +155,10 @@ pub fn tick(
                 farmer_count, TOTAL_HOMES, spawned_from_homes, TOTAL_HOMES
             );
             if farmer_count == TOTAL_HOMES && spawned_from_homes == TOTAL_HOMES {
-                test.pass_phase(elapsed, format!("{} farmers spawned from {} homes", TOTAL_HOMES, TOTAL_HOMES));
+                test.pass_phase(
+                    elapsed,
+                    format!("{} farmers spawned from {} homes", TOTAL_HOMES, TOTAL_HOMES),
+                );
             } else if elapsed > 25.0 {
                 test.fail_phase(
                     elapsed,
@@ -158,8 +175,14 @@ pub fn tick(
                 "occupied_farms={}/{} overbooked={} total_occ={}",
                 occupied_farms, TOTAL_FARMS, overbooked_farms, total_occupants
             );
-            if occupied_farms == TOTAL_FARMS && overbooked_farms == 0 && total_occupants == TOTAL_FARMS as i32 {
-                test.pass_phase(elapsed, format!("{} farm slots claimed, no overbooking", TOTAL_FARMS));
+            if occupied_farms == TOTAL_FARMS
+                && overbooked_farms == 0
+                && total_occupants == TOTAL_FARMS as i32
+            {
+                test.pass_phase(
+                    elapsed,
+                    format!("{} farm slots claimed, no overbooking", TOTAL_FARMS),
+                );
             } else if elapsed > 30.0 {
                 test.fail_phase(
                     elapsed,
@@ -177,11 +200,17 @@ pub fn tick(
                 active_workers, TOTAL_FARMS, working, going_work
             );
             if active_workers == TOTAL_FARMS {
-                test.pass_phase(elapsed, format!("{} farmers assigned to {} farms", TOTAL_FARMS, TOTAL_FARMS));
+                test.pass_phase(
+                    elapsed,
+                    format!("{} farmers assigned to {} farms", TOTAL_FARMS, TOTAL_FARMS),
+                );
             } else if elapsed > 35.0 {
                 test.fail_phase(
                     elapsed,
-                    format!("active_workers={} (expected {})", active_workers, TOTAL_FARMS),
+                    format!(
+                        "active_workers={} (expected {})",
+                        active_workers, TOTAL_FARMS
+                    ),
                 );
             }
         }
@@ -191,10 +220,16 @@ pub fn tick(
                 "idle_like={}/{} active_workers={} farmers={}",
                 idle_like, EXPECTED_IDLE, active_workers, farmer_count
             );
-            if idle_like >= EXPECTED_IDLE && active_workers <= TOTAL_FARMS && farmer_count == TOTAL_HOMES {
+            if idle_like >= EXPECTED_IDLE
+                && active_workers <= TOTAL_FARMS
+                && farmer_count == TOTAL_HOMES
+            {
                 test.pass_phase(
                     elapsed,
-                    format!("{} idle farmers confirmed (idle_like={})", EXPECTED_IDLE, idle_like),
+                    format!(
+                        "{} idle farmers confirmed (idle_like={})",
+                        EXPECTED_IDLE, idle_like
+                    ),
                 );
             } else if elapsed > 40.0 {
                 test.fail_phase(
@@ -224,7 +259,10 @@ pub fn tick(
             );
 
             if stable_ticks >= 20 {
-                test.pass_phase(elapsed, format!("Occupancy stable: {} occupied, 0 overbooked", TOTAL_FARMS));
+                test.pass_phase(
+                    elapsed,
+                    format!("Occupancy stable: {} occupied, 0 overbooked", TOTAL_FARMS),
+                );
                 test.complete(elapsed);
             } else if elapsed > 50.0 {
                 test.fail_phase(

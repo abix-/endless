@@ -406,15 +406,9 @@ pub fn tick(
             test.phase_name = format!("raider fountain[{}] hp={}", target, hp);
 
             if fountain.is_none() {
-                test.pass_phase(
-                    elapsed,
-                    format!("raider fountain[{}] destroyed", target),
-                );
+                test.pass_phase(elapsed, format!("raider fountain[{}] destroyed", target));
             } else if hp <= 0.0 {
-                test.pass_phase(
-                    elapsed,
-                    format!("raider fountain[{}] hp={}", target, hp),
-                );
+                test.pass_phase(elapsed, format!("raider fountain[{}] hp={}", target, hp));
             } else if elapsed > 80.0 {
                 test.fail_phase(
                     elapsed,

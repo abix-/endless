@@ -69,11 +69,11 @@ fn step_complete(
             entity_map.count_for_town(BuildingKind::FarmerHome, pt as u32)
                 > tutorial.initial_farmer_homes
         }
-        5 => false,  // info-only
+        5 => false, // info-only
         6 => selected_npc.0 >= 0,
         7 => follow.0,
         8 => town_access.food(pt as i32) > 0,
-        9 => false,  // info-only
+        9 => false, // info-only
         10 => {
             entity_map.count_for_town(BuildingKind::Waypoint, pt as u32)
                 > tutorial.initial_waypoints

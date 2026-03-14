@@ -4,7 +4,7 @@
 #![allow(
     clippy::too_many_arguments,
     clippy::type_complexity,
-    clippy::collapsible_if,
+    clippy::collapsible_if
 )]
 
 use bevy::prelude::*;

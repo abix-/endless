@@ -30,6 +30,8 @@ fn generate_name(job: Job, slot: usize) -> String {
         Job::Miner => MINER_NOUNS[(slot / ADJECTIVES.len()) % MINER_NOUNS.len()],
         Job::Crossbow => CROSSBOW_NOUNS[(slot / ADJECTIVES.len()) % CROSSBOW_NOUNS.len()],
         Job::Boat => "Boat",
+        Job::Woodcutter => FARMER_NOUNS[(slot / ADJECTIVES.len()) % FARMER_NOUNS.len()],
+        Job::Quarrier => MINER_NOUNS[(slot / ADJECTIVES.len()) % MINER_NOUNS.len()],
     };
     format!("{} {}", adj, noun)
 }
@@ -265,6 +267,8 @@ pub fn materialize_npc(
         CarriedLoot {
             food: overrides.carried_food.unwrap_or(0),
             gold: overrides.carried_gold.unwrap_or(0),
+            wood: 0,
+            stone: 0,
             equipment: overrides.carried_equipment.clone(),
         },
         // Work state (always present)

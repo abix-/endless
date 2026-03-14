@@ -1,12 +1,12 @@
 //! Constants - Tuning parameters for the NPC system
 
-mod upgrades;
-mod npcs;
 mod buildings;
+mod npcs;
+mod upgrades;
 
-pub use upgrades::*;
-pub use npcs::*;
 pub use buildings::*;
+pub use npcs::*;
+pub use upgrades::*;
 
 use bevy::reflect::Reflect;
 
@@ -331,6 +331,12 @@ pub const MINE_MIN_SETTLEMENT_DIST: f32 = 300.0;
 /// Minimum distance between gold mines.
 pub const MINE_MIN_SPACING: f32 = 400.0;
 
+/// Minimum distance between tree nodes spawned during worldgen.
+pub const TREE_MIN_SPACING: f32 = TOWN_GRID_SPACING * 2.0;
+
+/// Minimum distance between rock nodes spawned during worldgen.
+pub const ROCK_MIN_SPACING: f32 = TOWN_GRID_SPACING * 2.0;
+
 /// Default town policy radius (pixels) for auto-mining discovery around fountain.
 pub const DEFAULT_MINING_RADIUS: f32 = 2000.0;
 
@@ -339,7 +345,9 @@ pub const DEFAULT_MINING_RADIUS: f32 = 2000.0;
 // ============================================================================
 
 /// What kind of faction this is — determines AI behavior and UI treatment.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Reflect)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Reflect,
+)]
 pub enum FactionKind {
     Neutral,
     Player,
@@ -348,7 +356,9 @@ pub enum FactionKind {
 }
 
 /// Town type identity. Replaces implicit `is_raider: bool` branching.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Reflect, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Hash, Debug, Reflect, serde::Serialize, serde::Deserialize,
+)]
 pub enum TownKind {
     Player,
     AiBuilder,
@@ -374,9 +384,21 @@ pub struct TownDef {
 }
 
 pub const TOWN_REGISTRY: &[TownDef] = &[
-    TownDef { kind: TownKind::Player,    label: "Village",     is_raider: false },
-    TownDef { kind: TownKind::AiBuilder, label: "Settlement",  is_raider: false },
-    TownDef { kind: TownKind::AiRaider,  label: "Raider Camp", is_raider: true },
+    TownDef {
+        kind: TownKind::Player,
+        label: "Village",
+        is_raider: false,
+    },
+    TownDef {
+        kind: TownKind::AiBuilder,
+        label: "Settlement",
+        is_raider: false,
+    },
+    TownDef {
+        kind: TownKind::AiRaider,
+        label: "Raider Camp",
+        is_raider: true,
+    },
 ];
 
 /// Look up town definition by kind. Panics if kind not in registry.
@@ -421,8 +443,10 @@ mod tests {
         let a = roll_loot_item(1, 42);
         let b = roll_loot_item(1, 9999);
         // Different seeds should produce different items (extremely unlikely to collide)
-        assert!(a.kind != b.kind || a.rarity != b.rarity || a.name != b.name,
-            "different seeds should usually produce different items");
+        assert!(
+            a.kind != b.kind || a.rarity != b.rarity || a.name != b.name,
+            "different seeds should usually produce different items"
+        );
     }
 
     #[test]
@@ -430,8 +454,12 @@ mod tests {
         for seed in 0..100 {
             let item = roll_loot_item(1, seed);
             let (min, max) = item.rarity.stat_range();
-            assert!(item.stat_bonus >= min && item.stat_bonus <= max,
-                "seed {seed}: bonus {} outside [{min}, {max}] for {:?}", item.stat_bonus, item.rarity);
+            assert!(
+                item.stat_bonus >= min && item.stat_bonus <= max,
+                "seed {seed}: bonus {} outside [{min}, {max}] for {:?}",
+                item.stat_bonus,
+                item.rarity
+            );
         }
     }
 
@@ -443,8 +471,14 @@ mod tests {
         for [lo, hi] in rarities.array_windows() {
             let (_, max_lower) = lo.stat_range();
             let (min_upper, _) = hi.stat_range();
-            assert!(min_upper >= max_lower,
-                "{:?} max {} should be <= {:?} min {}", lo, max_lower, hi, min_upper);
+            assert!(
+                min_upper >= max_lower,
+                "{:?} max {} should be <= {:?} min {}",
+                lo,
+                max_lower,
+                hi,
+                min_upper
+            );
         }
     }
 
@@ -452,8 +486,14 @@ mod tests {
     fn rarity_gold_costs_increase() {
         let rarities = [Rarity::Common, Rarity::Uncommon, Rarity::Rare, Rarity::Epic];
         for [lo, hi] in rarities.array_windows() {
-            assert!(hi.gold_cost() > lo.gold_cost(),
-                "{:?} cost {} should be > {:?} cost {}", hi, hi.gold_cost(), lo, lo.gold_cost());
+            assert!(
+                hi.gold_cost() > lo.gold_cost(),
+                "{:?} cost {} should be > {:?} cost {}",
+                hi,
+                hi.gold_cost(),
+                lo,
+                lo.gold_cost()
+            );
         }
     }
 
@@ -494,11 +534,23 @@ mod tests {
 
     #[test]
     fn all_jobs_have_npc_def() {
-        let jobs = [Job::Farmer, Job::Archer, Job::Raider, Job::Fighter, Job::Miner, Job::Crossbow, Job::Boat];
+        let jobs = [
+            Job::Farmer,
+            Job::Archer,
+            Job::Raider,
+            Job::Fighter,
+            Job::Miner,
+            Job::Crossbow,
+            Job::Boat,
+        ];
         for job in jobs {
             let def = npc_def(job);
             assert!(def.base_hp > 0.0, "{:?} should have positive base HP", job);
-            assert!(def.base_speed > 0.0, "{:?} should have positive base speed", job);
+            assert!(
+                def.base_speed > 0.0,
+                "{:?} should have positive base speed",
+                job
+            );
         }
     }
 
@@ -507,12 +559,24 @@ mod tests {
     #[test]
     fn all_building_kinds_have_def() {
         let kinds = [
-            BuildingKind::Fountain, BuildingKind::Waypoint, BuildingKind::Farm,
-            BuildingKind::FarmerHome, BuildingKind::ArcherHome, BuildingKind::Tent,
-            BuildingKind::GoldMine, BuildingKind::MinerHome, BuildingKind::CrossbowHome,
-            BuildingKind::FighterHome, BuildingKind::Road, BuildingKind::StoneRoad,
-            BuildingKind::MetalRoad, BuildingKind::Wall, BuildingKind::Tower,
-            BuildingKind::Merchant, BuildingKind::Casino, BuildingKind::TreeNode,
+            BuildingKind::Fountain,
+            BuildingKind::Waypoint,
+            BuildingKind::Farm,
+            BuildingKind::FarmerHome,
+            BuildingKind::ArcherHome,
+            BuildingKind::Tent,
+            BuildingKind::GoldMine,
+            BuildingKind::MinerHome,
+            BuildingKind::CrossbowHome,
+            BuildingKind::FighterHome,
+            BuildingKind::Road,
+            BuildingKind::StoneRoad,
+            BuildingKind::MetalRoad,
+            BuildingKind::Wall,
+            BuildingKind::Tower,
+            BuildingKind::Merchant,
+            BuildingKind::Casino,
+            BuildingKind::TreeNode,
             BuildingKind::RockNode,
         ];
         for kind in kinds {
@@ -551,6 +615,9 @@ mod tests {
 
     #[test]
     fn autotile_order_farm_none() {
-        assert!(autotile_order(BuildingKind::Farm).is_none(), "farms don't autotile");
+        assert!(
+            autotile_order(BuildingKind::Farm).is_none(),
+            "farms don't autotile"
+        );
     }
 }

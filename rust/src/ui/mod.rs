@@ -23,8 +23,8 @@ use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
 use crate::settings::{self, ControlAction, ControlGroup, UserSettings};
 use crate::systemparams::WorldState;
-use crate::systems::{AiPersonality, AiPlayerState};
 use crate::systems::ai_player::RoadStyle;
+use crate::systems::{AiPersonality, AiPlayerState};
 use crate::world::{self, BuildingKind, WorldGenConfig};
 
 /// Render a small "?" button (frameless) that shows help text on hover.
@@ -735,7 +735,10 @@ pub fn ui_toggle_system(
         return;
     }
     // Suppress hotkeys when an egui text field (chat, etc.) has keyboard focus
-    if contexts.ctx_mut().is_ok_and(|ctx| ctx.wants_keyboard_input()) {
+    if contexts
+        .ctx_mut()
+        .is_ok_and(|ctx| ctx.wants_keyboard_input())
+    {
         return;
     }
 
@@ -758,7 +761,7 @@ pub fn ui_toggle_system(
         ui_state.toggle_left_tab(LeftPanelTab::Squads);
     }
     if keys.just_pressed(settings.key_for_action(ControlAction::ToggleInventory)) {
-        ui_state.armory_open = !ui_state.armory_open;
+        ui_state.toggle_armory();
     }
     if keys.just_pressed(settings.key_for_action(ControlAction::ToggleFactions)) {
         ui_state.toggle_left_tab(LeftPanelTab::Factions);
@@ -954,7 +957,9 @@ fn game_startup_system(
         .position(|t| t.faction == crate::constants::FACTION_PLAYER)
         .unwrap_or(0);
     if let Some(&e) = town_index.0.get(&(town_idx as i32)) {
-        commands.entity(e).insert(crate::components::TownPolicy(saved.policy));
+        commands
+            .entity(e)
+            .insert(crate::components::TownPolicy(saved.policy));
     }
     if !saved.auto_upgrades.is_empty() && town_idx < extra.auto_upgrade.flags.len() {
         let flags = &mut extra.auto_upgrade.flags[town_idx];
@@ -971,7 +976,9 @@ fn game_startup_system(
             );
         }
         if let Some(&e) = town_index.0.get(&(player.town_data_idx as i32)) {
-            commands.entity(e).insert(crate::components::TownPolicy(policy));
+            commands
+                .entity(e)
+                .insert(crate::components::TownPolicy(policy));
         }
         if let Some(town) = world_state.world_data.towns.get(player.town_data_idx) {
             extra.combat_log.write(crate::messages::CombatLogMsg {
@@ -992,7 +999,12 @@ fn game_startup_system(
     extra.ai_state.players = ai_players;
 
     // Restore AI manager settings for player town
-    if let Some(player) = extra.ai_state.players.iter_mut().find(|p| p.town_data_idx == town_idx) {
+    if let Some(player) = extra
+        .ai_state
+        .players
+        .iter_mut()
+        .find(|p| p.town_data_idx == town_idx)
+    {
         player.active = saved.ai_manager_active;
         player.build_enabled = saved.ai_manager_build;
         player.upgrade_enabled = saved.ai_manager_upgrade;
@@ -1019,10 +1031,7 @@ fn game_startup_system(
 
     world_state.dirty_writers.emit_all();
 
-    info!(
-        "Game startup complete: {} towns",
-        num_towns,
-    );
+    info!("Game startup complete: {} towns", num_towns,);
 }
 
 // ============================================================================
@@ -1094,7 +1103,9 @@ fn game_escape_system(
     settings: Res<UserSettings>,
     mut contexts: bevy_egui::EguiContexts,
 ) {
-    let egui_wants_kb = contexts.ctx_mut().is_ok_and(|ctx| ctx.wants_keyboard_input());
+    let egui_wants_kb = contexts
+        .ctx_mut()
+        .is_ok_and(|ctx| ctx.wants_keyboard_input());
     if keys.just_pressed(settings.key_for_action(ControlAction::PauseMenu)) {
         // Cancel box-select or squad target placement first
         if squad_state.box_selecting || squad_state.drag_start.is_some() {
@@ -1261,8 +1272,18 @@ fn pause_menu_system(
         .min_width(820.0)
         .min_height(520.0)
         .show(ctx, |ui| {
-            let PauseMenuLocals { save_name, load_name, rebinding } = &mut *locals;
-            let llm_preview = llm_state.as_ref().map(|s| (s.last_command.as_str(), s.last_payload.as_str(), s.last_response.as_str()));
+            let PauseMenuLocals {
+                save_name,
+                load_name,
+                rebinding,
+            } = &mut *locals;
+            let llm_preview = llm_state.as_ref().map(|s| {
+                (
+                    s.last_command.as_str(),
+                    s.last_payload.as_str(),
+                    s.last_response.as_str(),
+                )
+            });
             let resp = settings_panel_ui(
                 ui,
                 &mut settings,
@@ -1406,7 +1427,11 @@ fn game_over_system(
         .show(ctx, |ui| {
             ui.add_space(4.0);
 
-            let player_town = world_data.towns.iter().position(|t| t.faction == crate::constants::FACTION_PLAYER).unwrap_or(0);
+            let player_town = world_data
+                .towns
+                .iter()
+                .position(|t| t.faction == crate::constants::FACTION_PLAYER)
+                .unwrap_or(0);
             let days_survived = game_time.day();
             let (alive, dead, kills) = faction_stats
                 .stats
@@ -1416,56 +1441,68 @@ fn game_over_system(
             let food = town_access.food(player_town as i32);
             let gold = town_access.gold(player_town as i32);
 
-            egui::Grid::new("game_over_stats").num_columns(2).spacing([20.0, 4.0]).show(ui, |ui| {
-                ui.label("Survived:");
-                ui.label(format!("{} days", days_survived));
-                ui.end_row();
+            egui::Grid::new("game_over_stats")
+                .num_columns(2)
+                .spacing([20.0, 4.0])
+                .show(ui, |ui| {
+                    ui.label("Survived:");
+                    ui.label(format!("{} days", days_survived));
+                    ui.end_row();
 
-                ui.label("NPCs alive:");
-                ui.label(format!("{}", alive));
-                ui.end_row();
+                    ui.label("NPCs alive:");
+                    ui.label(format!("{}", alive));
+                    ui.end_row();
 
-                ui.label("NPCs lost:");
-                ui.label(format!("{}", dead));
-                ui.end_row();
+                    ui.label("NPCs lost:");
+                    ui.label(format!("{}", dead));
+                    ui.end_row();
 
-                ui.label("Kills:");
-                ui.label(format!("{}", kills));
-                ui.end_row();
+                    ui.label("Kills:");
+                    ui.label(format!("{}", kills));
+                    ui.end_row();
 
-                ui.label("Raiders killed:");
-                ui.label(format!("{}", kill_stats.archer_kills));
-                ui.end_row();
+                    ui.label("Raiders killed:");
+                    ui.label(format!("{}", kill_stats.archer_kills));
+                    ui.end_row();
 
-                ui.label("Villagers lost:");
-                ui.label(format!("{}", kill_stats.villager_kills));
-                ui.end_row();
+                    ui.label("Villagers lost:");
+                    ui.label(format!("{}", kill_stats.villager_kills));
+                    ui.end_row();
 
-                ui.label("Food:");
-                ui.label(format!("{}", food));
-                ui.end_row();
+                    ui.label("Food:");
+                    ui.label(format!("{}", food));
+                    ui.end_row();
 
-                ui.label("Gold:");
-                ui.label(format!("{}", gold));
-                ui.end_row();
-            });
+                    ui.label("Gold:");
+                    ui.label(format!("{}", gold));
+                    ui.end_row();
+                });
 
             ui.add_space(12.0);
             ui.separator();
             ui.add_space(8.0);
 
             ui.vertical_centered(|ui| {
-                if ui.button(egui::RichText::new("  Play Again  ").size(16.0)).clicked() {
+                if ui
+                    .button(egui::RichText::new("  Play Again  ").size(16.0))
+                    .clicked()
+                {
                     ui_state.game_over = false;
                     next_state.set(AppState::Playing);
                 }
                 ui.add_space(4.0);
-                if ui.button(egui::RichText::new("  Keep Watching  ").size(16.0)).clicked() {
+                if ui
+                    .button(egui::RichText::new("  Keep Watching  ").size(16.0))
+                    .clicked()
+                {
                     ui_state.game_over = false;
                     game_time.paused = false;
                 }
                 ui.add_space(4.0);
-                if ui.button(egui::RichText::new("  Exit to Main Menu  ").size(16.0)).clicked() {
+                if ui
+                    .button(egui::RichText::new("  Exit to Main Menu  ").size(16.0))
+                    .clicked()
+                {
                     ui_state.game_over = false;
                     next_state.set(AppState::MainMenu);
                 }
@@ -1507,8 +1544,20 @@ fn slots_on_line(start: (usize, usize), end: (usize, usize)) -> Vec<(usize, usiz
     let (c1, r1) = (end.0 as i32, end.1 as i32);
     let dc = (c1 - c0).abs();
     let dr = (r1 - r0).abs();
-    let sc: i32 = if c0 < c1 { 1 } else if c0 > c1 { -1 } else { 0 };
-    let sr: i32 = if r0 < r1 { 1 } else if r0 > r1 { -1 } else { 0 };
+    let sc: i32 = if c0 < c1 {
+        1
+    } else if c0 > c1 {
+        -1
+    } else {
+        0
+    };
+    let sr: i32 = if r0 < r1 {
+        1
+    } else if r0 > r1 {
+        -1
+    } else {
+        0
+    };
     let mut err = dc - dr;
 
     let mut out = Vec::new();
@@ -1666,8 +1715,13 @@ fn build_place_click_system(
         build_ctx.clear_drag();
         let cost = crate::constants::building_cost(kind);
         match world_state.place_building(
-            &mut food_val, kind, town_data_idx, world_pos, cost,
-            &mut gpu_updates, &mut commands,
+            &mut food_val,
+            kind,
+            town_data_idx,
+            world_pos,
+            cost,
+            &mut gpu_updates,
+            &mut commands,
         ) {
             Ok(()) => {
                 let label = crate::constants::building_def(kind).label;
@@ -1702,14 +1756,8 @@ fn build_place_click_system(
             return;
         }
 
-        let start = build_ctx
-            .drag_start_slot
-            .take()
-            .unwrap_or((gc, gr));
-        let end = build_ctx
-            .drag_current_slot
-            .take()
-            .unwrap_or((gc, gr));
+        let start = build_ctx.drag_start_slot.take().unwrap_or((gc, gr));
+        let end = build_ctx.drag_current_slot.take().unwrap_or((gc, gr));
         let cost = crate::constants::building_cost(kind);
         let mut placed = 0usize;
         let mut upgraded = 0usize;
@@ -1717,21 +1765,38 @@ fn build_place_click_system(
         for (sc, sr) in slots_on_line(start, end) {
             let cell_pos = world_state.grid.grid_to_world(sc, sr);
             match world_state.place_building(
-                &mut food_val, kind, town_data_idx, cell_pos, cost,
-                &mut gpu_updates, &mut commands,
+                &mut food_val,
+                kind,
+                town_data_idx,
+                cell_pos,
+                cost,
+                &mut gpu_updates,
+                &mut commands,
             ) {
-                Ok(()) => { placed += 1; }
+                Ok(()) => {
+                    placed += 1;
+                }
                 Err("cell already has a building") => {
                     // Try upgrading existing road
                     match world_state.upgrade_road(
-                        &mut food_val, kind, town_data_idx, cell_pos,
-                        &mut gpu_updates, &mut commands,
+                        &mut food_val,
+                        kind,
+                        town_data_idx,
+                        cell_pos,
+                        &mut gpu_updates,
+                        &mut commands,
                     ) {
-                        Ok(()) => { upgraded += 1; }
-                        Err(e) => { last_err = Some(e); }
+                        Ok(()) => {
+                            upgraded += 1;
+                        }
+                        Err(e) => {
+                            last_err = Some(e);
+                        }
                     }
                 }
-                Err(e) => { last_err = Some(e); }
+                Err(e) => {
+                    last_err = Some(e);
+                }
             }
         }
         if placed == 0 && upgraded == 0 {
@@ -1749,7 +1814,12 @@ fn build_place_click_system(
             if upgraded > 0 {
                 parts.push(format!("upgraded {upgraded}"));
             }
-            let msg = format!("{} {} in {}", parts.join(", "), label.to_lowercase(), town_name);
+            let msg = format!(
+                "{} {} in {}",
+                parts.join(", "),
+                label.to_lowercase(),
+                town_name
+            );
             combat_log.write(crate::messages::CombatLogMsg {
                 kind: CombatEventKind::Harvest,
                 faction: 0,
@@ -1769,26 +1839,38 @@ fn build_place_click_system(
     let (cc, cr) = world_state.grid.world_to_grid(center);
 
     let mut last_place_err: Option<&str> = None;
-    let mut try_place_at_slot = |slot_col: usize, slot_row: usize, err_out: &mut Option<&str>| -> bool {
-        if !world_state.grid.can_town_build(slot_col, slot_row, town_data_idx as u16) {
-            *err_out = Some("outside buildable area");
-            return false;
-        }
-        if slot_col == cc && slot_row == cr {
-            *err_out = Some("cannot build on town center");
-            return false;
-        }
-        let pos = world_state.grid.grid_to_world(slot_col, slot_row);
-        let cost = crate::constants::building_cost(kind);
+    let mut try_place_at_slot =
+        |slot_col: usize, slot_row: usize, err_out: &mut Option<&str>| -> bool {
+            if !world_state
+                .grid
+                .can_town_build(slot_col, slot_row, town_data_idx as u16)
+            {
+                *err_out = Some("outside buildable area");
+                return false;
+            }
+            if slot_col == cc && slot_row == cr {
+                *err_out = Some("cannot build on town center");
+                return false;
+            }
+            let pos = world_state.grid.grid_to_world(slot_col, slot_row);
+            let cost = crate::constants::building_cost(kind);
 
-        match world_state.place_building(
-            &mut food_val, kind, town_data_idx, pos, cost,
-            &mut gpu_updates, &mut commands,
-        ) {
-            Ok(()) => true,
-            Err(e) => { *err_out = Some(e); false }
-        }
-    };
+            match world_state.place_building(
+                &mut food_val,
+                kind,
+                town_data_idx,
+                pos,
+                cost,
+                &mut gpu_updates,
+                &mut commands,
+            ) {
+                Ok(()) => true,
+                Err(e) => {
+                    *err_out = Some(e);
+                    false
+                }
+            }
+        };
 
     if just_pressed {
         build_ctx.drag_start_slot = Some((gc, gr));
@@ -2294,40 +2376,45 @@ fn draw_slot_indicators(
     let indicator_z = -0.2;
 
     // Lazy-init cached mesh and material handles
-    let mesh_h = cache.mesh.get_or_insert_with(|| {
-        meshes.add(Rectangle::from_size(Vec2::splat(cell)))
-    }).clone();
-    let base_h = cache.base_mat.get_or_insert_with(|| {
-        color_materials.add(ColorMaterial::from(Color::srgba(0.2, 0.9, 0.2, 0.32)))
-    }).clone();
+    let mesh_h = cache
+        .mesh
+        .get_or_insert_with(|| meshes.add(Rectangle::from_size(Vec2::splat(cell))))
+        .clone();
+    let base_h = cache
+        .base_mat
+        .get_or_insert_with(|| {
+            color_materials.add(ColorMaterial::from(Color::srgba(0.2, 0.9, 0.2, 0.32)))
+        })
+        .clone();
     // Keep all buildable indicators visually consistent: green for any valid placement zone.
-    let road_h = cache.road_mat.get_or_insert_with(|| {
-        color_materials.add(ColorMaterial::from(Color::srgba(0.2, 0.9, 0.2, 0.32)))
-    }).clone();
-    let chain_h = cache.chain_mat.get_or_insert_with(|| {
-        color_materials.add(ColorMaterial::from(Color::srgba(0.2, 0.9, 0.2, 0.28)))
-    }).clone();
+    let road_h = cache
+        .road_mat
+        .get_or_insert_with(|| {
+            color_materials.add(ColorMaterial::from(Color::srgba(0.2, 0.9, 0.2, 0.32)))
+        })
+        .clone();
+    let chain_h = cache
+        .chain_mat
+        .get_or_insert_with(|| {
+            color_materials.add(ColorMaterial::from(Color::srgba(0.2, 0.9, 0.2, 0.28)))
+        })
+        .clone();
 
-    let is_road_selected = build_ctx
-        .selected_build
-        .is_some_and(|k| k.is_road());
+    let is_road_selected = build_ctx.selected_build.is_some_and(|k| k.is_road());
 
     // Collect all empty buildable slots (base + road-expanded)
-    let slots = world::empty_slots(
-        town_data_idx,
-        center,
-        &grid,
-        &entity_map,
-    );
+    let slots = world::empty_slots(town_data_idx, center, &grid, &entity_map);
 
-    let (base_min_c, base_max_c, base_min_r, base_max_r) = world::build_bounds(area_level, center, &grid);
+    let (base_min_c, base_max_c, base_min_r, base_max_r) =
+        world::build_bounds(area_level, center, &grid);
     let mut seen = std::collections::HashSet::new();
     for &(col, row) in &slots {
         if is_road_selected && !road_ui_cell_allowed(grid.cell(col, row)) {
             continue;
         }
         seen.insert((col, row));
-        let is_base = col >= base_min_c && col <= base_max_c && row >= base_min_r && row <= base_max_r;
+        let is_base =
+            col >= base_min_c && col <= base_max_c && row >= base_min_r && row <= base_max_r;
         let mat = if is_base { &base_h } else { &road_h };
 
         let slot_pos = grid.grid_to_world(col, row);
@@ -2347,12 +2434,18 @@ fn draw_slot_indicators(
         let mut chain_candidates = Vec::new();
 
         // 1 tile around each existing road
-        for kind in [world::BuildingKind::Road, world::BuildingKind::StoneRoad, world::BuildingKind::MetalRoad] {
+        for kind in [
+            world::BuildingKind::Road,
+            world::BuildingKind::StoneRoad,
+            world::BuildingKind::MetalRoad,
+        ] {
             for inst in entity_map.iter_kind_for_town(kind, ti) {
                 let (rc, rr) = grid.world_to_grid(inst.position);
                 for dr in -1i32..=1 {
                     for dc in -1i32..=1 {
-                        if dr == 0 && dc == 0 { continue; }
+                        if dr == 0 && dc == 0 {
+                            continue;
+                        }
                         let nc = rc as i32 + dc;
                         let nr = rr as i32 + dr;
                         if nc >= 0 && nr >= 0 {
@@ -2366,7 +2459,8 @@ fn draw_slot_indicators(
         // 1 tile around base boundary
         for row in base_min_r.saturating_sub(1)..=(base_max_r + 1) {
             for col in base_min_c.saturating_sub(1)..=(base_max_c + 1) {
-                if col >= base_min_c && col <= base_max_c && row >= base_min_r && row <= base_max_r {
+                if col >= base_min_c && col <= base_max_c && row >= base_min_r && row <= base_max_r
+                {
                     continue; // skip interior
                 }
                 chain_candidates.push((col, row));
@@ -2375,9 +2469,15 @@ fn draw_slot_indicators(
 
         let (cc, cr) = grid.world_to_grid(center);
         for (col, row) in chain_candidates {
-            if col == cc && row == cr { continue; }
-            if seen.contains(&(col, row)) { continue; }
-            if !seen.insert((col, row)) { continue; }
+            if col == cc && row == cr {
+                continue;
+            }
+            if seen.contains(&(col, row)) {
+                continue;
+            }
+            if !seen.insert((col, row)) {
+                continue;
+            }
 
             // Must be a valid world cell, empty, and not forbidden terrain for roads
             let cell = grid.cell(col, row);

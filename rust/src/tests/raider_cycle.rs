@@ -24,7 +24,9 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
         params.set_production_ready(Vec2::new(fx, 320.0));
     }
     params.init_economy(2);
-    if let Some(mut f) = params.town_access.food_mut(0) { f.0 = 10; } // villager food
+    if let Some(mut f) = params.town_access.food_mut(0) {
+        f.0 = 10;
+    } // villager food
     raider_state.init(1, 5);
     params.game_time.time_scale = 1.0;
 
@@ -82,10 +84,7 @@ pub fn tick(
             Some(a) if a.kind == ActivityKind::Raid => raiding += 1,
             Some(a) if matches!(a.kind, ActivityKind::ReturnLoot) => {
                 returning += 1;
-                if carried_loot_q
-                    .get(npc.entity)
-                    .is_ok_and(|cl| cl.food > 0)
-                {
+                if carried_loot_q.get(npc.entity).is_ok_and(|cl| cl.food > 0) {
                     carrying += 1;
                 }
             }

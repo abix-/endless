@@ -548,6 +548,11 @@ impl ActivitySave {
                     mine_pos: [0.0, 0.0],
                 }, // position resolved from worksite at runtime
             },
+            // Chop/Quarry save as their work phase (same shape as Mine)
+            ActivityKind::Chop | ActivityKind::Quarry => match a.phase {
+                ActivityPhase::Holding => Self::Working,
+                _ => Self::GoingToWork,
+            },
         }
     }
 
@@ -1509,6 +1514,8 @@ pub fn collect_npc_data(
                 Job::Miner => 4,
                 Job::Crossbow => 5,
                 Job::Boat => 6,
+                Job::Woodcutter => 7,
+                Job::Quarrier => 8,
             },
             faction: npc.faction,
             town_id: npc.town_idx,

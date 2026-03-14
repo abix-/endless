@@ -229,7 +229,10 @@ fn blackjack_content(
         .collect();
 
     if ai_towns.is_empty() {
-        ui.colored_label(egui::Color32::from_rgb(200, 200, 150), "No AI factions to play against.");
+        ui.colored_label(
+            egui::Color32::from_rgb(200, 200, 150),
+            "No AI factions to play against.",
+        );
         return;
     }
 
@@ -279,9 +282,16 @@ fn blackjack_content(
         } else {
             egui::Color32::from_rgb(180, 180, 180)
         };
-        ui.label(egui::RichText::new(format!("Your gold: {player_gold}")).color(egui::Color32::from_rgb(220, 200, 60)).strong());
+        ui.label(
+            egui::RichText::new(format!("Your gold: {player_gold}"))
+                .color(egui::Color32::from_rgb(220, 200, 60))
+                .strong(),
+        );
         ui.add_space(20.0);
-        ui.label(egui::RichText::new(format!("Their gold: {opponent_gold}")).color(egui::Color32::from_rgb(180, 180, 180)));
+        ui.label(
+            egui::RichText::new(format!("Their gold: {opponent_gold}"))
+                .color(egui::Color32::from_rgb(180, 180, 180)),
+        );
         ui.add_space(20.0);
         ui.label(egui::RichText::new("Rep:").color(egui::Color32::from_rgb(180, 180, 180)));
         ui.colored_label(rep_color, format!("{rep:+.1}"));
@@ -291,7 +301,10 @@ fn blackjack_content(
     ui.add_space(8.0);
     let rect = ui.available_rect_before_wrap();
     ui.painter().line_segment(
-        [egui::pos2(rect.left(), rect.top()), egui::pos2(rect.right(), rect.top())],
+        [
+            egui::pos2(rect.left(), rect.top()),
+            egui::pos2(rect.right(), rect.top()),
+        ],
         egui::Stroke::new(1.0, FELT_BORDER),
     );
     ui.add_space(10.0);
@@ -339,7 +352,12 @@ fn draw_card(ui: &mut egui::Ui, card: Card) {
     let rounding = egui::CornerRadius::same(CARD_ROUNDING as u8);
 
     painter.rect_filled(rect, rounding, CARD_FACE);
-    painter.rect_stroke(rect, rounding, egui::Stroke::new(1.0, egui::Color32::from_rgb(160, 160, 160)), egui::StrokeKind::Outside);
+    painter.rect_stroke(
+        rect,
+        rounding,
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(160, 160, 160)),
+        egui::StrokeKind::Outside,
+    );
 
     let ink = if card.is_red() { CARD_RED } else { CARD_BLACK };
 
@@ -374,7 +392,12 @@ fn draw_card_back(ui: &mut egui::Ui) {
     let rounding = egui::CornerRadius::same(CARD_ROUNDING as u8);
 
     painter.rect_filled(rect, rounding, CARD_BACK);
-    painter.rect_stroke(rect, rounding, egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 100, 160)), egui::StrokeKind::Outside);
+    painter.rect_stroke(
+        rect,
+        rounding,
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 100, 160)),
+        egui::StrokeKind::Outside,
+    );
 
     painter.text(
         rect.center(),
@@ -416,7 +439,11 @@ fn hand_value_label(ui: &mut egui::Ui, cards: &[Card], hide_hole: bool) {
             egui::Color32::from_rgb(220, 220, 200)
         };
         let bust = if val > 21 { " BUST" } else { "" };
-        ui.label(egui::RichText::new(format!("{val}{soft_str}{bust}")).color(color).strong());
+        ui.label(
+            egui::RichText::new(format!("{val}{soft_str}{bust}"))
+                .color(color)
+                .strong(),
+        );
     }
 }
 
@@ -426,7 +453,11 @@ fn hand_value_label(ui: &mut egui::Ui, cards: &[Card], hide_hole: bool) {
 
 fn render_table(ui: &mut egui::Ui, state: &BlackjackState, hide_hole: bool) {
     // Dealer
-    ui.label(egui::RichText::new("DEALER").color(egui::Color32::from_rgb(180, 180, 140)).size(12.0));
+    ui.label(
+        egui::RichText::new("DEALER")
+            .color(egui::Color32::from_rgb(180, 180, 140))
+            .size(12.0),
+    );
     draw_hand(ui, &state.dealer_hand.cards, hide_hole);
     hand_value_label(ui, &state.dealer_hand.cards, hide_hole);
 
@@ -451,11 +482,19 @@ fn render_table(ui: &mut egui::Ui, state: &BlackjackState, hide_hole: bool) {
         ui.horizontal(|ui| {
             hand_value_label(ui, &hand.cards, false);
             if hand.doubled {
-                ui.label(egui::RichText::new("DOUBLED").color(egui::Color32::from_rgb(200, 160, 60)).size(11.0));
+                ui.label(
+                    egui::RichText::new("DOUBLED")
+                        .color(egui::Color32::from_rgb(200, 160, 60))
+                        .size(11.0),
+                );
             }
             if state.player_hands.len() > 1 {
                 if let Some(&hbet) = state.total_bets.get(h_idx) {
-                    ui.label(egui::RichText::new(format!("bet: {hbet}g")).color(egui::Color32::from_rgb(160, 160, 140)).size(11.0));
+                    ui.label(
+                        egui::RichText::new(format!("bet: {hbet}g"))
+                            .color(egui::Color32::from_rgb(160, 160, 140))
+                            .size(11.0),
+                    );
                 }
             }
         });
@@ -481,7 +520,11 @@ fn betting_ui(ui: &mut egui::Ui, state: &mut BlackjackState, player_gold: i32, o
             ui.label(egui::RichText::new(txt).color(rules_color).size(11.0));
         });
     ui.add_space(8.0);
-    ui.label(egui::RichText::new("Place your bet").color(egui::Color32::from_rgb(220, 220, 180)).size(16.0));
+    ui.label(
+        egui::RichText::new("Place your bet")
+            .color(egui::Color32::from_rgb(220, 220, 180))
+            .size(16.0),
+    );
     ui.add_space(8.0);
 
     ui.horizontal(|ui| {
@@ -527,7 +570,10 @@ fn betting_ui(ui: &mut egui::Ui, state: &mut BlackjackState, player_gold: i32, o
         if bet > player_gold {
             ui.colored_label(egui::Color32::from_rgb(200, 100, 100), "Not enough gold!");
         } else if bet > opponent_gold {
-            ui.colored_label(egui::Color32::from_rgb(200, 100, 100), "Opponent doesn't have enough gold!");
+            ui.colored_label(
+                egui::Color32::from_rgb(200, 100, 100),
+                "Opponent doesn't have enough gold!",
+            );
         }
     }
 
@@ -567,17 +613,31 @@ fn player_turn_ui(ui: &mut egui::Ui, state: &mut BlackjackState, player_gold: i3
 
     let mut action = None;
     ui.horizontal(|ui| {
-        if ui.add(egui::Button::new(egui::RichText::new("  Hit  ").size(btn_size).strong()).fill(btn_fill)).clicked() {
+        if ui
+            .add(
+                egui::Button::new(egui::RichText::new("  Hit  ").size(btn_size).strong())
+                    .fill(btn_fill),
+            )
+            .clicked()
+        {
             action = Some(0);
         }
-        if ui.add(egui::Button::new(egui::RichText::new(" Stand ").size(btn_size).strong()).fill(btn_fill)).clicked() {
+        if ui
+            .add(
+                egui::Button::new(egui::RichText::new(" Stand ").size(btn_size).strong())
+                    .fill(btn_fill),
+            )
+            .clicked()
+        {
             action = Some(1);
         }
-        let dbl_btn = egui::Button::new(egui::RichText::new("Double").size(btn_size).strong()).fill(btn_fill);
+        let dbl_btn =
+            egui::Button::new(egui::RichText::new("Double").size(btn_size).strong()).fill(btn_fill);
         if ui.add_enabled(can_double, dbl_btn).clicked() {
             action = Some(2);
         }
-        let split_btn = egui::Button::new(egui::RichText::new(" Split ").size(btn_size).strong()).fill(btn_fill);
+        let split_btn = egui::Button::new(egui::RichText::new(" Split ").size(btn_size).strong())
+            .fill(btn_fill);
         if ui.add_enabled(can_split, split_btn).clicked() {
             action = Some(3);
         }
@@ -605,7 +665,10 @@ fn player_turn_ui(ui: &mut egui::Ui, state: &mut BlackjackState, player_gold: i3
             advance_hand(state);
         }
         Some(3) => {
-            let second_card = state.player_hands[ah].cards.pop().expect("split card exists");
+            let second_card = state.player_hands[ah]
+                .cards
+                .pop()
+                .expect("split card exists");
             let new_card_a = state.draw();
             state.player_hands[ah].cards.push(new_card_a);
             let new_card_b = state.draw();
@@ -622,7 +685,10 @@ fn player_turn_ui(ui: &mut egui::Ui, state: &mut BlackjackState, player_gold: i3
 }
 
 fn result_ui(ui: &mut egui::Ui, state: &mut BlackjackState) {
-    let has_win = state.results.iter().any(|r| matches!(r, HandResult::Win | HandResult::Blackjack));
+    let has_win = state
+        .results
+        .iter()
+        .any(|r| matches!(r, HandResult::Win | HandResult::Blackjack));
     let has_lose = state.results.iter().any(|r| matches!(r, HandResult::Lose));
     let color = if has_win && !has_lose {
         egui::Color32::from_rgb(80, 220, 80)
@@ -632,7 +698,10 @@ fn result_ui(ui: &mut egui::Ui, state: &mut BlackjackState) {
         egui::Color32::from_rgb(220, 220, 80)
     };
 
-    ui.colored_label(color, egui::RichText::new(&state.message).size(15.0).strong());
+    ui.colored_label(
+        color,
+        egui::RichText::new(&state.message).size(15.0).strong(),
+    );
 
     ui.add_space(8.0);
     let btn = egui::Button::new(

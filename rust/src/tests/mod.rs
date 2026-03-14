@@ -157,7 +157,10 @@ impl TestSetupParams<'_, '_> {
             Vec2::new(x, y),
             town_idx,
             faction,
-            &world::BuildingOverrides { patrol_order, ..Default::default() },
+            &world::BuildingOverrides {
+                patrol_order,
+                ..Default::default()
+            },
             None,
             Some(&mut self.dirty_writers),
         );
@@ -168,10 +171,12 @@ impl TestSetupParams<'_, '_> {
         if let Some(inst) = self.entity_map.find_by_position(pos) {
             let slot = inst.slot;
             if let Some(&entity) = self.entity_map.entities.get(&slot) {
-                self.commands.entity(entity).insert(crate::components::ProductionState {
-                    ready: true,
-                    progress: 1.0,
-                });
+                self.commands
+                    .entity(entity)
+                    .insert(crate::components::ProductionState {
+                        ready: true,
+                        progress: 1.0,
+                    });
             }
         }
     }
@@ -413,7 +418,10 @@ pub fn register_tests(app: &mut App) {
         Update,
         crate::ui::ui_toggle_system.run_if(in_state(AppState::Running)),
     );
-    app.add_systems(OnEnter(AppState::TestMenu), (cli_test_start, auto_start_next_test).chain());
+    app.add_systems(
+        OnEnter(AppState::TestMenu),
+        (cli_test_start, auto_start_next_test).chain(),
+    );
 
     // CLI mode: redirect MainMenu → TestMenu
     app.add_systems(OnEnter(AppState::MainMenu), cli_test_redirect);
@@ -989,7 +997,8 @@ pub fn register_tests(app: &mut App) {
     app.init_resource::<pathfind_maze::PathfindMazeConfig>();
     registry.tests.push(TestEntry {
         name: "pathfind-maze".into(),
-        description: "NPCs navigate serpentine wall maze via A* pathfinding (configurable count)".into(),
+        description: "NPCs navigate serpentine wall maze via A* pathfinding (configurable count)"
+            .into(),
         phase_count: 5,
         time_scale: 1.0,
     });
@@ -1048,7 +1057,13 @@ fn test_menu_system(
     // Auto-relaunch if a test requested restart
     if let Some(name) = test_state.pending_relaunch.take() {
         if let Some(entry) = registry.tests.iter().find(|t| t.name == name) {
-            start_test(&name, entry.phase_count, entry.time_scale, &mut test_state, &mut next_state);
+            start_test(
+                &name,
+                entry.phase_count,
+                entry.time_scale,
+                &mut test_state,
+                &mut next_state,
+            );
             return Ok(());
         }
     }
@@ -1450,4 +1465,3 @@ fn cli_test_exit_system(
         exit.write(AppExit::error());
     }
 }
-

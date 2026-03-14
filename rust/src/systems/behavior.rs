@@ -25,8 +25,8 @@ use crate::constants::UpgradeStatKind;
 use crate::constants::*;
 use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg, WorkIntent, WorkIntentMsg};
 use crate::resources::{
-    CombatEventKind, EntityMap, GameTime, GpuReadState, MovementPriority, PathRequestQueue,
-    NpcLogCache, OffDutyBehavior, SelectedNpc, SquadState, WorkSchedule,
+    CombatEventKind, DEFAULT_LOOT_THRESHOLD, EntityMap, GameTime, GpuReadState, MovementPriority,
+    NpcLogCache, OffDutyBehavior, PathRequestQueue, SelectedNpc, SquadState, WorkSchedule,
 };
 use crate::settings::UserSettings;
 use crate::systemparams::EconomyState;
@@ -42,7 +42,6 @@ use bevy::prelude::*;
 // ============================================================================
 
 use bevy::ecs::system::SystemParam;
-
 
 /// NPC gameplay data queries (bundled to stay under 16 params)
 #[derive(SystemParam)]
@@ -281,7 +280,12 @@ fn submit_intent_scattered(
 ) {
     let ox = (pseudo_random(idx, frame + 5) - 0.5) * scatter;
     let oy = (pseudo_random(idx, frame + 6) - 0.5) * scatter;
-    queue.submit(entity, Vec2::new(center_x + ox, center_y + oy), priority, source);
+    queue.submit(
+        entity,
+        Vec2::new(center_x + ox, center_y + oy),
+        priority,
+        source,
+    );
 }
 
 #[inline]
@@ -336,6 +340,20 @@ fn transition_to_rest(
 #[inline]
 fn has_rest_destination(home_valid: bool, town_center: Option<Vec2>) -> bool {
     home_valid || town_center.is_some()
+}
+
+#[inline]
+fn loot_threshold_for_npc(
+    squad_state: &SquadState,
+    squad_id: Option<i32>,
+    town_policy: Option<crate::resources::PolicySet>,
+) -> usize {
+    squad_id
+        .and_then(|sid| usize::try_from(sid).ok())
+        .and_then(|sid| squad_state.squads.get(sid))
+        .map(|squad| squad.loot_threshold)
+        .or_else(|| town_policy.map(|policy| policy.loot_threshold))
+        .unwrap_or(DEFAULT_LOOT_THRESHOLD)
 }
 
 /// Transition an NPC to a new activity state. Resets ticks_waiting.
@@ -466,11 +484,13 @@ pub fn decision_system(
             .unwrap_or_default();
         let mut activity = npc_state
             .activity_q
-            .get(entity).cloned()
+            .get(entity)
+            .cloned()
             .unwrap_or_default();
         let mut combat_state = npc_state
             .combat_state_q
-            .get(entity).cloned()
+            .get(entity)
+            .cloned()
             .unwrap_or_default();
         let mut at_destination = npc_state
             .npc_flags_q
@@ -511,10 +531,14 @@ pub fn decision_system(
         } else {
             None
         };
-        let town_center = world_data.towns.get(town_idx_i32 as usize).map(|t| t.center);
+        let town_center = world_data
+            .towns
+            .get(town_idx_i32 as usize)
+            .map(|t| t.center);
         let mut carried_loot = npc_data
             .carried_loot_q
-            .get(entity).cloned()
+            .get(entity)
+            .cloned()
             .unwrap_or_default();
 
         // Capture originals for conditional writeback
@@ -547,7 +571,12 @@ pub fn decision_system(
                                 .unwrap_or(0.0);
                             if current.distance(inst.position) > drift_radius {
                                 let uid = entity_map.entities.get(&slot).copied();
-                                extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
+                                extras
+                                    .work_intents
+                                    .write(WorkIntentMsg(WorkIntent::Release {
+                                        entity,
+                                        worksite: uid,
+                                    }));
                                 worksite = None;
                                 worksite_deferred = true;
                                 npc_logs.push(
@@ -570,8 +599,12 @@ pub fn decision_system(
             // ====================================================================
             // Priority 0: AtDestination -> Handle arrival transition
             // ====================================================================
-            if at_destination && activity.kind != ActivityKind::Idle
-                && matches!(activity.phase, ActivityPhase::Transit | ActivityPhase::Ready)
+            if at_destination
+                && activity.kind != ActivityKind::Idle
+                && matches!(
+                    activity.phase,
+                    ActivityPhase::Transit | ActivityPhase::Ready
+                )
             {
                 at_destination = false;
 
@@ -580,9 +613,7 @@ pub fn decision_system(
                         // Squad rest: tired squad members go home instead of entering OnDuty
                         if let Some(sid) = squad_id {
                             if let Some(squad) = squad_state.squads.get(sid as usize) {
-                                if squad.rest_when_tired
-                                    && energy < ENERGY_TIRED_THRESHOLD
-                                {
+                                if squad.rest_when_tired && energy < ENERGY_TIRED_THRESHOLD {
                                     if transition_to_rest(
                                         &mut activity,
                                         &mut intents,
@@ -615,28 +646,57 @@ pub fn decision_system(
                                 .and_then(|sid| squad_state.squads.get(sid as usize))
                                 .and_then(|s| s.target)
                                 .unwrap_or(npc_pos.unwrap_or(home));
-                            transition_activity(&mut activity, ActivityKind::SquadAttack, ActivityPhase::Holding,
-                                ActivityTarget::SquadPoint(squad_target), "onduty:scatter");
+                            transition_activity(
+                                &mut activity,
+                                ActivityKind::SquadAttack,
+                                ActivityPhase::Holding,
+                                ActivityTarget::SquadPoint(squad_target),
+                                "onduty:scatter",
+                            );
                             // Scatter near squad target
                             submit_intent_scattered(
-                                &mut intents, entity, squad_target.x, squad_target.y, 128.0,
-                                idx, patrol_current, MovementPriority::JobRoute, "onduty:scatter",
+                                &mut intents,
+                                entity,
+                                squad_target.x,
+                                squad_target.y,
+                                128.0,
+                                idx,
+                                patrol_current,
+                                MovementPriority::JobRoute,
+                                "onduty:scatter",
                             );
                         } else {
-                            transition_activity(&mut activity, ActivityKind::Patrol, ActivityPhase::Holding,
-                                ActivityTarget::PatrolPost { route: 0, index: patrol_current as u16 }, "onduty:scatter");
+                            transition_activity(
+                                &mut activity,
+                                ActivityKind::Patrol,
+                                ActivityPhase::Holding,
+                                ActivityTarget::PatrolPost {
+                                    route: 0,
+                                    index: patrol_current as u16,
+                                },
+                                "onduty:scatter",
+                            );
                             // Scatter near patrol post or squad target
-                            let scatter_pos = squad_id
-                                .and_then(|sid| squad_state.squads.get(sid as usize))
-                                .and_then(|s| s.target)
-                                .or_else(|| {
-                                    npc_data.patrol_route_q.get(entity).ok()
-                                        .and_then(|route| route.posts.get(patrol_current).copied())
-                                });
+                            let scatter_pos =
+                                squad_id
+                                    .and_then(|sid| squad_state.squads.get(sid as usize))
+                                    .and_then(|s| s.target)
+                                    .or_else(|| {
+                                        npc_data.patrol_route_q.get(entity).ok().and_then(|route| {
+                                            route.posts.get(patrol_current).copied()
+                                        })
+                                    });
                             if let Some(spos) = scatter_pos {
                                 submit_intent_scattered(
-                                    &mut intents, entity, spos.x, spos.y, 128.0,
-                                    idx, patrol_current, MovementPriority::JobRoute, "onduty:scatter",
+                                    &mut intents,
+                                    entity,
+                                    spos.x,
+                                    spos.y,
+                                    128.0,
+                                    idx,
+                                    patrol_current,
+                                    MovementPriority::JobRoute,
+                                    "onduty:scatter",
                                 );
                             }
                         }
@@ -659,7 +719,9 @@ pub fn decision_system(
                         );
                     }
                     ActivityKind::Heal => {
-                        let threshold = economy.towns.policy(town_idx_i32)
+                        let threshold = economy
+                            .towns
+                            .policy(town_idx_i32)
                             .map(|p| p.recovery_hp)
                             .unwrap_or(0.8)
                             .min(1.0);
@@ -681,11 +743,20 @@ pub fn decision_system(
                                 .and_then(|slot| {
                                     entity_map
                                         .get_instance(slot)
-                                        .filter(|inst| inst.kind == BuildingKind::Farm && inst.town_idx == town_idx_i32 as u32)
+                                        .filter(|inst| {
+                                            inst.kind == BuildingKind::Farm
+                                                && inst.town_idx == town_idx_i32 as u32
+                                        })
                                         .map(|inst| (slot, inst.position))
                                 })
                                 .or_else(|| {
-                                    find_within_radius(current_pos, &entity_map, BuildingKind::Farm, FARM_ARRIVAL_RADIUS, town_idx_i32 as u32)
+                                    find_within_radius(
+                                        current_pos,
+                                        &entity_map,
+                                        BuildingKind::Farm,
+                                        FARM_ARRIVAL_RADIUS,
+                                        town_idx_i32 as u32,
+                                    )
                                 });
 
                             if let Some((farm_slot, farm_pos)) = target_farm {
@@ -695,66 +766,169 @@ pub fn decision_system(
 
                                 if occupied_by_other {
                                     // Farm occupied — retarget via resolver
-                                    let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
-                                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
+                                    let uid =
+                                        worksite.and_then(|s| entity_map.entities.get(&s).copied());
+                                    extras
+                                        .work_intents
+                                        .write(WorkIntentMsg(WorkIntent::Release {
+                                            entity,
+                                            worksite: uid,
+                                        }));
                                     extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
-                                        entity, kind: BuildingKind::Farm, town_idx: town_idx_i32 as u32, from: current_pos,
+                                        entity,
+                                        kind: BuildingKind::Farm,
+                                        town_idx: town_idx_i32 as u32,
+                                        from: current_pos,
                                     }));
                                     worksite = None;
                                     worksite_deferred = true;
-                                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm occupied → retarget");
+                                    npc_logs.push(
+                                        idx,
+                                        game_time.day(),
+                                        game_time.hour(),
+                                        game_time.minute(),
+                                        "Farm occupied → retarget",
+                                    );
                                 } else if entity_map.get_instance(farm_slot).is_some() {
                                     // Check if farm ready for harvest via ECS ProductionState
-                                    let harvest = entity_map.entities.get(&farm_slot)
+                                    let harvest = entity_map
+                                        .entities
+                                        .get(&farm_slot)
                                         .and_then(|&e| production_q.get_mut(e).ok())
                                         .and_then(|mut ps| {
                                             let food = ps.harvest(BuildingKind::Farm);
                                             if food > 0 {
-                                                let pos = entity_map.get_instance(farm_slot).map_or(Vec2::ZERO, |i| i.position);
-                                                Some((food, ProductionState::harvest_log_msg(BuildingKind::Farm, pos, food)))
-                                            } else { None }
+                                                let pos = entity_map
+                                                    .get_instance(farm_slot)
+                                                    .map_or(Vec2::ZERO, |i| i.position);
+                                                Some((
+                                                    food,
+                                                    ProductionState::harvest_log_msg(
+                                                        BuildingKind::Farm,
+                                                        pos,
+                                                        food,
+                                                    ),
+                                                ))
+                                            } else {
+                                                None
+                                            }
                                         });
                                     if let Some((food, log_msg)) = harvest {
                                         // Harvest — release worksite, carry home
-                                        let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
-                                        extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
+                                        let uid = worksite
+                                            .and_then(|s| entity_map.entities.get(&s).copied());
+                                        extras.work_intents.write(WorkIntentMsg(
+                                            WorkIntent::Release {
+                                                entity,
+                                                worksite: uid,
+                                            },
+                                        ));
                                         worksite = None;
                                         worksite_deferred = true;
                                         combat_log.write(CombatLogMsg {
-                                            kind: CombatEventKind::Harvest, faction: faction_i32,
-                                            day: game_time.day(), hour: game_time.hour(), minute: game_time.minute(),
-                                            message: log_msg, location: None,
+                                            kind: CombatEventKind::Harvest,
+                                            faction: faction_i32,
+                                            day: game_time.day(),
+                                            hour: game_time.hour(),
+                                            minute: game_time.minute(),
+                                            message: log_msg,
+                                            location: None,
                                         });
                                         carried_loot.food += food;
-                                        transition_activity(&mut activity, ActivityKind::ReturnLoot, ActivityPhase::Transit, ActivityTarget::Dropoff, "arrival:farm_harvest_return");
-                                        submit_intent(&mut intents, entity, home.x, home.y, MovementPriority::JobRoute, "arrival:farm_harvest_return");
-                                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested → Returning");
+                                        transition_activity(
+                                            &mut activity,
+                                            ActivityKind::ReturnLoot,
+                                            ActivityPhase::Transit,
+                                            ActivityTarget::Dropoff,
+                                            "arrival:farm_harvest_return",
+                                        );
+                                        submit_intent(
+                                            &mut intents,
+                                            entity,
+                                            home.x,
+                                            home.y,
+                                            MovementPriority::JobRoute,
+                                            "arrival:farm_harvest_return",
+                                        );
+                                        npc_logs.push(
+                                            idx,
+                                            game_time.day(),
+                                            game_time.hour(),
+                                            game_time.minute(),
+                                            "Harvested → Returning",
+                                        );
                                     } else {
                                         // Farm not ready — claim via resolver if not already owned, start working
                                         if !owns {
-                                            let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
-                                            extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
-                                            extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
-                                                entity, kind: BuildingKind::Farm, town_idx: town_idx_i32 as u32, from: current_pos,
-                                            }));
+                                            let uid = worksite
+                                                .and_then(|s| entity_map.entities.get(&s).copied());
+                                            extras.work_intents.write(WorkIntentMsg(
+                                                WorkIntent::Release {
+                                                    entity,
+                                                    worksite: uid,
+                                                },
+                                            ));
+                                            extras.work_intents.write(WorkIntentMsg(
+                                                WorkIntent::Claim {
+                                                    entity,
+                                                    kind: BuildingKind::Farm,
+                                                    town_idx: town_idx_i32 as u32,
+                                                    from: current_pos,
+                                                },
+                                            ));
                                             worksite = None;
                                             worksite_deferred = true;
                                         }
-                                        transition_phase(&mut activity, ActivityPhase::Active, "phase_change");
+                                        transition_phase(
+                                            &mut activity,
+                                            ActivityPhase::Active,
+                                            "phase_change",
+                                        );
 
                                         pop_inc_working(&mut economy.pop_stats, job, town_idx_i32);
-                                        submit_intent(&mut intents, entity, farm_pos.x, farm_pos.y, MovementPriority::JobRoute, "arrival:farm_work");
-                                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working (tending)");
+                                        submit_intent(
+                                            &mut intents,
+                                            entity,
+                                            farm_pos.x,
+                                            farm_pos.y,
+                                            MovementPriority::JobRoute,
+                                            "arrival:farm_work",
+                                        );
+                                        npc_logs.push(
+                                            idx,
+                                            game_time.day(),
+                                            game_time.hour(),
+                                            game_time.minute(),
+                                            "→ Working (tending)",
+                                        );
                                     }
                                 }
                             } else {
                                 // No farm nearby — release and idle
-                                let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
-                                extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
+                                let uid =
+                                    worksite.and_then(|s| entity_map.entities.get(&s).copied());
+                                extras
+                                    .work_intents
+                                    .write(WorkIntentMsg(WorkIntent::Release {
+                                        entity,
+                                        worksite: uid,
+                                    }));
                                 worksite = None;
                                 worksite_deferred = true;
-                                transition_activity(&mut activity, ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None, "no_farm_nearby_→_idle");
-                                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "No farm nearby → Idle");
+                                transition_activity(
+                                    &mut activity,
+                                    ActivityKind::Idle,
+                                    ActivityPhase::Ready,
+                                    ActivityTarget::None,
+                                    "no_farm_nearby_→_idle",
+                                );
+                                npc_logs.push(
+                                    idx,
+                                    game_time.day(),
+                                    game_time.hour(),
+                                    game_time.minute(),
+                                    "No farm nearby → Idle",
+                                );
                             }
                         } else {
                             let current_pos = npc_pos.unwrap_or(Vec2::ZERO);
@@ -794,7 +968,8 @@ pub fn decision_system(
                             });
 
                             if let Some(fp) = ready_farm_pos {
-                                let food = entity_map.slot_at_position(fp)
+                                let food = entity_map
+                                    .slot_at_position(fp)
                                     .and_then(|slot| entity_map.entities.get(&slot).copied())
                                     .and_then(|e| production_q.get_mut(e).ok())
                                     .map(|mut ps| {
@@ -806,7 +981,11 @@ pub fn decision_system(
                                                 day: game_time.day(),
                                                 hour: game_time.hour(),
                                                 minute: game_time.minute(),
-                                                message: ProductionState::harvest_log_msg(BuildingKind::Farm, fp, f),
+                                                message: ProductionState::harvest_log_msg(
+                                                    BuildingKind::Farm,
+                                                    fp,
+                                                    f,
+                                                ),
                                                 location: None,
                                             });
                                         }
@@ -815,7 +994,13 @@ pub fn decision_system(
                                     .unwrap_or(0);
 
                                 carried_loot.food += food.max(1);
-                                transition_activity(&mut activity, ActivityKind::ReturnLoot, ActivityPhase::Transit, ActivityTarget::Dropoff, "transition");
+                                transition_activity(
+                                    &mut activity,
+                                    ActivityKind::ReturnLoot,
+                                    ActivityPhase::Transit,
+                                    ActivityTarget::Dropoff,
+                                    "transition",
+                                );
                                 submit_intent(
                                     &mut intents,
                                     entity,
@@ -837,19 +1022,29 @@ pub fn decision_system(
                                     entity_map.spatial_cell_size().max(256.0) * 8.0;
                                 let mut best_d2 = f32::MAX;
                                 let mut other_farm_pos: Option<Vec2> = None;
-                                entity_map.for_each_nearby_kind(pos, raid_search_radius, BuildingKind::Farm, |f, _| {
-                                    if f.position.distance(pos) <= FARM_ARRIVAL_RADIUS {
-                                        return;
-                                    }
-                                    let d2 = f.position.distance_squared(pos);
-                                    if d2 < best_d2 {
-                                        best_d2 = d2;
-                                        other_farm_pos = Some(f.position);
-                                    }
-                                });
+                                entity_map.for_each_nearby_kind(
+                                    pos,
+                                    raid_search_radius,
+                                    BuildingKind::Farm,
+                                    |f, _| {
+                                        if f.position.distance(pos) <= FARM_ARRIVAL_RADIUS {
+                                            return;
+                                        }
+                                        let d2 = f.position.distance_squared(pos);
+                                        if d2 < best_d2 {
+                                            best_d2 = d2;
+                                            other_farm_pos = Some(f.position);
+                                        }
+                                    },
+                                );
                                 if let Some(farm_pos) = other_farm_pos {
-                                    transition_activity(&mut activity, ActivityKind::Raid, ActivityPhase::Transit,
-                                        ActivityTarget::RaidPoint(farm_pos), "transition");
+                                    transition_activity(
+                                        &mut activity,
+                                        ActivityKind::Raid,
+                                        ActivityPhase::Transit,
+                                        ActivityTarget::RaidPoint(farm_pos),
+                                        "transition",
+                                    );
                                     submit_intent(
                                         &mut intents,
                                         entity,
@@ -866,7 +1061,13 @@ pub fn decision_system(
                                         "Farm not ready, seeking another",
                                     );
                                 } else {
-                                    transition_activity(&mut activity, ActivityKind::ReturnLoot, ActivityPhase::Transit, ActivityTarget::Dropoff, "transition");
+                                    transition_activity(
+                                        &mut activity,
+                                        ActivityKind::ReturnLoot,
+                                        ActivityPhase::Transit,
+                                        ActivityTarget::Dropoff,
+                                        "transition",
+                                    );
                                     submit_intent(
                                         &mut intents,
                                         entity,
@@ -896,17 +1097,18 @@ pub fn decision_system(
                         let mine_slot = entity_map.slot_at_position(mine_pos);
                         let miner_uid = Some(entity);
                         let can_harvest_turn = mine_slot.is_none_or(|slot| {
-                            miner_uid.is_none_or(|uid| entity_map.is_worksite_harvest_turn(slot, uid))
+                            miner_uid
+                                .is_none_or(|uid| entity_map.is_worksite_harvest_turn(slot, uid))
                         });
-                        let mine_entity = mine_slot.and_then(|s| entity_map.entities.get(&s).copied());
+                        let mine_entity =
+                            mine_slot.and_then(|s| entity_map.entities.get(&s).copied());
                         let mine_ready = mine_entity
                             .and_then(|e| production_q.get(e).ok())
                             .is_some_and(|ps| ps.ready);
                         if mine_entity.is_some() {
                             if mine_ready && can_harvest_turn {
                                 // Mine ready — harvest immediately
-                                let town_levels =
-                                    economy.towns.upgrade_levels(town_idx_i32);
+                                let town_levels = economy.towns.upgrade_levels(town_idx_i32);
                                 let yield_mult = UPGRADES.stat_mult(
                                     &town_levels,
                                     "Miner",
@@ -923,17 +1125,33 @@ pub fn decision_system(
                                         day: game_time.day(),
                                         hour: game_time.hour(),
                                         minute: game_time.minute(),
-                                        message: ProductionState::harvest_log_msg(BuildingKind::GoldMine, mine_pos, base_gold),
+                                        message: ProductionState::harvest_log_msg(
+                                            BuildingKind::GoldMine,
+                                            mine_pos,
+                                            base_gold,
+                                        ),
                                         location: None,
                                     });
                                 }
                                 let gold_amount = ((base_gold as f32) * yield_mult).round() as i32;
                                 carried_loot.gold += gold_amount;
-                                let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
-                                extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
+                                let uid =
+                                    worksite.and_then(|s| entity_map.entities.get(&s).copied());
+                                extras
+                                    .work_intents
+                                    .write(WorkIntentMsg(WorkIntent::Release {
+                                        entity,
+                                        worksite: uid,
+                                    }));
                                 worksite = None;
                                 worksite_deferred = true;
-                                transition_activity(&mut activity, ActivityKind::ReturnLoot, ActivityPhase::Transit, ActivityTarget::Dropoff, "transition");
+                                transition_activity(
+                                    &mut activity,
+                                    ActivityKind::ReturnLoot,
+                                    ActivityPhase::Transit,
+                                    ActivityTarget::Dropoff,
+                                    "transition",
+                                );
                                 submit_intent(
                                     &mut intents,
                                     entity,
@@ -952,10 +1170,17 @@ pub fn decision_system(
                             } else if mine_slot.is_some() {
                                 // Mine not ready for this miner (still growing or queued behind others) — tend/wait
                                 extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
-                                    entity, kind: BuildingKind::GoldMine, town_idx: town_idx_i32 as u32, from: mine_pos,
+                                    entity,
+                                    kind: BuildingKind::GoldMine,
+                                    town_idx: town_idx_i32 as u32,
+                                    from: mine_pos,
                                 }));
                                 worksite_deferred = true;
-                                transition_phase(&mut activity, ActivityPhase::Holding, "phase_change");
+                                transition_phase(
+                                    &mut activity,
+                                    ActivityPhase::Holding,
+                                    "phase_change",
+                                );
                                 pop_inc_working(&mut economy.pop_stats, job, town_idx_i32);
                                 submit_intent(
                                     &mut intents,
@@ -974,7 +1199,13 @@ pub fn decision_system(
                                 );
                             }
                         } else {
-                            transition_activity(&mut activity, ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None, "transition");
+                            transition_activity(
+                                &mut activity,
+                                ActivityKind::Idle,
+                                ActivityPhase::Ready,
+                                ActivityTarget::None,
+                                "transition",
+                            );
                             npc_logs.push(
                                 idx,
                                 game_time.day(),
@@ -985,7 +1216,13 @@ pub fn decision_system(
                         }
                     }
                     ActivityKind::Wander => {
-                        transition_activity(&mut activity, ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None, "transition");
+                        transition_activity(
+                            &mut activity,
+                            ActivityKind::Idle,
+                            ActivityPhase::Ready,
+                            ActivityTarget::None,
+                            "transition",
+                        );
                         npc_logs.push(
                             idx,
                             game_time.day(),
@@ -1006,7 +1243,13 @@ pub fn decision_system(
                                 "arrival:return_redirect",
                             );
                         } else {
-                            transition_activity(&mut activity, ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None, "arrival:return_redirect");
+                            transition_activity(
+                                &mut activity,
+                                ActivityKind::Idle,
+                                ActivityPhase::Ready,
+                                ActivityTarget::None,
+                                "arrival:return_redirect",
+                            );
                         }
                     }
                     _ => {}
@@ -1022,8 +1265,7 @@ pub fn decision_system(
             if let Some(sid) = squad_id {
                 if let Some(squad) = squad_state.squads.get(sid as usize) {
                     let squad_needs_rest = energy < ENERGY_TIRED_THRESHOLD
-                        || (energy < ENERGY_WAKE_THRESHOLD
-                            && activity.kind == ActivityKind::Rest);
+                        || (energy < ENERGY_WAKE_THRESHOLD && activity.kind == ActivityKind::Rest);
                     if squad.rest_when_tired && squad_needs_rest {
                         if combat_state.is_fighting() {
                             combat_state = CombatState::None;
@@ -1066,10 +1308,10 @@ pub fn decision_system(
                             p.map(|p| p.archer_flee_hp).unwrap_or(0.15)
                         }
                     }
-                    Job::Farmer | Job::Miner => {
+                    Job::Farmer | Job::Miner | Job::Woodcutter | Job::Quarrier => {
                         let p = economy.towns.policy(town_idx_i32);
                         if p.as_ref().is_some_and(|p| p.farmer_fight_back) {
-                            0.0 // fight-back farmers/miners don't flee
+                            0.0 // fight-back workers don't flee
                         } else {
                             p.map(|p| p.farmer_flee_hp).unwrap_or(0.30)
                         }
@@ -1098,13 +1340,24 @@ pub fn decision_system(
                         // Clean up work state if fleeing mid-work
                         if activity.kind.def().is_working {
                             let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
-                            extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
+                            extras
+                                .work_intents
+                                .write(WorkIntentMsg(WorkIntent::Release {
+                                    entity,
+                                    worksite: uid,
+                                }));
                             worksite = None;
                             worksite_deferred = true;
                         }
                         combat_state = CombatState::None;
                         if activity.kind != ActivityKind::ReturnLoot {
-                            transition_activity(&mut activity, ActivityKind::ReturnLoot, ActivityPhase::Transit, ActivityTarget::Dropoff, "transition");
+                            transition_activity(
+                                &mut activity,
+                                ActivityKind::ReturnLoot,
+                                ActivityPhase::Transit,
+                                ActivityTarget::Dropoff,
+                                "transition",
+                            );
                         }
                         submit_intent(
                             &mut intents,
@@ -1126,20 +1379,36 @@ pub fn decision_system(
                 }
 
                 // Wounded + healing policy should override leash/return behavior.
-                let healing_policy_active =
-                    economy.towns.policy(town_idx_i32).is_some_and(|p| {
-                        p.prioritize_healing && energy > 0.0 && health / max_hp < p.recovery_hp
-                    });
+                let healing_policy_active = economy.towns.policy(town_idx_i32).is_some_and(|p| {
+                    p.prioritize_healing && energy > 0.0 && health / max_hp < p.recovery_hp
+                });
                 if healing_policy_active {
                     if let Some(town) = world_data.towns.get(town_idx_usize) {
                         combat_state = CombatState::None;
                         if activity.kind != ActivityKind::Heal {
-                            let threshold = economy.towns.policy(town_idx_i32).map(|p| p.recovery_hp).unwrap_or(0.8);
-                            transition_activity(&mut activity, ActivityKind::Heal, ActivityPhase::Transit, ActivityTarget::Fountain, "combat:heal_fountain");
+                            let threshold = economy
+                                .towns
+                                .policy(town_idx_i32)
+                                .map(|p| p.recovery_hp)
+                                .unwrap_or(0.8);
+                            transition_activity(
+                                &mut activity,
+                                ActivityKind::Heal,
+                                ActivityPhase::Transit,
+                                ActivityTarget::Fountain,
+                                "combat:heal_fountain",
+                            );
                             activity.recover_until = threshold;
                             submit_intent_scattered(
-                                &mut intents, entity, town.center.x, town.center.y, 128.0,
-                                idx, frame, MovementPriority::Survival, "combat:heal_fountain",
+                                &mut intents,
+                                entity,
+                                town.center.x,
+                                town.center.y,
+                                128.0,
+                                idx,
+                                frame,
+                                MovementPriority::Survival,
+                                "combat:heal_fountain",
                             );
                             npc_logs.push(
                                 idx,
@@ -1155,7 +1424,9 @@ pub fn decision_system(
 
                 // Priority 2: Should leash? (per-entity LeashRange or policy archer_leash)
                 let should_leash = match job {
-                    Job::Archer | Job::Crossbow => economy.towns.policy(town_idx_i32)
+                    Job::Archer | Job::Crossbow => economy
+                        .towns
+                        .policy(town_idx_i32)
                         .as_ref()
                         .is_none_or(|p| p.archer_leash),
                     _ => leash_range_val.is_some(),
@@ -1168,14 +1439,26 @@ pub fn decision_system(
                             let dy = pos.y - origin.y;
                             if (dx * dx + dy * dy).sqrt() > leash_dist {
                                 if activity.kind.def().is_working {
-                                    let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
-                                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
+                                    let uid =
+                                        worksite.and_then(|s| entity_map.entities.get(&s).copied());
+                                    extras
+                                        .work_intents
+                                        .write(WorkIntentMsg(WorkIntent::Release {
+                                            entity,
+                                            worksite: uid,
+                                        }));
                                     worksite = None;
                                     worksite_deferred = true;
                                 }
                                 combat_state = CombatState::None;
                                 if activity.kind != ActivityKind::ReturnLoot {
-                                    transition_activity(&mut activity, ActivityKind::ReturnLoot, ActivityPhase::Transit, ActivityTarget::Dropoff, "transition");
+                                    transition_activity(
+                                        &mut activity,
+                                        ActivityKind::ReturnLoot,
+                                        ActivityPhase::Transit,
+                                        ActivityTarget::Dropoff,
+                                        "transition",
+                                    );
                                 }
                                 submit_intent(
                                     &mut intents,
@@ -1248,11 +1531,24 @@ pub fn decision_system(
                                     if let Some(town) = world_data.towns.get(ti) {
                                         combat_state = CombatState::None;
                                         let threshold = p.recovery_hp;
-                                        transition_activity(&mut activity, ActivityKind::Heal, ActivityPhase::Transit, ActivityTarget::Fountain, "squad:heal_fountain");
+                                        transition_activity(
+                                            &mut activity,
+                                            ActivityKind::Heal,
+                                            ActivityPhase::Transit,
+                                            ActivityTarget::Fountain,
+                                            "squad:heal_fountain",
+                                        );
                                         activity.recover_until = threshold;
                                         submit_intent_scattered(
-                                            &mut intents, entity, town.center.x, town.center.y, 128.0,
-                                            idx, frame, MovementPriority::Survival, "squad:heal_fountain",
+                                            &mut intents,
+                                            entity,
+                                            town.center.x,
+                                            town.center.y,
+                                            128.0,
+                                            idx,
+                                            frame,
+                                            MovementPriority::Survival,
+                                            "squad:heal_fountain",
                                         );
                                         npc_logs.push(
                                             idx,
@@ -1278,18 +1574,27 @@ pub fn decision_system(
                             "squad:target",
                         );
                         if at_destination {
-                            transition_activity(&mut activity, ActivityKind::SquadAttack, ActivityPhase::Holding,
-                                ActivityTarget::SquadPoint(target), "squad:target");
+                            transition_activity(
+                                &mut activity,
+                                ActivityKind::SquadAttack,
+                                ActivityPhase::Holding,
+                                ActivityTarget::SquadPoint(target),
+                                "squad:target",
+                            );
                         }
                     } else if !squad.patrol_enabled {
                         // No target + patrol disabled: stop and wait (gathering phase)
                         if matches!(
                             activity.kind,
-                            ActivityKind::Patrol
-                                | ActivityKind::SquadAttack
-                                | ActivityKind::Raid
+                            ActivityKind::Patrol | ActivityKind::SquadAttack | ActivityKind::Raid
                         ) {
-                            transition_activity(&mut activity, ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None, "transition");
+                            transition_activity(
+                                &mut activity,
+                                ActivityKind::Idle,
+                                ActivityPhase::Ready,
+                                ActivityTarget::None,
+                                "transition",
+                            );
                             if let Some(pos) = npc_pos {
                                 submit_intent(
                                     &mut intents,
@@ -1320,14 +1625,28 @@ pub fn decision_system(
                         // Retarget via resolver — release old + claim new
                         let current_pos = npc_pos.unwrap_or_default();
                         let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
-                        extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
+                        extras
+                            .work_intents
+                            .write(WorkIntentMsg(WorkIntent::Release {
+                                entity,
+                                worksite: uid,
+                            }));
                         extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
-                            entity, kind: BuildingKind::Farm, town_idx: town_idx_i32 as u32, from: current_pos,
+                            entity,
+                            kind: BuildingKind::Farm,
+                            town_idx: town_idx_i32 as u32,
+                            from: current_pos,
                         }));
                         worksite = None;
                         worksite_deferred = true;
                         // Activity stays GoingToWork — resolver will submit path or set Idle
-                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm taken → retarget");
+                        npc_logs.push(
+                            idx,
+                            game_time.day(),
+                            game_time.hour(),
+                            game_time.minute(),
+                            "Farm taken → retarget",
+                        );
                         break 'decide;
                     }
                 }
@@ -1344,7 +1663,13 @@ pub fn decision_system(
                         ActivityKind::Wander => {
                             // Drop to Idle so decision system re-evaluates (Work/Eat/Rest)
                             // instead of endlessly picking new wander targets.
-                            transition_activity(&mut activity, ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None, "transition");
+                            transition_activity(
+                                &mut activity,
+                                ActivityKind::Idle,
+                                ActivityPhase::Ready,
+                                ActivityTarget::None,
+                                "transition",
+                            );
                         }
                         ActivityKind::Patrol if activity.phase == ActivityPhase::Transit => {
                             // Don't patrol around town if squad has an active target
@@ -1357,8 +1682,15 @@ pub fn decision_system(
                                         let safe_idx = patrol_current % route.posts.len();
                                         if let Some(post) = route.posts.get(safe_idx) {
                                             submit_intent_scattered(
-                                                &mut intents, entity, post.x, post.y, 128.0,
-                                                idx, frame, MovementPriority::JobRoute, "patrol:redirect",
+                                                &mut intents,
+                                                entity,
+                                                post.x,
+                                                post.y,
+                                                128.0,
+                                                idx,
+                                                frame,
+                                                MovementPriority::JobRoute,
+                                                "patrol:redirect",
                                             );
                                         }
                                     }
@@ -1376,11 +1708,17 @@ pub fn decision_system(
                     if let Some(town) = world_data.towns.get(town_idx) {
                         if let Some(current) = npc_pos {
                             if current.distance(town.center) <= HEAL_DRIFT_RADIUS {
-                                let threshold = economy.towns.policy(town_idx_i32)
+                                let threshold = economy
+                                    .towns
+                                    .policy(town_idx_i32)
                                     .map(|p| p.recovery_hp)
                                     .unwrap_or(0.8)
                                     .min(1.0);
-                                transition_phase(&mut activity, ActivityPhase::Active, "phase_change");
+                                transition_phase(
+                                    &mut activity,
+                                    ActivityPhase::Active,
+                                    "phase_change",
+                                );
                                 activity.recover_until = threshold;
                                 npc_logs.push(
                                     idx,
@@ -1404,7 +1742,13 @@ pub fn decision_system(
             if activity.kind == ActivityKind::Heal {
                 if activity.phase == ActivityPhase::Active {
                     if health / max_hp >= activity.recover_until.min(1.0) {
-                        transition_activity(&mut activity, ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None, "transition");
+                        transition_activity(
+                            &mut activity,
+                            ActivityKind::Idle,
+                            ActivityPhase::Ready,
+                            ActivityTarget::None,
+                            "transition",
+                        );
                         npc_logs.push(
                             idx,
                             game_time.day(),
@@ -1420,8 +1764,15 @@ pub fn decision_system(
                             if let Some(current) = npc_pos {
                                 if current.distance(town.center) > HEAL_DRIFT_RADIUS {
                                     submit_intent_scattered(
-                                        &mut intents, entity, town.center.x, town.center.y, 128.0,
-                                        idx, frame, MovementPriority::Survival, "heal:drift_retarget",
+                                        &mut intents,
+                                        entity,
+                                        town.center.x,
+                                        town.center.y,
+                                        128.0,
+                                        idx,
+                                        frame,
+                                        MovementPriority::Survival,
+                                        "heal:drift_retarget",
                                     );
                                 }
                             }
@@ -1439,7 +1790,13 @@ pub fn decision_system(
             if activity.kind == ActivityKind::Rest {
                 if activity.phase == ActivityPhase::Active {
                     if energy >= ENERGY_WAKE_THRESHOLD {
-                        transition_activity(&mut activity, ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None, "transition");
+                        transition_activity(
+                            &mut activity,
+                            ActivityKind::Idle,
+                            ActivityPhase::Ready,
+                            ActivityTarget::None,
+                            "transition",
+                        );
                         npc_logs.push(
                             idx,
                             game_time.day(),
@@ -1459,24 +1816,30 @@ pub fn decision_system(
             // ====================================================================
             // Priority 4c: Loot threshold — too much equipment, return home
             // ====================================================================
-            let loot_threshold = economy.towns.policy(town_idx_i32)
-                .map(|p| p.loot_threshold).unwrap_or(3);
+            let loot_threshold =
+                loot_threshold_for_npc(squad_state, squad_id, economy.towns.policy(town_idx_i32));
             if !npc_def(job).equip_slots.is_empty()
                 && carried_loot.equipment.len() >= loot_threshold
                 && activity.kind != ActivityKind::ReturnLoot
                 && matches!(combat_state, CombatState::None)
             {
                 let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
-                extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
+                extras
+                    .work_intents
+                    .write(WorkIntentMsg(WorkIntent::Release {
+                        entity,
+                        worksite: uid,
+                    }));
                 worksite = None;
                 worksite_deferred = true;
-                transition_activity(&mut activity, ActivityKind::ReturnLoot, ActivityPhase::Transit, ActivityTarget::Dropoff, "transition");
-                intents.submit(
-                    entity,
-                    home,
-                    MovementPriority::JobRoute,
-                    "loot:threshold",
+                transition_activity(
+                    &mut activity,
+                    ActivityKind::ReturnLoot,
+                    ActivityPhase::Transit,
+                    ActivityTarget::Dropoff,
+                    "transition",
                 );
+                intents.submit(entity, home, MovementPriority::JobRoute, "loot:threshold");
                 npc_logs.push(
                     idx,
                     game_time.day(),
@@ -1505,10 +1868,21 @@ pub fn decision_system(
                 let Some((kind, inst_town)) = inst_snapshot else {
                     // Worksite destroyed — release and reassign
                     let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
-                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
+                    extras
+                        .work_intents
+                        .write(WorkIntentMsg(WorkIntent::Release {
+                            entity,
+                            worksite: uid,
+                        }));
                     worksite = None;
                     worksite_deferred = true;
-                    transition_activity(&mut activity, ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None, "transition");
+                    transition_activity(
+                        &mut activity,
+                        ActivityKind::Idle,
+                        ActivityPhase::Ready,
+                        ActivityTarget::None,
+                        "transition",
+                    );
                     npc_logs.push(
                         idx,
                         game_time.day(),
@@ -1521,20 +1895,42 @@ pub fn decision_system(
                 let def = building_def(kind);
                 let Some(ws) = def.worksite else {
                     let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
-                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
+                    extras
+                        .work_intents
+                        .write(WorkIntentMsg(WorkIntent::Release {
+                            entity,
+                            worksite: uid,
+                        }));
                     worksite = None;
                     worksite_deferred = true;
-                    transition_activity(&mut activity, ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None, "transition");
+                    transition_activity(
+                        &mut activity,
+                        ActivityKind::Idle,
+                        ActivityPhase::Ready,
+                        ActivityTarget::None,
+                        "transition",
+                    );
                     break 'decide;
                 };
 
                 // Validate: town match (only for town-scoped worksites like farms)
                 if ws.town_scoped && inst_town != town_idx_i32 as u32 {
                     let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
-                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
+                    extras
+                        .work_intents
+                        .write(WorkIntentMsg(WorkIntent::Release {
+                            entity,
+                            worksite: uid,
+                        }));
                     worksite = None;
                     worksite_deferred = true;
-                    transition_activity(&mut activity, ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None, "transition");
+                    transition_activity(
+                        &mut activity,
+                        ActivityKind::Idle,
+                        ActivityPhase::Ready,
+                        ActivityTarget::None,
+                        "transition",
+                    );
                     npc_logs.push(
                         idx,
                         game_time.day(),
@@ -1548,10 +1944,21 @@ pub fn decision_system(
                 // Contention: too many occupants → release and go home
                 if entity_map.occupant_count(slot) > ws.max_occupants {
                     let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
-                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
+                    extras
+                        .work_intents
+                        .write(WorkIntentMsg(WorkIntent::Release {
+                            entity,
+                            worksite: uid,
+                        }));
                     worksite = None;
                     worksite_deferred = true;
-                    transition_activity(&mut activity, ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None, "transition");
+                    transition_activity(
+                        &mut activity,
+                        ActivityKind::Idle,
+                        ActivityPhase::Ready,
+                        ActivityTarget::None,
+                        "transition",
+                    );
                     if home_valid {
                         submit_intent(
                             &mut intents,
@@ -1576,7 +1983,10 @@ pub fn decision_system(
                 if worksite.is_none() {
                     let current_pos = npc_pos.unwrap_or_default();
                     extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
-                        entity, kind, town_idx: town_idx_i32 as u32, from: current_pos,
+                        entity,
+                        kind,
+                        town_idx: town_idx_i32 as u32,
+                        from: current_pos,
                     }));
                     worksite_deferred = true;
                     // If resolver fails to claim, it sets Activity::Idle
@@ -1592,10 +2002,21 @@ pub fn decision_system(
                         if kind == BuildingKind::GoldMine {
                             // Fair mining queue: leaving mine range forfeits queue position.
                             let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
-                            extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
+                            extras
+                                .work_intents
+                                .write(WorkIntentMsg(WorkIntent::Release {
+                                    entity,
+                                    worksite: uid,
+                                }));
                             worksite = None;
                             worksite_deferred = true;
-                            transition_activity(&mut activity, ActivityKind::Mine, ActivityPhase::Transit, ActivityTarget::Worksite, "transition");
+                            transition_activity(
+                                &mut activity,
+                                ActivityKind::Mine,
+                                ActivityPhase::Transit,
+                                ActivityTarget::Worksite,
+                                "transition",
+                            );
                             submit_intent(
                                 &mut intents,
                                 entity,
@@ -1639,11 +2060,15 @@ pub fn decision_system(
                     .is_some_and(|ps| ps.ready);
                 if ws_ready && can_harvest_turn {
                     if let Some(mut ps) = ws_entity.and_then(|e| production_q.get_mut(e).ok()) {
-                        let town_levels =
-                            economy.towns.upgrade_levels(town_idx_i32);
-                        let yield_mult =
-                            UPGRADES.stat_mult(&town_levels, ws.upgrade_job, UpgradeStatKind::Yield);
-                        let ws_pos = entity_map.get_instance(slot).map_or(Vec2::ZERO, |i| i.position);
+                        let town_levels = economy.towns.upgrade_levels(town_idx_i32);
+                        let yield_mult = UPGRADES.stat_mult(
+                            &town_levels,
+                            ws.upgrade_job,
+                            UpgradeStatKind::Yield,
+                        );
+                        let ws_pos = entity_map
+                            .get_instance(slot)
+                            .map_or(Vec2::ZERO, |i| i.position);
                         let base_yield = ps.harvest(kind);
                         if base_yield > 0 {
                             combat_log.write(CombatLogMsg {
@@ -1658,15 +2083,27 @@ pub fn decision_system(
                         }
                         let final_yield = ((base_yield as f32) * yield_mult).round() as i32;
                         let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
-                        extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
+                        extras
+                            .work_intents
+                            .write(WorkIntentMsg(WorkIntent::Release {
+                                entity,
+                                worksite: uid,
+                            }));
                         worksite = None;
                         worksite_deferred = true;
                         match ws.harvest_item {
-                            ItemKind::Food => carried_loot.food += final_yield,
-                            ItemKind::Gold => carried_loot.gold += final_yield,
-                            _ => {}
+                            ResourceKind::Food => carried_loot.food += final_yield,
+                            ResourceKind::Gold => carried_loot.gold += final_yield,
+                            ResourceKind::Wood => carried_loot.wood += final_yield,
+                            ResourceKind::Stone => carried_loot.stone += final_yield,
                         }
-                        transition_activity(&mut activity, ActivityKind::ReturnLoot, ActivityPhase::Transit, ActivityTarget::Dropoff, "transition");
+                        transition_activity(
+                            &mut activity,
+                            ActivityKind::ReturnLoot,
+                            ActivityPhase::Transit,
+                            ActivityTarget::Dropoff,
+                            "transition",
+                        );
                         submit_intent(
                             &mut intents,
                             entity,
@@ -1692,10 +2129,21 @@ pub fn decision_system(
                 // Tired check: release worksite and go idle
                 if energy < ENERGY_TIRED_THRESHOLD {
                     let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
-                    extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
+                    extras
+                        .work_intents
+                        .write(WorkIntentMsg(WorkIntent::Release {
+                            entity,
+                            worksite: uid,
+                        }));
                     worksite = None;
                     worksite_deferred = true;
-                    transition_activity(&mut activity, ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None, "transition");
+                    transition_activity(
+                        &mut activity,
+                        ActivityKind::Idle,
+                        ActivityPhase::Ready,
+                        ActivityTarget::None,
+                        "transition",
+                    );
                     npc_logs.push(
                         idx,
                         game_time.day(),
@@ -1717,7 +2165,13 @@ pub fn decision_system(
                         .and_then(|sid| squad_state.squads.get(sid as usize))
                         .is_some_and(|s| !s.rest_when_tired);
                 if energy < ENERGY_TIRED_THRESHOLD && !squad_forces_stay {
-                    transition_activity(&mut activity, ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None, "transition");
+                    transition_activity(
+                        &mut activity,
+                        ActivityKind::Idle,
+                        ActivityPhase::Ready,
+                        ActivityTarget::None,
+                        "transition",
+                    );
                     npc_logs.push(
                         idx,
                         game_time.day(),
@@ -1727,21 +2181,38 @@ pub fn decision_system(
                     );
                     // Fall through to idle scoring -- Rest will win
                 } else {
-                    let squad = squad_id
-                        .and_then(|sid| squad_state.squads.get(sid as usize));
+                    let squad = squad_id.and_then(|sid| squad_state.squads.get(sid as usize));
                     let has_squad_target = squad.is_some_and(|s| s.target.is_some());
                     let squad_patrol_enabled = squad.is_none_or(|s| s.patrol_enabled);
                     let jitter = (idx % 30) as u32;
-                    if !has_squad_target && ticks >= ARCHER_PATROL_WAIT + jitter && squad_patrol_enabled {
+                    if !has_squad_target
+                        && ticks >= ARCHER_PATROL_WAIT + jitter
+                        && squad_patrol_enabled
+                    {
                         if let Ok(route) = npc_data.patrol_route_q.get(entity) {
                             if !route.posts.is_empty() {
                                 patrol_current = (patrol_current + 1) % route.posts.len();
                                 if let Some(post) = route.posts.get(patrol_current) {
-                                    transition_activity(&mut activity, ActivityKind::Patrol, ActivityPhase::Transit,
-                                        ActivityTarget::PatrolPost { route: 0, index: patrol_current as u16 }, "onduty:patrol_advance");
+                                    transition_activity(
+                                        &mut activity,
+                                        ActivityKind::Patrol,
+                                        ActivityPhase::Transit,
+                                        ActivityTarget::PatrolPost {
+                                            route: 0,
+                                            index: patrol_current as u16,
+                                        },
+                                        "onduty:patrol_advance",
+                                    );
                                     submit_intent_scattered(
-                                        &mut intents, entity, post.x, post.y, 128.0,
-                                        idx, patrol_current, MovementPriority::JobRoute, "onduty:patrol_advance",
+                                        &mut intents,
+                                        entity,
+                                        post.x,
+                                        post.y,
+                                        128.0,
+                                        idx,
+                                        patrol_current,
+                                        MovementPriority::JobRoute,
+                                        "onduty:patrol_advance",
                                     );
                                     npc_logs.push(
                                         idx,
@@ -1770,8 +2241,8 @@ pub fn decision_system(
 
             let town_idx = town_idx_i32 as usize;
             let policy = economy.towns.policy(town_idx_i32);
-            let food_available = policy.as_ref().is_none_or(|p| p.eat_food)
-                && economy.towns.food(town_idx_i32) > 0;
+            let food_available =
+                policy.as_ref().is_none_or(|p| p.eat_food) && economy.towns.food(town_idx_i32) > 0;
             let mut scores: [(Action, f32); 5] = [(Action::Wander, 0.0); 5];
             let mut score_count: usize = 0;
 
@@ -1782,11 +2253,24 @@ pub fn decision_system(
                     if let Some(town) = world_data.towns.get(town_idx) {
                         let center = town.center;
                         let threshold = policy.map(|p| p.recovery_hp).unwrap_or(0.8);
-                        transition_activity(&mut activity, ActivityKind::Heal, ActivityPhase::Transit, ActivityTarget::Fountain, "idle:heal_fountain");
+                        transition_activity(
+                            &mut activity,
+                            ActivityKind::Heal,
+                            ActivityPhase::Transit,
+                            ActivityTarget::Fountain,
+                            "idle:heal_fountain",
+                        );
                         activity.recover_until = threshold;
                         submit_intent_scattered(
-                            &mut intents, entity, center.x, center.y, 128.0,
-                            idx, frame, MovementPriority::Survival, "idle:heal_fountain",
+                            &mut intents,
+                            entity,
+                            center.x,
+                            center.y,
+                            128.0,
+                            idx,
+                            frame,
+                            MovementPriority::Survival,
+                            "idle:heal_fountain",
                         );
                         npc_logs.push(
                             idx,
@@ -1814,10 +2298,12 @@ pub fn decision_system(
 
             // Work schedule gate: per-job schedule
             let schedule = match job {
-                Job::Farmer | Job::Miner => policy.as_ref()
+                Job::Farmer | Job::Miner => policy
+                    .as_ref()
                     .map(|p| p.farmer_schedule)
                     .unwrap_or(WorkSchedule::Both),
-                Job::Archer | Job::Crossbow => policy.as_ref()
+                Job::Archer | Job::Crossbow => policy
+                    .as_ref()
                     .map(|p| p.archer_schedule)
                     .unwrap_or(WorkSchedule::Both),
                 _ => WorkSchedule::Both,
@@ -1830,10 +2316,11 @@ pub fn decision_system(
 
             let can_work = work_allowed
                 && match job {
-                    Job::Farmer => true, // dynamically find farms (same as Miner)
-                    Job::Miner => true,  // miners always have work (find nearest mine dynamically)
+                    Job::Farmer => true,
+                    Job::Miner => true,
+                    Job::Woodcutter | Job::Quarrier => true,
                     Job::Archer | Job::Crossbow | Job::Fighter => has_patrol,
-                    Job::Raider | Job::Boat => false, // squad-driven / non-behavioral
+                    Job::Raider | Job::Boat => false,
                 };
             if can_work {
                 let hp_pct = health / max_hp;
@@ -1858,10 +2345,12 @@ pub fn decision_system(
             // Off-duty behavior when work is gated out by schedule
             if !work_allowed {
                 let off_duty = match job {
-                    Job::Farmer | Job::Miner => policy.as_ref()
+                    Job::Farmer | Job::Miner => policy
+                        .as_ref()
                         .map(|p| p.farmer_off_duty)
                         .unwrap_or(OffDutyBehavior::GoToBed),
-                    Job::Archer | Job::Crossbow => policy.as_ref()
+                    Job::Archer | Job::Crossbow => policy
+                        .as_ref()
                         .map(|p| p.archer_off_duty)
                         .unwrap_or(OffDutyBehavior::GoToBed),
                     _ => OffDutyBehavior::GoToBed,
@@ -1878,7 +2367,13 @@ pub fn decision_system(
                         // Go to town center (fountain)
                         if let Some(town) = world_data.towns.get(town_idx) {
                             let center = town.center;
-                            transition_activity(&mut activity, ActivityKind::Wander, ActivityPhase::Transit, ActivityTarget::None, "transition");
+                            transition_activity(
+                                &mut activity,
+                                ActivityKind::Wander,
+                                ActivityPhase::Transit,
+                                ActivityTarget::None,
+                                "transition",
+                            );
                             submit_intent(
                                 &mut intents,
                                 entity,
@@ -1946,7 +2441,8 @@ pub fn decision_system(
                         MovementPriority::Survival,
                         "idle:rest_home",
                         "idle:rest_fountain_homeless",
-                    ) && activity.target == ActivityTarget::Fountain {
+                    ) && activity.target == ActivityTarget::Fountain
+                    {
                         npc_logs.push(
                             idx,
                             game_time.day(),
@@ -1963,23 +2459,61 @@ pub fn decision_system(
                             // Probe for available farm (read-only); defer claim to resolver
                             // Probe only — production state doesn't affect availability check
                             let empty_map = std::collections::HashMap::new();
-                            if find_farmer_farm_target(current_pos, &entity_map, town_idx_i32 as u32, &empty_map).is_some() {
+                            if find_farmer_farm_target(
+                                current_pos,
+                                &entity_map,
+                                town_idx_i32 as u32,
+                                &empty_map,
+                            )
+                            .is_some()
+                            {
                                 extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
                                     entity,
                                     kind: BuildingKind::Farm,
                                     town_idx: town_idx_i32 as u32,
                                     from: current_pos,
                                 }));
-                                transition_activity(&mut activity, ActivityKind::Work, ActivityPhase::Transit, ActivityTarget::Worksite, "farm_claim_->_resolver");
-                                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm claim -> resolver");
+                                transition_activity(
+                                    &mut activity,
+                                    ActivityKind::Work,
+                                    ActivityPhase::Transit,
+                                    ActivityTarget::Worksite,
+                                    "farm_claim_->_resolver",
+                                );
+                                npc_logs.push(
+                                    idx,
+                                    game_time.day(),
+                                    game_time.hour(),
+                                    game_time.minute(),
+                                    "Farm claim -> resolver",
+                                );
                             } else {
                                 // No available farm — clear stale target and wander
                                 worksite = None;
-                                let base = if home_valid { home } else if let Some(pos) = npc_pos { pos } else { break 'decide; };
+                                let base = if home_valid {
+                                    home
+                                } else if let Some(pos) = npc_pos {
+                                    pos
+                                } else {
+                                    break 'decide;
+                                };
                                 let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 200.0;
                                 let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 200.0;
-                                transition_activity(&mut activity, ActivityKind::Wander, ActivityPhase::Transit, ActivityTarget::None, "idle:wander_no_farm");
-                                submit_intent(&mut intents, entity, base.x + offset_x, base.y + offset_y, MovementPriority::Wander, "idle:wander_no_farm");
+                                transition_activity(
+                                    &mut activity,
+                                    ActivityKind::Wander,
+                                    ActivityPhase::Transit,
+                                    ActivityTarget::None,
+                                    "idle:wander_no_farm",
+                                );
+                                submit_intent(
+                                    &mut intents,
+                                    entity,
+                                    base.x + offset_x,
+                                    base.y + offset_y,
+                                    MovementPriority::Wander,
+                                    "idle:wander_no_farm",
+                                );
                             }
                         }
                         Job::Miner => {
@@ -2014,7 +2548,10 @@ pub fn decision_system(
                                         crate::resources::WorksiteFallback::AnyTown,
                                         6400.0,
                                         |inst, occ| {
-                                            let ready = mine_ready.get(&inst.slot).copied().unwrap_or(false);
+                                            let ready = mine_ready
+                                                .get(&inst.slot)
+                                                .copied()
+                                                .unwrap_or(false);
                                             let priority = if ready {
                                                 0u8
                                             } else if occ == 0 {
@@ -2035,7 +2572,13 @@ pub fn decision_system(
                             };
 
                             if let Some(mine_pos) = mine_target {
-                                transition_activity(&mut activity, ActivityKind::Mine, ActivityPhase::Transit, ActivityTarget::Worksite, "transition");
+                                transition_activity(
+                                    &mut activity,
+                                    ActivityKind::Mine,
+                                    ActivityPhase::Transit,
+                                    ActivityTarget::Worksite,
+                                    "transition",
+                                );
                                 submit_intent(
                                     &mut intents,
                                     entity,
@@ -2058,8 +2601,13 @@ pub fn decision_system(
                             if let Some(sid) = squad_id {
                                 if let Some(squad) = squad_state.squads.get(sid as usize) {
                                     if let Some(target) = squad.target {
-                                        transition_activity(&mut activity, ActivityKind::SquadAttack, ActivityPhase::Transit,
-                                            ActivityTarget::SquadPoint(target), "transition");
+                                        transition_activity(
+                                            &mut activity,
+                                            ActivityKind::SquadAttack,
+                                            ActivityPhase::Transit,
+                                            ActivityTarget::SquadPoint(target),
+                                            "transition",
+                                        );
                                         submit_intent(
                                             &mut intents,
                                             entity,
@@ -2088,11 +2636,26 @@ pub fn decision_system(
                                     let safe_idx = patrol_current % route.posts.len();
                                     if let Some(post) = route.posts.get(safe_idx) {
                                         patrol_current = safe_idx;
-                                        transition_activity(&mut activity, ActivityKind::Patrol, ActivityPhase::Transit,
-                                            ActivityTarget::PatrolPost { route: 0, index: patrol_current as u16 }, "idle:patrol_route");
+                                        transition_activity(
+                                            &mut activity,
+                                            ActivityKind::Patrol,
+                                            ActivityPhase::Transit,
+                                            ActivityTarget::PatrolPost {
+                                                route: 0,
+                                                index: patrol_current as u16,
+                                            },
+                                            "idle:patrol_route",
+                                        );
                                         submit_intent_scattered(
-                                            &mut intents, entity, post.x, post.y, 128.0,
-                                            idx, patrol_current, MovementPriority::JobRoute, "idle:patrol_route",
+                                            &mut intents,
+                                            entity,
+                                            post.x,
+                                            post.y,
+                                            128.0,
+                                            idx,
+                                            patrol_current,
+                                            MovementPriority::JobRoute,
+                                            "idle:patrol_route",
                                         );
                                     }
                                 }
@@ -2107,7 +2670,13 @@ pub fn decision_system(
                                 // No squad — wander near town
                                 let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 100.0;
                                 let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 100.0;
-                                transition_activity(&mut activity, ActivityKind::Wander, ActivityPhase::Transit, ActivityTarget::None, "transition");
+                                transition_activity(
+                                    &mut activity,
+                                    ActivityKind::Wander,
+                                    ActivityPhase::Transit,
+                                    ActivityTarget::None,
+                                    "transition",
+                                );
                                 submit_intent(
                                     &mut intents,
                                     entity,
@@ -2115,6 +2684,66 @@ pub fn decision_system(
                                     home.y + offset_y,
                                     MovementPriority::Wander,
                                     "idle:raider_wander",
+                                );
+                            }
+                        }
+                        Job::Woodcutter => {
+                            let current_pos = npc_pos.unwrap_or(home);
+                            let target = entity_map
+                                .find_nearest_worksite(
+                                    current_pos,
+                                    BuildingKind::TreeNode,
+                                    town_idx_i32 as u32,
+                                    crate::resources::WorksiteFallback::AnyTown,
+                                    6400.0,
+                                    |_inst, occ| {
+                                        let priority = if occ == 0 { 0u8 } else { 1 };
+                                        Some((priority, occ as u16, _inst.position.distance_squared(current_pos).to_bits()))
+                                    },
+                                )
+                                .map(|r| r.position);
+                            if let Some(node_pos) = target {
+                                transition_activity(
+                                    &mut activity,
+                                    ActivityKind::Chop,
+                                    ActivityPhase::Transit,
+                                    ActivityTarget::Worksite,
+                                    "transition",
+                                );
+                                submit_intent(
+                                    &mut intents, entity,
+                                    node_pos.x, node_pos.y,
+                                    MovementPriority::JobRoute, "idle:work_chop",
+                                );
+                            }
+                        }
+                        Job::Quarrier => {
+                            let current_pos = npc_pos.unwrap_or(home);
+                            let target = entity_map
+                                .find_nearest_worksite(
+                                    current_pos,
+                                    BuildingKind::RockNode,
+                                    town_idx_i32 as u32,
+                                    crate::resources::WorksiteFallback::AnyTown,
+                                    6400.0,
+                                    |_inst, occ| {
+                                        let priority = if occ == 0 { 0u8 } else { 1 };
+                                        Some((priority, occ as u16, _inst.position.distance_squared(current_pos).to_bits()))
+                                    },
+                                )
+                                .map(|r| r.position);
+                            if let Some(node_pos) = target {
+                                transition_activity(
+                                    &mut activity,
+                                    ActivityKind::Quarry,
+                                    ActivityPhase::Transit,
+                                    ActivityTarget::Worksite,
+                                    "transition",
+                                );
+                                submit_intent(
+                                    &mut intents, entity,
+                                    node_pos.x, node_pos.y,
+                                    MovementPriority::JobRoute, "idle:work_quarry",
                                 );
                             }
                         }
@@ -2136,9 +2765,17 @@ pub fn decision_system(
                     if home_valid {
                         let diff = target - home;
                         let dist = diff.length();
-                        if dist > 200.0 { target = home + diff * (200.0 / dist); }
+                        if dist > 200.0 {
+                            target = home + diff * (200.0 / dist);
+                        }
                     }
-                    transition_activity(&mut activity, ActivityKind::Wander, ActivityPhase::Transit, ActivityTarget::None, "transition");
+                    transition_activity(
+                        &mut activity,
+                        ActivityKind::Wander,
+                        ActivityPhase::Transit,
+                        ActivityTarget::None,
+                        "transition",
+                    );
                     submit_intent(
                         &mut intents,
                         entity,
@@ -2162,10 +2799,21 @@ pub fn decision_system(
             && activity.kind != ActivityKind::Work
         {
             let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
-            extras.work_intents.write(WorkIntentMsg(WorkIntent::Release { entity, worksite: uid }));
+            extras
+                .work_intents
+                .write(WorkIntentMsg(WorkIntent::Release {
+                    entity,
+                    worksite: uid,
+                }));
             worksite = None;
             worksite_deferred = true;
-            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Released stale worksite");
+            npc_logs.push(
+                idx,
+                game_time.day(),
+                game_time.hour(),
+                game_time.minute(),
+                "Released stale worksite",
+            );
         }
 
         // Conditional writeback: skip unchanged NPCs (most exit early via break 'decide)
@@ -2183,11 +2831,10 @@ pub fn decision_system(
         }
         // Write back carried loot if changed
         {
-            let orig_cl = npc_data
-                .carried_loot_q
-                .get(entity)
-                .ok();
-            let changed = orig_cl.as_ref().is_none_or(|cl| cl.food != carried_loot.food || cl.gold != carried_loot.gold);
+            let orig_cl = npc_data.carried_loot_q.get(entity).ok();
+            let changed = orig_cl
+                .as_ref()
+                .is_none_or(|cl| cl.food != carried_loot.food || cl.gold != carried_loot.gold);
             if changed {
                 if let Ok(mut cl) = npc_data.carried_loot_q.get_mut(entity) {
                     cl.food = carried_loot.food;
@@ -2232,7 +2879,10 @@ pub fn decision_system(
 /// Separated from decision_system because we need mutable Activity access.
 pub fn on_duty_tick_system(
     game_time: Res<GameTime>,
-    mut q: Query<(&mut Activity, &CombatState), (With<PatrolRoute>, Without<Building>, Without<Dead>)>,
+    mut q: Query<
+        (&mut Activity, &CombatState),
+        (With<PatrolRoute>, Without<Building>, Without<Dead>),
+    >,
 ) {
     if game_time.is_paused() {
         return;
@@ -2264,11 +2914,15 @@ pub fn rebuild_patrol_routes_system(
     // Apply pending patrol order swap from UI
     if let Some(swap) = patrol_swaps.read().last() {
         let (sa, sb) = (swap.slot_a, swap.slot_b);
-        let order_a = entity_map.entities.get(&sa)
+        let order_a = entity_map
+            .entities
+            .get(&sa)
             .and_then(|&e| waypoint_q.get(e).ok())
             .map(|w| w.0)
             .unwrap_or(0);
-        let order_b = entity_map.entities.get(&sb)
+        let order_b = entity_map
+            .entities
+            .get(&sb)
             .and_then(|&e| waypoint_q.get(e).ok())
             .map(|w| w.0)
             .unwrap_or(0);
@@ -2296,9 +2950,9 @@ pub fn rebuild_patrol_routes_system(
         std::collections::HashMap::new();
     for &(_, _, town_idx) in &patrol_slots {
         let tid = town_idx as u32;
-        town_routes
-            .entry(tid)
-            .or_insert_with(|| crate::systems::spawn::build_patrol_route_ecs(&entity_map, tid, &waypoint_q));
+        town_routes.entry(tid).or_insert_with(|| {
+            crate::systems::spawn::build_patrol_route_ecs(&entity_map, tid, &waypoint_q)
+        });
     }
 
     // Write routes back via ECS
@@ -2329,8 +2983,8 @@ mod tests {
     use super::*;
     use crate::components::{
         Activity, Building, CachedStats, CombatState, Dead, Energy, Faction, FoodStore, GoldStore,
-        GpuSlot, Health, Home, NpcFlags, SquadId, TownAreaLevel, TownEquipment, TownMarker,
-        TownPolicy, TownUpgradeLevel, TownId,
+        GpuSlot, Health, Home, NpcFlags, SquadId, TownAreaLevel, TownEquipment, TownId, TownMarker,
+        TownPolicy, TownUpgradeLevel,
     };
     use crate::entity_map::EntityMap;
     use crate::messages::{CombatLogMsg, GpuUpdateMsg, WorkIntentMsg};
@@ -2416,32 +3070,62 @@ mod tests {
         app.insert_resource(settings);
         app.add_systems(FixedUpdate, decision_system);
 
-        let town_entity = app.world_mut().spawn((
-            TownMarker,
-            TownPolicy(policy),
-            FoodStore(0),
-            GoldStore(0),
-            TownUpgradeLevel::default(),
-            TownEquipment::default(),
-            TownAreaLevel::default(),
-        )).id();
-        app.world_mut().resource_mut::<TownIndex>().0.insert(0, town_entity);
+        let town_entity = app
+            .world_mut()
+            .spawn((
+                TownMarker,
+                TownPolicy(policy),
+                FoodStore(0),
+                GoldStore(0),
+                TownUpgradeLevel::default(),
+                TownEquipment::default(),
+                TownAreaLevel::default(),
+            ))
+            .id();
+        app.world_mut()
+            .resource_mut::<TownIndex>()
+            .0
+            .insert(0, town_entity);
         app
+    }
+
+    fn test_carried_loot(count: usize) -> CarriedLoot {
+        CarriedLoot {
+            equipment: (0..count)
+                .map(|i| crate::constants::roll_loot_item(i as u64 + 1, i as u32 + 1))
+                .collect(),
+            ..Default::default()
+        }
     }
 
     #[test]
     fn on_duty_increments_ticks_waiting() {
         let mut app = setup_on_duty_app();
-        let npc = app.world_mut().spawn((
-            Activity { kind: ActivityKind::Patrol, phase: ActivityPhase::Holding, target: ActivityTarget::PatrolPost { route: 0, index: 0 }, ..Default::default() },
-            CombatState::None,
-            PatrolRoute { posts: vec![], current: 0 },
-        )).id();
+        let npc = app
+            .world_mut()
+            .spawn((
+                Activity {
+                    kind: ActivityKind::Patrol,
+                    phase: ActivityPhase::Holding,
+                    target: ActivityTarget::PatrolPost { route: 0, index: 0 },
+                    ..Default::default()
+                },
+                CombatState::None,
+                PatrolRoute {
+                    posts: vec![],
+                    current: 0,
+                },
+            ))
+            .id();
 
         app.update();
         let activity = app.world().get::<Activity>(npc).unwrap();
         if activity.kind == ActivityKind::Patrol {
-            assert!(activity.ticks_waiting > 0, "ticks_waiting should increment: {}", activity.ticks_waiting);
+            assert!(
+                activity.ticks_waiting > 0,
+                "ticks_waiting should increment: {}",
+                activity.ticks_waiting
+            );
         } else {
             panic!("activity should still be OnDuty");
         }
@@ -2450,16 +3134,30 @@ mod tests {
     #[test]
     fn on_duty_fighting_skipped() {
         let mut app = setup_on_duty_app();
-        let npc = app.world_mut().spawn((
-            Activity { kind: ActivityKind::Patrol, phase: ActivityPhase::Holding, target: ActivityTarget::PatrolPost { route: 0, index: 0 }, ..Default::default() },
-            CombatState::Fighting { origin: Vec2::ZERO },
-            PatrolRoute { posts: vec![], current: 0 },
-        )).id();
+        let npc = app
+            .world_mut()
+            .spawn((
+                Activity {
+                    kind: ActivityKind::Patrol,
+                    phase: ActivityPhase::Holding,
+                    target: ActivityTarget::PatrolPost { route: 0, index: 0 },
+                    ..Default::default()
+                },
+                CombatState::Fighting { origin: Vec2::ZERO },
+                PatrolRoute {
+                    posts: vec![],
+                    current: 0,
+                },
+            ))
+            .id();
 
         app.update();
         let activity = app.world().get::<Activity>(npc).unwrap();
         if activity.kind == ActivityKind::Patrol {
-            assert_eq!(activity.ticks_waiting, 0, "fighting NPCs should not increment ticks");
+            assert_eq!(
+                activity.ticks_waiting, 0,
+                "fighting NPCs should not increment ticks"
+            );
         } else {
             panic!("activity should still be OnDuty");
         }
@@ -2469,27 +3167,51 @@ mod tests {
     fn on_duty_paused_no_change() {
         let mut app = setup_on_duty_app();
         app.world_mut().resource_mut::<GameTime>().paused = true;
-        let npc = app.world_mut().spawn((
-            Activity { kind: ActivityKind::Patrol, phase: ActivityPhase::Holding, target: ActivityTarget::PatrolPost { route: 0, index: 0 }, ticks_waiting: 5, ..Default::default() },
-            CombatState::None,
-            PatrolRoute { posts: vec![], current: 0 },
-        )).id();
+        let npc = app
+            .world_mut()
+            .spawn((
+                Activity {
+                    kind: ActivityKind::Patrol,
+                    phase: ActivityPhase::Holding,
+                    target: ActivityTarget::PatrolPost { route: 0, index: 0 },
+                    ticks_waiting: 5,
+                    ..Default::default()
+                },
+                CombatState::None,
+                PatrolRoute {
+                    posts: vec![],
+                    current: 0,
+                },
+            ))
+            .id();
 
         app.update();
         let activity = app.world().get::<Activity>(npc).unwrap();
         if activity.kind == ActivityKind::Patrol {
-            assert_eq!(activity.ticks_waiting, 5, "paused should not increment: {}", activity.ticks_waiting);
+            assert_eq!(
+                activity.ticks_waiting, 5,
+                "paused should not increment: {}",
+                activity.ticks_waiting
+            );
         }
     }
 
     #[test]
     fn on_duty_dead_excluded() {
         let mut app = setup_on_duty_app();
-        let npc = app.world_mut().spawn((
-            Activity { kind: ActivityKind::Patrol, phase: ActivityPhase::Holding, target: ActivityTarget::PatrolPost { route: 0, index: 0 }, ..Default::default() },
-            CombatState::None,
-            Dead,
-        )).id();
+        let npc = app
+            .world_mut()
+            .spawn((
+                Activity {
+                    kind: ActivityKind::Patrol,
+                    phase: ActivityPhase::Holding,
+                    target: ActivityTarget::PatrolPost { route: 0, index: 0 },
+                    ..Default::default()
+                },
+                CombatState::None,
+                Dead,
+            ))
+            .id();
 
         app.update();
         let activity = app.world().get::<Activity>(npc).unwrap();
@@ -2501,11 +3223,21 @@ mod tests {
     #[test]
     fn on_duty_buildings_excluded() {
         let mut app = setup_on_duty_app();
-        let bld = app.world_mut().spawn((
-            Activity { kind: ActivityKind::Patrol, phase: ActivityPhase::Holding, target: ActivityTarget::PatrolPost { route: 0, index: 0 }, ..Default::default() },
-            CombatState::None,
-            Building { kind: crate::world::BuildingKind::Tower },
-        )).id();
+        let bld = app
+            .world_mut()
+            .spawn((
+                Activity {
+                    kind: ActivityKind::Patrol,
+                    phase: ActivityPhase::Holding,
+                    target: ActivityTarget::PatrolPost { route: 0, index: 0 },
+                    ..Default::default()
+                },
+                CombatState::None,
+                Building {
+                    kind: crate::world::BuildingKind::Tower,
+                },
+            ))
+            .id();
 
         app.update();
         let activity = app.world().get::<Activity>(bld).unwrap();
@@ -2515,16 +3247,72 @@ mod tests {
     }
 
     #[test]
+    fn squad_loot_threshold_overrides_town_policy() {
+        DECISION_FRAME.store(0, std::sync::atomic::Ordering::Relaxed);
+
+        let mut policy = PolicySet::default();
+        policy.loot_threshold = 1;
+        let mut app = setup_decision_app(policy);
+        app.world_mut().resource_mut::<SquadState>().squads[0].loot_threshold = 3;
+
+        let npc = app
+            .world_mut()
+            .spawn((
+                GpuSlot(0),
+                Job::Archer,
+                TownId(0),
+                Faction(1),
+                Energy(100.0),
+                Health(100.0),
+                Home(Vec2::new(320.0, 320.0)),
+                HasEnergy,
+                NpcFlags::default(),
+                CombatState::None,
+                SquadId(0),
+                Activity {
+                    kind: ActivityKind::Patrol,
+                    phase: ActivityPhase::Holding,
+                    target: ActivityTarget::PatrolPost { route: 0, index: 0 },
+                    ..Default::default()
+                },
+                test_cached_stats(),
+                test_carried_loot(2),
+            ))
+            .id();
+
+        app.world_mut().run_system_once(decision_system).unwrap();
+
+        let activity = app.world().get::<Activity>(npc).unwrap();
+        assert_ne!(
+            activity.kind,
+            ActivityKind::ReturnLoot,
+            "squad threshold should block the lower town-wide fallback"
+        );
+    }
+
+    #[test]
+    fn town_loot_threshold_applies_without_squad() {
+        let mut policy = PolicySet::default();
+        policy.loot_threshold = 2;
+        let squad_state = SquadState::default();
+
+        assert_eq!(loot_threshold_for_npc(&squad_state, None, Some(policy)), 2);
+    }
+
+    #[test]
     fn non_on_duty_activity_unchanged() {
         let mut app = setup_on_duty_app();
-        let npc = app.world_mut().spawn((
-            Activity::new(ActivityKind::Work),
-            CombatState::None,
-        )).id();
+        let npc = app
+            .world_mut()
+            .spawn((Activity::new(ActivityKind::Work), CombatState::None))
+            .id();
 
         app.update();
         let activity = app.world().get::<Activity>(npc).unwrap();
-        assert!(activity.kind == ActivityKind::Work, "non-OnDuty activity should not change");
+        assert!(
+            activity.kind == ActivityKind::Work,
+            "non-OnDuty activity should not change"
+        );
     }
 
     // ========================================================================
@@ -2534,7 +3322,13 @@ mod tests {
     #[test]
     fn transition_activity_sets_all_fields() {
         let mut act = Activity::default();
-        transition_activity(&mut act, ActivityKind::Rest, ActivityPhase::Transit, ActivityTarget::Home, "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::Rest,
+            ActivityPhase::Transit,
+            ActivityTarget::Home,
+            "test",
+        );
         assert_eq!(act.kind, ActivityKind::Rest);
         assert_eq!(act.phase, ActivityPhase::Transit);
         assert_eq!(act.target, ActivityTarget::Home);
@@ -2543,30 +3337,71 @@ mod tests {
 
     #[test]
     fn transition_activity_resets_ticks() {
-        let mut act = Activity { ticks_waiting: 42, ..Default::default() };
-        transition_activity(&mut act, ActivityKind::Patrol, ActivityPhase::Holding,
-            ActivityTarget::PatrolPost { route: 0, index: 1 }, "test");
-        assert_eq!(act.ticks_waiting, 0, "transition should reset ticks_waiting");
+        let mut act = Activity {
+            ticks_waiting: 42,
+            ..Default::default()
+        };
+        transition_activity(
+            &mut act,
+            ActivityKind::Patrol,
+            ActivityPhase::Holding,
+            ActivityTarget::PatrolPost { route: 0, index: 1 },
+            "test",
+        );
+        assert_eq!(
+            act.ticks_waiting, 0,
+            "transition should reset ticks_waiting"
+        );
     }
 
     #[test]
     fn transition_activity_preserves_recover_until_for_heal() {
-        let mut act = Activity { recover_until: 0.75, ..Default::default() };
-        transition_activity(&mut act, ActivityKind::Heal, ActivityPhase::Transit, ActivityTarget::Fountain, "test");
-        assert_eq!(act.recover_until, 0.75, "Heal should preserve recover_until");
+        let mut act = Activity {
+            recover_until: 0.75,
+            ..Default::default()
+        };
+        transition_activity(
+            &mut act,
+            ActivityKind::Heal,
+            ActivityPhase::Transit,
+            ActivityTarget::Fountain,
+            "test",
+        );
+        assert_eq!(
+            act.recover_until, 0.75,
+            "Heal should preserve recover_until"
+        );
     }
 
     #[test]
     fn transition_activity_clears_recover_until_for_non_heal() {
-        let mut act = Activity { recover_until: 0.75, ..Default::default() };
-        transition_activity(&mut act, ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None, "test");
-        assert_eq!(act.recover_until, 0.0, "non-Heal should clear recover_until");
+        let mut act = Activity {
+            recover_until: 0.75,
+            ..Default::default()
+        };
+        transition_activity(
+            &mut act,
+            ActivityKind::Idle,
+            ActivityPhase::Ready,
+            ActivityTarget::None,
+            "test",
+        );
+        assert_eq!(
+            act.recover_until, 0.0,
+            "non-Heal should clear recover_until"
+        );
     }
 
     #[test]
     fn transition_phase_keeps_kind_and_target() {
         let mut act = Activity::default();
-        transition_activity(&mut act, ActivityKind::Rest, ActivityPhase::Transit, ActivityTarget::Home, "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::Rest,
+            ActivityPhase::Transit,
+            ActivityTarget::Home,
+            "test",
+        );
         act.ticks_waiting = 10;
         transition_phase(&mut act, ActivityPhase::Active, "test");
         assert_eq!(act.kind, ActivityKind::Rest);
@@ -2584,9 +3419,18 @@ mod tests {
         // Simulate idle archer choosing squad target: must be SquadAttack+Transit+SquadPoint
         let mut act = Activity::default();
         let target = Vec2::new(500.0, 500.0);
-        transition_activity(&mut act, ActivityKind::SquadAttack, ActivityPhase::Transit,
-            ActivityTarget::SquadPoint(target), "test");
-        assert_eq!(act.kind, ActivityKind::SquadAttack, "squad target entry must use SquadAttack");
+        transition_activity(
+            &mut act,
+            ActivityKind::SquadAttack,
+            ActivityPhase::Transit,
+            ActivityTarget::SquadPoint(target),
+            "test",
+        );
+        assert_eq!(
+            act.kind,
+            ActivityKind::SquadAttack,
+            "squad target entry must use SquadAttack"
+        );
         assert_eq!(act.phase, ActivityPhase::Transit);
         assert_eq!(act.target, ActivityTarget::SquadPoint(target));
     }
@@ -2596,12 +3440,26 @@ mod tests {
         // Simulate arrival at squad target: must be SquadAttack+Holding+SquadPoint
         let mut act = Activity::default();
         let target = Vec2::new(500.0, 500.0);
-        transition_activity(&mut act, ActivityKind::SquadAttack, ActivityPhase::Transit,
-            ActivityTarget::SquadPoint(target), "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::SquadAttack,
+            ActivityPhase::Transit,
+            ActivityTarget::SquadPoint(target),
+            "test",
+        );
         // On arrival, transition to Holding
-        transition_activity(&mut act, ActivityKind::SquadAttack, ActivityPhase::Holding,
-            ActivityTarget::SquadPoint(target), "test");
-        assert_eq!(act.kind, ActivityKind::SquadAttack, "squad arrival must stay SquadAttack");
+        transition_activity(
+            &mut act,
+            ActivityKind::SquadAttack,
+            ActivityPhase::Holding,
+            ActivityTarget::SquadPoint(target),
+            "test",
+        );
+        assert_eq!(
+            act.kind,
+            ActivityKind::SquadAttack,
+            "squad arrival must stay SquadAttack"
+        );
         assert_eq!(act.phase, ActivityPhase::Holding);
         assert_eq!(act.target, ActivityTarget::SquadPoint(target));
     }
@@ -2611,15 +3469,31 @@ mod tests {
         // SquadAttack and Patrol must not collapse into each other
         let target = Vec2::new(300.0, 300.0);
         let mut squad_act = Activity::default();
-        transition_activity(&mut squad_act, ActivityKind::SquadAttack, ActivityPhase::Holding,
-            ActivityTarget::SquadPoint(target), "test");
+        transition_activity(
+            &mut squad_act,
+            ActivityKind::SquadAttack,
+            ActivityPhase::Holding,
+            ActivityTarget::SquadPoint(target),
+            "test",
+        );
 
         let mut patrol_act = Activity::default();
-        transition_activity(&mut patrol_act, ActivityKind::Patrol, ActivityPhase::Holding,
-            ActivityTarget::PatrolPost { route: 0, index: 2 }, "test");
+        transition_activity(
+            &mut patrol_act,
+            ActivityKind::Patrol,
+            ActivityPhase::Holding,
+            ActivityTarget::PatrolPost { route: 0, index: 2 },
+            "test",
+        );
 
-        assert_ne!(squad_act.kind, patrol_act.kind, "SquadAttack and Patrol must be distinct");
-        assert_ne!(squad_act.target, patrol_act.target, "SquadPoint and PatrolPost must be distinct");
+        assert_ne!(
+            squad_act.kind, patrol_act.kind,
+            "SquadAttack and Patrol must be distinct"
+        );
+        assert_ne!(
+            squad_act.target, patrol_act.target,
+            "SquadPoint and PatrolPost must be distinct"
+        );
     }
 
     // ========================================================================
@@ -2630,7 +3504,13 @@ mod tests {
     fn work_lifecycle_transit_to_active() {
         let mut act = Activity::default();
         // Entry: farmer starts working (idle -> transit)
-        transition_activity(&mut act, ActivityKind::Work, ActivityPhase::Transit, ActivityTarget::Worksite, "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::Work,
+            ActivityPhase::Transit,
+            ActivityTarget::Worksite,
+            "test",
+        );
         assert_eq!(act.kind, ActivityKind::Work);
         assert_eq!(act.phase, ActivityPhase::Transit);
         assert_eq!(act.target, ActivityTarget::Worksite);
@@ -2645,9 +3525,21 @@ mod tests {
     #[test]
     fn work_harvest_to_return_loot() {
         let mut act = Activity::default();
-        transition_activity(&mut act, ActivityKind::Work, ActivityPhase::Active, ActivityTarget::Worksite, "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::Work,
+            ActivityPhase::Active,
+            ActivityTarget::Worksite,
+            "test",
+        );
         // Harvest -> ReturnLoot
-        transition_activity(&mut act, ActivityKind::ReturnLoot, ActivityPhase::Transit, ActivityTarget::Dropoff, "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::ReturnLoot,
+            ActivityPhase::Transit,
+            ActivityTarget::Dropoff,
+            "test",
+        );
         assert_eq!(act.kind, ActivityKind::ReturnLoot);
         assert_eq!(act.phase, ActivityPhase::Transit);
         assert_eq!(act.target, ActivityTarget::Dropoff);
@@ -2656,9 +3548,21 @@ mod tests {
     #[test]
     fn work_tired_to_idle() {
         let mut act = Activity::default();
-        transition_activity(&mut act, ActivityKind::Work, ActivityPhase::Active, ActivityTarget::Worksite, "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::Work,
+            ActivityPhase::Active,
+            ActivityTarget::Worksite,
+            "test",
+        );
         // Tired -> Idle
-        transition_activity(&mut act, ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None, "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::Idle,
+            ActivityPhase::Ready,
+            ActivityTarget::None,
+            "test",
+        );
         assert_eq!(act.kind, ActivityKind::Idle);
         assert_eq!(act.phase, ActivityPhase::Ready);
     }
@@ -2667,7 +3571,13 @@ mod tests {
     fn mine_lifecycle_transit_to_holding() {
         let mut act = Activity::default();
         // Entry: miner starts (idle -> transit)
-        transition_activity(&mut act, ActivityKind::Mine, ActivityPhase::Transit, ActivityTarget::Worksite, "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::Mine,
+            ActivityPhase::Transit,
+            ActivityTarget::Worksite,
+            "test",
+        );
         assert_eq!(act.phase, ActivityPhase::Transit);
 
         // Arrival: transit -> holding (tending/queued)
@@ -2680,9 +3590,21 @@ mod tests {
     #[test]
     fn mine_harvest_to_return_loot() {
         let mut act = Activity::default();
-        transition_activity(&mut act, ActivityKind::Mine, ActivityPhase::Holding, ActivityTarget::Worksite, "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::Mine,
+            ActivityPhase::Holding,
+            ActivityTarget::Worksite,
+            "test",
+        );
         // Harvest turn -> ReturnLoot
-        transition_activity(&mut act, ActivityKind::ReturnLoot, ActivityPhase::Transit, ActivityTarget::Dropoff, "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::ReturnLoot,
+            ActivityPhase::Transit,
+            ActivityTarget::Dropoff,
+            "test",
+        );
         assert_eq!(act.kind, ActivityKind::ReturnLoot);
         assert_eq!(act.target, ActivityTarget::Dropoff);
     }
@@ -2690,7 +3612,13 @@ mod tests {
     #[test]
     fn return_loot_always_transit() {
         let mut act = Activity::default();
-        transition_activity(&mut act, ActivityKind::ReturnLoot, ActivityPhase::Transit, ActivityTarget::Dropoff, "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::ReturnLoot,
+            ActivityPhase::Transit,
+            ActivityTarget::Dropoff,
+            "test",
+        );
         assert_eq!(act.phase, ActivityPhase::Transit);
         assert_eq!(act.target, ActivityTarget::Dropoff);
     }
@@ -2698,7 +3626,13 @@ mod tests {
     #[test]
     fn wander_always_transit() {
         let mut act = Activity::default();
-        transition_activity(&mut act, ActivityKind::Wander, ActivityPhase::Transit, ActivityTarget::None, "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::Wander,
+            ActivityPhase::Transit,
+            ActivityTarget::None,
+            "test",
+        );
         assert_eq!(act.phase, ActivityPhase::Transit);
     }
 
@@ -2707,19 +3641,39 @@ mod tests {
         let mut act = Activity::default();
         let farm1 = Vec2::new(100.0, 100.0);
         let farm2 = Vec2::new(300.0, 300.0);
-        transition_activity(&mut act, ActivityKind::Raid, ActivityPhase::Transit,
-            ActivityTarget::RaidPoint(farm1), "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::Raid,
+            ActivityPhase::Transit,
+            ActivityTarget::RaidPoint(farm1),
+            "test",
+        );
         // Retarget to different farm
-        transition_activity(&mut act, ActivityKind::Raid, ActivityPhase::Transit,
-            ActivityTarget::RaidPoint(farm2), "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::Raid,
+            ActivityPhase::Transit,
+            ActivityTarget::RaidPoint(farm2),
+            "test",
+        );
         assert_eq!(act.kind, ActivityKind::Raid);
         assert_eq!(act.target, ActivityTarget::RaidPoint(farm2));
     }
 
     #[test]
     fn visual_key_sleep_only_during_active() {
-        let transit = Activity { kind: ActivityKind::Rest, phase: ActivityPhase::Transit, target: ActivityTarget::Home, ..Default::default() };
-        let active = Activity { kind: ActivityKind::Rest, phase: ActivityPhase::Active, target: ActivityTarget::Home, ..Default::default() };
+        let transit = Activity {
+            kind: ActivityKind::Rest,
+            phase: ActivityPhase::Transit,
+            target: ActivityTarget::Home,
+            ..Default::default()
+        };
+        let active = Activity {
+            kind: ActivityKind::Rest,
+            phase: ActivityPhase::Active,
+            target: ActivityTarget::Home,
+            ..Default::default()
+        };
         assert_eq!(transit.visual_key(), 0, "no sleep icon during transit");
         assert_eq!(active.visual_key(), 1, "sleep icon during active rest");
     }
@@ -2728,15 +3682,29 @@ mod tests {
     fn on_duty_tick_only_during_holding() {
         // Patrol+Transit should NOT increment ticks
         let mut app = setup_on_duty_app();
-        let npc = app.world_mut().spawn((
-            Activity { kind: ActivityKind::Patrol, phase: ActivityPhase::Transit, target: ActivityTarget::PatrolPost { route: 0, index: 0 }, ..Default::default() },
-            CombatState::None,
-            PatrolRoute { posts: vec![], current: 0 },
-        )).id();
+        let npc = app
+            .world_mut()
+            .spawn((
+                Activity {
+                    kind: ActivityKind::Patrol,
+                    phase: ActivityPhase::Transit,
+                    target: ActivityTarget::PatrolPost { route: 0, index: 0 },
+                    ..Default::default()
+                },
+                CombatState::None,
+                PatrolRoute {
+                    posts: vec![],
+                    current: 0,
+                },
+            ))
+            .id();
 
         app.update();
         let activity = app.world().get::<Activity>(npc).unwrap();
-        assert_eq!(activity.ticks_waiting, 0, "transit patrol should not increment ticks");
+        assert_eq!(
+            activity.ticks_waiting, 0,
+            "transit patrol should not increment ticks"
+        );
     }
 
     // ========================================================================
@@ -2746,7 +3714,13 @@ mod tests {
     #[test]
     fn rest_lifecycle_transit_to_active() {
         let mut act = Activity::default();
-        transition_activity(&mut act, ActivityKind::Rest, ActivityPhase::Transit, ActivityTarget::Home, "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::Rest,
+            ActivityPhase::Transit,
+            ActivityTarget::Home,
+            "test",
+        );
         assert_eq!(act.kind, ActivityKind::Rest);
         assert_eq!(act.phase, ActivityPhase::Transit);
         assert_eq!(act.target, ActivityTarget::Home);
@@ -2761,9 +3735,21 @@ mod tests {
     #[test]
     fn rest_wake_from_active() {
         let mut act = Activity::default();
-        transition_activity(&mut act, ActivityKind::Rest, ActivityPhase::Active, ActivityTarget::Home, "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::Rest,
+            ActivityPhase::Active,
+            ActivityTarget::Home,
+            "test",
+        );
         // Energy recovered -> wake to Idle
-        transition_activity(&mut act, ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None, "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::Idle,
+            ActivityPhase::Ready,
+            ActivityTarget::None,
+            "test",
+        );
         assert_eq!(act.kind, ActivityKind::Idle);
         assert_eq!(act.phase, ActivityPhase::Ready);
         assert_eq!(act.target, ActivityTarget::None);
@@ -2773,10 +3759,18 @@ mod tests {
     fn rest_active_not_trapped_by_arrival_gate() {
         // The core Slice 1 bug: Rest+Active must NOT pass the Priority 0 arrival gate.
         // The gate is: at_destination && kind != Idle && phase in (Transit | Ready)
-        let act = Activity { kind: ActivityKind::Rest, phase: ActivityPhase::Active, target: ActivityTarget::Home, ..Default::default() };
+        let act = Activity {
+            kind: ActivityKind::Rest,
+            phase: ActivityPhase::Active,
+            target: ActivityTarget::Home,
+            ..Default::default()
+        };
         let passes_gate = act.kind != ActivityKind::Idle
             && matches!(act.phase, ActivityPhase::Transit | ActivityPhase::Ready);
-        assert!(!passes_gate, "Rest+Active must not pass Priority 0 arrival gate");
+        assert!(
+            !passes_gate,
+            "Rest+Active must not pass Priority 0 arrival gate"
+        );
     }
 
     // ========================================================================
@@ -2786,7 +3780,13 @@ mod tests {
     #[test]
     fn heal_lifecycle_transit_to_active() {
         let mut act = Activity::default();
-        transition_activity(&mut act, ActivityKind::Heal, ActivityPhase::Transit, ActivityTarget::Fountain, "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::Heal,
+            ActivityPhase::Transit,
+            ActivityTarget::Fountain,
+            "test",
+        );
         act.recover_until = 0.8;
 
         // Arrival at fountain -> Active (healing)
@@ -2794,27 +3794,53 @@ mod tests {
         assert_eq!(act.kind, ActivityKind::Heal);
         assert_eq!(act.phase, ActivityPhase::Active);
         assert_eq!(act.target, ActivityTarget::Fountain);
-        assert_eq!(act.recover_until, 0.8, "recover_until preserved through phase transition");
+        assert_eq!(
+            act.recover_until, 0.8,
+            "recover_until preserved through phase transition"
+        );
     }
 
     #[test]
     fn heal_wake_from_active() {
         let mut act = Activity::default();
-        transition_activity(&mut act, ActivityKind::Heal, ActivityPhase::Active, ActivityTarget::Fountain, "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::Heal,
+            ActivityPhase::Active,
+            ActivityTarget::Fountain,
+            "test",
+        );
         act.recover_until = 0.8;
         // HP recovered -> wake to Idle
-        transition_activity(&mut act, ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None, "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::Idle,
+            ActivityPhase::Ready,
+            ActivityTarget::None,
+            "test",
+        );
         assert_eq!(act.kind, ActivityKind::Idle);
         assert_eq!(act.phase, ActivityPhase::Ready);
-        assert_eq!(act.recover_until, 0.0, "recover_until cleared on Idle transition");
+        assert_eq!(
+            act.recover_until, 0.0,
+            "recover_until cleared on Idle transition"
+        );
     }
 
     #[test]
     fn heal_active_not_trapped_by_arrival_gate() {
-        let act = Activity { kind: ActivityKind::Heal, phase: ActivityPhase::Active, target: ActivityTarget::Fountain, ..Default::default() };
+        let act = Activity {
+            kind: ActivityKind::Heal,
+            phase: ActivityPhase::Active,
+            target: ActivityTarget::Fountain,
+            ..Default::default()
+        };
         let passes_gate = act.kind != ActivityKind::Idle
             && matches!(act.phase, ActivityPhase::Transit | ActivityPhase::Ready);
-        assert!(!passes_gate, "Heal+Active must not pass Priority 0 arrival gate");
+        assert!(
+            !passes_gate,
+            "Heal+Active must not pass Priority 0 arrival gate"
+        );
     }
 
     // ========================================================================
@@ -2824,25 +3850,49 @@ mod tests {
     #[test]
     fn patrol_advance_holding_to_transit() {
         let mut act = Activity::default();
-        transition_activity(&mut act, ActivityKind::Patrol, ActivityPhase::Holding,
-            ActivityTarget::PatrolPost { route: 0, index: 0 }, "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::Patrol,
+            ActivityPhase::Holding,
+            ActivityTarget::PatrolPost { route: 0, index: 0 },
+            "test",
+        );
         act.ticks_waiting = 60; // guard wait elapsed
         // Advance to next post
-        transition_activity(&mut act, ActivityKind::Patrol, ActivityPhase::Transit,
-            ActivityTarget::PatrolPost { route: 0, index: 1 }, "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::Patrol,
+            ActivityPhase::Transit,
+            ActivityTarget::PatrolPost { route: 0, index: 1 },
+            "test",
+        );
         assert_eq!(act.kind, ActivityKind::Patrol);
         assert_eq!(act.phase, ActivityPhase::Transit);
-        assert_eq!(act.target, ActivityTarget::PatrolPost { route: 0, index: 1 });
+        assert_eq!(
+            act.target,
+            ActivityTarget::PatrolPost { route: 0, index: 1 }
+        );
         assert_eq!(act.ticks_waiting, 0, "ticks reset on patrol advance");
     }
 
     #[test]
     fn patrol_tired_exit_to_idle() {
         let mut act = Activity::default();
-        transition_activity(&mut act, ActivityKind::Patrol, ActivityPhase::Holding,
-            ActivityTarget::PatrolPost { route: 0, index: 2 }, "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::Patrol,
+            ActivityPhase::Holding,
+            ActivityTarget::PatrolPost { route: 0, index: 2 },
+            "test",
+        );
         // Tired -> Idle
-        transition_activity(&mut act, ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None, "test");
+        transition_activity(
+            &mut act,
+            ActivityKind::Idle,
+            ActivityPhase::Ready,
+            ActivityTarget::None,
+            "test",
+        );
         assert_eq!(act.kind, ActivityKind::Idle);
         assert_eq!(act.phase, ActivityPhase::Ready);
     }
@@ -2861,20 +3911,36 @@ mod tests {
 
         // After any transition away, we're no longer in the chooser entry state
         let mut act = idle;
-        transition_activity(&mut act, ActivityKind::Work, ActivityPhase::Transit, ActivityTarget::Worksite, "test");
-        assert_ne!(act.kind, ActivityKind::Idle, "working NPC not in chooser state");
+        transition_activity(
+            &mut act,
+            ActivityKind::Work,
+            ActivityPhase::Transit,
+            ActivityTarget::Worksite,
+            "test",
+        );
+        assert_ne!(
+            act.kind,
+            ActivityKind::Idle,
+            "working NPC not in chooser state"
+        );
     }
 
     #[test]
     fn arrival_gate_only_fires_for_transit_or_ready() {
         // Exhaustive check: Active and Holding must never pass the arrival gate
-        let phases = [ActivityPhase::Ready, ActivityPhase::Transit, ActivityPhase::Active, ActivityPhase::Holding];
+        let phases = [
+            ActivityPhase::Ready,
+            ActivityPhase::Transit,
+            ActivityPhase::Active,
+            ActivityPhase::Holding,
+        ];
         for phase in &phases {
             let passes = matches!(phase, ActivityPhase::Transit | ActivityPhase::Ready);
             match phase {
                 ActivityPhase::Ready | ActivityPhase::Transit => assert!(passes),
-                ActivityPhase::Active | ActivityPhase::Holding => assert!(!passes,
-                    "{:?} must not pass arrival gate", phase),
+                ActivityPhase::Active | ActivityPhase::Holding => {
+                    assert!(!passes, "{:?} must not pass arrival gate", phase)
+                }
             }
         }
     }
@@ -2888,13 +3954,38 @@ mod tests {
         // From docs/npc-activity-controller.md valid combinations table
         let valid: &[(ActivityKind, &[ActivityPhase])] = &[
             (ActivityKind::Idle, &[ActivityPhase::Ready]),
-            (ActivityKind::Rest, &[ActivityPhase::Transit, ActivityPhase::Active]),
-            (ActivityKind::Heal, &[ActivityPhase::Transit, ActivityPhase::Active]),
-            (ActivityKind::Patrol, &[ActivityPhase::Transit, ActivityPhase::Holding]),
-            (ActivityKind::SquadAttack, &[ActivityPhase::Transit, ActivityPhase::Holding]),
-            (ActivityKind::Work, &[ActivityPhase::Transit, ActivityPhase::Active]),
-            (ActivityKind::Mine, &[ActivityPhase::Transit, ActivityPhase::Holding, ActivityPhase::Active]),
-            (ActivityKind::Raid, &[ActivityPhase::Transit, ActivityPhase::Active]),
+            (
+                ActivityKind::Rest,
+                &[ActivityPhase::Transit, ActivityPhase::Active],
+            ),
+            (
+                ActivityKind::Heal,
+                &[ActivityPhase::Transit, ActivityPhase::Active],
+            ),
+            (
+                ActivityKind::Patrol,
+                &[ActivityPhase::Transit, ActivityPhase::Holding],
+            ),
+            (
+                ActivityKind::SquadAttack,
+                &[ActivityPhase::Transit, ActivityPhase::Holding],
+            ),
+            (
+                ActivityKind::Work,
+                &[ActivityPhase::Transit, ActivityPhase::Active],
+            ),
+            (
+                ActivityKind::Mine,
+                &[
+                    ActivityPhase::Transit,
+                    ActivityPhase::Holding,
+                    ActivityPhase::Active,
+                ],
+            ),
+            (
+                ActivityKind::Raid,
+                &[ActivityPhase::Transit, ActivityPhase::Active],
+            ),
             (ActivityKind::ReturnLoot, &[ActivityPhase::Transit]),
             (ActivityKind::Wander, &[ActivityPhase::Transit]),
         ];
@@ -2905,11 +3996,19 @@ mod tests {
         assert_eq!(idle.phase, ActivityPhase::Ready);
 
         // Verify the table covers all 10 activity kinds
-        assert_eq!(valid.len(), 10, "spec table must cover all ActivityKind variants");
+        assert_eq!(
+            valid.len(),
+            10,
+            "spec table must cover all ActivityKind variants"
+        );
 
         // Verify each kind's allowed phases are non-empty
         for (kind, phases) in valid {
-            assert!(!phases.is_empty(), "{:?} must have at least one valid phase", kind);
+            assert!(
+                !phases.is_empty(),
+                "{:?} must have at least one valid phase",
+                kind
+            );
         }
     }
 
@@ -2917,22 +4016,86 @@ mod tests {
     fn transition_produces_valid_combinations() {
         // Verify that the transitions used in the codebase produce valid (kind, phase) pairs
         let test_cases: &[(ActivityKind, ActivityPhase, ActivityTarget)] = &[
-            (ActivityKind::Idle, ActivityPhase::Ready, ActivityTarget::None),
-            (ActivityKind::Rest, ActivityPhase::Transit, ActivityTarget::Home),
-            (ActivityKind::Rest, ActivityPhase::Active, ActivityTarget::Home),
-            (ActivityKind::Heal, ActivityPhase::Transit, ActivityTarget::Fountain),
-            (ActivityKind::Heal, ActivityPhase::Active, ActivityTarget::Fountain),
-            (ActivityKind::Patrol, ActivityPhase::Transit, ActivityTarget::PatrolPost { route: 0, index: 0 }),
-            (ActivityKind::Patrol, ActivityPhase::Holding, ActivityTarget::PatrolPost { route: 0, index: 0 }),
-            (ActivityKind::SquadAttack, ActivityPhase::Transit, ActivityTarget::SquadPoint(Vec2::ZERO)),
-            (ActivityKind::SquadAttack, ActivityPhase::Holding, ActivityTarget::SquadPoint(Vec2::ZERO)),
-            (ActivityKind::Work, ActivityPhase::Transit, ActivityTarget::Worksite),
-            (ActivityKind::Work, ActivityPhase::Active, ActivityTarget::Worksite),
-            (ActivityKind::Mine, ActivityPhase::Transit, ActivityTarget::Worksite),
-            (ActivityKind::Mine, ActivityPhase::Holding, ActivityTarget::Worksite),
-            (ActivityKind::Raid, ActivityPhase::Transit, ActivityTarget::RaidPoint(Vec2::ZERO)),
-            (ActivityKind::ReturnLoot, ActivityPhase::Transit, ActivityTarget::Dropoff),
-            (ActivityKind::Wander, ActivityPhase::Transit, ActivityTarget::None),
+            (
+                ActivityKind::Idle,
+                ActivityPhase::Ready,
+                ActivityTarget::None,
+            ),
+            (
+                ActivityKind::Rest,
+                ActivityPhase::Transit,
+                ActivityTarget::Home,
+            ),
+            (
+                ActivityKind::Rest,
+                ActivityPhase::Active,
+                ActivityTarget::Home,
+            ),
+            (
+                ActivityKind::Heal,
+                ActivityPhase::Transit,
+                ActivityTarget::Fountain,
+            ),
+            (
+                ActivityKind::Heal,
+                ActivityPhase::Active,
+                ActivityTarget::Fountain,
+            ),
+            (
+                ActivityKind::Patrol,
+                ActivityPhase::Transit,
+                ActivityTarget::PatrolPost { route: 0, index: 0 },
+            ),
+            (
+                ActivityKind::Patrol,
+                ActivityPhase::Holding,
+                ActivityTarget::PatrolPost { route: 0, index: 0 },
+            ),
+            (
+                ActivityKind::SquadAttack,
+                ActivityPhase::Transit,
+                ActivityTarget::SquadPoint(Vec2::ZERO),
+            ),
+            (
+                ActivityKind::SquadAttack,
+                ActivityPhase::Holding,
+                ActivityTarget::SquadPoint(Vec2::ZERO),
+            ),
+            (
+                ActivityKind::Work,
+                ActivityPhase::Transit,
+                ActivityTarget::Worksite,
+            ),
+            (
+                ActivityKind::Work,
+                ActivityPhase::Active,
+                ActivityTarget::Worksite,
+            ),
+            (
+                ActivityKind::Mine,
+                ActivityPhase::Transit,
+                ActivityTarget::Worksite,
+            ),
+            (
+                ActivityKind::Mine,
+                ActivityPhase::Holding,
+                ActivityTarget::Worksite,
+            ),
+            (
+                ActivityKind::Raid,
+                ActivityPhase::Transit,
+                ActivityTarget::RaidPoint(Vec2::ZERO),
+            ),
+            (
+                ActivityKind::ReturnLoot,
+                ActivityPhase::Transit,
+                ActivityTarget::Dropoff,
+            ),
+            (
+                ActivityKind::Wander,
+                ActivityPhase::Transit,
+                ActivityTarget::None,
+            ),
         ];
 
         for (kind, phase, target) in test_cases {
@@ -2956,8 +4119,10 @@ mod tests {
 
         let missing = Vec2::ZERO;
         // Vec2::ZERO home (missing component fallback) should also not be used as rest target
-        assert!(!(missing.x >= 0.0 && missing.y >= 0.0) || missing == Vec2::ZERO,
-            "Vec2::ZERO should be caught by home_valid check");
+        assert!(
+            !(missing.x >= 0.0 && missing.y >= 0.0) || missing == Vec2::ZERO,
+            "Vec2::ZERO should be caught by home_valid check"
+        );
     }
 
     #[test]
@@ -2966,12 +4131,20 @@ mod tests {
         // never at home (ActivityTarget::Home targeting 0,0 or -1,-1)
         let mut act = Activity::default();
         // Simulate the homeless rest path: target fountain
-        transition_activity(&mut act, ActivityKind::Rest, ActivityPhase::Transit,
-            ActivityTarget::Fountain, "idle:rest_fountain_homeless");
+        transition_activity(
+            &mut act,
+            ActivityKind::Rest,
+            ActivityPhase::Transit,
+            ActivityTarget::Fountain,
+            "idle:rest_fountain_homeless",
+        );
         assert_eq!(act.kind, ActivityKind::Rest);
         assert_eq!(act.phase, ActivityPhase::Transit);
-        assert_eq!(act.target, ActivityTarget::Fountain,
-            "homeless NPC must target Fountain, not Home");
+        assert_eq!(
+            act.target,
+            ActivityTarget::Fountain,
+            "homeless NPC must target Fountain, not Home"
+        );
     }
 
     #[test]
@@ -2986,25 +4159,28 @@ mod tests {
 
         let mut app = setup_decision_app(PolicySet::default());
         app.world_mut().resource_mut::<SquadState>().squads[0].rest_when_tired = true;
-        let npc = app.world_mut().spawn((
-            GpuSlot(0),
-            Job::Archer,
-            TownId(0),
-            Faction(1),
-            Energy(20.0),
-            Health(100.0),
-            Home(Vec2::new(-1.0, -1.0)),
-            NpcFlags::default(),
-            CombatState::None,
-            SquadId(0),
-            Activity {
-                kind: ActivityKind::Patrol,
-                phase: ActivityPhase::Transit,
-                target: ActivityTarget::PatrolPost { route: 0, index: 0 },
-                ..Default::default()
-            },
-            test_cached_stats(),
-        )).id();
+        let npc = app
+            .world_mut()
+            .spawn((
+                GpuSlot(0),
+                Job::Archer,
+                TownId(0),
+                Faction(1),
+                Energy(20.0),
+                Health(100.0),
+                Home(Vec2::new(-1.0, -1.0)),
+                NpcFlags::default(),
+                CombatState::None,
+                SquadId(0),
+                Activity {
+                    kind: ActivityKind::Patrol,
+                    phase: ActivityPhase::Transit,
+                    target: ActivityTarget::PatrolPost { route: 0, index: 0 },
+                    ..Default::default()
+                },
+                test_cached_stats(),
+            ))
+            .id();
 
         app.world_mut().run_system_once(decision_system).unwrap();
 

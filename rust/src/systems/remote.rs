@@ -9,13 +9,13 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 use crate::components::{
-    Activity, CachedStats, CarriedLoot, CombatState, Energy, Faction, GpuSlot, Health,
-    Home, Job, ManualTarget, NpcEquipment, NpcFlags, NpcWorkState, Personality, PatrolRoute, Speed,
-    SquadId, TownId,
+    Activity, CachedStats, CarriedLoot, CombatState, Energy, Faction, GpuSlot, Health, Home, Job,
+    ManualTarget, NpcEquipment, NpcFlags, NpcWorkState, PatrolRoute, Personality, Speed, SquadId,
+    TownId,
 };
-use crate::resources::SquadOwner;
 use crate::constants::building_cost;
 use crate::messages::{CombatLogMsg, GpuUpdateMsg};
+use crate::resources::SquadOwner;
 use crate::resources::*;
 use crate::systemparams::WorldState;
 use crate::world::{BuildingKind, WorldData};
@@ -27,15 +27,18 @@ fn queue_llm_log(world: &mut World, town: usize, message: String, location: Opti
     let name = wd.towns.get(town).map(|t| t.name.as_str()).unwrap_or("?");
     let faction = wd.towns.get(town).map(|t| t.faction).unwrap_or(-1);
     let msg = format!("[{name}] {message}");
-    world.resource_mut::<RemoteLlmLogQueue>().0.push(CombatLogMsg {
-        kind: CombatEventKind::Llm,
-        faction,
-        day,
-        hour,
-        minute,
-        message: msg,
-        location,
-    });
+    world
+        .resource_mut::<RemoteLlmLogQueue>()
+        .0
+        .push(CombatLogMsg {
+            kind: CombatEventKind::Llm,
+            faction,
+            day,
+            hour,
+            minute,
+            message: msg,
+            location,
+        });
 }
 
 const FORBIDDEN_CODE: i16 = -32001;
@@ -102,7 +105,9 @@ fn toon_ok(value: Value) -> BrpResult {
 }
 
 /// Round f32 to 2 decimal places via f64 to avoid precision artifacts.
-fn r2(v: f32) -> f64 { (v as f64 * 100.0).round() / 100.0 }
+fn r2(v: f32) -> f64 {
+    (v as f64 * 100.0).round() / 100.0
+}
 
 fn brp_err(msg: impl Into<String>) -> BrpError {
     BrpError {
@@ -193,12 +198,17 @@ fn format_cost(cost: &[(crate::constants::ResourceKind, i32)]) -> String {
 }
 
 /// Collapse NPC counts like t1_Archer_Patrolling into "Archer: 8 (Patrolling:5 Idle:3)"
-fn compact_npc_counts(raw: &BTreeMap<String, usize>, town_prefix: &str) -> BTreeMap<String, String> {
+fn compact_npc_counts(
+    raw: &BTreeMap<String, usize>,
+    town_prefix: &str,
+) -> BTreeMap<String, String> {
     let mut job_totals: BTreeMap<String, usize> = BTreeMap::new();
     let mut job_activities: BTreeMap<String, Vec<(String, usize)>> = BTreeMap::new();
 
     for (key, &count) in raw {
-        let Some(rest) = key.strip_prefix(town_prefix) else { continue };
+        let Some(rest) = key.strip_prefix(town_prefix) else {
+            continue;
+        };
         let parts: Vec<&str> = rest.splitn(2, '_').collect();
         let job = parts[0].to_string();
         if parts.len() == 1 {
@@ -206,7 +216,10 @@ fn compact_npc_counts(raw: &BTreeMap<String, usize>, town_prefix: &str) -> BTree
             job_totals.insert(job, count);
         } else {
             // Activity (e.g. t1_Archer_Patrolling)
-            job_activities.entry(job).or_default().push((parts[1].to_string(), count));
+            job_activities
+                .entry(job)
+                .or_default()
+                .push((parts[1].to_string(), count));
         }
     }
 
@@ -248,15 +261,20 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
     }
 
     // Read chat inbox without draining — messages must persist for HUD display
-    let mut inbox_by_town: std::collections::HashMap<usize, Vec<(usize, String, i32, i32, i32)>> = std::collections::HashMap::new();
+    let mut inbox_by_town: std::collections::HashMap<usize, Vec<(usize, String, i32, i32, i32)>> =
+        std::collections::HashMap::new();
     {
         let inbox = world.resource::<ChatInbox>();
         for msg in inbox.messages.iter() {
             let dominated_by_filter = filter_town.is_some_and(|ft| ft != msg.to_town);
             if !dominated_by_filter {
-                inbox_by_town.entry(msg.to_town).or_default().push(
-                    (msg.from_town, msg.text.clone(), msg.day, msg.hour, msg.minute)
-                );
+                inbox_by_town.entry(msg.to_town).or_default().push((
+                    msg.from_town,
+                    msg.text.clone(),
+                    msg.day,
+                    msg.hour,
+                    msg.minute,
+                ));
             }
         }
     }
@@ -294,12 +312,19 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
     let town_name = town.map(|t| t.name.clone()).unwrap_or_default();
     let town_faction = town.map(|t| t.faction).unwrap_or(0);
     let town_entity = town_index.0.get(&(target_town as i32)).copied();
-    let town_food = town_entity.and_then(|e| world.get::<crate::components::FoodStore>(e)).map(|f| f.0).unwrap_or(0);
-    let town_gold = town_entity.and_then(|e| world.get::<crate::components::GoldStore>(e)).map(|g| g.0).unwrap_or(0);
+    let town_food = town_entity
+        .and_then(|e| world.get::<crate::components::FoodStore>(e))
+        .map(|f| f.0)
+        .unwrap_or(0);
+    let town_gold = town_entity
+        .and_then(|e| world.get::<crate::components::GoldStore>(e))
+        .map(|g| g.0)
+        .unwrap_or(0);
 
     // Buildings
     let buildings: Vec<(String, usize, usize)> = if let Some(_t) = town {
-        entity_map.iter_instances()
+        entity_map
+            .iter_instances()
             .filter(|inst| inst.town_idx as usize == target_town)
             .map(|inst| {
                 let label = crate::constants::building_def(inst.kind).label.to_string();
@@ -312,7 +337,10 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
     };
 
     // Squads
-    let squads: Vec<(usize, usize, Option<i32>, Option<i32>)> = squad_state.squads.iter().enumerate()
+    let squads: Vec<(usize, usize, Option<i32>, Option<i32>)> = squad_state
+        .squads
+        .iter()
+        .enumerate()
         .filter(|(_, squad)| {
             let squad_town = match squad.owner {
                 SquadOwner::Player => 0,
@@ -335,7 +363,9 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
         .map(|u| u.0.clone())
         .unwrap_or_default();
     let upgrade_nodes = &crate::systems::stats::UPGRADES.nodes;
-    let upgrades: Vec<(usize, String, u8, String, String)> = upgrade_nodes.iter().enumerate()
+    let upgrades: Vec<(usize, String, u8, String, String)> = upgrade_nodes
+        .iter()
+        .enumerate()
         .map(|(i, node)| {
             let level = levels.get(i).copied().unwrap_or(0);
             let pct = format!("{:.0}%", node.pct * 100.0);
@@ -345,7 +375,9 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
         .collect();
 
     // Combat log — filter to events relevant to this town's faction
-    let combat_log: Vec<(i32, i32, i32, String)> = log_ring.events.iter()
+    let combat_log: Vec<(i32, i32, i32, String)> = log_ring
+        .events
+        .iter()
         .filter(|e| e.faction == town_faction || e.kind == CombatEventKind::Llm)
         .map(|e| (e.day, e.hour, e.minute, e.message.clone()))
         .collect();
@@ -358,7 +390,11 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
     let npcs = compact_npc_counts(&npc_counts, &town_prefix);
 
     let response = SummaryResponse {
-        day, hour, minute, paused, time_scale,
+        day,
+        hour,
+        minute,
+        paused,
+        time_scale,
         town_idx: target_town,
         town_name,
         faction: town_faction,
@@ -390,16 +426,28 @@ struct BuildParams {
 pub fn build_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
     let p: BuildParams = parse_some(params)?;
     check_town_allowed(world, p.town)?;
-    let kind = parse_building_kind(&p.kind).ok_or_else(|| brp_err(format!("unknown building kind: {}", p.kind)))?;
+    let kind = parse_building_kind(&p.kind)
+        .ok_or_else(|| brp_err(format!("unknown building kind: {}", p.kind)))?;
 
     // Validate town exists
     let town_count = world.resource::<WorldData>().towns.len();
     if p.town >= town_count {
-        return Err(brp_err(format!("town {} out of range (max {})", p.town, town_count - 1)));
+        return Err(brp_err(format!(
+            "town {} out of range (max {})",
+            p.town,
+            town_count - 1
+        )));
     }
 
-    let pos = world.resource::<crate::world::WorldGrid>().grid_to_world(p.col, p.row);
-    queue_llm_log(world, p.town, format!("build {} at ({},{})", p.kind, p.col, p.row), Some(pos));
+    let pos = world
+        .resource::<crate::world::WorldGrid>()
+        .grid_to_world(p.col, p.row);
+    queue_llm_log(
+        world,
+        p.town,
+        format!("build {} at ({},{})", p.kind, p.col, p.row),
+        Some(pos),
+    );
 
     world
         .resource_mut::<RemoteBuildQueue>()
@@ -432,8 +480,15 @@ pub fn destroy_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
         return Err(brp_err(format!("town {} out of range", p.town)));
     }
 
-    let pos = world.resource::<crate::world::WorldGrid>().grid_to_world(p.col, p.row);
-    queue_llm_log(world, p.town, format!("destroy at ({},{})", p.col, p.row), Some(pos));
+    let pos = world
+        .resource::<crate::world::WorldGrid>()
+        .grid_to_world(p.col, p.row);
+    queue_llm_log(
+        world,
+        p.town,
+        format!("destroy at ({},{})", p.col, p.row),
+        Some(pos),
+    );
 
     world
         .resource_mut::<RemoteDestroyQueue>()
@@ -514,23 +569,84 @@ pub fn policy_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpRe
     check_town_allowed(world, p.town)?;
 
     let parts = {
-        let town_entity = world.resource::<crate::resources::TownIndex>().0.get(&(p.town as i32)).copied()
+        let town_entity = world
+            .resource::<crate::resources::TownIndex>()
+            .0
+            .get(&(p.town as i32))
+            .copied()
             .ok_or_else(|| brp_err(format!("town {} out of range", p.town)))?;
-        let policy = &mut world.get_mut::<crate::components::TownPolicy>(town_entity)
-            .ok_or_else(|| brp_err(format!("town {} missing TownPolicy", p.town)))?.0;
+        let policy = &mut world
+            .get_mut::<crate::components::TownPolicy>(town_entity)
+            .ok_or_else(|| brp_err(format!("town {} missing TownPolicy", p.town)))?
+            .0;
 
         // Diff: only log fields that actually change
         let mut parts = Vec::new();
-        if let Some(v) = p.eat_food { if v != policy.eat_food { parts.push(format!("eat_food={v}")); } policy.eat_food = v; }
-        if let Some(v) = p.archer_aggressive { if v != policy.archer_aggressive { parts.push(format!("archer_aggressive={v}")); } policy.archer_aggressive = v; }
-        if let Some(v) = p.archer_leash { if v != policy.archer_leash { parts.push(format!("archer_leash={v}")); } policy.archer_leash = v; }
-        if let Some(v) = p.farmer_fight_back { if v != policy.farmer_fight_back { parts.push(format!("farmer_fight_back={v}")); } policy.farmer_fight_back = v; }
-        if let Some(v) = p.prioritize_healing { if v != policy.prioritize_healing { parts.push(format!("prioritize_healing={v}")); } policy.prioritize_healing = v; }
-        if let Some(v) = p.farmer_flee_hp { let v = v.clamp(0.0, 1.0); if (v - policy.farmer_flee_hp).abs() > f32::EPSILON { parts.push(format!("farmer_flee_hp={v:.1}")); } policy.farmer_flee_hp = v; }
-        if let Some(v) = p.archer_flee_hp { let v = v.clamp(0.0, 1.0); if (v - policy.archer_flee_hp).abs() > f32::EPSILON { parts.push(format!("archer_flee_hp={v:.1}")); } policy.archer_flee_hp = v; }
-        if let Some(v) = p.recovery_hp { let v = v.clamp(0.0, 1.0); if (v - policy.recovery_hp).abs() > f32::EPSILON { parts.push(format!("recovery_hp={v:.1}")); } policy.recovery_hp = v; }
-        if let Some(v) = p.mining_radius { let v = v.clamp(0.0, 5000.0); if (v - policy.mining_radius).abs() > f32::EPSILON { parts.push(format!("mining_radius={v:.0}")); } policy.mining_radius = v; }
-        if let Some(v) = p.loot_threshold { let v = v.clamp(1, 20); if v != policy.loot_threshold { parts.push(format!("loot_threshold={v}")); } policy.loot_threshold = v; }
+        if let Some(v) = p.eat_food {
+            if v != policy.eat_food {
+                parts.push(format!("eat_food={v}"));
+            }
+            policy.eat_food = v;
+        }
+        if let Some(v) = p.archer_aggressive {
+            if v != policy.archer_aggressive {
+                parts.push(format!("archer_aggressive={v}"));
+            }
+            policy.archer_aggressive = v;
+        }
+        if let Some(v) = p.archer_leash {
+            if v != policy.archer_leash {
+                parts.push(format!("archer_leash={v}"));
+            }
+            policy.archer_leash = v;
+        }
+        if let Some(v) = p.farmer_fight_back {
+            if v != policy.farmer_fight_back {
+                parts.push(format!("farmer_fight_back={v}"));
+            }
+            policy.farmer_fight_back = v;
+        }
+        if let Some(v) = p.prioritize_healing {
+            if v != policy.prioritize_healing {
+                parts.push(format!("prioritize_healing={v}"));
+            }
+            policy.prioritize_healing = v;
+        }
+        if let Some(v) = p.farmer_flee_hp {
+            let v = v.clamp(0.0, 1.0);
+            if (v - policy.farmer_flee_hp).abs() > f32::EPSILON {
+                parts.push(format!("farmer_flee_hp={v:.1}"));
+            }
+            policy.farmer_flee_hp = v;
+        }
+        if let Some(v) = p.archer_flee_hp {
+            let v = v.clamp(0.0, 1.0);
+            if (v - policy.archer_flee_hp).abs() > f32::EPSILON {
+                parts.push(format!("archer_flee_hp={v:.1}"));
+            }
+            policy.archer_flee_hp = v;
+        }
+        if let Some(v) = p.recovery_hp {
+            let v = v.clamp(0.0, 1.0);
+            if (v - policy.recovery_hp).abs() > f32::EPSILON {
+                parts.push(format!("recovery_hp={v:.1}"));
+            }
+            policy.recovery_hp = v;
+        }
+        if let Some(v) = p.mining_radius {
+            let v = v.clamp(0.0, 5000.0);
+            if (v - policy.mining_radius).abs() > f32::EPSILON {
+                parts.push(format!("mining_radius={v:.0}"));
+            }
+            policy.mining_radius = v;
+        }
+        if let Some(v) = p.loot_threshold {
+            let v = v.clamp(1, crate::resources::MAX_LOOT_THRESHOLD);
+            if v != policy.loot_threshold {
+                parts.push(format!("loot_threshold={v}"));
+            }
+            policy.loot_threshold = v;
+        }
         parts
     };
     if !parts.is_empty() {
@@ -584,7 +700,10 @@ pub fn squad_target_handler(In(params): In<Option<Value>>, world: &mut World) ->
     let town;
     {
         let state = world.resource::<SquadState>();
-        let squad = state.squads.get(p.squad).ok_or_else(|| brp_err(format!("squad {} out of range", p.squad)))?;
+        let squad = state
+            .squads
+            .get(p.squad)
+            .ok_or_else(|| brp_err(format!("squad {} out of range", p.squad)))?;
         town = match squad.owner {
             SquadOwner::Player => 0,
             SquadOwner::Town(tdi) => tdi,
@@ -592,10 +711,18 @@ pub fn squad_target_handler(In(params): In<Option<Value>>, world: &mut World) ->
         check_town_allowed(world, town)?;
     }
 
-    queue_llm_log(world, town, format!("squad {} target ({:.0},{:.0})", p.squad, p.x, p.y), Some(Vec2::new(p.x, p.y)));
+    queue_llm_log(
+        world,
+        town,
+        format!("squad {} target ({:.0},{:.0})", p.squad, p.x, p.y),
+        Some(Vec2::new(p.x, p.y)),
+    );
 
     let mut state = world.resource_mut::<SquadState>();
-    let squad = state.squads.get_mut(p.squad).ok_or_else(|| brp_err(format!("squad {} out of range", p.squad)))?;
+    let squad = state
+        .squads
+        .get_mut(p.squad)
+        .ok_or_else(|| brp_err(format!("squad {} out of range", p.squad)))?;
     squad.target = Some(Vec2::new(p.x, p.y));
 
     toon_ok(json!({"status": "ok", "squad": p.squad, "target_x": p.x, "target_y": p.y}))
@@ -642,12 +769,26 @@ pub fn ai_manager_handler(In(params): In<Option<Value>>, world: &mut World) -> B
     check_town_allowed(world, p.town)?;
 
     let mut parts = Vec::new();
-    if let Some(v) = p.active { parts.push(format!("active={v}")); }
-    if let Some(ref s) = p.personality { parts.push(format!("personality={s}")); }
-    if let Some(v) = p.build_enabled { parts.push(format!("build={v}")); }
-    if let Some(v) = p.upgrade_enabled { parts.push(format!("upgrade={v}")); }
-    if let Some(ref s) = p.road_style { parts.push(format!("roads={s}")); }
-    let msg = if parts.is_empty() { "ai_manager query".to_string() } else { format!("ai_manager: {}", parts.join(", ")) };
+    if let Some(v) = p.active {
+        parts.push(format!("active={v}"));
+    }
+    if let Some(ref s) = p.personality {
+        parts.push(format!("personality={s}"));
+    }
+    if let Some(v) = p.build_enabled {
+        parts.push(format!("build={v}"));
+    }
+    if let Some(v) = p.upgrade_enabled {
+        parts.push(format!("upgrade={v}"));
+    }
+    if let Some(ref s) = p.road_style {
+        parts.push(format!("roads={s}"));
+    }
+    let msg = if parts.is_empty() {
+        "ai_manager query".to_string()
+    } else {
+        format!("ai_manager: {}", parts.join(", "))
+    };
     queue_llm_log(world, p.town, msg, None);
 
     let mut ai_state = world.resource_mut::<crate::systems::AiPlayerState>();
@@ -657,14 +798,22 @@ pub fn ai_manager_handler(In(params): In<Option<Value>>, world: &mut World) -> B
         .find(|pl| pl.town_data_idx == p.town)
         .ok_or_else(|| brp_err(format!("no AI player for town {}", p.town)))?;
 
-    if let Some(v) = p.active { player.active = v; }
-    if let Some(v) = p.build_enabled { player.build_enabled = v; }
-    if let Some(v) = p.upgrade_enabled { player.upgrade_enabled = v; }
+    if let Some(v) = p.active {
+        player.active = v;
+    }
+    if let Some(v) = p.build_enabled {
+        player.build_enabled = v;
+    }
+    if let Some(v) = p.upgrade_enabled {
+        player.upgrade_enabled = v;
+    }
     if let Some(ref s) = p.personality {
-        player.personality = parse_personality(s).ok_or_else(|| brp_err(format!("unknown personality: {s}")))?;
+        player.personality =
+            parse_personality(s).ok_or_else(|| brp_err(format!("unknown personality: {s}")))?;
     }
     if let Some(ref s) = p.road_style {
-        player.road_style = parse_road_style(s).ok_or_else(|| brp_err(format!("unknown road_style: {s}")))?;
+        player.road_style =
+            parse_road_style(s).ok_or_else(|| brp_err(format!("unknown road_style: {s}")))?;
     }
 
     toon_ok(json!({
@@ -694,14 +843,26 @@ pub fn chat_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResu
     let gt = world.resource::<GameTime>();
     let (day, hour, minute) = (gt.day(), gt.hour(), gt.minute());
 
-    let from_name = world.resource::<WorldData>().towns.get(p.town).map(|t| t.name.clone()).unwrap_or_default();
-    queue_llm_log(world, p.town, format!("[chat to F{}] {}", p.to, p.message), None);
+    let from_name = world
+        .resource::<WorldData>()
+        .towns
+        .get(p.town)
+        .map(|t| t.name.clone())
+        .unwrap_or_default();
+    queue_llm_log(
+        world,
+        p.town,
+        format!("[chat to F{}] {}", p.to, p.message),
+        None,
+    );
 
     world.resource_mut::<ChatInbox>().push(ChatMessage {
         from_town: p.town,
         to_town: p.to,
         text: p.message.clone(),
-        day, hour, minute,
+        day,
+        hour,
+        minute,
         sent_to_llm: false,
         has_reply: false,
     });
@@ -723,15 +884,21 @@ struct DebugParams {
 
 /// Parse `"489v9"` entity string → Bevy Entity.
 fn parse_entity_str(s: &str) -> Result<Entity, BrpError> {
-    let (idx_str, gen_str) = s.split_once('v')
+    let (idx_str, gen_str) = s
+        .split_once('v')
         .ok_or_else(|| brp_err(format!("invalid entity '{s}' — use format '489v9'")))?;
-    let index: u32 = idx_str.parse()
+    let index: u32 = idx_str
+        .parse()
         .map_err(|_| brp_err(format!("invalid entity index '{idx_str}'")))?;
-    let generation: u32 = gen_str.parse()
+    let generation: u32 = gen_str
+        .parse()
         .map_err(|_| brp_err(format!("invalid entity generation '{gen_str}'")))?;
     let ei = bevy::ecs::entity::EntityIndex::from_raw_u32(index)
         .ok_or_else(|| brp_err(format!("invalid entity index '{idx_str}'")))?;
-    Ok(Entity::from_index_and_generation(ei, bevy::ecs::entity::EntityGeneration::from_bits(generation)))
+    Ok(Entity::from_index_and_generation(
+        ei,
+        bevy::ecs::entity::EntityGeneration::from_bits(generation),
+    ))
 }
 
 pub fn debug_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
@@ -741,51 +908,97 @@ pub fn debug_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpRes
     if let Some(ref s) = p.entity {
         let entity = parse_entity_str(s)?;
         let entity_map = world.resource::<EntityMap>();
-        let slot = entity_map.slot_for_entity(entity)
+        let slot = entity_map
+            .slot_for_entity(entity)
             .ok_or_else(|| brp_err(format!("no entity for {entity:?}")))?;
         let is_npc = entity_map.get_npc(slot).is_some();
-        return if is_npc { debug_npc(world, entity, slot) } else { debug_building(world, entity, slot) };
+        return if is_npc {
+            debug_npc(world, entity, slot)
+        } else {
+            debug_building(world, entity, slot)
+        };
     }
 
     // Kind + index for resource-based lookups
-    let kind = p.kind.as_deref()
-        .ok_or_else(|| brp_err("provide 'entity' (npc/building) or 'kind'+'index' (squad/town/policy)"))?;
-    let idx = p.index
+    let kind = p.kind.as_deref().ok_or_else(|| {
+        brp_err("provide 'entity' (npc/building) or 'kind'+'index' (squad/town/policy)")
+    })?;
+    let idx = p
+        .index
         .ok_or_else(|| brp_err(format!("'index' required for kind '{kind}'")))?;
     match kind {
         "squad" => debug_squad(world, idx),
         "town" => debug_town(world, idx),
         "policy" => debug_policy(world, idx),
-        _ => Err(brp_err(format!("unknown kind: {kind} (use squad/town/policy, or pass 'entity' for npc/building)"))),
+        _ => Err(brp_err(format!(
+            "unknown kind: {kind} (use squad/town/policy, or pass 'entity' for npc/building)"
+        ))),
     }
 }
 
 fn debug_npc(world: &mut World, target_entity: Entity, slot: usize) -> BrpResult {
-
     // ECS query — split into nested tuples to stay under Bevy's 15-element QueryData limit
     let mut query = world.query::<(
-        Entity, &GpuSlot, &Job, &Activity, &Health, &Energy, &Speed, &Home, &TownId,
-        &Faction, &CarriedLoot, &NpcWorkState, &NpcFlags, &CombatState,
-        (&Personality, &CachedStats, &NpcEquipment,
-         Option<&ManualTarget>, Option<&SquadId>, Option<&PatrolRoute>),
+        Entity,
+        &GpuSlot,
+        &Job,
+        &Activity,
+        &Health,
+        &Energy,
+        &Speed,
+        &Home,
+        &TownId,
+        &Faction,
+        &CarriedLoot,
+        &NpcWorkState,
+        &NpcFlags,
+        &CombatState,
+        (
+            &Personality,
+            &CachedStats,
+            &NpcEquipment,
+            Option<&ManualTarget>,
+            Option<&SquadId>,
+            Option<&PatrolRoute>,
+        ),
     )>();
 
     let mut npc_data: Option<Value> = None;
     for (
-        entity, _gpu_slot, job, activity, health, energy, _speed, home, town_id,
-        faction, carried_loot, work_state, flags, combat_state,
+        entity,
+        _gpu_slot,
+        job,
+        activity,
+        health,
+        energy,
+        _speed,
+        home,
+        town_id,
+        faction,
+        carried_loot,
+        work_state,
+        flags,
+        combat_state,
         (personality, stats, equipment, manual_target, squad_id, patrol_route),
-    ) in query.iter(world) {
-        if entity != target_entity { continue; }
+    ) in query.iter(world)
+    {
+        if entity != target_entity {
+            continue;
+        }
 
         // Equipment slots — uniform array for TOON CSV table
         let mut equip: Vec<Value> = Vec::new();
         let slots: &[(&str, &Option<crate::constants::LootItem>)] = &[
-            ("weapon", &equipment.weapon), ("helm", &equipment.helm),
-            ("armor", &equipment.armor), ("shield", &equipment.shield),
-            ("gloves", &equipment.gloves), ("boots", &equipment.boots),
-            ("belt", &equipment.belt), ("amulet", &equipment.amulet),
-            ("ring1", &equipment.ring1), ("ring2", &equipment.ring2),
+            ("weapon", &equipment.weapon),
+            ("helm", &equipment.helm),
+            ("armor", &equipment.armor),
+            ("shield", &equipment.shield),
+            ("gloves", &equipment.gloves),
+            ("boots", &equipment.boots),
+            ("belt", &equipment.belt),
+            ("amulet", &equipment.amulet),
+            ("ring1", &equipment.ring1),
+            ("ring2", &equipment.ring2),
         ];
         for &(label, item_opt) in slots {
             if let Some(item) = item_opt {
@@ -799,11 +1012,21 @@ fn debug_npc(world: &mut World, target_entity: Entity, slot: usize) -> BrpResult
 
         // Flags
         let mut flag_list = Vec::new();
-        if flags.healing { flag_list.push("healing"); }
-        if flags.starving { flag_list.push("starving"); }
-        if flags.direct_control { flag_list.push("direct_control"); }
-        if flags.migrating { flag_list.push("migrating"); }
-        if flags.at_destination { flag_list.push("at_dest"); }
+        if flags.healing {
+            flag_list.push("healing");
+        }
+        if flags.starving {
+            flag_list.push("starving");
+        }
+        if flags.direct_control {
+            flag_list.push("direct_control");
+        }
+        if flags.migrating {
+            flag_list.push("migrating");
+        }
+        if flags.at_destination {
+            flag_list.push("at_dest");
+        }
 
         // ManualTarget
         let mt_str = match manual_target {
@@ -890,7 +1113,11 @@ fn debug_npc(world: &mut World, target_entity: Entity, slot: usize) -> BrpResult
             data["town_name"] = json!(town.name);
             data["faction_name"] = json!(format!("{} (F{})", town.name, town.faction));
         }
-        let p_opt = town_index.0.get(&town_id).and_then(|&e| world.get::<crate::components::TownPolicy>(e)).map(|tp| tp.0.clone());
+        let p_opt = town_index
+            .0
+            .get(&town_id)
+            .and_then(|&e| world.get::<crate::components::TownPolicy>(e))
+            .map(|tp| tp.0.clone());
         if let Some(p) = p_opt {
             data["policy_eat_food"] = json!(p.eat_food);
             data["policy_aggressive"] = json!(p.archer_aggressive);
@@ -919,14 +1146,24 @@ fn debug_npc(world: &mut World, target_entity: Entity, slot: usize) -> BrpResult
         let ti = ct as usize;
         if let Some(inst) = entity_map.get_instance(ti) {
             data["combat_info"] = json!(format!(
-                "building {} F{} @{},{}", format!("{:?}", inst.kind), inst.faction,
-                inst.position.x as i32, inst.position.y as i32
+                "building {} F{} @{},{}",
+                format!("{:?}", inst.kind),
+                inst.faction,
+                inst.position.x as i32,
+                inst.position.y as i32
             ));
         } else if let Some(tnpc) = entity_map.get_npc(ti) {
             let tx = gpu_state.positions.get(ti * 2).copied().unwrap_or(-9999.0);
-            let ty = gpu_state.positions.get(ti * 2 + 1).copied().unwrap_or(-9999.0);
+            let ty = gpu_state
+                .positions
+                .get(ti * 2 + 1)
+                .copied()
+                .unwrap_or(-9999.0);
             data["combat_info"] = json!(format!(
-                "npc F{} @{},{}{}", tnpc.faction, tx as i32, ty as i32,
+                "npc F{} @{},{}{}",
+                tnpc.faction,
+                tx as i32,
+                ty as i32,
                 if tnpc.dead { " dead" } else { "" }
             ));
         }
@@ -938,11 +1175,14 @@ fn debug_npc(world: &mut World, target_entity: Entity, slot: usize) -> BrpResult
         if let Some(ws_slot) = entity_map.slot_for_entity(ws_entity) {
             if let Some(inst) = entity_map.get_instance(ws_slot) {
                 let max_occ = crate::constants::building_def(inst.kind)
-                    .worksite.map_or(0, |w| w.max_occupants);
+                    .worksite
+                    .map_or(0, |w| w.max_occupants);
                 data["worksite_kind"] = json!(format!("{:?}", inst.kind));
                 data["worksite_occupants"] = json!(entity_map.occupant_count(ws_slot));
                 data["worksite_max_occ"] = json!(max_occ);
-                let growth_pct = entity_map.entities.get(&ws_slot)
+                let growth_pct = entity_map
+                    .entities
+                    .get(&ws_slot)
                     .and_then(|&e| world.get::<crate::components::ProductionState>(e))
                     .map(|ps| ps.progress * 100.0)
                     .unwrap_or(0.0);
@@ -966,11 +1206,41 @@ fn debug_npc(world: &mut World, target_entity: Entity, slot: usize) -> BrpResult
     }
 
     // Target thrash diagnostics
-    data["thrash_changes"] = json!(thrash.sink_target_changes_this_minute.get(slot).copied().unwrap_or(0));
-    data["thrash_ping_pong"] = json!(thrash.sink_ping_pong_this_minute.get(slot).copied().unwrap_or(0));
-    data["thrash_writes"] = json!(thrash.sink_writes_this_minute.get(slot).copied().unwrap_or(0));
-    data["thrash_flips"] = json!(thrash.reason_flips_this_minute.get(slot).copied().unwrap_or(0));
-    data["thrash_reason"] = json!(thrash.last_reason.get(slot).map(String::as_str).unwrap_or("-"));
+    data["thrash_changes"] = json!(
+        thrash
+            .sink_target_changes_this_minute
+            .get(slot)
+            .copied()
+            .unwrap_or(0)
+    );
+    data["thrash_ping_pong"] = json!(
+        thrash
+            .sink_ping_pong_this_minute
+            .get(slot)
+            .copied()
+            .unwrap_or(0)
+    );
+    data["thrash_writes"] = json!(
+        thrash
+            .sink_writes_this_minute
+            .get(slot)
+            .copied()
+            .unwrap_or(0)
+    );
+    data["thrash_flips"] = json!(
+        thrash
+            .reason_flips_this_minute
+            .get(slot)
+            .copied()
+            .unwrap_or(0)
+    );
+    data["thrash_reason"] = json!(
+        thrash
+            .last_reason
+            .get(slot)
+            .map(String::as_str)
+            .unwrap_or("-")
+    );
 
     // Sprite indices from EntityGpuState (CPU-side visual state)
     let si = slot * 4;
@@ -1000,8 +1270,10 @@ fn debug_npc(world: &mut World, target_entity: Entity, slot: usize) -> BrpResult
             let (px, py) = if pi2 + 1 < proj_pos_state.0.len() {
                 (proj_pos_state.0[pi2], proj_pos_state.0[pi2 + 1])
             } else {
-                (proj_writes.positions.get(pi2).copied().unwrap_or(0.0),
-                 proj_writes.positions.get(pi2 + 1).copied().unwrap_or(0.0))
+                (
+                    proj_writes.positions.get(pi2).copied().unwrap_or(0.0),
+                    proj_writes.positions.get(pi2 + 1).copied().unwrap_or(0.0),
+                )
             };
             projs.push(json!({
                 "slot": pi,
@@ -1019,9 +1291,17 @@ fn debug_npc(world: &mut World, target_entity: Entity, slot: usize) -> BrpResult
 
     // NPC activity log (last 20 entries)
     if slot < npc_logs.logs.len() {
-        let entries: Vec<Value> = npc_logs.logs[slot].iter().rev().take(20).map(|e| {
-            json!(format!("D{}:{:02}:{:02} {}", e.day, e.hour, e.minute, e.message))
-        }).collect();
+        let entries: Vec<Value> = npc_logs.logs[slot]
+            .iter()
+            .rev()
+            .take(20)
+            .map(|e| {
+                json!(format!(
+                    "D{}:{:02}:{:02} {}",
+                    e.day, e.hour, e.minute, e.message
+                ))
+            })
+            .collect();
         data["log"] = json!(entries);
     }
 
@@ -1036,7 +1316,8 @@ fn debug_npc(world: &mut World, target_entity: Entity, slot: usize) -> BrpResult
 fn debug_building(world: &mut World, _entity: Entity, slot: usize) -> BrpResult {
     let (inst, bld_entity, occupants) = {
         let entity_map = world.resource::<EntityMap>();
-        let inst = entity_map.get_instance(slot)
+        let inst = entity_map
+            .get_instance(slot)
             .ok_or_else(|| brp_err(format!("no building at slot {slot}")))?
             .clone();
         let bld_entity = entity_map.entities.get(&slot).copied();
@@ -1047,11 +1328,22 @@ fn debug_building(world: &mut World, _entity: Entity, slot: usize) -> BrpResult 
     let game_time = world.resource::<GameTime>();
 
     let def = crate::constants::building_def(inst.kind);
-    let town_name = world_data.towns.get(inst.town_idx as usize)
-        .map(|t| t.name.as_str()).unwrap_or("?");
-    let faction_str = world_data.towns.get(inst.town_idx as usize)
+    let town_name = world_data
+        .towns
+        .get(inst.town_idx as usize)
+        .map(|t| t.name.as_str())
+        .unwrap_or("?");
+    let faction_str = world_data
+        .towns
+        .get(inst.town_idx as usize)
         .map(|t| format!("{} (F{})", t.name, t.faction))
-        .unwrap_or_else(|| if inst.kind == BuildingKind::GoldMine { "Unowned".into() } else { "?".into() });
+        .unwrap_or_else(|| {
+            if inst.kind == BuildingKind::GoldMine {
+                "Unowned".into()
+            } else {
+                "?".into()
+            }
+        });
 
     // Grid coords (world grid)
     let grid = world.resource::<crate::world::WorldGrid>();
@@ -1134,35 +1426,62 @@ fn debug_building(world: &mut World, _entity: Entity, slot: usize) -> BrpResult 
 
 fn debug_squad(world: &mut World, idx: usize) -> BrpResult {
     let squad_state = world.resource::<SquadState>();
-    let squad = squad_state.squads.get(idx)
-        .ok_or_else(|| brp_err(format!("no squad at index {idx} (max {})", squad_state.squads.len())))?
+    let squad = squad_state
+        .squads
+        .get(idx)
+        .ok_or_else(|| {
+            brp_err(format!(
+                "no squad at index {idx} (max {})",
+                squad_state.squads.len()
+            ))
+        })?
         .clone();
     let game_time = world.resource::<GameTime>();
     let (day, hour, minute) = (game_time.day(), game_time.hour(), game_time.minute());
 
     // Resolve member details
     let entity_map = world.resource::<EntityMap>();
-    let member_slots: Vec<(u64, Option<usize>, String)> = squad.members.iter().map(|e| {
-        let slot = entity_map.slot_for_entity(*e);
-        let name = world.get::<crate::components::NpcStats>(*e)
-            .map(|s| s.name.clone()).unwrap_or_default();
-        (e.to_bits(), slot, name)
-    }).collect();
+    let member_slots: Vec<(u64, Option<usize>, String)> = squad
+        .members
+        .iter()
+        .map(|e| {
+            let slot = entity_map.slot_for_entity(*e);
+            let name = world
+                .get::<crate::components::NpcStats>(*e)
+                .map(|s| s.name.clone())
+                .unwrap_or_default();
+            (e.to_bits(), slot, name)
+        })
+        .collect();
 
     // ECS query for member stats — uniform fields for TOON CSV table
     let mut members_json = Vec::new();
     for (uid, slot, name) in &member_slots {
-        let (mut job, mut dead, mut activity, mut energy, mut hp, mut max_hp) =
-            ("".to_string(), false, "".to_string(), 0.0_f32, 0.0_f32, 0.0_f32);
+        let (mut job, mut dead, mut activity, mut energy, mut hp, mut max_hp) = (
+            "".to_string(),
+            false,
+            "".to_string(),
+            0.0_f32,
+            0.0_f32,
+            0.0_f32,
+        );
         if let Some(s) = slot {
             if let Some(npc) = world.resource::<EntityMap>().get_npc(*s) {
                 let entity = npc.entity;
                 job = format!("{:?}", npc.job);
                 dead = npc.dead;
-                if let Some(a) = world.get::<Activity>(entity) { activity = a.name().to_string(); }
-                if let Some(e) = world.get::<Energy>(entity) { energy = e.0; }
-                if let Some(h) = world.get::<Health>(entity) { hp = h.0; }
-                if let Some(s) = world.get::<CachedStats>(entity) { max_hp = s.max_health; }
+                if let Some(a) = world.get::<Activity>(entity) {
+                    activity = a.name().to_string();
+                }
+                if let Some(e) = world.get::<Energy>(entity) {
+                    energy = e.0;
+                }
+                if let Some(h) = world.get::<Health>(entity) {
+                    hp = h.0;
+                }
+                if let Some(s) = world.get::<CachedStats>(entity) {
+                    max_hp = s.max_health;
+                }
             }
         }
         members_json.push(json!({
@@ -1180,6 +1499,7 @@ fn debug_squad(world: &mut World, idx: usize) -> BrpResult {
         "target_size": squad.target_size,
         "patrol_enabled": squad.patrol_enabled,
         "rest_when_tired": squad.rest_when_tired,
+        "loot_threshold": squad.loot_threshold,
         "wave_active": squad.wave_active,
         "wave_start_count": squad.wave_start_count,
         "wave_min_start": squad.wave_min_start,
@@ -1193,8 +1513,12 @@ fn debug_squad(world: &mut World, idx: usize) -> BrpResult {
 
 fn debug_town(world: &mut World, idx: usize) -> BrpResult {
     let world_data = world.resource::<WorldData>();
-    let town = world_data.towns.get(idx)
-        .ok_or_else(|| brp_err(format!("no town at index {idx} (max {})", world_data.towns.len())))?;
+    let town = world_data.towns.get(idx).ok_or_else(|| {
+        brp_err(format!(
+            "no town at index {idx} (max {})",
+            world_data.towns.len()
+        ))
+    })?;
     let name = town.name.clone();
     let faction = town.faction;
     let center = [town.center.x, town.center.y];
@@ -1205,31 +1529,51 @@ fn debug_town(world: &mut World, idx: usize) -> BrpResult {
         .and_then(|e| world.get::<crate::components::TownAreaLevel>(e))
         .map(|a| a.0)
         .unwrap_or(0);
-    let food = town_entity.and_then(|e| world.get::<crate::components::FoodStore>(e)).map(|f| f.0).unwrap_or(0);
-    let gold = town_entity.and_then(|e| world.get::<crate::components::GoldStore>(e)).map(|g| g.0).unwrap_or(0);
-    let faction_stat = world.resource::<FactionStats>().stats.get(faction as usize).cloned();
+    let food = town_entity
+        .and_then(|e| world.get::<crate::components::FoodStore>(e))
+        .map(|f| f.0)
+        .unwrap_or(0);
+    let gold = town_entity
+        .and_then(|e| world.get::<crate::components::GoldStore>(e))
+        .map(|g| g.0)
+        .unwrap_or(0);
+    let faction_stat = world
+        .resource::<FactionStats>()
+        .stats
+        .get(faction as usize)
+        .cloned();
     let game_time = world.resource::<GameTime>();
     let (day, hour, minute) = (game_time.day(), game_time.hour(), game_time.minute());
 
     // Policies inline
-    let policy = town_entity.and_then(|e| world.get::<crate::components::TownPolicy>(e)).map(|tp| tp.0.clone());
+    let policy = town_entity
+        .and_then(|e| world.get::<crate::components::TownPolicy>(e))
+        .map(|tp| tp.0.clone());
 
     // Squads belonging to this town
     let squad_state = world.resource::<SquadState>();
-    let squads: Vec<Value> = squad_state.squads.iter().enumerate().filter_map(|(i, s)| {
-        let belongs = match s.owner {
-            SquadOwner::Player => faction == crate::constants::FACTION_PLAYER,
-            SquadOwner::Town(t) => t == idx,
-        };
-        if !belongs || s.members.is_empty() { return None; }
-        Some(json!({
-            "index": i,
-            "members": s.members.len(),
-            "target_x": s.target.map(|v| v.x as i32),
-            "target_y": s.target.map(|v| v.y as i32),
-            "rest": s.rest_when_tired,
-        }))
-    }).collect();
+    let squads: Vec<Value> = squad_state
+        .squads
+        .iter()
+        .enumerate()
+        .filter_map(|(i, s)| {
+            let belongs = match s.owner {
+                SquadOwner::Player => faction == crate::constants::FACTION_PLAYER,
+                SquadOwner::Town(t) => t == idx,
+            };
+            if !belongs || s.members.is_empty() {
+                return None;
+            }
+            Some(json!({
+                "index": i,
+                "members": s.members.len(),
+                "target_x": s.target.map(|v| v.x as i32),
+                "target_y": s.target.map(|v| v.y as i32),
+                "rest": s.rest_when_tired,
+                "loot_threshold": s.loot_threshold,
+            }))
+        })
+        .collect();
 
     // NPC counts by job for this town
     let entity_map = world.resource::<EntityMap>();
@@ -1244,15 +1588,23 @@ fn debug_town(world: &mut World, idx: usize) -> BrpResult {
     let mut building_counts: BTreeMap<String, i32> = BTreeMap::new();
     for inst in entity_map.iter_instances() {
         if inst.town_idx as usize == idx {
-            *building_counts.entry(format!("{:?}", inst.kind)).or_default() += 1;
+            *building_counts
+                .entry(format!("{:?}", inst.kind))
+                .or_default() += 1;
         }
     }
 
     // Compact strings for npcs/buildings
-    let npcs_str = job_counts.iter()
-        .map(|(k, v)| format!("{}:{}", k, v)).collect::<Vec<_>>().join(",");
-    let buildings_str = building_counts.iter()
-        .map(|(k, v)| format!("{}:{}", k, v)).collect::<Vec<_>>().join(",");
+    let npcs_str = job_counts
+        .iter()
+        .map(|(k, v)| format!("{}:{}", k, v))
+        .collect::<Vec<_>>()
+        .join(",");
+    let buildings_str = building_counts
+        .iter()
+        .map(|(k, v)| format!("{}:{}", k, v))
+        .collect::<Vec<_>>()
+        .join(",");
 
     let mut data = json!({
         "town_index": idx,
@@ -1288,13 +1640,22 @@ fn debug_town(world: &mut World, idx: usize) -> BrpResult {
 
 fn debug_policy(world: &mut World, idx: usize) -> BrpResult {
     let town_index = world.resource::<crate::resources::TownIndex>();
-    let town_entity = town_index.0.get(&(idx as i32)).copied()
+    let town_entity = town_index
+        .0
+        .get(&(idx as i32))
+        .copied()
         .ok_or_else(|| brp_err(format!("no town at index {idx}")))?;
-    let p = world.get::<crate::components::TownPolicy>(town_entity)
+    let p = world
+        .get::<crate::components::TownPolicy>(town_entity)
         .ok_or_else(|| brp_err(format!("town {idx} missing TownPolicy")))?
-        .0.clone();
+        .0
+        .clone();
     let world_data = world.resource::<WorldData>();
-    let town_name = world_data.towns.get(idx).map(|t| t.name.as_str()).unwrap_or("?");
+    let town_name = world_data
+        .towns
+        .get(idx)
+        .map(|t| t.name.as_str())
+        .unwrap_or("?");
     let game_time = world.resource::<GameTime>();
     let data = json!({
         "town_index": idx,
@@ -1320,7 +1681,11 @@ pub fn perf_handler(In(_params): In<Option<Value>>, world: &World) -> BrpResult 
     let faction_stats = world.resource::<FactionStats>();
 
     let frame_ms = timings.frame_ms.lock().map(|v| *v).unwrap_or(0.0);
-    let fps = if frame_ms > 0.0 { 1000.0 / frame_ms } else { 0.0 };
+    let fps = if frame_ms > 0.0 {
+        1000.0 / frame_ms
+    } else {
+        0.0
+    };
     let npc_count: i32 = faction_stats.stats.iter().map(|s| s.alive).sum();
     let entity_count = world.entities().len() as usize;
 
@@ -1401,7 +1766,10 @@ pub fn drain_remote_queues(
         let town_name = town.name.clone();
 
         // Look up building at grid cell
-        let Some(inst) = world_state.entity_map.get_at_grid(destroy.col as i32, destroy.row as i32) else {
+        let Some(inst) = world_state
+            .entity_map
+            .get_at_grid(destroy.col as i32, destroy.row as i32)
+        else {
             continue;
         };
         // Validate: not Fountain/GoldMine, belongs to requesting town
@@ -1467,7 +1835,9 @@ mod tests {
     use crate::world::WorldData;
 
     fn decode_toon(response: Value) -> Value {
-        let encoded = response.as_str().expect("debug response should be TOON text");
+        let encoded = response
+            .as_str()
+            .expect("debug response should be TOON text");
         serde_toon2::from_str(encoded).expect("debug response should decode from TOON")
     }
 
@@ -1522,7 +1892,9 @@ mod tests {
             ))
             .id();
 
-        world.resource_mut::<EntityMap>().register_npc(slot, entity, Job::Archer, 3, -1);
+        world
+            .resource_mut::<EntityMap>()
+            .register_npc(slot, entity, Job::Archer, 3, -1);
         (world, entity, slot)
     }
 

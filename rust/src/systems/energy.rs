@@ -15,7 +15,10 @@ const ENERGY_DRAIN_PER_HOUR: f32 = 100.0 / 24.0; // 24 hours to empty (active)
 pub fn energy_system(
     time: Res<Time>,
     game_time: Res<GameTime>,
-    mut energy_q: Query<(&GpuSlot, &mut Energy, &Activity, &CachedStats), (Without<Building>, Without<Dead>)>,
+    mut energy_q: Query<
+        (&GpuSlot, &mut Energy, &Activity, &CachedStats),
+        (Without<Building>, Without<Dead>),
+    >,
 ) {
     if game_time.is_paused() {
         return;
@@ -41,10 +44,16 @@ mod tests {
 
     fn test_cached_stats() -> CachedStats {
         CachedStats {
-            damage: 15.0, range: 200.0, cooldown: 1.5,
-            projectile_speed: 200.0, projectile_lifetime: 1.5,
-            max_health: 100.0, speed: 200.0, stamina: 1.0,
-            hp_regen: 0.0, berserk_bonus: 0.0,
+            damage: 15.0,
+            range: 200.0,
+            cooldown: 1.5,
+            projectile_speed: 200.0,
+            projectile_lifetime: 1.5,
+            max_health: 100.0,
+            speed: 200.0,
+            stamina: 1.0,
+            hp_regen: 0.0,
+            berserk_bonus: 0.0,
         }
     }
 
@@ -67,12 +76,9 @@ mod tests {
     }
 
     fn spawn_npc(app: &mut App, activity: Activity, energy: f32) -> Entity {
-        app.world_mut().spawn((
-            GpuSlot(0),
-            Energy(energy),
-            activity,
-            test_cached_stats(),
-        )).id()
+        app.world_mut()
+            .spawn((GpuSlot(0), Energy(energy), activity, test_cached_stats()))
+            .id()
     }
 
     #[test]
@@ -82,7 +88,10 @@ mod tests {
 
         app.update();
         let energy = app.world().get::<Energy>(npc).unwrap().0;
-        assert!(energy < 100.0, "energy should drain while working: {energy}");
+        assert!(
+            energy < 100.0,
+            "energy should drain while working: {energy}"
+        );
     }
 
     #[test]
@@ -92,13 +101,24 @@ mod tests {
 
         app.update();
         let energy = app.world().get::<Energy>(npc).unwrap().0;
-        assert!(energy > 50.0, "energy should recover while resting: {energy}");
+        assert!(
+            energy > 50.0,
+            "energy should recover while resting: {energy}"
+        );
     }
 
     #[test]
     fn energy_recovers_while_healing_at_fountain() {
         let mut app = setup_app();
-        let npc = spawn_npc(&mut app, Activity { kind: ActivityKind::Heal, recover_until: 100.0, ..Default::default() }, 50.0);
+        let npc = spawn_npc(
+            &mut app,
+            Activity {
+                kind: ActivityKind::Heal,
+                recover_until: 100.0,
+                ..Default::default()
+            },
+            50.0,
+        );
 
         app.update();
         let energy = app.world().get::<Energy>(npc).unwrap().0;
@@ -137,7 +157,10 @@ mod tests {
 
         app.update();
         let energy = app.world().get::<Energy>(npc).unwrap().0;
-        assert!((energy - 75.0).abs() < f32::EPSILON, "energy should not change when paused: {energy}");
+        assert!(
+            (energy - 75.0).abs() < f32::EPSILON,
+            "energy should not change when paused: {energy}"
+        );
     }
 
     #[test]
@@ -145,32 +168,57 @@ mod tests {
         let mut app = setup_app();
 
         // NPC with stamina 1.0 (normal)
-        let npc_normal = app.world_mut().spawn((
-            GpuSlot(0), Energy(100.0), Activity::new(ActivityKind::Work), test_cached_stats(),
-        )).id();
+        let npc_normal = app
+            .world_mut()
+            .spawn((
+                GpuSlot(0),
+                Energy(100.0),
+                Activity::new(ActivityKind::Work),
+                test_cached_stats(),
+            ))
+            .id();
 
         // NPC with stamina 0.5 (slower drain)
         let mut slow_stats = test_cached_stats();
         slow_stats.stamina = 0.5;
-        let npc_slow = app.world_mut().spawn((
-            GpuSlot(1), Energy(100.0), Activity::new(ActivityKind::Work), slow_stats,
-        )).id();
+        let npc_slow = app
+            .world_mut()
+            .spawn((
+                GpuSlot(1),
+                Energy(100.0),
+                Activity::new(ActivityKind::Work),
+                slow_stats,
+            ))
+            .id();
 
         app.update();
         let e_normal = app.world().get::<Energy>(npc_normal).unwrap().0;
         let e_slow = app.world().get::<Energy>(npc_slow).unwrap().0;
-        assert!(e_slow > e_normal, "lower stamina mult should drain slower: normal={e_normal}, slow={e_slow}");
+        assert!(
+            e_slow > e_normal,
+            "lower stamina mult should drain slower: normal={e_normal}, slow={e_slow}"
+        );
     }
 
     #[test]
     fn dead_npcs_excluded() {
         let mut app = setup_app();
-        let npc = app.world_mut().spawn((
-            GpuSlot(0), Energy(100.0), Activity::new(ActivityKind::Work), test_cached_stats(), Dead,
-        )).id();
+        let npc = app
+            .world_mut()
+            .spawn((
+                GpuSlot(0),
+                Energy(100.0),
+                Activity::new(ActivityKind::Work),
+                test_cached_stats(),
+                Dead,
+            ))
+            .id();
 
         app.update();
         let energy = app.world().get::<Energy>(npc).unwrap().0;
-        assert!((energy - 100.0).abs() < f32::EPSILON, "dead NPC energy should not change: {energy}");
+        assert!(
+            (energy - 100.0).abs() < f32::EPSILON,
+            "dead NPC energy should not change: {energy}"
+        );
     }
 }

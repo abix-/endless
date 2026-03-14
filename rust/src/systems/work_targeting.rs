@@ -43,13 +43,43 @@ pub fn resolve_work_targets(
                 release_worksite_entity(*entity, *worksite, &mut entity_map);
                 clear_worksite(*entity, &mut work_state_q);
             }
-            WorkIntent::Claim { entity, kind, town_idx, from } => {
+            WorkIntent::Claim {
+                entity,
+                kind,
+                town_idx,
+                from,
+            } => {
                 release_worksite(*entity, &mut entity_map, &mut work_state_q);
-                claim_worksite(*entity, *kind, *town_idx, *from, &mut entity_map, &mut work_state_q, &mut activity_q, &mut path_queue, &production_map);
+                claim_worksite(
+                    *entity,
+                    *kind,
+                    *town_idx,
+                    *from,
+                    &mut entity_map,
+                    &mut work_state_q,
+                    &mut activity_q,
+                    &mut path_queue,
+                    &production_map,
+                );
             }
-            WorkIntent::Retarget { entity, kind, town_idx, from } => {
+            WorkIntent::Retarget {
+                entity,
+                kind,
+                town_idx,
+                from,
+            } => {
                 release_worksite(*entity, &mut entity_map, &mut work_state_q);
-                claim_worksite(*entity, *kind, *town_idx, *from, &mut entity_map, &mut work_state_q, &mut activity_q, &mut path_queue, &production_map);
+                claim_worksite(
+                    *entity,
+                    *kind,
+                    *town_idx,
+                    *from,
+                    &mut entity_map,
+                    &mut work_state_q,
+                    &mut activity_q,
+                    &mut path_queue,
+                    &production_map,
+                );
             }
         }
     }
@@ -60,7 +90,9 @@ fn release_worksite(
     entity_map: &mut EntityMap,
     work_state_q: &mut Query<&mut NpcWorkState>,
 ) {
-    let Ok(mut ws) = work_state_q.get_mut(entity) else { return };
+    let Ok(mut ws) = work_state_q.get_mut(entity) else {
+        return;
+    };
     if let Some(ws_entity) = ws.worksite.take() {
         if let Some(slot) = entity_map.slot_for_entity(ws_entity) {
             entity_map.release_for(slot, Some(entity));
@@ -136,7 +168,12 @@ fn claim_worksite(
     }
 
     // Submit movement intent
-    path_queue.submit(entity, claimed.position, MovementPriority::JobRoute, "work:claim");
+    path_queue.submit(
+        entity,
+        claimed.position,
+        MovementPriority::JobRoute,
+        "work:claim",
+    );
 }
 
 /// Find best available farm for a farmer. Returns (slot, position, search_radius).
@@ -146,25 +183,32 @@ pub(crate) fn find_farm_target(
     town_idx: u32,
     production_map: &std::collections::HashMap<usize, (bool, f32)>,
 ) -> Option<(usize, Vec2, f32)> {
-    let max_occ = building_def(BuildingKind::Farm).worksite.expect("Farm has worksite").max_occupants;
-    entity_map.find_nearest_worksite(
-        from,
-        BuildingKind::Farm,
-        town_idx,
-        WorksiteFallback::TownOnly,
-        6400.0,
-        |inst, occ| {
-            if occ as i32 >= max_occ {
-                return None;
-            }
-            let (ready, progress) = production_map.get(&inst.slot).copied().unwrap_or((false, 0.0));
-            let not_ready: u8 = if ready { 0 } else { 1 };
-            let inv_growth = (1.0 - progress).to_bits();
-            let d2 = (inst.position - from).length_squared().to_bits();
-            Some((not_ready, inv_growth, d2))
-        },
-    )
-    .map(|r| (r.slot, r.position, r.radius_used))
+    let max_occ = building_def(BuildingKind::Farm)
+        .worksite
+        .expect("Farm has worksite")
+        .max_occupants;
+    entity_map
+        .find_nearest_worksite(
+            from,
+            BuildingKind::Farm,
+            town_idx,
+            WorksiteFallback::TownOnly,
+            6400.0,
+            |inst, occ| {
+                if occ as i32 >= max_occ {
+                    return None;
+                }
+                let (ready, progress) = production_map
+                    .get(&inst.slot)
+                    .copied()
+                    .unwrap_or((false, 0.0));
+                let not_ready: u8 = if ready { 0 } else { 1 };
+                let inv_growth = (1.0 - progress).to_bits();
+                let d2 = (inst.position - from).length_squared().to_bits();
+                Some((not_ready, inv_growth, d2))
+            },
+        )
+        .map(|r| (r.slot, r.position, r.radius_used))
 }
 
 fn find_mine_target(
@@ -173,23 +217,27 @@ fn find_mine_target(
     town_idx: u32,
     production_map: &std::collections::HashMap<usize, (bool, f32)>,
 ) -> Option<(usize, Vec2, f32)> {
-    entity_map.find_nearest_worksite(
-        from,
-        BuildingKind::GoldMine,
-        town_idx,
-        WorksiteFallback::AnyTown,
-        6400.0,
-        |inst, occ| {
-            let (ready, _) = production_map.get(&inst.slot).copied().unwrap_or((false, 0.0));
-            let priority = if ready {
-                0u8
-            } else if occ == 0 {
-                1
-            } else {
-                2
-            };
-            Some((priority, (inst.position - from).length_squared().to_bits()))
-        },
-    )
-    .map(|r| (r.slot, r.position, r.radius_used))
+    entity_map
+        .find_nearest_worksite(
+            from,
+            BuildingKind::GoldMine,
+            town_idx,
+            WorksiteFallback::AnyTown,
+            6400.0,
+            |inst, occ| {
+                let (ready, _) = production_map
+                    .get(&inst.slot)
+                    .copied()
+                    .unwrap_or((false, 0.0));
+                let priority = if ready {
+                    0u8
+                } else if occ == 0 {
+                    1
+                } else {
+                    2
+                };
+                Some((priority, (inst.position - from).length_squared().to_bits()))
+            },
+        )
+        .map(|r| (r.slot, r.position, r.radius_used))
 }

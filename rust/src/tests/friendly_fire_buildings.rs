@@ -13,9 +13,7 @@ use crate::world::{self, WorldCell};
 use super::TestState;
 
 const FARM_WALL_X: f32 = 512.0;
-const FARM_WALL_Y: [f32; 7] = [
-    192.0, 256.0, 320.0, 384.0, 448.0, 512.0, 576.0,
-];
+const FARM_WALL_Y: [f32; 7] = [192.0, 256.0, 320.0, 384.0, 448.0, 512.0, 576.0];
 const TARGET_X: f32 = 576.0;
 const TARGET_Y: f32 = 320.0;
 
@@ -55,8 +53,17 @@ pub fn setup(
     for y in FARM_WALL_Y {
         let pos = Vec2::new(FARM_WALL_X, y);
         let _ = world::place_building(
-            &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
-            world::BuildingKind::Farm, pos, 0, 0, &Default::default(), None, None,
+            &mut slot_alloc,
+            &mut entity_map,
+            &mut commands,
+            &mut gpu_updates,
+            world::BuildingKind::Farm,
+            pos,
+            0,
+            0,
+            &Default::default(),
+            None,
+            None,
         );
     }
 

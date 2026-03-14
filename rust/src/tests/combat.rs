@@ -59,14 +59,16 @@ pub fn setup(
         ..Default::default()
     };
     for (i, policy) in [policy0, PolicySet::default()].into_iter().enumerate() {
-        let entity = commands.spawn((
-            crate::components::TownMarker,
-            crate::components::FoodStore(0),
-            crate::components::GoldStore(0),
-            crate::components::TownPolicy(policy),
-            crate::components::TownUpgradeLevel::default(),
-            crate::components::TownEquipment::default(),
-        )).id();
+        let entity = commands
+            .spawn((
+                crate::components::TownMarker,
+                crate::components::FoodStore(0),
+                crate::components::GoldStore(0),
+                crate::components::TownPolicy(policy),
+                crate::components::TownUpgradeLevel::default(),
+                crate::components::TownEquipment::default(),
+            ))
+            .id();
         town_index.0.insert(i as i32, entity);
     }
 

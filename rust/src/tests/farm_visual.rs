@@ -14,10 +14,13 @@ pub fn setup(mut params: TestSetupParams) {
     if let Some(inst) = params.entity_map.find_by_position(Vec2::new(384.0, 320.0)) {
         let slot = inst.slot;
         if let Some(&entity) = params.entity_map.entities.get(&slot) {
-            params.commands.entity(entity).insert(crate::components::ProductionState {
-                ready: false,
-                progress: 0.95,
-            });
+            params
+                .commands
+                .entity(entity)
+                .insert(crate::components::ProductionState {
+                    ready: false,
+                    progress: 0.95,
+                });
         }
     }
     params.init_economy(1);

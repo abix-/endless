@@ -6,18 +6,15 @@ use crate::messages::CombatLogMsg;
 use crate::messages::{DamageMsg, DirtyWriters, GpuUpdate, GpuUpdateMsg};
 use crate::resources::{
     ActiveHealingSlots, BuildingHealState, CombatEventKind, EndlessMode, EntityMap, FactionStats,
-    GameTime, GpuReadState, GpuSlotPool, HealingZoneCache, HealthDebug,
-    KillStats, PopulationStats, SelectedBuilding, SelectedNpc,
-    SquadState,
+    GameTime, GpuReadState, GpuSlotPool, HealingZoneCache, HealthDebug, KillStats, PopulationStats,
+    SelectedBuilding, SelectedNpc, SquadState,
 };
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::constants::{ItemKind, UpgradeStatKind, building_def, npc_def};
 use crate::systems::economy::*;
-use crate::systems::stats::{
-    CombatConfig, UPGRADES, level_from_xp, resolve_combat_stats,
-};
+use crate::systems::stats::{CombatConfig, UPGRADES, level_from_xp, resolve_combat_stats};
 use crate::world::{BuildingKind, WorldData, WorldGrid};
 
 /// Bundled resources for death_system — merged from CleanupResources + WorldState + BuildingDeathExtra.
@@ -37,7 +34,16 @@ pub struct DeathResources<'w, 's> {
     pub endless: ResMut<'w, EndlessMode>,
     pub npc_flags_q: Query<'w, 's, &'static mut crate::components::NpcFlags>,
     pub activity_q: Query<'w, 's, &'static mut crate::components::Activity>,
-    pub health_q: Query<'w, 's, (Entity, &'static mut crate::components::Health, &'static GpuSlot), (Without<Building>, Without<Dead>)>,
+    pub health_q: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static mut crate::components::Health,
+            &'static GpuSlot,
+        ),
+        (Without<Building>, Without<Dead>),
+    >,
     pub combat_state_q: Query<'w, 's, &'static mut crate::components::CombatState>,
     pub cached_stats_q: Query<'w, 's, &'static mut crate::components::CachedStats>,
     pub attack_type_q: Query<'w, 's, &'static crate::components::BaseAttackType>,
@@ -55,7 +61,8 @@ pub struct DeathResources<'w, 's> {
     pub equipment_q: Query<'w, 's, &'static crate::components::NpcEquipment>,
     pub reputation: ResMut<'w, crate::resources::Reputation>,
     pub spawner_q: Query<'w, 's, &'static crate::components::SpawnerState, With<Building>>,
-    pub tower_bld_q: Query<'w, 's, &'static mut crate::components::TowerBuildingState, With<Building>>,
+    pub tower_bld_q:
+        Query<'w, 's, &'static mut crate::components::TowerBuildingState, With<Building>>,
 }
 
 /// Unified damage system: applies damage to both NPCs and buildings.
@@ -266,13 +273,19 @@ pub fn death_system(
             let town_idx = inst.town_idx as usize;
 
             // Orphaned NPC: reassign home to town fountain so they rest there
-            let npc_slot = res.entity_map.entities.get(&idx)
+            let npc_slot = res
+                .entity_map
+                .entities
+                .get(&idx)
                 .and_then(|&e| res.spawner_q.get(e).ok())
                 .and_then(|s| s.npc_slot);
             if let Some(slot) = npc_slot {
                 if let Some(&npc_entity) = res.entity_map.entities.get(&slot) {
                     if let Ok(mut home) = res.home_q.get_mut(npc_entity) {
-                        home.0 = res.world_data.towns.get(town_idx)
+                        home.0 = res
+                            .world_data
+                            .towns
+                            .get(town_idx)
                             .map(|t| t.center)
                             .unwrap_or(Vec2::new(-1.0, -1.0));
                     }
@@ -341,8 +354,12 @@ pub fn death_system(
                 );
 
                 // Remove roads + restore dirt to natural terrain
-                let town_center = res.world_data.towns.get(town_idx)
-                    .map(|t| t.center).unwrap_or_default();
+                let town_center = res
+                    .world_data
+                    .towns
+                    .get(town_idx)
+                    .map(|t| t.center)
+                    .unwrap_or_default();
                 crate::world::clear_town_roads_and_dirt(
                     &mut res.grid,
                     &mut res.entity_map,
@@ -384,12 +401,8 @@ pub fn death_system(
                         .iter()
                         .map(|&lv| (lv as f32 * frac).round() as u8)
                         .collect();
-                    let starting_food = (town_access.food(player_town as i32)
-                        as f32
-                        * frac) as i32;
-                    let starting_gold = (town_access.gold(player_town as i32)
-                        as f32
-                        * frac) as i32;
+                    let starting_food = (town_access.food(player_town as i32) as f32 * frac) as i32;
+                    let starting_gold = (town_access.gold(player_town as i32) as f32 * frac) as i32;
                     res.endless
                         .pending_spawns
                         .push(crate::resources::PendingAiSpawn {
@@ -461,8 +474,15 @@ pub fn death_system(
                             ItemKind::Gold => "gold",
                             _ => "item",
                         };
-                        let killer_name = npc_stats_q.get(atk_entity).map(|s| s.name.clone()).unwrap_or_default();
-                        let killer_job = res.entity_map.get_npc(atk_slot).map(|n| n.job.label()).unwrap_or("?");
+                        let killer_name = npc_stats_q
+                            .get(atk_entity)
+                            .map(|s| s.name.clone())
+                            .unwrap_or_default();
+                        let killer_job = res
+                            .entity_map
+                            .get_npc(atk_slot)
+                            .map(|n| n.job.label())
+                            .unwrap_or("?");
                         combat_log.write(CombatLogMsg {
                             kind: CombatEventKind::Loot,
                             faction: atk_faction,
@@ -494,10 +514,7 @@ pub fn death_system(
             let Some(npc) = res.entity_map.get_npc(slot) else {
                 continue;
             };
-            let activity = res
-                .activity_q
-                .get(npc.entity).cloned()
-                .unwrap_or_default();
+            let activity = res.activity_q.get(npc.entity).cloned().unwrap_or_default();
             let lhb = res.last_hit_by_q.get(npc.entity).map(|h| h.0).unwrap_or(-1);
             let ws_uid = res
                 .work_state_q
@@ -521,7 +538,10 @@ pub fn death_system(
         // Death SFX with spatial position from GPU state
         let base = slot * 2;
         if base + 1 < res.gpu_state.positions.len() {
-            let pos = Vec2::new(res.gpu_state.positions[base], res.gpu_state.positions[base + 1]);
+            let pos = Vec2::new(
+                res.gpu_state.positions[base],
+                res.gpu_state.positions[base + 1],
+            );
             res.sfx_writer.write(crate::resources::PlaySfxMsg {
                 kind: crate::resources::SfxKind::Death,
                 position: Some(pos),
@@ -574,9 +594,11 @@ pub fn death_system(
                         .get(k_entity)
                         .copied()
                         .unwrap_or(BaseAttackType::Melee);
-                    let (wb, ab) = res.equipment_q.get(k_entity).map(|eq| {
-                        (eq.total_weapon_bonus(), eq.total_armor_bonus())
-                    }).unwrap_or((0.0, 0.0));
+                    let (wb, ab) = res
+                        .equipment_q
+                        .get(k_entity)
+                        .map(|eq| (eq.total_weapon_bonus(), eq.total_armor_bonus()))
+                        .unwrap_or((0.0, 0.0));
                     let new_cached = resolve_combat_stats(
                         killer.job,
                         attack_type,
@@ -614,7 +636,10 @@ pub fn death_system(
                         speed: new_speed,
                     }));
 
-                    let name = npc_stats_q.get(k_entity).map(|s| s.name.as_str()).unwrap_or("?");
+                    let name = npc_stats_q
+                        .get(k_entity)
+                        .map(|s| s.name.as_str())
+                        .unwrap_or("?");
                     let job_str = killer.job.label();
                     combat_log.write(CombatLogMsg {
                         kind: CombatEventKind::LevelUp,
@@ -675,7 +700,10 @@ pub fn death_system(
                         ItemKind::Gold => "gold",
                         _ => "item",
                     };
-                    let killer_name = npc_stats_q.get(k_entity).map(|s| s.name.as_str()).unwrap_or("?");
+                    let killer_name = npc_stats_q
+                        .get(k_entity)
+                        .map(|s| s.name.as_str())
+                        .unwrap_or("?");
                     let killer_job = killer.job.label();
                     combat_log.write(CombatLogMsg {
                         kind: CombatEventKind::Loot,
@@ -704,7 +732,10 @@ pub fn death_system(
                             cl.equipment.push(item);
                         }
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: k_slot }));
-                        let killer_name = npc_stats_q.get(k_entity).map(|s| s.name.as_str()).unwrap_or("?");
+                        let killer_name = npc_stats_q
+                            .get(k_entity)
+                            .map(|s| s.name.as_str())
+                            .unwrap_or("?");
                         let killer_job = killer.job.label();
                         combat_log.write(CombatLogMsg {
                             kind: CombatEventKind::Loot,
@@ -733,7 +764,8 @@ pub fn death_system(
 
                 // Transfer victim's equipped items (50% per item)
                 for eq_item in dead_equipped_items.iter() {
-                    let transfer_roll = (eq_item.id.wrapping_mul(2654435761).wrapping_add(7) % 100) as f32;
+                    let transfer_roll =
+                        (eq_item.id.wrapping_mul(2654435761).wrapping_add(7) % 100) as f32;
                     if transfer_roll < 50.0 {
                         if let Ok(mut cl) = res.carried_loot_q.get_mut(k_entity) {
                             cl.equipment.push(eq_item.clone());
@@ -751,10 +783,20 @@ pub fn death_system(
                 res.faction_stats.inc_kills(tower_faction);
                 res.reputation.on_kill(tower_faction, faction);
 
-                let Some(inst) = res.entity_map.get_instance(killer_slot) else { continue; };
-                let kind_name = if inst.kind == BuildingKind::Tower { "Tower" } else { "Fountain" };
-                let Some(&tower_entity) = res.entity_map.entities.get(&killer_slot) else { continue; };
-                let Ok(mut tbs) = res.tower_bld_q.get_mut(tower_entity) else { continue; };
+                let Some(inst) = res.entity_map.get_instance(killer_slot) else {
+                    continue;
+                };
+                let kind_name = if inst.kind == BuildingKind::Tower {
+                    "Tower"
+                } else {
+                    "Fountain"
+                };
+                let Some(&tower_entity) = res.entity_map.entities.get(&killer_slot) else {
+                    continue;
+                };
+                let Ok(mut tbs) = res.tower_bld_q.get_mut(tower_entity) else {
+                    continue;
+                };
                 tbs.kills += 1;
                 let old_xp = tbs.xp;
                 tbs.xp += 100;
@@ -855,7 +897,8 @@ pub fn death_system(
 
                 // Victim's equipped items → town equipment (50% per item)
                 for eq_item in dead_equipped_items.iter() {
-                    let transfer_roll = (eq_item.id.wrapping_mul(2654435761).wrapping_add(7) % 100) as f32;
+                    let transfer_roll =
+                        (eq_item.id.wrapping_mul(2654435761).wrapping_add(7) % 100) as f32;
                     if transfer_roll < 50.0 {
                         if let Some(mut eq) = town_access.equipment_mut(tower_town as i32) {
                             eq.0.push(eq_item.clone());
@@ -874,7 +917,10 @@ pub fn death_system(
 
         // Defer worksite release to centralized resolver
         res.work_intents.write(crate::messages::WorkIntentMsg(
-            crate::messages::WorkIntent::Release { entity, worksite: worksite_uid },
+            crate::messages::WorkIntent::Release {
+                entity,
+                worksite: worksite_uid,
+            },
         ));
         if job == Job::Miner {
             res.dirty_writers
@@ -894,9 +940,13 @@ pub fn death_system(
                         .map(|b| b.faction)
                 })
                 .unwrap_or(-1);
-            if killer_faction == crate::constants::FACTION_PLAYER && faction != crate::constants::FACTION_PLAYER {
+            if killer_faction == crate::constants::FACTION_PLAYER
+                && faction != crate::constants::FACTION_PLAYER
+            {
                 res.kill_stats.archer_kills += 1;
-            } else if killer_faction != crate::constants::FACTION_PLAYER && faction == crate::constants::FACTION_PLAYER {
+            } else if killer_faction != crate::constants::FACTION_PLAYER
+                && faction == crate::constants::FACTION_PLAYER
+            {
                 res.kill_stats.villager_kills += 1;
             }
         }
@@ -1252,7 +1302,9 @@ pub fn npc_regen_system(
     game_time: Res<GameTime>,
 ) {
     let dt = game_time.delta(&time);
-    if dt <= 0.0 { return; }
+    if dt <= 0.0 {
+        return;
+    }
     for (mut health, stats) in &mut npc_q {
         if stats.hp_regen > 0.0 && health.0 < stats.max_health {
             health.0 = (health.0 + stats.hp_regen * dt).min(stats.max_health);
@@ -1267,10 +1319,16 @@ mod tests {
 
     fn stats_with_regen(hp_regen: f32) -> CachedStats {
         CachedStats {
-            damage: 15.0, range: 200.0, cooldown: 1.5,
-            projectile_speed: 200.0, projectile_lifetime: 1.5,
-            max_health: 100.0, speed: 200.0, stamina: 1.0,
-            hp_regen, berserk_bonus: 0.0,
+            damage: 15.0,
+            range: 200.0,
+            cooldown: 1.5,
+            projectile_speed: 200.0,
+            projectile_lifetime: 1.5,
+            max_health: 100.0,
+            speed: 200.0,
+            stamina: 1.0,
+            hp_regen,
+            berserk_bonus: 0.0,
         }
     }
 
@@ -1291,9 +1349,10 @@ mod tests {
     #[test]
     fn regen_heals_damaged_npc() {
         let mut app = setup_regen_app();
-        let npc = app.world_mut().spawn((
-            Health(50.0), stats_with_regen(5.0),
-        )).id();
+        let npc = app
+            .world_mut()
+            .spawn((Health(50.0), stats_with_regen(5.0)))
+            .id();
 
         app.update();
         let hp = app.world().get::<Health>(npc).unwrap().0;
@@ -1303,9 +1362,10 @@ mod tests {
     #[test]
     fn regen_capped_at_max_health() {
         let mut app = setup_regen_app();
-        let npc = app.world_mut().spawn((
-            Health(99.9), stats_with_regen(100.0),
-        )).id();
+        let npc = app
+            .world_mut()
+            .spawn((Health(99.9), stats_with_regen(100.0)))
+            .id();
 
         app.update();
         let hp = app.world().get::<Health>(npc).unwrap().0;
@@ -1315,63 +1375,88 @@ mod tests {
     #[test]
     fn zero_regen_no_heal() {
         let mut app = setup_regen_app();
-        let npc = app.world_mut().spawn((
-            Health(50.0), stats_with_regen(0.0),
-        )).id();
+        let npc = app
+            .world_mut()
+            .spawn((Health(50.0), stats_with_regen(0.0)))
+            .id();
 
         app.update();
         let hp = app.world().get::<Health>(npc).unwrap().0;
-        assert!((hp - 50.0).abs() < f32::EPSILON, "zero regen should not heal: {hp}");
+        assert!(
+            (hp - 50.0).abs() < f32::EPSILON,
+            "zero regen should not heal: {hp}"
+        );
     }
 
     #[test]
     fn full_health_no_regen() {
         let mut app = setup_regen_app();
-        let npc = app.world_mut().spawn((
-            Health(100.0), stats_with_regen(5.0),
-        )).id();
+        let npc = app
+            .world_mut()
+            .spawn((Health(100.0), stats_with_regen(5.0)))
+            .id();
 
         app.update();
         let hp = app.world().get::<Health>(npc).unwrap().0;
-        assert!((hp - 100.0).abs() < f32::EPSILON, "full HP should not regen: {hp}");
+        assert!(
+            (hp - 100.0).abs() < f32::EPSILON,
+            "full HP should not regen: {hp}"
+        );
     }
 
     #[test]
     fn dead_npcs_dont_regen() {
         let mut app = setup_regen_app();
-        let npc = app.world_mut().spawn((
-            Health(10.0), stats_with_regen(5.0), Dead,
-        )).id();
+        let npc = app
+            .world_mut()
+            .spawn((Health(10.0), stats_with_regen(5.0), Dead))
+            .id();
 
         app.update();
         let hp = app.world().get::<Health>(npc).unwrap().0;
-        assert!((hp - 10.0).abs() < f32::EPSILON, "dead NPC should not regen: {hp}");
+        assert!(
+            (hp - 10.0).abs() < f32::EPSILON,
+            "dead NPC should not regen: {hp}"
+        );
     }
 
     #[test]
     fn buildings_excluded_from_regen() {
         let mut app = setup_regen_app();
-        let building = app.world_mut().spawn((
-            Health(50.0), stats_with_regen(5.0),
-            Building { kind: crate::world::BuildingKind::Tower },
-        )).id();
+        let building = app
+            .world_mut()
+            .spawn((
+                Health(50.0),
+                stats_with_regen(5.0),
+                Building {
+                    kind: crate::world::BuildingKind::Tower,
+                },
+            ))
+            .id();
 
         app.update();
         let hp = app.world().get::<Health>(building).unwrap().0;
-        assert!((hp - 50.0).abs() < f32::EPSILON, "buildings should not use npc_regen: {hp}");
+        assert!(
+            (hp - 50.0).abs() < f32::EPSILON,
+            "buildings should not use npc_regen: {hp}"
+        );
     }
 
     #[test]
     fn regen_paused_no_change() {
         let mut app = setup_regen_app();
         app.world_mut().resource_mut::<GameTime>().paused = true;
-        let npc = app.world_mut().spawn((
-            Health(50.0), stats_with_regen(5.0),
-        )).id();
+        let npc = app
+            .world_mut()
+            .spawn((Health(50.0), stats_with_regen(5.0)))
+            .id();
 
         app.update();
         let hp = app.world().get::<Health>(npc).unwrap().0;
-        assert!((hp - 50.0).abs() < f32::EPSILON, "paused game should not regen: {hp}");
+        assert!(
+            (hp - 50.0).abs() < f32::EPSILON,
+            "paused game should not regen: {hp}"
+        );
     }
 
     // ========================================================================
@@ -1383,10 +1468,7 @@ mod tests {
 
     /// Helper system that sends a DamageMsg once, then drains the queue.
     /// Must drain to avoid re-sending on subsequent FixedUpdate sub-ticks.
-    fn send_damage(
-        mut writer: MessageWriter<DamageMsg>,
-        mut pending: ResMut<PendingDamage>,
-    ) {
+    fn send_damage(mut writer: MessageWriter<DamageMsg>, mut pending: ResMut<PendingDamage>) {
         for msg in pending.0.drain(..) {
             writer.write(msg);
         }
@@ -1418,10 +1500,7 @@ mod tests {
 
     /// Spawn an NPC entity and register it in EntityMap.
     fn spawn_damageable_npc(app: &mut App, slot: usize, _uid: u64, hp: f32) -> Entity {
-        let entity = app.world_mut().spawn((
-            GpuSlot(slot),
-            Health(hp),
-        )).id();
+        let entity = app.world_mut().spawn((GpuSlot(slot), Health(hp))).id();
         let mut entity_map = app.world_mut().resource_mut::<EntityMap>();
         entity_map.register_npc(slot, entity, crate::components::Job::Archer, 0, 0);
         entity
@@ -1431,28 +1510,37 @@ mod tests {
     fn damage_reduces_npc_health() {
         let mut app = setup_damage_app();
         let npc = spawn_damageable_npc(&mut app, 0, 1, 100.0);
-        app.world_mut().resource_mut::<PendingDamage>().0.push(DamageMsg {
-            target: npc,
-            amount: 30.0,
-            attacker: -1,
-            attacker_faction: 0,
-        });
+        app.world_mut()
+            .resource_mut::<PendingDamage>()
+            .0
+            .push(DamageMsg {
+                target: npc,
+                amount: 30.0,
+                attacker: -1,
+                attacker_faction: 0,
+            });
 
         app.update();
         let hp = app.world().get::<Health>(npc).unwrap().0;
-        assert!((hp - 70.0).abs() < 0.01, "damage should reduce HP from 100 to 70: {hp}");
+        assert!(
+            (hp - 70.0).abs() < 0.01,
+            "damage should reduce HP from 100 to 70: {hp}"
+        );
     }
 
     #[test]
     fn damage_floors_at_zero() {
         let mut app = setup_damage_app();
         let npc = spawn_damageable_npc(&mut app, 0, 1, 10.0);
-        app.world_mut().resource_mut::<PendingDamage>().0.push(DamageMsg {
-            target: npc,
-            amount: 50.0,
-            attacker: -1,
-            attacker_faction: 0,
-        });
+        app.world_mut()
+            .resource_mut::<PendingDamage>()
+            .0
+            .push(DamageMsg {
+                target: npc,
+                amount: 50.0,
+                attacker: -1,
+                attacker_faction: 0,
+            });
 
         app.update();
         let hp = app.world().get::<Health>(npc).unwrap().0;
@@ -1466,16 +1554,22 @@ mod tests {
         let npc = spawn_damageable_npc(&mut app, 0, 1, 100.0);
         // Send damage to an entity that doesn't exist in EntityMap
         let fake = Entity::from_raw_u32(999).unwrap();
-        app.world_mut().resource_mut::<PendingDamage>().0.push(DamageMsg {
-            target: fake,
-            amount: 50.0,
-            attacker: -1,
-            attacker_faction: 0,
-        });
+        app.world_mut()
+            .resource_mut::<PendingDamage>()
+            .0
+            .push(DamageMsg {
+                target: fake,
+                amount: 50.0,
+                attacker: -1,
+                attacker_faction: 0,
+            });
 
         app.update();
         let hp = app.world().get::<Health>(npc).unwrap().0;
-        assert!((hp - 100.0).abs() < 0.01, "NPC should not take damage from mismatched UID: {hp}");
+        assert!(
+            (hp - 100.0).abs() < 0.01,
+            "NPC should not take damage from mismatched UID: {hp}"
+        );
     }
 
     #[test]
@@ -1486,7 +1580,10 @@ mod tests {
         app.update();
         let debug = app.world().resource::<HealthDebug>();
         // bevy_entity_count is updated every tick (not just when damage occurs)
-        assert_eq!(debug.bevy_entity_count, 1, "debug should track entity count");
+        assert_eq!(
+            debug.bevy_entity_count, 1,
+            "debug should track entity count"
+        );
     }
 
     #[test]
@@ -1494,12 +1591,25 @@ mod tests {
         let mut app = setup_damage_app();
         let npc = spawn_damageable_npc(&mut app, 0, 1, 100.0);
         let pending = &mut app.world_mut().resource_mut::<PendingDamage>().0;
-        pending.push(DamageMsg { target: npc, amount: 20.0, attacker: -1, attacker_faction: 0 });
-        pending.push(DamageMsg { target: npc, amount: 15.0, attacker: -1, attacker_faction: 0 });
+        pending.push(DamageMsg {
+            target: npc,
+            amount: 20.0,
+            attacker: -1,
+            attacker_faction: 0,
+        });
+        pending.push(DamageMsg {
+            target: npc,
+            amount: 15.0,
+            attacker: -1,
+            attacker_faction: 0,
+        });
 
         app.update();
         let hp = app.world().get::<Health>(npc).unwrap().0;
-        assert!((hp - 65.0).abs() < 0.01, "two damage events (20+15) should reduce to 65: {hp}");
+        assert!(
+            (hp - 65.0).abs() < 0.01,
+            "two damage events (20+15) should reduce to 65: {hp}"
+        );
     }
 
     #[test]
@@ -1507,28 +1617,43 @@ mod tests {
         let mut app = setup_damage_app();
         let npc = spawn_damageable_npc(&mut app, 0, 1, 100.0);
         // Mark NPC as dead in EntityMap
-        app.world_mut().resource_mut::<EntityMap>().get_npc_mut(0).unwrap().dead = true;
-        app.world_mut().resource_mut::<PendingDamage>().0.push(DamageMsg {
-            target: npc,
-            amount: 50.0,
-            attacker: -1,
-            attacker_faction: 0,
-        });
+        app.world_mut()
+            .resource_mut::<EntityMap>()
+            .get_npc_mut(0)
+            .unwrap()
+            .dead = true;
+        app.world_mut()
+            .resource_mut::<PendingDamage>()
+            .0
+            .push(DamageMsg {
+                target: npc,
+                amount: 50.0,
+                attacker: -1,
+                attacker_faction: 0,
+            });
 
         app.update();
         let hp = app.world().get::<Health>(npc).unwrap().0;
-        assert!((hp - 100.0).abs() < 0.01, "dead NPC should not take damage: {hp}");
+        assert!(
+            (hp - 100.0).abs() < 0.01,
+            "dead NPC should not take damage: {hp}"
+        );
     }
 
     #[test]
     fn damage_building_reduces_health() {
         let mut app = setup_damage_app();
         let slot = 0usize;
-        let entity = app.world_mut().spawn((
-            GpuSlot(slot),
-            Health(200.0),
-            Building { kind: BuildingKind::Tower },
-        )).id();
+        let entity = app
+            .world_mut()
+            .spawn((
+                GpuSlot(slot),
+                Health(200.0),
+                Building {
+                    kind: BuildingKind::Tower,
+                },
+            ))
+            .id();
         // Register as building instance in EntityMap
         let mut entity_map = app.world_mut().resource_mut::<EntityMap>();
         entity_map.set_entity(slot, entity);
@@ -1540,16 +1665,22 @@ mod tests {
             faction: 0,
         });
 
-        app.world_mut().resource_mut::<PendingDamage>().0.push(DamageMsg {
-            target: entity,
-            amount: 75.0,
-            attacker: -1,
-            attacker_faction: 1,
-        });
+        app.world_mut()
+            .resource_mut::<PendingDamage>()
+            .0
+            .push(DamageMsg {
+                target: entity,
+                amount: 75.0,
+                attacker: -1,
+                attacker_faction: 1,
+            });
 
         app.update();
         let hp = app.world().get::<Health>(entity).unwrap().0;
-        assert!((hp - 125.0).abs() < 0.01, "building should take 75 damage from 200: {hp}");
+        assert!(
+            (hp - 125.0).abs() < 0.01,
+            "building should take 75 damage from 200: {hp}"
+        );
     }
 
     // -- update_healing_zone_cache -------------------------------------------
@@ -1583,14 +1714,17 @@ mod tests {
         app.insert_resource(CombatConfig::default());
         // Spawn ECS town entity for TownAccess
         let mut town_index = crate::resources::TownIndex::default();
-        let entity = app.world_mut().spawn((
-            crate::components::TownMarker,
-            crate::components::FoodStore(0),
-            crate::components::GoldStore(0),
-            crate::components::TownPolicy::default(),
-            crate::components::TownUpgradeLevel::default(),
-            crate::components::TownEquipment::default(),
-        )).id();
+        let entity = app
+            .world_mut()
+            .spawn((
+                crate::components::TownMarker,
+                crate::components::FoodStore(0),
+                crate::components::GoldStore(0),
+                crate::components::TownPolicy::default(),
+                crate::components::TownUpgradeLevel::default(),
+                crate::components::TownEquipment::default(),
+            ))
+            .id();
         town_index.0.insert(0, entity);
         app.insert_resource(town_index);
         app.insert_resource(SendHealingDirty(false));
@@ -1612,7 +1746,10 @@ mod tests {
         let mut app = setup_healing_cache_app();
         app.update();
         let cache = app.world().resource::<crate::resources::HealingZoneCache>();
-        assert!(cache.by_faction.is_empty(), "cache should stay empty without dirty msg");
+        assert!(
+            cache.by_faction.is_empty(),
+            "cache should stay empty without dirty msg"
+        );
     }
 
     #[test]
@@ -1621,13 +1758,28 @@ mod tests {
         app.insert_resource(SendHealingDirty(true));
         app.update();
         let cache = app.world().resource::<crate::resources::HealingZoneCache>();
-        assert!(!cache.by_faction.is_empty(), "cache should have factions after dirty");
-        assert!(cache.by_faction.len() > 1, "cache should have at least 2 faction slots");
-        assert!(!cache.by_faction[1].is_empty(), "faction 1 should have a healing zone");
+        assert!(
+            !cache.by_faction.is_empty(),
+            "cache should have factions after dirty"
+        );
+        assert!(
+            cache.by_faction.len() > 1,
+            "cache should have at least 2 faction slots"
+        );
+        assert!(
+            !cache.by_faction[1].is_empty(),
+            "faction 1 should have a healing zone"
+        );
         let zone = &cache.by_faction[1][0];
-        assert!((zone.center.x - 500.0).abs() < 0.1, "zone center should match town center");
+        assert!(
+            (zone.center.x - 500.0).abs() < 0.1,
+            "zone center should match town center"
+        );
         assert!(zone.heal_rate > 0.0, "heal_rate should be positive");
-        assert!(zone.enter_radius_sq > 0.0, "enter_radius_sq should be positive");
+        assert!(
+            zone.enter_radius_sq > 0.0,
+            "enter_radius_sq should be positive"
+        );
     }
 
     #[test]
@@ -1659,15 +1811,34 @@ mod tests {
         let mut app = setup_healing_cache_app();
         app.insert_resource(WorldData {
             towns: vec![
-                Town { name: "A".to_string(), center: Vec2::new(100.0, 100.0), faction: 1, kind: crate::constants::TownKind::Player },
-                Town { name: "B".to_string(), center: Vec2::new(900.0, 900.0), faction: 2, kind: crate::constants::TownKind::AiRaider },
+                Town {
+                    name: "A".to_string(),
+                    center: Vec2::new(100.0, 100.0),
+                    faction: 1,
+                    kind: crate::constants::TownKind::Player,
+                },
+                Town {
+                    name: "B".to_string(),
+                    center: Vec2::new(900.0, 900.0),
+                    faction: 2,
+                    kind: crate::constants::TownKind::AiRaider,
+                },
             ],
         });
         app.insert_resource(SendHealingDirty(true));
         app.update();
         let cache = app.world().resource::<crate::resources::HealingZoneCache>();
-        assert!(cache.by_faction.len() >= 3, "should have at least 3 faction entries");
-        assert!(!cache.by_faction[1].is_empty(), "faction 1 should have a zone");
-        assert!(!cache.by_faction[2].is_empty(), "faction 2 should have a zone");
+        assert!(
+            cache.by_faction.len() >= 3,
+            "should have at least 3 faction entries"
+        );
+        assert!(
+            !cache.by_faction[1].is_empty(),
+            "faction 1 should have a zone"
+        );
+        assert!(
+            !cache.by_faction[2].is_empty(),
+            "faction 2 should have a zone"
+        );
     }
 }

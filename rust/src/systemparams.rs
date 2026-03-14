@@ -61,7 +61,11 @@ impl WorldState<'_> {
             world_pos,
             town_data_idx as u32,
             faction,
-            &crate::world::BuildingOverrides { patrol_order, wall_level, hp: None },
+            &crate::world::BuildingOverrides {
+                patrol_order,
+                wall_level,
+                hp: None,
+            },
             Some(crate::world::BuildContext {
                 grid: &mut self.grid,
                 world_data: &self.world_data,
@@ -86,7 +90,9 @@ impl WorldState<'_> {
     ) -> Result<(), &'static str> {
         let (gc, gr) = self.grid.world_to_grid(world_pos);
         let snapped = self.grid.grid_to_world(gc, gr);
-        let inst = self.entity_map.get_at_grid(gc as i32, gr as i32)
+        let inst = self
+            .entity_map
+            .get_at_grid(gc as i32, gr as i32)
             .ok_or("no building at position")?;
         let old_kind = inst.kind;
         let old_town = inst.town_idx;
@@ -103,8 +109,8 @@ impl WorldState<'_> {
         }
 
         // Cost = new road cost minus old road cost
-        let upgrade_cost = crate::constants::building_cost(new_kind)
-            - crate::constants::building_cost(old_kind);
+        let upgrade_cost =
+            crate::constants::building_cost(new_kind) - crate::constants::building_cost(old_kind);
         if *food < upgrade_cost {
             return Err("not enough food");
         }
@@ -124,8 +130,12 @@ impl WorldState<'_> {
         *food -= upgrade_cost;
 
         // Place new road (no validation context — we already validated)
-        let faction = self.world_data.towns.get(town_data_idx)
-            .map(|t| t.faction).unwrap_or(0);
+        let faction = self
+            .world_data
+            .towns
+            .get(town_data_idx)
+            .map(|t| t.faction)
+            .unwrap_or(0);
         crate::world::place_building(
             &mut self.entity_slots,
             &mut self.entity_map,
@@ -176,14 +186,54 @@ pub struct EconomyState<'w, 's> {
 #[derive(SystemParam)]
 pub struct TownAccess<'w, 's> {
     index: ResMut<'w, TownIndex>,
-    food: Query<'w, 's, &'static mut crate::components::FoodStore, With<crate::components::TownMarker>>,
-    gold: Query<'w, 's, &'static mut crate::components::GoldStore, With<crate::components::TownMarker>>,
-    wood: Query<'w, 's, &'static mut crate::components::WoodStore, With<crate::components::TownMarker>>,
-    stone: Query<'w, 's, &'static mut crate::components::StoneStore, With<crate::components::TownMarker>>,
-    policy: Query<'w, 's, &'static mut crate::components::TownPolicy, With<crate::components::TownMarker>>,
-    upgrades: Query<'w, 's, &'static mut crate::components::TownUpgradeLevel, With<crate::components::TownMarker>>,
-    equipment: Query<'w, 's, &'static mut crate::components::TownEquipment, With<crate::components::TownMarker>>,
-    area: Query<'w, 's, &'static mut crate::components::TownAreaLevel, With<crate::components::TownMarker>>,
+    food: Query<
+        'w,
+        's,
+        &'static mut crate::components::FoodStore,
+        With<crate::components::TownMarker>,
+    >,
+    gold: Query<
+        'w,
+        's,
+        &'static mut crate::components::GoldStore,
+        With<crate::components::TownMarker>,
+    >,
+    wood: Query<
+        'w,
+        's,
+        &'static mut crate::components::WoodStore,
+        With<crate::components::TownMarker>,
+    >,
+    stone: Query<
+        'w,
+        's,
+        &'static mut crate::components::StoneStore,
+        With<crate::components::TownMarker>,
+    >,
+    policy: Query<
+        'w,
+        's,
+        &'static mut crate::components::TownPolicy,
+        With<crate::components::TownMarker>,
+    >,
+    upgrades: Query<
+        'w,
+        's,
+        &'static mut crate::components::TownUpgradeLevel,
+        With<crate::components::TownMarker>,
+    >,
+    equipment: Query<
+        'w,
+        's,
+        &'static mut crate::components::TownEquipment,
+        With<crate::components::TownMarker>,
+    >,
+    area: Query<
+        'w,
+        's,
+        &'static mut crate::components::TownAreaLevel,
+        With<crate::components::TownMarker>,
+    >,
 }
 
 impl TownAccess<'_, '_> {
@@ -267,7 +317,10 @@ impl TownAccess<'_, '_> {
             .unwrap_or(0)
     }
 
-    pub fn upgrades_mut(&mut self, town_idx: i32) -> Option<Mut<'_, crate::components::TownUpgradeLevel>> {
+    pub fn upgrades_mut(
+        &mut self,
+        town_idx: i32,
+    ) -> Option<Mut<'_, crate::components::TownUpgradeLevel>> {
         let e = self.entity(town_idx)?;
         self.upgrades.get_mut(e).ok()
     }
@@ -277,7 +330,10 @@ impl TownAccess<'_, '_> {
         self.equipment.get(e).ok().map(|eq| eq.0.clone())
     }
 
-    pub fn equipment_mut(&mut self, town_idx: i32) -> Option<Mut<'_, crate::components::TownEquipment>> {
+    pub fn equipment_mut(
+        &mut self,
+        town_idx: i32,
+    ) -> Option<Mut<'_, crate::components::TownEquipment>> {
         let e = self.entity(town_idx)?;
         self.equipment.get_mut(e).ok()
     }

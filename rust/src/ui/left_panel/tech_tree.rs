@@ -7,8 +7,8 @@ use crate::constants::FACTION_PLAYER;
 use crate::resources::*;
 use crate::settings::UserSettings;
 use crate::systems::stats::{
-    UPGRADES, UpgradeMsg, branch_total, format_upgrade_cost,
-    missing_prereqs, upgrade_available, upgrade_unlocked, upgrade_count, upgrade_effect_summary,
+    UPGRADES, UpgradeMsg, branch_total, format_upgrade_cost, missing_prereqs, upgrade_available,
+    upgrade_count, upgrade_effect_summary, upgrade_unlocked,
 };
 use crate::world::WorldData;
 
@@ -22,9 +22,9 @@ const ROW_SPACING: f32 = 92.0;
 #[derive(Clone, Copy)]
 enum NodeState {
     Locked,
-    Unlocked,   // prereqs met, can't afford
-    Available,  // can buy
-    Maxed,      // at max level
+    Unlocked,  // prereqs met, can't afford
+    Available, // can buy
+    Maxed,     // at max level
 }
 
 fn node_state(levels: &[u8], idx: usize, food: i32, gold: i32) -> NodeState {
@@ -139,12 +139,13 @@ fn layout_branch_topdown(
                 .unwrap_or_default();
 
             if !children.is_empty() {
-                let child_xs: Vec<f32> =
-                    children.iter().filter_map(|ci| node_pos.get(ci).map(|p| p.0)).collect();
-                let center_x =
-                    (child_xs.iter().copied().fold(f32::MAX, f32::min)
-                        + child_xs.iter().copied().fold(f32::MIN, f32::max))
-                        / 2.0;
+                let child_xs: Vec<f32> = children
+                    .iter()
+                    .filter_map(|ci| node_pos.get(ci).map(|p| p.0))
+                    .collect();
+                let center_x = (child_xs.iter().copied().fold(f32::MAX, f32::min)
+                    + child_xs.iter().copied().fold(f32::MIN, f32::max))
+                    / 2.0;
                 if let Some(pos) = node_pos.get_mut(&parent_idx) {
                     pos.0 = center_x;
                 }
@@ -190,7 +191,11 @@ fn layout_branch_topdown(
 
     // Phase 3: normalize X positions so nothing goes negative
     let min_x = node_pos.values().map(|p| p.0).fold(f32::MAX, f32::min);
-    let offset_x = if min_x < origin.x { origin.x - min_x + NODE_W / 2.0 } else { 0.0 };
+    let offset_x = if min_x < origin.x {
+        origin.x - min_x + NODE_W / 2.0
+    } else {
+        0.0
+    };
 
     let mut max_x = 0.0_f32;
     let mut max_y = 0.0_f32;
@@ -254,7 +259,9 @@ pub fn tech_tree_system(
     let reg = &*UPGRADES;
 
     // Use tech_tree_tab from UiState if available, otherwise default 0
-    let active_tab = ui_state.tech_tree_tab.min(reg.branches.len().saturating_sub(1));
+    let active_tab = ui_state
+        .tech_tree_tab
+        .min(reg.branches.len().saturating_sub(1));
 
     let mut open = ui_state.tech_tree_open;
     egui::Window::new("Tech Tree")
@@ -299,7 +306,9 @@ pub fn tech_tree_system(
             ui.separator();
 
             // Draw active branch
-            let current_tab = ui_state.tech_tree_tab.min(reg.branches.len().saturating_sub(1));
+            let current_tab = ui_state
+                .tech_tree_tab
+                .min(reg.branches.len().saturating_sub(1));
             if let Some(branch) = reg.branches.get(current_tab) {
                 egui::ScrollArea::both()
                     .auto_shrink([false, false])
@@ -317,25 +326,17 @@ pub fn tech_tree_system(
                                     let color = line_color(unlocked);
                                     let stroke = egui::Stroke::new(1.5, color);
                                     // Parent bottom-center -> child top-center
-                                    let from = egui::pos2(
-                                        parent.rect.center().x,
-                                        parent.rect.bottom(),
-                                    );
+                                    let from =
+                                        egui::pos2(parent.rect.center().x, parent.rect.bottom());
                                     let to = egui::pos2(pn.rect.center().x, pn.rect.top());
                                     let mid_y = (from.y + to.y) / 2.0;
                                     // Right-angle connector: down, across, down
-                                    painter.line_segment(
-                                        [from, egui::pos2(from.x, mid_y)],
-                                        stroke,
-                                    );
+                                    painter.line_segment([from, egui::pos2(from.x, mid_y)], stroke);
                                     painter.line_segment(
                                         [egui::pos2(from.x, mid_y), egui::pos2(to.x, mid_y)],
                                         stroke,
                                     );
-                                    painter.line_segment(
-                                        [egui::pos2(to.x, mid_y), to],
-                                        stroke,
-                                    );
+                                    painter.line_segment([egui::pos2(to.x, mid_y), to], stroke);
                                 }
                             }
                         }
@@ -391,8 +392,7 @@ pub fn tech_tree_system(
                                     upgrade.auto.ensure_towns(town_idx + 1);
                                     let count = upgrade_count();
                                     upgrade.auto.flags[town_idx].resize(count, false);
-                                    let auto_flag =
-                                        &mut upgrade.auto.flags[town_idx][node_idx];
+                                    let auto_flag = &mut upgrade.auto.flags[town_idx][node_idx];
                                     let prev = *auto_flag;
                                     ui.push_id(("auto_checkbox", node_idx), |ui| {
                                         ui.add(egui::Checkbox::without_text(auto_flag))
@@ -411,9 +411,7 @@ pub fn tech_tree_system(
                                     ui.add_space(40.0);
                                 }
                                 ui.label(
-                                    egui::RichText::new(node.label)
-                                        .size(12.5)
-                                        .color(text_color),
+                                    egui::RichText::new(node.label).size(12.5).color(text_color),
                                 );
                             });
 
@@ -439,9 +437,7 @@ pub fn tech_tree_system(
                             };
                             child.horizontal(|ui| {
                                 ui.label(
-                                    egui::RichText::new(&status)
-                                        .size(10.0)
-                                        .color(status_color),
+                                    egui::RichText::new(&status).size(10.0).color(status_color),
                                 );
                                 ui.with_layout(
                                     egui::Layout::right_to_left(egui::Align::Center),
@@ -502,4 +498,3 @@ pub fn tech_tree_system(
 
     Ok(())
 }
-

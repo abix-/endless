@@ -2,7 +2,17 @@ use super::*;
 
 #[derive(SystemParam)]
 pub struct InventoryParams<'w, 's> {
-    pub equipment_q: Query<'w, 's, (Entity, &'static NpcEquipment, &'static Job, &'static TownId, &'static GpuSlot)>,
+    pub equipment_q: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static NpcEquipment,
+            &'static Job,
+            &'static TownId,
+            &'static GpuSlot,
+        ),
+    >,
     pub equip_writer: MessageWriter<'w, crate::systems::stats::EquipItemMsg>,
     pub unequip_writer: MessageWriter<'w, crate::systems::stats::UnequipItemMsg>,
     pub auto_equip_writer: MessageWriter<'w, crate::systems::stats::AutoEquipNowMsg>,
@@ -51,14 +61,17 @@ pub(crate) fn inventory_content(
     ui.separator();
     let selected_military_entity = if sel >= 0 {
         entity_map.get_npc(sel as usize).and_then(|npc| {
-            inv.equipment_q.get(npc.entity).ok().and_then(|(_, _, job, tid, _)| {
-                let def = npc_def(*job);
-                if tid.0 == town_idx as i32 && !def.equip_slots.is_empty() {
-                    Some(npc.entity)
-                } else {
-                    None
-                }
-            })
+            inv.equipment_q
+                .get(npc.entity)
+                .ok()
+                .and_then(|(_, _, job, tid, _)| {
+                    let def = npc_def(*job);
+                    if tid.0 == town_idx as i32 && !def.equip_slots.is_empty() {
+                        Some(npc.entity)
+                    } else {
+                        None
+                    }
+                })
         })
     } else {
         None
@@ -70,7 +83,8 @@ pub(crate) fn inventory_content(
         if let Some(npc) = entity_map.get_npc(sel as usize) {
             if let Ok((_, equip, job, _town_id, _)) = inv.equipment_q.get(npc.entity) {
                 let def = npc_def(*job);
-                let name = npc_stats_q.get(npc.entity)
+                let name = npc_stats_q
+                    .get(npc.entity)
                     .map(|s| s.name.as_str())
                     .unwrap_or("NPC");
                 ui.label(
@@ -85,8 +99,7 @@ pub(crate) fn inventory_content(
                     selected_equip = Some(equip);
                     for &slot in ALL_EQUIP_KINDS {
                         if slot == ItemKind::Ring {
-                            for (ring_idx, ring) in
-                                [&equip.ring1, &equip.ring2].iter().enumerate()
+                            for (ring_idx, ring) in [&equip.ring1, &equip.ring2].iter().enumerate()
                             {
                                 ui.horizontal(|ui| {
                                     let label = format!("Ring {}", ring_idx + 1);
@@ -96,10 +109,7 @@ pub(crate) fn inventory_content(
                                             egui::RichText::new(&item.name)
                                                 .color(rarity_color(item.rarity)),
                                         );
-                                        ui.label(format!(
-                                            "(+{:.0}%)",
-                                            item.stat_bonus * 100.0
-                                        ));
+                                        ui.label(format!("(+{:.0}%)", item.stat_bonus * 100.0));
                                         if ui.small_button("Unequip").clicked() {
                                             inv.unequip_writer.write(
                                                 crate::systems::stats::UnequipItemMsg {
@@ -177,9 +187,15 @@ pub(crate) fn inventory_content(
     // --- View mode toggle ---
     let view_mode = &mut ui_state.inv_view_mode;
     ui.horizontal(|ui| {
-        if ui.selectable_label(*view_mode == 0, "Unequipped").clicked() { *view_mode = 0; }
-        if ui.selectable_label(*view_mode == 1, "Equipped").clicked() { *view_mode = 1; }
-        if ui.selectable_label(*view_mode == 2, "All").clicked() { *view_mode = 2; }
+        if ui.selectable_label(*view_mode == 0, "Unequipped").clicked() {
+            *view_mode = 0;
+        }
+        if ui.selectable_label(*view_mode == 1, "Equipped").clicked() {
+            *view_mode = 1;
+        }
+        if ui.selectable_label(*view_mode == 2, "All").clicked() {
+            *view_mode = 2;
+        }
     });
     let view = *view_mode;
 
@@ -193,18 +209,34 @@ pub(crate) fn inventory_content(
     let mut equipped_entries: Vec<EquippedEntry> = Vec::new();
     if view >= 1 {
         for (entity, equip, job, tid, _gpu_slot) in inv.equipment_q.iter() {
-            if tid.0 != town_idx as i32 { continue; }
+            if tid.0 != town_idx as i32 {
+                continue;
+            }
             let def = npc_def(*job);
-            if def.equip_slots.is_empty() { continue; }
-            let name = npc_stats_q.get(entity)
+            if def.equip_slots.is_empty() {
+                continue;
+            }
+            let name = npc_stats_q
+                .get(entity)
                 .map(|s| s.name.as_str())
                 .unwrap_or("NPC");
             let owner = format!("{} ({:?})", name, job);
             for item in equip.all_items() {
                 let ring_index = if item.kind == ItemKind::Ring {
-                    if equip.ring2.as_ref().map(|r| r.id) == Some(item.id) { 1 } else { 0 }
-                } else { 0 };
-                equipped_entries.push(EquippedEntry { owner: owner.clone(), entity, item, ring_index });
+                    if equip.ring2.as_ref().map(|r| r.id) == Some(item.id) {
+                        1
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                };
+                equipped_entries.push(EquippedEntry {
+                    owner: owner.clone(),
+                    entity,
+                    item,
+                    ring_index,
+                });
             }
         }
     }
@@ -214,7 +246,10 @@ pub(crate) fn inventory_content(
 
     if show_unequipped {
         // Bulk sell Common
-        let common_count = town_items_pre.iter().filter(|it| it.rarity == Rarity::Common).count();
+        let common_count = town_items_pre
+            .iter()
+            .filter(|it| it.rarity == Rarity::Common)
+            .count();
         if common_count > 0 {
             let total_gold: i32 = common_count as i32 * (Rarity::Common.gold_cost() / 2);
             if ui
@@ -255,9 +290,24 @@ pub(crate) fn inventory_content(
     let unequipped_count = items.len();
     let equipped_count = equipped_entries.len();
     match view {
-        0 => ui.label(egui::RichText::new(format!("Unequipped ({} items)", unequipped_count)).strong().size(14.0)),
-        1 => ui.label(egui::RichText::new(format!("Equipped ({} items)", equipped_count)).strong().size(14.0)),
-        _ => ui.label(egui::RichText::new(format!("All ({} equipped, {} unequipped)", equipped_count, unequipped_count)).strong().size(14.0)),
+        0 => ui.label(
+            egui::RichText::new(format!("Unequipped ({} items)", unequipped_count))
+                .strong()
+                .size(14.0),
+        ),
+        1 => ui.label(
+            egui::RichText::new(format!("Equipped ({} items)", equipped_count))
+                .strong()
+                .size(14.0),
+        ),
+        _ => ui.label(
+            egui::RichText::new(format!(
+                "All ({} equipped, {} unequipped)",
+                equipped_count, unequipped_count
+            ))
+            .strong()
+            .size(14.0),
+        ),
     };
 
     // Slot filter buttons with counts (count from visible items)
@@ -267,10 +317,23 @@ pub(crate) fn inventory_content(
             let bit = 1u16 << i;
             let enabled = *filter & bit != 0;
             let mut count = 0usize;
-            if show_unequipped { count += items.iter().filter(|it| it.kind == slot).count(); }
-            if view >= 1 { count += equipped_entries.iter().filter(|e| e.item.kind == slot).count(); }
+            if show_unequipped {
+                count += items.iter().filter(|it| it.kind == slot).count();
+            }
+            if view >= 1 {
+                count += equipped_entries
+                    .iter()
+                    .filter(|e| e.item.kind == slot)
+                    .count();
+            }
             // Deduplicate for All mode — equipped already counted separately
-            if view == 2 { count = items.iter().filter(|it| it.kind == slot).count() + equipped_entries.iter().filter(|e| e.item.kind == slot).count(); }
+            if view == 2 {
+                count = items.iter().filter(|it| it.kind == slot).count()
+                    + equipped_entries
+                        .iter()
+                        .filter(|e| e.item.kind == slot)
+                        .count();
+            }
             let label = format!("{} ({})", slot.label(), count);
             if ui.selectable_label(enabled, label).clicked() {
                 *filter ^= bit;
@@ -289,7 +352,10 @@ pub(crate) fn inventory_content(
 
     // Check if there's anything to show
     let has_unequipped = show_unequipped && items.iter().any(|it| slot_passes_filter(it.kind));
-    let has_equipped = view >= 1 && equipped_entries.iter().any(|e| slot_passes_filter(e.item.kind));
+    let has_equipped = view >= 1
+        && equipped_entries
+            .iter()
+            .any(|e| slot_passes_filter(e.item.kind));
     if !has_unequipped && !has_equipped {
         ui.label("No items to show.");
         return;
@@ -302,14 +368,27 @@ pub(crate) fn inventory_content(
             if view >= 1 {
                 // Sort equipped entries
                 equipped_entries.sort_by(|a, b| {
-                    let sa = ALL_EQUIP_KINDS.iter().position(|&s| s == a.item.kind).unwrap_or(0);
-                    let sb = ALL_EQUIP_KINDS.iter().position(|&s| s == b.item.kind).unwrap_or(0);
+                    let sa = ALL_EQUIP_KINDS
+                        .iter()
+                        .position(|&s| s == a.item.kind)
+                        .unwrap_or(0);
+                    let sb = ALL_EQUIP_KINDS
+                        .iter()
+                        .position(|&s| s == b.item.kind)
+                        .unwrap_or(0);
                     sa.cmp(&sb)
                         .then(rarity_ord(b.item.rarity).cmp(&rarity_ord(a.item.rarity)))
-                        .then(b.item.stat_bonus.partial_cmp(&a.item.stat_bonus).unwrap_or(std::cmp::Ordering::Equal))
+                        .then(
+                            b.item
+                                .stat_bonus
+                                .partial_cmp(&a.item.stat_bonus)
+                                .unwrap_or(std::cmp::Ordering::Equal),
+                        )
                 });
                 for entry in &equipped_entries {
-                    if !slot_passes_filter(entry.item.kind) { continue; }
+                    if !slot_passes_filter(entry.item.kind) {
+                        continue;
+                    }
                     ui.horizontal(|ui| {
                         ui.label(
                             egui::RichText::new(&entry.item.name)
@@ -326,13 +405,12 @@ pub(crate) fn inventory_content(
                                 .small(),
                         );
                         if ui.small_button("Unequip").clicked() {
-                            inv.unequip_writer.write(
-                                crate::systems::stats::UnequipItemMsg {
+                            inv.unequip_writer
+                                .write(crate::systems::stats::UnequipItemMsg {
                                     npc_entity: entry.entity,
                                     slot: entry.item.kind,
                                     ring_index: entry.ring_index,
-                                },
-                            );
+                                });
                         }
                     });
                 }
@@ -348,56 +426,78 @@ pub(crate) fn inventory_content(
                     .filter(|it| slot_passes_filter(it.kind))
                     .collect();
                 sorted.sort_by(|a, b| {
-                    let slot_a = ALL_EQUIP_KINDS.iter().position(|&s| s == a.kind).unwrap_or(0);
-                    let slot_b = ALL_EQUIP_KINDS.iter().position(|&s| s == b.kind).unwrap_or(0);
-                    slot_a.cmp(&slot_b)
+                    let slot_a = ALL_EQUIP_KINDS
+                        .iter()
+                        .position(|&s| s == a.kind)
+                        .unwrap_or(0);
+                    let slot_b = ALL_EQUIP_KINDS
+                        .iter()
+                        .position(|&s| s == b.kind)
+                        .unwrap_or(0);
+                    slot_a
+                        .cmp(&slot_b)
                         .then(rarity_ord(b.rarity).cmp(&rarity_ord(a.rarity)))
-                        .then(b.stat_bonus.partial_cmp(&a.stat_bonus).unwrap_or(std::cmp::Ordering::Equal))
+                        .then(
+                            b.stat_bonus
+                                .partial_cmp(&a.stat_bonus)
+                                .unwrap_or(std::cmp::Ordering::Equal),
+                        )
                 });
                 for item in &sorted {
-                    let resp = ui.horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new(&item.name)
-                                .color(rarity_color(item.rarity)),
-                        );
-                        ui.label(format!(
-                            "{} +{:.0}%",
-                            item.kind.label(),
-                            item.stat_bonus * 100.0
-                        ));
-                        if view == 2 {
+                    let resp = ui
+                        .horizontal(|ui| {
                             ui.label(
-                                egui::RichText::new("[Unequipped]")
-                                    .color(egui::Color32::from_rgb(120, 120, 120))
-                                    .small(),
+                                egui::RichText::new(&item.name).color(rarity_color(item.rarity)),
                             );
-                        }
-                        if let Some(ent) = npc_entity {
-                            if ui.small_button("Equip").clicked() {
-                                inv.equip_writer.write(
-                                    crate::systems::stats::EquipItemMsg {
+                            ui.label(format!(
+                                "{} +{:.0}%",
+                                item.kind.label(),
+                                item.stat_bonus * 100.0
+                            ));
+                            if view == 2 {
+                                ui.label(
+                                    egui::RichText::new("[Unequipped]")
+                                        .color(egui::Color32::from_rgb(120, 120, 120))
+                                        .small(),
+                                );
+                            }
+                            if let Some(ent) = npc_entity {
+                                if ui.small_button("Equip").clicked() {
+                                    inv.equip_writer.write(crate::systems::stats::EquipItemMsg {
                                         npc_entity: ent,
                                         item_id: item.id,
                                         town_idx,
-                                    },
-                                );
+                                    });
+                                }
                             }
-                        }
-                    }).response;
+                        })
+                        .response;
 
                     // Comparison tooltip when NPC is selected
                     if let Some(equip) = selected_equip {
                         if resp.hovered() {
                             let current = match item.kind {
                                 ItemKind::Ring => {
-                                    let b1 = equip.ring1.as_ref().map(|i| i.stat_bonus).unwrap_or(0.0);
-                                    let b2 = equip.ring2.as_ref().map(|i| i.stat_bonus).unwrap_or(0.0);
+                                    let b1 =
+                                        equip.ring1.as_ref().map(|i| i.stat_bonus).unwrap_or(0.0);
+                                    let b2 =
+                                        equip.ring2.as_ref().map(|i| i.stat_bonus).unwrap_or(0.0);
                                     b1.min(b2)
                                 }
-                                _ => equip.slot(item.kind).as_ref().map(|i| i.stat_bonus).unwrap_or(0.0),
+                                _ => equip
+                                    .slot(item.kind)
+                                    .as_ref()
+                                    .map(|i| i.stat_bonus)
+                                    .unwrap_or(0.0),
                             };
                             let diff = item.stat_bonus - current;
-                            let arrow = if diff > 0.0 { "▲" } else if diff < 0.0 { "▼" } else { "=" };
+                            let arrow = if diff > 0.0 {
+                                "▲"
+                            } else if diff < 0.0 {
+                                "▼"
+                            } else {
+                                "="
+                            };
                             resp.show_tooltip_text(format!(
                                 "Current: +{:.0}% → New: +{:.0}% ({}{:.0}%)",
                                 current * 100.0,

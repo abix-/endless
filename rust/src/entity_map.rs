@@ -17,7 +17,11 @@ pub struct DenseSlotMap<T: Clone> {
 
 impl<T: Clone> Default for DenseSlotMap<T> {
     fn default() -> Self {
-        Self { slots: Vec::new(), data: Vec::new(), index: HashMap::new() }
+        Self {
+            slots: Vec::new(),
+            data: Vec::new(),
+            index: HashMap::new(),
+        }
     }
 }
 
@@ -51,7 +55,10 @@ impl<T: Clone> DenseSlotMap<T> {
     }
 
     pub fn get_mut(&mut self, slot: usize) -> Option<&mut T> {
-        self.index.get(&slot).copied().map(move |idx| &mut self.data[idx])
+        self.index
+            .get(&slot)
+            .copied()
+            .map(move |idx| &mut self.data[idx])
     }
 
     pub fn slot_slice(&self) -> &[usize] {
@@ -86,10 +93,18 @@ impl<T: Clone> DenseSlotMap<T> {
 pub struct DenseSlotSet(DenseSlotMap<()>);
 
 impl DenseSlotSet {
-    pub fn insert(&mut self, slot: usize) { self.0.insert(slot, ()); }
-    pub fn remove(&mut self, slot: usize) { self.0.remove(slot); }
-    pub fn as_slice(&self) -> &[usize] { self.0.slot_slice() }
-    pub fn clear(&mut self) { self.0.clear(); }
+    pub fn insert(&mut self, slot: usize) {
+        self.0.insert(slot, ());
+    }
+    pub fn remove(&mut self, slot: usize) {
+        self.0.remove(slot);
+    }
+    pub fn as_slice(&self) -> &[usize] {
+        self.0.slot_slice()
+    }
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
 }
 
 /// Lightweight building index entry in EntityMap. All gameplay state lives on ECS components.
@@ -103,7 +118,6 @@ pub struct BuildingInstance {
     pub slot: usize,
     pub faction: i32,
 }
-
 
 /// Per-NPC runtime state. All NPC data lives here — no ECS components except GpuSlot.
 /// Parallel to BuildingInstance: both live in EntityMap, shared slot namespace.
@@ -252,7 +266,10 @@ impl EntityMap {
             self.spatial_remove(slot, old.position);
             self.spawner_slots.remove(slot);
         }
-        self.by_kind.entry(kind).or_default().insert(slot, inst.clone());
+        self.by_kind
+            .entry(kind)
+            .or_default()
+            .insert(slot, inst.clone());
         self.by_kind_town
             .entry((kind, inst.town_idx))
             .or_default()
@@ -324,11 +341,16 @@ impl EntityMap {
         kind: crate::world::BuildingKind,
         town_idx: u32,
     ) -> impl Iterator<Item = &BuildingInstance> {
-        self.by_kind_town.get(&(kind, town_idx)).into_iter().flat_map(|m| m.values())
+        self.by_kind_town
+            .get(&(kind, town_idx))
+            .into_iter()
+            .flat_map(|m| m.values())
     }
 
     pub fn count_for_town(&self, kind: crate::world::BuildingKind, town_idx: u32) -> usize {
-        self.by_kind_town.get(&(kind, town_idx)).map_or(0, |m| m.len())
+        self.by_kind_town
+            .get(&(kind, town_idx))
+            .map_or(0, |m| m.len())
     }
 
     pub fn building_counts(&self, town_idx: u32) -> HashMap<crate::world::BuildingKind, usize> {
@@ -440,11 +462,7 @@ impl EntityMap {
         self.occupancy.insert(slot, count);
     }
 
-    pub fn is_worksite_harvest_turn(
-        &self,
-        slot: usize,
-        claimer: Entity,
-    ) -> bool {
+    pub fn is_worksite_harvest_turn(&self, slot: usize, claimer: Entity) -> bool {
         self.worksite_claim_queue
             .get(&slot)
             .and_then(|queue| queue.first().copied())
@@ -513,7 +531,10 @@ impl EntityMap {
     }
 
     pub fn slots_for_town(&self, town_idx: i32) -> &[usize] {
-        self.npc_by_town.get(&town_idx).map(|v| v.as_slice()).unwrap_or(&[])
+        self.npc_by_town
+            .get(&town_idx)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     pub fn npcs_for_town(&self, town_idx: i32) -> impl Iterator<Item = &NpcEntry> {
@@ -669,7 +690,12 @@ impl EntityMap {
         self.spatial_cell_size
     }
 
-    pub fn for_each_nearby(&self, pos: Vec2, radius: f32, mut f: impl FnMut(&BuildingInstance, i16)) {
+    pub fn for_each_nearby(
+        &self,
+        pos: Vec2,
+        radius: f32,
+        mut f: impl FnMut(&BuildingInstance, i16),
+    ) {
         if self.spatial_width == 0 {
             return;
         }
@@ -943,7 +969,9 @@ impl EntityMap {
         let occ = self.occupancy.get(slot).copied().unwrap_or(0) as i32;
         let valid = self.instances.get(slot).is_some_and(|inst| {
             inst.kind == expected_kind
-                && expected_town.is_none_or(|t| inst.town_idx == t || inst.town_idx == crate::constants::TOWN_NONE)
+                && expected_town.is_none_or(|t| {
+                    inst.town_idx == t || inst.town_idx == crate::constants::TOWN_NONE
+                })
                 && occ < max_occupants
         });
         if valid {
@@ -957,10 +985,7 @@ impl EntityMap {
                 }
             }
             let position = self.instances.get(slot).expect("validated above").position;
-            Some(ClaimedWorksite {
-                slot,
-                position,
-            })
+            Some(ClaimedWorksite { slot, position })
         } else {
             None
         }

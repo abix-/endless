@@ -40,8 +40,7 @@ pub fn setup(mut params: TestSetupParams, config: Res<PathfindMazeConfig>) {
     params.world_grid.width = 100;
     params.world_grid.height = 100;
     params.world_grid.cell_size = crate::constants::TOWN_GRID_SPACING;
-    params.world_grid.cells =
-        vec![crate::world::WorldCell::default(); 100 * 100];
+    params.world_grid.cells = vec![crate::world::WorldCell::default(); 100 * 100];
 
     params.add_town("MazeTown");
     params.world_data.towns[0].center = Vec2::new(3200.0, 3200.0);
@@ -52,11 +51,11 @@ pub fn setup(mut params: TestSetupParams, config: Res<PathfindMazeConfig>) {
 
     // -- Build serpentine wall maze (cols 0-24, rows 0-24) --
     let wall_rows: &[(i32, i32, i32)] = &[
-        (4, 0, 22),   // row 4: col 0..21
-        (8, 3, 25),   // row 8: col 3..24
-        (12, 0, 22),  // row 12: col 0..21
-        (16, 3, 25),  // row 16: col 3..24
-        (20, 0, 22),  // row 20: col 0..21
+        (4, 0, 22),  // row 4: col 0..21
+        (8, 3, 25),  // row 8: col 3..24
+        (12, 0, 22), // row 12: col 0..21
+        (16, 3, 25), // row 16: col 3..24
+        (20, 0, 22), // row 20: col 0..21
     ];
 
     for &(row, col_start, col_end) in wall_rows {
@@ -84,7 +83,9 @@ pub fn setup(mut params: TestSetupParams, config: Res<PathfindMazeConfig>) {
     params.add_bed(bx, by);
 
     params.init_economy(1);
-    if let Some(mut f) = params.town_access.food_mut(0) { f.0 = 500; }
+    if let Some(mut f) = params.town_access.food_mut(0) {
+        f.0 = 500;
+    }
 
     // Camera centered on maze
     params.focus_camera(800.0, 800.0);
@@ -127,16 +128,17 @@ pub fn tick(
             if farmer_count >= npc_count {
                 test.pass_phase(elapsed, format!("farmers spawned ({})", farmer_count));
             } else if elapsed > 5.0 * time_scale {
-                test.fail_phase(elapsed, format!("only {}/{} farmers", farmer_count, npc_count));
+                test.fail_phase(
+                    elapsed,
+                    format!("only {}/{} farmers", farmer_count, npc_count),
+                );
             }
         }
         // Phase 2: At least one farmer has A* waypoints
         2 => {
-            let has_path = farmers.iter().any(|n| {
-                path_q
-                    .get(n.entity)
-                    .is_ok_and(|p| p.waypoints.len() >= 2)
-            });
+            let has_path = farmers
+                .iter()
+                .any(|n| path_q.get(n.entity).is_ok_and(|p| p.waypoints.len() >= 2));
             test.phase_name = format!("has_path={}", has_path);
             if has_path {
                 let wp_count = farmers
@@ -165,8 +167,7 @@ pub fn tick(
                 .first()
                 .and_then(|n| {
                     let idx = n.slot * 2;
-                    (idx + 1 < gpu_state.positions.len())
-                        .then(|| gpu_state.positions[idx + 1])
+                    (idx + 1 < gpu_state.positions.len()).then(|| gpu_state.positions[idx + 1])
                 })
                 .unwrap_or(0.0);
             test.phase_name = format!("y={:.0} crossed_wall1={}", farmer_y, crossed);
@@ -185,8 +186,7 @@ pub fn tick(
                 .first()
                 .and_then(|n| {
                     let idx = n.slot * 2;
-                    (idx + 1 < gpu_state.positions.len())
-                        .then(|| gpu_state.positions[idx + 1])
+                    (idx + 1 < gpu_state.positions.len()).then(|| gpu_state.positions[idx + 1])
                 })
                 .unwrap_or(0.0);
             let crossed = farmer_y > 8.0 * CS + CS;
@@ -220,11 +220,13 @@ pub fn tick(
                 .first()
                 .and_then(|n| {
                     let idx = n.slot * 2;
-                    (idx + 1 < gpu_state.positions.len())
-                        .then(|| gpu_state.positions[idx + 1])
+                    (idx + 1 < gpu_state.positions.len()).then(|| gpu_state.positions[idx + 1])
                 })
                 .unwrap_or(0.0);
-            test.phase_name = format!("y={:.0} near_farm={} working={}", farmer_y, near_farm, is_working);
+            test.phase_name = format!(
+                "y={:.0} near_farm={} working={}",
+                farmer_y, near_farm, is_working
+            );
             if near_farm || is_working {
                 test.pass_phase(
                     elapsed,
@@ -235,10 +237,7 @@ pub fn tick(
                 );
                 test.complete(elapsed);
             } else if elapsed > 90.0 * time_scale {
-                test.fail_phase(
-                    elapsed,
-                    format!("didn't reach farm, y={:.0}", farmer_y),
-                );
+                test.fail_phase(elapsed, format!("didn't reach farm, y={:.0}", farmer_y));
             }
         }
         _ => {}

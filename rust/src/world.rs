@@ -515,6 +515,48 @@ pub fn resolve_spawner_npc(
                 None,
             )
         }
+        SpawnBehavior::FindNearestTreeNode => {
+            let found = find_nearest_free(
+                inst.position,
+                entity_map,
+                BuildingKind::TreeNode,
+                None,
+            );
+            let (work_slot, target) = found
+                .map(|(s, p)| (Some(s), p))
+                .unwrap_or((None, inst.position));
+            (
+                spawner.job,
+                town_faction,
+                target.x,
+                target.y,
+                -1,
+                npc_label,
+                def.label,
+                work_slot,
+            )
+        }
+        SpawnBehavior::FindNearestRockNode => {
+            let found = find_nearest_free(
+                inst.position,
+                entity_map,
+                BuildingKind::RockNode,
+                None,
+            );
+            let (work_slot, target) = found
+                .map(|(s, p)| (Some(s), p))
+                .unwrap_or((None, inst.position));
+            (
+                spawner.job,
+                town_faction,
+                target.x,
+                target.y,
+                -1,
+                npc_label,
+                def.label,
+                work_slot,
+            )
+        }
         SpawnBehavior::Miner => {
             let (work_slot, mine) = if let Some(pos) = assigned_mine {
                 (entity_map.slot_at_position(pos), pos)
@@ -1152,6 +1194,8 @@ pub enum BuildingKind {
     Casino,
     TreeNode,
     RockNode,
+    LumberMill,
+    Quarry,
 }
 
 impl BuildingKind {

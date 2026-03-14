@@ -41,13 +41,12 @@ use messages::{
 };
 use resources::{
     ActiveHealingSlots, AutoUpgrade, BuildMenuContext, BuildingHealState, CombatDebug, CombatLog,
-    DebugFlags, Difficulty, EndlessMode, EntityMap, FactionList, FactionStats, FollowSelected, Reputation,
-    GameAudio, GameConfig, GameTime, GpuReadState, GpuSlotPool, HealingZoneCache,
-    HealthDebug, HelpCatalog, KillStats, MigrationState, MiningPolicy,
-    NextLootItemId, NpcLogCache, NpcTargetThrashDebug, PlaySfxMsg,
-    DeltaTime, PopulationStats, ProjHitState, ProjPositionState, ProjSlotAllocator, RaiderState,
-    SelectedBuilding, SelectedNpc, SquadState, SystemTimings, TowerState,
-    MerchantInventory, TutorialState, UiState, UpsCounter,
+    DebugFlags, DeltaTime, Difficulty, EndlessMode, EntityMap, FactionList, FactionStats,
+    FollowSelected, GameAudio, GameConfig, GameTime, GpuReadState, GpuSlotPool, HealingZoneCache,
+    HealthDebug, HelpCatalog, KillStats, MerchantInventory, MigrationState, MiningPolicy,
+    NextLootItemId, NpcLogCache, NpcTargetThrashDebug, PlaySfxMsg, PopulationStats, ProjHitState,
+    ProjPositionState, ProjSlotAllocator, RaiderState, Reputation, SelectedBuilding, SelectedNpc,
+    SquadState, SystemTimings, TowerState, TutorialState, UiState, UpsCounter,
 };
 use systems::*;
 use systems::{AiPlayerConfig, AiPlayerState};
@@ -78,7 +77,6 @@ pub fn job_name(job: i32) -> &'static str {
     components::Job::from_i32(job).label()
 }
 
-
 // ============================================================================
 // BEVY APP
 // ============================================================================
@@ -101,7 +99,11 @@ fn ups_tick(mut ups: ResMut<UpsCounter>) {
 fn smooth_delta(time: Res<Time>, game_time: Res<GameTime>, mut dt: ResMut<DeltaTime>) {
     let raw = game_time.delta(&time);
     let alpha = 0.1;
-    dt.0 = if dt.0 == 0.0 { raw } else { dt.0 * (1.0 - alpha) + raw * alpha };
+    dt.0 = if dt.0 == 0.0 {
+        raw
+    } else {
+        dt.0 * (1.0 - alpha) + raw * alpha
+    };
 }
 
 fn frame_timer_start(timings: Res<SystemTimings>, time: Res<Time>) {
@@ -143,7 +145,9 @@ fn autostart_system(
     mut save_request: ResMut<save::SaveLoadRequest>,
     mut next_state: ResMut<NextState<AppState>>,
 ) {
-    if !auto.0 { return; }
+    if !auto.0 {
+        return;
+    }
     info!("--autostart: bypassing main menu");
 
     let saved = settings::load_settings();
@@ -154,7 +158,9 @@ fn autostart_system(
     wg_config.world_height = saved.world_size;
     wg_config.num_towns = 1;
     wg_config.farms_per_town = saved.farms;
-    wg_config.npc_counts = saved.npc_counts.iter()
+    wg_config.npc_counts = saved
+        .npc_counts
+        .iter()
         .filter_map(|(k, &v)| {
             let job = match k.as_str() {
                 "Farmer" => components::Job::Farmer,
@@ -195,10 +201,14 @@ fn autostart_system(
     let mut raider_idx = 0usize;
     for slot in &saved.ai_slots {
         if slot.kind == 0 {
-            if slot.llm { llm_towns.push(num_player_towns + builder_idx); }
+            if slot.llm {
+                llm_towns.push(num_player_towns + builder_idx);
+            }
             builder_idx += 1;
         } else {
-            if slot.llm { llm_towns.push(num_player_towns + ai_builder_count + raider_idx); }
+            if slot.llm {
+                llm_towns.push(num_player_towns + ai_builder_count + raider_idx);
+            }
             raider_idx += 1;
         }
     }
@@ -319,7 +329,6 @@ pub fn build_app(app: &mut App) {
         .init_resource::<ProjHitState>()
         .init_resource::<ProjPositionState>()
         .init_resource::<GpuSlotPool>()
-
         .init_resource::<ProjSlotAllocator>()
         .init_resource::<resources::TownIndex>()
         .init_resource::<FactionStats>()
@@ -383,11 +392,14 @@ pub fn build_app(app: &mut App) {
                 .with_method("endless/upgrade", systems::remote::upgrade_handler)
                 .with_method("endless/policy", systems::remote::policy_handler)
                 .with_method("endless/time", systems::remote::time_handler)
-                .with_method("endless/squad_target", systems::remote::squad_target_handler)
+                .with_method(
+                    "endless/squad_target",
+                    systems::remote::squad_target_handler,
+                )
                 .with_method("endless/ai_manager", systems::remote::ai_manager_handler)
                 .with_method("endless/chat", systems::remote::chat_handler)
                 .with_method("endless/debug", systems::remote::debug_handler)
-                .with_method("endless/perf", systems::remote::perf_handler)
+                .with_method("endless/perf", systems::remote::perf_handler),
         )
         .add_plugins(RemoteHttpPlugin::default())
         .init_resource::<systems::remote::RemoteBuildQueue>()
@@ -398,7 +410,6 @@ pub fn build_app(app: &mut App) {
         .init_resource::<resources::RemoteAllowedTowns>()
         .init_resource::<resources::ChatInbox>()
         // Register reflected types for BRP queries
-
         .register_type::<components::GpuSlot>()
         .register_type::<components::Position>()
         .register_type::<components::Job>()
@@ -535,10 +546,17 @@ pub fn build_app(app: &mut App) {
                     .before(spawner_respawn_system),
                 arrival_system,
                 energy_system,
-                (update_healing_zone_cache.before(healing_system), healing_system, npc_regen_system),
+                (
+                    update_healing_zone_cache.before(healing_system),
+                    healing_system,
+                    npc_regen_system,
+                ),
                 on_duty_tick_system,
                 game_time_system,
-                (construction_tick_system.before(growth_system), growth_system),
+                (
+                    construction_tick_system.before(growth_system),
+                    growth_system,
+                ),
                 raider_forage_system,
                 spawner_respawn_system,
                 mining_policy_system
@@ -547,9 +565,15 @@ pub fn build_app(app: &mut App) {
                 starvation_system,
                 decision_system,
                 farm_visual_system,
-                (auto_upgrade_system, systems::stats::auto_tower_upgrade_system, systems::stats::auto_equip_system),
+                (
+                    auto_upgrade_system,
+                    systems::stats::auto_tower_upgrade_system,
+                    systems::stats::auto_equip_system,
+                ),
                 process_upgrades_system.after(auto_upgrade_system),
-                systems::stats::process_equip_system.after(process_upgrades_system).after(systems::stats::auto_equip_system),
+                systems::stats::process_equip_system
+                    .after(process_upgrades_system)
+                    .after(systems::stats::auto_equip_system),
                 systems::ai_player::ai_dirty_drain_system.before(ai_decision_system),
                 ai_decision_system,
                 endless_system,

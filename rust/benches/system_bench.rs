@@ -6,30 +6,36 @@
 //! Run: `cargo bench --bench system_bench`
 //! Reports: `target/criterion/` (HTML with violin plots + regression detection)
 
-use bevy_ecs::system::RunSystemOnce;
 use bevy::prelude::*;
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use bevy_ecs::system::RunSystemOnce;
+use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
+use std::sync::Arc;
 
 use endless::components::*;
 use endless::constants::*;
+use endless::gpu::populate_gpu_state;
 use endless::gpu::{EntityGpuState, ProjBufferWrites};
 use endless::messages::*;
 use endless::resources::*;
-use endless::systems::{
-    AiPlayerConfig, AiPlayerState, decision_system, attack_system,
-    damage_system, healing_system, resolve_movement_system,
-    building_tower_system, death_system, spawner_respawn_system,
-    growth_system, construction_tick_system,
-    energy_system, arrival_system, gpu_position_readback,
-    advance_waypoints_system, cooldown_system, npc_regen_system,
-    on_duty_tick_system, spawn_npc_system, process_proj_hits,
-};
-use endless::gpu::populate_gpu_state;
 use endless::systems::stats;
+use endless::systems::{
+    AiPlayerConfig, AiPlayerState, advance_waypoints_system, arrival_system, attack_system,
+    building_tower_system, construction_tick_system, cooldown_system, damage_system, death_system,
+    decision_system, energy_system, gpu_position_readback, growth_system, healing_system,
+    npc_regen_system, on_duty_tick_system, process_proj_hits, resolve_movement_system,
+    spawn_npc_system, spawner_respawn_system,
+};
 use endless::world;
 
 // Entity counts to benchmark (Factorio-style scaling analysis)
 const COUNTS: &[usize] = &[1_000, 5_000, 10_000, 25_000, 50_000];
+const BENCH_TOTAL_NPCS: usize = 50_000;
+const DEATH_COUNTS: &[usize] = &[100, 500, 1_000, 5_000, 25_000];
+
+struct DeathPipelineInput {
+    app: App,
+    victims: Arc<[Entity]>,
+}
 
 // ── Headless app builder ───────────────────────────────────────────
 
@@ -128,14 +134,16 @@ fn build_bench_app() -> App {
 /// Spawn a town entity with per-town components and register it in TownIndex + WorldData.
 fn spawn_bench_town(app: &mut App) {
     let world = app.world_mut();
-    let entity = world.spawn((
-        TownMarker,
-        FoodStore(100_000),
-        GoldStore(100_000),
-        TownPolicy::default(),
-        TownUpgradeLevel::default(),
-        TownEquipment::default(),
-    )).id();
+    let entity = world
+        .spawn((
+            TownMarker,
+            FoodStore(100_000),
+            GoldStore(100_000),
+            TownPolicy::default(),
+            TownUpgradeLevel::default(),
+            TownEquipment::default(),
+        ))
+        .id();
     let mut town_index = world.resource_mut::<TownIndex>();
     town_index.0.insert(0, entity);
 }
@@ -300,19 +308,15 @@ fn bench_decision_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("decision_system");
     group.sample_size(20);
     for &count in COUNTS {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(count),
-            &count,
-            |b, &count| {
-                let mut app = build_bench_app();
-                spawn_bench_town(&mut app);
-                populate_npcs(&mut app, count);
+        group.bench_with_input(BenchmarkId::from_parameter(count), &count, |b, &count| {
+            let mut app = build_bench_app();
+            spawn_bench_town(&mut app);
+            populate_npcs(&mut app, count);
+            let _ = app.world_mut().run_system_once(decision_system);
+            b.iter(|| {
                 let _ = app.world_mut().run_system_once(decision_system);
-                b.iter(|| {
-                    let _ = app.world_mut().run_system_once(decision_system);
-                });
-            },
-        );
+            });
+        });
     }
     group.finish();
 }
@@ -320,33 +324,30 @@ fn bench_decision_system(c: &mut Criterion) {
 fn bench_damage_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("damage_system");
     for &count in COUNTS {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(count),
-            &count,
-            |b, &count| {
-                let mut app = build_bench_app();
-                spawn_bench_town(&mut app);
-                populate_npcs(&mut app, count);
-                let damage_count = count / 10;
-                let _ = app.world_mut().run_system_once(decision_system);
-                b.iter(|| {
-                    // Inject damage messages before each run
-                    let _ = app.world_mut()
-                        .run_system_once(move |mut writer: MessageWriter<DamageMsg>,
-                                               q: Query<(Entity, &Faction), Without<Building>>| {
-                            for (entity, faction) in q.iter().take(damage_count) {
-                                writer.write(DamageMsg {
-                                    target: entity,
-                                    amount: 5.0,
-                                    attacker: -1,
-                                    attacker_faction: if faction.0 == 1 { 2 } else { 1 },
-                                });
-                            }
-                        });
-                    let _ = app.world_mut().run_system_once(damage_system);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(count), &count, |b, &count| {
+            let mut app = build_bench_app();
+            spawn_bench_town(&mut app);
+            populate_npcs(&mut app, count);
+            let damage_count = count / 10;
+            let _ = app.world_mut().run_system_once(decision_system);
+            b.iter(|| {
+                // Inject damage messages before each run
+                let _ = app.world_mut().run_system_once(
+                    move |mut writer: MessageWriter<DamageMsg>,
+                          q: Query<(Entity, &Faction), Without<Building>>| {
+                        for (entity, faction) in q.iter().take(damage_count) {
+                            writer.write(DamageMsg {
+                                target: entity,
+                                amount: 5.0,
+                                attacker: -1,
+                                attacker_faction: if faction.0 == 1 { 2 } else { 1 },
+                            });
+                        }
+                    },
+                );
+                let _ = app.world_mut().run_system_once(damage_system);
+            });
+        });
     }
     group.finish();
 }
@@ -354,31 +355,27 @@ fn bench_damage_system(c: &mut Criterion) {
 fn bench_healing_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("healing_system");
     for &count in COUNTS {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(count),
-            &count,
-            |b, &count| {
-                let mut app = build_bench_app();
-                spawn_bench_town(&mut app);
-                populate_npcs(&mut app, count);
-                // Damage 25% of NPCs so healing has work to do
-                let _ = app.world_mut().run_system_once(
-                    move |mut q: Query<&mut Health, Without<Building>>| {
-                        let mut damaged = 0usize;
-                        for mut hp in q.iter_mut() {
-                            if damaged < count / 4 {
-                                hp.0 = 50.0;
-                                damaged += 1;
-                            }
+        group.bench_with_input(BenchmarkId::from_parameter(count), &count, |b, &count| {
+            let mut app = build_bench_app();
+            spawn_bench_town(&mut app);
+            populate_npcs(&mut app, count);
+            // Damage 25% of NPCs so healing has work to do
+            let _ = app.world_mut().run_system_once(
+                move |mut q: Query<&mut Health, Without<Building>>| {
+                    let mut damaged = 0usize;
+                    for mut hp in q.iter_mut() {
+                        if damaged < count / 4 {
+                            hp.0 = 50.0;
+                            damaged += 1;
                         }
-                    },
-                );
+                    }
+                },
+            );
+            let _ = app.world_mut().run_system_once(healing_system);
+            b.iter(|| {
                 let _ = app.world_mut().run_system_once(healing_system);
-                b.iter(|| {
-                    let _ = app.world_mut().run_system_once(healing_system);
-                });
-            },
-        );
+            });
+        });
     }
     group.finish();
 }
@@ -387,38 +384,34 @@ fn bench_attack_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("attack_system");
     group.sample_size(20);
     for &count in COUNTS {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(count),
-            &count,
-            |b, &count| {
-                let mut app = build_bench_app();
-                spawn_bench_town(&mut app);
-                populate_npcs(&mut app, count);
-                // Set 10% of NPCs to Fighting with combat targets
-                {
-                    let world = app.world_mut();
-                    let mut gpu_read = world.resource_mut::<GpuReadState>();
-                    for i in (0..count).step_by(10) {
-                        if i + 1 < count {
-                            gpu_read.combat_targets[i] = (i + 1) as i32;
-                        }
+        group.bench_with_input(BenchmarkId::from_parameter(count), &count, |b, &count| {
+            let mut app = build_bench_app();
+            spawn_bench_town(&mut app);
+            populate_npcs(&mut app, count);
+            // Set 10% of NPCs to Fighting with combat targets
+            {
+                let world = app.world_mut();
+                let mut gpu_read = world.resource_mut::<GpuReadState>();
+                for i in (0..count).step_by(10) {
+                    if i + 1 < count {
+                        gpu_read.combat_targets[i] = (i + 1) as i32;
                     }
                 }
-                let _ = app.world_mut().run_system_once(
-                    |mut q: Query<(&GpuSlot, &mut CombatState)>| {
+            }
+            let _ =
+                app.world_mut()
+                    .run_system_once(|mut q: Query<(&GpuSlot, &mut CombatState)>| {
                         for (slot, mut cs) in q.iter_mut() {
                             if slot.0 % 10 == 0 {
                                 *cs = CombatState::Fighting { origin: Vec2::ZERO };
                             }
                         }
-                    },
-                );
+                    });
+            let _ = app.world_mut().run_system_once(attack_system);
+            b.iter(|| {
                 let _ = app.world_mut().run_system_once(attack_system);
-                b.iter(|| {
-                    let _ = app.world_mut().run_system_once(attack_system);
-                });
-            },
-        );
+            });
+        });
     }
     group.finish();
 }
@@ -427,61 +420,57 @@ fn bench_resolve_movement_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("resolve_movement");
     group.sample_size(20);
     for &count in COUNTS {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(count),
-            &count,
-            |b, &count| {
-                let mut app = build_bench_app();
-                spawn_bench_town(&mut app);
-                populate_npcs(&mut app, count);
-                // Initialize pathfind costs so A* has valid terrain data
-                {
-                    let world = app.world_mut();
-                    let mut grid = world.resource_mut::<world::WorldGrid>();
-                    grid.init_pathfind_costs();
-                }
-                // Add NpcPath to all NPCs (resolve_movement queries it)
+        group.bench_with_input(BenchmarkId::from_parameter(count), &count, |b, &count| {
+            let mut app = build_bench_app();
+            spawn_bench_town(&mut app);
+            populate_npcs(&mut app, count);
+            // Initialize pathfind costs so A* has valid terrain data
+            {
+                let world = app.world_mut();
+                let mut grid = world.resource_mut::<world::WorldGrid>();
+                grid.init_pathfind_costs();
+            }
+            // Add NpcPath to all NPCs (resolve_movement queries it)
+            let _ = app.world_mut().run_system_once(
+                |mut commands: Commands, q: Query<Entity, Without<Building>>| {
+                    for entity in q.iter() {
+                        commands.entity(entity).insert(NpcPath {
+                            waypoints: vec![],
+                            current: 0,
+                            goal_world: Vec2::ZERO,
+                            path_cooldown: 0.0,
+                        });
+                    }
+                },
+            );
+            // Warmup run
+            let _ = app.world_mut().run_system_once(resolve_movement_system);
+            b.iter(|| {
+                // Enqueue path requests for 10% of NPCs each iteration
                 let _ = app.world_mut().run_system_once(
-                    |mut commands: Commands, q: Query<Entity, Without<Building>>| {
-                        for entity in q.iter() {
-                            commands.entity(entity).insert(NpcPath {
-                                waypoints: vec![],
-                                current: 0,
-                                goal_world: Vec2::ZERO,
-                                path_cooldown: 0.0,
+                    move |q: Query<(Entity, &GpuSlot, &Position), Without<Building>>,
+                          mut queue: ResMut<PathRequestQueue>| {
+                        for (entity, slot, pos) in q.iter().take(count / 10) {
+                            let start_col = (pos.x / TOWN_GRID_SPACING) as i32;
+                            let start_row = (pos.y / TOWN_GRID_SPACING) as i32;
+                            queue.enqueue(PathRequest {
+                                entity,
+                                slot: slot.0,
+                                start: IVec2::new(start_col, start_row),
+                                goal: IVec2::new(start_col + 5, start_row + 3),
+                                goal_world: Vec2::new(
+                                    (start_col + 5) as f32 * TOWN_GRID_SPACING,
+                                    (start_row + 3) as f32 * TOWN_GRID_SPACING,
+                                ),
+                                priority: 1,
+                                source: PathSource::Movement,
                             });
                         }
                     },
                 );
-                // Warmup run
                 let _ = app.world_mut().run_system_once(resolve_movement_system);
-                b.iter(|| {
-                    // Enqueue path requests for 10% of NPCs each iteration
-                    let _ = app.world_mut().run_system_once(
-                        move |q: Query<(Entity, &GpuSlot, &Position), Without<Building>>,
-                              mut queue: ResMut<PathRequestQueue>| {
-                            for (entity, slot, pos) in q.iter().take(count / 10) {
-                                let start_col = (pos.x / TOWN_GRID_SPACING) as i32;
-                                let start_row = (pos.y / TOWN_GRID_SPACING) as i32;
-                                queue.enqueue(PathRequest {
-                                    entity,
-                                    slot: slot.0,
-                                    start: IVec2::new(start_col, start_row),
-                                    goal: IVec2::new(start_col + 5, start_row + 3),
-                                    goal_world: Vec2::new(
-                                        (start_col + 5) as f32 * TOWN_GRID_SPACING,
-                                        (start_row + 3) as f32 * TOWN_GRID_SPACING,
-                                    ),
-                                    priority: 1,
-                                    source: PathSource::Movement,
-                                });
-                            }
-                        },
-                    );
-                    let _ = app.world_mut().run_system_once(resolve_movement_system);
-                });
-            },
-        );
+            });
+        });
     }
     group.finish();
 }
@@ -490,60 +479,58 @@ fn bench_resolve_movement_unbounded(c: &mut Criterion) {
     let mut group = c.benchmark_group("resolve_movement_unbounded");
     group.sample_size(20);
     for &count in COUNTS {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(count),
-            &count,
-            |b, &count| {
-                let mut app = build_bench_app();
-                spawn_bench_town(&mut app);
-                populate_npcs(&mut app, count);
-                {
-                    let world = app.world_mut();
-                    world.resource_mut::<world::WorldGrid>().init_pathfind_costs();
-                    // Lift budget caps to measure true unbounded cost
-                    let mut config = world.resource_mut::<PathfindConfig>();
-                    config.max_per_frame = 100_000;
-                    config.max_time_budget_ms = 60_000.0; // 60 seconds — effectively unlimited
-                }
+        group.bench_with_input(BenchmarkId::from_parameter(count), &count, |b, &count| {
+            let mut app = build_bench_app();
+            spawn_bench_town(&mut app);
+            populate_npcs(&mut app, count);
+            {
+                let world = app.world_mut();
+                world
+                    .resource_mut::<world::WorldGrid>()
+                    .init_pathfind_costs();
+                // Lift budget caps to measure true unbounded cost
+                let mut config = world.resource_mut::<PathfindConfig>();
+                config.max_per_frame = 100_000;
+                config.max_time_budget_ms = 60_000.0; // 60 seconds — effectively unlimited
+            }
+            let _ = app.world_mut().run_system_once(
+                |mut commands: Commands, q: Query<Entity, Without<Building>>| {
+                    for entity in q.iter() {
+                        commands.entity(entity).insert(NpcPath {
+                            waypoints: vec![],
+                            current: 0,
+                            goal_world: Vec2::ZERO,
+                            path_cooldown: 0.0,
+                        });
+                    }
+                },
+            );
+            let _ = app.world_mut().run_system_once(resolve_movement_system);
+            b.iter(|| {
                 let _ = app.world_mut().run_system_once(
-                    |mut commands: Commands, q: Query<Entity, Without<Building>>| {
-                        for entity in q.iter() {
-                            commands.entity(entity).insert(NpcPath {
-                                waypoints: vec![],
-                                current: 0,
-                                goal_world: Vec2::ZERO,
-                                path_cooldown: 0.0,
+                    move |q: Query<(Entity, &GpuSlot, &Position), Without<Building>>,
+                          mut queue: ResMut<PathRequestQueue>| {
+                        for (entity, slot, pos) in q.iter().take(count / 10) {
+                            let start_col = (pos.x / TOWN_GRID_SPACING) as i32;
+                            let start_row = (pos.y / TOWN_GRID_SPACING) as i32;
+                            queue.enqueue(PathRequest {
+                                entity,
+                                slot: slot.0,
+                                start: IVec2::new(start_col, start_row),
+                                goal: IVec2::new(start_col + 5, start_row + 3),
+                                goal_world: Vec2::new(
+                                    (start_col + 5) as f32 * TOWN_GRID_SPACING,
+                                    (start_row + 3) as f32 * TOWN_GRID_SPACING,
+                                ),
+                                priority: 1,
+                                source: PathSource::Movement,
                             });
                         }
                     },
                 );
                 let _ = app.world_mut().run_system_once(resolve_movement_system);
-                b.iter(|| {
-                    let _ = app.world_mut().run_system_once(
-                        move |q: Query<(Entity, &GpuSlot, &Position), Without<Building>>,
-                              mut queue: ResMut<PathRequestQueue>| {
-                            for (entity, slot, pos) in q.iter().take(count / 10) {
-                                let start_col = (pos.x / TOWN_GRID_SPACING) as i32;
-                                let start_row = (pos.y / TOWN_GRID_SPACING) as i32;
-                                queue.enqueue(PathRequest {
-                                    entity,
-                                    slot: slot.0,
-                                    start: IVec2::new(start_col, start_row),
-                                    goal: IVec2::new(start_col + 5, start_row + 3),
-                                    goal_world: Vec2::new(
-                                        (start_col + 5) as f32 * TOWN_GRID_SPACING,
-                                        (start_row + 3) as f32 * TOWN_GRID_SPACING,
-                                    ),
-                                    priority: 1,
-                                    source: PathSource::Movement,
-                                });
-                            }
-                        },
-                    );
-                    let _ = app.world_mut().run_system_once(resolve_movement_system);
-                });
-            },
-        );
+            });
+        });
     }
     group.finish();
 }
@@ -588,14 +575,18 @@ fn bench_building_tower_system(c: &mut Criterion) {
                     for (i, &slot) in tower_slots.iter().enumerate() {
                         let x = 400.0 + (i % 224) as f32 * 32.0;
                         let y = 400.0 + (i / 224) as f32 * 32.0;
-                        let entity = world.spawn((
-                            GpuSlot(slot),
-                            Position { x, y },
-                            Health(500.0),
-                            Faction(1),
-                            TownId(0),
-                            Building { kind: world::BuildingKind::Tower },
-                        )).id();
+                        let entity = world
+                            .spawn((
+                                GpuSlot(slot),
+                                Position { x, y },
+                                Health(500.0),
+                                Faction(1),
+                                TownId(0),
+                                Building {
+                                    kind: world::BuildingKind::Tower,
+                                },
+                            ))
+                            .id();
                         tower_entities.push((entity, slot, x, y));
                     }
                     // Register tower buildings in EntityMap
@@ -629,97 +620,125 @@ fn bench_building_tower_system(c: &mut Criterion) {
     group.finish();
 }
 
+fn build_death_bench_app() -> App {
+    let mut app = build_bench_app();
+    spawn_bench_town(&mut app);
+    populate_npcs(&mut app, BENCH_TOTAL_NPCS);
+    app
+}
+
+fn mark_dead_npcs(app: &mut App, death_count: usize) {
+    let _ = app
+        .world_mut()
+        .run_system_once(move |world_mut: &mut World| {
+            let mut killed = 0usize;
+            let mut dead_entities = Vec::with_capacity(death_count);
+            let mut q = world_mut
+                .query_filtered::<(Entity, &mut Health), (Without<Building>, Without<Dead>)>();
+            for (entity, mut hp) in q.iter_mut(world_mut) {
+                if killed >= death_count {
+                    break;
+                }
+                hp.0 = 0.0;
+                dead_entities.push(entity);
+                killed += 1;
+            }
+            for entity in dead_entities {
+                world_mut.entity_mut(entity).insert(Dead);
+            }
+        });
+}
+
+fn build_death_pipeline_input(death_count: usize) -> DeathPipelineInput {
+    let mut app = build_death_bench_app();
+    let victims: Vec<Entity> = {
+        let world = app.world_mut();
+        let mut q = world.query_filtered::<Entity, (Without<Building>, Without<Dead>)>();
+        q.iter(world).take(death_count).collect()
+    };
+    DeathPipelineInput {
+        app,
+        victims: Arc::from(victims),
+    }
+}
+
+fn bench_death_system_idle(c: &mut Criterion) {
+    let mut group = c.benchmark_group("death_system_idle");
+    group.sample_size(20);
+    group.bench_function("50000", |b| {
+        b.iter_batched_ref(
+            build_death_bench_app,
+            |app| {
+                let _ = app.world_mut().run_system_once(death_system);
+                app.world_mut().flush();
+            },
+            BatchSize::PerIteration,
+        );
+    });
+    group.finish();
+}
+
 fn bench_death_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("death_system");
     group.sample_size(20);
-    // Scale by deaths-per-frame at fixed 50K total NPCs.
-    // Measures full death→despawn→respawn cycle — the real cost the game pays.
-    const DEATH_COUNTS: &[usize] = &[100, 500, 1_000, 5_000, 25_000];
+    // Victims are pre-marked Dead during setup so the timed section only covers
+    // death_system cleanup work, not detection, respawn, or benchmark setup.
     for &death_count in DEATH_COUNTS {
         group.bench_with_input(
             BenchmarkId::from_parameter(death_count),
             &death_count,
             |b, &death_count| {
-                let mut app = build_bench_app();
-                spawn_bench_town(&mut app);
-                populate_npcs(&mut app, 50_000);
-                let _ = app.world_mut().run_system_once(death_system);
-                b.iter(|| {
-                    // Set health to 0 on N NPCs so death_system discovers them
-                    let _ = app.world_mut().run_system_once(
-                        move |mut q: Query<&mut Health, (Without<Building>, Without<Dead>)>| {
-                            let mut killed = 0usize;
-                            for mut hp in q.iter_mut() {
-                                if killed >= death_count { break; }
-                                hp.0 = 0.0;
-                                killed += 1;
-                            }
-                        },
-                    );
-                    // death_system: detect hp<=0, process XP/loot/cleanup, despawn
-                    let _ = app.world_mut().run_system_once(death_system);
-                    app.world_mut().flush();
+                b.iter_batched_ref(
+                    || {
+                        let mut app = build_death_bench_app();
+                        mark_dead_npcs(&mut app, death_count);
+                        app
+                    },
+                    |app| {
+                        let _ = app.world_mut().run_system_once(death_system);
+                        app.world_mut().flush();
+                    },
+                    BatchSize::PerIteration,
+                );
+            },
+        );
+    }
+    group.finish();
+}
 
-                    // Respawn killed NPCs (game pays this via spawner_respawn_system)
-                    let _ = app.world_mut().run_system_once(
-                        move |world_mut: &mut World| {
-                            let live_count = world_mut
-                                .query_filtered::<&GpuSlot, Without<Building>>()
-                                .iter(world_mut)
-                                .count();
-                            let need = 50_000usize.saturating_sub(live_count);
-                            if need == 0 { return; }
-
-                            let mut slots = Vec::with_capacity(need);
-                            {
-                                let mut pool = world_mut.resource_mut::<GpuSlotPool>();
-                                for _ in 0..need {
-                                    if let Some(slot) = pool.alloc_reset() {
-                                        slots.push(slot);
-                                    }
+fn bench_death_pipeline(c: &mut Criterion) {
+    let mut group = c.benchmark_group("death_pipeline");
+    group.sample_size(20);
+    // Measure the live combat-side handoff: damage_system marks victims Dead,
+    // then death_system processes them. Respawn is benchmarked separately.
+    for &death_count in DEATH_COUNTS {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(death_count),
+            &death_count,
+            |b, &death_count| {
+                b.iter_batched_ref(
+                    || build_death_pipeline_input(death_count),
+                    |input| {
+                        let victims = Arc::clone(&input.victims);
+                        let _ = input.app.world_mut().run_system_once(
+                            move |mut writer: MessageWriter<DamageMsg>| {
+                                for &entity in victims.iter() {
+                                    writer.write(DamageMsg {
+                                        target: entity,
+                                        amount: 200.0,
+                                        attacker: -1,
+                                        attacker_faction: 2,
+                                    });
                                 }
-                            }
-                            let mut spawned = Vec::with_capacity(need);
-                            for &slot in &slots {
-                                let x = (slot % 100) as f32 * 16.0;
-                                let y = (slot / 100) as f32 * 16.0;
-                                let entity = world_mut.spawn((
-                                    (
-                                        GpuSlot(slot), Position { x, y },
-                                        Health(100.0), Job::Farmer, Faction(1),
-                                        TownId(0), Activity::default(),
-                                        CombatState::default(), Energy(100.0),
-                                        Speed(60.0),
-                                        Home(Vec2::new(800.0, 800.0)),
-                                        NpcFlags::default(),
-                                    ),
-                                    (
-                                        CachedStats {
-                                            damage: 10.0, range: 40.0, cooldown: 1.0,
-                                            projectile_speed: 0.0, projectile_lifetime: 0.0,
-                                            max_health: 100.0, speed: 60.0, stamina: 1.0,
-                                            hp_regen: 0.0, berserk_bonus: 0.0,
-                                        },
-                                        BaseAttackType::Melee, AttackTimer(0.0),
-                                        NpcWorkState::default(),
-                                        PatrolRoute { posts: vec![], current: 0 },
-                                        CarriedLoot { food: 0, gold: 0, equipment: vec![] },
-                                        Personality::default(),
-                                        FleeThreshold { pct: 0.2 },
-                                        LeashRange(400.0),
-                                        WoundedThreshold { pct: 0.3 },
-                                        HasEnergy, NpcEquipment::default(), SquadId(0),
-                                    ),
-                                )).id();
-                                spawned.push((entity, slot));
-                            }
-                            let mut em = world_mut.resource_mut::<EntityMap>();
-                            for &(entity, slot) in &spawned {
-                                em.register_npc(slot, entity, Job::Farmer, 1, 0);
-                            }
-                        },
-                    );
-                });
+                            },
+                        );
+                        let _ = input.app.world_mut().run_system_once(damage_system);
+                        input.app.world_mut().flush();
+                        let _ = input.app.world_mut().run_system_once(death_system);
+                        input.app.world_mut().flush();
+                    },
+                    BatchSize::PerIteration,
+                );
             },
         );
     }
@@ -755,15 +774,22 @@ fn bench_spawner_respawn_system(c: &mut Criterion) {
                     for (i, &slot) in building_slots.iter().enumerate() {
                         let x = 100.0 + (i % 224) as f32 * 32.0;
                         let y = 100.0 + (i / 224) as f32 * 32.0;
-                        let entity = world.spawn((
-                            GpuSlot(slot),
-                            Position { x, y },
-                            Health(100.0),
-                            Faction(1),
-                            TownId(0),
-                            Building { kind: world::BuildingKind::FarmerHome },
-                            SpawnerState { npc_slot: None, respawn_timer: 0.0 },
-                        )).id();
+                        let entity = world
+                            .spawn((
+                                GpuSlot(slot),
+                                Position { x, y },
+                                Health(100.0),
+                                Faction(1),
+                                TownId(0),
+                                Building {
+                                    kind: world::BuildingKind::FarmerHome,
+                                },
+                                SpawnerState {
+                                    npc_slot: None,
+                                    respawn_timer: 0.0,
+                                },
+                            ))
+                            .id();
                         building_entities.push((entity, slot, x, y));
                     }
                     let mut em = world.resource_mut::<EntityMap>();
@@ -808,33 +834,29 @@ fn bench_spawner_respawn_system(c: &mut Criterion) {
 fn bench_populate_gpu_state(c: &mut Criterion) {
     let mut group = c.benchmark_group("populate_gpu_state");
     for &count in COUNTS {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(count),
-            &count,
-            |b, &count| {
-                let mut app = build_bench_app();
-                spawn_bench_town(&mut app);
-                populate_npcs(&mut app, count);
-                // Warmup
+        group.bench_with_input(BenchmarkId::from_parameter(count), &count, |b, &count| {
+            let mut app = build_bench_app();
+            spawn_bench_town(&mut app);
+            populate_npcs(&mut app, count);
+            // Warmup
+            let _ = app.world_mut().run_system_once(populate_gpu_state);
+            b.iter(|| {
+                // Seed GpuUpdateMsg messages (SetTarget for N/5 entities)
+                let msg_count = count / 5;
+                let _ = app.world_mut().run_system_once(
+                    move |mut writer: MessageWriter<GpuUpdateMsg>| {
+                        for i in 0..msg_count {
+                            writer.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                                idx: i,
+                                x: (i % 100) as f32 * 16.0 + 8.0,
+                                y: (i / 100) as f32 * 16.0 + 8.0,
+                            }));
+                        }
+                    },
+                );
                 let _ = app.world_mut().run_system_once(populate_gpu_state);
-                b.iter(|| {
-                    // Seed GpuUpdateMsg messages (SetTarget for N/5 entities)
-                    let msg_count = count / 5;
-                    let _ = app.world_mut().run_system_once(
-                        move |mut writer: MessageWriter<GpuUpdateMsg>| {
-                            for i in 0..msg_count {
-                                writer.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-                                    idx: i,
-                                    x: (i % 100) as f32 * 16.0 + 8.0,
-                                    y: (i / 100) as f32 * 16.0 + 8.0,
-                                }));
-                            }
-                        },
-                    );
-                    let _ = app.world_mut().run_system_once(populate_gpu_state);
-                });
-            },
-        );
+            });
+        });
     }
     group.finish();
 }
@@ -857,18 +879,27 @@ fn populate_growable_buildings(app: &mut App, count: usize) {
         let x = 100.0 + (i % 224) as f32 * 32.0;
         let y = 100.0 + (i / 224) as f32 * 32.0;
         let is_farm = i % 2 == 0;
-        let kind = if is_farm { world::BuildingKind::Farm } else { world::BuildingKind::GoldMine };
+        let kind = if is_farm {
+            world::BuildingKind::Farm
+        } else {
+            world::BuildingKind::GoldMine
+        };
         let tended = i % 4 == 0; // 25% tended
-        let entity = world.spawn((
-            GpuSlot(slot),
-            Position { x, y },
-            Health(100.0),
-            Faction(1),
-            TownId(0),
-            Building { kind },
-            ConstructionProgress(0.0),
-            ProductionState { ready: false, progress: 0.0 },
-        )).id();
+        let entity = world
+            .spawn((
+                GpuSlot(slot),
+                Position { x, y },
+                Health(100.0),
+                Faction(1),
+                TownId(0),
+                Building { kind },
+                ConstructionProgress(0.0),
+                ProductionState {
+                    ready: false,
+                    progress: 0.0,
+                },
+            ))
+            .id();
         building_entities.push((entity, slot, x, y, kind, tended));
     }
     let mut em = world.resource_mut::<EntityMap>();
@@ -904,14 +935,14 @@ fn bench_growth_system(c: &mut Criterion) {
                 let _ = app.world_mut().run_system_once(growth_system);
                 b.iter(|| {
                     // Reset growth so system has work each iteration
-                    let _ = app.world_mut().run_system_once(
-                        |mut q: Query<&mut ProductionState>| {
-                            for mut ps in q.iter_mut() {
-                                ps.ready = false;
-                                ps.progress = 0.5;
-                            }
-                        },
-                    );
+                    let _ =
+                        app.world_mut()
+                            .run_system_once(|mut q: Query<&mut ProductionState>| {
+                                for mut ps in q.iter_mut() {
+                                    ps.ready = false;
+                                    ps.progress = 0.5;
+                                }
+                            });
                     let _ = app.world_mut().run_system_once(growth_system);
                 });
             },
@@ -949,15 +980,19 @@ fn bench_construction_tick_system(c: &mut Criterion) {
                     for (i, &slot) in building_slots.iter().enumerate() {
                         let x = 100.0 + (i % 224) as f32 * 32.0;
                         let y = 100.0 + (i / 224) as f32 * 32.0;
-                        let entity = world.spawn((
-                            GpuSlot(slot),
-                            Position { x, y },
-                            Health(0.01),
-                            Faction(1),
-                            TownId(0),
-                            Building { kind: world::BuildingKind::FarmerHome },
-                            ConstructionProgress(5.0),
-                        )).id();
+                        let entity = world
+                            .spawn((
+                                GpuSlot(slot),
+                                Position { x, y },
+                                Health(0.01),
+                                Faction(1),
+                                TownId(0),
+                                Building {
+                                    kind: world::BuildingKind::FarmerHome,
+                                },
+                                ConstructionProgress(5.0),
+                            ))
+                            .id();
                         entities_and_slots.push((entity, slot, x, y));
                     }
                     let mut em = world.resource_mut::<EntityMap>();
@@ -994,25 +1029,21 @@ fn bench_construction_tick_system(c: &mut Criterion) {
 fn bench_energy_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("energy_system");
     for &count in COUNTS {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(count),
-            &count,
-            |b, &count| {
-                let mut app = build_bench_app();
-                spawn_bench_town(&mut app);
-                populate_npcs(&mut app, count);
-                // Set game_time unpaused with non-zero delta
-                {
-                    let world = app.world_mut();
-                    let mut gt = world.resource_mut::<GameTime>();
-                    gt.time_scale = 1.0;
-                }
+        group.bench_with_input(BenchmarkId::from_parameter(count), &count, |b, &count| {
+            let mut app = build_bench_app();
+            spawn_bench_town(&mut app);
+            populate_npcs(&mut app, count);
+            // Set game_time unpaused with non-zero delta
+            {
+                let world = app.world_mut();
+                let mut gt = world.resource_mut::<GameTime>();
+                gt.time_scale = 1.0;
+            }
+            let _ = app.world_mut().run_system_once(energy_system);
+            b.iter(|| {
                 let _ = app.world_mut().run_system_once(energy_system);
-                b.iter(|| {
-                    let _ = app.world_mut().run_system_once(energy_system);
-                });
-            },
-        );
+            });
+        });
     }
     group.finish();
 }
@@ -1020,24 +1051,20 @@ fn bench_energy_system(c: &mut Criterion) {
 fn bench_arrival_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("arrival_system");
     for &count in COUNTS {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(count),
-            &count,
-            |b, &count| {
-                let mut app = build_bench_app();
-                spawn_bench_town(&mut app);
-                populate_npcs(&mut app, count);
-                {
-                    let world = app.world_mut();
-                    let mut gt = world.resource_mut::<GameTime>();
-                    gt.time_scale = 1.0;
-                }
+        group.bench_with_input(BenchmarkId::from_parameter(count), &count, |b, &count| {
+            let mut app = build_bench_app();
+            spawn_bench_town(&mut app);
+            populate_npcs(&mut app, count);
+            {
+                let world = app.world_mut();
+                let mut gt = world.resource_mut::<GameTime>();
+                gt.time_scale = 1.0;
+            }
+            let _ = app.world_mut().run_system_once(arrival_system);
+            b.iter(|| {
                 let _ = app.world_mut().run_system_once(arrival_system);
-                b.iter(|| {
-                    let _ = app.world_mut().run_system_once(arrival_system);
-                });
-            },
-        );
+            });
+        });
     }
     group.finish();
 }
@@ -1045,19 +1072,15 @@ fn bench_arrival_system(c: &mut Criterion) {
 fn bench_gpu_position_readback(c: &mut Criterion) {
     let mut group = c.benchmark_group("gpu_position_readback");
     for &count in COUNTS {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(count),
-            &count,
-            |b, &count| {
-                let mut app = build_bench_app();
-                spawn_bench_town(&mut app);
-                populate_npcs(&mut app, count);
+        group.bench_with_input(BenchmarkId::from_parameter(count), &count, |b, &count| {
+            let mut app = build_bench_app();
+            spawn_bench_town(&mut app);
+            populate_npcs(&mut app, count);
+            let _ = app.world_mut().run_system_once(gpu_position_readback);
+            b.iter(|| {
                 let _ = app.world_mut().run_system_once(gpu_position_readback);
-                b.iter(|| {
-                    let _ = app.world_mut().run_system_once(gpu_position_readback);
-                });
-            },
-        );
+            });
+        });
     }
     group.finish();
 }
@@ -1065,24 +1088,20 @@ fn bench_gpu_position_readback(c: &mut Criterion) {
 fn bench_advance_waypoints_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("advance_waypoints_system");
     for &count in COUNTS {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(count),
-            &count,
-            |b, &count| {
-                let mut app = build_bench_app();
-                spawn_bench_town(&mut app);
-                populate_npcs(&mut app, count);
-                {
-                    let world = app.world_mut();
-                    let mut gt = world.resource_mut::<GameTime>();
-                    gt.time_scale = 1.0;
-                }
+        group.bench_with_input(BenchmarkId::from_parameter(count), &count, |b, &count| {
+            let mut app = build_bench_app();
+            spawn_bench_town(&mut app);
+            populate_npcs(&mut app, count);
+            {
+                let world = app.world_mut();
+                let mut gt = world.resource_mut::<GameTime>();
+                gt.time_scale = 1.0;
+            }
+            let _ = app.world_mut().run_system_once(advance_waypoints_system);
+            b.iter(|| {
                 let _ = app.world_mut().run_system_once(advance_waypoints_system);
-                b.iter(|| {
-                    let _ = app.world_mut().run_system_once(advance_waypoints_system);
-                });
-            },
-        );
+            });
+        });
     }
     group.finish();
 }
@@ -1090,29 +1109,25 @@ fn bench_advance_waypoints_system(c: &mut Criterion) {
 fn bench_cooldown_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("cooldown_system");
     for &count in COUNTS {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(count),
-            &count,
-            |b, &count| {
-                let mut app = build_bench_app();
-                spawn_bench_town(&mut app);
-                populate_npcs(&mut app, count);
-                // Set 50% of NPCs with active cooldowns (timer > 0)
-                let _ = app.world_mut().run_system_once(
-                    |mut q: Query<(&GpuSlot, &mut AttackTimer), Without<Building>>| {
-                        for (slot, mut timer) in q.iter_mut() {
-                            if slot.0 % 2 == 0 {
-                                timer.0 = 0.8;
-                            }
+        group.bench_with_input(BenchmarkId::from_parameter(count), &count, |b, &count| {
+            let mut app = build_bench_app();
+            spawn_bench_town(&mut app);
+            populate_npcs(&mut app, count);
+            // Set 50% of NPCs with active cooldowns (timer > 0)
+            let _ = app.world_mut().run_system_once(
+                |mut q: Query<(&GpuSlot, &mut AttackTimer), Without<Building>>| {
+                    for (slot, mut timer) in q.iter_mut() {
+                        if slot.0 % 2 == 0 {
+                            timer.0 = 0.8;
                         }
-                    },
-                );
+                    }
+                },
+            );
+            let _ = app.world_mut().run_system_once(cooldown_system);
+            b.iter(|| {
                 let _ = app.world_mut().run_system_once(cooldown_system);
-                b.iter(|| {
-                    let _ = app.world_mut().run_system_once(cooldown_system);
-                });
-            },
-        );
+            });
+        });
     }
     group.finish();
 }
@@ -1120,30 +1135,29 @@ fn bench_cooldown_system(c: &mut Criterion) {
 fn bench_npc_regen_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("npc_regen_system");
     for &count in COUNTS {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(count),
-            &count,
-            |b, &count| {
-                let mut app = build_bench_app();
-                spawn_bench_town(&mut app);
-                populate_npcs(&mut app, count);
-                // Give 25% of NPCs hp_regen > 0 and damage them
-                let _ = app.world_mut().run_system_once(
-                    move |mut q: Query<(&GpuSlot, &mut Health, &mut CachedStats), Without<Building>>| {
-                        for (slot, mut hp, mut stats) in q.iter_mut() {
-                            if slot.0 % 4 == 0 {
-                                stats.hp_regen = 2.0;
-                                hp.0 = 50.0;
-                            }
+        group.bench_with_input(BenchmarkId::from_parameter(count), &count, |b, &count| {
+            let mut app = build_bench_app();
+            spawn_bench_town(&mut app);
+            populate_npcs(&mut app, count);
+            // Give 25% of NPCs hp_regen > 0 and damage them
+            let _ = app.world_mut().run_system_once(
+                move |mut q: Query<
+                    (&GpuSlot, &mut Health, &mut CachedStats),
+                    Without<Building>,
+                >| {
+                    for (slot, mut hp, mut stats) in q.iter_mut() {
+                        if slot.0 % 4 == 0 {
+                            stats.hp_regen = 2.0;
+                            hp.0 = 50.0;
                         }
-                    },
-                );
+                    }
+                },
+            );
+            let _ = app.world_mut().run_system_once(npc_regen_system);
+            b.iter(|| {
                 let _ = app.world_mut().run_system_once(npc_regen_system);
-                b.iter(|| {
-                    let _ = app.world_mut().run_system_once(npc_regen_system);
-                });
-            },
-        );
+            });
+        });
     }
     group.finish();
 }
@@ -1151,37 +1165,33 @@ fn bench_npc_regen_system(c: &mut Criterion) {
 fn bench_on_duty_tick_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("on_duty_tick_system");
     for &count in COUNTS {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(count),
-            &count,
-            |b, &count| {
-                let mut app = build_bench_app();
-                spawn_bench_town(&mut app);
-                populate_npcs(&mut app, count);
-                // Give all NPCs PatrolRoute (on_duty_tick filters With<PatrolRoute>)
-                // In reality ~20% are guards, but bench worst-case
-                let _ = app.world_mut().run_system_once(
-                    |mut commands: Commands, q: Query<Entity, Without<Building>>| {
-                        for entity in q.iter() {
-                            commands.entity(entity).insert(Activity {
-                                kind: ActivityKind::Patrol,
-                                ..Default::default()
-                            });
-                        }
-                    },
-                );
-                app.world_mut().flush();
-                {
-                    let world = app.world_mut();
-                    let mut gt = world.resource_mut::<GameTime>();
-                    gt.time_scale = 1.0;
-                }
+        group.bench_with_input(BenchmarkId::from_parameter(count), &count, |b, &count| {
+            let mut app = build_bench_app();
+            spawn_bench_town(&mut app);
+            populate_npcs(&mut app, count);
+            // Give all NPCs PatrolRoute (on_duty_tick filters With<PatrolRoute>)
+            // In reality ~20% are guards, but bench worst-case
+            let _ = app.world_mut().run_system_once(
+                |mut commands: Commands, q: Query<Entity, Without<Building>>| {
+                    for entity in q.iter() {
+                        commands.entity(entity).insert(Activity {
+                            kind: ActivityKind::Patrol,
+                            ..Default::default()
+                        });
+                    }
+                },
+            );
+            app.world_mut().flush();
+            {
+                let world = app.world_mut();
+                let mut gt = world.resource_mut::<GameTime>();
+                gt.time_scale = 1.0;
+            }
+            let _ = app.world_mut().run_system_once(on_duty_tick_system);
+            b.iter(|| {
                 let _ = app.world_mut().run_system_once(on_duty_tick_system);
-                b.iter(|| {
-                    let _ = app.world_mut().run_system_once(on_duty_tick_system);
-                });
-            },
-        );
+            });
+        });
     }
     group.finish();
 }
@@ -1206,7 +1216,9 @@ fn bench_spawn_npc_system(c: &mut Criterion) {
                         move |mut writer: MessageWriter<SpawnNpcMsg>,
                               mut pool: ResMut<GpuSlotPool>| {
                             for i in 0..spawn_count {
-                                let Some(slot) = pool.alloc_reset() else { break };
+                                let Some(slot) = pool.alloc_reset() else {
+                                    break;
+                                };
                                 writer.write(SpawnNpcMsg {
                                     slot_idx: slot,
                                     x: (i % 100) as f32 * 16.0,
@@ -1293,7 +1305,9 @@ criterion_group!(
     bench_resolve_movement_system,
     bench_resolve_movement_unbounded,
     bench_building_tower_system,
+    bench_death_system_idle,
     bench_death_system,
+    bench_death_pipeline,
     bench_spawner_respawn_system,
     bench_populate_gpu_state,
     bench_growth_system,

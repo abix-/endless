@@ -50,14 +50,22 @@ pub(super) fn setup(
 
     // 100K food + gold for all towns via ECS
     if let Some(&e) = town_index.0.get(&0) {
-        commands.entity(e).insert(crate::components::FoodStore(100_000));
-        commands.entity(e).insert(crate::components::GoldStore(100_000));
+        commands
+            .entity(e)
+            .insert(crate::components::FoodStore(100_000));
+        commands
+            .entity(e)
+            .insert(crate::components::GoldStore(100_000));
     }
     for player in &state.ai_state.players {
         let ti = player.town_data_idx as i32;
         if let Some(&e) = town_index.0.get(&ti) {
-            commands.entity(e).insert(crate::components::FoodStore(100_000));
-            commands.entity(e).insert(crate::components::GoldStore(100_000));
+            commands
+                .entity(e)
+                .insert(crate::components::FoodStore(100_000));
+            commands
+                .entity(e)
+                .insert(crate::components::GoldStore(100_000));
         }
     }
 

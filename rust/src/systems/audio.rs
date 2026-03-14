@@ -142,14 +142,16 @@ pub fn load_sfx(mut audio: ResMut<GameAudio>, server: Res<AssetServer>) {
     );
     audio.sfx_handles.insert(
         SfxKind::Death,
-        [1,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25]
-            .iter()
-            .map(|i| {
-                server.load(format!(
-                    "sounds/sfx/death-sounds-male-audio-pack/{i:02}._death_groan_male.ogg"
-                ))
-            })
-            .collect(),
+        [
+            1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+        ]
+        .iter()
+        .map(|i| {
+            server.load(format!(
+                "sounds/sfx/death-sounds-male-audio-pack/{i:02}._death_groan_male.ogg"
+            ))
+        })
+        .collect(),
     );
 }
 

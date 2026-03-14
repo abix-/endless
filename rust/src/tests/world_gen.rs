@@ -241,8 +241,11 @@ pub fn tick(
         }
         // Phase 6: Raider raider towns exist with correct faction
         6 => {
-            let raider_towns: Vec<&world::Town> =
-                world_data.towns.iter().filter(|t| t.faction > crate::constants::FACTION_PLAYER).collect();
+            let raider_towns: Vec<&world::Town> = world_data
+                .towns
+                .iter()
+                .filter(|t| t.faction > crate::constants::FACTION_PLAYER)
+                .collect();
 
             let expected = config.num_towns;
             let raider_centers = entity_map.iter_kind(world::BuildingKind::Fountain).count();

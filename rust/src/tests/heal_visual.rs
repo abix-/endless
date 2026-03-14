@@ -11,7 +11,9 @@ use super::{TestSetupParams, TestState};
 pub fn setup(mut params: TestSetupParams) {
     params.add_town("HealVisTown");
     params.init_economy(1);
-    if let Some(mut f) = params.town_access.food_mut(0) { f.0 = 10; }
+    if let Some(mut f) = params.town_access.food_mut(0) {
+        f.0 = 10;
+    }
     params.game_time.time_scale = 1.0;
     params.focus_camera(384.0, 384.0);
 
