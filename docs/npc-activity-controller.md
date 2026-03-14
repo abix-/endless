@@ -194,8 +194,8 @@ Expected canonical flows:
 | `Heal` | `Transit -> Active -> Idle/Ready` |
 | `Patrol` | `Transit -> Holding -> Transit` |
 | `SquadAttack` | `Transit -> Holding` |
-| `Work` | `Transit -> Active -> ReturnLoot/Transit`, with tired interrupt -> `Rest/Home/Transit` or `Idle/Ready` if no valid home |
-| `Mine` | `Transit -> Holding -> ReturnLoot/Transit`, with tired interrupt -> `Rest/Home/Transit` or `Idle/Ready` if no valid home |
+| `Work` | `Transit -> Active -> ReturnLoot/Transit`, with tired interrupt -> `Rest/Home/Transit` if home valid, otherwise `Rest/Fountain/Transit` if town center exists, otherwise `Idle/Ready` |
+| `Mine` | `Transit -> Holding -> ReturnLoot/Transit`, with tired interrupt -> `Rest/Home/Transit` if home valid, otherwise `Rest/Fountain/Transit` if town center exists, otherwise `Idle/Ready` |
 | `Raid` | `Transit -> Active -> ReturnLoot/Transit` |
 | `ReturnLoot` | `Transit -> Idle/Ready`, with wrong-place arrival -> `Transit` redirect back to home |
 | `Wander` | `Transit -> Idle/Ready` |
@@ -207,7 +207,7 @@ Examples:
 - `Patrol + PatrolPost{...} + Transit` + arrived-post event -> `Patrol + PatrolPost{...} + Holding`
 - `Patrol + PatrolPost{...} + Holding` + wait elapsed -> `Patrol + PatrolPost{next} + Transit`
 - `Work + Worksite + Transit` + arrived-worksite event -> `Work + Worksite + Active`
-- `Work + Worksite + Active` + tired event -> release worksite, then `Rest + Home + Transit` if home valid, otherwise `Idle + None + Ready`
+- `Work + Worksite + Active` + tired event -> release worksite, then `Rest + Home + Transit` if home valid, otherwise `Rest + Fountain + Transit` if town center exists, otherwise `Idle + None + Ready`
 - `Work + Worksite + Transit` + claimed farm invalid/taken event -> remain `Work + Worksite + Transit` with a new claimed farm target via resolver; if no replacement exists -> `Idle + None + Ready`
 - `Mine + Worksite + Transit` + arrived-mine event -> `Mine + Worksite + Holding`
 - `Mine + Worksite + Holding` + ready-and-my-turn event -> `ReturnLoot + Dropoff + Transit`
