@@ -1208,6 +1208,23 @@ pub const TERRAIN_TILES: [TileSpec; 11] = [
     TileSpec::Single(8, 10),                              // 10: Dirt
 ];
 
+/// Per-layer base tile for terrain tileset compositing.
+/// Forest sprites have transparency and need a grass base underneath.
+/// Opaque tiles (grass, water, rock, dirt) need no base.
+const TERRAIN_BASES: [Option<(u32, u32)>; 11] = [
+    None,           // 0: Grass A (opaque)
+    None,           // 1: Grass B (opaque)
+    Some((3, 16)),  // 2: Forest A (tree over Grass A)
+    Some((3, 16)),  // 3: Forest B
+    Some((3, 16)),  // 4: Forest C
+    Some((3, 16)),  // 5: Forest D
+    Some((3, 16)),  // 6: Forest E
+    Some((3, 16)),  // 7: Forest F
+    None,           // 8: Water (opaque)
+    None,           // 9: Rock (opaque quad)
+    None,           // 10: Dirt (opaque)
+];
+
 /// Build the BUILDING_TILES array from the registry (for atlas construction).
 pub fn building_tiles() -> Vec<crate::constants::TileSpec> {
     crate::constants::BUILDING_REGISTRY
@@ -1218,9 +1235,10 @@ pub fn building_tiles() -> Vec<crate::constants::TileSpec> {
 
 /// Composite tiles into a vertical strip buffer (ATLAS_CELL x ATLAS_CELL*layers).
 /// Core logic shared by tilemap tileset and building atlas.
-/// When `base` is Some((col, row)), every layer is pre-filled with that tile and
-/// subsequent sprites are alpha-composited on top (transparent pixels keep the base).
-fn build_tile_strip(atlas: &Image, tiles: &[TileSpec], extra: &[&Image], base: Option<(u32, u32)>) -> (Vec<u8>, u32) {
+/// `bases` provides an optional base tile per layer -- layers with a base are pre-filled
+/// and subsequent sprites are alpha-composited on top (transparent pixels keep the base).
+/// Pass an empty slice for no bases (building atlas).
+fn build_tile_strip(atlas: &Image, tiles: &[TileSpec], extra: &[&Image], bases: &[Option<(u32, u32)>]) -> (Vec<u8>, u32) {
     let sprite = SPRITE_SIZE as u32; // 16 (source texel size)
     let out_size = ATLAS_CELL; // 64
     let scale = out_size / sprite; // 4x upscale from 16px source
@@ -1233,41 +1251,46 @@ fn build_tile_strip(atlas: &Image, tiles: &[TileSpec], extra: &[&Image], base: O
     let mut data = vec![0u8; layer_bytes * layers as usize];
     let atlas_data = atlas.data.as_ref().expect("atlas image has no data");
 
-    // Pre-fill every layer with the base tile (e.g. grass) so decorations composite
+    // Pre-fill layers that have a base tile so decorations composite
     // over terrain instead of showing a black/transparent background.
-    if let Some((base_col, base_row)) = base {
-        let src_x = base_col * cell_size;
-        let src_y = base_row * cell_size;
-        // Build one base layer, then replicate to all layers
-        let mut base_layer = vec![0u8; layer_bytes];
-        for ty in 0..sprite {
-            for tx in 0..sprite {
-                let si = ((src_y + ty) * atlas_width + (src_x + tx)) as usize * 4;
-                for oy in 0..scale {
-                    for ox in 0..scale {
-                        let di = ((ty * scale + oy) * out_size + (tx * scale + ox)) as usize * 4;
-                        base_layer[di..di + 4].copy_from_slice(&atlas_data[si..si + 4]);
+    // Cache rendered base tiles to avoid redundant blitting.
+    let mut base_cache: std::collections::HashMap<(u32, u32), Vec<u8>> = std::collections::HashMap::new();
+    for (l, base_opt) in bases.iter().enumerate() {
+        if let Some(&(base_col, base_row)) = base_opt.as_ref() {
+            let base_layer = base_cache
+                .entry((base_col, base_row))
+                .or_insert_with(|| {
+                    let src_x = base_col * cell_size;
+                    let src_y = base_row * cell_size;
+                    let mut buf = vec![0u8; layer_bytes];
+                    for ty in 0..sprite {
+                        for tx in 0..sprite {
+                            let si = ((src_y + ty) * atlas_width + (src_x + tx)) as usize * 4;
+                            for oy in 0..scale {
+                                for ox in 0..scale {
+                                    let di =
+                                        ((ty * scale + oy) * out_size + (tx * scale + ox)) as usize * 4;
+                                    buf[di..di + 4].copy_from_slice(&atlas_data[si..si + 4]);
+                                }
+                            }
+                        }
                     }
-                }
-            }
-        }
-        for l in 0..layers as usize {
+                    buf
+                });
             let off = l * layer_bytes;
-            data[off..off + layer_bytes].copy_from_slice(&base_layer);
+            data[off..off + layer_bytes].copy_from_slice(base_layer);
         }
     }
 
-    // When base is set, only overwrite pixels where source alpha > 0
-    let has_base = base.is_some();
-
-    // Blit a 16x16 source sprite with 2x upscale into a 32x32 quadrant at (dx, dy)
-    let blit_2x = |data: &mut [u8], layer: u32, col: u32, row: u32, dx: u32, dy: u32| {
+    // Blit a 16x16 source sprite with 2x upscale into a 32x32 quadrant at (dx, dy).
+    // When `skip_transparent` is true, transparent source pixels preserve the base.
+    let blit_2x = |data: &mut [u8], layer: u32, col: u32, row: u32, dx: u32, dy: u32, skip_transparent: bool| {
         let src_x = col * cell_size;
         let src_y = row * cell_size;
         for ty in 0..sprite {
             for tx in 0..sprite {
                 let si = ((src_y + ty) * atlas_width + (src_x + tx)) as usize * 4;
-                if has_base && atlas_data[si + 3] == 0 { continue; }
+                if skip_transparent && atlas_data[si + 3] == 0 { continue; }
                 for oy in 0..2u32 {
                     for ox in 0..2u32 {
                         let di = (layer * out_size * out_size
@@ -1293,7 +1316,8 @@ fn build_tile_strip(atlas: &Image, tiles: &[TileSpec], extra: &[&Image], base: O
                 for ty in 0..sprite {
                     for tx in 0..sprite {
                         let si = ((src_y + ty) * atlas_width + (src_x + tx)) as usize * 4;
-                        if has_base && atlas_data[si + 3] == 0 { continue; }
+                        let skip = bases.get(layer).is_some_and(|b| b.is_some());
+                        if skip && atlas_data[si + 3] == 0 { continue; }
                         for oy in 0..scale {
                             for ox in 0..scale {
                                 let di = (l * out_size * out_size
@@ -1308,11 +1332,12 @@ fn build_tile_strip(atlas: &Image, tiles: &[TileSpec], extra: &[&Image], base: O
                 }
             }
             TileSpec::Quad(q) => {
+                let skip = bases.get(layer).is_some_and(|b| b.is_some());
                 // Each 16px quadrant is 2x upscaled to 32px, filling the 64px cell
-                blit_2x(&mut data, l, q[0].0, q[0].1, 0, 0); // TL
-                blit_2x(&mut data, l, q[1].0, q[1].1, half, 0); // TR
-                blit_2x(&mut data, l, q[2].0, q[2].1, 0, half); // BL
-                blit_2x(&mut data, l, q[3].0, q[3].1, half, half); // BR
+                blit_2x(&mut data, l, q[0].0, q[0].1, 0, 0, skip); // TL
+                blit_2x(&mut data, l, q[1].0, q[1].1, half, 0, skip); // TR
+                blit_2x(&mut data, l, q[2].0, q[2].1, 0, half, skip); // BL
+                blit_2x(&mut data, l, q[3].0, q[3].1, half, half, skip); // BR
             }
             TileSpec::External(_path) => {
                 let Some(ext) = extra.get(ext_counter).copied() else {
@@ -1361,7 +1386,7 @@ pub fn build_tileset(
     extra: &[&Image],
     images: &mut Assets<Image>,
 ) -> Handle<Image> {
-    let (data, layers) = build_tile_strip(atlas, tiles, extra, Some((3, 16)));
+    let (data, layers) = build_tile_strip(atlas, tiles, extra, &TERRAIN_BASES);
     let out_size = ATLAS_CELL;
     let mut image = Image::new(
         Extent3d {
@@ -1426,7 +1451,7 @@ pub fn build_building_atlas(
     extra: &[&Image],
     images: &mut Assets<Image>,
 ) -> Handle<Image> {
-    let (mut data, base_layers) = build_tile_strip(atlas, tiles, extra, None);
+    let (mut data, base_layers) = build_tile_strip(atlas, tiles, extra, &[]);
     let out_size = ATLAS_CELL;
     let layer_bytes = (out_size * out_size * 4) as usize;
 
