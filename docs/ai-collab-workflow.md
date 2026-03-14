@@ -32,9 +32,11 @@ Do not commit implementation work directly to `main`.
 
 Use these rules consistently:
 
-- one slice issue = one branch
-- open a PR for any code or accepted-doc change before asking another agent to review
-- issue comments remain the handoff channel; PRs are the code review surface
+- `ai-collab` works on the shared `dev` branch
+- do not create or switch to issue-specific branches or worktrees during normal `ai-collab` runs
+- if the current branch is not `dev`, stop and resolve that before making code changes
+- push reviewed changes to `dev`
+- issue comments remain the handoff channel; use an existing `dev` PR as the review surface when one exists
 - merge only after reviewer signoff and required tests pass
 
 ## Labels
