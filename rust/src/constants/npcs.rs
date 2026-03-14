@@ -279,6 +279,8 @@ pub struct NpcDef {
     pub equipment_drop_rate: f32,
     /// Which equipment slots this NPC type can equip (military: Weapon+Armor, others: none).
     pub equip_slots: &'static [ItemKind],
+    /// Default weapon sprite on spawn (col, row). None = no starting weapon.
+    pub default_weapon: Option<(f32, f32)>,
 }
 
 pub const NPC_REGISTRY: &[NpcDef] = &[
@@ -313,6 +315,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         }],
         equipment_drop_rate: 0.0,
         equip_slots: &[],
+        default_weapon: None,
     },
     NpcDef {
         job: Job::Archer,
@@ -352,6 +355,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         ],
         equipment_drop_rate: 0.0,
         equip_slots: ALL_EQUIP_KINDS,
+        default_weapon: Some((45.0, 6.0)), // bow sprite
     },
     NpcDef {
         job: Job::Raider,
@@ -391,6 +395,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         ],
         equipment_drop_rate: 0.30,
         equip_slots: ALL_EQUIP_KINDS,
+        default_weapon: None,
     },
     NpcDef {
         job: Job::Fighter,
@@ -430,6 +435,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         ],
         equipment_drop_rate: 0.0,
         equip_slots: ALL_EQUIP_KINDS,
+        default_weapon: None,
     },
     NpcDef {
         job: Job::Miner,
@@ -462,6 +468,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         }],
         equipment_drop_rate: 0.0,
         equip_slots: &[],
+        default_weapon: None,
     },
     NpcDef {
         job: Job::Crossbow,
@@ -469,7 +476,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         label_plural: "Crossbows",
         sprite: (0.0, 0.0),
         atlas: 0.0,
-        color: (0.4, 0.0, 0.8, 1.0),
+        color: (0.0, 0.0, 1.0, 1.0),
         base_hp: 70.0,
         base_damage: 25.0,
         base_speed: 85.0,
@@ -486,7 +493,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         has_attack_timer: true,
         stealer: false,
         leash_range: None,
-        ui_color: (140, 60, 220),
+        ui_color: (80, 100, 220),
         home_building: BuildingKind::CrossbowHome,
         is_raider_unit: false,
         default_count: 0,
@@ -506,6 +513,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         ],
         equipment_drop_rate: 0.0,
         equip_slots: ALL_EQUIP_KINDS,
+        default_weapon: Some((46.0, 6.0)), // crossbow sprite
     },
     NpcDef {
         job: Job::Boat,
@@ -538,6 +546,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         }],
         equipment_drop_rate: 0.0,
         equip_slots: &[],
+        default_weapon: None,
     },
 ];
 

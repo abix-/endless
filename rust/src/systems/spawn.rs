@@ -216,8 +216,20 @@ pub fn materialize_npc(
         activity
     };
 
-    // Equipment
-    let npc_equipment = overrides.equipment.clone();
+    // Equipment -- apply default weapon from NpcDef if no weapon equipped
+    let mut npc_equipment = overrides.equipment.clone();
+    if npc_equipment.weapon.is_none() {
+        if let Some(sprite) = def.default_weapon {
+            npc_equipment.weapon = Some(crate::constants::LootItem {
+                id: 0,
+                kind: crate::constants::ItemKind::Weapon,
+                rarity: crate::constants::Rarity::Common,
+                name: String::new(),
+                sprite,
+                stat_bonus: 0.0,
+            });
+        }
+    }
 
     // Spawn ECS entity with all NPC components
     let energy_val = if def.has_energy {
