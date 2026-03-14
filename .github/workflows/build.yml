@@ -26,6 +26,7 @@ on:
         default: ""
 
   push:
+    branches: [main]
     tags:
       - "v*"
 
