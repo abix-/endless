@@ -781,6 +781,17 @@ fn policies_content(
         }
     });
 
+    // -- Loot --
+    ui.add_space(8.0);
+    ui.label(egui::RichText::new("Loot").strong());
+    let mut lt = policy.loot_threshold;
+    ui.horizontal(|ui| {
+        ui.label("Carry limit:");
+        ui.add(egui::Slider::new(&mut lt, 1..=20).suffix(" items"));
+    });
+    policy.loot_threshold = lt;
+    ui.small("Equipment items carried before NPC returns home");
+
 }
 
 // ============================================================================
