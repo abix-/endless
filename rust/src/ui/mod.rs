@@ -1,5 +1,6 @@
 //! UI module — main menu, game startup, in-game HUD, and gameplay panels.
 
+pub mod armory;
 pub mod blackjack;
 pub mod build_menu;
 pub mod game_hud;
@@ -649,7 +650,10 @@ pub fn register_ui(app: &mut App) {
                 game_hud::faction_squad_overlay_system,
             ),
             build_menu::build_menu_system,
-            blackjack::blackjack_window_system,
+            (
+                blackjack::blackjack_window_system,
+                armory::armory_window_system,
+            ),
             pause_menu_system,
             game_over_system,
             game_hud::save_toast_system,
@@ -681,6 +685,7 @@ pub fn register_ui(app: &mut App) {
             game_hud::faction_squad_overlay_system,
             build_menu::build_menu_system,
             blackjack::blackjack_window_system,
+            armory::armory_window_system,
             pause_menu_system,
             game_hud::save_toast_system,
         )
@@ -753,7 +758,7 @@ pub fn ui_toggle_system(
         ui_state.toggle_left_tab(LeftPanelTab::Squads);
     }
     if keys.just_pressed(settings.key_for_action(ControlAction::ToggleInventory)) {
-        ui_state.toggle_left_tab(LeftPanelTab::Inventory);
+        ui_state.armory_open = !ui_state.armory_open;
     }
     if keys.just_pressed(settings.key_for_action(ControlAction::ToggleFactions)) {
         ui_state.toggle_left_tab(LeftPanelTab::Factions);
@@ -1102,6 +1107,10 @@ fn game_escape_system(
             return;
         }
         // Close floating windows before left panel / pause menu
+        if ui_state.armory_open {
+            ui_state.armory_open = false;
+            return;
+        }
         if ui_state.tech_tree_open {
             ui_state.tech_tree_open = false;
             return;

@@ -1351,6 +1351,8 @@ pub struct UiState {
     pub tech_tree_tab: usize,
     /// Inspector window currently visible (NPC or building selected).
     pub inspector_visible: bool,
+    /// Armory modal window open.
+    pub armory_open: bool,
 }
 
 impl Default for UiState {
@@ -1374,6 +1376,7 @@ impl Default for UiState {
             tech_tree_open: false,
             tech_tree_tab: 0,
             inspector_visible: false,
+            armory_open: false,
         }
     }
 }
