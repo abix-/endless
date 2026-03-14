@@ -91,6 +91,12 @@ pub fn damage_system(
                     ec.insert(LastHitBy(event.attacker));
                 }
             }
+            // Mark dead immediately so death_system doesn't need a full scan
+            if health.0 <= 0.0 {
+                if let Ok(mut ec) = commands.get_entity(npc.entity) {
+                    ec.insert(Dead);
+                }
+            }
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth {
                 idx,
                 health: health.0,
@@ -126,6 +132,11 @@ pub fn damage_system(
 
             if health.0 > 0.0 {
                 heal_state.needs_healing = true;
+            } else {
+                // Mark dead immediately so death_system doesn't need a full scan
+                if let Ok(mut ec) = commands.get_entity(entity) {
+                    ec.insert(Dead);
+                }
             }
             if event.attacker >= 0 {
                 if let Ok(mut ec) = commands.get_entity(entity) {
@@ -171,6 +182,8 @@ fn hide_building(
 /// Buildings: mark Dead ECS marker (deferred), process next frame via ECS query.
 pub fn death_system(
     mut commands: Commands,
+    // Dead NPCs (marked by damage_system this frame)
+    npc_dead_query: Query<(Entity, &GpuSlot), (With<Dead>, Without<Building>)>,
     building_mark_query: Query<(Entity, &Health), (With<Building>, Without<Dead>)>,
     building_dead_query: Query<
         (
@@ -195,22 +208,18 @@ pub fn death_system(
     mut intents: ResMut<crate::resources::PathRequestQueue>,
     mut ui_state: ResMut<crate::resources::UiState>,
 ) {
-    // Phase 1a: Mark newly dead NPCs via ECS query (no iter_npcs scan)
+    // Phase 1a: Collect dead NPCs (already marked Dead by damage_system)
     let mut death_count = 0;
     let dead_npc_slots: Vec<usize> = {
         let mut newly_dead = Vec::new();
-        for (entity, health, gpu_slot) in res.health_q.iter() {
-            if health.0 <= 0.0 {
-                newly_dead.push(gpu_slot.0);
-                if let Ok(mut ec) = commands.get_entity(entity) {
-                    ec.insert(Dead);
-                }
-            }
-        }
-        for &slot in &newly_dead {
+        for (_entity, gpu_slot) in npc_dead_query.iter() {
+            let slot = gpu_slot.0;
             if let Some(npc) = res.entity_map.get_npc_mut(slot) {
-                npc.dead = true;
-                death_count += 1;
+                if !npc.dead {
+                    npc.dead = true;
+                    death_count += 1;
+                    newly_dead.push(slot);
+                }
             }
         }
         newly_dead
