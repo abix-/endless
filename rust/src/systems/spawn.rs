@@ -179,7 +179,7 @@ pub fn materialize_npc(
     }));
 
     // Resolve spawn data
-    let activity = overrides.activity.clone().unwrap_or_default();
+    let activity = overrides.activity.unwrap_or_default();
     let combat_state = overrides.combat_state.clone().unwrap_or_default();
 
     // Patrol route — caller may pre-compute posts via build_patrol_route_ecs
@@ -216,8 +216,21 @@ pub fn materialize_npc(
         activity
     };
 
-    // Equipment
-    let npc_equipment = overrides.equipment.clone();
+    // Equipment -- apply default weapon from NpcDef on fresh spawns only (not save restore)
+    let mut npc_equipment = overrides.equipment.clone();
+    let is_fresh_spawn = overrides.activity.is_none();
+    if is_fresh_spawn && npc_equipment.weapon.is_none() {
+        if let Some(sprite) = def.default_weapon {
+            npc_equipment.weapon = Some(crate::constants::LootItem {
+                id: 0,
+                kind: crate::constants::ItemKind::Weapon,
+                rarity: crate::constants::Rarity::Common,
+                name: String::new(),
+                sprite,
+                stat_bonus: 0.0,
+            });
+        }
+    }
 
     // Spawn ECS entity with all NPC components
     let energy_val = if def.has_energy {
@@ -232,7 +245,7 @@ pub fn materialize_npc(
         // State
         (
             NpcFlags::default(),
-            activity.clone(),
+            activity,
             Position { x, y },
             Home(home_vec),
         ),
@@ -444,5 +457,26 @@ mod tests {
             }
             // No trait3 field exists — struct enforces max 2 by design
         }
+    }
+
+    #[test]
+    fn default_weapon_only_on_fresh_spawn() {
+        let def = crate::constants::npc_def(Job::Archer);
+        assert!(def.default_weapon.is_some(), "archer should have a default weapon");
+
+        // Fresh spawn: activity is None -> weapon should be applied
+        let fresh = NpcSpawnOverrides::default();
+        assert!(fresh.activity.is_none());
+        assert!(fresh.equipment.weapon.is_none());
+        let is_fresh = fresh.activity.is_none();
+        assert!(is_fresh, "default overrides = fresh spawn");
+
+        // Save restore: activity is Some -> weapon should NOT be applied
+        let restored = NpcSpawnOverrides {
+            activity: Some(Activity::default()),
+            ..Default::default()
+        };
+        let is_restored_fresh = restored.activity.is_none();
+        assert!(!is_restored_fresh, "overrides with activity = save restore, not fresh");
     }
 }

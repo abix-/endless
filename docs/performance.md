@@ -465,117 +465,35 @@ Compact record of performance fixes applied. Each entry preserves the root cause
 
 **Pattern**: Bijection index — when a forward map (slot→entity) is frequently queried in reverse (entity→slot), add a parallel reverse HashMap. Documented in Canonical Key Model: "Secondary indexes are allowed for performance (`Entity -> slot`)". damage_system 5K: 1860µs → 228µs.
 
-## Benchmark History
-
-### 2026-03-10 — c55eefb
+## Benchmarks (2026-03-14 -- d507a1e)
 
 | System | 1K | 5K | 10K | 25K | 50K |
 |--------|----|----|-----|-----|-----|
-| decision | 41µs | 75µs | 113µs | 231µs | 409µs |
-| damage | 189µs | 1860µs | 5740µs | 35267µs | 145470µs |
-| healing | 11µs | 35µs | 71µs | 181µs | 392µs |
-| attack | 23µs | 75µs | 148µs | 356µs | 818µs |
-| resolve_movement | 20µs | 49µs | 65µs | 119µs | 220µs |
-| resolve_movement_unbounded | 33µs | 92µs | 164µs | 387µs | 773µs |
-| populate_gpu_state | 182µs | 199µs | 231µs | 473µs | 1041µs |
+| decision | 47us | 76us | 118us | 225us | 396us |
+| damage | 183us | 191us | 218us | 406us | 932us |
+| healing | 12us | 42us | 84us | 227us | 493us |
+| attack | 23us | 78us | 144us | 355us | 726us |
+| resolve_movement | 19us | 46us | 63us | 117us | 221us |
+| resolve_movement_unbounded | 33us | 86us | 158us | 375us | 766us |
+| populate_gpu_state | 189us | 193us | 236us | 480us | 1035us |
+| energy | 5us | 11us | 20us | 45us | 95us |
+| arrival | 18us | 27us | 35us | 63us | 112us |
+| gpu_position_readback | 5us | 17us | 32us | 76us | 152us |
+| advance_waypoints | 5us | 15us | 25us | 58us | 113us |
+| cooldown | 4us | 8us | 14us | 31us | 61us |
+| npc_regen | 2us | 2us | 3us | 2us | 2us |
+| on_duty_tick | 4us | 8us | 15us | 32us | 61us |
 
 | Building system | 100 | 500 | 1K | 5K | 50K |
 |-----------------|-----|-----|----|-----|------|
-| building_tower | 15µs | 22µs | 31µs | 121µs | 1612µs |
-| growth | 13µs | 16µs | 21µs | 55µs | 654µs |
-| construction_tick | 7µs | 16µs | 28µs | 121µs | 1052µs |
-| spawner_respawn | 19µs | 34µs | 56µs | 226µs | 1930µs |
+| building_tower | 15us | 19us | 24us | 65us | 652us |
+| growth | 14us | 18us | 24us | 61us | 636us |
+| construction_tick | 6us | 15us | 26us | 104us | 934us |
+| spawner_respawn | 28us | 39us | 64us | 267us | 2063us |
 
 | Death system | 100 | 500 | 1K | 5K | 25K |
 |-------------|-----|-----|----|-----|------|
-| death | 320µs | 1008µs | 2190µs | 12505µs | 65980µs |
+| death | 284us | 933us | 1825us | 11275us | 57873us |
 
-Combined 50K (decision+healing+attack+resolve_movement+populate_gpu_state): 2.9ms (18.0% of 16ms budget)
-
-Note: damage numbers from this run reflect O(n²) `slot_for_entity` bug (fixed in next entry).
-
-### 2026-03-10b — slot_for_entity O(n) → O(1) fix
-
-damage_system fix only (reverse index `entity_to_slot: HashMap<Entity, usize>` on EntityMap):
-
-| System | 1K | 5K |
-|--------|----|----|
-| damage | 200µs | 228µs |
-
-Previous (O(n²)): 189µs / 1860µs. At 5K: **88% faster**. Now O(n) — sublinear scaling because only count/10 entities are damaged.
-
-### 2026-03-11 — 27ec470
-
-Added 4 new NPC system benchmarks (energy, arrival, gpu_position_readback, advance_waypoints).
-
-| System | 1K | 5K | 10K | 25K | 50K |
-|--------|----|----|-----|-----|-----|
-| decision | 41µs | 72µs | 105µs | 218µs | 382µs |
-| damage | 186µs | 196µs | 216µs | 366µs | 860µs |
-| healing | 12µs | 40µs | 81µs | 206µs | 440µs |
-| attack | 22µs | 75µs | 140µs | 344µs | 693µs |
-| resolve_movement | 18µs | 46µs | 62µs | 115µs | 211µs |
-| resolve_movement_unbounded | 31µs | 87µs | 167µs | 375µs | 760µs |
-| populate_gpu_state | 53µs | 193µs | 230µs | 529µs | 983µs |
-| energy | 4µs | 10µs | 18µs | 40µs | 78µs |
-| arrival | 15µs | 24µs | 32µs | 59µs | 102µs |
-| gpu_position_readback | 5µs | 17µs | 29µs | 71µs | 156µs |
-| advance_waypoints | 5µs | 13µs | 21µs | 48µs | 94µs |
-
-| Building system | 100 | 500 | 1K | 5K | 50K |
-|-----------------|-----|-----|----|-----|------|
-| building_tower | 14µs | 21µs | 30µs | 117µs | 1491µs |
-| growth | 14µs | 16µs | 21µs | 55µs | 628µs |
-| construction_tick | 9µs | 14µs | 26µs | 99µs | 950µs |
-| spawner_respawn | 19µs | 34µs | 59µs | 237µs | 1720µs |
-
-| Death system | 100 | 500 | 1K | 5K | 25K |
-|-------------|-----|-----|----|-----|------|
-| death | 245µs | 809µs | 1580µs | 10281µs | 54702µs |
-
-Combined 50K NPC-scaled (10 systems): 3.5ms (21.9% of 16ms budget)
-Combined 50K all measured: 4.4ms (27.8% of 16ms budget)
-
-### 2026-03-11b — b34f4e0
-
-Added 5 new benchmarks (cooldown, npc_regen, on_duty_tick, spawn_npc, process_proj_hits).
-Fixed resolve_work_targets: early-return when no WorkIntentMsg (was scanning all buildings every tick).
-
-| System | 1K | 5K | 10K | 25K | 50K |
-|--------|----|----|-----|-----|-----|
-| decision | 41µs | 71µs | 111µs | 220µs | 404µs |
-| damage | 173µs | 189µs | 212µs | 393µs | 835µs |
-| healing | 12µs | 45µs | 92µs | 231µs | 481µs |
-| attack | 22µs | 72µs | 138µs | 331µs | 674µs |
-| resolve_movement | 19µs | 45µs | 63µs | 115µs | 212µs |
-| resolve_movement_unbounded | 33µs | 84µs | 156µs | 367µs | 723µs |
-| populate_gpu_state | 53µs | 193µs | 226µs | 520µs | 958µs |
-| energy | 3µs | 10µs | 19µs | 41µs | 79µs |
-| arrival | 16µs | 23µs | 31µs | 52µs | 92µs |
-| gpu_position_readback | 5µs | 19µs | 34µs | 82µs | 160µs |
-| advance_waypoints | 5µs | 13µs | 22µs | 48µs | 92µs |
-| cooldown | 5µs | 8µs | 14µs | 30µs | 58µs |
-| npc_regen | 2µs | 2µs | 3µs | 2µs | 3µs |
-| on_duty_tick | 3µs | 8µs | 14µs | 30µs | 59µs |
-
-| Building system | 100 | 500 | 1K | 5K | 50K |
-|-----------------|-----|-----|----|-----|------|
-| building_tower | 13µs | 18µs | 22µs | 61µs | 573µs |
-| growth | 13µs | 17µs | 22µs | 55µs | 580µs |
-| construction_tick | 6µs | 14µs | 24µs | 103µs | 927µs |
-| spawner_respawn | 19µs | 37µs | 59µs | 233µs | 1705µs |
-
-| Spawns/frame | 10 | 50 | 100 | 500 |
-|-------------|-----|------|------|------|
-| spawn_npc | 993µs | 2691µs | 3657µs | 10041µs |
-
-| Projectiles | 100 | 500 | 1K | 5K |
-|------------|-----|------|-----|-----|
-| process_proj_hits | 2µs | 2µs | 4µs | 10µs |
-
-| Death system | 100 | 500 | 1K | 5K | 25K |
-|-------------|-----|-----|----|-----|------|
-| death | 270µs | 803µs | 1594µs | 10077µs | 53957µs |
-
-Combined 50K NPC-scaled (13 systems): 4.1ms (25.6% of 16ms budget)
-Combined 50K all measured (realistic 2K buildings): 5.1ms (31.9% of 16ms budget)
+Combined 50K NPC-scaled (14 systems): 5.2ms (32.3% of 16ms budget)
+Combined 50K all measured (realistic 2K buildings): 6.3ms (39.4% of 16ms budget)

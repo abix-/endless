@@ -875,16 +875,33 @@ mod tests {
     }
 
     #[test]
-    fn terrain_costs_match_gpu_shader() {
-        // GPU shader: Road = 1.5x speed, Grass = 1.0x, Forest = 0.7x
-        // Cost = 100 / speed → Road=67, Grass=100, Forest=143
-        // Rock/Water are expensive but passable (NPCs avoid but can escape)
+    fn terrain_costs_strongly_bias_against_rock_and_water() {
         use crate::world::terrain_base_cost;
         assert_eq!(terrain_base_cost(Biome::Grass), 100);
         assert_eq!(terrain_base_cost(Biome::Dirt), 100);
         assert_eq!(terrain_base_cost(Biome::Forest), 143);
-        assert_eq!(terrain_base_cost(Biome::Rock), 500);
-        assert_eq!(terrain_base_cost(Biome::Water), 800);
+        assert_eq!(terrain_base_cost(Biome::Rock), 2500);
+        assert_eq!(terrain_base_cost(Biome::Water), 5000);
+    }
+
+    #[test]
+    fn astar_prefers_grass_detour_over_water_or_rock() {
+        let mut grid = make_grid(5, 2);
+        grid.cells[2].terrain = Biome::Water;
+        grid.cells[3].terrain = Biome::Rock;
+        grid.init_pathfind_costs();
+
+        let path = pathfind_on_grid(
+            &grid,
+            IVec2::new(0, 0),
+            IVec2::new(4, 0),
+            5000,
+        ).expect("should find path around costly terrain");
+
+        assert!(
+            path.iter().all(|p| !(p.y == 0 && (p.x == 2 || p.x == 3))),
+            "path should detour around costly water/rock cells: {path:?}"
+        );
     }
 
     #[test]

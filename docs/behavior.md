@@ -4,9 +4,18 @@
 
 NPC decision-making and state transitions. All run in `Step::Behavior` after combat is resolved. Movement targets are submitted via `MovementIntents` resource with priority-based arbitration — `resolve_movement_system` (after Step::Behavior) is the sole emitter of `GpuUpdate::SetTarget`. For economy systems (farm growth, starvation, raider foraging, raider respawning, game time), see [economy.md](economy.md).
 
+Current implementation only: the target-state redesign spec lives in [npc-activity-controller.md](npc-activity-controller.md).
+
+**Phase model**: All 10 activities use explicit `ActivityPhase` + `ActivityTarget`. All transitions go through `transition_activity()` / `transition_phase()` helpers. See [npc-activity-controller.md](npc-activity-controller.md) for the full spec.
+
+- `ActivityPhase`: `Ready` (idle), `Transit` (walking), `Active` (sustained work/recovery), `Holding` (waiting on external condition)
+- `ActivityTarget`: `None` (idle/wander), `Home` (rest), `Fountain` (heal), `PatrolPost { route, index }` (patrol), `SquadPoint(Vec2)` (squad target), `Worksite` (work/mine -- identity in `NpcWorkState.worksite`), `RaidPoint(Vec2)` (enemy farm), `Dropoff` (loot delivery)
+- Priority 0 arrival gate: only fires for `Transit` or `Ready` phase
+- `visual_key()` uses `phase == Active` for sleep icon
+
 **Unified Decision System**: All NPC decisions are handled by `decision_system` using a priority cascade. NPC state is modeled by two orthogonal components (concurrent state machines pattern):
 
-- `Activity` struct: what the NPC is *doing*. Contains `kind: ActivityKind` + `ticks_waiting: u32` + payload fields (`target_pos: Vec2`, `worksite: usize`, `recover_until: f32`). The `kind` field determines which payload fields are meaningful.
+- `Activity` struct: what the NPC is *doing*. Contains `kind: ActivityKind` + `phase: ActivityPhase` + `target: ActivityTarget` + `ticks_waiting: u32` + `recover_until: f32` (Heal HP threshold). All 10 activities use explicit phase/target. No `target_pos` -- destination identity lives in `ActivityTarget` variants or `NpcWorkState.worksite`.
 - `ActivityKind` enum (10 fieldless variants): `Idle, Work, Patrol, SquadAttack, Rest, Heal, Wander, Raid, ReturnLoot, Mine`. Derives `Copy + Eq + Hash`. Registry key — metadata lives in `ACTIVITY_REGISTRY` (constants.rs).
 - `ActivityDef` struct (constants.rs): per-kind metadata — `label`, `distraction`, `sleep_visual`, `is_restful`, `is_working`. Accessed via `kind.def()` or `activity_def(kind)`.
 - `Distraction` enum: per-activity combat policy — `None` (Rest/Heal/ReturnLoot: never fight), `ByDamage` (Work/Mine: fight back only when hit), `ByEnemy` (Patrol/SquadAttack/Idle/Wander/Raid: engage nearby enemies). Queried via `activity.kind.distraction()` (delegates to registry).
@@ -27,7 +36,7 @@ Priority order (first match wins), with two-cadence top-of-loop bucket gating (s
 **DirectControl skip** (before all priorities): NPCs with `direct_control` flag skip the entire decision system — no autonomous behavior whatsoever. The system clears `at_destination` if present to prevent stale arrival flags. DC NPCs may accumulate loot in `ActivityKind::ReturnLoot` while fighting (via `dc_no_return` toggle) — the ReturnLoot activity is inert while DC is active. When a DC right-click move/attack command is issued (`click_to_select_system` in render.rs), resting NPCs (`ActivityKind::Rest`) are woken to `Idle` so they respond to the command instead of sliding while asleep. **Fair mining queue**: DC miners with a gold mine worksite check distance to mine — if out of `drift_radius`, release queue spot via `WorkIntent::Release` and clear worksite. Prevents DC-moved miners from hogging harvest priority.
 
 **Priority 0 — arrivals** (every bucket tick):
-0. `at_destination` → Handle arrival transitions
+0. `at_destination` + phase is `Transit` or `Ready` → Handle arrival transitions. Phase-migrated activities (Rest, Heal) transition from `Transit` to `Active`. Phase gate prevents `Active` NPCs from re-entering the arrival handler.
 -- Farmer en-route retarget (Work + target farm occupied by other → `find_farmer_farm_target()` local search with claim/release lifecycle, or idle) --
 
 **Priority 1-3 — combat decisions** (every bucket tick, fighting NPCs on COMBAT_BUCKET cadence):
@@ -36,8 +45,8 @@ Priority order (first match wins), with two-cadence top-of-loop bucket gating (s
 3. CombatState::Fighting → Skip (attack_system handles)
 
 **Priority 4-7 — idle/work decisions** (every bucket tick):
-4a. Heal + HP >= threshold → Wake (HP-only check)
-4b. Rest + energy >= 90% → Wake (energy-only check)
+4a. Heal+Active + HP >= threshold → Wake to `Idle+Ready`; Heal+Transit → skip (waiting for arrival)
+4b. Rest+Active + energy >= 90% → Wake to `Idle+Ready`; Rest+Transit → skip (waiting for arrival)
 5. Work/Mine + tired? → Stop work
 6. Patrol + time_to_advance? → next waypoint
 7. Idle → Score Eat/Rest/Work/Wander (wounded → fountain, tired → home)
@@ -163,34 +172,36 @@ Two concurrent state machines: `Activity.kind` (what NPC is doing) and `CombatSt
 
 | ECS Component | Type | Purpose |
 |-----------|------|---------|
-| Activity | struct: `kind: ActivityKind` + `ticks_waiting: u32` | What the NPC is *doing* — mutually exclusive |
+| Activity | struct: `kind: ActivityKind` + `phase: ActivityPhase` + `target: ActivityTarget` + `ticks_waiting: u32` | What the NPC is *doing* — mutually exclusive. Phase/target used for Rest/Heal (Slice 1); other activities default to `Ready`/`None`. |
 | CombatState | enum: `None, Fighting{origin}, Fleeing` | Whether the NPC is *fighting* — orthogonal to Activity |
 
-**ActivityKind enum** (10 collapsed variants — no transit/at-dest split):
-- `Idle` — default, enters utility scoring
-- `Work { worksite: usize }` — farmer/miner at worksite (transit vs working distinguished by `at_destination`)
-- `Patrol` — walking between posts or standing guard (replaces old OnDuty + Patrolling)
-- `SquadAttack { target: Vec2 }` — walking to or fighting at squad target
-- `Rest` — walking home or sleeping (distinguished by `at_destination`)
-- `Heal { recover_until: f32 }` — walking to or healing at fountain (HP threshold stored in variant)
-- `Wander` — random movement near home
-- `Raid { target: Vec2 }` — walking to or stealing from enemy farm
-- `ReturnLoot` — carrying loot home (replaces old Returning)
-- `Mine { mine_pos: Vec2 }` — walking to or working at mine
+**ActivityKind enum** (10 fieldless variants):
+- `Idle` — default, enters utility scoring (`phase: Ready`)
+- `Work` — **phase-aware**: `Transit+Worksite` = walking to farm, `Active+Worksite` = tending. Farmer en-route retarget only fires during `Transit`.
+- `Patrol` — **phase-aware**: `Transit+PatrolPost{route,index}` = walking to post, `Holding+PatrolPost{...}` = on duty at post. `ticks_waiting` only increments during `Holding`.
+- `SquadAttack` — **phase-aware**: `Transit+SquadPoint(Vec2)` = walking to squad target, `Holding+SquadPoint(Vec2)` = at squad target. Idle archers with squad targets enter SquadAttack (not Patrol).
+- `Rest` — **phase-aware (Slice 1)**: `Transit+Home` = walking home, `Active+Home` = sleeping
+- `Heal` — **phase-aware (Slice 1)**: `Transit+Fountain` = walking to fountain, `Active+Fountain` = healing. `recover_until` threshold stored in Activity payload.
+- `Wander` — **phase-aware**: `Transit+None` = random movement near home. Completes to `Idle+Ready`.
+- `Raid` — **phase-aware**: `Transit+RaidPoint(Vec2)` = walking to enemy farm. Legacy activity (new games use SquadAttack for raiders).
+- `ReturnLoot` — **phase-aware**: `Transit+Dropoff` = carrying loot home. Delivery handled by `arrival_system`.
+- `Mine` — **phase-aware**: `Transit+Worksite` = walking to mine, `Holding+Worksite` = tending/queued. Mine identity from `NpcWorkState.worksite`.
 
 **Distraction enum** (per-activity combat policy): `None` (Rest/Heal/ReturnLoot), `ByDamage` (Work/Mine), `ByEnemy` (all others). Queried via `activity.kind.distraction()`. Used by `attack_system` to skip non-combatants.
 
-**Activity methods**: `Activity::new(kind)` constructor, `visual_key(at_dest: bool)` for GPU sprite selection, `name()` for display label.
+**Activity methods**: `Activity::new(kind)` constructor, `visual_key()` for GPU sprite selection (sleep icon when `phase == Active` + `sleep_visual`), `name()` for display label.
 
-**`NpcFlags::at_destination`** replaces the old transit concept. Set by `gpu_position_readback` when NPC position ≈ GPU target. Cleared by movement system on new `SetTarget`. The decision system reads this flag to distinguish "walking to work" from "working at farm".
+**Transition helpers** (behavior.rs): `transition_activity(&mut activity, kind, phase, target)` — full transition, resets `ticks_waiting` and `target_pos`. `transition_phase(&mut activity, phase)` — phase-only change, resets `ticks_waiting`.
+
+**`NpcFlags::at_destination`** is a movement sensor. Set by `gpu_position_readback` when NPC position ~= GPU target. Cleared by movement system on new `SetTarget`. For phase-migrated activities (Rest, Heal), `Activity.phase` is the authoritative state; `at_destination` triggers the Transit->Active transition. For un-migrated activities, the decision system still reads `at_destination` directly.
 
 **Waypoint advancement is decoupled from activity state**: `gpu_position_readback` and `advance_waypoints_system` check `has_path` (whether `NpcPath` has remaining waypoints). Any activity can follow multi-waypoint paths.
 
-`Rest` — energy recovery. NPCs go home (spawner) to rest. `at_destination` = sleeping.
+`Rest` — energy recovery. NPCs go home (spawner) to rest. Phase-aware: `Transit+Home` = walking home, `Active+Home` = sleeping. Sleep icon shown only during `Active` phase.
 
-`Heal { recover_until }` — HP threshold stored in variant data. NPC walks to fountain, heals until HP >= threshold, then resumes. Separate from energy rest.
+`Heal` — HP recovery at fountain. `recover_until` threshold stored in Activity payload. Phase-aware: `Transit+Fountain` = walking to fountain, `Active+Fountain` = healing. Early arrival: NPCs within 100px of town center transition directly to `Active` even if `at_destination` not yet set.
 
-`Mine { mine_pos }` — mine position stored in variant data. `at_destination` = actively extracting gold (claims occupancy, progress-based 4-hour work cycle with gold progress bar overhead).
+`Mine` — mine position stored in `target_pos` payload. `at_destination` = actively extracting gold (claims occupancy, progress-based 4-hour work cycle with gold progress bar overhead). Pending Slice 3 phase migration.
 
 ### NPC ECS Components
 
@@ -278,8 +289,8 @@ All NPC gameplay state lives in ECS components on entities. `EntityMap` provides
 - **Decision logging**: Each decision logged to `NpcLogCache`
 
 ### on_duty_tick_system
-- Query-first: `(&mut Activity, &CombatState)` with `With<PatrolRoute>, Without<Building>, Without<Dead>` — only iterates patrol-capable NPCs (~200 archers), not all 50K NPCs
-- Increments `activity.ticks_waiting` each frame for NPCs with `ActivityKind::Patrol` where `CombatState` is not Fighting
+- Query-first: `(&mut Activity, &CombatState)` with `With<PatrolRoute>, Without<Building>, Without<Dead>` -- only iterates patrol-capable NPCs (~200 archers), not all 50K NPCs
+- Increments `activity.ticks_waiting` each frame for NPCs with `ActivityKind::Patrol` AND `ActivityPhase::Holding` where `CombatState` is not Fighting. Phase gate prevents tick accumulation during Transit (walking between posts).
 
 ### arrival_system (Proximity Checks)
 - **Proximity-based delivery** for ReturnLoot NPCs: matches `ActivityKind::ReturnLoot`, checks distance to home, delivers food and/or gold within DELIVERY_RADIUS (50px). All NPCs (including farmers) go `Idle` after delivery — the decision system re-evaluates the best target. Gold delivered to `GoldStore` ECS component per town (via `TownAccess`).

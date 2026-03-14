@@ -108,7 +108,7 @@ Frame execution order ────────────────▶ [frame
 | [rendering.md](rendering.md) | TilemapChunk terrain, GPU instanced buildings/NPCs/equipment, 4-atlas pipeline (char/world/extras/building), explicit sort-key pass ordering, RenderCommand pattern, camera controls, health bars | 8/10 |
 | [combat.md](combat.md) | Attack → damage → death → XP grant → cleanup, slot recycling | 8/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation, DRY save-load via materialize_npc | 8/10 |
-| [behavior.md](behavior.md) | Decision system (fieldless ActivityKind + ActivityDef registry + Distraction enum), utility AI, at_destination flag, energy, patrol, flee/leash (bucketing formulas → performance.md) | 8/10 |
+| [behavior.md](behavior.md) | Decision system (ActivityKind + ActivityPhase + ActivityTarget, transition helpers, ActivityDef registry, Distraction enum), utility AI, energy, patrol, flee/leash (bucketing formulas → performance.md) | 8/10 |
 | [ai-player.md](ai-player.md) | AI decision loop, hunger system, building scoring, slot placement, squad commander, migration | 8/10 |
 | [economy.md](economy.md) | Farm growth, food theft, starvation, raider foraging, spawner respawn (ECS ProductionState/SpawnerState/ConstructionProgress), dynamic raider town migration (spawn→boat→disembark→walk→settle) | 8/10 |
 | [messages.md](messages.md) | Message flow, GpuUpdateMsg, GAME_CONFIG_STAGING, readback resources (authority → [authority.md](authority.md)) | 7/10 |
@@ -119,6 +119,8 @@ Frame execution order ────────────────▶ [frame
 | [brp.md](brp.md) | Live game data access via HTTP JSON-RPC (localhost:15702), reflected types, query examples | 9/10 |
 | [llm-player.md](llm-player.md) | Built-in LLM player (claude --print), external player setup, data model, token budget | - |
 | [k8s.md](k8s.md) | CRD architecture (Def→Instance→Controller), K8s mapping, compliance checklist | - |
+| [npc-activity-controller.md](npc-activity-controller.md) | Target-state spec for deterministic NPC behavior using `Activity.kind` + `Activity.phase` reconcile control | - |
+| [ai-collab-workflow.md](ai-collab-workflow.md) | Lightweight GitHub milestone + issues + handoff workflow for human + Codex + Claude collaboration | - |
 | [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
 | [roadmap.md](roadmap.md) | Feature tracking, migration plan | - |
 

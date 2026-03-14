@@ -16,10 +16,6 @@ const GRID_ROWS: usize = 5;
 
 // Terrain row (row 3 in grid = second from top)
 const TERRAIN_ROW: usize = 3;
-const TERRAIN_LABELS: [&str; GRID_COLS] = [
-    "Grass A", "Grass B", "Forest A", "Forest B", "Forest C", "Forest D", "Forest E", "Forest F",
-    "Water", "Rock", "Dirt",
-];
 
 // Building row (row 1 in grid)
 const BUILDING_ROW: usize = 1;
@@ -56,11 +52,13 @@ pub fn setup(
         GRID_COLS * GRID_ROWS
     ];
 
-    // Row 3: terrain showcase — each column gets a distinct biome
+    // Row 3: terrain showcase — each column gets a distinct biome.
+    // Variant selection is hash-based, so labels are computed from the
+    // actual tileset index during rendering instead of assuming a fixed order.
     for col in 0..GRID_COLS {
         let idx = TERRAIN_ROW * GRID_COLS + col;
         grid.cells[idx].terrain = match col {
-            0 => Biome::Grass, // tileset_index uses cell_index % 2
+            0 => Biome::Grass,
             1 => Biome::Grass,
             2..=7 => Biome::Forest,
             8 => Biome::Water,
@@ -169,7 +167,23 @@ pub fn tick(
     };
 
     // Terrain labels (above terrain row)
-    for (col, &label) in TERRAIN_LABELS.iter().enumerate().take(GRID_COLS) {
+    for col in 0..GRID_COLS {
+        let idx = TERRAIN_ROW * GRID_COLS + col;
+        let tile_idx = grid.cells[idx].terrain.tileset_index(idx);
+        let label = match tile_idx {
+            0 => "Grass A",
+            1 => "Grass B",
+            2 => "Forest A",
+            3 => "Forest B",
+            4 => "Forest C",
+            5 => "Forest D",
+            6 => "Forest E",
+            7 => "Forest F",
+            8 => "Water",
+            9 => "Rock",
+            10 => "Dirt",
+            _ => "Unknown",
+        };
         let pos = cell_center(col, TERRAIN_ROW) + Vec2::new(0.0, grid.cell_size * 0.7);
         let screen = world_to_screen(pos);
         egui::Area::new(egui::Id::new(format!("terrain_label_{}", col)))

@@ -819,6 +819,10 @@ fn debug_npc(world: &mut World, target_entity: Entity, slot: usize) -> BrpResult
             "slot": slot,
             "job": format!("{:?}", job),
             "activity": activity.name(),
+            "activity_phase": format!("{:?}", activity.phase),
+            "activity_target": format!("{:?}", activity.target),
+            "transition_reason": activity.reason,
+            "last_transition_frame": activity.last_frame,
             "combat_state": combat_state.name(),
             "hp": health.0,
             "max_hp": stats.max_health,
@@ -1442,5 +1446,104 @@ pub fn drain_remote_queues(
     for msg in llm_log_q.0.drain(..) {
         log_ring.push(msg.clone());
         combat_log.write(msg);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::components::{
+        Activity, ActivityKind, ActivityPhase, ActivityTarget, CachedStats, CarriedLoot,
+        CombatState, Faction, GpuSlot, Health, Home, Job, NpcEquipment, NpcFlags, NpcWorkState,
+        Personality, Speed, TownId,
+    };
+    use crate::gpu::{EntityGpuState, NpcVisualUpload, ProjBufferWrites};
+    use crate::resources::{
+        EntityMap, GameTime, GpuReadState, NpcLogCache, NpcTargetThrashDebug, ProjPositionState,
+        SquadState, TownIndex,
+    };
+    use crate::world::WorldData;
+
+    fn decode_toon(response: Value) -> Value {
+        let encoded = response.as_str().expect("debug response should be TOON text");
+        serde_toon2::from_str(encoded).expect("debug response should decode from TOON")
+    }
+
+    fn setup_debug_world(activity: Activity) -> (World, Entity, usize) {
+        let mut world = World::default();
+        world.insert_resource(EntityMap::default());
+        world.insert_resource(NpcLogCache::default());
+        world.insert_resource(NpcTargetThrashDebug::default());
+        world.insert_resource(GpuReadState::default());
+        world.insert_resource(WorldData::default());
+        world.insert_resource(TownIndex::default());
+        world.insert_resource(SquadState::default());
+        world.insert_resource(GameTime::default());
+        world.insert_resource(EntityGpuState::default());
+        world.insert_resource(NpcVisualUpload::default());
+        world.insert_resource(ProjBufferWrites::default());
+        world.insert_resource(ProjPositionState::default());
+
+        let slot = 7;
+        let entity = world
+            .spawn_empty()
+            .insert((
+                GpuSlot(slot),
+                Job::Archer,
+                activity,
+                Health(42.0),
+                crate::components::Energy(81.5),
+                Speed(123.0),
+                Home(Vec2::new(96.0, 64.0)),
+                TownId(-1),
+            ))
+            .insert((
+                Faction(3),
+                CarriedLoot::default(),
+                NpcWorkState::default(),
+                NpcFlags::default(),
+                CombatState::None,
+                Personality::default(),
+                CachedStats {
+                    damage: 9.0,
+                    range: 120.0,
+                    cooldown: 1.5,
+                    projectile_speed: 0.0,
+                    projectile_lifetime: 0.0,
+                    max_health: 50.0,
+                    speed: 123.0,
+                    stamina: 1.0,
+                    hp_regen: 0.25,
+                    berserk_bonus: 0.0,
+                },
+                NpcEquipment::default(),
+            ))
+            .id();
+
+        world.resource_mut::<EntityMap>().register_npc(slot, entity, Job::Archer, 3, -1);
+        (world, entity, slot)
+    }
+
+    #[test]
+    fn debug_npc_includes_activity_transition_fields() {
+        let activity = Activity {
+            kind: ActivityKind::Patrol,
+            phase: ActivityPhase::Holding,
+            target: ActivityTarget::PatrolPost { route: 2, index: 5 },
+            ticks_waiting: 11,
+            recover_until: 0.0,
+            reason: "unit-test",
+            last_frame: 77,
+        };
+        let (mut world, entity, slot) = setup_debug_world(activity);
+
+        let response = debug_npc(&mut world, entity, slot).expect("debug_npc should succeed");
+        let data = decode_toon(response);
+
+        assert_eq!(data["activity"], "Patrol");
+        assert_eq!(data["activity_phase"], "Holding");
+        assert_eq!(data["activity_target"], "PatrolPost { route: 2, index: 5 }");
+        assert_eq!(data["transition_reason"], "unit-test");
+        assert_eq!(data["last_transition_frame"], 77);
     }
 }

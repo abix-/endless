@@ -627,6 +627,9 @@ pub fn place_building(
         if matches!(cell.terrain, Biome::Water | Biome::Rock) {
             return Err("cannot build on water or rock");
         }
+        if kind.is_road() && cell.terrain == Biome::Forest {
+            return Err("cannot build road on forest");
+        }
         if ctx.grid.is_foreign_territory(gc, gr, town_idx as u16) {
             return Err("cannot build in foreign territory");
         }
@@ -731,6 +734,21 @@ pub fn place_building(
     if let Some(ctx) = ctx {
         if crate::constants::building_def(kind).autotile {
             update_autotile_around(ctx.grid, entity_map, gc, gr, kind, gpu_updates);
+        }
+        // Roads expand the buildable area immediately so chained placement works
+        if let Some(radius) = kind.road_build_radius() {
+            let ti16 = town_idx as u16;
+            let rc = gc as i32;
+            let rr = gr as i32;
+            for dr in -radius..=radius {
+                let row = (rr + dr) as usize;
+                if row >= ctx.grid.height { continue; }
+                for dc in -radius..=radius {
+                    let col = (rc + dc) as usize;
+                    if col >= ctx.grid.width { continue; }
+                    ctx.grid.add_town_buildable(col, row, ti16);
+                }
+            }
         }
     }
     if let Some(dw) = dirty_writers {
@@ -1162,22 +1180,32 @@ pub enum Biome {
 
 impl Biome {
     /// Map biome + cell index to tileset array index (0-10) for TilemapChunk.
-    /// Grass alternates 0/1, Forest cycles 2-7, Water=8, Rock=9, Dirt=10.
+    /// Grass=0 (single variant), Forest picks 2-7, Water=8, Rock=9, Dirt=10.
+    /// Uses a hash of the cell index for pseudo-random but deterministic variant selection,
+    /// avoiding visible checkerboard/cycle patterns from plain modulo.
     pub fn tileset_index(self, cell_index: usize) -> u16 {
         match self {
-            Biome::Grass => {
-                if cell_index.is_multiple_of(2) {
-                    0
-                } else {
-                    1
-                }
-            }
-            Biome::Forest => 2 + (cell_index % 6) as u16,
+            Biome::Grass => 0,
+            Biome::Forest => 2 + tile_hash(cell_index, 6) as u16,
             Biome::Water => 8,
             Biome::Rock => 9,
             Biome::Dirt => 10,
         }
     }
+}
+
+/// Fast deterministic hash for tile variant selection.
+/// Returns a value in `0..variants` that looks random but is stable for a given cell.
+/// Uses splitmix64 finalizer for excellent distribution on sequential inputs.
+#[inline]
+fn tile_hash(cell_index: usize, variants: usize) -> usize {
+    let mut h = cell_index as u64;
+    h ^= h >> 30;
+    h = h.wrapping_mul(0xbf58476d1ce4e5b9);
+    h ^= h >> 27;
+    h = h.wrapping_mul(0x94d049bb133111eb);
+    h ^= h >> 31;
+    h as usize % variants
 }
 
 // TileSpec is now in constants.rs (part of BUILDING_REGISTRY)
@@ -1198,6 +1226,23 @@ pub const TERRAIN_TILES: [TileSpec; 11] = [
     TileSpec::Single(8, 10),                              // 10: Dirt
 ];
 
+/// Per-layer base tile for terrain tileset compositing.
+/// Layers with transparent pixels need a grass base underneath.
+/// Fully opaque tiles (grass, water, dirt) need no base.
+const TERRAIN_BASES: [Option<(u32, u32)>; 11] = [
+    None,           // 0: Grass A (opaque)
+    None,           // 1: Grass B (opaque)
+    Some((3, 16)),  // 2: Forest A (tree over Grass A)
+    Some((3, 16)),  // 3: Forest B
+    Some((3, 16)),  // 4: Forest C
+    Some((3, 16)),  // 5: Forest D
+    Some((3, 16)),  // 6: Forest E
+    Some((3, 16)),  // 7: Forest F
+    None,           // 8: Water (opaque)
+    Some((3, 16)),  // 9: Rock (quad has transparent pixels, needs Grass A base)
+    None,           // 10: Dirt (opaque)
+];
+
 /// Build the BUILDING_TILES array from the registry (for atlas construction).
 pub fn building_tiles() -> Vec<crate::constants::TileSpec> {
     crate::constants::BUILDING_REGISTRY
@@ -1208,7 +1253,10 @@ pub fn building_tiles() -> Vec<crate::constants::TileSpec> {
 
 /// Composite tiles into a vertical strip buffer (ATLAS_CELL x ATLAS_CELL*layers).
 /// Core logic shared by tilemap tileset and building atlas.
-fn build_tile_strip(atlas: &Image, tiles: &[TileSpec], extra: &[&Image]) -> (Vec<u8>, u32) {
+/// `bases` provides an optional base tile per layer -- layers with a base are pre-filled
+/// and subsequent sprites are alpha-composited on top (transparent pixels keep the base).
+/// Pass an empty slice for no bases (building atlas).
+fn build_tile_strip(atlas: &Image, tiles: &[TileSpec], extra: &[&Image], bases: &[Option<(u32, u32)>]) -> (Vec<u8>, u32) {
     let sprite = SPRITE_SIZE as u32; // 16 (source texel size)
     let out_size = ATLAS_CELL; // 64
     let scale = out_size / sprite; // 4x upscale from 16px source
@@ -1216,17 +1264,51 @@ fn build_tile_strip(atlas: &Image, tiles: &[TileSpec], extra: &[&Image]) -> (Vec
     let cell_size = CELL as u32; // 17 (16px + 1px margin in source sheet)
     let atlas_width = atlas.width();
     let layers = tiles.len() as u32;
+    let layer_bytes = (out_size * out_size * 4) as usize;
 
-    let mut data = vec![0u8; (out_size * out_size * layers * 4) as usize];
+    let mut data = vec![0u8; layer_bytes * layers as usize];
     let atlas_data = atlas.data.as_ref().expect("atlas image has no data");
 
-    // Blit a 16x16 source sprite with 2x upscale into a 32x32 quadrant at (dx, dy)
-    let blit_2x = |data: &mut [u8], layer: u32, col: u32, row: u32, dx: u32, dy: u32| {
+    // Pre-fill layers that have a base tile so decorations composite
+    // over terrain instead of showing a black/transparent background.
+    // Cache rendered base tiles to avoid redundant blitting.
+    let mut base_cache: std::collections::HashMap<(u32, u32), Vec<u8>> = std::collections::HashMap::new();
+    for (l, base_opt) in bases.iter().enumerate() {
+        if let Some(&(base_col, base_row)) = base_opt.as_ref() {
+            let base_layer = base_cache
+                .entry((base_col, base_row))
+                .or_insert_with(|| {
+                    let src_x = base_col * cell_size;
+                    let src_y = base_row * cell_size;
+                    let mut buf = vec![0u8; layer_bytes];
+                    for ty in 0..sprite {
+                        for tx in 0..sprite {
+                            let si = ((src_y + ty) * atlas_width + (src_x + tx)) as usize * 4;
+                            for oy in 0..scale {
+                                for ox in 0..scale {
+                                    let di =
+                                        ((ty * scale + oy) * out_size + (tx * scale + ox)) as usize * 4;
+                                    buf[di..di + 4].copy_from_slice(&atlas_data[si..si + 4]);
+                                }
+                            }
+                        }
+                    }
+                    buf
+                });
+            let off = l * layer_bytes;
+            data[off..off + layer_bytes].copy_from_slice(base_layer);
+        }
+    }
+
+    // Blit a 16x16 source sprite with 2x upscale into a 32x32 quadrant at (dx, dy).
+    // When `skip_transparent` is true, transparent source pixels preserve the base.
+    let blit_2x = |data: &mut [u8], layer: u32, col: u32, row: u32, dx: u32, dy: u32, skip_transparent: bool| {
         let src_x = col * cell_size;
         let src_y = row * cell_size;
         for ty in 0..sprite {
             for tx in 0..sprite {
                 let si = ((src_y + ty) * atlas_width + (src_x + tx)) as usize * 4;
+                if skip_transparent && atlas_data[si + 3] == 0 { continue; }
                 for oy in 0..2u32 {
                     for ox in 0..2u32 {
                         let di = (layer * out_size * out_size
@@ -1252,6 +1334,8 @@ fn build_tile_strip(atlas: &Image, tiles: &[TileSpec], extra: &[&Image]) -> (Vec
                 for ty in 0..sprite {
                     for tx in 0..sprite {
                         let si = ((src_y + ty) * atlas_width + (src_x + tx)) as usize * 4;
+                        let skip = bases.get(layer).is_some_and(|b| b.is_some());
+                        if skip && atlas_data[si + 3] == 0 { continue; }
                         for oy in 0..scale {
                             for ox in 0..scale {
                                 let di = (l * out_size * out_size
@@ -1266,11 +1350,12 @@ fn build_tile_strip(atlas: &Image, tiles: &[TileSpec], extra: &[&Image]) -> (Vec
                 }
             }
             TileSpec::Quad(q) => {
+                let skip = bases.get(layer).is_some_and(|b| b.is_some());
                 // Each 16px quadrant is 2x upscaled to 32px, filling the 64px cell
-                blit_2x(&mut data, l, q[0].0, q[0].1, 0, 0); // TL
-                blit_2x(&mut data, l, q[1].0, q[1].1, half, 0); // TR
-                blit_2x(&mut data, l, q[2].0, q[2].1, 0, half); // BL
-                blit_2x(&mut data, l, q[3].0, q[3].1, half, half); // BR
+                blit_2x(&mut data, l, q[0].0, q[0].1, 0, 0, skip); // TL
+                blit_2x(&mut data, l, q[1].0, q[1].1, half, 0, skip); // TR
+                blit_2x(&mut data, l, q[2].0, q[2].1, 0, half, skip); // BL
+                blit_2x(&mut data, l, q[3].0, q[3].1, half, half, skip); // BR
             }
             TileSpec::External(_path) => {
                 let Some(ext) = extra.get(ext_counter).copied() else {
@@ -1319,7 +1404,7 @@ pub fn build_tileset(
     extra: &[&Image],
     images: &mut Assets<Image>,
 ) -> Handle<Image> {
-    let (data, layers) = build_tile_strip(atlas, tiles, extra);
+    let (data, layers) = build_tile_strip(atlas, tiles, extra, &TERRAIN_BASES);
     let out_size = ATLAS_CELL;
     let mut image = Image::new(
         Extent3d {
@@ -1384,7 +1469,7 @@ pub fn build_building_atlas(
     extra: &[&Image],
     images: &mut Assets<Image>,
 ) -> Handle<Image> {
-    let (mut data, base_layers) = build_tile_strip(atlas, tiles, extra);
+    let (mut data, base_layers) = build_tile_strip(atlas, tiles, extra, &[]);
     let out_size = ATLAS_CELL;
     let layer_bytes = (out_size * out_size * 4) as usize;
 
@@ -1791,15 +1876,17 @@ impl WorldGrid {
     }
 }
 
-/// Terrain base cost for pathfinding (matches GPU shader speed multipliers).
-/// Higher cost = slower traversal. 0 = truly impassable (walls only).
-/// Water/Rock are expensive so NPCs avoid them but can escape if pushed there.
+/// Terrain base cost for CPU pathfinding.
+/// Higher cost = less desirable route. 0 = truly impassable (walls only).
+/// Water/Rock stay passable so NPCs can escape bad positions, but their route
+/// cost is intentionally inflated well above movement-speed differences so A*
+/// strongly avoids them.
 pub(crate) fn terrain_base_cost(biome: Biome) -> u16 {
     match biome {
         Biome::Grass | Biome::Dirt => 100,
         Biome::Forest => 143,
-        Biome::Rock => 500,
-        Biome::Water => 800,
+        Biome::Rock => 2500,
+        Biome::Water => 5000,
     }
 }
 
@@ -2449,5 +2536,107 @@ fn generate_terrain_continents(grid: &mut WorldGrid) {
             cell.terrain = biome;
             cell.original_terrain = biome;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn road_blocked_on_forest_biome() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(crate::resources::EntityMap::default());
+        app.insert_resource(crate::resources::GpuSlotPool::default());
+        app.add_message::<crate::messages::GpuUpdateMsg>();
+
+        // 10x10 grid, all grass, town 0 owns everything
+        let mut grid = WorldGrid::default();
+        grid.width = 10;
+        grid.height = 10;
+        grid.cell_size = 32.0;
+        grid.cells = vec![
+            WorldCell { terrain: Biome::Grass, original_terrain: Biome::Grass };
+            100
+        ];
+        grid.town_owner = vec![0u16; 100];
+        // Set (5,5) to Forest
+        grid.cells[55].terrain = Biome::Forest;
+        grid.cells[55].original_terrain = Biome::Forest;
+
+        let world_data = WorldData {
+            towns: vec![Town {
+                name: "Test".into(),
+                center: Vec2::new(160.0, 160.0),
+                faction: 0,
+                kind: crate::constants::TownKind::Player,
+            }],
+        };
+
+        let forest_pos = grid.grid_to_world(5, 5);
+        let grass_pos = grid.grid_to_world(3, 3);
+
+        app.insert_resource(grid);
+        app.insert_resource(world_data);
+        app.update();
+
+        // Road on forest -> rejected
+        app.world_mut().run_system_once(move |
+            mut slot_alloc: ResMut<crate::resources::GpuSlotPool>,
+            mut entity_map: ResMut<crate::resources::EntityMap>,
+            mut commands: Commands,
+            mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
+            mut grid: ResMut<WorldGrid>,
+            world_data: Res<WorldData>,
+        | {
+            let result = place_building(
+                &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
+                BuildingKind::Road, forest_pos, 0, 0,
+                &BuildingOverrides::default(),
+                Some(BuildContext { grid: &mut grid, world_data: &world_data, food: &mut 9999, cost: 10 }),
+                None,
+            );
+            assert_eq!(result, Err("cannot build road on forest"));
+        }).unwrap();
+
+        // Road on grass -> accepted
+        app.world_mut().run_system_once(move |
+            mut slot_alloc: ResMut<crate::resources::GpuSlotPool>,
+            mut entity_map: ResMut<crate::resources::EntityMap>,
+            mut commands: Commands,
+            mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
+            mut grid: ResMut<WorldGrid>,
+            world_data: Res<WorldData>,
+        | {
+            let result = place_building(
+                &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
+                BuildingKind::Road, grass_pos, 0, 0,
+                &BuildingOverrides::default(),
+                Some(BuildContext { grid: &mut grid, world_data: &world_data, food: &mut 9999, cost: 10 }),
+                None,
+            );
+            assert!(result.is_ok(), "road on grass should succeed: {:?}", result);
+        }).unwrap();
+
+        // Waypoint on forest -> accepted (non-road buildings allowed)
+        app.world_mut().run_system_once(move |
+            mut slot_alloc: ResMut<crate::resources::GpuSlotPool>,
+            mut entity_map: ResMut<crate::resources::EntityMap>,
+            mut commands: Commands,
+            mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
+            mut grid: ResMut<WorldGrid>,
+            world_data: Res<WorldData>,
+        | {
+            let result = place_building(
+                &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
+                BuildingKind::Waypoint, forest_pos, 0, 0,
+                &BuildingOverrides::default(),
+                Some(BuildContext { grid: &mut grid, world_data: &world_data, food: &mut 9999, cost: 10 }),
+                None,
+            );
+            assert!(result.is_ok(), "waypoint on forest should succeed: {:?}", result);
+        }).unwrap();
     }
 }

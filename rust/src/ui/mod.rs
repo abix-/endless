@@ -1549,6 +1549,7 @@ fn build_place_click_system(
     mut damage_writer: MessageWriter<crate::messages::DamageMsg>,
     game_time: Res<GameTime>,
     _difficulty: Res<Difficulty>,
+    mut toast: ResMut<crate::save::SaveToast>,
 ) {
     if build_ctx.selected_build.is_none() && !build_ctx.destroy_mode {
         return;
@@ -1655,28 +1656,26 @@ fn build_place_click_system(
         }
         build_ctx.clear_drag();
         let cost = crate::constants::building_cost(kind);
-        if world_state
-            .place_building(
-                &mut food_val,
-                kind,
-                town_data_idx,
-                world_pos,
-                cost,
-                &mut gpu_updates,
-                &mut commands,
-            )
-            .is_ok()
-        {
-            let label = crate::constants::building_def(kind).label;
-            combat_log.write(crate::messages::CombatLogMsg {
-                kind: CombatEventKind::Harvest,
-                faction: 0,
-                day: game_time.day(),
-                hour: game_time.hour(),
-                minute: game_time.minute(),
-                message: format!("Built {} in {}", label.to_lowercase(), town_name),
-                location: None,
-            });
+        match world_state.place_building(
+            &mut food_val, kind, town_data_idx, world_pos, cost,
+            &mut gpu_updates, &mut commands,
+        ) {
+            Ok(()) => {
+                let label = crate::constants::building_def(kind).label;
+                combat_log.write(crate::messages::CombatLogMsg {
+                    kind: CombatEventKind::Harvest,
+                    faction: 0,
+                    day: game_time.day(),
+                    hour: game_time.hour(),
+                    minute: game_time.minute(),
+                    message: format!("Built {} in {}", label.to_lowercase(), town_name),
+                    location: None,
+                });
+            }
+            Err(reason) => {
+                toast.message = reason.to_string();
+                toast.timer = 2.0;
+            }
         }
         sync_food!();
         return;
@@ -1705,6 +1704,7 @@ fn build_place_click_system(
         let cost = crate::constants::building_cost(kind);
         let mut placed = 0usize;
         let mut upgraded = 0usize;
+        let mut last_err: Option<&str> = None;
         for (sc, sr) in slots_on_line(start, end) {
             let cell_pos = world_state.grid.grid_to_world(sc, sr);
             match world_state.place_building(
@@ -1714,14 +1714,21 @@ fn build_place_click_system(
                 Ok(()) => { placed += 1; }
                 Err("cell already has a building") => {
                     // Try upgrading existing road
-                    if world_state.upgrade_road(
+                    match world_state.upgrade_road(
                         &mut food_val, kind, town_data_idx, cell_pos,
                         &mut gpu_updates, &mut commands,
-                    ).is_ok() {
-                        upgraded += 1;
+                    ) {
+                        Ok(()) => { upgraded += 1; }
+                        Err(e) => { last_err = Some(e); }
                     }
                 }
-                Err(_) => {}
+                Err(e) => { last_err = Some(e); }
+            }
+        }
+        if placed == 0 && upgraded == 0 {
+            if let Some(reason) = last_err {
+                toast.message = reason.to_string();
+                toast.timer = 2.0;
             }
         }
         if placed > 0 || upgraded > 0 {
@@ -1752,27 +1759,26 @@ fn build_place_click_system(
     let label = crate::constants::building_def(kind).label;
     let (cc, cr) = world_state.grid.world_to_grid(center);
 
-    let mut try_place_at_slot = |slot_col: usize, slot_row: usize| -> bool {
+    let mut last_place_err: Option<&str> = None;
+    let mut try_place_at_slot = |slot_col: usize, slot_row: usize, err_out: &mut Option<&str>| -> bool {
         if !world_state.grid.can_town_build(slot_col, slot_row, town_data_idx as u16) {
+            *err_out = Some("outside buildable area");
             return false;
         }
         if slot_col == cc && slot_row == cr {
+            *err_out = Some("cannot build on town center");
             return false;
         }
         let pos = world_state.grid.grid_to_world(slot_col, slot_row);
         let cost = crate::constants::building_cost(kind);
 
-        world_state
-            .place_building(
-                &mut food_val,
-                kind,
-                town_data_idx,
-                pos,
-                cost,
-                &mut gpu_updates,
-                &mut commands,
-            )
-            .is_ok()
+        match world_state.place_building(
+            &mut food_val, kind, town_data_idx, pos, cost,
+            &mut gpu_updates, &mut commands,
+        ) {
+            Ok(()) => true,
+            Err(e) => { *err_out = Some(e); false }
+        }
     };
 
     if just_pressed {
@@ -1791,7 +1797,7 @@ fn build_place_click_system(
     let mut placed = 0usize;
     let mut first_placed: Option<(usize, usize)> = None;
     for (sc, sr) in slots_on_line(start, end) {
-        if try_place_at_slot(sc, sr) {
+        if try_place_at_slot(sc, sr, &mut last_place_err) {
             if first_placed.is_none() {
                 first_placed = Some((sc, sr));
             }
@@ -1799,6 +1805,10 @@ fn build_place_click_system(
         }
     }
     if placed == 0 {
+        if let Some(reason) = last_place_err {
+            toast.message = reason.to_string();
+            toast.timer = 2.0;
+        }
         return;
     }
 
@@ -1838,6 +1848,15 @@ struct SlotIndicatorCache {
     base_mat: Option<Handle<ColorMaterial>>,
     road_mat: Option<Handle<ColorMaterial>>,
     chain_mat: Option<Handle<ColorMaterial>>,
+}
+
+fn road_ui_cell_allowed(cell: Option<&world::WorldCell>) -> bool {
+    cell.is_some_and(|c| {
+        !matches!(
+            c.terrain,
+            world::Biome::Forest | world::Biome::Water | world::Biome::Rock
+        )
+    })
 }
 
 /// Marker for the build ghost preview sprite.
@@ -1996,9 +2015,7 @@ fn build_ghost_system(
             let cell_world = grid.grid_to_world(sc, sr);
             let cell = grid.cell(sc, sr);
             let empty = !entity_map.has_building_at(sc as i32, sr as i32);
-            let buildable_terrain = cell
-                .map(|c| !matches!(c.terrain, world::Biome::Water | world::Biome::Rock))
-                .unwrap_or(false);
+            let buildable_terrain = road_ui_cell_allowed(cell);
             let valid = empty && buildable_terrain && budget >= cost;
             if valid {
                 budget -= cost;
@@ -2297,6 +2314,9 @@ fn draw_slot_indicators(
     let (base_min_c, base_max_c, base_min_r, base_max_r) = world::build_bounds(area_level, center, &grid);
     let mut seen = std::collections::HashSet::new();
     for &(col, row) in &slots {
+        if is_road_selected && !road_ui_cell_allowed(grid.cell(col, row)) {
+            continue;
+        }
         seen.insert((col, row));
         let is_base = col >= base_min_c && col <= base_max_c && row >= base_min_r && row <= base_max_r;
         let mat = if is_base { &base_h } else { &road_h };
@@ -2350,8 +2370,12 @@ fn draw_slot_indicators(
             if seen.contains(&(col, row)) { continue; }
             if !seen.insert((col, row)) { continue; }
 
-            // Must be a valid world cell and empty
-            if grid.cell(col, row).is_none() || entity_map.has_building_at(col as i32, row as i32) {
+            // Must be a valid world cell, empty, and not forbidden terrain for roads
+            let cell = grid.cell(col, row);
+            if cell.is_none() || entity_map.has_building_at(col as i32, row as i32) {
+                continue;
+            }
+            if !road_ui_cell_allowed(cell) {
                 continue;
             }
 
@@ -2580,4 +2604,40 @@ pub(crate) fn game_cleanup_system(
     commands.remove_resource::<crate::systems::llm_player::LlmPlayerState>();
 
     info!("Game cleanup complete");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn road_ui_cell_allowed_rejects_tree_like_blockers() {
+        let grass = world::WorldCell {
+            terrain: world::Biome::Grass,
+            original_terrain: world::Biome::Grass,
+        };
+        let dirt = world::WorldCell {
+            terrain: world::Biome::Dirt,
+            original_terrain: world::Biome::Dirt,
+        };
+        let forest = world::WorldCell {
+            terrain: world::Biome::Forest,
+            original_terrain: world::Biome::Forest,
+        };
+        let water = world::WorldCell {
+            terrain: world::Biome::Water,
+            original_terrain: world::Biome::Water,
+        };
+        let rock = world::WorldCell {
+            terrain: world::Biome::Rock,
+            original_terrain: world::Biome::Rock,
+        };
+
+        assert!(road_ui_cell_allowed(Some(&grass)));
+        assert!(road_ui_cell_allowed(Some(&dirt)));
+        assert!(!road_ui_cell_allowed(Some(&forest)));
+        assert!(!road_ui_cell_allowed(Some(&water)));
+        assert!(!road_ui_cell_allowed(Some(&rock)));
+        assert!(!road_ui_cell_allowed(None));
+    }
 }

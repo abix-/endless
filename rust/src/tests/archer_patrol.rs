@@ -92,8 +92,7 @@ pub fn tick(
                 && n.job == Job::Archer
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Patrol))
-                && _npc_flags_q.get(n.entity).is_ok_and(|f| f.at_destination)
+                    .is_ok_and(|a| a.kind == ActivityKind::Patrol && a.phase == ActivityPhase::Holding)
         })
         .count();
     let patrolling = entity_map
@@ -103,8 +102,7 @@ pub fn tick(
                 && n.job == Job::Archer
                 && activity_q
                     .get(n.entity)
-                    .is_ok_and(|a| matches!(a.kind, ActivityKind::Patrol))
-                && _npc_flags_q.get(n.entity).is_ok_and(|f| !f.at_destination)
+                    .is_ok_and(|a| a.kind == ActivityKind::Patrol && a.phase == ActivityPhase::Transit)
         })
         .count();
     let resting = entity_map
@@ -153,7 +151,7 @@ pub fn tick(
                     .iter_npcs()
                     .find_map(|n| {
                         activity_q.get(n.entity).ok().and_then(|a| {
-                            if matches!(a.kind, ActivityKind::Patrol) && _npc_flags_q.get(n.entity).is_ok_and(|f| f.at_destination) {
+                            if a.kind == ActivityKind::Patrol && a.phase == ActivityPhase::Holding {
                                 Some(a.ticks_waiting)
                             } else {
                                 None

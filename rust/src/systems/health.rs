@@ -256,14 +256,16 @@ pub fn death_system(
             let pos = inst.position;
             let town_idx = inst.town_idx as usize;
 
-            // Orphaned NPC loses its home (npc_slot from SpawnerState ECS component)
+            // Orphaned NPC: reassign home to town fountain so they rest there
             let npc_slot = res.entity_map.entities.get(&idx)
                 .and_then(|&e| res.spawner_q.get(e).ok())
                 .and_then(|s| s.npc_slot);
             if let Some(slot) = npc_slot {
                 if let Some(&npc_entity) = res.entity_map.entities.get(&slot) {
                     if let Ok(mut home) = res.home_q.get_mut(npc_entity) {
-                        home.0 = Vec2::new(-1.0, -1.0);
+                        home.0 = res.world_data.towns.get(town_idx)
+                            .map(|t| t.center)
+                            .unwrap_or(Vec2::new(-1.0, -1.0));
                     }
                 }
             }

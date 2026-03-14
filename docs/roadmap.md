@@ -89,7 +89,7 @@ Remaining:
 *Done when: NPCs navigate around obstacles using A\* or flow fields instead of pure boids steering. Raiders path around walls to find openings. Placing a building that would fully block access is rejected.*
 
 - [x] A* pathfinding on the world grid (pathfinding.rs, movement.rs)
-- [x] Terrain movement costs — Grass/Dirt=100, Forest=143, Rock=500, Water=800 (high but passable so NPCs can escape if pushed by physics). Road speed multiplier applied separately in GPU shader.
+- [x] Terrain movement costs — Grass/Dirt=100, Forest=143, Rock=2500, Water=5000 (high but passable so NPCs can escape if pushed by physics). Road speed multiplier applied separately in GPU shader.
 - [x] NPC pathfinding integration: all NPCs use A* paths for long-distance navigation with LOS bypass for short distances
 - [x] Route spreading: successive A* calls inflate costs along found paths (PATH_SPREAD_COST=100, PATH_SPREAD_RADIUS=1) to spread NPC routes apart
 - [x] Intermediate waypoint relaxed threshold (96px vs 40px for final destination) prevents pile-up from boid separation

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-03-14
+
+- **NPC activity controller** -- refactored NPC behavior into deterministic `Activity.kind + Activity.phase + Activity.target` model. Added `ActivityPhase` (Ready/Transit/Active/Holding) and `ActivityTarget` (None/Home/Fountain/PatrolPost/SquadPoint/Worksite/RaidPoint/Dropoff/WanderPoint) enums. All 10 activity kinds use explicit phase lifecycle via `transition_activity()` / `transition_phase()` helpers -- zero raw `activity.kind =` writes remain. Removed vestigial `Activity.worksite` and `Activity.target_pos` fields. Added `reason: &'static str` and `last_frame: u32` debug fields for BRP inspection. Priority 0 arrival gate restricted to Transit/Ready phases -- fixes Rest/Heal infinite arrival trap bug. SquadAttack lifecycle separated from Patrol (distinct targets, distinct arrival handling). `on_duty_tick_system` phase-gated to Holding only. Farmer en-route retarget gated on Transit phase. Save/load maps phase/target for all activities. BRP output includes activity_phase, activity_target, transition_reason, last_transition_frame. 223 cargo tests (30 new lifecycle/transition/phase tests). Breaks old saves (intentional per spec).
+
 ## 2026-03-11
 
 - **BRP debug entity strings** — `endless/debug` endpoint changed from `"uid": 450` (u64 bits) to `"entity": "489v9"` (Bevy entity display format `<index>v<generation>`). Added `parse_entity_str()` parser, `slot_for_entity()` O(1) reverse lookup. Response JSON now includes both `entity` (bits) and `slot` fields. Error messages updated. `docs/brp.md` updated.
