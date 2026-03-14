@@ -269,11 +269,16 @@ Chunk 3 — TownDef Registry (40% → 80%): ✅
 - [x] Data-driven town generation — single loop driven by TOWN_REGISTRY (TownKind::faction_kind(), TownDef.label fallback, count_for() helper)
 - [x] Consolidate Town + TownUpgrades + PolicySet under ECS town entities (TownAccess SystemParam, FoodStore/GoldStore/TownPolicy/TownUpgradeLevel/TownEquipment components)
 
-Chunk 4 — ActivityDef Registry (50% → 90%):
+Chunk 4 — ActivityDef Registry (50% → 100%): Done
 - [x] Add ActivityDef struct + ACTIVITY_REGISTRY static table (label, distraction, sleep_visual, is_restful, is_working per kind)
 - [x] Make ActivityKind fieldless (Copy+Eq+Hash), move per-instance data to Activity struct fields (target_pos, worksite, recover_until)
 - [x] Replace inline match arms in ActivityKind methods with registry lookups (def().distraction, def().label, def().is_working, def().is_restful)
 - [x] Adding a new activity = 1 enum variant + 1 registry entry
+- [x] NPC activity controller: explicit kind + phase + target model with transition helpers
+- [x] All 10 activities use ActivityPhase (Ready/Transit/Active/Holding) + ActivityTarget
+- [x] Save round-trip preserves phase+target for all activity kinds (12 round-trip tests)
+- [x] Sleep visual driven by Activity::visual_key() instead of at_destination flag
+- [x] Homeless NPC rest targets town fountain (Home reassigned on building destroy)
 
 Chunk 5 — ItemDef Registry (60% → 85%): ✅
 - [x] Add ItemDef struct for item templates (base stats, sprite options, name patterns per slot+rarity)
