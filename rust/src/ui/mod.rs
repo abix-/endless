@@ -1714,11 +1714,12 @@ fn build_place_click_system(
                 Ok(()) => { placed += 1; }
                 Err("cell already has a building") => {
                     // Try upgrading existing road
-                    if world_state.upgrade_road(
+                    match world_state.upgrade_road(
                         &mut food_val, kind, town_data_idx, cell_pos,
                         &mut gpu_updates, &mut commands,
-                    ).is_ok() {
-                        upgraded += 1;
+                    ) {
+                        Ok(()) => { upgraded += 1; }
+                        Err(e) => { last_err = Some(e); }
                     }
                 }
                 Err(e) => { last_err = Some(e); }
@@ -1765,6 +1766,7 @@ fn build_place_click_system(
             return false;
         }
         if slot_col == cc && slot_row == cr {
+            *err_out = Some("cannot build on town center");
             return false;
         }
         let pos = world_state.grid.grid_to_world(slot_col, slot_row);
@@ -2005,7 +2007,7 @@ fn build_ghost_system(
             let cell = grid.cell(sc, sr);
             let empty = !entity_map.has_building_at(sc as i32, sr as i32);
             let buildable_terrain = cell
-                .map(|c| !matches!(c.terrain, world::Biome::Water | world::Biome::Rock))
+                .map(|c| !matches!(c.terrain, world::Biome::Water | world::Biome::Rock | world::Biome::Forest))
                 .unwrap_or(false);
             let valid = empty && buildable_terrain && budget >= cost;
             if valid {
