@@ -285,33 +285,68 @@ impl AiPersonality {
         }
     }
 
+    fn default_prioritize_healing(self) -> bool {
+        !matches!(self, Self::Aggressive)
+    }
+
+    fn default_recovery_hp(self) -> f32 {
+        match self {
+            Self::Aggressive => 0.20,
+            Self::Balanced => 0.50,
+            Self::Economic => 0.70,
+        }
+    }
+
+    fn default_archer_aggressive(self) -> bool {
+        matches!(self, Self::Aggressive)
+    }
+
+    fn default_archer_leash(self) -> bool {
+        !matches!(self, Self::Aggressive)
+    }
+
+    fn default_archer_flee_hp(self) -> f32 {
+        match self {
+            Self::Aggressive => 0.10,
+            Self::Balanced => 0.25,
+            Self::Economic => 0.40,
+        }
+    }
+
+    fn default_farmer_flee_hp(self) -> f32 {
+        match self {
+            Self::Aggressive => 0.30,
+            Self::Balanced => 0.50,
+            Self::Economic => 0.70,
+        }
+    }
+
+    fn default_farmer_fight_back(self) -> bool {
+        matches!(self, Self::Aggressive)
+    }
+
+    fn loot_threshold(self) -> usize {
+        match self {
+            Self::Aggressive => 5,
+            Self::Balanced => 3,
+            Self::Economic => 1,
+        }
+    }
+
     /// Town policies tuned per personality.
     pub fn default_policies(self) -> PolicySet {
-        // Default policy baseline used when a town first gets an AI profile.
-        match self {
-            Self::Aggressive => PolicySet {
-                archer_aggressive: true,
-                archer_leash: false,
-                farmer_fight_back: true,
-                prioritize_healing: false,
-                archer_flee_hp: 0.0,
-                farmer_flee_hp: 0.30,
-                mining_radius: crate::constants::DEFAULT_MINING_RADIUS,
-                ..PolicySet::default()
-            },
-            Self::Balanced => PolicySet {
-                mining_radius: crate::constants::DEFAULT_MINING_RADIUS,
-                ..PolicySet::default()
-            },
-            Self::Economic => PolicySet {
-                archer_leash: true,
-                prioritize_healing: true,
-                archer_flee_hp: 0.25,
-                farmer_flee_hp: 0.50,
-                mining_radius: crate::constants::DEFAULT_MINING_RADIUS,
-                ..PolicySet::default()
-            },
-        }
+        let mut policy = PolicySet {
+            mining_radius: crate::constants::DEFAULT_MINING_RADIUS,
+            ..PolicySet::default()
+        };
+        policy.prioritize_healing = self.default_prioritize_healing();
+        policy.recovery_hp = self.default_recovery_hp();
+        policy.archer_aggressive = self.default_archer_aggressive();
+        policy.archer_leash = self.default_archer_leash();
+        policy.archer_flee_hp = self.default_archer_flee_hp();
+        policy.farmer_flee_hp = self.default_farmer_flee_hp();
+        policy.farmer_fight_back = self.default_farmer_fight_back();
+        policy
     }
 
     /// Food desire thresholds for toggling eat_food policy.
@@ -795,6 +830,7 @@ pub struct AiPlayer {
     pub personality: AiPersonality,
     pub road_style: RoadStyle,
     pub last_actions: VecDeque<(String, i32, i32)>,
+    pub policy_defaults_logged: bool,
     pub active: bool,
     pub build_enabled: bool,
     pub upgrade_enabled: bool,

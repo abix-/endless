@@ -290,6 +290,35 @@ pub fn ai_decision_system(
             }
         }
 
+        if !ai_state.players[pi].policy_defaults_logged {
+            if let Some(mut policy) = town_access.policy_mut(tdi as i32) {
+                policy.0.prioritize_healing = personality.default_prioritize_healing();
+                policy.0.recovery_hp = personality.default_recovery_hp();
+                policy.0.archer_aggressive = personality.default_archer_aggressive();
+                policy.0.archer_flee_hp = personality.default_archer_flee_hp();
+                policy.0.farmer_flee_hp = personality.default_farmer_flee_hp();
+                policy.0.farmer_fight_back = personality.default_farmer_fight_back();
+
+                log_ai(
+                    &mut combat_log,
+                    &game_time,
+                    faction,
+                    &town_name,
+                    pname,
+                    &format!(
+                        "policy defaults: heal={}, recovery={:.2}, aggro={}, archer_flee={:.2}, farmer_flee={:.2}, fight_back={}",
+                        policy.0.prioritize_healing,
+                        policy.0.recovery_hp,
+                        policy.0.archer_aggressive,
+                        policy.0.archer_flee_hp,
+                        policy.0.farmer_flee_hp,
+                        policy.0.farmer_fight_back
+                    ),
+                );
+                ai_state.players[pi].policy_defaults_logged = true;
+            }
+        }
+
         let debug = settings.debug_ai_decisions;
 
         // ================================================================

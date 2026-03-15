@@ -1338,6 +1338,7 @@ pub fn apply_save(
                     _ => RoadStyle::Grid4,
                 },
                 last_actions: VecDeque::new(),
+                policy_defaults_logged: false,
                 active: p.active,
                 build_enabled: p.build_enabled,
                 upgrade_enabled: p.upgrade_enabled,
