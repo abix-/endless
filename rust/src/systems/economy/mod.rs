@@ -161,6 +161,7 @@ pub fn growth_system(
         Without<Sleeping>,
     >,
     world_data: Res<crate::world::WorldData>,
+    skills_q: Query<&crate::components::NpcSkills>,
 ) {
     if game_time.is_paused() {
         return;
@@ -202,7 +203,17 @@ pub fn growth_system(
                         } else {
                             FARM_BASE_GROWTH_RATE
                         };
-                        let mult = farm_mults.get(town_id.0 as usize).copied().unwrap_or(1.0);
+                        let mut mult = farm_mults.get(town_id.0 as usize).copied().unwrap_or(1.0);
+                        // Apply tending farmer's proficiency bonus
+                        if is_tended {
+                            if let Some(farmer_prof) = entity_map
+                                .worksite_claimer(slot)
+                                .and_then(|e| skills_q.get(e).ok())
+                            {
+                                mult *=
+                                    crate::systems::stats::proficiency_mult(farmer_prof.farming);
+                            }
+                        }
                         let growth_rate = base_rate * mult;
                         if growth_rate > 0.0 {
                             production.progress += growth_rate * hours_elapsed;
@@ -257,6 +268,40 @@ pub fn growth_system(
         if let Some(mut f) = town_access.food_mut(town_idx) {
             f.0 = (f.0 - cost).max(0);
         }
+    }
+}
+
+// ============================================================================
+// FARMING SKILL GAIN
+// ============================================================================
+
+/// Grant farming proficiency to farmers while they tend crops (Work/Active at a farm).
+pub fn farming_skill_system(
+    time: Res<Time>,
+    game_time: Res<GameTime>,
+    mut npc_q: Query<(
+        &Job,
+        &crate::components::Activity,
+        &mut crate::components::NpcSkills,
+    )>,
+) {
+    use crate::components::{ActivityKind, ActivityPhase};
+    if game_time.is_paused() {
+        return;
+    }
+    let hours_elapsed = game_time.delta(&time) / game_time.seconds_per_hour;
+    if hours_elapsed <= 0.0 {
+        return;
+    }
+    for (job, activity, mut skills) in &mut npc_q {
+        if *job != Job::Farmer {
+            continue;
+        }
+        if activity.kind != ActivityKind::Work || activity.phase != ActivityPhase::Active {
+            continue;
+        }
+        skills.farming = (skills.farming + crate::constants::FARMING_SKILL_RATE * hours_elapsed)
+            .min(crate::constants::MAX_PROFICIENCY);
     }
 }
 

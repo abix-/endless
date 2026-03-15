@@ -462,6 +462,13 @@ impl EntityMap {
         self.occupancy.insert(slot, count);
     }
 
+    /// First claimer entity at a worksite (the farmer actively tending it).
+    pub fn worksite_claimer(&self, slot: usize) -> Option<Entity> {
+        self.worksite_claim_queue
+            .get(&slot)
+            .and_then(|queue| queue.first().copied())
+    }
+
     pub fn is_worksite_harvest_turn(&self, slot: usize, claimer: Entity) -> bool {
         self.worksite_claim_queue
             .get(&slot)
