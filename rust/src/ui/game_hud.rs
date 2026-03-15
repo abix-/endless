@@ -702,6 +702,7 @@ pub struct BuildingInspectorData<'w, 's> {
     pub spawner_q: Query<'w, 's, &'static SpawnerState, With<Building>>,
     pub wall_level_q: Query<'w, 's, &'static mut WallLevel, With<Building>>,
     pub waypoint_order_q: Query<'w, 's, &'static WaypointOrder, With<Building>>,
+    pub farm_mode_q: Query<'w, 's, &'static mut FarmModeComp, With<Building>>,
 }
 
 #[derive(SystemParam)]
@@ -2438,6 +2439,33 @@ fn building_inspector_content(
     if !is_constructing {
         match kind {
             BuildingKind::Farm => {
+                // Farm mode toggle
+                let current_mode = bld_entity
+                    .and_then(|e| bld.farm_mode_q.get(e).ok())
+                    .map_or(FarmMode::Crops, |m| m.0);
+                ui.horizontal(|ui| {
+                    ui.label("Mode:");
+                    let mut is_cows = current_mode == FarmMode::Cows;
+                    if ui.selectable_label(!is_cows, "Crops").clicked() && is_cows {
+                        is_cows = false;
+                    }
+                    if ui.selectable_label(is_cows, "Cows").clicked() && !is_cows {
+                        is_cows = true;
+                    }
+                    let new_mode = if is_cows {
+                        FarmMode::Cows
+                    } else {
+                        FarmMode::Crops
+                    };
+                    if new_mode != current_mode {
+                        if let Some(e) = bld_entity {
+                            if let Ok(mut fm) = bld.farm_mode_q.get_mut(e) {
+                                fm.0 = new_mode;
+                            }
+                        }
+                    }
+                });
+
                 if let Some(ps) = bld_entity.and_then(|e| bld.production_q.get(e).ok()) {
                     let state_name = if ps.ready {
                         "Ready to harvest"
@@ -2460,10 +2488,14 @@ fn building_inspector_content(
                         );
                     });
 
-                    let occupants = bld_slot
-                        .map(|s| bld.entity_map.occupant_count(s))
-                        .unwrap_or(0);
-                    ui.label(format!("Farmers: {}", occupants));
+                    if current_mode == FarmMode::Crops {
+                        let occupants = bld_slot
+                            .map(|s| bld.entity_map.occupant_count(s))
+                            .unwrap_or(0);
+                        ui.label(format!("Farmers: {}", occupants));
+                    } else {
+                        ui.label("Autonomous (no farmer needed)");
+                    }
                 }
             }
 

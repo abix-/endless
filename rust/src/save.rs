@@ -31,6 +31,7 @@ pub struct BuildingStateSnapshot {
     pub under_construction: f32,
     pub npc_slot: Option<usize>,
     pub respawn_timer: f32,
+    pub farm_mode: u8,
 }
 
 // ============================================================================
@@ -307,6 +308,9 @@ pub struct FarmGrowthSave {
     pub progress: f32,
     #[serde(default)]
     pub under_construction: f32,
+    /// 0=Crops (default), 1=Cows
+    #[serde(default)]
+    pub farm_mode: u8,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -914,6 +918,7 @@ pub fn collect_save_data(
                 },
                 progress: bs.map_or(0.0, |s| s.production_progress),
                 under_construction: bs.map_or(0.0, |s| s.under_construction),
+                farm_mode: bs.map_or(0, |s| s.farm_mode),
             }
         })
         .collect();
@@ -1041,6 +1046,7 @@ pub fn collect_save_data(
                     },
                     progress: bs.map_or(0.0, |s| s.production_progress),
                     under_construction: bs.map_or(0.0, |s| s.under_construction),
+                    farm_mode: 0,
                 }
             })
             .collect(),
@@ -1715,12 +1721,13 @@ fn collect_building_state_snapshot(
             Option<&ProductionState>,
             Option<&ConstructionProgress>,
             Option<&SpawnerState>,
+            Option<&FarmModeComp>,
         ),
         With<Building>,
     >,
 ) -> std::collections::HashMap<usize, BuildingStateSnapshot> {
     let mut map = std::collections::HashMap::new();
-    for (gpu_slot, wp, mc, wl, ts, ps, cp, sp) in q.iter() {
+    for (gpu_slot, wp, mc, wl, ts, ps, cp, sp, fm) in q.iter() {
         let mut s = BuildingStateSnapshot::default();
         if let Some(wp) = wp {
             s.patrol_order = wp.0;
@@ -1748,6 +1755,12 @@ fn collect_building_state_snapshot(
         if let Some(sp) = sp {
             s.npc_slot = sp.npc_slot;
             s.respawn_timer = sp.respawn_timer;
+        }
+        if let Some(fm) = fm {
+            s.farm_mode = match fm.0 {
+                FarmMode::Crops => 0,
+                FarmMode::Cows => 1,
+            };
         }
         map.insert(gpu_slot.0, s);
     }
@@ -1948,6 +1961,12 @@ pub fn restore_growth_from_save(save: &SaveData, entity_map: &EntityMap, command
                 commands
                     .entity(entity)
                     .insert(ConstructionProgress(fg.under_construction));
+                let mode = if fg.farm_mode == 1 {
+                    FarmMode::Cows
+                } else {
+                    FarmMode::Crops
+                };
+                commands.entity(entity).insert(FarmModeComp(mode));
             }
         }
     }
@@ -2016,6 +2035,7 @@ pub fn save_game_system(
             Option<&ProductionState>,
             Option<&ConstructionProgress>,
             Option<&SpawnerState>,
+            Option<&FarmModeComp>,
         ),
         With<Building>,
     >,
@@ -2137,6 +2157,7 @@ pub fn autosave_system(
             Option<&ProductionState>,
             Option<&ConstructionProgress>,
             Option<&SpawnerState>,
+            Option<&FarmModeComp>,
         ),
         With<Building>,
     >,

@@ -751,6 +751,9 @@ pub fn place_building(
     if def.worksite.is_some() {
         ecmds.insert(ProductionState::default());
     }
+    if kind == BuildingKind::Farm {
+        ecmds.insert(crate::components::FarmModeComp::default());
+    }
     if def.spawner.is_some() {
         // Suppress spawner during construction (timer=-1), arm on completion (timer=0)
         let timer = if under_construction > 0.0 { -1.0 } else { 0.0 };
