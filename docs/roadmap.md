@@ -23,6 +23,8 @@ Stages 1-15, 18, 19: [x] Complete (see [history.md](history.md))
 1. Loot cycle stress test -- benchmark TownEquipment growth under 50K NPCs over extended play, cap or prune unbounded accumulation
 2. Stage 26 resources -- finish woodcutter/quarrier harvest cycle, mixed building costs, iron
 3. ~~Split behavior.rs~~ -- done (decision/mod.rs + decision/tests.rs + patrol.rs + behavior.rs coordinator)
+4. ~~Strip unused Bevy plugins~~ -- done (default-features=false, explicit 2D feature list, removed PBR/SSR/GLTF/animation/gilrs/scene/anti-alias/post-process/gizmos)
+5. ~~Trim cargo dep features~~ -- done (removed crossbeam-channel + regex, trimmed bevy_egui/tracing-subscriber/bevy_framepace)
 
 **Stage 16: Performance**
 
@@ -35,6 +37,11 @@ ECS source-of-truth migration complete. See [history.md](history.md) for migrati
 Remaining performance items:
 
 - [x] [Medium] Cache-friendly vectors for hot building iteration paths (keep HashMaps as authority, vectors for tight loops).
+- [x] [Medium] Strip unused Bevy DefaultPlugins (PBR/SSR/GLTF/animation/gilrs/scene/anti-alias/post-process/gizmos) -- Cargo features, not runtime disable. Fixes SSR crash, ~30s faster builds, smaller binary.
+- [x] [Medium] Trim unused cargo dependency features -- removed crossbeam-channel + regex (zero imports), trimmed bevy_egui (dropped bevy_picking), tracing-subscriber (registry only), bevy_framepace (no debug).
+- [x] [Medium] Coalesce projectile GPU writes -- per-index write_buffer (8N calls) replaced with sorted+gap-merged coalesced writes (~12 calls). Fixes 50ms r:extract_proj during mass tower combat.
+- [x] [Low] Eliminate per-frame Vec<u8> clone in building_tower_system -- stack [u8;8] + merged combat/regen loops. 50K towers: 815us -> 636us.
+- [x] [Low] DirectControlSet/ReturningSet Vec -> HashSet for O(1) ops.
 - [ ] [Low] `decision_system` remaining log pressure (~10 `format!` calls).
 - [ ] [Low] `sync_terrain_tilemap` chunk granularity: rewrites all chunks on any terrain change.
 - [ ] [Low] SystemTimings Mutex contention: replace with AtomicU32 + f32::to_bits.
@@ -244,7 +251,7 @@ Sound (bevy_audio) is woven into stages. Done: arrow shoot SFX, NPC death SFX (2
 - [ ] Add regression tests that enforce no behavior drift between player and AI build flows, startup and respawn flows, and both destroy entry points
 
 ### Testing
-Test infrastructure complete (see [history.md](history.md) and [README.md](README.md)). 261 tests passing.
+Test infrastructure complete (see [history.md](history.md) and [README.md](README.md)). Tower-massacre stress test scaled to 25K towers vs 50K raiders. GPU bind group validation test added.
 
 ### UI & UX
 - [ ] Add `show_active_radius` debug toggle in Bevy UI
