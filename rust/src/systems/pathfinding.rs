@@ -158,6 +158,23 @@ pub const HPA_CHUNK_SIZE: usize = 16;
 /// Minimum terrain cost (road=67) — used for admissible heuristic on abstract graph.
 const HPA_MIN_COST: u32 = 67;
 
+/// Build the deduplicated set of HPA chunks touched by the remaining path.
+pub fn collect_path_chunks(waypoints: &[IVec2], start: usize) -> Vec<(usize, usize)> {
+    let mut chunks: Vec<(usize, usize)> = waypoints
+        .iter()
+        .skip(start.min(waypoints.len()))
+        .map(|wp| {
+            (
+                (wp.x as usize) / HPA_CHUNK_SIZE,
+                (wp.y as usize) / HPA_CHUNK_SIZE,
+            )
+        })
+        .collect();
+    chunks.sort_unstable();
+    chunks.dedup();
+    chunks
+}
+
 /// Cached edge between two entrance nodes within the same chunk.
 #[derive(Clone, Debug)]
 struct HpaEdge {

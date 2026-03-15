@@ -15,7 +15,9 @@ use crate::resources::{
     GameTime, GpuReadState, NpcTargetThrashDebug, PathRequest, PathRequestQueue, PathSource,
     PathfindConfig, PathfindStats,
 };
-use crate::systems::pathfinding::{line_of_sight, pathfind_hpa, pathfind_on_grid};
+use crate::systems::pathfinding::{
+    collect_path_chunks, line_of_sight, pathfind_hpa, pathfind_on_grid,
+};
 use crate::world::WorldGrid;
 
 /// Read positions from GPU readback buffer → ECS Position + arrival detection.
@@ -104,6 +106,7 @@ pub fn advance_waypoints_system(
         // Check if there are more waypoints
         if path.current + 1 < path.waypoints.len() {
             path.current += 1;
+            path.path_chunks = collect_path_chunks(&path.waypoints, path.current);
             let next = path.waypoints[path.current];
             let world_pos = grid.grid_to_world(next.x as usize, next.y as usize);
 
@@ -168,6 +171,7 @@ pub fn resolve_movement_system(
                         if let Ok(mut npc_path) = path_q.get_mut(entity) {
                             npc_path.waypoints.clear();
                             npc_path.current = 0;
+                            npc_path.path_chunks.clear();
                         }
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
                             idx,
@@ -214,6 +218,7 @@ pub fn resolve_movement_system(
             if let Ok(mut npc_path) = path_q.get_mut(entity) {
                 npc_path.waypoints.clear();
                 npc_path.current = 0;
+                npc_path.path_chunks.clear();
             }
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
                 idx,
@@ -320,18 +325,7 @@ pub fn resolve_movement_system(
             let world_pos = grid.grid_to_world(first_wp.x as usize, first_wp.y as usize);
 
             if let Ok(mut npc_path) = path_q.get_mut(req.entity) {
-                let mut chunks: Vec<(usize, usize)> = path_points
-                    .iter()
-                    .map(|wp| {
-                        (
-                            wp.x as usize / crate::systems::pathfinding::HPA_CHUNK_SIZE,
-                            wp.y as usize / crate::systems::pathfinding::HPA_CHUNK_SIZE,
-                        )
-                    })
-                    .collect();
-                chunks.sort_unstable();
-                chunks.dedup();
-                npc_path.path_chunks = chunks;
+                npc_path.path_chunks = collect_path_chunks(&path_points, 1);
                 npc_path.waypoints = path_points;
                 npc_path.current = 1;
                 npc_path.goal_world = req.goal_world;
@@ -494,6 +488,29 @@ mod tests {
         app
     }
 
+    fn setup_advance_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(GameTime::default());
+        app.insert_resource(CollectedGpuUpdates::default());
+        app.insert_resource(WorldGrid {
+            width: 40,
+            height: 40,
+            ..default()
+        });
+        app.add_message::<GpuUpdateMsg>();
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.add_systems(
+            FixedUpdate,
+            (advance_waypoints_system, collect_gpu_updates).chain(),
+        );
+        app.update();
+        app.update();
+        app
+    }
+
     #[test]
     fn readback_syncs_position_from_gpu() {
         let mut app = setup_readback_app();
@@ -625,6 +642,43 @@ mod tests {
         assert!(
             flags.at_destination,
             "NPC at target position should have at_destination set"
+        );
+    }
+
+    #[test]
+    fn advance_waypoints_trims_path_chunks_to_remaining_route() {
+        let mut app = setup_advance_app();
+        app.world_mut().spawn((
+            GpuSlot(0),
+            NpcFlags {
+                at_destination: true,
+                ..default()
+            },
+            NpcPath {
+                waypoints: vec![IVec2::new(1, 1), IVec2::new(20, 20)],
+                current: 0,
+                goal_world: Vec2::new(320.0, 320.0),
+                path_chunks: vec![(0, 0), (1, 1)],
+                ..default()
+            },
+        ));
+
+        app.update();
+
+        let (path, flags) = app
+            .world_mut()
+            .query::<(&NpcPath, &NpcFlags)>()
+            .single(app.world())
+            .unwrap();
+        assert_eq!(path.current, 1, "should advance to the next waypoint");
+        assert_eq!(
+            path.path_chunks,
+            vec![(1, 1)],
+            "should keep only remaining chunks after advancing"
+        );
+        assert!(
+            !flags.at_destination,
+            "should clear at_destination after retargeting the next waypoint"
         );
     }
 }
