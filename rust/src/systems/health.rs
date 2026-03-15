@@ -459,7 +459,13 @@ pub fn death_system(
                         }
                         if let Ok(mut act) = res.activity_q.get_mut(atk.entity) {
                             if act.kind != ActivityKind::ReturnLoot {
-                                act.kind = ActivityKind::ReturnLoot;
+                                crate::systems::decision::transition_activity(
+                                    &mut act,
+                                    ActivityKind::ReturnLoot,
+                                    ActivityPhase::Transit,
+                                    ActivityTarget::Dropoff,
+                                    "loot:pickup",
+                                );
                             }
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty {
                                 idx: attacker_slot,
@@ -735,7 +741,13 @@ pub fn death_system(
                     }
                     if let Ok(mut act) = res.activity_q.get_mut(k_entity) {
                         if act.kind != ActivityKind::ReturnLoot {
-                            act.kind = ActivityKind::ReturnLoot;
+                            crate::systems::decision::transition_activity(
+                                &mut act,
+                                ActivityKind::ReturnLoot,
+                                ActivityPhase::Transit,
+                                ActivityTarget::Dropoff,
+                                "loot:pickup",
+                            );
                         }
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: k_slot }));
                     }

@@ -192,7 +192,7 @@ fn loot_threshold_for_npc(
 
 /// Transition an NPC to a new activity state. Resets ticks_waiting.
 #[inline]
-fn transition_activity(
+pub(crate) fn transition_activity(
     activity: &mut Activity,
     kind: ActivityKind,
     phase: ActivityPhase,
