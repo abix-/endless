@@ -1736,7 +1736,7 @@ pub struct PolicySet {
     pub loot_threshold: usize,
 }
 
-pub const DEFAULT_LOOT_THRESHOLD: usize = 3;
+pub const DEFAULT_LOOT_THRESHOLD: usize = 1;
 pub const MAX_LOOT_THRESHOLD: usize = 20;
 
 pub(crate) const fn default_loot_threshold() -> usize {
@@ -1761,7 +1761,7 @@ impl Default for PolicySet {
             mining_radius: crate::constants::DEFAULT_MINING_RADIUS,
             reserve_food: 0,
             reserve_gold: 0,
-            loot_threshold: 3,
+            loot_threshold: 1,
         }
     }
 }

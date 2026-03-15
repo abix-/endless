@@ -100,11 +100,10 @@ fn test_carried_loot(count: usize) -> CarriedLoot {
     }
 }
 #[test]
-fn squad_loot_threshold_overrides_town_policy() {
+fn squad_loot_threshold_controls_return() {
     DECISION_FRAME.store(0, std::sync::atomic::Ordering::Relaxed);
 
-    let mut policy = PolicySet::default();
-    policy.loot_threshold = 1;
+    let policy = PolicySet::default();
     let mut app = setup_decision_app(policy);
     app.world_mut().resource_mut::<SquadState>().squads[0].loot_threshold = 3;
 
@@ -139,17 +138,17 @@ fn squad_loot_threshold_overrides_town_policy() {
     assert_ne!(
         activity.kind,
         ActivityKind::ReturnLoot,
-        "squad threshold should block the lower town-wide fallback"
+        "squad threshold of 3 should prevent return when carrying only 2 items"
     );
 }
 
 #[test]
-fn town_loot_threshold_applies_without_squad() {
-    let mut policy = PolicySet::default();
-    policy.loot_threshold = 2;
+fn no_squad_uses_default_loot_threshold() {
     let squad_state = SquadState::default();
-
-    assert_eq!(loot_threshold_for_npc(&squad_state, None, Some(policy)), 2);
+    assert_eq!(
+        loot_threshold_for_npc(&squad_state, None),
+        DEFAULT_LOOT_THRESHOLD
+    );
 }
 // ========================================================================
 // transition helper tests -- verify kind + phase + target invariants

@@ -560,8 +560,6 @@ struct PolicyParams {
     recovery_hp: Option<f32>,
     #[serde(default)]
     mining_radius: Option<f32>,
-    #[serde(default)]
-    loot_threshold: Option<usize>,
 }
 
 pub fn policy_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
@@ -639,13 +637,6 @@ pub fn policy_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpRe
                 parts.push(format!("mining_radius={v:.0}"));
             }
             policy.mining_radius = v;
-        }
-        if let Some(v) = p.loot_threshold {
-            let v = v.clamp(1, crate::resources::MAX_LOOT_THRESHOLD);
-            if v != policy.loot_threshold {
-                parts.push(format!("loot_threshold={v}"));
-            }
-            policy.loot_threshold = v;
         }
         parts
     };

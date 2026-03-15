@@ -177,16 +177,11 @@ fn has_rest_destination(home_valid: bool, town_center: Option<Vec2>) -> bool {
 }
 
 #[inline]
-fn loot_threshold_for_npc(
-    squad_state: &SquadState,
-    squad_id: Option<i32>,
-    town_policy: Option<crate::resources::PolicySet>,
-) -> usize {
+fn loot_threshold_for_npc(squad_state: &SquadState, squad_id: Option<i32>) -> usize {
     squad_id
         .and_then(|sid| usize::try_from(sid).ok())
         .and_then(|sid| squad_state.squads.get(sid))
         .map(|squad| squad.loot_threshold)
-        .or_else(|| town_policy.map(|policy| policy.loot_threshold))
         .unwrap_or(DEFAULT_LOOT_THRESHOLD)
 }
 
@@ -1722,8 +1717,7 @@ pub fn decision_system(
             // ====================================================================
             // Priority 4c: Loot threshold — too much equipment, return home
             // ====================================================================
-            let loot_threshold =
-                loot_threshold_for_npc(squad_state, squad_id, economy.towns.policy(town_idx_i32));
+            let loot_threshold = loot_threshold_for_npc(squad_state, squad_id);
             if !npc_def(job).equip_slots.is_empty()
                 && carried_loot.equipment.len() >= loot_threshold
                 && activity.kind != ActivityKind::ReturnLoot

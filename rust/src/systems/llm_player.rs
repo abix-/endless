@@ -661,12 +661,6 @@ fn execute_actions(
                                     policy.0.mining_radius = v.clamp(0.0, 5000.0);
                                 }
                             }
-                            "loot_threshold" => {
-                                if let Ok(v) = val.parse::<usize>() {
-                                    policy.0.loot_threshold =
-                                        v.clamp(1, crate::resources::MAX_LOOT_THRESHOLD);
-                                }
-                            }
                             _ => {}
                         }
                     }
