@@ -257,6 +257,7 @@ fn resolve_combat_stats_archer_defaults() {
         &upgrades,
         0.0,
         0.0,
+        0.0,
     );
     let def = npc_def(Job::Archer);
     // With no upgrades, no level, no equipment, no traits:
@@ -297,6 +298,7 @@ fn resolve_combat_stats_level_scaling() {
         &upgrades,
         0.0,
         0.0,
+        0.0,
     );
     let stats_lv10 = resolve_combat_stats(
         Job::Archer,
@@ -306,6 +308,7 @@ fn resolve_combat_stats_level_scaling() {
         &personality,
         &config,
         &upgrades,
+        0.0,
         0.0,
         0.0,
     );
@@ -334,6 +337,7 @@ fn resolve_combat_stats_equipment_bonus() {
         &upgrades,
         0.0,
         0.0,
+        0.0,
     );
     let with_weapon = resolve_combat_stats(
         Job::Archer,
@@ -344,6 +348,7 @@ fn resolve_combat_stats_equipment_bonus() {
         &config,
         &upgrades,
         0.5,
+        0.0,
         0.0,
     );
     let with_armor = resolve_combat_stats(
@@ -356,6 +361,7 @@ fn resolve_combat_stats_equipment_bonus() {
         &upgrades,
         0.0,
         0.5,
+        0.0,
     );
     // 50% weapon bonus → 1.5x damage
     assert!((with_weapon.damage / base.damage - 1.5).abs() < 0.01);
@@ -382,6 +388,7 @@ fn resolve_combat_stats_berserk_from_ferocity() {
         &personality,
         &config,
         &upgrades,
+        0.0,
         0.0,
         0.0,
     );
@@ -412,6 +419,7 @@ fn resolve_combat_stats_timid_negative_berserk() {
         &personality,
         &config,
         &upgrades,
+        0.0,
         0.0,
         0.0,
     );

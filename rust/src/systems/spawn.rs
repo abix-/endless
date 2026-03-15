@@ -124,6 +124,7 @@ pub fn materialize_npc(
         .unwrap_or_else(|| generate_personality(idx));
     let level = overrides.level.unwrap_or(0);
 
+    let prof_combat = overrides.skills.as_ref().map(|s| s.combat).unwrap_or(0.0);
     let cached = resolve_combat_stats(
         job,
         attack_type,
@@ -134,6 +135,7 @@ pub fn materialize_npc(
         town_levels,
         overrides.equipment.total_weapon_bonus(),
         overrides.equipment.total_armor_bonus(),
+        prof_combat,
     );
 
     // GPU init
