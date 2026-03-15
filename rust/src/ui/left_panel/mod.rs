@@ -2848,6 +2848,7 @@ fn status_content(
                         Job::Miner,
                         Job::Woodcutter,
                         Job::Quarrier,
+                        Job::Mason,
                     ] {
                         let key = (job as i32, player_town);
                         let stats = pop_stats.0.get(&key);
