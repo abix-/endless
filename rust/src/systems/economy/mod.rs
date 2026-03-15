@@ -298,12 +298,12 @@ pub fn starvation_system(
 // ============================================================================
 
 /// Spawns/despawns FarmReadyMarker entities when farm state transitions.
-/// Growing→Ready: spawn marker. Ready→Growing (harvest): despawn marker.
+/// Growing->Ready: spawn marker. Ready->Growing (harvest): despawn marker.
+/// Uses a slot->marker-entity map for O(1) despawn instead of scanning all markers.
 pub fn farm_visual_system(
     mut commands: Commands,
-    markers: Query<(Entity, &FarmReadyMarker)>,
     farms_q: Query<(&GpuSlot, &ProductionState), With<Building>>,
-    mut prev_ready: Local<HashMap<usize, bool>>,
+    mut marker_map: Local<HashMap<usize, Entity>>,
     mut frame_count: Local<u32>,
 ) {
     // Cadence: only check every 4th frame (crop state changes slowly)
@@ -314,17 +314,15 @@ pub fn farm_visual_system(
 
     for (gpu_slot, production) in &farms_q {
         let slot = gpu_slot.0;
-        let was_ready = prev_ready.get(&slot).copied().unwrap_or(false);
-        if production.ready && !was_ready {
-            commands.spawn(FarmReadyMarker { farm_slot: slot });
-        } else if !production.ready && was_ready {
-            for (entity, marker) in markers.iter() {
-                if marker.farm_slot == slot {
-                    commands.entity(entity).despawn();
-                }
+        let has_marker = marker_map.contains_key(&slot);
+        if production.ready && !has_marker {
+            let marker_entity = commands.spawn(FarmReadyMarker { farm_slot: slot }).id();
+            marker_map.insert(slot, marker_entity);
+        } else if !production.ready && has_marker {
+            if let Some(marker_entity) = marker_map.remove(&slot) {
+                commands.entity(marker_entity).despawn();
             }
         }
-        prev_ready.insert(slot, production.ready);
     }
 }
 
