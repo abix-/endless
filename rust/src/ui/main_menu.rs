@@ -60,6 +60,7 @@ pub struct MenuState {
     pub initialized: bool,
     pub endless_mode: bool,
     pub endless_strength: f32,
+    pub gen_style: WorldGenStyle,
 }
 
 fn is_player_home_job(job: Job) -> bool {
@@ -159,6 +160,11 @@ pub fn main_menu_system(
         state.autosave_hours = saved.autosave_hours;
         state.endless_mode = saved.endless_mode;
         state.endless_strength = saved.endless_strength;
+        state.gen_style = match saved.gen_style {
+            0 => WorldGenStyle::Classic,
+            2 => WorldGenStyle::Maze,
+            _ => WorldGenStyle::Continents,
+        };
         strip_disabled_home_jobs(&mut state.npc_counts);
         clamp_player_menu_caps(&mut state);
         state.initialized = true;
@@ -224,6 +230,21 @@ pub fn main_menu_system(
             ui.separator();
             ui.label(egui::RichText::new("World").strong());
             ui.add_space(4.0);
+
+            ui.horizontal(|ui| {
+                ui.label("Map Type:").on_hover_text("Continents: noise-based islands and oceans.\nMaze: corridors and walls with choke points.");
+                let label = match state.gen_style {
+                    WorldGenStyle::Classic => "Classic",
+                    WorldGenStyle::Continents => "Continents",
+                    WorldGenStyle::Maze => "Maze",
+                };
+                egui::ComboBox::from_id_salt("gen_style")
+                    .selected_text(label)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut state.gen_style, WorldGenStyle::Continents, "Continents");
+                        ui.selectable_value(&mut state.gen_style, WorldGenStyle::Maze, "Maze");
+                    });
+            });
 
             ui.horizontal(|ui| {
                 ui.label("World Size:").on_hover_text("Total world size in pixels. Larger worlds take longer to generate.");
@@ -372,7 +393,7 @@ pub fn main_menu_system(
             if ui.button(egui::RichText::new("  Play  ").size(18.0)).clicked() {
                 strip_disabled_home_jobs(&mut state.npc_counts);
                 clamp_player_menu_caps(&mut state);
-                wg_config.gen_style = WorldGenStyle::Continents;
+                wg_config.gen_style = state.gen_style;
                 wg_config.world_width = state.world_size;
                 wg_config.world_height = state.world_size;
                 wg_config.num_towns = 1;
@@ -402,7 +423,11 @@ pub fn main_menu_system(
                 }).collect();
                 saved.ai_interval = state.ai_interval;
                 saved.npc_interval = state.npc_interval;
-                saved.gen_style = 1;
+                saved.gen_style = match state.gen_style {
+                    WorldGenStyle::Classic => 0,
+                    WorldGenStyle::Continents => 1,
+                    WorldGenStyle::Maze => 2,
+                };
                 saved.gold_mines_per_town = state.gold_mines as usize;
                 saved.raider_forage_hours = state.raider_forage_hours;
                 saved.difficulty = state.difficulty;
