@@ -2891,6 +2891,25 @@ fn status_content(
                 },
             );
 
+            // Single pass over building instances for both Military and Buildings sections.
+            let mut bld_economy = 0usize;
+            let mut bld_military = 0usize;
+            let mut bld_tower = 0usize;
+            let mut bld_total = 0usize;
+            for inst in entity_map.iter_instances() {
+                if inst.town_idx != player_town as u32 {
+                    continue;
+                }
+                bld_total += 1;
+                let def = crate::constants::building_def(inst.kind);
+                match def.display {
+                    DisplayCategory::Economy => bld_economy += 1,
+                    DisplayCategory::Military => bld_military += 1,
+                    DisplayCategory::Tower => bld_tower += 1,
+                    DisplayCategory::Hidden => {}
+                }
+            }
+
             // -- Military --
             tracked_section(
                 ui,
@@ -2914,12 +2933,7 @@ fn status_content(
                     ui.label(format!("Squads: {} active", active_squads));
                     ui.label(format!("  Members: {}", total_squad_members));
                     ui.label(format!("  With targets: {}", squads_with_targets));
-
-                    let total_buildings = entity_map
-                        .iter_instances()
-                        .filter(|inst| inst.town_idx == player_town as u32)
-                        .count();
-                    ui.label(format!("Buildings: {}", total_buildings));
+                    ui.label(format!("Buildings: {}", bld_total));
                 },
             );
 
@@ -2930,24 +2944,9 @@ fn status_content(
                 true,
                 egui::RichText::new("Buildings").strong(),
                 |ui| {
-                    let mut economy = 0usize;
-                    let mut military_bld = 0usize;
-                    let mut tower_bld = 0usize;
-                    for inst in entity_map.iter_instances() {
-                        if inst.town_idx != player_town as u32 {
-                            continue;
-                        }
-                        let def = crate::constants::building_def(inst.kind);
-                        match def.display {
-                            DisplayCategory::Economy => economy += 1,
-                            DisplayCategory::Military => military_bld += 1,
-                            DisplayCategory::Tower => tower_bld += 1,
-                            DisplayCategory::Hidden => {}
-                        }
-                    }
-                    ui.label(format!("Economy: {}", economy));
-                    ui.label(format!("Military: {}", military_bld));
-                    ui.label(format!("Towers: {}", tower_bld));
+                    ui.label(format!("Economy: {}", bld_economy));
+                    ui.label(format!("Military: {}", bld_military));
+                    ui.label(format!("Towers: {}", bld_tower));
                 },
             );
         });
