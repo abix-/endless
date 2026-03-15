@@ -105,7 +105,7 @@ const CARD_GAP: f32 = 6.0;
 const CARD_ROUNDING: f32 = 4.0;
 
 // Table colors
-const FELT_GREEN: egui::Color32 = egui::Color32::from_rgb(25, 75, 38);
+const FELT_GREEN: egui::Color32 = egui::Color32::from_rgba_premultiplied(25, 75, 38, 230);
 const FELT_BORDER: egui::Color32 = egui::Color32::from_rgb(50, 110, 60);
 const CARD_FACE: egui::Color32 = egui::Color32::from_rgb(250, 248, 240);
 const CARD_BACK: egui::Color32 = egui::Color32::from_rgb(40, 60, 120);
