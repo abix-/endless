@@ -497,6 +497,7 @@ fn save_left_panel_state(
     saved.upgrade_expanded = settings.upgrade_expanded.clone();
     saved.auto_upgrades = settings.auto_upgrades.clone();
     saved.show_terrain_sprites = settings.show_terrain_sprites;
+    saved.show_path_preview = settings.show_path_preview;
     saved.collapsed_sections = settings.collapsed_sections.clone();
     // Save policies from player town
     let town_idx = world_data
