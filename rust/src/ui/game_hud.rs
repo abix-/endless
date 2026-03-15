@@ -141,6 +141,24 @@ fn resource_icon_parts(prefer_right_to_left: bool) -> [ResourceIconPart; 2] {
     }
 }
 
+fn top_bar_resource_display_order() -> [HudResourceIcon; 4] {
+    [
+        HudResourceIcon::Wood,
+        HudResourceIcon::Stone,
+        HudResourceIcon::Food,
+        HudResourceIcon::Gold,
+    ]
+}
+
+fn top_bar_resource_widget_order(prefer_right_to_left: bool) -> [HudResourceIcon; 4] {
+    let [a, b, c, d] = top_bar_resource_display_order();
+    if prefer_right_to_left {
+        [d, c, b, a]
+    } else {
+        [a, b, c, d]
+    }
+}
+
 /// Cached egui texture IDs for resource icons extracted from atlas sprites.
 #[derive(Resource, Default)]
 pub struct ResourceIconCache {
@@ -567,35 +585,38 @@ pub fn top_bar_system(
                     let town_gold = town_access.gold(0);
                     let town_wood = town_access.wood(0);
                     let town_stone = town_access.stone(0);
-
-                    resource_icon(
-                        ui,
-                        town_wood,
-                        icon_cache.wood.as_ref(),
-                        egui::Color32::from_rgb(150, 110, 70),
-                        catalog.0.get("wood").unwrap_or(&""),
-                    );
-                    resource_icon(
-                        ui,
-                        town_stone,
-                        icon_cache.stone.as_ref(),
-                        egui::Color32::from_rgb(170, 170, 180),
-                        catalog.0.get("stone").unwrap_or(&""),
-                    );
-                    resource_icon(
-                        ui,
-                        town_food,
-                        icon_cache.food.as_ref(),
-                        egui::Color32::from_rgb(120, 200, 80),
-                        catalog.0.get("food").unwrap_or(&""),
-                    );
-                    resource_icon(
-                        ui,
-                        town_gold,
-                        icon_cache.gold.as_ref(),
-                        egui::Color32::from_rgb(220, 190, 50),
-                        catalog.0.get("gold").unwrap_or(&""),
-                    );
+                    for icon in top_bar_resource_widget_order(ui.layout().prefer_right_to_left()) {
+                        match icon {
+                            HudResourceIcon::Wood => resource_icon(
+                                ui,
+                                town_wood,
+                                icon_cache.wood.as_ref(),
+                                egui::Color32::from_rgb(150, 110, 70),
+                                catalog.0.get("wood").unwrap_or(&""),
+                            ),
+                            HudResourceIcon::Stone => resource_icon(
+                                ui,
+                                town_stone,
+                                icon_cache.stone.as_ref(),
+                                egui::Color32::from_rgb(170, 170, 180),
+                                catalog.0.get("stone").unwrap_or(&""),
+                            ),
+                            HudResourceIcon::Food => resource_icon(
+                                ui,
+                                town_food,
+                                icon_cache.food.as_ref(),
+                                egui::Color32::from_rgb(120, 200, 80),
+                                catalog.0.get("food").unwrap_or(&""),
+                            ),
+                            HudResourceIcon::Gold => resource_icon(
+                                ui,
+                                town_gold,
+                                icon_cache.gold.as_ref(),
+                                egui::Color32::from_rgb(220, 190, 50),
+                                catalog.0.get("gold").unwrap_or(&""),
+                            ),
+                        }
+                    }
 
                     let farmers = pop_stats.0.get(&(0, 0)).map(|s| s.alive).unwrap_or(0);
                     let guards = pop_stats.0.get(&(1, 0)).map(|s| s.alive).unwrap_or(0);
@@ -3678,6 +3699,37 @@ mod tests {
         assert_eq!(
             resource_icon_parts(true),
             [ResourceIconPart::Value, ResourceIconPart::Icon]
+        );
+    }
+
+    #[test]
+    fn top_bar_resource_order_stays_wood_stone_food_gold_on_screen() {
+        assert_eq!(
+            top_bar_resource_display_order(),
+            [
+                HudResourceIcon::Wood,
+                HudResourceIcon::Stone,
+                HudResourceIcon::Food,
+                HudResourceIcon::Gold,
+            ]
+        );
+        assert_eq!(
+            top_bar_resource_widget_order(false),
+            [
+                HudResourceIcon::Wood,
+                HudResourceIcon::Stone,
+                HudResourceIcon::Food,
+                HudResourceIcon::Gold,
+            ]
+        );
+        assert_eq!(
+            top_bar_resource_widget_order(true),
+            [
+                HudResourceIcon::Gold,
+                HudResourceIcon::Food,
+                HudResourceIcon::Stone,
+                HudResourceIcon::Wood,
+            ]
         );
     }
 
