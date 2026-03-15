@@ -2030,6 +2030,7 @@ pub enum WorldGenStyle {
     Classic,
     #[default]
     Continents,
+    Maze,
 }
 
 /// Configuration for procedural world generation.
@@ -2203,16 +2204,20 @@ pub fn generate_world(
     let mut name_idx = 0;
 
     let is_continents = config.gen_style == WorldGenStyle::Continents;
+    let is_maze = config.gen_style == WorldGenStyle::Maze;
+    let terrain_first = is_continents || is_maze;
 
-    // Continents: generate terrain first so we can reject Water positions
+    // Terrain-first styles: generate terrain before town placement so we can reject invalid cells
     if is_continents {
         generate_terrain_continents(grid);
+    } else if is_maze {
+        generate_terrain_maze(grid);
     }
 
     // All settlement positions for min_distance checks
     let mut all_positions: Vec<Vec2> = Vec::new();
-    // Continents needs more attempts since many positions land in ocean
-    let max_attempts = if is_continents { 5000 } else { 2000 };
+    // Terrain-first styles need more attempts since many positions land on impassable cells
+    let max_attempts = if terrain_first { 5000 } else { 2000 };
     // Step 2: Place towns — single loop driven by TOWN_REGISTRY
     for town_def in TOWN_REGISTRY {
         let count = config.count_for(town_def.kind);
@@ -2224,9 +2229,12 @@ pub fn generate_world(
             let y =
                 rng.random_range(config.world_margin..config.world_height - config.world_margin);
             let pos = Vec2::new(x, y);
-            if is_continents {
+            if terrain_first {
                 let (gc, gr) = grid.world_to_grid(pos);
-                if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) {
+                if grid
+                    .cell(gc, gr)
+                    .is_some_and(|c| matches!(c.terrain, Biome::Water | Biome::Rock))
+                {
                     continue;
                 }
             }
@@ -2293,7 +2301,7 @@ pub fn generate_world(
     }
 
     // Step 3: Generate terrain
-    if is_continents {
+    if is_continents || is_maze {
         // Terrain already generated; stamp dirt clearings around settlements
         stamp_dirt(grid, &all_positions);
     } else {
@@ -2309,10 +2317,13 @@ pub fn generate_world(
         let x = rng.random_range(config.world_margin..config.world_width - config.world_margin);
         let y = rng.random_range(config.world_margin..config.world_height - config.world_margin);
         let pos = Vec2::new(x, y);
-        // Not on water
-        if is_continents {
+        // Not on impassable terrain
+        if terrain_first {
             let (gc, gr) = grid.world_to_grid(pos);
-            if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) {
+            if grid
+                .cell(gc, gr)
+                .is_some_and(|c| matches!(c.terrain, Biome::Water | Biome::Rock))
+            {
                 continue;
             }
         }
@@ -2803,6 +2814,115 @@ fn generate_terrain_continents(grid: &mut WorldGrid) {
             let cell = &mut grid.cells[row * grid.width + col];
             cell.terrain = biome;
             cell.original_terrain = biome;
+        }
+    }
+}
+
+/// Generate a maze using recursive backtracking.
+/// Corridors are 3 cells wide (Grass), walls are 1 cell wide (Rock).
+/// The maze cell size is 4 grid cells (3 corridor + 1 wall).
+fn generate_terrain_maze(grid: &mut WorldGrid) {
+    use rand::Rng;
+    let mut rng = rand::rng();
+
+    let cell_size = 4usize; // 3 corridor + 1 wall
+    let maze_w = grid.width / cell_size;
+    let maze_h = grid.height / cell_size;
+    if maze_w < 2 || maze_h < 2 {
+        return;
+    }
+
+    // Fill everything with Rock first
+    for cell in &mut grid.cells {
+        cell.terrain = Biome::Rock;
+        cell.original_terrain = Biome::Rock;
+    }
+
+    // Carve helper: set a 3x3 corridor block at maze cell (mx, my) to Grass
+    let carve = |grid: &mut WorldGrid, mx: usize, my: usize| {
+        let base_col = mx * cell_size;
+        let base_row = my * cell_size;
+        for dr in 0..3 {
+            for dc in 0..3 {
+                let c = base_col + dc;
+                let r = base_row + dr;
+                if c < grid.width && r < grid.height {
+                    let idx = r * grid.width + c;
+                    grid.cells[idx].terrain = Biome::Grass;
+                    grid.cells[idx].original_terrain = Biome::Grass;
+                }
+            }
+        }
+    };
+
+    // Carve passage between adjacent maze cells (fills the wall gap)
+    let carve_passage = |grid: &mut WorldGrid, ax: usize, ay: usize, bx: usize, by: usize| {
+        // Mid-point between the two 3x3 blocks -- fill the 3-cell-wide corridor in the wall
+        let mid_col = (ax * cell_size + bx * cell_size) / 2;
+        let mid_row = (ay * cell_size + by * cell_size) / 2;
+        for dr in 0..3 {
+            for dc in 0..3 {
+                let c = mid_col + dc;
+                let r = mid_row + dr;
+                if c < grid.width && r < grid.height {
+                    let idx = r * grid.width + c;
+                    grid.cells[idx].terrain = Biome::Grass;
+                    grid.cells[idx].original_terrain = Biome::Grass;
+                }
+            }
+        }
+    };
+
+    // Recursive backtracking maze generation
+    let mut visited = vec![false; maze_w * maze_h];
+    let mut stack: Vec<(usize, usize)> = Vec::new();
+
+    // Start from center
+    let start_x = maze_w / 2;
+    let start_y = maze_h / 2;
+    visited[start_y * maze_w + start_x] = true;
+    carve(grid, start_x, start_y);
+    stack.push((start_x, start_y));
+
+    while let Some(&(cx, cy)) = stack.last() {
+        // Collect unvisited neighbors
+        let mut neighbors: Vec<(usize, usize)> = Vec::new();
+        if cx > 0 && !visited[cy * maze_w + (cx - 1)] {
+            neighbors.push((cx - 1, cy));
+        }
+        if cx + 1 < maze_w && !visited[cy * maze_w + (cx + 1)] {
+            neighbors.push((cx + 1, cy));
+        }
+        if cy > 0 && !visited[(cy - 1) * maze_w + cx] {
+            neighbors.push((cx, cy - 1));
+        }
+        if cy + 1 < maze_h && !visited[(cy + 1) * maze_w + cx] {
+            neighbors.push((cx, cy + 1));
+        }
+
+        if neighbors.is_empty() {
+            stack.pop();
+        } else {
+            let idx = rng.random_range(0..neighbors.len());
+            let (nx, ny) = neighbors[idx];
+            visited[ny * maze_w + nx] = true;
+            carve(grid, nx, ny);
+            carve_passage(grid, cx, cy, nx, ny);
+            stack.push((nx, ny));
+        }
+    }
+
+    // Add some Forest patches in corridors for wood resources
+    for row in 0..grid.height {
+        for col in 0..grid.width {
+            let idx = row * grid.width + col;
+            if grid.cells[idx].terrain == Biome::Grass {
+                let noise_val = ((col * 7 + row * 13) % 100) as f32 / 100.0;
+                if noise_val > 0.85 {
+                    grid.cells[idx].terrain = Biome::Forest;
+                    grid.cells[idx].original_terrain = Biome::Forest;
+                }
+            }
         }
     }
 }
