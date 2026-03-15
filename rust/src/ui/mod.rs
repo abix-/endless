@@ -1545,7 +1545,7 @@ fn screen_to_world(
     position + mouse_offset / zoom
 }
 
-/// Bresenham-style integer line over town-grid slots, inclusive of start/end.
+/// All grid slots in the axis-aligned rectangle between two corners, inclusive.
 fn slots_in_box(start: (usize, usize), end: (usize, usize)) -> Vec<(usize, usize)> {
     let c_min = start.0.min(end.0);
     let c_max = start.0.max(end.0);
@@ -1574,6 +1574,7 @@ fn drag_shape_slots(
     }
 }
 
+/// Bresenham-style integer line over town-grid slots, inclusive of start/end.
 fn slots_on_line(start: (usize, usize), end: (usize, usize)) -> Vec<(usize, usize)> {
     let (mut c0, mut r0) = (start.0 as i32, start.1 as i32);
     let (c1, r1) = (end.0 as i32, end.1 as i32);
