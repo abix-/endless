@@ -2778,77 +2778,35 @@ pub fn decision_system(
                         }
                         Job::Woodcutter => {
                             let current_pos = npc_pos.unwrap_or(home);
-                            let target = entity_map
-                                .find_nearest_worksite(
-                                    current_pos,
-                                    BuildingKind::TreeNode,
-                                    town_idx_i32 as u32,
-                                    crate::resources::WorksiteFallback::AnyTown,
-                                    6400.0,
-                                    |_inst, occ| {
-                                        let priority = if occ == 0 { 0u8 } else { 1 };
-                                        Some((
-                                            priority,
-                                            occ as u16,
-                                            _inst.position.distance_squared(current_pos).to_bits(),
-                                        ))
-                                    },
-                                )
-                                .map(|r| r.position);
-                            if let Some(node_pos) = target {
-                                transition_activity(
-                                    &mut activity,
-                                    ActivityKind::Chop,
-                                    ActivityPhase::Transit,
-                                    ActivityTarget::Worksite,
-                                    "transition",
-                                );
-                                submit_intent(
-                                    &mut intents,
-                                    entity,
-                                    node_pos.x,
-                                    node_pos.y,
-                                    MovementPriority::JobRoute,
-                                    "idle:work_chop",
-                                );
-                            }
+                            extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
+                                entity,
+                                kind: BuildingKind::TreeNode,
+                                town_idx: town_idx_i32 as u32,
+                                from: current_pos,
+                            }));
+                            transition_activity(
+                                &mut activity,
+                                ActivityKind::Chop,
+                                ActivityPhase::Transit,
+                                ActivityTarget::Worksite,
+                                "chop_claim_->_resolver",
+                            );
                         }
                         Job::Quarrier => {
                             let current_pos = npc_pos.unwrap_or(home);
-                            let target = entity_map
-                                .find_nearest_worksite(
-                                    current_pos,
-                                    BuildingKind::RockNode,
-                                    town_idx_i32 as u32,
-                                    crate::resources::WorksiteFallback::AnyTown,
-                                    6400.0,
-                                    |_inst, occ| {
-                                        let priority = if occ == 0 { 0u8 } else { 1 };
-                                        Some((
-                                            priority,
-                                            occ as u16,
-                                            _inst.position.distance_squared(current_pos).to_bits(),
-                                        ))
-                                    },
-                                )
-                                .map(|r| r.position);
-                            if let Some(node_pos) = target {
-                                transition_activity(
-                                    &mut activity,
-                                    ActivityKind::Quarry,
-                                    ActivityPhase::Transit,
-                                    ActivityTarget::Worksite,
-                                    "transition",
-                                );
-                                submit_intent(
-                                    &mut intents,
-                                    entity,
-                                    node_pos.x,
-                                    node_pos.y,
-                                    MovementPriority::JobRoute,
-                                    "idle:work_quarry",
-                                );
-                            }
+                            extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
+                                entity,
+                                kind: BuildingKind::RockNode,
+                                town_idx: town_idx_i32 as u32,
+                                from: current_pos,
+                            }));
+                            transition_activity(
+                                &mut activity,
+                                ActivityKind::Quarry,
+                                ActivityPhase::Transit,
+                                ActivityTarget::Worksite,
+                                "quarry_claim_->_resolver",
+                            );
                         }
                         Job::Boat => {} // CPU-driven movement, no behavior
                         Job::Mason => {
