@@ -154,7 +154,7 @@ pub fn accumulate_path_cost(
 
 use hashbrown::HashMap;
 
-const HPA_CHUNK_SIZE: usize = 16;
+pub const HPA_CHUNK_SIZE: usize = 16;
 /// Minimum terrain cost (road=67) — used for admissible heuristic on abstract graph.
 const HPA_MIN_COST: u32 = 67;
 
@@ -843,14 +843,11 @@ pub fn invalidate_paths_on_building_change(
             continue;
         }
 
-        // Only invalidate if remaining waypoints cross a dirty chunk
-        let dominated = path.waypoints[path.current..].iter().any(|wp| {
-            let chunk = (
-                wp.x as usize / HPA_CHUNK_SIZE,
-                wp.y as usize / HPA_CHUNK_SIZE,
-            );
-            dirty_chunks.contains(&chunk)
-        });
+        // Check precomputed path chunks against dirty set (O(path_chunks) not O(waypoints))
+        let dominated = path
+            .path_chunks
+            .iter()
+            .any(|chunk| dirty_chunks.contains(chunk));
         if !dominated {
             continue;
         }
@@ -1169,6 +1166,7 @@ mod tests {
                 waypoints: vec![IVec2::new(0, 0), IVec2::new(5, 5)],
                 current: 0,
                 goal_world: Vec2::new(320.0, 320.0),
+                path_chunks: vec![(0, 0)],
                 ..default()
             },
         ));
@@ -1195,6 +1193,7 @@ mod tests {
                 waypoints: vec![IVec2::new(0, 0), IVec2::new(5, 5)],
                 current: 0,
                 goal_world: Vec2::new(320.0, 320.0),
+                path_chunks: vec![(0, 0)],
                 ..default()
             },
         ));
@@ -1228,6 +1227,7 @@ mod tests {
                 waypoints: vec![IVec2::new(1, 1), IVec2::new(2, 2)], // chunk (0,0)
                 current: 0,
                 goal_world: Vec2::new(128.0, 128.0),
+                path_chunks: vec![(0, 0)],
                 ..default()
             },
         ));

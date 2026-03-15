@@ -436,12 +436,7 @@ fn bench_resolve_movement_system(c: &mut Criterion) {
             let _ = app.world_mut().run_system_once(
                 |mut commands: Commands, q: Query<Entity, Without<Building>>| {
                     for entity in q.iter() {
-                        commands.entity(entity).insert(NpcPath {
-                            waypoints: vec![],
-                            current: 0,
-                            goal_world: Vec2::ZERO,
-                            path_cooldown: 0.0,
-                        });
+                        commands.entity(entity).insert(NpcPath::default());
                     }
                 },
             );
@@ -498,12 +493,7 @@ fn bench_resolve_movement_unbounded(c: &mut Criterion) {
             let _ = app.world_mut().run_system_once(
                 |mut commands: Commands, q: Query<Entity, Without<Building>>| {
                     for entity in q.iter() {
-                        commands.entity(entity).insert(NpcPath {
-                            waypoints: vec![],
-                            current: 0,
-                            goal_world: Vec2::ZERO,
-                            path_cooldown: 0.0,
-                        });
+                        commands.entity(entity).insert(NpcPath::default());
                     }
                 },
             );

@@ -320,6 +320,18 @@ pub fn resolve_movement_system(
             let world_pos = grid.grid_to_world(first_wp.x as usize, first_wp.y as usize);
 
             if let Ok(mut npc_path) = path_q.get_mut(req.entity) {
+                let mut chunks: Vec<(usize, usize)> = path_points
+                    .iter()
+                    .map(|wp| {
+                        (
+                            wp.x as usize / crate::systems::pathfinding::HPA_CHUNK_SIZE,
+                            wp.y as usize / crate::systems::pathfinding::HPA_CHUNK_SIZE,
+                        )
+                    })
+                    .collect();
+                chunks.sort_unstable();
+                chunks.dedup();
+                npc_path.path_chunks = chunks;
                 npc_path.waypoints = path_points;
                 npc_path.current = 1;
                 npc_path.goal_world = req.goal_world;
@@ -551,7 +563,7 @@ mod tests {
                 waypoints: vec![IVec2::new(100, 200)],
                 current: 0,
                 goal_world: Vec2::new(100.0, 200.0),
-                path_cooldown: 0.0,
+                ..default()
             },
         ));
         app.update();
