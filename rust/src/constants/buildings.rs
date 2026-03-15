@@ -1,8 +1,8 @@
 //! Building registry — single source of truth for all building definitions.
 
-use crate::world::BuildingKind;
 use super::npcs::{ItemKind, LootDrop};
-use super::{TowerStats, FOUNTAIN_TOWER, TOWER_STATS, MINE_WORK_RADIUS};
+use super::{FOUNTAIN_TOWER, MINE_WORK_RADIUS, ResourceKind, TOWER_STATS, TowerStats};
+use crate::world::BuildingKind;
 
 /// Tile specification: single 16x16 sprite or 2x2 composite of four 16x16 sprites.
 #[derive(Clone, Copy, Debug)]
@@ -34,6 +34,10 @@ pub enum OnPlace {
 pub enum SpawnBehavior {
     /// Find nearest free farm in own town (farmer).
     FindNearestFarm,
+    /// Find nearest free tree node (woodcutter).
+    FindNearestTreeNode,
+    /// Find nearest free rock node (quarrier).
+    FindNearestRockNode,
     /// Find nearest waypoint for patrol (archer, crossbow).
     FindNearestWaypoint,
     /// Use raider town faction (tent → raider).
@@ -45,7 +49,7 @@ pub enum SpawnBehavior {
 /// NPC spawner definition — what kind of NPC a building produces.
 #[derive(Clone, Copy, Debug)]
 pub struct SpawnerDef {
-    pub job: i32, // Job::from_i32 index (0=Farmer, 1=Archer, 2=Raider, 4=Miner, 5=Crossbow)
+    pub job: i32, // Job::from_i32 index (0=Farmer, 1=Archer, 2=Raider, 4=Miner, 5=Crossbow, 7=Woodcutter, 8=Quarrier)
     pub behavior: SpawnBehavior,
 }
 
@@ -64,7 +68,7 @@ pub struct WorksiteDef {
     pub max_occupants: i32,
     pub drift_radius: f32,
     pub upgrade_job: &'static str,
-    pub harvest_item: ItemKind,
+    pub harvest_item: ResourceKind,
     pub town_scoped: bool,
 }
 
@@ -205,7 +209,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
             max_occupants: 1,
             drift_radius: 20.0,
             upgrade_job: "Farmer",
-            harvest_item: ItemKind::Food,
+            harvest_item: ResourceKind::Food,
             town_scoped: true,
         }),
         autotile: false,
@@ -308,7 +312,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
             max_occupants: 5,
             drift_radius: MINE_WORK_RADIUS,
             upgrade_job: "Miner",
-            harvest_item: ItemKind::Gold,
+            harvest_item: ResourceKind::Gold,
             town_scoped: false,
         }),
         autotile: false,
@@ -542,6 +546,112 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
     },
+    // 17: LumberMill
+    BuildingDef {
+        kind: BuildingKind::LumberMill,
+        display: DisplayCategory::Economy,
+        tile: TileSpec::External("sprites/house.png"),
+        hp: 120.0,
+        cost: 4,
+        label: "Lumber Mill",
+        help: "Spawns 1 woodcutter",
+        tooltip: "Trains 1 woodcutter who harvests nearby trees\nand carries wood home. Build near forests for\nshorter trips. HP: 120",
+        player_buildable: true,
+        raider_buildable: false,
+        placement: PlacementMode::TownGrid,
+        is_tower: false,
+        tower_stats: None,
+        on_place: OnPlace::None,
+        spawner: Some(SpawnerDef {
+            job: 7,
+            behavior: SpawnBehavior::FindNearestTreeNode,
+        }),
+        save_key: Some("lumber_mills"),
+        is_unit_home: false,
+        worksite: None,
+        autotile: false,
+    },
+    // 18: Quarry
+    BuildingDef {
+        kind: BuildingKind::Quarry,
+        display: DisplayCategory::Economy,
+        tile: TileSpec::External("sprites/miner_house.png"),
+        hp: 120.0,
+        cost: 4,
+        label: "Quarry",
+        help: "Spawns 1 quarrier",
+        tooltip: "Trains 1 quarrier who harvests nearby rock\nnodes and carries stone home. Build near rock\nbiomes for shorter trips. HP: 120",
+        player_buildable: true,
+        raider_buildable: false,
+        placement: PlacementMode::TownGrid,
+        is_tower: false,
+        tower_stats: None,
+        on_place: OnPlace::None,
+        spawner: Some(SpawnerDef {
+            job: 8,
+            behavior: SpawnBehavior::FindNearestRockNode,
+        }),
+        save_key: Some("quarries"),
+        is_unit_home: false,
+        worksite: None,
+        autotile: false,
+    },
+    // 19: TreeNode
+    BuildingDef {
+        kind: BuildingKind::TreeNode,
+        display: DisplayCategory::Hidden,
+        tile: TileSpec::Single(13, 9),
+        hp: 1.0,
+        cost: 0,
+        label: "Tree Node",
+        help: "Harvestable wood source",
+        tooltip: "",
+        player_buildable: false,
+        raider_buildable: false,
+        placement: PlacementMode::Wilderness,
+        is_tower: false,
+        tower_stats: None,
+        on_place: OnPlace::None,
+        spawner: None,
+        save_key: Some("tree_nodes"),
+        is_unit_home: false,
+        worksite: Some(WorksiteDef {
+            max_occupants: 1,
+            drift_radius: 20.0,
+            upgrade_job: "Farmer",
+            harvest_item: ResourceKind::Wood,
+            town_scoped: false,
+        }),
+        autotile: false,
+    },
+    // 20: RockNode
+    BuildingDef {
+        kind: BuildingKind::RockNode,
+        display: DisplayCategory::Hidden,
+        tile: TileSpec::Quad([(7, 15), (9, 15), (7, 17), (9, 17)]),
+        hp: 1.0,
+        cost: 0,
+        label: "Rock Node",
+        help: "Harvestable stone source",
+        tooltip: "",
+        player_buildable: false,
+        raider_buildable: false,
+        placement: PlacementMode::Wilderness,
+        is_tower: false,
+        tower_stats: None,
+        on_place: OnPlace::None,
+        spawner: None,
+        save_key: Some("rock_nodes"),
+        is_unit_home: false,
+        worksite: Some(WorksiteDef {
+            max_occupants: 1,
+            drift_radius: 20.0,
+            upgrade_job: "Farmer",
+            harvest_item: ResourceKind::Stone,
+            town_scoped: false,
+        }),
+        autotile: false,
+    },
 ];
 
 /// Look up a building definition by kind. Panics if kind is not in registry.
@@ -573,10 +683,10 @@ pub const AUTOTILE_EXTRA_PER_KIND: usize = 10;
 /// Auto-tile variant indices (0 = base/E-W layer at tileset_index, 1-10 = appended extras).
 pub const AUTOTILE_EW: u16 = 0;
 pub const AUTOTILE_NS: u16 = 1;
-pub const AUTOTILE_BL: u16 = 2;  // BR src(0°) → BL on screen
-pub const AUTOTILE_BR: u16 = 3;  // BL(90°) → BR on screen
-pub const AUTOTILE_TR: u16 = 4;  // TL(180°) → TR on screen
-pub const AUTOTILE_TL: u16 = 5;  // TR(270°) → TL on screen
+pub const AUTOTILE_BL: u16 = 2; // BR src(0°) → BL on screen
+pub const AUTOTILE_BR: u16 = 3; // BL(90°) → BR on screen
+pub const AUTOTILE_TR: u16 = 4; // TL(180°) → TR on screen
+pub const AUTOTILE_TL: u16 = 5; // TR(270°) → TL on screen
 pub const AUTOTILE_CROSS: u16 = 6;
 pub const AUTOTILE_T_OPEN_N: u16 = 7;
 pub const AUTOTILE_T_OPEN_W: u16 = 8;

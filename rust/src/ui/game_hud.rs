@@ -8,16 +8,16 @@ use bevy_egui::{EguiContexts, egui};
 
 use crate::components::*;
 use crate::constants::{
-    EffectDisplay, ResourceKind, UpgradeStatKind, WALL_TIER_HP,
-    WALL_TIER_NAMES, WALL_UPGRADE_COSTS, building_def, npc_def,
+    EffectDisplay, ResourceKind, UpgradeStatKind, WALL_TIER_HP, WALL_TIER_NAMES,
+    WALL_UPGRADE_COSTS, building_def, npc_def,
 };
 use crate::gpu::EntityGpuState;
 use crate::render::MainCamera;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
 use crate::systems::stats::{
-    CombatConfig, UPGRADES, UnequipItemMsg, level_from_xp,
-    resolve_tower_instance_stats, resolve_town_tower_stats,
+    CombatConfig, UPGRADES, UnequipItemMsg, level_from_xp, resolve_tower_instance_stats,
+    resolve_town_tower_stats,
 };
 use crate::ui::tipped;
 use crate::world::{BuildingKind, WorldData, WorldGrid};
@@ -29,7 +29,11 @@ use crate::world::{BuildingKind, WorldData, WorldGrid};
 /// Collect alive direct-control NPC slots from the selected player squad.
 /// Only includes NPCs with `NpcFlags.direct_control == true` (set by box-select).
 /// O(squad_size) instead of O(all_npcs) — avoids scanning entire EntityMap.
-fn dc_slots(squad_state: &SquadState, entity_map: &EntityMap, is_dc: impl Fn(Entity) -> bool) -> Vec<usize> {
+fn dc_slots(
+    squad_state: &SquadState,
+    entity_map: &EntityMap,
+    is_dc: impl Fn(Entity) -> bool,
+) -> Vec<usize> {
     let si = squad_state.selected;
     if si < 0 {
         return Vec::new();
@@ -45,9 +49,7 @@ fn dc_slots(squad_state: &SquadState, entity_map: &EntityMap, is_dc: impl Fn(Ent
         .iter()
         .filter_map(|e| entity_map.slot_for_entity(*e))
         .filter(|&slot| entity_map.get_npc(slot).is_some_and(|n| !n.dead))
-        .filter(|&slot| {
-            entity_map.get_npc(slot).is_some_and(|n| is_dc(n.entity))
-        })
+        .filter(|&slot| entity_map.get_npc(slot).is_some_and(|n| is_dc(n.entity)))
         .collect()
 }
 
@@ -63,14 +65,16 @@ enum InspectorAction {
 }
 
 /// Render an NPC name as a clickable link. Returns action if clicked.
-fn npc_link(ui: &mut egui::Ui, npc_stats_q: &Query<&mut NpcStats>, entity_map: &EntityMap, slot: usize) -> Option<InspectorAction> {
+fn npc_link(
+    ui: &mut egui::Ui,
+    npc_stats_q: &Query<&mut NpcStats>,
+    entity_map: &EntityMap,
+    slot: usize,
+) -> Option<InspectorAction> {
     if let Some(npc) = entity_map.get_npc(slot) {
         if let Ok(stats) = npc_stats_q.get(npc.entity) {
             let level = crate::systems::stats::level_from_xp(stats.xp);
-            if ui
-                .link(format!("{} (Lv.{})", stats.name, level))
-                .clicked()
-            {
+            if ui.link(format!("{} (Lv.{})", stats.name, level)).clicked() {
                 return Some(InspectorAction::SelectNpc(slot as i32));
             }
         }
@@ -176,10 +180,7 @@ pub fn top_bar_system(
                     ui_state.toggle_left_tab(LeftPanelTab::Roster);
                 }
                 if ui
-                    .selectable_label(
-                        ui_state.tech_tree_open,
-                        "Tech Tree",
-                    )
+                    .selectable_label(ui_state.tech_tree_open, "Tech Tree")
                     .clicked()
                 {
                     ui_state.tech_tree_open = !ui_state.tech_tree_open;
@@ -214,14 +215,10 @@ pub fn top_bar_system(
                     ui_state.toggle_left_tab(LeftPanelTab::Squads);
                 }
                 if ui
-                    .selectable_label(
-                        ui_state.left_panel_open
-                            && ui_state.left_panel_tab == LeftPanelTab::Inventory,
-                        "Armory",
-                    )
+                    .selectable_label(ui_state.armory_open, "Armory")
                     .clicked()
                 {
-                    ui_state.toggle_left_tab(LeftPanelTab::Inventory);
+                    ui_state.toggle_armory();
                 }
                 if ui
                     .selectable_label(
@@ -341,21 +338,20 @@ pub fn top_bar_system(
                     if let Some(ref llm) = llm_state {
                         use crate::systems::llm_player::LlmStatus;
                         let (color, tip) = match llm.status {
-                            LlmStatus::Idle => (
-                                egui::Color32::from_rgb(80, 80, 80),
-                                "LLM idle",
-                            ),
-                            LlmStatus::Sending => (
-                                egui::Color32::from_rgb(80, 180, 255),
-                                "LLM sending state",
-                            ),
-                            LlmStatus::Thinking => (
-                                egui::Color32::from_rgb(255, 200, 50),
-                                "LLM thinking...",
-                            ),
+                            LlmStatus::Idle => (egui::Color32::from_rgb(80, 80, 80), "LLM idle"),
+                            LlmStatus::Sending => {
+                                (egui::Color32::from_rgb(80, 180, 255), "LLM sending state")
+                            }
+                            LlmStatus::Thinking => {
+                                (egui::Color32::from_rgb(255, 200, 50), "LLM thinking...")
+                            }
                             LlmStatus::Done(n) => (
                                 egui::Color32::from_rgb(80, 220, 120),
-                                if n > 0 { "LLM executed actions" } else { "LLM no actions" },
+                                if n > 0 {
+                                    "LLM executed actions"
+                                } else {
+                                    "LLM no actions"
+                                },
                             ),
                         };
                         let size = 8.0;
@@ -372,6 +368,20 @@ pub fn top_bar_system(
                     // Player stats (right-aligned) — player's town is index 0
                     let town_food = town_access.food(0);
                     let town_gold = town_access.gold(0);
+                    let town_wood = town_access.wood(0);
+                    let town_stone = town_access.stone(0);
+                    tipped(
+                        ui,
+                        egui::RichText::new(format!("Stone: {}", town_stone))
+                            .color(egui::Color32::from_rgb(170, 170, 180)),
+                        catalog.0.get("stone").unwrap_or(&""),
+                    );
+                    tipped(
+                        ui,
+                        egui::RichText::new(format!("Wood: {}", town_wood))
+                            .color(egui::Color32::from_rgb(150, 110, 70)),
+                        catalog.0.get("wood").unwrap_or(&""),
+                    );
                     tipped(
                         ui,
                         egui::RichText::new(format!("Gold: {}", town_gold))
@@ -500,7 +510,20 @@ pub struct LogFilterState {
     pub chat_input: String,
     // Cached merged log entries — skip rebuild when sources unchanged
     cached_selected_npc: i32,
-    cached_filters: (bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, i32),
+    cached_filters: (
+        bool,
+        bool,
+        bool,
+        bool,
+        bool,
+        bool,
+        bool,
+        bool,
+        bool,
+        bool,
+        bool,
+        i32,
+    ),
     cached_entries: Vec<(i64, egui::Color32, String, String, Option<bevy::math::Vec2>)>,
 }
 
@@ -559,7 +582,8 @@ pub fn bottom_panel_system(
     let has_building = bld_data.selected_building.active;
     let dc_count = dc_slots(&panel_state.squad_state, &bld_data.entity_map, |e| {
         bld_data.npc_flags_q.get(e).is_ok_and(|f| f.direct_control)
-    }).len();
+    })
+    .len();
     panel_state.ui_state.inspector_visible = has_npc || has_building || dc_count > 0;
     if panel_state.ui_state.inspector_visible {
         if has_npc && !has_building {
@@ -587,9 +611,14 @@ pub fn bottom_panel_system(
             .show(ctx, |ui| {
                 if has_npc && has_building {
                     let npc_label = if data.selected.0 >= 0
-                        && bld_data.entity_map.get_npc(data.selected.0 as usize).is_some()
+                        && bld_data
+                            .entity_map
+                            .get_npc(data.selected.0 as usize)
+                            .is_some()
                     {
-                        let npc_name = bld_data.entity_map.get_npc(data.selected.0 as usize)
+                        let npc_name = bld_data
+                            .entity_map
+                            .get_npc(data.selected.0 as usize)
                             .and_then(|n| npc_stats_q.get(n.entity).ok())
                             .map(|s| s.name.clone())
                             .unwrap_or_default();
@@ -672,10 +701,9 @@ pub fn bottom_panel_system(
                                 .as_ref()
                                 .map(|(k, ti, _, _, _)| {
                                     !matches!(k, BuildingKind::Fountain | BuildingKind::GoldMine)
-                                        && world_data
-                                            .towns
-                                            .get(*ti as usize)
-                                            .is_some_and(|t| t.faction == crate::constants::FACTION_PLAYER)
+                                        && world_data.towns.get(*ti as usize).is_some_and(|t| {
+                                            t.faction == crate::constants::FACTION_PLAYER
+                                        })
                                 })
                                 .unwrap_or(false);
                             if is_destructible {
@@ -728,7 +756,9 @@ fn tower_upgrade_window(
     };
 
     // Auto-close if selected building changed or tower no longer exists
-    let inst_exists = bld.entity_map.get_instance(slot)
+    let inst_exists = bld
+        .entity_map
+        .get_instance(slot)
         .is_some_and(|i| i.kind == BuildingKind::Tower);
     if !inst_exists {
         ui_state.tower_upgrade_slot = None;
@@ -736,10 +766,16 @@ fn tower_upgrade_window(
     }
 
     // Read tower data from ECS TowerBuildingState + EntityMap for town_idx
-    let Some(inst) = bld.entity_map.get_instance(slot) else { return; };
+    let Some(inst) = bld.entity_map.get_instance(slot) else {
+        return;
+    };
     let town_idx = inst.town_idx as usize;
-    let Some(&tower_entity) = bld.entity_map.entities.get(&slot) else { return; };
-    let Ok(tbs) = bld.tower_bld_q.get(tower_entity) else { return; };
+    let Some(&tower_entity) = bld.entity_map.entities.get(&slot) else {
+        return;
+    };
+    let Ok(tbs) = bld.tower_bld_q.get(tower_entity) else {
+        return;
+    };
     let level = level_from_xp(tbs.xp);
     let upgrade_levels = tbs.upgrade_levels.clone();
     let auto_flags = tbs.auto_upgrade_flags.clone();
@@ -772,6 +808,7 @@ fn tower_upgrade_window(
                     match res {
                         ResourceKind::Food => food >= total,
                         ResourceKind::Gold => gold >= total,
+                        ResourceKind::Wood | ResourceKind::Stone => false,
                     }
                 });
 
@@ -825,15 +862,15 @@ fn tower_upgrade_window(
                                 match res {
                                     ResourceKind::Food => format!("{} food", total),
                                     ResourceKind::Gold => format!("{} gold", total),
+                                    ResourceKind::Wood => format!("{} wood", total),
+                                    ResourceKind::Stone => format!("{} stone", total),
                                 }
                             })
                             .collect();
                         let cost_text = format!("Buy: {}", cost_parts.join(", "));
 
-                        let btn = egui::Button::new(
-                            egui::RichText::new(&cost_text).size(14.0),
-                        )
-                        .min_size(egui::vec2(ui.available_width(), 28.0));
+                        let btn = egui::Button::new(egui::RichText::new(&cost_text).size(14.0))
+                            .min_size(egui::vec2(ui.available_width(), 28.0));
 
                         if ui.add_enabled(can_afford, btn).clicked() {
                             // Deduct resources
@@ -841,15 +878,20 @@ fn tower_upgrade_window(
                                 let total = base * cost_mult;
                                 match res {
                                     ResourceKind::Food => {
-                                        if let Some(mut f) = bld.town_access.food_mut(town_idx as i32) {
+                                        if let Some(mut f) =
+                                            bld.town_access.food_mut(town_idx as i32)
+                                        {
                                             f.0 -= total;
                                         }
                                     }
                                     ResourceKind::Gold => {
-                                        if let Some(mut g) = bld.town_access.gold_mut(town_idx as i32) {
+                                        if let Some(mut g) =
+                                            bld.town_access.gold_mut(town_idx as i32)
+                                        {
                                             g.0 -= total;
                                         }
                                     }
+                                    ResourceKind::Wood | ResourceKind::Stone => {}
                                 }
                             }
                             // Increment upgrade level
@@ -1032,7 +1074,9 @@ pub fn combat_log_system(
                         continue;
                     }
                     // Faction filter: "Mine" shows player (0) + global (-1) events only
-                    if filter_state.faction_filter == 0 && entry.faction != crate::constants::FACTION_PLAYER && entry.faction != crate::constants::FACTION_NEUTRAL
+                    if filter_state.faction_filter == 0
+                        && entry.faction != crate::constants::FACTION_PLAYER
+                        && entry.faction != crate::constants::FACTION_NEUTRAL
                     {
                         continue;
                     }
@@ -1088,8 +1132,14 @@ pub fn combat_log_system(
                 if filter_state.show_chat {
                     let chat_color = egui::Color32::from_rgb(240, 200, 80);
                     for msg in chat_inbox.messages.iter() {
-                        let other_town = if msg.from_town == 0 { msg.to_town } else { msg.from_town };
-                        let town_name = world_data.towns.get(other_town)
+                        let other_town = if msg.from_town == 0 {
+                            msg.to_town
+                        } else {
+                            msg.from_town
+                        };
+                        let town_name = world_data
+                            .towns
+                            .get(other_town)
                             .map(|t| t.name.as_str())
                             .unwrap_or("?");
                         let label = if msg.from_town == 0 {
@@ -1097,11 +1147,12 @@ pub fn combat_log_system(
                         } else {
                             format!("[chat from {}] {}", town_name, msg.text)
                         };
-                        let key = (msg.day as i64) * 10000
-                            + (msg.hour as i64) * 100
-                            + msg.minute as i64;
+                        let key =
+                            (msg.day as i64) * 10000 + (msg.hour as i64) * 100 + msg.minute as i64;
                         let ts = format!("[D{} {:02}:{:02}]", msg.day, msg.hour, msg.minute);
-                        filter_state.cached_entries.push((key, chat_color, ts, label, None));
+                        filter_state
+                            .cached_entries
+                            .push((key, chat_color, ts, label, None));
                     }
                 }
 
@@ -1180,7 +1231,9 @@ pub fn combat_log_system(
                 from_town: 0,
                 to_town,
                 text: text.clone(),
-                day, hour, minute,
+                day,
+                hour,
+                minute,
                 sent_to_llm: false,
                 has_reply: false,
             });
@@ -1564,7 +1617,10 @@ fn inspector_content(
                         ui.horizontal(|ui| {
                             let (r, g, b) = item.rarity.color();
                             ui.label(format!("{}:", label));
-                            ui.label(egui::RichText::new(&item.name).color(egui::Color32::from_rgb(r, g, b)));
+                            ui.label(
+                                egui::RichText::new(&item.name)
+                                    .color(egui::Color32::from_rgb(r, g, b)),
+                            );
                             ui.label(format!("(+{:.0}%)", item.stat_bonus * 100.0));
                             if ui.small_button("Unequip").clicked() {
                                 unequip_writer.write(UnequipItemMsg {
@@ -1582,8 +1638,7 @@ fn inspector_content(
             }
             if can_equip {
                 if ui.small_button("Open Armory >").clicked() {
-                    ui_state.left_panel_open = true;
-                    ui_state.left_panel_tab = LeftPanelTab::Inventory;
+                    ui_state.open_armory();
                 }
             }
         }
@@ -1602,7 +1657,11 @@ fn inspector_content(
     }
 
     // Town name
-    let npc_town_idx = bld_data.entity_map.get_npc(idx).map(|n| n.town_idx).unwrap_or(-1);
+    let npc_town_idx = bld_data
+        .entity_map
+        .get_npc(idx)
+        .map(|n| n.town_idx)
+        .unwrap_or(-1);
     if show_overview && npc_town_idx >= 0 {
         if let Some(town) = world_data.towns.get(npc_town_idx as usize) {
             ui.label(format!("Town: {}", town.name));
@@ -1633,7 +1692,10 @@ fn inspector_content(
         home_pos = Some(npc_home);
         let home_valid = npc_home.x >= 0.0 && npc_home.y >= 0.0;
         if home_valid {
-            home_slot = bld_data.entity_map.find_by_position(npc_home).map(|i| i.slot);
+            home_slot = bld_data
+                .entity_map
+                .find_by_position(npc_home)
+                .map(|i| i.slot);
             home_str = format!("({:.0}, {:.0})", npc_home.x, npc_home.y);
         } else {
             home_str = "Homeless".to_string();
@@ -1658,7 +1720,10 @@ fn inspector_content(
                 .take(4)
                 .map(|it| format!("{} ({:?} +{:.0}%)", it.name, it.kind, it.stat_bonus * 100.0))
                 .collect();
-            carried_equip_more = cl.equipment.len().saturating_sub(carried_equip_preview.len());
+            carried_equip_more = cl
+                .equipment
+                .len()
+                .saturating_sub(carried_equip_preview.len());
         }
 
         let mut parts: Vec<&str> = Vec::new();
@@ -1680,23 +1745,25 @@ fn inspector_content(
             format!("State: {}", state_str),
             catalog.0.get("npc_state").unwrap_or(&""),
         );
-        let home_action = ui.horizontal(|ui| {
-            if let Some(fid) = faction_id {
-                if ui.link(format!("Faction: {}", faction_str)).clicked() {
-                    ui_state.left_panel_open = true;
-                    ui_state.left_panel_tab = LeftPanelTab::Factions;
-                    faction_select.write(crate::messages::SelectFactionMsg(fid));
+        let home_action = ui
+            .horizontal(|ui| {
+                if let Some(fid) = faction_id {
+                    if ui.link(format!("Faction: {}", faction_str)).clicked() {
+                        ui_state.left_panel_open = true;
+                        ui_state.left_panel_tab = LeftPanelTab::Factions;
+                        faction_select.write(crate::messages::SelectFactionMsg(fid));
+                    }
+                } else {
+                    ui.label(format!("Faction: {}", faction_str));
                 }
-            } else {
-                ui.label(format!("Faction: {}", faction_str));
-            }
-            if let Some(slot) = home_slot {
-                building_link(ui, &format!("Home: {}", home_str), slot)
-            } else {
-                ui.label(format!("Home: {}", home_str));
-                None
-            }
-        }).inner;
+                if let Some(slot) = home_slot {
+                    building_link(ui, &format!("Home: {}", home_str), slot)
+                } else {
+                    ui.label(format!("Home: {}", home_str));
+                    None
+                }
+            })
+            .inner;
         if let Some(action) = home_action {
             return Some(action);
         }
@@ -1782,7 +1849,10 @@ fn inspector_content(
                 }
                 // Show mine productivity when actively mining
                 if is_mining_at_mine {
-                    let mine_pos = bld_data.entity_map.entities.get(&mh_slot)
+                    let mine_pos = bld_data
+                        .entity_map
+                        .entities
+                        .get(&mh_slot)
                         .and_then(|&e| bld_data.miner_cfg_q.get(e).ok())
                         .and_then(|mc| mc.assigned_mine);
                     if let Some(mine_pos) = mine_pos {
@@ -1846,11 +1916,18 @@ fn inspector_content(
         let entity = bld_data.entity_map.entities.get(&idx);
         let entity_str = entity.map_or("?".to_string(), |e| format!("{:?}", e));
         let world_pos_str = if idx * 2 + 1 < gpu_state.positions.len() {
-            format!("({:.0}, {:.0})", gpu_state.positions[idx * 2], gpu_state.positions[idx * 2 + 1])
+            format!(
+                "({:.0}, {:.0})",
+                gpu_state.positions[idx * 2],
+                gpu_state.positions[idx * 2 + 1]
+            )
         } else {
             "?".into()
         };
-        ui.label(format!("Slot: {}  Entity: {}  Pos: {}", idx, entity_str, world_pos_str));
+        ui.label(format!(
+            "Slot: {}  Entity: {}  Pos: {}",
+            idx, entity_str, world_pos_str
+        ));
 
         if ui.button("Copy Debug Info").clicked() {
             let positions = &gpu_state.positions;
@@ -1902,25 +1979,46 @@ fn inspector_content(
             if let Some(npc) = bld_data.entity_map.get_npc(idx) {
                 if let Ok(eq) = bld_data.equipment_q.get(npc.entity) {
                     let slots: &[(&str, &Option<crate::constants::LootItem>)] = &[
-                        ("Weapon", &eq.weapon), ("Helm", &eq.helm), ("Armor", &eq.armor),
-                        ("Shield", &eq.shield), ("Gloves", &eq.gloves), ("Boots", &eq.boots),
-                        ("Belt", &eq.belt), ("Amulet", &eq.amulet),
-                        ("Ring 1", &eq.ring1), ("Ring 2", &eq.ring2),
+                        ("Weapon", &eq.weapon),
+                        ("Helm", &eq.helm),
+                        ("Armor", &eq.armor),
+                        ("Shield", &eq.shield),
+                        ("Gloves", &eq.gloves),
+                        ("Boots", &eq.boots),
+                        ("Belt", &eq.belt),
+                        ("Amulet", &eq.amulet),
+                        ("Ring 1", &eq.ring1),
+                        ("Ring 2", &eq.ring2),
                     ];
                     for &(label, item_opt) in slots {
                         if let Some(item) = item_opt {
-                            info.push_str(&format!("{}: {} ({} +{:.0}%)\n",
-                                label, item.name, item.rarity.label(), item.stat_bonus * 100.0));
+                            info.push_str(&format!(
+                                "{}: {} ({} +{:.0}%)\n",
+                                label,
+                                item.name,
+                                item.rarity.label(),
+                                item.stat_bonus * 100.0
+                            ));
                         }
                     }
                 }
                 if let Ok(flags) = bld_data.npc_flags_q.get(npc.entity) {
                     let mut fp: Vec<&str> = Vec::new();
-                    if flags.healing { fp.push("healing"); }
-                    if flags.starving { fp.push("starving"); }
-                    if flags.direct_control { fp.push("direct_control"); }
-                    if flags.migrating { fp.push("migrating"); }
-                    if flags.at_destination { fp.push("at_dest"); }
+                    if flags.healing {
+                        fp.push("healing");
+                    }
+                    if flags.starving {
+                        fp.push("starving");
+                    }
+                    if flags.direct_control {
+                        fp.push("direct_control");
+                    }
+                    if flags.migrating {
+                        fp.push("migrating");
+                    }
+                    if flags.at_destination {
+                        fp.push("at_dest");
+                    }
                     info.push_str(&format!("Flags: [{}]\n", fp.join(", ")));
                 }
                 let combat_state_name = bld_data
@@ -1929,7 +2027,10 @@ fn inspector_content(
                     .map(|cs| cs.name())
                     .unwrap_or("Unknown");
                 info.push_str(&format!("CombatState: {}\n", combat_state_name));
-                info.push_str(&format!("CarriedLoot: food={} gold={}\n", carried_food, carried_gold));
+                info.push_str(&format!(
+                    "CarriedLoot: food={} gold={}\n",
+                    carried_food, carried_gold
+                ));
             }
             info.push_str(&format!(
                 "Day {day} {hour:02}:{min:02}\n",
@@ -1984,16 +2085,28 @@ fn mine_assignment_ui(
 ) -> Option<InspectorAction> {
     let mh_entity = entity_map.entities.get(&mh_slot).copied();
     let (assigned, manual) = mh_entity
-        .and_then(|e| miner_cfg_q.get(e).ok().map(|mc| (mc.assigned_mine, mc.manual_mine)))
+        .and_then(|e| {
+            miner_cfg_q
+                .get(e)
+                .ok()
+                .map(|mc| (mc.assigned_mine, mc.manual_mine))
+        })
         .unwrap_or((None, false));
     let mut action = None;
     if let Some(mine_pos) = assigned {
         let dist = mine_pos.distance(ref_pos);
         let mine_slot = entity_map.slot_at_position(mine_pos);
         let label = if let Some(mine_idx) = entity_map.gold_mine_index(mine_pos) {
-            format!("Mine: {} - {:.0}px", crate::ui::gold_mine_name(mine_idx), dist)
+            format!(
+                "Mine: {} - {:.0}px",
+                crate::ui::gold_mine_name(mine_idx),
+                dist
+            )
         } else {
-            format!("Mine: ({:.0}, {:.0}) - {:.0}px", mine_pos.x, mine_pos.y, dist)
+            format!(
+                "Mine: ({:.0}, {:.0}) - {:.0}px",
+                mine_pos.x, mine_pos.y, dist
+            )
         };
         if let Some(slot) = mine_slot {
             action = building_link(ui, &label, slot);
@@ -2059,7 +2172,10 @@ fn building_inspector_content(
     // Town + faction
     if let Some(town) = world_data.towns.get(town_idx) {
         ui.label(format!("Town: {}", town.name));
-        if ui.link(format!("Faction: {} (F{})", town.name, town.faction)).clicked() {
+        if ui
+            .link(format!("Faction: {} (F{})", town.name, town.faction))
+            .clicked()
+        {
             ui_state.left_panel_open = true;
             ui_state.left_panel_tab = LeftPanelTab::Factions;
             faction_select.write(crate::messages::SelectFactionMsg(town.faction));
@@ -2095,149 +2211,268 @@ fn building_inspector_content(
     }
 
     // Per-type details (hidden during construction)
-    if !is_constructing { match kind {
-        BuildingKind::Farm => {
-            if let Some(ps) = bld_entity.and_then(|e| bld.production_q.get(e).ok()) {
-                let state_name = if ps.ready { "Ready to harvest" } else { "Growing" };
-                ui.label(format!("Status: {}", state_name));
+    if !is_constructing {
+        match kind {
+            BuildingKind::Farm => {
+                if let Some(ps) = bld_entity.and_then(|e| bld.production_q.get(e).ok()) {
+                    let state_name = if ps.ready {
+                        "Ready to harvest"
+                    } else {
+                        "Growing"
+                    };
+                    ui.label(format!("Status: {}", state_name));
 
-                let color = if ps.ready {
-                    egui::Color32::from_rgb(200, 200, 60)
-                } else {
-                    egui::Color32::from_rgb(80, 180, 80)
-                };
-                ui.horizontal(|ui| {
-                    ui.label("Growth:");
+                    let color = if ps.ready {
+                        egui::Color32::from_rgb(200, 200, 60)
+                    } else {
+                        egui::Color32::from_rgb(80, 180, 80)
+                    };
+                    ui.horizontal(|ui| {
+                        ui.label("Growth:");
+                        ui.add(
+                            egui::ProgressBar::new(ps.progress)
+                                .text(format!("{:.0}%", ps.progress * 100.0))
+                                .fill(color),
+                        );
+                    });
+
+                    let occupants = bld_slot
+                        .map(|s| bld.entity_map.occupant_count(s))
+                        .unwrap_or(0);
+                    ui.label(format!("Farmers: {}", occupants));
+                }
+            }
+
+            BuildingKind::Waypoint => {
+                let order = bld_entity
+                    .and_then(|e| bld.waypoint_order_q.get(e).ok())
+                    .map(|w| w.0)
+                    .unwrap_or(0);
+                ui.label(format!("Patrol order: {}", order));
+            }
+
+            BuildingKind::Fountain => {
+                // Healing + tower info
+                let base_radius = bld.combat_config.heal_radius;
+                let levels = bld.town_access.upgrade_levels(town_idx as i32);
+                let upgrade_bonus =
+                    UPGRADES.stat_level(&levels, "Town", UpgradeStatKind::FountainRange) as f32
+                        * 24.0;
+                let tower = resolve_town_tower_stats(&levels);
+                ui.label(format!("Heal radius: {:.0}px", base_radius + upgrade_bonus));
+                ui.label(format!("Heal rate: {:.0}/s", bld.combat_config.heal_rate));
+                ui.separator();
+                ui.label(format!("Tower range: {:.0}px", tower.range));
+                ui.label(format!("Tower damage: {:.1}", tower.damage));
+                ui.label(format!("Tower cooldown: {:.2}s", tower.cooldown));
+                ui.label(format!(
+                    "Tower projectile life: {:.2}s",
+                    tower.proj_lifetime
+                ));
+
+                // Kills / XP / Level from TowerBuildingState
+                if let Some(tbs) = bld_entity.and_then(|e| bld.tower_bld_q.get(e).ok()) {
+                    let level = level_from_xp(tbs.xp);
+                    let xp_next = (level + 1) * (level + 1) * 100;
+                    ui.label(format!(
+                        "Kills: {}  Lv.{}  XP: {}/{}",
+                        tbs.kills, level, tbs.xp, xp_next
+                    ));
+                }
+
+                let food = bld.town_access.food(town_idx as i32);
+                ui.label(format!("Food: {}", food));
+            }
+
+            BuildingKind::Bed => {
+                ui.label("Rest point");
+            }
+
+            BuildingKind::GoldMine => {
+                if let Some(mine_inst) = bld.entity_map.find_by_position(world_pos) {
+                    let mine_label = if let Some(idx) = bld.entity_map.gold_mine_index(world_pos) {
+                        crate::ui::gold_mine_name(idx)
+                    } else {
+                        format!("Gold Mine (slot {})", mine_inst.slot)
+                    };
+                    ui.label(format!("Name: {}", mine_label));
+                    let enabled = *mining_policy
+                        .mine_enabled
+                        .get(&mine_inst.slot)
+                        .unwrap_or(&true);
+                    let label = if enabled {
+                        "Auto-mining: ON"
+                    } else {
+                        "Auto-mining: OFF"
+                    };
+                    if ui.button(label).clicked() {
+                        mining_policy.mine_enabled.insert(mine_inst.slot, !enabled);
+                        dirty_writers.mining.write(crate::messages::MiningDirtyMsg);
+                    }
+                }
+                if let Some(ps) = bld_entity.and_then(|e| bld.production_q.get(e).ok()) {
+                    let label = if ps.ready {
+                        "Ready to harvest".to_string()
+                    } else {
+                        format!("Growing: {:.0}%", ps.progress * 100.0)
+                    };
+                    ui.label(&label);
+                    let color = if ps.ready {
+                        egui::Color32::from_rgb(200, 180, 40)
+                    } else if ps.progress > 0.0 {
+                        egui::Color32::from_rgb(160, 140, 40)
+                    } else {
+                        egui::Color32::from_rgb(100, 100, 100)
+                    };
                     ui.add(
                         egui::ProgressBar::new(ps.progress)
                             .text(format!("{:.0}%", ps.progress * 100.0))
                             .fill(color),
                     );
-                });
-
-                let occupants = bld_slot
-                    .map(|s| bld.entity_map.occupant_count(s))
-                    .unwrap_or(0);
-                ui.label(format!("Farmers: {}", occupants));
-            }
-        }
-
-        BuildingKind::Waypoint => {
-            let order = bld_entity
-                .and_then(|e| bld.waypoint_order_q.get(e).ok())
-                .map(|w| w.0)
-                .unwrap_or(0);
-            ui.label(format!("Patrol order: {}", order));
-        }
-
-        BuildingKind::Fountain => {
-            // Healing + tower info
-            let base_radius = bld.combat_config.heal_radius;
-            let levels = bld.town_access.upgrade_levels(town_idx as i32);
-            let upgrade_bonus =
-                UPGRADES.stat_level(&levels, "Town", UpgradeStatKind::FountainRange) as f32 * 24.0;
-            let tower = resolve_town_tower_stats(&levels);
-            ui.label(format!("Heal radius: {:.0}px", base_radius + upgrade_bonus));
-            ui.label(format!("Heal rate: {:.0}/s", bld.combat_config.heal_rate));
-            ui.separator();
-            ui.label(format!("Tower range: {:.0}px", tower.range));
-            ui.label(format!("Tower damage: {:.1}", tower.damage));
-            ui.label(format!("Tower cooldown: {:.2}s", tower.cooldown));
-            ui.label(format!(
-                "Tower projectile life: {:.2}s",
-                tower.proj_lifetime
-            ));
-
-            // Kills / XP / Level from TowerBuildingState
-            if let Some(tbs) = bld_entity.and_then(|e| bld.tower_bld_q.get(e).ok()) {
-                let level = level_from_xp(tbs.xp);
-                let xp_next = (level + 1) * (level + 1) * 100;
-                ui.label(format!(
-                    "Kills: {}  Lv.{}  XP: {}/{}",
-                    tbs.kills, level, tbs.xp, xp_next
-                ));
-            }
-
-            let food = bld.town_access.food(town_idx as i32);
-            ui.label(format!("Food: {}", food));
-        }
-
-        BuildingKind::Bed => {
-            ui.label("Rest point");
-        }
-
-        BuildingKind::GoldMine => {
-            if let Some(mine_inst) = bld.entity_map.find_by_position(world_pos) {
-                let mine_label = if let Some(idx) = bld.entity_map.gold_mine_index(world_pos) {
-                    crate::ui::gold_mine_name(idx)
-                } else {
-                    format!("Gold Mine (slot {})", mine_inst.slot)
-                };
-                ui.label(format!("Name: {}", mine_label));
-                let enabled = *mining_policy
-                    .mine_enabled
-                    .get(&mine_inst.slot)
-                    .unwrap_or(&true);
-                let label = if enabled {
-                    "Auto-mining: ON"
-                } else {
-                    "Auto-mining: OFF"
-                };
-                if ui.button(label).clicked() {
-                    mining_policy.mine_enabled.insert(mine_inst.slot, !enabled);
-                    dirty_writers.mining.write(crate::messages::MiningDirtyMsg);
+                    let occupants = bld_slot
+                        .map(|s| bld.entity_map.occupant_count(s))
+                        .unwrap_or(0);
+                    if occupants > 0 {
+                        let mult = crate::constants::mine_productivity_mult(occupants);
+                        ui.label(format!(
+                            "Miners: {} ({:.0}% speed)",
+                            occupants,
+                            mult * 100.0
+                        ));
+                    }
                 }
             }
-            if let Some(ps) = bld_entity.and_then(|e| bld.production_q.get(e).ok()) {
-                let label = if ps.ready {
-                    "Ready to harvest".to_string()
-                } else {
-                    format!("Growing: {:.0}%", ps.progress * 100.0)
-                };
-                ui.label(&label);
-                let color = if ps.ready {
-                    egui::Color32::from_rgb(200, 180, 40)
-                } else if ps.progress > 0.0 {
-                    egui::Color32::from_rgb(160, 140, 40)
-                } else {
-                    egui::Color32::from_rgb(100, 100, 100)
-                };
-                ui.add(
-                    egui::ProgressBar::new(ps.progress)
-                        .text(format!("{:.0}%", ps.progress * 100.0))
-                        .fill(color),
-                );
-                let occupants = bld_slot
-                    .map(|s| bld.entity_map.occupant_count(s))
-                    .unwrap_or(0);
-                if occupants > 0 {
-                    let mult = crate::constants::mine_productivity_mult(occupants);
-                    ui.label(format!(
-                        "Miners: {} ({:.0}% speed)",
-                        occupants,
-                        mult * 100.0
-                    ));
+
+            BuildingKind::Wall => {
+                // Wall tier info + upgrade button
+                if let Some(_wall_inst) = bld.entity_map.find_by_position(world_pos) {
+                    let wall_lv = bld_entity
+                        .and_then(|e| bld.wall_level_q.get(e).ok())
+                        .map(|w| w.0)
+                        .unwrap_or(1);
+                    let level = wall_lv.max(1) as usize;
+                    let tier_name = WALL_TIER_NAMES.get(level - 1).unwrap_or(&"Wall");
+                    let tier_hp = WALL_TIER_HP.get(level - 1).copied().unwrap_or(80.0);
+                    ui.label(format!("Tier: {} (Lv.{})", tier_name, level));
+                    ui.label(format!("Max HP: {:.0}", tier_hp));
+
+                    // Show current HP from building entity
+                    {
+                        let hp = bld_entity
+                            .and_then(|e| bld.building_health.get(e).ok())
+                            .map(|h| h.0);
+                        if let Some(hp) = hp {
+                            let color = if hp > tier_hp * 0.5 {
+                                egui::Color32::from_rgb(80, 200, 80)
+                            } else {
+                                egui::Color32::from_rgb(200, 80, 80)
+                            };
+                            ui.horizontal(|ui| {
+                                ui.label("HP:");
+                                ui.add(
+                                    egui::ProgressBar::new(hp / tier_hp)
+                                        .text(format!("{:.0}/{:.0}", hp, tier_hp))
+                                        .fill(color),
+                                );
+                            });
+                        }
+                    }
+
+                    // Upgrade button (if not max tier)
+                    if level < 3 {
+                        let costs = WALL_UPGRADE_COSTS[level - 1];
+                        let cost_str: Vec<String> = costs
+                            .iter()
+                            .map(|(r, amt)| match r {
+                                ResourceKind::Food => format!("{} food", amt),
+                                ResourceKind::Gold => format!("{} gold", amt),
+                                ResourceKind::Wood => format!("{} wood", amt),
+                                ResourceKind::Stone => format!("{} stone", amt),
+                            })
+                            .collect();
+                        let next_name = WALL_TIER_NAMES[level];
+                        let can_afford = costs.iter().all(|(r, amt)| match r {
+                            ResourceKind::Food => bld.town_access.food(town_idx as i32) >= *amt,
+                            ResourceKind::Gold => bld.town_access.gold(town_idx as i32) >= *amt,
+                            ResourceKind::Wood | ResourceKind::Stone => false,
+                        });
+
+                        ui.separator();
+                        let btn_text =
+                            format!("Upgrade to {} ({})", next_name, cost_str.join(", "));
+                        let btn = ui.add_enabled(
+                            can_afford,
+                            egui::Button::new(egui::RichText::new(btn_text).color(if can_afford {
+                                egui::Color32::from_rgb(80, 200, 200)
+                            } else {
+                                egui::Color32::from_rgb(120, 120, 120)
+                            })),
+                        );
+                        if btn.clicked() && can_afford {
+                            // Deduct costs
+                            for (r, amt) in costs {
+                                match r {
+                                    ResourceKind::Food => {
+                                        if let Some(mut f) =
+                                            bld.town_access.food_mut(town_idx as i32)
+                                        {
+                                            f.0 -= amt;
+                                        }
+                                    }
+                                    ResourceKind::Gold => {
+                                        if let Some(mut g) =
+                                            bld.town_access.gold_mut(town_idx as i32)
+                                        {
+                                            g.0 -= amt;
+                                        }
+                                    }
+                                    ResourceKind::Wood | ResourceKind::Stone => {}
+                                }
+                            }
+                            // Upgrade wall level + HP via ECS
+                            let new_level = (level + 1) as u8;
+                            let new_hp = WALL_TIER_HP[level]; // level is 0-indexed for next tier
+                            if let Some(e) = bld_entity {
+                                if let Ok(mut wl) = bld.wall_level_q.get_mut(e) {
+                                    wl.0 = new_level;
+                                }
+                                if let Ok(mut health) = bld.building_health.get_mut(e) {
+                                    health.0 = new_hp;
+                                }
+                            }
+                            dirty_writers
+                                .building_grid
+                                .write(crate::messages::BuildingGridDirtyMsg);
+                        }
+                    } else {
+                        ui.colored_label(egui::Color32::from_rgb(200, 180, 40), "Max tier reached");
+                    }
                 }
             }
-        }
 
-        BuildingKind::Wall => {
-            // Wall tier info + upgrade button
-            if let Some(_wall_inst) = bld.entity_map.find_by_position(world_pos) {
-                let wall_lv = bld_entity.and_then(|e| bld.wall_level_q.get(e).ok()).map(|w| w.0).unwrap_or(1);
-                let level = wall_lv.max(1) as usize;
-                let tier_name = WALL_TIER_NAMES.get(level - 1).unwrap_or(&"Wall");
-                let tier_hp = WALL_TIER_HP.get(level - 1).copied().unwrap_or(80.0);
-                ui.label(format!("Tier: {} (Lv.{})", tier_name, level));
-                ui.label(format!("Max HP: {:.0}", tier_hp));
+            BuildingKind::Tower => {
+                // Resolve per-instance stats from ECS TowerBuildingState
+                let slot = bld_slot.unwrap_or(usize::MAX);
+                let (level, upgrade_levels_clone) = bld_entity
+                    .and_then(|e| bld.tower_bld_q.get(e).ok())
+                    .map(|tbs| (level_from_xp(tbs.xp), tbs.upgrade_levels.clone()))
+                    .unwrap_or((0, Vec::new()));
+                let stats = resolve_tower_instance_stats(level, &upgrade_levels_clone);
 
-                // Show current HP from building entity
-                {
-                    let hp = bld_entity
-                        .and_then(|e| bld.building_health.get(e).ok())
-                        .map(|h| h.0);
-                    if let Some(hp) = hp {
-                        let color = if hp > tier_hp * 0.5 {
+                // Tower combat stats (resolved)
+                ui.label(format!("Range: {:.0}px", stats.range));
+                ui.label(format!("Damage: {:.1}", stats.damage));
+                ui.label(format!("Cooldown: {:.2}s", stats.cooldown));
+                if stats.hp_regen > 0.0 {
+                    ui.label(format!("HP Regen: {:.1}/s", stats.hp_regen));
+                }
+
+                // HP bar
+                if let Some(&entity) = bld.entity_map.entities.get(&slot) {
+                    if let Ok(health) = bld.building_health.get(entity) {
+                        let max_hp = stats.max_hp;
+                        let pct = health.0 / max_hp;
+                        let color = if pct > 0.5 {
                             egui::Color32::from_rgb(80, 200, 80)
                         } else {
                             egui::Color32::from_rgb(200, 80, 80)
@@ -2245,329 +2480,247 @@ fn building_inspector_content(
                         ui.horizontal(|ui| {
                             ui.label("HP:");
                             ui.add(
-                                egui::ProgressBar::new(hp / tier_hp)
-                                    .text(format!("{:.0}/{:.0}", hp, tier_hp))
+                                egui::ProgressBar::new(pct)
+                                    .text(format!("{:.0}/{:.0}", health.0, max_hp))
                                     .fill(color),
                             );
                         });
                     }
                 }
 
-                // Upgrade button (if not max tier)
-                if level < 3 {
-                    let costs = WALL_UPGRADE_COSTS[level - 1];
-                    let cost_str: Vec<String> = costs
-                        .iter()
-                        .map(|(r, amt)| match r {
-                            ResourceKind::Food => format!("{} food", amt),
-                            ResourceKind::Gold => format!("{} gold", amt),
-                        })
-                        .collect();
-                    let next_name = WALL_TIER_NAMES[level];
-                    let can_afford = costs.iter().all(|(r, amt)| match r {
-                        ResourceKind::Food => bld.town_access.food(town_idx as i32) >= *amt,
-                        ResourceKind::Gold => bld.town_access.gold(town_idx as i32) >= *amt,
-                    });
-
-                    ui.separator();
-                    let btn_text = format!("Upgrade to {} ({})", next_name, cost_str.join(", "));
-                    let btn = ui.add_enabled(
-                        can_afford,
-                        egui::Button::new(egui::RichText::new(btn_text).color(if can_afford {
-                            egui::Color32::from_rgb(80, 200, 200)
-                        } else {
-                            egui::Color32::from_rgb(120, 120, 120)
-                        })),
-                    );
-                    if btn.clicked() && can_afford {
-                        // Deduct costs
-                        for (r, amt) in costs {
-                            match r {
-                                ResourceKind::Food => {
-                                    if let Some(mut f) = bld.town_access.food_mut(town_idx as i32) {
-                                        f.0 -= amt;
-                                    }
-                                }
-                                ResourceKind::Gold => {
-                                    if let Some(mut g) = bld.town_access.gold_mut(town_idx as i32) {
-                                        g.0 -= amt;
-                                    }
-                                }
-                            }
-                        }
-                        // Upgrade wall level + HP via ECS
-                        let new_level = (level + 1) as u8;
-                        let new_hp = WALL_TIER_HP[level]; // level is 0-indexed for next tier
-                        if let Some(e) = bld_entity {
-                            if let Ok(mut wl) = bld.wall_level_q.get_mut(e) {
-                                wl.0 = new_level;
-                            }
-                            if let Ok(mut health) = bld.building_health.get_mut(e) {
-                                health.0 = new_hp;
-                            }
-                        }
-                        dirty_writers
-                            .building_grid
-                            .write(crate::messages::BuildingGridDirtyMsg);
-                    }
-                } else {
-                    ui.colored_label(egui::Color32::from_rgb(200, 180, 40), "Max tier reached");
+                // Kills / XP / Level
+                if let Some(tbs) = bld_entity.and_then(|e| bld.tower_bld_q.get(e).ok()) {
+                    let xp_next = (level + 1) * (level + 1) * 100;
+                    ui.label(format!(
+                        "Kills: {}  Lv.{}  XP: {}/{}",
+                        tbs.kills, level, tbs.xp, xp_next
+                    ));
                 }
-            }
-        }
 
-        BuildingKind::Tower => {
-            // Resolve per-instance stats from ECS TowerBuildingState
-            let slot = bld_slot.unwrap_or(usize::MAX);
-            let (level, upgrade_levels_clone) = bld_entity
-                .and_then(|e| bld.tower_bld_q.get(e).ok())
-                .map(|tbs| (level_from_xp(tbs.xp), tbs.upgrade_levels.clone()))
-                .unwrap_or((0, Vec::new()));
-            let stats = resolve_tower_instance_stats(level, &upgrade_levels_clone);
-
-            // Tower combat stats (resolved)
-            ui.label(format!("Range: {:.0}px", stats.range));
-            ui.label(format!("Damage: {:.1}", stats.damage));
-            ui.label(format!("Cooldown: {:.2}s", stats.cooldown));
-            if stats.hp_regen > 0.0 {
-                ui.label(format!("HP Regen: {:.1}/s", stats.hp_regen));
-            }
-
-            // HP bar
-            if let Some(&entity) = bld.entity_map.entities.get(&slot) {
-                if let Ok(health) = bld.building_health.get(entity) {
-                    let max_hp = stats.max_hp;
-                    let pct = health.0 / max_hp;
-                    let color = if pct > 0.5 {
-                        egui::Color32::from_rgb(80, 200, 80)
-                    } else {
-                        egui::Color32::from_rgb(200, 80, 80)
-                    };
-                    ui.horizontal(|ui| {
-                        ui.label("HP:");
-                        ui.add(
-                            egui::ProgressBar::new(pct)
-                                .text(format!("{:.0}/{:.0}", health.0, max_hp))
-                                .fill(color),
-                        );
-                    });
+                // Upgrade button — opens popup window
+                if ui
+                    .button(egui::RichText::new("Upgrades").strong())
+                    .clicked()
+                {
+                    ui_state.tower_upgrade_slot = Some(slot);
                 }
             }
 
-            // Kills / XP / Level
-            if let Some(tbs) = bld_entity.and_then(|e| bld.tower_bld_q.get(e).ok()) {
-                let xp_next = (level + 1) * (level + 1) * 100;
+            BuildingKind::Merchant => {
+                let tidx = town_idx;
+                let stock = bld.merchant_inv.stocks.get(tidx);
+                let stock_count = stock.map(|s| s.items.len()).unwrap_or(0);
+                let timer = stock.map(|s| s.refresh_timer).unwrap_or(0.0);
                 ui.label(format!(
-                    "Kills: {}  Lv.{}  XP: {}/{}",
-                    tbs.kills, level, tbs.xp, xp_next
+                    "Stock ({} items) — refresh in {:.1}h",
+                    stock_count, timer
                 ));
-            }
+                ui.separator();
 
-            // Upgrade button — opens popup window
-            if ui.button(egui::RichText::new("Upgrades").strong()).clicked() {
-                ui_state.tower_upgrade_slot = Some(slot);
-            }
-        }
+                // List stock items with Buy buttons
+                let mut buy_id: Option<u64> = None;
+                if let Some(stock) = bld.merchant_inv.stocks.get(tidx) {
+                    for item in &stock.items {
+                        let (r, g, b) = item.rarity.color();
+                        let cost = item.rarity.gold_cost();
+                        let gold = bld.town_access.gold(tidx as i32);
+                        let can_afford = gold >= cost;
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new(&item.name)
+                                    .color(egui::Color32::from_rgb(r, g, b)),
+                            );
+                            ui.label(format!("{:?} +{:.0}%", item.kind, item.stat_bonus * 100.0));
+                            let btn = ui.add_enabled(
+                                can_afford,
+                                egui::Button::new(format!("Buy {}g", cost)),
+                            );
+                            if btn.clicked() && can_afford {
+                                buy_id = Some(item.id);
+                            }
+                        });
+                    }
+                }
+                // Process buy
+                if let Some(id) = buy_id {
+                    if let Some(item) = bld.merchant_inv.remove(tidx, id) {
+                        let cost = item.rarity.gold_cost();
+                        if let Some(mut g) = bld.town_access.gold_mut(tidx as i32) {
+                            g.0 -= cost;
+                        }
+                        if let Some(mut eq) = bld.town_access.equipment_mut(tidx as i32) {
+                            eq.0.push(item);
+                        }
+                    }
+                }
 
-        BuildingKind::Merchant => {
-            let tidx = town_idx;
-            let stock = bld.merchant_inv.stocks.get(tidx);
-            let stock_count = stock.map(|s| s.items.len()).unwrap_or(0);
-            let timer = stock.map(|s| s.refresh_timer).unwrap_or(0.0);
-            ui.label(format!("Stock ({} items) — refresh in {:.1}h", stock_count, timer));
-            ui.separator();
-
-            // List stock items with Buy buttons
-            let mut buy_id: Option<u64> = None;
-            if let Some(stock) = bld.merchant_inv.stocks.get(tidx) {
-                for item in &stock.items {
+                // Sell section — items from town equipment
+                ui.separator();
+                ui.label("Sell from inventory:");
+                let mut sell_id: Option<u64> = None;
+                let inv_items = bld.town_access.equipment(tidx as i32).unwrap_or_default();
+                for item in &inv_items {
                     let (r, g, b) = item.rarity.color();
-                    let cost = item.rarity.gold_cost();
-                    let gold = bld.town_access.gold(tidx as i32);
-                    let can_afford = gold >= cost;
+                    let sell_price = item.rarity.gold_cost() / 2;
                     ui.horizontal(|ui| {
                         ui.label(
-                            egui::RichText::new(&item.name)
-                                .color(egui::Color32::from_rgb(r, g, b)),
+                            egui::RichText::new(&item.name).color(egui::Color32::from_rgb(r, g, b)),
                         );
-                        ui.label(format!("{:?} +{:.0}%", item.kind, item.stat_bonus * 100.0));
-                        let btn = ui.add_enabled(
-                            can_afford,
-                            egui::Button::new(format!("Buy {}g", cost)),
-                        );
-                        if btn.clicked() && can_afford {
-                            buy_id = Some(item.id);
+                        ui.label(format!("{:?}", item.kind));
+                        if ui.button(format!("Sell {}g", sell_price)).clicked() {
+                            sell_id = Some(item.id);
                         }
                     });
                 }
-            }
-            // Process buy
-            if let Some(id) = buy_id {
-                if let Some(item) = bld.merchant_inv.remove(tidx, id) {
-                    let cost = item.rarity.gold_cost();
-                    if let Some(mut g) = bld.town_access.gold_mut(tidx as i32) {
-                        g.0 -= cost;
-                    }
-                    if let Some(mut eq) = bld.town_access.equipment_mut(tidx as i32) {
-                        eq.0.push(item);
-                    }
-                }
-            }
-
-            // Sell section — items from town equipment
-            ui.separator();
-            ui.label("Sell from inventory:");
-            let mut sell_id: Option<u64> = None;
-            let inv_items = bld.town_access.equipment(tidx as i32).unwrap_or_default();
-            for item in &inv_items {
-                let (r, g, b) = item.rarity.color();
-                let sell_price = item.rarity.gold_cost() / 2;
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(&item.name)
-                            .color(egui::Color32::from_rgb(r, g, b)),
-                    );
-                    ui.label(format!("{:?}", item.kind));
-                    if ui.button(format!("Sell {}g", sell_price)).clicked() {
-                        sell_id = Some(item.id);
-                    }
-                });
-            }
-            drop(inv_items);
-            // Process sell
-            if let Some(id) = sell_id {
-                let sold_rarity = if let Some(mut eq) = bld.town_access.equipment_mut(tidx as i32) {
-                    eq.0.iter().position(|it| it.id == id).map(|pos| {
-                        let item = eq.0.swap_remove(pos);
-                        item.rarity
-                    })
-                } else { None };
-                if let Some(rarity) = sold_rarity {
-                    let sell_price = rarity.gold_cost() / 2;
-                    if let Some(mut g) = bld.town_access.gold_mut(tidx as i32) {
-                        g.0 += sell_price;
-                    }
-                }
-            }
-
-            // Reroll button
-            ui.separator();
-            let reroll_cost = 50;
-            let gold = bld.town_access.gold(tidx as i32);
-            let can_reroll = gold >= reroll_cost;
-            let btn = ui.add_enabled(
-                can_reroll,
-                egui::Button::new(format!("Reroll Stock ({}g)", reroll_cost)),
-            );
-            if btn.clicked() && can_reroll {
-                if let Some(mut g) = bld.town_access.gold_mut(tidx as i32) {
-                    g.0 -= reroll_cost;
-                }
-                bld.merchant_inv.refresh(tidx, &mut bld.next_loot_id);
-            }
-        }
-
-        BuildingKind::Casino => {
-            if ui.button(egui::RichText::new("Open Casino").size(16.0).strong()).clicked() {
-                ui_state.casino_open = true;
-            }
-        }
-
-        _ => {
-            if let Some(spawner) = def.spawner {
-                let spawns_label = npc_def(Job::from_i32(spawner.job)).label;
-                if let Some(inst) = bld
-                    .entity_map
-                    .find_by_position(world_pos)
-                    .filter(|i| crate::constants::building_def(i.kind).spawner.is_some())
-                {
-                    ui.label(format!("Spawns: {}", spawns_label));
-                    let spawner_state = bld.entity_map.entities.get(&inst.slot)
-                        .and_then(|&e| bld.spawner_q.get(e).ok());
-                    let npc_slot_opt = spawner_state.and_then(|s| s.npc_slot);
-                    let respawn_timer = spawner_state.map(|s| s.respawn_timer).unwrap_or(0.0);
-                    if let Some(slot) = npc_slot_opt {
-                        if bld.entity_map.get_npc(slot).is_some() {
-                            if let Some(action) = npc_link(ui, npc_stats_q, &bld.entity_map, slot) {
-                                return Some(action);
-                            }
-                            ui.colored_label(egui::Color32::from_rgb(80, 200, 80), "Alive");
-                            if let Some(npc) = bld.entity_map.get_npc(slot) {
-                                let mut parts: Vec<&str> = Vec::new();
-                                let combat_name = bld
-                                    .combat_state_q
-                                    .get(npc.entity)
-                                    .map(|cs| cs.name())
-                                    .unwrap_or("");
-                                if !combat_name.is_empty() {
-                                    parts.push(combat_name);
-                                }
-                                parts.push(
-                                    bld.activity_q
-                                        .get(npc.entity)
-                                        .map(|a| a.name())
-                                        .unwrap_or("Unknown"),
-                                );
-                                ui.label(format!("State: {}", parts.join(", ")));
-                                if let Some(sq) = bld.squad_id_q.get(npc.entity).ok().map(|s| s.0) {
-                                    ui.label(format!("Squad: {}", sq + 1));
-                                }
-                                let has_patrol = bld
-                                    .patrol_route_q
-                                    .get(npc.entity)
-                                    .is_ok_and(|r| !r.posts.is_empty());
-                                ui.label(format!(
-                                    "Patrol route: {}",
-                                    if has_patrol { "yes" } else { "none" }
-                                ));
-                                if slot * 2 + 1 < gpu_state.positions.len() {
-                                    let px = gpu_state.positions[slot * 2];
-                                    let py = gpu_state.positions[slot * 2 + 1];
-                                    if px > -9000.0 {
-                                        ui.label(format!("GPU pos: ({:.0}, {:.0})", px, py));
-                                    }
-                                }
-                                ui.label(format!(
-                                    "Home: ({:.0}, {:.0})",
-                                    bld.home_q.get(npc.entity).map(|h| h.0.x).unwrap_or(0.0),
-                                    bld.home_q.get(npc.entity).map(|h| h.0.y).unwrap_or(0.0)
-                                ));
-                            }
+                drop(inv_items);
+                // Process sell
+                if let Some(id) = sell_id {
+                    let sold_rarity =
+                        if let Some(mut eq) = bld.town_access.equipment_mut(tidx as i32) {
+                            eq.0.iter().position(|it| it.id == id).map(|pos| {
+                                let item = eq.0.swap_remove(pos);
+                                item.rarity
+                            })
+                        } else {
+                            None
+                        };
+                    if let Some(rarity) = sold_rarity {
+                        let sell_price = rarity.gold_cost() / 2;
+                        if let Some(mut g) = bld.town_access.gold_mut(tidx as i32) {
+                            g.0 += sell_price;
                         }
-                    } else if respawn_timer > 0.0 {
-                        ui.colored_label(
-                            egui::Color32::from_rgb(200, 200, 40),
-                            format!("Respawning in {:.0}h", respawn_timer),
-                        );
-                    } else {
-                        ui.colored_label(egui::Color32::from_rgb(200, 200, 40), "Spawning...");
                     }
                 }
-                if def.kind == BuildingKind::MinerHome {
-                    ui.separator();
-                    let mh_slot = bld
+
+                // Reroll button
+                ui.separator();
+                let reroll_cost = 50;
+                let gold = bld.town_access.gold(tidx as i32);
+                let can_reroll = gold >= reroll_cost;
+                let btn = ui.add_enabled(
+                    can_reroll,
+                    egui::Button::new(format!("Reroll Stock ({}g)", reroll_cost)),
+                );
+                if btn.clicked() && can_reroll {
+                    if let Some(mut g) = bld.town_access.gold_mut(tidx as i32) {
+                        g.0 -= reroll_cost;
+                    }
+                    bld.merchant_inv.refresh(tidx, &mut bld.next_loot_id);
+                }
+            }
+
+            BuildingKind::Casino => {
+                if ui
+                    .button(egui::RichText::new("Open Casino").size(16.0).strong())
+                    .clicked()
+                {
+                    ui_state.casino_open = true;
+                }
+            }
+
+            _ => {
+                if let Some(spawner) = def.spawner {
+                    let spawns_label = npc_def(Job::from_i32(spawner.job)).label;
+                    if let Some(inst) = bld
                         .entity_map
                         .find_by_position(world_pos)
-                        .filter(|i| i.kind == BuildingKind::MinerHome)
-                        .map(|i| i.slot);
-                    if let Some(mh_slot) = mh_slot {
-                        if let Some(action) = mine_assignment_ui(
-                            ui,
-                            world_data,
-                            &bld.entity_map,
-                            mh_slot,
-                            world_pos,
-                            dirty_writers,
-                            ui_state,
-                            &mut bld.miner_cfg_q,
-                        ) {
-                            return Some(action);
+                        .filter(|i| crate::constants::building_def(i.kind).spawner.is_some())
+                    {
+                        ui.label(format!("Spawns: {}", spawns_label));
+                        let spawner_state = bld
+                            .entity_map
+                            .entities
+                            .get(&inst.slot)
+                            .and_then(|&e| bld.spawner_q.get(e).ok());
+                        let npc_slot_opt = spawner_state.and_then(|s| s.npc_slot);
+                        let respawn_timer = spawner_state.map(|s| s.respawn_timer).unwrap_or(0.0);
+                        if let Some(slot) = npc_slot_opt {
+                            if bld.entity_map.get_npc(slot).is_some() {
+                                if let Some(action) =
+                                    npc_link(ui, npc_stats_q, &bld.entity_map, slot)
+                                {
+                                    return Some(action);
+                                }
+                                ui.colored_label(egui::Color32::from_rgb(80, 200, 80), "Alive");
+                                if let Some(npc) = bld.entity_map.get_npc(slot) {
+                                    let mut parts: Vec<&str> = Vec::new();
+                                    let combat_name = bld
+                                        .combat_state_q
+                                        .get(npc.entity)
+                                        .map(|cs| cs.name())
+                                        .unwrap_or("");
+                                    if !combat_name.is_empty() {
+                                        parts.push(combat_name);
+                                    }
+                                    parts.push(
+                                        bld.activity_q
+                                            .get(npc.entity)
+                                            .map(|a| a.name())
+                                            .unwrap_or("Unknown"),
+                                    );
+                                    ui.label(format!("State: {}", parts.join(", ")));
+                                    if let Some(sq) =
+                                        bld.squad_id_q.get(npc.entity).ok().map(|s| s.0)
+                                    {
+                                        ui.label(format!("Squad: {}", sq + 1));
+                                    }
+                                    let has_patrol = bld
+                                        .patrol_route_q
+                                        .get(npc.entity)
+                                        .is_ok_and(|r| !r.posts.is_empty());
+                                    ui.label(format!(
+                                        "Patrol route: {}",
+                                        if has_patrol { "yes" } else { "none" }
+                                    ));
+                                    if slot * 2 + 1 < gpu_state.positions.len() {
+                                        let px = gpu_state.positions[slot * 2];
+                                        let py = gpu_state.positions[slot * 2 + 1];
+                                        if px > -9000.0 {
+                                            ui.label(format!("GPU pos: ({:.0}, {:.0})", px, py));
+                                        }
+                                    }
+                                    ui.label(format!(
+                                        "Home: ({:.0}, {:.0})",
+                                        bld.home_q.get(npc.entity).map(|h| h.0.x).unwrap_or(0.0),
+                                        bld.home_q.get(npc.entity).map(|h| h.0.y).unwrap_or(0.0)
+                                    ));
+                                }
+                            }
+                        } else if respawn_timer > 0.0 {
+                            ui.colored_label(
+                                egui::Color32::from_rgb(200, 200, 40),
+                                format!("Respawning in {:.0}h", respawn_timer),
+                            );
+                        } else {
+                            ui.colored_label(egui::Color32::from_rgb(200, 200, 40), "Spawning...");
+                        }
+                    }
+                    if def.kind == BuildingKind::MinerHome {
+                        ui.separator();
+                        let mh_slot = bld
+                            .entity_map
+                            .find_by_position(world_pos)
+                            .filter(|i| i.kind == BuildingKind::MinerHome)
+                            .map(|i| i.slot);
+                        if let Some(mh_slot) = mh_slot {
+                            if let Some(action) = mine_assignment_ui(
+                                ui,
+                                world_data,
+                                &bld.entity_map,
+                                mh_slot,
+                                world_pos,
+                                dirty_writers,
+                                ui_state,
+                                &mut bld.miner_cfg_q,
+                            ) {
+                                return Some(action);
+                            }
                         }
                     }
                 }
             }
         }
-    } } // end if !is_constructing + match
+    } // end if !is_constructing + match
 
     // Debug IDs: show slot + UID + world coords for BRP queries, plus copy button
     if settings.debug_ids {
@@ -2580,17 +2733,28 @@ fn building_inspector_content(
         if let Some(slot) = selected_slot {
             let entity = bld.entity_map.entities.get(&slot);
             let entity_str = entity.map_or("?".to_string(), |e| format!("{:?}", e));
-            ui.label(format!("Slot: {}  Entity: {}  Pos: ({:.0}, {:.0})", slot, entity_str, world_pos.x, world_pos.y));
+            ui.label(format!(
+                "Slot: {}  Entity: {}  Pos: ({:.0}, {:.0})",
+                slot, entity_str, world_pos.x, world_pos.y
+            ));
 
             if ui.button("Copy Debug Info").clicked() {
                 let max_hp = crate::constants::building_def(kind).hp;
-                let hp = bld.entity_map.entities.get(&slot)
+                let hp = bld
+                    .entity_map
+                    .entities
+                    .get(&slot)
                     .and_then(|&e| bld.building_health.get(e).ok())
                     .map(|h| h.0)
                     .unwrap_or(0.0);
-                let town_name = world_data.towns.get(town_idx)
-                    .map(|t| t.name.as_str()).unwrap_or("?");
-                let faction_text = world_data.towns.get(town_idx)
+                let town_name = world_data
+                    .towns
+                    .get(town_idx)
+                    .map(|t| t.name.as_str())
+                    .unwrap_or("?");
+                let faction_text = world_data
+                    .towns
+                    .get(town_idx)
                     .map(|t| format!("{} (F{})", t.name, t.faction))
                     .unwrap_or_else(|| "?".to_string());
                 let mut info = format!(
@@ -2620,8 +2784,14 @@ fn building_inspector_content(
                         if let Some(npc_slot) = ss.npc_slot {
                             if let Some(npc) = bld.entity_map.get_npc(npc_slot) {
                                 let npc_entity = Some(npc.entity);
-                                let (name, level) = npc_stats_q.get(npc.entity)
-                                    .map(|s| (s.name.as_str(), crate::systems::stats::level_from_xp(s.xp)))
+                                let (name, level) = npc_stats_q
+                                    .get(npc.entity)
+                                    .map(|s| {
+                                        (
+                                            s.name.as_str(),
+                                            crate::systems::stats::level_from_xp(s.xp),
+                                        )
+                                    })
                                     .unwrap_or(("?", 0));
                                 info.push_str(&format!(
                                     "NPC: {} (Lv.{}) slot={} entity={:?}\n",
@@ -2849,10 +3019,10 @@ pub fn squad_overlay_system(
     let dc_targets: Vec<ManualTarget> = dc_slots(&squad_state, &entity_map, |e| {
         npc_flags_q.get(e).is_ok_and(|f| f.direct_control)
     })
-        .iter()
-        .filter_map(|&slot| entity_map.get_npc(slot))
-        .filter_map(|npc| manual_target_q.get(npc.entity).ok().cloned())
-        .collect();
+    .iter()
+    .filter_map(|&slot| entity_map.get_npc(slot))
+    .filter_map(|npc| manual_target_q.get(npc.entity).ok().cloned())
+    .collect();
     for mt in &dc_targets {
         let world_pos = match mt {
             ManualTarget::Npc(slot) => {
@@ -3075,7 +3245,9 @@ pub fn faction_squad_overlay_system(
 
         let label_pos = end + perp * 10.0;
         let label = if show_all {
-            let town_label = world_data.towns.iter()
+            let town_label = world_data
+                .towns
+                .iter()
                 .find(|t| t.faction == faction)
                 .map(|t| t.name.as_str())
                 .unwrap_or("?");
@@ -3154,7 +3326,11 @@ pub fn jukebox_ui_system(
                     if let Ok((entity, sink)) = music_query.single() {
                         let paused = sink.is_paused();
                         if ui.small_button(if paused { "▶" } else { "⏸" }).clicked() {
-                            if paused { sink.play() } else { sink.pause() }
+                            if paused {
+                                sink.play()
+                            } else {
+                                sink.pause()
+                            }
                             settings.jukebox_paused = !paused;
                             crate::settings::save_settings(&settings);
                         }

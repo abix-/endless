@@ -42,10 +42,12 @@ pub enum Job {
     Miner,
     Crossbow,
     Boat,
+    Woodcutter,
+    Quarrier,
 }
 
 impl Job {
-    /// Convert from integer (0=Farmer, 1=Archer, 2=Raider, 3=Fighter, 4=Miner, 5=Crossbow, 6=Boat)
+    /// Convert from integer (0=Farmer, 1=Archer, 2=Raider, 3=Fighter, 4=Miner, 5=Crossbow, 6=Boat, 7=Woodcutter, 8=Quarrier)
     pub fn from_i32(v: i32) -> Self {
         match v {
             1 => Job::Archer,
@@ -54,6 +56,8 @@ impl Job {
             4 => Job::Miner,
             5 => Job::Crossbow,
             6 => Job::Boat,
+            7 => Job::Woodcutter,
+            8 => Job::Quarrier,
             _ => Job::Farmer,
         }
     }
@@ -155,16 +159,26 @@ pub struct NpcWorkState {
 pub struct CarriedLoot {
     pub food: i32,
     pub gold: i32,
+    pub wood: i32,
+    pub stone: i32,
     pub equipment: Vec<crate::constants::LootItem>,
 }
 
 impl CarriedLoot {
     pub fn is_empty(&self) -> bool {
-        self.food <= 0 && self.gold <= 0 && self.equipment.is_empty()
+        self.food <= 0
+            && self.gold <= 0
+            && self.wood <= 0
+            && self.stone <= 0
+            && self.equipment.is_empty()
     }
 
     pub fn total_items(&self) -> usize {
-        (self.food > 0) as usize + (self.gold > 0) as usize + self.equipment.len()
+        (self.food > 0) as usize
+            + (self.gold > 0) as usize
+            + (self.wood > 0) as usize
+            + (self.stone > 0) as usize
+            + self.equipment.len()
     }
 
     /// Visual key for GPU dirty tracking: same key = same visual overlay.
@@ -173,7 +187,7 @@ impl CarriedLoot {
             4
         } else if self.gold > 0 {
             2
-        } else if self.food > 0 {
+        } else if self.food > 0 || self.wood > 0 || self.stone > 0 {
             3
         } else {
             0
@@ -205,6 +219,8 @@ pub enum ActivityKind {
     #[default]
     Idle,
     Work,
+    Chop,
+    Quarry,
     Patrol,
     SquadAttack,
     Rest,
@@ -216,9 +232,15 @@ pub enum ActivityKind {
 }
 
 impl ActivityKind {
-    pub fn def(&self) -> &'static crate::constants::ActivityDef { crate::constants::activity_def(*self) }
-    pub fn distraction(&self) -> Distraction { self.def().distraction }
-    pub fn label(&self) -> &'static str { self.def().label }
+    pub fn def(&self) -> &'static crate::constants::ActivityDef {
+        crate::constants::activity_def(*self)
+    }
+    pub fn distraction(&self) -> Distraction {
+        self.def().distraction
+    }
+    pub fn label(&self) -> &'static str {
+        self.def().label
+    }
 }
 
 /// Lifecycle progress within an activity. Small, generic, stable.
@@ -226,7 +248,7 @@ impl ActivityKind {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Reflect)]
 pub enum ActivityPhase {
     #[default]
-    Ready,   // no active route; eligible for idle choice
+    Ready, // no active route; eligible for idle choice
     Transit, // moving toward target
     Active,  // performing sustained work/recovery at target
     Holding, // at target, waiting on external condition (patrol wait, mine queue)
@@ -240,7 +262,10 @@ pub enum ActivityTarget {
     None,
     Home,
     Fountain,
-    PatrolPost { route: u16, index: u16 },
+    PatrolPost {
+        route: u16,
+        index: u16,
+    },
     SquadPoint(Vec2),
     Worksite,          // semantic: actual identity in NpcWorkState.worksite
     RaidPoint(Vec2),   // enemy farm position
@@ -280,15 +305,26 @@ impl Default for Activity {
 }
 
 impl Activity {
-    pub fn name(&self) -> &'static str { self.kind.label() }
+    pub fn name(&self) -> &'static str {
+        self.kind.label()
+    }
 
     /// Visual key for GPU dirty tracking (sleep icon overlay).
     /// Rest+Active shows sleep icon; all other states show normal.
     pub fn visual_key(&self) -> u8 {
-        if self.kind.def().sleep_visual && self.phase == ActivityPhase::Active { 1 } else { 0 }
+        if self.kind.def().sleep_visual && self.phase == ActivityPhase::Active {
+            1
+        } else {
+            0
+        }
     }
 
-    pub fn new(kind: ActivityKind) -> Self { Self { kind, ..Default::default() } }
+    pub fn new(kind: ActivityKind) -> Self {
+        Self {
+            kind,
+            ..Default::default()
+        }
+    }
 }
 
 /// Whether the NPC is in combat. Orthogonal to Activity — a Raiding NPC can be Fighting.
@@ -356,6 +392,8 @@ pub struct NpcPath {
     pub goal_world: Vec2,
     /// Cooldown (seconds) after A* failure — prevents retry thrash.
     pub path_cooldown: f32,
+    /// Precomputed set of HPA chunk coords this path passes through.
+    pub path_chunks: Vec<(usize, usize)>,
 }
 
 /// Squad assignment for military NPCs. Optional component — only present when recruited.
@@ -507,18 +545,12 @@ impl NpcEquipment {
 
     /// Helm sprite: loot item sprite → sentinel.
     pub fn helm_sprite(&self) -> (f32, f32) {
-        self.helm
-            .as_ref()
-            .map(|i| i.sprite)
-            .unwrap_or((-1.0, 0.0))
+        self.helm.as_ref().map(|i| i.sprite).unwrap_or((-1.0, 0.0))
     }
 
     /// Armor sprite: loot item sprite → sentinel (no NpcDef default for armor).
     pub fn armor_sprite(&self) -> (f32, f32) {
-        self.armor
-            .as_ref()
-            .map(|i| i.sprite)
-            .unwrap_or((-1.0, 0.0))
+        self.armor.as_ref().map(|i| i.sprite).unwrap_or((-1.0, 0.0))
     }
 
     /// Shield sprite: loot item sprite → sentinel.
@@ -550,7 +582,10 @@ impl NpcEquipment {
     }
 
     /// Get mutable slot by enum.
-    pub fn slot_mut(&mut self, kind: crate::constants::ItemKind) -> &mut Option<crate::constants::LootItem> {
+    pub fn slot_mut(
+        &mut self,
+        kind: crate::constants::ItemKind,
+    ) -> &mut Option<crate::constants::LootItem> {
         use crate::constants::ItemKind::*;
         match kind {
             Helm => &mut self.helm,
@@ -574,7 +609,10 @@ impl NpcEquipment {
     pub fn total_weapon_bonus(&self) -> f32 {
         Self::item_bonus(&self.weapon)
             + Self::item_bonus(&self.gloves)
-            + 0.5 * (Self::item_bonus(&self.amulet) + Self::item_bonus(&self.ring1) + Self::item_bonus(&self.ring2))
+            + 0.5
+                * (Self::item_bonus(&self.amulet)
+                    + Self::item_bonus(&self.ring1)
+                    + Self::item_bonus(&self.ring2))
     }
 
     /// Total HP bonus from armor + helm + shield + half(amulet + rings).
@@ -582,7 +620,10 @@ impl NpcEquipment {
         Self::item_bonus(&self.armor)
             + Self::item_bonus(&self.helm)
             + Self::item_bonus(&self.shield)
-            + 0.5 * (Self::item_bonus(&self.amulet) + Self::item_bonus(&self.ring1) + Self::item_bonus(&self.ring2))
+            + 0.5
+                * (Self::item_bonus(&self.amulet)
+                    + Self::item_bonus(&self.ring1)
+                    + Self::item_bonus(&self.ring2))
     }
 
     /// Speed bonus from boots.
@@ -598,9 +639,16 @@ impl NpcEquipment {
     /// Iterate all equipped items (cloned) for death-drop transfer.
     pub fn all_items(&self) -> impl Iterator<Item = crate::constants::LootItem> + '_ {
         [
-            &self.helm, &self.armor, &self.weapon, &self.shield,
-            &self.gloves, &self.boots, &self.belt, &self.amulet,
-            &self.ring1, &self.ring2,
+            &self.helm,
+            &self.armor,
+            &self.weapon,
+            &self.shield,
+            &self.gloves,
+            &self.boots,
+            &self.belt,
+            &self.amulet,
+            &self.ring1,
+            &self.ring2,
         ]
         .into_iter()
         .filter_map(|slot| slot.clone())
@@ -656,19 +704,30 @@ impl ProductionState {
         match kind {
             crate::world::BuildingKind::Farm => 1,
             crate::world::BuildingKind::GoldMine => crate::constants::MINE_EXTRACT_PER_CYCLE,
+            crate::world::BuildingKind::TreeNode => 1,
+            crate::world::BuildingKind::RockNode => 1,
             _ => 0,
         }
     }
 
     /// Log message for a harvest event.
-    pub fn harvest_log_msg(kind: crate::world::BuildingKind, pos: Vec2, yield_amount: i32) -> String {
+    pub fn harvest_log_msg(
+        kind: crate::world::BuildingKind,
+        pos: Vec2,
+        yield_amount: i32,
+    ) -> String {
         match kind {
-            crate::world::BuildingKind::Farm => format!(
-                "Farm harvested at ({:.0},{:.0})",
-                pos.x, pos.y
-            ),
+            crate::world::BuildingKind::Farm => {
+                format!("Farm harvested at ({:.0},{:.0})", pos.x, pos.y)
+            }
             crate::world::BuildingKind::GoldMine => {
                 format!("Mine harvested ({} gold)", yield_amount)
+            }
+            crate::world::BuildingKind::TreeNode => {
+                format!("Tree harvested at ({:.0},{:.0})", pos.x, pos.y)
+            }
+            crate::world::BuildingKind::RockNode => {
+                format!("Rock harvested at ({:.0},{:.0})", pos.x, pos.y)
             }
             _ => String::new(),
         }
@@ -740,6 +799,16 @@ pub struct FoodStore(pub i32);
 #[reflect(Component)]
 pub struct GoldStore(pub i32);
 
+/// Town wood storage.
+#[derive(Component, Default, Reflect)]
+#[reflect(Component)]
+pub struct WoodStore(pub i32);
+
+/// Town stone storage.
+#[derive(Component, Default, Reflect)]
+#[reflect(Component)]
+pub struct StoneStore(pub i32);
+
 /// Town behavior policies.
 #[derive(Component, Clone, Default, Reflect)]
 #[reflect(Component)]
@@ -791,13 +860,13 @@ pub struct WoundedThreshold {
 /// 7 spectrum axes. Magnitude sign determines pole (+Brave/-Coward, etc).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Reflect)]
 pub enum TraitKind {
-    Courage,    // +Brave / -Coward
-    Diligence,  // +Efficient / -Lazy
-    Vitality,   // +Hardy / -Frail
-    Power,      // +Strong / -Weak
-    Agility,    // +Swift / -Slow
-    Precision,  // +Sharpshot / -Myopic
-    Ferocity,   // +Berserker / -Timid
+    Courage,   // +Brave / -Coward
+    Diligence, // +Efficient / -Lazy
+    Vitality,  // +Hardy / -Frail
+    Power,     // +Strong / -Weak
+    Agility,   // +Swift / -Slow
+    Precision, // +Sharpshot / -Myopic
+    Ferocity,  // +Berserker / -Timid
 }
 
 pub const TRAIT_COUNT: usize = 7;
@@ -895,7 +964,15 @@ pub struct TraitStatMods {
 
 impl Default for TraitStatMods {
     fn default() -> Self {
-        Self { damage: 1.0, hp: 1.0, speed: 1.0, work_yield: 1.0, range: 1.0, cooldown: 1.0, berserk_bonus: 0.0 }
+        Self {
+            damage: 1.0,
+            hp: 1.0,
+            speed: 1.0,
+            work_yield: 1.0,
+            range: 1.0,
+            cooldown: 1.0,
+            berserk_bonus: 0.0,
+        }
     }
 }
 
@@ -913,7 +990,16 @@ pub struct TraitBehaviorMods {
 
 impl Default for TraitBehaviorMods {
     fn default() -> Self {
-        Self { fight: 1.0, flee: 1.0, rest: 1.0, eat: 1.0, work: 1.0, wander: 1.0, never_flees: false, flee_threshold_add: 0.0 }
+        Self {
+            fight: 1.0,
+            flee: 1.0,
+            rest: 1.0,
+            eat: 1.0,
+            work: 1.0,
+            wander: 1.0,
+            never_flees: false,
+            flee_threshold_add: 0.0,
+        }
     }
 }
 
@@ -1004,16 +1090,26 @@ impl Personality {
         for t in [self.trait1, self.trait2].iter().flatten() {
             let m = t.magnitude;
             match t.kind {
-                TraitKind::Courage => {}    // no stat effect
+                TraitKind::Courage => {} // no stat effect
                 TraitKind::Diligence => {
                     mods.work_yield *= 1.0 + 0.25 * m;
                     mods.cooldown *= 1.0 - 0.25 * m;
                 }
-                TraitKind::Vitality => { mods.hp *= 1.0 + 0.25 * m; }
-                TraitKind::Power => { mods.damage *= 1.0 + 0.25 * m; }
-                TraitKind::Agility => { mods.speed *= 1.0 + 0.25 * m; }
-                TraitKind::Precision => { mods.range *= 1.0 + 0.25 * m; }
-                TraitKind::Ferocity => { mods.berserk_bonus += 0.50 * m; }
+                TraitKind::Vitality => {
+                    mods.hp *= 1.0 + 0.25 * m;
+                }
+                TraitKind::Power => {
+                    mods.damage *= 1.0 + 0.25 * m;
+                }
+                TraitKind::Agility => {
+                    mods.speed *= 1.0 + 0.25 * m;
+                }
+                TraitKind::Precision => {
+                    mods.range *= 1.0 + 0.25 * m;
+                }
+                TraitKind::Ferocity => {
+                    mods.berserk_bonus += 0.50 * m;
+                }
             }
         }
         mods
@@ -1078,7 +1174,10 @@ mod tests {
     fn coward_flees_earlier() {
         let mods = with_trait(TraitKind::Courage, -1.0).get_behavior_mods();
         assert!(!mods.never_flees);
-        assert!(mods.flee_threshold_add > 0.0, "coward should increase flee threshold");
+        assert!(
+            mods.flee_threshold_add > 0.0,
+            "coward should increase flee threshold"
+        );
     }
 
     #[test]
@@ -1093,13 +1192,21 @@ mod tests {
     #[test]
     fn berserker_positive_berserk_bonus() {
         let mods = with_trait(TraitKind::Ferocity, 1.0).get_stat_mods();
-        assert!((mods.berserk_bonus - 0.5).abs() < 0.01, "expected 0.5, got {}", mods.berserk_bonus);
+        assert!(
+            (mods.berserk_bonus - 0.5).abs() < 0.01,
+            "expected 0.5, got {}",
+            mods.berserk_bonus
+        );
     }
 
     #[test]
     fn timid_negative_berserk_bonus() {
         let mods = with_trait(TraitKind::Ferocity, -1.0).get_stat_mods();
-        assert!((mods.berserk_bonus - (-0.5)).abs() < 0.01, "expected -0.5, got {}", mods.berserk_bonus);
+        assert!(
+            (mods.berserk_bonus - (-0.5)).abs() < 0.01,
+            "expected -0.5, got {}",
+            mods.berserk_bonus
+        );
     }
 
     #[test]
@@ -1171,8 +1278,14 @@ mod tests {
     #[test]
     fn trait_summary_two_traits() {
         let p = Personality {
-            trait1: Some(TraitInstance { kind: TraitKind::Courage, magnitude: 1.0 }),
-            trait2: Some(TraitInstance { kind: TraitKind::Power, magnitude: 1.0 }),
+            trait1: Some(TraitInstance {
+                kind: TraitKind::Courage,
+                magnitude: 1.0,
+            }),
+            trait2: Some(TraitInstance {
+                kind: TraitKind::Power,
+                magnitude: 1.0,
+            }),
         };
         assert!(p.trait_summary().contains(" + "));
     }

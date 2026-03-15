@@ -565,13 +565,15 @@ impl Plugin for NpcRenderPlugin {
         app.init_resource::<OverlayInstances>()
             .init_resource::<BuildingBodyInstances>()
             .init_resource::<SelectionOverlayInstances>()
+            .init_resource::<crate::resources::DirectControlSet>()
             .add_systems(Startup, (spawn_npc_batch, spawn_proj_batch))
             .add_systems(
                 PostUpdate,
                 (
+                    sync_direct_control_set,
                     build_building_body_instances,
                     build_overlay_instances,
-                    build_selection_overlay,
+                    build_selection_overlay.after(sync_direct_control_set),
                 ),
             );
 
@@ -712,7 +714,9 @@ fn build_building_body_instances(
         let faction = gpu_state.factions.get(idx).copied().unwrap_or(0);
         // During construction, pass progress fraction (0→0.999) so shader clips sprite.
         // Fully-built buildings pass real HP (always >> 1.0), so shader skips the clip.
-        let under_construction = entity_map.entities.get(&idx)
+        let under_construction = entity_map
+            .entities
+            .get(&idx)
             .and_then(|&e| construction_q.get(e).ok())
             .map_or(0.0, |c| c.0);
         let health = if under_construction > 0.0 {
@@ -820,13 +824,40 @@ fn build_overlay_instances(
     }
 }
 
+/// Incrementally maintain `DirectControlSet` from `Changed<NpcFlags>`.
+/// O(changed) per frame instead of O(all_npcs).
+fn sync_direct_control_set(
+    mut dc_set: ResMut<crate::resources::DirectControlSet>,
+    changed_q: Query<
+        (Entity, &crate::components::NpcFlags),
+        (
+            Changed<crate::components::NpcFlags>,
+            Without<crate::components::Building>,
+        ),
+    >,
+) {
+    for (entity, flags) in &changed_q {
+        if flags.direct_control {
+            dc_set.0.insert(entity);
+        } else {
+            dc_set.0.remove(&entity);
+        }
+    }
+}
+
 /// Build selection bracket instances from SelectedNpc, SelectedBuilding, and DirectControl state.
 fn build_selection_overlay(
     mut instances: ResMut<SelectionOverlayInstances>,
     selected_npc: Res<crate::resources::SelectedNpc>,
     selected_building: Res<crate::resources::SelectedBuilding>,
-    entity_map: Res<crate::resources::EntityMap>,
-    npc_flags_q: Query<&crate::components::NpcFlags>,
+    mut dc_set: ResMut<crate::resources::DirectControlSet>,
+    npc_q: Query<
+        (&crate::components::GpuSlot, &crate::components::NpcFlags),
+        (
+            Without<crate::components::Building>,
+            Without<crate::components::Dead>,
+        ),
+    >,
 ) {
     instances.0.clear();
     let sel_slot = selected_npc.0;
@@ -857,27 +888,131 @@ fn build_selection_overlay(
 
     // DirectControl multi-select (green), skip selected NPC, cap at 200
     let mut dc_count = 0usize;
-    for npc in entity_map.iter_npcs() {
-        if npc.dead {
+    let tracked_entities: Vec<Entity> = dc_set.0.drain().collect();
+    for entity in tracked_entities {
+        let Ok((gpu_slot, flags)) = npc_q.get(entity) else {
+            continue;
+        };
+        if !flags.direct_control {
             continue;
         }
-        if !npc_flags_q.get(npc.entity).is_ok_and(|f| f.direct_control) {
-            continue;
-        }
-        if sel_slot >= 0 && npc.slot == sel_slot as usize {
+        let slot = gpu_slot.0;
+        dc_set.0.insert(entity);
+        if sel_slot >= 0 && slot == sel_slot as usize {
             continue;
         }
         if dc_count >= 200 {
-            break;
+            continue;
         }
         instances.0.push(SelectionInstance {
-            slot: npc.slot as u32,
+            slot: slot as u32,
             color: [0.31, 0.86, 0.31, 0.70],
             scale: 40.0,
             y_offset: 0.0,
             _pad: 0.0,
         });
         dc_count += 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::components::{Faction, GpuSlot, Job, NpcFlags};
+
+    fn setup_selection_overlay_app() -> App {
+        let mut app = App::new();
+        app.init_resource::<SelectionOverlayInstances>()
+            .init_resource::<crate::resources::DirectControlSet>()
+            .insert_resource(crate::resources::SelectedNpc::default())
+            .insert_resource(crate::resources::SelectedBuilding::default())
+            .add_systems(
+                Update,
+                (
+                    sync_direct_control_set,
+                    build_selection_overlay.after(sync_direct_control_set),
+                ),
+            );
+        app
+    }
+
+    #[test]
+    fn selection_overlay_prunes_despawned_direct_control_entities() {
+        let mut app = setup_selection_overlay_app();
+        let direct_control_npc = app
+            .world_mut()
+            .spawn((
+                GpuSlot(7),
+                Job::Archer,
+                Faction(crate::constants::FACTION_PLAYER),
+                NpcFlags {
+                    direct_control: true,
+                    ..Default::default()
+                },
+            ))
+            .id();
+
+        app.update();
+
+        let overlays = &app.world().resource::<SelectionOverlayInstances>().0;
+        assert_eq!(
+            overlays.len(),
+            1,
+            "direct-control NPC should render one bracket"
+        );
+        assert_eq!(overlays[0].slot, 7);
+
+        app.world_mut().entity_mut(direct_control_npc).despawn();
+        app.update();
+
+        assert!(
+            app.world()
+                .resource::<crate::resources::DirectControlSet>()
+                .0
+                .is_empty(),
+            "despawned direct-control entities should be pruned from the tracked set"
+        );
+        assert!(
+            app.world()
+                .resource::<SelectionOverlayInstances>()
+                .0
+                .is_empty(),
+            "selection overlay should not keep brackets for despawned direct-control entities"
+        );
+    }
+
+    #[test]
+    fn selection_overlay_retains_dc_entities_beyond_render_cap() {
+        let mut app = setup_selection_overlay_app();
+        // Spawn 210 DC entities -- exceeds the 200 render cap
+        for i in 0..210 {
+            app.world_mut().spawn((
+                GpuSlot(i),
+                Job::Archer,
+                Faction(crate::constants::FACTION_PLAYER),
+                NpcFlags {
+                    direct_control: true,
+                    ..Default::default()
+                },
+            ));
+        }
+        app.update();
+
+        let dc_set = &app
+            .world()
+            .resource::<crate::resources::DirectControlSet>()
+            .0;
+        assert_eq!(
+            dc_set.len(),
+            210,
+            "all 210 DC entities must remain in the set, not just the 200 rendered"
+        );
+        let overlays = &app.world().resource::<SelectionOverlayInstances>().0;
+        assert_eq!(
+            overlays.len(),
+            200,
+            "only 200 selection brackets should be rendered"
+        );
     }
 }
 
@@ -1497,11 +1632,25 @@ fn extract_proj_data(
                     &[idx],
                     1,
                 );
+                write_dirty_i32(
+                    &render_queue,
+                    &gpu_bufs.homing_targets,
+                    &writes.homing_targets,
+                    &[idx],
+                    1,
+                );
                 write_dirty_i32(&render_queue, &gpu_bufs.active, &writes.active, &[idx], 1);
                 write_dirty_i32(&render_queue, &gpu_bufs.hits, &writes.hits, &[idx], 2);
             }
             // Deactivate: write only active flag + hit reset
             for &idx in &writes.deactivate_dirty_indices {
+                write_dirty_i32(
+                    &render_queue,
+                    &gpu_bufs.homing_targets,
+                    &writes.homing_targets,
+                    &[idx],
+                    1,
+                );
                 write_dirty_i32(&render_queue, &gpu_bufs.active, &writes.active, &[idx], 1);
                 write_dirty_i32(&render_queue, &gpu_bufs.hits, &writes.hits, &[idx], 2);
             }
@@ -2287,4 +2436,3 @@ fn queue_projs(
         }
     }
 }
-

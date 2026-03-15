@@ -35,9 +35,17 @@ pub fn setup(
 
     // Create fountain instance directly
     let _ = world::place_building(
-        &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
-        world::BuildingKind::Fountain, Vec2::new(384.0, 384.0), 0, 0,
-        &Default::default(), None, None,
+        &mut slot_alloc,
+        &mut entity_map,
+        &mut commands,
+        &mut gpu_updates,
+        world::BuildingKind::Fountain,
+        Vec2::new(384.0, 384.0),
+        0,
+        0,
+        &Default::default(),
+        None,
+        None,
     );
 
     // One enemy NPC in fountain range; keep this NPC pinned in tick so tower fires repeatedly.

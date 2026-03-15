@@ -127,6 +127,12 @@ Execution order is **chained** — each system completes before the next starts.
 
 ### 4. death_system (health.rs)
 
+Current implementation update:
+
+- NPC death detection now happens in `damage_system`, which inserts `Dead` immediately on lethal hits.
+- `death_system` no longer performs a full all-living-NPC scan every frame.
+- The remaining mark-dead scan is limited to buildings as a safety net, which is acceptable because building counts are small relative to NPC counts.
+
 Unified death handler — replaces the old `death_system` + `xp_grant_system` + `building_death_system` + `death_cleanup_system` pipeline. Uses `ParamSet` to resolve query conflict between mark-dead (reads `&Health` on `Without<Dead>`) and killer/loot access (writes `&mut Health` on `Without<Dead>`). Uses `DeathResources` SystemParam (16 fields) merging CleanupResources + WorldState unique fields + BuildingDeathExtra fields.
 
 **Phase 1: Mark dead** (deferred — takes effect next frame)

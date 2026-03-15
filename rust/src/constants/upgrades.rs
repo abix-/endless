@@ -5,6 +5,8 @@
 pub enum ResourceKind {
     Food,
     Gold,
+    Wood,
+    Stone,
 }
 
 /// Which stat an upgrade improves.

@@ -26,7 +26,10 @@ fn is_passable(grid: &WorldGrid, col: i32, row: i32) -> bool {
 /// Movement cost for a grid cell from precomputed cost grid. Returns None if impassable.
 /// Single array index — no HashMap lookups.
 fn neighbor_cost(grid: &WorldGrid, pos: IVec2) -> Option<u32> {
-    debug_assert!(!grid.pathfind_costs.is_empty(), "pathfind_costs not initialized");
+    debug_assert!(
+        !grid.pathfind_costs.is_empty(),
+        "pathfind_costs not initialized"
+    );
     cost_at(&grid.pathfind_costs, grid.width, grid.height, pos)
 }
 
@@ -151,16 +154,33 @@ pub fn accumulate_path_cost(
 
 use hashbrown::HashMap;
 
-const HPA_CHUNK_SIZE: usize = 16;
+pub const HPA_CHUNK_SIZE: usize = 16;
 /// Minimum terrain cost (road=67) — used for admissible heuristic on abstract graph.
 const HPA_MIN_COST: u32 = 67;
+
+/// Build the deduplicated set of HPA chunks touched by the remaining path.
+pub fn collect_path_chunks(waypoints: &[IVec2], start: usize) -> Vec<(usize, usize)> {
+    let mut chunks: Vec<(usize, usize)> = waypoints
+        .iter()
+        .skip(start.min(waypoints.len()))
+        .map(|wp| {
+            (
+                (wp.x as usize) / HPA_CHUNK_SIZE,
+                (wp.y as usize) / HPA_CHUNK_SIZE,
+            )
+        })
+        .collect();
+    chunks.sort_unstable();
+    chunks.dedup();
+    chunks
+}
 
 /// Cached edge between two entrance nodes within the same chunk.
 #[derive(Clone, Debug)]
 struct HpaEdge {
-    target: usize,     // node index
-    cost: u32,         // total path cost
-    path: Vec<IVec2>,  // cached grid-level path (excludes start, includes target)
+    target: usize,    // node index
+    cost: u32,        // total path cost
+    path: Vec<IVec2>, // cached grid-level path (excludes start, includes target)
 }
 
 /// An entrance node at a chunk boundary.
@@ -189,8 +209,9 @@ impl HpaCache {
 
         let cols = width.div_ceil(HPA_CHUNK_SIZE);
         let rows = height.div_ceil(HPA_CHUNK_SIZE);
-        let all_chunks: hashbrown::HashSet<(usize, usize)> =
-            (0..cols).flat_map(|cc| (0..rows).map(move |cr| (cc, cr))).collect();
+        let all_chunks: hashbrown::HashSet<(usize, usize)> = (0..cols)
+            .flat_map(|cc| (0..rows).map(move |cr| (cc, cr)))
+            .collect();
         cache.build_chunks(costs, width, height, &all_chunks);
 
         cache
@@ -211,27 +232,40 @@ impl HpaCache {
         // Horizontal borders — scan if either side is in `chunks`
         for cr in 0..rows.saturating_sub(1) {
             let border_row = (cr + 1) * HPA_CHUNK_SIZE;
-            if border_row >= height { continue; }
+            if border_row >= height {
+                continue;
+            }
             for cc in 0..cols {
-                if !chunks.contains(&(cc, cr)) && !chunks.contains(&(cc, cr + 1)) { continue; }
+                if !chunks.contains(&(cc, cr)) && !chunks.contains(&(cc, cr + 1)) {
+                    continue;
+                }
                 let col_start = cc * HPA_CHUNK_SIZE;
                 let col_end = ((cc + 1) * HPA_CHUNK_SIZE).min(width);
-                self.scan_border_horizontal(costs, width, height, border_row, col_start, col_end, cr, cc);
+                self.scan_border_horizontal(
+                    costs, width, height, border_row, col_start, col_end, cr, cc,
+                );
             }
         }
         // Vertical borders — scan if either side is in `chunks`
         for cc in 0..cols.saturating_sub(1) {
             let border_col = (cc + 1) * HPA_CHUNK_SIZE;
-            if border_col >= width { continue; }
+            if border_col >= width {
+                continue;
+            }
             for cr in 0..rows {
-                if !chunks.contains(&(cc, cr)) && !chunks.contains(&(cc + 1, cr)) { continue; }
+                if !chunks.contains(&(cc, cr)) && !chunks.contains(&(cc + 1, cr)) {
+                    continue;
+                }
                 let row_start = cr * HPA_CHUNK_SIZE;
                 let row_end = ((cr + 1) * HPA_CHUNK_SIZE).min(height);
-                self.scan_border_vertical(costs, width, height, border_col, row_start, row_end, cc, cr);
+                self.scan_border_vertical(
+                    costs, width, height, border_col, row_start, row_end, cc, cr,
+                );
             }
         }
         // Intra-chunk edges for all chunks in the set that have entrance nodes
-        let chunk_keys: Vec<(usize, usize)> = chunks.iter()
+        let chunk_keys: Vec<(usize, usize)> = chunks
+            .iter()
             .copied()
             .filter(|k| self.chunk_nodes.contains_key(k))
             .collect();
@@ -242,23 +276,34 @@ impl HpaCache {
 
     /// Scan a horizontal border between chunk (cc, cr) and (cc, cr+1).
     fn scan_border_horizontal(
-        &mut self, costs: &[u16], width: usize, _height: usize,
-        border_row: usize, col_start: usize, col_end: usize,
-        cr: usize, cc: usize,
+        &mut self,
+        costs: &[u16],
+        width: usize,
+        _height: usize,
+        border_row: usize,
+        col_start: usize,
+        col_end: usize,
+        cr: usize,
+        cc: usize,
     ) {
         let mut run_start: Option<usize> = None;
         for col in col_start..col_end {
             let above = costs[(border_row - 1) * width + col];
             let below = costs[border_row * width + col];
             if above > 0 && below > 0 {
-                if run_start.is_none() { run_start = Some(col); }
+                if run_start.is_none() {
+                    run_start = Some(col);
+                }
             } else {
                 if let Some(start) = run_start.take() {
                     let mid = (start + col - 1) / 2;
                     self.add_border_pair(
-                        IVec2::new(mid as i32, border_row as i32 - 1), (cc, cr),
-                        IVec2::new(mid as i32, border_row as i32), (cc, cr + 1),
-                        costs, width,
+                        IVec2::new(mid as i32, border_row as i32 - 1),
+                        (cc, cr),
+                        IVec2::new(mid as i32, border_row as i32),
+                        (cc, cr + 1),
+                        costs,
+                        width,
                     );
                 }
             }
@@ -266,32 +311,46 @@ impl HpaCache {
         if let Some(start) = run_start {
             let mid = (start + col_end - 1) / 2;
             self.add_border_pair(
-                IVec2::new(mid as i32, border_row as i32 - 1), (cc, cr),
-                IVec2::new(mid as i32, border_row as i32), (cc, cr + 1),
-                costs, width,
+                IVec2::new(mid as i32, border_row as i32 - 1),
+                (cc, cr),
+                IVec2::new(mid as i32, border_row as i32),
+                (cc, cr + 1),
+                costs,
+                width,
             );
         }
     }
 
     /// Scan a vertical border between chunk (cc, cr) and (cc+1, cr).
     fn scan_border_vertical(
-        &mut self, costs: &[u16], width: usize, _height: usize,
-        border_col: usize, row_start: usize, row_end: usize,
-        cc: usize, cr: usize,
+        &mut self,
+        costs: &[u16],
+        width: usize,
+        _height: usize,
+        border_col: usize,
+        row_start: usize,
+        row_end: usize,
+        cc: usize,
+        cr: usize,
     ) {
         let mut run_start: Option<usize> = None;
         for row in row_start..row_end {
             let left = costs[row * width + border_col - 1];
             let right = costs[row * width + border_col];
             if left > 0 && right > 0 {
-                if run_start.is_none() { run_start = Some(row); }
+                if run_start.is_none() {
+                    run_start = Some(row);
+                }
             } else {
                 if let Some(start) = run_start.take() {
                     let mid = (start + row - 1) / 2;
                     self.add_border_pair(
-                        IVec2::new(border_col as i32 - 1, mid as i32), (cc, cr),
-                        IVec2::new(border_col as i32, mid as i32), (cc + 1, cr),
-                        costs, width,
+                        IVec2::new(border_col as i32 - 1, mid as i32),
+                        (cc, cr),
+                        IVec2::new(border_col as i32, mid as i32),
+                        (cc + 1, cr),
+                        costs,
+                        width,
                     );
                 }
             }
@@ -299,9 +358,12 @@ impl HpaCache {
         if let Some(start) = run_start {
             let mid = (start + row_end - 1) / 2;
             self.add_border_pair(
-                IVec2::new(border_col as i32 - 1, mid as i32), (cc, cr),
-                IVec2::new(border_col as i32, mid as i32), (cc + 1, cr),
-                costs, width,
+                IVec2::new(border_col as i32 - 1, mid as i32),
+                (cc, cr),
+                IVec2::new(border_col as i32, mid as i32),
+                (cc + 1, cr),
+                costs,
+                width,
             );
         }
     }
@@ -309,17 +371,28 @@ impl HpaCache {
     /// Add a pair of entrance nodes on opposite sides of a border and connect them.
     fn add_border_pair(
         &mut self,
-        pos_a: IVec2, chunk_a: (usize, usize),
-        pos_b: IVec2, chunk_b: (usize, usize),
-        costs: &[u16], width: usize,
+        pos_a: IVec2,
+        chunk_a: (usize, usize),
+        pos_b: IVec2,
+        chunk_b: (usize, usize),
+        costs: &[u16],
+        width: usize,
     ) {
         let idx_a = self.get_or_add_node(pos_a, chunk_a);
         let idx_b = self.get_or_add_node(pos_b, chunk_b);
         // Cross-border edge: one step between adjacent cells
         let cross_cost = costs[pos_b.y as usize * width + pos_b.x as usize] as u32;
-        self.nodes[idx_a].edges.push(HpaEdge { target: idx_b, cost: cross_cost, path: vec![pos_b] });
+        self.nodes[idx_a].edges.push(HpaEdge {
+            target: idx_b,
+            cost: cross_cost,
+            path: vec![pos_b],
+        });
         let back_cost = costs[pos_a.y as usize * width + pos_a.x as usize] as u32;
-        self.nodes[idx_b].edges.push(HpaEdge { target: idx_a, cost: back_cost, path: vec![pos_a] });
+        self.nodes[idx_b].edges.push(HpaEdge {
+            target: idx_a,
+            cost: back_cost,
+            path: vec![pos_a],
+        });
     }
 
     fn get_or_add_node(&mut self, pos: IVec2, chunk: (usize, usize)) -> usize {
@@ -327,7 +400,11 @@ impl HpaCache {
             return idx;
         }
         let idx = self.nodes.len();
-        self.nodes.push(HpaNode { pos, chunk, edges: Vec::new() });
+        self.nodes.push(HpaNode {
+            pos,
+            chunk,
+            edges: Vec::new(),
+        });
         self.pos_to_node.insert(pos, idx);
         self.chunk_nodes.entry(chunk).or_default().push(idx);
         idx
@@ -335,13 +412,20 @@ impl HpaCache {
 
     /// Precompute paths between all entrance pairs within a chunk using A*.
     fn compute_intra_chunk_edges(
-        &mut self, costs: &[u16], width: usize, height: usize,
+        &mut self,
+        costs: &[u16],
+        width: usize,
+        height: usize,
         chunk_key: (usize, usize),
     ) {
-        let node_indices: Vec<usize> = self.chunk_nodes.get(&chunk_key)
+        let node_indices: Vec<usize> = self
+            .chunk_nodes
+            .get(&chunk_key)
             .cloned()
             .unwrap_or_default();
-        if node_indices.len() < 2 { return; }
+        if node_indices.len() < 2 {
+            return;
+        }
 
         let (cc, cr) = chunk_key;
         let min_col = (cc * HPA_CHUNK_SIZE) as i32;
@@ -362,7 +446,11 @@ impl HpaCache {
                         let mut result = Vec::with_capacity(4);
                         for d in NEIGHBOR_DIRS {
                             let np = pos + d;
-                            if np.x >= min_col && np.x < max_col && np.y >= min_row && np.y < max_row {
+                            if np.x >= min_col
+                                && np.x < max_col
+                                && np.y >= min_row
+                                && np.y < max_row
+                            {
                                 if let Some(c) = cost_at(costs, width, height, np) {
                                     result.push((np, c));
                                 }
@@ -379,10 +467,19 @@ impl HpaCache {
                     let nj = node_indices[j];
                     // Forward edge (skip start)
                     let fwd_path: Vec<IVec2> = path[1..].to_vec();
-                    self.nodes[ni].edges.push(HpaEdge { target: nj, cost, path: fwd_path });
+                    self.nodes[ni].edges.push(HpaEdge {
+                        target: nj,
+                        cost,
+                        path: fwd_path,
+                    });
                     // Reverse edge
-                    let rev_path: Vec<IVec2> = path[..path.len()-1].iter().rev().copied().collect();
-                    self.nodes[nj].edges.push(HpaEdge { target: ni, cost, path: rev_path });
+                    let rev_path: Vec<IVec2> =
+                        path[..path.len() - 1].iter().rev().copied().collect();
+                    self.nodes[nj].edges.push(HpaEdge {
+                        target: ni,
+                        cost,
+                        path: rev_path,
+                    });
                 }
             }
         }
@@ -391,22 +488,36 @@ impl HpaCache {
     /// Rebuild specific chunks (after building placement/destruction).
     /// Incremental: removes nodes in affected chunks + neighbors, then re-scans borders
     /// and recomputes intra-chunk edges for just those chunks.
-    pub fn rebuild_chunks(&mut self, costs: &[u16], width: usize, height: usize, dirty_cells: &[usize]) {
-        let dirty: hashbrown::HashSet<(usize, usize)> = dirty_cells.iter()
+    pub fn rebuild_chunks(
+        &mut self,
+        costs: &[u16],
+        width: usize,
+        height: usize,
+        dirty_cells: &[usize],
+    ) {
+        let dirty: hashbrown::HashSet<(usize, usize)> = dirty_cells
+            .iter()
             .map(|&i| ((i % width) / HPA_CHUNK_SIZE, (i / width) / HPA_CHUNK_SIZE))
             .collect();
-        if dirty.is_empty() { return; }
+        if dirty.is_empty() {
+            return;
+        }
         // Expand to neighbor chunks — border entrances are shared between adjacent chunks
         let cols = width.div_ceil(HPA_CHUNK_SIZE);
         let rows = height.div_ceil(HPA_CHUNK_SIZE);
-        let affected: hashbrown::HashSet<(usize, usize)> = dirty.iter()
-            .flat_map(|&(cc, cr)| [
-                Some((cc, cr)),
-                cc.checked_sub(1).map(|c| (c, cr)),
-                (cc + 1 < cols).then_some((cc + 1, cr)),
-                cr.checked_sub(1).map(|r| (cc, r)),
-                (cr + 1 < rows).then_some((cc, cr + 1)),
-            ].into_iter().flatten())
+        let affected: hashbrown::HashSet<(usize, usize)> = dirty
+            .iter()
+            .flat_map(|&(cc, cr)| {
+                [
+                    Some((cc, cr)),
+                    cc.checked_sub(1).map(|c| (c, cr)),
+                    (cc + 1 < cols).then_some((cc + 1, cr)),
+                    cr.checked_sub(1).map(|r| (cc, r)),
+                    (cr + 1 < rows).then_some((cc, cr + 1)),
+                ]
+                .into_iter()
+                .flatten()
+            })
             .collect();
         self.remove_chunk_nodes(&affected);
         self.build_chunks(costs, width, height, &affected);
@@ -429,9 +540,16 @@ impl HpaCache {
         // Compact nodes, remap + filter edges pointing to removed nodes
         let mut new_nodes = Vec::with_capacity(new_idx);
         for (i, mut node) in self.nodes.drain(..).enumerate() {
-            if remap[i].is_none() { continue; }
+            if remap[i].is_none() {
+                continue;
+            }
             node.edges.retain_mut(|e| {
-                if let Some(t) = remap[e.target] { e.target = t; true } else { false }
+                if let Some(t) = remap[e.target] {
+                    e.target = t;
+                    true
+                } else {
+                    false
+                }
             });
             new_nodes.push(node);
         }
@@ -447,19 +565,21 @@ impl HpaCache {
 }
 
 /// HPA* pathfinding query. Falls back to chunk-local A* for same-chunk paths.
-pub fn pathfind_hpa(
-    grid: &WorldGrid,
-    start: IVec2,
-    goal: IVec2,
-) -> Option<Vec<IVec2>> {
+pub fn pathfind_hpa(grid: &WorldGrid, start: IVec2, goal: IVec2) -> Option<Vec<IVec2>> {
     let cache = grid.hpa_cache.as_ref()?;
     let costs = &grid.pathfind_costs;
 
     // Check goal is passable
     cost_at(costs, grid.width, grid.height, goal)?;
 
-    let start_chunk = (start.x as usize / HPA_CHUNK_SIZE, start.y as usize / HPA_CHUNK_SIZE);
-    let goal_chunk = (goal.x as usize / HPA_CHUNK_SIZE, goal.y as usize / HPA_CHUNK_SIZE);
+    let start_chunk = (
+        start.x as usize / HPA_CHUNK_SIZE,
+        start.y as usize / HPA_CHUNK_SIZE,
+    );
+    let goal_chunk = (
+        goal.x as usize / HPA_CHUNK_SIZE,
+        goal.y as usize / HPA_CHUNK_SIZE,
+    );
 
     // Same chunk: use direct chunk-bounded A* (fast, small search space)
     if start_chunk == goal_chunk {
@@ -500,7 +620,8 @@ pub fn pathfind_hpa(
     }
 
     // Compute temporary edges from start to its chunk's entrance nodes
-    let (sc_min_col, sc_min_row, sc_max_col, sc_max_row) = chunk_bounds(start_chunk, grid.width, grid.height);
+    let (sc_min_col, sc_min_row, sc_max_col, sc_max_row) =
+        chunk_bounds(start_chunk, grid.width, grid.height);
     let mut start_edges: Vec<(usize, u32, Vec<IVec2>)> = Vec::new();
     for &nid in &start_entrances {
         let entrance_pos = cache.nodes[nid].pos;
@@ -510,7 +631,11 @@ pub fn pathfind_hpa(
                 let mut r = Vec::with_capacity(4);
                 for d in NEIGHBOR_DIRS {
                     let np = pos + d;
-                    if np.x >= sc_min_col && np.x < sc_max_col && np.y >= sc_min_row && np.y < sc_max_row {
+                    if np.x >= sc_min_col
+                        && np.x < sc_max_col
+                        && np.y >= sc_min_row
+                        && np.y < sc_max_row
+                    {
                         if let Some(c) = cost_at(costs, grid.width, grid.height, np) {
                             r.push((np, c));
                         }
@@ -527,7 +652,8 @@ pub fn pathfind_hpa(
     }
 
     // Compute temporary edges from goal chunk entrances to goal
-    let (gc_min_col, gc_min_row, gc_max_col, gc_max_row) = chunk_bounds(goal_chunk, grid.width, grid.height);
+    let (gc_min_col, gc_min_row, gc_max_col, gc_max_row) =
+        chunk_bounds(goal_chunk, grid.width, grid.height);
     let mut goal_edges: HashMap<usize, (u32, Vec<IVec2>)> = HashMap::new();
     for &nid in &goal_entrances {
         let entrance_pos = cache.nodes[nid].pos;
@@ -537,7 +663,11 @@ pub fn pathfind_hpa(
                 let mut r = Vec::with_capacity(4);
                 for d in NEIGHBOR_DIRS {
                     let np = pos + d;
-                    if np.x >= gc_min_col && np.x < gc_max_col && np.y >= gc_min_row && np.y < gc_max_row {
+                    if np.x >= gc_min_col
+                        && np.x < gc_max_col
+                        && np.y >= gc_min_row
+                        && np.y < gc_max_row
+                    {
                         if let Some(c) = cost_at(costs, grid.width, grid.height, np) {
                             r.push((np, c));
                         }
@@ -584,10 +714,16 @@ pub fn pathfind_hpa(
             successors
         },
         |&node_id| {
-            if node_id == v_goal { return 0; }
-            let pos = if node_id == v_start { start }
-                      else if node_id < n { cache.nodes[node_id].pos }
-                      else { goal };
+            if node_id == v_goal {
+                return 0;
+            }
+            let pos = if node_id == v_start {
+                start
+            } else if node_id < n {
+                cache.nodes[node_id].pos
+            } else {
+                goal
+            };
             heuristic(pos, goal) * HPA_MIN_COST
         },
         |&node_id| node_id == v_goal,
@@ -613,7 +749,11 @@ pub fn pathfind_hpa(
             }
         } else if from_id < n && to_id < n {
             // cached edge between entrance nodes
-            if let Some(edge) = cache.nodes[from_id].edges.iter().find(|e| e.target == to_id) {
+            if let Some(edge) = cache.nodes[from_id]
+                .edges
+                .iter()
+                .find(|e| e.target == to_id)
+            {
                 full_path.extend_from_slice(&edge.path);
             }
         }
@@ -636,11 +776,7 @@ fn chunk_bounds(chunk: (usize, usize), width: usize, height: usize) -> (i32, i32
 // ============================================================================
 
 /// Bresenham line walk — check if all cells between two grid positions are passable.
-pub fn line_of_sight(
-    grid: &WorldGrid,
-    from: IVec2,
-    to: IVec2,
-) -> bool {
+pub fn line_of_sight(grid: &WorldGrid, from: IVec2, to: IVec2) -> bool {
     let dx = (to.x - from.x).abs();
     let dy = (to.y - from.y).abs();
     let sx = if from.x < to.x { 1 } else { -1 };
@@ -706,8 +842,14 @@ pub fn invalidate_paths_on_building_change(
     if dirty_cells.is_empty() {
         return;
     }
-    let dirty_chunks: hashbrown::HashSet<(usize, usize)> = dirty_cells.iter()
-        .map(|&i| ((i % grid.width) / HPA_CHUNK_SIZE, (i / grid.width) / HPA_CHUNK_SIZE))
+    let dirty_chunks: hashbrown::HashSet<(usize, usize)> = dirty_cells
+        .iter()
+        .map(|&i| {
+            (
+                (i % grid.width) / HPA_CHUNK_SIZE,
+                (i / grid.width) / HPA_CHUNK_SIZE,
+            )
+        })
         .collect();
 
     for (entity, slot, path) in path_q.iter() {
@@ -718,18 +860,21 @@ pub fn invalidate_paths_on_building_change(
             continue;
         }
 
-        // Only invalidate if remaining waypoints cross a dirty chunk
-        let dominated = path.waypoints[path.current..].iter().any(|wp| {
-            let chunk = (wp.x as usize / HPA_CHUNK_SIZE, wp.y as usize / HPA_CHUNK_SIZE);
-            dirty_chunks.contains(&chunk)
-        });
+        // Check precomputed path chunks against dirty set (O(path_chunks) not O(waypoints))
+        let dominated = path
+            .path_chunks
+            .iter()
+            .any(|chunk| dirty_chunks.contains(chunk));
         if !dominated {
             continue;
         }
 
         let idx = slot.0;
         let (start_col, start_row) = if idx * 2 + 1 < gpu_state.positions.len() {
-            let pos = Vec2::new(gpu_state.positions[idx * 2], gpu_state.positions[idx * 2 + 1]);
+            let pos = Vec2::new(
+                gpu_state.positions[idx * 2],
+                gpu_state.positions[idx * 2 + 1],
+            );
             grid.world_to_grid(pos)
         } else {
             continue;
@@ -783,12 +928,7 @@ mod tests {
     #[test]
     fn astar_finds_straight_path() {
         let grid = make_grid(10, 10);
-        let path = pathfind_on_grid(
-            &grid,
-            IVec2::new(0, 0),
-            IVec2::new(5, 0),
-            5000,
-        );
+        let path = pathfind_on_grid(&grid, IVec2::new(0, 0), IVec2::new(5, 0), 5000);
         assert!(path.is_some(), "should find path on open grid");
         let path = path.unwrap();
         assert_eq!(path.first(), Some(&IVec2::new(0, 0)));
@@ -805,12 +945,7 @@ mod tests {
             place_wall(&mut entity_map, 2, row, 500 + row as usize);
         }
         grid.sync_building_costs(&entity_map);
-        let path = pathfind_on_grid(
-            &grid,
-            IVec2::new(0, 0),
-            IVec2::new(4, 0),
-            5000,
-        );
+        let path = pathfind_on_grid(&grid, IVec2::new(0, 0), IVec2::new(4, 0), 5000);
         assert!(path.is_some(), "should find path around wall");
         let path = path.unwrap();
         // Path must go around the wall (row >= 5 at some point)
@@ -830,24 +965,14 @@ mod tests {
             place_wall(&mut entity_map, 2, row, 600 + row as usize);
         }
         grid.sync_building_costs(&entity_map);
-        let path = pathfind_on_grid(
-            &grid,
-            IVec2::new(0, 0),
-            IVec2::new(5, 0),
-            5000,
-        );
+        let path = pathfind_on_grid(&grid, IVec2::new(0, 0), IVec2::new(5, 0), 5000);
         assert!(path.is_none(), "should return None when no path exists");
     }
 
     #[test]
     fn astar_prefers_road_over_grass() {
         let grid = make_grid(10, 1);
-        let path = pathfind_on_grid(
-            &grid,
-            IVec2::new(0, 0),
-            IVec2::new(9, 0),
-            5000,
-        );
+        let path = pathfind_on_grid(&grid, IVec2::new(0, 0), IVec2::new(9, 0), 5000);
         assert!(path.is_some());
         assert_eq!(path.unwrap().len(), 10);
     }
@@ -855,11 +980,7 @@ mod tests {
     #[test]
     fn los_clear_on_open_grid() {
         let grid = make_grid(10, 10);
-        assert!(line_of_sight(
-            &grid,
-            IVec2::new(0, 0),
-            IVec2::new(5, 5)
-        ));
+        assert!(line_of_sight(&grid, IVec2::new(0, 0), IVec2::new(5, 5)));
     }
 
     #[test]
@@ -891,12 +1012,8 @@ mod tests {
         grid.cells[3].terrain = Biome::Rock;
         grid.init_pathfind_costs();
 
-        let path = pathfind_on_grid(
-            &grid,
-            IVec2::new(0, 0),
-            IVec2::new(4, 0),
-            5000,
-        ).expect("should find path around costly terrain");
+        let path = pathfind_on_grid(&grid, IVec2::new(0, 0), IVec2::new(4, 0), 5000)
+            .expect("should find path around costly terrain");
 
         assert!(
             path.iter().all(|p| !(p.y == 0 && (p.x == 2 || p.x == 3))),
@@ -924,12 +1041,7 @@ mod tests {
             place_wall(&mut entity_map, 3, row, 100 + row as usize);
         }
         grid.sync_building_costs(&entity_map);
-        let path = pathfind_on_grid(
-            &grid,
-            IVec2::new(0, 0),
-            IVec2::new(6, 0),
-            5000,
-        );
+        let path = pathfind_on_grid(&grid, IVec2::new(0, 0), IVec2::new(6, 0), 5000);
         assert!(path.is_some(), "should find path around wall");
         let path = path.unwrap();
         // Path must not pass through any wall cell
@@ -971,20 +1083,14 @@ mod tests {
         grid.sync_building_costs(&entity_map);
 
         // Start top-left, goal bottom-right
-        let path = pathfind_on_grid(
-            &grid,
-            IVec2::new(0, 0),
-            IVec2::new(14, 10),
-            10000,
-        );
+        let path = pathfind_on_grid(&grid, IVec2::new(0, 0), IVec2::new(14, 10), 10000);
         assert!(path.is_some(), "should find path through serpentine maze");
         let path = path.unwrap();
 
         // Verify no wall cells traversed
         for p in &path {
-            let is_wall = (p.y == 2 && p.x < 13)
-                || (p.y == 5 && p.x >= 2)
-                || (p.y == 8 && p.x < 13);
+            let is_wall =
+                (p.y == 2 && p.x < 13) || (p.y == 5 && p.x >= 2) || (p.y == 8 && p.x < 13);
             assert!(!is_wall, "path crossed wall at {:?}", p);
         }
 
@@ -1010,12 +1116,7 @@ mod tests {
             place_wall(&mut entity_map, 5, row, 200 + row as usize);
         }
         grid.sync_building_costs(&entity_map);
-        let path = pathfind_on_grid(
-            &grid,
-            IVec2::new(0, 0),
-            IVec2::new(8, 0),
-            5000,
-        );
+        let path = pathfind_on_grid(&grid, IVec2::new(0, 0), IVec2::new(8, 0), 5000);
         assert!(path.is_none(), "should return None when walled off");
     }
 
@@ -1072,7 +1173,9 @@ mod tests {
     fn invalidate_no_action_without_dirty() {
         let mut app = setup_invalidate_app();
         // Spawn NPC with active path
-        let mut gpu = app.world_mut().resource_mut::<crate::resources::GpuReadState>();
+        let mut gpu = app
+            .world_mut()
+            .resource_mut::<crate::resources::GpuReadState>();
         gpu.positions = vec![100.0, 100.0];
         app.world_mut().spawn((
             GpuSlot(0),
@@ -1080,6 +1183,7 @@ mod tests {
                 waypoints: vec![IVec2::new(0, 0), IVec2::new(5, 5)],
                 current: 0,
                 goal_world: Vec2::new(320.0, 320.0),
+                path_chunks: vec![(0, 0)],
                 ..default()
             },
         ));
@@ -1091,7 +1195,9 @@ mod tests {
     #[test]
     fn invalidate_requeues_active_paths() {
         let mut app = setup_invalidate_app();
-        let mut gpu = app.world_mut().resource_mut::<crate::resources::GpuReadState>();
+        let mut gpu = app
+            .world_mut()
+            .resource_mut::<crate::resources::GpuReadState>();
         gpu.positions = vec![100.0, 100.0];
         // Mark cell (5,5) as dirty so the NPC's waypoint overlaps the dirty chunk
         let mut grid = app.world_mut().resource_mut::<WorldGrid>();
@@ -1104,19 +1210,25 @@ mod tests {
                 waypoints: vec![IVec2::new(0, 0), IVec2::new(5, 5)],
                 current: 0,
                 goal_world: Vec2::new(320.0, 320.0),
+                path_chunks: vec![(0, 0)],
                 ..default()
             },
         ));
         app.insert_resource(SendGridDirty(true));
         app.update();
         let queue = app.world().resource::<PathRequestQueue>();
-        assert!(!queue.is_empty(), "should requeue NPC with active path on dirty");
+        assert!(
+            !queue.is_empty(),
+            "should requeue NPC with active path on dirty"
+        );
     }
 
     #[test]
     fn invalidate_skips_paths_outside_dirty_chunks() {
         let mut app = setup_invalidate_app();
-        let mut gpu = app.world_mut().resource_mut::<crate::resources::GpuReadState>();
+        let mut gpu = app
+            .world_mut()
+            .resource_mut::<crate::resources::GpuReadState>();
         gpu.positions = vec![100.0, 100.0];
         // Dirty cell at (8,8) — but NPC path goes to (2,2), different chunk on larger grids
         // On a 10×10 grid with chunk_size=16, everything is chunk (0,0), so use a 40×40 grid
@@ -1132,19 +1244,25 @@ mod tests {
                 waypoints: vec![IVec2::new(1, 1), IVec2::new(2, 2)], // chunk (0,0)
                 current: 0,
                 goal_world: Vec2::new(128.0, 128.0),
+                path_chunks: vec![(0, 0)],
                 ..default()
             },
         ));
         app.insert_resource(SendGridDirty(true));
         app.update();
         let queue = app.world().resource::<PathRequestQueue>();
-        assert!(queue.is_empty(), "should not requeue path that doesn't cross dirty chunk");
+        assert!(
+            queue.is_empty(),
+            "should not requeue path that doesn't cross dirty chunk"
+        );
     }
 
     #[test]
     fn invalidate_skips_empty_paths() {
         let mut app = setup_invalidate_app();
-        let mut gpu = app.world_mut().resource_mut::<crate::resources::GpuReadState>();
+        let mut gpu = app
+            .world_mut()
+            .resource_mut::<crate::resources::GpuReadState>();
         gpu.positions = vec![100.0, 100.0];
         app.world_mut().spawn((
             GpuSlot(0),

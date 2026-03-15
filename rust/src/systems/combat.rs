@@ -20,6 +20,7 @@ fn fire_projectile(
     lifetime: f32,
     faction: i32,
     shooter: i32,
+    homing_target: i32,
     proj_alloc: &mut ProjSlotAllocator,
     proj_updates: &mut MessageWriter<ProjGpuUpdateMsg>,
     sfx_writer: &mut MessageWriter<crate::resources::PlaySfxMsg>,
@@ -41,6 +42,7 @@ fn fire_projectile(
             faction,
             shooter,
             lifetime,
+            homing_target,
         }));
         sfx_writer.write(crate::resources::PlaySfxMsg {
             kind: crate::resources::SfxKind::ArrowShoot,
@@ -49,6 +51,33 @@ fn fire_projectile(
         return true;
     }
     false
+}
+
+pub(crate) fn fire_loot_fly(
+    src: Vec2,
+    killer_pos: Vec2,
+    target_slot: usize,
+    proj_alloc: &mut ProjSlotAllocator,
+    proj_updates: &mut MessageWriter<ProjGpuUpdateMsg>,
+) {
+    let delta = killer_pos - src;
+    let dist = delta.length().max(1.0);
+    let dir = delta / dist;
+    let speed = 300.0;
+    if let Some(proj_slot) = proj_alloc.alloc() {
+        proj_updates.write(ProjGpuUpdateMsg(ProjGpuUpdate::Spawn {
+            idx: proj_slot,
+            x: src.x,
+            y: src.y,
+            vx: dir.x * speed,
+            vy: dir.y * speed,
+            damage: 0.0,
+            faction: -1,
+            shooter: -1,
+            lifetime: 1.5,
+            homing_target: target_slot as i32,
+        }));
+    }
 }
 
 /// ECS queries for attack_system (bundled to stay under 16-param limit).
@@ -143,7 +172,10 @@ pub fn attack_system(
         let job = *job;
         let cached_range = stats.range;
         // Berserker/Timid: damage modifier when below 50% HP
-        let cached_damage = if stats.berserk_bonus != 0.0 && stats.max_health > 0.0 && health.0 / stats.max_health < 0.5 {
+        let cached_damage = if stats.berserk_bonus != 0.0
+            && stats.max_health > 0.0
+            && health.0 / stats.max_health < 0.5
+        {
             (stats.damage * (1.0 + stats.berserk_bonus)).max(0.0)
         } else {
             stats.damage
@@ -203,7 +235,9 @@ pub fn attack_system(
             if entity_map.get_instance(ti).is_some() && i * 2 + 1 < npc_gpu.targets.len() {
                 let current_target = Vec2::new(npc_gpu.targets[i * 2], npc_gpu.targets[i * 2 + 1]);
                 if let Some(curr_inst) = entity_map.find_by_position(current_target) {
-                    if curr_inst.faction != crate::constants::FACTION_NEUTRAL && curr_inst.faction != faction_id {
+                    if curr_inst.faction != crate::constants::FACTION_NEUTRAL
+                        && curr_inst.faction != faction_id
+                    {
                         target_idx = curr_inst.slot as i32;
                     }
                 }
@@ -274,9 +308,17 @@ pub fn attack_system(
                 if timer <= 0.0 {
                     timer_ready_count += 1;
                     if !fire_projectile(
-                        Vec2::new(x, y), inst_pos,
-                        cached_damage, cached_proj_speed, cached_proj_lifetime,
-                        faction_id, i as i32, &mut proj_alloc, &mut proj_updates, &mut sfx_writer,
+                        Vec2::new(x, y),
+                        inst_pos,
+                        cached_damage,
+                        cached_proj_speed,
+                        cached_proj_lifetime,
+                        faction_id,
+                        i as i32,
+                        -1,
+                        &mut proj_alloc,
+                        &mut proj_updates,
+                        &mut sfx_writer,
                     ) {
                         if let Some(target_entity) = entity_map.entities.get(&ti).copied() {
                             damage_events.write(DamageMsg {
@@ -373,9 +415,17 @@ pub fn attack_system(
             if timer <= 0.0 {
                 timer_ready_count += 1;
                 if !fire_projectile(
-                    Vec2::new(x, y), Vec2::new(tx, ty),
-                    cached_damage, cached_proj_speed, cached_proj_lifetime,
-                    faction_id, i as i32, &mut proj_alloc, &mut proj_updates, &mut sfx_writer,
+                    Vec2::new(x, y),
+                    Vec2::new(tx, ty),
+                    cached_damage,
+                    cached_proj_speed,
+                    cached_proj_lifetime,
+                    faction_id,
+                    i as i32,
+                    -1,
+                    &mut proj_alloc,
+                    &mut proj_updates,
+                    &mut sfx_writer,
                 ) {
                     if let Some(&target_entity) = entity_map.entities.get(&ti) {
                         damage_events.write(DamageMsg {
@@ -550,7 +600,10 @@ pub fn building_tower_system(
             continue;
         } // only target NPCs
         let ti = target as usize;
-        if !entity_map.get_npc(ti).is_some_and(|n| !n.dead && n.faction != faction) {
+        if !entity_map
+            .get_npc(ti)
+            .is_some_and(|n| !n.dead && n.faction != faction)
+        {
             continue;
         }
 
@@ -573,9 +626,17 @@ pub fn building_tower_system(
         }
 
         if fire_projectile(
-            pos, Vec2::new(tx, ty),
-            stats.damage, stats.proj_speed, stats.proj_lifetime,
-            faction, bld_slot as i32, &mut proj_alloc, &mut proj_updates, &mut sfx_writer,
+            pos,
+            Vec2::new(tx, ty),
+            stats.damage,
+            stats.proj_speed,
+            stats.proj_lifetime,
+            faction,
+            bld_slot as i32,
+            -1,
+            &mut proj_alloc,
+            &mut proj_updates,
+            &mut sfx_writer,
         ) {
             if i < tower.town.timers.len() {
                 tower.town.timers[i] = stats.cooldown;
@@ -590,36 +651,58 @@ pub fn building_tower_system(
             .is_some_and(|i| i.kind == BuildingKind::Tower)
     });
 
-    // Collect tower data (slot, position, faction, xp, upgrade_levels) from ECS
-    let towers: Vec<_> = entity_map.iter_kind(BuildingKind::Tower)
+    // Collect tower data with stack-allocated upgrade levels (no heap clone)
+    const MAX_UPGRADES: usize = crate::constants::TOWER_UPGRADES.len();
+    let towers: Vec<(usize, Vec2, i32, i32, [u8; MAX_UPGRADES], usize, Entity)> = entity_map
+        .iter_kind(BuildingKind::Tower)
         .filter_map(|inst| {
-            let entity = entity_map.entities.get(&inst.slot)?;
-            let tbs = tower_bld_q.get(*entity).ok()?;
-            Some((inst.slot, inst.position, inst.faction, tbs.xp, tbs.upgrade_levels.clone()))
+            let entity = *entity_map.entities.get(&inst.slot)?;
+            let tbs = tower_bld_q.get(entity).ok()?;
+            let mut levels = [0u8; MAX_UPGRADES];
+            let len = tbs.upgrade_levels.len().min(MAX_UPGRADES);
+            levels[..len].copy_from_slice(&tbs.upgrade_levels[..len]);
+            Some((
+                inst.slot,
+                inst.position,
+                inst.faction,
+                tbs.xp,
+                levels,
+                len,
+                entity,
+            ))
         })
         .collect();
 
-    for (slot, src, faction, xp, upgrade_levels) in &towers {
-        let timer = tower.tower_cooldowns.entry(*slot).or_insert(0.0);
+    for &(slot, src, faction, xp, ref levels, levels_len, entity) in &towers {
+        let level = crate::systems::stats::level_from_xp(xp);
+        let stats =
+            crate::systems::stats::resolve_tower_instance_stats(level, &levels[..levels_len]);
+
+        // HP regen (runs unconditionally, before cooldown/target checks)
+        if stats.hp_regen > 0.0 {
+            if let Ok(mut health) = building_health.get_mut(entity) {
+                health.0 = (health.0 + stats.hp_regen * dt).min(stats.max_hp);
+            }
+        }
+
+        // Combat cooldown
+        let timer = tower.tower_cooldowns.entry(slot).or_insert(0.0);
         if *timer > 0.0 {
             *timer = (*timer - dt).max(0.0);
             if *timer > 0.0 {
                 continue;
             }
         }
-        let level = crate::systems::stats::level_from_xp(*xp);
-        let stats = crate::systems::stats::resolve_tower_instance_stats(level, upgrade_levels);
 
-        let target = gpu_state
-            .combat_targets
-            .get(*slot)
-            .copied()
-            .unwrap_or(-1);
+        let target = gpu_state.combat_targets.get(slot).copied().unwrap_or(-1);
         if target < 0 || entity_map.get_instance(target as usize).is_some() {
             continue;
         }
         let ti = target as usize;
-        if !entity_map.get_npc(ti).is_some_and(|n| !n.dead && n.faction != *faction) {
+        if !entity_map
+            .get_npc(ti)
+            .is_some_and(|n| !n.dead && n.faction != faction)
+        {
             continue;
         }
         let tx = gpu_state.positions.get(ti * 2).copied().unwrap_or(-9999.0);
@@ -636,24 +719,19 @@ pub fn building_tower_system(
             continue;
         }
         if fire_projectile(
-            *src, target_pos,
-            stats.damage, stats.proj_speed, stats.proj_lifetime,
-            *faction, *slot as i32, &mut proj_alloc, &mut proj_updates, &mut sfx_writer,
+            src,
+            target_pos,
+            stats.damage,
+            stats.proj_speed,
+            stats.proj_lifetime,
+            faction,
+            slot as i32,
+            -1,
+            &mut proj_alloc,
+            &mut proj_updates,
+            &mut sfx_writer,
         ) {
             *timer = stats.cooldown;
-        }
-    }
-
-    // Tower HP regen: heal towers with hp_regen upgrade
-    for (slot, _, _, xp, upgrade_levels) in &towers {
-        let level = crate::systems::stats::level_from_xp(*xp);
-        let stats = crate::systems::stats::resolve_tower_instance_stats(level, upgrade_levels);
-        if stats.hp_regen > 0.0 {
-            if let Some(&entity) = entity_map.entities.get(slot) {
-                if let Ok(mut health) = building_health.get_mut(entity) {
-                    health.0 = (health.0 + stats.hp_regen * dt).min(stats.max_hp);
-                }
-            }
         }
     }
 }
@@ -692,7 +770,12 @@ pub fn sync_building_hp_render(
 mod tests {
     use super::*;
     use crate::components::{AttackTimer, Building, Dead, GpuSlot};
-    use crate::resources::{CombatDebug, GameTime};
+    use crate::gpu::populate_proj_buffer_writes;
+    use crate::messages::{ProjGpuUpdate, ProjGpuUpdateMsg};
+    use crate::resources::{
+        CombatDebug, EntityMap, GameTime, PlaySfxMsg, ProjHitState, ProjSlotAllocator, TowerState,
+    };
+    use bevy::ecs::system::RunSystemOnce;
     use bevy::time::TimeUpdateStrategy;
 
     fn setup_app() -> App {
@@ -706,14 +789,12 @@ mod tests {
         app.add_systems(FixedUpdate, cooldown_system);
         app.update();
         app.update();
+        app.update();
         app
     }
 
     fn spawn_attacker(app: &mut App, timer: f32) -> Entity {
-        app.world_mut().spawn((
-            GpuSlot(0),
-            AttackTimer(timer),
-        )).id()
+        app.world_mut().spawn((GpuSlot(0), AttackTimer(timer))).id()
     }
 
     #[test]
@@ -746,35 +827,48 @@ mod tests {
 
         app.update();
         let timer = app.world().get::<AttackTimer>(npc).unwrap().0;
-        assert!(timer.abs() < f32::EPSILON, "zero timer should stay zero: {timer}");
+        assert!(
+            timer.abs() < f32::EPSILON,
+            "zero timer should stay zero: {timer}"
+        );
     }
 
     #[test]
     fn cooldown_dead_excluded() {
         let mut app = setup_app();
-        let npc = app.world_mut().spawn((
-            GpuSlot(0),
-            AttackTimer(5.0),
-            Dead,
-        )).id();
+        let npc = app
+            .world_mut()
+            .spawn((GpuSlot(0), AttackTimer(5.0), Dead))
+            .id();
 
         app.update();
         let timer = app.world().get::<AttackTimer>(npc).unwrap().0;
-        assert!((timer - 5.0).abs() < f32::EPSILON, "dead entity timer should not change: {timer}");
+        assert!(
+            (timer - 5.0).abs() < f32::EPSILON,
+            "dead entity timer should not change: {timer}"
+        );
     }
 
     #[test]
     fn cooldown_buildings_excluded() {
         let mut app = setup_app();
-        let building = app.world_mut().spawn((
-            GpuSlot(0),
-            AttackTimer(5.0),
-            Building { kind: crate::world::BuildingKind::Tower },
-        )).id();
+        let building = app
+            .world_mut()
+            .spawn((
+                GpuSlot(0),
+                AttackTimer(5.0),
+                Building {
+                    kind: crate::world::BuildingKind::Tower,
+                },
+            ))
+            .id();
 
         app.update();
         let timer = app.world().get::<AttackTimer>(building).unwrap().0;
-        assert!((timer - 5.0).abs() < f32::EPSILON, "building timer should not change: {timer}");
+        assert!(
+            (timer - 5.0).abs() < f32::EPSILON,
+            "building timer should not change: {timer}"
+        );
     }
 
     #[test]
@@ -785,11 +879,18 @@ mod tests {
         app.update();
         let debug = app.world().resource::<CombatDebug>();
         assert_eq!(debug.cooldown_entities, 1, "should count 1 entity");
-        assert!(debug.frame_delta > 0.0, "frame_delta should be positive: {}", debug.frame_delta);
+        assert!(
+            debug.frame_delta > 0.0,
+            "frame_delta should be positive: {}",
+            debug.frame_delta
+        );
         // sample_timer captures pre-decrement value on first tick, but FixedUpdate
         // runs many sub-ticks per app.update(), so later ticks see partially decremented values
-        assert!(debug.sample_timer > 0.0 && debug.sample_timer <= 3.0,
-                "sample_timer should reflect timer value: {}", debug.sample_timer);
+        assert!(
+            debug.sample_timer > 0.0 && debug.sample_timer <= 3.0,
+            "sample_timer should reflect timer value: {}",
+            debug.sample_timer
+        );
     }
 
     // -- sync_building_hp_render ---------------------------------------------
@@ -799,7 +900,9 @@ mod tests {
         app.add_plugins(MinimalPlugins);
         app.insert_resource(crate::gpu::EntityGpuState::default());
         app.insert_resource(crate::resources::BuildingHpRender::default());
-        app.insert_resource(crate::resources::BuildingHealState { needs_healing: true });
+        app.insert_resource(crate::resources::BuildingHealState {
+            needs_healing: true,
+        });
         app.insert_resource(TimeUpdateStrategy::ManualDuration(
             std::time::Duration::from_secs_f32(1.0),
         ));
@@ -809,24 +912,78 @@ mod tests {
         app
     }
 
+    fn setup_building_tower_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_message::<ProjGpuUpdateMsg>();
+        app.add_message::<PlaySfxMsg>();
+        app.insert_resource(GameTime::default());
+        app.insert_resource(crate::resources::GpuReadState::default());
+        app.insert_resource(crate::world::WorldData::default());
+        app.insert_resource(EntityMap::default());
+        app.insert_resource(ProjSlotAllocator::default());
+        app.insert_resource(TowerState::default());
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.init_resource::<crate::resources::TownIndex>();
+
+        let town = app
+            .world_mut()
+            .spawn((
+                crate::components::TownMarker,
+                crate::components::FoodStore(0),
+                crate::components::GoldStore(0),
+                crate::components::WoodStore(0),
+                crate::components::StoneStore(0),
+                crate::components::TownPolicy::default(),
+                crate::components::TownUpgradeLevel::default(),
+                crate::components::TownEquipment::default(),
+                crate::components::TownAreaLevel::default(),
+            ))
+            .id();
+        app.world_mut()
+            .resource_mut::<crate::resources::TownIndex>()
+            .0
+            .insert(0, town);
+        app.world_mut()
+            .resource_mut::<crate::world::WorldData>()
+            .towns
+            .push(crate::world::Town {
+                name: "BenchTown".into(),
+                center: Vec2::new(128.0, 128.0),
+                faction: 1,
+                kind: crate::constants::TownKind::Player,
+            });
+
+        app
+    }
+
     #[test]
     fn hp_render_shows_damaged_building() {
         let mut app = setup_hp_render_app();
         // Spawn a building at slot 0 with 50% HP
         // Fountain has hp=500 (from building_def)
         app.world_mut().spawn((
-            Building { kind: crate::world::BuildingKind::Fountain },
+            Building {
+                kind: crate::world::BuildingKind::Fountain,
+            },
             GpuSlot(0),
             crate::components::Health(250.0),
         ));
         // Fill GPU positions
-        app.world_mut().resource_mut::<crate::gpu::EntityGpuState>().positions = vec![100.0, 200.0];
+        app.world_mut()
+            .resource_mut::<crate::gpu::EntityGpuState>()
+            .positions = vec![100.0, 200.0];
         app.update();
         let render = app.world().resource::<crate::resources::BuildingHpRender>();
         assert_eq!(render.positions.len(), 1, "should have 1 damaged building");
         assert!((render.positions[0].x - 100.0).abs() < 0.1);
-        assert!(render.health_pcts[0] > 0.0 && render.health_pcts[0] < 1.0,
-                "health pct should be between 0 and 1: {}", render.health_pcts[0]);
+        assert!(
+            render.health_pcts[0] > 0.0 && render.health_pcts[0] < 1.0,
+            "health pct should be between 0 and 1: {}",
+            render.health_pcts[0]
+        );
     }
 
     #[test]
@@ -834,42 +991,278 @@ mod tests {
         let mut app = setup_hp_render_app();
         let max_hp = crate::constants::building_def(crate::world::BuildingKind::Fountain).hp;
         app.world_mut().spawn((
-            Building { kind: crate::world::BuildingKind::Fountain },
+            Building {
+                kind: crate::world::BuildingKind::Fountain,
+            },
             GpuSlot(0),
             crate::components::Health(max_hp),
         ));
-        app.world_mut().resource_mut::<crate::gpu::EntityGpuState>().positions = vec![100.0, 200.0];
+        app.world_mut()
+            .resource_mut::<crate::gpu::EntityGpuState>()
+            .positions = vec![100.0, 200.0];
         app.update();
         let render = app.world().resource::<crate::resources::BuildingHpRender>();
-        assert!(render.positions.is_empty(), "full HP building should not appear in render");
+        assert!(
+            render.positions.is_empty(),
+            "full HP building should not appear in render"
+        );
     }
 
     #[test]
     fn hp_render_skips_dead_building() {
         let mut app = setup_hp_render_app();
         app.world_mut().spawn((
-            Building { kind: crate::world::BuildingKind::Fountain },
+            Building {
+                kind: crate::world::BuildingKind::Fountain,
+            },
             GpuSlot(0),
             crate::components::Health(0.0),
         ));
-        app.world_mut().resource_mut::<crate::gpu::EntityGpuState>().positions = vec![100.0, 200.0];
+        app.world_mut()
+            .resource_mut::<crate::gpu::EntityGpuState>()
+            .positions = vec![100.0, 200.0];
         app.update();
         let render = app.world().resource::<crate::resources::BuildingHpRender>();
-        assert!(render.positions.is_empty(), "dead building (hp=0) should not appear in render");
+        assert!(
+            render.positions.is_empty(),
+            "dead building (hp=0) should not appear in render"
+        );
     }
 
     #[test]
     fn hp_render_skips_when_no_healing_needed() {
         let mut app = setup_hp_render_app();
-        app.world_mut().resource_mut::<crate::resources::BuildingHealState>().needs_healing = false;
+        app.world_mut()
+            .resource_mut::<crate::resources::BuildingHealState>()
+            .needs_healing = false;
         app.world_mut().spawn((
-            Building { kind: crate::world::BuildingKind::Fountain },
+            Building {
+                kind: crate::world::BuildingKind::Fountain,
+            },
             GpuSlot(0),
             crate::components::Health(250.0),
         ));
-        app.world_mut().resource_mut::<crate::gpu::EntityGpuState>().positions = vec![100.0, 200.0];
+        app.world_mut()
+            .resource_mut::<crate::gpu::EntityGpuState>()
+            .positions = vec![100.0, 200.0];
         app.update();
         let render = app.world().resource::<crate::resources::BuildingHpRender>();
-        assert!(render.positions.is_empty(), "should skip query when needs_healing is false");
+        assert!(
+            render.positions.is_empty(),
+            "should skip query when needs_healing is false"
+        );
+    }
+
+    #[test]
+    fn building_tower_system_uses_tower_state_to_heal_and_fire() {
+        let mut app = setup_building_tower_app();
+        let tower_upgrades = crate::constants::TOWER_UPGRADES.len();
+        let mut upgrade_levels = vec![0; tower_upgrades];
+        upgrade_levels[0] = 1;
+        upgrade_levels[tower_upgrades - 1] = 1;
+
+        let enemy = app
+            .world_mut()
+            .spawn((GpuSlot(0), crate::components::Faction(2)))
+            .id();
+        let tower = app
+            .world_mut()
+            .spawn((
+                GpuSlot(1),
+                crate::components::Health(900.0),
+                Building {
+                    kind: crate::world::BuildingKind::Tower,
+                },
+                crate::components::TowerBuildingState {
+                    kills: 0,
+                    xp: 100,
+                    upgrade_levels: upgrade_levels.clone(),
+                    auto_upgrade_flags: vec![false; tower_upgrades],
+                },
+            ))
+            .id();
+
+        {
+            let mut entity_map = app.world_mut().resource_mut::<EntityMap>();
+            entity_map.register_npc(0, enemy, crate::components::Job::Archer, 2, 0);
+            entity_map.set_entity(1, tower);
+            entity_map.add_instance(crate::resources::BuildingInstance {
+                kind: crate::world::BuildingKind::Tower,
+                position: Vec2::new(96.0, 64.0),
+                town_idx: 0,
+                slot: 1,
+                faction: 1,
+            });
+        }
+        {
+            let mut gpu = app
+                .world_mut()
+                .resource_mut::<crate::resources::GpuReadState>();
+            gpu.positions = vec![64.0, 64.0, 96.0, 64.0];
+            gpu.combat_targets = vec![-1, 0];
+            gpu.factions = vec![2, 1];
+            gpu.health = vec![1.0, 1.0];
+            gpu.threat_counts = vec![0, 0];
+            gpu.npc_count = 1;
+        }
+
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(std::time::Duration::from_secs_f32(1.0));
+        let dt = app
+            .world_mut()
+            .run_system_once(|time: Res<Time>| time.delta_secs())
+            .unwrap();
+        assert!(
+            dt > 0.0,
+            "tower test should advance Time before the system runs"
+        );
+        app.world_mut()
+            .run_system_once(building_tower_system)
+            .unwrap();
+
+        let cooldown = app
+            .world()
+            .resource::<TowerState>()
+            .tower_cooldowns
+            .get(&1)
+            .copied()
+            .unwrap_or_default();
+        assert!(cooldown > 0.0, "tower should enter cooldown after firing");
+
+        let shots = app
+            .world_mut()
+            .run_system_once(|mut reader: MessageReader<ProjGpuUpdateMsg>| {
+                reader
+                    .read()
+                    .filter_map(|msg| match &msg.0 {
+                        ProjGpuUpdate::Spawn {
+                            shooter,
+                            damage,
+                            homing_target,
+                            ..
+                        } => Some((*shooter, *damage, *homing_target)),
+                        ProjGpuUpdate::Deactivate { .. } => None,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap();
+        assert_eq!(shots.len(), 1, "tower should spawn one projectile");
+        assert_eq!(
+            shots[0].0, 1,
+            "tower projectile should use the tower slot as shooter"
+        );
+        assert!(shots[0].1 > 0.0, "tower projectile should carry damage");
+        assert_eq!(
+            shots[0].2, -1,
+            "tower shots should not be homing projectiles"
+        );
+
+        let sfx_count = app
+            .world_mut()
+            .run_system_once(|mut reader: MessageReader<PlaySfxMsg>| reader.read().count())
+            .unwrap();
+        assert_eq!(sfx_count, 1, "tower shot should emit one SFX event");
+
+        let health = app
+            .world()
+            .get::<crate::components::Health>(tower)
+            .expect("tower health");
+        assert!(
+            health.0 > 900.0,
+            "tower should regen when HpRegen is upgraded (dt={dt}, health={})",
+            health.0
+        );
+    }
+
+    #[test]
+    fn loot_fly_spawns_homing_zero_damage_projectile_without_sfx() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_message::<ProjGpuUpdateMsg>();
+        app.add_message::<PlaySfxMsg>();
+        app.insert_resource(ProjSlotAllocator::default());
+        app.insert_resource(crate::gpu::ProjBufferWrites::default());
+
+        app.world_mut()
+            .run_system_once(
+                |mut proj_alloc: ResMut<ProjSlotAllocator>,
+                 mut proj_updates: MessageWriter<ProjGpuUpdateMsg>| {
+                    fire_loot_fly(
+                        Vec2::new(10.0, 20.0),
+                        Vec2::new(110.0, 20.0),
+                        7,
+                        &mut proj_alloc,
+                        &mut proj_updates,
+                    );
+                },
+            )
+            .unwrap();
+        app.world_mut()
+            .run_system_once(populate_proj_buffer_writes)
+            .unwrap();
+
+        let writes = app.world().resource::<crate::gpu::ProjBufferWrites>();
+        assert_eq!(writes.active[0], 1);
+        assert_eq!(writes.damages[0], 0.0);
+        assert_eq!(writes.factions[0], -1);
+        assert_eq!(writes.shooters[0], -1);
+        assert_eq!(writes.homing_targets[0], 7);
+        assert!(
+            writes.velocities[0] > 0.0 && writes.velocities[1].abs() < 0.01,
+            "loot fly should start moving toward the killer"
+        );
+
+        let sfx_count = app
+            .world_mut()
+            .run_system_once(|mut reader: MessageReader<PlaySfxMsg>| reader.read().count())
+            .unwrap();
+        assert_eq!(sfx_count, 0, "loot fly should not emit arrow SFX");
+    }
+
+    #[test]
+    fn zero_damage_projectile_hit_does_not_emit_damage() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_message::<crate::messages::DamageMsg>();
+        app.add_message::<ProjGpuUpdateMsg>();
+        app.insert_resource(ProjSlotAllocator::default());
+        app.insert_resource(crate::gpu::ProjBufferWrites::default());
+        app.insert_resource(ProjHitState(vec![[0, 0]]));
+        app.insert_resource(crate::resources::EntityMap::default());
+
+        let slot = app
+            .world_mut()
+            .resource_mut::<ProjSlotAllocator>()
+            .alloc()
+            .expect("projectile slot");
+        {
+            let mut writes = app
+                .world_mut()
+                .resource_mut::<crate::gpu::ProjBufferWrites>();
+            writes.active[slot] = 1;
+            writes.damages[slot] = 0.0;
+            writes.shooters[slot] = -1;
+            writes.factions[slot] = -1;
+        }
+
+        app.world_mut().run_system_once(process_proj_hits).unwrap();
+
+        let damage_count = app
+            .world_mut()
+            .run_system_once(|mut reader: MessageReader<crate::messages::DamageMsg>| {
+                reader.read().count()
+            })
+            .unwrap();
+        let proj_update_count = app
+            .world_mut()
+            .run_system_once(|mut reader: MessageReader<ProjGpuUpdateMsg>| reader.read().count())
+            .unwrap();
+
+        assert_eq!(damage_count, 0, "zero-damage projectile should not damage");
+        assert_eq!(
+            proj_update_count, 1,
+            "hit should still recycle the projectile slot"
+        );
     }
 }

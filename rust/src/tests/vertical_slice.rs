@@ -74,7 +74,9 @@ pub fn setup(mut params: TestSetupParams) {
 
     // Resources
     params.init_economy(2);
-    if let Some(mut f) = params.town_access.food_mut(1) { f.0 = 10; }
+    if let Some(mut f) = params.town_access.food_mut(1) {
+        f.0 = 10;
+    }
     params.game_time.time_scale = 1.0;
 
     params.focus_camera(384.0, 384.0);
@@ -106,12 +108,10 @@ pub fn tick(
 
     // Track lowest NPC count for death detection
     if npc_count > 0 && npc_count < test.count("lowest_npc") as usize {
-        test.counters
-            .insert("lowest_npc".into(), npc_count as u32);
+        test.counters.insert("lowest_npc".into(), npc_count as u32);
     }
     if !test.counters.contains_key("lowest_npc") && npc_count > 0 {
-        test.counters
-            .insert("lowest_npc".into(), npc_count as u32);
+        test.counters.insert("lowest_npc".into(), npc_count as u32);
     }
 
     match test.phase {
@@ -121,10 +121,7 @@ pub fn tick(
             if npc_count == 12 {
                 test.pass_phase(elapsed, format!("npc_count={}", npc_count));
             } else if elapsed > 8.0 {
-                test.fail_phase(
-                    elapsed,
-                    format!("npc_count={} (expected 12)", npc_count),
-                );
+                test.fail_phase(elapsed, format!("npc_count={} (expected 12)", npc_count));
             }
         }
         // Phase 2: GPU readback has valid positions
@@ -180,7 +177,9 @@ pub fn tick(
                     .count();
                 let transit = entity_map
                     .iter_npcs()
-                    .filter(|n| !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| !f.at_destination))
+                    .filter(|n| {
+                        !n.dead && npc_flags_q.get(n.entity).is_ok_and(|f| !f.at_destination)
+                    })
                     .count();
                 test.fail_phase(
                     elapsed,

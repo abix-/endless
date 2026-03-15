@@ -20,16 +20,18 @@ use std::collections::HashMap;
 
 use crate::components::*;
 use crate::constants::UpgradeStatKind;
-use crate::constants::{ALL_EQUIP_KINDS, BUILDING_REGISTRY, DisplayCategory, FOUNTAIN_TOWER, ItemKind, Rarity, npc_def};
+use crate::constants::{
+    ALL_EQUIP_KINDS, BUILDING_REGISTRY, DisplayCategory, FOUNTAIN_TOWER, ItemKind, Rarity, npc_def,
+};
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
 use crate::systems::ai_player::{
     AiPersonality, RoadStyle, cheapest_gold_upgrade_cost, debug_food_military_desire,
 };
 use crate::systems::stats::{
-    CombatConfig, UPGRADES, UpgradeMsg, branch_total, format_upgrade_cost,
-    missing_prereqs, resolve_town_tower_stats, upgrade_available, upgrade_count,
-    upgrade_effect_summary, upgrade_unlocked,
+    CombatConfig, UPGRADES, UpgradeMsg, branch_total, format_upgrade_cost, missing_prereqs,
+    resolve_town_tower_stats, upgrade_available, upgrade_count, upgrade_effect_summary,
+    upgrade_unlocked,
 };
 use crate::systems::{AiKind, AiPlayerState};
 use crate::world::{BuildingKind, WorldData, WorldGrid, is_alive};
@@ -52,7 +54,7 @@ pub struct ProfilerCache {
     frame_counter: u32,
     frame_ms: f32,
     frame_peak_ms: f32,
-    game_entries: Vec<(String, f32, f32)>,  // (name, avg_ms, peak_ms)
+    game_entries: Vec<(String, f32, f32)>, // (name, avg_ms, peak_ms)
     engine_entries: Vec<(String, f32, f32)>,
     game_sum: f32,
     engine_sum: f32,
@@ -70,7 +72,6 @@ pub struct ProfilerCache {
     pf_queue_remaining: usize,
     pf_limit_reason: &'static str,
 }
-
 
 // ============================================================================
 // POLICIES CONSTANTS
@@ -209,10 +210,9 @@ fn snapshot_collapsed_sections(ctx: &egui::Context, settings: &mut UserSettings)
     settings.collapsed_sections.clear();
     for &(name, default_open) in TRACKED_SECTIONS {
         let id = egui::Id::new(name);
-        let open = egui::collapsing_header::CollapsingState::load_with_default_open(
-            ctx, id, default_open,
-        )
-        .is_open();
+        let open =
+            egui::collapsing_header::CollapsingState::load_with_default_open(ctx, id, default_open)
+                .is_open();
         if !open {
             settings.collapsed_sections.push(name.to_string());
         }
@@ -228,9 +228,8 @@ fn restore_collapsed_sections(ctx: &egui::Context, settings: &UserSettings) {
         } else {
             default_open
         };
-        let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
-            ctx, id, should_open,
-        );
+        let mut state =
+            egui::collapsing_header::CollapsingState::load_with_default_open(ctx, id, should_open);
         state.set_open(should_open);
         state.store(ctx);
     }
@@ -269,8 +268,6 @@ fn tab_to_str(tab: LeftPanelTab) -> &'static str {
     }
 }
 
-
-
 // ============================================================================
 // MAIN SYSTEM
 // ============================================================================
@@ -306,7 +303,13 @@ pub fn left_panel_system(
         if panel_state.was_open {
             panel_state.was_open = false;
             snapshot_collapsed_sections(ctx, &mut settings);
-            save_left_panel_state(&ui_state, &settings, &factions.town_access, &world_data, &factions.ai_state);
+            save_left_panel_state(
+                &ui_state,
+                &settings,
+                &factions.town_access,
+                &world_data,
+                &factions.ai_state,
+            );
         }
         ui_state.factions_overlay_faction = None;
         panel_state.prev_tab = LeftPanelTab::Roster;
@@ -373,9 +376,13 @@ pub fn left_panel_system(
                 LeftPanelTab::Roster => {
                     roster_content(ui, &mut roster, &mut roster_state, debug_all)
                 }
-                LeftPanelTab::Upgrades => {
-                    upgrade_content(ui, &mut upgrade, &factions.town_access, &world_data, &mut settings)
-                }
+                LeftPanelTab::Upgrades => upgrade_content(
+                    ui,
+                    &mut upgrade,
+                    &factions.town_access,
+                    &world_data,
+                    &mut settings,
+                ),
                 LeftPanelTab::Policies => policies_content(
                     ui,
                     &mut factions.town_access,
@@ -388,8 +395,13 @@ pub fn left_panel_system(
                     &factions.miner_cfg_q,
                 ),
                 LeftPanelTab::Patrols => {
-                    patrol_swap =
-                        patrols_content(ui, &world_data, &factions.entity_map, &mut jump_target, &factions.waypoint_q);
+                    patrol_swap = patrols_content(
+                        ui,
+                        &world_data,
+                        &factions.entity_map,
+                        &mut jump_target,
+                        &factions.waypoint_q,
+                    );
                 }
                 LeftPanelTab::Squads => squads_content(
                     ui,
@@ -497,7 +509,11 @@ fn save_left_panel_state(
     if let Some(p) = town_access.policy(town_idx as i32) {
         saved.policy = p;
     }
-    if let Some(player) = ai_state.players.iter().find(|p| p.town_data_idx == town_idx) {
+    if let Some(player) = ai_state
+        .players
+        .iter()
+        .find(|p| p.town_data_idx == town_idx)
+    {
         saved.ai_manager_active = player.active;
         saved.ai_manager_build = player.build_enabled;
         saved.ai_manager_upgrade = player.upgrade_enabled;
@@ -506,7 +522,6 @@ fn save_left_panel_state(
     }
     settings::save_settings(&saved);
 }
-
 
 // ============================================================================
 // POLICIES CONTENT
@@ -714,8 +729,12 @@ fn policies_content(
     // Count auto-assigned miners per mine (keyed by mine slot)
     let mut assigned_per_mine: HashMap<usize, usize> = HashMap::new();
     for inst in entity_map.iter_kind_for_town(BuildingKind::MinerHome, town_idx as u32) {
-        let Some(&entity) = entity_map.entities.get(&inst.slot) else { continue; };
-        let Ok(mc) = miner_cfg_q.get(entity) else { continue; };
+        let Some(&entity) = entity_map.entities.get(&inst.slot) else {
+            continue;
+        };
+        let Ok(mc) = miner_cfg_q.get(entity) else {
+            continue;
+        };
         if mc.manual_mine {
             continue;
         }
@@ -769,18 +788,34 @@ fn policies_content(
     ui.horizontal(|ui| {
         ui.label("Food:");
         let mut rf = policy.reserve_food;
-        if ui.add(egui::DragValue::new(&mut rf).range(0..=10000).speed(10)).changed() {
+        if ui
+            .add(egui::DragValue::new(&mut rf).range(0..=10000).speed(10))
+            .changed()
+        {
             policy.reserve_food = rf;
         }
     });
     ui.horizontal(|ui| {
         ui.label("Gold:");
         let mut rg = policy.reserve_gold;
-        if ui.add(egui::DragValue::new(&mut rg).range(0..=10000).speed(10)).changed() {
+        if ui
+            .add(egui::DragValue::new(&mut rg).range(0..=10000).speed(10))
+            .changed()
+        {
             policy.reserve_gold = rg;
         }
     });
 
+    // -- Loot --
+    ui.add_space(8.0);
+    ui.label(egui::RichText::new("Loot").strong());
+    let mut lt = policy.loot_threshold;
+    ui.horizontal(|ui| {
+        ui.label("Carry limit:");
+        ui.add(egui::Slider::new(&mut lt, 1..=20).suffix(" items"));
+    });
+    policy.loot_threshold = lt;
+    ui.small("Equipment items carried before NPC returns home");
 }
 
 // ============================================================================
@@ -809,7 +844,9 @@ fn patrols_content(
     let mut posts: Vec<(usize, u32, Vec2)> = entity_map
         .iter_kind_for_town(BuildingKind::Waypoint, town_pair_idx)
         .map(|inst| {
-            let order = entity_map.entities.get(&inst.slot)
+            let order = entity_map
+                .entities
+                .get(&inst.slot)
                 .and_then(|&e| waypoint_q.get(e).ok())
                 .map(|w| w.0)
                 .unwrap_or(0);
@@ -976,7 +1013,9 @@ fn squads_content(
             .iter()
             .copied()
             .filter(|e| {
-                squad.entity_map.slot_for_entity(*e)
+                squad
+                    .entity_map
+                    .slot_for_entity(*e)
                     .and_then(|s| squad.entity_map.get_npc(s))
                     .is_some_and(|n| n.job as i32 == job_id)
             })
@@ -1062,7 +1101,9 @@ fn squads_content(
                     String::new()
                 };
 
-                let level = stats.map(|s| crate::systems::stats::level_from_xp(s.xp)).unwrap_or(0);
+                let level = stats
+                    .map(|s| crate::systems::stats::level_from_xp(s.xp))
+                    .unwrap_or(0);
                 ui.horizontal(|ui| {
                     let (r, g, b) = npc_def(npc.job).ui_color;
                     let job_color = egui::Color32::from_rgb(r, g, b);
@@ -1117,24 +1158,26 @@ fn rebuild_factions_cache(
 
         let buildings = entity_map.building_counts(ti);
 
-        let npcs: hashbrown::HashMap<BuildingKind, usize> =
-            crate::constants::BUILDING_REGISTRY
-                .iter()
-                .filter(|def| def.spawner.is_some())
-                .map(|def| {
-                    let count = factions
-                        .entity_map
-                        .iter_kind_for_town(def.kind, tdi as u32)
-                        .filter(|i| {
-                            let has_npc = factions.entity_map.entities.get(&i.slot)
-                                .and_then(|&e| factions.spawner_q.get(e).ok())
-                                .is_some_and(|s| s.npc_slot.is_some());
-                            has_npc && is_alive(i.position)
-                        })
-                        .count();
-                    (def.kind, count)
-                })
-                .collect();
+        let npcs: hashbrown::HashMap<BuildingKind, usize> = crate::constants::BUILDING_REGISTRY
+            .iter()
+            .filter(|def| def.spawner.is_some())
+            .map(|def| {
+                let count = factions
+                    .entity_map
+                    .iter_kind_for_town(def.kind, tdi as u32)
+                    .filter(|i| {
+                        let has_npc = factions
+                            .entity_map
+                            .entities
+                            .get(&i.slot)
+                            .and_then(|&e| factions.spawner_q.get(e).ok())
+                            .is_some_and(|s| s.npc_slot.is_some());
+                        has_npc && is_alive(i.position)
+                    })
+                    .count();
+                (def.kind, count)
+            })
+            .collect();
 
         let food = factions.town_access.food(tdi as i32);
         let gold = factions.town_access.gold(tdi as i32);
@@ -1301,7 +1344,9 @@ fn rebuild_factions_cache(
 
         // Economy desire = 1 - slot_fullness = empty_slots / total_slots (mirrors ai_player.rs).
         let (economy_desire, economy_desire_tip) = if personality.is_some() {
-            let (empty, total, fullness) = world_data.towns.get(tdi)
+            let (empty, total, fullness) = world_data
+                .towns
+                .get(tdi)
                 .map(|_town| {
                     let empty = crate::world::empty_slots(
                         tdi,
@@ -1310,7 +1355,11 @@ fn rebuild_factions_cache(
                         &factions.entity_map,
                     )
                     .len();
-                    let (min_r, max_r, min_c, max_c) = crate::world::build_bounds(factions.town_access.area_level(tdi as i32), center, &factions.world_grid);
+                    let (min_r, max_r, min_c, max_c) = crate::world::build_bounds(
+                        factions.town_access.area_level(tdi as i32),
+                        center,
+                        &factions.world_grid,
+                    );
                     let total = ((max_r - min_r + 1) * (max_c - min_c + 1) - 1) as f32;
                     (empty, total, 1.0 - empty as f32 / total.max(1.0))
                 })
@@ -1401,7 +1450,11 @@ fn rebuild_factions_cache(
     cache.snapshots.clear();
 
     // Include player faction (faction 0) in Factions view.
-    if let Some(player_tdi) = world_data.towns.iter().position(|t| t.faction == crate::constants::FACTION_PLAYER) {
+    if let Some(player_tdi) = world_data
+        .towns
+        .iter()
+        .position(|t| t.faction == crate::constants::FACTION_PLAYER)
+    {
         push_snapshot(
             factions,
             squad_state,
@@ -1419,7 +1472,13 @@ fn rebuild_factions_cache(
 
     for player in factions.ai_state.players.iter() {
         let tdi = player.town_data_idx;
-        if world_data.towns.get(tdi).is_some_and(|t| t.faction == crate::constants::FACTION_PLAYER) { continue; }
+        if world_data
+            .towns
+            .get(tdi)
+            .is_some_and(|t| t.faction == crate::constants::FACTION_PLAYER)
+        {
+            continue;
+        }
 
         let kind_name = match player.kind {
             AiKind::Builder => "Builder",
@@ -1752,66 +1811,66 @@ fn factions_content(
 
     // -- Desires --
     tracked_section(ui, "Desires", true, "Desires", |ui| {
-            egui::Grid::new(format!("intel_desires_grid_{}", snap.faction))
-                .num_columns(2)
-                .striped(true)
-                .show(ui, |ui| {
-                    ui.label("Food Desire").on_hover_text(&snap.food_desire_tip);
-                    ui.label(fmt_desire(snap.food_desire))
-                        .on_hover_text(&snap.food_desire_tip);
+        egui::Grid::new(format!("intel_desires_grid_{}", snap.faction))
+            .num_columns(2)
+            .striped(true)
+            .show(ui, |ui| {
+                ui.label("Food Desire").on_hover_text(&snap.food_desire_tip);
+                ui.label(fmt_desire(snap.food_desire))
+                    .on_hover_text(&snap.food_desire_tip);
+                ui.end_row();
+
+                ui.label("Military Desire")
+                    .on_hover_text(&snap.military_desire_tip);
+                ui.label(fmt_desire(snap.military_desire))
+                    .on_hover_text(&snap.military_desire_tip);
+                ui.end_row();
+
+                ui.label("Gold Desire").on_hover_text(&snap.gold_desire_tip);
+                ui.label(fmt_desire(snap.gold_desire))
+                    .on_hover_text(&snap.gold_desire_tip);
+                ui.end_row();
+
+                ui.label("Economy Desire")
+                    .on_hover_text(&snap.economy_desire_tip);
+                ui.label(fmt_desire(snap.economy_desire))
+                    .on_hover_text(&snap.economy_desire_tip);
+                ui.end_row();
+
+                ui.label("Reserve Food");
+                ui.label(format!("{}", snap.reserve_food));
+                ui.end_row();
+
+                if let Some(next) = &snap.next_upgrade {
+                    ui.label("Next Upgrade");
+                    ui.label(&next.label);
                     ui.end_row();
 
-                    ui.label("Military Desire")
-                        .on_hover_text(&snap.military_desire_tip);
-                    ui.label(fmt_desire(snap.military_desire))
-                        .on_hover_text(&snap.military_desire_tip);
-                    ui.end_row();
-
-                    ui.label("Gold Desire").on_hover_text(&snap.gold_desire_tip);
-                    ui.label(fmt_desire(snap.gold_desire))
-                        .on_hover_text(&snap.gold_desire_tip);
-                    ui.end_row();
-
-                    ui.label("Economy Desire")
-                        .on_hover_text(&snap.economy_desire_tip);
-                    ui.label(fmt_desire(snap.economy_desire))
-                        .on_hover_text(&snap.economy_desire_tip);
-                    ui.end_row();
-
-                    ui.label("Reserve Food");
-                    ui.label(format!("{}", snap.reserve_food));
-                    ui.end_row();
-
-                    if let Some(next) = &snap.next_upgrade {
-                        ui.label("Next Upgrade");
-                        ui.label(&next.label);
-                        ui.end_row();
-
-                        ui.label("Upgrade Cost");
-                        let afford_color = if next.affordable {
-                            egui::Color32::from_rgb(80, 190, 120)
-                        } else {
-                            egui::Color32::from_rgb(210, 95, 95)
-                        };
-                        ui.colored_label(
-                            afford_color,
-                            format!(
-                                "{} ({})",
-                                next.cost,
-                                if next.affordable {
-                                    "affordable"
-                                } else {
-                                    "too expensive"
-                                }
-                            ),
-                        );
-                        ui.end_row();
+                    ui.label("Upgrade Cost");
+                    let afford_color = if next.affordable {
+                        egui::Color32::from_rgb(80, 190, 120)
                     } else {
-                        ui.label("Next Upgrade");
-                        ui.label("None");
-                        ui.end_row();
-                    }
-                });
+                        egui::Color32::from_rgb(210, 95, 95)
+                    };
+                    ui.colored_label(
+                        afford_color,
+                        format!(
+                            "{} ({})",
+                            next.cost,
+                            if next.affordable {
+                                "affordable"
+                            } else {
+                                "too expensive"
+                            }
+                        ),
+                    );
+                    ui.end_row();
+                } else {
+                    ui.label("Next Upgrade");
+                    ui.label("None");
+                    ui.end_row();
+                }
+            });
     });
 
     let lv = &snap.upgrades;
@@ -1820,156 +1879,158 @@ fn factions_content(
 
     // -- Economy --
     tracked_section(ui, "Economy", true, "Economy", |ui| {
-            let econ_spawners: Vec<_> = BUILDING_REGISTRY
-                .iter()
-                .filter(|d| d.display == DisplayCategory::Economy && d.spawner.is_some())
-                .collect();
-            let workforce: usize = econ_spawners.iter().map(|d| npc(d.kind)).sum();
-            let parts: Vec<String> = econ_spawners
-                .iter()
-                .map(|d| {
-                    format!(
-                        "{} {}",
-                        npc(d.kind),
-                        npc_def(Job::from_i32(d.spawner.expect("spawner building").job)).label_plural
-                    )
-                })
-                .collect();
-            ui.label(format!("Workforce: {} ({})", workforce, parts.join(" + ")));
-            for def in &econ_spawners {
-                let label = npc_def(Job::from_i32(def.spawner.expect("spawner building").job)).label_plural;
-                ui.label(format!("{}: {}/{}", label, npc(def.kind), bld(def.kind)));
-            }
-            ui.separator();
+        let econ_spawners: Vec<_> = BUILDING_REGISTRY
+            .iter()
+            .filter(|d| d.display == DisplayCategory::Economy && d.spawner.is_some())
+            .collect();
+        let workforce: usize = econ_spawners.iter().map(|d| npc(d.kind)).sum();
+        let parts: Vec<String> = econ_spawners
+            .iter()
+            .map(|d| {
+                format!(
+                    "{} {}",
+                    npc(d.kind),
+                    npc_def(Job::from_i32(d.spawner.expect("spawner building").job)).label_plural
+                )
+            })
+            .collect();
+        ui.label(format!("Workforce: {} ({})", workforce, parts.join(" + ")));
+        for def in &econ_spawners {
+            let label =
+                npc_def(Job::from_i32(def.spawner.expect("spawner building").job)).label_plural;
+            ui.label(format!("{}: {}/{}", label, npc(def.kind), bld(def.kind)));
+        }
+        ui.separator();
 
-            ui.label("Buildings");
-            for def in BUILDING_REGISTRY
-                .iter()
-                .filter(|d| d.display == DisplayCategory::Economy)
-            {
-                ui.label(format!("{}: {}", def.label, bld(def.kind)));
-            }
-            ui.separator();
+        ui.label("Buildings");
+        for def in BUILDING_REGISTRY
+            .iter()
+            .filter(|d| d.display == DisplayCategory::Economy)
+        {
+            ui.label(format!("{}: {}", def.label, bld(def.kind)));
+        }
+        ui.separator();
 
-            ui.label("Mining");
-            ui.label(format!("Radius: {:.0}px", snap.mining_radius));
-            ui.label(format!("Reserve Food: {}", snap.reserve_food));
-            ui.label(format!("Mines in Radius: {}", snap.mines_in_radius));
-            ui.label(format!(
-                "Discovered: {}  Enabled: {}",
-                snap.mines_discovered, snap.mines_enabled
-            ));
+        ui.label("Mining");
+        ui.label(format!("Radius: {:.0}px", snap.mining_radius));
+        ui.label(format!("Reserve Food: {}", snap.reserve_food));
+        ui.label(format!("Mines in Radius: {}", snap.mines_in_radius));
+        ui.label(format!(
+            "Discovered: {}  Enabled: {}",
+            snap.mines_discovered, snap.mines_enabled
+        ));
     });
 
     // -- Policies --
     tracked_section(ui, "Policies", false, "Policies", |ui| {
-            if let Some(ref policy) = factions.town_access.policy(snap.town_data_idx as i32) {
-                let schedule_label = |s: WorkSchedule| SCHEDULE_OPTIONS[s as usize];
-                let off_duty_label = |o: OffDutyBehavior| OFF_DUTY_OPTIONS[o as usize];
-                egui::Grid::new(format!("intel_policies_grid_{}", snap.faction))
-                    .num_columns(2)
-                    .striped(true)
-                    .show(ui, |ui| {
-                        ui.label("Eat Food");
-                        ui.label(if policy.eat_food { "Yes" } else { "No" });
-                        ui.end_row();
+        if let Some(ref policy) = factions.town_access.policy(snap.town_data_idx as i32) {
+            let schedule_label = |s: WorkSchedule| SCHEDULE_OPTIONS[s as usize];
+            let off_duty_label = |o: OffDutyBehavior| OFF_DUTY_OPTIONS[o as usize];
+            egui::Grid::new(format!("intel_policies_grid_{}", snap.faction))
+                .num_columns(2)
+                .striped(true)
+                .show(ui, |ui| {
+                    ui.label("Eat Food");
+                    ui.label(if policy.eat_food { "Yes" } else { "No" });
+                    ui.end_row();
 
-                        ui.label("Prioritize Healing");
-                        ui.label(if policy.prioritize_healing {
-                            "Yes"
-                        } else {
-                            "No"
-                        });
-                        ui.end_row();
-
-                        ui.label("Recovery HP");
-                        ui.label(format!("{:.0}%", policy.recovery_hp * 100.0));
-                        ui.end_row();
-
-                        ui.label("Archer Aggressive");
-                        ui.label(if policy.archer_aggressive {
-                            "Yes"
-                        } else {
-                            "No"
-                        });
-                        ui.end_row();
-
-                        ui.label("Archer Leash");
-                        ui.label(if policy.archer_leash { "Yes" } else { "No" });
-                        ui.end_row();
-
-                        ui.label("Archer Flee HP");
-                        ui.label(format!("{:.0}%", policy.archer_flee_hp * 100.0));
-                        ui.end_row();
-
-                        ui.label("Archer Schedule");
-                        ui.label(schedule_label(policy.archer_schedule));
-                        ui.end_row();
-
-                        ui.label("Archer Off-duty");
-                        ui.label(off_duty_label(policy.archer_off_duty));
-                        ui.end_row();
-
-                        ui.label("Farmer Fight Back");
-                        ui.label(if policy.farmer_fight_back {
-                            "Yes"
-                        } else {
-                            "No"
-                        });
-                        ui.end_row();
-
-                        ui.label("Farmer Flee HP");
-                        ui.label(format!("{:.0}%", policy.farmer_flee_hp * 100.0));
-                        ui.end_row();
-
-                        ui.label("Farmer Schedule");
-                        ui.label(schedule_label(policy.farmer_schedule));
-                        ui.end_row();
-
-                        ui.label("Farmer Off-duty");
-                        ui.label(off_duty_label(policy.farmer_off_duty));
-                        ui.end_row();
-
-                        ui.label("Mining Radius");
-                        ui.label(format!("{:.0}px", policy.mining_radius));
-                        ui.end_row();
+                    ui.label("Prioritize Healing");
+                    ui.label(if policy.prioritize_healing {
+                        "Yes"
+                    } else {
+                        "No"
                     });
-            } else {
-                ui.label("No policy data for this faction.");
-            }
+                    ui.end_row();
+
+                    ui.label("Recovery HP");
+                    ui.label(format!("{:.0}%", policy.recovery_hp * 100.0));
+                    ui.end_row();
+
+                    ui.label("Archer Aggressive");
+                    ui.label(if policy.archer_aggressive {
+                        "Yes"
+                    } else {
+                        "No"
+                    });
+                    ui.end_row();
+
+                    ui.label("Archer Leash");
+                    ui.label(if policy.archer_leash { "Yes" } else { "No" });
+                    ui.end_row();
+
+                    ui.label("Archer Flee HP");
+                    ui.label(format!("{:.0}%", policy.archer_flee_hp * 100.0));
+                    ui.end_row();
+
+                    ui.label("Archer Schedule");
+                    ui.label(schedule_label(policy.archer_schedule));
+                    ui.end_row();
+
+                    ui.label("Archer Off-duty");
+                    ui.label(off_duty_label(policy.archer_off_duty));
+                    ui.end_row();
+
+                    ui.label("Farmer Fight Back");
+                    ui.label(if policy.farmer_fight_back {
+                        "Yes"
+                    } else {
+                        "No"
+                    });
+                    ui.end_row();
+
+                    ui.label("Farmer Flee HP");
+                    ui.label(format!("{:.0}%", policy.farmer_flee_hp * 100.0));
+                    ui.end_row();
+
+                    ui.label("Farmer Schedule");
+                    ui.label(schedule_label(policy.farmer_schedule));
+                    ui.end_row();
+
+                    ui.label("Farmer Off-duty");
+                    ui.label(off_duty_label(policy.farmer_off_duty));
+                    ui.end_row();
+
+                    ui.label("Mining Radius");
+                    ui.label(format!("{:.0}px", policy.mining_radius));
+                    ui.end_row();
+                });
+        } else {
+            ui.label("No policy data for this faction.");
+        }
     });
 
     // -- Military --
     tracked_section(ui, "Military", true, "Military", |ui| {
-            let mil_spawners: Vec<_> = BUILDING_REGISTRY
-                .iter()
-                .filter(|d| d.display == DisplayCategory::Military && d.spawner.is_some())
-                .collect();
-            let total_mil: usize = mil_spawners.iter().map(|d| npc(d.kind)).sum();
-            let parts: Vec<String> = mil_spawners
-                .iter()
-                .map(|d| {
-                    format!(
-                        "{} {}",
-                        npc(d.kind),
-                        npc_def(Job::from_i32(d.spawner.expect("spawner building").job)).label_plural
-                    )
-                })
-                .collect();
-            ui.label(format!("Force: {} ({})", total_mil, parts.join(" + ")));
-            for def in &mil_spawners {
-                let label = npc_def(Job::from_i32(def.spawner.expect("spawner building").job)).label_plural;
-                ui.label(format!("{}: {}/{}", label, npc(def.kind), bld(def.kind)));
-            }
-            ui.separator();
+        let mil_spawners: Vec<_> = BUILDING_REGISTRY
+            .iter()
+            .filter(|d| d.display == DisplayCategory::Military && d.spawner.is_some())
+            .collect();
+        let total_mil: usize = mil_spawners.iter().map(|d| npc(d.kind)).sum();
+        let parts: Vec<String> = mil_spawners
+            .iter()
+            .map(|d| {
+                format!(
+                    "{} {}",
+                    npc(d.kind),
+                    npc_def(Job::from_i32(d.spawner.expect("spawner building").job)).label_plural
+                )
+            })
+            .collect();
+        ui.label(format!("Force: {} ({})", total_mil, parts.join(" + ")));
+        for def in &mil_spawners {
+            let label =
+                npc_def(Job::from_i32(def.spawner.expect("spawner building").job)).label_plural;
+            ui.label(format!("{}: {}/{}", label, npc(def.kind), bld(def.kind)));
+        }
+        ui.separator();
 
-            ui.label("Buildings");
-            for def in BUILDING_REGISTRY
-                .iter()
-                .filter(|d| d.display == DisplayCategory::Military)
-            {
-                ui.label(format!("{}: {}", def.label, bld(def.kind)));
-            }
+        ui.label("Buildings");
+        for def in BUILDING_REGISTRY
+            .iter()
+            .filter(|d| d.display == DisplayCategory::Military)
+        {
+            ui.label(format!("{}: {}", def.label, bld(def.kind)));
+        }
     });
 
     // -- Economy Stats (collapsed by default) --
@@ -1994,80 +2055,80 @@ fn factions_content(
     let tower = resolve_town_tower_stats(lv);
 
     tracked_section(ui, "Economy Stats", false, "Economy Stats", |ui| {
-            egui::Grid::new(format!(
-                "intel_economy_stats_grid_{}_{}",
-                snap.faction, cache.selected_idx
-            ))
-            .num_columns(2)
-            .striped(true)
-            .show(ui, |ui| {
-                ui.label("Farmer HP");
-                ui.label(format!(
-                    "{:.0} -> {:.0}",
-                    farmer_def.base_hp,
-                    farmer_def.base_hp * farmer_hp_mult
-                ));
-                ui.end_row();
-                ui.label("Farmer Speed");
-                ui.label(format!(
-                    "{:.0} -> {:.0}",
-                    farmer_def.base_speed,
-                    farmer_def.base_speed * farmer_speed_mult
-                ));
-                ui.end_row();
-                ui.label("Miner HP");
-                ui.label(format!(
-                    "{:.0} -> {:.0}",
-                    miner_def.base_hp,
-                    miner_def.base_hp * miner_hp_mult
-                ));
-                ui.end_row();
-                ui.label("Miner Speed");
-                ui.label(format!(
-                    "{:.0} -> {:.0}",
-                    miner_def.base_speed,
-                    miner_def.base_speed * miner_speed_mult
-                ));
-                ui.end_row();
-                ui.label("Food Yield");
-                ui.label(format!("{:.0}% of base", farm_yield_mult * 100.0));
-                ui.end_row();
-                ui.label("Gold Yield");
-                ui.label(format!("{:.0}% of base", gold_yield_mult * 100.0));
-                ui.end_row();
-                ui.label("Healing Rate");
-                ui.label(format!(
-                    "{:.1}/s -> {:.1}/s",
-                    factions.combat_config.heal_rate,
-                    factions.combat_config.heal_rate * healing_mult
-                ));
-                ui.end_row();
-                ui.label("Tower/Heal Radius");
-                ui.label(format!(
-                    "{:.0}px -> {:.0}px",
-                    factions.combat_config.heal_radius,
-                    factions.combat_config.heal_radius + fountain_bonus
-                ));
-                ui.end_row();
-                ui.label("Fountain Cooldown");
-                ui.label(format!(
-                    "{:.2}s -> {:.2}s",
-                    FOUNTAIN_TOWER.cooldown, tower.cooldown
-                ));
-                ui.end_row();
-                ui.label("Fountain Projectile Life");
-                ui.label(format!(
-                    "{:.2}s -> {:.2}s",
-                    FOUNTAIN_TOWER.proj_lifetime, tower.proj_lifetime
-                ));
-                ui.end_row();
-                ui.label("Build Area Expansion");
-                ui.label(format!(
-                    "+{}",
-                    UPGRADES.stat_level(lv, "Town", UpgradeStatKind::Expansion)
-                ));
-                ui.end_row();
-            });
+        egui::Grid::new(format!(
+            "intel_economy_stats_grid_{}_{}",
+            snap.faction, cache.selected_idx
+        ))
+        .num_columns(2)
+        .striped(true)
+        .show(ui, |ui| {
+            ui.label("Farmer HP");
+            ui.label(format!(
+                "{:.0} -> {:.0}",
+                farmer_def.base_hp,
+                farmer_def.base_hp * farmer_hp_mult
+            ));
+            ui.end_row();
+            ui.label("Farmer Speed");
+            ui.label(format!(
+                "{:.0} -> {:.0}",
+                farmer_def.base_speed,
+                farmer_def.base_speed * farmer_speed_mult
+            ));
+            ui.end_row();
+            ui.label("Miner HP");
+            ui.label(format!(
+                "{:.0} -> {:.0}",
+                miner_def.base_hp,
+                miner_def.base_hp * miner_hp_mult
+            ));
+            ui.end_row();
+            ui.label("Miner Speed");
+            ui.label(format!(
+                "{:.0} -> {:.0}",
+                miner_def.base_speed,
+                miner_def.base_speed * miner_speed_mult
+            ));
+            ui.end_row();
+            ui.label("Food Yield");
+            ui.label(format!("{:.0}% of base", farm_yield_mult * 100.0));
+            ui.end_row();
+            ui.label("Gold Yield");
+            ui.label(format!("{:.0}% of base", gold_yield_mult * 100.0));
+            ui.end_row();
+            ui.label("Healing Rate");
+            ui.label(format!(
+                "{:.1}/s -> {:.1}/s",
+                factions.combat_config.heal_rate,
+                factions.combat_config.heal_rate * healing_mult
+            ));
+            ui.end_row();
+            ui.label("Tower/Heal Radius");
+            ui.label(format!(
+                "{:.0}px -> {:.0}px",
+                factions.combat_config.heal_radius,
+                factions.combat_config.heal_radius + fountain_bonus
+            ));
+            ui.end_row();
+            ui.label("Fountain Cooldown");
+            ui.label(format!(
+                "{:.2}s -> {:.2}s",
+                FOUNTAIN_TOWER.cooldown, tower.cooldown
+            ));
+            ui.end_row();
+            ui.label("Fountain Projectile Life");
+            ui.label(format!(
+                "{:.2}s -> {:.2}s",
+                FOUNTAIN_TOWER.proj_lifetime, tower.proj_lifetime
+            ));
+            ui.end_row();
+            ui.label("Build Area Expansion");
+            ui.label(format!(
+                "+{}",
+                UPGRADES.stat_level(lv, "Town", UpgradeStatKind::Expansion)
+            ));
+            ui.end_row();
+        });
     });
 
     // -- Military Stats (collapsed by default) --
@@ -2090,203 +2151,203 @@ fn factions_content(
     let xbow_cd_mult = 1.0 / UPGRADES.stat_mult(lv, "Crossbow", UpgradeStatKind::AttackSpeed);
 
     tracked_section(ui, "Military Stats", false, "Military Stats", |ui| {
-            egui::Grid::new(format!(
-                "intel_military_stats_grid_{}_{}",
-                snap.faction, cache.selected_idx
-            ))
-            .num_columns(2)
-            .striped(true)
-            .show(ui, |ui| {
-                ui.label("HP (Archer)");
+        egui::Grid::new(format!(
+            "intel_military_stats_grid_{}_{}",
+            snap.faction, cache.selected_idx
+        ))
+        .num_columns(2)
+        .striped(true)
+        .show(ui, |ui| {
+            ui.label("HP (Archer)");
+            ui.label(format!(
+                "{:.0} -> {:.0}",
+                archer_def.base_hp,
+                archer_def.base_hp * archer_hp_mult
+            ));
+            ui.end_row();
+            ui.label("Damage (Archer)");
+            ui.label(format!(
+                "{:.1} -> {:.1}",
+                archer_def.base_damage,
+                archer_def.base_damage * archer_dmg_mult
+            ));
+            ui.end_row();
+            ui.label("Move Speed (Archer)");
+            ui.label(format!(
+                "{:.0} -> {:.0}",
+                archer_def.base_speed,
+                archer_def.base_speed * archer_speed_mult
+            ));
+            ui.end_row();
+            if let Some(base) = ranged_base {
+                ui.label("Detection Range (Archer)");
                 ui.label(format!(
                     "{:.0} -> {:.0}",
-                    archer_def.base_hp,
-                    archer_def.base_hp * archer_hp_mult
+                    base.range,
+                    base.range * archer_range_mult
                 ));
                 ui.end_row();
-                ui.label("Damage (Archer)");
+                ui.label("Attack Cooldown (Archer)");
                 ui.label(format!(
-                    "{:.1} -> {:.1}",
-                    archer_def.base_damage,
-                    archer_def.base_damage * archer_dmg_mult
+                    "{:.2}s -> {:.2}s ({:.0}% faster)",
+                    base.cooldown,
+                    base.cooldown * archer_cd_mult,
+                    archer_cd_reduction
                 ));
                 ui.end_row();
-                ui.label("Move Speed (Archer)");
-                ui.label(format!(
-                    "{:.0} -> {:.0}",
-                    archer_def.base_speed,
-                    archer_def.base_speed * archer_speed_mult
-                ));
-                ui.end_row();
-                if let Some(base) = ranged_base {
-                    ui.label("Detection Range (Archer)");
-                    ui.label(format!(
-                        "{:.0} -> {:.0}",
-                        base.range,
-                        base.range * archer_range_mult
-                    ));
-                    ui.end_row();
-                    ui.label("Attack Cooldown (Archer)");
-                    ui.label(format!(
-                        "{:.2}s -> {:.2}s ({:.0}% faster)",
-                        base.cooldown,
-                        base.cooldown * archer_cd_mult,
-                        archer_cd_reduction
-                    ));
-                    ui.end_row();
-                }
-                ui.label("Alert (Archer)");
-                ui.label(format!("{:.0}% of base", archer_alert_mult * 100.0));
-                ui.end_row();
-                ui.label("Dodge (Archer)");
-                ui.label(
-                    if UPGRADES.stat_level(lv, "Archer", UpgradeStatKind::Dodge) > 0 {
-                        "Unlocked"
-                    } else {
-                        "Locked"
-                    },
-                );
-                ui.end_row();
+            }
+            ui.label("Alert (Archer)");
+            ui.label(format!("{:.0}% of base", archer_alert_mult * 100.0));
+            ui.end_row();
+            ui.label("Dodge (Archer)");
+            ui.label(
+                if UPGRADES.stat_level(lv, "Archer", UpgradeStatKind::Dodge) > 0 {
+                    "Unlocked"
+                } else {
+                    "Locked"
+                },
+            );
+            ui.end_row();
 
-                ui.separator();
-                ui.separator();
-                ui.end_row();
+            ui.separator();
+            ui.separator();
+            ui.end_row();
 
-                ui.label("HP (Fighter)");
+            ui.label("HP (Fighter)");
+            ui.label(format!(
+                "{:.0} -> {:.0}",
+                fighter_def.base_hp,
+                fighter_def.base_hp * fighter_hp_mult
+            ));
+            ui.end_row();
+            ui.label("Damage (Fighter)");
+            ui.label(format!(
+                "{:.1} -> {:.1}",
+                fighter_def.base_damage,
+                fighter_def.base_damage * fighter_dmg_mult
+            ));
+            ui.end_row();
+            ui.label("Move Speed (Fighter)");
+            ui.label(format!(
+                "{:.0} -> {:.0}",
+                fighter_def.base_speed,
+                fighter_def.base_speed * fighter_speed_mult
+            ));
+            ui.end_row();
+            if let Some(base) = melee_base {
+                ui.label("Attack Cooldown (Fighter)");
                 ui.label(format!(
-                    "{:.0} -> {:.0}",
-                    fighter_def.base_hp,
-                    fighter_def.base_hp * fighter_hp_mult
+                    "{:.2}s -> {:.2}s ({:.0}% faster)",
+                    base.cooldown,
+                    base.cooldown * fighter_cd_mult,
+                    fighter_cd_reduction
                 ));
                 ui.end_row();
-                ui.label("Damage (Fighter)");
-                ui.label(format!(
-                    "{:.1} -> {:.1}",
-                    fighter_def.base_damage,
-                    fighter_def.base_damage * fighter_dmg_mult
-                ));
-                ui.end_row();
-                ui.label("Move Speed (Fighter)");
-                ui.label(format!(
-                    "{:.0} -> {:.0}",
-                    fighter_def.base_speed,
-                    fighter_def.base_speed * fighter_speed_mult
-                ));
-                ui.end_row();
-                if let Some(base) = melee_base {
-                    ui.label("Attack Cooldown (Fighter)");
-                    ui.label(format!(
-                        "{:.2}s -> {:.2}s ({:.0}% faster)",
-                        base.cooldown,
-                        base.cooldown * fighter_cd_mult,
-                        fighter_cd_reduction
-                    ));
-                    ui.end_row();
-                }
-                ui.label("Dodge (Fighter)");
-                ui.label(
-                    if UPGRADES.stat_level(lv, "Fighter", UpgradeStatKind::Dodge) > 0 {
-                        "Unlocked"
-                    } else {
-                        "Locked"
-                    },
-                );
-                ui.end_row();
+            }
+            ui.label("Dodge (Fighter)");
+            ui.label(
+                if UPGRADES.stat_level(lv, "Fighter", UpgradeStatKind::Dodge) > 0 {
+                    "Unlocked"
+                } else {
+                    "Locked"
+                },
+            );
+            ui.end_row();
 
-                ui.separator();
-                ui.separator();
-                ui.end_row();
+            ui.separator();
+            ui.separator();
+            ui.end_row();
 
-                ui.label("HP (Crossbow)");
+            ui.label("HP (Crossbow)");
+            ui.label(format!(
+                "{:.0} -> {:.0}",
+                crossbow_def.base_hp,
+                crossbow_def.base_hp * xbow_hp_mult
+            ));
+            ui.end_row();
+            ui.label("Damage (Crossbow)");
+            ui.label(format!(
+                "{:.1} -> {:.1}",
+                crossbow_def.base_damage,
+                crossbow_def.base_damage * xbow_dmg_mult
+            ));
+            ui.end_row();
+            ui.label("Move Speed (Crossbow)");
+            ui.label(format!(
+                "{:.0} -> {:.0}",
+                crossbow_def.base_speed,
+                crossbow_def.base_speed * xbow_speed_mult
+            ));
+            ui.end_row();
+            if let Some(base) = crossbow_atk {
+                ui.label("Detection Range (Crossbow)");
                 ui.label(format!(
                     "{:.0} -> {:.0}",
-                    crossbow_def.base_hp,
-                    crossbow_def.base_hp * xbow_hp_mult
+                    base.range,
+                    base.range * xbow_range_mult
                 ));
                 ui.end_row();
-                ui.label("Damage (Crossbow)");
+                ui.label("Attack Cooldown (Crossbow)");
+                let xbow_cd_red = (1.0 - xbow_cd_mult) * 100.0;
                 ui.label(format!(
-                    "{:.1} -> {:.1}",
-                    crossbow_def.base_damage,
-                    crossbow_def.base_damage * xbow_dmg_mult
+                    "{:.2}s -> {:.2}s ({:.0}% faster)",
+                    base.cooldown,
+                    base.cooldown * xbow_cd_mult,
+                    xbow_cd_red
                 ));
                 ui.end_row();
-                ui.label("Move Speed (Crossbow)");
-                ui.label(format!(
-                    "{:.0} -> {:.0}",
-                    crossbow_def.base_speed,
-                    crossbow_def.base_speed * xbow_speed_mult
-                ));
-                ui.end_row();
-                if let Some(base) = crossbow_atk {
-                    ui.label("Detection Range (Crossbow)");
-                    ui.label(format!(
-                        "{:.0} -> {:.0}",
-                        base.range,
-                        base.range * xbow_range_mult
-                    ));
-                    ui.end_row();
-                    ui.label("Attack Cooldown (Crossbow)");
-                    let xbow_cd_red = (1.0 - xbow_cd_mult) * 100.0;
-                    ui.label(format!(
-                        "{:.2}s -> {:.2}s ({:.0}% faster)",
-                        base.cooldown,
-                        base.cooldown * xbow_cd_mult,
-                        xbow_cd_red
-                    ));
-                    ui.end_row();
-                }
-            });
+            }
+        });
     });
 
     // -- Squad Commander --
     tracked_section(ui, "Squad Commander", true, "Squad Commander", |ui| {
-            if snap.squads.is_empty() {
-                ui.label("No squads with members.");
-            } else {
-                let mut squads = snap.squads.clone();
-                squads.sort_by_key(|s| s.squad_idx);
+        if snap.squads.is_empty() {
+            ui.label("No squads with members.");
+        } else {
+            let mut squads = snap.squads.clone();
+            squads.sort_by_key(|s| s.squad_idx);
 
-                let role_for = |i: usize, s: &SquadSnapshot| -> &'static str {
-                    if snap.faction == crate::constants::FACTION_PLAYER {
-                        "MANUAL"
-                    } else if i == 0 {
-                        "DEF"
-                    } else if s.target_size == 0 {
-                        "IDLE"
-                    } else {
-                        "ATK"
-                    }
-                };
-
-                let mut defense_archers = 0usize;
-                let mut offense_archers = 0usize;
-                let mut attack_squads_active = 0usize;
-                for (i, s) in squads.iter().enumerate() {
-                    match role_for(i, s) {
-                        "DEF" => defense_archers += s.members,
-                        "ATK" => {
-                            offense_archers += s.members;
-                            if s.members > 0 {
-                                attack_squads_active += 1;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-
-                ui.label(format!("Active squads: {}", squads.len()));
+            let role_for = |i: usize, s: &SquadSnapshot| -> &'static str {
                 if snap.faction == crate::constants::FACTION_PLAYER {
-                    ui.label("Commander: Manual");
+                    "MANUAL"
+                } else if i == 0 {
+                    "DEF"
+                } else if s.target_size == 0 {
+                    "IDLE"
                 } else {
-                    ui.label("Commander: AI");
-                    ui.label(format!(
-                        "Defense: {}  Offense: {}  Active attack squads: {}",
-                        defense_archers, offense_archers, attack_squads_active
-                    ));
+                    "ATK"
                 }
+            };
 
-                egui::Grid::new(format!("intel_squads_grid_{}", snap.faction))
+            let mut defense_archers = 0usize;
+            let mut offense_archers = 0usize;
+            let mut attack_squads_active = 0usize;
+            for (i, s) in squads.iter().enumerate() {
+                match role_for(i, s) {
+                    "DEF" => defense_archers += s.members,
+                    "ATK" => {
+                        offense_archers += s.members;
+                        if s.members > 0 {
+                            attack_squads_active += 1;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            ui.label(format!("Active squads: {}", squads.len()));
+            if snap.faction == crate::constants::FACTION_PLAYER {
+                ui.label("Commander: Manual");
+            } else {
+                ui.label("Commander: AI");
+                ui.label(format!(
+                    "Defense: {}  Offense: {}  Active attack squads: {}",
+                    defense_archers, offense_archers, attack_squads_active
+                ));
+            }
+
+            egui::Grid::new(format!("intel_squads_grid_{}", snap.faction))
                     .striped(true)
                     .num_columns(7)
                     .show(ui, |ui| {
@@ -2336,7 +2397,7 @@ fn factions_content(
                             ui.end_row();
                         }
                     });
-            }
+        }
     });
 
     // -- Recent Actions --
@@ -2437,10 +2498,13 @@ fn profiler_content(
         cache.pf_limit_reason,
     );
 
-    ui.label(egui::RichText::new(format!(
-        "Frame: {:.2} ms  (peak {:.1} ms)",
-        cache.frame_ms, cache.frame_peak_ms
-    )).strong());
+    ui.label(
+        egui::RichText::new(format!(
+            "Frame: {:.2} ms  (peak {:.1} ms)",
+            cache.frame_ms, cache.frame_peak_ms
+        ))
+        .strong(),
+    );
     ui.separator();
 
     // A* Pathfinding stats
@@ -2478,8 +2542,12 @@ fn profiler_content(
     ui.separator();
 
     // Debug actions (not cached — cheap interactive widgets)
-    tracked_section(ui, "Debug Actions", false,
-        egui::RichText::new("Debug Actions").strong(), |ui| {
+    tracked_section(
+        ui,
+        "Debug Actions",
+        false,
+        egui::RichText::new("Debug Actions").strong(),
+        |ui| {
             ui.checkbox(
                 &mut user_settings.show_terrain_sprites,
                 "Show Terrain Sprites",
@@ -2502,10 +2570,17 @@ fn profiler_content(
     );
     ui.separator();
 
-    tracked_section(ui, "NPC Target Thrash (sink, 1s window)", true,
-        egui::RichText::new("NPC Target Thrash (sink, 1s window)").strong(), |ui| {
+    tracked_section(
+        ui,
+        "NPC Target Thrash (sink, 1s window)",
+        true,
+        egui::RichText::new("NPC Target Thrash (sink, 1s window)").strong(),
+        |ui| {
             ui.label(format!("Window key: {}", cache.sink_window_key));
-            ui.label(format!("Top-8 sink target-change sum: {}", cache.total_changes));
+            ui.label(format!(
+                "Top-8 sink target-change sum: {}",
+                cache.total_changes
+            ));
             if cache.top_flips.is_empty() {
                 ui.label("No target changes yet.");
             } else {
@@ -2516,26 +2591,32 @@ fn profiler_content(
                         })
                         .collect::<Vec<_>>()
                         .join("\n");
-                    ui.ctx().copy_text(format!("Window key: {}\n{}", cache.sink_window_key, body));
+                    ui.ctx()
+                        .copy_text(format!("Window key: {}\n{}", cache.sink_window_key, body));
                 }
-                egui::Grid::new("target_thrash_grid").num_columns(6).striped(true).show(ui, |ui| {
-                    ui.label(egui::RichText::new("npc").strong());
-                    ui.label(egui::RichText::new("target changes").strong());
-                    ui.label(egui::RichText::new("ping-pong").strong());
-                    ui.label(egui::RichText::new("reason flips").strong());
-                    ui.label(egui::RichText::new("writes").strong());
-                    ui.label(egui::RichText::new("last reason").strong());
-                    ui.end_row();
-                    for (idx, changes, ping_pong, reason_flips, writes, reason) in &cache.top_flips {
-                        ui.label(format!("#{idx}"));
-                        ui.label(format!("{changes}"));
-                        ui.label(format!("{ping_pong}"));
-                        ui.label(format!("{reason_flips}"));
-                        ui.label(format!("{writes}"));
-                        ui.label(reason.as_str());
+                egui::Grid::new("target_thrash_grid")
+                    .num_columns(6)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new("npc").strong());
+                        ui.label(egui::RichText::new("target changes").strong());
+                        ui.label(egui::RichText::new("ping-pong").strong());
+                        ui.label(egui::RichText::new("reason flips").strong());
+                        ui.label(egui::RichText::new("writes").strong());
+                        ui.label(egui::RichText::new("last reason").strong());
                         ui.end_row();
-                    }
-                });
+                        for (idx, changes, ping_pong, reason_flips, writes, reason) in
+                            &cache.top_flips
+                        {
+                            ui.label(format!("#{idx}"));
+                            ui.label(format!("{changes}"));
+                            ui.label(format!("{ping_pong}"));
+                            ui.label(format!("{reason_flips}"));
+                            ui.label(format!("{writes}"));
+                            ui.label(reason.as_str());
+                            ui.end_row();
+                        }
+                    });
             }
         },
     );

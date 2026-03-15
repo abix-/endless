@@ -44,15 +44,21 @@ pub fn setup(
         ..Default::default()
     };
     for (i, policy) in [policy0, PolicySet::default()].into_iter().enumerate() {
-        let entity = commands.spawn((
-            crate::components::TownMarker,
-            crate::components::FoodStore(0),
-            crate::components::GoldStore(0),
-            crate::components::TownPolicy(policy),
-            crate::components::TownUpgradeLevel::default(),
-            crate::components::TownEquipment::default(),
-        )).id();
-        params.town_access.town_index_mut().0.insert(i as i32, entity);
+        let entity = commands
+            .spawn((
+                crate::components::TownMarker,
+                crate::components::FoodStore(0),
+                crate::components::GoldStore(0),
+                crate::components::TownPolicy(policy),
+                crate::components::TownUpgradeLevel::default(),
+                crate::components::TownEquipment::default(),
+            ))
+            .id();
+        params
+            .town_access
+            .town_index_mut()
+            .0
+            .insert(i as i32, entity);
     }
     next_loot_id.next = 1;
 
@@ -95,7 +101,9 @@ pub fn setup(
 
     params.focus_camera(384.0, 320.0);
     params.test_state.phase_name = "Waiting for spawns...".into();
-    info!("loot-cycle: setup — 1 archer vs 5 raiders, testing equipment drop + carry + deposit + equip");
+    info!(
+        "loot-cycle: setup — 1 archer vs 5 raiders, testing equipment drop + carry + deposit + equip"
+    );
 }
 
 pub fn tick(
@@ -281,9 +289,8 @@ pub fn tick(
             if let Ok(stats) = cached_stats_q.get(archer.entity) {
                 let pre_damage = test.count("pre_damage") as f32 / 100.0;
                 let pre_health = test.count("pre_health") as f32 / 100.0;
-                let changed =
-                    (stats.damage - pre_damage).abs() > 0.01
-                        || (stats.max_health - pre_health).abs() > 0.01;
+                let changed = (stats.damage - pre_damage).abs() > 0.01
+                    || (stats.max_health - pre_health).abs() > 0.01;
                 test.phase_name = format!(
                     "dmg {:.2}→{:.2} hp {:.0}→{:.0}",
                     pre_damage, stats.damage, pre_health, stats.max_health
@@ -301,9 +308,8 @@ pub fn tick(
                     // Stats might not change if it's a speed/stamina item
                     // Check if the item bonus is on a non-damage/health slot
                     if let Ok(equip) = equipment_q.get(archer.entity) {
-                        let any_equipped = equip.weapon.is_some()
-                            || equip.helm.is_some()
-                            || equip.armor.is_some();
+                        let any_equipped =
+                            equip.weapon.is_some() || equip.helm.is_some() || equip.armor.is_some();
                         if any_equipped {
                             test.fail_phase(
                                 elapsed,

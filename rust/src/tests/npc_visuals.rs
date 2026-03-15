@@ -146,8 +146,12 @@ pub fn tick(
                 // Use NpcEquipment::default() as base — NpcDef fallbacks
                 // provide the real game-accurate baseline (e.g. archer shows sword).
                 let make_item = |kind, name: &str, sprite| crate::constants::LootItem {
-                    id: 0, kind, rarity: crate::constants::Rarity::Uncommon,
-                    name: name.into(), sprite, stat_bonus: 0.1,
+                    id: 0,
+                    kind,
+                    rarity: crate::constants::Rarity::Uncommon,
+                    name: name.into(),
+                    sprite,
+                    stat_bonus: 0.1,
                 };
 
                 match col {
@@ -170,6 +174,8 @@ pub fn tick(
                         commands.entity(e).insert(CarriedLoot {
                             food: 5,
                             gold: 0,
+                            wood: 0,
+                            stone: 0,
                             equipment: Vec::new(),
                         });
                     }
@@ -197,6 +203,8 @@ pub fn tick(
                         commands.entity(e).insert(CarriedLoot {
                             food: 0,
                             gold: 3,
+                            wood: 0,
+                            stone: 0,
                             equipment: Vec::new(),
                         });
                     }
@@ -270,12 +278,7 @@ pub fn tick(
                     ROW_CROSSBOW => egui::Color32::from_rgb(140, 60, 220),
                     _ => egui::Color32::WHITE,
                 };
-                ui.label(
-                    egui::RichText::new(label)
-                        .strong()
-                        .size(14.0)
-                        .color(color),
-                );
+                ui.label(egui::RichText::new(label).strong().size(14.0).color(color));
             });
     }
 

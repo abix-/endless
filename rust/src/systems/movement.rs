@@ -12,10 +12,12 @@ use crate::constants::{ARRIVAL_THRESHOLD, INTERMEDIATE_ARRIVAL_THRESHOLD};
 use crate::gpu::EntityGpuState;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::resources::{
-    GameTime, GpuReadState, NpcTargetThrashDebug, PathRequest,
-    PathRequestQueue, PathSource, PathfindConfig, PathfindStats,
+    GameTime, GpuReadState, NpcTargetThrashDebug, PathRequest, PathRequestQueue, PathSource,
+    PathfindConfig, PathfindStats,
 };
-use crate::systems::pathfinding::{line_of_sight, pathfind_hpa, pathfind_on_grid};
+use crate::systems::pathfinding::{
+    collect_path_chunks, line_of_sight, pathfind_hpa, pathfind_on_grid,
+};
 use crate::world::WorldGrid;
 
 /// Read positions from GPU readback buffer → ECS Position + arrival detection.
@@ -59,7 +61,11 @@ pub fn gpu_position_readback(
                 // Relaxed threshold for intermediate waypoints — prevents pile-up
                 // when boid separation pushes NPCs away from shared A* waypoints
                 let is_intermediate = path.current + 1 < path.waypoints.len();
-                let thresh_sq = if is_intermediate { intermediate_sq } else { threshold_sq };
+                let thresh_sq = if is_intermediate {
+                    intermediate_sq
+                } else {
+                    threshold_sq
+                };
                 if dist_sq <= thresh_sq {
                     flags.at_destination = true;
                 }
@@ -100,6 +106,7 @@ pub fn advance_waypoints_system(
         // Check if there are more waypoints
         if path.current + 1 < path.waypoints.len() {
             path.current += 1;
+            path.path_chunks = collect_path_chunks(&path.waypoints, path.current);
             let next = path.waypoints[path.current];
             let world_pos = grid.grid_to_world(next.x as usize, next.y as usize);
 
@@ -164,13 +171,20 @@ pub fn resolve_movement_system(
                         if let Ok(mut npc_path) = path_q.get_mut(entity) {
                             npc_path.waypoints.clear();
                             npc_path.current = 0;
+                            npc_path.path_chunks.clear();
                         }
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
                             idx,
                             x: intent.target.x,
                             y: intent.target.y,
                         }));
-                        target_thrash.record(idx, intent.source, minute_key, intent.target.x, intent.target.y);
+                        target_thrash.record(
+                            idx,
+                            intent.source,
+                            minute_key,
+                            intent.target.x,
+                            intent.target.y,
+                        );
                     }
                 }
                 continue;
@@ -204,13 +218,20 @@ pub fn resolve_movement_system(
             if let Ok(mut npc_path) = path_q.get_mut(entity) {
                 npc_path.waypoints.clear();
                 npc_path.current = 0;
+                npc_path.path_chunks.clear();
             }
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
                 idx,
                 x: intent.target.x,
                 y: intent.target.y,
             }));
-            target_thrash.record(idx, intent.source, minute_key, intent.target.x, intent.target.y);
+            target_thrash.record(
+                idx,
+                intent.source,
+                minute_key,
+                intent.target.x,
+                intent.target.y,
+            );
             continue;
         }
 
@@ -228,7 +249,13 @@ pub fn resolve_movement_system(
             source: PathSource::Movement,
         });
 
-        target_thrash.record(idx, intent.source, minute_key, intent.target.x, intent.target.y);
+        target_thrash.record(
+            idx,
+            intent.source,
+            minute_key,
+            intent.target.x,
+            intent.target.y,
+        );
     }
 
     // ── Phase 2: Drain queue → route (LOS bypass or A*) ──────────────
@@ -266,9 +293,7 @@ pub fn resolve_movement_system(
         let manhattan = dist.x + dist.y;
 
         // Short-distance LOS bypass — direct SetTarget
-        if manhattan <= config.short_distance_tiles
-            && line_of_sight(&grid, req.start, req.goal)
-        {
+        if manhattan <= config.short_distance_tiles && line_of_sight(&grid, req.start, req.goal) {
             los_bypass += 1;
             if let Ok(mut path) = path_q.get_mut(req.entity) {
                 path.waypoints.clear();
@@ -300,6 +325,7 @@ pub fn resolve_movement_system(
             let world_pos = grid.grid_to_world(first_wp.x as usize, first_wp.y as usize);
 
             if let Ok(mut npc_path) = path_q.get_mut(req.entity) {
+                npc_path.path_chunks = collect_path_chunks(&path_points, 1);
                 npc_path.waypoints = path_points;
                 npc_path.current = 1;
                 npc_path.goal_world = req.goal_world;
@@ -326,14 +352,22 @@ pub fn resolve_movement_system(
 
     let elapsed_ms = start_time.elapsed().as_secs_f32() * 1000.0;
     let remaining = path_queue.total_len();
-    stats.update(processed, los_bypass, astar_calls, astar_fails, elapsed_ms, remaining, budget_reason);
+    stats.update(
+        processed,
+        los_bypass,
+        astar_calls,
+        astar_fails,
+        elapsed_ms,
+        remaining,
+        budget_reason,
+    );
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::time::TimeUpdateStrategy;
     use crate::resources::{EntityMap, MovementPriority};
+    use bevy::time::TimeUpdateStrategy;
 
     // ── resolve_movement_system ────────────────────────────────────────
 
@@ -382,9 +416,12 @@ mod tests {
         // Pre-fill targets so the system can compare (current target = 0,0)
         app.world_mut().resource_mut::<EntityGpuState>().targets = vec![0.0, 0.0];
         // Submit an intent to a different position
-        app.world_mut()
-            .resource_mut::<PathRequestQueue>()
-            .submit(entity, Vec2::new(100.0, 200.0), MovementPriority::Combat, "test");
+        app.world_mut().resource_mut::<PathRequestQueue>().submit(
+            entity,
+            Vec2::new(100.0, 200.0),
+            MovementPriority::Combat,
+            "test",
+        );
         app.update();
         let collected = app.world().resource::<CollectedGpuUpdates>();
         assert!(
@@ -399,13 +436,23 @@ mod tests {
         let entity = app.world_mut().spawn(GpuSlot(0)).id();
         // Current target IS (100, 200) — submit the same
         app.world_mut().resource_mut::<EntityGpuState>().targets = vec![100.0, 200.0];
-        app.world_mut()
-            .resource_mut::<PathRequestQueue>()
-            .submit(entity, Vec2::new(100.0, 200.0), MovementPriority::Combat, "test");
+        app.world_mut().resource_mut::<PathRequestQueue>().submit(
+            entity,
+            Vec2::new(100.0, 200.0),
+            MovementPriority::Combat,
+            "test",
+        );
         app.update();
         let collected = app.world().resource::<CollectedGpuUpdates>();
-        let set_targets: Vec<_> = collected.0.iter().filter(|u| matches!(u, GpuUpdate::SetTarget { .. })).collect();
-        assert!(set_targets.is_empty(), "should skip SetTarget when target unchanged");
+        let set_targets: Vec<_> = collected
+            .0
+            .iter()
+            .filter(|u| matches!(u, GpuUpdate::SetTarget { .. }))
+            .collect();
+        assert!(
+            set_targets.is_empty(),
+            "should skip SetTarget when target unchanged"
+        );
     }
 
     #[test]
@@ -413,9 +460,12 @@ mod tests {
         let mut app = setup_movement_app();
         let entity = app.world_mut().spawn(GpuSlot(0)).id();
         app.world_mut().resource_mut::<EntityGpuState>().targets = vec![0.0, 0.0];
-        app.world_mut()
-            .resource_mut::<PathRequestQueue>()
-            .submit(entity, Vec2::new(100.0, 200.0), MovementPriority::Combat, "test");
+        app.world_mut().resource_mut::<PathRequestQueue>().submit(
+            entity,
+            Vec2::new(100.0, 200.0),
+            MovementPriority::Combat,
+            "test",
+        );
         app.world_mut().resource_mut::<GameTime>().paused = true;
         app.update();
         let collected = app.world().resource::<CollectedGpuUpdates>();
@@ -438,6 +488,29 @@ mod tests {
         app
     }
 
+    fn setup_advance_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(GameTime::default());
+        app.insert_resource(CollectedGpuUpdates::default());
+        app.insert_resource(WorldGrid {
+            width: 40,
+            height: 40,
+            ..default()
+        });
+        app.add_message::<GpuUpdateMsg>();
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.add_systems(
+            FixedUpdate,
+            (advance_waypoints_system, collect_gpu_updates).chain(),
+        );
+        app.update();
+        app.update();
+        app
+    }
+
     #[test]
     fn readback_syncs_position_from_gpu() {
         let mut app = setup_readback_app();
@@ -451,9 +524,21 @@ mod tests {
             NpcPath::default(),
         ));
         app.update();
-        let pos = app.world_mut().query::<&Position>().single(app.world()).unwrap();
-        assert!((pos.x - 42.0).abs() < 0.1, "x should sync from GPU, got {}", pos.x);
-        assert!((pos.y - 84.0).abs() < 0.1, "y should sync from GPU, got {}", pos.y);
+        let pos = app
+            .world_mut()
+            .query::<&Position>()
+            .single(app.world())
+            .unwrap();
+        assert!(
+            (pos.x - 42.0).abs() < 0.1,
+            "x should sync from GPU, got {}",
+            pos.x
+        );
+        assert!(
+            (pos.y - 84.0).abs() < 0.1,
+            "y should sync from GPU, got {}",
+            pos.y
+        );
     }
 
     #[test]
@@ -469,8 +554,15 @@ mod tests {
             NpcPath::default(),
         ));
         app.update();
-        let pos = app.world_mut().query::<&Position>().single(app.world()).unwrap();
-        assert!((pos.x - 5.0).abs() < 0.1, "hidden entity position should not change");
+        let pos = app
+            .world_mut()
+            .query::<&Position>()
+            .single(app.world())
+            .unwrap();
+        assert!(
+            (pos.x - 5.0).abs() < 0.1,
+            "hidden entity position should not change"
+        );
     }
 
     #[test]
@@ -484,11 +576,23 @@ mod tests {
             Position { x: 0.0, y: 0.0 },
             Activity::new(ActivityKind::Work),
             NpcFlags::default(),
-            NpcPath { waypoints: vec![IVec2::new(100, 200)], current: 0, goal_world: Vec2::new(100.0, 200.0), path_cooldown: 0.0 },
+            NpcPath {
+                waypoints: vec![IVec2::new(100, 200)],
+                current: 0,
+                goal_world: Vec2::new(100.0, 200.0),
+                ..default()
+            },
         ));
         app.update();
-        let flags = app.world_mut().query::<&NpcFlags>().single(app.world()).unwrap();
-        assert!(flags.at_destination, "should set at_destination when near target");
+        let flags = app
+            .world_mut()
+            .query::<&NpcFlags>()
+            .single(app.world())
+            .unwrap();
+        assert!(
+            flags.at_destination,
+            "should set at_destination when near target"
+        );
     }
 
     #[test]
@@ -505,7 +609,11 @@ mod tests {
             NpcPath::default(),
         ));
         app.update();
-        let flags = app.world_mut().query::<&NpcFlags>().single(app.world()).unwrap();
+        let flags = app
+            .world_mut()
+            .query::<&NpcFlags>()
+            .single(app.world())
+            .unwrap();
         assert!(
             flags.at_destination,
             "transit NPC should set at_destination even without waypoints"
@@ -526,10 +634,51 @@ mod tests {
             NpcPath::default(),
         ));
         app.update();
-        let flags = app.world_mut().query::<&NpcFlags>().single(app.world()).unwrap();
+        let flags = app
+            .world_mut()
+            .query::<&NpcFlags>()
+            .single(app.world())
+            .unwrap();
         assert!(
             flags.at_destination,
             "NPC at target position should have at_destination set"
+        );
+    }
+
+    #[test]
+    fn advance_waypoints_trims_path_chunks_to_remaining_route() {
+        let mut app = setup_advance_app();
+        app.world_mut().spawn((
+            GpuSlot(0),
+            NpcFlags {
+                at_destination: true,
+                ..default()
+            },
+            NpcPath {
+                waypoints: vec![IVec2::new(1, 1), IVec2::new(20, 20)],
+                current: 0,
+                goal_world: Vec2::new(320.0, 320.0),
+                path_chunks: vec![(0, 0), (1, 1)],
+                ..default()
+            },
+        ));
+
+        app.update();
+
+        let (path, flags) = app
+            .world_mut()
+            .query::<(&NpcPath, &NpcFlags)>()
+            .single(app.world())
+            .unwrap();
+        assert_eq!(path.current, 1, "should advance to the next waypoint");
+        assert_eq!(
+            path.path_chunks,
+            vec![(1, 1)],
+            "should keep only remaining chunks after advancing"
+        );
+        assert!(
+            !flags.at_destination,
+            "should clear at_destination after retargeting the next waypoint"
         );
     }
 }

@@ -1,9 +1,9 @@
 //! NPC registry, activity registry, equipment/loot types and generation.
 
-use bevy::reflect::Reflect;
+use super::upgrades::*;
 use crate::components::{ActivityKind, BaseAttackType, Distraction, Job};
 use crate::world::BuildingKind;
-use super::upgrades::*;
+use bevy::reflect::Reflect;
 
 /// Per-attack-type stats (range, cooldown, projectile behavior).
 #[derive(Clone, Copy, Debug)]
@@ -16,7 +16,9 @@ pub struct AttackTypeStats {
 
 /// Unified item type — resources (stackable) and equipment (unique instances).
 /// Serves as the K8s `kind` discriminator for the item registry.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Reflect, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Reflect, serde::Serialize, serde::Deserialize,
+)]
 pub enum ItemKind {
     // Resources (stackable, integer quantities)
     Food,
@@ -34,9 +36,15 @@ pub enum ItemKind {
 }
 
 impl ItemKind {
-    pub fn is_equipment(self) -> bool { !item_def(self).stackable }
-    pub fn is_resource(self) -> bool { item_def(self).stackable }
-    pub fn label(self) -> &'static str { item_def(self).label }
+    pub fn is_equipment(self) -> bool {
+        !item_def(self).stackable
+    }
+    pub fn is_resource(self) -> bool {
+        item_def(self).stackable
+    }
+    pub fn label(self) -> &'static str {
+        item_def(self).label
+    }
 }
 
 /// All equipment item kinds (excludes resources).
@@ -63,7 +71,9 @@ const HELM_SPRITES: &[(f32, f32)] = &[(28.0, 0.0), (29.0, 0.0), (30.0, 0.0)];
 const SHIELD_SPRITES: &[(f32, f32)] = &[(43.0, 6.0), (44.0, 7.0), (45.0, 7.0)];
 
 /// Name generation tables per item kind.
-const ITEM_PREFIXES: &[&str] = &["Iron", "Steel", "Bronze", "Silver", "Dark", "Ancient", "Blessed"];
+const ITEM_PREFIXES: &[&str] = &[
+    "Iron", "Steel", "Bronze", "Silver", "Dark", "Ancient", "Blessed",
+];
 const WEAPON_NAMES: &[&str] = &["Sword", "Axe", "Spear", "Mace", "Blade"];
 const ARMOR_NAMES: &[&str] = &["Chainmail", "Plate", "Leather", "Brigandine", "Cuirass"];
 const HELM_NAMES: &[&str] = &["Helm", "Crown", "Circlet", "Coif", "Casque"];
@@ -93,21 +103,90 @@ pub struct ItemDef {
 }
 
 pub const ITEM_REGISTRY: &[ItemDef] = &[
-    ItemDef { kind: ItemKind::Food,    label: "Food",    sprites: &[], names: &[],           stackable: true },
-    ItemDef { kind: ItemKind::Gold,    label: "Gold",    sprites: &[], names: &[],           stackable: true },
-    ItemDef { kind: ItemKind::Helm,    label: "Helm",    sprites: HELM_SPRITES,   names: HELM_NAMES,   stackable: false },
-    ItemDef { kind: ItemKind::Armor,   label: "Armor",   sprites: ARMOR_SPRITES,  names: ARMOR_NAMES,  stackable: false },
-    ItemDef { kind: ItemKind::Weapon,  label: "Weapon",  sprites: WEAPON_SPRITES, names: WEAPON_NAMES, stackable: false },
-    ItemDef { kind: ItemKind::Shield,  label: "Shield",  sprites: SHIELD_SPRITES, names: SHIELD_NAMES, stackable: false },
-    ItemDef { kind: ItemKind::Gloves,  label: "Gloves",  sprites: &[],            names: GLOVE_NAMES,  stackable: false },
-    ItemDef { kind: ItemKind::Boots,   label: "Boots",   sprites: &[],            names: BOOT_NAMES,   stackable: false },
-    ItemDef { kind: ItemKind::Belt,    label: "Belt",    sprites: &[],            names: BELT_NAMES,   stackable: false },
-    ItemDef { kind: ItemKind::Amulet,  label: "Amulet",  sprites: &[],            names: AMULET_NAMES, stackable: false },
-    ItemDef { kind: ItemKind::Ring,    label: "Ring",     sprites: &[],            names: RING_NAMES,   stackable: false },
+    ItemDef {
+        kind: ItemKind::Food,
+        label: "Food",
+        sprites: &[],
+        names: &[],
+        stackable: true,
+    },
+    ItemDef {
+        kind: ItemKind::Gold,
+        label: "Gold",
+        sprites: &[],
+        names: &[],
+        stackable: true,
+    },
+    ItemDef {
+        kind: ItemKind::Helm,
+        label: "Helm",
+        sprites: HELM_SPRITES,
+        names: HELM_NAMES,
+        stackable: false,
+    },
+    ItemDef {
+        kind: ItemKind::Armor,
+        label: "Armor",
+        sprites: ARMOR_SPRITES,
+        names: ARMOR_NAMES,
+        stackable: false,
+    },
+    ItemDef {
+        kind: ItemKind::Weapon,
+        label: "Weapon",
+        sprites: WEAPON_SPRITES,
+        names: WEAPON_NAMES,
+        stackable: false,
+    },
+    ItemDef {
+        kind: ItemKind::Shield,
+        label: "Shield",
+        sprites: SHIELD_SPRITES,
+        names: SHIELD_NAMES,
+        stackable: false,
+    },
+    ItemDef {
+        kind: ItemKind::Gloves,
+        label: "Gloves",
+        sprites: &[],
+        names: GLOVE_NAMES,
+        stackable: false,
+    },
+    ItemDef {
+        kind: ItemKind::Boots,
+        label: "Boots",
+        sprites: &[],
+        names: BOOT_NAMES,
+        stackable: false,
+    },
+    ItemDef {
+        kind: ItemKind::Belt,
+        label: "Belt",
+        sprites: &[],
+        names: BELT_NAMES,
+        stackable: false,
+    },
+    ItemDef {
+        kind: ItemKind::Amulet,
+        label: "Amulet",
+        sprites: &[],
+        names: AMULET_NAMES,
+        stackable: false,
+    },
+    ItemDef {
+        kind: ItemKind::Ring,
+        label: "Ring",
+        sprites: &[],
+        names: RING_NAMES,
+        stackable: false,
+    },
 ];
 
 pub fn item_def(kind: ItemKind) -> &'static ItemDef {
-    ITEM_REGISTRY.iter().find(|d| d.kind == kind).expect("missing ItemDef")
+    ITEM_REGISTRY
+        .iter()
+        .find(|d| d.kind == kind)
+        .expect("missing ItemDef")
 }
 
 /// Loot dropped when an NPC dies.
@@ -119,7 +198,9 @@ pub struct LootDrop {
 }
 
 /// Rarity tier for loot items.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Reflect, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Reflect, serde::Serialize, serde::Deserialize,
+)]
 pub enum Rarity {
     Common,
     Uncommon,
@@ -516,6 +597,72 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         default_weapon: Some((46.0, 6.0)), // crossbow sprite
     },
     NpcDef {
+        job: Job::Woodcutter,
+        label: "Woodcutter",
+        label_plural: "Woodcutters",
+        sprite: (1.0, 6.0),
+        atlas: 0.0,
+        color: (0.0, 0.6, 0.3, 1.0),
+        base_hp: 80.0,
+        base_damage: 0.0,
+        base_speed: 100.0,
+        default_attack_type: BaseAttackType::Melee,
+        attack_override: None,
+        is_patrol_unit: false,
+        is_military: false,
+        has_energy: true,
+        has_attack_timer: false,
+        stealer: false,
+        leash_range: None,
+        ui_color: (60, 160, 80),
+        home_building: BuildingKind::LumberMill,
+        is_raider_unit: false,
+        default_count: 0,
+        upgrade_category: None,
+        upgrade_stats: &[],
+        loot_drop: &[LootDrop {
+            item: ItemKind::Food,
+            min: 1,
+            max: 2,
+        }],
+        equipment_drop_rate: 0.0,
+        equip_slots: &[],
+        default_weapon: None,
+    },
+    NpcDef {
+        job: Job::Quarrier,
+        label: "Quarrier",
+        label_plural: "Quarriers",
+        sprite: (1.0, 6.0),
+        atlas: 0.0,
+        color: (0.5, 0.5, 0.5, 1.0),
+        base_hp: 90.0,
+        base_damage: 0.0,
+        base_speed: 90.0,
+        default_attack_type: BaseAttackType::Melee,
+        attack_override: None,
+        is_patrol_unit: false,
+        is_military: false,
+        has_energy: true,
+        has_attack_timer: false,
+        stealer: false,
+        leash_range: None,
+        ui_color: (140, 140, 140),
+        home_building: BuildingKind::Quarry,
+        is_raider_unit: false,
+        default_count: 0,
+        upgrade_category: None,
+        upgrade_stats: &[],
+        loot_drop: &[LootDrop {
+            item: ItemKind::Food,
+            min: 1,
+            max: 2,
+        }],
+        equipment_drop_rate: 0.0,
+        equip_slots: &[],
+        default_weapon: None,
+    },
+    NpcDef {
         job: Job::Boat,
         label: "Boat",
         label_plural: "Boats",
@@ -570,18 +717,107 @@ pub struct ActivityDef {
 }
 
 pub const ACTIVITY_REGISTRY: &[ActivityDef] = &[
-    ActivityDef { activity: ActivityKind::Idle,        label: "Idle",         distraction: Distraction::ByEnemy,  sleep_visual: false, is_restful: false, is_working: false },
-    ActivityDef { activity: ActivityKind::Work,        label: "Working",      distraction: Distraction::ByDamage, sleep_visual: false, is_restful: false, is_working: true },
-    ActivityDef { activity: ActivityKind::Patrol,      label: "Patrol",       distraction: Distraction::ByEnemy,  sleep_visual: false, is_restful: false, is_working: false },
-    ActivityDef { activity: ActivityKind::SquadAttack, label: "Squad Attack", distraction: Distraction::ByEnemy,  sleep_visual: false, is_restful: false, is_working: false },
-    ActivityDef { activity: ActivityKind::Rest,        label: "Resting",      distraction: Distraction::None,     sleep_visual: true,  is_restful: true,  is_working: false },
-    ActivityDef { activity: ActivityKind::Heal,        label: "Healing",      distraction: Distraction::None,     sleep_visual: false, is_restful: true,  is_working: false },
-    ActivityDef { activity: ActivityKind::Wander,      label: "Wandering",    distraction: Distraction::ByEnemy,  sleep_visual: false, is_restful: false, is_working: false },
-    ActivityDef { activity: ActivityKind::Raid,        label: "Raiding",      distraction: Distraction::ByEnemy,  sleep_visual: false, is_restful: false, is_working: false },
-    ActivityDef { activity: ActivityKind::ReturnLoot,  label: "Returning",    distraction: Distraction::None,     sleep_visual: false, is_restful: false, is_working: false },
-    ActivityDef { activity: ActivityKind::Mine,        label: "Mining",       distraction: Distraction::ByDamage, sleep_visual: false, is_restful: false, is_working: true },
+    ActivityDef {
+        activity: ActivityKind::Idle,
+        label: "Idle",
+        distraction: Distraction::ByEnemy,
+        sleep_visual: false,
+        is_restful: false,
+        is_working: false,
+    },
+    ActivityDef {
+        activity: ActivityKind::Work,
+        label: "Working",
+        distraction: Distraction::ByDamage,
+        sleep_visual: false,
+        is_restful: false,
+        is_working: true,
+    },
+    ActivityDef {
+        activity: ActivityKind::Patrol,
+        label: "Patrol",
+        distraction: Distraction::ByEnemy,
+        sleep_visual: false,
+        is_restful: false,
+        is_working: false,
+    },
+    ActivityDef {
+        activity: ActivityKind::SquadAttack,
+        label: "Squad Attack",
+        distraction: Distraction::ByEnemy,
+        sleep_visual: false,
+        is_restful: false,
+        is_working: false,
+    },
+    ActivityDef {
+        activity: ActivityKind::Rest,
+        label: "Resting",
+        distraction: Distraction::None,
+        sleep_visual: true,
+        is_restful: true,
+        is_working: false,
+    },
+    ActivityDef {
+        activity: ActivityKind::Heal,
+        label: "Healing",
+        distraction: Distraction::None,
+        sleep_visual: false,
+        is_restful: true,
+        is_working: false,
+    },
+    ActivityDef {
+        activity: ActivityKind::Wander,
+        label: "Wandering",
+        distraction: Distraction::ByEnemy,
+        sleep_visual: false,
+        is_restful: false,
+        is_working: false,
+    },
+    ActivityDef {
+        activity: ActivityKind::Raid,
+        label: "Raiding",
+        distraction: Distraction::ByEnemy,
+        sleep_visual: false,
+        is_restful: false,
+        is_working: false,
+    },
+    ActivityDef {
+        activity: ActivityKind::ReturnLoot,
+        label: "Returning",
+        distraction: Distraction::None,
+        sleep_visual: false,
+        is_restful: false,
+        is_working: false,
+    },
+    ActivityDef {
+        activity: ActivityKind::Mine,
+        label: "Mining",
+        distraction: Distraction::ByDamage,
+        sleep_visual: false,
+        is_restful: false,
+        is_working: true,
+    },
+    ActivityDef {
+        activity: ActivityKind::Chop,
+        label: "Chopping",
+        distraction: Distraction::ByDamage,
+        sleep_visual: false,
+        is_restful: false,
+        is_working: true,
+    },
+    ActivityDef {
+        activity: ActivityKind::Quarry,
+        label: "Quarrying",
+        distraction: Distraction::ByDamage,
+        sleep_visual: false,
+        is_restful: false,
+        is_working: true,
+    },
 ];
 
 pub fn activity_def(kind: ActivityKind) -> &'static ActivityDef {
-    ACTIVITY_REGISTRY.iter().find(|d| d.activity == kind).unwrap()
+    ACTIVITY_REGISTRY
+        .iter()
+        .find(|d| d.activity == kind)
+        .unwrap()
 }

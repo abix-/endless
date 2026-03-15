@@ -47,19 +47,46 @@ pub fn setup(
     faction_stats.init(3);
 
     let _home_a = world::place_building(
-        &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
-        BuildingKind::ArcherHome, ARCHER_HOME_A, 0, 0, &Default::default(), None, None,
+        &mut slot_alloc,
+        &mut entity_map,
+        &mut commands,
+        &mut gpu_updates,
+        BuildingKind::ArcherHome,
+        ARCHER_HOME_A,
+        0,
+        0,
+        &Default::default(),
+        None,
+        None,
     )
     .expect("archer home A slot alloc");
     let _home_b = world::place_building(
-        &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
-        BuildingKind::ArcherHome, ARCHER_HOME_B, 0, 0, &Default::default(), None, None,
+        &mut slot_alloc,
+        &mut entity_map,
+        &mut commands,
+        &mut gpu_updates,
+        BuildingKind::ArcherHome,
+        ARCHER_HOME_B,
+        0,
+        0,
+        &Default::default(),
+        None,
+        None,
     )
     .expect("archer home B slot alloc");
 
     let tent_slot = world::place_building(
-        &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
-        BuildingKind::Tent, TENT_POS, 1, 1, &Default::default(), None, None,
+        &mut slot_alloc,
+        &mut entity_map,
+        &mut commands,
+        &mut gpu_updates,
+        BuildingKind::Tent,
+        TENT_POS,
+        1,
+        1,
+        &Default::default(),
+        None,
+        None,
     )
     .expect("tent slot alloc");
     test_state
@@ -142,7 +169,9 @@ pub fn tick(
 
     let archer_count = entity_map
         .iter_npcs()
-        .filter(|n| !n.dead && n.job == Job::Archer && n.faction == crate::constants::FACTION_PLAYER)
+        .filter(|n| {
+            !n.dead && n.job == Job::Archer && n.faction == crate::constants::FACTION_PLAYER
+        })
         .count();
 
     match test.phase {

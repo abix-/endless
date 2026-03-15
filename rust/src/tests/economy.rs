@@ -23,15 +23,20 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
     if let Some(inst) = params.entity_map.find_by_position(Vec2::new(384.0, 320.0)) {
         let slot = inst.slot;
         if let Some(&entity) = params.entity_map.entities.get(&slot) {
-            params.commands.entity(entity).insert(crate::components::ProductionState {
-                ready: false,
-                progress: 0.95,
-            });
+            params
+                .commands
+                .entity(entity)
+                .insert(crate::components::ProductionState {
+                    ready: false,
+                    progress: 0.95,
+                });
         }
     }
 
     params.init_economy(2);
-    if let Some(mut f) = params.town_access.food_mut(1) { f.0 = 10; } // raider town has food
+    if let Some(mut f) = params.town_access.food_mut(1) {
+        f.0 = 10;
+    } // raider town has food
     raider_state.init(1, 5);
     // Tent spawner so a raider can spawn via spawner_respawn_system
     params.add_building(crate::world::BuildingKind::Tent, 384.0, 128.0, 1);

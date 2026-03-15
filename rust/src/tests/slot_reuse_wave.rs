@@ -94,10 +94,17 @@ pub fn setup(
             for i in 0..5 {
                 let offset = Vec2::new(32.0 * (i as f32 + 1.0), 64.0);
                 let _ = world::place_building(
-                    &mut slot_alloc, &mut bld.entity_map,
-                    &mut commands, &mut gpu_updates,
-                    BuildingKind::ArcherHome, center + offset, ti as u32, faction,
-                    &Default::default(), None, None,
+                    &mut slot_alloc,
+                    &mut bld.entity_map,
+                    &mut commands,
+                    &mut gpu_updates,
+                    BuildingKind::ArcherHome,
+                    center + offset,
+                    ti as u32,
+                    faction,
+                    &Default::default(),
+                    None,
+                    None,
                 );
             }
         }
@@ -114,10 +121,17 @@ pub fn setup(
                 .position(|t| t.faction == crate::constants::FACTION_PLAYER)
                 .unwrap_or(0);
             let _ = world::place_building(
-                &mut slot_alloc, &mut bld.entity_map,
-                &mut commands, &mut gpu_updates,
-                BuildingKind::Farm, farm_pos, player_ti as u32, 0,
-                &Default::default(), None, None,
+                &mut slot_alloc,
+                &mut bld.entity_map,
+                &mut commands,
+                &mut gpu_updates,
+                BuildingKind::Farm,
+                farm_pos,
+                player_ti as u32,
+                0,
+                &Default::default(),
+                None,
+                None,
             );
         }
     }
@@ -281,10 +295,17 @@ pub fn tick(
                 let ai_faction = world_data.towns.get(ai_ti).map(|t| t.faction).unwrap_or(1);
                 let new_pos = Vec2::new(200.0, 200.0); // far from original target
                 let new_slot = world::place_building(
-                    &mut slot_alloc, &mut entity_map,
-                    &mut commands, &mut gpu_updates,
-                    BuildingKind::Farm, new_pos, ai_ti as u32, ai_faction,
-                    &Default::default(), None, None,
+                    &mut slot_alloc,
+                    &mut entity_map,
+                    &mut commands,
+                    &mut gpu_updates,
+                    BuildingKind::Farm,
+                    new_pos,
+                    ai_ti as u32,
+                    ai_faction,
+                    &Default::default(),
+                    None,
+                    None,
                 );
 
                 if let Ok(ns) = new_slot {

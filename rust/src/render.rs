@@ -9,7 +9,8 @@ use bevy::prelude::*;
 use bevy::sprite_render::{AlphaMode2d, TileData, TilemapChunk, TilemapChunkTileData};
 
 use crate::components::{
-    Activity, Building, Dead, Faction, GpuSlot, Job, ManualTarget, ActivityKind, MinerHomeConfig, NpcFlags, SquadId,
+    Activity, ActivityKind, Building, Dead, Faction, GpuSlot, Job, ManualTarget, MinerHomeConfig,
+    NpcFlags, SquadId,
 };
 use crate::gpu::RenderFrameConfig;
 use crate::messages::{SelectFactionMsg, TerrainDirtyMsg};
@@ -201,7 +202,10 @@ fn camera_pan_system(
     mut contexts: bevy_egui::EguiContexts,
 ) {
     // Suppress camera pan when typing in a text field
-    if contexts.ctx_mut().is_ok_and(|ctx| ctx.wants_keyboard_input()) {
+    if contexts
+        .ctx_mut()
+        .is_ok_and(|ctx| ctx.wants_keyboard_input())
+    {
         return;
     }
     let Ok((mut transform, projection)) = query.single_mut() else {
@@ -418,6 +422,92 @@ struct DoubleClickState {
     last_pos: Vec2,
 }
 
+#[derive(Clone, Copy)]
+struct NpcHit {
+    slot: usize,
+    pos: Vec2,
+    dist_sq: f32,
+}
+
+#[derive(Clone, Copy)]
+struct BuildingHit {
+    kind: BuildingKind,
+    pos: Vec2,
+    slot: usize,
+    dist_sq: f32,
+}
+
+fn gpu_slot_position(positions: &[f32], slot: usize) -> Option<Vec2> {
+    let base = slot.checked_mul(2)?;
+    let px = *positions.get(base)?;
+    let py = *positions.get(base + 1)?;
+    if px < -9000.0 {
+        return None;
+    }
+    Some(Vec2::new(px, py))
+}
+
+fn nearest_npc_hit<F>(
+    entity_map: &EntityMap,
+    positions: &[f32],
+    world_pos: Vec2,
+    max_radius: f32,
+    mut predicate: F,
+) -> Option<NpcHit>
+where
+    F: FnMut(&crate::resources::NpcEntry) -> bool,
+{
+    let mut best_dist_sq = max_radius * max_radius;
+    let mut best = None;
+    for npc in entity_map.iter_npcs() {
+        if npc.dead || !predicate(npc) {
+            continue;
+        }
+        let Some(pos) = gpu_slot_position(positions, npc.slot) else {
+            continue;
+        };
+        let dist_sq = world_pos.distance_squared(pos);
+        if dist_sq < best_dist_sq {
+            best_dist_sq = dist_sq;
+            best = Some(NpcHit {
+                slot: npc.slot,
+                pos,
+                dist_sq,
+            });
+        }
+    }
+    best
+}
+
+fn nearest_building_hit<F>(
+    entity_map: &EntityMap,
+    world_pos: Vec2,
+    max_radius: f32,
+    mut predicate: F,
+) -> Option<BuildingHit>
+where
+    F: FnMut(&crate::resources::BuildingInstance) -> bool,
+{
+    let mut best_dist_sq = max_radius * max_radius;
+    let mut best = None;
+    for inst in entity_map.iter_instances() {
+        if inst.position.x < -9000.0 || !predicate(inst) {
+            continue;
+        }
+        let dist_sq = world_pos.distance_squared(inst.position);
+        if dist_sq < best_dist_sq {
+            best_dist_sq = dist_sq;
+            best = Some(BuildingHit {
+                kind: inst.kind,
+                pos: inst.position,
+                slot: inst.slot,
+                dist_sq,
+            });
+        }
+    }
+    best
+}
+
 #[derive(SystemParam)]
 struct ClickSelectParams<'w> {
     selected: ResMut<'w, SelectedNpc>,
@@ -506,47 +596,20 @@ fn click_to_select_system(
             }
 
             let positions = &gpu_state.positions;
-            let npc_count = positions.len() / 2;
+            let best_enemy =
+                nearest_npc_hit(&click.entity_map, positions, world_pos, 20.0, |npc| {
+                    npc.faction != crate::constants::FACTION_PLAYER
+                        && npc.faction != crate::constants::FACTION_NEUTRAL
+                });
 
-            // Hit-test enemy NPC (nearest within 20px, different faction)
-            // Use ECS faction from EntityMap (authoritative), not throttled GPU factions readback.
-            let select_radius = 20.0_f32;
-            let mut best_dist = select_radius;
-            let mut best_enemy: Option<(usize, Vec2)> = None;
-            for i in 0..npc_count {
-                if i * 2 + 1 >= positions.len() {
-                    continue;
-                }
-                let px = positions[i * 2];
-                let py = positions[i * 2 + 1];
-                if px < -9000.0 {
-                    continue;
-                }
-                let faction = click
-                    .entity_map
-                    .get_npc(i)
-                    .map(|n| n.faction)
-                    .unwrap_or(0);
-                if faction == crate::constants::FACTION_PLAYER || faction == crate::constants::FACTION_NEUTRAL {
-                    continue;
-                }
-                let dx = world_pos.x - px;
-                let dy = world_pos.y - py;
-                let dist = (dx * dx + dy * dy).sqrt();
-                if dist < best_dist {
-                    best_dist = dist;
-                    best_enemy = Some((i, Vec2::new(px, py)));
-                }
-            }
-
-            if let Some((enemy_slot, enemy_pos)) = best_enemy {
+            if let Some(enemy) = best_enemy {
                 // Attack NPC: set ManualTarget + move toward enemy
                 for &slot in &members {
                     if let Some(npc) = click.entity_map.get_npc(slot) {
                         let entity = npc.entity;
                         commands
                             .entity(entity)
-                            .insert(ManualTarget::Npc(enemy_slot));
+                            .insert(ManualTarget::Npc(enemy.slot));
                         // Wake resting NPCs on move command
                         if let Ok(mut act) = activity_q.get_mut(entity) {
                             if act.kind == ActivityKind::Rest {
@@ -555,42 +618,20 @@ fn click_to_select_system(
                         }
                         intents.submit(
                             entity,
-                            enemy_pos,
+                            enemy.pos,
                             crate::resources::MovementPriority::DirectControl,
                             "dc:attack",
                         );
                     }
                 }
             } else {
-                // Hit-test enemy building (nearest within 24px)
-                let building_radius = 48.0_f32;
-                let mut best_bdist = building_radius;
-                let mut best_bpos: Option<Vec2> = None;
-                for inst in click.entity_map.iter_instances() {
-                    if inst.position.x < -9000.0 {
-                        continue;
-                    }
-                    let px = inst.position.x;
-                    let py = inst.position.y;
-                    let faction = inst.faction;
-                    if faction == crate::constants::FACTION_PLAYER || faction == crate::constants::FACTION_NEUTRAL {
-                        continue;
-                    }
-                    if px < -9000.0 {
-                        continue;
-                    }
-                    let dx = world_pos.x - px;
-                    let dy = world_pos.y - py;
-                    let dist = (dx * dx + dy * dy).sqrt();
-                    if dist < best_bdist {
-                        best_bdist = dist;
-                        best_bpos = Some(Vec2::new(px, py));
-                    }
-                }
-
                 // Determine ManualTarget variant + GPU move target
-                let (mt, target_pos) = if let Some(bpos) = best_bpos {
-                    (ManualTarget::Building(bpos), bpos)
+                let (mt, target_pos) = if let Some(building) =
+                    nearest_building_hit(&click.entity_map, world_pos, 48.0, |inst| {
+                        inst.faction != crate::constants::FACTION_PLAYER
+                            && inst.faction != crate::constants::FACTION_NEUTRAL
+                    }) {
+                    (ManualTarget::Building(building.pos), building.pos)
                 } else {
                     (ManualTarget::Position(world_pos), world_pos)
                 };
@@ -676,44 +717,9 @@ fn click_to_select_system(
     // - NPCs use GPU readback positions (movement is GPU-driven).
     // - Buildings use authoritative EntityMap positions (deterministic placement).
     let positions = &gpu_state.positions;
-    let npc_select_radius = 40.0_f32;
-    let building_select_radius = 48.0_f32;
-    let mut best_npc_dist = npc_select_radius;
-    let mut best_idx: i32 = -1;
-    let mut best_building_dist = building_select_radius;
-    let mut best_building: Option<(BuildingKind, Vec2, usize)> = None;
-
-    let entity_count = positions.len() / 2;
-    for i in 0..entity_count {
-        let px = positions[i * 2];
-        let py = positions[i * 2 + 1];
-        if px < -9000.0 {
-            continue;
-        }
-        if !click.entity_map.entities.contains_key(&i) {
-            continue;
-        }
-
-        let dx = world_pos.x - px;
-        let dy = world_pos.y - py;
-        let dist = (dx * dx + dy * dy).sqrt();
-
-        // NPC
-        if click.entity_map.get_instance(i).is_none() && dist < best_npc_dist {
-            best_npc_dist = dist;
-            best_idx = i as i32;
-        }
-    }
-
-    for inst in click.entity_map.iter_instances() {
-        let dx = world_pos.x - inst.position.x;
-        let dy = world_pos.y - inst.position.y;
-        let dist = (dx * dx + dy * dy).sqrt();
-        if dist < best_building_dist {
-            best_building_dist = dist;
-            best_building = Some((inst.kind, inst.position, inst.slot));
-        }
-    }
+    let best_npc = nearest_npc_hit(&click.entity_map, positions, world_pos, 40.0, |_| true);
+    let best_idx = best_npc.map(|hit| hit.slot as i32).unwrap_or(-1);
+    let best_building = nearest_building_hit(&click.entity_map, world_pos, 48.0, |_| true);
 
     // Double-click detection
     let now = time.elapsed_secs_f64();
@@ -722,23 +728,21 @@ fn click_to_select_system(
     dbl_click.last_time = now;
     dbl_click.last_pos = world_pos;
 
-    let (col, row) = grid.world_to_grid(world_pos);
-
     // Keep up to one NPC and one building selected from the same click.
     click.selected.0 = best_idx;
-    if let Some((kind, bpos, bslot)) = best_building {
-        let (bcol, brow) = grid.world_to_grid(bpos);
+    if let Some(building) = best_building {
+        let (bcol, brow) = grid.world_to_grid(building.pos);
         *click.selected_building = SelectedBuilding {
             col: bcol,
             row: brow,
             active: true,
-            slot: Some(bslot),
-            kind: Some(kind),
+            slot: Some(building.slot),
+            kind: Some(building.kind),
         };
 
         // Double-click fountain -> open Factions tab for that faction.
-        if is_double && kind == crate::world::BuildingKind::Fountain {
-            if let Some(inst) = click.entity_map.get_instance(bslot) {
+        if is_double && building.kind == crate::world::BuildingKind::Fountain {
+            if let Some(inst) = click.entity_map.get_instance(building.slot) {
                 if let Some(town) = click.world_data.towns.get(inst.town_idx as usize) {
                     click.ui_state.left_panel_open = true;
                     click.ui_state.left_panel_tab = LeftPanelTab::Factions;
@@ -748,7 +752,7 @@ fn click_to_select_system(
         }
 
         // Double-click casino -> open blackjack popup.
-        if is_double && kind == crate::world::BuildingKind::Casino {
+        if is_double && building.kind == crate::world::BuildingKind::Casino {
             click.ui_state.casino_open = true;
         }
     } else {
@@ -758,18 +762,8 @@ fn click_to_select_system(
     }
 
     // Default active inspector tab by click proximity.
-    if best_idx >= 0 && best_building.is_some() {
-        let npc_x = positions[best_idx as usize * 2];
-        let npc_y = positions[best_idx as usize * 2 + 1];
-        let (_, bpos, _) =
-            best_building.unwrap_or((BuildingKind::Farm, grid.grid_to_world(col, row), 0));
-        let npc_dx = world_pos.x - npc_x;
-        let npc_dy = world_pos.y - npc_y;
-        let bld_dx = world_pos.x - bpos.x;
-        let bld_dy = world_pos.y - bpos.y;
-        let npc_d2 = npc_dx * npc_dx + npc_dy * npc_dy;
-        let bld_d2 = bld_dx * bld_dx + bld_dy * bld_dy;
-        click.ui_state.inspector_prefer_npc = npc_d2 <= bld_d2;
+    if let (Some(npc), Some(building)) = (best_npc, best_building) {
+        click.ui_state.inspector_prefer_npc = npc.dist_sq <= building.dist_sq;
     } else if best_idx >= 0 {
         click.ui_state.inspector_prefer_npc = true;
     } else if best_building.is_some() {
@@ -1055,7 +1049,8 @@ fn spawn_world_tilemap(
     if let Some(img) = images.get(&building_atlas) {
         assert_eq!(
             img.height(),
-            crate::world::ATLAS_CELL * (btiles.len() + crate::constants::autotile_total_extra_layers()) as u32,
+            crate::world::ATLAS_CELL
+                * (btiles.len() + crate::constants::autotile_total_extra_layers()) as u32,
             "building atlas height mismatch"
         );
     }
@@ -1126,14 +1121,41 @@ mod tests {
     use bevy::time::TimeUpdateStrategy;
     use bevy_egui::EguiUserTextures;
 
-    fn setup_box_select_app() -> (
-        App,
-        Entity,
-        Entity,
-        Entity,
-        Entity,
-        Entity,
-    ) {
+    fn setup_click_select_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.insert_resource(ButtonInput::<MouseButton>::default());
+        app.insert_resource(crate::resources::SquadState::default());
+        app.insert_resource(crate::resources::BuildMenuContext::default());
+        app.insert_resource(EntityMap::default());
+        app.insert_resource(SelectedNpc::default());
+        app.insert_resource(SelectedBuilding::default());
+        app.insert_resource(crate::resources::UiState::default());
+        app.insert_resource(WorldData { towns: Vec::new() });
+        app.insert_resource(WorldGrid::default());
+        app.insert_resource(crate::resources::GpuReadState::default());
+        app.insert_resource(crate::resources::PathRequestQueue::default());
+        app.init_resource::<EguiUserTextures>();
+        app.add_message::<SelectFactionMsg>();
+        app.add_systems(Update, click_to_select_system);
+
+        let window = Window {
+            resolution: (800, 600).into(),
+            ..Default::default()
+        };
+        app.world_mut().spawn(window);
+        app.world_mut().spawn((
+            MainCamera,
+            Transform::default(),
+            Projection::Orthographic(OrthographicProjection::default_2d()),
+        ));
+        app
+    }
+
+    fn setup_box_select_app() -> (App, Entity, Entity, Entity, Entity, Entity) {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
         app.insert_resource(TimeUpdateStrategy::ManualDuration(
@@ -1151,11 +1173,11 @@ mod tests {
         });
         app.insert_resource(crate::resources::GpuReadState {
             positions: vec![
-                0.0, 0.0,      // selected player archer
-                5.0, 5.0,      // player farmer inside box (excluded)
-                0.0, 0.0,      // enemy archer inside box (excluded)
-                50.0, 50.0,    // player archer outside box
-                100.0, 100.0,  // previously selected direct-control archer
+                0.0, 0.0, // selected player archer
+                5.0, 5.0, // player farmer inside box (excluded)
+                0.0, 0.0, // enemy archer inside box (excluded)
+                50.0, 50.0, // player archer outside box
+                100.0, 100.0, // previously selected direct-control archer
             ],
             npc_count: 5,
             ..Default::default()
@@ -1205,7 +1227,9 @@ mod tests {
         );
 
         {
-            let mut squad_state = app.world_mut().resource_mut::<crate::resources::SquadState>();
+            let mut squad_state = app
+                .world_mut()
+                .resource_mut::<crate::resources::SquadState>();
             squad_state.squads[0].members = vec![old_dc_archer];
             squad_state.selected = 0;
         }
@@ -1232,19 +1256,66 @@ mod tests {
         faction: i32,
         direct_control: bool,
     ) -> Entity {
-        let entity = app.world_mut().spawn((
-            GpuSlot(slot),
-            job,
-            Faction(faction),
-            NpcFlags {
-                direct_control,
-                ..Default::default()
-            },
-        )).id();
+        let entity = app
+            .world_mut()
+            .spawn((
+                GpuSlot(slot),
+                job,
+                Faction(faction),
+                NpcFlags {
+                    direct_control,
+                    ..Default::default()
+                },
+            ))
+            .id();
         app.world_mut()
             .resource_mut::<EntityMap>()
             .register_npc(slot, entity, job, faction, 0);
         entity
+    }
+
+    fn mark_test_npc_dead(app: &mut App, slot: usize) {
+        let mut entity_map = app.world_mut().resource_mut::<EntityMap>();
+        entity_map
+            .get_npc_mut(slot)
+            .expect("test npc should exist")
+            .dead = true;
+    }
+
+    fn add_test_building(
+        app: &mut App,
+        slot: usize,
+        kind: BuildingKind,
+        position: Vec2,
+        faction: i32,
+    ) {
+        app.world_mut().resource_mut::<EntityMap>().add_instance(
+            crate::resources::BuildingInstance {
+                kind,
+                position,
+                town_idx: 0,
+                slot,
+                faction,
+            },
+        );
+    }
+
+    fn set_gpu_positions(app: &mut App, slot_count: usize, entries: &[(usize, Vec2)]) {
+        let mut positions = vec![-10000.0; slot_count * 2];
+        for &(slot, pos) in entries {
+            positions[slot * 2] = pos.x;
+            positions[slot * 2 + 1] = pos.y;
+        }
+        *app.world_mut()
+            .resource_mut::<crate::resources::GpuReadState>() = crate::resources::GpuReadState {
+            positions,
+            npc_count: slot_count,
+            ..Default::default()
+        };
+    }
+
+    fn screen_pos_for_world(world_pos: Vec2) -> Vec2 {
+        Vec2::new(400.0 + world_pos.x, 300.0 - world_pos.y)
     }
 
     fn set_cursor_position(app: &mut App, cursor: Vec2) {
@@ -1330,5 +1401,123 @@ mod tests {
             app.world().get::<SquadId>(enemy_archer).is_none(),
             "excluded enemies should not receive SquadId"
         );
+    }
+
+    #[test]
+    fn click_select_ignores_padded_readback_slots_for_live_npcs() {
+        let mut app = setup_click_select_app();
+        spawn_test_npc(
+            &mut app,
+            600,
+            Job::Archer,
+            crate::constants::FACTION_PLAYER,
+            false,
+        );
+        spawn_test_npc(
+            &mut app,
+            601,
+            Job::Archer,
+            crate::constants::FACTION_PLAYER,
+            false,
+        );
+        mark_test_npc_dead(&mut app, 601);
+        add_test_building(
+            &mut app,
+            100,
+            BuildingKind::Farm,
+            Vec2::new(20.0, 0.0),
+            crate::constants::FACTION_PLAYER,
+        );
+        set_gpu_positions(
+            &mut app,
+            1024,
+            &[
+                (3, Vec2::new(12.0, 0.0)),
+                (600, Vec2::new(10.0, 0.0)),
+                (601, Vec2::new(11.0, 0.0)),
+            ],
+        );
+
+        set_cursor_position(&mut app, screen_pos_for_world(Vec2::new(12.0, 0.0)));
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<SelectedNpc>().0,
+            600,
+            "left-click should resolve against live NPCs, not dead or padded slots"
+        );
+        let selected_building = app.world().resource::<SelectedBuilding>();
+        assert!(selected_building.active);
+        assert_eq!(selected_building.slot, Some(100));
+        assert_eq!(selected_building.kind, Some(BuildingKind::Farm));
+        assert!(
+            app.world()
+                .resource::<crate::resources::UiState>()
+                .inspector_prefer_npc,
+            "closer NPC should keep the inspector focused on NPC details"
+        );
+    }
+
+    #[test]
+    fn right_click_direct_control_targets_live_enemy_with_padded_readback() {
+        let mut app = setup_click_select_app();
+        let player = spawn_test_npc(
+            &mut app,
+            10,
+            Job::Archer,
+            crate::constants::FACTION_PLAYER,
+            true,
+        );
+        spawn_test_npc(&mut app, 700, Job::Raider, 2, false);
+        spawn_test_npc(&mut app, 701, Job::Raider, 2, false);
+        mark_test_npc_dead(&mut app, 701);
+        {
+            let mut squad_state = app
+                .world_mut()
+                .resource_mut::<crate::resources::SquadState>();
+            squad_state.selected = 0;
+            squad_state.squads[0].members = vec![player];
+        }
+        let live_enemy_pos = Vec2::new(30.0, 0.0);
+        set_gpu_positions(
+            &mut app,
+            1024,
+            &[
+                (5, live_enemy_pos),
+                (10, Vec2::ZERO),
+                (700, live_enemy_pos),
+                (701, Vec2::new(29.0, 0.0)),
+            ],
+        );
+
+        set_cursor_position(&mut app, screen_pos_for_world(live_enemy_pos));
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Right);
+        app.update();
+
+        assert!(
+            matches!(
+                app.world().get::<ManualTarget>(player),
+                Some(ManualTarget::Npc(slot)) if *slot == 700
+            ),
+            "direct-control right-click should target the live enemy slot"
+        );
+        let intents: Vec<_> = app
+            .world_mut()
+            .resource_mut::<crate::resources::PathRequestQueue>()
+            .drain_intents()
+            .collect();
+        assert_eq!(intents.len(), 1);
+        assert_eq!(intents[0].0, player);
+        assert_eq!(intents[0].1.target, live_enemy_pos);
+        assert_eq!(
+            intents[0].1.priority,
+            crate::resources::MovementPriority::DirectControl
+        );
+        assert_eq!(intents[0].1.source, "dc:attack");
     }
 }

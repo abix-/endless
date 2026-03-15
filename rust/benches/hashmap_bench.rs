@@ -196,15 +196,11 @@ fn main() {
 
     // ── 5. Iteration (simulates iter_npcs / iter_buildings) ──
     println!("--- ITERATION over {NPC_COUNT}-entry map (values sum) ---");
-    bench("std (SipHash)", || {
-        std_map.values().copied().sum::<u64>()
-    });
+    bench("std (SipHash)", || std_map.values().copied().sum::<u64>());
     bench("hashbrown (foldhash)", || {
         brown_map.values().copied().sum::<u64>()
     });
-    bench("ahash", || {
-        ahash_map.values().copied().sum::<u64>()
-    });
+    bench("ahash", || ahash_map.values().copied().sum::<u64>());
 
     println!();
     println!("=== Done ===");

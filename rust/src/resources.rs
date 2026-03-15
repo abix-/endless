@@ -5,9 +5,9 @@ pub use crate::entity_map::*;
 use crate::constants::{MAX_ENTITIES, MAX_NPC_COUNT, MAX_PROJECTILES};
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Mutex;
 
 /// CLI flag: skip main menu and start a new game with saved settings.
@@ -272,6 +272,18 @@ pub struct SelectedBuilding {
     pub kind: Option<crate::world::BuildingKind>,
 }
 
+/// Set of NPC entities with `direct_control == true`.
+/// Maintained incrementally by `sync_direct_control_set` using `Changed<NpcFlags>`.
+/// Uses HashSet for O(1) insert/remove/contains.
+#[derive(Resource, Default)]
+pub struct DirectControlSet(pub HashSet<Entity>);
+
+/// Entities currently in `ReturnLoot` activity.
+/// Maintained incrementally by `sync_returning_set` using `Changed<Activity>`.
+/// Uses HashSet for O(1) insert/remove/contains.
+#[derive(Resource, Default)]
+pub struct ReturningSet(pub HashSet<Entity>);
+
 /// Camera follow mode — when true, camera tracks the selected NPC.
 #[derive(Resource, Default)]
 pub struct FollowSelected(pub bool);
@@ -281,8 +293,7 @@ pub struct FollowSelected(pub bool);
 // ============================================================================
 
 /// Toggleable debug log flags. Controlled via pause menu settings.
-#[derive(Resource)]
-#[derive(Default)]
+#[derive(Resource, Default)]
 pub struct DebugFlags {
     /// Log GPU readback positions each tick
     pub readback: bool,
@@ -293,7 +304,6 @@ pub struct DebugFlags {
     /// Log behavior state changes
     pub behavior: bool,
 }
-
 
 /// Health system debug info - updated by damage/death systems, read by GDScript.
 #[derive(Resource, Default)]
@@ -603,17 +613,27 @@ impl PathRequestQueue {
         match self.pending_intents.entry(entity) {
             Entry::Occupied(mut e) => {
                 if priority > e.get().priority {
-                    *e.get_mut() = MovementIntent { target, priority, source };
+                    *e.get_mut() = MovementIntent {
+                        target,
+                        priority,
+                        source,
+                    };
                 }
             }
             Entry::Vacant(e) => {
-                e.insert(MovementIntent { target, priority, source });
+                e.insert(MovementIntent {
+                    target,
+                    priority,
+                    source,
+                });
             }
         }
     }
 
     /// Drain all pending world-space intents for resolution.
-    pub fn drain_intents(&mut self) -> std::collections::hash_map::Drain<'_, Entity, MovementIntent> {
+    pub fn drain_intents(
+        &mut self,
+    ) -> std::collections::hash_map::Drain<'_, Entity, MovementIntent> {
         self.pending_intents.drain()
     }
 
@@ -1007,8 +1027,7 @@ impl std::ops::DerefMut for ProjSlotAllocator {
 }
 
 /// GPU readback state. Populated by ReadbackComplete observers, read by main-world Bevy systems.
-#[derive(Resource)]
-#[derive(Default)]
+#[derive(Resource, Default)]
 pub struct GpuReadState {
     pub positions: Vec<f32>,      // [x0, y0, x1, y1, ...]
     pub combat_targets: Vec<i32>, // target index per NPC (-1 = none)
@@ -1017,7 +1036,6 @@ pub struct GpuReadState {
     pub threat_counts: Vec<u32>, // packed (enemies << 16 | allies) per NPC
     pub npc_count: usize,
 }
-
 
 /// GPU→CPU readback of projectile hit results. Each entry is [npc_idx, processed].
 /// Populated by ReadbackComplete observer, read by process_proj_hits.
@@ -1033,7 +1051,6 @@ pub struct ProjPositionState(pub Vec<f32>);
 #[derive(Resource, Default)]
 pub struct TownIndex(pub HashMap<i32, Entity>);
 
-
 /// Monotonic counter for unique loot item IDs.
 #[derive(Resource, Default)]
 pub struct NextLootItemId {
@@ -1047,7 +1064,6 @@ impl NextLootItemId {
         id
     }
 }
-
 
 /// Per-town merchant stock (items for sale + refresh timer).
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -1070,14 +1086,17 @@ impl MerchantInventory {
 
     pub fn refresh(&mut self, town_idx: usize, next_id: &mut NextLootItemId) {
         if town_idx >= self.stocks.len() {
-            self.stocks.resize_with(town_idx + 1, MerchantStock::default);
+            self.stocks
+                .resize_with(town_idx + 1, MerchantStock::default);
         }
         let stock = &mut self.stocks[town_idx];
         stock.items.clear();
         let count = 4 + (next_id.next as usize % 3); // 4-6 items
         for _ in 0..count {
             let id = next_id.alloc();
-            stock.items.push(crate::constants::roll_loot_item(id, id as u32));
+            stock
+                .items
+                .push(crate::constants::roll_loot_item(id, id as u32));
         }
         stock.refresh_timer = 12.0; // 12 game-hours
     }
@@ -1109,19 +1128,29 @@ pub struct FactionList {
 
 impl FactionList {
     pub fn is_player(&self, faction_idx: i32) -> bool {
-        self.factions.get(faction_idx as usize).is_some_and(|f| f.kind == FactionKind::Player)
+        self.factions
+            .get(faction_idx as usize)
+            .is_some_and(|f| f.kind == FactionKind::Player)
     }
 
     pub fn is_neutral(&self, faction_idx: i32) -> bool {
-        faction_idx == 0 || self.factions.get(faction_idx as usize).is_some_and(|f| f.kind == FactionKind::Neutral)
+        faction_idx == 0
+            || self
+                .factions
+                .get(faction_idx as usize)
+                .is_some_and(|f| f.kind == FactionKind::Neutral)
     }
 
     pub fn player_faction(&self) -> Option<usize> {
-        self.factions.iter().position(|f| f.kind == FactionKind::Player)
+        self.factions
+            .iter()
+            .position(|f| f.kind == FactionKind::Player)
     }
 
     pub fn player_town(&self) -> Option<usize> {
-        self.factions.iter().find(|f| f.kind == FactionKind::Player)
+        self.factions
+            .iter()
+            .find(|f| f.kind == FactionKind::Player)
             .and_then(|f| f.towns.first().copied())
     }
 }
@@ -1165,7 +1194,9 @@ impl Reputation {
 
     /// Faction `victim_faction` loses reputation toward `killer_faction`. -1 per kill.
     pub fn on_kill(&mut self, killer_faction: i32, victim_faction: i32) {
-        if killer_faction == victim_faction { return; }
+        if killer_faction == victim_faction {
+            return;
+        }
         if let Some(row) = self.values.get_mut(victim_faction as usize) {
             if let Some(val) = row.get_mut(killer_faction as usize) {
                 *val = (*val - 1.0).clamp(-9999.0, 9999.0);
@@ -1175,7 +1206,8 @@ impl Reputation {
 
     /// Get faction a's opinion of faction b.
     pub fn get(&self, a: i32, b: i32) -> f32 {
-        self.values.get(a as usize)
+        self.values
+            .get(a as usize)
             .and_then(|row| row.get(b as usize))
             .copied()
             .unwrap_or(0.0)
@@ -1304,15 +1336,30 @@ impl PauseSettingsTab {
 
     pub fn title_subtitle(self) -> (&'static str, &'static str) {
         match self {
-            Self::Interface => ("Interface", "UI size, text readability, and display behavior."),
+            Self::Interface => (
+                "Interface",
+                "UI size, text readability, and display behavior.",
+            ),
             Self::Video => ("Video", "Window resolution, vsync, and display behavior."),
-            Self::Camera => ("Camera", "Panning, zoom speed, and sprite-detail transitions."),
+            Self::Camera => (
+                "Camera",
+                "Panning, zoom speed, and sprite-detail transitions.",
+            ),
             Self::Controls => ("Controls", "View and rebind keyboard shortcuts."),
             Self::Audio => ("Audio", "Music and sound effect levels."),
-            Self::Logs => ("Logs", "Control what gets written to combat and activity logs."),
+            Self::Logs => (
+                "Logs",
+                "Control what gets written to combat and activity logs.",
+            ),
             Self::Debug => ("Debug", "Developer visibility and diagnostics toggles."),
-            Self::LlmPlayer => ("LLM Player", "Claude command interval and payload inspector."),
-            Self::SaveGame => ("Save Game", "Quicksave instantly or save manually by filename."),
+            Self::LlmPlayer => (
+                "LLM Player",
+                "Claude command interval and payload inspector.",
+            ),
+            Self::SaveGame => (
+                "Save Game",
+                "Quicksave instantly or save manually by filename.",
+            ),
             Self::LoadGame => ("Load Game", "Quickload or load a named/manual save file."),
         }
     }
@@ -1351,6 +1398,8 @@ pub struct UiState {
     pub tech_tree_tab: usize,
     /// Inspector window currently visible (NPC or building selected).
     pub inspector_visible: bool,
+    /// Armory modal window open.
+    pub armory_open: bool,
 }
 
 impl Default for UiState {
@@ -1374,6 +1423,7 @@ impl Default for UiState {
             tech_tree_open: false,
             tech_tree_tab: 0,
             inspector_visible: false,
+            armory_open: false,
         }
     }
 }
@@ -1386,6 +1436,23 @@ impl UiState {
         } else {
             self.left_panel_open = true;
             self.left_panel_tab = tab;
+        }
+    }
+
+    /// Open the centered armory modal and close the legacy side-panel armory tab if needed.
+    pub fn open_armory(&mut self) {
+        self.armory_open = true;
+        if self.left_panel_open && self.left_panel_tab == LeftPanelTab::Inventory {
+            self.left_panel_open = false;
+        }
+    }
+
+    /// Toggle the centered armory modal while suppressing the legacy side-panel armory tab.
+    pub fn toggle_armory(&mut self) {
+        if self.armory_open {
+            self.armory_open = false;
+        } else {
+            self.open_armory();
         }
     }
 }
@@ -1572,7 +1639,6 @@ pub struct TowerState {
     pub tower_cooldowns: std::collections::HashMap<usize, f32>,
 }
 
-
 /// Building HP render data. Read by build_overlay_instances for rendering.
 #[derive(Resource, Default)]
 pub struct BuildingHpRender {
@@ -1613,7 +1679,9 @@ impl Default for AutoUpgrade {
 // TOWN POLICIES
 // ============================================================================
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Reflect, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Default, Reflect, serde::Serialize, serde::Deserialize,
+)]
 pub enum WorkSchedule {
     #[default]
     Both,
@@ -1621,7 +1689,9 @@ pub enum WorkSchedule {
     NightOnly,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Reflect, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Default, Reflect, serde::Serialize, serde::Deserialize,
+)]
 pub enum OffDutyBehavior {
     #[default]
     GoToBed,
@@ -1666,7 +1736,12 @@ pub struct PolicySet {
     pub loot_threshold: usize,
 }
 
-fn default_loot_threshold() -> usize { 3 }
+pub const DEFAULT_LOOT_THRESHOLD: usize = 3;
+pub const MAX_LOOT_THRESHOLD: usize = 20;
+
+pub(crate) const fn default_loot_threshold() -> usize {
+    DEFAULT_LOOT_THRESHOLD
+}
 
 impl Default for PolicySet {
     fn default() -> Self {
@@ -1719,7 +1794,16 @@ pub struct DifficultyPreset {
 
 /// Game difficulty — scales building costs. Selected on main menu, immutable during play.
 #[derive(
-    Clone, Copy, PartialEq, Eq, Debug, Default, Resource, Reflect, serde::Serialize, serde::Deserialize,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Debug,
+    Default,
+    Resource,
+    Reflect,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 #[reflect(Resource)]
 pub enum Difficulty {
@@ -1743,39 +1827,47 @@ impl Difficulty {
     /// World gen presets. Overrides listed explicitly; unlisted jobs reset to NPC_REGISTRY defaults.
     pub fn presets(self) -> DifficultyPreset {
         use crate::components::Job;
-        let (farms, ai_towns, raider_towns, gold_mines, endless_mode, endless_strength, raider_forage_hours, overrides) =
-            match self {
-                Difficulty::Easy => (
-                    4,
-                    2,
-                    2,
-                    3,
-                    true,
-                    0.5,
-                    12.0,
-                    vec![(Job::Farmer, 4), (Job::Archer, 8), (Job::Raider, 0)],
-                ),
-                Difficulty::Normal => (
-                    2,
-                    5,
-                    5,
-                    2,
-                    true,
-                    0.75,
-                    6.0,
-                    vec![(Job::Farmer, 2), (Job::Archer, 4), (Job::Raider, 1)],
-                ),
-                Difficulty::Hard => (
-                    1,
-                    20,
-                    20,
-                    1,
-                    true,
-                    1.25,
-                    3.0,
-                    vec![(Job::Farmer, 0), (Job::Archer, 2), (Job::Raider, 2)],
-                ),
-            };
+        let (
+            farms,
+            ai_towns,
+            raider_towns,
+            gold_mines,
+            endless_mode,
+            endless_strength,
+            raider_forage_hours,
+            overrides,
+        ) = match self {
+            Difficulty::Easy => (
+                4,
+                2,
+                2,
+                3,
+                true,
+                0.5,
+                12.0,
+                vec![(Job::Farmer, 4), (Job::Archer, 8), (Job::Raider, 0)],
+            ),
+            Difficulty::Normal => (
+                2,
+                5,
+                5,
+                2,
+                true,
+                0.75,
+                6.0,
+                vec![(Job::Farmer, 2), (Job::Archer, 4), (Job::Raider, 1)],
+            ),
+            Difficulty::Hard => (
+                1,
+                20,
+                20,
+                1,
+                true,
+                1.25,
+                3.0,
+                vec![(Job::Farmer, 0), (Job::Archer, 2), (Job::Raider, 2)],
+            ),
+        };
         // Start from registry defaults, then apply preset overrides
         let mut npc_counts: std::collections::BTreeMap<Job, usize> = crate::constants::NPC_REGISTRY
             .iter()
@@ -1805,7 +1897,6 @@ impl Difficulty {
         }
     }
 }
-
 
 // ============================================================================
 // SQUADS
@@ -1852,6 +1943,8 @@ pub struct Squad {
     pub owner: SquadOwner,
     /// Hold fire: when true, members only attack their ManualTarget (no auto-engage).
     pub hold_fire: bool,
+    /// Equipment count that triggers this squad to return home and deposit loot.
+    pub loot_threshold: usize,
 }
 
 impl Squad {
@@ -1874,6 +1967,7 @@ impl Default for Squad {
             wave_retreat_below_pct: 50,
             owner: SquadOwner::Player,
             hold_fire: false,
+            loot_threshold: default_loot_threshold(),
         }
     }
 }
@@ -1969,7 +2063,10 @@ impl HelpCatalog {
             "Guard post patrol order. Use arrows to reorder.",
         );
         m.insert("tab_squads", "Set squad sizes and map targets. Default hotkeys are 1-9/0 (rebind in ESC > Settings > Controls).");
-        m.insert("tab_inventory", "Equipment from defeated raiders. Select a military NPC, then click Equip.");
+        m.insert(
+            "tab_inventory",
+            "Equipment from defeated raiders. Select a military NPC, then click Equip.",
+        );
         m.insert(
             "tab_profiler",
             "Per-system timings. Enable in ESC > Settings > Debug.",
@@ -2255,3 +2352,48 @@ impl ChatInbox {
 }
 
 // Test12 relocated to src/tests/vertical_slice.rs — uses shared TestState resource.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn open_armory_closes_legacy_inventory_tab() {
+        let mut ui = UiState {
+            left_panel_open: true,
+            left_panel_tab: LeftPanelTab::Inventory,
+            ..Default::default()
+        };
+
+        ui.open_armory();
+
+        assert!(ui.armory_open);
+        assert!(!ui.left_panel_open);
+        assert!(matches!(ui.left_panel_tab, LeftPanelTab::Inventory));
+    }
+
+    #[test]
+    fn toggle_armory_opens_and_closes_modal() {
+        let mut ui = UiState::default();
+
+        ui.toggle_armory();
+        assert!(ui.armory_open);
+
+        ui.toggle_armory();
+        assert!(!ui.armory_open);
+    }
+
+    #[test]
+    fn toggle_armory_closes_legacy_inventory_tab_when_opening() {
+        let mut ui = UiState {
+            left_panel_open: true,
+            left_panel_tab: LeftPanelTab::Inventory,
+            ..Default::default()
+        };
+
+        ui.toggle_armory();
+
+        assert!(ui.armory_open);
+        assert!(!ui.left_panel_open);
+    }
+}

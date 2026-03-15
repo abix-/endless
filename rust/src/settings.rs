@@ -10,8 +10,7 @@ use crate::resources::PolicySet;
 const SETTINGS_VERSION: u32 = 14;
 
 /// Controls which NPCs have their activity logged in `NpcLogCache`.
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug)]
-#[derive(Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug, Default)]
 pub enum NpcLogMode {
     /// Log for all NPCs. High memory with large populations.
     All,
@@ -21,7 +20,6 @@ pub enum NpcLogMode {
     #[default]
     SelectedOnly,
 }
-
 
 /// Groupings used by the Controls settings page.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -415,7 +413,9 @@ fn parse_digit_key(token: &str) -> Option<KeyCode> {
 }
 
 fn parse_function_key(token: &str) -> Option<KeyCode> {
-    let raw = token.strip_prefix('F').or_else(|| token.strip_prefix('f'))?;
+    let raw = token
+        .strip_prefix('F')
+        .or_else(|| token.strip_prefix('f'))?;
     let n = raw.parse::<u8>().ok()?;
     match n {
         1 => Some(KeyCode::F1),
@@ -525,10 +525,16 @@ pub struct AiSlotSave {
 fn default_ai_slots() -> Vec<AiSlotSave> {
     let mut slots = Vec::new();
     for _ in 0..5 {
-        slots.push(AiSlotSave { kind: 0, llm: false });
+        slots.push(AiSlotSave {
+            kind: 0,
+            llm: false,
+        });
     }
     for _ in 0..5 {
-        slots.push(AiSlotSave { kind: 1, llm: false });
+        slots.push(AiSlotSave {
+            kind: 1,
+            llm: false,
+        });
     }
     slots
 }
@@ -934,9 +940,7 @@ impl UserSettings {
     }
 
     pub fn clamp_video_settings(&mut self) {
-        self.window_width = self
-            .window_width
-            .clamp(MIN_WINDOW_WIDTH, MAX_WINDOW_WIDTH);
+        self.window_width = self.window_width.clamp(MIN_WINDOW_WIDTH, MAX_WINDOW_WIDTH);
         self.window_height = self
             .window_height
             .clamp(MIN_WINDOW_HEIGHT, MAX_WINDOW_HEIGHT);
@@ -966,9 +970,8 @@ pub fn apply_video_settings_to_window(window: &mut bevy::window::Window, setting
         bevy::window::PresentMode::AutoNoVsync
     };
     if settings.fullscreen {
-        window.mode = bevy::window::WindowMode::BorderlessFullscreen(
-            bevy::window::MonitorSelection::Current,
-        );
+        window.mode =
+            bevy::window::WindowMode::BorderlessFullscreen(bevy::window::MonitorSelection::Current);
     } else {
         window.mode = bevy::window::WindowMode::Windowed;
         window.set_maximized(settings.window_maximized);

@@ -96,7 +96,9 @@ pub(crate) fn roster_content(
                 slot: idx,
                 name: stats.map(|s| s.name.clone()).unwrap_or_default(),
                 job: job_i32,
-                level: stats.map(|s| crate::systems::stats::level_from_xp(s.xp)).unwrap_or(0),
+                level: stats
+                    .map(|s| crate::systems::stats::level_from_xp(s.xp))
+                    .unwrap_or(0),
                 hp: roster.health_q.get(npc.entity).map(|h| h.0).unwrap_or(0.0),
                 max_hp: roster
                     .cached_stats_q
@@ -170,7 +172,11 @@ pub(crate) fn roster_content(
         if let Some(npc) = roster.entity_map.get_npc(idx) {
             if state.rename_slot != selected_idx {
                 state.rename_slot = selected_idx;
-                state.rename_text = roster.npc_stats_q.get(npc.entity).map(|s| s.name.clone()).unwrap_or_default();
+                state.rename_text = roster
+                    .npc_stats_q
+                    .get(npc.entity)
+                    .map(|s| s.name.clone())
+                    .unwrap_or_default();
             }
 
             ui.horizontal(|ui| {

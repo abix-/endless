@@ -46,7 +46,6 @@ pub(super) fn setup(
         &mut faction_stats,
         &mut crate::resources::Reputation::default(),
         &mut state.raider_state,
-
         &mut town_index,
         &mut commands,
         &mut gpu_updates,
@@ -57,8 +56,12 @@ pub(super) fn setup(
     for player in &state.ai_state.players {
         let ti = player.town_data_idx as i32;
         if let Some(&e) = town_index.0.get(&ti) {
-            commands.entity(e).insert(crate::components::FoodStore(100_000));
-            commands.entity(e).insert(crate::components::GoldStore(100_000));
+            commands
+                .entity(e)
+                .insert(crate::components::FoodStore(100_000));
+            commands
+                .entity(e)
+                .insert(crate::components::GoldStore(100_000));
         }
     }
 

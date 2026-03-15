@@ -16,11 +16,17 @@ use crate::world::{WorldGenConfig, WorldGenStyle};
 
 /// Per-AI-player slot kind.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum AiSlotKind { Builder, Raider }
+pub enum AiSlotKind {
+    Builder,
+    Raider,
+}
 
 impl AiSlotKind {
     pub fn label(self) -> &'static str {
-        match self { AiSlotKind::Builder => "Builder", AiSlotKind::Raider => "Raider" }
+        match self {
+            AiSlotKind::Builder => "Builder",
+            AiSlotKind::Raider => "Raider",
+        }
     }
 }
 
@@ -132,10 +138,18 @@ pub fn main_menu_system(
                 .unwrap_or(def.default_count);
             state.npc_counts.insert(def.job, count as f32);
         }
-        state.ai_slots = saved.ai_slots.iter().map(|s| AiSlotConfig {
-            kind: if s.kind == 1 { AiSlotKind::Raider } else { AiSlotKind::Builder },
-            llm: s.llm,
-        }).collect();
+        state.ai_slots = saved
+            .ai_slots
+            .iter()
+            .map(|s| AiSlotConfig {
+                kind: if s.kind == 1 {
+                    AiSlotKind::Raider
+                } else {
+                    AiSlotKind::Builder
+                },
+                llm: s.llm,
+            })
+            .collect();
         state.ai_interval = saved.ai_interval;
         state.npc_interval = saved.npc_interval;
         state.gold_mines = saved.gold_mines_per_town as f32;
@@ -157,13 +171,29 @@ pub fn main_menu_system(
         // Rebuild ai_slots from preset counts, preserving LLM flags where possible
         let mut new_slots = Vec::new();
         for i in 0..preset.ai_towns {
-            let llm = state.ai_slots.get(i).is_some_and(|s| s.llm && s.kind == AiSlotKind::Builder);
-            new_slots.push(AiSlotConfig { kind: AiSlotKind::Builder, llm });
+            let llm = state
+                .ai_slots
+                .get(i)
+                .is_some_and(|s| s.llm && s.kind == AiSlotKind::Builder);
+            new_slots.push(AiSlotConfig {
+                kind: AiSlotKind::Builder,
+                llm,
+            });
         }
-        let old_raider_start = state.ai_slots.iter().position(|s| s.kind == AiSlotKind::Raider).unwrap_or(state.ai_slots.len());
+        let old_raider_start = state
+            .ai_slots
+            .iter()
+            .position(|s| s.kind == AiSlotKind::Raider)
+            .unwrap_or(state.ai_slots.len());
         for i in 0..preset.raider_towns {
-            let llm = state.ai_slots.get(old_raider_start + i).is_some_and(|s| s.llm && s.kind == AiSlotKind::Raider);
-            new_slots.push(AiSlotConfig { kind: AiSlotKind::Raider, llm });
+            let llm = state
+                .ai_slots
+                .get(old_raider_start + i)
+                .is_some_and(|s| s.llm && s.kind == AiSlotKind::Raider);
+            new_slots.push(AiSlotConfig {
+                kind: AiSlotKind::Raider,
+                llm,
+            });
         }
         state.ai_slots = new_slots;
         state.gold_mines = preset.gold_mines as f32;
@@ -483,7 +513,11 @@ pub fn main_menu_system(
             .min_width(820.0)
             .min_height(520.0)
             .show(ctx, |ui| {
-                let MenuState { ref mut settings_tab, ref mut rebinding_action, .. } = *state;
+                let MenuState {
+                    ref mut settings_tab,
+                    ref mut rebinding_action,
+                    ..
+                } = *state;
                 crate::ui::settings_panel_ui(
                     ui,
                     &mut user_settings,

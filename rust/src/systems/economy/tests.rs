@@ -1,15 +1,24 @@
 use super::*;
-use crate::components::{Building, CachedStats, ConstructionProgress, Dead, Energy, GpuSlot, Health, NpcFlags, ProductionState, SpawnerState, TownId, Position};
+use crate::components::{
+    Building, CachedStats, ConstructionProgress, Dead, Energy, GpuSlot, Health, NpcFlags, Position,
+    ProductionState, SpawnerState, TownId,
+};
 use crate::messages::GpuUpdateMsg;
 use crate::resources::GameTime;
 use bevy::time::TimeUpdateStrategy;
 
 fn test_cached_stats() -> CachedStats {
     CachedStats {
-        damage: 15.0, range: 200.0, cooldown: 1.5,
-        projectile_speed: 200.0, projectile_lifetime: 1.5,
-        max_health: 100.0, speed: 200.0, stamina: 1.0,
-        hp_regen: 0.0, berserk_bonus: 0.0,
+        damage: 15.0,
+        range: 200.0,
+        cooldown: 1.5,
+        projectile_speed: 200.0,
+        projectile_lifetime: 1.5,
+        max_health: 100.0,
+        speed: 200.0,
+        stamina: 1.0,
+        hp_regen: 0.0,
+        berserk_bonus: 0.0,
     }
 }
 
@@ -29,13 +38,15 @@ fn setup_starvation_app() -> App {
 }
 
 fn spawn_starving_npc(app: &mut App, energy: f32, health: f32) -> Entity {
-    app.world_mut().spawn((
-        GpuSlot(0),
-        Energy(energy),
-        test_cached_stats(),
-        NpcFlags::default(),
-        Health(health),
-    )).id()
+    app.world_mut()
+        .spawn((
+            GpuSlot(0),
+            Energy(energy),
+            test_cached_stats(),
+            NpcFlags::default(),
+            Health(health),
+        ))
+        .id()
 }
 
 #[test]
@@ -52,13 +63,19 @@ fn starvation_flags_set_when_energy_zero() {
 #[test]
 fn starvation_clears_when_energy_restored() {
     let mut app = setup_starvation_app();
-    let npc = app.world_mut().spawn((
-        GpuSlot(0),
-        Energy(50.0),
-        test_cached_stats(),
-        NpcFlags { starving: true, ..Default::default() },
-        Health(100.0),
-    )).id();
+    let npc = app
+        .world_mut()
+        .spawn((
+            GpuSlot(0),
+            Energy(50.0),
+            test_cached_stats(),
+            NpcFlags {
+                starving: true,
+                ..Default::default()
+            },
+            Health(100.0),
+        ))
+        .id();
     app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
 
     app.update();
@@ -75,7 +92,10 @@ fn starvation_caps_hp() {
     app.update();
     let hp = app.world().get::<Health>(npc).unwrap().0;
     let cap = 100.0 * STARVING_HP_CAP;
-    assert!(hp <= cap + 0.01, "starving NPC HP should be capped at {cap}: {hp}");
+    assert!(
+        hp <= cap + 0.01,
+        "starving NPC HP should be capped at {cap}: {hp}"
+    );
 }
 
 #[test]
@@ -86,43 +106,60 @@ fn starvation_skips_when_no_hour_tick() {
 
     app.update();
     let flags = app.world().get::<NpcFlags>(npc).unwrap();
-    assert!(!flags.starving, "should not process starvation without hour tick");
+    assert!(
+        !flags.starving,
+        "should not process starvation without hour tick"
+    );
 }
 
 #[test]
 fn dead_npcs_excluded_from_starvation() {
     let mut app = setup_starvation_app();
-    let npc = app.world_mut().spawn((
-        GpuSlot(0),
-        Energy(0.0),
-        test_cached_stats(),
-        NpcFlags::default(),
-        Health(100.0),
-        Dead,
-    )).id();
+    let npc = app
+        .world_mut()
+        .spawn((
+            GpuSlot(0),
+            Energy(0.0),
+            test_cached_stats(),
+            NpcFlags::default(),
+            Health(100.0),
+            Dead,
+        ))
+        .id();
     app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
 
     app.update();
     let flags = app.world().get::<NpcFlags>(npc).unwrap();
-    assert!(!flags.starving, "dead NPC should be excluded from starvation");
+    assert!(
+        !flags.starving,
+        "dead NPC should be excluded from starvation"
+    );
 }
 
 #[test]
 fn buildings_excluded_from_starvation() {
     let mut app = setup_starvation_app();
-    let building = app.world_mut().spawn((
-        GpuSlot(0),
-        Energy(0.0),
-        test_cached_stats(),
-        NpcFlags::default(),
-        Health(100.0),
-        Building { kind: crate::world::BuildingKind::Tower },
-    )).id();
+    let building = app
+        .world_mut()
+        .spawn((
+            GpuSlot(0),
+            Energy(0.0),
+            test_cached_stats(),
+            NpcFlags::default(),
+            Health(100.0),
+            Building {
+                kind: crate::world::BuildingKind::Tower,
+            },
+        ))
+        .id();
     app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
 
     app.update();
     let flags = app.world().get::<NpcFlags>(building).unwrap();
-    assert!(!flags.starving, "buildings should be excluded from starvation");
+    assert!(
+        !flags.starving,
+        "buildings should be excluded from starvation"
+    );
 }
 
 // ========================================================================
@@ -149,7 +186,10 @@ fn game_time_advances() {
     let before = app.world().resource::<GameTime>().total_seconds;
     app.update();
     let after = app.world().resource::<GameTime>().total_seconds;
-    assert!(after > before, "total_seconds should advance: before={before}, after={after}");
+    assert!(
+        after > before,
+        "total_seconds should advance: before={before}, after={after}"
+    );
 }
 
 #[test]
@@ -160,7 +200,10 @@ fn game_time_paused_no_advance() {
     let before = app.world().resource::<GameTime>().total_seconds;
     app.update();
     let after = app.world().resource::<GameTime>().total_seconds;
-    assert!((after - before).abs() < f32::EPSILON, "paused game time should not advance: {before} -> {after}");
+    assert!(
+        (after - before).abs() < f32::EPSILON,
+        "paused game time should not advance: {before} -> {after}"
+    );
 }
 
 #[test]
@@ -174,7 +217,10 @@ fn game_time_hour_ticked_resets_each_frame() {
     // Whether it's true after depends on whether an hour boundary was crossed,
     // but it should NOT still be true from the manual set above (it resets first)
     // With default seconds_per_hour=5.0, 1s delta = 0.2 hours, so no hour boundary
-    assert!(!ticked, "hour_ticked should reset each frame when no hour boundary crossed");
+    assert!(
+        !ticked,
+        "hour_ticked should reset each frame when no hour boundary crossed"
+    );
 }
 
 #[test]
@@ -187,7 +233,12 @@ fn game_time_hour_ticks_after_enough_time() {
         app.update();
     }
     let gt = app.world().resource::<GameTime>();
-    assert!(gt.last_hour >= 1, "last_hour should increment after enough time: last_hour={}, total_seconds={}", gt.last_hour, gt.total_seconds);
+    assert!(
+        gt.last_hour >= 1,
+        "last_hour should increment after enough time: last_hour={}, total_seconds={}",
+        gt.last_hour,
+        gt.total_seconds
+    );
 }
 
 #[test]
@@ -200,7 +251,10 @@ fn game_time_last_hour_tracks() {
         app.update();
     }
     let final_hour = app.world().resource::<GameTime>().last_hour;
-    assert!(final_hour > initial, "last_hour should increase over time: initial={initial}, final={final_hour}");
+    assert!(
+        final_hour > initial,
+        "last_hour should increase over time: initial={initial}, final={final_hour}"
+    );
 }
 
 // ========================================================================
@@ -225,7 +279,11 @@ fn setup_construction_app() -> App {
     app
 }
 
-fn test_building_instance(slot: usize, kind: BuildingKind, _under_construction: f32) -> BuildingInstance {
+fn test_building_instance(
+    slot: usize,
+    kind: BuildingKind,
+    _under_construction: f32,
+) -> BuildingInstance {
     BuildingInstance {
         kind,
         position: Vec2::ZERO,
@@ -235,14 +293,22 @@ fn test_building_instance(slot: usize, kind: BuildingKind, _under_construction: 
     }
 }
 
-fn spawn_constructing_building(app: &mut App, slot: usize, kind: BuildingKind, secs_left: f32) -> Entity {
-    let entity = app.world_mut().spawn((
-        GpuSlot(slot),
-        Health(0.01),
-        Building { kind },
-        ConstructionProgress(secs_left),
-        ProductionState::default(),
-    )).id();
+fn spawn_constructing_building(
+    app: &mut App,
+    slot: usize,
+    kind: BuildingKind,
+    secs_left: f32,
+) -> Entity {
+    let entity = app
+        .world_mut()
+        .spawn((
+            GpuSlot(slot),
+            Health(0.01),
+            Building { kind },
+            ConstructionProgress(secs_left),
+            ProductionState::default(),
+        ))
+        .id();
     let mut entity_map = app.world_mut().resource_mut::<EntityMap>();
     entity_map.set_entity(slot, entity);
     entity_map.add_instance(test_building_instance(slot, kind, secs_left));
@@ -275,7 +341,10 @@ fn construction_completes() {
     // Health should be set to full building HP
     let hp = app.world().get::<Health>(entity).unwrap().0;
     let expected = crate::constants::building_def(BuildingKind::Tower).hp;
-    assert!((hp - expected).abs() < 0.1, "completed building HP should be {expected}: {hp}");
+    assert!(
+        (hp - expected).abs() < 0.1,
+        "completed building HP should be {expected}: {hp}"
+    );
 }
 
 #[test]
@@ -286,7 +355,11 @@ fn construction_paused_no_progress() {
 
     app.update();
     let cp = app.world().get::<ConstructionProgress>(entity).unwrap().0;
-    assert!((cp - 5.0).abs() < f32::EPSILON, "paused: construction should not progress: {}", cp);
+    assert!(
+        (cp - 5.0).abs() < f32::EPSILON,
+        "paused: construction should not progress: {}",
+        cp
+    );
 }
 
 #[test]
@@ -298,7 +371,10 @@ fn construction_hp_scales_with_progress() {
     let hp = app.world().get::<Health>(entity).unwrap().0;
     // Should be between 0.01 and full HP (partial progress)
     let full_hp = crate::constants::building_def(BuildingKind::Tower).hp;
-    assert!(hp > 0.0 && hp < full_hp, "HP should scale with progress: {hp} (full={full_hp})");
+    assert!(
+        hp > 0.0 && hp < full_hp,
+        "HP should scale with progress: {hp} (full={full_hp})"
+    );
 }
 
 // ========================================================================
@@ -346,33 +422,53 @@ fn setup_forage_app() -> App {
     app.insert_resource(PopulationStats::default());
     app.insert_resource(WorldData {
         towns: vec![
-            crate::world::Town { name: "Player".into(), center: Vec2::ZERO, faction: 1, kind: crate::constants::TownKind::Player },
-            crate::world::Town { name: "Raider".into(), center: Vec2::new(1000.0, 0.0), faction: 2, kind: crate::constants::TownKind::AiRaider },
+            crate::world::Town {
+                name: "Player".into(),
+                center: Vec2::ZERO,
+                faction: 1,
+                kind: crate::constants::TownKind::Player,
+            },
+            crate::world::Town {
+                name: "Raider".into(),
+                center: Vec2::new(1000.0, 0.0),
+                faction: 2,
+                kind: crate::constants::TownKind::AiRaider,
+            },
         ],
     });
     app.insert_resource(crate::settings::UserSettings::default());
-    app.insert_resource(RaiderState { max_pop: vec![5, 5], respawn_timers: vec![0.0, 0.0], forage_timers: vec![0.0, 0.0] });
+    app.insert_resource(RaiderState {
+        max_pop: vec![5, 5],
+        respawn_timers: vec![0.0, 0.0],
+        forage_timers: vec![0.0, 0.0],
+    });
     app.insert_resource(TimeUpdateStrategy::ManualDuration(
         std::time::Duration::from_secs_f32(1.0),
     ));
     // Spawn ECS town entities and register TownIndex
     let mut town_index = crate::resources::TownIndex::default();
-    let e0 = app.world_mut().spawn((
-        crate::components::TownMarker,
-        crate::components::FoodStore(0),
-        crate::components::GoldStore(0),
-        crate::components::TownPolicy::default(),
-        crate::components::TownUpgradeLevel::default(),
-        crate::components::TownEquipment::default(),
-    )).id();
-    let e1 = app.world_mut().spawn((
-        crate::components::TownMarker,
-        crate::components::FoodStore(0),
-        crate::components::GoldStore(0),
-        crate::components::TownPolicy::default(),
-        crate::components::TownUpgradeLevel::default(),
-        crate::components::TownEquipment::default(),
-    )).id();
+    let e0 = app
+        .world_mut()
+        .spawn((
+            crate::components::TownMarker,
+            crate::components::FoodStore(0),
+            crate::components::GoldStore(0),
+            crate::components::TownPolicy::default(),
+            crate::components::TownUpgradeLevel::default(),
+            crate::components::TownEquipment::default(),
+        ))
+        .id();
+    let e1 = app
+        .world_mut()
+        .spawn((
+            crate::components::TownMarker,
+            crate::components::FoodStore(0),
+            crate::components::GoldStore(0),
+            crate::components::TownPolicy::default(),
+            crate::components::TownUpgradeLevel::default(),
+            crate::components::TownEquipment::default(),
+        ))
+        .id();
     town_index.0.insert(0, e0);
     town_index.0.insert(1, e1);
     app.insert_resource(town_index);
@@ -387,14 +483,24 @@ fn raider_forage_adds_food_on_hour_tick() {
     let mut app = setup_forage_app();
     app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
     // Set forage timer for raider town (index 1) to threshold
-    let interval = app.world().resource::<crate::settings::UserSettings>().raider_forage_hours;
+    let interval = app
+        .world()
+        .resource::<crate::settings::UserSettings>()
+        .raider_forage_hours;
     app.world_mut().resource_mut::<RaiderState>().forage_timers[1] = interval - 1.0;
 
     app.update();
     let town_index = app.world().resource::<crate::resources::TownIndex>();
     let e1 = town_index.0[&1];
-    let food = app.world().get::<crate::components::FoodStore>(e1).unwrap().0;
-    assert!(food > 0, "raider town should gain food from foraging: {food}");
+    let food = app
+        .world()
+        .get::<crate::components::FoodStore>(e1)
+        .unwrap()
+        .0;
+    assert!(
+        food > 0,
+        "raider town should gain food from foraging: {food}"
+    );
 }
 
 #[test]
@@ -405,7 +511,11 @@ fn raider_forage_skips_without_hour_tick() {
     app.update();
     let town_index = app.world().resource::<crate::resources::TownIndex>();
     let e1 = town_index.0[&1];
-    let food = app.world().get::<crate::components::FoodStore>(e1).unwrap().0;
+    let food = app
+        .world()
+        .get::<crate::components::FoodStore>(e1)
+        .unwrap()
+        .0;
     assert_eq!(food, 0, "no foraging without hour tick");
 }
 
@@ -413,13 +523,20 @@ fn raider_forage_skips_without_hour_tick() {
 fn raider_forage_player_town_unaffected() {
     let mut app = setup_forage_app();
     app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
-    let interval = app.world().resource::<crate::settings::UserSettings>().raider_forage_hours;
+    let interval = app
+        .world()
+        .resource::<crate::settings::UserSettings>()
+        .raider_forage_hours;
     app.world_mut().resource_mut::<RaiderState>().forage_timers[1] = interval - 1.0;
 
     app.update();
     let town_index = app.world().resource::<crate::resources::TownIndex>();
     let e0 = town_index.0[&0];
-    let food = app.world().get::<crate::components::FoodStore>(e0).unwrap().0;
+    let food = app
+        .world()
+        .get::<crate::components::FoodStore>(e0)
+        .unwrap()
+        .0;
     assert_eq!(food, 0, "player town should not get raider forage food");
 }
 
@@ -442,14 +559,17 @@ fn setup_growth_app() -> App {
     });
     // Spawn ECS town entity for TownAccess
     let mut town_index = crate::resources::TownIndex::default();
-    let entity = app.world_mut().spawn((
-        crate::components::TownMarker,
-        crate::components::FoodStore(0),
-        crate::components::GoldStore(0),
-        crate::components::TownPolicy::default(),
-        crate::components::TownUpgradeLevel::default(),
-        crate::components::TownEquipment::default(),
-    )).id();
+    let entity = app
+        .world_mut()
+        .spawn((
+            crate::components::TownMarker,
+            crate::components::FoodStore(0),
+            crate::components::GoldStore(0),
+            crate::components::TownPolicy::default(),
+            crate::components::TownUpgradeLevel::default(),
+            crate::components::TownEquipment::default(),
+        ))
+        .id();
     town_index.0.insert(0, entity);
     app.insert_resource(town_index);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(
@@ -463,14 +583,22 @@ fn setup_growth_app() -> App {
 
 fn add_farm(app: &mut App, slot: usize, tended: bool) {
     let inst = test_building_instance(slot, BuildingKind::Farm, 0.0);
-    let entity = app.world_mut().spawn((
-        GpuSlot(slot),
-        Building { kind: BuildingKind::Farm },
-        TownId(0),
-        Position { x: 0.0, y: 0.0 },
-        ConstructionProgress(0.0),
-        ProductionState { ready: false, progress: 0.0 },
-    )).id();
+    let entity = app
+        .world_mut()
+        .spawn((
+            GpuSlot(slot),
+            Building {
+                kind: BuildingKind::Farm,
+            },
+            TownId(0),
+            Position { x: 0.0, y: 0.0 },
+            ConstructionProgress(0.0),
+            ProductionState {
+                ready: false,
+                progress: 0.0,
+            },
+        ))
+        .id();
     let mut em = app.world_mut().resource_mut::<EntityMap>();
     em.set_entity(slot, entity);
     em.add_instance(inst);
@@ -485,9 +613,18 @@ fn farm_grows_when_tended() {
     add_farm(&mut app, 0, true);
 
     app.update();
-    let entity = *app.world().resource::<EntityMap>().entities.get(&0).unwrap();
+    let entity = *app
+        .world()
+        .resource::<EntityMap>()
+        .entities
+        .get(&0)
+        .unwrap();
     let ps = app.world().get::<ProductionState>(entity).unwrap();
-    assert!(ps.progress > 0.0, "tended farm should grow: {}", ps.progress);
+    assert!(
+        ps.progress > 0.0,
+        "tended farm should grow: {}",
+        ps.progress
+    );
 }
 
 #[test]
@@ -496,9 +633,18 @@ fn farm_grows_untended_at_base_rate() {
     add_farm(&mut app, 0, false);
 
     app.update();
-    let entity = *app.world().resource::<EntityMap>().entities.get(&0).unwrap();
+    let entity = *app
+        .world()
+        .resource::<EntityMap>()
+        .entities
+        .get(&0)
+        .unwrap();
     let ps = app.world().get::<ProductionState>(entity).unwrap();
-    assert!(ps.progress > 0.0, "untended farm should still grow at base rate: {}", ps.progress);
+    assert!(
+        ps.progress > 0.0,
+        "untended farm should still grow at base rate: {}",
+        ps.progress
+    );
 }
 
 #[test]
@@ -508,25 +654,46 @@ fn tended_farm_grows_faster() {
     add_farm(&mut app, 1, true);
 
     app.update();
-    let e0 = *app.world().resource::<EntityMap>().entities.get(&0).unwrap();
-    let e1 = *app.world().resource::<EntityMap>().entities.get(&1).unwrap();
+    let e0 = *app
+        .world()
+        .resource::<EntityMap>()
+        .entities
+        .get(&0)
+        .unwrap();
+    let e1 = *app
+        .world()
+        .resource::<EntityMap>()
+        .entities
+        .get(&1)
+        .unwrap();
     let untended = app.world().get::<ProductionState>(e0).unwrap().progress;
     let tended = app.world().get::<ProductionState>(e1).unwrap().progress;
-    assert!(tended > untended, "tended should grow faster: tended={tended}, untended={untended}");
+    assert!(
+        tended > untended,
+        "tended should grow faster: tended={tended}, untended={untended}"
+    );
 }
 
 #[test]
 fn farm_becomes_ready() {
     let mut app = setup_growth_app();
     let inst = test_building_instance(0, BuildingKind::Farm, 0.0);
-    let entity = app.world_mut().spawn((
-        GpuSlot(0),
-        Building { kind: BuildingKind::Farm },
-        TownId(0),
-        Position { x: 0.0, y: 0.0 },
-        ConstructionProgress(0.0),
-        ProductionState { ready: false, progress: 0.99 },
-    )).id();
+    let entity = app
+        .world_mut()
+        .spawn((
+            GpuSlot(0),
+            Building {
+                kind: BuildingKind::Farm,
+            },
+            TownId(0),
+            Position { x: 0.0, y: 0.0 },
+            ConstructionProgress(0.0),
+            ProductionState {
+                ready: false,
+                progress: 0.99,
+            },
+        ))
+        .id();
     let mut em = app.world_mut().resource_mut::<EntityMap>();
     em.set_entity(0, entity);
     em.add_instance(inst);
@@ -536,7 +703,10 @@ fn farm_becomes_ready() {
     }
     let ps = app.world().get::<ProductionState>(entity).unwrap();
     assert!(ps.ready, "farm should become ready");
-    assert!((ps.progress - 1.0).abs() < f32::EPSILON, "progress should cap at 1.0");
+    assert!(
+        (ps.progress - 1.0).abs() < f32::EPSILON,
+        "progress should cap at 1.0"
+    );
 }
 
 #[test]
@@ -546,7 +716,12 @@ fn growth_paused_no_change() {
     add_farm(&mut app, 0, true);
 
     app.update();
-    let entity = *app.world().resource::<EntityMap>().entities.get(&0).unwrap();
+    let entity = *app
+        .world()
+        .resource::<EntityMap>()
+        .entities
+        .get(&0)
+        .unwrap();
     let ps = app.world().get::<ProductionState>(entity).unwrap();
     assert!(ps.progress < f32::EPSILON, "paused: farm should not grow");
 }
@@ -555,35 +730,55 @@ fn growth_paused_no_change() {
 fn mine_grows_only_when_tended() {
     let mut app = setup_growth_app();
     let inst = test_building_instance(0, BuildingKind::GoldMine, 0.0);
-    let entity = app.world_mut().spawn((
-        GpuSlot(0),
-        Building { kind: BuildingKind::GoldMine },
-        TownId(0),
-        Position { x: 0.0, y: 0.0 },
-        ConstructionProgress(0.0),
-        ProductionState { ready: false, progress: 0.0 },
-    )).id();
+    let entity = app
+        .world_mut()
+        .spawn((
+            GpuSlot(0),
+            Building {
+                kind: BuildingKind::GoldMine,
+            },
+            TownId(0),
+            Position { x: 0.0, y: 0.0 },
+            ConstructionProgress(0.0),
+            ProductionState {
+                ready: false,
+                progress: 0.0,
+            },
+        ))
+        .id();
     let mut em = app.world_mut().resource_mut::<EntityMap>();
     em.set_entity(0, entity);
     em.add_instance(inst);
 
     app.update();
     let ps = app.world().get::<ProductionState>(entity).unwrap();
-    assert!(ps.progress < f32::EPSILON, "mine with 0 workers should not grow: {}", ps.progress);
+    assert!(
+        ps.progress < f32::EPSILON,
+        "mine with 0 workers should not grow: {}",
+        ps.progress
+    );
 }
 
 #[test]
 fn mine_grows_with_workers() {
     let mut app = setup_growth_app();
     let inst = test_building_instance(0, BuildingKind::GoldMine, 0.0);
-    let entity = app.world_mut().spawn((
-        GpuSlot(0),
-        Building { kind: BuildingKind::GoldMine },
-        TownId(0),
-        Position { x: 0.0, y: 0.0 },
-        ConstructionProgress(0.0),
-        ProductionState { ready: false, progress: 0.0 },
-    )).id();
+    let entity = app
+        .world_mut()
+        .spawn((
+            GpuSlot(0),
+            Building {
+                kind: BuildingKind::GoldMine,
+            },
+            TownId(0),
+            Position { x: 0.0, y: 0.0 },
+            ConstructionProgress(0.0),
+            ProductionState {
+                ready: false,
+                progress: 0.0,
+            },
+        ))
+        .id();
     let mut em = app.world_mut().resource_mut::<EntityMap>();
     em.set_entity(0, entity);
     em.add_instance(inst);
@@ -591,7 +786,11 @@ fn mine_grows_with_workers() {
 
     app.update();
     let ps = app.world().get::<ProductionState>(entity).unwrap();
-    assert!(ps.progress > 0.0, "mine with workers should grow: {}", ps.progress);
+    assert!(
+        ps.progress > 0.0,
+        "mine with workers should grow: {}",
+        ps.progress
+    );
 }
 
 // ========================================================================
@@ -606,9 +805,12 @@ fn setup_merchant_app() -> App {
     app.insert_resource(MerchantInventory::default());
     app.insert_resource(NextLootItemId::default());
     app.insert_resource(WorldData {
-        towns: vec![
-            crate::world::Town { name: "Town".into(), center: Vec2::ZERO, faction: 0, kind: crate::constants::TownKind::Player },
-        ],
+        towns: vec![crate::world::Town {
+            name: "Town".into(),
+            center: Vec2::ZERO,
+            faction: 0,
+            kind: crate::constants::TownKind::Player,
+        }],
     });
     app.insert_resource(TimeUpdateStrategy::ManualDuration(
         std::time::Duration::from_secs_f32(1.0),
@@ -628,8 +830,10 @@ fn merchant_no_building_no_tick() {
     }
     let inv = app.world().resource::<MerchantInventory>();
     // Without a Merchant building, stocks should remain empty
-    assert!(inv.stocks.is_empty() || inv.stocks[0].items.is_empty(),
-            "no merchant building = no items");
+    assert!(
+        inv.stocks.is_empty() || inv.stocks[0].items.is_empty(),
+        "no merchant building = no items"
+    );
 }
 
 #[test]
@@ -638,7 +842,9 @@ fn merchant_ticks_with_building() {
     // Add a merchant building to town 0
     let mut inst = test_building_instance(0, BuildingKind::Merchant, 0.0);
     inst.town_idx = 0;
-    app.world_mut().resource_mut::<EntityMap>().add_instance(inst);
+    app.world_mut()
+        .resource_mut::<EntityMap>()
+        .add_instance(inst);
 
     // Run enough updates for refresh timer to expire
     for _ in 0..100 {
@@ -648,7 +854,10 @@ fn merchant_ticks_with_building() {
     // Should have stocked items after refresh
     assert!(!inv.stocks.is_empty(), "merchant should have stocks");
     if !inv.stocks.is_empty() {
-        assert!(!inv.stocks[0].items.is_empty(), "merchant should have items after refresh");
+        assert!(
+            !inv.stocks[0].items.is_empty(),
+            "merchant should have items after refresh"
+        );
     }
 }
 
@@ -658,12 +867,16 @@ fn merchant_paused_no_tick() {
     app.world_mut().resource_mut::<GameTime>().paused = true;
     let mut inst = test_building_instance(0, BuildingKind::Merchant, 0.0);
     inst.town_idx = 0;
-    app.world_mut().resource_mut::<EntityMap>().add_instance(inst);
+    app.world_mut()
+        .resource_mut::<EntityMap>()
+        .add_instance(inst);
 
     app.update();
     let inv = app.world().resource::<MerchantInventory>();
-    assert!(inv.stocks.is_empty() || inv.stocks[0].items.is_empty(),
-            "paused: merchant should not tick");
+    assert!(
+        inv.stocks.is_empty() || inv.stocks[0].items.is_empty(),
+        "paused: merchant should not tick"
+    );
 }
 
 // -- farm_visual_system --------------------------------------------------
@@ -683,11 +896,19 @@ fn setup_farm_visual_app() -> App {
 
 fn add_farm_visual(app: &mut App, slot: usize, growth_ready: bool) -> Entity {
     let inst = test_building_instance(slot, BuildingKind::Farm, 0.0);
-    let entity = app.world_mut().spawn((
-        GpuSlot(slot),
-        Building { kind: BuildingKind::Farm },
-        ProductionState { ready: growth_ready, progress: if growth_ready { 1.0 } else { 0.0 } },
-    )).id();
+    let entity = app
+        .world_mut()
+        .spawn((
+            GpuSlot(slot),
+            Building {
+                kind: BuildingKind::Farm,
+            },
+            ProductionState {
+                ready: growth_ready,
+                progress: if growth_ready { 1.0 } else { 0.0 },
+            },
+        ))
+        .id();
     let mut em = app.world_mut().resource_mut::<EntityMap>();
     em.set_entity(slot, entity);
     em.add_instance(inst);
@@ -701,6 +922,13 @@ fn count_farm_markers(app: &mut App) -> usize {
         .count()
 }
 
+fn find_farm_marker(app: &mut App, slot: usize) -> Option<Entity> {
+    app.world_mut()
+        .query::<(Entity, &crate::components::FarmReadyMarker)>()
+        .iter(app.world())
+        .find_map(|(entity, marker)| (marker.farm_slot == slot).then_some(entity))
+}
+
 #[test]
 fn farm_visual_spawns_marker_when_ready() {
     let mut app = setup_farm_visual_app();
@@ -710,7 +938,10 @@ fn farm_visual_spawns_marker_when_ready() {
         app.update();
     }
     let count = count_farm_markers(&mut app);
-    assert!(count > 0, "should spawn FarmReadyMarker when growth_ready=true");
+    assert!(
+        count > 0,
+        "should spawn FarmReadyMarker when growth_ready=true"
+    );
 }
 
 #[test]
@@ -732,7 +963,10 @@ fn farm_visual_despawns_marker_when_no_longer_ready() {
     for _ in 0..4 {
         app.update();
     }
-    assert!(count_farm_markers(&mut app) > 0, "precondition: marker exists");
+    assert!(
+        count_farm_markers(&mut app) > 0,
+        "precondition: marker exists"
+    );
     // Set growth_ready to false via ECS
     app.world_mut()
         .get_mut::<ProductionState>(entity)
@@ -742,7 +976,72 @@ fn farm_visual_despawns_marker_when_no_longer_ready() {
         app.update();
     }
     let count = count_farm_markers(&mut app);
-    assert_eq!(count, 0, "marker should be despawned when growth_ready becomes false");
+    assert_eq!(
+        count, 0,
+        "marker should be despawned when growth_ready becomes false"
+    );
+}
+
+#[test]
+fn farm_visual_despawns_marker_when_farm_removed_and_allows_slot_reuse() {
+    let mut app = setup_farm_visual_app();
+    let entity = add_farm_visual(&mut app, 5000, true);
+
+    for _ in 0..4 {
+        app.update();
+    }
+    assert_eq!(
+        count_farm_markers(&mut app),
+        1,
+        "precondition: ready farm should have one marker"
+    );
+
+    app.world_mut().entity_mut(entity).despawn();
+    app.world_mut()
+        .resource_mut::<EntityMap>()
+        .remove_by_slot(5000);
+    for _ in 0..4 {
+        app.update();
+    }
+    assert_eq!(
+        count_farm_markers(&mut app),
+        0,
+        "removing a ready farm should also remove its marker"
+    );
+
+    add_farm_visual(&mut app, 5000, true);
+    for _ in 0..4 {
+        app.update();
+    }
+    assert_eq!(
+        count_farm_markers(&mut app),
+        1,
+        "slot reuse should still allow a new ready farm marker to spawn"
+    );
+}
+
+#[test]
+fn farm_visual_respawns_marker_if_mapping_points_to_stale_entity() {
+    let mut app = setup_farm_visual_app();
+    add_farm_visual(&mut app, 5000, true);
+    for _ in 0..4 {
+        app.update();
+    }
+    let marker_entity = find_farm_marker(&mut app, 5000).expect("precondition: marker exists");
+    assert!(
+        app.world_mut().despawn(marker_entity),
+        "precondition: marker should despawn externally"
+    );
+
+    for _ in 0..4 {
+        app.update();
+    }
+
+    assert_eq!(
+        count_farm_markers(&mut app),
+        1,
+        "ready farm should respawn marker after stale mapping is pruned"
+    );
 }
 
 // -- spawner_respawn_system ----------------------------------------------
@@ -750,10 +1049,7 @@ fn farm_visual_despawns_marker_when_no_longer_ready() {
 #[derive(Resource, Default)]
 struct CollectedSpawns(Vec<usize>); // slot indices from SpawnNpcMsg
 
-fn collect_spawns(
-    mut reader: MessageReader<SpawnNpcMsg>,
-    mut collected: ResMut<CollectedSpawns>,
-) {
+fn collect_spawns(mut reader: MessageReader<SpawnNpcMsg>, mut collected: ResMut<CollectedSpawns>) {
     for msg in reader.read() {
         collected.0.push(msg.slot_idx);
     }
@@ -794,19 +1090,33 @@ fn setup_spawner_app() -> App {
     app.insert_resource(TimeUpdateStrategy::ManualDuration(
         std::time::Duration::from_secs_f32(1.0),
     ));
-    app.add_systems(FixedUpdate, (spawner_respawn_system, collect_spawns, reset_hour_ticked).chain());
+    app.add_systems(
+        FixedUpdate,
+        (spawner_respawn_system, collect_spawns, reset_hour_ticked).chain(),
+    );
     app.update();
     app.update();
     app
 }
 
-fn add_spawner_building(app: &mut App, slot: usize, kind: BuildingKind, respawn_timer: f32) -> Entity {
+fn add_spawner_building(
+    app: &mut App,
+    slot: usize,
+    kind: BuildingKind,
+    respawn_timer: f32,
+) -> Entity {
     let inst = test_building_instance(slot, kind, 0.0);
-    let entity = app.world_mut().spawn((
-        GpuSlot(slot),
-        Building { kind },
-        SpawnerState { npc_slot: None, respawn_timer },
-    )).id();
+    let entity = app
+        .world_mut()
+        .spawn((
+            GpuSlot(slot),
+            Building { kind },
+            SpawnerState {
+                npc_slot: None,
+                respawn_timer,
+            },
+        ))
+        .id();
     let mut em = app.world_mut().resource_mut::<EntityMap>();
     em.set_entity(slot, entity);
     em.add_instance(inst);
@@ -830,7 +1140,11 @@ fn spawner_counts_down_timer() {
     let entity = add_spawner_building(&mut app, 5000, BuildingKind::ArcherHome, 50.0);
     app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
     app.update();
-    let timer = app.world().get::<SpawnerState>(entity).unwrap().respawn_timer;
+    let timer = app
+        .world()
+        .get::<SpawnerState>(entity)
+        .unwrap()
+        .respawn_timer;
     assert!(timer < 50.0, "timer should decrement, got {timer}");
     assert!(timer >= 0.0, "timer should not go negative, got {timer}");
 }
@@ -843,7 +1157,10 @@ fn spawner_spawns_when_timer_reaches_zero() {
     app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
     app.update();
     let spawns = app.world().resource::<CollectedSpawns>();
-    assert!(!spawns.0.is_empty(), "should spawn an NPC when timer reaches 0");
+    assert!(
+        !spawns.0.is_empty(),
+        "should spawn an NPC when timer reaches 0"
+    );
 }
 
 #[test]
@@ -853,8 +1170,14 @@ fn spawner_assigns_uid_after_spawn() {
     app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
     app.update();
     let ss = app.world().get::<SpawnerState>(entity).unwrap();
-    assert!(ss.npc_slot.is_some(), "building should have npc_slot after spawn");
-    assert!((ss.respawn_timer - (-1.0)).abs() < 0.01, "timer should reset to -1.0");
+    assert!(
+        ss.npc_slot.is_some(),
+        "building should have npc_slot after spawn"
+    );
+    assert!(
+        (ss.respawn_timer - (-1.0)).abs() < 0.01,
+        "timer should reset to -1.0"
+    );
 }
 
 // -- mining_policy_system ------------------------------------------------
@@ -888,21 +1211,27 @@ fn setup_mining_app() -> App {
     });
     // Spawn ECS town entity for TownAccess
     let mut town_index = crate::resources::TownIndex::default();
-    let entity = app.world_mut().spawn((
-        crate::components::TownMarker,
-        crate::components::FoodStore(0),
-        crate::components::GoldStore(0),
-        crate::components::TownPolicy::default(),
-        crate::components::TownUpgradeLevel::default(),
-        crate::components::TownEquipment::default(),
-    )).id();
+    let entity = app
+        .world_mut()
+        .spawn((
+            crate::components::TownMarker,
+            crate::components::FoodStore(0),
+            crate::components::GoldStore(0),
+            crate::components::TownPolicy::default(),
+            crate::components::TownUpgradeLevel::default(),
+            crate::components::TownEquipment::default(),
+        ))
+        .id();
     town_index.0.insert(0, entity);
     app.insert_resource(town_index);
     app.add_message::<crate::messages::MiningDirtyMsg>();
     app.insert_resource(TimeUpdateStrategy::ManualDuration(
         std::time::Duration::from_secs_f32(1.0),
     ));
-    app.add_systems(FixedUpdate, (send_mining_dirty, mining_policy_system).chain());
+    app.add_systems(
+        FixedUpdate,
+        (send_mining_dirty, mining_policy_system).chain(),
+    );
     app.update();
     app.update();
     app
@@ -911,7 +1240,9 @@ fn setup_mining_app() -> App {
 fn add_gold_mine(app: &mut App, slot: usize, pos: Vec2) {
     let mut inst = test_building_instance(slot, BuildingKind::GoldMine, 0.0);
     inst.position = pos;
-    app.world_mut().resource_mut::<EntityMap>().add_instance(inst);
+    app.world_mut()
+        .resource_mut::<EntityMap>()
+        .add_instance(inst);
 }
 
 #[test]
@@ -950,8 +1281,7 @@ fn mining_ignores_mine_outside_radius() {
     app.update();
     let mining = app.world().resource::<MiningPolicy>();
     assert!(
-        mining.discovered_mines.is_empty()
-            || mining.discovered_mines[0].is_empty(),
+        mining.discovered_mines.is_empty() || mining.discovered_mines[0].is_empty(),
         "should not discover mine outside radius"
     );
 }
@@ -990,7 +1320,10 @@ fn setup_squad_cleanup_app() -> App {
     app.insert_resource(TimeUpdateStrategy::ManualDuration(
         std::time::Duration::from_secs_f32(1.0),
     ));
-    app.add_systems(FixedUpdate, (send_squads_dirty, squad_cleanup_system).chain());
+    app.add_systems(
+        FixedUpdate,
+        (send_squads_dirty, squad_cleanup_system).chain(),
+    );
     app.update();
     app.update();
     app
@@ -1003,11 +1336,17 @@ fn squad_cleanup_skips_without_dirty() {
     // Add a dead member entity to squad
     {
         let mut ss = app.world_mut().resource_mut::<SquadState>();
-        ss.squads[0].members.push(Entity::from_raw_u32(999).unwrap());
+        ss.squads[0]
+            .members
+            .push(Entity::from_raw_u32(999).unwrap());
     }
     app.update();
     let ss = app.world().resource::<SquadState>();
-    assert_eq!(ss.squads[0].members.len(), 1, "should not clean up without dirty msg");
+    assert_eq!(
+        ss.squads[0].members.len(),
+        1,
+        "should not clean up without dirty msg"
+    );
 }
 
 #[test]
@@ -1017,12 +1356,17 @@ fn squad_cleanup_removes_dead_members() {
     // Add entity that doesn't exist in EntityMap → treated as dead
     {
         let mut ss = app.world_mut().resource_mut::<SquadState>();
-        ss.squads[0].members.push(Entity::from_raw_u32(999).unwrap());
+        ss.squads[0]
+            .members
+            .push(Entity::from_raw_u32(999).unwrap());
     }
     app.insert_resource(SendSquadsDirty(true));
     app.update();
     let ss = app.world().resource::<SquadState>();
-    assert!(ss.squads[0].members.is_empty(), "dead member should be removed on dirty");
+    assert!(
+        ss.squads[0].members.is_empty(),
+        "dead member should be removed on dirty"
+    );
 }
 
 #[test]
@@ -1030,12 +1374,15 @@ fn squad_cleanup_retains_alive_members() {
     use crate::resources::SquadState;
     let mut app = setup_squad_cleanup_app();
     // Register a live NPC in EntityMap
-    let entity = app.world_mut().spawn((
-        GpuSlot(0),
-        crate::components::Job::Archer,
-        crate::components::TownId(0),
-        crate::components::Faction(0),
-    )).id();
+    let entity = app
+        .world_mut()
+        .spawn((
+            GpuSlot(0),
+            crate::components::Job::Archer,
+            crate::components::TownId(0),
+            crate::components::Faction(0),
+        ))
+        .id();
     {
         let mut em = app.world_mut().resource_mut::<EntityMap>();
         em.register_npc(0, entity, crate::components::Job::Archer, 0, 0);
@@ -1047,5 +1394,9 @@ fn squad_cleanup_retains_alive_members() {
     app.insert_resource(SendSquadsDirty(true));
     app.update();
     let ss = app.world().resource::<SquadState>();
-    assert_eq!(ss.squads[0].members.len(), 1, "alive member should be retained");
+    assert_eq!(
+        ss.squads[0].members.len(),
+        1,
+        "alive member should be retained"
+    );
 }

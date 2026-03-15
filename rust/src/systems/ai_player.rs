@@ -19,8 +19,7 @@ use crate::constants::*;
 use crate::resources::*;
 use crate::systemparams::WorldState;
 use crate::systems::stats::{
-    UPGRADES, expansion_cost, upgrade_available, upgrade_cost, upgrade_node,
-    upgrade_unlocked,
+    UPGRADES, expansion_cost, upgrade_available, upgrade_cost, upgrade_node, upgrade_unlocked,
 };
 use crate::world::{self, BuildingKind, WorldData, WorldGrid};
 
@@ -140,7 +139,11 @@ fn recalc_waypoint_patrol_order_clockwise(
             })
     });
 
-    entries.iter().enumerate().map(|(order, &(slot, _))| (slot, order as u32)).collect()
+    entries
+        .iter()
+        .enumerate()
+        .map(|(order, &(slot, _))| (slot, order as u32))
+        .collect()
 }
 
 #[derive(Clone, Default)]
@@ -425,7 +428,13 @@ impl AiPersonality {
 
     /// Compute the ideal outer ring of waypoint positions for the current build area.
     /// Walks the perimeter clockwise with corners guaranteed and min 5 Manhattan spacing.
-    fn waypoint_ring_slots(self, area_level: i32, center: Vec2, grid: &world::WorldGrid, road_style: RoadStyle) -> Vec<(usize, usize)> {
+    fn waypoint_ring_slots(
+        self,
+        area_level: i32,
+        center: Vec2,
+        grid: &world::WorldGrid,
+        road_style: RoadStyle,
+    ) -> Vec<(usize, usize)> {
         let (min_c, max_c, min_r, max_r) = world::build_bounds(area_level, center, grid);
         let (cc, cr) = grid.world_to_grid(center);
         const MIN_SPACING: i32 = 5;
@@ -477,7 +486,9 @@ impl AiPersonality {
         while result.len() > 4 {
             let last = *result.last().expect("result non-empty after len check");
             let first = result[0];
-            if (last.0 as i32 - first.0 as i32).abs() + (last.1 as i32 - first.1 as i32).abs() >= MIN_SPACING {
+            if (last.0 as i32 - first.0 as i32).abs() + (last.1 as i32 - first.1 as i32).abs()
+                >= MIN_SPACING
+            {
                 break;
             }
             if corners.contains(&last) {
@@ -1114,7 +1125,13 @@ fn archer_fill_score(snapshot: &AiTownSnapshot, slot: (usize, usize)) -> i32 {
     score
 }
 
-fn miner_toward_mine_score(mine_positions: &[Vec2], grid: &WorldGrid, slot: (usize, usize), cc: usize, cr: usize) -> i32 {
+fn miner_toward_mine_score(
+    mine_positions: &[Vec2],
+    grid: &WorldGrid,
+    slot: (usize, usize),
+    cc: usize,
+    cr: usize,
+) -> i32 {
     let dc = slot.0 as i32 - cc as i32;
     let dr = slot.1 as i32 - cr as i32;
     let radial = dc * dc + dr * dr;
@@ -1242,7 +1259,11 @@ fn sync_town_perimeter_waypoints(
         }
     }
     if removed > 0 {
-        let orders = recalc_waypoint_patrol_order_clockwise(&mut world.world_data, &mut world.entity_map, ti);
+        let orders = recalc_waypoint_patrol_order_clockwise(
+            &mut world.world_data,
+            &mut world.entity_map,
+            ti,
+        );
         for (slot, order) in orders {
             if let Some(&entity) = world.entity_map.entities.get(&slot) {
                 if let Ok(mut w) = waypoint_q.get_mut(entity) {
@@ -1368,11 +1389,9 @@ impl TownContext {
         let center = snapshot.map(|s| s.center).unwrap_or(town.center);
         let area_level = town_area_level;
         let ti = tdi as u32;
-        let empty_count = snapshot
-            .map(|s| s.empty_slots.len())
-            .unwrap_or_else(|| {
-                world::empty_slots(tdi, center, &res.world.grid, &res.world.entity_map).len()
-            });
+        let empty_count = snapshot.map(|s| s.empty_slots.len()).unwrap_or_else(|| {
+            world::empty_slots(tdi, center, &res.world.grid, &res.world.entity_map).len()
+        });
         let (min_c, max_c, min_r, max_r) = world::build_bounds(area_level, center, &res.world.grid);
         let total = ((max_c - min_c + 1) * (max_r - min_r + 1) - 1) as f32;
         let slot_fullness = 1.0 - empty_count as f32 / total.max(1.0);
@@ -1515,7 +1534,11 @@ pub fn ai_decision_system(
             && mine_shafts < personality.min_miner_homes()
             && food >= building_cost(BuildingKind::MinerHome)
         {
-            if let Some(mines) = ctx.mines.as_ref().filter(|m| m.in_radius + m.outside_radius > 0) {
+            if let Some(mines) = ctx
+                .mines
+                .as_ref()
+                .filter(|m| m.in_radius + m.outside_radius > 0)
+            {
                 if let Some(what) = try_build_miner_home(
                     &ctx,
                     mines,
@@ -1672,290 +1695,139 @@ pub fn ai_decision_system(
         // Phase 1: Score and execute a BUILDING action
         // ================================================================
         if build_enabled {
-        let mut build_scores: Vec<(AiAction, f32)> = Vec::with_capacity(8);
+            let mut build_scores: Vec<(AiAction, f32)> = Vec::with_capacity(8);
 
-        match kind {
-            AiKind::Raider => {
-                // Raider AI has a smaller economy action set.
-                if ctx.has_slots && ctx.food >= building_cost(BuildingKind::Tent) {
-                    build_scores.push((AiAction::BuildTent, 30.0));
+            match kind {
+                AiKind::Raider => {
+                    // Raider AI has a smaller economy action set.
+                    if ctx.has_slots && ctx.food >= building_cost(BuildingKind::Tent) {
+                        build_scores.push((AiAction::BuildTent, 30.0));
+                    }
                 }
-            }
-            AiKind::Builder => {
-                // Builder AI scores economic + military + mining expansion actions.
-                let (fw, hw, bw, gw) = personality.building_weights();
-                let total_civilians = houses + mine_shafts;
-                let bt = personality.archer_home_target(total_civilians);
-                let ht = personality.farmer_home_target(farms);
-                let Some(mines) = ctx.mines.as_ref() else { continue; };
-                let ms_target = ((total_civilians as f32 * personality.mining_ratio()) as usize)
-                    .max(mines.in_radius) // at least 1 miner per in-radius mine
-                    .min(mines.in_radius * MAX_MINERS_PER_MINE);
-                let house_deficit = ht.saturating_sub(houses);
-                let barracks_deficit = bt.saturating_sub(barracks);
-                let miner_deficit = ms_target.saturating_sub(mine_shafts);
-
-                if ctx.has_slots {
-                    // Desire-driven need model:
-                    // food_desire gates farm/house construction,
-                    // military_desire gates barracks/crossbow/waypoint construction.
-                    // Base personality weights set ratios within each category.
-                    let farm_need = desires.food_desire * (houses as f32 - farms as f32).max(0.0);
-                    let house_need = if house_deficit > 0 {
-                        desires.food_desire * (house_deficit as f32).min(10.0)
-                    } else {
-                        desires.food_desire * 0.5 // baseline to match military's 0.5 floor
+                AiKind::Builder => {
+                    // Builder AI scores economic + military + mining expansion actions.
+                    let (fw, hw, bw, gw) = personality.building_weights();
+                    let total_civilians = houses + mine_shafts;
+                    let bt = personality.archer_home_target(total_civilians);
+                    let ht = personality.farmer_home_target(farms);
+                    let Some(mines) = ctx.mines.as_ref() else {
+                        continue;
                     };
-                    let barracks_need = if barracks_deficit > 0 {
-                        desires.military_desire * barracks_deficit as f32
-                    } else {
-                        desires.military_desire * 0.5
-                    };
+                    let ms_target = ((total_civilians as f32 * personality.mining_ratio())
+                        as usize)
+                        .max(mines.in_radius) // at least 1 miner per in-radius mine
+                        .min(mines.in_radius * MAX_MINERS_PER_MINE);
+                    let house_deficit = ht.saturating_sub(houses);
+                    let barracks_deficit = bt.saturating_sub(barracks);
+                    let miner_deficit = ms_target.saturating_sub(mine_shafts);
 
-                    if ctx.food >= building_cost(BuildingKind::Farm) {
-                        build_scores.push((AiAction::BuildFarm, fw * farm_need));
-                    }
-                    if ctx.food >= building_cost(BuildingKind::FarmerHome) {
-                        build_scores.push((AiAction::BuildFarmerHome, hw * house_need));
-                    }
-                    if ctx.food >= building_cost(BuildingKind::ArcherHome) {
-                        build_scores.push((AiAction::BuildArcherHome, bw * barracks_need));
-                    }
-                    // Crossbow homes: AI builds them once it has some archer homes established
-                    if barracks >= 2 && ctx.food >= building_cost(BuildingKind::CrossbowHome) {
-                        let xbow_need = if xbow_homes < barracks / 2 {
-                            desires.military_desire * barracks.saturating_sub(xbow_homes * 2) as f32
+                    if ctx.has_slots {
+                        // Desire-driven need model:
+                        // food_desire gates farm/house construction,
+                        // military_desire gates barracks/crossbow/waypoint construction.
+                        // Base personality weights set ratios within each category.
+                        let farm_need =
+                            desires.food_desire * (houses as f32 - farms as f32).max(0.0);
+                        let house_need = if house_deficit > 0 {
+                            desires.food_desire * (house_deficit as f32).min(10.0)
+                        } else {
+                            desires.food_desire * 0.5 // baseline to match military's 0.5 floor
+                        };
+                        let barracks_need = if barracks_deficit > 0 {
+                            desires.military_desire * barracks_deficit as f32
                         } else {
                             desires.military_desire * 0.5
                         };
-                        build_scores.push((AiAction::BuildCrossbowHome, bw * 0.6 * xbow_need));
+
+                        if ctx.food >= building_cost(BuildingKind::Farm) {
+                            build_scores.push((AiAction::BuildFarm, fw * farm_need));
+                        }
+                        if ctx.food >= building_cost(BuildingKind::FarmerHome) {
+                            build_scores.push((AiAction::BuildFarmerHome, hw * house_need));
+                        }
+                        if ctx.food >= building_cost(BuildingKind::ArcherHome) {
+                            build_scores.push((AiAction::BuildArcherHome, bw * barracks_need));
+                        }
+                        // Crossbow homes: AI builds them once it has some archer homes established
+                        if barracks >= 2 && ctx.food >= building_cost(BuildingKind::CrossbowHome) {
+                            let xbow_need = if xbow_homes < barracks / 2 {
+                                desires.military_desire
+                                    * barracks.saturating_sub(xbow_homes * 2) as f32
+                            } else {
+                                desires.military_desire * 0.5
+                            };
+                            build_scores.push((AiAction::BuildCrossbowHome, bw * 0.6 * xbow_need));
+                        }
+                        if miner_deficit > 0 && ctx.food >= building_cost(BuildingKind::MinerHome) {
+                            let ms_need = desires.gold_desire * miner_deficit as f32;
+                            // Bootstrap boost: guarantee min miner homes per personality
+                            let bootstrap = if mine_shafts < personality.min_miner_homes() {
+                                5.0
+                            } else {
+                                1.0
+                            };
+                            build_scores.push((AiAction::BuildMinerHome, hw * ms_need * bootstrap));
+                        } else if miner_deficit == 0
+                            && mines.outside_radius > 0
+                            && mine_shafts >= mines.in_radius
+                        {
+                            let expand_need = desires.gold_desire * mines.outside_radius as f32;
+                            build_scores.push((
+                                AiAction::ExpandMiningRadius,
+                                personality.expand_mining_weight() * expand_need,
+                            ));
+                        }
                     }
-                    if miner_deficit > 0 && ctx.food >= building_cost(BuildingKind::MinerHome) {
-                        let ms_need = desires.gold_desire * miner_deficit as f32;
-                        // Bootstrap boost: guarantee min miner homes per personality
-                        let bootstrap = if mine_shafts < personality.min_miner_homes() {
-                            5.0
-                        } else {
-                            1.0
-                        };
-                        build_scores.push((AiAction::BuildMinerHome, hw * ms_need * bootstrap));
-                    } else if miner_deficit == 0
-                        && mines.outside_radius > 0
-                        && mine_shafts >= mines.in_radius
+
+                    let perimeter_target = snapshots
+                        .towns
+                        .get(&tdi)
+                        .map(|s| s.waypoint_ring.len())
+                        .unwrap_or(total_military_homes);
+                    let waypoint_target = total_military_homes.max(perimeter_target);
+                    if ctx.food >= building_cost(BuildingKind::Waypoint)
+                        && waypoints < waypoint_target
                     {
-                        let expand_need = desires.gold_desire * mines.outside_radius as f32;
-                        build_scores.push((
-                            AiAction::ExpandMiningRadius,
-                            personality.expand_mining_weight() * expand_need,
-                        ));
+                        let gp_need =
+                            desires.military_desire * (waypoint_target - waypoints) as f32;
+                        build_scores.push((AiAction::BuildWaypoint, gw * gp_need));
                     }
-                }
 
-                let perimeter_target = snapshots
-                    .towns
-                    .get(&tdi)
-                    .map(|s| s.waypoint_ring.len())
-                    .unwrap_or(total_military_homes);
-                let waypoint_target = total_military_homes.max(perimeter_target);
-                if ctx.food >= building_cost(BuildingKind::Waypoint) && waypoints < waypoint_target
-                {
-                    let gp_need = desires.military_desire * (waypoint_target - waypoints) as f32;
-                    build_scores.push((AiAction::BuildWaypoint, gw * gp_need));
-                }
-
-                // Roads: build roads using the town's road style
-                let rw = personality.road_weight();
-                if road_style != RoadStyle::None
-                    && rw > 0.0
-                    && ctx.food >= building_cost(BuildingKind::Road) * 4
-                {
-                    let road_candidates = count_road_candidates(
-                        &res.world.entity_map,
-                        ctx.area_level,
-                        ctx.center,
-                        &res.world.grid,
-                        ctx.ti,
-                        road_style,
-                    );
-                    if road_candidates > 0 {
-                        let roads = bc(BuildingKind::Road) + bc(BuildingKind::StoneRoad) + bc(BuildingKind::MetalRoad);
-                        let economy_buildings = farms + houses + mine_shafts;
-                        let road_need =
-                            road_candidates.min(economy_buildings.saturating_sub(roads / 2));
-                        if road_need > 0 {
-                            build_scores.push((AiAction::BuildRoads, rw * road_need as f32));
+                    // Roads: build roads using the town's road style
+                    let rw = personality.road_weight();
+                    if road_style != RoadStyle::None
+                        && rw > 0.0
+                        && ctx.food >= building_cost(BuildingKind::Road) * 4
+                    {
+                        let road_candidates = count_road_candidates(
+                            &res.world.entity_map,
+                            ctx.area_level,
+                            ctx.center,
+                            &res.world.grid,
+                            ctx.ti,
+                            road_style,
+                        );
+                        if road_candidates > 0 {
+                            let roads = bc(BuildingKind::Road)
+                                + bc(BuildingKind::StoneRoad)
+                                + bc(BuildingKind::MetalRoad);
+                            let economy_buildings = farms + houses + mine_shafts;
+                            let road_need =
+                                road_candidates.min(economy_buildings.saturating_sub(roads / 2));
+                            if road_need > 0 {
+                                build_scores.push((AiAction::BuildRoads, rw * road_need as f32));
+                            }
                         }
                     }
                 }
             }
-        }
 
-        // Retry loop: if picked action fails, remove it and re-pick from remaining.
-        let mut build_succeeded = false;
-        loop {
-            let Some(action) = weighted_pick(&build_scores) else {
-                break;
-            };
-            let mut new_mr = None;
-            let label = execute_action(
-                action,
-                &ctx,
-                &mut res,
-                &mut food_val,
-                mining_radius,
-                &mut new_mr,
-                snapshots.towns.get(&tdi),
-                personality,
-                road_style,
-                *difficulty,
-            );
-            if let Some(mr) = new_mr {
-                if let Some(mut p) = town_access.policy_mut(tdi as i32) {
-                    p.0.mining_radius = mr;
-                }
-            }
-            if let Some(what) = label {
-                snapshots.towns.remove(&tdi);
-                log_ai(
-                    &mut combat_log,
-                    &game_time,
-                    faction,
-                    &town_name,
-                    pname,
-                    &what,
-                );
-                let actions = &mut ai_state.players[pi].last_actions;
-                if actions.len() >= MAX_ACTION_HISTORY {
-                    actions.pop_front();
-                }
-                actions.push_back((what, game_time.day(), game_time.hour()));
-                build_succeeded = true;
-                break;
-            }
-            // Action failed — log and remove this variant from candidates
-            if debug {
-                let msg = format!(
-                    "[dbg] {} FAILED ({})",
-                    action.label(),
-                    format_top_scores(&build_scores, 4)
-                );
-                let actions = &mut ai_state.players[pi].last_actions;
-                if actions.len() >= MAX_ACTION_HISTORY {
-                    actions.pop_front();
-                }
-                actions.push_back((msg, game_time.day(), game_time.hour()));
-            }
-            let failed = std::mem::discriminant(&action);
-            build_scores.retain(|(a, _)| std::mem::discriminant(a) != failed);
-        }
-        if !build_succeeded && debug {
-            if build_scores.is_empty() {
-                let actions = &mut ai_state.players[pi].last_actions;
-                if actions.len() >= MAX_ACTION_HISTORY {
-                    actions.pop_front();
-                }
-                actions.push_back((
-                    "[dbg] no build candidates".into(),
-                    game_time.day(),
-                    game_time.hour(),
-                ));
-            }
-        }
-
-        } // build_enabled
-
-        // ================================================================
-        // Phase 2: Score and execute an UPGRADE action (if food/gold remain)
-        // ================================================================
-        if upgrade_enabled {
-        let food_after = town_access.food(tdi as i32);
-        let gold_after = town_access.gold(tdi as i32);
-        // Gold reservation: policy reserve + expansion upgrade hoard.
-        let expansion_gold_reserve = policy_reserves.1 + if !ctx.has_slots {
-            uw.iter()
-                .enumerate()
-                .filter(|&(_, &w)| w > 0.0)
-                .filter(|&(idx, _)| UPGRADES.nodes[idx].triggers_expansion)
-                .filter(|&(idx, _)| upgrade_unlocked(&levels, idx))
-                .map(|(idx, _)| {
-                    let lv = levels.get(idx).copied().unwrap_or(0);
-                    let node = &UPGRADES.nodes[idx];
-                    if node.custom_cost {
-                        expansion_cost(lv).1
-                    } else {
-                        let scale = upgrade_cost(lv);
-                        node.cost
-                            .iter()
-                            .filter(|&&(kind, _)| kind == ResourceKind::Gold)
-                            .map(|&(_, base)| base * scale)
-                            .sum::<i32>()
-                    }
-                })
-                .min()
-                .unwrap_or(0)
-        } else {
-            0
-        };
-        if food_after > reserve {
-            let mut upgrade_scores: Vec<(AiAction, f32)> = Vec::with_capacity(8);
-            for (idx, &weight) in uw.iter().enumerate() {
-                if weight <= 0.0 {
-                    continue;
-                }
-                if !upgrade_available(&levels, idx, food_after, gold_after) {
-                    continue;
-                }
-                // Fill slots first: only expansion upgrades allowed while town has empty slots
-                let is_expansion = UPGRADES.nodes[idx].triggers_expansion;
-                if ctx.has_slots && !is_expansion {
-                    continue;
-                }
-                // Hoard gold for expansion: skip non-expansion gold-costing upgrades
-                // unless we have surplus gold beyond what expansion needs.
-                if !ctx.has_slots && !is_expansion && expansion_gold_reserve > 0 {
-                    let lv = levels.get(idx).copied().unwrap_or(0);
-                    let node = &UPGRADES.nodes[idx];
-                    let gold_cost: i32 = if node.custom_cost {
-                        expansion_cost(lv).1
-                    } else {
-                        let scale = upgrade_cost(lv);
-                        node.cost
-                            .iter()
-                            .filter(|&&(kind, _)| kind == ResourceKind::Gold)
-                            .map(|&(_, base)| base * scale)
-                            .sum()
-                    };
-                    if gold_cost > 0 && gold_after - gold_cost < expansion_gold_reserve {
-                        continue;
-                    }
-                }
-                let mut w = weight;
-                if is_military_upgrade(idx) {
-                    w *= 1.0 + desires.military_desire * 2.0;
-                }
-                if UPGRADES.nodes[idx].triggers_expansion {
-                    // Delay expansion while town still has empty slots and can afford buildings.
-                    // Previous check only looked at home targets — missed farms, waypoints, roads.
-                    if matches!(kind, AiKind::Builder) && ctx.has_slots {
-                        let cheapest = building_cost(BuildingKind::Farm)
-                            .min(building_cost(BuildingKind::FarmerHome))
-                            .min(building_cost(BuildingKind::ArcherHome))
-                            .min(building_cost(BuildingKind::MinerHome));
-                        if food_after >= cheapest {
-                            continue;
-                        }
-                    }
-                    if ctx.slot_fullness > 0.7 {
-                        w *= 2.0 + 4.0 * (ctx.slot_fullness - 0.7) / 0.3;
-                    }
-                    if !ctx.has_slots {
-                        w *= 10.0;
-                    }
-                }
-                upgrade_scores.push((AiAction::Upgrade(idx), w));
-            }
-
-            if let Some(action) = weighted_pick(&upgrade_scores) {
+            // Retry loop: if picked action fails, remove it and re-pick from remaining.
+            let mut build_succeeded = false;
+            loop {
+                let Some(action) = weighted_pick(&build_scores) else {
+                    break;
+                };
                 let mut new_mr = None;
                 let label = execute_action(
                     action,
@@ -1974,10 +1846,8 @@ pub fn ai_decision_system(
                         p.0.mining_radius = mr;
                     }
                 }
-                if label.is_some() {
-                    snapshots.towns.remove(&tdi);
-                }
                 if let Some(what) = label {
+                    snapshots.towns.remove(&tdi);
                     log_ai(
                         &mut combat_log,
                         &game_time,
@@ -1991,21 +1861,183 @@ pub fn ai_decision_system(
                         actions.pop_front();
                     }
                     actions.push_back((what, game_time.day(), game_time.hour()));
-                } else if debug {
-                    let name = if let AiAction::Upgrade(idx) = action {
-                        upgrade_node(idx).label
-                    } else {
-                        action.label()
-                    };
-                    let msg = format!("[dbg] upgrade {} FAILED", name);
+                    build_succeeded = true;
+                    break;
+                }
+                // Action failed — log and remove this variant from candidates
+                if debug {
+                    let msg = format!(
+                        "[dbg] {} FAILED ({})",
+                        action.label(),
+                        format_top_scores(&build_scores, 4)
+                    );
                     let actions = &mut ai_state.players[pi].last_actions;
                     if actions.len() >= MAX_ACTION_HISTORY {
                         actions.pop_front();
                     }
                     actions.push_back((msg, game_time.day(), game_time.hour()));
                 }
+                let failed = std::mem::discriminant(&action);
+                build_scores.retain(|(a, _)| std::mem::discriminant(a) != failed);
             }
-        }
+            if !build_succeeded && debug {
+                if build_scores.is_empty() {
+                    let actions = &mut ai_state.players[pi].last_actions;
+                    if actions.len() >= MAX_ACTION_HISTORY {
+                        actions.pop_front();
+                    }
+                    actions.push_back((
+                        "[dbg] no build candidates".into(),
+                        game_time.day(),
+                        game_time.hour(),
+                    ));
+                }
+            }
+        } // build_enabled
+
+        // ================================================================
+        // Phase 2: Score and execute an UPGRADE action (if food/gold remain)
+        // ================================================================
+        if upgrade_enabled {
+            let food_after = town_access.food(tdi as i32);
+            let gold_after = town_access.gold(tdi as i32);
+            // Gold reservation: policy reserve + expansion upgrade hoard.
+            let expansion_gold_reserve = policy_reserves.1
+                + if !ctx.has_slots {
+                    uw.iter()
+                        .enumerate()
+                        .filter(|&(_, &w)| w > 0.0)
+                        .filter(|&(idx, _)| UPGRADES.nodes[idx].triggers_expansion)
+                        .filter(|&(idx, _)| upgrade_unlocked(&levels, idx))
+                        .map(|(idx, _)| {
+                            let lv = levels.get(idx).copied().unwrap_or(0);
+                            let node = &UPGRADES.nodes[idx];
+                            if node.custom_cost {
+                                expansion_cost(lv).1
+                            } else {
+                                let scale = upgrade_cost(lv);
+                                node.cost
+                                    .iter()
+                                    .filter(|&&(kind, _)| kind == ResourceKind::Gold)
+                                    .map(|&(_, base)| base * scale)
+                                    .sum::<i32>()
+                            }
+                        })
+                        .min()
+                        .unwrap_or(0)
+                } else {
+                    0
+                };
+            if food_after > reserve {
+                let mut upgrade_scores: Vec<(AiAction, f32)> = Vec::with_capacity(8);
+                for (idx, &weight) in uw.iter().enumerate() {
+                    if weight <= 0.0 {
+                        continue;
+                    }
+                    if !upgrade_available(&levels, idx, food_after, gold_after) {
+                        continue;
+                    }
+                    // Fill slots first: only expansion upgrades allowed while town has empty slots
+                    let is_expansion = UPGRADES.nodes[idx].triggers_expansion;
+                    if ctx.has_slots && !is_expansion {
+                        continue;
+                    }
+                    // Hoard gold for expansion: skip non-expansion gold-costing upgrades
+                    // unless we have surplus gold beyond what expansion needs.
+                    if !ctx.has_slots && !is_expansion && expansion_gold_reserve > 0 {
+                        let lv = levels.get(idx).copied().unwrap_or(0);
+                        let node = &UPGRADES.nodes[idx];
+                        let gold_cost: i32 = if node.custom_cost {
+                            expansion_cost(lv).1
+                        } else {
+                            let scale = upgrade_cost(lv);
+                            node.cost
+                                .iter()
+                                .filter(|&&(kind, _)| kind == ResourceKind::Gold)
+                                .map(|&(_, base)| base * scale)
+                                .sum()
+                        };
+                        if gold_cost > 0 && gold_after - gold_cost < expansion_gold_reserve {
+                            continue;
+                        }
+                    }
+                    let mut w = weight;
+                    if is_military_upgrade(idx) {
+                        w *= 1.0 + desires.military_desire * 2.0;
+                    }
+                    if UPGRADES.nodes[idx].triggers_expansion {
+                        // Delay expansion while town still has empty slots and can afford buildings.
+                        // Previous check only looked at home targets — missed farms, waypoints, roads.
+                        if matches!(kind, AiKind::Builder) && ctx.has_slots {
+                            let cheapest = building_cost(BuildingKind::Farm)
+                                .min(building_cost(BuildingKind::FarmerHome))
+                                .min(building_cost(BuildingKind::ArcherHome))
+                                .min(building_cost(BuildingKind::MinerHome));
+                            if food_after >= cheapest {
+                                continue;
+                            }
+                        }
+                        if ctx.slot_fullness > 0.7 {
+                            w *= 2.0 + 4.0 * (ctx.slot_fullness - 0.7) / 0.3;
+                        }
+                        if !ctx.has_slots {
+                            w *= 10.0;
+                        }
+                    }
+                    upgrade_scores.push((AiAction::Upgrade(idx), w));
+                }
+
+                if let Some(action) = weighted_pick(&upgrade_scores) {
+                    let mut new_mr = None;
+                    let label = execute_action(
+                        action,
+                        &ctx,
+                        &mut res,
+                        &mut food_val,
+                        mining_radius,
+                        &mut new_mr,
+                        snapshots.towns.get(&tdi),
+                        personality,
+                        road_style,
+                        *difficulty,
+                    );
+                    if let Some(mr) = new_mr {
+                        if let Some(mut p) = town_access.policy_mut(tdi as i32) {
+                            p.0.mining_radius = mr;
+                        }
+                    }
+                    if label.is_some() {
+                        snapshots.towns.remove(&tdi);
+                    }
+                    if let Some(what) = label {
+                        log_ai(
+                            &mut combat_log,
+                            &game_time,
+                            faction,
+                            &town_name,
+                            pname,
+                            &what,
+                        );
+                        let actions = &mut ai_state.players[pi].last_actions;
+                        if actions.len() >= MAX_ACTION_HISTORY {
+                            actions.pop_front();
+                        }
+                        actions.push_back((what, game_time.day(), game_time.hour()));
+                    } else if debug {
+                        let name = if let AiAction::Upgrade(idx) = action {
+                            upgrade_node(idx).label
+                        } else {
+                            action.label()
+                        };
+                        let msg = format!("[dbg] upgrade {} FAILED", name);
+                        let actions = &mut ai_state.players[pi].last_actions;
+                        if actions.len() >= MAX_ACTION_HISTORY {
+                            actions.pop_front();
+                        }
+                        actions.push_back((msg, game_time.day(), game_time.hour()));
+                    }
+                }
+            }
         } // upgrade_enabled
 
         // Write back food changes from building actions to ECS
@@ -2058,7 +2090,15 @@ fn pick_slot_from_snapshot_or_inner(
             return Some(slot);
         }
     }
-    find_inner_slot(town_idx, center, area_level, grid, entity_map, personality, road_style)
+    find_inner_slot(
+        town_idx,
+        center,
+        area_level,
+        grid,
+        entity_map,
+        personality,
+        road_style,
+    )
 }
 
 fn try_build_inner(
@@ -2183,17 +2223,26 @@ fn count_road_candidates(
     if econ_slots.is_empty() {
         return 0;
     }
-    let road_slots: HashSet<(usize, usize)> = [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad]
-        .iter()
-        .flat_map(|&kind| entity_map.iter_kind_for_town(kind, ti))
-        .map(|b| grid.world_to_grid(b.position))
-        .collect();
+    let road_slots: HashSet<(usize, usize)> = [
+        BuildingKind::Road,
+        BuildingKind::StoneRoad,
+        BuildingKind::MetalRoad,
+    ]
+    .iter()
+    .flat_map(|&kind| entity_map.iter_kind_for_town(kind, ti))
+    .map(|b| grid.world_to_grid(b.position))
+    .collect();
     let (min_c, max_c, min_r, max_r) = world::build_bounds(area_level, center, grid);
     // Cardinal: extend axes to 2× build radius for attack corridors
     let (ext_min_c, ext_max_c, ext_min_r, ext_max_r) = if road_style == RoadStyle::Cardinal {
         let half_c = cc - min_c;
         let half_r = cr - min_r;
-        (cc.saturating_sub(half_c * 2), max_c + half_c, cr.saturating_sub(half_r * 2), max_r + half_r)
+        (
+            cc.saturating_sub(half_c * 2),
+            max_c + half_c,
+            cr.saturating_sub(half_r * 2),
+            max_r + half_r,
+        )
     } else {
         (min_c, max_c, min_r, max_r)
     };
@@ -2210,11 +2259,9 @@ fn count_road_candidates(
                 continue;
             }
             let in_bounds = col >= min_c && col <= max_c && row >= min_r && row <= max_r;
-            let adj = econ_slots
-                .iter()
-                .any(|&(ec, er)| {
-                    (ec as i32 - col as i32).abs() <= 2 && (er as i32 - row as i32).abs() <= 2
-                });
+            let adj = econ_slots.iter().any(|&(ec, er)| {
+                (ec as i32 - col as i32).abs() <= 2 && (er as i32 - row as i32).abs() <= 2
+            });
             if adj || !in_bounds {
                 count += 1;
             }
@@ -2247,19 +2294,29 @@ fn try_build_road_grid(
         return None;
     }
 
-    let road_slots: HashSet<(usize, usize)> = [BuildingKind::Road, BuildingKind::StoneRoad, BuildingKind::MetalRoad]
-        .iter()
-        .flat_map(|&kind| entity_map.iter_kind_for_town(kind, ti))
-        .map(|b| grid.world_to_grid(b.position))
-        .collect();
+    let road_slots: HashSet<(usize, usize)> = [
+        BuildingKind::Road,
+        BuildingKind::StoneRoad,
+        BuildingKind::MetalRoad,
+    ]
+    .iter()
+    .flat_map(|&kind| entity_map.iter_kind_for_town(kind, ti))
+    .map(|b| grid.world_to_grid(b.position))
+    .collect();
 
     let mut candidates: HashMap<(usize, usize), i32> = HashMap::new();
-    let (min_c, max_c, min_r, max_r) = world::build_bounds(ctx.area_level, ctx.center, &res.world.grid);
+    let (min_c, max_c, min_r, max_r) =
+        world::build_bounds(ctx.area_level, ctx.center, &res.world.grid);
     // Cardinal: extend axes to 2× build radius for attack corridors
     let (ext_min_c, ext_max_c, ext_min_r, ext_max_r) = if road_style == RoadStyle::Cardinal {
         let half_c = cc - min_c;
         let half_r = cr - min_r;
-        (cc.saturating_sub(half_c * 2), max_c + half_c, cr.saturating_sub(half_r * 2), max_r + half_r)
+        (
+            cc.saturating_sub(half_c * 2),
+            max_c + half_c,
+            cr.saturating_sub(half_r * 2),
+            max_r + half_r,
+        )
     } else {
         (min_c, max_c, min_r, max_r)
     };
@@ -2293,8 +2350,8 @@ fn try_build_road_grid(
     let mut ranked: Vec<((usize, usize), i32)> = candidates.into_iter().collect();
     ranked.sort_by(|a, b| {
         b.1.cmp(&a.1).then_with(|| {
-            let da = (a.0 .0 as i32 - cc as i32).pow(2) + (a.0 .1 as i32 - cr as i32).pow(2);
-            let db = (b.0 .0 as i32 - cc as i32).pow(2) + (b.0 .1 as i32 - cr as i32).pow(2);
+            let da = (a.0.0 as i32 - cc as i32).pow(2) + (a.0.1 as i32 - cr as i32).pow(2);
+            let db = (b.0.0 as i32 - cc as i32).pow(2) + (b.0.1 as i32 - cr as i32).pow(2);
             da.cmp(&db)
         })
     });
@@ -2651,21 +2708,26 @@ fn pick_raider_farm_target(
     let mut best_d2 = f32::MAX;
     let mut result: Option<(BuildingKind, Entity, Vec2)> = None;
     let r2 = AI_ATTACK_SEARCH_RADIUS * AI_ATTACK_SEARCH_RADIUS;
-    entity_map.for_each_nearby_kind(center, AI_ATTACK_SEARCH_RADIUS, BuildingKind::Farm, |inst, _| {
-        if inst.faction == faction || inst.faction == crate::constants::FACTION_NEUTRAL {
-            return;
-        }
-        let Some(&uid) = entity_map.entities.get(&inst.slot) else {
-            return;
-        };
-        let dx = inst.position.x - center.x;
-        let dy = inst.position.y - center.y;
-        let d2 = dx * dx + dy * dy;
-        if d2 <= r2 && d2 < best_d2 {
-            best_d2 = d2;
-            result = Some((inst.kind, uid, inst.position));
-        }
-    });
+    entity_map.for_each_nearby_kind(
+        center,
+        AI_ATTACK_SEARCH_RADIUS,
+        BuildingKind::Farm,
+        |inst, _| {
+            if inst.faction == faction || inst.faction == crate::constants::FACTION_NEUTRAL {
+                return;
+            }
+            let Some(&uid) = entity_map.entities.get(&inst.slot) else {
+                return;
+            };
+            let dx = inst.position.x - center.x;
+            let dy = inst.position.y - center.y;
+            let d2 = dx * dx + dy * dy;
+            if d2 <= r2 && d2 < best_d2 {
+                best_d2 = d2;
+                result = Some((inst.kind, uid, inst.position));
+            }
+        },
+    );
     result
 }
 
@@ -2681,26 +2743,40 @@ fn pick_ai_target_unclaimed(
         return None;
     }
 
-    let find_nearest_unclaimed = |allowed_kinds: &[BuildingKind]| -> Option<(BuildingKind, Entity, Vec2)> {
-        let mut best_d2 = f32::MAX;
-        let mut result: Option<(BuildingKind, Entity, Vec2)> = None;
-        let r2 = AI_ATTACK_SEARCH_RADIUS * AI_ATTACK_SEARCH_RADIUS;
-        for &kind in allowed_kinds {
-            entity_map.for_each_nearby_kind(center, AI_ATTACK_SEARCH_RADIUS, kind, |inst, _| {
-                if inst.faction == faction || inst.faction == crate::constants::FACTION_NEUTRAL { return; }
-                let Some(&uid) = entity_map.entities.get(&inst.slot) else { return; };
-                if claimed.contains(&uid) { return; }
-                let dx = inst.position.x - center.x;
-                let dy = inst.position.y - center.y;
-                let d2 = dx * dx + dy * dy;
-                if d2 <= r2 && d2 < best_d2 {
-                    best_d2 = d2;
-                    result = Some((inst.kind, uid, inst.position));
-                }
-            });
-        }
-        result
-    };
+    let find_nearest_unclaimed =
+        |allowed_kinds: &[BuildingKind]| -> Option<(BuildingKind, Entity, Vec2)> {
+            let mut best_d2 = f32::MAX;
+            let mut result: Option<(BuildingKind, Entity, Vec2)> = None;
+            let r2 = AI_ATTACK_SEARCH_RADIUS * AI_ATTACK_SEARCH_RADIUS;
+            for &kind in allowed_kinds {
+                entity_map.for_each_nearby_kind(
+                    center,
+                    AI_ATTACK_SEARCH_RADIUS,
+                    kind,
+                    |inst, _| {
+                        if inst.faction == faction
+                            || inst.faction == crate::constants::FACTION_NEUTRAL
+                        {
+                            return;
+                        }
+                        let Some(&uid) = entity_map.entities.get(&inst.slot) else {
+                            return;
+                        };
+                        if claimed.contains(&uid) {
+                            return;
+                        }
+                        let dx = inst.position.x - center.x;
+                        let dy = inst.position.y - center.y;
+                        let d2 = dx * dx + dy * dy;
+                        if d2 <= r2 && d2 < best_d2 {
+                            best_d2 = d2;
+                            result = Some((inst.kind, uid, inst.position));
+                        }
+                    },
+                );
+            }
+            result
+        };
 
     let preferred = personality.attack_kinds(role);
     find_nearest_unclaimed(preferred)
@@ -2780,7 +2856,10 @@ pub fn ai_squad_commander_system(
                 let idx = squad_state.alloc_squad(SquadOwner::Town(tdi));
                 let base_cd = personality.retarget_cooldown();
                 let jitter = rand::rng().random_range(0.3..1.0);
-                let sq = squad_state.squads.get_mut(idx).expect("squad just allocated");
+                let sq = squad_state
+                    .squads
+                    .get_mut(idx)
+                    .expect("squad just allocated");
                 sq.wave_min_start = personality.wave_min_start(kind);
                 sq.wave_retreat_below_pct = personality.wave_retreat_pct(kind);
                 ai_state.players[pi].squad_cmd.insert(
@@ -3022,7 +3101,10 @@ mod tests {
             std::time::Duration::from_secs_f32(1.0),
         ));
         app.insert_resource(SendGridDirty(false));
-        app.add_systems(FixedUpdate, (send_grid_dirty, ai_dirty_drain_system).chain());
+        app.add_systems(
+            FixedUpdate,
+            (send_grid_dirty, ai_dirty_drain_system).chain(),
+        );
         app.update();
         app.update();
         app
@@ -3047,7 +3129,10 @@ mod tests {
         app.insert_resource(SendGridDirty(true));
         app.update();
         let dirty = app.world().resource::<AiSnapshotDirty>();
-        assert!(dirty.0, "AiSnapshotDirty should be true after grid dirty msg");
+        assert!(
+            dirty.0,
+            "AiSnapshotDirty should be true after grid dirty msg"
+        );
     }
 
     #[test]
@@ -3055,7 +3140,10 @@ mod tests {
         let mut app = setup_ai_dirty_app();
         app.update();
         let dirty = app.world().resource::<AiSnapshotDirty>();
-        assert!(!dirty.0, "AiSnapshotDirty should stay false with no messages");
+        assert!(
+            !dirty.0,
+            "AiSnapshotDirty should stay false with no messages"
+        );
     }
 
     // ── perimeter_dirty_drain_system ───────────────────────────────────
@@ -3106,6 +3194,9 @@ mod tests {
         let mut app = setup_perimeter_dirty_app();
         app.update();
         let dirty = app.world().resource::<PerimeterSyncDirty>();
-        assert!(!dirty.0, "PerimeterSyncDirty should stay false with no msgs");
+        assert!(
+            !dirty.0,
+            "PerimeterSyncDirty should stay false with no msgs"
+        );
     }
 }

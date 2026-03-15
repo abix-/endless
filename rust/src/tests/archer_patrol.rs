@@ -90,9 +90,9 @@ pub fn tick(
         .filter(|n| {
             !n.dead
                 && n.job == Job::Archer
-                && activity_q
-                    .get(n.entity)
-                    .is_ok_and(|a| a.kind == ActivityKind::Patrol && a.phase == ActivityPhase::Holding)
+                && activity_q.get(n.entity).is_ok_and(|a| {
+                    a.kind == ActivityKind::Patrol && a.phase == ActivityPhase::Holding
+                })
         })
         .count();
     let patrolling = entity_map
@@ -100,9 +100,9 @@ pub fn tick(
         .filter(|n| {
             !n.dead
                 && n.job == Job::Archer
-                && activity_q
-                    .get(n.entity)
-                    .is_ok_and(|a| a.kind == ActivityKind::Patrol && a.phase == ActivityPhase::Transit)
+                && activity_q.get(n.entity).is_ok_and(|a| {
+                    a.kind == ActivityKind::Patrol && a.phase == ActivityPhase::Transit
+                })
         })
         .count();
     let resting = entity_map

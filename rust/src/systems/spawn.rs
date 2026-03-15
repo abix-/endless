@@ -5,9 +5,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg, SpawnNpcMsg};
 use crate::messages::{DirtyWriters, MiningDirtyMsg, SquadsDirtyMsg};
-use crate::resources::{
-    CombatEventKind, EntityMap, FactionStats, GameTime, PopulationStats,
-};
+use crate::resources::{CombatEventKind, EntityMap, FactionStats, GameTime, PopulationStats};
 use crate::systems::economy::*;
 use crate::systems::stats::{CombatConfig, resolve_combat_stats};
 use crate::world::BuildingKind;
@@ -32,6 +30,8 @@ fn generate_name(job: Job, slot: usize) -> String {
         Job::Miner => MINER_NOUNS[(slot / ADJECTIVES.len()) % MINER_NOUNS.len()],
         Job::Crossbow => CROSSBOW_NOUNS[(slot / ADJECTIVES.len()) % CROSSBOW_NOUNS.len()],
         Job::Boat => "Boat",
+        Job::Woodcutter => FARMER_NOUNS[(slot / ADJECTIVES.len()) % FARMER_NOUNS.len()],
+        Job::Quarrier => MINER_NOUNS[(slot / ADJECTIVES.len()) % MINER_NOUNS.len()],
     };
     format!("{} {}", adj, noun)
 }
@@ -50,7 +50,9 @@ fn generate_personality(slot: usize) -> Personality {
 
     // 20% chance per axis, cap at 2
     for &kind in &TraitKind::ALL {
-        if traits.len() >= 2 { break; }
+        if traits.len() >= 2 {
+            break;
+        }
         let r = next();
         if r % 100 < 20 {
             let mag = 0.5 + ((r % 1000) as f32 / 1000.0); // 0.5..1.5
@@ -89,7 +91,6 @@ pub struct NpcSpawnOverrides {
     pub carried_equipment: Vec<crate::constants::LootItem>,
     pub squad_id: Option<i32>,
 }
-
 
 /// Shared NPC spawn: creates entity, emits GPU updates, registers in tracking caches.
 /// Used by both spawn_npc_system (fresh spawn) and spawn_npcs_from_save (load).
@@ -138,11 +139,12 @@ pub fn materialize_npc(
     // Fresh spawns should not start with a work target; behavior assigns work later.
     // Save/restore path (activity override) may restore explicit work targets.
     let restore_work_state = overrides.activity.is_some();
-    let (target_x, target_y) = if let (true, Job::Farmer, Some(wp)) = (restore_work_state, job, work_pos.as_ref()) {
-        (wp[0], wp[1])
-    } else {
-        (x, y)
-    };
+    let (target_x, target_y) =
+        if let (true, Job::Farmer, Some(wp)) = (restore_work_state, job, work_pos.as_ref()) {
+            (wp[0], wp[1])
+        } else {
+            (x, y)
+        };
     let (sprite_col, sprite_row) = def.sprite;
 
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition { idx, x, y }));
@@ -159,7 +161,10 @@ pub fn materialize_npc(
         idx,
         faction: faction_id,
     }));
-    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetMaxHealth { idx, max_health: cached.max_health }));
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetMaxHealth {
+        idx,
+        max_health: cached.max_health,
+    }));
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health }));
     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
         idx,
@@ -262,6 +267,8 @@ pub fn materialize_npc(
         CarriedLoot {
             food: overrides.carried_food.unwrap_or(0),
             gold: overrides.carried_gold.unwrap_or(0),
+            wood: 0,
+            stone: 0,
             equipment: overrides.carried_equipment.clone(),
         },
         // Work state (always present)
@@ -391,7 +398,9 @@ pub(crate) fn build_patrol_route_ecs(
     let mut posts: Vec<(u32, Vec2)> = entity_map
         .iter_kind_for_town(BuildingKind::Waypoint, town_idx)
         .map(|inst| {
-            let order = entity_map.entities.get(&inst.slot)
+            let order = entity_map
+                .entities
+                .get(&inst.slot)
                 .and_then(|&e| waypoint_q.get(e).ok())
                 .map(|w| w.0)
                 .unwrap_or(0);
@@ -406,6 +415,64 @@ pub(crate) fn build_patrol_route_ecs(
 mod tests {
     use super::*;
 
+    #[derive(Resource)]
+    struct SpawnCase {
+        job_id: i32,
+        overrides: NpcSpawnOverrides,
+    }
+
+    fn spawn_case_system(
+        mut commands: Commands,
+        case: Res<SpawnCase>,
+        mut entity_map: ResMut<EntityMap>,
+        mut pop_stats: ResMut<PopulationStats>,
+        mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+        combat_config: Res<CombatConfig>,
+    ) {
+        materialize_npc(
+            0,
+            0.0,
+            0.0,
+            case.job_id,
+            0,
+            0,
+            [0.0, 0.0],
+            None,
+            -1,
+            &case.overrides,
+            &mut commands,
+            &mut entity_map,
+            &mut pop_stats,
+            &mut gpu_updates,
+            &combat_config,
+            &[],
+        );
+    }
+
+    fn spawned_weapon_sprite(job: Job, overrides: NpcSpawnOverrides) -> Option<(f32, f32)> {
+        let mut app = App::new();
+        app.add_message::<GpuUpdateMsg>();
+        app.insert_resource(EntityMap::default());
+        app.insert_resource(PopulationStats::default());
+        app.insert_resource(CombatConfig::default());
+        app.insert_resource(SpawnCase {
+            job_id: job as i32,
+            overrides,
+        });
+        app.add_systems(Update, spawn_case_system);
+        app.update();
+
+        let entity = app
+            .world()
+            .resource::<EntityMap>()
+            .get_npc(0)
+            .expect("spawned npc should be registered in EntityMap")
+            .entity;
+        app.world()
+            .get::<NpcEquipment>(entity)
+            .and_then(|equip| equip.weapon.as_ref().map(|w| w.sprite))
+    }
+
     #[test]
     fn generate_name_deterministic() {
         let a = generate_name(Job::Archer, 42);
@@ -417,15 +484,30 @@ mod tests {
     fn generate_name_different_slots() {
         let names: Vec<String> = (0..50).map(|s| generate_name(Job::Archer, s)).collect();
         let unique: std::collections::HashSet<&String> = names.iter().collect();
-        assert!(unique.len() > 1, "different slots should produce different names");
+        assert!(
+            unique.len() > 1,
+            "different slots should produce different names"
+        );
     }
 
     #[test]
     fn generate_name_all_jobs() {
-        let jobs = [Job::Farmer, Job::Archer, Job::Raider, Job::Fighter, Job::Miner, Job::Crossbow, Job::Boat];
+        let jobs = [
+            Job::Farmer,
+            Job::Archer,
+            Job::Raider,
+            Job::Fighter,
+            Job::Miner,
+            Job::Crossbow,
+            Job::Boat,
+        ];
         for job in jobs {
             let name = generate_name(job, 0);
-            assert!(!name.is_empty(), "job {:?} should produce a non-empty name", job);
+            assert!(
+                !name.is_empty(),
+                "job {:?} should produce a non-empty name",
+                job
+            );
             assert!(name.contains(' '), "name should be 'Adj Noun': {name}");
         }
     }
@@ -434,9 +516,11 @@ mod tests {
     fn generate_personality_deterministic() {
         let a = generate_personality(42);
         let b = generate_personality(42);
-        assert_eq!(a.trait1.map(|t| (t.kind, t.magnitude.to_bits())),
-                   b.trait1.map(|t| (t.kind, t.magnitude.to_bits())),
-                   "same slot should produce same personality");
+        assert_eq!(
+            a.trait1.map(|t| (t.kind, t.magnitude.to_bits())),
+            b.trait1.map(|t| (t.kind, t.magnitude.to_bits())),
+            "same slot should produce same personality"
+        );
     }
 
     #[test]
@@ -444,8 +528,14 @@ mod tests {
         let with_traits = (0..100)
             .filter(|&s| generate_personality(s).trait1.is_some())
             .count();
-        assert!(with_traits > 0, "at least some personalities should have traits");
-        assert!(with_traits < 100, "not all personalities should have traits (20% chance per axis)");
+        assert!(
+            with_traits > 0,
+            "at least some personalities should have traits"
+        );
+        assert!(
+            with_traits < 100,
+            "not all personalities should have traits (20% chance per axis)"
+        );
     }
 
     #[test]
@@ -460,23 +550,23 @@ mod tests {
     }
 
     #[test]
+    fn fresh_archer_and_crossbow_receive_default_weapon_sprites() {
+        assert_eq!(
+            spawned_weapon_sprite(Job::Archer, NpcSpawnOverrides::default()),
+            Some((45.0, 6.0))
+        );
+        assert_eq!(
+            spawned_weapon_sprite(Job::Crossbow, NpcSpawnOverrides::default()),
+            Some((46.0, 6.0))
+        );
+    }
+
+    #[test]
     fn default_weapon_only_on_fresh_spawn() {
-        let def = crate::constants::npc_def(Job::Archer);
-        assert!(def.default_weapon.is_some(), "archer should have a default weapon");
-
-        // Fresh spawn: activity is None -> weapon should be applied
-        let fresh = NpcSpawnOverrides::default();
-        assert!(fresh.activity.is_none());
-        assert!(fresh.equipment.weapon.is_none());
-        let is_fresh = fresh.activity.is_none();
-        assert!(is_fresh, "default overrides = fresh spawn");
-
-        // Save restore: activity is Some -> weapon should NOT be applied
         let restored = NpcSpawnOverrides {
             activity: Some(Activity::default()),
             ..Default::default()
         };
-        let is_restored_fresh = restored.activity.is_none();
-        assert!(!is_restored_fresh, "overrides with activity = save restore, not fresh");
+        assert_eq!(spawned_weapon_sprite(Job::Archer, restored), None);
     }
 }

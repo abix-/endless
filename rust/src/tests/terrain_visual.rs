@@ -81,8 +81,17 @@ pub fn setup(
     for (col, &(kind, town_idx)) in buildings.iter().enumerate() {
         let pos = grid.grid_to_world(col, BUILDING_ROW);
         let _ = world::place_building(
-            &mut slot_alloc, &mut entity_map, &mut commands, &mut gpu_updates,
-            kind, pos, town_idx, 0, &Default::default(), None, None,
+            &mut slot_alloc,
+            &mut entity_map,
+            &mut commands,
+            &mut gpu_updates,
+            kind,
+            pos,
+            town_idx,
+            0,
+            &Default::default(),
+            None,
+            None,
         );
     }
 
