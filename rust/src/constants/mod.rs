@@ -104,6 +104,12 @@ pub const ENERGY_TIRED_THRESHOLD: f32 = 30.0;
 /// Energy threshold below which NPCs consider eating (emergency only).
 pub const ENERGY_EAT_THRESHOLD: f32 = 10.0;
 
+/// HP per tick that a Mason restores to a damaged building.
+pub const MASON_REPAIR_RATE: f32 = 2.0;
+
+/// Search radius (pixels) for Mason to find damaged buildings.
+pub const MASON_SEARCH_RADIUS: f32 = 6400.0;
+
 // ============================================================================
 // UTILITY AI ACTION SCORES
 // ============================================================================

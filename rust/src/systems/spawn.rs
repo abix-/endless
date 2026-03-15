@@ -32,6 +32,7 @@ fn generate_name(job: Job, slot: usize) -> String {
         Job::Boat => "Boat",
         Job::Woodcutter => FARMER_NOUNS[(slot / ADJECTIVES.len()) % FARMER_NOUNS.len()],
         Job::Quarrier => MINER_NOUNS[(slot / ADJECTIVES.len()) % MINER_NOUNS.len()],
+        Job::Mason => "Mason",
     };
     format!("{} {}", adj, noun)
 }

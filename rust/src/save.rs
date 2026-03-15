@@ -503,6 +503,8 @@ pub enum ActivitySave {
     GoingToSquadTarget {
         target: [f32; 2],
     },
+    Repairing,
+    GoingToRepair,
 }
 
 impl ActivitySave {
@@ -552,6 +554,10 @@ impl ActivitySave {
             ActivityKind::Chop | ActivityKind::Quarry => match a.phase {
                 ActivityPhase::Holding => Self::Working,
                 _ => Self::GoingToWork,
+            },
+            ActivityKind::Repair => match a.phase {
+                ActivityPhase::Transit => Self::GoingToRepair,
+                _ => Self::Repairing,
             },
         }
     }
@@ -655,6 +661,18 @@ impl ActivitySave {
                 kind: ActivityKind::Mine,
                 phase: ActivityPhase::Holding,
                 target: ActivityTarget::Worksite,
+                ..Default::default()
+            },
+            Self::GoingToRepair => Activity {
+                kind: ActivityKind::Repair,
+                phase: ActivityPhase::Transit,
+                target: ActivityTarget::None,
+                ..Default::default()
+            },
+            Self::Repairing => Activity {
+                kind: ActivityKind::Repair,
+                phase: ActivityPhase::Active,
+                target: ActivityTarget::None,
                 ..Default::default()
             },
         }
@@ -1517,6 +1535,7 @@ pub fn collect_npc_data(
                 Job::Boat => 6,
                 Job::Woodcutter => 7,
                 Job::Quarrier => 8,
+                Job::Mason => 9,
             },
             faction: npc.faction,
             town_id: npc.town_idx,

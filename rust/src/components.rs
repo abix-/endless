@@ -44,10 +44,11 @@ pub enum Job {
     Boat,
     Woodcutter,
     Quarrier,
+    Mason,
 }
 
 impl Job {
-    /// Convert from integer (0=Farmer, 1=Archer, 2=Raider, 3=Fighter, 4=Miner, 5=Crossbow, 6=Boat, 7=Woodcutter, 8=Quarrier)
+    /// Convert from integer (0=Farmer, 1=Archer, 2=Raider, 3=Fighter, 4=Miner, 5=Crossbow, 6=Boat, 7=Woodcutter, 8=Quarrier, 9=Mason)
     pub fn from_i32(v: i32) -> Self {
         match v {
             1 => Job::Archer,
@@ -58,6 +59,7 @@ impl Job {
             6 => Job::Boat,
             7 => Job::Woodcutter,
             8 => Job::Quarrier,
+            9 => Job::Mason,
             _ => Job::Farmer,
         }
     }
@@ -229,6 +231,7 @@ pub enum ActivityKind {
     Raid,
     ReturnLoot,
     Mine,
+    Repair,
 }
 
 impl ActivityKind {

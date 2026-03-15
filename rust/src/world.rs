@@ -566,6 +566,16 @@ pub fn resolve_spawner_npc(
                 work_slot,
             )
         }
+        SpawnBehavior::AtHome => (
+            spawner.job,
+            town_faction,
+            -1.0,
+            -1.0,
+            -1,
+            npc_label,
+            def.label,
+            None,
+        ),
     }
 }
 
@@ -1188,6 +1198,7 @@ pub enum BuildingKind {
     RockNode,
     LumberMill,
     Quarry,
+    MasonHome,
 }
 
 impl BuildingKind {

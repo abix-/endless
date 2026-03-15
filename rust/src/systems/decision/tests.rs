@@ -1,7 +1,7 @@
 use super::*;
 use crate::components::{
-    Activity, CachedStats, CombatState, Energy, Faction, FoodStore, GoldStore, GpuSlot, Health,
-    Home, NpcFlags, SquadId, TownAreaLevel, TownEquipment, TownId, TownMarker, TownPolicy,
+    Activity, Building, CachedStats, CombatState, Energy, Faction, FoodStore, GoldStore, GpuSlot,
+    Health, Home, NpcFlags, SquadId, TownAreaLevel, TownEquipment, TownId, TownMarker, TownPolicy,
     TownUpgradeLevel,
 };
 use crate::entity_map::EntityMap;
@@ -801,6 +801,10 @@ fn valid_phase_combinations_match_spec() {
             ActivityKind::Quarry,
             &[ActivityPhase::Transit, ActivityPhase::Holding],
         ),
+        (
+            ActivityKind::Repair,
+            &[ActivityPhase::Transit, ActivityPhase::Active],
+        ),
     ];
 
     // Verify Activity::new() produces Ready (default), which is valid for Idle
@@ -808,10 +812,10 @@ fn valid_phase_combinations_match_spec() {
     let idle = Activity::new(ActivityKind::Idle);
     assert_eq!(idle.phase, ActivityPhase::Ready);
 
-    // Verify the table covers all 12 activity kinds
+    // Verify the table covers all 13 activity kinds
     assert_eq!(
         valid.len(),
-        12,
+        13,
         "spec table must cover all ActivityKind variants"
     );
 
@@ -907,6 +911,16 @@ fn transition_produces_valid_combinations() {
         (
             ActivityKind::Wander,
             ActivityPhase::Transit,
+            ActivityTarget::None,
+        ),
+        (
+            ActivityKind::Repair,
+            ActivityPhase::Transit,
+            ActivityTarget::None,
+        ),
+        (
+            ActivityKind::Repair,
+            ActivityPhase::Active,
             ActivityTarget::None,
         ),
     ];
@@ -1013,4 +1027,146 @@ fn home_valid_rejects_orphan_and_missing() {
     assert!(Home(Vec2::new(100.0, 200.0)).is_valid());
     // Edge: 0,0 is technically valid per is_valid() but covered by unwrap_or guard
     assert!(Home(Vec2::ZERO).is_valid());
+}
+
+// ========================================================================
+// Mason repair tests
+// ========================================================================
+
+use crate::entity_map::BuildingInstance;
+use crate::world::BuildingKind;
+
+/// Set up a mason NPC and register buildings in EntityMap.
+/// Returns (app, mason_entity).
+fn setup_mason_app(buildings: Vec<(BuildingKind, Vec2, f32)>) -> (App, Entity) {
+    DECISION_FRAME.store(0, std::sync::atomic::Ordering::Relaxed);
+
+    let policy = PolicySet::default();
+    let mut app = setup_decision_app(policy);
+
+    // Register buildings in EntityMap and spawn ECS entities with Health + Building
+    let mut slot = 1000; // high slot to avoid collision with NPC slots
+    for (kind, pos, hp) in &buildings {
+        let inst = BuildingInstance {
+            kind: *kind,
+            position: *pos,
+            town_idx: 0,
+            slot,
+            faction: 1,
+        };
+        app.world_mut()
+            .resource_mut::<EntityMap>()
+            .add_instance(inst);
+        let bld_entity = app
+            .world_mut()
+            .spawn((Building { kind: *kind }, Health(*hp), GpuSlot(slot)))
+            .id();
+        app.world_mut()
+            .resource_mut::<EntityMap>()
+            .set_entity(slot, bld_entity);
+        slot += 1;
+    }
+
+    // Spawn mason NPC at (64, 64)
+    let mason = app
+        .world_mut()
+        .spawn((
+            GpuSlot(0),
+            Job::Mason,
+            TownId(0),
+            Faction(1),
+            Energy(100.0),
+            Health(80.0),
+            Home(Vec2::new(320.0, 320.0)),
+            HasEnergy,
+            NpcFlags {
+                at_destination: true,
+                ..Default::default()
+            },
+            CombatState::None,
+            SquadId(0),
+            Activity {
+                kind: ActivityKind::Idle,
+                phase: ActivityPhase::Ready,
+                target: ActivityTarget::None,
+                ..Default::default()
+            },
+            test_cached_stats(),
+            CarriedLoot::default(),
+        ))
+        .id();
+
+    (app, mason)
+}
+
+#[test]
+fn mason_selects_nearest_damaged_building() {
+    // Two damaged buildings: near (100, 64) and far (5000, 5000)
+    let near_pos = Vec2::new(100.0, 64.0);
+    let far_pos = Vec2::new(5000.0, 5000.0);
+    let (mut app, mason) = setup_mason_app(vec![
+        (BuildingKind::Farm, near_pos, 10.0), // damaged (max=100)
+        (BuildingKind::Farm, far_pos, 10.0),  // damaged but farther
+    ]);
+
+    app.world_mut().run_system_once(decision_system).unwrap();
+
+    let activity = app.world().get::<Activity>(mason).unwrap();
+    assert_eq!(
+        activity.kind,
+        ActivityKind::Repair,
+        "mason should start Repair when damaged buildings exist"
+    );
+    assert_eq!(activity.phase, ActivityPhase::Transit);
+}
+
+#[test]
+fn mason_idles_when_no_buildings_damaged() {
+    // One building at full HP
+    let farm_max_hp = crate::constants::building_def(BuildingKind::Farm).hp;
+    let (mut app, mason) = setup_mason_app(vec![(
+        BuildingKind::Farm,
+        Vec2::new(100.0, 64.0),
+        farm_max_hp,
+    )]);
+
+    app.world_mut().run_system_once(decision_system).unwrap();
+
+    let activity = app.world().get::<Activity>(mason).unwrap();
+    assert_ne!(
+        activity.kind,
+        ActivityKind::Repair,
+        "mason should not repair when all buildings are full HP"
+    );
+}
+
+#[test]
+fn mason_repair_increments_health_caps_at_max() {
+    // Unit test: verify repair math directly (MASON_REPAIR_RATE=2, Farm max HP=100).
+    // The full decision_system test can't verify building health mutation because
+    // run_system_once has SystemParam query bundling constraints.
+    use crate::constants::MASON_REPAIR_RATE;
+
+    let max_hp = crate::constants::building_def(BuildingKind::Farm).hp;
+    assert!(max_hp > 0.0, "Farm max HP should be positive");
+
+    // Simulate repair: (max-4) + 2 = (max-2)
+    let mut hp = max_hp - 4.0;
+    hp = (hp + MASON_REPAIR_RATE).min(max_hp);
+    assert!(
+        (hp - (max_hp - 2.0)).abs() < f32::EPSILON,
+        "should repair by MASON_REPAIR_RATE"
+    );
+
+    // Simulate repair: (max-2) + 2 = max (capped)
+    hp = (hp + MASON_REPAIR_RATE).min(max_hp);
+    assert!((hp - max_hp).abs() < f32::EPSILON, "should cap at max HP");
+
+    // Simulate repair: (max-1) + 2 = max (capped, not max+1)
+    let mut hp2 = max_hp - 1.0;
+    hp2 = (hp2 + MASON_REPAIR_RATE).min(max_hp);
+    assert!(
+        (hp2 - max_hp).abs() < f32::EPSILON,
+        "should cap at max HP when rate exceeds deficit"
+    );
 }

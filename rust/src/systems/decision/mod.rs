@@ -246,6 +246,7 @@ pub fn decision_system(
     >,
     miner_cfg_q: Query<&MinerHomeConfig>,
     mut production_q: Query<&mut ProductionState>,
+    mut building_health_q: Query<&mut Health, With<Building>>,
 ) {
     if game_time.is_paused() {
         return;
@@ -1116,6 +1117,21 @@ pub fn decision_system(
                             );
                         }
                     }
+                    ActivityKind::Repair => {
+                        // Mason arrived at damaged building -- start repairing
+                        transition_phase(
+                            &mut activity,
+                            ActivityPhase::Active,
+                            "arrival:repair_start",
+                        );
+                        npc_logs.push(
+                            idx,
+                            game_time.day(),
+                            game_time.hour(),
+                            game_time.minute(),
+                            "Arrived -> Repairing",
+                        );
+                    }
                     ActivityKind::Wander => {
                         transition_activity(
                             &mut activity,
@@ -1209,7 +1225,7 @@ pub fn decision_system(
                             p.map(|p| p.archer_flee_hp).unwrap_or(0.15)
                         }
                     }
-                    Job::Farmer | Job::Miner | Job::Woodcutter | Job::Quarrier => {
+                    Job::Farmer | Job::Miner | Job::Woodcutter | Job::Quarrier | Job::Mason => {
                         let p = economy.towns.policy(town_idx_i32);
                         if p.as_ref().is_some_and(|p| p.farmer_fight_back) {
                             0.0 // fight-back workers don't flee
@@ -2056,6 +2072,85 @@ pub fn decision_system(
             }
 
             // ====================================================================
+            // Priority 5b: Mason Repair active -- heal nearest damaged building
+            // ====================================================================
+            if activity.kind == ActivityKind::Repair && activity.phase == ActivityPhase::Active {
+                // Tired -> stop repairing
+                if energy < ENERGY_TIRED_THRESHOLD {
+                    transition_activity(
+                        &mut activity,
+                        ActivityKind::Idle,
+                        ActivityPhase::Ready,
+                        ActivityTarget::None,
+                        "repair:tired",
+                    );
+                    npc_logs.push(
+                        idx,
+                        game_time.day(),
+                        game_time.hour(),
+                        game_time.minute(),
+                        "Tired -> Stopped repairing",
+                    );
+                    break 'decide;
+                }
+                // Find nearest damaged building at current position
+                let current_pos = npc_pos.unwrap_or(home);
+                let repair_radius_sq: f32 = 40.0 * 40.0;
+                let mut repaired = false;
+                for inst in entity_map.iter_instances() {
+                    if inst.town_idx != town_idx_i32 as u32 {
+                        continue;
+                    }
+                    if inst.position.distance_squared(current_pos) > repair_radius_sq {
+                        continue;
+                    }
+                    let Some(bld_entity) = entity_map.entities.get(&inst.slot).copied() else {
+                        continue;
+                    };
+                    let Ok(mut bld_hp) = building_health_q.get_mut(bld_entity) else {
+                        continue;
+                    };
+                    let max_hp = crate::constants::building_def(inst.kind).hp;
+                    if bld_hp.0 >= max_hp {
+                        continue;
+                    }
+                    bld_hp.0 = (bld_hp.0 + MASON_REPAIR_RATE).min(max_hp);
+                    repaired = true;
+                    if bld_hp.0 >= max_hp {
+                        npc_logs.push(
+                            idx,
+                            game_time.day(),
+                            game_time.hour(),
+                            game_time.minute(),
+                            format!(
+                                "Repaired {} to full HP",
+                                crate::constants::building_def(inst.kind).label
+                            ),
+                        );
+                    }
+                    break; // repair one building per tick
+                }
+                if !repaired {
+                    // No damaged building nearby -- go idle
+                    transition_activity(
+                        &mut activity,
+                        ActivityKind::Idle,
+                        ActivityPhase::Ready,
+                        ActivityTarget::None,
+                        "repair:done",
+                    );
+                    npc_logs.push(
+                        idx,
+                        game_time.day(),
+                        game_time.hour(),
+                        game_time.minute(),
+                        "No damaged buildings -> Idle",
+                    );
+                }
+                break 'decide;
+            }
+
+            // ====================================================================
             // Priority 6: OnDuty (tired -> leave post, else patrol when ready)
             // ====================================================================
             if activity.kind == ActivityKind::Patrol && activity.phase == ActivityPhase::Holding {
@@ -2216,7 +2311,7 @@ pub fn decision_system(
 
             let can_work = work_allowed
                 && match job {
-                    Job::Farmer => true,
+                    Job::Farmer | Job::Mason => true,
                     Job::Miner => true,
                     Job::Woodcutter | Job::Quarrier => true,
                     Job::Archer | Job::Crossbow | Job::Fighter => has_patrol,
@@ -2662,6 +2757,51 @@ pub fn decision_system(
                             }
                         }
                         Job::Boat => {} // CPU-driven movement, no behavior
+                        Job::Mason => {
+                            let current_pos = npc_pos.unwrap_or(home);
+                            let max_dist_sq = MASON_SEARCH_RADIUS * MASON_SEARCH_RADIUS;
+                            let mut best: Option<(f32, Vec2)> = None;
+                            for inst in entity_map.iter_instances() {
+                                if inst.town_idx != town_idx_i32 as u32 {
+                                    continue;
+                                }
+                                let dist_sq = inst.position.distance_squared(current_pos);
+                                if dist_sq > max_dist_sq {
+                                    continue;
+                                }
+                                let Some(bld_entity) = entity_map.entities.get(&inst.slot).copied()
+                                else {
+                                    continue;
+                                };
+                                let Ok(bld_hp) = building_health_q.get(bld_entity) else {
+                                    continue;
+                                };
+                                let max_hp = crate::constants::building_def(inst.kind).hp;
+                                if bld_hp.0 >= max_hp {
+                                    continue;
+                                }
+                                if best.as_ref().is_none_or(|b| dist_sq < b.0) {
+                                    best = Some((dist_sq, inst.position));
+                                }
+                            }
+                            if let Some((_, target_pos)) = best {
+                                transition_activity(
+                                    &mut activity,
+                                    ActivityKind::Repair,
+                                    ActivityPhase::Transit,
+                                    ActivityTarget::None,
+                                    "transition",
+                                );
+                                submit_intent(
+                                    &mut intents,
+                                    entity,
+                                    target_pos.x,
+                                    target_pos.y,
+                                    MovementPriority::JobRoute,
+                                    "idle:work_repair",
+                                );
+                            }
+                        }
                     }
                 }
                 Action::Wander => {

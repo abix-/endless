@@ -44,6 +44,8 @@ pub enum SpawnBehavior {
     Raider,
     /// Use assigned mine or find nearest (miner).
     Miner,
+    /// Spawn at home with no initial worksite (mason).
+    AtHome,
 }
 
 /// NPC spawner definition — what kind of NPC a building produces.
@@ -650,6 +652,31 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
             harvest_item: ResourceKind::Stone,
             town_scoped: false,
         }),
+        autotile: false,
+    },
+    // 21: Mason Home
+    BuildingDef {
+        kind: BuildingKind::MasonHome,
+        display: DisplayCategory::Economy,
+        tile: TileSpec::External("sprites/farmer_home_64x64.png"),
+        hp: 120.0,
+        cost: 4,
+        label: "Mason Home",
+        help: "Spawns 1 mason",
+        tooltip: "Trains 1 mason who finds and repairs\ndamaged buildings. 80 HP, speed 100.\nRespawns 12 hrs after death.",
+        player_buildable: true,
+        raider_buildable: false,
+        placement: PlacementMode::TownGrid,
+        is_tower: false,
+        tower_stats: None,
+        on_place: OnPlace::None,
+        spawner: Some(SpawnerDef {
+            job: 9,
+            behavior: SpawnBehavior::AtHome,
+        }),
+        save_key: Some("mason_homes"),
+        is_unit_home: true,
+        worksite: None,
         autotile: false,
     },
 ];
