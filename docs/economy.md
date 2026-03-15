@@ -137,7 +137,7 @@ Farms have a growth cycle instead of infinite food:
 
 **Farm destruction**: Building removal from `EntityMap` handles cleanup. Tombstoned position (x < -9000) causes render pipeline to skip the crop sprite and `growth_system` to skip growth.
 
-**Visual feedback**: `farm_visual_system` queries `(&GpuSlot, &ProductionState)` with `With<Building>` to watch for state transitions and spawns/despawns `FarmReadyMarker` entities (keyed by `farm_slot: usize` — building slot). Uses `Local<HashMap<usize, bool>>` to detect transitions without extra resources. Cadenced (see [performance.md](performance.md#fixed-cadence-systems)). `!ready → ready` spawns a marker; `ready → !ready` (harvest) despawns it.
+**Visual feedback**: `farm_visual_system` queries `(&GpuSlot, &ProductionState)` with `With<Building>` to watch for state transitions and spawns/despawns `FarmReadyMarker` entities (keyed by `farm_slot: usize` — building slot). Uses `Local<HashMap<usize, Entity>>` for O(1) farm-slot → marker lookup, validates the mapped marker still exists, and prunes stale entries before respawning. Cadenced (see [performance.md](performance.md#fixed-cadence-systems)). `!ready → ready` spawns a marker; `ready → !ready` (harvest) despawns it.
 
 ## Starvation
 
