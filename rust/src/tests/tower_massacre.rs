@@ -4,7 +4,10 @@
 
 use bevy::prelude::*;
 
-use crate::components::{FoodStore, GoldStore, TownMarker, TownPolicy, TownUpgradeLevel, TownEquipment, WoodStore, StoneStore, TownAreaLevel};
+use crate::components::{
+    FoodStore, GoldStore, StoneStore, TownAreaLevel, TownEquipment, TownMarker, TownPolicy,
+    TownUpgradeLevel, WoodStore,
+};
 use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
 use crate::world;
@@ -98,7 +101,9 @@ pub fn setup(
             &world::BuildingOverrides::default(),
             None, // no BuildContext (free placement)
             None, // no dirty writers
-        ).is_ok() {
+        )
+        .is_ok()
+        {
             towers_placed += 1;
         }
     }
@@ -168,7 +173,10 @@ pub fn tick(
 
     if test.phase == 1 {
         // Wait for spawning to complete
-        let total = entity_map.iter_npcs().filter(|npc| npc.faction == 2).count();
+        let total = entity_map
+            .iter_npcs()
+            .filter(|npc| npc.faction == 2)
+            .count();
         if total >= NUM_RAIDERS / 2 {
             test.pass_phase(
                 elapsed,
@@ -185,20 +193,20 @@ pub fn tick(
         if alive_raiders == 0 && queue_pending == 0 {
             test.pass_phase(
                 elapsed,
-                format!(
-                    "All {} raiders killed in {:.1}s",
-                    dead_raiders, elapsed
-                ),
+                format!("All {} raiders killed in {:.1}s", dead_raiders, elapsed),
             );
             test.complete(elapsed);
         }
 
         // Timeout after 120 seconds
         if elapsed > 120.0 {
-            test.fail_phase(elapsed, format!(
-                "Timeout: {} alive, {} dead, {} queued after {:.0}s",
-                alive_raiders, dead_raiders, queue_pending, elapsed
-            ));
+            test.fail_phase(
+                elapsed,
+                format!(
+                    "Timeout: {} alive, {} dead, {} queued after {:.0}s",
+                    alive_raiders, dead_raiders, queue_pending, elapsed
+                ),
+            );
         }
     }
 }

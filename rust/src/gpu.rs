@@ -979,9 +979,10 @@ pub struct ReadbackHandles {
     pub proj_positions: Handle<ShaderStorageBuffer>,
 }
 
-/// Round up to next power-of-2 (min 1024) for readback buffer_range sizing.
-fn readback_bucket(count: usize) -> usize {
-    count.max(1024).next_power_of_two()
+/// Round up to next power-of-2 (min 1024) for readback buffer_range sizing,
+/// but never exceed the backing readback buffer's actual capacity.
+fn readback_bucket(count: usize, max_count: usize) -> usize {
+    count.max(1024).next_power_of_two().min(max_count)
 }
 
 /// Main-world-only state for dynamic readback entity management.
@@ -1093,9 +1094,9 @@ fn sync_readback_ranges(
     let entity_count = slots.count();
     let proj_count = proj_alloc.next;
 
-    let new_npc = readback_bucket(entity_count);
-    let new_entity = readback_bucket(entity_count);
-    let new_proj = readback_bucket(proj_count);
+    let new_npc = readback_bucket(entity_count, MAX_NPC_COUNT);
+    let new_entity = readback_bucket(entity_count, MAX_ENTITIES);
+    let new_proj = readback_bucket(proj_count, MAX_PROJECTILE_COUNT);
 
     let bucket_changed = new_npc != rb_state.npc_bucket
         || new_entity != rb_state.entity_bucket
@@ -2449,5 +2450,25 @@ impl render_graph::Node for ProjectileComputeNode {
             );
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn readback_bucket_caps_to_buffer_capacity() {
+        assert_eq!(readback_bucket(MAX_NPC_COUNT, MAX_NPC_COUNT), MAX_NPC_COUNT);
+        assert_eq!(
+            readback_bucket(MAX_PROJECTILE_COUNT, MAX_PROJECTILE_COUNT),
+            MAX_PROJECTILE_COUNT
+        );
+    }
+
+    #[test]
+    fn readback_bucket_still_rounds_small_counts() {
+        assert_eq!(readback_bucket(0, MAX_NPC_COUNT), 1024);
+        assert_eq!(readback_bucket(1500, MAX_NPC_COUNT), 2048);
     }
 }
