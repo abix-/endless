@@ -395,6 +395,15 @@ pub fn top_bar_system(
                     ui_state.toggle_left_tab(LeftPanelTab::Roster);
                 }
                 if ui
+                    .selectable_label(
+                        ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Status,
+                        "Status",
+                    )
+                    .clicked()
+                {
+                    ui_state.toggle_left_tab(LeftPanelTab::Status);
+                }
+                if ui
                     .selectable_label(ui_state.tech_tree_open, "Tech Tree")
                     .clicked()
                 {

@@ -256,6 +256,7 @@ fn tracked_section(
 fn tab_to_str(tab: LeftPanelTab) -> &'static str {
     match tab {
         LeftPanelTab::Roster => "Roster",
+        LeftPanelTab::Status => "Status",
         LeftPanelTab::Upgrades => "Upgrades",
         LeftPanelTab::Policies => "Policies",
         LeftPanelTab::Patrols => "Patrols",
@@ -326,22 +327,12 @@ pub fn left_panel_system(
     let debug_all = settings.debug_all_npcs;
     let help_text_size = settings.help_text_size;
 
-    let tab_name = match ui_state.left_panel_tab {
-        LeftPanelTab::Roster => "Roster",
-        LeftPanelTab::Upgrades => "Upgrades",
-        LeftPanelTab::Policies => "Policies",
-        LeftPanelTab::Patrols => "Patrols",
-        LeftPanelTab::Squads => "Squads",
-        LeftPanelTab::Inventory => "Armory",
-        LeftPanelTab::Factions => "Factions",
-
-        LeftPanelTab::Profiler => "Profiler",
-        LeftPanelTab::Help => "Help",
-    };
+    let tab_name = tab_to_str(ui_state.left_panel_tab);
 
     // Look up the help key for the current tab
     let tab_help_key = match ui_state.left_panel_tab {
         LeftPanelTab::Roster => "tab_roster",
+        LeftPanelTab::Status => "tab_status",
         LeftPanelTab::Upgrades => "tab_upgrades",
         LeftPanelTab::Policies => "tab_policies",
         LeftPanelTab::Patrols => "tab_patrols",
@@ -376,6 +367,13 @@ pub fn left_panel_system(
                 LeftPanelTab::Roster => {
                     roster_content(ui, &mut roster, &mut roster_state, debug_all)
                 }
+                LeftPanelTab::Status => status_content(
+                    ui,
+                    &factions.entity_map,
+                    &factions.town_access,
+                    &squad.squad_state,
+                    &factions.pop_stats,
+                ),
                 LeftPanelTab::Upgrades => upgrade_content(
                     ui,
                     &mut upgrade,
@@ -2812,6 +2810,148 @@ fn profiler_content(
 // ============================================================================
 // HELP TAB
 // ============================================================================
+
+// ============================================================================
+// STATUS TAB
+// ============================================================================
+
+fn status_content(
+    ui: &mut egui::Ui,
+    entity_map: &EntityMap,
+    town_access: &crate::systemparams::TownAccess,
+    squad_state: &SquadState,
+    pop_stats: &PopulationStats,
+) {
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            let player_town: i32 = 0;
+
+            // -- Population --
+            tracked_section(
+                ui,
+                "status_pop",
+                true,
+                egui::RichText::new("Population").strong(),
+                |ui| {
+                    let mut total_alive = 0i32;
+                    let mut total_dead = 0i32;
+                    let mut military = 0i32;
+                    let mut civilian = 0i32;
+                    let mut job_counts: Vec<(&str, i32)> = Vec::new();
+
+                    for job in [
+                        Job::Farmer,
+                        Job::Archer,
+                        Job::Fighter,
+                        Job::Crossbow,
+                        Job::Miner,
+                        Job::Woodcutter,
+                        Job::Quarrier,
+                    ] {
+                        let key = (job as i32, player_town);
+                        let stats = pop_stats.0.get(&key);
+                        let alive = stats.map(|s| s.alive).unwrap_or(0);
+                        let dead = stats.map(|s| s.dead).unwrap_or(0);
+                        total_alive += alive;
+                        total_dead += dead;
+                        if job.is_military() {
+                            military += alive;
+                        } else {
+                            civilian += alive;
+                        }
+                        if alive > 0 || dead > 0 {
+                            job_counts.push((npc_def(job).label_plural, alive));
+                        }
+                    }
+
+                    ui.label(format!("Total: {} alive, {} dead", total_alive, total_dead));
+                    ui.label(format!("Military: {}  Civilian: {}", military, civilian));
+                    ui.add_space(4.0);
+                    for (label, count) in &job_counts {
+                        ui.label(format!("  {}: {}", label, count));
+                    }
+                },
+            );
+
+            // -- Economy --
+            tracked_section(
+                ui,
+                "status_econ",
+                true,
+                egui::RichText::new("Economy").strong(),
+                |ui| {
+                    let food = town_access.food(player_town);
+                    let gold = town_access.gold(player_town);
+                    let wood = town_access.wood(player_town);
+                    let stone = town_access.stone(player_town);
+
+                    ui.label(format!("Food: {}  Gold: {}", food, gold));
+                    ui.label(format!("Wood: {}  Stone: {}", wood, stone));
+                },
+            );
+
+            // -- Military --
+            tracked_section(
+                ui,
+                "status_mil",
+                true,
+                egui::RichText::new("Military").strong(),
+                |ui| {
+                    let active_squads = squad_state
+                        .squads
+                        .iter()
+                        .filter(|s| !s.members.is_empty())
+                        .count();
+                    let total_squad_members: usize =
+                        squad_state.squads.iter().map(|s| s.members.len()).sum();
+                    let squads_with_targets = squad_state
+                        .squads
+                        .iter()
+                        .filter(|s| s.target.is_some() && !s.members.is_empty())
+                        .count();
+
+                    ui.label(format!("Squads: {} active", active_squads));
+                    ui.label(format!("  Members: {}", total_squad_members));
+                    ui.label(format!("  With targets: {}", squads_with_targets));
+
+                    let total_buildings = entity_map
+                        .iter_instances()
+                        .filter(|inst| inst.town_idx == player_town as u32)
+                        .count();
+                    ui.label(format!("Buildings: {}", total_buildings));
+                },
+            );
+
+            // -- Buildings --
+            tracked_section(
+                ui,
+                "status_bld",
+                true,
+                egui::RichText::new("Buildings").strong(),
+                |ui| {
+                    let mut economy = 0usize;
+                    let mut military_bld = 0usize;
+                    let mut tower_bld = 0usize;
+                    for inst in entity_map.iter_instances() {
+                        if inst.town_idx != player_town as u32 {
+                            continue;
+                        }
+                        let def = crate::constants::building_def(inst.kind);
+                        match def.display {
+                            DisplayCategory::Economy => economy += 1,
+                            DisplayCategory::Military => military_bld += 1,
+                            DisplayCategory::Tower => tower_bld += 1,
+                            DisplayCategory::Hidden => {}
+                        }
+                    }
+                    ui.label(format!("Economy: {}", economy));
+                    ui.label(format!("Military: {}", military_bld));
+                    ui.label(format!("Towers: {}", tower_bld));
+                },
+            );
+        });
+}
 
 fn help_content(ui: &mut egui::Ui) {
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
