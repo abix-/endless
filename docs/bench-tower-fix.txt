@@ -1,0 +1,44 @@
+   Compiling endless v0.1.0 (C:\code\endless\rust)
+    Finished `bench` profile [optimized] target(s) in 1m 37s
+     Running benches\system_bench.rs (target\release\deps\system_bench-fa3792f89b91a2f6.exe)
+Gnuplot not found, using plotters backend
+Benchmarking building_tower/100
+Benchmarking building_tower/100: Warming up for 3.0000 s
+Benchmarking building_tower/100: Collecting 20 samples in estimated 5.0013 s (273k iterations)
+Benchmarking building_tower/100: Analyzing
+building_tower/100      time:   [17.644 µs 17.870 µs 18.073 µs]
+                        change: [+13.494% +15.355% +17.452%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Benchmarking building_tower/500
+Benchmarking building_tower/500: Warming up for 3.0000 s
+Benchmarking building_tower/500: Collecting 20 samples in estimated 5.0016 s (234k iterations)
+Benchmarking building_tower/500: Analyzing
+building_tower/500      time:   [21.019 µs 21.118 µs 21.239 µs]
+                        change: [-33.311% -25.321% -16.081%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Benchmarking building_tower/1000
+Benchmarking building_tower/1000: Warming up for 3.0000 s
+Benchmarking building_tower/1000: Collecting 20 samples in estimated 5.0015 s (199k iterations)
+Benchmarking building_tower/1000: Analyzing
+building_tower/1000     time:   [25.062 µs 25.207 µs 25.352 µs]
+                        change: [-17.697% -15.231% -12.812%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Benchmarking building_tower/5000
+Benchmarking building_tower/5000: Warming up for 3.0000 s
+Benchmarking building_tower/5000: Collecting 20 samples in estimated 5.0114 s (79k iterations)
+Benchmarking building_tower/5000: Analyzing
+building_tower/5000     time:   [64.412 µs 66.081 µs 68.728 µs]
+                        change: [-10.844% -4.8385% +1.1495%] (p = 0.14 > 0.05)
+                        No change in performance detected.
+Found 4 outliers among 20 measurements (20.00%)
+  4 (20.00%) high severe
+Benchmarking building_tower/50000
+Benchmarking building_tower/50000: Warming up for 3.0000 s
+Benchmarking building_tower/50000: Collecting 20 samples in estimated 5.0986 s (7770 iterations)
+Benchmarking building_tower/50000: Analyzing
+building_tower/50000    time:   [627.27 µs 636.00 µs 648.49 µs]
+                        change: [-34.527% -25.094% -15.227%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high mild
+

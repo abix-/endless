@@ -546,10 +546,7 @@ pub fn build_app(app: &mut App) {
                 world::rebuild_building_grid_system
                     .before(decision_system)
                     .before(spawner_respawn_system),
-                (
-                    sync_returning_set,
-                    arrival_system.after(sync_returning_set),
-                ),
+                (sync_returning_set, arrival_system.after(sync_returning_set)),
                 energy_system,
                 (
                     update_healing_zone_cache.before(healing_system),

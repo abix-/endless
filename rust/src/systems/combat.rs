@@ -651,41 +651,57 @@ pub fn building_tower_system(
             .is_some_and(|i| i.kind == BuildingKind::Tower)
     });
 
-    // Collect tower data (slot, position, faction, xp, upgrade_levels) from ECS
-    let towers: Vec<_> = entity_map
+    // Collect tower data with stack-allocated upgrade levels (no heap clone)
+    const MAX_UPGRADES: usize = 8;
+    let towers: Vec<(usize, Vec2, i32, i32, [u8; MAX_UPGRADES], usize, Entity)> = entity_map
         .iter_kind(BuildingKind::Tower)
         .filter_map(|inst| {
-            let entity = entity_map.entities.get(&inst.slot)?;
-            let tbs = tower_bld_q.get(*entity).ok()?;
+            let entity = *entity_map.entities.get(&inst.slot)?;
+            let tbs = tower_bld_q.get(entity).ok()?;
+            let mut levels = [0u8; MAX_UPGRADES];
+            let len = tbs.upgrade_levels.len().min(MAX_UPGRADES);
+            levels[..len].copy_from_slice(&tbs.upgrade_levels[..len]);
             Some((
                 inst.slot,
                 inst.position,
                 inst.faction,
                 tbs.xp,
-                tbs.upgrade_levels.clone(),
+                levels,
+                len,
+                entity,
             ))
         })
         .collect();
 
-    for (slot, src, faction, xp, upgrade_levels) in &towers {
-        let timer = tower.tower_cooldowns.entry(*slot).or_insert(0.0);
+    for &(slot, src, faction, xp, ref levels, levels_len, entity) in &towers {
+        let level = crate::systems::stats::level_from_xp(xp);
+        let stats =
+            crate::systems::stats::resolve_tower_instance_stats(level, &levels[..levels_len]);
+
+        // HP regen (runs unconditionally, before cooldown/target checks)
+        if stats.hp_regen > 0.0 {
+            if let Ok(mut health) = building_health.get_mut(entity) {
+                health.0 = (health.0 + stats.hp_regen * dt).min(stats.max_hp);
+            }
+        }
+
+        // Combat cooldown
+        let timer = tower.tower_cooldowns.entry(slot).or_insert(0.0);
         if *timer > 0.0 {
             *timer = (*timer - dt).max(0.0);
             if *timer > 0.0 {
                 continue;
             }
         }
-        let level = crate::systems::stats::level_from_xp(*xp);
-        let stats = crate::systems::stats::resolve_tower_instance_stats(level, upgrade_levels);
 
-        let target = gpu_state.combat_targets.get(*slot).copied().unwrap_or(-1);
+        let target = gpu_state.combat_targets.get(slot).copied().unwrap_or(-1);
         if target < 0 || entity_map.get_instance(target as usize).is_some() {
             continue;
         }
         let ti = target as usize;
         if !entity_map
             .get_npc(ti)
-            .is_some_and(|n| !n.dead && n.faction != *faction)
+            .is_some_and(|n| !n.dead && n.faction != faction)
         {
             continue;
         }
@@ -703,32 +719,19 @@ pub fn building_tower_system(
             continue;
         }
         if fire_projectile(
-            *src,
+            src,
             target_pos,
             stats.damage,
             stats.proj_speed,
             stats.proj_lifetime,
-            *faction,
-            *slot as i32,
+            faction,
+            slot as i32,
             -1,
             &mut proj_alloc,
             &mut proj_updates,
             &mut sfx_writer,
         ) {
             *timer = stats.cooldown;
-        }
-    }
-
-    // Tower HP regen: heal towers with hp_regen upgrade
-    for (slot, _, _, xp, upgrade_levels) in &towers {
-        let level = crate::systems::stats::level_from_xp(*xp);
-        let stats = crate::systems::stats::resolve_tower_instance_stats(level, upgrade_levels);
-        if stats.hp_regen > 0.0 {
-            if let Some(&entity) = entity_map.entities.get(slot) {
-                if let Ok(mut health) = building_health.get_mut(entity) {
-                    health.0 = (health.0 + stats.hp_regen * dt).min(stats.max_hp);
-                }
-            }
         }
     }
 }
