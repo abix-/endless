@@ -570,6 +570,7 @@ pub fn build_app(app: &mut App) {
                     auto_upgrade_system,
                     systems::stats::auto_tower_upgrade_system,
                     systems::stats::auto_equip_system,
+                    systems::stats::prune_town_equipment_system,
                 ),
                 process_upgrades_system.after(auto_upgrade_system),
                 systems::stats::process_equip_system

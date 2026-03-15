@@ -1363,13 +1363,55 @@ pub fn auto_equip_system(
 // XP grant + NPC kill loot logic moved to unified death_system (health.rs)
 
 // ============================================================================
+// TOWN EQUIPMENT PRUNING
+// ============================================================================
+
+/// Prune excess TownEquipment hourly. Removes lowest-value items (by rarity then stat_bonus)
+/// and converts them to gold. Prevents unbounded inventory growth at scale.
+pub fn prune_town_equipment_system(
+    game_time: Res<crate::resources::GameTime>,
+    mut town_access: crate::systemparams::TownAccess,
+    world_data: Res<crate::world::WorldData>,
+) {
+    if !game_time.hour_ticked {
+        return;
+    }
+    let cap = crate::constants::TOWN_EQUIPMENT_CAP;
+    for i in 0..world_data.towns.len() {
+        let ti = i as i32;
+        let Some(mut eq) = town_access.equipment_mut(ti) else {
+            continue;
+        };
+        if eq.0.len() <= cap {
+            continue;
+        }
+        // Sort: lowest rarity gold_cost first, then lowest stat_bonus
+        eq.0.sort_by(|a, b| {
+            a.rarity.gold_cost().cmp(&b.rarity.gold_cost()).then(
+                a.stat_bonus
+                    .partial_cmp(&b.stat_bonus)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
+        });
+        let excess = eq.0.len() - cap;
+        eq.0.drain(..excess);
+        // Convert pruned items to gold (1 gold each)
+        if let Some(mut gold) = town_access.gold_mut(ti) {
+            gold.0 += excess as i32;
+        }
+    }
+}
+
+// ============================================================================
 // UNIT TESTS
 // ============================================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::components::{BaseAttackType, Job, Personality, TraitInstance, TraitKind};
+    use crate::components::{
+        BaseAttackType, GoldStore, Job, Personality, TownEquipment, TraitInstance, TraitKind,
+    };
     use bevy::time::TimeUpdateStrategy;
 
     // -- level_from_xp -------------------------------------------------------
@@ -2114,5 +2156,133 @@ mod tests {
             total_upgrades, 0,
             "should not upgrade when all flags are false"
         );
+    }
+
+    // -- prune_town_equipment_system -------------------------------------------
+
+    fn setup_prune_app(item_count: usize) -> App {
+        use crate::components::*;
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(crate::resources::GameTime::default());
+        app.insert_resource(crate::resources::EntityMap::default());
+
+        let mut world_data = crate::world::WorldData::default();
+        world_data.towns.push(crate::world::Town {
+            name: "PruneTown".into(),
+            center: bevy::prelude::Vec2::new(0.0, 0.0),
+            faction: 1,
+            kind: crate::constants::TownKind::Player,
+        });
+        app.insert_resource(world_data);
+
+        // Spawn town entity with items
+        let mut town_index = crate::resources::TownIndex::default();
+        let mut items: Vec<crate::constants::LootItem> = Vec::new();
+        for i in 0..item_count {
+            let rarity = match i % 4 {
+                0 => crate::constants::Rarity::Common,
+                1 => crate::constants::Rarity::Uncommon,
+                2 => crate::constants::Rarity::Rare,
+                _ => crate::constants::Rarity::Epic,
+            };
+            items.push(crate::constants::LootItem {
+                id: i as u64,
+                kind: crate::constants::ItemKind::Weapon,
+                name: format!("Item{}", i),
+                rarity,
+                stat_bonus: (i as f32) * 0.01,
+                sprite: (0.0, 0.0),
+            });
+        }
+        let entity = app
+            .world_mut()
+            .spawn((
+                TownMarker,
+                FoodStore(0),
+                GoldStore(0),
+                WoodStore(0),
+                StoneStore(0),
+                TownPolicy::default(),
+                TownUpgradeLevel::default(),
+                TownEquipment(items),
+            ))
+            .id();
+        town_index.0.insert(0, entity);
+        app.insert_resource(town_index);
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.add_systems(FixedUpdate, prune_town_equipment_system);
+        app.update();
+        app.update();
+        app
+    }
+
+    #[test]
+    fn prune_caps_town_equipment_at_limit() {
+        let mut app = setup_prune_app(300);
+        // Verify we have 300 items
+        let entity = app.world().resource::<crate::resources::TownIndex>().0[&0];
+        let count_before = app.world().get::<TownEquipment>(entity).unwrap().0.len();
+        assert_eq!(count_before, 300);
+
+        // Trigger prune
+        app.world_mut()
+            .resource_mut::<crate::resources::GameTime>()
+            .hour_ticked = true;
+        app.update();
+
+        let eq = app.world().get::<TownEquipment>(entity).unwrap();
+        assert!(
+            eq.0.len() <= crate::constants::TOWN_EQUIPMENT_CAP,
+            "should prune to cap: got {}",
+            eq.0.len()
+        );
+
+        // Verify gold received for pruned items
+        let gold = app.world().get::<GoldStore>(entity).unwrap().0;
+        let expected_gold = 300 - crate::constants::TOWN_EQUIPMENT_CAP;
+        assert_eq!(
+            gold, expected_gold as i32,
+            "should receive 1 gold per pruned item"
+        );
+    }
+
+    #[test]
+    fn prune_keeps_highest_value_items() {
+        let mut app = setup_prune_app(300);
+        app.world_mut()
+            .resource_mut::<crate::resources::GameTime>()
+            .hour_ticked = true;
+        app.update();
+
+        let entity = app.world().resource::<crate::resources::TownIndex>().0[&0];
+        let eq = app.world().get::<TownEquipment>(entity).unwrap();
+
+        // All remaining items should have higher stat_bonus than the pruned threshold
+        // Items were created with stat_bonus = i * 0.01, lowest indices = lowest value
+        // After sorting by rarity then stat_bonus, the 100 lowest-value items are removed
+        // Remaining items should all be from the higher end
+        let min_bonus = eq.0.iter().map(|i| i.stat_bonus).fold(f32::MAX, f32::min);
+        assert!(
+            min_bonus > 0.0,
+            "pruned items should have removed the lowest stat_bonus items"
+        );
+    }
+
+    #[test]
+    fn prune_skips_under_cap() {
+        let mut app = setup_prune_app(50);
+        app.world_mut()
+            .resource_mut::<crate::resources::GameTime>()
+            .hour_ticked = true;
+        app.update();
+
+        let entity = app.world().resource::<crate::resources::TownIndex>().0[&0];
+        let eq = app.world().get::<TownEquipment>(entity).unwrap();
+        assert_eq!(eq.0.len(), 50, "should not prune when under cap");
+        let gold = app.world().get::<GoldStore>(entity).unwrap().0;
+        assert_eq!(gold, 0, "no gold when nothing pruned");
     }
 }
