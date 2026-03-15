@@ -61,12 +61,12 @@ If the workspace directory already exists, reuse it. Do not recreate or remove e
 
 All workspaces share one Cargo target directory (`C:\code\endless\rust\target`) via `~/.cargo/config.toml`. Dependencies compile once; only the `endless` crate rebuilds per workspace (~16s vs ~7min cold).
 
-Because concurrent builds to the same target dir can clobber artifacts, agents must use `python C:/Users/Abix/.claude/ai-collab/cargo-lock.py` instead of bare `cargo` for build/check/clippy:
+Because concurrent builds to the same target dir can clobber artifacts, agents must use `python C:/Users/Abix/.claude/skills/issue/cargo-lock.py` instead of bare `cargo` for build/check/clippy:
 
 ```
-python C:/Users/Abix/.claude/ai-collab/cargo-lock.py build --release
-python C:/Users/Abix/.claude/ai-collab/cargo-lock.py clippy --release -- -D warnings
-python C:/Users/Abix/.claude/ai-collab/cargo-lock.py check
+python C:/Users/Abix/.claude/skills/issue/cargo-lock.py build --release
+python C:/Users/Abix/.claude/skills/issue/cargo-lock.py clippy --release -- -D warnings
+python C:/Users/Abix/.claude/skills/issue/cargo-lock.py check
 ```
 
 The lock serializes builds -- one agent builds while others wait in line.
