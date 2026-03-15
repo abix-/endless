@@ -802,6 +802,10 @@ fn valid_phase_combinations_match_spec() {
             ActivityKind::Quarry,
             &[ActivityPhase::Transit, ActivityPhase::Holding],
         ),
+        (
+            ActivityKind::Repair,
+            &[ActivityPhase::Transit, ActivityPhase::Active],
+        ),
     ];
 
     // Verify Activity::new() produces Ready (default), which is valid for Idle
@@ -809,10 +813,10 @@ fn valid_phase_combinations_match_spec() {
     let idle = Activity::new(ActivityKind::Idle);
     assert_eq!(idle.phase, ActivityPhase::Ready);
 
-    // Verify the table covers all 12 activity kinds
+    // Verify the table covers all 13 activity kinds
     assert_eq!(
         valid.len(),
-        12,
+        13,
         "spec table must cover all ActivityKind variants"
     );
 
@@ -908,6 +912,16 @@ fn transition_produces_valid_combinations() {
         (
             ActivityKind::Wander,
             ActivityPhase::Transit,
+            ActivityTarget::None,
+        ),
+        (
+            ActivityKind::Repair,
+            ActivityPhase::Transit,
+            ActivityTarget::None,
+        ),
+        (
+            ActivityKind::Repair,
+            ActivityPhase::Active,
             ActivityTarget::None,
         ),
     ];
