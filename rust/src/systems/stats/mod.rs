@@ -4,8 +4,8 @@
 
 use crate::components::{BaseAttackType, CachedStats, Job, Personality};
 use crate::constants::{
-    AttackTypeStats, EffectDisplay, FOUNTAIN_TOWER, NPC_REGISTRY, ResourceKind, TOWER_STATS,
-    TOWN_UPGRADES, TowerStats, UpgradeStatDef, UpgradeStatKind, npc_def,
+    AttackTypeStats, EffectDisplay, FOUNTAIN_TOWER, NPC_REGISTRY, ResourceKind, TOWN_UPGRADES,
+    TowerStats, UpgradeStatDef, UpgradeStatKind, npc_def,
 };
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::systemparams::{EconomyState, WorldState};
@@ -658,7 +658,11 @@ pub fn resolve_town_tower_stats(levels: &[u8]) -> TowerStats {
 }
 
 /// Resolve per-tower-instance stats from base + XP level + per-instance upgrade levels.
-pub fn resolve_tower_instance_stats(level: i32, upgrade_levels: &[u8]) -> TowerStats {
+pub fn resolve_tower_instance_stats(
+    base: &TowerStats,
+    level: i32,
+    upgrade_levels: &[u8],
+) -> TowerStats {
     let level_mult = 1.0 + level as f32 * 0.01;
     let upgrades = crate::constants::TOWER_UPGRADES;
     let get = |kind: UpgradeStatKind| -> f32 {
@@ -681,13 +685,13 @@ pub fn resolve_tower_instance_stats(level: i32, upgrade_levels: &[u8]) -> TowerS
         .unwrap_or(0.0);
 
     TowerStats {
-        range: TOWER_STATS.range * get(UpgradeStatKind::Range) * level_mult,
-        damage: TOWER_STATS.damage * get(UpgradeStatKind::Attack) * level_mult,
-        cooldown: TOWER_STATS.cooldown * get(UpgradeStatKind::AttackSpeed),
-        proj_speed: TOWER_STATS.proj_speed * get(UpgradeStatKind::ProjectileSpeed),
-        proj_lifetime: TOWER_STATS.proj_lifetime * get(UpgradeStatKind::ProjectileLifetime),
+        range: base.range * get(UpgradeStatKind::Range) * level_mult,
+        damage: base.damage * get(UpgradeStatKind::Attack) * level_mult,
+        cooldown: base.cooldown * get(UpgradeStatKind::AttackSpeed),
+        proj_speed: base.proj_speed * get(UpgradeStatKind::ProjectileSpeed),
+        proj_lifetime: base.proj_lifetime * get(UpgradeStatKind::ProjectileLifetime),
         hp_regen: regen_level * 2.0,
-        max_hp: TOWER_STATS.max_hp * get(UpgradeStatKind::Hp) * level_mult,
+        max_hp: base.max_hp * get(UpgradeStatKind::Hp) * level_mult,
     }
 }
 

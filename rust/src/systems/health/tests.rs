@@ -113,7 +113,7 @@ fn buildings_excluded_from_regen() {
             Health(50.0),
             stats_with_regen(5.0),
             Building {
-                kind: crate::world::BuildingKind::Tower,
+                kind: crate::world::BuildingKind::BowTower,
             },
         ))
         .id();
@@ -334,7 +334,7 @@ fn damage_building_reduces_health() {
             GpuSlot(slot),
             Health(200.0),
             Building {
-                kind: BuildingKind::Tower,
+                kind: BuildingKind::BowTower,
             },
         ))
         .id();
@@ -342,7 +342,7 @@ fn damage_building_reduces_health() {
     let mut entity_map = app.world_mut().resource_mut::<EntityMap>();
     entity_map.set_entity(slot, entity);
     entity_map.add_instance(crate::resources::BuildingInstance {
-        kind: BuildingKind::Tower,
+        kind: BuildingKind::BowTower,
         position: Vec2::ZERO,
         town_idx: 0,
         slot,

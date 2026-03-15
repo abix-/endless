@@ -990,10 +990,10 @@ fn tower_upgrade_window(
     };
 
     // Auto-close if selected building changed or tower no longer exists
-    let inst_exists = bld
-        .entity_map
-        .get_instance(slot)
-        .is_some_and(|i| matches!(i.kind, BuildingKind::Tower | BuildingKind::GuardTower));
+    let inst_exists = bld.entity_map.get_instance(slot).is_some_and(|i| {
+        let def = crate::constants::building_def(i.kind);
+        def.is_tower && i.kind != BuildingKind::Fountain
+    });
     if !inst_exists {
         ui_state.tower_upgrade_slot = None;
         return;
@@ -2715,14 +2715,17 @@ fn building_inspector_content(
                 }
             }
 
-            BuildingKind::Tower | BuildingKind::GuardTower => {
+            kind if crate::constants::building_def(kind).is_tower
+                && kind != BuildingKind::Fountain =>
+            {
                 // Resolve per-instance stats from ECS TowerBuildingState
                 let slot = bld_slot.unwrap_or(usize::MAX);
                 let (level, upgrade_levels_clone) = bld_entity
                     .and_then(|e| bld.tower_bld_q.get(e).ok())
                     .map(|tbs| (level_from_xp(tbs.xp), tbs.upgrade_levels.clone()))
                     .unwrap_or((0, Vec::new()));
-                let stats = resolve_tower_instance_stats(level, &upgrade_levels_clone);
+                let base = crate::constants::building_def(kind).tower_stats.unwrap();
+                let stats = resolve_tower_instance_stats(&base, level, &upgrade_levels_clone);
 
                 // Tower combat stats (resolved)
                 ui.label(format!("Range: {:.0}px", stats.range));

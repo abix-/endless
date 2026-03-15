@@ -234,6 +234,7 @@ pub fn materialize_npc(
                 name: String::new(),
                 sprite,
                 stat_bonus: 0.0,
+                weapon_type: None,
             });
         }
     }

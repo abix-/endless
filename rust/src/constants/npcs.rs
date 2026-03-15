@@ -14,6 +14,16 @@ pub struct AttackTypeStats {
     pub projectile_lifetime: f32,
 }
 
+/// Weapon subtype for tower equipment filtering.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Reflect, serde::Serialize, serde::Deserialize,
+)]
+pub enum WeaponType {
+    Bow,
+    Crossbow,
+    Catapult,
+}
+
 /// Unified item type — resources (stackable) and equipment (unique instances).
 /// Serves as the K8s `kind` discriminator for the item registry.
 #[derive(
@@ -266,6 +276,8 @@ pub struct LootItem {
     /// Atlas sprite (col, row).
     pub sprite: (f32, f32),
     pub name: String,
+    /// Weapon subtype (only set for ItemKind::Weapon).
+    pub weapon_type: Option<WeaponType>,
 }
 
 /// Roll a random loot item using deterministic seed.
@@ -307,6 +319,17 @@ pub fn roll_loot_item(id: u64, seed: u32) -> LootItem {
     let base = def.names[(name_seed >> 8) as usize % def.names.len()];
     let name = format!("{} {}", prefix, base);
 
+    let weapon_type = if kind == ItemKind::Weapon {
+        let wt_seed = name_seed.wrapping_mul(1103515245).wrapping_add(12345);
+        Some(match wt_seed % 3 {
+            0 => WeaponType::Bow,
+            1 => WeaponType::Crossbow,
+            _ => WeaponType::Catapult,
+        })
+    } else {
+        None
+    };
+
     LootItem {
         id,
         kind,
@@ -314,6 +337,7 @@ pub fn roll_loot_item(id: u64, seed: u32) -> LootItem {
         stat_bonus,
         sprite,
         name,
+        weapon_type,
     }
 }
 

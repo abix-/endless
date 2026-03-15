@@ -152,6 +152,7 @@ pub fn tick(
                     name: name.into(),
                     sprite,
                     stat_bonus: 0.1,
+                    weapon_type: None,
                 };
 
                 match col {

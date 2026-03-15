@@ -94,7 +94,7 @@ pub fn setup(
             &mut entity_map,
             &mut commands,
             &mut gpu_updates,
-            world::BuildingKind::Tower,
+            world::BuildingKind::BowTower,
             pos,
             0, // town_idx
             1, // faction

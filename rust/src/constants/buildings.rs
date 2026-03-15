@@ -1,8 +1,10 @@
 //! Building registry — single source of truth for all building definitions.
 
+use super::npcs::WeaponType;
 use super::npcs::{ItemKind, LootDrop};
 use super::{
-    FOUNTAIN_TOWER, GUARD_TOWER_STATS, MINE_WORK_RADIUS, ResourceKind, TOWER_STATS, TowerStats,
+    BOW_TOWER_STATS, CATAPULT_TOWER_STATS, CROSSBOW_TOWER_STATS, FOUNTAIN_TOWER, GUARD_TOWER_STATS,
+    MINE_WORK_RADIUS, ResourceKind, TowerStats,
 };
 use crate::world::BuildingKind;
 
@@ -103,6 +105,8 @@ pub struct BuildingDef {
     pub worksite: Option<WorksiteDef>,
     /// True = uses 4-neighbor auto-tiling (requires TileSpec::External sprite strip).
     pub autotile: bool,
+    /// Which weapon type this tower accepts (None = no equipment slot).
+    pub tower_weapon_type: Option<WeaponType>,
 }
 
 impl BuildingDef {
@@ -145,6 +149,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_unit_home: false,
         worksite: None,
         autotile: false,
+        tower_weapon_type: None,
     },
     // 1: Bed
     BuildingDef {
@@ -167,6 +172,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_unit_home: false,
         worksite: None,
         autotile: false,
+        tower_weapon_type: None,
     },
     // 2: Waypoint
     BuildingDef {
@@ -189,6 +195,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_unit_home: false,
         worksite: None,
         autotile: false,
+        tower_weapon_type: None,
     },
     // 3: Farm
     BuildingDef {
@@ -217,6 +224,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
             town_scoped: true,
         }),
         autotile: false,
+        tower_weapon_type: None,
     },
     // 5: Farmer Home
     BuildingDef {
@@ -242,6 +250,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_unit_home: true,
         worksite: None,
         autotile: false,
+        tower_weapon_type: None,
     },
     // 6: Archer Home
     BuildingDef {
@@ -267,6 +276,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_unit_home: true,
         worksite: None,
         autotile: false,
+        tower_weapon_type: None,
     },
     // 7: Tent (raider spawner)
     BuildingDef {
@@ -292,6 +302,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_unit_home: true,
         worksite: None,
         autotile: false,
+        tower_weapon_type: None,
     },
     // 8: Gold Mine
     BuildingDef {
@@ -320,6 +331,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
             town_scoped: false,
         }),
         autotile: false,
+        tower_weapon_type: None,
     },
     // 9: Miner Home
     BuildingDef {
@@ -345,6 +357,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_unit_home: false,
         worksite: None,
         autotile: false,
+        tower_weapon_type: None,
     },
     // 10: Crossbow Home
     BuildingDef {
@@ -370,6 +383,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_unit_home: true,
         worksite: None,
         autotile: false,
+        tower_weapon_type: None,
     },
     // 11: Fighter Home
     BuildingDef {
@@ -395,6 +409,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_unit_home: true,
         worksite: None,
         autotile: false,
+        tower_weapon_type: None,
     },
     // 12: Road (dirt) — expands buildable area by 3 tiles
     BuildingDef {
@@ -417,6 +432,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_unit_home: false,
         worksite: None,
         autotile: true,
+        tower_weapon_type: None,
     },
     // 13: StoneRoad — expands buildable area by 5 tiles
     BuildingDef {
@@ -439,6 +455,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_unit_home: false,
         worksite: None,
         autotile: true,
+        tower_weapon_type: None,
     },
     // 14: MetalRoad — expands buildable area by 7 tiles
     BuildingDef {
@@ -461,6 +478,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_unit_home: false,
         worksite: None,
         autotile: true,
+        tower_weapon_type: None,
     },
     // 15: Wall
     BuildingDef {
@@ -483,28 +501,76 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_unit_home: false,
         worksite: None,
         autotile: true,
+        tower_weapon_type: None,
     },
-    // 14: Tower (auto-shoots enemies)
+    // 14: Bow Tower (auto-shoots enemies with arrows)
     BuildingDef {
-        kind: BuildingKind::Tower,
+        kind: BuildingKind::BowTower,
         display: DisplayCategory::Tower,
         tile: TileSpec::External("sprites/tower-1.png"),
         hp: 1000.0,
         cost: 40,
-        label: "Tower",
-        help: "Auto-attacks nearby enemies",
-        tooltip: "Defensive tower — auto-shoots nearest enemy.\nSame range/damage as archer. 15 dmg, 1.5s cooldown. HP: 1000",
+        label: "Bow Tower",
+        help: "Shoots arrows at enemies",
+        tooltip: "Bow tower -- auto-shoots nearest enemy.\n15 dmg, 200 range, 1.5s cooldown.\nEquip a bow to boost damage. HP: 1000",
         player_buildable: true,
         raider_buildable: false,
         placement: PlacementMode::TownGrid,
         is_tower: true,
-        tower_stats: Some(TOWER_STATS),
+        tower_stats: Some(BOW_TOWER_STATS),
         on_place: OnPlace::None,
         spawner: None,
-        save_key: Some("towers"),
+        save_key: Some("bow_towers"),
         is_unit_home: false,
         worksite: None,
         autotile: false,
+        tower_weapon_type: Some(WeaponType::Bow),
+    },
+    // 15: Crossbow Tower
+    BuildingDef {
+        kind: BuildingKind::CrossbowTower,
+        display: DisplayCategory::Tower,
+        tile: TileSpec::External("sprites/tower-1.png"),
+        hp: 1200.0,
+        cost: 60,
+        label: "Crossbow Tower",
+        help: "High-damage bolts",
+        tooltip: "Crossbow tower -- heavy bolts, longer reload.\n25 dmg, 250 range, 2.0s cooldown.\nEquip a crossbow to boost damage. HP: 1200",
+        player_buildable: true,
+        raider_buildable: false,
+        placement: PlacementMode::TownGrid,
+        is_tower: true,
+        tower_stats: Some(CROSSBOW_TOWER_STATS),
+        on_place: OnPlace::None,
+        spawner: None,
+        save_key: Some("crossbow_towers"),
+        is_unit_home: false,
+        worksite: None,
+        autotile: false,
+        tower_weapon_type: Some(WeaponType::Crossbow),
+    },
+    // 16: Catapult Tower
+    BuildingDef {
+        kind: BuildingKind::CatapultTower,
+        display: DisplayCategory::Tower,
+        tile: TileSpec::External("sprites/tower-1.png"),
+        hp: 800.0,
+        cost: 80,
+        label: "Catapult Tower",
+        help: "Slow, massive damage",
+        tooltip: "Catapult tower -- slow but devastating.\n50 dmg, 350 range, 4.0s cooldown.\nEquip a catapult to boost damage. HP: 800",
+        player_buildable: true,
+        raider_buildable: false,
+        placement: PlacementMode::TownGrid,
+        is_tower: true,
+        tower_stats: Some(CATAPULT_TOWER_STATS),
+        on_place: OnPlace::None,
+        spawner: None,
+        save_key: Some("catapult_towers"),
+        is_unit_home: false,
+        worksite: None,
+        autotile: false,
+        tower_weapon_type: Some(WeaponType::Catapult),
     },
     // 15: Merchant (buy/sell equipment)
     BuildingDef {
@@ -527,6 +593,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_unit_home: false,
         worksite: None,
         autotile: false,
+        tower_weapon_type: None,
     },
     // 16: Casino (blackjack minigame, 1 per town)
     BuildingDef {
@@ -549,6 +616,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_unit_home: false,
         worksite: None,
         autotile: false,
+        tower_weapon_type: None,
     },
     // 17: LumberMill
     BuildingDef {
@@ -574,6 +642,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_unit_home: false,
         worksite: None,
         autotile: false,
+        tower_weapon_type: None,
     },
     // 18: Quarry
     BuildingDef {
@@ -599,6 +668,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_unit_home: false,
         worksite: None,
         autotile: false,
+        tower_weapon_type: None,
     },
     // 19: TreeNode
     BuildingDef {
@@ -627,6 +697,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
             town_scoped: false,
         }),
         autotile: false,
+        tower_weapon_type: None,
     },
     // 20: RockNode
     BuildingDef {
@@ -655,6 +726,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
             town_scoped: false,
         }),
         autotile: false,
+        tower_weapon_type: None,
     },
     // 21: Mason Home
     BuildingDef {
@@ -680,6 +752,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_unit_home: true,
         worksite: None,
         autotile: false,
+        tower_weapon_type: None,
     },
     // Gate (wall-like, passable for friendlies)
     BuildingDef {
@@ -724,6 +797,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_unit_home: false,
         worksite: None,
         autotile: false,
+        tower_weapon_type: None,
     },
 ];
 

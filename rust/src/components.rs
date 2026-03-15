@@ -785,6 +785,8 @@ pub struct TowerBuildingState {
     pub xp: i32,
     pub upgrade_levels: Vec<u8>,
     pub auto_upgrade_flags: Vec<bool>,
+    /// Equipped weapon item (boosts tower damage via stat_bonus).
+    pub equipped_weapon: Option<crate::constants::LootItem>,
 }
 
 /// Building under construction (seconds remaining; 0 = complete).

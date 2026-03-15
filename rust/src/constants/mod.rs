@@ -271,7 +271,7 @@ pub const FOUNTAIN_TOWER: TowerStats = TowerStats {
     max_hp: 5000.0,
 };
 
-pub const TOWER_STATS: TowerStats = TowerStats {
+pub const BOW_TOWER_STATS: TowerStats = TowerStats {
     range: 200.0,
     damage: 15.0,
     cooldown: 1.5,
@@ -279,6 +279,26 @@ pub const TOWER_STATS: TowerStats = TowerStats {
     proj_lifetime: 1.5,
     hp_regen: 0.0,
     max_hp: 1000.0,
+};
+
+pub const CROSSBOW_TOWER_STATS: TowerStats = TowerStats {
+    range: 250.0,
+    damage: 25.0,
+    cooldown: 2.0,
+    proj_speed: 300.0,
+    proj_lifetime: 1.5,
+    hp_regen: 0.0,
+    max_hp: 1200.0,
+};
+
+pub const CATAPULT_TOWER_STATS: TowerStats = TowerStats {
+    range: 350.0,
+    damage: 50.0,
+    cooldown: 4.0,
+    proj_speed: 150.0,
+    proj_lifetime: 2.5,
+    hp_regen: 0.0,
+    max_hp: 800.0,
 };
 
 pub const GUARD_TOWER_STATS: TowerStats = TowerStats {
@@ -595,7 +615,9 @@ mod tests {
             BuildingKind::StoneRoad,
             BuildingKind::MetalRoad,
             BuildingKind::Wall,
-            BuildingKind::Tower,
+            BuildingKind::BowTower,
+            BuildingKind::CrossbowTower,
+            BuildingKind::CatapultTower,
             BuildingKind::Merchant,
             BuildingKind::Casino,
             BuildingKind::TreeNode,
