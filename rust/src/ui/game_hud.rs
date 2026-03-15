@@ -82,6 +82,140 @@ fn npc_link(
     None
 }
 
+/// Cached egui texture IDs for resource icons. Initialized once from atlas sprites.
+#[derive(Resource, Default)]
+pub struct ResourceIconCache {
+    pub initialized: bool,
+    pub food: Option<egui::TextureId>,
+    pub gold: Option<egui::TextureId>,
+    pub wood: Option<egui::TextureId>,
+    pub stone: Option<egui::TextureId>,
+    _handles: Vec<Handle<Image>>,
+}
+
+/// Extract a single 16x16 sprite from a 17px-cell atlas at (col, row).
+fn extract_atlas_cell(atlas: &Image, col: u32, row: u32, cell_size: u32) -> Option<Image> {
+    let sprite_size = cell_size - 1; // 16px sprite in 17px cell
+    let src_w = atlas.width();
+    let src_data = atlas.data.as_ref()?;
+    let px = col * cell_size;
+    let py = row * cell_size;
+    let mut data = vec![0u8; (sprite_size * sprite_size * 4) as usize];
+    for y in 0..sprite_size {
+        for x in 0..sprite_size {
+            let sx = (px + x) as usize;
+            let sy = (py + y) as usize;
+            let src_idx = (sy * src_w as usize + sx) * 4;
+            let dst_idx = (y * sprite_size + x) as usize * 4;
+            if src_idx + 3 < src_data.len() {
+                data[dst_idx..dst_idx + 4].copy_from_slice(&src_data[src_idx..src_idx + 4]);
+            }
+        }
+    }
+    Some(Image::new(
+        bevy::render::render_resource::Extent3d {
+            width: sprite_size,
+            height: sprite_size,
+            depth_or_array_layers: 1,
+        },
+        bevy::render::render_resource::TextureDimension::D2,
+        data,
+        bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+        Default::default(),
+    ))
+}
+
+/// Initialize resource icon textures from atlas sprites. Runs until all 4 icons load.
+pub fn init_resource_icons(
+    mut cache: ResMut<ResourceIconCache>,
+    mut contexts: EguiContexts,
+    sprites: Res<crate::render::SpriteAssets>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let cell = 17u32;
+
+    // Extract cells while borrowing atlases (no clone), collect to release borrows before add
+    let mut pending: Vec<(&str, Image)> = Vec::new();
+    if cache.food.is_none() {
+        if let Some(a) = images.get(&sprites.char_texture) {
+            if let Some(img) = extract_atlas_cell(a, 24, 9, cell) {
+                pending.push(("food", img));
+            }
+        }
+    }
+    if cache.gold.is_none() {
+        if let Some(a) = images.get(&sprites.char_texture) {
+            if let Some(img) = extract_atlas_cell(a, 41, 11, cell) {
+                pending.push(("gold", img));
+            }
+        }
+    }
+    if cache.wood.is_none() {
+        if let Some(a) = images.get(&sprites.world_texture) {
+            if let Some(img) = extract_atlas_cell(a, 13, 9, cell) {
+                pending.push(("wood", img));
+            }
+        }
+    }
+    if cache.stone.is_none() {
+        if let Some(a) = images.get(&sprites.world_texture) {
+            if let Some(img) = extract_atlas_cell(a, 7, 15, cell) {
+                pending.push(("stone", img));
+            }
+        }
+    }
+
+    for (name, img) in pending {
+        let h = images.add(img);
+        let tex = contexts.add_image(bevy_egui::EguiTextureHandle::Weak(h.id()));
+        match name {
+            "food" => cache.food = Some(tex),
+            "gold" => cache.gold = Some(tex),
+            "wood" => cache.wood = Some(tex),
+            "stone" => cache.stone = Some(tex),
+            _ => {}
+        }
+        cache._handles.push(h);
+    }
+
+    cache.initialized = cache.food.is_some()
+        && cache.gold.is_some()
+        && cache.wood.is_some()
+        && cache.stone.is_some();
+}
+
+/// Render a resource sprite icon + amount with tooltip.
+fn resource_icon(
+    ui: &mut egui::Ui,
+    amount: i32,
+    tex: Option<egui::TextureId>,
+    color: egui::Color32,
+    tip: &str,
+) {
+    let icon_size = 16.0;
+    let spacing = 2.0;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = spacing;
+        if let Some(tex_id) = tex {
+            ui.add(
+                egui::Image::new(egui::load::SizedTexture::new(
+                    tex_id,
+                    [icon_size, icon_size],
+                ))
+                .tint(egui::Color32::WHITE),
+            );
+        } else {
+            // Fallback: colored square if textures not loaded yet
+            let (rect, _) =
+                ui.allocate_exact_size(egui::vec2(icon_size, icon_size), egui::Sense::hover());
+            ui.painter().rect_filled(rect, 2.0, color);
+        }
+        ui.label(egui::RichText::new(format!("{amount}")).color(color));
+    })
+    .response
+    .on_hover_text(tip);
+}
+
 /// Render a building name as a clickable link. Returns action if clicked.
 fn building_link(ui: &mut egui::Ui, label: &str, slot: usize) -> Option<InspectorAction> {
     if ui.link(label).clicked() {
@@ -158,6 +292,7 @@ pub fn top_bar_system(
     settings: Res<crate::settings::UserSettings>,
     mut camera_query: Query<&mut Transform, With<MainCamera>>,
     llm_state: Option<Res<crate::systems::llm_player::LlmPlayerState>>,
+    icon_cache: Res<ResourceIconCache>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
 
@@ -370,28 +505,34 @@ pub fn top_bar_system(
                     let town_gold = town_access.gold(0);
                     let town_wood = town_access.wood(0);
                     let town_stone = town_access.stone(0);
-                    tipped(
+
+                    resource_icon(
                         ui,
-                        egui::RichText::new(format!("Stone: {}", town_stone))
-                            .color(egui::Color32::from_rgb(170, 170, 180)),
-                        catalog.0.get("stone").unwrap_or(&""),
-                    );
-                    tipped(
-                        ui,
-                        egui::RichText::new(format!("Wood: {}", town_wood))
-                            .color(egui::Color32::from_rgb(150, 110, 70)),
+                        town_wood,
+                        icon_cache.wood,
+                        egui::Color32::from_rgb(150, 110, 70),
                         catalog.0.get("wood").unwrap_or(&""),
                     );
-                    tipped(
+                    resource_icon(
                         ui,
-                        egui::RichText::new(format!("Gold: {}", town_gold))
-                            .color(egui::Color32::from_rgb(220, 190, 50)),
-                        catalog.0.get("gold").unwrap_or(&""),
+                        town_stone,
+                        icon_cache.stone,
+                        egui::Color32::from_rgb(170, 170, 180),
+                        catalog.0.get("stone").unwrap_or(&""),
                     );
-                    tipped(
+                    resource_icon(
                         ui,
-                        format!("Food: {}", town_food),
+                        town_food,
+                        icon_cache.food,
+                        egui::Color32::from_rgb(120, 200, 80),
                         catalog.0.get("food").unwrap_or(&""),
+                    );
+                    resource_icon(
+                        ui,
+                        town_gold,
+                        icon_cache.gold,
+                        egui::Color32::from_rgb(220, 190, 50),
+                        catalog.0.get("gold").unwrap_or(&""),
                     );
 
                     let farmers = pop_stats.0.get(&(0, 0)).map(|s| s.alive).unwrap_or(0);

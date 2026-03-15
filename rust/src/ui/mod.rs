@@ -617,6 +617,13 @@ fn apply_interface_text_size(
 
 /// Register all UI systems.
 pub fn register_ui(app: &mut App) {
+    app.init_resource::<game_hud::ResourceIconCache>();
+    app.add_systems(
+        Update,
+        game_hud::init_resource_icons
+            .run_if(in_state(AppState::Playing).or(in_state(AppState::Running)))
+            .run_if(|cache: Res<game_hud::ResourceIconCache>| !cache.initialized),
+    );
     // Global: UI scale + overlays (all states)
     app.add_systems(Update, apply_ui_scale);
     app.add_systems(EguiPrimaryContextPass, apply_interface_text_size);
