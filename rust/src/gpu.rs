@@ -47,6 +47,29 @@ use crate::world::WorldData;
 // WGPU ERROR HANDLER
 // =============================================================================
 
+/// Validated bind group creation: asserts entry count matches layout in debug builds.
+/// Prevents silent bind group mismatches that cause per-frame wgpu validation errors
+/// (see issue #41 — 208MB error log from 17 vs 19 binding mismatch).
+fn checked_create_bind_group(
+    render_device: &RenderDevice,
+    label: Option<&str>,
+    layout: &BindGroupLayout,
+    layout_descriptor: &BindGroupLayoutDescriptor,
+    entries: &[BindGroupEntry],
+) -> BindGroup {
+    debug_assert_eq!(
+        entries.len(),
+        layout_descriptor.entries.len(),
+        "bind group '{}' has {} entries but layout '{}' expects {} \
+         -- check that Rust bind group order matches WGSL @binding indices",
+        label.unwrap_or("unnamed"),
+        entries.len(),
+        layout_descriptor.label,
+        layout_descriptor.entries.len(),
+    );
+    render_device.create_bind_group(label, layout, entries)
+}
+
 /// Replace wgpu's default panic-on-error with a warning logger.
 /// Surface validation errors (Invalid surface, not configured for presentation)
 /// become non-fatal — Bevy reconfigures the surface next frame automatically.
@@ -1738,9 +1761,12 @@ fn prepare_npc_bind_groups(
     let flags_bind = buffers.entity_flags.as_entire_buffer_binding();
     let tile_bind = buffers.tile_flags.as_entire_buffer_binding();
 
-    let mode0 = render_device.create_bind_group(
+    let layout_desc = &pipeline.bind_group_layout;
+    let mode0 = checked_create_bind_group(
+        &render_device,
         Some("npc_compute_bg_mode0"),
         layout,
+        layout_desc,
         &BindGroupEntries::sequential((
             storage_bindings.0.clone(),
             storage_bindings.1.clone(),
@@ -1763,9 +1789,11 @@ fn prepare_npc_bind_groups(
             tile_bind.clone(),
         )),
     );
-    let mode1 = render_device.create_bind_group(
+    let mode1 = checked_create_bind_group(
+        &render_device,
         Some("npc_compute_bg_mode1"),
         layout,
+        layout_desc,
         &BindGroupEntries::sequential((
             storage_bindings.0.clone(),
             storage_bindings.1.clone(),
@@ -1788,9 +1816,11 @@ fn prepare_npc_bind_groups(
             tile_bind.clone(),
         )),
     );
-    let mode2 = render_device.create_bind_group(
+    let mode2 = checked_create_bind_group(
+        &render_device,
         Some("npc_compute_bg_mode2"),
         layout,
+        layout_desc,
         &BindGroupEntries::sequential((
             storage_bindings.0.clone(),
             storage_bindings.1.clone(),
@@ -2233,9 +2263,12 @@ fn prepare_proj_bind_groups(
     let entity_flags_bind = ent.entity_flags.as_entire_buffer_binding();
     let homing_bind = proj.homing_targets.as_entire_buffer_binding();
 
-    let mode0 = render_device.create_bind_group(
+    let layout_desc = &pipeline.bind_group_layout;
+    let mode0 = checked_create_bind_group(
+        &render_device,
         Some("proj_compute_bg_mode0"),
         layout,
+        layout_desc,
         &BindGroupEntries::sequential((
             storage_bindings.0.clone(),                  // 0: positions
             storage_bindings.1.clone(),                  // 1: velocities
@@ -2258,9 +2291,11 @@ fn prepare_proj_bind_groups(
             homing_bind.clone(),                         // 18
         )),
     );
-    let mode1 = render_device.create_bind_group(
+    let mode1 = checked_create_bind_group(
+        &render_device,
         Some("proj_compute_bg_mode1"),
         layout,
+        layout_desc,
         &BindGroupEntries::sequential((
             storage_bindings.0.clone(),
             storage_bindings.1.clone(),
@@ -2283,9 +2318,11 @@ fn prepare_proj_bind_groups(
             homing_bind.clone(),
         )),
     );
-    let mode2 = render_device.create_bind_group(
+    let mode2 = checked_create_bind_group(
+        &render_device,
         Some("proj_compute_bg_mode2"),
         layout,
+        layout_desc,
         &BindGroupEntries::sequential((
             storage_bindings.0.clone(),
             storage_bindings.1.clone(),
