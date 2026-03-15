@@ -723,6 +723,15 @@ pub fn place_building(
             }
         }
 
+        // Reject placements that would fully block access to spawners
+        if !kind.is_road()
+            && ctx
+                .grid
+                .would_block_spawner_access(entity_map, gc, gr, town_idx, ctx.world_data)
+        {
+            return Err("would block access to a spawner");
+        }
+
         if *ctx.food < ctx.cost {
             return Err("not enough food");
         }
@@ -1877,6 +1886,71 @@ impl WorldGrid {
             self.pathfind_costs[idx] = cost;
             self.building_cost_cells.push(idx);
         }
+    }
+
+    /// Check if placing an impassable building at (gc, gr) would block access from
+    /// the town center to any spawner of the same town. Returns true if placement
+    /// would create an unreachable spawner.
+    ///
+    /// Only runs at placement time (player click), not per-frame. O(spawners * A*).
+    pub fn would_block_spawner_access(
+        &mut self,
+        entity_map: &crate::resources::EntityMap,
+        gc: usize,
+        gr: usize,
+        town_idx: u32,
+        world_data: &WorldData,
+    ) -> bool {
+        if self.width == 0 || self.height == 0 {
+            return false;
+        }
+        let idx = gr * self.width + gc;
+        if idx >= self.pathfind_costs.len() {
+            return false;
+        }
+        let Some(town) = world_data.towns.get(town_idx as usize) else {
+            return false;
+        };
+        let (cc, cr) = self.world_to_grid(town.center);
+        let center = bevy::math::IVec2::new(cc as i32, cr as i32);
+
+        // Temporarily set candidate cell as impassable
+        let original_cost = self.pathfind_costs[idx];
+        self.pathfind_costs[idx] = 0;
+
+        let mut blocked = false;
+        // Check reachability for each spawner building of this town
+        for def in crate::constants::BUILDING_REGISTRY.iter() {
+            if def.spawner.is_none() {
+                continue;
+            }
+            for inst in entity_map.iter_kind_for_town(def.kind, town_idx) {
+                let (sc, sr) = self.world_to_grid(inst.position);
+                let goal = bevy::math::IVec2::new(sc as i32, sr as i32);
+                if goal == center {
+                    continue;
+                }
+                let reachable = crate::systems::pathfinding::pathfind_with_costs(
+                    &self.pathfind_costs,
+                    self.width,
+                    self.height,
+                    center,
+                    goal,
+                    5000,
+                );
+                if reachable.is_none() {
+                    blocked = true;
+                    break;
+                }
+            }
+            if blocked {
+                break;
+            }
+        }
+
+        // Restore original cost
+        self.pathfind_costs[idx] = original_cost;
+        blocked
     }
 
     // ── Town buildability grid ─────────────────────────────────────
