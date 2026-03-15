@@ -272,10 +272,10 @@ pub struct SelectedBuilding {
     pub kind: Option<crate::world::BuildingKind>,
 }
 
-/// Set of GPU slots for NPCs with `direct_control == true`.
+/// Set of NPC entities with `direct_control == true`.
 /// Maintained incrementally by `sync_direct_control_set` using `Changed<NpcFlags>`.
 #[derive(Resource, Default)]
-pub struct DirectControlSet(pub Vec<usize>);
+pub struct DirectControlSet(pub Vec<Entity>);
 
 /// Entities currently in `ReturnLoot` activity.
 /// Maintained incrementally by `sync_returning_set` using `Changed<Activity>`.

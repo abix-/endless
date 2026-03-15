@@ -829,18 +829,20 @@ fn build_overlay_instances(
 fn sync_direct_control_set(
     mut dc_set: ResMut<crate::resources::DirectControlSet>,
     changed_q: Query<
-        (&crate::components::GpuSlot, &crate::components::NpcFlags),
-        Changed<crate::components::NpcFlags>,
+        (Entity, &crate::components::NpcFlags),
+        (
+            Changed<crate::components::NpcFlags>,
+            Without<crate::components::Building>,
+        ),
     >,
 ) {
-    for (gpu_slot, flags) in &changed_q {
-        let slot = gpu_slot.0;
+    for (entity, flags) in &changed_q {
         if flags.direct_control {
-            if !dc_set.0.contains(&slot) {
-                dc_set.0.push(slot);
+            if !dc_set.0.contains(&entity) {
+                dc_set.0.push(entity);
             }
         } else {
-            dc_set.0.retain(|&s| s != slot);
+            dc_set.0.retain(|&tracked| tracked != entity);
         }
     }
 }
@@ -850,8 +852,14 @@ fn build_selection_overlay(
     mut instances: ResMut<SelectionOverlayInstances>,
     selected_npc: Res<crate::resources::SelectedNpc>,
     selected_building: Res<crate::resources::SelectedBuilding>,
-    dc_set: Res<crate::resources::DirectControlSet>,
-    entity_map: Res<crate::resources::EntityMap>,
+    mut dc_set: ResMut<crate::resources::DirectControlSet>,
+    npc_q: Query<
+        (&crate::components::GpuSlot, &crate::components::NpcFlags),
+        (
+            Without<crate::components::Building>,
+            Without<crate::components::Dead>,
+        ),
+    >,
 ) {
     instances.0.clear();
     let sel_slot = selected_npc.0;
@@ -882,11 +890,16 @@ fn build_selection_overlay(
 
     // DirectControl multi-select (green), skip selected NPC, cap at 200
     let mut dc_count = 0usize;
-    for &slot in &dc_set.0 {
-        // Skip dead NPCs
-        if entity_map.get_npc(slot).is_some_and(|n| n.dead) {
+    let tracked_entities = std::mem::take(&mut dc_set.0);
+    for entity in tracked_entities {
+        let Ok((gpu_slot, flags)) = npc_q.get(entity) else {
+            continue;
+        };
+        if !flags.direct_control {
             continue;
         }
+        let slot = gpu_slot.0;
+        dc_set.0.push(entity);
         if sel_slot >= 0 && slot == sel_slot as usize {
             continue;
         }
@@ -901,6 +914,73 @@ fn build_selection_overlay(
             _pad: 0.0,
         });
         dc_count += 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::components::{Faction, GpuSlot, Job, NpcFlags};
+
+    fn setup_selection_overlay_app() -> App {
+        let mut app = App::new();
+        app.init_resource::<SelectionOverlayInstances>()
+            .init_resource::<crate::resources::DirectControlSet>()
+            .insert_resource(crate::resources::SelectedNpc::default())
+            .insert_resource(crate::resources::SelectedBuilding::default())
+            .add_systems(
+                Update,
+                (
+                    sync_direct_control_set,
+                    build_selection_overlay.after(sync_direct_control_set),
+                ),
+            );
+        app
+    }
+
+    #[test]
+    fn selection_overlay_prunes_despawned_direct_control_entities() {
+        let mut app = setup_selection_overlay_app();
+        let direct_control_npc = app
+            .world_mut()
+            .spawn((
+                GpuSlot(7),
+                Job::Archer,
+                Faction(crate::constants::FACTION_PLAYER),
+                NpcFlags {
+                    direct_control: true,
+                    ..Default::default()
+                },
+            ))
+            .id();
+
+        app.update();
+
+        let overlays = &app.world().resource::<SelectionOverlayInstances>().0;
+        assert_eq!(
+            overlays.len(),
+            1,
+            "direct-control NPC should render one bracket"
+        );
+        assert_eq!(overlays[0].slot, 7);
+
+        app.world_mut().entity_mut(direct_control_npc).despawn();
+        app.update();
+
+        assert!(
+            app.world()
+                .resource::<crate::resources::DirectControlSet>()
+                .0
+                .is_empty(),
+            "despawned direct-control entities should be pruned from the tracked set"
+        );
+        assert!(
+            app.world()
+                .resource::<SelectionOverlayInstances>()
+                .0
+                .is_empty(),
+            "selection overlay should not keep brackets for despawned direct-control entities"
+        );
     }
 }
 
