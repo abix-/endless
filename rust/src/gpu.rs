@@ -871,6 +871,8 @@ pub struct ProjBufferWrites {
     pub deactivate_dirty_indices: Vec<usize>,
     /// Currently active projectile indices — iterate this instead of 0..proj_count.
     pub active_set: Vec<usize>,
+    /// Reverse index: slot -> position in active_set (usize::MAX = not active).
+    active_set_index: Vec<usize>,
 }
 
 impl Default for ProjBufferWrites {
@@ -890,6 +892,7 @@ impl Default for ProjBufferWrites {
             spawn_dirty_indices: Vec::new(),
             deactivate_dirty_indices: Vec::new(),
             active_set: Vec::new(),
+            active_set_index: vec![usize::MAX; max],
         }
     }
 }
@@ -925,6 +928,7 @@ impl ProjBufferWrites {
                     self.hits[i2 + 1] = 0;
                     self.dirty = true;
                     self.spawn_dirty_indices.push(*idx);
+                    self.active_set_index[*idx] = self.active_set.len();
                     self.active_set.push(*idx);
                 }
             }
@@ -940,8 +944,14 @@ impl ProjBufferWrites {
                     }
                     self.dirty = true;
                     self.deactivate_dirty_indices.push(*idx);
-                    if let Some(pos) = self.active_set.iter().position(|&s| s == *idx) {
+                    let pos = self.active_set_index[*idx];
+                    if pos != usize::MAX {
                         self.active_set.swap_remove(pos);
+                        // Update reverse index for the element that was swapped into pos
+                        if pos < self.active_set.len() {
+                            self.active_set_index[self.active_set[pos]] = pos;
+                        }
+                        self.active_set_index[*idx] = usize::MAX;
                     }
                 }
             }
