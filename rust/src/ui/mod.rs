@@ -419,6 +419,8 @@ pub fn settings_panel_ui(
                             ui.small("Toggle sprite-vs-plain rendering for terrain.");
                             ui.checkbox(&mut settings.show_all_faction_squad_lines, "Show All Faction Squad Lines");
                             ui.small("Draw squad path lines for all factions.");
+                            ui.checkbox(&mut settings.show_path_preview, "Show Path Preview");
+                            ui.small("Show enemy route overlay through tower mazes.");
                             ui.separator();
                             ui.horizontal(|ui| {
                                 ui.label("AI Think:");
@@ -706,6 +708,7 @@ pub fn register_ui(app: &mut App) {
             slot_right_click_system,
             build_ghost_system,
             draw_slot_indicators,
+            draw_path_preview,
             process_destroy_system,
         )
             .run_if(in_state(AppState::Running)),
@@ -719,6 +722,7 @@ pub fn register_ui(app: &mut App) {
             slot_right_click_system,
             build_ghost_system,
             draw_slot_indicators,
+            draw_path_preview,
             process_destroy_system,
         )
             .run_if(in_state(AppState::Playing)),
@@ -1967,6 +1971,19 @@ fn build_place_click_system(
 #[derive(Component)]
 pub(crate) struct SlotIndicator;
 
+/// Marker component for path preview overlay entities.
+#[derive(Component)]
+pub(crate) struct PathPreviewMarker;
+
+/// Cached mesh/material handles for path preview (lazy-initialized).
+#[derive(Default)]
+struct PathPreviewCache {
+    mesh: Option<Handle<Mesh>>,
+    mat: Option<Handle<ColorMaterial>>,
+    /// Hash of building_cost_cells to detect when rebuild is needed.
+    last_hash: u64,
+}
+
 /// Cached mesh/material handles for slot indicators (lazy-initialized).
 #[derive(Default)]
 struct SlotIndicatorCache {
@@ -2658,12 +2675,122 @@ pub(crate) struct CleanupUi<'w> {
     next_loot_id: ResMut<'w, NextLootItemId>,
 }
 
+/// Draw path preview overlay showing enemy routes through tower mazes.
+/// Recalculates when the building grid changes (tower placed/removed).
+fn draw_path_preview(
+    mut commands: Commands,
+    existing: Query<Entity, With<PathPreviewMarker>>,
+    grid: Res<world::WorldGrid>,
+    world_data: Res<world::WorldData>,
+    entity_map: Res<EntityMap>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut color_materials: ResMut<Assets<ColorMaterial>>,
+    mut cache: Local<PathPreviewCache>,
+    settings: Res<crate::settings::UserSettings>,
+) {
+    // Only rebuild when grid changes
+    if !grid.is_changed() {
+        return;
+    }
+    // Skip if no towns or grid not initialized
+    if world_data.towns.is_empty() || grid.width == 0 {
+        return;
+    }
+    // Skip if path preview is disabled
+    if !settings.show_path_preview {
+        for entity in existing.iter() {
+            commands.entity(entity).despawn();
+        }
+        return;
+    }
+
+    // Compute a simple hash to detect actual cost changes
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::hash::DefaultHasher::new();
+    grid.building_cost_cells.hash(&mut hasher);
+    grid.building_cost_cells.len().hash(&mut hasher);
+    let new_hash = hasher.finish();
+    if new_hash == cache.last_hash && !existing.is_empty() {
+        return;
+    }
+    cache.last_hash = new_hash;
+
+    // Despawn old preview
+    for entity in existing.iter() {
+        commands.entity(entity).despawn();
+    }
+
+    // Find player town center (town 0)
+    let Some(player_town) = world_data.towns.first() else {
+        return;
+    };
+    let (fc, fr) = grid.world_to_grid(player_town.center);
+    let goal = bevy::math::IVec2::new(fc as i32, fr as i32);
+
+    // Find raider spawner positions (tents from non-player towns)
+    let cell_size = crate::constants::TOWN_GRID_SPACING;
+    let preview_z = -0.1;
+
+    let mesh_h = cache
+        .mesh
+        .get_or_insert_with(|| meshes.add(Rectangle::from_size(Vec2::splat(cell_size))))
+        .clone();
+    let mat_h = cache
+        .mat
+        .get_or_insert_with(|| {
+            color_materials.add(ColorMaterial::from(Color::srgba(1.0, 0.3, 0.1, 0.25)))
+        })
+        .clone();
+
+    let mut visited = std::collections::HashSet::new();
+    for (town_idx, _town) in world_data.towns.iter().enumerate().skip(1) {
+        // Find spawner buildings for this raider town
+        for def in crate::constants::BUILDING_REGISTRY.iter() {
+            if def.spawner.is_none() {
+                continue;
+            }
+            // Just use the first spawner as representative path origin
+            if let Some(inst) = entity_map
+                .iter_kind_for_town(def.kind, town_idx as u32)
+                .next()
+            {
+                let (sc, sr) = grid.world_to_grid(inst.position);
+                let start = bevy::math::IVec2::new(sc as i32, sr as i32);
+                if let Some(path) = crate::systems::pathfinding::pathfind_with_costs(
+                    &grid.pathfind_costs,
+                    grid.width,
+                    grid.height,
+                    start,
+                    goal,
+                    5000,
+                ) {
+                    for pos in &path {
+                        let key = (pos.x, pos.y);
+                        if !visited.insert(key) {
+                            continue;
+                        }
+                        let wp = grid.grid_to_world(pos.x as usize, pos.y as usize);
+                        commands.spawn((
+                            Mesh2d(mesh_h.clone()),
+                            MeshMaterial2d(mat_h.clone()),
+                            Transform::from_xyz(wp.x, wp.y, preview_z),
+                            PathPreviewMarker,
+                        ));
+                    }
+                }
+                break; // one path per raider town is enough
+            }
+        }
+    }
+}
+
 /// Clean up world when leaving Playing or Running (test) state.
 pub(crate) fn game_cleanup_system(
     mut commands: Commands,
     npc_query: Query<Entity, With<GpuSlot>>,
     marker_query: Query<Entity, With<FarmReadyMarker>>,
     indicator_query: Query<Entity, With<SlotIndicator>>,
+    path_preview_query: Query<Entity, With<PathPreviewMarker>>,
     ghost_query: Query<Entity, With<BuildGhost>>,
     tilemap_query: Query<Entity, With<bevy::sprite_render::TilemapChunk>>,
     terrain_query: Query<Entity, With<crate::render::TerrainChunk>>,
@@ -2680,6 +2807,9 @@ pub(crate) fn game_cleanup_system(
         commands.entity(entity).despawn();
     }
     for entity in indicator_query.iter() {
+        commands.entity(entity).despawn();
+    }
+    for entity in path_preview_query.iter() {
         commands.entity(entity).despawn();
     }
     for entity in ghost_query.iter() {

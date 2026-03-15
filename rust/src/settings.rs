@@ -612,6 +612,8 @@ pub struct UserSettings {
     pub show_terrain_sprites: bool,
     #[serde(default)]
     pub show_all_faction_squad_lines: bool,
+    #[serde(default)]
+    pub show_path_preview: bool,
     // Town policies
     #[serde(default)]
     pub policy: PolicySet,
@@ -866,6 +868,7 @@ impl Default for UserSettings {
             debug_ai_decisions: false,
             show_terrain_sprites: true,
             show_all_faction_squad_lines: true,
+            show_path_preview: false,
             policy: PolicySet::default(),
             ai_manager_active: false,
             ai_manager_build: true,
