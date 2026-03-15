@@ -2992,11 +2992,7 @@ mod tests {
             assert!(result.is_ok(), "occupied cell setup should succeed: {:?}", result);
         }).unwrap();
 
-        let config = WorldGenConfig {
-            tree_density: 1.0,
-            rock_density: 1.0,
-            ..Default::default()
-        };
+        let config = WorldGenConfig::default();
         app.world_mut()
             .run_system_once(
                 move |mut slot_alloc: ResMut<crate::resources::GpuSlotPool>,
@@ -3013,34 +3009,41 @@ mod tests {
                         &mut gpu_updates,
                     );
 
+                    // Density 1.0: every Forest/Rock cell gets a node, except occupied cells
                     assert_eq!(
-                        tree_count, 2,
-                        "adjacent forest cells should collapse by spacing"
+                        tree_count, 3,
+                        "3 of 4 forest cells should get TreeNode (one occupied by Waypoint)"
                     );
-                    assert_eq!(
-                        rock_count, 2,
-                        "adjacent rock cells should collapse by spacing"
-                    );
+                    assert_eq!(rock_count, 3, "all 3 rock cells should get RockNode");
 
                     assert_eq!(
                         entity_map.get_at_grid(0, 0).map(|b| b.kind),
                         Some(BuildingKind::TreeNode)
                     );
-                    assert_eq!(entity_map.get_at_grid(1, 0).map(|b| b.kind), None);
+                    assert_eq!(
+                        entity_map.get_at_grid(1, 0).map(|b| b.kind),
+                        Some(BuildingKind::TreeNode),
+                        "adjacent forest cell should also get a TreeNode at density 1.0"
+                    );
                     assert_eq!(
                         entity_map.get_at_grid(3, 0).map(|b| b.kind),
                         Some(BuildingKind::TreeNode)
                     );
                     assert_eq!(
                         entity_map.get_at_grid(5, 0).map(|b| b.kind),
-                        Some(BuildingKind::Waypoint)
+                        Some(BuildingKind::Waypoint),
+                        "occupied cell should keep existing building"
                     );
 
                     assert_eq!(
                         entity_map.get_at_grid(0, 2).map(|b| b.kind),
                         Some(BuildingKind::RockNode)
                     );
-                    assert_eq!(entity_map.get_at_grid(1, 2).map(|b| b.kind), None);
+                    assert_eq!(
+                        entity_map.get_at_grid(1, 2).map(|b| b.kind),
+                        Some(BuildingKind::RockNode),
+                        "adjacent rock cell should also get RockNode at density 1.0"
+                    );
                     assert_eq!(
                         entity_map.get_at_grid(3, 2).map(|b| b.kind),
                         Some(BuildingKind::RockNode)
