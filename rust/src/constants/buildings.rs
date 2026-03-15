@@ -775,6 +775,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_unit_home: false,
         worksite: None,
         autotile: true,
+        tower_weapon_type: None,
     },
     // Guard Tower (elevated tower, +range, requires wall adjacency)
     BuildingDef {
