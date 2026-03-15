@@ -1292,6 +1292,7 @@ impl FactionStats {
 pub enum LeftPanelTab {
     #[default]
     Roster,
+    Stats,
     Upgrades,
     Policies,
     Patrols,
