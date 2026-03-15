@@ -2608,8 +2608,8 @@ fn building_inspector_content(
                 }
             }
 
-            BuildingKind::Wall => {
-                // Wall tier info + upgrade button
+            BuildingKind::Wall | BuildingKind::Gate => {
+                // Wall/gate tier info + upgrade button
                 if let Some(_wall_inst) = bld.entity_map.find_by_position(world_pos) {
                     let wall_lv = bld_entity
                         .and_then(|e| bld.wall_level_q.get(e).ok())

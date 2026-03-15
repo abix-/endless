@@ -1406,7 +1406,7 @@ fn populate_tile_flags(
         if inst.kind.is_road() {
             flags[idx] |= crate::constants::TILE_ROAD;
         }
-        if inst.kind == crate::world::BuildingKind::Wall {
+        if inst.kind.is_wall_like() {
             let faction = world_data
                 .towns
                 .get(inst.town_idx as usize)

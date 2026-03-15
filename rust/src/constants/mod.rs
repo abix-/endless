@@ -590,6 +590,10 @@ mod tests {
             BuildingKind::Casino,
             BuildingKind::TreeNode,
             BuildingKind::RockNode,
+            BuildingKind::LumberMill,
+            BuildingKind::Quarry,
+            BuildingKind::MasonHome,
+            BuildingKind::Gate,
         ];
         for kind in kinds {
             let def = building_def(kind);
