@@ -1449,9 +1449,9 @@ pub struct LoadGameMsg;
 pub struct SaveLoadRequest {
     /// Set by main menu "Load Game" — tells game_startup_system to load instead of world gen.
     pub load_on_enter: bool,
-    /// When set, save to this path instead of quicksave.
+    /// When set, save to this path instead of the active slot.
     pub save_path: Option<std::path::PathBuf>,
-    /// When set, load from this path instead of quicksave.
+    /// When set, load from this path instead of the active slot.
     pub load_path: Option<std::path::PathBuf>,
     /// Autosave interval in game-hours (0 = disabled). Set from settings on game start.
     pub autosave_hours: i32,
@@ -1459,6 +1459,90 @@ pub struct SaveLoadRequest {
     pub autosave_last_hour: i32,
     /// Rotating slot index (0, 1, 2) for the next autosave.
     pub autosave_slot: u8,
+    /// Active save slot (0, 1, 2). F5 saves to this slot.
+    pub active_slot: u8,
+}
+
+/// Number of save slots.
+pub const SAVE_SLOT_COUNT: u8 = 3;
+
+/// Path for a numbered save slot (0-based index -> slot_1.json, slot_2.json, slot_3.json).
+pub fn slot_save_path(slot: u8) -> Option<std::path::PathBuf> {
+    save_dir().map(|d| d.join(format!("slot_{}.json", slot + 1)))
+}
+
+/// Summary info for a save slot, read from disk without full deserialization.
+pub struct SlotInfo {
+    pub slot: u8,
+    pub occupied: bool,
+    pub town_name: String,
+    pub play_hours: f32,
+    pub npc_count: usize,
+}
+
+/// Read summary info for a save slot by peeking at the file.
+pub fn read_slot_info(slot: u8) -> SlotInfo {
+    let empty = SlotInfo {
+        slot,
+        occupied: false,
+        town_name: String::new(),
+        play_hours: 0.0,
+        npc_count: 0,
+    };
+    let Some(path) = slot_save_path(slot) else {
+        return empty;
+    };
+    if !path.exists() {
+        return empty;
+    }
+    let Ok(json) = std::fs::read_to_string(&path) else {
+        return empty;
+    };
+    // Deserialize full SaveData -- file is typically <5MB, fast enough for menu
+    let Ok(data) = serde_json::from_str::<SaveData>(&json) else {
+        return empty;
+    };
+    let town_name = data
+        .faction_list
+        .get(1)
+        .map(|f| f.name.clone())
+        .unwrap_or_else(|| "Unknown".to_string());
+    let play_hours = data.total_seconds / 3600.0;
+    SlotInfo {
+        slot,
+        occupied: true,
+        town_name,
+        play_hours,
+        npc_count: data.npcs.len(),
+    }
+}
+
+/// Delete a save slot file.
+pub fn delete_slot(slot: u8) -> bool {
+    if let Some(path) = slot_save_path(slot) {
+        std::fs::remove_file(&path).is_ok()
+    } else {
+        false
+    }
+}
+
+/// Migrate legacy quicksave.json to slot_1.json if slot_1 doesn't exist yet.
+pub fn migrate_quicksave_to_slot() {
+    let Some(qs) = quicksave_path() else { return };
+    if !qs.exists() {
+        return;
+    }
+    let Some(slot1) = slot_save_path(0) else {
+        return;
+    };
+    if slot1.exists() {
+        return; // already migrated or slot 1 in use
+    }
+    if let Err(e) = std::fs::rename(&qs, &slot1) {
+        warn!("failed to migrate quicksave to slot 1: {e}");
+    } else {
+        info!("migrated quicksave.json -> slot_1.json");
+    }
 }
 
 /// Check if a quicksave file exists.
@@ -2120,6 +2204,8 @@ pub fn save_game_system(
     );
 
     let result = if let Some(path) = request.save_path.take() {
+        write_save_to(&data, &path)
+    } else if let Some(path) = slot_save_path(request.active_slot) {
         write_save_to(&data, &path)
     } else {
         write_save(&data)
