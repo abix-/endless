@@ -65,8 +65,9 @@ Use these rules consistently:
 - branch from `dev` when starting work: `git checkout -b issue-{N} origin/dev`
 - if the branch `issue-{N}` already exists (from a previous handoff), check it out and rebase onto `origin/dev`
 - push the branch and open a PR targeting `dev`
+- before any handoff or review request, verify the branch is on GitHub as `origin/issue-{N}`; never hand off unpushed local commits
 - issue comments remain the handoff channel; include the PR link in the handoff comment
-- the reviewing agent checks out the same `issue-{N}` branch in their own worktree to review
+- the reviewing agent fetches and checks out the same remote `issue-{N}` branch in their own worktree to review
 - merge the PR after reviewer signoff and required tests pass
 - do not use `git stash`, `git checkout dev`, or `git clean` to move aside work -- each agent owns their worktree
 
@@ -334,8 +335,9 @@ Use this flow for each slice:
 7. Update docs if accepted behavior changed
 8. Push the branch and open or update the PR targeting `dev`:
    - `git push -u origin issue-{N}`
+   - `git fetch origin && git rev-parse --verify origin/issue-{N}`
    - `gh pr create --base dev --head issue-{N}` (or update existing PR)
-9. Leave the handoff comment with the PR link
+9. Leave the handoff comment with the PR link only after the remote branch verification passes
 10. Remove `claimed` and the owner label, then add the opposite family handoff label:
    - Codex implementation -> `needs-claude`
    - Claude implementation -> `needs-codex`
@@ -364,6 +366,8 @@ To review, the reviewer checks out the `issue-{N}` branch in their own worktree:
 git fetch origin
 git checkout issue-{N}
 ```
+
+Review must be against the remote handoff branch. Do not review from another agent's local worktree or from commits that were not pushed to `origin/issue-{N}`.
 
 If making fix-forward changes, push to the same `issue-{N}` branch. The PR updates automatically.
 
@@ -419,7 +423,7 @@ Expected behavior:
 - create or checkout `issue-{N}` branch from `dev`
 - perform the smallest complete next step
 - run the required tests
-- push the branch and open or update the PR targeting `dev`
+- push the branch, verify `origin/issue-{N}`, and open or update the PR targeting `dev`
 - leave a GitHub handoff comment with the PR link
 - transition labels immediately as part of the handoff
 

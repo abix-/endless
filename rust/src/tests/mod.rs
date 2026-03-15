@@ -1024,9 +1024,10 @@ pub fn register_tests(app: &mut App) {
     // loot-cycle
     registry.tests.push(TestEntry {
         name: "loot-cycle".into(),
-        description: "Kill raider → carry loot → deposit → equip → stats increase".into(),
-        phase_count: 6,
-        time_scale: 1.0,
+        description: "Kill raider → carry loot → deposit → equip → stats increase → stress test"
+            .into(),
+        phase_count: 9,
+        time_scale: 10.0,
     });
     app.add_systems(
         OnEnter(AppState::Running),
