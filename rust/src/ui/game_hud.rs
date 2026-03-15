@@ -82,13 +82,70 @@ fn npc_link(
     None
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ResourceIconAtlas {
+    World,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum HudResourceIcon {
+    Food,
+    Gold,
+    Wood,
+    Stone,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ResourceIconSpec {
+    atlas: ResourceIconAtlas,
+    col: u32,
+    row: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ResourceIconContentOrder {
+    IconThenValue,
+}
+
+fn resource_icon_spec(icon: HudResourceIcon) -> ResourceIconSpec {
+    match icon {
+        HudResourceIcon::Food => ResourceIconSpec {
+            atlas: ResourceIconAtlas::World,
+            col: 24,
+            row: 9,
+        },
+        HudResourceIcon::Gold => ResourceIconSpec {
+            atlas: ResourceIconAtlas::World,
+            col: 41,
+            row: 11,
+        },
+        HudResourceIcon::Wood => ResourceIconSpec {
+            atlas: ResourceIconAtlas::World,
+            col: 13,
+            row: 9,
+        },
+        HudResourceIcon::Stone => ResourceIconSpec {
+            atlas: ResourceIconAtlas::World,
+            col: 7,
+            row: 15,
+        },
+    }
+}
+
+fn resource_icon_content_order() -> ResourceIconContentOrder {
+    ResourceIconContentOrder::IconThenValue
+}
+
+fn resource_icon_uv(icon: HudResourceIcon, atlas_w: u32, atlas_h: u32) -> egui::Rect {
+    let spec = resource_icon_spec(icon);
+    cell_uv(spec.col, spec.row, atlas_w, atlas_h)
+}
+
 /// Cached egui texture IDs + UV rects for resource icons from atlas spritesheets.
 #[derive(Resource, Default)]
 pub struct ResourceIconCache {
     pub initialized: bool,
-    pub char_tex: Option<egui::TextureId>,
     pub world_tex: Option<egui::TextureId>,
-    /// (texture_id field name, uv rect) per resource
     pub food_uv: Option<egui::Rect>,
     pub gold_uv: Option<egui::Rect>,
     pub wood_uv: Option<egui::Rect>,
@@ -114,19 +171,7 @@ pub fn init_resource_icons(
     sprites: Res<crate::render::SpriteAssets>,
     images: Res<Assets<Image>>,
 ) {
-    // Register char atlas (food + gold)
-    if cache.char_tex.is_none() {
-        if let Some(a) = images.get(&sprites.char_texture) {
-            let tex = contexts.add_image(bevy_egui::EguiTextureHandle::Weak(
-                sprites.char_texture.id(),
-            ));
-            let (w, h) = (a.width(), a.height());
-            cache.char_tex = Some(tex);
-            cache.food_uv = Some(cell_uv(24, 9, w, h));
-            cache.gold_uv = Some(cell_uv(41, 11, w, h));
-        }
-    }
-    // Register world atlas (wood + stone)
+    // All four HUD resources live on the world atlas, not the character atlas.
     if cache.world_tex.is_none() {
         if let Some(a) = images.get(&sprites.world_texture) {
             let tex = contexts.add_image(bevy_egui::EguiTextureHandle::Weak(
@@ -134,11 +179,17 @@ pub fn init_resource_icons(
             ));
             let (w, h) = (a.width(), a.height());
             cache.world_tex = Some(tex);
-            cache.wood_uv = Some(cell_uv(13, 9, w, h));
-            cache.stone_uv = Some(cell_uv(7, 15, w, h));
+            cache.food_uv = Some(resource_icon_uv(HudResourceIcon::Food, w, h));
+            cache.gold_uv = Some(resource_icon_uv(HudResourceIcon::Gold, w, h));
+            cache.wood_uv = Some(resource_icon_uv(HudResourceIcon::Wood, w, h));
+            cache.stone_uv = Some(resource_icon_uv(HudResourceIcon::Stone, w, h));
         }
     }
-    cache.initialized = cache.char_tex.is_some() && cache.world_tex.is_some();
+    cache.initialized = cache.world_tex.is_some()
+        && cache.food_uv.is_some()
+        && cache.gold_uv.is_some()
+        && cache.wood_uv.is_some()
+        && cache.stone_uv.is_some();
 }
 
 /// Render a resource sprite icon + amount with tooltip.
@@ -153,24 +204,28 @@ fn resource_icon(
 ) {
     let icon_size = 16.0;
     let spacing = 2.0;
-    // RTL parent reverses child order, so we render value then icon
-    // which visually becomes icon:value
-    ui.horizontal(|ui| {
+    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
         ui.spacing_mut().item_spacing.x = spacing;
-        ui.label(egui::RichText::new(amount.to_string()).color(color));
-        if let (Some(tex_id), Some(uv_rect)) = (atlas_tex, uv) {
-            ui.add(
-                egui::Image::new(egui::load::SizedTexture::new(
-                    tex_id,
-                    [icon_size, icon_size],
-                ))
-                .uv(uv_rect)
-                .tint(egui::Color32::WHITE),
-            );
-        } else {
-            let (rect, _) =
-                ui.allocate_exact_size(egui::vec2(icon_size, icon_size), egui::Sense::hover());
-            ui.painter().rect_filled(rect, 2.0, color);
+        match resource_icon_content_order() {
+            ResourceIconContentOrder::IconThenValue => {
+                if let (Some(tex_id), Some(uv_rect)) = (atlas_tex, uv) {
+                    ui.add(
+                        egui::Image::new(egui::load::SizedTexture::new(
+                            tex_id,
+                            [icon_size, icon_size],
+                        ))
+                        .uv(uv_rect)
+                        .tint(egui::Color32::WHITE),
+                    );
+                } else {
+                    let (rect, _) = ui.allocate_exact_size(
+                        egui::vec2(icon_size, icon_size),
+                        egui::Sense::hover(),
+                    );
+                    ui.painter().rect_filled(rect, 2.0, color);
+                }
+                ui.label(egui::RichText::new(amount.to_string()).color(color));
+            }
         }
     })
     .response
@@ -486,7 +541,7 @@ pub fn top_bar_system(
                     resource_icon(
                         ui,
                         town_food,
-                        icon_cache.char_tex,
+                        icon_cache.world_tex,
                         icon_cache.food_uv,
                         egui::Color32::from_rgb(120, 200, 80),
                         catalog.0.get("food").unwrap_or(&""),
@@ -494,7 +549,7 @@ pub fn top_bar_system(
                     resource_icon(
                         ui,
                         town_gold,
-                        icon_cache.char_tex,
+                        icon_cache.world_tex,
                         icon_cache.gold_uv,
                         egui::Color32::from_rgb(220, 190, 50),
                         catalog.0.get("gold").unwrap_or(&""),
@@ -3530,4 +3585,53 @@ pub fn save_toast_system(mut contexts: EguiContexts, toast: Res<crate::save::Sav
         });
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resource_icon_specs_use_world_atlas_cells() {
+        assert_eq!(
+            resource_icon_spec(HudResourceIcon::Food),
+            ResourceIconSpec {
+                atlas: ResourceIconAtlas::World,
+                col: 24,
+                row: 9,
+            }
+        );
+        assert_eq!(
+            resource_icon_spec(HudResourceIcon::Gold),
+            ResourceIconSpec {
+                atlas: ResourceIconAtlas::World,
+                col: 41,
+                row: 11,
+            }
+        );
+        assert_eq!(
+            resource_icon_spec(HudResourceIcon::Wood),
+            ResourceIconSpec {
+                atlas: ResourceIconAtlas::World,
+                col: 13,
+                row: 9,
+            }
+        );
+        assert_eq!(
+            resource_icon_spec(HudResourceIcon::Stone),
+            ResourceIconSpec {
+                atlas: ResourceIconAtlas::World,
+                col: 7,
+                row: 15,
+            }
+        );
+    }
+
+    #[test]
+    fn resource_icons_render_icon_before_value() {
+        assert_eq!(
+            resource_icon_content_order(),
+            ResourceIconContentOrder::IconThenValue
+        );
+    }
 }
