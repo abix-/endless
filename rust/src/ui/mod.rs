@@ -1560,61 +1560,6 @@ fn slots_in_box(start: (usize, usize), end: (usize, usize)) -> Vec<(usize, usize
     out
 }
 
-/// Returns cells for drag placement: box (filled rectangle) when `box_mode` is true,
-/// Bresenham line otherwise.
-fn drag_shape_slots(
-    start: (usize, usize),
-    end: (usize, usize),
-    box_mode: bool,
-) -> Vec<(usize, usize)> {
-    if box_mode {
-        slots_in_box(start, end)
-    } else {
-        slots_on_line(start, end)
-    }
-}
-
-/// Bresenham-style integer line over town-grid slots, inclusive of start/end.
-fn slots_on_line(start: (usize, usize), end: (usize, usize)) -> Vec<(usize, usize)> {
-    let (mut c0, mut r0) = (start.0 as i32, start.1 as i32);
-    let (c1, r1) = (end.0 as i32, end.1 as i32);
-    let dc = (c1 - c0).abs();
-    let dr = (r1 - r0).abs();
-    let sc: i32 = if c0 < c1 {
-        1
-    } else if c0 > c1 {
-        -1
-    } else {
-        0
-    };
-    let sr: i32 = if r0 < r1 {
-        1
-    } else if r0 > r1 {
-        -1
-    } else {
-        0
-    };
-    let mut err = dc - dr;
-
-    let mut out = Vec::new();
-    loop {
-        out.push((c0 as usize, r0 as usize));
-        if c0 == c1 && r0 == r1 {
-            break;
-        }
-        let e2 = 2 * err;
-        if e2 > -dr {
-            err -= dr;
-            c0 += sc;
-        }
-        if e2 < dc {
-            err += dc;
-            r0 += sr;
-        }
-    }
-    out
-}
-
 /// Right-click cancels active build placement.
 fn slot_right_click_system(
     mouse: Res<ButtonInput<MouseButton>>,
@@ -1632,7 +1577,6 @@ fn slot_right_click_system(
 fn build_place_click_system(
     mut commands: Commands,
     mouse: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window>,
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
     mut egui_contexts: bevy_egui::EguiContexts,
@@ -1781,7 +1725,7 @@ fn build_place_click_system(
         return;
     }
 
-    // Road: drag-line placement on world grid (reuses drag_start_slot/slots_on_line)
+    // Road: drag placement on world grid (reuses drag_start_slot/slots_in_box)
     if kind.is_road() {
         if just_pressed {
             build_ctx.drag_start_slot = Some((gc, gr));
@@ -1799,8 +1743,7 @@ fn build_place_click_system(
         let mut placed = 0usize;
         let mut upgraded = 0usize;
         let mut last_err: Option<&str> = None;
-        let box_mode = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-        for (sc, sr) in drag_shape_slots(start, end, box_mode) {
+        for (sc, sr) in slots_in_box(start, end) {
             let cell_pos = world_state.grid.grid_to_world(sc, sr);
             match world_state.place_building(
                 &mut food_val,
@@ -1923,10 +1866,9 @@ fn build_place_click_system(
 
     let start = build_ctx.drag_start_slot.take().unwrap_or((gc, gr));
     let end = build_ctx.drag_current_slot.take().unwrap_or((gc, gr));
-    let box_mode = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
     let mut placed = 0usize;
     let mut first_placed: Option<(usize, usize)> = None;
-    for (sc, sr) in drag_shape_slots(start, end, box_mode) {
+    for (sc, sr) in slots_in_box(start, end) {
         if try_place_at_slot(sc, sr, &mut last_place_err) {
             if first_placed.is_none() {
                 first_placed = Some((sc, sr));
@@ -2001,7 +1943,6 @@ struct BuildGhostTrail;
 fn build_ghost_system(
     mut commands: Commands,
     windows: Query<&Window>,
-    keys: Res<ButtonInput<KeyCode>>,
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
     mut egui_contexts: bevy_egui::EguiContexts,
     mut build_ctx: ResMut<BuildMenuContext>,
@@ -2118,11 +2059,10 @@ fn build_ghost_system(
         let snapped = grid.grid_to_world(gc, gr);
         build_ctx.hover_world_pos = snapped;
 
-        let box_mode = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
         let path = match build_ctx.drag_start_slot {
             Some(start) => {
                 build_ctx.drag_current_slot = Some((gc, gr));
-                drag_shape_slots(start, (gc, gr), box_mode)
+                slots_in_box(start, (gc, gr))
             }
             None => vec![(gc, gr)],
         };
@@ -2265,11 +2205,10 @@ fn build_ghost_system(
     let (cc, cr) = grid.world_to_grid(center);
     let is_center = gc == cc && gr == cr;
 
-    let box_mode = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
     let mut drag_preview: Vec<(usize, usize, bool, bool)> = Vec::new();
     {
         let path = match (build_ctx.drag_start_slot, build_ctx.drag_current_slot) {
-            (Some(start), Some(end)) => drag_shape_slots(start, end, box_mode),
+            (Some(start), Some(end)) => slots_in_box(start, end),
             _ => vec![(gc, gr)],
         };
         let cost = crate::constants::building_cost(kind);
