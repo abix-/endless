@@ -696,6 +696,22 @@ pub fn place_building(
             return Err("cannot build in foreign territory");
         }
 
+        // Guard tower requires at least one adjacent wall
+        if kind == BuildingKind::GuardTower {
+            let has_adj_wall = [(0i32, 1i32), (0, -1), (1, 0), (-1, 0)]
+                .iter()
+                .any(|&(dc, dr)| {
+                    let nc = gc as i32 + dc;
+                    let nr = gr as i32 + dr;
+                    entity_map
+                        .get_at_grid(nc, nr)
+                        .is_some_and(|inst| inst.kind == BuildingKind::Wall)
+                });
+            if !has_adj_wall {
+                return Err("guard tower must be adjacent to a wall");
+            }
+        }
+
         // Wilderness buildings must be within road or fountain buildable area
         if def.placement == crate::constants::PlacementMode::Wilderness {
             if kind.is_road() {
@@ -1212,6 +1228,7 @@ pub enum BuildingKind {
     Quarry,
     MasonHome,
     Gate,
+    GuardTower,
 }
 
 impl BuildingKind {

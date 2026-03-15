@@ -672,13 +672,14 @@ pub fn building_tower_system(
     tower.tower_cooldowns.retain(|slot, _| {
         entity_map
             .get_instance(*slot)
-            .is_some_and(|i| i.kind == BuildingKind::Tower)
+            .is_some_and(|i| matches!(i.kind, BuildingKind::Tower | BuildingKind::GuardTower))
     });
 
     // Collect tower data with stack-allocated upgrade levels (no heap clone)
     const MAX_UPGRADES: usize = crate::constants::TOWER_UPGRADES.len();
     let towers: Vec<(usize, Vec2, i32, i32, [u8; MAX_UPGRADES], usize, Entity)> = entity_map
         .iter_kind(BuildingKind::Tower)
+        .chain(entity_map.iter_kind(BuildingKind::GuardTower))
         .filter_map(|inst| {
             let entity = *entity_map.entities.get(&inst.slot)?;
             let tbs = tower_bld_q.get(entity).ok()?;

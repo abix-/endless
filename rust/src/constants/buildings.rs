@@ -1,7 +1,9 @@
 //! Building registry — single source of truth for all building definitions.
 
 use super::npcs::{ItemKind, LootDrop};
-use super::{FOUNTAIN_TOWER, MINE_WORK_RADIUS, ResourceKind, TOWER_STATS, TowerStats};
+use super::{
+    FOUNTAIN_TOWER, GUARD_TOWER_STATS, MINE_WORK_RADIUS, ResourceKind, TOWER_STATS, TowerStats,
+};
 use crate::world::BuildingKind;
 
 /// Tile specification: single 16x16 sprite or 2x2 composite of four 16x16 sprites.
@@ -688,7 +690,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         cost: 2,
         label: "Gate",
         help: "Passable wall segment",
-        tooltip: "Gate — connects to walls, friendlies pass\nthrough freely. Raiders must breach it.\nHP: 120. Upgrades with wall tier.",
+        tooltip: "Gate -- connects to walls, friendlies pass\nthrough freely. Raiders must breach it.\nHP: 120. Upgrades with wall tier.",
         player_buildable: true,
         raider_buildable: false,
         placement: PlacementMode::TownGrid,
@@ -700,6 +702,28 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_unit_home: false,
         worksite: None,
         autotile: true,
+    },
+    // Guard Tower (elevated tower, +range, requires wall adjacency)
+    BuildingDef {
+        kind: BuildingKind::GuardTower,
+        display: DisplayCategory::Tower,
+        tile: TileSpec::External("sprites/tower-1.png"),
+        hp: 1500.0,
+        cost: 60,
+        label: "Guard Tower",
+        help: "Tower with +range, needs wall",
+        tooltip: "Elevated guard tower -- 50% more range than\nstandard tower. Must be placed next to a wall.\n20 dmg, 300 range, 1.5s cooldown. HP: 1500",
+        player_buildable: true,
+        raider_buildable: false,
+        placement: PlacementMode::TownGrid,
+        is_tower: true,
+        tower_stats: Some(GUARD_TOWER_STATS),
+        on_place: OnPlace::None,
+        spawner: None,
+        save_key: Some("guard_towers"),
+        is_unit_home: false,
+        worksite: None,
+        autotile: false,
     },
 ];
 
