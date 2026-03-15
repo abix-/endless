@@ -922,6 +922,13 @@ fn count_farm_markers(app: &mut App) -> usize {
         .count()
 }
 
+fn find_farm_marker(app: &mut App, slot: usize) -> Option<Entity> {
+    app.world_mut()
+        .query::<(Entity, &crate::components::FarmReadyMarker)>()
+        .iter(app.world())
+        .find_map(|(entity, marker)| (marker.farm_slot == slot).then_some(entity))
+}
+
 #[test]
 fn farm_visual_spawns_marker_when_ready() {
     let mut app = setup_farm_visual_app();
@@ -972,6 +979,68 @@ fn farm_visual_despawns_marker_when_no_longer_ready() {
     assert_eq!(
         count, 0,
         "marker should be despawned when growth_ready becomes false"
+    );
+}
+
+#[test]
+fn farm_visual_despawns_marker_when_farm_removed_and_allows_slot_reuse() {
+    let mut app = setup_farm_visual_app();
+    let entity = add_farm_visual(&mut app, 5000, true);
+
+    for _ in 0..4 {
+        app.update();
+    }
+    assert_eq!(
+        count_farm_markers(&mut app),
+        1,
+        "precondition: ready farm should have one marker"
+    );
+
+    app.world_mut().entity_mut(entity).despawn();
+    app.world_mut()
+        .resource_mut::<EntityMap>()
+        .remove_by_slot(5000);
+    for _ in 0..4 {
+        app.update();
+    }
+    assert_eq!(
+        count_farm_markers(&mut app),
+        0,
+        "removing a ready farm should also remove its marker"
+    );
+
+    add_farm_visual(&mut app, 5000, true);
+    for _ in 0..4 {
+        app.update();
+    }
+    assert_eq!(
+        count_farm_markers(&mut app),
+        1,
+        "slot reuse should still allow a new ready farm marker to spawn"
+    );
+}
+
+#[test]
+fn farm_visual_respawns_marker_if_mapping_points_to_stale_entity() {
+    let mut app = setup_farm_visual_app();
+    add_farm_visual(&mut app, 5000, true);
+    for _ in 0..4 {
+        app.update();
+    }
+    let marker_entity = find_farm_marker(&mut app, 5000).expect("precondition: marker exists");
+    assert!(
+        app.world_mut().despawn(marker_entity),
+        "precondition: marker should despawn externally"
+    );
+
+    for _ in 0..4 {
+        app.update();
+    }
+
+    assert_eq!(
+        count_farm_markers(&mut app),
+        1,
+        "ready farm should respawn marker after stale mapping is pruned"
     );
 }
 

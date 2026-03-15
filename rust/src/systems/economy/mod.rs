@@ -300,9 +300,11 @@ pub fn starvation_system(
 /// Spawns/despawns FarmReadyMarker entities when farm state transitions.
 /// Growing->Ready: spawn marker. Ready->Growing (harvest): despawn marker.
 /// Uses a slot->marker-entity map for O(1) despawn instead of scanning all markers.
+/// Compacts stale entries for removed farms so slot reuse stays correct.
 pub fn farm_visual_system(
     mut commands: Commands,
     farms_q: Query<(&GpuSlot, &ProductionState), With<Building>>,
+    markers: Query<(), With<FarmReadyMarker>>,
     mut marker_map: Local<HashMap<usize, Entity>>,
     mut frame_count: Local<u32>,
 ) {
@@ -312,16 +314,28 @@ pub fn farm_visual_system(
         return;
     }
 
+    let mut previous_markers = std::mem::take(&mut *marker_map);
     for (gpu_slot, production) in &farms_q {
         let slot = gpu_slot.0;
-        let has_marker = marker_map.contains_key(&slot);
-        if production.ready && !has_marker {
-            let marker_entity = commands.spawn(FarmReadyMarker { farm_slot: slot }).id();
-            marker_map.insert(slot, marker_entity);
-        } else if !production.ready && has_marker {
-            if let Some(marker_entity) = marker_map.remove(&slot) {
-                commands.entity(marker_entity).despawn();
+        let live_marker = previous_markers
+            .remove(&slot)
+            .filter(|entity| markers.get(*entity).is_ok());
+
+        if production.ready {
+            if let Some(marker_entity) = live_marker {
+                marker_map.insert(slot, marker_entity);
+            } else {
+                let marker_entity = commands.spawn(FarmReadyMarker { farm_slot: slot }).id();
+                marker_map.insert(slot, marker_entity);
             }
+        } else if let Some(marker_entity) = live_marker {
+            commands.entity(marker_entity).despawn();
+        }
+    }
+
+    for marker_entity in previous_markers.into_values() {
+        if markers.get(marker_entity).is_ok() {
+            commands.entity(marker_entity).despawn();
         }
     }
 }
