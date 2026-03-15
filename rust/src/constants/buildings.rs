@@ -679,6 +679,28 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
     },
+    // Gate (wall-like, passable for friendlies)
+    BuildingDef {
+        kind: BuildingKind::Gate,
+        display: DisplayCategory::Military,
+        tile: TileSpec::External("sprites/wood_walls_131x32.png"),
+        hp: 120.0,
+        cost: 2,
+        label: "Gate",
+        help: "Passable wall segment",
+        tooltip: "Gate — connects to walls, friendlies pass\nthrough freely. Raiders must breach it.\nHP: 120. Upgrades with wall tier.",
+        player_buildable: true,
+        raider_buildable: false,
+        placement: PlacementMode::TownGrid,
+        is_tower: false,
+        tower_stats: None,
+        on_place: OnPlace::None,
+        spawner: None,
+        save_key: Some("gates"),
+        is_unit_home: false,
+        worksite: None,
+        autotile: true,
+    },
 ];
 
 /// Look up a building definition by kind. Panics if kind is not in registry.

@@ -47,11 +47,7 @@ impl WorldState<'_> {
         } else {
             0
         };
-        let wall_level = if kind == crate::world::BuildingKind::Wall {
-            1
-        } else {
-            0
-        };
+        let wall_level = if kind.is_wall_like() { 1 } else { 0 };
         crate::world::place_building(
             &mut self.entity_slots,
             &mut self.entity_map,

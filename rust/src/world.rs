@@ -325,6 +325,8 @@ fn is_kind_at(entity_map: &EntityMap, col: usize, row: usize, kind: BuildingKind
         .is_some_and(|inst| {
             if kind.is_road() {
                 inst.kind.is_road()
+            } else if kind.is_wall_like() {
+                inst.kind.is_wall_like()
             } else {
                 inst.kind == kind
             }
@@ -385,6 +387,10 @@ pub fn update_autotile_around(
         let neighbor_kind = inst.kind;
         if kind.is_road() {
             if !neighbor_kind.is_road() {
+                continue;
+            }
+        } else if kind.is_wall_like() {
+            if !neighbor_kind.is_wall_like() {
                 continue;
             }
         } else if neighbor_kind != kind {
@@ -771,7 +777,7 @@ pub fn place_building(
     if kind == BuildingKind::Waypoint {
         ecmds.insert(WaypointOrder(overrides.patrol_order));
     }
-    if kind == BuildingKind::Wall {
+    if kind.is_wall_like() {
         ecmds.insert(WallLevel(overrides.wall_level));
     }
     if kind == BuildingKind::MinerHome {
@@ -1205,12 +1211,18 @@ pub enum BuildingKind {
     LumberMill,
     Quarry,
     MasonHome,
+    Gate,
 }
 
 impl BuildingKind {
     /// True for any road tier (dirt, stone, metal).
     pub fn is_road(self) -> bool {
         matches!(self, Self::Road | Self::StoneRoad | Self::MetalRoad)
+    }
+
+    /// True for wall-like buildings that auto-tile together (Wall, Gate).
+    pub fn is_wall_like(self) -> bool {
+        matches!(self, Self::Wall | Self::Gate)
     }
 
     /// Buildable radius (in grid tiles) granted by this road tier.
@@ -1805,6 +1817,8 @@ impl WorldGrid {
         self.building_cost_cells.clear();
 
         self.apply_building_overlay(entity_map, BuildingKind::Wall, 0);
+        // Gates are passable (same cost as dirt road) -- faction gating is behavioral
+        self.apply_building_overlay(entity_map, BuildingKind::Gate, 67);
         // Apply road overlays — higher tiers override lower (iter order: dirt, stone, metal)
         for kind in [
             BuildingKind::Road,
