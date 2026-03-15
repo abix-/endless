@@ -54,6 +54,9 @@ pub struct MenuState {
     pub prev_difficulty: crate::resources::Difficulty,
     pub autosave_hours: i32,
     pub show_load_menu: bool,
+    pub show_slot_picker: bool,
+    pub slot_infos: Vec<crate::save::SlotInfo>,
+    pub slot_infos_loaded: bool,
     pub show_settings: bool,
     pub settings_tab: PauseSettingsTab,
     pub rebinding_action: Option<settings::ControlAction>,
@@ -462,18 +465,33 @@ pub fn main_menu_system(
                 commands.insert_resource(crate::resources::RemoteAllowedTowns { towns: llm_towns });
 
                 save_request.autosave_hours = state.autosave_hours;
+                // New game: pick first empty slot, or slot 0 if all occupied
+                let first_empty = (0..crate::save::SAVE_SLOT_COUNT)
+                    .find(|&s| {
+                        crate::save::slot_save_path(s)
+                            .map(|p| !p.exists())
+                            .unwrap_or(true)
+                    })
+                    .unwrap_or(0);
+                save_request.active_slot = first_empty;
                 next_state.set(AppState::Playing);
             }
 
             ui.add_space(8.0);
 
-            // Load Game button — opens a save picker window
+            // Save Slots button — opens slot picker window
+            if ui.button(egui::RichText::new("Save Slots").size(18.0)).clicked() {
+                state.show_slot_picker = !state.show_slot_picker;
+                state.slot_infos_loaded = false; // refresh on open
+            }
+
+            // Legacy Load Game button — opens file picker for named/autosaves
             let saves = crate::save::list_saves();
             if saves.is_empty() {
                 ui.add_enabled_ui(false, |ui| {
-                    let _ = ui.button(egui::RichText::new("Load Game").size(18.0));
+                    let _ = ui.button(egui::RichText::new("Load File").size(14.0));
                 });
-            } else if ui.button(egui::RichText::new("Load Game").size(18.0)).clicked() {
+            } else if ui.button(egui::RichText::new("Load File").size(14.0)).clicked() {
                 state.show_load_menu = !state.show_load_menu;
             }
 
@@ -587,6 +605,75 @@ pub fn main_menu_system(
         audio.sfx_volume = user_settings.sfx_volume;
 
         settings::save_settings(&user_settings);
+    }
+
+    // Save Slots window
+    if state.show_slot_picker {
+        // Migrate legacy quicksave on first open
+        if !state.slot_infos_loaded {
+            crate::save::migrate_quicksave_to_slot();
+            state.slot_infos = (0..crate::save::SAVE_SLOT_COUNT)
+                .map(crate::save::read_slot_info)
+                .collect();
+            state.slot_infos_loaded = true;
+        }
+        let mut open = true;
+        let mut action: Option<(u8, bool)> = None; // (slot, is_delete)
+        egui::Window::new("Save Slots")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .default_width(360.0)
+            .show(ctx, |ui| {
+                for info in &state.slot_infos {
+                    ui.horizontal(|ui| {
+                        let label = format!("Slot {}", info.slot + 1);
+                        if info.occupied {
+                            let summary = format!(
+                                "{} -- {} -- {:.1}h, {} NPCs",
+                                label, info.town_name, info.play_hours, info.npc_count
+                            );
+                            if ui
+                                .button(egui::RichText::new(&summary).size(14.0))
+                                .clicked()
+                            {
+                                action = Some((info.slot, false));
+                            }
+                            if ui
+                                .small_button("x")
+                                .on_hover_text("Delete this save")
+                                .clicked()
+                            {
+                                action = Some((info.slot, true));
+                            }
+                        } else {
+                            let text = format!("{} -- Empty", label);
+                            ui.label(egui::RichText::new(text).size(14.0).weak());
+                        }
+                    });
+                    ui.add_space(4.0);
+                }
+            });
+        if let Some((slot, is_delete)) = action {
+            if is_delete {
+                crate::save::delete_slot(slot);
+                state.slot_infos_loaded = false; // refresh
+            } else {
+                // Load this slot
+                if let Some(path) = crate::save::slot_save_path(slot) {
+                    save_request.load_on_enter = true;
+                    save_request.load_path = Some(path);
+                    save_request.active_slot = slot;
+                    save_request.autosave_hours = state.autosave_hours;
+                    next_state.set(AppState::Playing);
+                    state.show_slot_picker = false;
+                }
+            }
+        }
+        if !open {
+            state.show_slot_picker = false;
+        }
     }
 
     // Load Game window — shown when show_load_menu is true
