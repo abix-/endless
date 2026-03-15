@@ -191,7 +191,7 @@ Two concurrent state machines: `Activity.kind` (what NPC is doing) and `CombatSt
 
 **Activity methods**: `Activity::new(kind)` constructor, `visual_key()` for GPU sprite selection (sleep icon when `phase == Active` + `sleep_visual`), `name()` for display label.
 
-**Transition helpers** (behavior.rs): `transition_activity(&mut activity, kind, phase, target)` — full transition, resets `ticks_waiting` and `target_pos`. `transition_phase(&mut activity, phase)` — phase-only change, resets `ticks_waiting`.
+**Transition helpers** (decision/mod.rs): `transition_activity(&mut activity, kind, phase, target)` -- full transition, resets `ticks_waiting` and `recover_until` (except Heal). `transition_phase(&mut activity, phase)` -- phase-only change, resets `ticks_waiting`.
 
 **`NpcFlags::at_destination`** is a movement sensor. Set by `gpu_position_readback` when NPC position ~= GPU target. Cleared by movement system on new `SetTarget`. For phase-migrated activities (Rest, Heal), `Activity.phase` is the authoritative state; `at_destination` triggers the Transit->Active transition. For un-migrated activities, the decision system still reads `at_destination` directly.
 

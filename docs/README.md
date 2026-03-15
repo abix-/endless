@@ -11,7 +11,7 @@ These docs are the **source of truth** for system architecture. When building ne
 3. **After coding**: Update the doc if the architecture changed. Add new known issues discovered during implementation.
 4. **Code comments** stay educational (explain what code does for someone learning Rust/WGSL). Architecture diagrams, data flow, buffer layouts, and system interaction docs live here, not in code.
 5. **README.md** is the game intro (description, gameplay, controls). **docs/roadmap.md** has stages (priority order) and capabilities (feature inventory) — read its maintenance guide before editing.
-6. **Write docs in present tense**: explain what the system currently does. Put historical change logs ("was/used to/fixed") in **completed.md** or **CHANGELOG.md**, not architecture docs.
+6. **Write docs in present tense**: explain what the system currently does. Put historical change logs ("was/used to/fixed") in **history.md** or **CHANGELOG.md**, not architecture docs. **completed.md** is the player-facing feature snapshot.
 
 ## Test Framework
 
@@ -110,6 +110,9 @@ Frame execution order ────────────────▶ [frame
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation, DRY save-load via materialize_npc | 8/10 |
 | [behavior.md](behavior.md) | Decision system (ActivityKind + ActivityPhase + ActivityTarget, transition helpers, ActivityDef registry, Distraction enum), utility AI, energy, patrol, flee/leash (bucketing formulas → performance.md) | 8/10 |
 | [ai-player.md](ai-player.md) | AI decision loop, hunger system, building scoring, slot placement, squad commander, migration | 8/10 |
+| [save-load.md](save-load.md) | Save files, quicksave and autosave flow, version migration, restore pipeline, toast feedback | - |
+| [ui.md](ui.md) | UiState ownership, left-panel persistence, armory modal, help tips, escape order, camera UX | - |
+| [audio.md](audio.md) | Music jukebox, SFX playback, spatial culling, dedup, settings sync | - |
 | [economy.md](economy.md) | Farm growth, food theft, starvation, raider foraging, spawner respawn (ECS ProductionState/SpawnerState/ConstructionProgress), dynamic raider town migration (spawn→boat→disembark→walk→settle) | 8/10 |
 | [messages.md](messages.md) | Message flow, GpuUpdateMsg, GAME_CONFIG_STAGING, readback resources (authority → [authority.md](authority.md)) | 7/10 |
 | [resources.md](resources.md) | Bevy resources, game state ownership, UI caches, world data | 7/10 |
@@ -122,6 +125,7 @@ Frame execution order ────────────────▶ [frame
 | [npc-activity-controller.md](npc-activity-controller.md) | Target-state spec for deterministic NPC behavior using `Activity.kind` + `Activity.phase` reconcile control | - |
 | [ai-collab-workflow.md](ai-collab-workflow.md) | Lightweight GitHub milestone + issues + handoff workflow for human + Codex + Claude collaboration | - |
 | [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
+| [history.md](history.md) | Retired stage summaries, delivery notes, intentional removals | - |
 | [roadmap.md](roadmap.md) | Feature tracking, migration plan | - |
 
 Ratings reflect system quality, not doc accuracy.
@@ -148,11 +152,11 @@ rust/
     entity_map.rs         # DenseSlotMap, EntityMap (slot↔entity index + building spatial grid)
     resources.rs          # Bevy resources (GpuSlotPool, GameTime, UiState, squads, factions, reputation)
     systemparams.rs       # TownAccess and other shared SystemParam bundles
-    save.rs               # Save/load (quicksave, autosave, named saves, version migration)
+    save.rs               # Save/load (quicksave, autosave, named saves, version migration) -> [save-load.md]
     settings.rs           # UserSettings persistence (serde JSON, version migration, key bindings)
     world.rs              # WorldGrid, procedural gen, place/destroy_building, auto-tile, BuildingKind
     ui/
-      mod.rs              # UI registration, startup/cleanup, pause menu, settings panel, game over
+      mod.rs              # UI registration, startup/cleanup, pause menu, settings panel, game over -> [ui.md]
       main_menu.rs        # World/difficulty config, AI lobby, play/load/settings/exit
       game_hud.rs         # Top bar, inspector, combat log, jukebox, build ghost, squad overlay
       left_panel/
@@ -171,11 +175,15 @@ rust/
       movement.rs         # GPU position readback, HPA* path routing, MovementIntent resolution
       combat.rs           # Attack cooldown, GPU targeting, projectile fire, tower system → [combat.md]
       health.rs           # Damage, death (XP/loot/cleanup), healing, HP regen → [combat.md]
-      behavior.rs         # NPC decision system, utility AI, patrol, flee/leash → [behavior.md]
+      behavior.rs         # SystemParam bundles, arrival_system coordinator → [behavior.md]
+      decision/
+        mod.rs            # decision_system, utility AI, flee/leash, transition helpers → [behavior.md]
+        tests.rs          # 36 decision system tests (lifecycle, squad, phase validation)
+      patrol.rs           # on_duty_tick_system, rebuild_patrol_routes_system → [behavior.md]
       work_targeting.rs   # Centralized worksite claim/release/retarget resolver
       economy/            # Farm/mine growth, construction, spawner respawn, migration → [economy.md]
       ai_player.rs        # AI personalities, building scoring, squad commander → [ai-player.md]
-      audio.rs            # Music jukebox (22 tracks) + spatial SFX
+      audio.rs            # Music jukebox (22 tracks) + spatial SFX -> [audio.md]
       remote.rs           # Custom BRP endpoints (summary, build, upgrade, etc.) → [brp.md]
       llm_player.rs       # Built-in claude --print LLM player → [llm-player.md]
       energy.rs           # Energy drain/recovery
