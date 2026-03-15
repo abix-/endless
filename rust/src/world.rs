@@ -117,6 +117,8 @@ pub struct PlacedBuilding {
     pub upgrade_levels: Vec<u8>,
     #[serde(default)]
     pub auto_upgrade_flags: Vec<bool>,
+    #[serde(default)]
+    pub equipped_weapon: Option<crate::constants::LootItem>,
 }
 
 impl PlacedBuilding {
@@ -132,6 +134,7 @@ impl PlacedBuilding {
             xp: 0,
             upgrade_levels: Vec::new(),
             auto_upgrade_flags: Vec::new(),
+            equipped_weapon: None,
         }
     }
     pub fn new_wall(position: Vec2, town_idx: u32) -> Self {
@@ -146,6 +149,7 @@ impl PlacedBuilding {
             xp: 0,
             upgrade_levels: Vec::new(),
             auto_upgrade_flags: Vec::new(),
+            equipped_weapon: None,
         }
     }
 }
@@ -1228,7 +1232,9 @@ pub enum BuildingKind {
     StoneRoad,
     MetalRoad,
     Wall,
-    Tower,
+    BowTower,
+    CrossbowTower,
+    CatapultTower,
     Merchant,
     Casino,
     TreeNode,

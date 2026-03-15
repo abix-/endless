@@ -148,7 +148,7 @@ fn buildings_excluded_from_starvation() {
             NpcFlags::default(),
             Health(100.0),
             Building {
-                kind: crate::world::BuildingKind::Tower,
+                kind: crate::world::BuildingKind::BowTower,
             },
         ))
         .id();
@@ -318,7 +318,7 @@ fn spawn_constructing_building(
 #[test]
 fn construction_ticks_down() {
     let mut app = setup_construction_app();
-    let entity = spawn_constructing_building(&mut app, 0, BuildingKind::Tower, 10.0);
+    let entity = spawn_constructing_building(&mut app, 0, BuildingKind::BowTower, 10.0);
 
     app.update();
     let cp = app.world().get::<ConstructionProgress>(entity).unwrap().0;
@@ -329,7 +329,7 @@ fn construction_ticks_down() {
 #[test]
 fn construction_completes() {
     let mut app = setup_construction_app();
-    let entity = spawn_constructing_building(&mut app, 0, BuildingKind::Tower, 0.1);
+    let entity = spawn_constructing_building(&mut app, 0, BuildingKind::BowTower, 0.1);
 
     // Run enough updates for 0.1s to elapse
     for _ in 0..5 {
@@ -340,7 +340,7 @@ fn construction_completes() {
 
     // Health should be set to full building HP
     let hp = app.world().get::<Health>(entity).unwrap().0;
-    let expected = crate::constants::building_def(BuildingKind::Tower).hp;
+    let expected = crate::constants::building_def(BuildingKind::BowTower).hp;
     assert!(
         (hp - expected).abs() < 0.1,
         "completed building HP should be {expected}: {hp}"
@@ -365,12 +365,12 @@ fn construction_paused_no_progress() {
 #[test]
 fn construction_hp_scales_with_progress() {
     let mut app = setup_construction_app();
-    let entity = spawn_constructing_building(&mut app, 0, BuildingKind::Tower, 10.0);
+    let entity = spawn_constructing_building(&mut app, 0, BuildingKind::BowTower, 10.0);
 
     app.update();
     let hp = app.world().get::<Health>(entity).unwrap().0;
     // Should be between 0.01 and full HP (partial progress)
-    let full_hp = crate::constants::building_def(BuildingKind::Tower).hp;
+    let full_hp = crate::constants::building_def(BuildingKind::BowTower).hp;
     assert!(
         hp > 0.0 && hp < full_hp,
         "HP should scale with progress: {hp} (full={full_hp})"

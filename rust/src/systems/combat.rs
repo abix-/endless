@@ -670,15 +670,28 @@ pub fn building_tower_system(
 
     // --- Player/AI-built Towers ---
     tower.tower_cooldowns.retain(|slot, _| {
-        entity_map
-            .get_instance(*slot)
-            .is_some_and(|i| matches!(i.kind, BuildingKind::Tower | BuildingKind::GuardTower))
+        entity_map.get_instance(*slot).is_some_and(|i| {
+            let def = crate::constants::building_def(i.kind);
+            def.is_tower && i.kind != BuildingKind::Fountain
+        })
     });
 
     // Collect tower data with stack-allocated upgrade levels (no heap clone)
     const MAX_UPGRADES: usize = crate::constants::TOWER_UPGRADES.len();
-    let towers: Vec<(usize, Vec2, i32, i32, [u8; MAX_UPGRADES], usize, Entity)> = entity_map
-        .iter_kind(BuildingKind::Tower)
+    let towers: Vec<(
+        usize,
+        Vec2,
+        i32,
+        i32,
+        [u8; MAX_UPGRADES],
+        usize,
+        Entity,
+        BuildingKind,
+        f32,
+    )> = entity_map
+        .iter_kind(BuildingKind::BowTower)
+        .chain(entity_map.iter_kind(BuildingKind::CrossbowTower))
+        .chain(entity_map.iter_kind(BuildingKind::CatapultTower))
         .chain(entity_map.iter_kind(BuildingKind::GuardTower))
         .filter_map(|inst| {
             let entity = *entity_map.entities.get(&inst.slot)?;
@@ -686,6 +699,11 @@ pub fn building_tower_system(
             let mut levels = [0u8; MAX_UPGRADES];
             let len = tbs.upgrade_levels.len().min(MAX_UPGRADES);
             levels[..len].copy_from_slice(&tbs.upgrade_levels[..len]);
+            let equip_bonus = tbs
+                .equipped_weapon
+                .as_ref()
+                .map(|w| w.stat_bonus)
+                .unwrap_or(0.0);
             Some((
                 inst.slot,
                 inst.position,
@@ -694,14 +712,23 @@ pub fn building_tower_system(
                 levels,
                 len,
                 entity,
+                inst.kind,
+                equip_bonus,
             ))
         })
         .collect();
 
-    for &(slot, src, faction, xp, ref levels, levels_len, entity) in &towers {
+    for &(slot, src, faction, xp, ref levels, levels_len, entity, kind, equip_bonus) in &towers {
+        let base = crate::constants::building_def(kind).tower_stats.unwrap();
         let level = crate::systems::stats::level_from_xp(xp);
-        let stats =
-            crate::systems::stats::resolve_tower_instance_stats(level, &levels[..levels_len]);
+        let mut stats = crate::systems::stats::resolve_tower_instance_stats(
+            &base,
+            level,
+            &levels[..levels_len],
+        );
+        if equip_bonus > 0.0 {
+            stats.damage *= 1.0 + equip_bonus;
+        }
 
         // HP regen (runs unconditionally, before cooldown/target checks)
         if stats.hp_regen > 0.0 {
@@ -883,7 +910,7 @@ mod tests {
                 GpuSlot(0),
                 AttackTimer(5.0),
                 Building {
-                    kind: crate::world::BuildingKind::Tower,
+                    kind: crate::world::BuildingKind::BowTower,
                 },
             ))
             .id();
@@ -1096,13 +1123,14 @@ mod tests {
                 GpuSlot(1),
                 crate::components::Health(900.0),
                 Building {
-                    kind: crate::world::BuildingKind::Tower,
+                    kind: crate::world::BuildingKind::BowTower,
                 },
                 crate::components::TowerBuildingState {
                     kills: 0,
                     xp: 100,
                     upgrade_levels: upgrade_levels.clone(),
                     auto_upgrade_flags: vec![false; tower_upgrades],
+                    equipped_weapon: None,
                 },
             ))
             .id();
@@ -1112,7 +1140,7 @@ mod tests {
             entity_map.register_npc(0, enemy, crate::components::Job::Archer, 2, 0);
             entity_map.set_entity(1, tower);
             entity_map.add_instance(crate::resources::BuildingInstance {
-                kind: crate::world::BuildingKind::Tower,
+                kind: crate::world::BuildingKind::BowTower,
                 position: Vec2::new(96.0, 64.0),
                 town_idx: 0,
                 slot: 1,

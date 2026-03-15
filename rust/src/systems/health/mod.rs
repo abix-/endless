@@ -888,12 +888,7 @@ pub fn death_system(
             } else if let Some(tower_faction) = res
                 .entity_map
                 .get_instance(killer_slot)
-                .filter(|i| {
-                    matches!(
-                        i.kind,
-                        BuildingKind::Fountain | BuildingKind::Tower | BuildingKind::GuardTower
-                    )
-                })
+                .filter(|i| crate::constants::building_def(i.kind).is_tower)
                 .map(|i| (i.faction, i.town_idx as usize))
             {
                 // Tower/fountain killer — XP, kills, loot deposit
@@ -904,11 +899,7 @@ pub fn death_system(
                 let Some(inst) = res.entity_map.get_instance(killer_slot) else {
                     continue;
                 };
-                let kind_name = match inst.kind {
-                    BuildingKind::Tower => "Tower",
-                    BuildingKind::GuardTower => "Guard Tower",
-                    _ => "Fountain",
-                };
+                let kind_name = crate::constants::building_def(inst.kind).label;
                 let Some(&tower_entity) = res.entity_map.entities.get(&killer_slot) else {
                     continue;
                 };

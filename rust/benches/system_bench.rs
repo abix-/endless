@@ -581,7 +581,7 @@ fn bench_building_tower_system(c: &mut Criterion) {
                                 Faction(1),
                                 TownId(0),
                                 Building {
-                                    kind: world::BuildingKind::Tower,
+                                    kind: world::BuildingKind::BowTower,
                                 },
                             ))
                             .id();
@@ -592,7 +592,7 @@ fn bench_building_tower_system(c: &mut Criterion) {
                     for &(entity, slot, x, y) in &tower_entities {
                         em.set_entity(slot, entity);
                         em.add_instance(BuildingInstance {
-                            kind: world::BuildingKind::Tower,
+                            kind: world::BuildingKind::BowTower,
                             position: Vec2::new(x, y),
                             town_idx: 0,
                             slot,

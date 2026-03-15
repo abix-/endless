@@ -2,6 +2,7 @@ use super::*;
 use crate::components::{
     BaseAttackType, GoldStore, Job, Personality, TownEquipment, TraitInstance, TraitKind,
 };
+use crate::constants::BOW_TOWER_STATS;
 use bevy::time::TimeUpdateStrategy;
 
 // -- level_from_xp -------------------------------------------------------
@@ -425,16 +426,18 @@ fn resolve_combat_stats_timid_negative_berserk() {
 
 #[test]
 fn resolve_tower_instance_stats_level_0_defaults() {
-    let stats = resolve_tower_instance_stats(0, &[]);
-    assert!((stats.range - TOWER_STATS.range).abs() < 0.01);
-    assert!((stats.damage - TOWER_STATS.damage).abs() < 0.01);
-    assert!((stats.cooldown - TOWER_STATS.cooldown).abs() < 0.01);
+    let base = BOW_TOWER_STATS;
+    let stats = resolve_tower_instance_stats(&base, 0, &[]);
+    assert!((stats.range - base.range).abs() < 0.01);
+    assert!((stats.damage - base.damage).abs() < 0.01);
+    assert!((stats.cooldown - base.cooldown).abs() < 0.01);
 }
 
 #[test]
 fn resolve_tower_instance_stats_level_scales() {
-    let stats_lv0 = resolve_tower_instance_stats(0, &[]);
-    let stats_lv10 = resolve_tower_instance_stats(10, &[]);
+    let base = BOW_TOWER_STATS;
+    let stats_lv0 = resolve_tower_instance_stats(&base, 0, &[]);
+    let stats_lv10 = resolve_tower_instance_stats(&base, 10, &[]);
     assert!(stats_lv10.damage > stats_lv0.damage);
     assert!(stats_lv10.range > stats_lv0.range);
 }
@@ -645,7 +648,7 @@ fn add_tower(app: &mut App, slot: usize, auto_flags: Vec<bool>) {
     use crate::world::BuildingKind;
     let num = auto_flags.len();
     let inst = BuildingInstance {
-        kind: BuildingKind::Tower,
+        kind: BuildingKind::BowTower,
         position: bevy::math::Vec2::ZERO,
         town_idx: 0,
         slot,
@@ -661,13 +664,14 @@ fn add_tower(app: &mut App, slot: usize, auto_flags: Vec<bool>) {
             GpuSlot(slot),
             TownId(0),
             Building {
-                kind: BuildingKind::Tower,
+                kind: BuildingKind::BowTower,
             },
             TowerBuildingState {
                 kills: 0,
                 xp: 0,
                 upgrade_levels: vec![0; num],
                 auto_upgrade_flags: auto_flags,
+                equipped_weapon: None,
             },
         ))
         .id();
@@ -783,6 +787,7 @@ fn setup_prune_app(item_count: usize) -> App {
             rarity,
             stat_bonus: (i as f32) * 0.01,
             sprite: (0.0, 0.0),
+            weapon_type: None,
         });
     }
     let entity = app

@@ -262,7 +262,7 @@ mod tests {
                 },
                 CombatState::None,
                 Building {
-                    kind: crate::world::BuildingKind::Tower,
+                    kind: crate::world::BuildingKind::BowTower,
                 },
             ))
             .id();

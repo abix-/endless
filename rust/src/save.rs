@@ -26,6 +26,7 @@ pub struct BuildingStateSnapshot {
     pub xp: i32,
     pub upgrade_levels: Vec<u8>,
     pub auto_upgrade_flags: Vec<bool>,
+    pub equipped_weapon: Option<crate::constants::LootItem>,
     pub production_ready: bool,
     pub production_progress: f32,
     pub under_construction: f32,
@@ -885,6 +886,7 @@ pub fn collect_save_data(
                     auto_upgrade_flags: bs
                         .map(|s| s.auto_upgrade_flags.clone())
                         .unwrap_or_default(),
+                    equipped_weapon: bs.and_then(|s| s.equipped_weapon.clone()),
                 }
             })
             .collect();
@@ -1828,6 +1830,7 @@ fn collect_building_state_snapshot(
             s.xp = ts.xp;
             s.upgrade_levels = ts.upgrade_levels.clone();
             s.auto_upgrade_flags = ts.auto_upgrade_flags.clone();
+            s.equipped_weapon = ts.equipped_weapon.clone();
         }
         if let Some(ps) = ps {
             s.production_ready = ps.ready;
@@ -1925,12 +1928,26 @@ pub fn load_building_instances_from_save(
     // All other kinds from building_data
     for def in BUILDING_REGISTRY {
         let Some(key) = def.save_key else { continue };
-        let Some(val) = save.building_data.get(key) else {
+        // Backward compat: old saves use "towers" key, new uses "bow_towers"
+        let val = save.building_data.get(key).or_else(|| {
+            if key == "bow_towers" {
+                save.building_data.get("towers")
+            } else {
+                None
+            }
+        });
+        let Some(val) = val else {
             continue;
         };
         let buildings: Vec<world::PlacedBuilding> =
             serde_json::from_value(val.clone()).unwrap_or_default();
-        let kind_hps = save.building_hp.get(key);
+        let kind_hps = save.building_hp.get(key).or_else(|| {
+            if key == "bow_towers" {
+                save.building_hp.get("towers")
+            } else {
+                None
+            }
+        });
         for (i, b) in buildings.iter().enumerate() {
             if !world::is_alive(b.position) {
                 continue;
@@ -1987,6 +2004,7 @@ pub fn load_building_instances_from_save(
                             xp: b.xp,
                             upgrade_levels: b.upgrade_levels.clone(),
                             auto_upgrade_flags: b.auto_upgrade_flags.clone(),
+                            equipped_weapon: b.equipped_weapon.clone(),
                         });
                     }
                 }
