@@ -560,7 +560,6 @@ struct PolicyParams {
     recovery_hp: Option<f32>,
     #[serde(default)]
     mining_radius: Option<f32>,
-    // loot_threshold removed -- now per-squad only (issue #60)
 }
 
 pub fn policy_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
@@ -639,7 +638,6 @@ pub fn policy_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpRe
             }
             policy.mining_radius = v;
         }
-        // loot_threshold removed from policy -- now per-squad only (see issue #60)
         parts
     };
     if !parts.is_empty() {

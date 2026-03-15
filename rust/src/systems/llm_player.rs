@@ -661,7 +661,6 @@ fn execute_actions(
                                     policy.0.mining_radius = v.clamp(0.0, 5000.0);
                                 }
                             }
-                            // loot_threshold removed from policy -- now per-squad only (issue #60)
                             _ => {}
                         }
                     }
