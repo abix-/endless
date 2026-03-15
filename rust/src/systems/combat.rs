@@ -1255,6 +1255,8 @@ mod tests {
         app.insert_resource(crate::gpu::ProjBufferWrites::default());
         app.insert_resource(ProjHitState(vec![[0, 0]]));
         app.insert_resource(crate::resources::EntityMap::default());
+        app.insert_resource(crate::resources::GpuReadState::default());
+        app.insert_resource(crate::world::WorldGrid::default());
 
         let slot = app
             .world_mut()
