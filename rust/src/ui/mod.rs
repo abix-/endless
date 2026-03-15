@@ -621,6 +621,7 @@ pub fn register_ui(app: &mut App) {
     app.add_systems(
         Update,
         game_hud::init_resource_icons
+            .run_if(in_state(AppState::Playing).or(in_state(AppState::Running)))
             .run_if(|cache: Res<game_hud::ResourceIconCache>| !cache.initialized),
     );
     // Global: UI scale + overlays (all states)
