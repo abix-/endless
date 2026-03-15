@@ -167,7 +167,7 @@ pub fn init_resource_icons(
 
     for (name, img) in pending {
         let h = images.add(img);
-        let tex = contexts.add_image(bevy_egui::EguiTextureHandle::Weak(h.id()));
+        let tex = contexts.add_image(bevy_egui::EguiTextureHandle::Strong(h.clone()));
         match name {
             "food" => cache.food = Some(tex),
             "gold" => cache.gold = Some(tex),
@@ -194,7 +194,8 @@ fn resource_icon(
 ) {
     let icon_size = 16.0;
     let spacing = 2.0;
-    ui.horizontal(|ui| {
+    // Force left-to-right so icon:value order is correct even inside RTL parent
+    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
         ui.spacing_mut().item_spacing.x = spacing;
         if let Some(tex_id) = tex {
             ui.add(
@@ -210,7 +211,7 @@ fn resource_icon(
                 ui.allocate_exact_size(egui::vec2(icon_size, icon_size), egui::Sense::hover());
             ui.painter().rect_filled(rect, 2.0, color);
         }
-        ui.label(egui::RichText::new(format!("{amount}")).color(color));
+        ui.label(egui::RichText::new(amount.to_string()).color(color));
     })
     .response
     .on_hover_text(tip);
