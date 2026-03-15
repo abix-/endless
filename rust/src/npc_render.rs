@@ -904,7 +904,7 @@ fn build_selection_overlay(
             continue;
         }
         if dc_count >= 200 {
-            break;
+            continue;
         }
         instances.0.push(SelectionInstance {
             slot: slot as u32,
@@ -980,6 +980,37 @@ mod tests {
                 .0
                 .is_empty(),
             "selection overlay should not keep brackets for despawned direct-control entities"
+        );
+    }
+
+    #[test]
+    fn selection_overlay_retains_dc_entities_beyond_render_cap() {
+        let mut app = setup_selection_overlay_app();
+        // Spawn 210 DC entities -- exceeds the 200 render cap
+        for i in 0..210 {
+            app.world_mut().spawn((
+                GpuSlot(i),
+                Job::Archer,
+                Faction(crate::constants::FACTION_PLAYER),
+                NpcFlags {
+                    direct_control: true,
+                    ..Default::default()
+                },
+            ));
+        }
+        app.update();
+
+        let dc_set = &app.world().resource::<crate::resources::DirectControlSet>().0;
+        assert_eq!(
+            dc_set.len(),
+            210,
+            "all 210 DC entities must remain in the set, not just the 200 rendered"
+        );
+        let overlays = &app.world().resource::<SelectionOverlayInstances>().0;
+        assert_eq!(
+            overlays.len(),
+            200,
+            "only 200 selection brackets should be rendered"
         );
     }
 }
