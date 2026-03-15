@@ -329,6 +329,10 @@ pub fn ai_squad_commander_system(
                         }
                         squad.patrol_enabled = false;
                         squad.rest_when_tired = false;
+                        if squad.loot_threshold != 3 {
+                            squad.loot_threshold = 3;
+                            squads_dirty_w.write(crate::messages::SquadsDirtyMsg);
+                        }
                     }
                 }
             }
@@ -386,6 +390,11 @@ pub fn ai_squad_commander_system(
                         }
                         if !squad.rest_when_tired {
                             squad.rest_when_tired = true;
+                        }
+                        let new_loot_threshold = personality.loot_threshold();
+                        if squad.loot_threshold != new_loot_threshold {
+                            squad.loot_threshold = new_loot_threshold;
+                            squads_dirty_w.write(crate::messages::SquadsDirtyMsg);
                         }
                     }
                 }

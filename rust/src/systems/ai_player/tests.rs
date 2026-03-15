@@ -113,3 +113,40 @@ fn perimeter_dirty_stays_false_without_msgs() {
         "PerimeterSyncDirty should stay false with no msgs"
     );
 }
+
+#[test]
+fn personality_policy_defaults_match_issue_68_targets() {
+    let aggressive = AiPersonality::Aggressive.default_policies();
+    assert!(!aggressive.prioritize_healing);
+    assert_eq!(aggressive.recovery_hp, 0.20);
+    assert!(aggressive.archer_aggressive);
+    assert!(!aggressive.archer_leash);
+    assert_eq!(aggressive.archer_flee_hp, 0.10);
+    assert_eq!(aggressive.farmer_flee_hp, 0.30);
+    assert!(aggressive.farmer_fight_back);
+
+    let balanced = AiPersonality::Balanced.default_policies();
+    assert!(balanced.prioritize_healing);
+    assert_eq!(balanced.recovery_hp, 0.50);
+    assert!(!balanced.archer_aggressive);
+    assert!(balanced.archer_leash);
+    assert_eq!(balanced.archer_flee_hp, 0.25);
+    assert_eq!(balanced.farmer_flee_hp, 0.50);
+    assert!(!balanced.farmer_fight_back);
+
+    let economic = AiPersonality::Economic.default_policies();
+    assert!(economic.prioritize_healing);
+    assert_eq!(economic.recovery_hp, 0.70);
+    assert!(!economic.archer_aggressive);
+    assert!(economic.archer_leash);
+    assert_eq!(economic.archer_flee_hp, 0.40);
+    assert_eq!(economic.farmer_flee_hp, 0.70);
+    assert!(!economic.farmer_fight_back);
+}
+
+#[test]
+fn personality_loot_thresholds_match_issue_68_targets() {
+    assert_eq!(AiPersonality::Aggressive.loot_threshold(), 5);
+    assert_eq!(AiPersonality::Balanced.loot_threshold(), 3);
+    assert_eq!(AiPersonality::Economic.loot_threshold(), 1);
+}

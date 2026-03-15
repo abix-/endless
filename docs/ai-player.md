@@ -2,7 +2,7 @@
 
 Autonomous opponents that build, upgrade, and fight like the player. Each AI settlement gets a personality that drives all decisions through weighted random scoring — same pattern as NPC behavior. The player's own town can also be managed by this system via the AI Manager toggle in the Policies tab.
 
-**Source**: `rust/src/systems/ai_player.rs` (decisions, building, squads), `rust/src/systems/economy.rs` (migration)
+**Source**: `rust/src/systems/ai_player/mod.rs`, `rust/src/systems/ai_player/decision.rs`, `rust/src/systems/ai_player/squad_commander.rs`, `rust/src/systems/economy/mod.rs`
 
 ## AI Kinds
 
@@ -44,6 +44,8 @@ Assigned randomly at creation. Drives every decision the AI makes. All personali
 | **Total squads** | 3 | 2 | 2 |
 | **Defense share** | 25% (1 reserve squad) | 45% (1 reserve squad) | 65% (1 reserve squad) |
 | **Attack squads** | 2 (55/45 split) | 1 (remainder) | 1 (remainder) |
+| **Hold fire** | off | off | off |
+| **Loot threshold** | 5 | 3 | 1 |
 | **Retarget cooldown** | 15s | 25s | 40s |
 | **Preferred targets** | all buildings (farms, homes, archers, crossbows, waypoints, tents, miners) | military (archer homes + crossbow homes + waypoints) | farms only |
 
@@ -54,11 +56,14 @@ All personalities share the same fallback target set if preferred kinds yield no
 | | Aggressive | Balanced | Economic |
 |-|-----------|----------|----------|
 | **Archer aggressive** | yes | no | no |
-| **Archer leash** | no | no | yes |
+| **Archer leash** | no | yes | yes |
 | **Farmer fight back** | yes | no | no |
-| **Prioritize healing** | no | no | yes |
-| **Archer flee HP** | 0% | default | 25% |
-| **Farmer flee HP** | 30% | default | 50% |
+| **Prioritize healing** | no | yes | yes |
+| **Recovery HP** | 20% | 50% | 70% |
+| **Archer flee HP** | 10% | 25% | 40% |
+| **Farmer flee HP** | 30% | 50% | 70% |
+
+The AI applies these policy defaults once on its first decision heartbeat and logs the values to the combat log.
 
 ### Upgrades
 
@@ -264,7 +269,7 @@ The TownArea upgrade has special rules beyond normal upgrade scoring:
 
 Raider towns get 1 squad containing all raiders. No reserve/attack split — the single squad always attacks. Targets nearest enemy farm via `pick_raider_farm_target()`. Replaces the old `RaidQueue` group-formation system.
 
-All squads have `rest_when_tired = true` (except raider squads: `rest_when_tired = false`).
+Builder squads set `loot_threshold` from personality (Aggressive=5, Balanced=3, Economic=1). Raider squads use `loot_threshold = 3`. AI squads intentionally keep `hold_fire = false` so reserve squads auto-engage defenders and attack waves fight once dispatched. All squads have `rest_when_tired = true` (except raider squads: `rest_when_tired = false`).
 
 ### Wave-Based Attack Cycle
 

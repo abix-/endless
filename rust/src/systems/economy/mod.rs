@@ -822,6 +822,7 @@ fn create_ai_town(
         personality,
         road_style,
         last_actions: std::collections::VecDeque::new(),
+        policy_defaults_logged: false,
         active: false,
         build_enabled: true,
         upgrade_enabled: true,
