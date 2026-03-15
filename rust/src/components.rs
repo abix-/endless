@@ -494,6 +494,15 @@ pub struct NpcStats {
     pub xp: i32,
 }
 
+/// Per-NPC skill proficiencies (0.0-100.0). Grow from doing work.
+#[derive(Component, Clone, Default, Reflect, serde::Serialize, serde::Deserialize)]
+#[reflect(Component)]
+pub struct NpcSkills {
+    pub farming: f32,
+    pub combat: f32,
+    pub dodge: f32,
+}
+
 // ============================================================================
 // STEALING / EQUIPMENT COMPONENTS
 // ============================================================================
