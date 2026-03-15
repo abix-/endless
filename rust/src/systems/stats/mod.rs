@@ -722,6 +722,7 @@ pub fn resolve_combat_stats(
     town_levels: &[u8],
     weapon_bonus: f32,
     armor_bonus: f32,
+    prof_combat: f32,
 ) -> CachedStats {
     let def = npc_def(job);
     let default_atk = config
@@ -747,14 +748,16 @@ pub fn resolve_combat_stats(
     let stamina_mult = reg.stat_mult(town, cat, UpgradeStatKind::Stamina);
     let hp_regen_level = reg.stat_level(town, cat, UpgradeStatKind::HpRegen) as f32;
 
+    let prof_mult = proficiency_mult(prof_combat);
     CachedStats {
         damage: def.base_damage
             * upgrade_dmg
             * trait_mods.damage
             * level_mult
-            * (1.0 + weapon_bonus),
+            * (1.0 + weapon_bonus)
+            * prof_mult,
         range: atk_base.range * upgrade_range * trait_mods.range,
-        cooldown: atk_base.cooldown * cooldown_mult * trait_mods.cooldown,
+        cooldown: atk_base.cooldown * cooldown_mult * trait_mods.cooldown / prof_mult,
         projectile_speed: atk_base.projectile_speed * upgrade_proj_speed,
         projectile_lifetime: atk_base.projectile_lifetime * upgrade_proj_life,
         max_health: def.base_hp * upgrade_hp * trait_mods.hp * level_mult * (1.0 + armor_bonus),
@@ -777,6 +780,7 @@ pub fn re_resolve_npc_stats(
     personality: &Personality,
     config: &CombatConfig,
     town_levels: &[u8],
+    prof_combat: f32,
     cached_stats_q: &mut Query<&mut CachedStats>,
     speed_q: &mut Query<&mut crate::components::Speed>,
     health_q: &mut Query<&mut crate::components::Health, Without<crate::components::Building>>,
@@ -796,6 +800,7 @@ pub fn re_resolve_npc_stats(
         town_levels,
         equipment.total_weapon_bonus(),
         equipment.total_armor_bonus(),
+        prof_combat,
     );
     let new_speed = new_cached.speed;
     let new_max = new_cached.max_health;
@@ -843,6 +848,7 @@ pub fn process_upgrades_system(
     attack_type_q: Query<&crate::components::BaseAttackType>,
     personality_q: Query<&crate::components::Personality>,
     equipment_q: Query<&crate::components::NpcEquipment>,
+    skills_q: Query<&crate::components::NpcSkills>,
 ) {
     let count = upgrade_count();
     for msg in queue.read() {
@@ -942,6 +948,7 @@ pub fn process_upgrades_system(
                 .get(entity)
                 .map(|eq| (eq.total_weapon_bonus(), eq.total_armor_bonus()))
                 .unwrap_or((0.0, 0.0));
+            let prof_c = skills_q.get(entity).map(|s| s.combat).unwrap_or(0.0);
             let new_cached = resolve_combat_stats(
                 npc.job,
                 atk_type,
@@ -952,6 +959,7 @@ pub fn process_upgrades_system(
                 &town_levels,
                 wb,
                 ab,
+                prof_c,
             );
             let new_speed = new_cached.speed;
             let new_max = new_cached.max_health;
@@ -1008,8 +1016,9 @@ pub fn process_equip_system(
     mut town_access: crate::systemparams::TownAccess,
     npc_stats_q: Query<&crate::components::NpcStats>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    skills_q: Query<&crate::components::NpcSkills>,
 ) {
-    // Equip: TownEquipment → NpcEquipment
+    // Equip: TownEquipment -> NpcEquipment
     for msg in equip_msgs.read() {
         let item = {
             let Some(mut eq) = town_access.equipment_mut(msg.town_idx as i32) else {
@@ -1058,6 +1067,10 @@ pub fn process_equip_system(
             .map(|s| level_from_xp(s.xp))
             .unwrap_or(0);
         let tl = town_access.upgrade_levels(town_id.0);
+        let prof_c = skills_q
+            .get(msg.npc_entity)
+            .map(|s| s.combat)
+            .unwrap_or(0.0);
         re_resolve_npc_stats(
             msg.npc_entity,
             slot_idx,
@@ -1069,6 +1082,7 @@ pub fn process_equip_system(
             pers,
             &config,
             &tl,
+            prof_c,
             &mut cached_stats_q,
             &mut speed_q,
             &mut health_q,
@@ -1109,6 +1123,10 @@ pub fn process_equip_system(
             .map(|s| level_from_xp(s.xp))
             .unwrap_or(0);
         let tl = town_access.upgrade_levels(town_id.0);
+        let prof_c = skills_q
+            .get(msg.npc_entity)
+            .map(|s| s.combat)
+            .unwrap_or(0.0);
         re_resolve_npc_stats(
             msg.npc_entity,
             slot_idx,
@@ -1120,6 +1138,7 @@ pub fn process_equip_system(
             pers,
             &config,
             &tl,
+            prof_c,
             &mut cached_stats_q,
             &mut speed_q,
             &mut health_q,
