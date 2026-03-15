@@ -993,7 +993,7 @@ fn tower_upgrade_window(
     let inst_exists = bld
         .entity_map
         .get_instance(slot)
-        .is_some_and(|i| i.kind == BuildingKind::Tower);
+        .is_some_and(|i| matches!(i.kind, BuildingKind::Tower | BuildingKind::GuardTower));
     if !inst_exists {
         ui_state.tower_upgrade_slot = None;
         return;
@@ -2715,7 +2715,7 @@ fn building_inspector_content(
                 }
             }
 
-            BuildingKind::Tower => {
+            BuildingKind::Tower | BuildingKind::GuardTower => {
                 // Resolve per-instance stats from ECS TowerBuildingState
                 let slot = bld_slot.unwrap_or(usize::MAX);
                 let (level, upgrade_levels_clone) = bld_entity

@@ -167,6 +167,7 @@ pub fn parse_building_kind(s: &str) -> Option<BuildingKind> {
         "Wall" => Some(BuildingKind::Wall),
         "Gate" => Some(BuildingKind::Gate),
         "Tower" => Some(BuildingKind::Tower),
+        "GuardTower" => Some(BuildingKind::GuardTower),
         "Merchant" => Some(BuildingKind::Merchant),
         "Casino" => Some(BuildingKind::Casino),
         _ => None,

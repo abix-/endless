@@ -281,6 +281,16 @@ pub const TOWER_STATS: TowerStats = TowerStats {
     max_hp: 1000.0,
 };
 
+pub const GUARD_TOWER_STATS: TowerStats = TowerStats {
+    range: 300.0,
+    damage: 20.0,
+    cooldown: 1.5,
+    proj_speed: 250.0,
+    proj_lifetime: 1.5,
+    hp_regen: 0.0,
+    max_hp: 1500.0,
+};
+
 // ============================================================================
 // SQUAD CONSTANTS
 // ============================================================================
@@ -594,6 +604,7 @@ mod tests {
             BuildingKind::Quarry,
             BuildingKind::MasonHome,
             BuildingKind::Gate,
+            BuildingKind::GuardTower,
         ];
         for kind in kinds {
             let def = building_def(kind);
