@@ -256,7 +256,7 @@ fn tracked_section(
 fn tab_to_str(tab: LeftPanelTab) -> &'static str {
     match tab {
         LeftPanelTab::Roster => "Roster",
-        LeftPanelTab::Status => "Status",
+        LeftPanelTab::Stats => "Stats",
         LeftPanelTab::Upgrades => "Upgrades",
         LeftPanelTab::Policies => "Policies",
         LeftPanelTab::Patrols => "Patrols",
@@ -332,7 +332,7 @@ pub fn left_panel_system(
     // Look up the help key for the current tab
     let tab_help_key = match ui_state.left_panel_tab {
         LeftPanelTab::Roster => "tab_roster",
-        LeftPanelTab::Status => "tab_status",
+        LeftPanelTab::Stats => "tab_stats",
         LeftPanelTab::Upgrades => "tab_upgrades",
         LeftPanelTab::Policies => "tab_policies",
         LeftPanelTab::Patrols => "tab_patrols",
@@ -367,7 +367,7 @@ pub fn left_panel_system(
                 LeftPanelTab::Roster => {
                     roster_content(ui, &mut roster, &mut roster_state, debug_all)
                 }
-                LeftPanelTab::Status => status_content(
+                LeftPanelTab::Stats => status_content(
                     ui,
                     &factions.entity_map,
                     &factions.town_access,

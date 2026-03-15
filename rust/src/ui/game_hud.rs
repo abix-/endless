@@ -396,12 +396,12 @@ pub fn top_bar_system(
                 }
                 if ui
                     .selectable_label(
-                        ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Status,
-                        "Status",
+                        ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Stats,
+                        "Stats",
                     )
                     .clicked()
                 {
-                    ui_state.toggle_left_tab(LeftPanelTab::Status);
+                    ui_state.toggle_left_tab(LeftPanelTab::Stats);
                 }
                 if ui
                     .selectable_label(ui_state.tech_tree_open, "Tech Tree")
