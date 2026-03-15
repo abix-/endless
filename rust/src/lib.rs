@@ -153,7 +153,7 @@ fn autostart_system(
     let saved = settings::load_settings();
 
     // World gen config
-    wg_config.gen_style = world::WorldGenStyle::Continents;
+    wg_config.gen_style = world::WorldGenStyle::from_index(saved.gen_style);
     wg_config.world_width = saved.world_size;
     wg_config.world_height = saved.world_size;
     wg_config.num_towns = 1;

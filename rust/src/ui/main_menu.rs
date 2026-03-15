@@ -160,11 +160,7 @@ pub fn main_menu_system(
         state.autosave_hours = saved.autosave_hours;
         state.endless_mode = saved.endless_mode;
         state.endless_strength = saved.endless_strength;
-        state.gen_style = match saved.gen_style {
-            0 => WorldGenStyle::Classic,
-            2 => WorldGenStyle::Maze,
-            _ => WorldGenStyle::Continents,
-        };
+        state.gen_style = WorldGenStyle::from_index(saved.gen_style);
         strip_disabled_home_jobs(&mut state.npc_counts);
         clamp_player_menu_caps(&mut state);
         state.initialized = true;
@@ -232,17 +228,13 @@ pub fn main_menu_system(
             ui.add_space(4.0);
 
             ui.horizontal(|ui| {
-                ui.label("Map Type:").on_hover_text("Continents: noise-based islands and oceans.\nMaze: corridors and walls with choke points.");
-                let label = match state.gen_style {
-                    WorldGenStyle::Classic => "Classic",
-                    WorldGenStyle::Continents => "Continents",
-                    WorldGenStyle::Maze => "Maze",
-                };
+                ui.label("Map Type:").on_hover_text("World generation algorithm. Classic = simple noise. Continents = island continents with ocean. Maze = corridors and walls. World Map = realistic geography with ice caps and latitude biomes.");
                 egui::ComboBox::from_id_salt("gen_style")
-                    .selected_text(label)
+                    .selected_text(state.gen_style.label())
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut state.gen_style, WorldGenStyle::Continents, "Continents");
-                        ui.selectable_value(&mut state.gen_style, WorldGenStyle::Maze, "Maze");
+                        for &style in WorldGenStyle::ALL {
+                            ui.selectable_value(&mut state.gen_style, style, style.label());
+                        }
                     });
             });
 
@@ -423,11 +415,7 @@ pub fn main_menu_system(
                 }).collect();
                 saved.ai_interval = state.ai_interval;
                 saved.npc_interval = state.npc_interval;
-                saved.gen_style = match state.gen_style {
-                    WorldGenStyle::Classic => 0,
-                    WorldGenStyle::Continents => 1,
-                    WorldGenStyle::Maze => 2,
-                };
+                saved.gen_style = state.gen_style.to_index();
                 saved.gold_mines_per_town = state.gold_mines as usize;
                 saved.raider_forage_hours = state.raider_forage_hours;
                 saved.difficulty = state.difficulty;
