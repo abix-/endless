@@ -82,136 +82,96 @@ fn npc_link(
     None
 }
 
-/// Cached egui texture IDs for resource icons. Initialized once from atlas sprites.
+/// Cached egui texture IDs + UV rects for resource icons from atlas spritesheets.
 #[derive(Resource, Default)]
 pub struct ResourceIconCache {
     pub initialized: bool,
-    pub food: Option<egui::TextureId>,
-    pub gold: Option<egui::TextureId>,
-    pub wood: Option<egui::TextureId>,
-    pub stone: Option<egui::TextureId>,
-    _handles: Vec<Handle<Image>>,
+    pub char_tex: Option<egui::TextureId>,
+    pub world_tex: Option<egui::TextureId>,
+    /// (texture_id field name, uv rect) per resource
+    pub food_uv: Option<egui::Rect>,
+    pub gold_uv: Option<egui::Rect>,
+    pub wood_uv: Option<egui::Rect>,
+    pub stone_uv: Option<egui::Rect>,
 }
 
-/// Extract a single 16x16 sprite from a 17px-cell atlas at (col, row).
-fn extract_atlas_cell(atlas: &Image, col: u32, row: u32, cell_size: u32) -> Option<Image> {
-    let sprite_size = cell_size - 1; // 16px sprite in 17px cell
-    let src_w = atlas.width();
-    let src_data = atlas.data.as_ref()?;
-    let px = col * cell_size;
-    let py = row * cell_size;
-    let mut data = vec![0u8; (sprite_size * sprite_size * 4) as usize];
-    for y in 0..sprite_size {
-        for x in 0..sprite_size {
-            let sx = (px + x) as usize;
-            let sy = (py + y) as usize;
-            let src_idx = (sy * src_w as usize + sx) * 4;
-            let dst_idx = (y * sprite_size + x) as usize * 4;
-            if src_idx + 3 < src_data.len() {
-                data[dst_idx..dst_idx + 4].copy_from_slice(&src_data[src_idx..src_idx + 4]);
-            }
-        }
-    }
-    Some(Image::new(
-        bevy::render::render_resource::Extent3d {
-            width: sprite_size,
-            height: sprite_size,
-            depth_or_array_layers: 1,
-        },
-        bevy::render::render_resource::TextureDimension::D2,
-        data,
-        bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
-        Default::default(),
-    ))
+/// Compute UV rect for a cell in a 17px-cell atlas.
+fn cell_uv(col: u32, row: u32, atlas_w: u32, atlas_h: u32) -> egui::Rect {
+    let cell = 17.0;
+    let sprite = 16.0;
+    let x = col as f32 * cell;
+    let y = row as f32 * cell;
+    egui::Rect::from_min_max(
+        egui::pos2(x / atlas_w as f32, y / atlas_h as f32),
+        egui::pos2((x + sprite) / atlas_w as f32, (y + sprite) / atlas_h as f32),
+    )
 }
 
-/// Initialize resource icon textures from atlas sprites. Runs until all 4 icons load.
+/// Register atlas textures with egui and compute UV rects for each resource icon.
 pub fn init_resource_icons(
     mut cache: ResMut<ResourceIconCache>,
     mut contexts: EguiContexts,
     sprites: Res<crate::render::SpriteAssets>,
-    mut images: ResMut<Assets<Image>>,
+    images: Res<Assets<Image>>,
 ) {
-    let cell = 17u32;
-
-    // Extract cells while borrowing atlases (no clone), collect to release borrows before add
-    let mut pending: Vec<(&str, Image)> = Vec::new();
-    if cache.food.is_none() {
+    // Register char atlas (food + gold)
+    if cache.char_tex.is_none() {
         if let Some(a) = images.get(&sprites.char_texture) {
-            if let Some(img) = extract_atlas_cell(a, 24, 9, cell) {
-                pending.push(("food", img));
-            }
+            let tex = contexts.add_image(bevy_egui::EguiTextureHandle::Weak(
+                sprites.char_texture.id(),
+            ));
+            let (w, h) = (a.width(), a.height());
+            cache.char_tex = Some(tex);
+            cache.food_uv = Some(cell_uv(24, 9, w, h));
+            cache.gold_uv = Some(cell_uv(41, 11, w, h));
         }
     }
-    if cache.gold.is_none() {
-        if let Some(a) = images.get(&sprites.char_texture) {
-            if let Some(img) = extract_atlas_cell(a, 41, 11, cell) {
-                pending.push(("gold", img));
-            }
-        }
-    }
-    if cache.wood.is_none() {
+    // Register world atlas (wood + stone)
+    if cache.world_tex.is_none() {
         if let Some(a) = images.get(&sprites.world_texture) {
-            if let Some(img) = extract_atlas_cell(a, 13, 9, cell) {
-                pending.push(("wood", img));
-            }
+            let tex = contexts.add_image(bevy_egui::EguiTextureHandle::Weak(
+                sprites.world_texture.id(),
+            ));
+            let (w, h) = (a.width(), a.height());
+            cache.world_tex = Some(tex);
+            cache.wood_uv = Some(cell_uv(13, 9, w, h));
+            cache.stone_uv = Some(cell_uv(7, 15, w, h));
         }
     }
-    if cache.stone.is_none() {
-        if let Some(a) = images.get(&sprites.world_texture) {
-            if let Some(img) = extract_atlas_cell(a, 7, 15, cell) {
-                pending.push(("stone", img));
-            }
-        }
-    }
-
-    for (name, img) in pending {
-        let h = images.add(img);
-        let tex = contexts.add_image(bevy_egui::EguiTextureHandle::Strong(h.clone()));
-        match name {
-            "food" => cache.food = Some(tex),
-            "gold" => cache.gold = Some(tex),
-            "wood" => cache.wood = Some(tex),
-            "stone" => cache.stone = Some(tex),
-            _ => {}
-        }
-        cache._handles.push(h);
-    }
-
-    cache.initialized = cache.food.is_some()
-        && cache.gold.is_some()
-        && cache.wood.is_some()
-        && cache.stone.is_some();
+    cache.initialized = cache.char_tex.is_some() && cache.world_tex.is_some();
 }
 
 /// Render a resource sprite icon + amount with tooltip.
+/// Uses atlas texture + UV rect for the icon, falls back to colored square.
 fn resource_icon(
     ui: &mut egui::Ui,
     amount: i32,
-    tex: Option<egui::TextureId>,
+    atlas_tex: Option<egui::TextureId>,
+    uv: Option<egui::Rect>,
     color: egui::Color32,
     tip: &str,
 ) {
     let icon_size = 16.0;
     let spacing = 2.0;
-    // Force left-to-right so icon:value order is correct even inside RTL parent
-    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+    // RTL parent reverses child order, so we render value then icon
+    // which visually becomes icon:value
+    ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = spacing;
-        if let Some(tex_id) = tex {
+        ui.label(egui::RichText::new(amount.to_string()).color(color));
+        if let (Some(tex_id), Some(uv_rect)) = (atlas_tex, uv) {
             ui.add(
                 egui::Image::new(egui::load::SizedTexture::new(
                     tex_id,
                     [icon_size, icon_size],
                 ))
+                .uv(uv_rect)
                 .tint(egui::Color32::WHITE),
             );
         } else {
-            // Fallback: colored square if textures not loaded yet
             let (rect, _) =
                 ui.allocate_exact_size(egui::vec2(icon_size, icon_size), egui::Sense::hover());
             ui.painter().rect_filled(rect, 2.0, color);
         }
-        ui.label(egui::RichText::new(amount.to_string()).color(color));
     })
     .response
     .on_hover_text(tip);
@@ -510,28 +470,32 @@ pub fn top_bar_system(
                     resource_icon(
                         ui,
                         town_wood,
-                        icon_cache.wood,
+                        icon_cache.world_tex,
+                        icon_cache.wood_uv,
                         egui::Color32::from_rgb(150, 110, 70),
                         catalog.0.get("wood").unwrap_or(&""),
                     );
                     resource_icon(
                         ui,
                         town_stone,
-                        icon_cache.stone,
+                        icon_cache.world_tex,
+                        icon_cache.stone_uv,
                         egui::Color32::from_rgb(170, 170, 180),
                         catalog.0.get("stone").unwrap_or(&""),
                     );
                     resource_icon(
                         ui,
                         town_food,
-                        icon_cache.food,
+                        icon_cache.char_tex,
+                        icon_cache.food_uv,
                         egui::Color32::from_rgb(120, 200, 80),
                         catalog.0.get("food").unwrap_or(&""),
                     );
                     resource_icon(
                         ui,
                         town_gold,
-                        icon_cache.gold,
+                        icon_cache.char_tex,
+                        icon_cache.gold_uv,
                         egui::Color32::from_rgb(220, 190, 50),
                         catalog.0.get("gold").unwrap_or(&""),
                     );
