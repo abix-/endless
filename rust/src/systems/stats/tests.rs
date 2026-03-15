@@ -439,6 +439,28 @@ fn resolve_tower_instance_stats_level_scales() {
     assert!(stats_lv10.range > stats_lv0.range);
 }
 
+// -- proficiency_mult ----------------------------------------------------
+
+#[test]
+fn proficiency_mult_zero_is_one() {
+    assert!((proficiency_mult(0.0) - 1.0).abs() < f32::EPSILON);
+}
+
+#[test]
+fn proficiency_mult_fifty_is_one_point_two_five() {
+    assert!((proficiency_mult(50.0) - 1.25).abs() < 0.001);
+}
+
+#[test]
+fn proficiency_mult_hundred_is_one_point_five() {
+    assert!((proficiency_mult(100.0) - 1.5).abs() < f32::EPSILON);
+}
+
+#[test]
+fn proficiency_mult_clamps_above_100() {
+    assert!((proficiency_mult(200.0) - 1.5).abs() < f32::EPSILON);
+}
+
 // -- UpgradeRegistry::stat_mult ------------------------------------------
 
 #[test]

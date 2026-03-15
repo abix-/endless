@@ -91,6 +91,7 @@ pub struct NpcSpawnOverrides {
     pub carried_gold: Option<i32>,
     pub carried_equipment: Vec<crate::constants::LootItem>,
     pub squad_id: Option<i32>,
+    pub skills: Option<crate::components::NpcSkills>,
 }
 
 /// Shared NPC spawn: creates entity, emits GPU updates, registers in tracking caches.
@@ -286,6 +287,7 @@ pub fn materialize_npc(
                 .unwrap_or_else(|| generate_name(job, idx)),
             xp: overrides.xp.unwrap_or(0),
         },
+        overrides.skills.clone().unwrap_or_default(),
     ));
     if let Some(sq) = overrides.squad_id {
         ecmds.insert(SquadId(sq));

@@ -470,6 +470,8 @@ pub struct NpcSaveData {
     pub helmet: Option<[f32; 2]>,
     #[serde(default)]
     pub armor: Option<[f32; 2]>,
+    #[serde(default)]
+    pub skills: crate::components::NpcSkills,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -1516,6 +1518,7 @@ pub fn collect_npc_data(
     carried_loot_q: &Query<&CarriedLoot>,
     equipment_q: &Query<&NpcEquipment>,
     has_energy_q: &Query<&HasEnergy>,
+    skills_q: &Query<&crate::components::NpcSkills>,
 ) -> Vec<NpcSaveData> {
     let mut npcs = Vec::new();
     for npc in entity_map.iter_npcs() {
@@ -1601,6 +1604,7 @@ pub fn collect_npc_data(
             weapon: None,
             helmet: None,
             armor: None,
+            skills: skills_q.get(npc.entity).cloned().unwrap_or_default(),
         });
     }
     npcs
@@ -1656,6 +1660,7 @@ pub struct SaveNpcQueries<'w, 's> {
     pub equipment_q: Query<'w, 's, &'static NpcEquipment>,
     pub has_energy_q: Query<'w, 's, &'static HasEnergy>,
     pub npc_stats_q: Query<'w, 's, &'static NpcStats>,
+    pub skills_q: Query<'w, 's, &'static crate::components::NpcSkills>,
 }
 
 /// NPC tracking resources for load.
@@ -2060,6 +2065,7 @@ pub fn save_game_system(
         &nq.carried_loot_q,
         &nq.equipment_q,
         &nq.has_energy_q,
+        &nq.skills_q,
     );
     let building_hp = collect_building_hp(&building_query, &entity_map);
     let bld_state = collect_building_state_snapshot(&bld_component_q);
@@ -2195,6 +2201,7 @@ pub fn autosave_system(
         &nq.carried_loot_q,
         &nq.equipment_q,
         &nq.has_energy_q,
+        &nq.skills_q,
     );
     let building_hp = collect_building_hp(&building_query, &entity_map);
     let bld_state = collect_building_state_snapshot(&bld_component_q);
@@ -2291,6 +2298,7 @@ pub fn spawn_npcs_from_save(
             carried_gold: npc.carried_gold,
             carried_equipment: npc.carried_equipment.clone(),
             squad_id: npc.squad_id,
+            skills: Some(npc.skills.clone()),
         };
 
         // Patrol units always get starting_post=0 on load (patrol route rebuilt from world)
