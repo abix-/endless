@@ -8,7 +8,7 @@ use crate::resources::{
     ProjHitState, ProjSlotAllocator, TowerState,
 };
 use crate::systems::stats::resolve_town_tower_stats;
-use crate::world::{BuildingKind, WorldData, is_alive};
+use crate::world::{Biome, BuildingKind, WorldData, WorldGrid, is_alive};
 use bevy::prelude::*;
 
 /// Fire a projectile from source toward target. Returns true if fired.
@@ -487,7 +487,12 @@ pub fn process_proj_hits(
     proj_writes: Res<ProjBufferWrites>,
     mut hit_state: ResMut<ProjHitState>,
     entity_map: Res<crate::resources::EntityMap>,
+    gpu_state: Res<GpuReadState>,
+    grid: Res<WorldGrid>,
 ) {
+    use rand::Rng;
+    let mut rng = rand::rng();
+
     let max_slot = proj_alloc.next.min(hit_state.0.len());
     for (slot, hit) in hit_state.0[..max_slot].iter().enumerate() {
         if slot < proj_writes.active.len() && proj_writes.active[slot] == 0 {
@@ -505,6 +510,25 @@ pub fn process_proj_hits(
             };
 
             if damage > 0.0 {
+                // Forest cover: 25% miss chance for projectile hits on targets in Forest cells
+                let ti = hit_idx as usize;
+                let tx = gpu_state.positions.get(ti * 2).copied().unwrap_or(0.0);
+                let ty = gpu_state.positions.get(ti * 2 + 1).copied().unwrap_or(0.0);
+                if grid.width > 0 {
+                    let (gc, gr) = grid.world_to_grid(Vec2::new(tx, ty));
+                    if grid
+                        .cell(gc, gr)
+                        .is_some_and(|c| c.terrain == Biome::Forest)
+                        && rng.random_range(0.0..1.0_f32) < 0.25
+                    {
+                        // Miss -- projectile absorbed by forest cover
+                        proj_alloc.free(slot);
+                        proj_updates
+                            .write(ProjGpuUpdateMsg(ProjGpuUpdate::Deactivate { idx: slot }));
+                        continue;
+                    }
+                }
+
                 let shooter = if slot < proj_writes.shooters.len() {
                     proj_writes.shooters[slot]
                 } else {
