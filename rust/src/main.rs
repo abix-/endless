@@ -183,10 +183,6 @@ fn default_engine_plugins(initial_window: Window) -> PluginGroupBuilder {
         .disable::<bevy::pbr::PbrPlugin>()
 }
 
-fn add_engine_plugins(app: &mut App, initial_window: Window) {
-    app.add_plugins(default_engine_plugins(initial_window));
-}
-
 fn main() {
     install_crash_handler();
 
@@ -222,7 +218,7 @@ fn main() {
         w
     };
 
-    add_engine_plugins(&mut app, initial_window);
+    app.add_plugins(default_engine_plugins(initial_window));
 
     // Parse CLI flags
     if std::env::args().any(|a| a == "--autostart") {
