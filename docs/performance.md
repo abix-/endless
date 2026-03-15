@@ -465,7 +465,7 @@ Compact record of performance fixes applied. Each entry preserves the root cause
 
 **Pattern**: Bijection index — when a forward map (slot→entity) is frequently queried in reverse (entity→slot), add a parallel reverse HashMap. Documented in Canonical Key Model: "Secondary indexes are allowed for performance (`Entity -> slot`)". damage_system 5K: 1860µs → 228µs.
 
-## Benchmarks (2026-03-14 -- d507a1e)
+## Benchmarks (2026-03-15 -- 306decc)
 
 | System | 1K | 5K | 10K | 25K | 50K |
 |--------|----|----|-----|-----|-----|
@@ -486,7 +486,7 @@ Compact record of performance fixes applied. Each entry preserves the root cause
 
 | Building system | 100 | 500 | 1K | 5K | 50K |
 |-----------------|-----|-----|----|-----|------|
-| building_tower | 15us | 19us | 24us | 65us | 652us |
+| building_tower | 15us | 20us | 28us | 65us | 644us |
 | growth | 14us | 18us | 24us | 61us | 636us |
 | construction_tick | 6us | 15us | 26us | 104us | 934us |
 | spawner_respawn | 28us | 39us | 64us | 267us | 2063us |
