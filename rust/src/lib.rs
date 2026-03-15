@@ -398,6 +398,15 @@ pub fn build_app(app: &mut App) {
                     "endless/squad_target",
                     systems::remote::squad_target_handler,
                 )
+                .with_method("endless/squad", systems::remote::squad_handler)
+                .with_method(
+                    "endless/squad_recruit",
+                    systems::remote::squad_recruit_handler,
+                )
+                .with_method(
+                    "endless/squad_dismiss",
+                    systems::remote::squad_dismiss_handler,
+                )
                 .with_method("endless/ai_manager", systems::remote::ai_manager_handler)
                 .with_method("endless/chat", systems::remote::chat_handler)
                 .with_method("endless/debug", systems::remote::debug_handler)

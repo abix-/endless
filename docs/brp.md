@@ -259,6 +259,12 @@ Set town behavior policies. Only provided fields are changed.
 | `archer_flee_hp` | f32 | no | Archer flee HP threshold |
 | `recovery_hp` | f32 | no | HP % to resume work after healing |
 | `mining_radius` | f32 | no | Gold mine discovery radius |
+| `reserve_food` | i32 | no | AI won't spend food below this |
+| `reserve_gold` | i32 | no | AI won't spend gold below this |
+| `archer_schedule` | string | no | "Both", "DayOnly", or "NightOnly" |
+| `farmer_schedule` | string | no | "Both", "DayOnly", or "NightOnly" |
+| `archer_off_duty` | string | no | "GoToBed", "StayAtFountain", or "WanderTown" |
+| `farmer_off_duty` | string | no | "GoToBed", "StayAtFountain", or "WanderTown" |
 
 ```bash
 curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
@@ -281,17 +287,69 @@ curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
 
 ### endless/squad_target
 
-Set a movement target for a military squad.
+Set or clear a movement target for a military squad. Omit x/y to clear the target.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `squad` | usize | yes | Squad index |
-| `x` | f32 | yes | Target X position |
-| `y` | f32 | yes | Target Y position |
+| `x` | f32 | no | Target X position (omit to clear) |
+| `y` | f32 | no | Target Y position (omit to clear) |
+
+```bash
+# Set target
+curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"endless/squad_target","params":{"squad":0,"x":500.0,"y":300.0},"id":1}'
+
+# Clear target
+curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"endless/squad_target","params":{"squad":0},"id":1}'
+```
+
+### endless/squad
+
+Set squad behavior settings. Only provided fields are changed.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `squad` | usize | yes | Squad index |
+| `patrol_enabled` | bool | no | Members patrol waypoints when no target |
+| `rest_when_tired` | bool | no | Members go home to rest when tired |
+| `hold_fire` | bool | no | Members only attack ManualTarget |
+| `loot_threshold` | usize | no | Equipment count to trigger loot return (1-20) |
 
 ```bash
 curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"endless/squad_target","params":{"squad":0,"x":500.0,"y":300.0},"id":1}'
+  -d '{"jsonrpc":"2.0","method":"endless/squad","params":{"squad":0,"patrol_enabled":true,"hold_fire":false},"id":1}'
+```
+
+### endless/squad_recruit
+
+Recruit NPCs of a military job into a squad.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `squad` | usize | yes | Squad index |
+| `job` | string | yes | Military job name (e.g. "Archer", "Fighter", "Crossbow") |
+| `count` | usize | no | Number to recruit (default 1) |
+
+```bash
+curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"endless/squad_recruit","params":{"squad":0,"job":"Archer","count":5},"id":1}'
+```
+
+### endless/squad_dismiss
+
+Dismiss NPCs from a squad, optionally filtered by job.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `squad` | usize | yes | Squad index |
+| `job` | string | no | Filter by job (omit to dismiss any) |
+| `count` | usize | no | Number to dismiss (default 1) |
+
+```bash
+curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"endless/squad_dismiss","params":{"squad":0,"job":"Archer","count":3},"id":1}'
 ```
 
 ### endless/ai_manager

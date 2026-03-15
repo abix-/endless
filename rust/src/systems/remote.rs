@@ -20,6 +20,24 @@ use crate::resources::*;
 use crate::systemparams::WorldState;
 use crate::world::{BuildingKind, WorldData};
 
+pub fn parse_work_schedule(s: &str) -> Option<WorkSchedule> {
+    match s {
+        "Both" | "both" => Some(WorkSchedule::Both),
+        "DayOnly" | "day_only" | "day" => Some(WorkSchedule::DayOnly),
+        "NightOnly" | "night_only" | "night" => Some(WorkSchedule::NightOnly),
+        _ => None,
+    }
+}
+
+pub fn parse_off_duty(s: &str) -> Option<OffDutyBehavior> {
+    match s {
+        "GoToBed" | "go_to_bed" | "bed" => Some(OffDutyBehavior::GoToBed),
+        "StayAtFountain" | "stay_at_fountain" | "fountain" => Some(OffDutyBehavior::StayAtFountain),
+        "WanderTown" | "wander_town" | "wander" => Some(OffDutyBehavior::WanderTown),
+        _ => None,
+    }
+}
+
 fn queue_llm_log(world: &mut World, town: usize, message: String, location: Option<Vec2>) {
     let gt = world.resource::<GameTime>();
     let (day, hour, minute) = (gt.day(), gt.hour(), gt.minute());
@@ -560,6 +578,18 @@ struct PolicyParams {
     recovery_hp: Option<f32>,
     #[serde(default)]
     mining_radius: Option<f32>,
+    #[serde(default)]
+    reserve_food: Option<i32>,
+    #[serde(default)]
+    reserve_gold: Option<i32>,
+    #[serde(default)]
+    archer_schedule: Option<String>,
+    #[serde(default)]
+    farmer_schedule: Option<String>,
+    #[serde(default)]
+    archer_off_duty: Option<String>,
+    #[serde(default)]
+    farmer_off_duty: Option<String>,
 }
 
 pub fn policy_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
@@ -638,6 +668,52 @@ pub fn policy_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpRe
             }
             policy.mining_radius = v;
         }
+        if let Some(v) = p.reserve_food {
+            let v = v.max(0);
+            if v != policy.reserve_food {
+                parts.push(format!("reserve_food={v}"));
+            }
+            policy.reserve_food = v;
+        }
+        if let Some(v) = p.reserve_gold {
+            let v = v.max(0);
+            if v != policy.reserve_gold {
+                parts.push(format!("reserve_gold={v}"));
+            }
+            policy.reserve_gold = v;
+        }
+        if let Some(ref s) = p.archer_schedule {
+            if let Some(v) = parse_work_schedule(s) {
+                if v != policy.archer_schedule {
+                    parts.push(format!("archer_schedule={s}"));
+                }
+                policy.archer_schedule = v;
+            }
+        }
+        if let Some(ref s) = p.farmer_schedule {
+            if let Some(v) = parse_work_schedule(s) {
+                if v != policy.farmer_schedule {
+                    parts.push(format!("farmer_schedule={s}"));
+                }
+                policy.farmer_schedule = v;
+            }
+        }
+        if let Some(ref s) = p.archer_off_duty {
+            if let Some(v) = parse_off_duty(s) {
+                if v != policy.archer_off_duty {
+                    parts.push(format!("archer_off_duty={s}"));
+                }
+                policy.archer_off_duty = v;
+            }
+        }
+        if let Some(ref s) = p.farmer_off_duty {
+            if let Some(v) = parse_off_duty(s) {
+                if v != policy.farmer_off_duty {
+                    parts.push(format!("farmer_off_duty={s}"));
+                }
+                policy.farmer_off_duty = v;
+            }
+        }
         parts
     };
     if !parts.is_empty() {
@@ -680,8 +756,10 @@ pub fn time_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResu
 #[derive(Deserialize)]
 struct SquadTargetParams {
     squad: usize,
-    x: f32,
-    y: f32,
+    #[serde(default)]
+    x: Option<f32>,
+    #[serde(default)]
+    y: Option<f32>,
 }
 
 pub fn squad_target_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
@@ -702,21 +780,37 @@ pub fn squad_target_handler(In(params): In<Option<Value>>, world: &mut World) ->
         check_town_allowed(world, town)?;
     }
 
-    queue_llm_log(
-        world,
-        town,
-        format!("squad {} target ({:.0},{:.0})", p.squad, p.x, p.y),
-        Some(Vec2::new(p.x, p.y)),
-    );
+    let new_target = match (p.x, p.y) {
+        (Some(x), Some(y)) => Some(Vec2::new(x, y)),
+        _ => None, // null/missing x or y = clear target
+    };
+
+    if let Some(t) = new_target {
+        queue_llm_log(
+            world,
+            town,
+            format!("squad {} target ({:.0},{:.0})", p.squad, t.x, t.y),
+            Some(t),
+        );
+    } else {
+        queue_llm_log(
+            world,
+            town,
+            format!("squad {} target cleared", p.squad),
+            None,
+        );
+    }
 
     let mut state = world.resource_mut::<SquadState>();
     let squad = state
         .squads
         .get_mut(p.squad)
         .ok_or_else(|| brp_err(format!("squad {} out of range", p.squad)))?;
-    squad.target = Some(Vec2::new(p.x, p.y));
+    squad.target = new_target;
 
-    toon_ok(json!({"status": "ok", "squad": p.squad, "target_x": p.x, "target_y": p.y}))
+    toon_ok(
+        json!({"status": "ok", "squad": p.squad, "target": new_target.map(|t| json!({"x": t.x, "y": t.y}))}),
+    )
 }
 
 // --- endless/ai_manager -----------------------------------------------------
@@ -816,6 +910,288 @@ pub fn ai_manager_handler(In(params): In<Option<Value>>, world: &mut World) -> B
         "personality": player.personality.name(),
         "road_style": format!("{:?}", player.road_style),
     }))
+}
+
+// --- endless/squad -----------------------------------------------------------
+
+#[derive(Deserialize)]
+struct SquadParams {
+    squad: usize,
+    #[serde(default)]
+    patrol_enabled: Option<bool>,
+    #[serde(default)]
+    rest_when_tired: Option<bool>,
+    #[serde(default)]
+    hold_fire: Option<bool>,
+    #[serde(default)]
+    loot_threshold: Option<usize>,
+}
+
+pub fn squad_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
+    let p: SquadParams = parse_some(params)?;
+
+    let town;
+    {
+        let state = world.resource::<SquadState>();
+        let squad = state
+            .squads
+            .get(p.squad)
+            .ok_or_else(|| brp_err(format!("squad {} out of range", p.squad)))?;
+        town = match squad.owner {
+            SquadOwner::Player => 0,
+            SquadOwner::Town(tdi) => tdi,
+        };
+        check_town_allowed(world, town)?;
+    }
+
+    let parts;
+    {
+        let mut state = world.resource_mut::<SquadState>();
+        let squad = state
+            .squads
+            .get_mut(p.squad)
+            .ok_or_else(|| brp_err(format!("squad {} out of range", p.squad)))?;
+
+        let mut changed = Vec::new();
+        if let Some(v) = p.patrol_enabled {
+            if v != squad.patrol_enabled {
+                changed.push(format!("patrol_enabled={v}"));
+            }
+            squad.patrol_enabled = v;
+        }
+        if let Some(v) = p.rest_when_tired {
+            if v != squad.rest_when_tired {
+                changed.push(format!("rest_when_tired={v}"));
+            }
+            squad.rest_when_tired = v;
+        }
+        if let Some(v) = p.hold_fire {
+            if v != squad.hold_fire {
+                changed.push(format!("hold_fire={v}"));
+            }
+            squad.hold_fire = v;
+        }
+        if let Some(v) = p.loot_threshold {
+            let v = v.clamp(1, crate::resources::MAX_LOOT_THRESHOLD);
+            if v != squad.loot_threshold {
+                changed.push(format!("loot_threshold={v}"));
+            }
+            squad.loot_threshold = v;
+        }
+        parts = changed;
+    }
+
+    if !parts.is_empty() {
+        queue_llm_log(
+            world,
+            town,
+            format!("squad {} settings: {}", p.squad, parts.join(", ")),
+            None,
+        );
+    }
+
+    toon_ok(json!({"status": "ok", "squad": p.squad}))
+}
+
+// --- endless/squad_recruit ---------------------------------------------------
+
+#[derive(Deserialize)]
+struct SquadRecruitParams {
+    squad: usize,
+    job: String,
+    #[serde(default = "default_recruit_count")]
+    count: usize,
+}
+
+fn default_recruit_count() -> usize {
+    1
+}
+
+pub fn squad_recruit_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
+    let p: SquadRecruitParams = parse_some(params)?;
+
+    let town;
+    let target_job;
+    {
+        let state = world.resource::<SquadState>();
+        let squad = state
+            .squads
+            .get(p.squad)
+            .ok_or_else(|| brp_err(format!("squad {} out of range", p.squad)))?;
+        town = match squad.owner {
+            SquadOwner::Player => 0,
+            SquadOwner::Town(tdi) => tdi,
+        };
+        check_town_allowed(world, town)?;
+
+        target_job = parse_job(&p.job).ok_or_else(|| brp_err(format!("unknown job: {}", p.job)))?;
+        if !target_job.is_military() {
+            return Err(brp_err(format!("{} is not a military job", p.job)));
+        }
+    }
+
+    // Find unassigned NPCs of this job in this town and assign to squad
+    let entity_map = world.resource::<EntityMap>();
+    let town_i32 = town as i32;
+    let mut candidates: Vec<Entity> = Vec::new();
+    for npc in entity_map.iter_npcs() {
+        if npc.job == target_job && npc.town_idx == town_i32 {
+            candidates.push(npc.entity);
+        }
+    }
+
+    // Filter to those not already in this squad
+    let state = world.resource::<SquadState>();
+    let existing_members: Vec<Entity> = state
+        .squads
+        .get(p.squad)
+        .map(|s| s.members.clone())
+        .unwrap_or_default();
+    candidates.retain(|e| !existing_members.contains(e));
+
+    let to_recruit = candidates.into_iter().take(p.count).collect::<Vec<_>>();
+    let recruited = to_recruit.len();
+
+    // Assign SquadId component and add to squad members
+    {
+        let mut state = world.resource_mut::<SquadState>();
+        let squad = state
+            .squads
+            .get_mut(p.squad)
+            .ok_or_else(|| brp_err(format!("squad {} out of range", p.squad)))?;
+        for &entity in &to_recruit {
+            if !squad.members.contains(&entity) {
+                squad.members.push(entity);
+            }
+        }
+    }
+
+    for &entity in &to_recruit {
+        if let Some(mut sid) = world.get_mut::<SquadId>(entity) {
+            sid.0 = p.squad as i32;
+        }
+    }
+
+    queue_llm_log(
+        world,
+        town,
+        format!("squad {} recruited {} {}", p.squad, recruited, p.job,),
+        None,
+    );
+
+    toon_ok(json!({"status": "ok", "squad": p.squad, "recruited": recruited}))
+}
+
+// --- endless/squad_dismiss ---------------------------------------------------
+
+#[derive(Deserialize)]
+struct SquadDismissParams {
+    squad: usize,
+    #[serde(default)]
+    job: Option<String>,
+    #[serde(default = "default_recruit_count")]
+    count: usize,
+}
+
+pub fn squad_dismiss_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
+    let p: SquadDismissParams = parse_some(params)?;
+
+    let town;
+    {
+        let state = world.resource::<SquadState>();
+        let squad = state
+            .squads
+            .get(p.squad)
+            .ok_or_else(|| brp_err(format!("squad {} out of range", p.squad)))?;
+        town = match squad.owner {
+            SquadOwner::Player => 0,
+            SquadOwner::Town(tdi) => tdi,
+        };
+        check_town_allowed(world, town)?;
+    }
+
+    let target_job = p.job.as_ref().and_then(|s| parse_job(s));
+
+    // Collect member jobs before mutating squad state (avoids borrow conflict)
+    let members: Vec<(Entity, Option<Job>)>;
+    {
+        let state = world.resource::<SquadState>();
+        let squad = state
+            .squads
+            .get(p.squad)
+            .ok_or_else(|| brp_err(format!("squad {} out of range", p.squad)))?;
+        members = squad
+            .members
+            .iter()
+            .map(|&e| (e, world.get::<Job>(e).copied()))
+            .collect();
+    }
+
+    // Remove members from squad, optionally filtered by job
+    let mut dismissed_entities: Vec<Entity> = Vec::new();
+    let mut remaining = Vec::new();
+    let mut dismissed = 0usize;
+    for (entity, job) in &members {
+        if dismissed >= p.count {
+            remaining.push(*entity);
+            continue;
+        }
+        let matches = target_job
+            .map(|tj| job.map(|j| j == tj).unwrap_or(false))
+            .unwrap_or(true);
+        if matches {
+            dismissed_entities.push(*entity);
+            dismissed += 1;
+        } else {
+            remaining.push(*entity);
+        }
+    }
+    {
+        let mut state = world.resource_mut::<SquadState>();
+        let squad = state
+            .squads
+            .get_mut(p.squad)
+            .ok_or_else(|| brp_err(format!("squad {} out of range", p.squad)))?;
+        squad.members = remaining;
+    }
+
+    // Reset SquadId to 0 (default/unassigned)
+    for &entity in &dismissed_entities {
+        if let Some(mut sid) = world.get_mut::<SquadId>(entity) {
+            sid.0 = 0;
+        }
+    }
+
+    let dismissed_count = dismissed_entities.len();
+    queue_llm_log(
+        world,
+        town,
+        format!(
+            "squad {} dismissed {} {}",
+            p.squad,
+            dismissed_count,
+            p.job.as_deref().unwrap_or("members"),
+        ),
+        None,
+    );
+
+    toon_ok(json!({"status": "ok", "squad": p.squad, "dismissed": dismissed_count}))
+}
+
+fn parse_job(s: &str) -> Option<Job> {
+    match s {
+        "Farmer" | "farmer" => Some(Job::Farmer),
+        "Archer" | "archer" => Some(Job::Archer),
+        "Raider" | "raider" => Some(Job::Raider),
+        "Fighter" | "fighter" => Some(Job::Fighter),
+        "Miner" | "miner" => Some(Job::Miner),
+        "Crossbow" | "crossbow" => Some(Job::Crossbow),
+        "Boat" | "boat" => Some(Job::Boat),
+        "Woodcutter" | "woodcutter" => Some(Job::Woodcutter),
+        "Quarrier" | "quarrier" => Some(Job::Quarrier),
+        "Mason" | "mason" => Some(Job::Mason),
+        _ => None,
+    }
 }
 
 // --- endless/chat ------------------------------------------------------------

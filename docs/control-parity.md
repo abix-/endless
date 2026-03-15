@@ -36,26 +36,26 @@ Last updated: 2026-03-15.
 | archer_flee_hp | slider | `endless/policy` | `policy` | personality default |
 | recovery_hp | slider | `endless/policy` | `policy` | personality default |
 | mining_radius | slider | `endless/policy` | `policy` | `ExpandMiningRadius` |
-| reserve_food | slider | -- | -- | reads internally |
-| reserve_gold | slider | -- | -- | reads internally |
-| archer_schedule | dropdown | -- | -- | -- |
-| archer_off_duty | dropdown | -- | -- | -- |
-| farmer_schedule | dropdown | -- | -- | -- |
-| farmer_off_duty | dropdown | -- | -- | -- |
-| loot_threshold (per-squad) | slider (squad tab) | readable via `endless/debug` | -- | personality default |
+| reserve_food | slider | `endless/policy` | `policy` | reads internally |
+| reserve_gold | slider | `endless/policy` | `policy` | reads internally |
+| archer_schedule | dropdown | `endless/policy` | `policy` | -- |
+| archer_off_duty | dropdown | `endless/policy` | `policy` | -- |
+| farmer_schedule | dropdown | `endless/policy` | `policy` | -- |
+| farmer_off_duty | dropdown | `endless/policy` | `policy` | -- |
+| loot_threshold (per-squad) | slider (squad tab) | `endless/squad` | `squad` | personality default |
 
 ## Squad
 
 | Capability | Player UI | BRP API | LLM Player | Built-in AI |
 |---|---|---|---|---|
 | Set squad target | click map | `endless/squad_target` | `squad_target` | `ai_squad_commander` |
-| Clear squad target | button | -- | -- | `ai_squad_commander` |
-| patrol_enabled | checkbox | -- | -- | sets internally |
-| rest_when_tired | checkbox | -- | -- | sets internally |
-| hold_fire | checkbox | -- | -- | intentionally off |
-| loot_threshold | slider | -- | -- | personality default |
-| Recruit to squad | per-job buttons | -- | -- | auto-assigns |
-| Dismiss from squad | button | -- | -- | -- |
+| Clear squad target | button | `endless/squad_target` (omit x/y) | `squad_target` (omit x/y) | `ai_squad_commander` |
+| patrol_enabled | checkbox | `endless/squad` | `squad` | sets internally |
+| rest_when_tired | checkbox | `endless/squad` | `squad` | sets internally |
+| hold_fire | checkbox | `endless/squad` | `squad` | intentionally off |
+| loot_threshold | slider | `endless/squad` | `squad` | personality default |
+| Recruit to squad | per-job buttons | `endless/squad_recruit` | -- | auto-assigns |
+| Dismiss from squad | button | `endless/squad_dismiss` | -- | -- |
 | Direct control (box-select) | mouse select | -- | -- | -- |
 
 ## Meta / AI Manager
@@ -74,11 +74,11 @@ Capabilities the player has that AI surfaces are missing.
 
 ### BRP / LLM Player
 
-1. **Schedule controls** -- `archer_schedule`, `farmer_schedule`, `archer_off_duty`, `farmer_off_duty` not exposed
-2. **Reserve food/gold** -- `reserve_food`, `reserve_gold` not exposed
-3. **Squad settings** -- `patrol_enabled`, `rest_when_tired`, `hold_fire`, `loot_threshold` not settable (only readable via `endless/debug`)
-4. **Squad recruit/dismiss** -- no action to move NPCs between squads
-5. **Clear squad target** -- `endless/squad_target` can set but not clear (would need null target support)
+1. ~~**Schedule controls**~~ -- closed: `endless/policy` + LLM `policy` action
+2. ~~**Reserve food/gold**~~ -- closed: `endless/policy` + LLM `policy` action
+3. ~~**Squad settings**~~ -- closed: `endless/squad` + LLM `squad` action
+4. ~~**Squad recruit/dismiss**~~ -- closed: `endless/squad_recruit` + `endless/squad_dismiss` (BRP only)
+5. ~~**Clear squad target**~~ -- closed: omit x/y in `endless/squad_target` or LLM `squad_target`
 6. **Wall upgrades** -- no endpoint to upgrade walls
 7. **Mine enable/disable** -- no endpoint to toggle individual mines
 
@@ -88,17 +88,11 @@ Capabilities the player has that AI surfaces are missing.
 2. **Schedule/off-duty tuning** -- does not change archer/farmer schedules or off-duty behavior
 3. **Wall upgrades** -- does not upgrade walls
 
-### By Impact
+### Remaining Gaps
 
-Highest impact for competitive AI parity:
-
-- **Squad settings via BRP** (patrol, rest, hold_fire, loot_threshold, recruit/dismiss) -- military effectiveness
-- **Schedule/reserve via BRP** (schedules, off-duty, reserve_food/gold) -- economic tuning
-- **Schedule/off-duty tuning for built-in AI** -- still fixed at default policy values
-- **Clear squad target via BRP** -- needed for retreat/disengage
-
-Lower impact:
+Lower priority:
 
 - Wall upgrades (marginal defensive value vs effort)
 - Mine enable/disable (niche optimization)
 - Direct control (intentionally player-only)
+- Squad recruit/dismiss for LLM player (BRP-only for now)

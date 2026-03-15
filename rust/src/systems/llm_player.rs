@@ -661,6 +661,36 @@ fn execute_actions(
                                     policy.0.mining_radius = v.clamp(0.0, 5000.0);
                                 }
                             }
+                            "reserve_food" => {
+                                if let Ok(v) = val.parse::<i32>() {
+                                    policy.0.reserve_food = v.max(0);
+                                }
+                            }
+                            "reserve_gold" => {
+                                if let Ok(v) = val.parse::<i32>() {
+                                    policy.0.reserve_gold = v.max(0);
+                                }
+                            }
+                            "archer_schedule" => {
+                                if let Some(v) = crate::systems::remote::parse_work_schedule(val) {
+                                    policy.0.archer_schedule = v;
+                                }
+                            }
+                            "farmer_schedule" => {
+                                if let Some(v) = crate::systems::remote::parse_work_schedule(val) {
+                                    policy.0.farmer_schedule = v;
+                                }
+                            }
+                            "archer_off_duty" => {
+                                if let Some(v) = crate::systems::remote::parse_off_duty(val) {
+                                    policy.0.archer_off_duty = v;
+                                }
+                            }
+                            "farmer_off_duty" => {
+                                if let Some(v) = crate::systems::remote::parse_off_duty(val) {
+                                    policy.0.farmer_off_duty = v;
+                                }
+                            }
                             _ => {}
                         }
                     }
@@ -764,31 +794,57 @@ fn execute_actions(
             }
             "squad_target" => {
                 let squad_idx = p.get("squad").and_then(|s| s.parse::<usize>().ok());
-                let x = p
-                    .get("x")
-                    .and_then(|s| s.parse::<f32>().ok())
-                    .unwrap_or(0.0);
-                let y = p
-                    .get("y")
-                    .and_then(|s| s.parse::<f32>().ok())
-                    .unwrap_or(0.0);
+                let x = p.get("x").and_then(|s| s.parse::<f32>().ok());
+                let y = p.get("y").and_then(|s| s.parse::<f32>().ok());
                 if let Some(si) = squad_idx {
                     let owned = write.squad_state.squads.get(si).map(|sq| match sq.owner {
                         SquadOwner::Player => 0,
                         SquadOwner::Town(tdi) => tdi,
                     } == town).unwrap_or(false);
                     if owned {
-                        let target = bevy::math::Vec2::new(x, y);
-                        write.squad_state.squads[si].target = Some(target);
+                        let new_target = match (x, y) {
+                            (Some(tx), Some(ty)) => Some(bevy::math::Vec2::new(tx, ty)),
+                            _ => None,
+                        };
+                        write.squad_state.squads[si].target = new_target;
+                        let msg = if new_target.is_some() {
+                            format!("[{}] sent squad {} to attack", town_name, si)
+                        } else {
+                            format!("[{}] cleared squad {} target", town_name, si)
+                        };
                         write.combat_log.push_at(
                             CombatEventKind::Llm,
                             faction,
                             day,
                             hour,
                             minute,
-                            format!("[{}] sent squad {} to attack", town_name, si),
-                            Some(target),
+                            msg,
+                            new_target,
                         );
+                    }
+                }
+            }
+            "squad" => {
+                let squad_idx = p.get("squad").and_then(|s| s.parse::<usize>().ok());
+                if let Some(si) = squad_idx {
+                    let owned = write.squad_state.squads.get(si).map(|sq| match sq.owner {
+                        SquadOwner::Player => 0,
+                        SquadOwner::Town(tdi) => tdi,
+                    } == town).unwrap_or(false);
+                    if owned {
+                        if let Some(Ok(v)) = p.get("patrol_enabled").map(|s| s.parse::<bool>()) {
+                            write.squad_state.squads[si].patrol_enabled = v;
+                        }
+                        if let Some(Ok(v)) = p.get("rest_when_tired").map(|s| s.parse::<bool>()) {
+                            write.squad_state.squads[si].rest_when_tired = v;
+                        }
+                        if let Some(Ok(v)) = p.get("hold_fire").map(|s| s.parse::<bool>()) {
+                            write.squad_state.squads[si].hold_fire = v;
+                        }
+                        if let Some(Ok(v)) = p.get("loot_threshold").map(|s| s.parse::<usize>()) {
+                            write.squad_state.squads[si].loot_threshold =
+                                v.clamp(1, crate::resources::MAX_LOOT_THRESHOLD);
+                        }
                     }
                 }
             }
