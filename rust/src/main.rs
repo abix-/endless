@@ -7,7 +7,7 @@
     clippy::collapsible_if
 )]
 
-use bevy::{app::PluginGroupBuilder, prelude::*};
+use bevy::prelude::*;
 
 const SURFACE_CRASH_MARKERS: &[&str] = &[
     "Surface is not configured for presentation",
@@ -166,23 +166,6 @@ fn install_crash_handler() {
     }));
 }
 
-fn default_engine_plugins(initial_window: Window) -> PluginGroupBuilder {
-    DefaultPlugins
-        // Endless is a 2D renderer. Disabling Bevy's PBR plugin avoids unused
-        // 3D SSR setup that has been crashing the visible frame.
-        .set(WindowPlugin {
-            primary_window: Some(initial_window),
-            ..default()
-        })
-        .set(bevy::log::LogPlugin {
-            custom_layer: |_app: &mut App| {
-                Some(Box::new(endless::tracing_layer::SystemTimingLayer))
-            },
-            ..default()
-        })
-        .disable::<bevy::pbr::PbrPlugin>()
-}
-
 fn main() {
     install_crash_handler();
 
@@ -218,7 +201,19 @@ fn main() {
         w
     };
 
-    app.add_plugins(default_engine_plugins(initial_window));
+    app.add_plugins(
+        DefaultPlugins
+            .set(WindowPlugin {
+                primary_window: Some(initial_window),
+                ..default()
+            })
+            .set(bevy::log::LogPlugin {
+                custom_layer: |_app: &mut App| {
+                    Some(Box::new(endless::tracing_layer::SystemTimingLayer))
+                },
+                ..default()
+            }),
+    );
 
     // Parse CLI flags
     if std::env::args().any(|a| a == "--autostart") {
@@ -254,16 +249,4 @@ fn main() {
     );
 
     app.run();
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn engine_plugins_disable_pbr_for_2d_runtime() {
-        let plugins = default_engine_plugins(Window::default());
-
-        assert!(!plugins.enabled::<bevy::pbr::PbrPlugin>());
-    }
 }
