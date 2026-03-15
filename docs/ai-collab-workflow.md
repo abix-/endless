@@ -39,21 +39,23 @@ If a change conflicts with any of them, stop and reconcile the design before wri
 
 ## Workspaces
 
-Each agent works in its own isolated directory to avoid file-level conflicts with other agents.
+Each agent works in its own independent clone to avoid file-level conflicts with other agents.
 
 - Agent workspace: `C:\code\endless-{agentId}` (e.g., `C:\code\endless-claude-1`)
-- Created as a `git worktree` of the main repo at `C:\code\endless`
+- Created as a full `git clone` of the GitHub repo
 - Each agent has full control of its own workspace -- no coordination needed for uncommitted files
+- Any agent can checkout any branch -- no conflicts between agents
 - The main repo at `C:\code\endless` is for human use only; agents never work there directly
 
 Workspace setup (run once per agent, handled by `/issue` on first use):
 
 ```
-cd C:\code\endless
-git worktree add ../endless-{agentId} dev
+git clone https://github.com/abix-/endless.git C:\code\endless-{agentId}
+cd C:\code\endless-{agentId}
+git checkout dev
 ```
 
-If the worktree already exists, reuse it. Do not recreate or remove existing worktrees.
+If the workspace directory already exists, reuse it. Do not recreate or remove existing workspaces.
 
 ## Branches and PRs
 
@@ -67,9 +69,9 @@ Use these rules consistently:
 - push the branch and open a PR targeting `dev`
 - before any handoff or review request, verify the branch is on GitHub as `origin/issue-{N}`; never hand off unpushed local commits
 - issue comments remain the handoff channel; include the PR link in the handoff comment
-- the reviewing agent fetches and checks out the same remote `issue-{N}` branch in their own worktree to review
+- the reviewing agent fetches and checks out the same remote `issue-{N}` branch in their own workspace to review
 - merge the PR after reviewer signoff and required tests pass
-- do not use `git stash`, `git checkout dev`, or `git clean` to move aside work -- each agent owns their worktree
+- do not use `git stash`, `git checkout dev`, or `git clean` to move aside work -- each agent owns their workspace
 
 ## Labels
 
@@ -85,8 +87,7 @@ State labels:
 
 - `ready`
 - `claimed`
-- `needs-claude`
-- `needs-codex`
+- `needs-review`
 - `waiting`
 
 Owner labels:
@@ -101,8 +102,7 @@ Suggested usage:
 - `test`: test-only or verification follow-up work
 - `ready`: unclaimed and eligible for auto-pick
 - `claimed`: actively being worked by exactly one agent identity, including active review
-- `needs-claude`: waiting for the Claude family to take the next active step
-- `needs-codex`: waiting for the Codex family to take the next active step
+- `needs-review`: implementation done, waiting for any different agent to review
 - `waiting`: blocked, never auto-picked
 
 Closed issues represent done. Do not add a `done` label.
@@ -113,23 +113,20 @@ Use this strict issue-state model:
 
 - `ready`: issue is eligible for auto-pick
 - `claimed`: one specific agent identity is actively working it
-- `needs-claude`: the next active step belongs to the Claude family
-- `needs-codex`: the next active step belongs to the Codex family
+- `needs-review`: implementation done, waiting for any different agent to review
 - `waiting`: blocked on an external decision or prerequisite
 
 Required invariants:
 
 - each open issue carries exactly one state label from this list
-- auto-pick for Claude considers open issues labeled `needs-claude` first, then `ready`
-- auto-pick for Codex considers open issues labeled `needs-codex` first, then `ready`
+- auto-pick considers open issues labeled `needs-review` first, then `ready`
 - no-argument `ai-collab` must first look for open issues already labeled `claimed` with the current owner label and resume the oldest one instead of claiming a new issue
 - auto-pick must ignore any issue labeled `waiting` or `claimed`
 - `claimed` requires exactly one owner label
 - each owner label should appear on at most one open issue; if an owner already has multiple open claimed issues, resume the oldest and do not claim another
-- `needs-claude` must remove `claimed`, `ready`, `needs-codex`, and all owner labels
-- `needs-codex` must remove `claimed`, `ready`, `needs-claude`, and all owner labels
+- `needs-review` must remove `claimed`, `ready`, and all owner labels
 - `waiting` must remove `claimed` and all owner labels
-- agents must convert `needs-claude` or `needs-codex` to `claimed` before starting review or follow-up work
+- agents must convert `needs-review` to `claimed` before starting review work
 - reviewers never review an issue they most recently claimed or implemented
 
 ## Agent Identity
@@ -238,31 +235,28 @@ If the design is still moving, refine the spec doc first, then keep or move the 
 
 ## Claim Protocol
 
-Running `/issue` or `$issue` with no issue number means "claim the next eligible issue for this agent family."
+Running `/issue` or `$issue` with no issue number means "claim the next eligible issue for this agent."
 
 No-argument claim algorithm:
 
 1. Read this workflow doc.
 2. Register the current process with `C:/Users/Abix/.claude/ai-collab/Register-AiCollabAgent.ps1` and use the returned `agentId`.
-3. Derive the family handoff label from the current agent family:
-   - Claude -> `needs-claude`
-   - Codex -> `needs-codex`
-4. List open issues ordered oldest-first.
-5. Look first for the oldest open issue already labeled `claimed` with the current owner label.
-6. If one exists, resume that issue and do not claim a new one.
-7. If none exists, look for the oldest issue labeled with the current family handoff label and not labeled `waiting` or `claimed`.
-8. If no family handoff issue exists, look for the oldest issue labeled `ready` and not labeled `waiting`, `claimed`, `needs-claude`, or `needs-codex`.
-9. Attempt to claim the first new candidate by:
-   - removing `ready` or the matching family handoff label
+3. List open issues ordered oldest-first.
+4. Look first for the oldest open issue already labeled `claimed` with the current owner label.
+5. If one exists, resume that issue and do not claim a new one.
+6. If none exists, look for the oldest issue labeled `needs-review` and not labeled `waiting` or `claimed`.
+7. If no `needs-review` issue exists, look for the oldest issue labeled `ready` and not labeled `waiting`, `claimed`, or `needs-review`.
+8. Attempt to claim the first new candidate by:
+   - removing `ready` or `needs-review`
    - adding `claimed`
    - adding exactly one owner label for the current agent identity
    - posting the claim comment format below
-10. Re-read the issue and confirm:
+9. Re-read the issue and confirm:
    - `claimed` is present
-   - `ready`, `needs-claude`, and `needs-codex` are absent
+   - `ready` and `needs-review` are absent
    - exactly one owner label is present
    - the owner label matches the current agent identity
-11. If claim confirmation fails, continue to the next candidate or exit cleanly if none remain.
+10. If claim confirmation fails, continue to the next candidate or exit cleanly if none remain.
 
 Claims do not expire automatically.
 A claim stays active until that agent finishes the current workflow step and changes labels as part of handoff.
@@ -272,8 +266,7 @@ A claim stays active until that agent finishes the current workflow step and cha
 If an issue number is provided:
 
 - if the issue is `ready`, claim it before starting work
-- if the issue is `needs-claude`, only Claude may claim it, and Claude must convert it to `claimed` before starting work
-- if the issue is `needs-codex`, only Codex may claim it, and Codex must convert it to `claimed` before starting work
+- if the issue is `needs-review`, any agent may claim it and must convert it to `claimed` before starting review
 - if the issue is `claimed` by another owner label, do not act on it
 - if the issue is `waiting`, do not proceed without first resolving the blocker
 
@@ -289,7 +282,7 @@ Claim comment:
 - Next: smallest immediate step
 ```
 
-Use the actual previous state: `ready`, `needs-claude`, or `needs-codex`.
+Use the actual previous state: `ready` or `needs-review`.
 
 Implementation or review handoff:
 
@@ -298,12 +291,12 @@ Implementation or review handoff:
 - Changed: short factual summary
 - Tests: commands run and result
 - Open: blockers, risks, or unresolved questions
-- State: claimed -> needs-claude | claimed -> needs-codex | claimed -> waiting | claimed -> close
+- State: claimed -> needs-review | claimed -> waiting | claimed -> close
 - Next: smallest sensible next step
 ```
 
 Replace `<AgentName>` with `Codex` or `Claude`.
-Choose `needs-claude` or `needs-codex` for whichever family owns the next step.
+Use `needs-review` when handing off for review.
 
 ## Design Workflow
 
@@ -326,7 +319,7 @@ Use this flow for each slice:
 
 1. Read the slice issue, the linked spec doc, and the critical docs: `docs/k8s.md`, `docs/authority.md`, `docs/performance.md`
 2. Claim the issue if it is `ready`
-3. In your agent worktree, create or checkout the issue branch:
+3. In your agent workspace, create or checkout the issue branch:
    - new issue: `git fetch origin && git checkout -b issue-{N} origin/dev`
    - continuing work: `git checkout issue-{N} && git pull --rebase origin dev`
 4. Implement the smallest complete step
@@ -338,9 +331,7 @@ Use this flow for each slice:
    - `git fetch origin && git rev-parse --verify origin/issue-{N}`
    - `gh pr create --base dev --head issue-{N}` (or update existing PR)
 9. Leave the handoff comment with the PR link only after the remote branch verification passes
-10. Remove `claimed` and the owner label, then add the opposite family handoff label:
-   - Codex implementation -> `needs-claude`
-   - Claude implementation -> `needs-codex`
+10. Remove `claimed` and the owner label, then add `needs-review`
 
 This same handoff flow applies when a reviewing agent makes the fix instead of bouncing the issue back unchanged.
 
@@ -354,27 +345,27 @@ If work is genuinely blocked:
 
 Default review split:
 
-- one family makes the latest code-changing step
-- the other family reviews
-- the implementing family moves the issue to the other family's handoff label when asking for review
-- the reviewing family must claim the issue before starting review
-- only the family that did not make the latest code-changing step may close the issue
+- the implementing agent hands off to `needs-review`
+- any different agent may pick up review (regardless of family)
+- the reviewing agent must claim the issue before starting review
+- reviewers never review an issue they most recently implemented
+- only an agent that did not make the latest code-changing step may close the issue
 
-To review, the reviewer checks out the `issue-{N}` branch in their own worktree:
+To review, the reviewer checks out the `issue-{N}` branch in their own workspace:
 
 ```
 git fetch origin
 git checkout issue-{N}
 ```
 
-Review must be against the remote handoff branch. Do not review from another agent's local worktree or from commits that were not pushed to `origin/issue-{N}`.
+Review must be against the remote handoff branch. Do not review from another agent's workspace or from commits that were not pushed to `origin/issue-{N}`.
 
 If making fix-forward changes, push to the same `issue-{N}` branch. The PR updates automatically.
 
 Review is fix-forward by default:
 
-- if the reviewing family finds a concrete in-scope problem, it should make the smallest complete fix in the same turn
-- after making code changes during review, that family becomes the implementing side for the latest step and must hand the issue back to the other family
+- if the reviewer finds a concrete in-scope problem, it should make the smallest complete fix in the same turn
+- after making code changes during review, that agent becomes the implementing side and must hand the issue back to `needs-review`
 - do not spend a full turn on findings-only review when the fix is clear, local, and safely within scope
 - use a findings-only handoff only when blocked, out of scope, design-ambiguous, or explicitly asked to review without changing code
 
@@ -402,9 +393,9 @@ Initiative issue exception:
 
 If review finds a blocker:
 
-- leave the handoff comment with `State: claimed -> needs-claude` or `claimed -> needs-codex` for the family expected to follow up
+- leave the handoff comment with `State: claimed -> needs-review` for follow-up
 - remove `claimed` and the owner label
-- add the target family handoff label
+- add `needs-review`
 
 ## Shared Skill
 
@@ -412,14 +403,14 @@ Use the shared workflow skill when you want either agent family to pick up one i
 
 - Claude: `/issue 3`
 - Codex: `$issue 3`
-- No argument: claim the next eligible `needs-<your-family>` issue, otherwise the next eligible `ready` issue, using the current process claim from `C:/Users/Abix/.claude/ai-collab/settings.json`
+- No argument: claim the next eligible `needs-review` issue, otherwise the next eligible `ready` issue, using the current process claim from `C:/Users/Abix/.claude/ai-collab/settings.json`
 
 Expected behavior:
 
 - read this workflow doc, the target issue, the canonical spec, the latest handoff comments, and the critical docs (`docs/k8s.md`, `docs/authority.md`, `docs/performance.md`)
 - respect the state-machine and ownership rules above
-- claim `ready` and family-targeted handoff issues before starting work
-- work in the agent's own worktree (`C:\code\endless-{agentId}`)
+- claim `ready` and `needs-review` issues before starting work
+- work in the agent's own workspace (`C:\code\endless-{agentId}`)
 - create or checkout `issue-{N}` branch from `dev`
 - perform the smallest complete next step
 - run the required tests
@@ -433,7 +424,7 @@ Use these signals, in order:
 
 1. milestone completion
 2. open vs closed slice issues
-3. issue state labels (`ready`, `claimed`, `needs-claude`, `needs-codex`, `waiting`)
+3. issue state labels (`ready`, `claimed`, `needs-review`, `waiting`)
 4. latest handoff comments
 
 This is enough for a one-person project with up to twenty agents unless coordination starts breaking down.
