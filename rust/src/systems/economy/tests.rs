@@ -894,6 +894,49 @@ fn cows_consume_food() {
     assert!(food < 100, "cow farm should consume food: {}", food);
 }
 
+#[test]
+fn farmers_skip_cow_farms() {
+    // Verify that find_farm_target returns None when only cow farms are available.
+    let mut entity_map = EntityMap::default();
+    entity_map.init_spatial(2048.0); // init spatial grid for search
+    let slot = 0usize;
+    let pos = Vec2::new(100.0, 100.0);
+    let mut inst = test_building_instance(slot, BuildingKind::Farm, 0.0);
+    inst.position = pos;
+    let entity = Entity::from_raw_u32(0).unwrap();
+    entity_map.set_entity(slot, entity);
+    entity_map.add_instance(inst);
+
+    let production_map = std::collections::HashMap::new();
+    let mut cow_set = std::collections::HashSet::new();
+    cow_set.insert(slot);
+
+    // With cow set containing this slot, farmer should not target it
+    let result = crate::systems::work_targeting::find_farm_target(
+        pos,
+        &entity_map,
+        0,
+        &production_map,
+        &cow_set,
+    );
+    assert!(
+        result.is_none(),
+        "farmer should NOT target a cow farm, got {:?}",
+        result
+    );
+
+    // Without the cow filter, farmer should find it
+    let empty_set = std::collections::HashSet::new();
+    let result = crate::systems::work_targeting::find_farm_target(
+        pos,
+        &entity_map,
+        0,
+        &production_map,
+        &empty_set,
+    );
+    assert!(result.is_some(), "farmer SHOULD target a crop farm");
+}
+
 // ========================================================================
 // merchant_tick_system tests
 // ========================================================================

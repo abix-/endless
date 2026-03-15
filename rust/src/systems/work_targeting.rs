@@ -21,6 +21,7 @@ pub fn resolve_work_targets(
     mut activity_q: Query<&mut crate::components::Activity>,
     mut path_queue: ResMut<PathRequestQueue>,
     production_q: Query<&ProductionState, With<Building>>,
+    farm_mode_q: Query<&FarmModeComp, With<Building>>,
 ) {
     let msgs: Vec<_> = intents.read().collect();
     if msgs.is_empty() {
@@ -37,6 +38,22 @@ pub fn resolve_work_targets(
             Some((inst.slot, (ps.ready, ps.progress)))
         })
         .collect();
+
+    // Pre-collect cow farm slots so farmers skip them during targeting.
+    let cow_farm_slots: std::collections::HashSet<usize> = entity_map
+        .iter_instances()
+        .filter(|inst| inst.kind == BuildingKind::Farm)
+        .filter_map(|inst| {
+            let entity = entity_map.entities.get(&inst.slot)?;
+            let fm = farm_mode_q.get(*entity).ok()?;
+            if fm.0 == FarmMode::Cows {
+                Some(inst.slot)
+            } else {
+                None
+            }
+        })
+        .collect();
+
     for WorkIntentMsg(intent) in msgs {
         match intent {
             WorkIntent::Release { entity, worksite } => {
@@ -60,6 +77,7 @@ pub fn resolve_work_targets(
                     &mut activity_q,
                     &mut path_queue,
                     &production_map,
+                    &cow_farm_slots,
                 );
             }
             WorkIntent::Retarget {
@@ -79,6 +97,7 @@ pub fn resolve_work_targets(
                     &mut activity_q,
                     &mut path_queue,
                     &production_map,
+                    &cow_farm_slots,
                 );
             }
         }
@@ -126,6 +145,7 @@ fn claim_worksite(
     activity_q: &mut Query<&mut crate::components::Activity>,
     path_queue: &mut PathRequestQueue,
     production_map: &std::collections::HashMap<usize, (bool, f32)>,
+    cow_farm_slots: &std::collections::HashSet<usize>,
 ) {
     let max_occupants = match building_def(kind).worksite {
         Some(ws) => ws.max_occupants,
@@ -134,7 +154,9 @@ fn claim_worksite(
 
     // Spatial search for best worksite
     let result = match kind {
-        BuildingKind::Farm => find_farm_target(from, entity_map, town_idx, production_map),
+        BuildingKind::Farm => {
+            find_farm_target(from, entity_map, town_idx, production_map, cow_farm_slots)
+        }
         BuildingKind::GoldMine => find_mine_target(from, entity_map, town_idx, production_map),
         _ => return,
     };
@@ -182,6 +204,7 @@ pub(crate) fn find_farm_target(
     entity_map: &EntityMap,
     town_idx: u32,
     production_map: &std::collections::HashMap<usize, (bool, f32)>,
+    cow_farm_slots: &std::collections::HashSet<usize>,
 ) -> Option<(usize, Vec2, f32)> {
     let max_occ = building_def(BuildingKind::Farm)
         .worksite
@@ -195,6 +218,10 @@ pub(crate) fn find_farm_target(
             WorksiteFallback::TownOnly,
             6400.0,
             |inst, occ| {
+                // Skip cow farms -- they don't need farmer tending
+                if cow_farm_slots.contains(&inst.slot) {
+                    return None;
+                }
                 if occ as i32 >= max_occ {
                     return None;
                 }
