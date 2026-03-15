@@ -92,13 +92,16 @@ pub fn game_time_system(time: Res<Time>, mut game_time: ResMut<GameTime>) {
 pub fn construction_tick_system(
     time: Res<Time>,
     game_time: Res<GameTime>,
-    mut buildings_q: Query<(
-        &GpuSlot,
-        &Building,
-        &mut ConstructionProgress,
-        &mut Health,
-        Option<&mut SpawnerState>,
-    )>,
+    mut buildings_q: Query<
+        (
+            &GpuSlot,
+            &Building,
+            &mut ConstructionProgress,
+            &mut Health,
+            Option<&mut SpawnerState>,
+        ),
+        Without<Sleeping>,
+    >,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
 ) {
     if game_time.is_paused() {
@@ -145,15 +148,18 @@ pub fn growth_system(
     game_time: Res<GameTime>,
     entity_map: Res<EntityMap>,
     mut town_access: crate::systemparams::TownAccess,
-    mut production_q: Query<(
-        &GpuSlot,
-        &Building,
-        &TownId,
-        &Position,
-        &ConstructionProgress,
-        &mut ProductionState,
-        Option<&FarmModeComp>,
-    )>,
+    mut production_q: Query<
+        (
+            &GpuSlot,
+            &Building,
+            &TownId,
+            &Position,
+            &ConstructionProgress,
+            &mut ProductionState,
+            Option<&FarmModeComp>,
+        ),
+        Without<Sleeping>,
+    >,
     world_data: Res<crate::world::WorldData>,
 ) {
     if game_time.is_paused() {
@@ -250,6 +256,44 @@ pub fn growth_system(
     for (town_idx, cost) in cow_food_costs {
         if let Some(mut f) = town_access.food_mut(town_idx) {
             f.0 = (f.0 - cost).max(0);
+        }
+    }
+}
+
+// ============================================================================
+// SLEEPING SYNC SYSTEM (trees/rocks)
+// ============================================================================
+
+/// Sync `Sleeping` marker on density-spawned buildings based on occupancy.
+/// Remove `Sleeping` when an NPC occupies the worksite; re-add when vacant.
+pub fn sync_sleeping_system(
+    mut commands: Commands,
+    entity_map: Res<EntityMap>,
+    sleeping_q: Query<(Entity, &GpuSlot, &Building), With<Sleeping>>,
+    awake_q: Query<(Entity, &GpuSlot, &Building), Without<Sleeping>>,
+) {
+    // Wake: remove Sleeping when occupied
+    for (entity, gpu_slot, building) in &sleeping_q {
+        if !matches!(
+            building.kind,
+            BuildingKind::TreeNode | BuildingKind::RockNode
+        ) {
+            continue;
+        }
+        if entity_map.occupant_count(gpu_slot.0) > 0 {
+            commands.entity(entity).remove::<Sleeping>();
+        }
+    }
+    // Re-sleep: add Sleeping when no occupants
+    for (entity, gpu_slot, building) in &awake_q {
+        if !matches!(
+            building.kind,
+            BuildingKind::TreeNode | BuildingKind::RockNode
+        ) {
+            continue;
+        }
+        if entity_map.occupant_count(gpu_slot.0) == 0 {
+            commands.entity(entity).insert(Sleeping);
         }
     }
 }
