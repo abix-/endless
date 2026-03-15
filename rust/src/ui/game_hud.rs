@@ -102,11 +102,6 @@ struct ResourceIconSpec {
     row: u32,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ResourceIconContentOrder {
-    IconThenValue,
-}
-
 fn resource_icon_spec(icon: HudResourceIcon) -> ResourceIconSpec {
     match icon {
         HudResourceIcon::Food => ResourceIconSpec {
@@ -132,13 +127,23 @@ fn resource_icon_spec(icon: HudResourceIcon) -> ResourceIconSpec {
     }
 }
 
-fn resource_icon_content_order() -> ResourceIconContentOrder {
-    ResourceIconContentOrder::IconThenValue
-}
-
 fn resource_icon_uv(icon: HudResourceIcon, atlas_w: u32, atlas_h: u32) -> egui::Rect {
     let spec = resource_icon_spec(icon);
     cell_uv(spec.col, spec.row, atlas_w, atlas_h)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ResourceIconPart {
+    Icon,
+    Value,
+}
+
+fn resource_icon_parts(prefer_right_to_left: bool) -> [ResourceIconPart; 2] {
+    if prefer_right_to_left {
+        [ResourceIconPart::Value, ResourceIconPart::Icon]
+    } else {
+        [ResourceIconPart::Icon, ResourceIconPart::Value]
+    }
 }
 
 /// Cached egui texture IDs + UV rects for resource icons from atlas spritesheets.
@@ -204,27 +209,32 @@ fn resource_icon(
 ) {
     let icon_size = 16.0;
     let spacing = 2.0;
-    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+    let parts = resource_icon_parts(ui.layout().prefer_right_to_left());
+    ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = spacing;
-        match resource_icon_content_order() {
-            ResourceIconContentOrder::IconThenValue => {
-                if let (Some(tex_id), Some(uv_rect)) = (atlas_tex, uv) {
-                    ui.add(
-                        egui::Image::new(egui::load::SizedTexture::new(
-                            tex_id,
-                            [icon_size, icon_size],
-                        ))
-                        .uv(uv_rect)
-                        .tint(egui::Color32::WHITE),
-                    );
-                } else {
-                    let (rect, _) = ui.allocate_exact_size(
-                        egui::vec2(icon_size, icon_size),
-                        egui::Sense::hover(),
-                    );
-                    ui.painter().rect_filled(rect, 2.0, color);
+        for part in parts {
+            match part {
+                ResourceIconPart::Icon => {
+                    if let (Some(tex_id), Some(uv_rect)) = (atlas_tex, uv) {
+                        ui.add(
+                            egui::Image::new(egui::load::SizedTexture::new(
+                                tex_id,
+                                [icon_size, icon_size],
+                            ))
+                            .uv(uv_rect)
+                            .tint(egui::Color32::WHITE),
+                        );
+                    } else {
+                        let (rect, _) = ui.allocate_exact_size(
+                            egui::vec2(icon_size, icon_size),
+                            egui::Sense::hover(),
+                        );
+                        ui.painter().rect_filled(rect, 2.0, color);
+                    }
                 }
-                ui.label(egui::RichText::new(amount.to_string()).color(color));
+                ResourceIconPart::Value => {
+                    ui.label(egui::RichText::new(amount.to_string()).color(color));
+                }
             }
         }
     })
@@ -3628,10 +3638,14 @@ mod tests {
     }
 
     #[test]
-    fn resource_icons_render_icon_before_value() {
+    fn resource_icon_parts_flip_for_rtl_parents() {
         assert_eq!(
-            resource_icon_content_order(),
-            ResourceIconContentOrder::IconThenValue
+            resource_icon_parts(false),
+            [ResourceIconPart::Icon, ResourceIconPart::Value]
+        );
+        assert_eq!(
+            resource_icon_parts(true),
+            [ResourceIconPart::Value, ResourceIconPart::Icon]
         );
     }
 }
