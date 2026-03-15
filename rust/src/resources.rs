@@ -277,6 +277,11 @@ pub struct SelectedBuilding {
 #[derive(Resource, Default)]
 pub struct DirectControlSet(pub Vec<usize>);
 
+/// Entities currently in `ReturnLoot` activity.
+/// Maintained incrementally by `sync_returning_set` using `Changed<Activity>`.
+#[derive(Resource, Default)]
+pub struct ReturningSet(pub Vec<Entity>);
+
 /// Camera follow mode — when true, camera tracks the selected NPC.
 #[derive(Resource, Default)]
 pub struct FollowSelected(pub bool);

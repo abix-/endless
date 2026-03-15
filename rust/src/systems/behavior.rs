@@ -64,6 +64,23 @@ pub struct DecisionExtras<'w> {
     pub settings: Res<'w, UserSettings>,
 }
 
+/// Incrementally maintain `ReturningSet` from `Changed<Activity>`.
+/// O(changed) per frame instead of O(all_npcs).
+pub fn sync_returning_set(
+    mut returning: ResMut<crate::resources::ReturningSet>,
+    changed_q: Query<(Entity, &Activity), Changed<Activity>>,
+) {
+    for (entity, activity) in &changed_q {
+        if activity.kind == ActivityKind::ReturnLoot {
+            if !returning.0.contains(&entity) {
+                returning.0.push(entity);
+            }
+        } else {
+            returning.0.retain(|&e| e != entity);
+        }
+    }
+}
+
 /// Arrival system: proximity-based delivery for Returning NPCs.
 ///
 /// When a Returning NPC is within delivery radius of home, deposit CarriedLoot and go Idle.
@@ -88,6 +105,7 @@ pub fn arrival_system(
         ),
         (Without<Building>, Without<Dead>),
     >,
+    returning: Res<crate::resources::ReturningSet>,
     _production_q: Query<&mut ProductionState>,
     _miner_cfg_q: Query<&MinerHomeConfig>,
 ) {
@@ -98,11 +116,13 @@ pub fn arrival_system(
     const DELIVERY_RADIUS: f32 = 50.0;
 
     // ========================================================================
-    // 1. Proximity-based delivery for all Returning NPCs
+    // 1. Proximity-based delivery for Returning NPCs (from ReturningSet)
     // ========================================================================
-    // Collect (slot, entity, town_idx) for returning NPCs near home.
     let mut deliveries: Vec<(usize, Entity, usize)> = Vec::new();
-    for (entity, slot, _job, town_id, activity, home, _work_state) in npc_q.iter() {
+    for &entity in &returning.0 {
+        let Ok((_, slot, _job, town_id, activity, home, _work_state)) = npc_q.get(entity) else {
+            continue;
+        };
         if activity.kind != ActivityKind::ReturnLoot {
             continue;
         }

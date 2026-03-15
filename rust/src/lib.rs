@@ -324,6 +324,7 @@ pub fn build_app(app: &mut App) {
         .init_resource::<SelectedNpc>()
         .init_resource::<SelectedBuilding>()
         .init_resource::<FollowSelected>()
+        .init_resource::<resources::ReturningSet>()
         .init_resource::<NpcLogCache>()
         .init_resource::<DebugFlags>()
         .init_resource::<GpuReadState>()
@@ -545,7 +546,10 @@ pub fn build_app(app: &mut App) {
                 world::rebuild_building_grid_system
                     .before(decision_system)
                     .before(spawner_respawn_system),
-                arrival_system,
+                (
+                    sync_returning_set,
+                    arrival_system.after(sync_returning_set),
+                ),
                 energy_system,
                 (
                     update_healing_zone_cache.before(healing_system),
