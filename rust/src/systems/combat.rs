@@ -975,12 +975,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<crate::gpu::EntityGpuState>()
             .positions = vec![100.0, 200.0];
-        app.world_mut()
-            .resource_mut::<Time>()
-            .advance_by(std::time::Duration::from_secs_f32(1.0));
-        app.world_mut()
-            .run_system_once(building_tower_system)
-            .unwrap();
+        app.update();
         let render = app.world().resource::<crate::resources::BuildingHpRender>();
         assert_eq!(render.positions.len(), 1, "should have 1 damaged building");
         assert!((render.positions[0].x - 100.0).abs() < 0.1);

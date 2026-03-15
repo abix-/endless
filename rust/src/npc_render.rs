@@ -838,11 +838,9 @@ fn sync_direct_control_set(
 ) {
     for (entity, flags) in &changed_q {
         if flags.direct_control {
-            if !dc_set.0.contains(&entity) {
-                dc_set.0.push(entity);
-            }
+            dc_set.0.insert(entity);
         } else {
-            dc_set.0.retain(|&tracked| tracked != entity);
+            dc_set.0.remove(&entity);
         }
     }
 }
@@ -890,7 +888,7 @@ fn build_selection_overlay(
 
     // DirectControl multi-select (green), skip selected NPC, cap at 200
     let mut dc_count = 0usize;
-    let tracked_entities = std::mem::take(&mut dc_set.0);
+    let tracked_entities: Vec<Entity> = dc_set.0.drain().collect();
     for entity in tracked_entities {
         let Ok((gpu_slot, flags)) = npc_q.get(entity) else {
             continue;
@@ -899,7 +897,7 @@ fn build_selection_overlay(
             continue;
         }
         let slot = gpu_slot.0;
-        dc_set.0.push(entity);
+        dc_set.0.insert(entity);
         if sel_slot >= 0 && slot == sel_slot as usize {
             continue;
         }
@@ -1000,7 +998,10 @@ mod tests {
         }
         app.update();
 
-        let dc_set = &app.world().resource::<crate::resources::DirectControlSet>().0;
+        let dc_set = &app
+            .world()
+            .resource::<crate::resources::DirectControlSet>()
+            .0;
         assert_eq!(
             dc_set.len(),
             210,

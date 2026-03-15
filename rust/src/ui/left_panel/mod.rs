@@ -805,6 +805,18 @@ fn policies_content(
             policy.reserve_gold = rg;
         }
     });
+
+    // -- Loot --
+    ui.add_space(8.0);
+    ui.label(egui::RichText::new("Loot").strong());
+    let mut lt = policy.loot_threshold;
+    ui.horizontal(|ui| {
+        ui.label("Carry limit:");
+        ui.add(egui::Slider::new(&mut lt, 1..=20).suffix(" items"));
+    })
+    .inner;
+    policy.loot_threshold = lt;
+    ui.small("Equipment items carried before NPC returns home");
 }
 
 // ============================================================================
@@ -984,24 +996,6 @@ fn squads_content(
     {
         squad.squad_state.squads[si].hold_fire = hold_fire;
     }
-
-    ui.add_space(4.0);
-    ui.label(egui::RichText::new("Loot").strong());
-    let mut loot_threshold = squad.squad_state.squads[si].loot_threshold;
-    ui.horizontal(|ui| {
-        ui.label("Carry limit:");
-        ui.add(
-            egui::Slider::new(
-                &mut loot_threshold,
-                1..=crate::resources::MAX_LOOT_THRESHOLD,
-            )
-            .suffix(" items"),
-        );
-    });
-    if loot_threshold != squad.squad_state.squads[si].loot_threshold {
-        squad.squad_state.squads[si].loot_threshold = loot_threshold;
-    }
-    ui.small("Equipment items carried before this squad returns home");
 
     ui.add_space(4.0);
 

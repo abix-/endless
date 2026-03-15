@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Mutex;
 
 /// CLI flag: skip main menu and start a new game with saved settings.
@@ -274,13 +274,15 @@ pub struct SelectedBuilding {
 
 /// Set of NPC entities with `direct_control == true`.
 /// Maintained incrementally by `sync_direct_control_set` using `Changed<NpcFlags>`.
+/// Uses HashSet for O(1) insert/remove/contains.
 #[derive(Resource, Default)]
-pub struct DirectControlSet(pub Vec<Entity>);
+pub struct DirectControlSet(pub HashSet<Entity>);
 
 /// Entities currently in `ReturnLoot` activity.
 /// Maintained incrementally by `sync_returning_set` using `Changed<Activity>`.
+/// Uses HashSet for O(1) insert/remove/contains.
 #[derive(Resource, Default)]
-pub struct ReturningSet(pub Vec<Entity>);
+pub struct ReturningSet(pub HashSet<Entity>);
 
 /// Camera follow mode — when true, camera tracks the selected NPC.
 #[derive(Resource, Default)]
@@ -1701,13 +1703,6 @@ fn default_policy_mining_radius() -> f32 {
     crate::constants::DEFAULT_MINING_RADIUS
 }
 
-pub const DEFAULT_LOOT_THRESHOLD: usize = 3;
-pub const MAX_LOOT_THRESHOLD: usize = 20;
-
-pub(crate) const fn default_loot_threshold() -> usize {
-    DEFAULT_LOOT_THRESHOLD
-}
-
 /// Per-town behavior configuration. Controls flee thresholds, work schedules, off-duty behavior.
 #[derive(Clone, Debug, PartialEq, Reflect, serde::Serialize, serde::Deserialize)]
 pub struct PolicySet {
@@ -1741,6 +1736,13 @@ pub struct PolicySet {
     pub loot_threshold: usize,
 }
 
+pub const DEFAULT_LOOT_THRESHOLD: usize = 3;
+pub const MAX_LOOT_THRESHOLD: usize = 20;
+
+pub(crate) const fn default_loot_threshold() -> usize {
+    DEFAULT_LOOT_THRESHOLD
+}
+
 impl Default for PolicySet {
     fn default() -> Self {
         Self {
@@ -1759,7 +1761,7 @@ impl Default for PolicySet {
             mining_radius: crate::constants::DEFAULT_MINING_RADIUS,
             reserve_food: 0,
             reserve_gold: 0,
-            loot_threshold: default_loot_threshold(),
+            loot_threshold: 3,
         }
     }
 }

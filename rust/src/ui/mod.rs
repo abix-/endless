@@ -761,7 +761,7 @@ pub fn ui_toggle_system(
         ui_state.toggle_left_tab(LeftPanelTab::Squads);
     }
     if keys.just_pressed(settings.key_for_action(ControlAction::ToggleInventory)) {
-        ui_state.toggle_armory();
+        ui_state.armory_open = !ui_state.armory_open;
     }
     if keys.just_pressed(settings.key_for_action(ControlAction::ToggleFactions)) {
         ui_state.toggle_left_tab(LeftPanelTab::Factions);

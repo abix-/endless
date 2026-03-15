@@ -72,11 +72,9 @@ pub fn sync_returning_set(
 ) {
     for (entity, activity) in &changed_q {
         if activity.kind == ActivityKind::ReturnLoot {
-            if !returning.0.contains(&entity) {
-                returning.0.push(entity);
-            }
+            returning.0.insert(entity);
         } else {
-            returning.0.retain(|&e| e != entity);
+            returning.0.remove(&entity);
         }
     }
 }
@@ -119,7 +117,7 @@ pub fn arrival_system(
     // 1. Proximity-based delivery for Returning NPCs (from ReturningSet)
     // ========================================================================
     let mut deliveries: Vec<(usize, Entity, usize)> = Vec::new();
-    let tracked_entities = std::mem::take(&mut returning.0);
+    let tracked_entities: Vec<Entity> = returning.0.drain().collect();
     for entity in tracked_entities {
         let Ok((_, slot, _job, town_id, activity, home, _work_state)) = npc_q.get(entity) else {
             continue;
@@ -129,7 +127,7 @@ pub fn arrival_system(
         }
         let idx = slot.0;
         if idx * 2 + 1 >= positions.len() {
-            returning.0.push(entity);
+            returning.0.insert(entity);
             continue;
         }
         let x = positions[idx * 2];
@@ -141,7 +139,7 @@ pub fn arrival_system(
             deliveries.push((idx, entity, town_id.0 as usize));
             continue;
         }
-        returning.0.push(entity);
+        returning.0.insert(entity);
     }
 
     for (idx, entity, town_idx) in deliveries {
@@ -293,7 +291,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<crate::resources::ReturningSet>()
             .0
-            .push(npc);
+            .insert(npc);
 
         let _ = app.world_mut().run_system_once(arrival_system);
 
@@ -358,7 +356,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<crate::resources::ReturningSet>()
             .0
-            .push(npc);
+            .insert(npc);
 
         let _ = app.world_mut().run_system_once(arrival_system);
         assert_eq!(
