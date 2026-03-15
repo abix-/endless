@@ -26,18 +26,49 @@ Use these rules consistently:
 Do not use `docs/roadmap.md` as the live status tracker for day-to-day progress.
 Keep `docs/roadmap.md` high-level only.
 
+## Critical Docs
+
+These docs are mandatory context for every `/issue` or `$issue` run:
+
+- `docs/k8s.md` for Def -> Instance -> Controller architecture and system boundaries
+- `docs/authority.md` for data ownership and source-of-truth rules
+- `docs/performance.md` for hot-path patterns, anti-patterns, and review expectations
+
+Do not treat them as optional background reading.
+If a change conflicts with any of them, stop and reconcile the design before writing code.
+
+## Workspaces
+
+Each agent works in its own isolated directory to avoid file-level conflicts with other agents.
+
+- Agent workspace: `C:\code\endless-{agentId}` (e.g., `C:\code\endless-claude-1`)
+- Created as a `git worktree` of the main repo at `C:\code\endless`
+- Each agent has full control of its own workspace -- no coordination needed for uncommitted files
+- The main repo at `C:\code\endless` is for human use only; agents never work there directly
+
+Workspace setup (run once per agent, handled by `/issue` on first use):
+
+```
+cd C:\code\endless
+git worktree add ../endless-{agentId} dev
+```
+
+If the worktree already exists, reuse it. Do not recreate or remove existing worktrees.
+
 ## Branches and PRs
 
-Do not commit implementation work directly to `main`.
+Do not commit implementation work directly to `main` or directly to `dev`.
 
 Use these rules consistently:
 
-- `issue` works on the shared `dev` branch
-- do not create or switch to issue-specific branches or worktrees during normal `issue` runs
-- if the current branch is not `dev`, stop and resolve that before making code changes
-- push reviewed changes to `dev`
-- issue comments remain the handoff channel; use an existing `dev` PR as the review surface when one exists
-- merge only after reviewer signoff and required tests pass
+- each issue gets its own branch: `issue-{N}` (e.g., `issue-34`)
+- branch from `dev` when starting work: `git checkout -b issue-{N} origin/dev`
+- if the branch `issue-{N}` already exists (from a previous handoff), check it out and rebase onto `origin/dev`
+- push the branch and open a PR targeting `dev`
+- issue comments remain the handoff channel; include the PR link in the handoff comment
+- the reviewing agent checks out the same `issue-{N}` branch in their own worktree to review
+- merge the PR after reviewer signoff and required tests pass
+- do not use `git stash`, `git checkout dev`, or `git clean` to move aside work -- each agent owns their worktree
 
 ## Labels
 
@@ -277,9 +308,10 @@ Choose `needs-claude` or `needs-codex` for whichever family owns the next step.
 
 Use this flow when architecture is still moving:
 
-1. Update the relevant spec doc in `docs/`
-2. Comment on the initiative or slice issue with the design delta
-3. Keep or move the issue to `ready` only when implementation can start cleanly
+1. Read the issue-linked spec plus `docs/k8s.md`, `docs/authority.md`, and `docs/performance.md`
+2. Update the relevant spec doc in `docs/`
+3. Comment on the initiative or slice issue with the design delta
+4. Keep or move the issue to `ready` only when implementation can start cleanly
 
 If two agents both touch the same spec:
 
@@ -291,16 +323,20 @@ If two agents both touch the same spec:
 
 Use this flow for each slice:
 
-1. Read the spec doc and the slice issue
+1. Read the slice issue, the linked spec doc, and the critical docs: `docs/k8s.md`, `docs/authority.md`, `docs/performance.md`
 2. Claim the issue if it is `ready`
-3. Create or update the slice branch
+3. In your agent worktree, create or checkout the issue branch:
+   - new issue: `git fetch origin && git checkout -b issue-{N} origin/dev`
+   - continuing work: `git checkout issue-{N} && git pull --rebase origin dev`
 4. Implement the smallest complete step
 5. Run `cargo fmt` before committing
 6. Run the required tests
 7. Update docs if accepted behavior changed
-8. Open or update the PR
-9. Leave the handoff comment
-9. Remove `claimed` and the owner label, then add the opposite family handoff label:
+8. Push the branch and open or update the PR targeting `dev`:
+   - `git push -u origin issue-{N}`
+   - `gh pr create --base dev --head issue-{N}` (or update existing PR)
+9. Leave the handoff comment with the PR link
+10. Remove `claimed` and the owner label, then add the opposite family handoff label:
    - Codex implementation -> `needs-claude`
    - Claude implementation -> `needs-codex`
 
@@ -322,6 +358,15 @@ Default review split:
 - the reviewing family must claim the issue before starting review
 - only the family that did not make the latest code-changing step may close the issue
 
+To review, the reviewer checks out the `issue-{N}` branch in their own worktree:
+
+```
+git fetch origin
+git checkout issue-{N}
+```
+
+If making fix-forward changes, push to the same `issue-{N}` branch. The PR updates automatically.
+
 Review is fix-forward by default:
 
 - if the reviewing family finds a concrete in-scope problem, it should make the smallest complete fix in the same turn
@@ -332,12 +377,16 @@ Review is fix-forward by default:
 Review should focus on:
 
 - behavior regressions
+- violations of `docs/k8s.md`
 - authority violations
+- violations of `docs/authority.md`
 - missing tests
 - spec drift
+- performance regressions and violations of `docs/performance.md`
 
 If there are no findings and tests pass:
 
+- merge the PR into `dev` via `gh pr merge --squash --delete-branch`
 - leave the handoff comment with `State: claimed -> close`
 - close the issue
 
@@ -363,13 +412,15 @@ Use the shared workflow skill when you want either agent family to pick up one i
 
 Expected behavior:
 
-- read this workflow doc, the target issue, the canonical spec, and the latest handoff comments
+- read this workflow doc, the target issue, the canonical spec, the latest handoff comments, and the critical docs (`docs/k8s.md`, `docs/authority.md`, `docs/performance.md`)
 - respect the state-machine and ownership rules above
 - claim `ready` and family-targeted handoff issues before starting work
+- work in the agent's own worktree (`C:\code\endless-{agentId}`)
+- create or checkout `issue-{N}` branch from `dev`
 - perform the smallest complete next step
 - run the required tests
-- open or update the PR before handing off implementation work
-- leave a GitHub handoff comment
+- push the branch and open or update the PR targeting `dev`
+- leave a GitHub handoff comment with the PR link
 - transition labels immediately as part of the handoff
 
 ## Progress Tracking
