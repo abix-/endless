@@ -105,7 +105,7 @@ pub fn arrival_system(
         ),
         (Without<Building>, Without<Dead>),
     >,
-    returning: Res<crate::resources::ReturningSet>,
+    mut returning: ResMut<crate::resources::ReturningSet>,
     _production_q: Query<&mut ProductionState>,
     _miner_cfg_q: Query<&MinerHomeConfig>,
 ) {
@@ -119,7 +119,8 @@ pub fn arrival_system(
     // 1. Proximity-based delivery for Returning NPCs (from ReturningSet)
     // ========================================================================
     let mut deliveries: Vec<(usize, Entity, usize)> = Vec::new();
-    for &entity in &returning.0 {
+    let tracked_entities = std::mem::take(&mut returning.0);
+    for entity in tracked_entities {
         let Ok((_, slot, _job, town_id, activity, home, _work_state)) = npc_q.get(entity) else {
             continue;
         };
@@ -128,6 +129,7 @@ pub fn arrival_system(
         }
         let idx = slot.0;
         if idx * 2 + 1 >= positions.len() {
+            returning.0.push(entity);
             continue;
         }
         let x = positions[idx * 2];
@@ -137,7 +139,9 @@ pub fn arrival_system(
         let dist = (dx * dx + dy * dy).sqrt();
         if dist <= DELIVERY_RADIUS && town_id.0 >= 0 {
             deliveries.push((idx, entity, town_id.0 as usize));
+            continue;
         }
+        returning.0.push(entity);
     }
 
     for (idx, entity, town_idx) in deliveries {
@@ -219,5 +223,162 @@ pub fn arrival_system(
             ws.worksite = None;
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: slot.0 }));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    fn setup_arrival_app() -> (App, Entity) {
+        let mut app = App::new();
+        app.add_message::<GpuUpdateMsg>()
+            .init_resource::<crate::resources::PopulationStats>()
+            .init_resource::<crate::resources::TownIndex>()
+            .init_resource::<crate::resources::GameTime>()
+            .init_resource::<crate::resources::GpuReadState>()
+            .init_resource::<crate::resources::NpcLogCache>()
+            .init_resource::<crate::resources::ReturningSet>();
+
+        let town_entity = app
+            .world_mut()
+            .spawn((
+                TownMarker,
+                FoodStore(0),
+                GoldStore(0),
+                WoodStore(0),
+                StoneStore(0),
+                TownPolicy::default(),
+                TownUpgradeLevel::default(),
+                TownEquipment::default(),
+            ))
+            .id();
+        app.world_mut()
+            .resource_mut::<crate::resources::TownIndex>()
+            .0
+            .insert(0, town_entity);
+
+        (app, town_entity)
+    }
+
+    #[test]
+    fn arrival_system_delivers_loot_and_clears_returning_entry_same_frame() {
+        let (mut app, town_entity) = setup_arrival_app();
+        let npc = app
+            .world_mut()
+            .spawn((
+                GpuSlot(0),
+                Job::Farmer,
+                TownId(0),
+                Activity {
+                    kind: ActivityKind::ReturnLoot,
+                    phase: ActivityPhase::Transit,
+                    target: ActivityTarget::Dropoff,
+                    ..Default::default()
+                },
+                Home(Vec2::ZERO),
+                NpcWorkState {
+                    worksite: Some(town_entity),
+                },
+                CarriedLoot {
+                    food: 3,
+                    ..Default::default()
+                },
+            ))
+            .id();
+        app.world_mut()
+            .resource_mut::<crate::resources::GpuReadState>()
+            .positions = vec![0.0, 0.0];
+        app.world_mut()
+            .resource_mut::<crate::resources::ReturningSet>()
+            .0
+            .push(npc);
+
+        let _ = app.world_mut().run_system_once(arrival_system);
+
+        assert_eq!(
+            app.world().get::<FoodStore>(town_entity).map(|f| f.0),
+            Some(3),
+            "arrival should deliver carried food to the owning town"
+        );
+        assert!(
+            app.world()
+                .get::<CarriedLoot>(npc)
+                .is_some_and(CarriedLoot::is_empty),
+            "arrival should drain carried loot after delivery"
+        );
+        assert_eq!(
+            app.world().get::<Activity>(npc).copied(),
+            Some(Activity::default()),
+            "arrival should transition the NPC back to idle-ready after delivery"
+        );
+        assert_eq!(
+            app.world()
+                .get::<NpcWorkState>(npc)
+                .and_then(|ws| ws.worksite),
+            None,
+            "arrival should clear stale worksite ownership after delivery"
+        );
+        assert!(
+            app.world()
+                .resource::<crate::resources::ReturningSet>()
+                .0
+                .is_empty(),
+            "arrival should remove delivered NPCs from ReturningSet immediately"
+        );
+    }
+
+    #[test]
+    fn arrival_system_prunes_despawned_returning_entities() {
+        let (mut app, _town_entity) = setup_arrival_app();
+        let npc = app
+            .world_mut()
+            .spawn((
+                GpuSlot(0),
+                Job::Farmer,
+                TownId(0),
+                Activity {
+                    kind: ActivityKind::ReturnLoot,
+                    phase: ActivityPhase::Transit,
+                    target: ActivityTarget::Dropoff,
+                    ..Default::default()
+                },
+                Home(Vec2::new(500.0, 500.0)),
+                NpcWorkState::default(),
+                CarriedLoot {
+                    food: 1,
+                    ..Default::default()
+                },
+            ))
+            .id();
+        app.world_mut()
+            .resource_mut::<crate::resources::GpuReadState>()
+            .positions = vec![0.0, 0.0];
+        app.world_mut()
+            .resource_mut::<crate::resources::ReturningSet>()
+            .0
+            .push(npc);
+
+        let _ = app.world_mut().run_system_once(arrival_system);
+        assert_eq!(
+            app.world()
+                .resource::<crate::resources::ReturningSet>()
+                .0
+                .len(),
+            1,
+            "live undelivered NPCs should remain tracked"
+        );
+
+        app.world_mut().entity_mut(npc).despawn();
+        let _ = app.world_mut().run_system_once(arrival_system);
+
+        assert!(
+            app.world()
+                .resource::<crate::resources::ReturningSet>()
+                .0
+                .is_empty(),
+            "despawned NPCs should be pruned from ReturningSet"
+        );
     }
 }

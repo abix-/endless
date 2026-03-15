@@ -23,7 +23,7 @@ use endless::systems::{
     building_tower_system, construction_tick_system, cooldown_system, damage_system, death_system,
     decision_system, energy_system, gpu_position_readback, growth_system, healing_system,
     npc_regen_system, on_duty_tick_system, process_proj_hits, resolve_movement_system,
-    spawn_npc_system, spawner_respawn_system,
+    spawn_npc_system, spawner_respawn_system, sync_returning_set,
 };
 use endless::world;
 
@@ -31,6 +31,7 @@ use endless::world;
 const COUNTS: &[usize] = &[1_000, 50_000];
 const BENCH_TOTAL_NPCS: usize = 50_000;
 const DEATH_COUNTS: &[usize] = &[1_000, 50_000];
+const RETURNING_DIVISOR: usize = 100;
 
 struct DeathPipelineInput {
     app: App,
@@ -112,6 +113,7 @@ fn build_bench_app() -> App {
         .init_resource::<TowerState>()
         .init_resource::<BuildingHpRender>()
         .init_resource::<SquadState>()
+        .init_resource::<ReturningSet>()
         .insert_resource(HelpCatalog::new())
         .init_resource::<TutorialState>()
         .init_resource::<MigrationState>()
@@ -302,6 +304,27 @@ fn populate_npcs(app: &mut App, count: usize) {
             gpu_state.speeds[slot] = 60.0;
         }
     }
+}
+
+/// Put a small live subset into ReturnLoot so the arrival benchmark exercises the sparse path.
+fn mark_returning_subset(app: &mut App, returning_count: usize) {
+    let world = app.world_mut();
+    let mut updated = 0usize;
+    let mut npc_q = world.query::<&mut Activity>();
+    for mut activity in npc_q.iter_mut(world).take(returning_count) {
+        *activity = Activity {
+            kind: ActivityKind::ReturnLoot,
+            phase: ActivityPhase::Transit,
+            target: ActivityTarget::Dropoff,
+            ..Default::default()
+        };
+        updated += 1;
+    }
+    assert_eq!(
+        updated, returning_count,
+        "benchmark setup should mark the requested number of returners"
+    );
+    let _ = world.run_system_once(sync_returning_set);
 }
 
 // ── Benchmarks ─────────────────────────────────────────────────────
@@ -1047,6 +1070,7 @@ fn bench_arrival_system(c: &mut Criterion) {
             let mut app = build_bench_app();
             spawn_bench_town(&mut app);
             populate_npcs(&mut app, count);
+            mark_returning_subset(&mut app, (count / RETURNING_DIVISOR).max(1));
             {
                 let world = app.world_mut();
                 let mut gt = world.resource_mut::<GameTime>();
