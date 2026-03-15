@@ -652,7 +652,7 @@ pub fn building_tower_system(
     });
 
     // Collect tower data with stack-allocated upgrade levels (no heap clone)
-    const MAX_UPGRADES: usize = 8;
+    const MAX_UPGRADES: usize = crate::constants::TOWER_UPGRADES.len();
     let towers: Vec<(usize, Vec2, i32, i32, [u8; MAX_UPGRADES], usize, Entity)> = entity_map
         .iter_kind(BuildingKind::Tower)
         .filter_map(|inst| {
@@ -771,8 +771,10 @@ mod tests {
     use super::*;
     use crate::components::{AttackTimer, Building, Dead, GpuSlot};
     use crate::gpu::populate_proj_buffer_writes;
-    use crate::messages::ProjGpuUpdateMsg;
-    use crate::resources::{CombatDebug, GameTime, PlaySfxMsg, ProjHitState, ProjSlotAllocator};
+    use crate::messages::{ProjGpuUpdate, ProjGpuUpdateMsg};
+    use crate::resources::{
+        CombatDebug, EntityMap, GameTime, PlaySfxMsg, ProjHitState, ProjSlotAllocator, TowerState,
+    };
     use bevy::ecs::system::RunSystemOnce;
     use bevy::time::TimeUpdateStrategy;
 
@@ -785,6 +787,7 @@ mod tests {
             std::time::Duration::from_secs_f32(1.0),
         ));
         app.add_systems(FixedUpdate, cooldown_system);
+        app.update();
         app.update();
         app.update();
         app
@@ -909,6 +912,53 @@ mod tests {
         app
     }
 
+    fn setup_building_tower_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_message::<ProjGpuUpdateMsg>();
+        app.add_message::<PlaySfxMsg>();
+        app.insert_resource(GameTime::default());
+        app.insert_resource(crate::resources::GpuReadState::default());
+        app.insert_resource(crate::world::WorldData::default());
+        app.insert_resource(EntityMap::default());
+        app.insert_resource(ProjSlotAllocator::default());
+        app.insert_resource(TowerState::default());
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.init_resource::<crate::resources::TownIndex>();
+
+        let town = app
+            .world_mut()
+            .spawn((
+                crate::components::TownMarker,
+                crate::components::FoodStore(0),
+                crate::components::GoldStore(0),
+                crate::components::WoodStore(0),
+                crate::components::StoneStore(0),
+                crate::components::TownPolicy::default(),
+                crate::components::TownUpgradeLevel::default(),
+                crate::components::TownEquipment::default(),
+                crate::components::TownAreaLevel::default(),
+            ))
+            .id();
+        app.world_mut()
+            .resource_mut::<crate::resources::TownIndex>()
+            .0
+            .insert(0, town);
+        app.world_mut()
+            .resource_mut::<crate::world::WorldData>()
+            .towns
+            .push(crate::world::Town {
+                name: "BenchTown".into(),
+                center: Vec2::new(128.0, 128.0),
+                faction: 1,
+                kind: crate::constants::TownKind::Player,
+            });
+
+        app
+    }
+
     #[test]
     fn hp_render_shows_damaged_building() {
         let mut app = setup_hp_render_app();
@@ -925,7 +975,12 @@ mod tests {
         app.world_mut()
             .resource_mut::<crate::gpu::EntityGpuState>()
             .positions = vec![100.0, 200.0];
-        app.update();
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(std::time::Duration::from_secs_f32(1.0));
+        app.world_mut()
+            .run_system_once(building_tower_system)
+            .unwrap();
         let render = app.world().resource::<crate::resources::BuildingHpRender>();
         assert_eq!(render.positions.len(), 1, "should have 1 damaged building");
         assert!((render.positions[0].x - 100.0).abs() < 0.1);
@@ -1000,6 +1055,128 @@ mod tests {
         assert!(
             render.positions.is_empty(),
             "should skip query when needs_healing is false"
+        );
+    }
+
+    #[test]
+    fn building_tower_system_uses_tower_state_to_heal_and_fire() {
+        let mut app = setup_building_tower_app();
+        let tower_upgrades = crate::constants::TOWER_UPGRADES.len();
+        let mut upgrade_levels = vec![0; tower_upgrades];
+        upgrade_levels[0] = 1;
+        upgrade_levels[tower_upgrades - 1] = 1;
+
+        let enemy = app
+            .world_mut()
+            .spawn((GpuSlot(0), crate::components::Faction(2)))
+            .id();
+        let tower = app
+            .world_mut()
+            .spawn((
+                GpuSlot(1),
+                crate::components::Health(900.0),
+                Building {
+                    kind: crate::world::BuildingKind::Tower,
+                },
+                crate::components::TowerBuildingState {
+                    kills: 0,
+                    xp: 100,
+                    upgrade_levels: upgrade_levels.clone(),
+                    auto_upgrade_flags: vec![false; tower_upgrades],
+                },
+            ))
+            .id();
+
+        {
+            let mut entity_map = app.world_mut().resource_mut::<EntityMap>();
+            entity_map.register_npc(0, enemy, crate::components::Job::Archer, 2, 0);
+            entity_map.set_entity(1, tower);
+            entity_map.add_instance(crate::resources::BuildingInstance {
+                kind: crate::world::BuildingKind::Tower,
+                position: Vec2::new(96.0, 64.0),
+                town_idx: 0,
+                slot: 1,
+                faction: 1,
+            });
+        }
+        {
+            let mut gpu = app
+                .world_mut()
+                .resource_mut::<crate::resources::GpuReadState>();
+            gpu.positions = vec![64.0, 64.0, 96.0, 64.0];
+            gpu.combat_targets = vec![-1, 0];
+            gpu.factions = vec![2, 1];
+            gpu.health = vec![1.0, 1.0];
+            gpu.threat_counts = vec![0, 0];
+            gpu.npc_count = 1;
+        }
+
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(std::time::Duration::from_secs_f32(1.0));
+        let dt = app
+            .world_mut()
+            .run_system_once(|time: Res<Time>| time.delta_secs())
+            .unwrap();
+        assert!(
+            dt > 0.0,
+            "tower test should advance Time before the system runs"
+        );
+        app.world_mut()
+            .run_system_once(building_tower_system)
+            .unwrap();
+
+        let cooldown = app
+            .world()
+            .resource::<TowerState>()
+            .tower_cooldowns
+            .get(&1)
+            .copied()
+            .unwrap_or_default();
+        assert!(cooldown > 0.0, "tower should enter cooldown after firing");
+
+        let shots = app
+            .world_mut()
+            .run_system_once(|mut reader: MessageReader<ProjGpuUpdateMsg>| {
+                reader
+                    .read()
+                    .filter_map(|msg| match &msg.0 {
+                        ProjGpuUpdate::Spawn {
+                            shooter,
+                            damage,
+                            homing_target,
+                            ..
+                        } => Some((*shooter, *damage, *homing_target)),
+                        ProjGpuUpdate::Deactivate { .. } => None,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap();
+        assert_eq!(shots.len(), 1, "tower should spawn one projectile");
+        assert_eq!(
+            shots[0].0, 1,
+            "tower projectile should use the tower slot as shooter"
+        );
+        assert!(shots[0].1 > 0.0, "tower projectile should carry damage");
+        assert_eq!(
+            shots[0].2, -1,
+            "tower shots should not be homing projectiles"
+        );
+
+        let sfx_count = app
+            .world_mut()
+            .run_system_once(|mut reader: MessageReader<PlaySfxMsg>| reader.read().count())
+            .unwrap();
+        assert_eq!(sfx_count, 1, "tower shot should emit one SFX event");
+
+        let health = app
+            .world()
+            .get::<crate::components::Health>(tower)
+            .expect("tower health");
+        assert!(
+            health.0 > 900.0,
+            "tower should regen when HpRegen is upgraded (dt={dt}, health={})",
+            health.0
         );
     }
 
