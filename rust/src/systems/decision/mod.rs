@@ -185,6 +185,30 @@ fn loot_threshold_for_npc(squad_state: &SquadState, squad_id: Option<i32>) -> us
         .unwrap_or(DEFAULT_LOOT_THRESHOLD)
 }
 
+/// Find the nearest enemy wall or gate for a raider to attack when path is blocked.
+/// Uses spatial search to avoid O(n) full scan. Returns wall position if found.
+fn find_nearest_enemy_wall(
+    entity_map: &EntityMap,
+    from: Vec2,
+    attacker_faction: i32,
+) -> Option<Vec2> {
+    let mut best: Option<(f32, Vec2)> = None;
+    // Search walls then gates
+    for kind in [BuildingKind::Wall, BuildingKind::Gate] {
+        for inst in entity_map.iter_kind(kind) {
+            // Only target enemy walls (different faction, non-neutral)
+            if inst.faction == attacker_faction || inst.faction == 0 {
+                continue;
+            }
+            let dist_sq = from.distance_squared(inst.position);
+            if best.is_none_or(|b| dist_sq < b.0) {
+                best = Some((dist_sq, inst.position));
+            }
+        }
+    }
+    best.map(|b| b.1)
+}
+
 /// Transition an NPC to a new activity state. Resets ticks_waiting.
 #[inline]
 pub(crate) fn transition_activity(
@@ -248,6 +272,7 @@ pub fn decision_system(
     mut production_q: Query<&mut ProductionState>,
     farm_mode_q: Query<&FarmModeComp>,
     mut building_health_q: Query<&mut Health, With<Building>>,
+    path_q: Query<&NpcPath>,
 ) {
     if game_time.is_paused() {
         return;
@@ -1506,22 +1531,63 @@ pub fn decision_system(
                         // Squad target — always submit intent (single path, deterministic)
                         // Movement system deduplicates unchanged targets; priority system
                         // resolves conflicts (Survival=4 > Squad=2 > JobRoute=1).
-                        submit_intent(
-                            &mut intents,
-                            entity,
-                            target.x,
-                            target.y,
-                            MovementPriority::Squad,
-                            "squad:target",
-                        );
-                        if at_destination {
-                            transition_activity(
-                                &mut activity,
-                                ActivityKind::SquadAttack,
-                                ActivityPhase::Holding,
-                                ActivityTarget::SquadPoint(target),
+                        //
+                        // Wall-attack fallback: if pathfinding failed (path_blocked),
+                        // find nearest enemy wall and target it instead.
+                        let is_blocked = path_q.get(entity).is_ok_and(|p| p.path_blocked);
+
+                        if is_blocked {
+                            // Find nearest enemy wall/gate to attack
+                            let npc_pos_val = npc_pos.unwrap_or(home);
+                            if let Some(wall_inst) =
+                                find_nearest_enemy_wall(&entity_map, npc_pos_val, faction.0)
+                            {
+                                submit_intent(
+                                    &mut intents,
+                                    entity,
+                                    wall_inst.x,
+                                    wall_inst.y,
+                                    MovementPriority::Squad,
+                                    "squad:wall_attack",
+                                );
+                                if at_destination {
+                                    transition_activity(
+                                        &mut activity,
+                                        ActivityKind::SquadAttack,
+                                        ActivityPhase::Holding,
+                                        ActivityTarget::SquadPoint(wall_inst),
+                                        "squad:wall_attack",
+                                    );
+                                }
+                            } else {
+                                // No wall found — try normal target anyway
+                                submit_intent(
+                                    &mut intents,
+                                    entity,
+                                    target.x,
+                                    target.y,
+                                    MovementPriority::Squad,
+                                    "squad:target",
+                                );
+                            }
+                        } else {
+                            submit_intent(
+                                &mut intents,
+                                entity,
+                                target.x,
+                                target.y,
+                                MovementPriority::Squad,
                                 "squad:target",
                             );
+                            if at_destination {
+                                transition_activity(
+                                    &mut activity,
+                                    ActivityKind::SquadAttack,
+                                    ActivityPhase::Holding,
+                                    ActivityTarget::SquadPoint(target),
+                                    "squad:target",
+                                );
+                            }
                         }
                     } else if !squad.patrol_enabled {
                         // No target + patrol disabled: stop and wait (gathering phase)
