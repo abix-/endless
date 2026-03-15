@@ -813,8 +813,7 @@ fn policies_content(
     ui.horizontal(|ui| {
         ui.label("Carry limit:");
         ui.add(egui::Slider::new(&mut lt, 1..=20).suffix(" items"));
-    })
-    .inner;
+    });
     policy.loot_threshold = lt;
     ui.small("Equipment items carried before NPC returns home");
 }

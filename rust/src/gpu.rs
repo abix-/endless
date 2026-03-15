@@ -2117,38 +2117,41 @@ fn init_proj_compute_pipeline(
 
     commands.insert_resource(buffers);
 
-    // 19 bindings: 9 proj (rw) + 3 NPC (ro) + 2 NPC grid (ro) + 1 uniform + 2 proj grid (rw) + 1 half_sizes (ro) + 1 entity_flags (ro)
+    // 19 bindings — must match projectile_compute.wgsl binding order exactly:
+    // 0-7: proj rw, 8-10: NPC ro, 11-12: NPC grid ro, 13: uniform,
+    // 14-15: proj grid rw, 16: half_sizes ro, 17: entity_flags ro, 18: homing_targets rw
     let bind_group_layout = BindGroupLayoutDescriptor::new(
         "ProjComputeLayout",
         &BindGroupLayoutEntries::sequential(
             ShaderStages::COMPUTE,
             (
-                // 0-8: projectile buffers (read_write)
-                storage_buffer::<Vec<[f32; 2]>>(false), // positions
-                storage_buffer::<Vec<[f32; 2]>>(false), // velocities
-                storage_buffer::<Vec<f32>>(false),      // damages
-                storage_buffer::<Vec<i32>>(false),      // factions
-                storage_buffer::<Vec<i32>>(false),      // shooters
-                storage_buffer::<Vec<f32>>(false),      // lifetimes
-                storage_buffer::<Vec<i32>>(false),      // homing_targets
-                storage_buffer::<Vec<i32>>(false),      // active
-                storage_buffer::<Vec<[i32; 2]>>(false), // hits
-                // 9-11: NPC buffers (read only)
-                storage_buffer_read_only::<Vec<[f32; 2]>>(false), // npc_positions
-                storage_buffer_read_only::<Vec<i32>>(false),      // npc_factions
-                storage_buffer_read_only::<Vec<f32>>(false),      // npc_healths
-                // 12-13: NPC spatial grid (read only)
-                storage_buffer_read_only::<Vec<i32>>(false), // grid_counts
-                storage_buffer_read_only::<Vec<i32>>(false), // grid_data
-                // 14: uniform params
+                // 0-7: projectile buffers (read_write)
+                storage_buffer::<Vec<[f32; 2]>>(false), // 0: positions
+                storage_buffer::<Vec<[f32; 2]>>(false), // 1: velocities
+                storage_buffer::<Vec<f32>>(false),      // 2: damages
+                storage_buffer::<Vec<i32>>(false),      // 3: factions
+                storage_buffer::<Vec<i32>>(false),      // 4: shooters
+                storage_buffer::<Vec<f32>>(false),      // 5: lifetimes
+                storage_buffer::<Vec<i32>>(false),      // 6: active
+                storage_buffer::<Vec<[i32; 2]>>(false), // 7: hits
+                // 8-10: NPC buffers (read only)
+                storage_buffer_read_only::<Vec<[f32; 2]>>(false), // 8: npc_positions
+                storage_buffer_read_only::<Vec<i32>>(false),      // 9: npc_factions
+                storage_buffer_read_only::<Vec<f32>>(false),      // 10: npc_healths
+                // 11-12: NPC spatial grid (read only)
+                storage_buffer_read_only::<Vec<i32>>(false), // 11: grid_counts
+                storage_buffer_read_only::<Vec<i32>>(false), // 12: grid_data
+                // 13: uniform params
                 uniform_buffer::<ProjGpuData>(false),
-                // 15-16: projectile spatial grid (read_write)
-                storage_buffer::<Vec<i32>>(false), // proj_grid_counts
-                storage_buffer::<Vec<i32>>(false), // proj_grid_data
-                // 17: entity hitbox half-sizes (read only)
-                storage_buffer_read_only::<Vec<[f32; 2]>>(false), // entity_half_sizes
-                // 18: entity flags (read only — UNTARGETABLE skip)
-                storage_buffer_read_only::<Vec<u32>>(false), // entity_flags
+                // 14-15: projectile spatial grid (read_write)
+                storage_buffer::<Vec<i32>>(false), // 14: proj_grid_counts
+                storage_buffer::<Vec<i32>>(false), // 15: proj_grid_data
+                // 16: entity hitbox half-sizes (read only)
+                storage_buffer_read_only::<Vec<[f32; 2]>>(false), // 16: entity_half_sizes
+                // 17: entity flags (read only -- UNTARGETABLE skip)
+                storage_buffer_read_only::<Vec<u32>>(false), // 17: entity_flags
+                // 18: homing targets (read_write)
+                storage_buffer::<Vec<i32>>(false), // 18: homing_targets
             ),
         ),
     );
@@ -2195,21 +2198,21 @@ fn prepare_proj_bind_groups(
     let Some(config) = config else { return };
 
     let layout = &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout);
+    // Order must match projectile_compute.wgsl @binding indices exactly.
     let storage_bindings = (
-        proj.positions.as_entire_buffer_binding(),
-        proj.velocities.as_entire_buffer_binding(),
-        proj.damages.as_entire_buffer_binding(),
-        proj.factions.as_entire_buffer_binding(),
-        proj.shooters.as_entire_buffer_binding(),
-        proj.lifetimes.as_entire_buffer_binding(),
-        proj.homing_targets.as_entire_buffer_binding(),
-        proj.active.as_entire_buffer_binding(),
-        proj.hits.as_entire_buffer_binding(),
-        ent.positions.as_entire_buffer_binding(),
-        ent.factions.as_entire_buffer_binding(),
-        ent.healths.as_entire_buffer_binding(),
-        ent.grid_counts.as_entire_buffer_binding(),
-        ent.grid_data.as_entire_buffer_binding(),
+        proj.positions.as_entire_buffer_binding(),  // 0
+        proj.velocities.as_entire_buffer_binding(), // 1
+        proj.damages.as_entire_buffer_binding(),    // 2
+        proj.factions.as_entire_buffer_binding(),   // 3
+        proj.shooters.as_entire_buffer_binding(),   // 4
+        proj.lifetimes.as_entire_buffer_binding(),  // 5
+        proj.active.as_entire_buffer_binding(),     // 6
+        proj.hits.as_entire_buffer_binding(),       // 7
+        ent.positions.as_entire_buffer_binding(),   // 8
+        ent.factions.as_entire_buffer_binding(),    // 9
+        ent.healths.as_entire_buffer_binding(),     // 10
+        ent.grid_counts.as_entire_buffer_binding(), // 11
+        ent.grid_data.as_entire_buffer_binding(),   // 12
     );
 
     let mut p0 = config.proj.clone();
@@ -2228,30 +2231,31 @@ fn prepare_proj_bind_groups(
 
     let half_sizes_bind = ent.half_sizes.as_entire_buffer_binding();
     let entity_flags_bind = ent.entity_flags.as_entire_buffer_binding();
+    let homing_bind = proj.homing_targets.as_entire_buffer_binding();
 
     let mode0 = render_device.create_bind_group(
         Some("proj_compute_bg_mode0"),
         layout,
         &BindGroupEntries::sequential((
-            storage_bindings.0.clone(),
-            storage_bindings.1.clone(),
-            storage_bindings.2.clone(),
-            storage_bindings.3.clone(),
-            storage_bindings.4.clone(),
-            storage_bindings.5.clone(),
-            storage_bindings.6.clone(),
-            storage_bindings.7.clone(),
-            storage_bindings.8.clone(),
-            storage_bindings.9.clone(),
-            storage_bindings.10.clone(),
-            storage_bindings.11.clone(),
-            storage_bindings.12.clone(),
-            storage_bindings.13.clone(),
-            &ub0,
-            proj.grid_counts.as_entire_buffer_binding(),
-            proj.grid_data.as_entire_buffer_binding(),
-            half_sizes_bind.clone(),
-            entity_flags_bind.clone(),
+            storage_bindings.0.clone(),                  // 0: positions
+            storage_bindings.1.clone(),                  // 1: velocities
+            storage_bindings.2.clone(),                  // 2: damages
+            storage_bindings.3.clone(),                  // 3: factions
+            storage_bindings.4.clone(),                  // 4: shooters
+            storage_bindings.5.clone(),                  // 5: lifetimes
+            storage_bindings.6.clone(),                  // 6: active
+            storage_bindings.7.clone(),                  // 7: hits
+            storage_bindings.8.clone(),                  // 8: npc_positions
+            storage_bindings.9.clone(),                  // 9: npc_factions
+            storage_bindings.10.clone(),                 // 10: npc_healths
+            storage_bindings.11.clone(),                 // 11: grid_counts
+            storage_bindings.12.clone(),                 // 12: grid_data
+            &ub0,                                        // 13: uniform
+            proj.grid_counts.as_entire_buffer_binding(), // 14
+            proj.grid_data.as_entire_buffer_binding(),   // 15
+            half_sizes_bind.clone(),                     // 16
+            entity_flags_bind.clone(),                   // 17
+            homing_bind.clone(),                         // 18
         )),
     );
     let mode1 = render_device.create_bind_group(
@@ -2271,12 +2275,12 @@ fn prepare_proj_bind_groups(
             storage_bindings.10.clone(),
             storage_bindings.11.clone(),
             storage_bindings.12.clone(),
-            storage_bindings.13.clone(),
             &ub1,
             proj.grid_counts.as_entire_buffer_binding(),
             proj.grid_data.as_entire_buffer_binding(),
             half_sizes_bind.clone(),
             entity_flags_bind.clone(),
+            homing_bind.clone(),
         )),
     );
     let mode2 = render_device.create_bind_group(
@@ -2296,12 +2300,12 @@ fn prepare_proj_bind_groups(
             storage_bindings.10.clone(),
             storage_bindings.11.clone(),
             storage_bindings.12.clone(),
-            storage_bindings.13.clone(),
             &ub2,
             proj.grid_counts.as_entire_buffer_binding(),
             proj.grid_data.as_entire_buffer_binding(),
             half_sizes_bind.clone(),
             entity_flags_bind.clone(),
+            homing_bind.clone(),
         )),
     );
 
