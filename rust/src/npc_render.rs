@@ -1283,45 +1283,6 @@ fn write_coalesced_u32(
     }
 }
 
-/// Per-index write for small dirty sets (projectile spawn/deactivate — typically <100 per frame).
-fn write_dirty_f32(
-    queue: &RenderQueue,
-    buf: &Buffer,
-    data: &[f32],
-    indices: &[usize],
-    stride: usize,
-) {
-    for &idx in indices {
-        let start = idx * stride;
-        if start + stride <= data.len() {
-            queue.write_buffer(
-                buf,
-                (start * 4) as u64,
-                bytemuck::cast_slice(&data[start..start + stride]),
-            );
-        }
-    }
-}
-
-fn write_dirty_i32(
-    queue: &RenderQueue,
-    buf: &Buffer,
-    data: &[i32],
-    indices: &[usize],
-    stride: usize,
-) {
-    for &idx in indices {
-        let start = idx * stride;
-        if start + stride <= data.len() {
-            queue.write_buffer(
-                buf,
-                (start * 4) as u64,
-                bytemuck::cast_slice(&data[start..start + stride]),
-            );
-        }
-    }
-}
-
 /// Strict coalesce for GPU-authoritative buffers. Merges only exactly-adjacent
 /// dirty indices (idx == prev + 1). No gap merging, no dense bulk fallback.
 /// Dirty indices MUST be sorted+deduped (debug-asserted).
@@ -1591,69 +1552,98 @@ fn extract_proj_data(
     } else {
         None
     };
-    // --- Compute data: per-dirty-index write_buffer ---
+    // --- Compute data: coalesced dirty writes (same pattern as NPC uploads) ---
     if let Some(gpu_bufs) = gpu_buffers {
         if writes.dirty {
-            // Spawn: write all fields for new projectiles
-            for &idx in &writes.spawn_dirty_indices {
-                write_dirty_f32(
-                    &render_queue,
-                    &gpu_bufs.positions,
-                    &writes.positions,
-                    &[idx],
-                    2,
-                );
-                write_dirty_f32(
-                    &render_queue,
-                    &gpu_bufs.velocities,
-                    &writes.velocities,
-                    &[idx],
-                    2,
-                );
-                write_dirty_f32(&render_queue, &gpu_bufs.damages, &writes.damages, &[idx], 1);
-                write_dirty_i32(
-                    &render_queue,
-                    &gpu_bufs.factions,
-                    &writes.factions,
-                    &[idx],
-                    1,
-                );
-                write_dirty_i32(
-                    &render_queue,
-                    &gpu_bufs.shooters,
-                    &writes.shooters,
-                    &[idx],
-                    1,
-                );
-                write_dirty_f32(
-                    &render_queue,
-                    &gpu_bufs.lifetimes,
-                    &writes.lifetimes,
-                    &[idx],
-                    1,
-                );
-                write_dirty_i32(
-                    &render_queue,
-                    &gpu_bufs.homing_targets,
-                    &writes.homing_targets,
-                    &[idx],
-                    1,
-                );
-                write_dirty_i32(&render_queue, &gpu_bufs.active, &writes.active, &[idx], 1);
-                write_dirty_i32(&render_queue, &gpu_bufs.hits, &writes.hits, &[idx], 2);
-            }
-            // Deactivate: write only active flag + hit reset
-            for &idx in &writes.deactivate_dirty_indices {
-                write_dirty_i32(
-                    &render_queue,
-                    &gpu_bufs.homing_targets,
-                    &writes.homing_targets,
-                    &[idx],
-                    1,
-                );
-                write_dirty_i32(&render_queue, &gpu_bufs.active, &writes.active, &[idx], 1);
-                write_dirty_i32(&render_queue, &gpu_bufs.hits, &writes.hits, &[idx], 2);
-            }
+            const GAP: usize = 8;
+            // Spawn: coalesce all fields
+            let mut spawn = writes.spawn_dirty_indices.clone();
+            spawn.sort_unstable();
+            write_coalesced_f32(
+                &render_queue,
+                &gpu_bufs.positions,
+                &writes.positions,
+                &spawn,
+                2,
+                GAP,
+            );
+            write_coalesced_f32(
+                &render_queue,
+                &gpu_bufs.velocities,
+                &writes.velocities,
+                &spawn,
+                2,
+                GAP,
+            );
+            write_coalesced_f32(
+                &render_queue,
+                &gpu_bufs.damages,
+                &writes.damages,
+                &spawn,
+                1,
+                GAP,
+            );
+            write_coalesced_i32(
+                &render_queue,
+                &gpu_bufs.factions,
+                &writes.factions,
+                &spawn,
+                1,
+                GAP,
+            );
+            write_coalesced_i32(
+                &render_queue,
+                &gpu_bufs.shooters,
+                &writes.shooters,
+                &spawn,
+                1,
+                GAP,
+            );
+            write_coalesced_f32(
+                &render_queue,
+                &gpu_bufs.lifetimes,
+                &writes.lifetimes,
+                &spawn,
+                1,
+                GAP,
+            );
+            write_coalesced_i32(
+                &render_queue,
+                &gpu_bufs.homing_targets,
+                &writes.homing_targets,
+                &spawn,
+                1,
+                GAP,
+            );
+            write_coalesced_i32(
+                &render_queue,
+                &gpu_bufs.active,
+                &writes.active,
+                &spawn,
+                1,
+                GAP,
+            );
+            write_coalesced_i32(&render_queue, &gpu_bufs.hits, &writes.hits, &spawn, 2, GAP);
+            // Deactivate: coalesce active + hits + homing_targets
+            let mut deact = writes.deactivate_dirty_indices.clone();
+            deact.sort_unstable();
+            write_coalesced_i32(
+                &render_queue,
+                &gpu_bufs.homing_targets,
+                &writes.homing_targets,
+                &deact,
+                1,
+                GAP,
+            );
+            write_coalesced_i32(
+                &render_queue,
+                &gpu_bufs.active,
+                &writes.active,
+                &deact,
+                1,
+                GAP,
+            );
+            write_coalesced_i32(&render_queue, &gpu_bufs.hits, &writes.hits, &deact, 2, GAP);
         }
     }
 
@@ -1661,6 +1651,7 @@ fn extract_proj_data(
     let readback_positions = &proj_pos_state.0;
 
     let mut instances = RawBufferVec::new(BufferUsages::VERTEX);
+    instances.reserve(writes.active_set.len(), &render_device);
     for &i in &writes.active_set {
         let i2 = i * 2;
 
