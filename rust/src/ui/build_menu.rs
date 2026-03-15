@@ -244,7 +244,7 @@ pub(crate) fn build_menu_system(
         .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 35, 230))
         .inner_margin(egui::Margin::same(6));
 
-    // Fixed center-bottom anchor; max width shrinks to avoid overlapping panels
+    // Center-bottom anchor offset into the available gap between left and right panels
     let screen_w = ctx.content_rect().width();
     let left_panel_w: f32 = if ui_state.left_panel_open { 348.0 } else { 0.0 };
     let inspector_w: f32 = if ui_state.inspector_visible {
@@ -259,11 +259,13 @@ pub(crate) fn build_menu_system(
         0.0
     };
     let max_w = (screen_w - left_w - right_w - 16.0).max(300.0);
+    // Shift anchor so the window is centered in the gap, not the full screen
+    let center_offset_x = (left_w - right_w) / 2.0;
 
     let mut open = true;
     egui::Window::new("Build")
         .open(&mut open)
-        .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -2.0])
+        .anchor(egui::Align2::CENTER_BOTTOM, [center_offset_x, -2.0])
         .max_width(max_w)
         .collapsible(false)
         .resizable(false)
