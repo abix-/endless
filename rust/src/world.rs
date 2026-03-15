@@ -1255,40 +1255,21 @@ pub enum Biome {
 }
 
 impl Biome {
-    /// Map biome + cell index to tileset array index (0-10) for TilemapChunk.
-    /// Grass=0 (single variant), Forest picks 2-7, Water=8, Rock=9, Dirt=10.
-    /// Uses a hash of the cell index for pseudo-random but deterministic variant selection,
-    /// avoiding visible checkerboard/cycle patterns from plain modulo.
-    pub fn tileset_index(self, cell_index: usize) -> u16 {
+    /// Map biome + cell index to tileset array index for TilemapChunk.
+    /// Trees and rocks are full entities now -- Forest/Rock biomes render as ground only.
+    /// Grass=0, Forest=1 (dark grass), Water=8, Rock=10 (dirt), Dirt=10.
+    pub fn tileset_index(self, _cell_index: usize) -> u16 {
         match self {
             Biome::Grass => 0,
-            Biome::Forest => 2 + tile_hash(cell_index, 6) as u16,
+            Biome::Forest => 1,
             Biome::Water => 8,
-            Biome::Rock => 9,
+            Biome::Rock => 10,
             Biome::Dirt => 10,
         }
     }
 }
 
 /// Fast deterministic hash for tile variant selection.
-/// Returns a value in `0..variants` that looks random but is stable for a given cell.
-/// Uses splitmix64 finalizer for excellent distribution on sequential inputs.
-#[inline]
-fn splitmix64_hash(value: usize) -> u64 {
-    let mut h = value as u64;
-    h ^= h >> 30;
-    h = h.wrapping_mul(0xbf58476d1ce4e5b9);
-    h ^= h >> 27;
-    h = h.wrapping_mul(0x94d049bb133111eb);
-    h ^= h >> 31;
-    h
-}
-
-#[inline]
-fn tile_hash(cell_index: usize, variants: usize) -> usize {
-    splitmix64_hash(cell_index) as usize % variants
-}
-
 // TileSpec is now in constants.rs (part of BUILDING_REGISTRY)
 pub use crate::constants::TileSpec;
 
@@ -2049,10 +2030,6 @@ pub struct WorldGenConfig {
     pub ai_towns: usize,
     pub raider_towns: usize,
     pub gold_mines_per_town: usize,
-    /// Fraction of Forest cells that get a TreeNode (0.0-1.0).
-    pub tree_density: f32,
-    /// Fraction of Rock cells that get a RockNode (0.0-1.0).
-    pub rock_density: f32,
     pub town_names: Vec<String>,
 }
 
@@ -2075,8 +2052,6 @@ impl Default for WorldGenConfig {
             ai_towns: 1,
             raider_towns: 1,
             gold_mines_per_town: 2,
-            tree_density: 0.3,
-            rock_density: 0.2,
             town_names: vec![
                 "Miami".into(),
                 "Orlando".into(),
@@ -2110,58 +2085,31 @@ impl WorldGenConfig {
 }
 
 fn spawn_resource_nodes(
-    config: &WorldGenConfig,
+    _config: &WorldGenConfig,
     grid: &WorldGrid,
     slot_alloc: &mut crate::resources::GpuSlotPool,
     entity_map: &mut EntityMap,
     commands: &mut Commands,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
 ) -> (usize, usize) {
-    let mut tree_positions: Vec<Vec2> = Vec::new();
-    let mut rock_positions: Vec<Vec2> = Vec::new();
     let mut tree_count = 0usize;
     let mut rock_count = 0usize;
 
+    // Density 1.0: every Forest cell gets a TreeNode, every Rock cell gets a RockNode.
+    // No spacing check needed -- one entity per grid cell, no overlap possible.
     for row in 0..grid.height {
         for col in 0..grid.width {
             let idx = row * grid.width + col;
-            let biome = grid.cells[idx].terrain;
-            let (kind, density, min_spacing, placed_positions) = match biome {
-                Biome::Forest => (
-                    BuildingKind::TreeNode,
-                    config.tree_density,
-                    crate::constants::TREE_MIN_SPACING,
-                    &mut tree_positions,
-                ),
-                Biome::Rock => (
-                    BuildingKind::RockNode,
-                    config.rock_density,
-                    crate::constants::ROCK_MIN_SPACING,
-                    &mut rock_positions,
-                ),
+            let kind = match grid.cells[idx].terrain {
+                Biome::Forest => BuildingKind::TreeNode,
+                Biome::Rock => BuildingKind::RockNode,
                 _ => continue,
             };
-            if density <= 0.0 {
-                continue;
-            }
-
-            let threshold = (density as f64 * u64::MAX as f64) as u64;
-            if splitmix64_hash(idx) > threshold {
-                continue;
-            }
             if entity_map.has_building_at(col as i32, row as i32) {
                 continue;
             }
 
             let pos = grid.grid_to_world(col, row);
-            let min_spacing_sq = min_spacing * min_spacing;
-            if placed_positions
-                .iter()
-                .any(|placed| placed.distance_squared(pos) < min_spacing_sq)
-            {
-                continue;
-            }
-
             if place_building(
                 slot_alloc,
                 entity_map,
@@ -2177,7 +2125,6 @@ fn spawn_resource_nodes(
             )
             .is_ok()
             {
-                placed_positions.push(pos);
                 match kind {
                     BuildingKind::TreeNode => tree_count += 1,
                     BuildingKind::RockNode => rock_count += 1,
@@ -3045,11 +2992,7 @@ mod tests {
             assert!(result.is_ok(), "occupied cell setup should succeed: {:?}", result);
         }).unwrap();
 
-        let config = WorldGenConfig {
-            tree_density: 1.0,
-            rock_density: 1.0,
-            ..Default::default()
-        };
+        let config = WorldGenConfig::default();
         app.world_mut()
             .run_system_once(
                 move |mut slot_alloc: ResMut<crate::resources::GpuSlotPool>,
@@ -3066,34 +3009,41 @@ mod tests {
                         &mut gpu_updates,
                     );
 
+                    // Density 1.0: every Forest/Rock cell gets a node, except occupied cells
                     assert_eq!(
-                        tree_count, 2,
-                        "adjacent forest cells should collapse by spacing"
+                        tree_count, 3,
+                        "3 of 4 forest cells should get TreeNode (one occupied by Waypoint)"
                     );
-                    assert_eq!(
-                        rock_count, 2,
-                        "adjacent rock cells should collapse by spacing"
-                    );
+                    assert_eq!(rock_count, 3, "all 3 rock cells should get RockNode");
 
                     assert_eq!(
                         entity_map.get_at_grid(0, 0).map(|b| b.kind),
                         Some(BuildingKind::TreeNode)
                     );
-                    assert_eq!(entity_map.get_at_grid(1, 0).map(|b| b.kind), None);
+                    assert_eq!(
+                        entity_map.get_at_grid(1, 0).map(|b| b.kind),
+                        Some(BuildingKind::TreeNode),
+                        "adjacent forest cell should also get a TreeNode at density 1.0"
+                    );
                     assert_eq!(
                         entity_map.get_at_grid(3, 0).map(|b| b.kind),
                         Some(BuildingKind::TreeNode)
                     );
                     assert_eq!(
                         entity_map.get_at_grid(5, 0).map(|b| b.kind),
-                        Some(BuildingKind::Waypoint)
+                        Some(BuildingKind::Waypoint),
+                        "occupied cell should keep existing building"
                     );
 
                     assert_eq!(
                         entity_map.get_at_grid(0, 2).map(|b| b.kind),
                         Some(BuildingKind::RockNode)
                     );
-                    assert_eq!(entity_map.get_at_grid(1, 2).map(|b| b.kind), None);
+                    assert_eq!(
+                        entity_map.get_at_grid(1, 2).map(|b| b.kind),
+                        Some(BuildingKind::RockNode),
+                        "adjacent rock cell should also get RockNode at density 1.0"
+                    );
                     assert_eq!(
                         entity_map.get_at_grid(3, 2).map(|b| b.kind),
                         Some(BuildingKind::RockNode)

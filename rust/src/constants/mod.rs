@@ -331,12 +331,6 @@ pub const MINE_MIN_SETTLEMENT_DIST: f32 = 300.0;
 /// Minimum distance between gold mines.
 pub const MINE_MIN_SPACING: f32 = 400.0;
 
-/// Minimum distance between tree nodes spawned during worldgen.
-pub const TREE_MIN_SPACING: f32 = TOWN_GRID_SPACING * 2.0;
-
-/// Minimum distance between rock nodes spawned during worldgen.
-pub const ROCK_MIN_SPACING: f32 = TOWN_GRID_SPACING * 2.0;
-
 /// Default town policy radius (pixels) for auto-mining discovery around fountain.
 pub const DEFAULT_MINING_RADIUS: f32 = 2000.0;
 
