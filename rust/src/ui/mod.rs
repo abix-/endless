@@ -1546,6 +1546,34 @@ fn screen_to_world(
 }
 
 /// Bresenham-style integer line over town-grid slots, inclusive of start/end.
+fn slots_in_box(start: (usize, usize), end: (usize, usize)) -> Vec<(usize, usize)> {
+    let c_min = start.0.min(end.0);
+    let c_max = start.0.max(end.0);
+    let r_min = start.1.min(end.1);
+    let r_max = start.1.max(end.1);
+    let mut out = Vec::with_capacity((c_max - c_min + 1) * (r_max - r_min + 1));
+    for r in r_min..=r_max {
+        for c in c_min..=c_max {
+            out.push((c, r));
+        }
+    }
+    out
+}
+
+/// Returns cells for drag placement: box (filled rectangle) when `box_mode` is true,
+/// Bresenham line otherwise.
+fn drag_shape_slots(
+    start: (usize, usize),
+    end: (usize, usize),
+    box_mode: bool,
+) -> Vec<(usize, usize)> {
+    if box_mode {
+        slots_in_box(start, end)
+    } else {
+        slots_on_line(start, end)
+    }
+}
+
 fn slots_on_line(start: (usize, usize), end: (usize, usize)) -> Vec<(usize, usize)> {
     let (mut c0, mut r0) = (start.0 as i32, start.1 as i32);
     let (c1, r1) = (end.0 as i32, end.1 as i32);
@@ -1603,6 +1631,7 @@ fn slot_right_click_system(
 fn build_place_click_system(
     mut commands: Commands,
     mouse: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window>,
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
     mut egui_contexts: bevy_egui::EguiContexts,
@@ -1769,7 +1798,8 @@ fn build_place_click_system(
         let mut placed = 0usize;
         let mut upgraded = 0usize;
         let mut last_err: Option<&str> = None;
-        for (sc, sr) in slots_on_line(start, end) {
+        let box_mode = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+        for (sc, sr) in drag_shape_slots(start, end, box_mode) {
             let cell_pos = world_state.grid.grid_to_world(sc, sr);
             match world_state.place_building(
                 &mut food_val,
@@ -1892,9 +1922,10 @@ fn build_place_click_system(
 
     let start = build_ctx.drag_start_slot.take().unwrap_or((gc, gr));
     let end = build_ctx.drag_current_slot.take().unwrap_or((gc, gr));
+    let box_mode = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
     let mut placed = 0usize;
     let mut first_placed: Option<(usize, usize)> = None;
-    for (sc, sr) in slots_on_line(start, end) {
+    for (sc, sr) in drag_shape_slots(start, end, box_mode) {
         if try_place_at_slot(sc, sr, &mut last_place_err) {
             if first_placed.is_none() {
                 first_placed = Some((sc, sr));
@@ -1969,6 +2000,7 @@ struct BuildGhostTrail;
 fn build_ghost_system(
     mut commands: Commands,
     windows: Query<&Window>,
+    keys: Res<ButtonInput<KeyCode>>,
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
     mut egui_contexts: bevy_egui::EguiContexts,
     mut build_ctx: ResMut<BuildMenuContext>,
@@ -2085,10 +2117,11 @@ fn build_ghost_system(
         let snapped = grid.grid_to_world(gc, gr);
         build_ctx.hover_world_pos = snapped;
 
+        let box_mode = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
         let path = match build_ctx.drag_start_slot {
             Some(start) => {
                 build_ctx.drag_current_slot = Some((gc, gr));
-                slots_on_line(start, (gc, gr))
+                drag_shape_slots(start, (gc, gr), box_mode)
             }
             None => vec![(gc, gr)],
         };
@@ -2231,10 +2264,11 @@ fn build_ghost_system(
     let (cc, cr) = grid.world_to_grid(center);
     let is_center = gc == cc && gr == cr;
 
+    let box_mode = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
     let mut drag_preview: Vec<(usize, usize, bool, bool)> = Vec::new();
     {
         let path = match (build_ctx.drag_start_slot, build_ctx.drag_current_slot) {
-            (Some(start), Some(end)) => slots_on_line(start, end),
+            (Some(start), Some(end)) => drag_shape_slots(start, end, box_mode),
             _ => vec![(gc, gr)],
         };
         let cost = crate::constants::building_cost(kind);
