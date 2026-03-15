@@ -565,13 +565,15 @@ impl Plugin for NpcRenderPlugin {
         app.init_resource::<OverlayInstances>()
             .init_resource::<BuildingBodyInstances>()
             .init_resource::<SelectionOverlayInstances>()
+            .init_resource::<crate::resources::DirectControlSet>()
             .add_systems(Startup, (spawn_npc_batch, spawn_proj_batch))
             .add_systems(
                 PostUpdate,
                 (
+                    sync_direct_control_set,
                     build_building_body_instances,
                     build_overlay_instances,
-                    build_selection_overlay,
+                    build_selection_overlay.after(sync_direct_control_set),
                 ),
             );
 
@@ -822,13 +824,34 @@ fn build_overlay_instances(
     }
 }
 
+/// Incrementally maintain `DirectControlSet` from `Changed<NpcFlags>`.
+/// O(changed) per frame instead of O(all_npcs).
+fn sync_direct_control_set(
+    mut dc_set: ResMut<crate::resources::DirectControlSet>,
+    changed_q: Query<
+        (&crate::components::GpuSlot, &crate::components::NpcFlags),
+        Changed<crate::components::NpcFlags>,
+    >,
+) {
+    for (gpu_slot, flags) in &changed_q {
+        let slot = gpu_slot.0;
+        if flags.direct_control {
+            if !dc_set.0.contains(&slot) {
+                dc_set.0.push(slot);
+            }
+        } else {
+            dc_set.0.retain(|&s| s != slot);
+        }
+    }
+}
+
 /// Build selection bracket instances from SelectedNpc, SelectedBuilding, and DirectControl state.
 fn build_selection_overlay(
     mut instances: ResMut<SelectionOverlayInstances>,
     selected_npc: Res<crate::resources::SelectedNpc>,
     selected_building: Res<crate::resources::SelectedBuilding>,
+    dc_set: Res<crate::resources::DirectControlSet>,
     entity_map: Res<crate::resources::EntityMap>,
-    npc_flags_q: Query<&crate::components::NpcFlags>,
 ) {
     instances.0.clear();
     let sel_slot = selected_npc.0;
@@ -859,21 +882,19 @@ fn build_selection_overlay(
 
     // DirectControl multi-select (green), skip selected NPC, cap at 200
     let mut dc_count = 0usize;
-    for npc in entity_map.iter_npcs() {
-        if npc.dead {
+    for &slot in &dc_set.0 {
+        // Skip dead NPCs
+        if entity_map.get_npc(slot).is_some_and(|n| n.dead) {
             continue;
         }
-        if !npc_flags_q.get(npc.entity).is_ok_and(|f| f.direct_control) {
-            continue;
-        }
-        if sel_slot >= 0 && npc.slot == sel_slot as usize {
+        if sel_slot >= 0 && slot == sel_slot as usize {
             continue;
         }
         if dc_count >= 200 {
             break;
         }
         instances.0.push(SelectionInstance {
-            slot: npc.slot as u32,
+            slot: slot as u32,
             color: [0.31, 0.86, 0.31, 0.70],
             scale: 40.0,
             y_offset: 0.0,

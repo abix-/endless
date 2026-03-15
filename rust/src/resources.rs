@@ -272,6 +272,11 @@ pub struct SelectedBuilding {
     pub kind: Option<crate::world::BuildingKind>,
 }
 
+/// Set of GPU slots for NPCs with `direct_control == true`.
+/// Maintained incrementally by `sync_direct_control_set` using `Changed<NpcFlags>`.
+#[derive(Resource, Default)]
+pub struct DirectControlSet(pub Vec<usize>);
+
 /// Camera follow mode — when true, camera tracks the selected NPC.
 #[derive(Resource, Default)]
 pub struct FollowSelected(pub bool);
