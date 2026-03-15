@@ -1671,6 +1671,39 @@ fn init_npc_compute_pipeline(
 // BIND GROUP PREPARATION
 // =============================================================================
 
+/// Wrapper around `create_bind_group` that validates binding count matches layout.
+/// Debug builds: panics immediately on mismatch (catches #41-class bugs on first frame).
+/// Release builds: logs one clear error line, then proceeds.
+#[inline]
+fn checked_create_bind_group<'a>(
+    device: &RenderDevice,
+    label: Option<&str>,
+    layout_desc: &BindGroupLayoutDescriptor,
+    layout: &BindGroupLayout,
+    entries: &'a [BindGroupEntry<'a>],
+) -> BindGroup {
+    let expected = layout_desc.entries.len();
+    let actual = entries.len();
+    debug_assert_eq!(
+        actual,
+        expected,
+        "bind group '{}': {} bindings provided but layout expects {}",
+        label.unwrap_or("unnamed"),
+        actual,
+        expected,
+    );
+    #[cfg(not(debug_assertions))]
+    if actual != expected {
+        bevy::log::error!(
+            "bind group '{}': {} bindings provided but layout expects {}",
+            label.unwrap_or("unnamed"),
+            actual,
+            expected,
+        );
+    }
+    device.create_bind_group(label, layout, entries)
+}
+
 fn prepare_npc_bind_groups(
     mut commands: Commands,
     pipeline: Option<Res<NpcComputePipeline>>,
@@ -1738,8 +1771,10 @@ fn prepare_npc_bind_groups(
     let flags_bind = buffers.entity_flags.as_entire_buffer_binding();
     let tile_bind = buffers.tile_flags.as_entire_buffer_binding();
 
-    let mode0 = render_device.create_bind_group(
+    let mode0 = checked_create_bind_group(
+        &render_device,
         Some("npc_compute_bg_mode0"),
+        &pipeline.bind_group_layout,
         layout,
         &BindGroupEntries::sequential((
             storage_bindings.0.clone(),
@@ -1763,8 +1798,10 @@ fn prepare_npc_bind_groups(
             tile_bind.clone(),
         )),
     );
-    let mode1 = render_device.create_bind_group(
+    let mode1 = checked_create_bind_group(
+        &render_device,
         Some("npc_compute_bg_mode1"),
+        &pipeline.bind_group_layout,
         layout,
         &BindGroupEntries::sequential((
             storage_bindings.0.clone(),
@@ -1788,8 +1825,10 @@ fn prepare_npc_bind_groups(
             tile_bind.clone(),
         )),
     );
-    let mode2 = render_device.create_bind_group(
+    let mode2 = checked_create_bind_group(
+        &render_device,
         Some("npc_compute_bg_mode2"),
+        &pipeline.bind_group_layout,
         layout,
         &BindGroupEntries::sequential((
             storage_bindings.0.clone(),
@@ -2233,8 +2272,10 @@ fn prepare_proj_bind_groups(
     let entity_flags_bind = ent.entity_flags.as_entire_buffer_binding();
     let homing_bind = proj.homing_targets.as_entire_buffer_binding();
 
-    let mode0 = render_device.create_bind_group(
+    let mode0 = checked_create_bind_group(
+        &render_device,
         Some("proj_compute_bg_mode0"),
+        &pipeline.bind_group_layout,
         layout,
         &BindGroupEntries::sequential((
             storage_bindings.0.clone(),                  // 0: positions
@@ -2258,8 +2299,10 @@ fn prepare_proj_bind_groups(
             homing_bind.clone(),                         // 18
         )),
     );
-    let mode1 = render_device.create_bind_group(
+    let mode1 = checked_create_bind_group(
+        &render_device,
         Some("proj_compute_bg_mode1"),
+        &pipeline.bind_group_layout,
         layout,
         &BindGroupEntries::sequential((
             storage_bindings.0.clone(),
@@ -2283,8 +2326,10 @@ fn prepare_proj_bind_groups(
             homing_bind.clone(),
         )),
     );
-    let mode2 = render_device.create_bind_group(
+    let mode2 = checked_create_bind_group(
+        &render_device,
         Some("proj_compute_bg_mode2"),
+        &pipeline.bind_group_layout,
         layout,
         &BindGroupEntries::sequential((
             storage_bindings.0.clone(),
