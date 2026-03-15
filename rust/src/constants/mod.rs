@@ -140,6 +140,15 @@ pub const FARM_TENDED_GROWTH_RATE: f32 = 0.25;
 // Passive only: ~12 hours to grow
 // With farmer: ~4 hours to grow
 
+/// Cow growth rate (no farmer needed, grows day and night).
+pub const COW_GROWTH_RATE: f32 = 0.12;
+
+/// Food consumed per game hour while cows are growing (net cost).
+pub const COW_FOOD_COST_PER_HOUR: i32 = 1;
+
+/// Food produced per cow harvest cycle (higher than crops to offset cost).
+pub const COW_HARVEST_YIELD: i32 = 3;
+
 /// Maximum farms for item MultiMesh slot allocation.
 pub const MAX_FARMS: usize = 500;
 

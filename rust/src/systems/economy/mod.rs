@@ -8,9 +8,10 @@ use std::collections::{HashMap, HashSet};
 use crate::components::*;
 use crate::constants::UpgradeStatKind;
 use crate::constants::{
-    BOAT_SPEED, ENDLESS_RESPAWN_DELAY_HOURS, FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE,
-    MIGRATION_BASE_SIZE, RAIDER_FORAGE_RATE, RAIDER_SETTLE_RADIUS, SPAWNER_RESPAWN_HOURS,
-    STARVING_HP_CAP, STARVING_SPEED_MULT, TOWN_GRID_SPACING,
+    BOAT_SPEED, COW_FOOD_COST_PER_HOUR, COW_GROWTH_RATE, ENDLESS_RESPAWN_DELAY_HOURS,
+    FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, MIGRATION_BASE_SIZE, RAIDER_FORAGE_RATE,
+    RAIDER_SETTLE_RADIUS, SPAWNER_RESPAWN_HOURS, STARVING_HP_CAP, STARVING_SPEED_MULT,
+    TOWN_GRID_SPACING,
 };
 use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg, SpawnNpcMsg};
 use crate::resources::*;
@@ -136,13 +137,14 @@ pub fn construction_tick_system(
 // ============================================================================
 
 /// Unified production system for farms and mines.
-/// - Farms: passive + tended rates (unchanged). Upgrade-scaled by FarmYield.
+/// - Farms (Crops): daytime-only, passive + tended rates. Upgrade-scaled by FarmYield.
+/// - Farms (Cows): day+night, autonomous growth, consumes food per hour.
 /// - Mines: tended-only (MINE_TENDED_GROWTH_RATE). Zero production when unoccupied.
 pub fn growth_system(
     time: Res<Time>,
     game_time: Res<GameTime>,
     entity_map: Res<EntityMap>,
-    town_access: crate::systemparams::TownAccess,
+    mut town_access: crate::systemparams::TownAccess,
     mut production_q: Query<(
         &GpuSlot,
         &Building,
@@ -150,6 +152,7 @@ pub fn growth_system(
         &Position,
         &ConstructionProgress,
         &mut ProductionState,
+        Option<&FarmModeComp>,
     )>,
     world_data: Res<crate::world::WorldData>,
 ) {
@@ -158,6 +161,7 @@ pub fn growth_system(
     }
 
     let hours_elapsed = game_time.delta(&time) / game_time.seconds_per_hour;
+    let is_daytime = game_time.is_daytime();
 
     // Precompute per-town farm yield multiplier
     let max_towns = world_data.towns.len();
@@ -167,26 +171,58 @@ pub fn growth_system(
         farm_mults.push(UPGRADES.stat_mult(&levels, "Farmer", UpgradeStatKind::Yield));
     }
 
-    for (gpu_slot, building, town_id, pos, construction, mut production) in &mut production_q {
+    // Track food costs per town from cow farms (batch deduct after loop)
+    let mut cow_food_costs: Vec<(i32, i32)> = Vec::new();
+
+    for (gpu_slot, building, town_id, pos, construction, mut production, farm_mode) in
+        &mut production_q
+    {
         if pos.x < -9000.0 || production.ready || construction.0 > 0.0 {
             continue;
         }
         let slot = gpu_slot.0;
         match building.kind {
             BuildingKind::Farm => {
-                let is_tended = entity_map.occupant_count(slot) >= 1;
-                let base_rate = if is_tended {
-                    FARM_TENDED_GROWTH_RATE
-                } else {
-                    FARM_BASE_GROWTH_RATE
-                };
-                let mult = farm_mults.get(town_id.0 as usize).copied().unwrap_or(1.0);
-                let growth_rate = base_rate * mult;
-                if growth_rate > 0.0 {
-                    production.progress += growth_rate * hours_elapsed;
-                    if production.progress >= 1.0 {
-                        production.ready = true;
-                        production.progress = 1.0;
+                let mode = farm_mode.map_or(FarmMode::Crops, |m| m.0);
+                match mode {
+                    FarmMode::Crops => {
+                        // Crops only grow during daytime
+                        if !is_daytime {
+                            continue;
+                        }
+                        let is_tended = entity_map.occupant_count(slot) >= 1;
+                        let base_rate = if is_tended {
+                            FARM_TENDED_GROWTH_RATE
+                        } else {
+                            FARM_BASE_GROWTH_RATE
+                        };
+                        let mult = farm_mults.get(town_id.0 as usize).copied().unwrap_or(1.0);
+                        let growth_rate = base_rate * mult;
+                        if growth_rate > 0.0 {
+                            production.progress += growth_rate * hours_elapsed;
+                            if production.progress >= 1.0 {
+                                production.ready = true;
+                                production.progress = 1.0;
+                            }
+                        }
+                    }
+                    FarmMode::Cows => {
+                        // Cows grow day and night, no tending needed
+                        let mult = farm_mults.get(town_id.0 as usize).copied().unwrap_or(1.0);
+                        let growth_rate = COW_GROWTH_RATE * mult;
+                        if growth_rate > 0.0 {
+                            production.progress += growth_rate * hours_elapsed;
+                            // Track food cost for this cow farm
+                            let food_cost =
+                                (COW_FOOD_COST_PER_HOUR as f32 * hours_elapsed).ceil() as i32;
+                            if food_cost > 0 {
+                                cow_food_costs.push((town_id.0, food_cost));
+                            }
+                            if production.progress >= 1.0 {
+                                production.ready = true;
+                                production.progress = 1.0;
+                            }
+                        }
                     }
                 }
             }
@@ -207,6 +243,13 @@ pub fn growth_system(
                 }
             }
             _ => {}
+        }
+    }
+
+    // Batch-deduct cow food costs per town
+    for (town_idx, cost) in cow_food_costs {
+        if let Some(mut f) = town_access.food_mut(town_idx) {
+            f.0 = (f.0 - cost).max(0);
         }
     }
 }

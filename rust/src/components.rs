@@ -686,6 +686,19 @@ pub struct FarmReadyMarker {
 // BUILDING STATE COMPONENTS (CRD pattern: runtime state on ECS entities)
 // ============================================================================
 
+/// Farm production mode: crops (daytime-only, farmer-tended) or cows (autonomous, food cost).
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Reflect)]
+pub enum FarmMode {
+    #[default]
+    Crops,
+    Cows,
+}
+
+/// Per-farm mode component. Defaults to Crops.
+#[derive(Component, Clone, Copy, Default, Reflect)]
+#[reflect(Component)]
+pub struct FarmModeComp(pub FarmMode);
+
 /// Production cycle for worksites (farms grow food, mines extract gold).
 /// Replaces BuildingInstance.growth_ready/growth_progress.
 /// Occupants tracked by EntityMap (worksite claim counter).
@@ -699,13 +712,21 @@ pub struct ProductionState {
 impl ProductionState {
     /// Harvest a Ready worksite. Resets to Growing, returns yield.
     pub fn harvest(&mut self, kind: crate::world::BuildingKind) -> i32 {
+        self.harvest_with_mode(kind, FarmMode::Crops)
+    }
+
+    /// Harvest with farm mode awareness. Cows yield more per cycle.
+    pub fn harvest_with_mode(&mut self, kind: crate::world::BuildingKind, mode: FarmMode) -> i32 {
         if !self.ready {
             return 0;
         }
         self.ready = false;
         self.progress = 0.0;
         match kind {
-            crate::world::BuildingKind::Farm => 1,
+            crate::world::BuildingKind::Farm => match mode {
+                FarmMode::Crops => 1,
+                FarmMode::Cows => crate::constants::COW_HARVEST_YIELD,
+            },
             crate::world::BuildingKind::GoldMine => crate::constants::MINE_EXTRACT_PER_CYCLE,
             crate::world::BuildingKind::TreeNode => 1,
             crate::world::BuildingKind::RockNode => 1,

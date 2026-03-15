@@ -246,6 +246,7 @@ pub fn decision_system(
     >,
     miner_cfg_q: Query<&MinerHomeConfig>,
     mut production_q: Query<&mut ProductionState>,
+    farm_mode_q: Query<&FarmModeComp>,
     mut building_health_q: Query<&mut Health, With<Building>>,
 ) {
     if game_time.is_paused() {
@@ -621,12 +622,16 @@ pub fn decision_system(
                                     );
                                 } else if entity_map.get_instance(farm_slot).is_some() {
                                     // Check if farm ready for harvest via ECS ProductionState
-                                    let harvest = entity_map
-                                        .entities
-                                        .get(&farm_slot)
-                                        .and_then(|&e| production_q.get_mut(e).ok())
+                                    let farm_entity_opt =
+                                        entity_map.entities.get(&farm_slot).copied();
+                                    let harvest = farm_entity_opt
+                                        .and_then(|e| production_q.get_mut(e).ok())
                                         .and_then(|mut ps| {
-                                            let food = ps.harvest(BuildingKind::Farm);
+                                            let mode = farm_entity_opt
+                                                .and_then(|e| farm_mode_q.get(e).ok())
+                                                .map_or(FarmMode::Crops, |m| m.0);
+                                            let food =
+                                                ps.harvest_with_mode(BuildingKind::Farm, mode);
                                             if food > 0 {
                                                 let pos = entity_map
                                                     .get_instance(farm_slot)
@@ -798,12 +803,16 @@ pub fn decision_system(
                             });
 
                             if let Some(fp) = ready_farm_pos {
-                                let food = entity_map
+                                let farm_e = entity_map
                                     .slot_at_position(fp)
-                                    .and_then(|slot| entity_map.entities.get(&slot).copied())
+                                    .and_then(|slot| entity_map.entities.get(&slot).copied());
+                                let food = farm_e
                                     .and_then(|e| production_q.get_mut(e).ok())
                                     .map(|mut ps| {
-                                        let f = ps.harvest(BuildingKind::Farm);
+                                        let mode = farm_e
+                                            .and_then(|e| farm_mode_q.get(e).ok())
+                                            .map_or(FarmMode::Crops, |m| m.0);
+                                        let f = ps.harvest_with_mode(BuildingKind::Farm, mode);
                                         if f > 0 {
                                             combat_log.write(CombatLogMsg {
                                                 kind: CombatEventKind::Harvest,
@@ -1985,7 +1994,10 @@ pub fn decision_system(
                         let ws_pos = entity_map
                             .get_instance(slot)
                             .map_or(Vec2::ZERO, |i| i.position);
-                        let base_yield = ps.harvest(kind);
+                        let mode = ws_entity
+                            .and_then(|e| farm_mode_q.get(e).ok())
+                            .map_or(FarmMode::Crops, |m| m.0);
+                        let base_yield = ps.harvest_with_mode(kind, mode);
                         if base_yield > 0 {
                             combat_log.write(CombatLogMsg {
                                 kind: CombatEventKind::Harvest,

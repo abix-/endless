@@ -793,6 +793,107 @@ fn mine_grows_with_workers() {
     );
 }
 
+fn add_cow_farm(app: &mut App, slot: usize) {
+    let inst = test_building_instance(slot, BuildingKind::Farm, 0.0);
+    let entity = app
+        .world_mut()
+        .spawn((
+            GpuSlot(slot),
+            Building {
+                kind: BuildingKind::Farm,
+            },
+            TownId(0),
+            Position { x: 0.0, y: 0.0 },
+            ConstructionProgress(0.0),
+            ProductionState {
+                ready: false,
+                progress: 0.0,
+            },
+            FarmModeComp(FarmMode::Cows),
+        ))
+        .id();
+    let mut em = app.world_mut().resource_mut::<EntityMap>();
+    em.set_entity(slot, entity);
+    em.add_instance(inst);
+}
+
+#[test]
+fn crops_do_not_grow_at_night() {
+    let mut app = setup_growth_app();
+    // Set time to midnight (nighttime: hour outside 6..20)
+    app.world_mut().resource_mut::<GameTime>().total_seconds = 0.0;
+    app.world_mut().resource_mut::<GameTime>().start_hour = 0;
+    assert!(
+        !app.world().resource::<GameTime>().is_daytime(),
+        "should be nighttime"
+    );
+    add_farm(&mut app, 0, true);
+
+    app.update();
+    let entity = *app
+        .world()
+        .resource::<EntityMap>()
+        .entities
+        .get(&0)
+        .unwrap();
+    let ps = app.world().get::<ProductionState>(entity).unwrap();
+    assert!(
+        ps.progress < f32::EPSILON,
+        "crops should NOT grow at night: {}",
+        ps.progress
+    );
+}
+
+#[test]
+fn cows_grow_at_night() {
+    let mut app = setup_growth_app();
+    // Set time to midnight (nighttime)
+    app.world_mut().resource_mut::<GameTime>().total_seconds = 0.0;
+    app.world_mut().resource_mut::<GameTime>().start_hour = 0;
+    assert!(
+        !app.world().resource::<GameTime>().is_daytime(),
+        "should be nighttime"
+    );
+    add_cow_farm(&mut app, 0);
+
+    app.update();
+    let entity = *app
+        .world()
+        .resource::<EntityMap>()
+        .entities
+        .get(&0)
+        .unwrap();
+    let ps = app.world().get::<ProductionState>(entity).unwrap();
+    assert!(
+        ps.progress > 0.0,
+        "cows should grow at night: {}",
+        ps.progress
+    );
+}
+
+#[test]
+fn cows_consume_food() {
+    let mut app = setup_growth_app();
+    // Give the town some food
+    let town_entity = *app
+        .world()
+        .resource::<crate::resources::TownIndex>()
+        .0
+        .get(&0)
+        .unwrap();
+    app.world_mut().get_mut::<FoodStore>(town_entity).unwrap().0 = 100;
+
+    add_cow_farm(&mut app, 0);
+
+    // Run a few ticks
+    for _ in 0..5 {
+        app.update();
+    }
+
+    let food = app.world().get::<FoodStore>(town_entity).unwrap().0;
+    assert!(food < 100, "cow farm should consume food: {}", food);
+}
+
 // ========================================================================
 // merchant_tick_system tests
 // ========================================================================
