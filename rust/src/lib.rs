@@ -567,6 +567,7 @@ pub fn build_app(app: &mut App) {
                 (
                     construction_tick_system.before(growth_system),
                     growth_system,
+                    sync_sleeping_system,
                 ),
                 raider_forage_system,
                 spawner_respawn_system,

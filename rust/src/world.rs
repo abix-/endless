@@ -748,6 +748,9 @@ pub fn place_building(
         ConstructionProgress(under_construction),
     ));
     // Kind-specific state components
+    if matches!(kind, BuildingKind::TreeNode | BuildingKind::RockNode) && ctx.is_none() {
+        ecmds.insert(crate::components::Sleeping);
+    }
     if def.worksite.is_some() {
         ecmds.insert(ProductionState::default());
     }

@@ -675,6 +675,12 @@ pub struct Building {
     pub kind: crate::world::BuildingKind,
 }
 
+/// Marker: entity is static and excluded from per-frame CPU building systems.
+/// Applied to density-spawned trees/rocks that never change state until an NPC
+/// claims them as a worksite (which removes Sleeping).
+#[derive(Component)]
+pub struct Sleeping;
+
 /// Marker: farm is visually Ready (food icon overlay).
 #[derive(Component, Reflect)]
 #[reflect(Component)]
