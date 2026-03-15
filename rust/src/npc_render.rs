@@ -763,21 +763,33 @@ fn build_overlay_instances(
         &crate::components::Building,
         &crate::components::ProductionState,
         &crate::components::ConstructionProgress,
+        Option<&crate::components::FarmModeComp>,
     )>,
 ) {
     overlay.0.clear();
 
-    for (pos, building, production, construction) in &production_q {
+    for (pos, building, production, construction, farm_mode) in &production_q {
         if pos.x < -9000.0 || construction.0 > 0.0 {
             continue;
         }
 
         match building.kind {
             crate::world::BuildingKind::Farm => {
-                let color = if production.ready {
-                    [1.0, 0.85, 0.0, 1.0]
+                let is_cow = farm_mode.is_some_and(|m| m.0 == crate::components::FarmMode::Cows);
+                let color = if is_cow {
+                    // Cows: brown tint (growing) / orange-gold (ready)
+                    if production.ready {
+                        [1.0, 0.65, 0.2, 1.0]
+                    } else {
+                        [0.65, 0.4, 0.2, 1.0]
+                    }
                 } else {
-                    [0.4, 0.8, 0.2, 1.0]
+                    // Crops: green (growing) / gold (ready)
+                    if production.ready {
+                        [1.0, 0.85, 0.0, 1.0]
+                    } else {
+                        [0.4, 0.8, 0.2, 1.0]
+                    }
                 };
                 overlay.0.push(InstanceData {
                     position: [pos.x, pos.y],

@@ -277,6 +277,21 @@ pub fn decision_system(
     const COMBAT_BUCKET: usize = 16; // ~267ms at 60fps
     let combat_bucket = (COMBAT_BUCKET as f32 / speed_scale).max(1.0) as usize;
 
+    // Pre-build cow farm set for farmer targeting exclusion (cheap: only farm buildings)
+    let cow_farm_slots: std::collections::HashSet<usize> = entity_map
+        .iter_instances()
+        .filter(|inst| inst.kind == crate::world::BuildingKind::Farm)
+        .filter_map(|inst| {
+            let e = entity_map.entities.get(&inst.slot)?;
+            let fm = farm_mode_q.get(*e).ok()?;
+            if fm.0 == FarmMode::Cows {
+                Some(inst.slot)
+            } else {
+                None
+            }
+        })
+        .collect();
+
     for (entity, slot, job, town_id, faction) in decision_npc_q.iter() {
         let idx = slot.0;
 
@@ -2471,6 +2486,7 @@ pub fn decision_system(
                                 &entity_map,
                                 town_idx_i32 as u32,
                                 &empty_map,
+                                &cow_farm_slots,
                             )
                             .is_some()
                             {
