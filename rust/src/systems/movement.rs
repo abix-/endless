@@ -330,6 +330,7 @@ pub fn resolve_movement_system(
                 npc_path.current = 1;
                 npc_path.goal_world = req.goal_world;
                 npc_path.path_cooldown = 0.0;
+                npc_path.path_blocked = false;
             }
 
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
@@ -341,6 +342,7 @@ pub fn resolve_movement_system(
             astar_fails += 1;
             if let Ok(mut npc_path) = path_q.get_mut(req.entity) {
                 npc_path.path_cooldown = 2.0;
+                npc_path.path_blocked = true;
             }
         }
     }

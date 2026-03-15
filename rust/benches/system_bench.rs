@@ -434,6 +434,7 @@ fn bench_resolve_movement_system(c: &mut Criterion) {
                             goal_world: Vec2::ZERO,
                             path_cooldown: 0.0,
                             path_chunks: vec![],
+                            path_blocked: false,
                         });
                     }
                 },
@@ -497,6 +498,7 @@ fn bench_resolve_movement_unbounded(c: &mut Criterion) {
                             goal_world: Vec2::ZERO,
                             path_cooldown: 0.0,
                             path_chunks: vec![],
+                            path_blocked: false,
                         });
                     }
                 },

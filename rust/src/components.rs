@@ -397,6 +397,9 @@ pub struct NpcPath {
     pub path_cooldown: f32,
     /// Precomputed set of HPA chunk coords this path passes through.
     pub path_chunks: Vec<(usize, usize)>,
+    /// Set when A* finds no path to the goal (e.g. walled off).
+    /// Decision system uses this to trigger wall-attack fallback for raiders.
+    pub path_blocked: bool,
 }
 
 /// Squad assignment for military NPCs. Optional component — only present when recruited.
