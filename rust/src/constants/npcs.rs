@@ -553,8 +553,8 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
     },
     NpcDef {
         job: Job::Crossbow,
-        label: "Crossbow",
-        label_plural: "Crossbows",
+        label: "Crossbowman",
+        label_plural: "Crossbowmen",
         sprite: (0.0, 0.0),
         atlas: 0.0,
         color: (0.0, 0.0, 1.0, 1.0),
