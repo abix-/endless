@@ -14,10 +14,10 @@ use crate::world;
 
 use super::TestState;
 
-const NUM_TOWERS: usize = 1000;
-const NUM_RAIDERS: usize = 5000;
+const NUM_TOWERS: usize = 25_000;
+const NUM_RAIDERS: usize = 50_000;
 const TOWER_SPACING: f32 = 128.0;
-const GRID_COLS: usize = 50;
+const GRID_COLS: usize = 200;
 
 pub fn setup(
     mut slot_alloc: ResMut<GpuSlotPool>,
@@ -32,10 +32,10 @@ pub fn setup(
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
     mut world_grid: ResMut<world::WorldGrid>,
 ) {
-    let center = Vec2::new(3200.0, 3200.0);
+    let center = Vec2::new(16000.0, 16000.0);
 
     // Initialize grid
-    let grid_size = 200;
+    let grid_size = 500;
     world_grid.width = grid_size;
     world_grid.height = grid_size;
     world_grid.cell_size = 64.0;
@@ -114,10 +114,10 @@ pub fn setup(
         let Some(slot) = slot_alloc.alloc_reset() else {
             break;
         };
-        let col = i % 100;
-        let row = i / 100;
-        let x = center.x - 3000.0 + col as f32 * 60.0;
-        let y = center.y - 500.0 + row as f32 * 60.0;
+        let col = i % 250;
+        let row = i / 250;
+        let x = center.x - 8000.0 + col as f32 * 64.0;
+        let y = center.y - 8000.0 + row as f32 * 64.0;
         spawn_events.write(SpawnNpcMsg {
             slot_idx: slot,
             x,

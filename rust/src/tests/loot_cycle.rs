@@ -1,10 +1,13 @@
-//! Loot Cycle Test (6 phases)
-//! Validates: spawn archer+raider → raider dies → archer carries loot → returns home → deposits to
-//! TownInventory → equip item → stats increase.
+//! Loot Cycle Test (9 phases)
+//! Phases 1-6: happy path -- spawn archer+raider, raider dies, archer carries loot, returns home,
+//! deposits to TownInventory, equip item, stats increase.
+//! Phases 7-9: stress -- mass spawn 50 archers + 500 raiders, run 5 game-hours of combat,
+//! verify TownEquipment stays bounded by TOWN_EQUIPMENT_CAP after pruning.
 
 use bevy::prelude::*;
 
 use crate::components::*;
+use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
 
 use super::{TestSetupParams, TestState};
@@ -109,6 +112,7 @@ pub fn setup(
 pub fn tick(
     entity_map: Res<EntityMap>,
     time: Res<Time>,
+    game_time: Res<GameTime>,
     mut test: ResMut<TestState>,
     activity_q: Query<&Activity>,
     carried_loot_q: Query<&CarriedLoot>,
@@ -116,6 +120,8 @@ pub fn tick(
     cached_stats_q: Query<&CachedStats>,
     town_access: crate::systemparams::TownAccess,
     mut equip_writer: MessageWriter<crate::systems::stats::EquipItemMsg>,
+    mut slot_alloc: ResMut<GpuSlotPool>,
+    mut spawn_writer: MessageWriter<SpawnNpcMsg>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else {
         return;
@@ -292,21 +298,18 @@ pub fn tick(
                 let changed = (stats.damage - pre_damage).abs() > 0.01
                     || (stats.max_health - pre_health).abs() > 0.01;
                 test.phase_name = format!(
-                    "dmg {:.2}→{:.2} hp {:.0}→{:.0}",
+                    "dmg {:.2}->{:.2} hp {:.0}->{:.0}",
                     pre_damage, stats.damage, pre_health, stats.max_health
                 );
                 if changed {
                     test.pass_phase(
                         elapsed,
                         format!(
-                            "stats changed: dmg {:.2}→{:.2} hp {:.0}→{:.0}",
+                            "stats changed: dmg {:.2}->{:.2} hp {:.0}->{:.0}",
                             pre_damage, stats.damage, pre_health, stats.max_health
                         ),
                     );
-                    test.complete(elapsed);
                 } else if elapsed > 5.0 {
-                    // Stats might not change if it's a speed/stamina item
-                    // Check if the item bonus is on a non-damage/health slot
                     if let Ok(equip) = equipment_q.get(archer.entity) {
                         let any_equipped =
                             equip.weapon.is_some() || equip.helm.is_some() || equip.armor.is_some();
@@ -319,17 +322,152 @@ pub fn tick(
                                 ),
                             );
                         } else {
-                            // Non-combat slot (gloves/boots/belt etc) — stats change might be speed/stamina
                             test.pass_phase(
                                 elapsed,
                                 "item on non-combat slot, stats may differ in speed/stamina",
                             );
-                            test.complete(elapsed);
                         }
                     }
                 }
             } else if elapsed > 3.0 {
                 test.fail_phase(elapsed, "no CachedStats on archer");
+            }
+        }
+        // Phase 7: Mass spawn -- 50 archers + 500 raiders for stress test
+        7 => {
+            if !test.get_flag("stress_spawned") {
+                test.set_flag("stress_spawned", true);
+                let mut spawned = 0;
+                // 50 archers
+                for i in 0..50 {
+                    if let Some(slot) = slot_alloc.alloc_reset() {
+                        spawn_writer.write(SpawnNpcMsg {
+                            slot_idx: slot,
+                            x: 384.0 + (i as f32 * 8.0) % 200.0,
+                            y: 320.0 + (i as f32 * 8.0) / 200.0 * 20.0,
+                            job: 1, // Archer
+                            faction: 1,
+                            town_idx: 0,
+                            home_x: 384.0,
+                            home_y: 384.0,
+                            work_x: -1.0,
+                            work_y: -1.0,
+                            starting_post: -1,
+                            entity_override: None,
+                        });
+                        spawned += 1;
+                    }
+                }
+                // 500 raiders
+                for i in 0..500 {
+                    if let Some(slot) = slot_alloc.alloc_reset() {
+                        spawn_writer.write(SpawnNpcMsg {
+                            slot_idx: slot,
+                            x: 300.0 + (i as f32 * 4.0) % 200.0,
+                            y: 200.0 + (i as f32 * 4.0) / 200.0 * 20.0,
+                            job: 2, // Raider
+                            faction: 2,
+                            town_idx: 1,
+                            home_x: 384.0,
+                            home_y: 128.0,
+                            work_x: -1.0,
+                            work_y: -1.0,
+                            starting_post: -1,
+                            entity_override: None,
+                        });
+                        spawned += 1;
+                    }
+                }
+                info!("loot-cycle stress: spawned {} NPCs", spawned);
+            }
+            let total_alive = entity_map.iter_npcs().filter(|n| !n.dead).count();
+            test.phase_name = format!("stress spawn: {} alive", total_alive);
+            if total_alive > 100 {
+                test.pass_phase(
+                    elapsed,
+                    format!("{} NPCs alive, combat starting", total_alive),
+                );
+            } else if elapsed > 30.0 {
+                test.fail_phase(elapsed, format!("only {} alive after 30s", total_alive));
+            }
+        }
+        // Phase 8: Sustained combat -- monitor TownEquipment accumulation over 5 game-hours
+        8 => {
+            let eq_count = town_access.equipment(0).map(|e| e.len()).unwrap_or(0);
+            let peak = test.count("peak_equipment") as usize;
+            if eq_count > peak {
+                test.counters
+                    .insert("peak_equipment".into(), eq_count as u32);
+            }
+            let dead_raiders = entity_map
+                .iter_npcs()
+                .filter(|n| n.faction == 2 && n.dead)
+                .count();
+            test.counters
+                .insert("total_kills".into(), dead_raiders as u32);
+
+            let current_hour = game_time.hour();
+            let last_hour = test.count("last_hour");
+            if current_hour as u32 != last_hour {
+                test.counters
+                    .insert("last_hour".into(), current_hour as u32);
+                let hours = test.count("hours_seen") + 1;
+                test.counters.insert("hours_seen".into(), hours);
+            }
+            let hours_seen = test.count("hours_seen");
+
+            test.phase_name = format!(
+                "stress: eq={}/{} kills={} hours={}",
+                eq_count,
+                test.count("peak_equipment"),
+                dead_raiders,
+                hours_seen
+            );
+
+            if hours_seen >= 5 {
+                let peak = test.count("peak_equipment");
+                test.pass_phase(
+                    elapsed,
+                    format!(
+                        "5 game-hours complete: eq={} peak={} kills={}",
+                        eq_count, peak, dead_raiders
+                    ),
+                );
+            } else if elapsed > 300.0 {
+                test.fail_phase(elapsed, format!("timeout: only {} hours", hours_seen));
+            }
+        }
+        // Phase 9: Assert TownEquipment stayed bounded
+        9 => {
+            let eq_count = town_access.equipment(0).map(|e| e.len()).unwrap_or(0);
+            let cap = crate::constants::TOWN_EQUIPMENT_CAP;
+            let peak = test.count("peak_equipment");
+            let kills = test.count("total_kills");
+
+            test.phase_name = format!(
+                "verify: eq={}/{} peak={} kills={}",
+                eq_count, cap, peak, kills
+            );
+
+            if eq_count > cap {
+                test.fail_phase(
+                    elapsed,
+                    format!("TownEquipment {} exceeds cap {}", eq_count, cap),
+                );
+            } else if kills < 50 {
+                test.fail_phase(
+                    elapsed,
+                    format!("only {} kills -- not enough combat", kills),
+                );
+            } else {
+                test.pass_phase(
+                    elapsed,
+                    format!(
+                        "BOUNDED: eq={}/{} peak={} kills={}",
+                        eq_count, cap, peak, kills
+                    ),
+                );
+                test.complete(elapsed);
             }
         }
         _ => {}

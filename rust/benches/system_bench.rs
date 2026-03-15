@@ -27,7 +27,7 @@ use endless::systems::{
 use endless::world;
 
 // Entity counts to benchmark (Factorio-style scaling analysis)
-const COUNTS: &[usize] = &[1_000, 5_000, 10_000, 25_000, 50_000];
+const COUNTS: &[usize] = &[1_000, 50_000];
 
 // ── Headless app builder ───────────────────────────────────────────
 
@@ -535,7 +535,7 @@ fn bench_building_tower_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("building_tower");
     group.sample_size(20);
     // Scale by tower count (with fixed enemy NPC population)
-    const TOWER_COUNTS: &[usize] = &[100, 500, 1_000, 5_000, 50_000];
+    const TOWER_COUNTS: &[usize] = &[1_000, 50_000];
     for &tower_count in TOWER_COUNTS {
         group.bench_with_input(
             BenchmarkId::from_parameter(tower_count),
@@ -623,7 +623,7 @@ fn bench_death_system(c: &mut Criterion) {
     // Measures full death→despawn→respawn cycle — the real cost the game pays.
     // Scale by deaths-per-frame at fixed 50K total NPCs. Benchmark the work that
     // death_system performs after damage_system has already marked the victims Dead.
-    const DEATH_COUNTS: &[usize] = &[100, 500, 1_000, 5_000, 25_000];
+    const DEATH_COUNTS: &[usize] = &[1_000, 50_000];
     for &death_count in DEATH_COUNTS {
         group.bench_with_input(
             BenchmarkId::from_parameter(death_count),
@@ -757,7 +757,7 @@ fn bench_spawner_respawn_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("spawner_respawn");
     group.sample_size(20);
     // Scale by spawner building count
-    const SPAWNER_COUNTS: &[usize] = &[100, 500, 1_000, 5_000, 50_000];
+    const SPAWNER_COUNTS: &[usize] = &[1_000, 50_000];
     for &spawner_count in SPAWNER_COUNTS {
         group.bench_with_input(
             BenchmarkId::from_parameter(spawner_count),
@@ -929,7 +929,7 @@ fn populate_growable_buildings(app: &mut App, count: usize) {
 fn bench_growth_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("growth_system");
     group.sample_size(20);
-    const BUILDING_COUNTS: &[usize] = &[100, 500, 1_000, 5_000, 50_000];
+    const BUILDING_COUNTS: &[usize] = &[1_000, 50_000];
     for &bcount in BUILDING_COUNTS {
         group.bench_with_input(
             BenchmarkId::from_parameter(bcount),
@@ -962,7 +962,7 @@ fn bench_growth_system(c: &mut Criterion) {
 fn bench_construction_tick_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("construction_tick");
     group.sample_size(20);
-    const BUILDING_COUNTS: &[usize] = &[100, 500, 1_000, 5_000, 50_000];
+    const BUILDING_COUNTS: &[usize] = &[1_000, 50_000];
     for &bcount in BUILDING_COUNTS {
         group.bench_with_input(
             BenchmarkId::from_parameter(bcount),
@@ -1208,7 +1208,7 @@ fn bench_spawn_npc_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("spawn_npc_system");
     group.sample_size(20);
     // Scale by spawn count per frame (message-driven system)
-    const SPAWN_COUNTS: &[usize] = &[10, 50, 100, 500];
+    const SPAWN_COUNTS: &[usize] = &[100, 500];
     for &spawn_count in SPAWN_COUNTS {
         group.bench_with_input(
             BenchmarkId::from_parameter(spawn_count),
@@ -1257,7 +1257,7 @@ fn bench_process_proj_hits(c: &mut Criterion) {
     let mut group = c.benchmark_group("process_proj_hits");
     group.sample_size(20);
     // Scale by active projectile count
-    const PROJ_COUNTS: &[usize] = &[100, 500, 1_000, 5_000];
+    const PROJ_COUNTS: &[usize] = &[1_000, 50_000];
     for &proj_count in PROJ_COUNTS {
         group.bench_with_input(
             BenchmarkId::from_parameter(proj_count),
