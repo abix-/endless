@@ -2467,6 +2467,21 @@ impl render_graph::Node for ProjectileComputeNode {
 mod tests {
     use super::*;
 
+    fn spawn_update(idx: usize) -> ProjGpuUpdate {
+        ProjGpuUpdate::Spawn {
+            idx,
+            x: idx as f32,
+            y: idx as f32 + 0.5,
+            vx: 1.0,
+            vy: -1.0,
+            damage: 2.0,
+            faction: 1,
+            shooter: 42,
+            lifetime: 3.0,
+            homing_target: -1,
+        }
+    }
+
     #[test]
     fn readback_bucket_caps_to_buffer_capacity() {
         assert_eq!(readback_bucket(MAX_NPC_COUNT, MAX_NPC_COUNT), MAX_NPC_COUNT);
@@ -2480,5 +2495,34 @@ mod tests {
     fn readback_bucket_still_rounds_small_counts() {
         assert_eq!(readback_bucket(0, MAX_NPC_COUNT), 1024);
         assert_eq!(readback_bucket(1500, MAX_NPC_COUNT), 2048);
+    }
+
+    #[test]
+    fn projectile_active_set_index_updates_after_swap_remove_deactivate() {
+        let mut writes = ProjBufferWrites::default();
+
+        for idx in [4, 7, 9] {
+            writes.apply(&spawn_update(idx));
+        }
+
+        assert_eq!(writes.active_set, vec![4, 7, 9]);
+        assert_eq!(writes.active_set_index[4], 0);
+        assert_eq!(writes.active_set_index[7], 1);
+        assert_eq!(writes.active_set_index[9], 2);
+
+        writes.apply(&ProjGpuUpdate::Deactivate { idx: 7 });
+
+        assert_eq!(writes.active_set, vec![4, 9]);
+        assert_eq!(writes.active_set_index[4], 0);
+        assert_eq!(writes.active_set_index[7], usize::MAX);
+        assert_eq!(writes.active_set_index[9], 1);
+
+        writes.apply(&ProjGpuUpdate::Deactivate { idx: 9 });
+        writes.apply(&spawn_update(7));
+
+        assert_eq!(writes.active_set, vec![4, 7]);
+        assert_eq!(writes.active_set_index[4], 0);
+        assert_eq!(writes.active_set_index[7], 1);
+        assert_eq!(writes.active_set_index[9], usize::MAX);
     }
 }
