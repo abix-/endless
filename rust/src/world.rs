@@ -1849,11 +1849,12 @@ impl WorldGrid {
         self.building_cost_cells.clear();
 
         self.apply_building_overlay(entity_map, BuildingKind::Wall, 0);
-        // Towers block pathing (impassable like walls)
-        self.apply_building_overlay(entity_map, BuildingKind::BowTower, 0);
-        self.apply_building_overlay(entity_map, BuildingKind::CrossbowTower, 0);
-        self.apply_building_overlay(entity_map, BuildingKind::CatapultTower, 0);
-        self.apply_building_overlay(entity_map, BuildingKind::GuardTower, 0);
+        // All tower kinds block pathing (impassable like walls) -- driven by registry
+        for def in crate::constants::BUILDING_REGISTRY.iter() {
+            if def.is_tower {
+                self.apply_building_overlay(entity_map, def.kind, 0);
+            }
+        }
         // Gates are passable (same cost as dirt road) -- faction gating is behavioral
         self.apply_building_overlay(entity_map, BuildingKind::Gate, 67);
         // Apply road overlays — higher tiers override lower (iter order: dirt, stone, metal)
