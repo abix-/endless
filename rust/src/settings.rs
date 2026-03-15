@@ -645,7 +645,7 @@ pub struct UserSettings {
     /// Graphics backend: 0 = Auto, 1 = Vulkan, 2 = DX12. Requires restart.
     #[serde(default)]
     pub gpu_backend: u8,
-    // World gen style (0=Classic, 1=Continents)
+    // World gen style (0=Classic, 1=Continents, 2=Maze, 3=WorldMap)
     #[serde(default)]
     pub gen_style: u8,
     // AI players (legacy — used for backward compat, derived from ai_slots)

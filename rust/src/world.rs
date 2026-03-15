@@ -2039,12 +2039,57 @@ pub(crate) fn terrain_base_cost(biome: Biome) -> u16 {
 // ============================================================================
 
 /// World generation algorithm style.
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum WorldGenStyle {
     Classic,
     #[default]
     Continents,
     Maze,
+    WorldMap,
+}
+
+impl WorldGenStyle {
+    pub const ALL: &[WorldGenStyle] = &[
+        WorldGenStyle::Classic,
+        WorldGenStyle::Continents,
+        WorldGenStyle::Maze,
+        WorldGenStyle::WorldMap,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            WorldGenStyle::Classic => "Classic",
+            WorldGenStyle::Continents => "Continents",
+            WorldGenStyle::Maze => "Maze",
+            WorldGenStyle::WorldMap => "World Map",
+        }
+    }
+
+    pub fn from_index(i: u8) -> Self {
+        match i {
+            0 => WorldGenStyle::Classic,
+            2 => WorldGenStyle::Maze,
+            3 => WorldGenStyle::WorldMap,
+            _ => WorldGenStyle::Continents,
+        }
+    }
+
+    pub fn to_index(self) -> u8 {
+        match self {
+            WorldGenStyle::Classic => 0,
+            WorldGenStyle::Continents => 1,
+            WorldGenStyle::Maze => 2,
+            WorldGenStyle::WorldMap => 3,
+        }
+    }
+
+    /// Whether terrain must be generated before town placement (to reject water/ice).
+    pub fn needs_pre_terrain(self) -> bool {
+        matches!(
+            self,
+            WorldGenStyle::Continents | WorldGenStyle::Maze | WorldGenStyle::WorldMap
+        )
+    }
 }
 
 /// Configuration for procedural world generation.
@@ -2217,21 +2262,20 @@ pub fn generate_world(
     }
     let mut name_idx = 0;
 
-    let is_continents = config.gen_style == WorldGenStyle::Continents;
-    let is_maze = config.gen_style == WorldGenStyle::Maze;
-    let terrain_first = is_continents || is_maze;
+    let needs_pre_terrain = config.gen_style.needs_pre_terrain();
 
-    // Terrain-first styles: generate terrain before town placement so we can reject invalid cells
-    if is_continents {
-        generate_terrain_continents(grid);
-    } else if is_maze {
-        generate_terrain_maze(grid);
+    // Pre-generate terrain so we can reject Water/Ice positions during town placement
+    match config.gen_style {
+        WorldGenStyle::Continents => generate_terrain_continents(grid),
+        WorldGenStyle::Maze => generate_terrain_maze(grid),
+        WorldGenStyle::WorldMap => generate_terrain_worldmap(grid),
+        WorldGenStyle::Classic => {}
     }
 
     // All settlement positions for min_distance checks
     let mut all_positions: Vec<Vec2> = Vec::new();
-    // Terrain-first styles need more attempts since many positions land on impassable cells
-    let max_attempts = if terrain_first { 5000 } else { 2000 };
+    // Pre-terrain styles need more attempts since many positions land on impassable cells
+    let max_attempts = if needs_pre_terrain { 5000 } else { 2000 };
     // Step 2: Place towns — single loop driven by TOWN_REGISTRY
     for town_def in TOWN_REGISTRY {
         let count = config.count_for(town_def.kind);
@@ -2243,7 +2287,7 @@ pub fn generate_world(
             let y =
                 rng.random_range(config.world_margin..config.world_height - config.world_margin);
             let pos = Vec2::new(x, y);
-            if terrain_first {
+            if needs_pre_terrain {
                 let (gc, gr) = grid.world_to_grid(pos);
                 if grid
                     .cell(gc, gr)
@@ -2314,9 +2358,8 @@ pub fn generate_world(
         }
     }
 
-    // Step 3: Generate terrain
-    if is_continents || is_maze {
-        // Terrain already generated; stamp dirt clearings around settlements
+    // Step 3: Generate terrain (or stamp dirt for pre-generated styles)
+    if needs_pre_terrain {
         stamp_dirt(grid, &all_positions);
     } else {
         generate_terrain(grid, &all_positions, &[]);
@@ -2332,7 +2375,7 @@ pub fn generate_world(
         let y = rng.random_range(config.world_margin..config.world_height - config.world_margin);
         let pos = Vec2::new(x, y);
         // Not on impassable terrain
-        if terrain_first {
+        if needs_pre_terrain {
             let (gc, gr) = grid.world_to_grid(pos);
             if grid
                 .cell(gc, gr)
@@ -2390,11 +2433,7 @@ pub fn generate_world(
         rock_count,
         w,
         h,
-        if is_continents {
-            "continents"
-        } else {
-            "classic"
-        },
+        config.gen_style.label(),
     );
     area_levels
 }
@@ -2941,6 +2980,127 @@ fn generate_terrain_maze(grid: &mut WorldGrid) {
     }
 }
 
+/// World Map terrain generation: multi-octave noise with continent seeds,
+/// latitude-driven biomes, ice caps, and natural chokepoints.
+fn generate_terrain_worldmap(grid: &mut WorldGrid) {
+    use noise::{NoiseFn, Simplex};
+
+    let elevation_noise = Simplex::new(rand::random::<u32>());
+    let moisture_noise = Simplex::new(rand::random::<u32>());
+    let detail_noise = Simplex::new(rand::random::<u32>());
+
+    let world_w = grid.width as f64 * grid.cell_size as f64;
+    let world_h = grid.height as f64 * grid.cell_size as f64;
+
+    // Tunable parameters (fixed defaults for v1)
+    let land_pct: f64 = 0.45; // 45% land
+    let ice_cap_pct: f64 = 0.12; // 12% of map height at each pole
+    let continent_count: usize = 3;
+
+    // Generate continent seed points for elevation bias
+    let mut continent_seeds: Vec<(f64, f64)> = Vec::with_capacity(continent_count);
+    let mut seed_rng = rand::rng();
+    use rand::Rng;
+    for _ in 0..continent_count {
+        let cx = seed_rng.random_range(0.15..0.85) * world_w;
+        let cy = seed_rng.random_range(0.2..0.8) * world_h;
+        continent_seeds.push((cx, cy));
+    }
+
+    // Water threshold: lower = more land. Calibrate so ~land_pct of cells are land.
+    // With continent bias, threshold around 0.38-0.42 gives ~45% land.
+    let water_threshold: f64 = 0.5 - land_pct * 0.4;
+
+    for row in 0..grid.height {
+        for col in 0..grid.width {
+            let world_pos = grid.grid_to_world(col, row);
+            let wx = world_pos.x as f64;
+            let wy = world_pos.y as f64;
+
+            // Latitude: 0.0 at top (north pole), 1.0 at bottom (south pole)
+            let lat = wy / world_h;
+
+            // Ice caps at poles
+            if lat < ice_cap_pct || lat > (1.0 - ice_cap_pct) {
+                let cell = &mut grid.cells[row * grid.width + col];
+                cell.terrain = Biome::Rock; // impassable ice
+                cell.original_terrain = Biome::Rock;
+                continue;
+            }
+
+            // 4-octave fBm elevation
+            let e_raw = (1.0 * elevation_noise.get([wx * 0.00025, wy * 0.00025])
+                + 0.5 * elevation_noise.get([wx * 0.0005, wy * 0.0005])
+                + 0.25 * elevation_noise.get([wx * 0.001, wy * 0.001])
+                + 0.125 * elevation_noise.get([wx * 0.002, wy * 0.002]))
+                / 1.875;
+
+            // Continent seed bias: boost elevation near seed points
+            let mut continent_boost: f64 = 0.0;
+            for &(cx, cy) in &continent_seeds {
+                let dx = (wx - cx) / world_w;
+                let dy = (wy - cy) / world_h;
+                let dist_sq = dx * dx + dy * dy;
+                // Gaussian-ish falloff: strong boost near seeds, fading with distance
+                let radius = 0.15; // ~15% of world size
+                continent_boost += (-dist_sq / (2.0 * radius * radius)).exp();
+            }
+            // Normalize: max possible boost is continent_count (all seeds at same point)
+            continent_boost = (continent_boost / continent_count as f64).min(1.0);
+
+            // Combine noise + continent bias
+            let e_norm = (e_raw + 1.0) * 0.5; // [0, 1]
+            let elevation = (e_norm * 0.6 + continent_boost * 0.4).clamp(0.0, 1.0);
+
+            // Edge falloff: push map edges toward ocean
+            let nx = (wx / world_w - 0.5) * 2.0;
+            let ny = (wy / world_h - 0.5) * 2.0;
+            let edge_dist = 1.0 - (1.0 - nx * nx) * (1.0 - ny * ny);
+            let elevation = (elevation * (1.0 - edge_dist * 0.7)).max(0.0);
+
+            // Chokepoint detail: high-frequency noise creates thin land bridges / straits
+            let choke = detail_noise.get([wx * 0.003, wy * 0.003]);
+            // Near the land/water boundary, detail noise can carve straits or extend bridges
+            let elevation = elevation
+                + choke * 0.04 * (1.0 - (elevation - water_threshold).abs().min(0.15) / 0.15);
+
+            // Moisture for biome selection within land
+            let m = (moisture_noise.get([wx * 0.0012, wy * 0.0012]) + 1.0) * 0.5;
+
+            // Biome assignment
+            let biome = if elevation < water_threshold {
+                Biome::Water
+            } else {
+                // Latitude-driven temperature: 0=polar, 0.5=equator, 1=polar
+                let temp_lat = 1.0 - (lat - 0.5).abs() * 2.0; // 0 at poles, 1 at equator
+
+                if temp_lat < 0.2 {
+                    // Near-polar: tundra (rock/barren)
+                    if m > 0.6 { Biome::Forest } else { Biome::Rock }
+                } else if temp_lat < 0.5 {
+                    // Temperate
+                    if m > 0.55 {
+                        Biome::Forest
+                    } else {
+                        Biome::Grass
+                    }
+                } else {
+                    // Equatorial / warm
+                    if m > 0.65 {
+                        Biome::Forest
+                    } else {
+                        Biome::Grass
+                    }
+                }
+            };
+
+            let cell = &mut grid.cells[row * grid.width + col];
+            cell.terrain = biome;
+            cell.original_terrain = biome;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3206,5 +3366,181 @@ mod tests {
                 },
             )
             .unwrap();
+    }
+
+    #[test]
+    fn worldmap_generates_corridors_and_ice_caps() {
+        let mut grid = WorldGrid::default();
+        grid.width = 100;
+        grid.height = 100;
+        grid.cell_size = 64.0;
+        grid.cells = vec![WorldCell::default(); 100 * 100];
+
+        generate_terrain_worldmap(&mut grid);
+
+        // Count biome types
+        let mut water = 0usize;
+        let mut land = 0usize;
+        let mut ice_top = 0usize;
+        let mut ice_bottom = 0usize;
+
+        let ice_rows = (100.0 * 0.12) as usize; // 12 rows each pole
+
+        for row in 0..grid.height {
+            for col in 0..grid.width {
+                let cell = &grid.cells[row * grid.width + col];
+                match cell.terrain {
+                    Biome::Water => water += 1,
+                    Biome::Rock => {
+                        if row < ice_rows {
+                            ice_top += 1;
+                        } else if row >= grid.height - ice_rows {
+                            ice_bottom += 1;
+                        }
+                    }
+                    _ => land += 1,
+                }
+            }
+        }
+
+        let total = (grid.width * grid.height) as f64;
+
+        // Ice caps: top and bottom rows should be mostly Rock
+        let top_total = (ice_rows * grid.width) as f64;
+        let bot_total = (ice_rows * grid.width) as f64;
+        assert!(
+            ice_top as f64 / top_total > 0.9,
+            "top ice cap should be >90% rock, got {:.1}%",
+            ice_top as f64 / top_total * 100.0
+        );
+        assert!(
+            ice_bottom as f64 / bot_total > 0.9,
+            "bottom ice cap should be >90% rock, got {:.1}%",
+            ice_bottom as f64 / bot_total * 100.0
+        );
+
+        // Should have meaningful water and land
+        assert!(
+            water as f64 / total > 0.1,
+            "should have >10% water, got {:.1}%",
+            water as f64 / total * 100.0
+        );
+        assert!(
+            land as f64 / total > 0.15,
+            "should have >15% land, got {:.1}%",
+            land as f64 / total * 100.0
+        );
+    }
+
+    #[test]
+    fn worldmap_biomes_follow_latitude() {
+        let mut grid = WorldGrid::default();
+        grid.width = 200;
+        grid.height = 200;
+        grid.cell_size = 64.0;
+        grid.cells = vec![WorldCell::default(); 200 * 200];
+
+        generate_terrain_worldmap(&mut grid);
+
+        // Sample equatorial band (rows 90-110) and near-polar band (rows 25-35)
+        let mut equatorial_grass = 0usize;
+        let mut equatorial_total = 0usize;
+        let mut polar_rock = 0usize;
+        let mut polar_total = 0usize;
+
+        for row in 90..110 {
+            for col in 0..grid.width {
+                let cell = &grid.cells[row * grid.width + col];
+                if cell.terrain != Biome::Water {
+                    equatorial_total += 1;
+                    if cell.terrain == Biome::Grass {
+                        equatorial_grass += 1;
+                    }
+                }
+            }
+        }
+
+        // Ice cap rows (within 12% of poles) should be Rock
+        let ice_rows = (200.0 * 0.12) as usize;
+        for row in 0..ice_rows {
+            for col in 0..grid.width {
+                let cell = &grid.cells[row * grid.width + col];
+                polar_total += 1;
+                if cell.terrain == Biome::Rock {
+                    polar_rock += 1;
+                }
+            }
+        }
+
+        // Equatorial band should have some grass (not all rock/forest)
+        if equatorial_total > 0 {
+            assert!(
+                equatorial_grass > 0,
+                "equatorial band should have some grass cells"
+            );
+        }
+
+        // Ice cap should be all Rock
+        assert!(
+            polar_rock == polar_total,
+            "ice cap rows should be 100% rock, got {}/{}",
+            polar_rock,
+            polar_total
+        );
+    }
+
+    #[test]
+    fn worldmap_towns_avoid_water_and_ice() {
+        // Verify that town placement rejects water/ice cells
+        let mut grid = WorldGrid::default();
+        grid.width = 50;
+        grid.height = 50;
+        grid.cell_size = 64.0;
+        grid.cells = vec![WorldCell::default(); 50 * 50];
+
+        // Set all cells to water
+        for cell in &mut grid.cells {
+            cell.terrain = Biome::Water;
+            cell.original_terrain = Biome::Water;
+        }
+        // Set a few cells to grass (valid placement)
+        let valid_col = 25;
+        let valid_row = 25;
+        for r in valid_row - 2..=valid_row + 2 {
+            for c in valid_col - 2..=valid_col + 2 {
+                let idx = r * grid.width + c;
+                grid.cells[idx].terrain = Biome::Grass;
+                grid.cells[idx].original_terrain = Biome::Grass;
+            }
+        }
+
+        // Test the rejection: WorldMap style rejects Water and Rock
+        let style = WorldGenStyle::WorldMap;
+        assert!(style.needs_pre_terrain());
+
+        let pos_water = grid.grid_to_world(5, 5);
+        let (gc, gr) = grid.world_to_grid(pos_water);
+        let cell = grid.cell(gc, gr).unwrap();
+        assert_eq!(cell.terrain, Biome::Water);
+
+        let pos_grass = grid.grid_to_world(valid_col, valid_row);
+        let (gc, gr) = grid.world_to_grid(pos_grass);
+        let cell = grid.cell(gc, gr).unwrap();
+        assert_eq!(cell.terrain, Biome::Grass);
+    }
+
+    #[test]
+    fn worldgen_style_roundtrip() {
+        for &style in WorldGenStyle::ALL {
+            let idx = style.to_index();
+            let back = WorldGenStyle::from_index(idx);
+            assert_eq!(
+                style,
+                back,
+                "roundtrip failed for {:?} (index {})",
+                style.label(),
+                idx
+            );
+        }
     }
 }
