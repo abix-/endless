@@ -447,6 +447,7 @@ pub fn build_app(app: &mut App) {
         .register_type::<components::HasEnergy>()
         .register_type::<components::NpcEquipment>()
         .register_type::<components::NpcStats>()
+        .register_type::<components::NpcSkills>()
         .register_type::<components::LastHitBy>()
         .register_type::<components::Building>()
         .register_type::<components::FarmReadyMarker>()
