@@ -90,6 +90,10 @@ Each resource node is a regular building:
 - GPU instanced rendering through the standard building pipeline
 - Saved/loaded as buildings in EntityMap
 
+## Terrain
+
+Resource nodes render on top of Grass terrain, regardless of the source biome. When a node is placed on a Forest or Rock cell, the underlying terrain should display as Grass so the node sprite is visible against a clean background. The node entity itself represents the tree/rock -- the biome tile underneath should not also show a tree/rock.
+
 ## Worldgen
 
 Spawn nodes during `generate_world()` after terrain generation:
