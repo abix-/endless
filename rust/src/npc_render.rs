@@ -814,6 +814,34 @@ fn build_overlay_instances(
                     rotation: 0.0,
                 });
             }
+            crate::world::BuildingKind::TreeNode => {
+                if production.progress > 0.0 {
+                    overlay.0.push(InstanceData {
+                        position: [pos.x, pos.y + 24.0],
+                        sprite: [0.0, 0.0],
+                        color: [0.3, 0.75, 0.2, 1.0],
+                        health: production.progress.clamp(0.0, 1.0),
+                        flash: 0.0,
+                        scale: 24.0,
+                        atlas_id: 6.0,
+                        rotation: 0.0,
+                    });
+                }
+            }
+            crate::world::BuildingKind::RockNode => {
+                if production.progress > 0.0 {
+                    overlay.0.push(InstanceData {
+                        position: [pos.x, pos.y + 24.0],
+                        sprite: [0.0, 0.0],
+                        color: [0.6, 0.6, 0.6, 1.0],
+                        health: production.progress.clamp(0.0, 1.0),
+                        flash: 0.0,
+                        scale: 24.0,
+                        atlas_id: 6.0,
+                        rotation: 0.0,
+                    });
+                }
+            }
             _ => {}
         }
     }

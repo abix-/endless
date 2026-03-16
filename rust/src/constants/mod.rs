@@ -359,6 +359,12 @@ pub const WALL_UPGRADE_COSTS: [&[(ResourceKind, i32)]; 2] = [
 /// Tended growth rate for mines (per game-hour). 0.25 = 4 hours to full when miner is working.
 pub const MINE_TENDED_GROWTH_RATE: f32 = 0.25;
 
+/// Chop progress per game-hour. 0.5 = 2 hours for a woodcutter to fell a tree.
+pub const TREE_CHOP_RATE: f32 = 0.5;
+
+/// Quarry progress per game-hour. 0.33 = ~3 hours for a quarrier to break a rock.
+pub const ROCK_QUARRY_RATE: f32 = 0.33;
+
 /// Max distance from mine to continue tending (pushed away = abort + re-walk).
 pub const MINE_WORK_RADIUS: f32 = 40.0;
 

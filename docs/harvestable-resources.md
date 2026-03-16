@@ -9,8 +9,8 @@ All resource gathering uses one unified system: WorksiteDef + ProductionState + 
 | Food | Biome | `Farm` | `FoodStore` | `FarmerHome` | `Farmer` | Timed (day only, tended=faster) | No (regrows) |
 | Food (cow) | Building | `Farm` (cow mode) | `FoodStore` | `FarmerHome` | `Farmer` | Timed (always, food cost) | No (regrows) |
 | Gold | Worldgen | `GoldMine` | `GoldStore` | `MinerHome` | `Miner` | Timed (tended only) | No (regrows) |
-| Wood | Forest biome | `TreeNode` | `WoodStore` | `LumberMill` | `Woodcutter` | Instant (always ready) | Yes (one-shot) |
-| Stone | Rock biome | `RockNode` | `StoneStore` | `Quarry` | `Quarrier` | Instant (always ready) | Yes (one-shot) |
+| Wood | Forest biome | `TreeNode` | `WoodStore` | `LumberMill` | `Woodcutter` | Timed (worker chops, 2hr) | Yes (one-shot) |
+| Stone | Rock biome | `RockNode` | `StoneStore` | `Quarry` | `Quarrier` | Timed (worker quarries, 3hr) | Yes (one-shot) |
 
 Iron is out of scope.
 
@@ -41,14 +41,15 @@ pub struct WorksiteDef {
 
 ### ProductionState (ECS -- Instance layer)
 
-All worksites get `ProductionState` on spawn (already implemented). For one-shot nodes, `growth_system` sets `ready = true` immediately. For farms/mines, growth is timed.
+All worksites get `ProductionState` on spawn (already implemented). Farms grow over time, mines are repeatedly mined, and resource nodes (trees/rocks) require worker time to chop/quarry before yielding (one-shot).
 
 ### growth_system (Controller)
 
 Handles ALL worksite types via a single `match building.kind` block:
 - `Farm`: timed growth, day-only for crops, always for cows
 - `GoldMine`: timed growth, requires occupant
-- `TreeNode | RockNode`: instant ready (always available when awake)
+- `TreeNode`: worker chops over time (`TREE_CHOP_RATE`, ~2hr), one-shot destroy after yield
+- `RockNode`: worker quarries over time (`ROCK_QUARRY_RATE`, ~3hr), one-shot destroy after yield
 
 ### decision_system -- Work activity (Controller)
 
