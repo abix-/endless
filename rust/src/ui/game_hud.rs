@@ -696,6 +696,7 @@ pub struct BuildingInspectorData<'w, 's> {
     pub combat_state_q: Query<'w, 's, &'static CombatState>,
     pub energy_q: Query<'w, 's, &'static Energy>,
     pub personality_q: Query<'w, 's, &'static Personality>,
+    pub skills_q: Query<'w, 's, &'static NpcSkills>,
     pub home_q: Query<'w, 's, &'static Home>,
     pub work_state_q: Query<'w, 's, &'static NpcWorkState>,
     pub equipment_q: Query<'w, 's, &'static NpcEquipment>,
@@ -1750,6 +1751,61 @@ fn inspector_content(
                         format!("Trait: {}", trait_str),
                         catalog.0.get("npc_trait").unwrap_or(&""),
                     );
+                }
+            }
+            // Show non-zero skill proficiencies
+            if let Ok(skills) = bld_data.skills_q.get(npc.entity) {
+                let mut parts: Vec<String> = Vec::new();
+                let skill_color = |v: f32| -> egui::Color32 {
+                    if v >= 75.0 {
+                        egui::Color32::from_rgb(100, 220, 100)
+                    } else if v >= 25.0 {
+                        egui::Color32::WHITE
+                    } else {
+                        egui::Color32::GRAY
+                    }
+                };
+                for (name, val) in [
+                    ("Farm", skills.farming),
+                    ("Combat", skills.combat),
+                    ("Dodge", skills.dodge),
+                ] {
+                    if val > 0.0 {
+                        parts.push(format!("{} {}", name, val as i32));
+                    }
+                }
+                if !parts.is_empty() {
+                    let mut job = egui::text::LayoutJob::default();
+                    job.append(
+                        "Skills: ",
+                        0.0,
+                        egui::TextFormat {
+                            color: egui::Color32::WHITE,
+                            ..Default::default()
+                        },
+                    );
+                    for (i, (name, val)) in [
+                        ("Farm", skills.farming),
+                        ("Combat", skills.combat),
+                        ("Dodge", skills.dodge),
+                    ]
+                    .iter()
+                    .filter(|(_, v)| *v > 0.0)
+                    .enumerate()
+                    {
+                        if i > 0 {
+                            job.append("  ", 0.0, egui::TextFormat::default());
+                        }
+                        job.append(
+                            &format!("{} {}", name, *val as i32),
+                            0.0,
+                            egui::TextFormat {
+                                color: skill_color(*val),
+                                ..Default::default()
+                            },
+                        );
+                    }
+                    ui.label(job);
                 }
             }
         }
