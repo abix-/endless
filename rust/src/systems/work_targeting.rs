@@ -158,6 +158,9 @@ fn claim_worksite(
             find_farm_target(from, entity_map, town_idx, production_map, cow_farm_slots)
         }
         BuildingKind::GoldMine => find_mine_target(from, entity_map, town_idx, production_map),
+        BuildingKind::TreeNode | BuildingKind::RockNode => {
+            find_node_target(from, entity_map, town_idx, kind)
+        }
         _ => return,
     };
 
@@ -263,6 +266,28 @@ fn find_mine_target(
                 } else {
                     2
                 };
+                Some((priority, (inst.position - from).length_squared().to_bits()))
+            },
+        )
+        .map(|r| (r.slot, r.position, r.radius_used))
+}
+
+/// Find nearest available resource node (TreeNode or RockNode) for woodcutter/quarrier.
+fn find_node_target(
+    from: Vec2,
+    entity_map: &EntityMap,
+    town_idx: u32,
+    kind: BuildingKind,
+) -> Option<(usize, Vec2, f32)> {
+    entity_map
+        .find_nearest_worksite(
+            from,
+            kind,
+            town_idx,
+            WorksiteFallback::AnyTown,
+            6400.0,
+            |inst, occ| {
+                let priority = if occ == 0 { 0u8 } else { 1 };
                 Some((priority, (inst.position - from).length_squared().to_bits()))
             },
         )

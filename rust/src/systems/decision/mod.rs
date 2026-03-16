@@ -670,15 +670,14 @@ pub fn decision_system(
                                             let mode = farm_entity_opt
                                                 .and_then(|e| farm_mode_q.get(e).ok())
                                                 .map_or(FarmMode::Crops, |m| m.0);
-                                            let food =
-                                                ps.harvest_with_mode(BuildingKind::Farm, mode);
+                                            let food = ps.take_yield(BuildingKind::Farm, mode);
                                             if food > 0 {
                                                 let pos = entity_map
                                                     .get_instance(farm_slot)
                                                     .map_or(Vec2::ZERO, |i| i.position);
                                                 Some((
                                                     food,
-                                                    ProductionState::harvest_log_msg(
+                                                    ProductionState::yield_log_msg(
                                                         BuildingKind::Farm,
                                                         pos,
                                                         food,
@@ -852,7 +851,7 @@ pub fn decision_system(
                                         let mode = farm_e
                                             .and_then(|e| farm_mode_q.get(e).ok())
                                             .map_or(FarmMode::Crops, |m| m.0);
-                                        let f = ps.harvest_with_mode(BuildingKind::Farm, mode);
+                                        let f = ps.take_yield(BuildingKind::Farm, mode);
                                         if f > 0 {
                                             combat_log.write(CombatLogMsg {
                                                 kind: CombatEventKind::Harvest,
@@ -860,7 +859,7 @@ pub fn decision_system(
                                                 day: game_time.day(),
                                                 hour: game_time.hour(),
                                                 minute: game_time.minute(),
-                                                message: ProductionState::harvest_log_msg(
+                                                message: ProductionState::yield_log_msg(
                                                     BuildingKind::Farm,
                                                     fp,
                                                     f,
@@ -995,7 +994,9 @@ pub fn decision_system(
                                 );
                                 let base_gold = mine_entity
                                     .and_then(|e| production_q.get_mut(e).ok())
-                                    .map(|mut ps| ps.harvest(BuildingKind::GoldMine))
+                                    .map(|mut ps| {
+                                        ps.take_yield(BuildingKind::GoldMine, FarmMode::Crops)
+                                    })
                                     .unwrap_or(0);
                                 if base_gold > 0 {
                                     combat_log.write(CombatLogMsg {
@@ -1004,7 +1005,7 @@ pub fn decision_system(
                                         day: game_time.day(),
                                         hour: game_time.hour(),
                                         minute: game_time.minute(),
-                                        message: ProductionState::harvest_log_msg(
+                                        message: ProductionState::yield_log_msg(
                                             BuildingKind::GoldMine,
                                             mine_pos,
                                             base_gold,
@@ -1091,78 +1092,6 @@ pub fn decision_system(
                                 game_time.hour(),
                                 game_time.minute(),
                                 "No mine nearby -> Idle",
-                            );
-                        }
-                    }
-                    ActivityKind::Chop | ActivityKind::Quarry => {
-                        // Arrived at resource node -- harvest (destroy node) and return
-                        let node_slot = worksite;
-                        let node_entity =
-                            node_slot.and_then(|s| entity_map.entities.get(&s).copied());
-                        if let Some(ne) = node_entity {
-                            // Destroy node via damage (death_system handles cleanup)
-                            extras.damage.write(crate::messages::DamageMsg {
-                                target: ne,
-                                amount: 9999.0,
-                                attacker: idx as i32,
-                                attacker_faction: faction_i32,
-                            });
-                            // Gain resource
-                            let resource_name = if activity.kind == ActivityKind::Chop {
-                                carried_loot.wood += 1;
-                                "wood"
-                            } else {
-                                carried_loot.stone += 1;
-                                "stone"
-                            };
-                            // Release worksite
-                            let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
-                            extras
-                                .work_intents
-                                .write(WorkIntentMsg(WorkIntent::Release {
-                                    entity,
-                                    worksite: uid,
-                                }));
-                            worksite = None;
-                            worksite_deferred = true;
-                            // Return home with loot
-                            transition_activity(
-                                &mut activity,
-                                ActivityKind::ReturnLoot,
-                                ActivityPhase::Transit,
-                                ActivityTarget::Dropoff,
-                                "arrival:harvest_return",
-                            );
-                            submit_intent(
-                                &mut intents,
-                                entity,
-                                home.x,
-                                home.y,
-                                MovementPriority::JobRoute,
-                                "arrival:harvest_return",
-                            );
-                            npc_logs.push(
-                                idx,
-                                game_time.day(),
-                                game_time.hour(),
-                                game_time.minute(),
-                                format!("Harvested 1 {} -> Returning", resource_name),
-                            );
-                        } else {
-                            // Node gone -- return to idle
-                            transition_activity(
-                                &mut activity,
-                                ActivityKind::Idle,
-                                ActivityPhase::Ready,
-                                ActivityTarget::None,
-                                "transition",
-                            );
-                            npc_logs.push(
-                                idx,
-                                game_time.day(),
-                                game_time.hour(),
-                                game_time.minute(),
-                                "Node gone -> Idle",
                             );
                         }
                     }
@@ -2078,7 +2007,7 @@ pub fn decision_system(
                         let mode = ws_entity
                             .and_then(|e| farm_mode_q.get(e).ok())
                             .map_or(FarmMode::Crops, |m| m.0);
-                        let base_yield = ps.harvest_with_mode(kind, mode);
+                        let base_yield = ps.take_yield(kind, mode);
                         if base_yield > 0 {
                             combat_log.write(CombatLogMsg {
                                 kind: CombatEventKind::Harvest,
@@ -2086,7 +2015,7 @@ pub fn decision_system(
                                 day: game_time.day(),
                                 hour: game_time.hour(),
                                 minute: game_time.minute(),
-                                message: ProductionState::harvest_log_msg(kind, ws_pos, base_yield),
+                                message: ProductionState::yield_log_msg(kind, ws_pos, base_yield),
                                 location: None,
                             });
                         }
@@ -2100,7 +2029,18 @@ pub fn decision_system(
                             }));
                         worksite = None;
                         worksite_deferred = true;
-                        match ws.harvest_item {
+                        // One-shot worksites (resource nodes): destroy after yield
+                        if ws.one_shot {
+                            if let Some(ne) = ws_entity {
+                                extras.damage.write(crate::messages::DamageMsg {
+                                    target: ne,
+                                    amount: 9999.0,
+                                    attacker: idx as i32,
+                                    attacker_faction: faction_i32,
+                                });
+                            }
+                        }
+                        match ws.yield_item {
                             ResourceKind::Food => carried_loot.food += final_yield,
                             ResourceKind::Gold => carried_loot.gold += final_yield,
                             ResourceKind::Wood => carried_loot.wood += final_yield,
@@ -2778,77 +2718,35 @@ pub fn decision_system(
                         }
                         Job::Woodcutter => {
                             let current_pos = npc_pos.unwrap_or(home);
-                            let target = entity_map
-                                .find_nearest_worksite(
-                                    current_pos,
-                                    BuildingKind::TreeNode,
-                                    town_idx_i32 as u32,
-                                    crate::resources::WorksiteFallback::AnyTown,
-                                    6400.0,
-                                    |_inst, occ| {
-                                        let priority = if occ == 0 { 0u8 } else { 1 };
-                                        Some((
-                                            priority,
-                                            occ as u16,
-                                            _inst.position.distance_squared(current_pos).to_bits(),
-                                        ))
-                                    },
-                                )
-                                .map(|r| r.position);
-                            if let Some(node_pos) = target {
-                                transition_activity(
-                                    &mut activity,
-                                    ActivityKind::Chop,
-                                    ActivityPhase::Transit,
-                                    ActivityTarget::Worksite,
-                                    "transition",
-                                );
-                                submit_intent(
-                                    &mut intents,
-                                    entity,
-                                    node_pos.x,
-                                    node_pos.y,
-                                    MovementPriority::JobRoute,
-                                    "idle:work_chop",
-                                );
-                            }
+                            extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
+                                entity,
+                                kind: BuildingKind::TreeNode,
+                                town_idx: town_idx_i32 as u32,
+                                from: current_pos,
+                            }));
+                            transition_activity(
+                                &mut activity,
+                                ActivityKind::Work,
+                                ActivityPhase::Transit,
+                                ActivityTarget::Worksite,
+                                "work_claim_tree",
+                            );
                         }
                         Job::Quarrier => {
                             let current_pos = npc_pos.unwrap_or(home);
-                            let target = entity_map
-                                .find_nearest_worksite(
-                                    current_pos,
-                                    BuildingKind::RockNode,
-                                    town_idx_i32 as u32,
-                                    crate::resources::WorksiteFallback::AnyTown,
-                                    6400.0,
-                                    |_inst, occ| {
-                                        let priority = if occ == 0 { 0u8 } else { 1 };
-                                        Some((
-                                            priority,
-                                            occ as u16,
-                                            _inst.position.distance_squared(current_pos).to_bits(),
-                                        ))
-                                    },
-                                )
-                                .map(|r| r.position);
-                            if let Some(node_pos) = target {
-                                transition_activity(
-                                    &mut activity,
-                                    ActivityKind::Quarry,
-                                    ActivityPhase::Transit,
-                                    ActivityTarget::Worksite,
-                                    "transition",
-                                );
-                                submit_intent(
-                                    &mut intents,
-                                    entity,
-                                    node_pos.x,
-                                    node_pos.y,
-                                    MovementPriority::JobRoute,
-                                    "idle:work_quarry",
-                                );
-                            }
+                            extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
+                                entity,
+                                kind: BuildingKind::RockNode,
+                                town_idx: town_idx_i32 as u32,
+                                from: current_pos,
+                            }));
+                            transition_activity(
+                                &mut activity,
+                                ActivityKind::Work,
+                                ActivityPhase::Transit,
+                                ActivityTarget::Worksite,
+                                "work_claim_rock",
+                            );
                         }
                         Job::Boat => {} // CPU-driven movement, no behavior
                         Job::Mason => {
@@ -2980,13 +2878,18 @@ pub fn decision_system(
         // Write back carried loot if changed
         {
             let orig_cl = npc_data.carried_loot_q.get(entity).ok();
-            let changed = orig_cl
-                .as_ref()
-                .is_none_or(|cl| cl.food != carried_loot.food || cl.gold != carried_loot.gold);
+            let changed = orig_cl.as_ref().is_none_or(|cl| {
+                cl.food != carried_loot.food
+                    || cl.gold != carried_loot.gold
+                    || cl.wood != carried_loot.wood
+                    || cl.stone != carried_loot.stone
+            });
             if changed {
                 if let Ok(mut cl) = npc_data.carried_loot_q.get_mut(entity) {
                     cl.food = carried_loot.food;
                     cl.gold = carried_loot.gold;
+                    cl.wood = carried_loot.wood;
+                    cl.stone = carried_loot.stone;
                 }
             }
         }

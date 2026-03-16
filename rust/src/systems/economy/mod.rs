@@ -248,6 +248,27 @@ pub fn growth_system(
                     }
                 }
             }
+            // Resource nodes: worker chops/quarries over time, one-shot destroy after yield
+            BuildingKind::TreeNode => {
+                let worker_count = entity_map.occupant_count(slot);
+                if worker_count > 0 {
+                    production.progress += crate::constants::TREE_CHOP_RATE * hours_elapsed;
+                    if production.progress >= 1.0 {
+                        production.ready = true;
+                        production.progress = 1.0;
+                    }
+                }
+            }
+            BuildingKind::RockNode => {
+                let worker_count = entity_map.occupant_count(slot);
+                if worker_count > 0 {
+                    production.progress += crate::constants::ROCK_QUARRY_RATE * hours_elapsed;
+                    if production.progress >= 1.0 {
+                        production.ready = true;
+                        production.progress = 1.0;
+                    }
+                }
+            }
             _ => {}
         }
     }

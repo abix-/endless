@@ -855,22 +855,6 @@ pub const ACTIVITY_REGISTRY: &[ActivityDef] = &[
         is_working: true,
     },
     ActivityDef {
-        activity: ActivityKind::Chop,
-        label: "Chopping",
-        distraction: Distraction::ByDamage,
-        sleep_visual: false,
-        is_restful: false,
-        is_working: true,
-    },
-    ActivityDef {
-        activity: ActivityKind::Quarry,
-        label: "Quarrying",
-        distraction: Distraction::ByDamage,
-        sleep_visual: false,
-        is_restful: false,
-        is_working: true,
-    },
-    ActivityDef {
         activity: ActivityKind::Repair,
         label: "Repairing",
         distraction: Distraction::ByDamage,

@@ -221,8 +221,6 @@ pub enum ActivityKind {
     #[default]
     Idle,
     Work,
-    Chop,
-    Quarry,
     Patrol,
     SquadAttack,
     Rest,
@@ -728,13 +726,9 @@ pub struct ProductionState {
 }
 
 impl ProductionState {
-    /// Harvest a Ready worksite. Resets to Growing, returns yield.
-    pub fn harvest(&mut self, kind: crate::world::BuildingKind) -> i32 {
-        self.harvest_with_mode(kind, FarmMode::Crops)
-    }
-
-    /// Harvest with farm mode awareness. Cows yield more per cycle.
-    pub fn harvest_with_mode(&mut self, kind: crate::world::BuildingKind, mode: FarmMode) -> i32 {
+    /// Take yield from a ready worksite. Resets progress, returns yield amount.
+    /// Farm mode affects cow yield. One-shot worksites return yield once.
+    pub fn take_yield(&mut self, kind: crate::world::BuildingKind, mode: FarmMode) -> i32 {
         if !self.ready {
             return 0;
         }
@@ -753,11 +747,7 @@ impl ProductionState {
     }
 
     /// Log message for a harvest event.
-    pub fn harvest_log_msg(
-        kind: crate::world::BuildingKind,
-        pos: Vec2,
-        yield_amount: i32,
-    ) -> String {
+    pub fn yield_log_msg(kind: crate::world::BuildingKind, pos: Vec2, yield_amount: i32) -> String {
         match kind {
             crate::world::BuildingKind::Farm => {
                 format!("Farm harvested at ({:.0},{:.0})", pos.x, pos.y)

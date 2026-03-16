@@ -1849,9 +1849,12 @@ impl WorldGrid {
         self.building_cost_cells.clear();
 
         self.apply_building_overlay(entity_map, BuildingKind::Wall, 0);
-        // Towers block pathing (impassable like walls)
-        self.apply_building_overlay(entity_map, BuildingKind::Tower, 0);
-        self.apply_building_overlay(entity_map, BuildingKind::GuardTower, 0);
+        // All tower kinds block pathing (impassable like walls) -- driven by registry
+        for def in crate::constants::BUILDING_REGISTRY.iter() {
+            if def.is_tower {
+                self.apply_building_overlay(entity_map, def.kind, 0);
+            }
+        }
         // Gates are passable (same cost as dirt road) -- faction gating is behavioral
         self.apply_building_overlay(entity_map, BuildingKind::Gate, 67);
         // Apply road overlays — higher tiers override lower (iter order: dirt, stone, metal)
@@ -2265,7 +2268,7 @@ impl WorldGenConfig {
 
 fn spawn_resource_nodes(
     _config: &WorldGenConfig,
-    grid: &WorldGrid,
+    grid: &mut WorldGrid,
     slot_alloc: &mut crate::resources::GpuSlotPool,
     entity_map: &mut EntityMap,
     commands: &mut Commands,
@@ -2304,6 +2307,10 @@ fn spawn_resource_nodes(
             )
             .is_ok()
             {
+                // Set terrain under resource nodes to Grass so the node sprite
+                // renders against a clean background (not dark forest/dirt).
+                grid.cells[idx].terrain = Biome::Grass;
+                grid.cells[idx].original_terrain = Biome::Grass;
                 match kind {
                     BuildingKind::TreeNode => tree_count += 1,
                     BuildingKind::RockNode => rock_count += 1,
@@ -3412,10 +3419,10 @@ mod tests {
                       mut entity_map: ResMut<crate::resources::EntityMap>,
                       mut commands: Commands,
                       mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
-                      grid: Res<WorldGrid>| {
+                      mut grid: ResMut<WorldGrid>| {
                     let (tree_count, rock_count) = spawn_resource_nodes(
                         &config,
-                        &grid,
+                        &mut grid,
                         &mut slot_alloc,
                         &mut entity_map,
                         &mut commands,

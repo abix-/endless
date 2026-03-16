@@ -1,27 +1,96 @@
-# Harvestable Resources
+# Resource Gathering
 
-Trees and rocks become first-class building entities that NPCs harvest for wood and stone. Harvested nodes are destroyed permanently. This spec covers harvest and storage only -- building costs using wood/stone are a later slice.
+All resource gathering uses one unified system: WorksiteDef + ProductionState + ActivityKind::Work. There are no per-resource activity kinds or separate gathering loops.
 
 ## Resource types
 
-| Resource | Source biome | Node kind | Storage component | Harvester building | Worker job | Activity |
-|----------|-------------|-----------|-------------------|-------------------|------------|----------|
-| Wood | Forest | `TreeNode` | `WoodStore` | `LumberMill` | `Woodcutter` | `Chop` |
-| Stone | Rock | `RockNode` | `StoneStore` | `Quarry` | `Quarrier` | `Quarry` |
+| Resource | Source | Node/Building kind | Storage | Worker building | Worker job | Growth | Destruction |
+|----------|--------|-------------------|---------|----------------|------------|--------|-------------|
+| Food | Biome | `Farm` | `FoodStore` | `FarmerHome` | `Farmer` | Timed (day only, tended=faster) | No (regrows) |
+| Food (cow) | Building | `Farm` (cow mode) | `FoodStore` | `FarmerHome` | `Farmer` | Timed (always, food cost) | No (regrows) |
+| Gold | Worldgen | `GoldMine` | `GoldStore` | `MinerHome` | `Miner` | Timed (tended only) | No (regrows) |
+| Wood | Forest biome | `TreeNode` | `WoodStore` | `LumberMill` | `Woodcutter` | Timed (worker chops, 2hr) | Yes (one-shot) |
+| Stone | Rock biome | `RockNode` | `StoneStore` | `Quarry` | `Quarrier` | Timed (worker quarries, 3hr) | Yes (one-shot) |
 
 Iron is out of scope.
 
+## Unified architecture
+
+Every worksite follows the same pipeline:
+
+```
+BuildingDef.worksite: WorksiteDef    -- registry config (yield_item, one_shot, etc.)
+ProductionState                      -- ECS component (ready flag, growth progress)
+growth_system                        -- controller: advances progress -> sets ready
+decision_system (ActivityKind::Work) -- controller: NPC claims worksite, takes yield when ready
+behavior_system (ReturnLoot)         -- controller: NPC deposits carried_loot to town store
+```
+
+### WorksiteDef (registry -- Def layer)
+
+```rust
+pub struct WorksiteDef {
+    pub max_occupants: i32,
+    pub drift_radius: f32,
+    pub upgrade_job: &'static str,
+    pub yield_item: ResourceKind,
+    pub town_scoped: bool,
+    pub one_shot: bool,  // true = destroy entity after yield (TreeNode, RockNode)
+}
+```
+
+### ProductionState (ECS -- Instance layer)
+
+All worksites get `ProductionState` on spawn (already implemented). Farms grow over time, mines are repeatedly mined, and resource nodes (trees/rocks) require worker time to chop/quarry before yielding (one-shot).
+
+### growth_system (Controller)
+
+Handles ALL worksite types via a single `match building.kind` block:
+- `Farm`: timed growth, day-only for crops, always for cows
+- `GoldMine`: timed growth, requires occupant
+- `TreeNode`: worker chops over time (`TREE_CHOP_RATE`, ~2hr), one-shot destroy after yield
+- `RockNode`: worker quarries over time (`ROCK_QUARRY_RATE`, ~3hr), one-shot destroy after yield
+
+### decision_system -- Work activity (Controller)
+
+One `ActivityKind::Work` handles all resource jobs. The flow:
+
+1. **Idle -> Work(Transit)**: decision_system selects nearest worksite via `WorkIntent::Claim`
+2. **Work(Transit) -> Work(Active)**: NPC walks to worksite, arrives, begins working
+3. **Work(Active) -> yield**: when `ProductionState.ready`, take yield via `ProductionState::take_yield()`, add to `carried_loot` via `WorksiteDef.yield_item` match
+4. **Post-yield**: if `WorksiteDef.one_shot`, destroy the worksite entity. Release worksite claim.
+5. **Work -> ReturnLoot(Transit)**: NPC walks home with carried resources
+6. **ReturnLoot -> deposit**: `behavior_system` deposits all carried_loot fields (food, gold, wood, stone) to town stores
+
+No separate `ActivityKind::Chop` or `ActivityKind::Quarry`. All workers use `ActivityKind::Work`.
+
+### Carried loot visuals
+
+When an NPC carries resources home (ReturnLoot phase), the carried item shows as a sprite overlay above the NPC's head. This is the same system for ALL resource types -- layer 4 in `build_npc_visual`:
+
+| Resource | Sprite constant | Priority |
+|----------|----------------|----------|
+| Gold | `GOLD_SPRITE` | 1 (highest) |
+| Food | `FOOD_SPRITE` | 2 |
+| Wood | `WOOD_SPRITE` | 3 |
+| Stone | `STONE_SPRITE` | 4 (lowest) |
+
+The check cascades: gold > food > wood > stone. Only one item shows at a time. All four resource types must be checked -- no resource type should be silently invisible.
+
+### carried_loot writeback
+
+The decision_system writeback block must persist ALL carried_loot fields (food, gold, wood, stone), not just a subset. The generic worksite path writes to the correct field via `WorksiteDef.yield_item` -> `ResourceKind` match.
+
 ## CRD compliance
 
-All new types follow the Def -> Instance -> Controller pattern (see `docs/k8s.md`):
+All types follow the Def -> Instance -> Controller pattern (see `docs/k8s.md`):
 
-- **TreeNode/RockNode**: `BuildingDef` entries in `BUILDING_REGISTRY`. Spawned via `place_building()`, destroyed via `destroy_building()`. One enum variant + one registry entry each.
-- **Chop/Quarry**: `ActivityDef` entries in `ACTIVITY_REGISTRY`. Fieldless `ActivityKind` variants. One enum variant + one registry entry each.
+- **TreeNode/RockNode**: `BuildingDef` entries in `BUILDING_REGISTRY` with `worksite: Some(WorksiteDef { one_shot: true, ... })`. Spawned via `place_building()`, destroyed after yield.
 - **LumberMill/Quarry**: `BuildingDef` entries with `spawner: Some(SpawnerDef { job, count: 1 })`. Same pattern as `FarmerHome`/`MinerHome`.
 - **Woodcutter/Quarrier**: `NpcDef` entries in `NPC_REGISTRY`. One `Job` variant + one registry entry each.
 - **Wood/Stone**: `ResourceKind` enum variants + `WoodStore`/`StoneStore` ECS components (same pattern as `FoodStore`/`GoldStore`).
 
-No new entity types, no parallel arrays, no god-structs.
+Adding a new resource type requires: 1 BuildingKind + 1 registry entry + 1 ResourceKind variant + 1 Store component + 1 Job + 1 NPC registry entry + growth_system match arm. No new activity kinds, no new loops, no new writeback paths.
 
 ## Node model
 
@@ -29,121 +98,52 @@ Each resource node is a regular building:
 
 - `BuildingKind::TreeNode` / `BuildingKind::RockNode`
 - Not player-buildable (`player_buildable: false`)
-- Neutral faction (`FACTION_NEUTRAL`), no town ownership (`TOWN_NONE`)
+- Neutral faction, no town ownership
 - Spawned by worldgen on biome-matching cells
-- One harvest cycle destroys the node permanently -- no HP tracking, no depleted state, no regrowth
+- One work cycle destroys the node permanently (via `WorksiteDef.one_shot: true`)
 - GPU instanced rendering through the standard building pipeline
-- Clickable in inspector (shows type and yield)
 - Saved/loaded as buildings in EntityMap
+
+## Terrain
+
+Resource nodes render on top of Grass terrain, regardless of the source biome. When a node is placed on a Forest or Rock cell, the underlying terrain should display as Grass so the node sprite is visible against a clean background. The node entity itself represents the tree/rock -- the biome tile underneath should not also show a tree/rock.
 
 ## Worldgen
 
-Spawn nodes during `generate_world()` after terrain generation, same pattern as GoldMine (`world.rs:2109-2151`):
+Spawn nodes during `generate_world()` after terrain generation:
 
 1. Iterate candidate positions within world bounds
 2. Check biome: `TreeNode` only on `Biome::Forest` cells, `RockNode` only on `Biome::Rock` cells
-3. Min spacing between nodes (configurable constants: `TREE_MIN_SPACING`, `ROCK_MIN_SPACING`)
-4. Skip cells that already have a building (`entity_map.has_building_at()`)
-5. Snap to grid center via `grid.world_to_grid()` / `grid.grid_to_world()`
-6. Place via `place_building()`
+3. Min spacing between nodes (`TREE_MIN_SPACING`, `ROCK_MIN_SPACING`)
+4. Skip cells with existing buildings
+5. Snap to grid center, place via `place_building()`
 
-Config fields on `WorldGenConfig`:
+Config: `tree_density: f32`, `rock_density: f32` on `WorldGenConfig`.
 
-- `tree_density: f32` -- fraction of Forest cells that get a TreeNode (e.g. 0.3)
-- `rock_density: f32` -- fraction of Rock cells that get a RockNode (e.g. 0.2)
+## LOD rendering
 
-Density is approximate -- min-spacing and occupied-cell checks reduce actual count.
+When zoomed out, resource nodes render as colored LOD boxes instead of sprites. The LOD box color should match the resource type:
 
-Terrain rendering is unchanged -- biome tiles still render underneath. Node entities render on top as building sprites.
+| Node | LOD color |
+|------|-----------|
+| `TreeNode` | Green (wood) |
+| `RockNode` | Gray (stone) |
+| `Farm` | Yellow (food) |
+| `GoldMine` | Gold (gold) |
 
-## Rendering
-
-Each node type gets a `TileSpec` entry in its `BuildingDef`. Use existing roguelike sprite sheet positions or `TileSpec::External` for custom art.
-
-Nodes render identically to other buildings -- no special rendering path.
-
-## Harvester buildings
-
-Two new spawner buildings:
-
-| Kind | Worker job | Target node | Workers per building |
-|------|-----------|-------------|---------------------|
-| `LumberMill` | `Woodcutter` | `TreeNode` | 1 |
-| `Quarry` | `Quarrier` | `RockNode` | 1 |
-
-Player-buildable. Same spawner pattern as `FarmerHome`/`MinerHome`: `BuildingDef` with `spawner: Some(SpawnerDef { job, count: 1 })`.
-
-## NPC jobs
-
-Two new `Job` variants with `NpcDef` entries in `NPC_REGISTRY`:
-
-| Job | Base stats | Notes |
-|-----|-----------|-------|
-| `Woodcutter` | Similar to Farmer (non-combat worker) | Spawned by LumberMill |
-| `Quarrier` | Similar to Farmer (non-combat worker) | Spawned by Quarry |
-
-## Harvest loop
-
-New `ActivityKind` variants: `Chop`, `Quarry`. Registered in `ACTIVITY_REGISTRY`.
-
-Lifecycle (same shape as Mine):
-
-```
-Idle -> Chop(Transit) -> Chop(Holding) -> ReturnLoot(Transit) -> ReturnLoot(Holding) -> Idle
-```
-
-1. **Idle**: decision system scores Chop/Quarry based on nearest available node
-2. **Chop/Quarry(Transit)**: walk to nearest unoccupied TreeNode/RockNode (use `find_nearest_free()` pattern from MinerHome targeting)
-3. **Chop/Quarry(Holding)**: work at node, accumulate resource over time (same tick pattern as mine tending)
-4. **Harvest complete**: call `destroy_building()` on the node -- node disappears permanently. NPC gains resource in carried loot.
-5. **ReturnLoot(Transit)**: walk home
-6. **ReturnLoot(Holding)**: deposit wood/stone to town storage
-7. Return to idle, seek next node
-
-Worker targeting uses `work_targeting.rs` to assign workers to nearest available node. When a node is destroyed, worker returns to idle and seeks a new node on next decision tick.
-
-Worksite occupancy uses existing `NpcWorkState.worksite` pattern -- one worker per node at a time.
-
-## Resource storage
-
-Add `Wood` and `Stone` to `ResourceKind` enum (`constants/upgrades.rs`).
-
-New ECS components on town entities:
-
-- `WoodStore(i32)` -- wood held by this town
-- `StoneStore(i32)` -- stone held by this town
-
-Same pattern as `FoodStore(i32)` / `GoldStore(i32)`.
-
-Deposit: ReturnLoot holding phase adds carried resource to the appropriate store component.
-
-UI: show wood/stone counts in the top bar stats panel alongside food/gold.
+This uses the existing LOD distance threshold -- no new system needed, just a color lookup from the building kind or `WorksiteDef.yield_item`.
 
 ## Pathfinding
 
-Resource nodes do NOT block pathfinding:
-
-- `BuildingDef.blocks_path: false` (same as farms, roads)
-- Forest biome cost (143 vs 100 for grass) already slows movement through forests
-- Rock biome cost (2500) already penalizes rock terrain
+Resource nodes do NOT block pathfinding. Forest biome cost (143) and Rock biome cost (2500) already handle movement penalties.
 
 ## Save/load
 
-- Nodes are regular buildings -- saved and loaded through existing building serialization
-- No migration needed for old saves (nodes only exist in newly generated worlds)
-- Old saves without nodes continue to work -- forests/rocks remain as terrain only
+Nodes are regular buildings -- saved and loaded through existing building serialization. No migration needed for old saves.
 
 ## Out of scope
 
 - Spending wood/stone on building costs (future slice)
-- Iron ore, blacksmith crafting (Stage 26 later items)
+- Iron ore, blacksmith crafting (Stage 26)
 - Node regrowth or replenishment
-- Deforestation visual effects on terrain
-- Villager job assignment UI
-
-## Slices
-
-1. **Spec + registry** (this doc): define the model, add `BuildingKind::TreeNode`/`RockNode` + `ActivityKind::Chop`/`Quarry` + `Job::Woodcutter`/`Quarrier` to registries with sprites
-2. **Worldgen + rendering**: spawn nodes during world generation, render as buildings
-3. **Harvest loop**: LumberMill/Quarry buildings, Chop/Quarry activities, work targeting, `destroy_building()` on harvest, town storage (WoodStore/StoneStore), top bar UI
-4. **Save/load + tests**: persistence verification, miner-cycle-style integration test for woodcutter/quarrier
+- Deforestation visual effects

@@ -59,6 +59,8 @@ pub const EQUIP_SWORD: (f32, f32) = (45.0, 6.0);
 pub const EQUIP_HELMET: (f32, f32) = (28.0, 0.0);
 pub const FOOD_SPRITE: (f32, f32) = (24.0, 9.0);
 pub const GOLD_SPRITE: (f32, f32) = (41.0, 11.0);
+pub const WOOD_SPRITE: (f32, f32) = (13.0, 9.0);
+pub const STONE_SPRITE: (f32, f32) = (7.0, 15.0);
 
 // Visual indicator sprites (column, row) — placeholder coordinates, verify against atlas
 pub const SLEEP_SPRITE: (f32, f32) = (24.0, 7.0);
@@ -366,6 +368,12 @@ pub const WALL_UPGRADE_COSTS: [&[(ResourceKind, i32)]; 2] = [
 
 /// Tended growth rate for mines (per game-hour). 0.25 = 4 hours to full when miner is working.
 pub const MINE_TENDED_GROWTH_RATE: f32 = 0.25;
+
+/// Chop progress per game-hour. 0.5 = 2 hours for a woodcutter to fell a tree.
+pub const TREE_CHOP_RATE: f32 = 0.5;
+
+/// Quarry progress per game-hour. 0.33 = ~3 hours for a quarrier to break a rock.
+pub const ROCK_QUARRY_RATE: f32 = 0.33;
 
 /// Max distance from mine to continue tending (pushed away = abort + re-walk).
 pub const MINE_WORK_RADIUS: f32 = 40.0;
