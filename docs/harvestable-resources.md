@@ -102,6 +102,19 @@ Spawn nodes during `generate_world()` after terrain generation:
 
 Config: `tree_density: f32`, `rock_density: f32` on `WorldGenConfig`.
 
+## LOD rendering
+
+When zoomed out, resource nodes render as colored LOD boxes instead of sprites. The LOD box color should match the resource type:
+
+| Node | LOD color |
+|------|-----------|
+| `TreeNode` | Green (wood) |
+| `RockNode` | Gray (stone) |
+| `Farm` | Yellow (food) |
+| `GoldMine` | Gold (gold) |
+
+This uses the existing LOD distance threshold -- no new system needed, just a color lookup from the building kind or `WorksiteDef.yield_item`.
+
 ## Pathfinding
 
 Resource nodes do NOT block pathfinding. Forest biome cost (143) and Rock biome cost (2500) already handle movement penalties.
