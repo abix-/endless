@@ -555,11 +555,6 @@ impl ActivitySave {
                     mine_pos: [0.0, 0.0],
                 }, // position resolved from worksite at runtime
             },
-            // Chop/Quarry save as their work phase (same shape as Mine)
-            ActivityKind::Chop | ActivityKind::Quarry => match a.phase {
-                ActivityPhase::Holding => Self::Working,
-                _ => Self::GoingToWork,
-            },
             ActivityKind::Repair => match a.phase {
                 ActivityPhase::Transit => Self::GoingToRepair,
                 _ => Self::Repairing,

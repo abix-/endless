@@ -248,6 +248,13 @@ pub fn growth_system(
                     }
                 }
             }
+            // Resource nodes: always ready (one-shot, destroyed after yield)
+            BuildingKind::TreeNode | BuildingKind::RockNode => {
+                if !production.ready {
+                    production.ready = true;
+                    production.progress = 1.0;
+                }
+            }
             _ => {}
         }
     }

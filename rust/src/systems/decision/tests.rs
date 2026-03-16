@@ -794,14 +794,6 @@ fn valid_phase_combinations_match_spec() {
         (ActivityKind::ReturnLoot, &[ActivityPhase::Transit]),
         (ActivityKind::Wander, &[ActivityPhase::Transit]),
         (
-            ActivityKind::Chop,
-            &[ActivityPhase::Transit, ActivityPhase::Holding],
-        ),
-        (
-            ActivityKind::Quarry,
-            &[ActivityPhase::Transit, ActivityPhase::Holding],
-        ),
-        (
             ActivityKind::Repair,
             &[ActivityPhase::Transit, ActivityPhase::Active],
         ),
@@ -812,10 +804,10 @@ fn valid_phase_combinations_match_spec() {
     let idle = Activity::new(ActivityKind::Idle);
     assert_eq!(idle.phase, ActivityPhase::Ready);
 
-    // Verify the table covers all 13 activity kinds
+    // Verify the table covers all 11 activity kinds (Chop/Quarry removed -- use Work)
     assert_eq!(
         valid.len(),
-        13,
+        11,
         "spec table must cover all ActivityKind variants"
     );
 

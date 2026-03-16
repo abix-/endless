@@ -1782,7 +1782,7 @@ fn debug_building(world: &mut World, _entity: Entity, slot: usize) -> BrpResult 
     if let Some(ws) = def.worksite {
         data["ws_max_occ"] = json!(ws.max_occupants);
         data["ws_drift"] = json!(ws.drift_radius);
-        data["ws_harvest"] = json!(format!("{:?}", ws.harvest_item));
+        data["ws_yield"] = json!(format!("{:?}", ws.yield_item));
         data["ws_town_scoped"] = json!(ws.town_scoped);
     }
 
