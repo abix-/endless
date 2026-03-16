@@ -700,10 +700,11 @@ fn is_combat_upgrade(idx: usize) -> bool {
     UPGRADES.nodes[idx].is_combat_stat
 }
 
-/// Convert proficiency (0-100) to a multiplier.
-/// 0 = 1.0x (no bonus), 50 = 1.25x, 100 = 1.5x.
+/// Convert proficiency (0..MAX_PROFICIENCY) to a multiplier.
+/// 0 = 1.0x, MAX/2 = 1.25x, MAX = 1.5x.
 pub fn proficiency_mult(value: f32) -> f32 {
-    1.0 + (value.clamp(0.0, 100.0) / 100.0) * 0.5
+    use crate::constants::MAX_PROFICIENCY;
+    1.0 + (value.clamp(0.0, MAX_PROFICIENCY) / MAX_PROFICIENCY) * 0.5
 }
 
 // ============================================================================
