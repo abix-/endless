@@ -1836,9 +1836,10 @@ fn inspector_content(
             let bar_w = 180.0f32;
             let bar_h = 12.0f32;
 
-            let skill_entries: &[(&str, f32, String)] = &[
+            // Build all possible entries
+            let all_entries: Vec<(&str, f32, String)> = vec![
                 (
-                    "Farming",
+                    "farming",
                     skills.farming,
                     format!(
                         "+{:.2}/hr tending. {:.2}x growth rate.",
@@ -1847,7 +1848,7 @@ fn inspector_content(
                     ),
                 ),
                 (
-                    "Combat",
+                    "combat",
                     skills.combat,
                     format!(
                         "+{:.1}/kill. {:.2}x damage, {:.2}x cooldown.",
@@ -1857,7 +1858,7 @@ fn inspector_content(
                     ),
                 ),
                 (
-                    "Dodge",
+                    "dodge",
                     skills.dodge,
                     format!(
                         "+{:.1}/dodge. {:.1}% miss chance.",
@@ -1867,7 +1868,26 @@ fn inspector_content(
                 ),
             ];
 
-            for &(name, value, ref desc) in skill_entries {
+            // Filter to job-relevant skills only
+            let relevant: &[&str] = match npc_job.unwrap_or(Job::Farmer) {
+                Job::Farmer => &["farming"],
+                Job::Archer | Job::Crossbow | Job::Fighter | Job::Raider => &["combat", "dodge"],
+                _ => &[],
+            };
+            let skill_entries: Vec<_> = all_entries
+                .into_iter()
+                .filter(|(name, _, _)| relevant.contains(name))
+                .collect();
+
+            if skill_entries.is_empty() {
+                ui.label(
+                    egui::RichText::new("No skills for this job yet.")
+                        .color(egui::Color32::from_rgb(120, 120, 120)),
+                );
+            }
+
+            for (name, value, desc) in &skill_entries {
+                let value = *value;
                 let color = super::skill_prof_color(value);
                 ui.horizontal(|ui| {
                     ui.label(

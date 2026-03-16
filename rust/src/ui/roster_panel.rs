@@ -87,7 +87,13 @@ pub fn roster_panel_system(
                 trait_name: personality_q.get(npc.entity).map(|p| p.trait_summary()).unwrap_or_default(),
                 top_skill: skills_q
                     .get(npc.entity)
-                    .map(|s| s.farming.max(s.combat).max(s.dodge))
+                    .map(|s| match npc.job {
+                        Job::Farmer => s.farming,
+                        Job::Archer | Job::Crossbow | Job::Fighter | Job::Raider => {
+                            s.combat.max(s.dodge)
+                        }
+                        _ => 0.0,
+                    })
                     .unwrap_or(0.0),
             });
         }
