@@ -63,6 +63,19 @@ One `ActivityKind::Work` handles all resource jobs. The flow:
 
 No separate `ActivityKind::Chop` or `ActivityKind::Quarry`. All workers use `ActivityKind::Work`.
 
+### Carried loot visuals
+
+When an NPC carries resources home (ReturnLoot phase), the carried item shows as a sprite overlay above the NPC's head. This is the same system for ALL resource types -- layer 4 in `build_npc_visual`:
+
+| Resource | Sprite constant | Priority |
+|----------|----------------|----------|
+| Gold | `GOLD_SPRITE` | 1 (highest) |
+| Food | `FOOD_SPRITE` | 2 |
+| Wood | `WOOD_SPRITE` | 3 |
+| Stone | `STONE_SPRITE` | 4 (lowest) |
+
+The check cascades: gold > food > wood > stone. Only one item shows at a time. All four resource types must be checked -- no resource type should be silently invisible.
+
 ### carried_loot writeback
 
 The decision_system writeback block must persist ALL carried_loot fields (food, gold, wood, stone), not just a subset. The generic worksite path writes to the correct field via `WorksiteDef.yield_item` -> `ResourceKind` match.

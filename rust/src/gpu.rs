@@ -34,7 +34,7 @@ use std::borrow::Cow;
 use crate::components::{Building, Dead, Faction, GpuSlot, Job};
 use crate::constants::{
     FOOD_SPRITE, GOLD_SPRITE, MAX_ENTITIES, MAX_NPC_COUNT, MAX_PROJECTILES as MAX_PROJECTILE_COUNT,
-    PROJECTILE_HIT_HALF_LENGTH, PROJECTILE_HIT_HALF_WIDTH,
+    PROJECTILE_HIT_HALF_LENGTH, PROJECTILE_HIT_HALF_WIDTH, STONE_SPRITE, WOOD_SPRITE,
 };
 use crate::messages::{GpuUpdate, GpuUpdateMsg, ProjGpuUpdate, ProjGpuUpdateMsg};
 use crate::resources::{
@@ -475,13 +475,17 @@ fn write_npc_visual(
     upload.equip_data[eq + 14] = 0.0;
     upload.equip_data[eq + 15] = 0.0;
 
-    // Layer 4: Item (carried loot — gold takes display priority)
+    // Layer 4: Item (carried loot — priority: gold > food > wood > stone)
     let npc_activity = activity_q.get(entity).ok();
     let (ic, ir, ia) = if let Ok(cl) = carried_loot_q.get(entity) {
         if cl.gold > 0 {
             (GOLD_SPRITE.0, GOLD_SPRITE.1, 1.0)
         } else if cl.food > 0 {
             (FOOD_SPRITE.0, FOOD_SPRITE.1, 1.0)
+        } else if cl.wood > 0 {
+            (WOOD_SPRITE.0, WOOD_SPRITE.1, 1.0)
+        } else if cl.stone > 0 {
+            (STONE_SPRITE.0, STONE_SPRITE.1, 1.0)
         } else {
             (-1.0, 0.0, 0.0)
         }

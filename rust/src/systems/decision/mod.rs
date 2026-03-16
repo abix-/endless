@@ -994,7 +994,9 @@ pub fn decision_system(
                                 );
                                 let base_gold = mine_entity
                                     .and_then(|e| production_q.get_mut(e).ok())
-                                    .map(|mut ps| ps.take_yield(BuildingKind::GoldMine, FarmMode::Crops))
+                                    .map(|mut ps| {
+                                        ps.take_yield(BuildingKind::GoldMine, FarmMode::Crops)
+                                    })
                                     .unwrap_or(0);
                                 if base_gold > 0 {
                                     combat_log.write(CombatLogMsg {
