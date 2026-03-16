@@ -236,14 +236,10 @@ pub fn roster_panel_system(
                     }
 
                     if row.top_skill > 0.0 {
-                        let prof_color = if row.top_skill >= 75.0 {
-                            egui::Color32::from_rgb(100, 220, 100)
-                        } else if row.top_skill >= 25.0 {
-                            egui::Color32::WHITE
-                        } else {
-                            egui::Color32::GRAY
-                        };
-                        ui.colored_label(prof_color, format!("{}", row.top_skill as i32));
+                        ui.colored_label(
+                            super::skill_prof_color(row.top_skill),
+                            format!("{}", row.top_skill as i32),
+                        );
                     }
 
                     // Select button

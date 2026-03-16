@@ -1755,26 +1755,15 @@ fn inspector_content(
             }
             // Show non-zero skill proficiencies
             if let Ok(skills) = bld_data.skills_q.get(npc.entity) {
-                let mut parts: Vec<String> = Vec::new();
-                let skill_color = |v: f32| -> egui::Color32 {
-                    if v >= 75.0 {
-                        egui::Color32::from_rgb(100, 220, 100)
-                    } else if v >= 25.0 {
-                        egui::Color32::WHITE
-                    } else {
-                        egui::Color32::GRAY
-                    }
-                };
-                for (name, val) in [
+                let entries: Vec<_> = [
                     ("Farm", skills.farming),
                     ("Combat", skills.combat),
                     ("Dodge", skills.dodge),
-                ] {
-                    if val > 0.0 {
-                        parts.push(format!("{} {}", name, val as i32));
-                    }
-                }
-                if !parts.is_empty() {
+                ]
+                .into_iter()
+                .filter(|(_, v)| *v > 0.0)
+                .collect();
+                if !entries.is_empty() {
                     let mut job = egui::text::LayoutJob::default();
                     job.append(
                         "Skills: ",
@@ -1784,15 +1773,7 @@ fn inspector_content(
                             ..Default::default()
                         },
                     );
-                    for (i, (name, val)) in [
-                        ("Farm", skills.farming),
-                        ("Combat", skills.combat),
-                        ("Dodge", skills.dodge),
-                    ]
-                    .iter()
-                    .filter(|(_, v)| *v > 0.0)
-                    .enumerate()
-                    {
+                    for (i, (name, val)) in entries.iter().enumerate() {
                         if i > 0 {
                             job.append("  ", 0.0, egui::TextFormat::default());
                         }
@@ -1800,7 +1781,7 @@ fn inspector_content(
                             &format!("{} {}", name, *val as i32),
                             0.0,
                             egui::TextFormat {
-                                color: skill_color(*val),
+                                color: super::skill_prof_color(*val),
                                 ..Default::default()
                             },
                         );

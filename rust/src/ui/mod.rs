@@ -1967,6 +1967,17 @@ fn build_place_click_system(
     sync_food!();
 }
 
+/// Skill proficiency color: gray (<25), white (25-74), green (>=75).
+pub(crate) fn skill_prof_color(value: f32) -> egui::Color32 {
+    if value >= 75.0 {
+        egui::Color32::from_rgb(100, 220, 100)
+    } else if value >= 25.0 {
+        egui::Color32::WHITE
+    } else {
+        egui::Color32::GRAY
+    }
+}
+
 /// Marker component for slot indicator sprite entities.
 #[derive(Component)]
 pub(crate) struct SlotIndicator;
