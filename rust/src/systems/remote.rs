@@ -2173,7 +2173,7 @@ pub fn perf_handler(In(_params): In<Option<Value>>, world: &World) -> BrpResult 
     let ups = world.resource::<crate::resources::UpsCounter>();
     let faction_stats = world.resource::<FactionStats>();
 
-    let frame_ms = timings.frame_ms.lock().map(|v| *v).unwrap_or(0.0);
+    let frame_ms = timings.get_frame_ms();
     let fps = if frame_ms > 0.0 {
         1000.0 / frame_ms
     } else {
