@@ -146,44 +146,58 @@ npcs:
 
 Key fields: factions=(faction,alive,dead,kills), buildings=(kind,row,col), squads=(idx,members,target_x,target_y), upgrades=(idx,name,level,pct,cost), combat_log=(day,hour,min,msg), inbox=(from_town,message,day,hour,min). Empty squad target = idle. Inbox drained on read — check every cycle.
 
-## Strategy
+## Game Mechanics
 
-Phase 1 — Economy (until food > 50 consistently):
-- endless-cli ai_manager town:YOUR_TOWN active:true personality:Balanced road_style:None
-- endless-cli policy town:YOUR_TOWN eat_food:true prioritize_healing:false recovery_hp:0.5
-- Not Economic — it over-builds miners and starves economy. Use Balanced
-- Let the AI Manager build farms and homes — match farmer homes to farm count (homes cap farmer spawns)
-- Build 15+ military homes on outer rows: endless-cli build town:YOUR_TOWN kind:ArcherHome row:-5 col:0
-- Don't attack yet — squads of 3-5 are useless against towns of 30+
+### Economy
+| Resource | Source | Consumed by |
+|----------|--------|-------------|
+| Food | Farms (need FarmerHome to spawn farmers) | feeding NPCs, some upgrades |
+| Gold | GoldMine + MinerHome (miners travel to mine) | upgrades, some buildings |
 
-Phase 2 — Upgrades (until 3-4 bought):
-- endless-cli upgrade town:YOUR_TOWN upgrade_idx:0
-- Buy upgrades: Move Speed, then HP, then Damage
-- Keep food above 50 — it's the bottleneck. If food drops, switch personality:Economic immediately
-- Monitor enemy factions — if one is snowballing (100+ alive), it becomes unkillable later
+- FarmerHome count caps farmer spawns. More homes = more farmers = more food.
+- MinerHome must be near a GoldMine (within mining_radius). Check gold_mines in summary for distances.
+- Buildings cost food to place. Running out of food halts growth.
 
-Phase 3 — Attack (one target, full commit):
-- Pick ONE nearby weak target (low alive count, short distance). Never attack 6000+ tiles away
-- Send ALL squads to the same target: endless-cli squad_target squad:13 x:6944 y:11488
-- Re-issue squad orders frequently — squads go idle after reaching targets
-- Raider towns regenerate. Press the attack until the fountain is destroyed
-- Don't flip between Aggressive/Economic/Balanced constantly. Commit to a plan
+### Military
+| Unit | Home building | Behavior |
+|------|--------------|----------|
+| Archer | ArcherHome | ranged, patrols when idle |
+| Crossbow | CrossbowHome | ranged, higher damage |
+| Fighter | FighterHome | melee, high HP |
 
-React to events:
-- Food below 15 -> personality:Economic, archer_aggressive:false, recall squads
-- Under attack -> redirect squads home, farmer_fight_back:true
-- Dominant enemy (100+ alive) -> endless-cli chat town:YOUR_TOWN to:0 message:alliance?
-- Lots of gold -> buy upgrades before attacking
+- Squads form automatically from military NPCs
+- `squad_target` sends a squad to world coordinates (use enemy town cx,cy)
+- Squads go idle after reaching target -- must re-issue orders
+- NPC count visible in summary (alive field per town)
 
-Key mistakes to avoid:
-- Don't cd in commands — working directory is already set
-- Don't attack until army is large enough (15+ military NPCs)
-- Don't switch targets mid-attack — finish what you started
-- Don't ignore inbox — check every cycle for diplomacy opportunities
-- Don't set HP values as percentages — 0.5 means 50%, writing 80 means 8000% and locks all NPCs in healing
-- Don't use road_style other than None — roads permanently block construction slots
-- Don't use Economic personality early — over-builds miners, causes food crisis. Use Balanced
-- Don't build on rows 0-3 — usually occupied by starter buildings. Expand outward (-5, -4, 4)
+### Combat
+- Destroying enemy Fountain = town eliminated
+- Towns regenerate NPCs over time -- sustained pressure needed
+- Same-faction towns are allies, different-faction are enemies
+- `rep` field shows your faction's feeling toward another (negative = they killed your NPCs)
+
+### Personalities
+| Type | Behavior |
+|------|----------|
+| Aggressive | prioritizes military buildings and attacks |
+| Balanced | mixed economy and military |
+| Economic | prioritizes farms and mines (can over-build miners) |
+
+### Upgrades
+- Visible via `endless-cli summary` (upgrades section)
+- Each has a level, percentage bonus, and cost
+- Common: Move Speed, Max HP, Damage, Expansion
+
+### Diplomacy
+- `chat` sends messages to other towns
+- `inbox` in summary shows received messages (drained on read)
+- Same-faction towns are natural allies
+
+### Constraints
+- HP values are fractions 0.0-1.0 (0.5 = 50%). Passing 80 means 8000%.
+- Grid centered on (0,0) at fountain, roughly -5 to 4
+- road_style:None recommended -- roads permanently occupy construction slots
+- Write commands only work on YOUR town (your_town in summary)
 
 ## Rules
 
