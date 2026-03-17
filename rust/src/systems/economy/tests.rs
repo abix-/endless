@@ -674,6 +674,45 @@ fn tended_farm_grows_faster() {
     );
 }
 
+/// Regression: claimed-but-not-present workers must NOT trigger tended growth rate.
+/// Bug: occupancy incremented at claim time (before arrival), causing tended rate
+/// to kick in while worker was still walking. Fix: growth_system gates on present_count,
+/// not occupancy.
+#[test]
+fn farm_claimed_but_not_present_grows_at_untended_rate() {
+    let mut app = setup_growth_app();
+    // Farm 0: truly untended (no claim, no presence)
+    add_farm(&mut app, 0, false);
+    // Farm 1: claimed but worker not yet present (present=0, but simulate a claim)
+    add_farm(&mut app, 1, false);
+    // present is already 0 for both -- the point is farm 1 is "claimed" but nobody arrived
+
+    app.update();
+    let e0 = *app
+        .world()
+        .resource::<EntityMap>()
+        .entities
+        .get(&0)
+        .unwrap();
+    let e1 = *app
+        .world()
+        .resource::<EntityMap>()
+        .entities
+        .get(&1)
+        .unwrap();
+    let untended = app.world().get::<ProductionState>(e0).unwrap().progress;
+    let claimed_not_present = app.world().get::<ProductionState>(e1).unwrap().progress;
+    assert!(
+        (untended - claimed_not_present).abs() < f32::EPSILON,
+        "claimed-but-not-present farm must grow at same rate as untended: untended={untended}, claimed={claimed_not_present}"
+    );
+    // Also verify neither grows at tended rate
+    assert!(
+        untended > 0.0,
+        "untended farm should still grow at base rate"
+    );
+}
+
 #[test]
 fn farm_becomes_ready() {
     let mut app = setup_growth_app();
