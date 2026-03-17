@@ -56,7 +56,7 @@ Tools:
 		if len(args) < 1 {
 			err = fmt.Errorf("usage: endless-cli debug <entity>")
 		} else {
-			err = callAndPrint("endless/debug", map[string]interface{}{"entity": args[0]})
+			err = callAndPrint("endless/get_entity", map[string]interface{}{"entity": args[0]})
 		}
 	default:
 		// everything else: prepend endless/ and pass key:value params
@@ -184,7 +184,7 @@ func parseToonParams(args []string) (map[string]interface{}, error) {
 func runTest() error {
 	fmt.Println("waiting for BRP...")
 	for i := 0; i < 30; i++ {
-		_, err := rpc("endless/perf", nil)
+		_, err := rpc("endless/get_perf", nil)
 		if err == nil {
 			fmt.Printf("BRP ready after %ds\n\n", i)
 			break
@@ -196,14 +196,14 @@ func runTest() error {
 	}
 
 	fmt.Println("=== PERF ===")
-	if err := callAndPrint("endless/perf", nil); err != nil {
+	if err := callAndPrint("endless/get_perf", nil); err != nil {
 		fmt.Printf("FAIL: %v\n", err)
 	} else {
 		fmt.Println("PASS")
 	}
 
 	fmt.Println("\n=== SUMMARY ===")
-	if err := callAndPrint("endless/summary", nil); err != nil {
+	if err := callAndPrint("endless/get_summary", nil); err != nil {
 		fmt.Printf("FAIL: %v\n", err)
 	} else {
 		fmt.Println("PASS")
@@ -232,7 +232,7 @@ func runLoop() error {
 
 	for {
 		cycle++
-		result, err := rpc("endless/summary", nil)
+		result, err := rpc("endless/get_summary", nil)
 		if err != nil {
 			fmt.Fprintf(out, "[cycle %d] error: %v\n", cycle, err)
 			time.Sleep(10 * time.Second)
