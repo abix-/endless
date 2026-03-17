@@ -100,14 +100,14 @@ Type labels:
 State labels:
 
 - `ready`
-- `claimed`
 - `needs-review`
 - `needs-human`
 - `waiting`
 
-Owner labels:
+Owner labels (the owner label IS the claim -- no separate `claimed` label):
 
-- `claude-1` through `claude-10`
+- `claude-1` through `claude-5` (Windows agents)
+- `claude-a` through `claude-z` (k3s agents)
 - `codex-1` through `codex-10`
 
 Suggested usage:
@@ -116,7 +116,7 @@ Suggested usage:
 - `bug`: defect fixes and regression work
 - `test`: test-only or verification follow-up work
 - `ready`: unclaimed and eligible for auto-pick
-- `claimed`: actively being worked by exactly one agent identity, including active review
+- owner label present (e.g. `claude-a`): actively being worked by that agent
 - `needs-review`: implementation done, waiting for any different agent to review
 - `needs-human`: agent work is done, waiting for human action (merge, close, design decision)
 - `waiting`: blocked on an external decision or prerequisite, never auto-picked
@@ -128,22 +128,20 @@ Closed issues represent done. Do not add a `done` label.
 Use this strict issue-state model:
 
 - `ready`: issue is eligible for auto-pick
-- `claimed`: one specific agent identity is actively working it
+- owner label present: one specific agent is actively working it
 - `needs-review`: implementation done, waiting for any different agent to review
 - `waiting`: blocked on an external decision or prerequisite
 
 Required invariants:
 
-- each open issue carries exactly one state label from this list
 - auto-pick considers open issues labeled `needs-review` first, then `ready`
-- no-argument `ai-collab` must first look for open issues already labeled `claimed` with the current owner label and resume the oldest one instead of claiming a new issue
-- auto-pick must ignore any issue labeled `waiting` or `claimed`
-- `claimed` requires exactly one owner label
-- each owner label should appear on at most one open issue; if an owner already has multiple open claimed issues, resume the oldest and do not claim another
-- `needs-review` must remove `claimed`, `ready`, and all owner labels
-- `waiting` must remove `claimed` and all owner labels
-- agents must convert `needs-review` to `claimed` before starting review work
-- reviewers never review an issue they most recently claimed or implemented
+- no-argument `ai-collab` must first look for open issues with the current owner label and resume the oldest one instead of claiming a new issue
+- auto-pick must ignore any issue labeled `waiting` or with an owner label
+- each owner label should appear on at most one open issue; if an owner already has multiple issues, resume the oldest and do not claim another
+- `needs-review` must remove `ready` and all owner labels
+- `waiting` must remove all owner labels
+- agents must add their owner label before starting review work
+- reviewers never review an issue they most recently worked or implemented
 
 ## Agent Identity
 
@@ -176,7 +174,7 @@ Claim rules:
 - each Claude or Codex instance claims one configured slot by PID
 - a claim is valid only while the PID still exists and the process name still matches
 - stale claims are removed before allocation
-- a live process reuses its existing claimed slot if one already exists
+- a live process reuses its existing slot if one already exists
 - otherwise it takes the first free configured slot for its family
 
 MVP behavior:
@@ -286,17 +284,17 @@ No-argument claim algorithm:
 1. Read this workflow doc.
 2. Register the current process with `C:/Users/Abix/.claude/ai-collab/Register-AiCollabAgent.ps1` and use the returned `agentId`.
 3. List open issues ordered oldest-first.
-4. Look first for the oldest open issue already labeled `claimed` with the current owner label.
+4. Look first for the oldest open issue with the current owner label.
 5. If one exists, resume that issue and do not claim a new one.
-6. If none exists, look for the oldest issue labeled `needs-review` and not labeled `waiting` or `claimed`.
-7. If no `needs-review` issue exists, look for the oldest issue labeled `ready` and not labeled `waiting`, `claimed`, or `needs-review`.
+6. If none exists, look for the oldest issue labeled `needs-review` and not labeled `waiting` or with an owner label.
+7. If no `needs-review` issue exists, look for the oldest issue labeled `ready` and not labeled `waiting` or with an owner label.
 8. Attempt to claim the first new candidate by:
    - removing `ready` or `needs-review`
-   - adding `claimed`
+   - adding the owner label
    - adding exactly one owner label for the current agent identity
    - posting the claim comment format below
 9. Re-read the issue and confirm:
-   - `claimed` is present
+   - the owner label is present
    - `ready` and `needs-review` are absent
    - exactly one owner label is present
    - the owner label matches the current agent identity
@@ -310,8 +308,8 @@ A claim stays active until that agent finishes the current workflow step and cha
 If an issue number is provided:
 
 - if the issue is `ready`, claim it before starting work
-- if the issue is `needs-review`, any agent may claim it and must convert it to `claimed` before starting review
-- if the issue is `claimed` by another owner label, do not act on it
+- if the issue is `needs-review`, any agent may claim it by adding their owner label before starting review
+- if the issue has another agent's owner label, do not act on it
 - if the issue is `waiting`, do not proceed without first resolving the blocker
 
 ## Comment Formats
@@ -320,7 +318,7 @@ Claim comment:
 
 ```md
 ## <AgentName>
-- State: <previous-state> -> claimed
+- State: <previous-state> -> owner
 - Owner: <agent-id>
 - Intent: implement | review
 - Next: smallest immediate step
@@ -336,7 +334,7 @@ Implementation or review handoff:
 - Tests: commands run and result
 - Acceptance: N/N criteria verified and checked | no checkboxes in issue body
 - Open: blockers, risks, or unresolved questions
-- State: claimed -> needs-review | claimed -> waiting | claimed -> close
+- State: owner -> needs-review | owner -> waiting | owner -> close
 - Next: smallest sensible next step
 ```
 
@@ -380,14 +378,14 @@ Use this flow for each slice:
     - `git fetch origin && git rev-parse --verify origin/issue-{N}`
     - `gh pr create --base dev --head issue-{N}` (or update existing PR)
 11. Leave the handoff comment with the PR link only after the remote branch verification passes
-12. Remove `claimed` and the owner label, then add `needs-review`
+12. Remove the owner label, then add `needs-review`
 
 This same handoff flow applies when a reviewing agent makes the fix instead of bouncing the issue back unchanged.
 
 If work is genuinely blocked:
 
 - leave the handoff comment
-- remove `claimed` and the owner label
+- remove the owner label
 - add `waiting`
 
 ## Review Workflow
@@ -435,19 +433,19 @@ If there are no findings and tests pass:
 - an issue with 11/12 criteria met is NOT ready for merge -- 100% or nothing
 - include a pass/fail table in the handoff comment showing each acceptance criterion and its status
 - only after all criteria pass: merge the PR into `dev` via `gh pr merge --squash --delete-branch`
-- leave the handoff comment with `State: claimed -> close`
+- leave the handoff comment with `State: owner -> close`
 - close the issue
 
 Initiative issue exception:
 
 - for initiative or epic tracker issues, "no findings" on the issue body is not enough to close
-- only use `claimed -> close` when the initiative acceptance is satisfied and downstream slice work is complete
-- if the initiative body is now correct but the acceptance is still unmet, leave the handoff comment with `State: claimed -> waiting`, list the remaining slice issues or unmet acceptance items in `Open`, remove `claimed` and the owner label, and add `waiting`
+- only use `owner -> close` when the initiative acceptance is satisfied and downstream slice work is complete
+- if the initiative body is now correct but the acceptance is still unmet, leave the handoff comment with `State: owner -> waiting`, list the remaining slice issues or unmet acceptance items in `Open`, remove the owner label, and add `waiting`
 
 If review finds a blocker:
 
-- leave the handoff comment with `State: claimed -> needs-review` for follow-up
-- remove `claimed` and the owner label
+- leave the handoff comment with `State: owner -> needs-review` for follow-up
+- remove the owner label
 - add `needs-review`
 
 ## Shared Skill
@@ -477,7 +475,7 @@ Use these signals, in order:
 
 1. milestone completion
 2. open vs closed slice issues
-3. issue state labels (`ready`, `claimed`, `needs-review`, `waiting`)
+3. issue state labels (`ready`, `needs-review`, `waiting`) and owner labels (`claude-*`)
 4. latest handoff comments
 
 This is enough for a one-person project with up to twenty agents unless coordination starts breaking down.
