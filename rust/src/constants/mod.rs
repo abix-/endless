@@ -19,6 +19,10 @@ pub const MAX_BUILDINGS: usize = MAX_NPC_COUNT;
 /// Total entity capacity: NPCs + buildings share unified GPU collision buffers.
 pub const MAX_ENTITIES: usize = MAX_NPC_COUNT + MAX_BUILDINGS;
 
+/// Universal soft cap for gameplay counters (proficiency, inventory, reputation).
+/// Single constant so all caps move together if we raise the ceiling later.
+pub const SOFT_CAP: usize = 9999;
+
 /// Entity flag bits for unified entity_flags GPU buffer.
 /// Bit 0: combat targeting enabled (archers, raiders, towers).
 pub const ENTITY_FLAG_COMBAT: u32 = 1;
@@ -327,7 +331,7 @@ pub const MAX_SQUADS: usize = 10;
 pub const FARMING_SKILL_RATE: f32 = 0.02;
 pub const COMBAT_SKILL_RATE: f32 = 1.0;
 pub const DODGE_SKILL_RATE: f32 = 0.5;
-pub const MAX_PROFICIENCY: f32 = 9999.0;
+pub const MAX_PROFICIENCY: f32 = SOFT_CAP as f32;
 
 /// Default real-time seconds between AI decisions.
 pub const DEFAULT_AI_INTERVAL: f32 = 5.0;
@@ -397,7 +401,7 @@ pub const MINE_MIN_SPACING: f32 = 400.0;
 pub const DEFAULT_MINING_RADIUS: f32 = 2000.0;
 
 /// Max items in TownEquipment per town. Excess pruned hourly (lowest value first -> gold).
-pub const TOWN_EQUIPMENT_CAP: usize = 9999;
+pub const TOWN_EQUIPMENT_CAP: usize = SOFT_CAP;
 
 // ============================================================================
 // TOWN REGISTRY — single source of truth for all town types

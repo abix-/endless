@@ -838,7 +838,8 @@ fn resolve_hands(
     // Player is faction 0 — update how opponent feels about player
     if let Some(row) = reputation.values.get_mut(state.opponent_faction as usize) {
         if let Some(rep) = row.get_mut(0) {
-            *rep = (*rep - total_net as f32 * REPUTATION_PER_GOLD).clamp(-9999.0, 9999.0);
+            let cap = crate::constants::SOFT_CAP as f32;
+            *rep = (*rep - total_net as f32 * REPUTATION_PER_GOLD).clamp(-cap, cap);
         }
     }
 

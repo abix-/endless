@@ -469,7 +469,8 @@ fn proficiency_mult_1000_is_eleven() {
 
 #[test]
 fn proficiency_mult_9999_is_godlike() {
-    assert!((proficiency_mult(9999.0) - 100.99).abs() < 0.01);
+    let cap = crate::constants::SOFT_CAP as f32;
+    assert!((proficiency_mult(cap) - 100.99).abs() < 0.01);
 }
 
 // -- UpgradeRegistry::stat_mult ------------------------------------------
@@ -918,12 +919,12 @@ fn prune_skips_under_cap() {
 ///   - Kill rate: roughly 600 kills/hour at heavy combat (10 kills/min sustained).
 ///   - Equipment drop rate: 0.30 (30% of raider kills generate 1 item).
 ///   - Raw generation: 600 * 0.30 = 180 items/hour per town.
-///   - Cap: TOWN_EQUIPMENT_CAP = 9999 items per town.
+///   - Cap: TOWN_EQUIPMENT_CAP = SOFT_CAP items per town.
 ///   - Prune fires hourly; excess removed oldest/lowest-value first -> gold.
 ///   - After 1 hour: max(180, 200) -> prune leaves at most 200.
 ///
-/// Memory impact at cap: LootItem ~120 bytes * 9999 = ~1.2 MB per town (acceptable).
-/// At 8 hours of play: 1,440 items accumulated (well under 9999 cap).
+/// Memory impact at cap: LootItem ~120 bytes * SOFT_CAP = ~1.2 MB per town (acceptable).
+/// At 8 hours of play: 1,440 items accumulated (well under SOFT_CAP).
 ///
 /// This test simulates 8 in-game hours at the 50K NPC kill rate by directly
 /// inserting items into TownEquipment and running prune each hour.
@@ -1017,13 +1018,13 @@ fn town_equipment_bounded_at_50k_kill_rate() {
     let final_count = *counts.last().unwrap();
     let total_generated = ITEMS_PER_HOUR * HOURS; // 1440 without cap
 
-    // With cap=9999 and 180 items/hour for 8 hours (1440 total), never hits cap.
+    // With cap=SOFT_CAP and 180 items/hour for 8 hours (1440 total), never hits cap.
     // Each hour accumulates: 180, 360, 540, ..., 1440
     for h in 0..HOURS {
         let expected = ITEMS_PER_HOUR * (h + 1);
         assert_eq!(counts[h], expected, "hour {}: expected {} items", h + 1, expected);
     }
-    // Final state: all 1440 items kept (well under 9999 cap)
+    // Final state: all 1440 items kept (well under SOFT_CAP)
     assert_eq!(final_count, total_generated, "final: all {} items kept (cap {})", total_generated, CAP);
     assert!(
         total_generated < CAP,

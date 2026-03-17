@@ -1248,7 +1248,7 @@ pub struct FactionStats {
 }
 
 /// Faction-vs-faction reputation matrix. values[a][b] = how faction a feels about faction b.
-/// 0.0 = neutral. Negative = hostile (they killed our NPCs). Range -9999..9999.
+/// 0.0 = neutral. Negative = hostile (they killed our NPCs). Range -SOFT_CAP..SOFT_CAP.
 #[derive(Resource, Default)]
 pub struct Reputation {
     pub values: Vec<Vec<f32>>,
@@ -1276,7 +1276,8 @@ impl Reputation {
         }
         if let Some(row) = self.values.get_mut(victim_faction as usize) {
             if let Some(val) = row.get_mut(killer_faction as usize) {
-                *val = (*val - 1.0).clamp(-9999.0, 9999.0);
+                let cap = crate::constants::SOFT_CAP as f32;
+                *val = (*val - 1.0).clamp(-cap, cap);
             }
         }
     }
