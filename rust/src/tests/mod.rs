@@ -1150,6 +1150,8 @@ fn test_menu_system(
                 run_all.queue = registry.tests.iter().map(|t| t.name.clone()).collect();
                 // Start first test
                 if let Some(first) = run_all.queue.pop_front() {
+                    #[allow(clippy::unwrap_used)]
+                    // queue was just built from registry; entry is guaranteed present
                     let entry = registry.tests.iter().find(|t| t.name == first).unwrap();
                     start_test(
                         &first,

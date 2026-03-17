@@ -165,7 +165,10 @@ fn layout_branch_topdown(
             let curr_x = node_pos[&sorted[i]].0;
             if curr_x - prev_x < COL_SPACING {
                 let shift = COL_SPACING - (curr_x - prev_x);
-                node_pos.get_mut(&sorted[i]).unwrap().0 += shift;
+                #[allow(clippy::unwrap_used)] // key is guaranteed present; built from the same map
+                {
+                    node_pos.get_mut(&sorted[i]).unwrap().0 += shift;
+                }
             }
         }
     }
@@ -184,7 +187,10 @@ fn layout_branch_topdown(
             let curr_x = node_pos[&sorted[i]].0;
             if curr_x - prev_x < COL_SPACING {
                 let shift = COL_SPACING - (curr_x - prev_x);
-                node_pos.get_mut(&sorted[i]).unwrap().0 += shift;
+                #[allow(clippy::unwrap_used)] // key is guaranteed present; built from the same map
+                {
+                    node_pos.get_mut(&sorted[i]).unwrap().0 += shift;
+                }
             }
         }
     }

@@ -461,6 +461,8 @@ pub(crate) fn building_inspector_content(
                     .and_then(|e| bld.tower_bld_q.get(e).ok())
                     .map(|tbs| (level_from_xp(tbs.xp), tbs.upgrade_levels.clone()))
                     .unwrap_or((0, Vec::new()));
+                #[allow(clippy::unwrap_used)]
+                // tower_stats is guaranteed present for tower building kinds
                 let base = crate::constants::building_def(kind).tower_stats.unwrap();
                 let stats = resolve_tower_instance_stats(&base, level, &upgrade_levels_clone);
 

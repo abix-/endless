@@ -284,6 +284,8 @@ pub fn tick(
                 }
                 test.pass_phase(elapsed, format!("migration settled ({:.1}s)", elapsed));
             } else {
+                #[allow(clippy::unwrap_used)]
+                // active is Some in the else branch (is_some() checked above)
                 let mg = migration_state.active.as_ref().unwrap();
                 test.phase_name = format!(
                     "waiting for settle... boat={} members={}",
@@ -514,6 +516,8 @@ pub fn tick(
                     format!("raider migration settled ({:.1}s)", elapsed),
                 );
             } else {
+                #[allow(clippy::unwrap_used)]
+                // active is Some in the else branch (is_some() checked above)
                 let mg = migration_state.active.as_ref().unwrap();
                 test.phase_name = format!(
                     "waiting for raider settle... boat={} members={}",

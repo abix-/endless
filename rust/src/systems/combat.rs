@@ -893,6 +893,7 @@ pub fn building_tower_system(
         .collect();
 
     for &(slot, src, faction, xp, ref levels, levels_len, entity, kind, equip_bonus) in &towers {
+        #[allow(clippy::unwrap_used)] // tower_stats is guaranteed present for tower building kinds
         let base = crate::constants::building_def(kind).tower_stats.unwrap();
         let level = crate::systems::stats::level_from_xp(xp);
         let mut stats = crate::systems::stats::resolve_tower_instance_stats(
