@@ -2,9 +2,9 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -45,3 +45,20 @@ jobs:
 
       - name: Test
         run: cargo test --lib --release
+
+  go:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: llm-player
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Build endless-cli
+        run: go build -o endless-cli .
