@@ -80,6 +80,8 @@ pub struct CameraState {
     pub zoom: f32,
     pub viewport: Vec2,
     pub lod_zoom: f32,
+    /// HP bar display mode: 0=Off, 1=WhenDamaged, 2=Always.
+    pub hp_bar_mode: u32,
 }
 
 const EDGE_PAN_MARGIN: f32 = 8.0;

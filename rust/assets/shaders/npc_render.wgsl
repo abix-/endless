@@ -74,7 +74,8 @@ struct Camera {
     bldg_layers: f32,
     extras_cols: f32,
     lod_zoom: f32,
-    _pad: u32,
+    // HP bar display mode: 0=Off, 1=WhenDamaged, 2=Always
+    hp_bar_mode: u32,
 };
 @group(1) @binding(0) var<uniform> camera: Camera;
 
@@ -403,8 +404,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     // Health bar in bottom 15% of sprite (quad_uv.y > 0.85 = bottom rows)
-    // Show when damaged (health < 99%) — applies to NPCs and farm growth bars
-    let show_hp_bar = in.health < 0.99;
+    // hp_bar_mode: 0=Off, 1=WhenDamaged (show when health < 99%), 2=Always
+    let show_hp_bar = (camera.hp_bar_mode == 2u) || (camera.hp_bar_mode == 1u && in.health < 0.99);
     if in.quad_uv.y > 0.85 && show_hp_bar {
         var bar_color = vec4<f32>(0.2, 0.2, 0.2, 1.0);
 
@@ -432,8 +433,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
 
-    // Keep HP bar visible by masking equipment pixels in bottom strip.
-    if in.health >= 0.99 && in.quad_uv.y > 0.85 && in.atlas_id < 0.5 {
+    // Mask sprite texture pixels in bottom strip when not showing HP bar.
+    // In Off mode (hp_bar_mode==0): always discard so no stray sprite pixels show.
+    // In WhenDamaged mode: discard only for full-health NPCs (damaged ones returned early above).
+    // In Always mode: never reached here for bottom strip (all NPCs return early above).
+    let full_hp = in.health >= 0.99;
+    if (full_hp || camera.hp_bar_mode == 0u) && in.quad_uv.y > 0.85 && in.atlas_id < 0.5 {
         discard;
     }
 

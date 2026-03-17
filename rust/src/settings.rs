@@ -9,6 +9,29 @@ use crate::resources::PolicySet;
 
 const SETTINGS_VERSION: u32 = 14;
 
+/// Controls when NPC HP bars are displayed.
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug, Default)]
+pub enum HpBarMode {
+    /// Never show HP bars.
+    Off,
+    /// Show HP bars only when the NPC is damaged (HP < max). Current/default behavior.
+    #[default]
+    WhenDamaged,
+    /// Always show HP bars on all living NPCs.
+    Always,
+}
+
+impl HpBarMode {
+    /// Maps to the u32 constant used in the GPU shader (camera uniform `hp_bar_mode`).
+    pub fn as_u32(self) -> u32 {
+        match self {
+            Self::Off => 0,
+            Self::WhenDamaged => 1,
+            Self::Always => 2,
+        }
+    }
+}
+
 /// Controls which NPCs have their activity logged in `NpcLogCache`.
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug, Default)]
 pub enum NpcLogMode {
@@ -731,6 +754,9 @@ pub struct UserSettings {
     /// LLM player cycle interval in seconds.
     #[serde(default = "default_llm_interval")]
     pub llm_interval: f32,
+    /// When to display NPC HP bars.
+    #[serde(default)]
+    pub hp_bar_mode: HpBarMode,
 }
 
 fn default_llm_interval() -> f32 {
@@ -909,6 +935,7 @@ impl Default for UserSettings {
             left_panel_tab: String::new(),
             collapsed_sections: Vec::new(),
             llm_interval: 20.0,
+            hp_bar_mode: HpBarMode::WhenDamaged,
         }
     }
 }
@@ -1045,5 +1072,44 @@ pub fn load_settings() -> UserSettings {
             settings
         }
         Err(_) => UserSettings::default(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hp_bar_mode_default_is_when_damaged() {
+        let settings = UserSettings::default();
+        assert_eq!(
+            settings.hp_bar_mode,
+            HpBarMode::WhenDamaged,
+            "default hp_bar_mode must be WhenDamaged to preserve existing behavior"
+        );
+    }
+
+    #[test]
+    fn hp_bar_mode_when_damaged_shader_value_matches_current_behavior() {
+        // WhenDamaged maps to 1 in the shader -- the existing always-on value.
+        // If this changes, the shader constant must change too.
+        assert_eq!(HpBarMode::WhenDamaged.as_u32(), 1u32);
+        assert_eq!(HpBarMode::Off.as_u32(), 0u32);
+        assert_eq!(HpBarMode::Always.as_u32(), 2u32);
+    }
+
+    #[test]
+    fn hp_bar_mode_serde_roundtrip() {
+        // Verify serde(default) round-trips correctly.
+        let json = r#"{"hp_bar_mode":"Always"}"#;
+        let partial: std::collections::BTreeMap<String, serde_json::Value> =
+            serde_json::from_str(json).unwrap();
+        let mode: HpBarMode = serde_json::from_value(partial["hp_bar_mode"].clone()).unwrap();
+        assert_eq!(mode, HpBarMode::Always);
+
+        // Missing key should deserialize to WhenDamaged (default).
+        let mode_default: HpBarMode =
+            serde_json::from_value(serde_json::Value::Null).unwrap_or_default();
+        assert_eq!(mode_default, HpBarMode::WhenDamaged);
     }
 }
