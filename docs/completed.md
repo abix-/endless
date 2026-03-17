@@ -35,6 +35,7 @@ Read more: [combat.md](combat.md), [behavior.md](behavior.md), [projectiles.md](
 
 - Kills generate food, gold, and equipment directly into carrier loot.
 - Units carry loot home and deposit gear into town inventory.
+- Town inventory holds up to 9999 items per town. Excess is pruned hourly, lowest-value items converted to gold.
 - The armory supports equip, unequip, auto-equip, filters, comparisons, and town inventory browsing.
 - Gear changes both stats and visuals, so veterans do not stay visually generic.
 
