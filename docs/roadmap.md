@@ -20,8 +20,7 @@ See [completed.md](completed.md) for the player-facing feature snapshot and [his
 Stages 1-16, 18, 19: [x] Complete (see [history.md](history.md))
 
 **Current Sprint (priority order):**
-1. Loot cycle stress test -- benchmark TownEquipment growth under 50K NPCs over extended play, cap or prune unbounded accumulation
-2. Stage 26 resources -- finish woodcutter/quarrier harvest cycle, mixed building costs, iron
+1. Stage 26 resources -- finish woodcutter/quarrier harvest cycle, mixed building costs, iron
 
 **Stage 17: Combat Depth**
 
@@ -45,8 +44,7 @@ Design: no loot bags on the ground. Kill → loot goes directly into killer's `C
 
 All 6 chunks complete. See [history.md](history.md) for rollout notes and [combat.md](combat.md), [armory-ui.md](armory-ui.md), and [save-load.md](save-load.md) for current behavior.
 
-Remaining:
-- [ ] Loot cycle stress test: benchmark `TownEquipment` growth at 50K NPCs over extended play (2+ hours simulated). If unbounded, add inventory cap or periodic pruning of lowest-rarity items.
+Remaining: none -- all chunks complete.
 
 **Stage 19: Code Health** — [x] Complete (see [history.md](history.md))
 

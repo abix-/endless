@@ -48,6 +48,15 @@ Final Stage 16 items completed:
 - ai_player/decision.rs split: extracted build_actions.rs to keep all submodules under 1000 lines
 - hardcoded town indices in HUD replaced with faction/town lookup helpers
 
+### Stage 18 completion: loot cycle stress test
+
+- TownEquipment growth benchmarked at 50K NPC kill rates (180 items/hr)
+- TOWN_EQUIPMENT_CAP raised from 200 to SOFT_CAP (9999) -- generous inventory
+- prune_town_equipment_system verified: hourly prune keeps count at cap, excess converted to gold
+- regression test: town_equipment_bounded_at_50k_kill_rate asserts exact counts per hour
+- SOFT_CAP constant added: single source of truth for all gameplay caps (proficiency, inventory, reputation)
+- Criterion benchmark added: bench_prune_town_equipment at 200/500/1K/2K/10K items
+
 ### NPC skills and proficiency (partial Stage 23)
 
 - per-NPC skill set with proficiency values (0-100) keyed by role/action
