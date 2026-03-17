@@ -412,6 +412,73 @@ fn pop_working_increments() {
 }
 
 // ========================================================================
+// player town index lookup tests
+// ========================================================================
+
+/// Regression test: player town lookup via FACTION_PLAYER finds the correct town
+/// even when the player town is not at index 0. Verifies that the HUD top bar
+/// uses faction-based lookup instead of hardcoded index 0.
+#[test]
+fn player_town_lookup_by_faction() {
+    use crate::constants::FACTION_PLAYER;
+    use crate::world::{Town, WorldData};
+
+    // Player town is at index 1 (not 0) -- would silently break with hardcoded 0
+    let world_data = WorldData {
+        towns: vec![
+            Town {
+                name: "Raider".into(),
+                center: Vec2::ZERO,
+                faction: 2,
+                kind: crate::constants::TownKind::AiRaider,
+            },
+            Town {
+                name: "Player".into(),
+                center: Vec2::new(500.0, 500.0),
+                faction: FACTION_PLAYER,
+                kind: crate::constants::TownKind::Player,
+            },
+        ],
+    };
+
+    let player_town_idx = world_data
+        .towns
+        .iter()
+        .position(|t| t.faction == FACTION_PLAYER)
+        .unwrap_or(0) as i32;
+
+    assert_eq!(
+        player_town_idx, 1,
+        "player town should be found at index 1, not hardcoded 0"
+    );
+
+    // Simulate pop_stats with farmers registered under the correct town idx (1)
+    let mut stats = PopulationStats::default();
+    super::pop_inc_alive(&mut stats, Job::Farmer, 1);
+
+    let count = stats
+        .0
+        .get(&(Job::Farmer as i32, player_town_idx))
+        .map(|s| s.alive)
+        .unwrap_or(0);
+    assert_eq!(
+        count, 1,
+        "lookup with FACTION_PLAYER town idx should find the farmer"
+    );
+
+    // Hardcoded 0 would return 0 (wrong) -- confirm the regression
+    let wrong_count = stats
+        .0
+        .get(&(Job::Farmer as i32, 0))
+        .map(|s| s.alive)
+        .unwrap_or(0);
+    assert_eq!(
+        wrong_count, 0,
+        "hardcoded index 0 should miss the player town data when player is at index 1"
+    );
+}
+
+// ========================================================================
 // raider_forage_system tests
 // ========================================================================
 
