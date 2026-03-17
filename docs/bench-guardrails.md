@@ -6,9 +6,9 @@ A regression >20% on any baseline-tracked benchmark causes a CI failure.
 ## What Is Checked
 
 `rust/benches/ci-baseline.json` stores mean nanosecond times for every
-benchmark variant in `system_bench.rs`. The CI comparison script
-(`rust/benches/check_regression.py`) walks `target/criterion/` after the
-bench run and compares each result against its baseline entry.
+benchmark variant in `system_bench.rs`. After the bench run, CI calls
+`claude-k3 bench-check` which walks `target/criterion/` and compares
+each result against its baseline entry.
 
 Benchmarks with a baseline `< 500ns` are skipped (avoids noise on O(1)
 paths like `npc_regen` where bucket prediction dominates variance).
@@ -21,20 +21,16 @@ causes false positives on a stable run):
 ```sh
 cd rust
 cargo bench --bench system_bench
-python3 benches/update_baseline.py
+claude-k3 bench-update
 ```
 
-`update_baseline.py` reads `target/criterion/` and overwrites
+`claude-k3 bench-update` reads `target/criterion/` and overwrites
 `benches/ci-baseline.json` with the new mean times. Commit the updated file
 with a message noting the commit and date, e.g.:
 
 ```
 bench: update ci-baseline to 2026-03-20 (abc1234)
 ```
-
-If `update_baseline.py` does not exist yet, update `ci-baseline.json` manually:
-replace `mean_ns` values with the new Criterion mean (in nanoseconds) from
-`target/criterion/<group>/<id>/new/estimates.json` -> `mean.point_estimate * 1e9`.
 
 ## Threshold Tuning
 
