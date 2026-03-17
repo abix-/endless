@@ -30,6 +30,39 @@ Current docs:
 - [messages.md](messages.md)
 - [resources.md](resources.md)
 
+### Stage 16 completion: remaining performance and code quality
+
+Final Stage 16 items completed:
+
+- decision_system format! allocations gated behind npc_logs check, eliminating hot-path string allocations
+- sync_terrain_tilemap converted to chunk-granularity partial rebuilds instead of full-map rewrites
+- SystemTimings Mutex replaced with AtomicU32 + f32::to_bits for lock-free profiling
+- microbenchmark CI guardrails with Criterion thresholds added
+- message signal regression tests for event-driven systems added
+- GameLog SystemParam bundle created and migrated across combat/spawn/economy systems
+- ad-hoc SystemParam bundles in behavior.rs consolidated into shared bundles in resources.rs
+
+### Code health: large file splits
+
+- game_hud.rs (~3400 lines) split into submodules: mod.rs, inspector.rs, building_inspector.rs, npc_inspector.rs, combat_log.rs, squad_overlay.rs, build_ghost.rs
+- ai_player/decision.rs split: extracted build_actions.rs to keep all submodules under 1000 lines
+- hardcoded town indices in HUD replaced with faction/town lookup helpers
+
+### NPC skills and proficiency (partial Stage 23)
+
+- per-NPC skill set with proficiency values (0-100) keyed by role/action
+- farming proficiency scales farm growth rate
+- dodge proficiency gives personal projectile miss chance
+- skills visible in inspector and roster Prof column
+- skill growth from doing the work (farming raises farming, dodging raises dodge)
+
+### UI improvements
+
+- HP bar display mode toggle: Off / When Damaged / Always (shader-based, zero overhead when Off)
+- visual/equip GPU buffers resized to MAX_ENTITIES with corrected 7-layer equip stride
+- LOD boxes colored by resource type for better visual debugging
+- worksite occupancy split into claimed vs present counts for accurate building state
+
 ### Stage 17: Combat depth and personality
 
 Completed work in this phase includes:
