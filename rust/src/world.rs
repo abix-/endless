@@ -727,13 +727,14 @@ pub fn place_building(
             }
         }
 
-        // Reject placements that would fully block access to spawners
-        if !kind.is_road()
-            && ctx
-                .grid
-                .would_block_spawner_access(entity_map, gc, gr, town_idx, ctx.world_data)
-        {
-            return Err("would block access to a spawner");
+        // Reject placements that would fully block access to critical buildings
+        if !kind.is_road() {
+            if let Some(reason) =
+                ctx.grid
+                    .would_block_critical_access(entity_map, gc, gr, town_idx, ctx.world_data)
+            {
+                return Err(reason);
+            }
         }
 
         if *ctx.food < ctx.cost {
@@ -1900,49 +1901,52 @@ impl WorldGrid {
         }
     }
 
-    /// Check if placing an impassable building at (gc, gr) would block access from
-    /// the town center to any spawner of the same town. Returns true if placement
-    /// would create an unreachable spawner.
+    /// Check if placing an impassable building at (gc, gr) would block access to any
+    /// critical building (spawners, fountain, farms, mines) of the same town.
+    /// Returns `Some(reason)` if blocked, `None` if safe.
     ///
-    /// Only runs at placement time (player click), not per-frame. O(spawners * A*).
-    pub fn would_block_spawner_access(
+    /// Only runs at placement time (player click), not per-frame.
+    /// O(critical_buildings * A*) where A* uses max 5000 nodes per query.
+    pub fn would_block_critical_access(
         &mut self,
         entity_map: &crate::resources::EntityMap,
         gc: usize,
         gr: usize,
         town_idx: u32,
         world_data: &WorldData,
-    ) -> bool {
+    ) -> Option<&'static str> {
+        use crate::systems::pathfinding::pathfind_with_costs;
+        use bevy::math::IVec2;
+
         if self.width == 0 || self.height == 0 {
-            return false;
+            return None;
         }
         let idx = gr * self.width + gc;
         if idx >= self.pathfind_costs.len() {
-            return false;
+            return None;
         }
-        let Some(town) = world_data.towns.get(town_idx as usize) else {
-            return false;
-        };
+        let town = world_data.towns.get(town_idx as usize)?;
         let (cc, cr) = self.world_to_grid(town.center);
-        let center = bevy::math::IVec2::new(cc as i32, cr as i32);
+        let center = IVec2::new(cc as i32, cr as i32);
 
         // Temporarily set candidate cell as impassable
         let original_cost = self.pathfind_costs[idx];
         self.pathfind_costs[idx] = 0;
 
-        let mut blocked = false;
-        // Check reachability for each spawner building of this town
-        for def in crate::constants::BUILDING_REGISTRY.iter() {
+        let mut reason: Option<&'static str> = None;
+
+        // Check spawner buildings
+        'spawners: for def in crate::constants::BUILDING_REGISTRY.iter() {
             if def.spawner.is_none() {
                 continue;
             }
             for inst in entity_map.iter_kind_for_town(def.kind, town_idx) {
                 let (sc, sr) = self.world_to_grid(inst.position);
-                let goal = bevy::math::IVec2::new(sc as i32, sr as i32);
+                let goal = IVec2::new(sc as i32, sr as i32);
                 if goal == center {
                     continue;
                 }
-                let reachable = crate::systems::pathfinding::pathfind_with_costs(
+                let reachable = pathfind_with_costs(
                     &self.pathfind_costs,
                     self.width,
                     self.height,
@@ -1951,18 +1955,66 @@ impl WorldGrid {
                     5000,
                 );
                 if reachable.is_none() {
-                    blocked = true;
-                    break;
+                    reason = Some("would block access to a spawner");
+                    break 'spawners;
                 }
             }
-            if blocked {
-                break;
+        }
+
+        // Check non-spawner critical buildings: fountain, farms, mines
+        if reason.is_none() {
+            let critical: &[(BuildingKind, &'static str)] = &[
+                (BuildingKind::Fountain, "would block access to fountain"),
+                (BuildingKind::Farm, "would block access to a farm"),
+                (BuildingKind::GoldMine, "would block access to a mine"),
+            ];
+            'critical: for &(kind, msg) in critical {
+                for inst in entity_map.iter_kind_for_town(kind, town_idx) {
+                    let (sc, sr) = self.world_to_grid(inst.position);
+                    let bld_cell = IVec2::new(sc as i32, sr as i32);
+                    if bld_cell == center {
+                        // Building IS the town center — verify it still has a passable neighbor
+                        let sealed =
+                            [IVec2::X, IVec2::NEG_X, IVec2::Y, IVec2::NEG_Y]
+                                .iter()
+                                .all(|&d| {
+                                    let nb = bld_cell + d;
+                                    if nb.x < 0
+                                        || nb.y < 0
+                                        || nb.x >= self.width as i32
+                                        || nb.y >= self.height as i32
+                                    {
+                                        return true; // out of bounds counts as blocked
+                                    }
+                                    let ni = nb.y as usize * self.width + nb.x as usize;
+                                    self.pathfind_costs[ni] == 0
+                                });
+                        if sealed {
+                            reason = Some(msg);
+                            break 'critical;
+                        }
+                    } else {
+                        // Check that the town center can still reach this building
+                        let reachable = pathfind_with_costs(
+                            &self.pathfind_costs,
+                            self.width,
+                            self.height,
+                            center,
+                            bld_cell,
+                            5000,
+                        );
+                        if reachable.is_none() {
+                            reason = Some(msg);
+                            break 'critical;
+                        }
+                    }
+                }
             }
         }
 
         // Restore original cost
         self.pathfind_costs[idx] = original_cost;
-        blocked
+        reason
     }
 
     // ── Town buildability grid ─────────────────────────────────────
@@ -3778,5 +3830,110 @@ mod tests {
                 idx
             );
         }
+    }
+
+    // ── path validation tests ───────────────────────────────────────────────
+
+    /// Build a passable 10x10 grid and a WorldData with one town centered at (5,5).
+    fn path_test_grid() -> (WorldGrid, WorldData) {
+        let w = 10usize;
+        let h = 10usize;
+        let cs = crate::constants::TOWN_GRID_SPACING;
+        let mut grid = WorldGrid {
+            width: w,
+            height: h,
+            cell_size: cs,
+            cells: vec![WorldCell::default(); w * h],
+            pathfind_costs: vec![100u16; w * h], // all passable
+            building_cost_cells: Vec::new(),
+            hpa_cache: None,
+            town_owner: vec![0u16; w * h],
+            town_overlap: Default::default(),
+        };
+        // Block the cells that are impassable (pathfind_costs already set to 100 = passable)
+        // Mark cell (5,5) as the town center (already passable).
+        grid.pathfind_costs[5 * w + 5] = 100;
+
+        let mut world_data = WorldData::default();
+        world_data.towns.push(Town {
+            name: "TestTown".into(),
+            center: grid.grid_to_world(5, 5),
+            faction: 0,
+            kind: crate::constants::TownKind::Player,
+        });
+        (grid, world_data)
+    }
+
+    /// Helper: add a building to both the grid-cell and EntityMap without full ECS.
+    fn add_bld(
+        entity_map: &mut EntityMap,
+        grid: &WorldGrid,
+        kind: BuildingKind,
+        gc: usize,
+        gr: usize,
+        town_idx: u32,
+    ) {
+        let slot = entity_map.building_count();
+        let pos = grid.grid_to_world(gc, gr);
+        entity_map.add_instance(crate::entity_map::BuildingInstance {
+            kind,
+            position: pos,
+            town_idx,
+            slot,
+            faction: 0,
+        });
+    }
+
+    /// Regression test: placing a wall that fully surrounds the fountain is rejected.
+    /// Scenario: 3 walls already around fountain, 4th wall seals it — must be rejected.
+    #[test]
+    fn wall_sealing_fountain_is_rejected() {
+        let (mut grid, world_data) = path_test_grid();
+        let mut entity_map = EntityMap::default();
+
+        // Place fountain at town center (5,5)
+        add_bld(&mut entity_map, &grid, BuildingKind::Fountain, 5, 5, 0);
+
+        // Mark 3 neighbors of (5,5) as walls (impassable in cost grid)
+        let w = grid.width;
+        grid.pathfind_costs[5 * w + 4] = 0; // (4,5) -- left
+        grid.pathfind_costs[5 * w + 6] = 0; // (6,5) -- right
+        grid.pathfind_costs[4 * w + 5] = 0; // (5,4) -- below
+
+        // Placing the 4th wall at (5,6) (above) would seal the fountain
+        let result = grid.would_block_critical_access(&entity_map, 5, 6, 0, &world_data);
+        assert!(
+            result.is_some(),
+            "expected rejection when fountain is fully sealed, got None"
+        );
+        assert!(
+            result.unwrap().contains("fountain"),
+            "expected fountain-specific message, got: {:?}",
+            result
+        );
+    }
+
+    /// Regression test: placing a wall that leaves a gap is accepted.
+    /// Scenario: 2 walls around fountain, 3rd wall placed — still has one open neighbor.
+    #[test]
+    fn wall_leaving_gap_is_accepted() {
+        let (mut grid, world_data) = path_test_grid();
+        let mut entity_map = EntityMap::default();
+
+        // Place fountain at town center (5,5)
+        add_bld(&mut entity_map, &grid, BuildingKind::Fountain, 5, 5, 0);
+
+        // Only 2 neighbors blocked — one still open
+        let w = grid.width;
+        grid.pathfind_costs[5 * w + 4] = 0; // (4,5) blocked
+        grid.pathfind_costs[4 * w + 5] = 0; // (5,4) blocked
+
+        // Placing a wall at (6,5) — leaves (5,6) still open
+        let result = grid.would_block_critical_access(&entity_map, 6, 5, 0, &world_data);
+        assert!(
+            result.is_none(),
+            "expected acceptance when fountain has open neighbor, got: {:?}",
+            result
+        );
     }
 }

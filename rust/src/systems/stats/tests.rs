@@ -860,11 +860,7 @@ fn prune_caps_town_equipment_at_limit() {
     app.update();
 
     let eq = app.world().get::<TownEquipment>(entity).unwrap();
-    assert!(
-        eq.0.len() <= cap,
-        "should prune to cap: got {}",
-        eq.0.len()
-    );
+    assert!(eq.0.len() <= cap, "should prune to cap: got {}", eq.0.len());
 
     let gold = app.world().get::<GoldStore>(entity).unwrap().0;
     let expected_gold = over - cap;
@@ -1022,10 +1018,20 @@ fn town_equipment_bounded_at_50k_kill_rate() {
     // Each hour accumulates: 180, 360, 540, ..., 1440
     for h in 0..HOURS {
         let expected = ITEMS_PER_HOUR * (h + 1);
-        assert_eq!(counts[h], expected, "hour {}: expected {} items", h + 1, expected);
+        assert_eq!(
+            counts[h],
+            expected,
+            "hour {}: expected {} items",
+            h + 1,
+            expected
+        );
     }
     // Final state: all 1440 items kept (well under SOFT_CAP)
-    assert_eq!(final_count, total_generated, "final: all {} items kept (cap {})", total_generated, CAP);
+    assert_eq!(
+        final_count, total_generated,
+        "final: all {} items kept (cap {})",
+        total_generated, CAP
+    );
     assert!(
         total_generated < CAP,
         "at 50K NPCs for 8 hours, {} items generated stays under cap {}",
