@@ -674,42 +674,155 @@ fn tended_farm_grows_faster() {
     );
 }
 
-/// Regression: claimed-but-not-present workers must NOT trigger tended growth rate.
+/// Regression: claimed-but-not-present workers must NOT trigger tended growth.
 /// Bug: occupancy incremented at claim time (before arrival), causing tended rate
-/// to kick in while worker was still walking. Fix: growth_system gates on present_count,
-/// not occupancy.
+/// to kick in while worker was still walking. Fix: growth_system gates on present_count.
+/// Covers ALL worksite types: Farm, GoldMine, TreeNode, RockNode.
 #[test]
-fn farm_claimed_but_not_present_grows_at_untended_rate() {
+fn worksites_claimed_but_not_present_do_not_progress() {
     let mut app = setup_growth_app();
-    // Farm 0: truly untended (no claim, no presence)
-    add_farm(&mut app, 0, false);
-    // Farm 1: claimed but worker not yet present (present=0, but simulate a claim)
-    add_farm(&mut app, 1, false);
-    // present is already 0 for both -- the point is farm 1 is "claimed" but nobody arrived
+
+    // Farm: present=0 should grow at passive (untended) rate, not tended rate
+    add_farm(&mut app, 0, false); // untended baseline
+    add_farm(&mut app, 1, true); // tended (present=1)
+
+    // GoldMine: present=0 should NOT grow at all
+    let mine_inst = test_building_instance(2, BuildingKind::GoldMine, 0.0);
+    let mine_entity = app
+        .world_mut()
+        .spawn((
+            GpuSlot(2),
+            Building {
+                kind: BuildingKind::GoldMine,
+            },
+            TownId(0),
+            Position { x: 0.0, y: 0.0 },
+            ConstructionProgress(0.0),
+            ProductionState {
+                ready: false,
+                progress: 0.0,
+            },
+        ))
+        .id();
+    {
+        let mut em = app.world_mut().resource_mut::<EntityMap>();
+        em.set_entity(2, mine_entity);
+        em.add_instance(mine_inst);
+    }
+
+    // TreeNode: present=0 should NOT progress
+    let tree_inst = test_building_instance(3, BuildingKind::TreeNode, 0.0);
+    let tree_entity = app
+        .world_mut()
+        .spawn((
+            GpuSlot(3),
+            Building {
+                kind: BuildingKind::TreeNode,
+            },
+            TownId(0),
+            Position { x: 0.0, y: 0.0 },
+            ConstructionProgress(0.0),
+            ProductionState {
+                ready: false,
+                progress: 0.0,
+            },
+        ))
+        .id();
+    {
+        let mut em = app.world_mut().resource_mut::<EntityMap>();
+        em.set_entity(3, tree_entity);
+        em.add_instance(tree_inst);
+    }
+
+    // RockNode: present=0 should NOT progress
+    let rock_inst = test_building_instance(4, BuildingKind::RockNode, 0.0);
+    let rock_entity = app
+        .world_mut()
+        .spawn((
+            GpuSlot(4),
+            Building {
+                kind: BuildingKind::RockNode,
+            },
+            TownId(0),
+            Position { x: 0.0, y: 0.0 },
+            ConstructionProgress(0.0),
+            ProductionState {
+                ready: false,
+                progress: 0.0,
+            },
+        ))
+        .id();
+    {
+        let mut em = app.world_mut().resource_mut::<EntityMap>();
+        em.set_entity(4, rock_entity);
+        em.add_instance(rock_inst);
+    }
 
     app.update();
-    let e0 = *app
+
+    // Farm: untended grows at base rate, tended grows faster
+    let farm_untended = app
         .world()
-        .resource::<EntityMap>()
-        .entities
-        .get(&0)
-        .unwrap();
-    let e1 = *app
+        .get::<ProductionState>(
+            *app.world()
+                .resource::<EntityMap>()
+                .entities
+                .get(&0)
+                .unwrap(),
+        )
+        .unwrap()
+        .progress;
+    let farm_tended = app
         .world()
-        .resource::<EntityMap>()
-        .entities
-        .get(&1)
-        .unwrap();
-    let untended = app.world().get::<ProductionState>(e0).unwrap().progress;
-    let claimed_not_present = app.world().get::<ProductionState>(e1).unwrap().progress;
+        .get::<ProductionState>(
+            *app.world()
+                .resource::<EntityMap>()
+                .entities
+                .get(&1)
+                .unwrap(),
+        )
+        .unwrap()
+        .progress;
     assert!(
-        (untended - claimed_not_present).abs() < f32::EPSILON,
-        "claimed-but-not-present farm must grow at same rate as untended: untended={untended}, claimed={claimed_not_present}"
+        farm_untended > 0.0,
+        "untended farm should grow at base rate"
     );
-    // Also verify neither grows at tended rate
     assert!(
-        untended > 0.0,
-        "untended farm should still grow at base rate"
+        farm_tended > farm_untended,
+        "tended farm should grow faster: tended={farm_tended}, untended={farm_untended}"
+    );
+
+    // GoldMine: present=0 means zero progress
+    let mine_progress = app
+        .world()
+        .get::<ProductionState>(mine_entity)
+        .unwrap()
+        .progress;
+    assert!(
+        mine_progress < f32::EPSILON,
+        "mine with no present worker must not progress: {mine_progress}"
+    );
+
+    // TreeNode: present=0 means zero progress
+    let tree_progress = app
+        .world()
+        .get::<ProductionState>(tree_entity)
+        .unwrap()
+        .progress;
+    assert!(
+        tree_progress < f32::EPSILON,
+        "tree with no present worker must not progress: {tree_progress}"
+    );
+
+    // RockNode: present=0 means zero progress
+    let rock_progress = app
+        .world()
+        .get::<ProductionState>(rock_entity)
+        .unwrap()
+        .progress;
+    assert!(
+        rock_progress < f32::EPSILON,
+        "rock with no present worker must not progress: {rock_progress}"
     );
 }
 
