@@ -57,13 +57,14 @@ Final Stage 16 items completed:
 - SOFT_CAP constant added: single source of truth for all gameplay caps (proficiency, inventory, reputation)
 - Criterion benchmark added: bench_prune_town_equipment at 200/500/1K/2K/10K items
 
-### NPC skills and proficiency (partial Stage 23)
+### NPC skills and proficiency (Stage 23 -- complete)
 
-- per-NPC skill set with proficiency values (0-100) keyed by role/action
+- per-NPC skill set with proficiency values (0-9999) keyed by role/action
 - farming proficiency scales farm growth rate
+- combat proficiency scales damage output and attack cooldown
 - dodge proficiency gives personal projectile miss chance
 - skills visible in inspector and roster Prof column
-- skill growth from doing the work (farming raises farming, dodging raises dodge)
+- skill growth from doing the work (farming raises farming, combat raises combat, dodging raises dodge)
 
 ### UI improvements
 

@@ -16,8 +16,8 @@ Read more: [README.md](../README.md), [economy.md](economy.md), [save-load.md](s
 - NPCs have jobs, homes, energy, combat stats, personality, and explicit activity state.
 - Farmers, miners, woodcutters, quarriers, archers, crossbowmen, fighters, raiders, and boats all run through the sim.
 - Units rest, heal, flee, haul resources, deposit loot, and return to work without constant babysitting.
-- NPCs gain proficiency from doing their job -- farming raises farming skill, dodging raises dodge skill.
-- Farming proficiency scales farm growth rate. Dodge proficiency gives a personal projectile miss chance.
+- NPCs gain proficiency from doing their job -- farming raises farming, combat raises combat, dodging raises dodge.
+- Farming proficiency scales farm growth rate. Combat proficiency scales damage and cooldown. Dodge proficiency gives a personal projectile miss chance.
 - Skills are visible in the inspector and sortable in the roster Prof column.
 
 Read more: [behavior.md](behavior.md), [npc-activity-controller.md](npc-activity-controller.md), [spawn.md](spawn.md)

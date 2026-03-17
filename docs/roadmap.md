@@ -17,7 +17,7 @@ See [completed.md](completed.md) for the player-facing feature snapshot and [his
 
 ## Stages
 
-Stages 1-16, 18-19, 32: [x] Complete (see [history.md](history.md))
+Stages 1-16, 18-19, 23, 32: [x] Complete (see [history.md](history.md))
 
 **Current Sprint (priority order):**
 1. Stage 26 resources -- finish woodcutter/quarrier harvest cycle, mixed building costs, iron
@@ -70,14 +70,7 @@ Remaining:
 - [ ] FoodEfficiency upgrade wired into `decision_system` eat logic
 - [ ] Economy pressure: upgrades cost more food, NPCs consume more as population grows
 
-**Stage 23: NPC Skills & Proficiency** (see [specs/npc-skills.md](specs/npc-skills.md))
-
-*Done when: two NPCs with the same job but different proficiencies produce measurably different outcomes (farm output, combat effectiveness, dodge/survival), and those differences are visible in UI.*
-
-Per-NPC skills, farming/dodge proficiency, skill growth, and inspector UI complete. See [history.md](history.md).
-
-Remaining:
-- [ ] Combat proficiency affects attack efficiency (accuracy/damage/cooldown contribution)
+**Stage 23: NPC Skills & Proficiency** — [x] Complete (see [history.md](history.md), [specs/npc-skills.md](specs/npc-skills.md))
 
 **Stage 24: Save Slots**
 
