@@ -7,7 +7,7 @@ use crate::resources::{
     CombatDebug, EntityMap, GameTime, GpuReadState, MovementPriority, PathRequestQueue,
     ProjHitState, ProjSlotAllocator, TowerState,
 };
-use crate::systems::stats::resolve_town_tower_stats;
+use crate::systems::stats::{UPGRADES, resolve_town_tower_stats};
 use crate::world::{Biome, BuildingKind, WorldData, WorldGrid, is_alive};
 use bevy::prelude::*;
 
@@ -80,11 +80,94 @@ pub(crate) fn fire_loot_fly(
     }
 }
 
+/// Snapshot of a living NPC used for CPU-side target selection.
+/// Built once per `attack_system` run to avoid repeated ECS lookups.
+#[derive(Clone)]
+pub(crate) struct TargetCandidate {
+    pub slot: usize,
+    pub x: f32,
+    pub y: f32,
+    /// True when the NPC is retreating (ReturnLoot activity heading home).
+    /// Attackers prefer non-retreating enemies when alternatives are in range.
+    pub is_retreating: bool,
+    /// Absolute current health. Lower = higher kill priority (secondary factor).
+    pub health: f32,
+    pub faction: i32,
+}
+
+/// Select the best NPC target for an attacker from a pre-built candidate list.
+///
+/// Priority (lower score wins):
+///   1. Non-retreating enemy in range, lowest HP first
+///   2. Retreating enemy in range (fallback when no non-retreating in range)
+///
+/// Returns `gpu_candidate` unchanged when the GPU candidate is already the best
+/// or when no candidates vec entry covers it (fast path for non-retreating targets).
+pub(crate) fn pick_npc_target(
+    gpu_candidate: usize,
+    attacker_pos: Vec2,
+    range: f32,
+    attacker_faction: i32,
+    candidates: &[TargetCandidate],
+) -> usize {
+    // Score: (retreating: u8, health: f32); lower tuple = higher priority.
+    let score_of = |c: &TargetCandidate| -> (u8, f32) { (c.is_retreating as u8, c.health) };
+
+    let gpu_entry = candidates.iter().find(|c| c.slot == gpu_candidate);
+    let gpu_score = gpu_entry.map(score_of).unwrap_or((0, f32::MAX));
+
+    // Fast path: GPU candidate is non-retreating -- use it immediately.
+    if gpu_score.0 == 0 {
+        return gpu_candidate;
+    }
+
+    // GPU candidate is retreating; scan for any better in-range target.
+    let range_sq = range * range;
+    let mut best_slot = gpu_candidate;
+    let mut best_score = gpu_score;
+
+    for c in candidates {
+        if c.faction == attacker_faction
+            || c.faction == crate::constants::FACTION_NEUTRAL
+            || c.x < -9000.0
+        {
+            continue;
+        }
+        let dx = c.x - attacker_pos.x;
+        let dy = c.y - attacker_pos.y;
+        if dx * dx + dy * dy > range_sq {
+            continue;
+        }
+        let s = score_of(c);
+        if s < best_score {
+            best_score = s;
+            best_slot = c.slot;
+        }
+    }
+
+    best_slot
+}
+
 /// ECS queries for attack_system (bundled to stay under 16-param limit).
 #[derive(bevy::ecs::system::SystemParam)]
 pub struct AttackQueries<'w, 's> {
     pub combat_state_q: Query<'w, 's, &'static mut CombatState>,
     pub timer_q: Query<'w, 's, &'static mut AttackTimer>,
+    /// Read-only snapshot query used to build the `TargetCandidate` list.
+    target_q: Query<
+        'w,
+        's,
+        (
+            &'static GpuSlot,
+            &'static Activity,
+            &'static Health,
+            &'static Faction,
+        ),
+        (Without<Building>, Without<Dead>),
+    >,
+    /// Read town upgrade levels for target switching gate.
+    town_upgrades_q: Query<'w, 's, &'static TownUpgradeLevel>,
+    town_index: Res<'w, crate::resources::TownIndex>,
 }
 
 /// Decrement attack cooldown timers each frame.
@@ -151,6 +234,31 @@ pub fn attack_system(
     }
     let positions = &gpu_state.positions;
     let combat_targets = &gpu_state.combat_targets;
+
+    // Build a per-frame candidate list (O(n) once) for CPU-side target switching.
+    // Only used by already-fighting NPCs whose GPU candidate is retreating.
+    let target_candidates: Vec<TargetCandidate> = aq
+        .target_q
+        .iter()
+        .filter_map(|(slot, activity, health, faction)| {
+            let s = slot.0;
+            if s * 2 + 1 >= positions.len() {
+                return None;
+            }
+            let px = positions[s * 2];
+            if px < -9000.0 {
+                return None;
+            }
+            Some(TargetCandidate {
+                slot: s,
+                x: px,
+                y: positions[s * 2 + 1],
+                is_retreating: activity.kind == ActivityKind::ReturnLoot,
+                health: health.0,
+                faction: faction.0,
+            })
+        })
+        .collect();
 
     let mut attackers = 0usize;
     let mut targets_found = 0usize;
@@ -370,6 +478,35 @@ pub fn attack_system(
             }
             continue;
         }
+        if ti * 2 + 1 >= positions.len() {
+            bounds_failures += 1;
+            continue;
+        }
+
+        // CPU-side target switching for already-fighting NPCs (gated by upgrade):
+        // prefer non-retreating enemies, break ties by lower HP (finish wounded faster).
+        // Scan range scales with TargetSwitching upgrade level (+20% weapon range per level).
+        let ti = if is_fighting {
+            let reg = &*UPGRADES;
+            let cat = crate::constants::npc_def(job).upgrade_category.unwrap_or("");
+            let town_levels = aq
+                .town_index
+                .0
+                .get(&faction_id)
+                .and_then(|e| aq.town_upgrades_q.get(*e).ok())
+                .map(|u| u.0.as_slice())
+                .unwrap_or(&[]);
+            let tgt_mult = reg.stat_mult(town_levels, cat, crate::constants::UpgradeStatKind::TargetSwitching);
+            if tgt_mult > 1.0 {
+                let scan_range = cached_range * tgt_mult;
+                pick_npc_target(ti, Vec2::new(x, y), scan_range, faction_id, &target_candidates)
+            } else {
+                ti
+            }
+        } else {
+            ti
+        };
+        // Re-validate bounds after potential target switch.
         if ti * 2 + 1 >= positions.len() {
             bounds_failures += 1;
             continue;
@@ -1344,6 +1481,112 @@ mod tests {
         assert_eq!(
             proj_update_count, 1,
             "hit should still recycle the projectile slot"
+        );
+    }
+
+    // -- pick_npc_target: target switching -----------------------------------
+
+    fn make_candidate(
+        slot: usize,
+        x: f32,
+        y: f32,
+        is_retreating: bool,
+        health: f32,
+        faction: i32,
+    ) -> TargetCandidate {
+        TargetCandidate {
+            slot,
+            x,
+            y,
+            is_retreating,
+            health,
+            faction,
+        }
+    }
+
+    const ENEMY_FACTION: i32 = 2;
+    const ATTACKER_FACTION: i32 = 1;
+    const RANGE: f32 = 200.0;
+
+    /// Regression: non-retreating GPU candidate is returned immediately (fast path).
+    #[test]
+    fn target_non_retreating_uses_gpu_candidate() {
+        let candidates = vec![make_candidate(5, 0.0, 100.0, false, 80.0, ENEMY_FACTION)];
+        let result = pick_npc_target(5, Vec2::ZERO, RANGE, ATTACKER_FACTION, &candidates);
+        assert_eq!(result, 5, "non-retreating candidate should be used as-is");
+    }
+
+    /// Regression: when GPU candidate is retreating and a non-retreating enemy is in range,
+    /// the non-retreating target is preferred over the retreating one.
+    #[test]
+    fn target_prefers_non_retreating_over_retreating() {
+        // Slot 5 = retreating (GPU candidate), slot 7 = non-retreating, both in range.
+        let candidates = vec![
+            make_candidate(5, 0.0, 50.0, true, 40.0, ENEMY_FACTION), // retreating
+            make_candidate(7, 0.0, 80.0, false, 90.0, ENEMY_FACTION), // non-retreating
+        ];
+        let result = pick_npc_target(5, Vec2::ZERO, RANGE, ATTACKER_FACTION, &candidates);
+        assert_eq!(
+            result, 7,
+            "non-retreating in-range enemy should be preferred over retreating"
+        );
+    }
+
+    /// Regression: when GPU candidate is retreating and no non-retreating enemy is in range,
+    /// the original retreating candidate is used as fallback.
+    #[test]
+    fn target_falls_back_to_retreating_when_no_alternatives() {
+        // Slot 5 = retreating in range, slot 7 = non-retreating but out of range.
+        let candidates = vec![
+            make_candidate(5, 0.0, 50.0, true, 40.0, ENEMY_FACTION), // retreating, in range
+            make_candidate(7, 0.0, 500.0, false, 20.0, ENEMY_FACTION), // non-retreating, far
+        ];
+        let result = pick_npc_target(5, Vec2::ZERO, RANGE, ATTACKER_FACTION, &candidates);
+        assert_eq!(
+            result, 5,
+            "retreating target should be fallback when no non-retreating in range"
+        );
+    }
+
+    /// Regression: among multiple non-retreating targets in range, the lowest-HP one is chosen.
+    #[test]
+    fn target_prefers_lower_hp_among_non_retreating() {
+        // GPU candidate = slot 5 (retreating). Two non-retreating options: slot 7 (high HP) and slot 9 (low HP).
+        let candidates = vec![
+            make_candidate(5, 0.0, 30.0, true, 50.0, ENEMY_FACTION), // retreating (GPU)
+            make_candidate(7, 0.0, 80.0, false, 90.0, ENEMY_FACTION), // non-retreating, high HP
+            make_candidate(9, 0.0, 100.0, false, 10.0, ENEMY_FACTION), // non-retreating, low HP
+        ];
+        let result = pick_npc_target(5, Vec2::ZERO, RANGE, ATTACKER_FACTION, &candidates);
+        assert_eq!(result, 9, "lowest-HP non-retreating target should win");
+    }
+
+    /// Regression: same-faction candidates are never selected.
+    #[test]
+    fn target_skips_same_faction() {
+        // GPU candidate is retreating (slot 5). The only "better" candidate is same faction.
+        let candidates = vec![
+            make_candidate(5, 0.0, 50.0, true, 80.0, ENEMY_FACTION), // retreating (GPU)
+            make_candidate(8, 0.0, 60.0, false, 10.0, ATTACKER_FACTION), // same faction -- skip
+        ];
+        let result = pick_npc_target(5, Vec2::ZERO, RANGE, ATTACKER_FACTION, &candidates);
+        assert_eq!(
+            result, 5,
+            "same-faction candidate must never be selected as target"
+        );
+    }
+
+    /// Regression: neutral-faction candidates are skipped.
+    #[test]
+    fn target_skips_neutral_faction() {
+        let candidates = vec![
+            make_candidate(5, 0.0, 50.0, true, 80.0, ENEMY_FACTION), // retreating (GPU)
+            make_candidate(6, 0.0, 60.0, false, 10.0, crate::constants::FACTION_NEUTRAL), // neutral -- skip
+        ];
+        let result = pick_npc_target(5, Vec2::ZERO, RANGE, ATTACKER_FACTION, &candidates);
+        assert_eq!(
+            result, 5,
+            "neutral-faction candidate must never be selected"
         );
     }
 }

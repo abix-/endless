@@ -26,6 +26,7 @@ pub enum UpgradeStatKind {
     ProjectileSpeed,
     ProjectileLifetime,
     HpRegen,
+    TargetSwitching,
     // Town-only stats (not NPC-driven)
     Healing,
     FountainRange,
@@ -271,6 +272,17 @@ pub(crate) const MILITARY_RANGED_UPGRADES: &[UpgradeStatDef] = &[
         "+0.5 HP/s passive regen per level",
         EffectDisplay::Discrete,
     ),
+    usd_req(
+        USK::TargetSwitching,
+        0.20,
+        &[(G, 1)],
+        "Target Switching",
+        "Tgt",
+        "+20% target scan range per level",
+        EffectDisplay::Percentage,
+        USK::Alert,
+        1,
+    ),
 ];
 
 pub(crate) const MILITARY_MELEE_UPGRADES: &[UpgradeStatDef] = &[
@@ -351,6 +363,17 @@ pub(crate) const MILITARY_MELEE_UPGRADES: &[UpgradeStatDef] = &[
         "Regen",
         "+0.5 HP/s passive regen per level",
         EffectDisplay::Discrete,
+    ),
+    usd_req(
+        USK::TargetSwitching,
+        0.20,
+        &[(G, 1)],
+        "Target Switching",
+        "Tgt",
+        "+20% target scan range per level",
+        EffectDisplay::Percentage,
+        USK::Alert,
+        1,
     ),
 ];
 
