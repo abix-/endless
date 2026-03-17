@@ -257,6 +257,7 @@ fn resolve_combat_stats_archer_defaults() {
         &upgrades,
         0.0,
         0.0,
+        0.0,
     );
     let def = npc_def(Job::Archer);
     // With no upgrades, no level, no equipment, no traits:
@@ -297,6 +298,7 @@ fn resolve_combat_stats_level_scaling() {
         &upgrades,
         0.0,
         0.0,
+        0.0,
     );
     let stats_lv10 = resolve_combat_stats(
         Job::Archer,
@@ -306,6 +308,7 @@ fn resolve_combat_stats_level_scaling() {
         &personality,
         &config,
         &upgrades,
+        0.0,
         0.0,
         0.0,
     );
@@ -334,6 +337,7 @@ fn resolve_combat_stats_equipment_bonus() {
         &upgrades,
         0.0,
         0.0,
+        0.0,
     );
     let with_weapon = resolve_combat_stats(
         Job::Archer,
@@ -344,6 +348,7 @@ fn resolve_combat_stats_equipment_bonus() {
         &config,
         &upgrades,
         0.5,
+        0.0,
         0.0,
     );
     let with_armor = resolve_combat_stats(
@@ -356,6 +361,7 @@ fn resolve_combat_stats_equipment_bonus() {
         &upgrades,
         0.0,
         0.5,
+        0.0,
     );
     // 50% weapon bonus → 1.5x damage
     assert!((with_weapon.damage / base.damage - 1.5).abs() < 0.01);
@@ -382,6 +388,7 @@ fn resolve_combat_stats_berserk_from_ferocity() {
         &personality,
         &config,
         &upgrades,
+        0.0,
         0.0,
         0.0,
     );
@@ -414,6 +421,7 @@ fn resolve_combat_stats_timid_negative_berserk() {
         &upgrades,
         0.0,
         0.0,
+        0.0,
     );
     assert!(
         stats.berserk_bonus < 0.0,
@@ -442,7 +450,7 @@ fn resolve_tower_instance_stats_level_scales() {
     assert!(stats_lv10.range > stats_lv0.range);
 }
 
-// -- proficiency_mult ----------------------------------------------------
+// -- proficiency_mult (unclamped linear) ----------------------------------
 
 #[test]
 fn proficiency_mult_zero_is_one() {
@@ -450,18 +458,18 @@ fn proficiency_mult_zero_is_one() {
 }
 
 #[test]
-fn proficiency_mult_fifty_is_one_point_two_five() {
-    assert!((proficiency_mult(50.0) - 1.25).abs() < 0.001);
+fn proficiency_mult_hundred_is_two() {
+    assert!((proficiency_mult(100.0) - 2.0).abs() < 0.001);
 }
 
 #[test]
-fn proficiency_mult_hundred_is_one_point_five() {
-    assert!((proficiency_mult(100.0) - 1.5).abs() < f32::EPSILON);
+fn proficiency_mult_1000_is_eleven() {
+    assert!((proficiency_mult(1000.0) - 11.0).abs() < 0.001);
 }
 
 #[test]
-fn proficiency_mult_clamps_above_100() {
-    assert!((proficiency_mult(200.0) - 1.5).abs() < f32::EPSILON);
+fn proficiency_mult_9999_is_godlike() {
+    assert!((proficiency_mult(9999.0) - 100.99).abs() < 0.01);
 }
 
 // -- UpgradeRegistry::stat_mult ------------------------------------------

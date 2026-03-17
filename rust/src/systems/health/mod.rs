@@ -224,6 +224,7 @@ pub fn death_system(
     squad_state: Res<SquadState>,
     mut town_access: crate::systemparams::TownAccess,
     config: Res<CombatConfig>,
+    mut skills_q: Query<&mut crate::components::NpcSkills>,
     mut intents: ResMut<crate::resources::PathRequestQueue>,
     mut ui_state: ResMut<crate::resources::UiState>,
 ) {
@@ -636,6 +637,11 @@ pub fn death_system(
                 } else {
                     (0, 100)
                 };
+                // Grant combat proficiency on kill
+                if let Ok(mut sk) = skills_q.get_mut(k_entity) {
+                    sk.combat = (sk.combat + crate::constants::COMBAT_SKILL_RATE)
+                        .min(crate::constants::MAX_PROFICIENCY);
+                }
                 let old_level = level_from_xp(old_xp);
                 let new_level = level_from_xp(new_xp);
 
@@ -656,6 +662,7 @@ pub fn death_system(
                         .get(k_entity)
                         .map(|eq| (eq.total_weapon_bonus(), eq.total_armor_bonus()))
                         .unwrap_or((0.0, 0.0));
+                    let prof_c = skills_q.get(k_entity).map(|s| s.combat).unwrap_or(0.0);
                     let new_cached = resolve_combat_stats(
                         killer.job,
                         attack_type,
@@ -666,6 +673,7 @@ pub fn death_system(
                         &town_access.upgrade_levels(killer.town_idx),
                         wb,
                         ab,
+                        prof_c,
                     );
                     let new_speed = new_cached.speed;
                     let new_max = new_cached.max_health;
