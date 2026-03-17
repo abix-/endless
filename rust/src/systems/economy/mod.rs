@@ -15,7 +15,7 @@ use crate::constants::{
 };
 use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg, SpawnNpcMsg};
 use crate::resources::*;
-use crate::systemparams::{EconomyState, WorldState};
+use crate::systemparams::{EconomyState, GameLog, WorldState};
 use crate::systems::ai_player::{AiKind, AiPersonality, AiPlayer, AiPlayerState};
 use crate::systems::stats::UPGRADES;
 use crate::world::{self, Biome, BuildingKind, WorldData};
@@ -501,16 +501,15 @@ pub fn farm_visual_system(
 /// and spawns replacements via GpuSlotPool + SpawnNpcMsg.
 /// Only runs when game_time.hour_ticked is true.
 pub fn spawner_respawn_system(
-    game_time: Res<GameTime>,
+    mut game_log: GameLog,
     entity_map: ResMut<EntityMap>,
     mut slots: ResMut<GpuSlotPool>,
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     world_data: Res<WorldData>,
-    mut combat_log: MessageWriter<CombatLogMsg>,
     mut dirty_writers: crate::messages::DirtyWriters,
     mut spawner_q: Query<(&mut SpawnerState, Option<&MinerHomeConfig>)>,
 ) {
-    if !game_time.hour_ticked {
+    if !game_log.game_time.hour_ticked {
         return;
     }
 
@@ -588,12 +587,12 @@ pub fn spawner_respawn_system(
                     dirty_writers.mining.write(crate::messages::MiningDirtyMsg);
                 }
 
-                combat_log.write(CombatLogMsg {
+                game_log.combat_log.write(CombatLogMsg {
                     kind: CombatEventKind::Spawn,
                     faction,
-                    day: game_time.day(),
-                    hour: game_time.hour(),
-                    minute: game_time.minute(),
+                    day: game_log.game_time.day(),
+                    hour: game_log.game_time.hour(),
+                    minute: game_log.game_time.minute(),
                     message: format!("{} respawned from {}", job_name, building_name),
                     location: None,
                 });
@@ -1055,8 +1054,7 @@ pub fn endless_system(
     mut migration_state: ResMut<MigrationState>,
     mut world_state: WorldState,
     mut ai_state: ResMut<AiPlayerState>,
-    mut combat_log: MessageWriter<CombatLogMsg>,
-    game_time: Res<GameTime>,
+    mut game_log: GameLog,
     time: Res<Time>,
     config: Res<world::WorldGenConfig>,
     mut res: MigrationResources,
@@ -1087,7 +1085,7 @@ pub fn endless_system(
     if let Some(mg) = &mut migration_state.active {
         if let Some(boat_slot) = mg.boat_slot {
             let dir = (mg.settle_target - mg.boat_pos).normalize_or_zero();
-            mg.boat_pos += dir * BOAT_SPEED * game_time.delta(&time);
+            mg.boat_pos += dir * BOAT_SPEED * game_log.game_time.delta(&time);
 
             res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition {
                 idx: boat_slot,
@@ -1154,12 +1152,12 @@ pub fn endless_system(
                 mg.boat_slot = None;
 
                 let kind_str = if mg.is_raider { "Raiders" } else { "Settlers" };
-                combat_log.write(CombatLogMsg {
+                game_log.combat_log.write(CombatLogMsg {
                     kind: CombatEventKind::Raid,
                     faction: -1,
-                    day: game_time.day(),
-                    hour: game_time.hour(),
-                    minute: game_time.minute(),
+                    day: game_log.game_time.day(),
+                    hour: game_log.game_time.hour(),
+                    minute: game_log.game_time.minute(),
                     message: format!("{} have landed!", kind_str),
                     location: Some(mg.boat_pos),
                 });
@@ -1229,12 +1227,12 @@ pub fn endless_system(
                 } else {
                     "rival faction"
                 };
-                combat_log.write(CombatLogMsg {
+                game_log.combat_log.write(CombatLogMsg {
                     kind: CombatEventKind::Raid,
                     faction: -1,
-                    day: game_time.day(),
-                    hour: game_time.hour(),
-                    minute: game_time.minute(),
+                    day: game_log.game_time.day(),
+                    hour: game_log.game_time.hour(),
+                    minute: game_log.game_time.minute(),
                     message: format!("The migrating {} was wiped out!", kind_str),
                     location: None,
                 });
@@ -1351,12 +1349,12 @@ pub fn endless_system(
         } else {
             "rival faction"
         };
-        combat_log.write(CombatLogMsg {
+        game_log.combat_log.write(CombatLogMsg {
             kind: CombatEventKind::Raid,
             faction: -1,
-            day: game_time.day(),
-            hour: game_time.hour(),
-            minute: game_time.minute(),
+            day: game_log.game_time.day(),
+            hour: game_log.game_time.hour(),
+            minute: game_log.game_time.minute(),
             message: format!("A {} has settled nearby!", kind_str),
             location: Some(mg.settle_target),
         });
@@ -1373,7 +1371,7 @@ pub fn endless_system(
         return;
     }
 
-    let dt_hours = game_time.delta(&time) / game_time.seconds_per_hour;
+    let dt_hours = game_log.game_time.delta(&time) / game_log.game_time.seconds_per_hour;
     for spawn in &mut endless.pending_spawns {
         spawn.delay_remaining -= dt_hours;
     }
@@ -1450,12 +1448,12 @@ pub fn endless_system(
     } else {
         "rival faction"
     };
-    combat_log.write(CombatLogMsg {
+    game_log.combat_log.write(CombatLogMsg {
         kind: CombatEventKind::Raid,
         faction: -1,
-        day: game_time.day(),
-        hour: game_time.hour(),
-        minute: game_time.minute(),
+        day: game_log.game_time.day(),
+        hour: game_log.game_time.hour(),
+        minute: game_log.game_time.minute(),
         message: format!("A {} approaches from the {}!", kind_str, direction),
         location: Some(Vec2::new(spawn_x, spawn_y)),
     });

@@ -1372,6 +1372,7 @@ fn setup_spawner_app() -> App {
             kind: crate::constants::TownKind::Player,
         }],
     });
+    app.insert_resource(crate::resources::SystemTimings::default());
     // Register all message types needed by DirtyWriters + system
     app.add_message::<SpawnNpcMsg>();
     app.add_message::<CombatLogMsg>();
@@ -1473,6 +1474,33 @@ fn spawner_assigns_uid_after_spawn() {
     assert!(
         (ss.respawn_timer - (-1.0)).abs() < 0.01,
         "timer should reset to -1.0"
+    );
+}
+
+/// Regression test: GameLog bundle -- spawner still writes combat log entries after migration.
+/// This test would FAIL if spawner_respawn_system stopped calling game_log.combat_log.write().
+#[test]
+fn spawner_respawn_writes_combat_log_entry() {
+    use crate::resources::CombatLog;
+    use crate::systems::drain::drain_combat_log;
+
+    let mut app = setup_spawner_app();
+    app.insert_resource(CombatLog::default());
+    app.add_message::<CombatLogMsg>();
+    app.add_systems(FixedUpdate, drain_combat_log);
+
+    // Set game_time.total_seconds > 0 so the log write runs (not just game start)
+    app.world_mut().resource_mut::<GameTime>().total_seconds = 100.0;
+
+    // Timer at 1.0 triggers a spawn (and a combat log write) on hour tick
+    add_spawner_building(&mut app, 5000, BuildingKind::ArcherHome, 1.0);
+    app.world_mut().resource_mut::<GameTime>().hour_ticked = true;
+    app.update();
+
+    let log = app.world().resource::<CombatLog>();
+    assert!(
+        !log.iter_all().next().is_none(),
+        "spawner_respawn_system should write a combat log entry via GameLog bundle"
     );
 }
 
