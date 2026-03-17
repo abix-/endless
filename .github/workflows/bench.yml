@@ -1,0 +1,67 @@
+name: bench
+
+on:
+  pull_request:
+    branches: [main, dev]
+
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    # Skip if PR has 'skip-bench' label or commit message contains [skip-bench]
+    if: >
+      !contains(github.event.pull_request.labels.*.name, 'skip-bench') &&
+      !contains(github.event.head_commit.message, '[skip-bench]')
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: rust
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "rust -> target"
+
+      - name: Install Linux deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            g++ pkg-config \
+            libx11-dev libasound2-dev libudev-dev \
+            libwayland-dev libxkbcommon-dev
+
+      - name: Run benchmarks
+        # Reduced sample size for CI speed: ~3x faster than default (100 samples).
+        # Warm-up 2s, measurement 5s, 20 samples per benchmark.
+        # Full benchmark suite still takes 15-30 minutes; results are reliable
+        # enough for 20% regression detection at these sample counts.
+        run: >
+          cargo bench --bench system_bench --
+          --warm-up-time 2
+          --measurement-time 5
+          --sample-size 20
+        env:
+          CARGO_TERM_COLOR: always
+
+      - name: Check regressions
+        # BENCH_THRESHOLD: override regression threshold (default 20%).
+        # BENCH_WARN_ONLY: set to 1 to warn instead of fail (for noisy runners).
+        run: python3 benches/check_regression.py
+        env:
+          BENCH_THRESHOLD: ${{ vars.BENCH_THRESHOLD || '20' }}
+          BENCH_WARN_ONLY: ${{ vars.BENCH_WARN_ONLY || '' }}
+
+      - name: Upload Criterion results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: criterion-results-${{ github.sha }}
+          path: rust/target/criterion/
+          retention-days: 30
