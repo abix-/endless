@@ -13,56 +13,9 @@
 
 use crate::components::*;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
-use crate::resources::{GameTime, GpuReadState, NpcLogCache, SelectedNpc, SquadState};
-use crate::settings::UserSettings;
+use crate::resources::{GameTime, GpuReadState, NpcLogCache};
 use crate::systemparams::EconomyState;
 use bevy::prelude::*;
-
-// ============================================================================
-// SYSTEM PARAM BUNDLES - Logical groupings for scalability
-// ============================================================================
-
-use crate::messages::{CombatLogMsg, WorkIntentMsg};
-use bevy::ecs::system::SystemParam;
-
-/// NPC gameplay data queries (bundled to stay under 16 params)
-#[derive(SystemParam)]
-pub struct NpcDataQueries<'w, 's> {
-    pub home_q: Query<'w, 's, &'static Home>,
-    pub personality_q: Query<'w, 's, &'static Personality>,
-    pub leash_range_q: Query<'w, 's, &'static LeashRange>,
-    pub work_state_q: Query<'w, 's, &'static mut NpcWorkState>,
-    pub patrol_route_q: Query<'w, 's, &'static mut PatrolRoute>,
-    pub carried_loot_q: Query<'w, 's, &'static mut CarriedLoot>,
-    pub stealer_q: Query<'w, 's, &'static Stealer>,
-    pub has_energy_q: Query<'w, 's, &'static HasEnergy>,
-}
-
-/// NPC combat/state queries for decision_system (bundled to stay under 16 params)
-#[derive(SystemParam)]
-pub struct DecisionNpcState<'w, 's> {
-    pub npc_flags_q: Query<'w, 's, &'static mut NpcFlags>,
-    pub squad_id_q: Query<'w, 's, &'static SquadId>,
-    pub manual_target_q: Query<'w, 's, &'static ManualTarget>,
-    pub energy_q: Query<'w, 's, &'static mut Energy>,
-    pub combat_state_q: Query<'w, 's, &'static mut CombatState>,
-    pub health_q: Query<'w, 's, &'static Health, Without<Building>>,
-    pub cached_stats_q: Query<'w, 's, &'static CachedStats>,
-    pub activity_q: Query<'w, 's, &'static mut Activity>,
-}
-
-/// Extra resources for decision_system (bundled to stay under 16 params)
-#[derive(SystemParam)]
-pub struct DecisionExtras<'w> {
-    pub npc_logs: ResMut<'w, NpcLogCache>,
-    pub combat_log: MessageWriter<'w, CombatLogMsg>,
-    pub gpu_updates: MessageWriter<'w, GpuUpdateMsg>,
-    pub work_intents: MessageWriter<'w, WorkIntentMsg>,
-    pub damage: MessageWriter<'w, crate::messages::DamageMsg>,
-    pub squad_state: Res<'w, SquadState>,
-    pub selected_npc: Res<'w, SelectedNpc>,
-    pub settings: Res<'w, UserSettings>,
-}
 
 /// Incrementally maintain `ReturningSet` from `Changed<Activity>`.
 /// O(changed) per frame instead of O(all_npcs).

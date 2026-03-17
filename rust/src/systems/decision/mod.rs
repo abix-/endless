@@ -12,20 +12,63 @@
 use crate::components::*;
 use crate::constants::UpgradeStatKind;
 use crate::constants::*;
-use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg, WorkIntent, WorkIntentMsg};
+use crate::messages::{
+    CombatLogMsg, DamageMsg, GpuUpdate, GpuUpdateMsg, WorkIntent, WorkIntentMsg,
+};
 use crate::resources::{
     CombatEventKind, DEFAULT_LOOT_THRESHOLD, EntityMap, GameTime, GpuReadState, MovementPriority,
-    OffDutyBehavior, PathRequestQueue, SquadState, WorkSchedule,
+    NpcLogCache, OffDutyBehavior, PathRequestQueue, SelectedNpc, SquadState, WorkSchedule,
 };
+use crate::settings::UserSettings;
 use crate::systemparams::EconomyState;
 use crate::systems::economy::*;
 use crate::systems::stats::UPGRADES;
 use crate::world::{
     BuildingKind, LocationKind, WorldData, find_location_within_radius, find_within_radius,
 };
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
-use super::behavior::{DecisionExtras, DecisionNpcState, NpcDataQueries};
+// ============================================================================
+// SYSTEM PARAM BUNDLES - local to decision_system (stay under 16 params)
+// ============================================================================
+
+/// NPC gameplay data queries (bundled to stay under 16 params)
+#[derive(SystemParam)]
+pub struct NpcDataQueries<'w, 's> {
+    pub home_q: Query<'w, 's, &'static Home>,
+    pub personality_q: Query<'w, 's, &'static Personality>,
+    pub leash_range_q: Query<'w, 's, &'static LeashRange>,
+    pub work_state_q: Query<'w, 's, &'static mut NpcWorkState>,
+    pub patrol_route_q: Query<'w, 's, &'static mut PatrolRoute>,
+    pub carried_loot_q: Query<'w, 's, &'static mut CarriedLoot>,
+}
+
+/// NPC combat/state queries for decision_system (bundled to stay under 16 params)
+#[derive(SystemParam)]
+pub struct DecisionNpcState<'w, 's> {
+    pub npc_flags_q: Query<'w, 's, &'static mut NpcFlags>,
+    pub squad_id_q: Query<'w, 's, &'static SquadId>,
+    pub manual_target_q: Query<'w, 's, &'static ManualTarget>,
+    pub energy_q: Query<'w, 's, &'static mut Energy>,
+    pub combat_state_q: Query<'w, 's, &'static mut CombatState>,
+    pub health_q: Query<'w, 's, &'static Health, Without<Building>>,
+    pub cached_stats_q: Query<'w, 's, &'static CachedStats>,
+    pub activity_q: Query<'w, 's, &'static mut Activity>,
+}
+
+/// Extra resources for decision_system (bundled to stay under 16 params)
+#[derive(SystemParam)]
+pub struct DecisionExtras<'w> {
+    pub npc_logs: ResMut<'w, NpcLogCache>,
+    pub combat_log: MessageWriter<'w, CombatLogMsg>,
+    pub gpu_updates: MessageWriter<'w, GpuUpdateMsg>,
+    pub work_intents: MessageWriter<'w, WorkIntentMsg>,
+    pub damage: MessageWriter<'w, DamageMsg>,
+    pub squad_state: Res<'w, SquadState>,
+    pub selected_npc: Res<'w, SelectedNpc>,
+    pub settings: Res<'w, UserSettings>,
+}
 
 // ============================================================================
 // FLEE / LEASH / RECOVERY SYSTEMS (generic)
@@ -2068,7 +2111,7 @@ pub fn decision_system(
                         // One-shot worksites (resource nodes): destroy after yield
                         if ws.one_shot {
                             if let Some(ne) = ws_entity {
-                                extras.damage.write(crate::messages::DamageMsg {
+                                extras.damage.write(DamageMsg {
                                     target: ne,
                                     amount: 9999.0,
                                     attacker: idx as i32,
