@@ -109,6 +109,10 @@ pub struct BuildingDef {
     pub autotile: bool,
     /// Which weapon type this tower accepts (None = no equipment slot).
     pub tower_weapon_type: Option<WeaponType>,
+    /// If Some, placement that blocks access to this building kind is rejected
+    /// with this message. Used by `would_block_critical_access` to avoid a
+    /// hardcoded list -- adding a new critical building = 1 registry entry only.
+    pub access_required_msg: Option<&'static str>,
     /// RGBA color used for the LOD box when zoomed out. White = no tint (default).
     pub lod_color: [f32; 4],
 }
@@ -154,6 +158,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
         tower_weapon_type: None,
+        access_required_msg: Some("would block access to fountain"),
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
     // 1: Bed
@@ -178,6 +183,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
         tower_weapon_type: None,
+        access_required_msg: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
     // 2: Waypoint
@@ -202,6 +208,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
         tower_weapon_type: None,
+        access_required_msg: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
     // 3: Farm
@@ -233,6 +240,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         }),
         autotile: false,
         tower_weapon_type: None,
+        access_required_msg: Some("would block access to a farm"),
         lod_color: [1.0, 0.85, 0.1, 1.0],
     },
     // 5: Farmer Home
@@ -260,6 +268,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
         tower_weapon_type: None,
+        access_required_msg: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
     // 6: Archer Home
@@ -287,6 +296,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
         tower_weapon_type: None,
+        access_required_msg: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
     // 7: Tent (raider spawner)
@@ -314,6 +324,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
         tower_weapon_type: None,
+        access_required_msg: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
     // 8: Gold Mine
@@ -345,6 +356,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         }),
         autotile: false,
         tower_weapon_type: None,
+        access_required_msg: Some("would block access to a mine"),
         lod_color: [1.0, 0.75, 0.0, 1.0],
     },
     // 9: Miner Home
@@ -372,6 +384,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
         tower_weapon_type: None,
+        access_required_msg: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
     // 10: Crossbow Home
@@ -399,6 +412,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
         tower_weapon_type: None,
+        access_required_msg: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
     // 11: Fighter Home
@@ -426,6 +440,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
         tower_weapon_type: None,
+        access_required_msg: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
     // 12: Road (dirt) — expands buildable area by 3 tiles
@@ -450,6 +465,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: true,
         tower_weapon_type: None,
+        access_required_msg: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
     // 13: StoneRoad — expands buildable area by 5 tiles
@@ -474,6 +490,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: true,
         tower_weapon_type: None,
+        access_required_msg: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
     // 14: MetalRoad — expands buildable area by 7 tiles
@@ -498,6 +515,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: true,
         tower_weapon_type: None,
+        access_required_msg: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
     // 15: Wall
@@ -522,6 +540,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: true,
         tower_weapon_type: None,
+        access_required_msg: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
     // 14: Bow Tower (auto-shoots enemies with arrows)
@@ -546,6 +565,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
         tower_weapon_type: Some(WeaponType::Bow),
+        access_required_msg: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
     // 15: Crossbow Tower
@@ -570,6 +590,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
         tower_weapon_type: Some(WeaponType::Crossbow),
+        access_required_msg: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
     // 16: Catapult Tower
@@ -594,6 +615,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
         tower_weapon_type: Some(WeaponType::Catapult),
+        access_required_msg: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
     // 15: Merchant (buy/sell equipment)
@@ -618,6 +640,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
         tower_weapon_type: None,
+        access_required_msg: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
     // 16: Casino (blackjack minigame, 1 per town)
@@ -642,6 +665,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
         tower_weapon_type: None,
+        access_required_msg: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
     // 17: LumberMill
@@ -669,6 +693,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
         tower_weapon_type: None,
+        access_required_msg: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
     // 18: Quarry
@@ -696,6 +721,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
         tower_weapon_type: None,
+        access_required_msg: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
     // 19: TreeNode
@@ -727,6 +753,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         }),
         autotile: false,
         tower_weapon_type: None,
+        access_required_msg: None,
         lod_color: [0.2, 0.8, 0.2, 1.0],
     },
     // 20: RockNode
@@ -758,6 +785,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         }),
         autotile: false,
         tower_weapon_type: None,
+        access_required_msg: None,
         lod_color: [0.55, 0.55, 0.6, 1.0],
     },
     // 21: Mason Home
@@ -785,6 +813,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
         tower_weapon_type: None,
+        access_required_msg: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
     // Gate (wall-like, passable for friendlies)
@@ -809,6 +838,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: true,
         tower_weapon_type: None,
+        access_required_msg: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
     // Guard Tower (elevated tower, +range, requires wall adjacency)
@@ -833,6 +863,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         worksite: None,
         autotile: false,
         tower_weapon_type: None,
+        access_required_msg: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
 ];

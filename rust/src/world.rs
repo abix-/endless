@@ -1961,15 +1961,13 @@ impl WorldGrid {
             }
         }
 
-        // Check non-spawner critical buildings: fountain, farms, mines
+        // Check non-spawner critical buildings (any def with access_required_msg set)
         if reason.is_none() {
-            let critical: &[(BuildingKind, &'static str)] = &[
-                (BuildingKind::Fountain, "would block access to fountain"),
-                (BuildingKind::Farm, "would block access to a farm"),
-                (BuildingKind::GoldMine, "would block access to a mine"),
-            ];
-            'critical: for &(kind, msg) in critical {
-                for inst in entity_map.iter_kind_for_town(kind, town_idx) {
+            'critical: for def in crate::constants::BUILDING_REGISTRY.iter() {
+                let Some(msg) = def.access_required_msg else {
+                    continue;
+                };
+                for inst in entity_map.iter_kind_for_town(def.kind, town_idx) {
                     let (sc, sr) = self.world_to_grid(inst.position);
                     let bld_cell = IVec2::new(sc as i32, sr as i32);
                     if bld_cell == center {
