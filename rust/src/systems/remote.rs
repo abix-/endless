@@ -514,19 +514,16 @@ pub fn list_npcs_handler(In(params): In<Option<Value>>, world: &mut World) -> Br
     let mut rows = Vec::new();
 
     // ECS query for NPC components
-    let mut query =
-        world.query::<(Entity, &Job, &TownId, &Activity, &crate::components::NpcStats)>();
+    let mut query = world.query::<(
+        Entity,
+        &Job,
+        &TownId,
+        &Activity,
+        &crate::components::NpcStats,
+    )>();
     let results: Vec<_> = query
         .iter(world)
-        .map(|(e, j, t, a, s)| {
-            (
-                e,
-                *j,
-                t.0,
-                a.name().to_string(),
-                s.name.clone(),
-            )
-        })
+        .map(|(e, j, t, a, s)| (e, *j, t.0, a.name().to_string(), s.name.clone()))
         .collect();
 
     for (entity, job, town_id, activity, name) in &results {
