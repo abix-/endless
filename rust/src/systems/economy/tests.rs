@@ -428,13 +428,13 @@ fn player_town_lookup_by_faction() {
         towns: vec![
             Town {
                 name: "Raider".into(),
-                center: glam::Vec2::ZERO,
+                center: Vec2::ZERO,
                 faction: 2,
                 kind: crate::constants::TownKind::AiRaider,
             },
             Town {
                 name: "Player".into(),
-                center: glam::Vec2::new(500.0, 500.0),
+                center: Vec2::new(500.0, 500.0),
                 faction: FACTION_PLAYER,
                 kind: crate::constants::TownKind::Player,
             },
