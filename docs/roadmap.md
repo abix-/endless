@@ -17,41 +17,11 @@ See [completed.md](completed.md) for the player-facing feature snapshot and [his
 
 ## Stages
 
-Stages 1-15, 18, 19: [x] Complete (see [history.md](history.md))
+Stages 1-16, 18, 19: [x] Complete (see [history.md](history.md))
 
 **Current Sprint (priority order):**
 1. Loot cycle stress test -- benchmark TownEquipment growth under 50K NPCs over extended play, cap or prune unbounded accumulation
 2. Stage 26 resources -- finish woodcutter/quarrier harvest cycle, mixed building costs, iron
-3. ~~Split behavior.rs~~ -- done (decision/mod.rs + decision/tests.rs + patrol.rs + behavior.rs coordinator)
-4. ~~Strip unused Bevy plugins~~ -- done (default-features=false, explicit 2D feature list, removed PBR/SSR/GLTF/animation/gilrs/scene/anti-alias/post-process/gizmos)
-5. ~~Trim cargo dep features~~ -- done (removed crossbeam-channel + regex, trimmed bevy_egui/tracing-subscriber/bevy_framepace)
-
-**Stage 16: Performance**
-
-*Done when: 50K NPCs + 50K buildings at 60fps.*
-
-GPU extract, GPU-native rendering, linear scan elimination, worksite indexing, slot-indexed occupancy, query-first migration, NpcLogCache filtering, decision sub-profiling, visual upload optimization, GPU targets dirty tracking, damage debug gating, readback throttling, event-driven visual upload, decision-frame budgeting, and candidate-driven healing complete. See [history.md](history.md) for rollout notes and [performance.md](performance.md) for the current performance model.
-
-ECS source-of-truth migration complete. See [history.md](history.md) for migration notes and [authority.md](authority.md) for the current authority contract. ECS owns all NPC gameplay state. EntityMap is index-only (slot↔Entity, grid, kind/town/spatial). No dual-writes. Hot loops use query-first + indexed lookup. GPU is movement authority; ECS Position is read-model synced in `gpu_position_readback`.
-
-Remaining performance items:
-
-- [x] [Medium] Cache-friendly vectors for hot building iteration paths (keep HashMaps as authority, vectors for tight loops).
-- [x] [Medium] Strip unused Bevy DefaultPlugins (PBR/SSR/GLTF/animation/gilrs/scene/anti-alias/post-process/gizmos) -- Cargo features, not runtime disable. Fixes SSR crash, ~30s faster builds, smaller binary.
-- [x] [Medium] Trim unused cargo dependency features -- removed crossbeam-channel + regex (zero imports), trimmed bevy_egui (dropped bevy_picking), tracing-subscriber (registry only), bevy_framepace (no debug).
-- [x] [Medium] Coalesce projectile GPU writes -- per-index write_buffer (8N calls) replaced with sorted+gap-merged coalesced writes (~12 calls). Fixes 50ms r:extract_proj during mass tower combat.
-- [x] [Low] Eliminate per-frame Vec<u8> clone in building_tower_system -- stack [u8;8] + merged combat/regen loops. 50K towers: 815us -> 636us.
-- [x] [Low] DirectControlSet/ReturningSet Vec -> HashSet for O(1) ops.
-- [x] [Low] `decision_system` remaining log pressure -- gated `format!` calls behind `npc_logs` check (#148).
-- [x] [Low] `sync_terrain_tilemap` chunk granularity -- partial rebuild by dirty chunk tracking (#149).
-- [x] [Low] SystemTimings Mutex -> AtomicU32 for lock-free profiling (#147).
-- [x] [Low] Perf guardrails: microbenchmarks + CI thresholds (#146).
-- [x] [Low] Message signal regression tests (#151).
-
-SystemParam bundle consolidation (code quality, not runtime perf):
-- [x] [Low] Create `GameLog` bundle and migrate systems (#152).
-- [x] [Low] Move/replace remaining ad-hoc bundles in `systems/behavior.rs` (#154).
-- [x] [Low] Keep bundles flat -- convention enforced.
 
 **Stage 17: Combat Depth**
 
@@ -242,12 +212,10 @@ Sound (bevy_audio) is woven into stages. Done: arrow shoot SFX, NPC death SFX (2
 ## Backlog
 
 ### Code Health
-- [x] Split `behavior.rs` (4318 lines -> 4 files): `decision/mod.rs` (2800), `decision/tests.rs` (1009), `patrol.rs` (321), `behavior.rs` coordinator (203)
-- [x] Split `game_hud.rs` into submodules: inspector, building_inspector, npc_inspector, combat_log, squad_overlay, build_ghost (#159)
-- [x] Split `ai_player.rs`: extract `build_actions.rs` to keep all submodules <1000 lines (#157)
+
+All major file splits complete (see [history.md](history.md)).
 
 ### DRY & Single Source of Truth
-- [x] Replace hardcoded town indices in HUD with faction/town lookup helpers (#158)
 - [ ] Add regression tests that enforce no behavior drift between player and AI build flows, startup and respawn flows, and both destroy entry points
 
 ### Testing
@@ -257,7 +225,6 @@ Test infrastructure complete (see [history.md](history.md) and [README.md](READM
 - [ ] Add `show_active_radius` debug toggle in Bevy UI
 - [ ] Upgrade tab town snapshot: show `farmers/archers/farms/next spawn` summary
 - [ ] Combat log window sizing: allow resize + persist width/height in `UserSettings`
-- [x] HP bar display mode toggle (Off / When Damaged / Always) (#160)
 - [ ] Combat log scope/timestamp modes (Off/Own/All + Off/Time/Day+Time)
 - [ ] Double-click locked slot to unlock (alternative to context action)
 - [ ] Terrain tile click inspector (biome/tile coordinates)
