@@ -155,6 +155,11 @@ impl WorldGenConfig {
 // RESOURCE NODE SPAWNING
 // ============================================================================
 
+/// Minimum cell step for RockNode placement. Only cells where both row and col
+/// are divisible by this value receive a node, reducing rock density to ~25%
+/// of biome coverage and keeping count comparable to TreeNodes.
+const ROCK_NODE_STEP: usize = 2;
+
 pub(crate) fn spawn_resource_nodes(
     _config: &WorldGenConfig,
     grid: &mut WorldGrid,
@@ -166,14 +171,19 @@ pub(crate) fn spawn_resource_nodes(
     let mut tree_count = 0usize;
     let mut rock_count = 0usize;
 
-    // Density 1.0: every Forest cell gets a TreeNode, every Rock cell gets a RockNode.
-    // No spacing check needed -- one entity per grid cell, no overlap possible.
+    // TreeNodes: one per Forest cell (naturally distributed).
+    // RockNodes: every ROCK_NODE_STEP cells in both axes to avoid solid-band density.
     for row in 0..grid.height {
         for col in 0..grid.width {
             let idx = row * grid.width + col;
             let kind = match grid.cells[idx].terrain {
                 Biome::Forest => BuildingKind::TreeNode,
-                Biome::Rock => BuildingKind::RockNode,
+                Biome::Rock => {
+                    if col % ROCK_NODE_STEP != 0 || row % ROCK_NODE_STEP != 0 {
+                        continue;
+                    }
+                    BuildingKind::RockNode
+                }
                 _ => continue,
             };
             if entity_map.has_building_at(col as i32, row as i32) {

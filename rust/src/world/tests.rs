@@ -368,12 +368,20 @@ fn resource_nodes_follow_biomes_spacing_and_occupied_cells() {
                     &mut gpu_updates,
                 );
 
-                // Density 1.0: every Forest/Rock cell gets a node, except occupied cells
+                // TreeNodes: one per Forest cell, except occupied cells.
+                // RockNodes: only cells where col % ROCK_NODE_STEP == 0 && row % ROCK_NODE_STEP == 0.
+                // Rock cells: (0,2), (1,2), (3,2).
+                //   (0,2): col=0, row=2 -- both even -> placed
+                //   (1,2): col=1 -- odd -> skipped
+                //   (3,2): col=3 -- odd -> skipped
                 assert_eq!(
                     tree_count, 3,
                     "3 of 4 forest cells should get TreeNode (one occupied by Waypoint)"
                 );
-                assert_eq!(rock_count, 3, "all 3 rock cells should get RockNode");
+                assert_eq!(
+                    rock_count, 1,
+                    "only step-aligned rock cells (col%2==0 && row%2==0) should get RockNode"
+                );
 
                 assert_eq!(
                     entity_map.get_at_grid(0, 0).map(|b| b.kind),
@@ -382,7 +390,7 @@ fn resource_nodes_follow_biomes_spacing_and_occupied_cells() {
                 assert_eq!(
                     entity_map.get_at_grid(1, 0).map(|b| b.kind),
                     Some(BuildingKind::TreeNode),
-                    "adjacent forest cell should also get a TreeNode at density 1.0"
+                    "adjacent forest cell should get TreeNode (tree density unchanged)"
                 );
                 assert_eq!(
                     entity_map.get_at_grid(3, 0).map(|b| b.kind),
@@ -394,18 +402,23 @@ fn resource_nodes_follow_biomes_spacing_and_occupied_cells() {
                     "occupied cell should keep existing building"
                 );
 
+                // (0,2): step-aligned, should have RockNode
                 assert_eq!(
                     entity_map.get_at_grid(0, 2).map(|b| b.kind),
-                    Some(BuildingKind::RockNode)
+                    Some(BuildingKind::RockNode),
+                    "step-aligned rock cell should get RockNode"
                 );
+                // (1,2): col=1 is not step-aligned, should be empty
                 assert_eq!(
                     entity_map.get_at_grid(1, 2).map(|b| b.kind),
-                    Some(BuildingKind::RockNode),
-                    "adjacent rock cell should also get RockNode at density 1.0"
+                    None,
+                    "non-step-aligned rock cell should be skipped by density reduction"
                 );
+                // (3,2): col=3 is not step-aligned, should be empty
                 assert_eq!(
                     entity_map.get_at_grid(3, 2).map(|b| b.kind),
-                    Some(BuildingKind::RockNode)
+                    None,
+                    "non-step-aligned rock cell should be skipped by density reduction"
                 );
 
                 assert_eq!(entity_map.get_at_grid(2, 1).map(|b| b.kind), None);
