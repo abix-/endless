@@ -26,7 +26,7 @@ Stages 1-16, 18-19, 32: [x] Complete (see [history.md](history.md))
 
 *Done when: two archers with different traits fight the same raider noticeably differently - one flees early, the other berserks at low HP.*
 
-Trait combinations, squad ignore-patrol, target oscillation fix, 7-axis spectrum personality, and behavior weight integration complete. See [history.md](history.md) and [behavior.md](behavior.md).
+Traits, personalities, squad behaviors, and target oscillation fix complete. See [history.md](history.md) and [behavior.md](behavior.md).
 
 Remaining:
 - [ ] Target switching (prefer non-fleeing enemies, prioritize low-HP targets)
@@ -44,7 +44,7 @@ Remaining:
 
 *Done when: NPCs navigate around obstacles using A\* or flow fields instead of pure boids steering. Raiders path around walls to find openings. Placing a building that would fully block access is rejected.*
 
-A* pathfinding, terrain costs, NPC integration, route spreading, and incremental rebuild are complete. See [history.md](history.md) and [performance.md](performance.md).
+A* pathfinding, terrain costs, NPC integration, and incremental rebuild complete. See [history.md](history.md).
 
 Remaining:
 - [ ] Path validation: reject building placements that fully block access to critical locations
@@ -55,9 +55,7 @@ Prerequisite for Stage 21 (wall gates) and Stage 25 (tower defense maze).
 
 *Done when: player builds a stone wall perimeter with a gate, raiders path around it or attack through it, chokepoints make guard placement strategic.*
 
-Core wall system complete (see [history.md](history.md)).
-
-Wall auto-tiling complete (see [history.md](history.md) and [rendering.md](rendering.md)).
+Core wall system and auto-tiling complete. See [history.md](history.md) and [rendering.md](rendering.md).
 
 Remaining:
 - [ ] Gate building (walls with a passthrough that friendlies use, raiders must breach)
@@ -76,14 +74,10 @@ Remaining:
 
 *Done when: two NPCs with the same job but different proficiencies produce measurably different outcomes (farm output, combat effectiveness, dodge/survival), and those differences are visible in UI.*
 
-- [x] Add per-NPC skill set with proficiency values (0-100) keyed by role/action
-- [x] Skill growth from doing the work (farming raises farming, combat raises combat, dodging raises dodge)
-- [x] Proficiency modifies effectiveness:
-- [x] Farming proficiency affects farm growth/harvest efficiency (#123)
+Per-NPC skills, farming/dodge proficiency, skill growth, and inspector UI complete. See [history.md](history.md).
+
+Remaining:
 - [ ] Combat proficiency affects attack efficiency (accuracy/damage/cooldown contribution)
-- [x] Dodge proficiency affects projectile avoidance / survival in combat (#124)
-- [x] Render skill/proficiency details in inspector + roster sorting/filtering support (#125)
-- [x] Keep base-role identity intact (job still determines behavior class; proficiency scales effectiveness)
 
 **Stage 24: Save Slots**
 
@@ -124,9 +118,7 @@ Chunk 4 — Economy & Sending:
 
 *Done when: player builds a lumber mill near Forest tiles, assigns a woodcutter, collects wood, and builds a stone wall using wood + stone instead of food - multi-resource economy with job specialization.*
 
-- [x] Resource types: wood (Forest biome), stone (Rock biome) -- WoodStore/StoneStore ECS components, ResourceKind enum, worldgen TreeNode/RockNode spawning on matching biomes
-- [x] Harvester buildings: lumber mill, quarry -- Woodcutter/Quarrier NPC jobs, Chop/Quarry activities, node-targeted harvest cycle, arrival handler destroys node + deposits resources
-- [x] Resource storage per town -- WoodStore/StoneStore as ECS components on town entities (same pattern as FoodStore/GoldStore), save/load persistence
+Wood/stone resource types, harvester buildings (lumber mill, quarry), and per-town resource storage complete. See [history.md](history.md) and [harvestable-resources.md](harvestable-resources.md).
 
 Remaining:
 - [ ] Iron ore (rare resource nodes, separate from wood/stone)
