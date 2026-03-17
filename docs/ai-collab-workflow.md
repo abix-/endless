@@ -375,12 +375,12 @@ Use this flow for each slice:
 7. Run the required tests
 8. Update docs if accepted behavior changed
 9. **Verify ALL acceptance criteria** in the issue body are met before handing off. Check every checkbox against actual code. If any criterion is unmet, either implement it or document it as a blocker -- do not hand off claiming "done" with unmet criteria.
-9. Push the branch and open or update the PR targeting `dev`:
-   - `git push -u origin issue-{N}`
-   - `git fetch origin && git rev-parse --verify origin/issue-{N}`
-   - `gh pr create --base dev --head issue-{N}` (or update existing PR)
-9. Leave the handoff comment with the PR link only after the remote branch verification passes
-10. Remove `claimed` and the owner label, then add `needs-review`
+10. Push the branch and open or update the PR targeting `dev`:
+    - `git push -u origin issue-{N}`
+    - `git fetch origin && git rev-parse --verify origin/issue-{N}`
+    - `gh pr create --base dev --head issue-{N}` (or update existing PR)
+11. Leave the handoff comment with the PR link only after the remote branch verification passes
+12. Remove `claimed` and the owner label, then add `needs-review`
 
 This same handoff flow applies when a reviewing agent makes the fix instead of bouncing the issue back unchanged.
 
