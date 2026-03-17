@@ -25,6 +25,10 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "rust -> target"
@@ -36,6 +40,9 @@ jobs:
             g++ pkg-config \
             libx11-dev libasound2-dev libudev-dev \
             libwayland-dev libxkbcommon-dev
+
+      - name: Install claude-k3
+        run: go install github.com/abix-/claude-k3@latest
 
       - name: Run benchmarks
         # Reduced sample size for CI speed: ~3x faster than default (100 samples).
@@ -53,7 +60,7 @@ jobs:
       - name: Check regressions
         # BENCH_THRESHOLD: override regression threshold (default 20%).
         # BENCH_WARN_ONLY: set to 1 to warn instead of fail (for noisy runners).
-        run: python3 benches/check_regression.py
+        run: claude-k3 bench-check
         env:
           BENCH_THRESHOLD: ${{ vars.BENCH_THRESHOLD || '20' }}
           BENCH_WARN_ONLY: ${{ vars.BENCH_WARN_ONLY || '' }}
