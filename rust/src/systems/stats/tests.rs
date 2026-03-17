@@ -910,3 +910,123 @@ fn prune_skips_under_cap() {
     let gold = app.world().get::<GoldStore>(entity).unwrap().0;
     assert_eq!(gold, 0, "no gold when nothing pruned");
 }
+
+/// Regression test: TownEquipment stays bounded under 50K NPC kill rates.
+///
+/// Growth rate analysis at 50K NPCs:
+///   - Assume 50% are enemy raiders (25,000 NPCs).
+///   - Kill rate: roughly 600 kills/hour at heavy combat (10 kills/min sustained).
+///   - Equipment drop rate: 0.30 (30% of raider kills generate 1 item).
+///   - Raw generation: 600 * 0.30 = 180 items/hour per town.
+///   - Cap: TOWN_EQUIPMENT_CAP = 200 items per town.
+///   - Prune fires hourly; excess removed oldest/lowest-value first -> gold.
+///   - After 1 hour: max(180, 200) -> prune leaves at most 200.
+///
+/// Memory impact at cap: LootItem ~120 bytes * 200 = ~24 KB per town (negligible).
+/// At 8 hours of play: count stays at cap (200), not 1,440 (180 * 8).
+///
+/// This test simulates 8 in-game hours at the 50K NPC kill rate by directly
+/// inserting items into TownEquipment and running prune each hour.
+#[test]
+fn town_equipment_bounded_at_50k_kill_rate() {
+    use crate::components::*;
+
+    // 50K NPC scenario constants
+    // 600 kills/hour * 0.30 drop rate = 180 items generated per hour
+    const ITEMS_PER_HOUR: usize = 180;
+    const HOURS: usize = 8;
+    const CAP: usize = crate::constants::TOWN_EQUIPMENT_CAP;
+
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.insert_resource(crate::resources::GameTime::default());
+    app.insert_resource(crate::resources::EntityMap::default());
+
+    let mut world_data = crate::world::WorldData::default();
+    world_data.towns.push(crate::world::Town {
+        name: "StressTown".into(),
+        center: bevy::prelude::Vec2::ZERO,
+        faction: 1,
+        kind: crate::constants::TownKind::Player,
+    });
+    app.insert_resource(world_data);
+
+    let mut town_index = crate::resources::TownIndex::default();
+    let entity = app
+        .world_mut()
+        .spawn((
+            TownMarker,
+            FoodStore(0),
+            GoldStore(0),
+            WoodStore(0),
+            StoneStore(0),
+            TownPolicy::default(),
+            TownUpgradeLevel::default(),
+            TownEquipment::default(),
+        ))
+        .id();
+    town_index.0.insert(0, entity);
+    app.insert_resource(town_index);
+    app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+        std::time::Duration::from_secs_f32(1.0),
+    ));
+    app.add_systems(FixedUpdate, prune_town_equipment_system);
+    app.update();
+
+    let mut next_id: u64 = 1;
+    for hour in 0..HOURS {
+        // Simulate items arriving this hour (raiders killed, equipment dropped)
+        {
+            let eq = app
+                .world_mut()
+                .get_mut::<TownEquipment>(entity)
+                .expect("TownEquipment missing");
+            let mut eq = eq;
+            for i in 0..ITEMS_PER_HOUR {
+                eq.0.push(crate::constants::LootItem {
+                    id: next_id,
+                    kind: crate::constants::ItemKind::Weapon,
+                    name: format!("h{}i{}", hour, i),
+                    rarity: crate::constants::Rarity::Common,
+                    stat_bonus: (next_id as f32) * 0.001,
+                    sprite: (0.0, 0.0),
+                    weapon_type: None,
+                });
+                next_id += 1;
+            }
+        }
+
+        // Prune fires once per game hour
+        app.world_mut()
+            .resource_mut::<crate::resources::GameTime>()
+            .hour_ticked = true;
+        app.update();
+
+        let count = app.world().get::<TownEquipment>(entity).unwrap().0.len();
+        assert!(
+            count <= CAP,
+            "hour {}: TownEquipment {} exceeds cap {} -- prune failed at 50K NPC kill rate",
+            hour + 1,
+            count,
+            CAP
+        );
+    }
+
+    // Verify final count is bounded, not unbounded (180 items/hour * 8 = 1440 without cap)
+    let final_count = app.world().get::<TownEquipment>(entity).unwrap().0.len();
+    assert!(
+        final_count <= CAP,
+        "final count {} exceeds cap {} after {} hours",
+        final_count,
+        CAP,
+        HOURS
+    );
+    // Verify items accumulated: we had 180*8=1440 total generated, cap is 200
+    let uncapped = ITEMS_PER_HOUR * HOURS;
+    assert!(
+        uncapped > CAP,
+        "test invalid: generated {} items must exceed cap {} to prove bounding",
+        uncapped,
+        CAP
+    );
+}
