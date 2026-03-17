@@ -7,7 +7,7 @@ use crate::resources::{
     CombatDebug, EntityMap, GameTime, GpuReadState, MovementPriority, PathRequestQueue,
     ProjHitState, ProjSlotAllocator, TowerState,
 };
-use crate::systems::stats::resolve_town_tower_stats;
+use crate::systems::stats::{UPGRADES, resolve_town_tower_stats};
 use crate::world::{Biome, BuildingKind, WorldData, WorldGrid, is_alive};
 use bevy::prelude::*;
 
@@ -165,6 +165,9 @@ pub struct AttackQueries<'w, 's> {
         ),
         (Without<Building>, Without<Dead>),
     >,
+    /// Read town upgrade levels for target switching gate.
+    town_upgrades_q: Query<'w, 's, &'static TownUpgradeLevel>,
+    town_index: Res<'w, crate::resources::TownIndex>,
 }
 
 /// Decrement attack cooldown timers each frame.
@@ -480,17 +483,26 @@ pub fn attack_system(
             continue;
         }
 
-        // CPU-side target switching for already-fighting NPCs:
+        // CPU-side target switching for already-fighting NPCs (gated by upgrade):
         // prefer non-retreating enemies, break ties by lower HP (finish wounded faster).
-        // New engagements use the GPU candidate directly to avoid stale candidate lists.
+        // Scan range scales with TargetSwitching upgrade level (+20% weapon range per level).
         let ti = if is_fighting {
-            pick_npc_target(
-                ti,
-                Vec2::new(x, y),
-                cached_range + 120.0,
-                faction_id,
-                &target_candidates,
-            )
+            let reg = &*UPGRADES;
+            let cat = crate::constants::npc_def(job).upgrade_category.unwrap_or("");
+            let town_levels = aq
+                .town_index
+                .0
+                .get(&faction_id)
+                .and_then(|e| aq.town_upgrades_q.get(*e).ok())
+                .map(|u| u.0.as_slice())
+                .unwrap_or(&[]);
+            let tgt_mult = reg.stat_mult(town_levels, cat, crate::constants::UpgradeStatKind::TargetSwitching);
+            if tgt_mult > 1.0 {
+                let scan_range = cached_range * tgt_mult;
+                pick_npc_target(ti, Vec2::new(x, y), scan_range, faction_id, &target_candidates)
+            } else {
+                ti
+            }
         } else {
             ti
         };
