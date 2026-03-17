@@ -395,8 +395,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
     }
 
-    // Carried item sprite (atlas_id 1): original colors, no grayscale tint
-    if in.atlas_id >= 0.5 && in.health >= 0.99 {
+    // Carried item sprite (atlas_id 1): original colors, no grayscale tint.
+    // Skip this early-return in Always mode so full-health NPC equipment sprites fall through
+    // to the HP bar block and don't cover the bar drawn by the base sprite layer.
+    if in.atlas_id >= 0.5 && in.health >= 0.99 && camera.hp_bar_mode != 2u {
         // Carried world item path with original texture colors.
         let tex_color = textureSample(world_texture, world_sampler, in.uv);
         if tex_color.a < 0.1 { discard; }
