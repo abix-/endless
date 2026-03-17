@@ -76,6 +76,15 @@ NPCs and buildings share one `GpuSlotPool` namespace.
 - `GpuSlotPool.alive()` = allocated minus freed (combined). Don't use for NPC-only or building-only counts.
 - `EntityMap.npc_count()` / `EntityMap.building_count()` = type-specific live counts.
 
+## Buffer Sizing
+
+All GPU storage and readback buffers that index by slot MUST use `MAX_ENTITIES`, not `MAX_NPC_COUNT`. The unified `GpuSlotPool` interleaves NPCs and buildings in a single namespace -- any slot from 0..MAX_ENTITIES could be either type.
+
+- `MAX_ENTITIES` = `MAX_NPC_COUNT + MAX_BUILDINGS` = buffer sizing for GPU slot-indexed data
+- `MAX_NPC_COUNT` = NPC-specific ECS queries only, never for GPU buffer sizing
+- Readback copy sizes must never exceed the destination buffer capacity
+- `GpuSlotPool.count()` (high-water mark) can reach `MAX_ENTITIES`; all readback buffers must accommodate this
+
 See:
-- `rust/src/gpu.rs` (`sync_readback_ranges`, `build_visual_upload`)
+- `rust/src/gpu.rs` (`sync_readback_ranges`, `setup_readback_buffers`, `build_visual_upload`)
 - `rust/src/resources.rs` (`GpuSlotPool`, `GpuReadState`, `EntityMap`)
