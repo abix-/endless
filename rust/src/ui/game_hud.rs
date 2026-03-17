@@ -589,11 +589,16 @@ pub fn top_bar_system(
 
                     ui.separator();
 
-                    // Player stats (right-aligned) — player's town is index 0
-                    let town_food = town_access.food(0);
-                    let town_gold = town_access.gold(0);
-                    let town_wood = town_access.wood(0);
-                    let town_stone = town_access.stone(0);
+                    // Player stats (right-aligned) — look up player town by faction
+                    let player_town_idx = world_data
+                        .towns
+                        .iter()
+                        .position(|t| t.faction == crate::constants::FACTION_PLAYER)
+                        .unwrap_or(0) as i32;
+                    let town_food = town_access.food(player_town_idx);
+                    let town_gold = town_access.gold(player_town_idx);
+                    let town_wood = town_access.wood(player_town_idx);
+                    let town_stone = town_access.stone(player_town_idx);
                     for icon in top_bar_resource_widget_order(ui.layout().prefer_right_to_left()) {
                         match icon {
                             HudResourceIcon::Wood => resource_icon(
@@ -627,12 +632,25 @@ pub fn top_bar_system(
                         }
                     }
 
-                    let farmers = pop_stats.0.get(&(0, 0)).map(|s| s.alive).unwrap_or(0);
-                    let guards = pop_stats.0.get(&(1, 0)).map(|s| s.alive).unwrap_or(0);
-                    let crossbows = pop_stats.0.get(&(5, 0)).map(|s| s.alive).unwrap_or(0);
-                    let houses = entity_map.count_for_town(BuildingKind::FarmerHome, 0);
-                    let barracks = entity_map.count_for_town(BuildingKind::ArcherHome, 0);
-                    let xbow_homes = entity_map.count_for_town(BuildingKind::CrossbowHome, 0);
+                    let ptidx_u = player_town_idx as u32;
+                    let farmers = pop_stats
+                        .0
+                        .get(&(crate::components::Job::Farmer as i32, player_town_idx))
+                        .map(|s| s.alive)
+                        .unwrap_or(0);
+                    let guards = pop_stats
+                        .0
+                        .get(&(crate::components::Job::Archer as i32, player_town_idx))
+                        .map(|s| s.alive)
+                        .unwrap_or(0);
+                    let crossbows = pop_stats
+                        .0
+                        .get(&(crate::components::Job::Crossbow as i32, player_town_idx))
+                        .map(|s| s.alive)
+                        .unwrap_or(0);
+                    let houses = entity_map.count_for_town(BuildingKind::FarmerHome, ptidx_u);
+                    let barracks = entity_map.count_for_town(BuildingKind::ArcherHome, ptidx_u);
+                    let xbow_homes = entity_map.count_for_town(BuildingKind::CrossbowHome, ptidx_u);
                     tipped(
                         ui,
                         format!("Archers: {}/{}", guards, barracks),
