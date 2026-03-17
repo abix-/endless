@@ -4,6 +4,7 @@
 //! - Claim: spatial search → try_claim_worksite → update NpcWorkState + submit movement
 //! - Release: entity_map.release_for (occupancy + claim-queue cleanup) → clear NpcWorkState
 //! - Retarget: Release then Claim atomically
+//! - MarkPresent: increments EntityMap.present when a worker physically arrives
 
 use bevy::prelude::*;
 
@@ -99,6 +100,14 @@ pub fn resolve_work_targets(
                     &production_map,
                     &cow_farm_slots,
                 );
+            }
+            WorkIntent::MarkPresent {
+                entity: _,
+                worksite,
+            } => {
+                if let Some(slot) = entity_map.entity_to_slot.get(worksite).copied() {
+                    entity_map.mark_present(slot);
+                }
             }
         }
     }

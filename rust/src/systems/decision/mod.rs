@@ -759,6 +759,18 @@ pub fn decision_system(
                                             "phase_change",
                                         );
 
+                                        // Mark physical presence only when farmer owns the worksite.
+                                        if let Some(ws_e) = worksite
+                                            .and_then(|s| entity_map.entities.get(&s).copied())
+                                        {
+                                            extras.work_intents.write(WorkIntentMsg(
+                                                WorkIntent::MarkPresent {
+                                                    entity,
+                                                    worksite: ws_e,
+                                                },
+                                            ));
+                                        }
+
                                         pop_inc_working(&mut economy.pop_stats, job, town_idx_i32);
                                         submit_intent(
                                             &mut intents,
@@ -773,7 +785,7 @@ pub fn decision_system(
                                             game_time.day(),
                                             game_time.hour(),
                                             game_time.minute(),
-                                            "→ Working (tending)",
+                                            "-> Working (tending)",
                                         );
                                     }
                                 }
@@ -807,6 +819,17 @@ pub fn decision_system(
                         } else {
                             let current_pos = npc_pos.unwrap_or(Vec2::ZERO);
                             transition_phase(&mut activity, ActivityPhase::Active, "phase_change");
+                            // Mark physical presence at the claimed worksite.
+                            if let Some(ws_e) =
+                                worksite.and_then(|s| entity_map.entities.get(&s).copied())
+                            {
+                                extras
+                                    .work_intents
+                                    .write(WorkIntentMsg(WorkIntent::MarkPresent {
+                                        entity,
+                                        worksite: ws_e,
+                                    }));
+                            }
                             pop_inc_working(&mut economy.pop_stats, job, town_idx_i32);
                             submit_intent(
                                 &mut intents,
@@ -1057,6 +1080,15 @@ pub fn decision_system(
                                     town_idx: town_idx_i32 as u32,
                                     from: mine_pos,
                                 }));
+                                // Mark physical presence at the mine.
+                                if let Some(ws_e) = mine_entity {
+                                    extras.work_intents.write(WorkIntentMsg(
+                                        WorkIntent::MarkPresent {
+                                            entity,
+                                            worksite: ws_e,
+                                        },
+                                    ));
+                                }
                                 worksite_deferred = true;
                                 transition_phase(
                                     &mut activity,

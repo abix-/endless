@@ -136,6 +136,7 @@ fn startup_system() {
 /// Skip main menu when --autostart is passed. Loads saved settings and starts a new game.
 fn autostart_system(
     auto: Res<resources::AutoStart>,
+    cli: Res<resources::CliOverrides>,
     mut commands: Commands,
     mut wg_config: ResMut<world::WorldGenConfig>,
     mut ai_config: ResMut<AiPlayerConfig>,
@@ -180,6 +181,16 @@ fn autostart_system(
     wg_config.ai_towns = ai_builder_count;
     wg_config.raider_towns = ai_raider_count;
     wg_config.gold_mines_per_town = saved.gold_mines_per_town;
+
+    // CLI overrides
+    if cli.no_raiders {
+        wg_config.raider_towns = 0;
+        info!("--no-raiders: disabled raider towns");
+    }
+    if let Some(farms) = cli.farms {
+        wg_config.farms_per_town = farms;
+        info!("--farms={}: overriding farms per town", farms);
+    }
 
     // AI/NPC config
     ai_config.decision_interval = saved.ai_interval;
@@ -388,29 +399,26 @@ pub fn build_app(app: &mut App) {
         // BRP: live game data access via HTTP JSON-RPC on localhost:15702
         .add_plugins(
             RemotePlugin::default()
-                .with_method("endless/summary", systems::remote::summary_handler)
-                .with_method("endless/build", systems::remote::build_handler)
-                .with_method("endless/destroy", systems::remote::destroy_handler)
-                .with_method("endless/upgrade", systems::remote::upgrade_handler)
-                .with_method("endless/policy", systems::remote::policy_handler)
-                .with_method("endless/time", systems::remote::time_handler)
-                .with_method(
-                    "endless/squad_target",
-                    systems::remote::squad_target_handler,
-                )
-                .with_method("endless/squad", systems::remote::squad_handler)
-                .with_method(
-                    "endless/squad_recruit",
-                    systems::remote::squad_recruit_handler,
-                )
-                .with_method(
-                    "endless/squad_dismiss",
-                    systems::remote::squad_dismiss_handler,
-                )
-                .with_method("endless/ai_manager", systems::remote::ai_manager_handler)
-                .with_method("endless/chat", systems::remote::chat_handler)
-                .with_method("endless/debug", systems::remote::debug_handler)
-                .with_method("endless/perf", systems::remote::perf_handler),
+                // Read
+                .with_method("endless/get_summary", systems::remote::summary_handler)
+                .with_method("endless/get_perf", systems::remote::perf_handler)
+                .with_method("endless/get_entity", systems::remote::debug_handler)
+                .with_method("endless/get_squad", systems::remote::squad_handler)
+                .with_method("endless/list_buildings", systems::remote::list_buildings_handler)
+                .with_method("endless/list_npcs", systems::remote::list_npcs_handler)
+                // Create / Delete
+                .with_method("endless/create_building", systems::remote::build_handler)
+                .with_method("endless/delete_building", systems::remote::destroy_handler)
+                // Update
+                .with_method("endless/set_time", systems::remote::time_handler)
+                .with_method("endless/set_policy", systems::remote::policy_handler)
+                .with_method("endless/set_ai_manager", systems::remote::ai_manager_handler)
+                .with_method("endless/set_squad_target", systems::remote::squad_target_handler)
+                // Actions
+                .with_method("endless/apply_upgrade", systems::remote::upgrade_handler)
+                .with_method("endless/send_chat", systems::remote::chat_handler)
+                .with_method("endless/recruit_squad", systems::remote::squad_recruit_handler)
+                .with_method("endless/dismiss_squad", systems::remote::squad_dismiss_handler),
         )
         .add_plugins(RemoteHttpPlugin::default())
         .init_resource::<systems::remote::RemoteBuildQueue>()
