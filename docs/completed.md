@@ -27,7 +27,10 @@ Read more: [behavior.md](behavior.md), [npc-activity-controller.md](npc-activity
 - Units can be grouped into squads and sent to map targets.
 - Squads support patrol, hold fire, rest discipline, and loot-return thresholds.
 - Projectiles, melee, target switching, tower fire, building damage, and destruction aftermath are all live.
-- Walls, roads, choke points, and redeployment matter.
+- NPC personality traits affect combat: cowards flee early, berserkers rage at low HP, brave units never flee.
+- 7-axis personality spectrum with behavior weight integration drives unique NPC decisions.
+- Walls with auto-tiling, roads, choke points, and redeployment matter.
+- A* pathfinding with terrain costs: NPCs navigate around obstacles, prefer roads, avoid water and rock.
 
 Read more: [combat.md](combat.md), [behavior.md](behavior.md), [projectiles.md](projectiles.md)
 
