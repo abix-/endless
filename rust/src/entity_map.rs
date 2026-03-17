@@ -150,9 +150,12 @@ pub struct EntityMap {
     by_kind_town: HashMap<(crate::world::BuildingKind, u32), DenseSlotMap<BuildingInstance>>,
     by_grid_cell: HashMap<(i32, i32), usize>,
     spawner_slots: DenseSlotSet,
-    /// Worksite occupant counts — slot→i16, managed by try_claim_worksite/release.
-    /// Separated from BuildingInstance to keep the index struct gameplay-free.
+    /// Worksite claim counts — slot->i16, incremented at claim time.
+    /// Used for capacity checks (prevents double-claims on max_occupants slots).
     pub(crate) occupancy: DenseSlotMap<i16>,
+    /// Worksite physical presence counts — slot->i16, incremented on worker arrival.
+    /// Used by growth_system/sleeping_sync to gate tended production rates.
+    pub(crate) present: DenseSlotMap<i16>,
 
     // NPC-specific data (index-only — gameplay state on ECS components)
     npcs: HashMap<usize, NpcEntry>,
@@ -281,6 +284,7 @@ impl EntityMap {
         let pos = inst.position;
         self.instances.insert(slot, inst);
         self.occupancy.insert(slot, 0);
+        self.present.insert(slot, 0);
         self.spatial_insert(slot, pos);
         if is_spawner {
             self.spawner_slots.insert(slot);
@@ -302,6 +306,7 @@ impl EntityMap {
             self.spatial_remove(slot, inst.position);
             self.spawner_slots.remove(slot);
             self.occupancy.remove(slot);
+            self.present.remove(slot);
             self.worksite_claim_queue.remove(&slot);
             Some(inst)
         } else {
@@ -446,6 +451,12 @@ impl EntityMap {
         } else {
             self.worksite_claim_queue.remove(&slot);
         }
+        // Decrement physical presence if any (guard against underflow).
+        if let Some(p) = self.present.get_mut(slot) {
+            if *p > 0 {
+                *p -= 1;
+            }
+        }
     }
 
     pub fn occupant_count(&self, slot: usize) -> i32 {
@@ -467,6 +478,26 @@ impl EntityMap {
         self.worksite_claim_queue
             .get(&slot)
             .and_then(|queue| queue.first().copied())
+    }
+
+    /// Increment physical presence count for a slot. Called when a worker physically
+    /// arrives at the worksite (transitions to Active/Holding phase).
+    pub fn mark_present(&mut self, slot: usize) {
+        if let Some(p) = self.present.get_mut(slot) {
+            *p += 1;
+        }
+    }
+
+    /// Number of workers physically present at the worksite. Used by growth_system
+    /// to gate tended production rates (as opposed to just claimed/reserved slots).
+    pub fn present_count(&self, slot: usize) -> i32 {
+        self.present.get(slot).map_or(0, |&p| p as i32)
+    }
+
+    /// Directly set present count for a slot. Used by tests; gameplay code should
+    /// use `mark_present` via WorkIntent::MarkPresent.
+    pub fn set_present(&mut self, slot: usize, count: i16) {
+        self.present.insert(slot, count);
     }
 
     pub fn is_worksite_harvest_turn(&self, slot: usize, claimer: Entity) -> bool {

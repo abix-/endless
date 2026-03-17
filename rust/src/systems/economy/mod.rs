@@ -197,7 +197,7 @@ pub fn growth_system(
                         if !is_daytime {
                             continue;
                         }
-                        let is_tended = entity_map.occupant_count(slot) >= 1;
+                        let is_tended = entity_map.present_count(slot) >= 1;
                         let base_rate = if is_tended {
                             FARM_TENDED_GROWTH_RATE
                         } else {
@@ -244,7 +244,7 @@ pub fn growth_system(
                 }
             }
             BuildingKind::GoldMine => {
-                let worker_count = entity_map.occupant_count(slot);
+                let worker_count = entity_map.present_count(slot);
                 let growth_rate = if worker_count > 0 {
                     crate::constants::MINE_TENDED_GROWTH_RATE
                         * crate::constants::mine_productivity_mult(worker_count)
@@ -261,7 +261,7 @@ pub fn growth_system(
             }
             // Resource nodes: worker chops/quarries over time, one-shot destroy after yield
             BuildingKind::TreeNode => {
-                let worker_count = entity_map.occupant_count(slot);
+                let worker_count = entity_map.present_count(slot);
                 if worker_count > 0 {
                     production.progress += crate::constants::TREE_CHOP_RATE * hours_elapsed;
                     if production.progress >= 1.0 {
@@ -271,7 +271,7 @@ pub fn growth_system(
                 }
             }
             BuildingKind::RockNode => {
-                let worker_count = entity_map.occupant_count(slot);
+                let worker_count = entity_map.present_count(slot);
                 if worker_count > 0 {
                     production.progress += crate::constants::ROCK_QUARRY_RATE * hours_elapsed;
                     if production.progress >= 1.0 {
@@ -346,7 +346,7 @@ pub fn sync_sleeping_system(
         ) {
             continue;
         }
-        if entity_map.occupant_count(gpu_slot.0) > 0 {
+        if entity_map.present_count(gpu_slot.0) > 0 {
             commands.entity(entity).remove::<Sleeping>();
         }
     }
@@ -358,7 +358,7 @@ pub fn sync_sleeping_system(
         ) {
             continue;
         }
-        if entity_map.occupant_count(gpu_slot.0) == 0 {
+        if entity_map.present_count(gpu_slot.0) == 0 {
             commands.entity(entity).insert(Sleeping);
         }
     }

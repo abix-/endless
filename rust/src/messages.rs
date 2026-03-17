@@ -123,6 +123,10 @@ pub enum WorkIntent {
         town_idx: u32,
         from: Vec2,
     },
+    /// Mark a worker as physically present at their worksite.
+    /// Sent when a worker arrives (transitions to Active/Holding at the worksite).
+    /// Increments EntityMap.present for the slot, gating tended production rates.
+    MarkPresent { entity: Entity, worksite: Entity },
 }
 
 /// Patrol waypoint swap request from UI (slot-based identity).

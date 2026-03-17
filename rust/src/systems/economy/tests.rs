@@ -603,7 +603,7 @@ fn add_farm(app: &mut App, slot: usize, tended: bool) {
     em.set_entity(slot, entity);
     em.add_instance(inst);
     if tended {
-        em.set_occupancy(slot, 1);
+        em.set_present(slot, 1);
     }
 }
 
@@ -782,7 +782,7 @@ fn mine_grows_with_workers() {
     let mut em = app.world_mut().resource_mut::<EntityMap>();
     em.set_entity(0, entity);
     em.add_instance(inst);
-    em.set_occupancy(0, 2);
+    em.set_present(0, 2);
 
     app.update();
     let ps = app.world().get::<ProductionState>(entity).unwrap();
