@@ -7,6 +7,7 @@
 //! build area, placed at block corners adjacent to road intersections. When the town
 //! area expands, inner waypoints are pruned to maintain one ring.
 
+mod build_actions;
 mod decision;
 mod mine_analysis;
 mod slot_selection;
