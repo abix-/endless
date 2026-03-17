@@ -97,6 +97,21 @@ Every cycle you receive TOON-formatted game state.
 - MinerHome must be near a GoldMine (within mining_radius)
 - Buildings cost food to place
 
+### Expansion
+
+Two methods to grow your buildable area:
+
+| Method | Cost | Effect | Action |
+|--------|------|--------|--------|
+| Roads | 1 food each | unlocks 3-tile radius of new buildable area | `build, kind:Road, col:C, row:R` |
+| Expansion upgrade | food + gold (scales with level) | grows base grid by 1 ring in all directions | `upgrade, upgrade_idx:I` |
+
+- Roads are directional -- chain them toward gold mines or enemies
+- Place roads on perimeter open_slots to expand outward
+- Each road chains: new open_slots appear around it next cycle
+- Expansion upgrade is expensive but dense -- fills all directions at once
+- Both methods stack -- roads extend beyond the upgraded grid
+
 ### Military
 
 | Unit | Home building | Behavior |
@@ -108,15 +123,13 @@ Every cycle you receive TOON-formatted game state.
 - Squads form automatically from military NPCs
 - Squads go idle after reaching target -- must re-issue orders
 
-### Roads
+### Road Speed Bonus
 
-| Property | Value |
-|----------|-------|
-| Cost | 1 food |
-| Effect | unlocks 3-tile radius of new buildable area |
-| Speed bonus | 1.5x (Road), 2x (StoneRoad), 2.5x (MetalRoad) |
-| Placement | use perimeter open_slots to expand outward |
-| Chaining | place at edge, next cycle new open_slots appear around it |
+| Type | Speed multiplier |
+|------|-----------------|
+| Road | 1.5x |
+| StoneRoad | 2.0x |
+| MetalRoad | 2.5x |
 
 ### Combat
 

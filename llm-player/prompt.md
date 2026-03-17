@@ -165,6 +165,21 @@ Returns all components on an entity. Key fields vary by type:
 - MinerHome must be near a GoldMine (within mining_radius). Check gold_mines in summary for distances.
 - Buildings cost food to place. Running out of food halts growth.
 
+### Expansion
+
+Two methods to grow your buildable area:
+
+| Method | Cost | Effect | How |
+|--------|------|--------|-----|
+| Roads | 1 food each | unlocks 3-tile radius of new buildable area | `endless-cli build town:N kind:Road row:R col:C` |
+| Expansion upgrade | food + gold (scales with level) | grows base grid by 1 ring in all directions | `endless-cli upgrade town:N upgrade_idx:I` |
+
+- Roads are directional -- chain them toward gold mines or enemies
+- Place roads on perimeter open_slots to expand outward
+- Each road chains: new open_slots appear around it next cycle
+- Expansion upgrade is expensive but dense -- fills all directions at once
+- Both methods stack -- roads extend beyond the upgraded grid
+
 ### Military
 | Unit | Home building | Behavior |
 |------|--------------|----------|
