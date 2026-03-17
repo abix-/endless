@@ -42,16 +42,16 @@ Remaining performance items:
 - [x] [Medium] Coalesce projectile GPU writes -- per-index write_buffer (8N calls) replaced with sorted+gap-merged coalesced writes (~12 calls). Fixes 50ms r:extract_proj during mass tower combat.
 - [x] [Low] Eliminate per-frame Vec<u8> clone in building_tower_system -- stack [u8;8] + merged combat/regen loops. 50K towers: 815us -> 636us.
 - [x] [Low] DirectControlSet/ReturningSet Vec -> HashSet for O(1) ops.
-- [ ] [Low] `decision_system` remaining log pressure (~10 `format!` calls).
-- [ ] [Low] `sync_terrain_tilemap` chunk granularity: rewrites all chunks on any terrain change.
-- [ ] [Low] SystemTimings Mutex contention: replace with AtomicU32 + f32::to_bits.
-- [ ] [Low] Perf guardrails: microbenchmarks + CI thresholds.
-- [ ] [Low] Message signal regression tests.
+- [x] [Low] `decision_system` remaining log pressure -- gated `format!` calls behind `npc_logs` check (#148).
+- [x] [Low] `sync_terrain_tilemap` chunk granularity -- partial rebuild by dirty chunk tracking (#149).
+- [x] [Low] SystemTimings Mutex -> AtomicU32 for lock-free profiling (#147).
+- [x] [Low] Perf guardrails: microbenchmarks + CI thresholds (#146).
+- [x] [Low] Message signal regression tests (#151).
 
 SystemParam bundle consolidation (code quality, not runtime perf):
-- [ ] [Low] Create `GameLog` bundle: `{ combat_log: MessageWriter<CombatLogMsg>, game_time: Res<GameTime>, timings: Res<SystemTimings> }` and migrate systems still carrying this triple directly.
-- [ ] [Low] Move/replace remaining ad-hoc bundles in `systems/behavior.rs` (keep only bundles with genuine local-only value; shared bundles live in `resources.rs`).
-- [ ] [Low] Keep bundles flat (no nested `SystemParam` bundles inside other bundles) unless required to break Bevy param-count limits.
+- [x] [Low] Create `GameLog` bundle and migrate systems (#152).
+- [x] [Low] Move/replace remaining ad-hoc bundles in `systems/behavior.rs` (#154).
+- [x] [Low] Keep bundles flat -- convention enforced.
 
 **Stage 17: Combat Depth**
 
@@ -116,14 +116,14 @@ Remaining:
 
 *Done when: two NPCs with the same job but different proficiencies produce measurably different outcomes (farm output, combat effectiveness, dodge/survival), and those differences are visible in UI.*
 
-- [ ] Add per-NPC skill set with proficiency values (0-100) keyed by role/action
-- [ ] Skill growth from doing the work (farming raises farming, combat raises combat, dodging raises dodge)
-- [ ] Proficiency modifies effectiveness:
-- [ ] Farming proficiency affects farm growth/harvest efficiency
+- [x] Add per-NPC skill set with proficiency values (0-100) keyed by role/action
+- [x] Skill growth from doing the work (farming raises farming, combat raises combat, dodging raises dodge)
+- [x] Proficiency modifies effectiveness:
+- [x] Farming proficiency affects farm growth/harvest efficiency (#123)
 - [ ] Combat proficiency affects attack efficiency (accuracy/damage/cooldown contribution)
-- [ ] Dodge proficiency affects projectile avoidance / survival in combat
-- [ ] Render skill/proficiency details in inspector + roster sorting/filtering support
-- [ ] Keep base-role identity intact (job still determines behavior class; proficiency scales effectiveness)
+- [x] Dodge proficiency affects projectile avoidance / survival in combat (#124)
+- [x] Render skill/proficiency details in inspector + roster sorting/filtering support (#125)
+- [x] Keep base-role identity intact (job still determines behavior class; proficiency scales effectiveness)
 
 **Stage 24: Save Slots**
 
@@ -243,11 +243,11 @@ Sound (bevy_audio) is woven into stages. Done: arrow shoot SFX, NPC death SFX (2
 
 ### Code Health
 - [x] Split `behavior.rs` (4318 lines -> 4 files): `decision/mod.rs` (2800), `decision/tests.rs` (1009), `patrol.rs` (321), `behavior.rs` coordinator (203)
-- [ ] Split `game_hud.rs` (~3400 lines): extract inspector, combat log, build ghost, squad overlay into submodules
-- [ ] Split `ai_player.rs` (~3200 lines): extract building scoring, squad commander, migration into submodules
+- [x] Split `game_hud.rs` into submodules: inspector, building_inspector, npc_inspector, combat_log, squad_overlay, build_ghost (#159)
+- [x] Split `ai_player.rs`: extract `build_actions.rs` to keep all submodules <1000 lines (#157)
 
 ### DRY & Single Source of Truth
-- [ ] Replace hardcoded town indices in HUD with faction/town lookup helpers
+- [x] Replace hardcoded town indices in HUD with faction/town lookup helpers (#158)
 - [ ] Add regression tests that enforce no behavior drift between player and AI build flows, startup and respawn flows, and both destroy entry points
 
 ### Testing
@@ -257,7 +257,7 @@ Test infrastructure complete (see [history.md](history.md) and [README.md](READM
 - [ ] Add `show_active_radius` debug toggle in Bevy UI
 - [ ] Upgrade tab town snapshot: show `farmers/archers/farms/next spawn` summary
 - [ ] Combat log window sizing: allow resize + persist width/height in `UserSettings`
-- [ ] HP bar display mode toggle (Off / When Damaged / Always)
+- [x] HP bar display mode toggle (Off / When Damaged / Always) (#160)
 - [ ] Combat log scope/timestamp modes (Off/Own/All + Off/Time/Day+Time)
 - [ ] Double-click locked slot to unlock (alternative to context action)
 - [ ] Terrain tile click inspector (biome/tile coordinates)
