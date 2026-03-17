@@ -1344,7 +1344,7 @@ pub fn endless_system(
         world_state
             .dirty_writers
             .terrain
-            .write(crate::messages::TerrainDirtyMsg);
+            .write(crate::messages::TerrainDirtyMsg { tile: None });
 
         let kind_str = if is_raider {
             "raider band"

@@ -33,7 +33,7 @@ use std::borrow::Cow;
 
 use crate::components::{Building, Dead, Faction, GpuSlot, Job};
 use crate::constants::{
-    FOOD_SPRITE, GOLD_SPRITE, MAX_ENTITIES, MAX_NPC_COUNT, MAX_PROJECTILES as MAX_PROJECTILE_COUNT,
+    FOOD_SPRITE, GOLD_SPRITE, MAX_ENTITIES, MAX_PROJECTILES as MAX_PROJECTILE_COUNT,
     PROJECTILE_HIT_HALF_LENGTH, PROJECTILE_HIT_HALF_WIDTH, STONE_SPRITE, WOOD_SPRITE,
 };
 use crate::messages::{GpuUpdate, GpuUpdateMsg, ProjGpuUpdate, ProjGpuUpdateMsg};
@@ -1024,7 +1024,8 @@ fn setup_readback_buffers(
 ) {
     // Create readback target buffers (COPY_DST for compute→copy, COPY_SRC for Readback to map)
     let npc_pos_buf = {
-        let init_pos: Vec<f32> = vec![-9999.0; MAX_NPC_COUNT * 2];
+        // Unified slot pool: NPCs + buildings share indices, so readback must cover MAX_ENTITIES.
+        let init_pos: Vec<f32> = vec![-9999.0; MAX_ENTITIES * 2];
         let mut buf = ShaderStorageBuffer::new(
             bytemuck::cast_slice(&init_pos),
             RenderAssetUsages::RENDER_WORLD,
@@ -1042,7 +1043,7 @@ fn setup_readback_buffers(
         buffers.add(buf)
     };
     let npc_faction_buf = {
-        let init_factions: Vec<i32> = vec![-1; MAX_NPC_COUNT];
+        let init_factions: Vec<i32> = vec![-1; MAX_ENTITIES];
         let mut buf = ShaderStorageBuffer::new(
             bytemuck::cast_slice(&init_factions),
             RenderAssetUsages::RENDER_WORLD,
@@ -1052,7 +1053,7 @@ fn setup_readback_buffers(
     };
     let npc_health_buf = {
         let mut buf = ShaderStorageBuffer::new(
-            &vec![0u8; MAX_NPC_COUNT * 4],
+            &vec![0u8; MAX_ENTITIES * 4],
             RenderAssetUsages::RENDER_WORLD,
         );
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
@@ -1060,7 +1061,7 @@ fn setup_readback_buffers(
     };
     let threat_count_buf = {
         let mut buf = ShaderStorageBuffer::new(
-            &vec![0u8; MAX_NPC_COUNT * 4],
+            &vec![0u8; MAX_ENTITIES * 4],
             RenderAssetUsages::RENDER_WORLD,
         );
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
@@ -1108,7 +1109,7 @@ fn sync_readback_ranges(
     let entity_count = slots.count();
     let proj_count = proj_alloc.next;
 
-    let new_npc = readback_bucket(entity_count, MAX_NPC_COUNT);
+    let new_npc = readback_bucket(entity_count, MAX_ENTITIES);
     let new_entity = readback_bucket(entity_count, MAX_ENTITIES);
     let new_proj = readback_bucket(proj_count, MAX_PROJECTILE_COUNT);
 
@@ -1349,6 +1350,8 @@ fn update_gpu_data(
     town_access: crate::systemparams::TownAccess,
     world_data: Res<WorldData>,
 ) {
+    // Unified slot pool: NPCs and buildings share one namespace, so both counts
+    // equal the pool high-water mark. Readback buffers are sized to MAX_ENTITIES.
     config.npc.count = slots.count() as u32;
     config.npc.entity_count = slots.count() as u32;
     config.npc.delta = dt.0;
@@ -2543,7 +2546,7 @@ mod tests {
 
     #[test]
     fn readback_bucket_caps_to_buffer_capacity() {
-        assert_eq!(readback_bucket(MAX_NPC_COUNT, MAX_NPC_COUNT), MAX_NPC_COUNT);
+        assert_eq!(readback_bucket(MAX_ENTITIES, MAX_ENTITIES), MAX_ENTITIES);
         assert_eq!(
             readback_bucket(MAX_PROJECTILE_COUNT, MAX_PROJECTILE_COUNT),
             MAX_PROJECTILE_COUNT
@@ -2552,8 +2555,8 @@ mod tests {
 
     #[test]
     fn readback_bucket_still_rounds_small_counts() {
-        assert_eq!(readback_bucket(0, MAX_NPC_COUNT), 1024);
-        assert_eq!(readback_bucket(1500, MAX_NPC_COUNT), 2048);
+        assert_eq!(readback_bucket(0, MAX_ENTITIES), 1024);
+        assert_eq!(readback_bucket(1500, MAX_ENTITIES), 2048);
     }
 
     #[test]

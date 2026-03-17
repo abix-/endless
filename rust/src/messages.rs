@@ -71,8 +71,11 @@ pub struct CombatLogMsg {
 pub struct BuildingGridDirtyMsg;
 
 /// Terrain tilemap refresh needed (terrain biome changed).
+/// `tile`: the specific tile (col, row) that changed, or `None` for a full rebuild (init/load).
 #[derive(Message, Clone)]
-pub struct TerrainDirtyMsg;
+pub struct TerrainDirtyMsg {
+    pub tile: Option<(u32, u32)>,
+}
 
 /// Patrol routes need rebuild.
 #[derive(Message, Clone)]
@@ -175,7 +178,7 @@ impl DirtyWriters<'_> {
     /// Emit all dirty messages (used on startup / game reset to trigger initial rebuilds).
     pub fn emit_all(&mut self) {
         self.building_grid.write(BuildingGridDirtyMsg);
-        self.terrain.write(TerrainDirtyMsg);
+        self.terrain.write(TerrainDirtyMsg { tile: None });
         self.patrols.write(PatrolsDirtyMsg);
         self.patrol_perimeter.write(PatrolPerimeterDirtyMsg);
         self.healing_zones.write(HealingZonesDirtyMsg);

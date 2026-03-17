@@ -1075,24 +1075,63 @@ fn spawn_world_tilemap(
 
 /// Sync terrain tilemap tiles when WorldGrid terrain changes (slot unlock → Dirt).
 /// Each chunk only re-reads its own sub-region of the grid.
+fn rebuild_chunk(
+    grid: &WorldGrid,
+    tile_data: &mut TilemapChunkTileData,
+    region: &TerrainChunkRegion,
+) {
+    for ly in 0..region.chunk_h {
+        for lx in 0..region.chunk_w {
+            let gi = (region.origin_y + ly) * grid.width + (region.origin_x + lx);
+            let li = ly * region.chunk_w + lx;
+            tile_data.0[li] = Some(TileData::from_tileset_index(
+                grid.cells[gi].terrain.tileset_index(gi),
+            ));
+        }
+    }
+}
+
 fn sync_terrain_tilemap(
     grid: Res<WorldGrid>,
     mut chunks: Query<(&mut TilemapChunkTileData, &TerrainChunkRegion), With<TerrainChunk>>,
     mut terrain_dirty: MessageReader<TerrainDirtyMsg>,
 ) {
-    if grid.width == 0 || terrain_dirty.read().count() == 0 {
+    if grid.width == 0 {
         return;
     }
 
-    for (mut tile_data, region) in chunks.iter_mut() {
-        for ly in 0..region.chunk_h {
-            for lx in 0..region.chunk_w {
-                let gi = (region.origin_y + ly) * grid.width + (region.origin_x + lx);
-                let li = ly * region.chunk_w + lx;
-                tile_data.0[li] = Some(TileData::from_tileset_index(
-                    grid.cells[gi].terrain.tileset_index(gi),
-                ));
+    let messages: Vec<TerrainDirtyMsg> = terrain_dirty.read().cloned().collect();
+    if messages.is_empty() {
+        return;
+    }
+
+    // Full rebuild if any message carries no tile coords (init, load, large area change).
+    let full_rebuild = messages.iter().any(|m| m.tile.is_none());
+    if full_rebuild {
+        for (mut tile_data, region) in chunks.iter_mut() {
+            rebuild_chunk(&grid, &mut tile_data, region);
+        }
+        return;
+    }
+
+    // Partial rebuild: collect the set of chunk (col, row) indices that contain a dirty tile.
+    let mut dirty: Vec<(usize, usize)> = Vec::with_capacity(messages.len());
+    for msg in &messages {
+        if let Some((col, row)) = msg.tile {
+            let chunk_col = col as usize / CHUNK_SIZE;
+            let chunk_row = row as usize / CHUNK_SIZE;
+            let pair = (chunk_col, chunk_row);
+            if !dirty.contains(&pair) {
+                dirty.push(pair);
             }
+        }
+    }
+
+    for (mut tile_data, region) in chunks.iter_mut() {
+        let chunk_col = region.origin_x / CHUNK_SIZE;
+        let chunk_row = region.origin_y / CHUNK_SIZE;
+        if dirty.contains(&(chunk_col, chunk_row)) {
+            rebuild_chunk(&grid, &mut tile_data, region);
         }
     }
 }
@@ -1118,8 +1157,139 @@ fn sync_terrain_visibility(
 mod tests {
     use super::*;
 
+    use bevy::ecs::system::RunSystemOnce;
     use bevy::time::TimeUpdateStrategy;
     use bevy_egui::EguiUserTextures;
+
+    /// Helper: populate a flat WorldGrid with a given width/height (all Grass).
+    fn flat_grid(width: usize, height: usize) -> crate::world::WorldGrid {
+        let mut grid = crate::world::WorldGrid::default();
+        grid.width = width;
+        grid.height = height;
+        grid.cell_size = 16.0;
+        grid.cells = vec![
+            crate::world::WorldCell {
+                terrain: crate::world::Biome::Grass,
+                original_terrain: crate::world::Biome::Grass,
+            };
+            width * height
+        ];
+        grid
+    }
+
+    /// Regression test: a single-tile dirty message must rebuild only the affected chunk.
+    /// Without the optimization (full rebuild on every message), chunk 1 would be rebuilt
+    /// from None -> Some, causing this test to fail.
+    #[test]
+    fn test_sync_terrain_tilemap_partial_chunk_rebuild() {
+        use crate::world::Biome;
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+
+        // 64x32 grid: chunk 0 covers cols 0..31, chunk 1 covers cols 32..63.
+        let width = 64;
+        let height = 32;
+        let mut grid = flat_grid(width, height);
+        // Tile (5, 5) in chunk 0 gets Forest.
+        grid.cells[5 * width + 5].terrain = Biome::Forest;
+        app.insert_resource(grid);
+        app.add_message::<TerrainDirtyMsg>();
+
+        // Spawn chunk 0 with all tiles None.
+        app.world_mut().spawn((
+            TilemapChunkTileData(vec![None; CHUNK_SIZE * CHUNK_SIZE]),
+            TerrainChunkRegion {
+                origin_x: 0,
+                origin_y: 0,
+                chunk_w: CHUNK_SIZE,
+                chunk_h: CHUNK_SIZE,
+            },
+            TerrainChunk,
+        ));
+        // Spawn chunk 1 with all tiles None (sentinel: should stay None).
+        app.world_mut().spawn((
+            TilemapChunkTileData(vec![None; CHUNK_SIZE * CHUNK_SIZE]),
+            TerrainChunkRegion {
+                origin_x: CHUNK_SIZE,
+                origin_y: 0,
+                chunk_w: CHUNK_SIZE,
+                chunk_h: CHUNK_SIZE,
+            },
+            TerrainChunk,
+        ));
+
+        // Write a tile-specific dirty message for tile (5, 5) -- inside chunk 0.
+        app.world_mut()
+            .run_system_once(|mut w: MessageWriter<TerrainDirtyMsg>| {
+                w.write(TerrainDirtyMsg { tile: Some((5, 5)) });
+            })
+            .unwrap();
+
+        // Run sync_terrain_tilemap.
+        app.world_mut()
+            .run_system_once(sync_terrain_tilemap)
+            .unwrap();
+
+        // Verify chunk 0 was rebuilt and chunk 1 was not.
+        let mut q = app
+            .world_mut()
+            .query::<(&TilemapChunkTileData, &TerrainChunkRegion)>();
+        let results: Vec<_> = q
+            .iter(app.world())
+            .map(|(td, r)| (r.origin_x, td.0.iter().any(|t| t.is_some())))
+            .collect();
+
+        for (origin_x, any_some) in results {
+            if origin_x == 0 {
+                assert!(any_some, "chunk 0 (dirty) should be rebuilt");
+            } else {
+                assert!(!any_some, "chunk 1 (not dirty) should not be rebuilt");
+            }
+        }
+    }
+
+    /// Full rebuild (tile: None) must still rebuild all chunks.
+    #[test]
+    fn test_sync_terrain_tilemap_full_rebuild() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+
+        let width = 64;
+        let height = 32;
+        app.insert_resource(flat_grid(width, height));
+        app.add_message::<TerrainDirtyMsg>();
+
+        for cx in [0, CHUNK_SIZE] {
+            app.world_mut().spawn((
+                TilemapChunkTileData(vec![None; CHUNK_SIZE * CHUNK_SIZE]),
+                TerrainChunkRegion {
+                    origin_x: cx,
+                    origin_y: 0,
+                    chunk_w: CHUNK_SIZE,
+                    chunk_h: CHUNK_SIZE,
+                },
+                TerrainChunk,
+            ));
+        }
+
+        app.world_mut()
+            .run_system_once(|mut w: MessageWriter<TerrainDirtyMsg>| {
+                w.write(TerrainDirtyMsg { tile: None });
+            })
+            .unwrap();
+
+        app.world_mut()
+            .run_system_once(sync_terrain_tilemap)
+            .unwrap();
+
+        let mut q = app.world_mut().query::<&TilemapChunkTileData>();
+        for td in q.iter(app.world()) {
+            assert!(
+                td.0.iter().all(|t| t.is_some()),
+                "full rebuild should populate all tile slots"
+            );
+        }
+    }
 
     fn setup_click_select_app() -> App {
         let mut app = App::new();

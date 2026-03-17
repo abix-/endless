@@ -383,7 +383,7 @@ pub fn death_system(
                 );
                 res.dirty_writers
                     .terrain
-                    .write(crate::messages::TerrainDirtyMsg);
+                    .write(crate::messages::TerrainDirtyMsg { tile: None });
                 res.dirty_writers
                     .building_grid
                     .write(crate::messages::BuildingGridDirtyMsg);
