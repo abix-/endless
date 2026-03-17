@@ -214,7 +214,7 @@ pub struct EntityGpuState {
 pub struct NpcVisualUpload {
     /// [sprite_col, sprite_row, atlas, flash, r, g, b, a] per NPC — matches NpcVisual in npc_render.wgsl
     pub visual_data: Vec<f32>,
-    /// [col, row, atlas, pad] × 6 layers per NPC — matches EquipSlot in npc_render.wgsl
+    /// [col, row, atlas, pad] × 7 layers per NPC — matches EquipSlot in npc_render.wgsl
     pub equip_data: Vec<f32>,
     /// Number of entities packed
     pub entity_count: usize,

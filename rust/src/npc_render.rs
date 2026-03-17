@@ -43,7 +43,7 @@ use bevy::{
 };
 use bytemuck::{Pod, Zeroable};
 
-use crate::constants::MAX_NPC_COUNT;
+use crate::constants::MAX_ENTITIES;
 use crate::gpu::{
     EntityGpuBuffers, EntityGpuState, NpcVisualUpload, ProjBufferWrites, ProjGpuBuffers,
     RenderFrameConfig,
@@ -1056,6 +1056,48 @@ mod tests {
             "only 200 selection brackets should be rendered"
         );
     }
+
+    /// Regression test for issue #163: visual/equip buffers must cover MAX_ENTITIES (unified slot
+    /// pool namespace = NPCs + buildings), not just MAX_NPC_COUNT.
+    ///
+    /// The equip buffer stride is 7 layers x [col, row, atlas, pad] = 28 floats per slot.
+    /// If either assertion fails the buffer creation in `setup_npc_visual_buffers` is undersized
+    /// and will overflow when slot indices exceed the old MAX_NPC_COUNT cap.
+    #[test]
+    fn visual_equip_buffer_sizes_cover_max_entities() {
+        use crate::constants::{MAX_ENTITIES, MAX_NPC_COUNT};
+
+        // Visual buffer: 8 floats per slot, must cover MAX_ENTITIES
+        let visual_bytes = MAX_ENTITIES * std::mem::size_of::<[f32; 8]>();
+        let visual_bytes_old = MAX_NPC_COUNT * std::mem::size_of::<[f32; 8]>();
+        assert!(
+            visual_bytes > visual_bytes_old,
+            "visual buffer sized to MAX_NPC_COUNT; must use MAX_ENTITIES"
+        );
+
+        // Equip buffer: 7 layers × 4 floats per slot, must cover MAX_ENTITIES
+        let equip_floats_per_slot = 7 * 4; // 28
+        let equip_bytes = MAX_ENTITIES * equip_floats_per_slot * std::mem::size_of::<f32>();
+        let equip_bytes_old_wrong = MAX_NPC_COUNT * 6 * std::mem::size_of::<[f32; 4]>();
+        assert!(
+            equip_bytes > equip_bytes_old_wrong,
+            "equip buffer still uses old MAX_NPC_COUNT x 6-layer formula"
+        );
+
+        // Sentinel vectors must match buffer sizes exactly
+        let sentinel_visual_len = MAX_ENTITIES * 8;
+        let sentinel_equip_len = MAX_ENTITIES * 7 * 4;
+        assert_eq!(
+            sentinel_visual_len * std::mem::size_of::<f32>(),
+            visual_bytes,
+            "sentinel_visual length must match visual buffer byte size"
+        );
+        assert_eq!(
+            sentinel_equip_len * std::mem::size_of::<f32>(),
+            equip_bytes,
+            "sentinel_equip length must match equip buffer byte size"
+        );
+    }
 }
 
 /// Zero-clone extract: reads OverlayInstances from main world, writes to BuildingOverlayBuffers.
@@ -1798,22 +1840,24 @@ fn prepare_npc_buffers(
         }
     } else {
         // First run: create storage buffers with sentinel data (all hidden)
+        // Buffers cover the full unified slot namespace (NPCs + buildings = MAX_ENTITIES).
+        // Equip uses 7 layers x [col, row, atlas, pad] = 28 floats per slot.
         let visual_buffer = render_device.create_buffer(&BufferDescriptor {
             label: Some("npc_visual_data"),
-            size: (MAX_NPC_COUNT * std::mem::size_of::<[f32; 8]>()) as u64,
+            size: (MAX_ENTITIES * std::mem::size_of::<[f32; 8]>()) as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let equip_buffer = render_device.create_buffer(&BufferDescriptor {
             label: Some("npc_equip_data"),
-            size: (MAX_NPC_COUNT * 6 * std::mem::size_of::<[f32; 4]>()) as u64,
+            size: (MAX_ENTITIES * 7 * std::mem::size_of::<[f32; 4]>()) as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
         // Write sentinel -1.0 so all sprites are hidden until extract_npc_data writes real data
-        let sentinel_visual = vec![-1.0f32; MAX_NPC_COUNT * 8];
-        let sentinel_equip = vec![-1.0f32; MAX_NPC_COUNT * 6 * 4];
+        let sentinel_visual = vec![-1.0f32; MAX_ENTITIES * 8];
+        let sentinel_equip = vec![-1.0f32; MAX_ENTITIES * 7 * 4];
         render_queue.write_buffer(&visual_buffer, 0, bytemuck::cast_slice(&sentinel_visual));
         render_queue.write_buffer(&equip_buffer, 0, bytemuck::cast_slice(&sentinel_equip));
 
