@@ -911,7 +911,7 @@ pub fn process_upgrades_system(
             world_state
                 .dirty_writers
                 .terrain
-                .write(crate::messages::TerrainDirtyMsg);
+                .write(crate::messages::TerrainDirtyMsg { tile: None });
             continue;
         }
 
