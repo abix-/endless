@@ -14,11 +14,18 @@ use std::sync::Mutex;
 #[derive(Resource, Default)]
 pub struct AutoStart(pub bool);
 
-/// CLI flag: --test [name|all] — run integration tests and exit.
+/// CLI flag: --test [name|all] -- run integration tests and exit.
 #[derive(Resource, Default)]
 pub struct CliTestMode {
     pub active: bool,
     pub filter: Option<String>,
+}
+
+/// CLI overrides for --autostart: --no-raiders, --farms=N
+#[derive(Resource, Default)]
+pub struct CliOverrides {
+    pub no_raiders: bool,
+    pub farms: Option<usize>,
 }
 
 /// Profiling resource: frame timing + render-world timing drain + tracing capture.

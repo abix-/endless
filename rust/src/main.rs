@@ -227,6 +227,17 @@ fn main() {
         });
     }
 
+    // CLI overrides for autostart testing
+    let mut cli_overrides = endless::resources::CliOverrides::default();
+    for arg in std::env::args() {
+        if arg == "--no-raiders" {
+            cli_overrides.no_raiders = true;
+        } else if let Some(val) = arg.strip_prefix("--farms=") {
+            cli_overrides.farms = val.parse().ok();
+        }
+    }
+    app.insert_resource(cli_overrides);
+
     // Wire up ECS systems
     endless::build_app(&mut app);
 

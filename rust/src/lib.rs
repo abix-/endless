@@ -136,6 +136,7 @@ fn startup_system() {
 /// Skip main menu when --autostart is passed. Loads saved settings and starts a new game.
 fn autostart_system(
     auto: Res<resources::AutoStart>,
+    cli: Res<resources::CliOverrides>,
     mut commands: Commands,
     mut wg_config: ResMut<world::WorldGenConfig>,
     mut ai_config: ResMut<AiPlayerConfig>,
@@ -180,6 +181,16 @@ fn autostart_system(
     wg_config.ai_towns = ai_builder_count;
     wg_config.raider_towns = ai_raider_count;
     wg_config.gold_mines_per_town = saved.gold_mines_per_town;
+
+    // CLI overrides
+    if cli.no_raiders {
+        wg_config.raider_towns = 0;
+        info!("--no-raiders: disabled raider towns");
+    }
+    if let Some(farms) = cli.farms {
+        wg_config.farms_per_town = farms;
+        info!("--farms={}: overriding farms per town", farms);
+    }
 
     // AI/NPC config
     ai_config.decision_interval = saved.ai_interval;
