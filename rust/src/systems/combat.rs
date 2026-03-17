@@ -532,14 +532,14 @@ pub fn process_proj_hits(
                 }
 
                 // Dodge proficiency: personal miss chance based on target's dodge skill.
-                // Only active if dodge_unlocked upgrade purchased for the target's town.
+                // Uses same proficiency_mult as combat/farming: dodge_chance = 1 - 1/mult.
+                // At prof 0: 0%, 100: 50%, 1000: 91%, 9999: 99%.
                 if let Some(npc) = entity_map.get_npc(ti) {
                     let levels = town_access.upgrade_levels(npc.town_idx);
                     if crate::systems::stats::dodge_unlocked(&levels) {
                         if let Ok(mut skills) = skills_q.get_mut(npc.entity) {
-                            let dodge_chance = skills.dodge
-                                / (crate::constants::MAX_PROFICIENCY
-                                    / crate::constants::DODGE_PROF_MAX_CHANCE);
+                            let mult = crate::systems::stats::proficiency_mult(skills.dodge);
+                            let dodge_chance = 1.0 - 1.0 / mult;
                             if rng.random_range(0.0..1.0_f32) < dodge_chance {
                                 // Dodged -- grant dodge proficiency
                                 skills.dodge = (skills.dodge + crate::constants::DODGE_SKILL_RATE)
