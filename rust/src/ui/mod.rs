@@ -1967,11 +1967,11 @@ fn build_place_click_system(
     sync_food!();
 }
 
-/// Skill proficiency color: gray (<25), white (25-74), green (>=75).
+/// Skill proficiency color: gray (<2500), white (2500-7499), green (>=7500).
 pub(crate) fn skill_prof_color(value: f32) -> egui::Color32 {
-    if value >= 75.0 {
+    if value >= 7500.0 {
         egui::Color32::from_rgb(100, 220, 100)
-    } else if value >= 25.0 {
+    } else if value >= 2500.0 {
         egui::Color32::WHITE
     } else {
         egui::Color32::GRAY

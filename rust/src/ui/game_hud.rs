@@ -1857,15 +1857,15 @@ fn inspector_content(
                         1.0 / crate::systems::stats::proficiency_mult(skills.combat),
                     ),
                 ),
-                (
-                    "dodge",
-                    skills.dodge,
+                ("dodge", skills.dodge, {
+                    let dodge_mult = crate::systems::stats::proficiency_mult(skills.dodge);
+                    let dodge_pct = (1.0 - 1.0 / dodge_mult) * 100.0;
                     format!(
                         "+{:.1}/dodge. {:.1}% miss chance.",
                         crate::constants::DODGE_SKILL_RATE,
-                        crate::constants::DODGE_PROF_MAX_CHANCE * skills.dodge / max * 100.0,
-                    ),
-                ),
+                        dodge_pct,
+                    )
+                }),
             ];
 
             // Filter to job-relevant skills only
