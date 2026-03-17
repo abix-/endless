@@ -1,60 +1,91 @@
 # NPC Skills & Proficiency
 
-Stage 16b. Implementation spec for per-NPC skill progression.
+Per-NPC skill progression with Disgaea-style unclamped scaling. Level 9999 = godlike.
 
 ## Goal
 
-Add persistent, per-NPC proficiency that improves with experience and directly impacts how well NPCs perform their work (farm, fight, dodge, etc.).
+Add persistent, per-NPC proficiency that improves with experience and directly impacts how well NPCs perform their work (farm, fight, dodge, etc.). High proficiency should feel massively rewarding -- a level 9999 NPC is a god compared to a fresh spawn.
 
 ## Design constraints
 
 - Job determines what an NPC can do. Skills determine how well they do it.
-- Proficiency is additive/scalar, not a replacement for existing job stats/upgrades/traits.
+- Proficiency is additive/scalar, stacks with existing job stats/upgrades/traits.
+- No artificial caps on the multiplier -- let the numbers grow. Only the proficiency VALUE caps at MAX_PROFICIENCY (9999).
 - Keep deterministic enough for tests and profiling; avoid expensive per-frame randomness.
 
 ## Data model
 
-- Add `NpcSkills` component (or resource-backed cache keyed by `NpcIndex`):
-  `farm: u16`, `combat: u16`, `dodge: u16`, optional future fields (`craft`, `leadership`, etc.)
-- Range: store as integer points 0..1000 internally; expose as 0.0..100.0 in UI
-- Add helper functions: `skill_to_pct(points) -> f32`, `skill_multiplier(points, max_bonus) -> f32`, `add_skill_xp(points, delta_xp)`
-- Persist across respawn only if desired by design; default v1 behavior: skill belongs to NPC instance (newly spawned replacement starts at baseline)
+- `NpcSkills` component: `farming: f32`, `combat: f32`, `dodge: f32`
+- Range: 0.0 to MAX_PROFICIENCY (9999.0)
+- Stored as f32, displayed as integer in UI
+- Skill belongs to NPC instance -- newly spawned replacement starts at 0
+- Persisted via save/load with serde(default) backward compat
 
-## v1 math (safe, bounded)
+## Scaling formula (Disgaea-style)
 
-- Farming: `farm_mult = 1.0 + farm_prof * 0.005` (max +50%) — apply to tended farm growth/harvest throughput
-- Combat: `combat_mult = 1.0 + combat_prof * 0.004` (max +40%) — apply to effective damage and/or cooldown efficiency
-- Dodge: `dodge_mult = 1.0 + dodge_prof * 0.006` (max +60%) — apply to dodge decision weight / projectile avoidance strength
+One formula for all skills:
 
-## XP gain model
+```rust
+pub fn proficiency_mult(value: f32) -> f32 {
+    1.0 + value * 0.01
+}
+```
 
-- Farming XP: gain when farm work ticks and on successful harvest
-- Combat XP: gain on attack attempts and bonus on confirmed hit/kill
-- Dodge XP: gain when near-miss/projectile avoidance logic triggers
-- Diminishing returns: scale XP gain by `(1.0 - proficiency_pct)` so early growth is faster than late growth
+| Prof  | Multiplier | Feel           |
+|-------|-----------|----------------|
+| 0     | 1.0x      | Fresh spawn    |
+| 100   | 2.0x      | Experienced    |
+| 500   | 6.0x      | Veteran        |
+| 1000  | 11.0x     | Elite          |
+| 5000  | 51.0x     | Legendary      |
+| 9999  | 101.0x    | Godlike        |
 
-## System integration points
+No clamp on the multiplier. MAX_PROFICIENCY (9999) only caps the proficiency value, not the effect.
 
-- `systems/economy.rs`: farm growth/harvest uses farming proficiency multiplier
-- `systems/stats.rs` / combat pipeline: incorporate combat proficiency in resolved/effective combat output path
-- GPU dodge path (`gpu/npc_compute.wgsl` + sync path): pass dodge proficiency signal into avoidance weighting (or CPU-side precomputed dodge factor buffer)
-- `systems/spawn.rs`: initialize `NpcSkills` baseline by job
-- `systems/health.rs` and `systems/behavior.rs`: optional hooks for dodge/combat XP triggers
+### Application per skill
 
-## UI/UX
+- **Combat**: `damage *= proficiency_mult(combat)`, `cooldown /= proficiency_mult(combat)`
+- **Farming**: `growth_rate *= proficiency_mult(farming)` for tended farms
+- **Dodge**: miss chance = `min(dodge_prof * 0.0025, 0.50)` -- hard cap at 50% dodge chance (can't be invincible)
 
-- Inspector (`ui/game_hud.rs`): show Skill panel: Farm / Combat / Dodge proficiency bars + numeric values
-- Roster (`ui/left_panel.rs`): optional columns/sort for top relevant proficiency by job
-- Tooltip copy: explain that proficiency increases with activity and improves effectiveness
+Dodge is the exception: the proficiency_mult formula applies to damage/farming scaling, but dodge chance uses a separate linear formula with a hard cap since >100% dodge would break combat.
 
-## Balancing guidance
+## Skill gain rates
 
-- Keep proficiency impact weaker than major tech-tree upgrades at low-mid values
-- Cap total stacked multipliers (traits + upgrades + proficiency) to avoid runaway scaling
-- Profile impact under high NPC counts; prefer cached multipliers updated on skill change, not recomputed everywhere each frame
+- `COMBAT_SKILL_RATE = 1.0` per kill
+- `FARMING_SKILL_RATE = 0.02` per game hour tending
+- `DODGE_SKILL_RATE = 0.5` per dodge event
+- All capped at `MAX_PROFICIENCY = 9999.0`
+- No diminishing returns on gain rate -- linear accumulation, Disgaea-style
+
+## Constants
+
+```rust
+pub const FARMING_SKILL_RATE: f32 = 0.02;
+pub const COMBAT_SKILL_RATE: f32 = 1.0;
+pub const DODGE_SKILL_RATE: f32 = 0.5;
+pub const MAX_PROFICIENCY: f32 = 9999.0;
+pub const DODGE_PROF_MAX_CHANCE: f32 = 0.50;
+```
+
+## System integration
+
+- `systems/stats.rs`: resolve_combat_stats takes prof_combat, applies proficiency_mult to damage and inverse to cooldown
+- `systems/economy.rs`: growth_system applies proficiency_mult to tended farm growth rate
+- `systems/combat.rs`: process_proj_hits applies dodge miss chance (capped)
+- `systems/health.rs`: death processing grants combat skill on kill
+- `systems/spawn.rs`: NpcSkills::default() on spawn, overrides for save restore
+
+## UI
+
+- Inspector Skills tab: progress bars 0-9999, color-coded (gray <2500, white 2500-7499, green >=7500)
+- Roster Prof column: top skill value, sortable
+- Effect descriptions show current multiplier
 
 ## Testing
 
-- `tests/skills_progression.rs`: verifies farming/combat/dodge proficiency increases under expected actions
-- `tests/skills_effects.rs`: higher farm proficiency yields faster output than baseline; higher combat proficiency yields better duel outcome; higher dodge proficiency reduces projectile hits
-- Regression: ensure no-skill baseline behavior remains close to current gameplay
+- proficiency_mult(0) == 1.0
+- proficiency_mult(100) == 2.0
+- proficiency_mult(9999) ~= 100.99
+- No clamp test (values above 9999 would give higher mult, but skill gain caps at 9999)
+- Dodge chance caps at 50% regardless of prof value

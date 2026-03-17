@@ -327,8 +327,8 @@ pub const MAX_SQUADS: usize = 10;
 pub const FARMING_SKILL_RATE: f32 = 0.02;
 pub const COMBAT_SKILL_RATE: f32 = 1.0;
 pub const DODGE_SKILL_RATE: f32 = 0.5;
-pub const MAX_PROFICIENCY: f32 = 100.0;
-pub const DODGE_PROF_MAX_CHANCE: f32 = 0.25;
+pub const MAX_PROFICIENCY: f32 = 9999.0;
+pub const DODGE_PROF_MAX_CHANCE: f32 = 0.50;
 
 /// Default real-time seconds between AI decisions.
 pub const DEFAULT_AI_INTERVAL: f32 = 5.0;
