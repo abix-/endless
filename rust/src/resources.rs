@@ -8,7 +8,8 @@ use bevy::reflect::Reflect;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Mutex;
+use std::sync::RwLock;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 /// CLI flag: skip main menu and start a new game with saved settings.
 #[derive(Resource, Default)]
@@ -35,22 +36,27 @@ const EMA_ALPHA: f32 = 0.1;
 
 #[derive(Resource)]
 pub struct SystemTimings {
-    data: Mutex<HashMap<&'static str, f32>>,
+    /// Lock-free timing storage: RwLock guards structural changes (new key insertion only);
+    /// existing entries are updated via AtomicU32 without acquiring the lock.
+    data: RwLock<HashMap<&'static str, AtomicU32>>,
     /// Tracing-captured timings (Bevy auto-spans, feature-gated behind `trace`).
-    traced: Mutex<HashMap<String, f32>>,
-    pub frame_ms: Mutex<f32>,
-    /// Rolling peak frame time (resets every PEAK_WINDOW frames).
-    frame_peak: Mutex<(f32, u32)>,
+    traced: RwLock<HashMap<String, AtomicU32>>,
+    /// EMA-smoothed frame time in ms, stored as f32 bits.
+    pub frame_ms: AtomicU32,
+    /// Rolling peak frame time (ms, f32 bits). Resets every PEAK_WINDOW frames.
+    frame_peak_ms: AtomicU32,
+    frame_peak_count: AtomicU32,
     pub enabled: bool,
 }
 
 impl Default for SystemTimings {
     fn default() -> Self {
         Self {
-            data: Mutex::new(HashMap::new()),
-            traced: Mutex::new(HashMap::new()),
-            frame_ms: Mutex::new(0.0),
-            frame_peak: Mutex::new((0.0, 0)),
+            data: RwLock::new(HashMap::new()),
+            traced: RwLock::new(HashMap::new()),
+            frame_ms: AtomicU32::new(0.0f32.to_bits()),
+            frame_peak_ms: AtomicU32::new(0.0f32.to_bits()),
+            frame_peak_count: AtomicU32::new(0),
             enabled: false,
         }
     }
@@ -61,16 +67,20 @@ impl SystemTimings {
     pub fn record_frame_delta(&self, dt_secs: f32) {
         if self.enabled {
             let ms = dt_secs * 1000.0;
-            if let Ok(mut fm) = self.frame_ms.lock() {
-                *fm = *fm * (1.0 - EMA_ALPHA) + ms * EMA_ALPHA;
-            }
-            if let Ok(mut fp) = self.frame_peak.lock() {
-                fp.0 = fp.0.max(ms);
-                fp.1 += 1;
-                if fp.1 >= 120 {
-                    fp.0 = ms;
-                    fp.1 = 0;
-                }
+            // EMA update: load -> compute -> store (single writer; no CAS loop needed).
+            let old = f32::from_bits(self.frame_ms.load(Ordering::Relaxed));
+            self.frame_ms.store(
+                (old * (1.0 - EMA_ALPHA) + ms * EMA_ALPHA).to_bits(),
+                Ordering::Relaxed,
+            );
+            // Rolling peak: update max, reset window every 120 frames.
+            let peak = f32::from_bits(self.frame_peak_ms.load(Ordering::Relaxed));
+            self.frame_peak_ms
+                .store(peak.max(ms).to_bits(), Ordering::Relaxed);
+            let count = self.frame_peak_count.fetch_add(1, Ordering::Relaxed) + 1;
+            if count >= 120 {
+                self.frame_peak_ms.store(ms.to_bits(), Ordering::Relaxed);
+                self.frame_peak_count.store(0, Ordering::Relaxed);
             }
         }
     }
@@ -78,27 +88,69 @@ impl SystemTimings {
     /// Record a timing value directly (same EMA as scope guard).
     /// Use for accumulated sub-section timings recorded after a loop.
     pub fn record(&self, name: &'static str, ms: f32) {
-        if let Ok(mut data) = self.data.lock() {
-            let entry = data.entry(name).or_insert(0.0);
-            *entry = *entry * (1.0 - EMA_ALPHA) + ms * EMA_ALPHA;
+        // Fast path: entry already exists -- update atomically without any lock.
+        if let Ok(guard) = self.data.read() {
+            if let Some(entry) = guard.get(name) {
+                let old = f32::from_bits(entry.load(Ordering::Relaxed));
+                entry.store(
+                    (old * (1.0 - EMA_ALPHA) + ms * EMA_ALPHA).to_bits(),
+                    Ordering::Relaxed,
+                );
+                return;
+            }
+        }
+        // Slow path: new key -- take write lock and insert.
+        if let Ok(mut guard) = self.data.write() {
+            let entry = guard
+                .entry(name)
+                .or_insert_with(|| AtomicU32::new(0.0f32.to_bits()));
+            let old = f32::from_bits(entry.load(Ordering::Relaxed));
+            entry.store(
+                (old * (1.0 - EMA_ALPHA) + ms * EMA_ALPHA).to_bits(),
+                Ordering::Relaxed,
+            );
         }
     }
 
     /// Record a tracing-captured timing (from Bevy auto-spans).
     pub fn record_traced(&self, name: &str, ms: f32) {
-        if let Ok(mut traced) = self.traced.lock() {
-            let entry = traced.entry(name.to_string()).or_insert(0.0);
-            // Already EMA-smoothed by the tracing layer; just copy the latest value.
-            *entry = ms;
+        // Fast path: entry already exists.
+        if let Ok(guard) = self.traced.read() {
+            if let Some(entry) = guard.get(name) {
+                // Already EMA-smoothed by the tracing layer; just copy the latest value.
+                entry.store(ms.to_bits(), Ordering::Relaxed);
+                return;
+            }
+        }
+        // Slow path: new key.
+        if let Ok(mut guard) = self.traced.write() {
+            let entry = guard
+                .entry(name.to_string())
+                .or_insert_with(|| AtomicU32::new(0.0f32.to_bits()));
+            entry.store(ms.to_bits(), Ordering::Relaxed);
         }
     }
 
     pub fn get_timings(&self) -> HashMap<&'static str, f32> {
-        self.data.lock().map(|d| d.clone()).unwrap_or_default()
+        self.data
+            .read()
+            .map(|d| {
+                d.iter()
+                    .map(|(k, v)| (*k, f32::from_bits(v.load(Ordering::Relaxed))))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     pub fn get_traced_timings(&self) -> HashMap<String, f32> {
-        self.traced.lock().map(|d| d.clone()).unwrap_or_default()
+        self.traced
+            .read()
+            .map(|d| {
+                d.iter()
+                    .map(|(k, v)| (k.clone(), f32::from_bits(v.load(Ordering::Relaxed))))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Get per-system peak ms from the tracing layer's rolling window.
@@ -110,11 +162,11 @@ impl SystemTimings {
     }
 
     pub fn get_frame_ms(&self) -> f32 {
-        self.frame_ms.lock().map(|f| *f).unwrap_or(0.0)
+        f32::from_bits(self.frame_ms.load(Ordering::Relaxed))
     }
 
     pub fn get_frame_peak_ms(&self) -> f32 {
-        self.frame_peak.lock().map(|f| f.0).unwrap_or(0.0)
+        f32::from_bits(self.frame_peak_ms.load(Ordering::Relaxed))
     }
 }
 
@@ -2466,5 +2518,52 @@ mod tests {
         let cache = NpcLogCache::default();
         assert!(!cache.should_log(MAX_NPC_COUNT));
         assert!(!cache.should_log(usize::MAX));
+    }
+
+    // Regression: SystemTimings records and reads timing values correctly with atomic storage.
+    // Would fail if record() or record_frame_delta() were broken or if f32 bits were mangled.
+    #[test]
+    fn system_timings_record_and_read() {
+        let mut timings = SystemTimings::default();
+        timings.enabled = true;
+
+        // record() stores via f32::to_bits and reads back via f32::from_bits.
+        timings.record("test_system", 5.0);
+        let map = timings.get_timings();
+        let val = map["test_system"];
+        // EMA: 0.0 * 0.9 + 5.0 * 0.1 = 0.5
+        assert!((val - 0.5).abs() < 1e-5, "expected ~0.5, got {val}");
+
+        // Second record accumulates EMA correctly.
+        timings.record("test_system", 5.0);
+        let map = timings.get_timings();
+        let val2 = map["test_system"];
+        // EMA: 0.5 * 0.9 + 5.0 * 0.1 = 0.95
+        assert!((val2 - 0.95).abs() < 1e-4, "expected ~0.95, got {val2}");
+    }
+
+    #[test]
+    fn system_timings_frame_delta_ema() {
+        let mut timings = SystemTimings::default();
+        timings.enabled = true;
+
+        // record_frame_delta updates frame_ms via EMA (no lock).
+        timings.record_frame_delta(0.016); // 16ms
+        let ms = timings.get_frame_ms();
+        // EMA: 0.0 * 0.9 + 16.0 * 0.1 = 1.6
+        assert!((ms - 1.6).abs() < 1e-4, "expected ~1.6ms, got {ms}");
+
+        // get_frame_peak_ms returns the max seen so far within the window.
+        assert!((timings.get_frame_peak_ms() - 16.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn system_timings_record_traced() {
+        let timings = SystemTimings::default();
+
+        timings.record_traced("bevy::system_a", 3.14);
+        let traced = timings.get_traced_timings();
+        let val = traced["bevy::system_a"];
+        assert!((val - 3.14).abs() < 1e-5, "expected ~3.14ms, got {val}");
     }
 }
