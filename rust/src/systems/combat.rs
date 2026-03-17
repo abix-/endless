@@ -213,6 +213,7 @@ pub fn attack_system(
     squad_state: Res<crate::resources::SquadState>,
     mut commands: Commands,
     game_time: Res<GameTime>,
+    grid: Res<WorldGrid>,
     mut aq: AttackQueries,
     npc_q: Query<
         (
@@ -386,6 +387,18 @@ pub fn attack_system(
             continue;
         }
 
+        // Rock high ground: +20% attack range for NPCs standing on Rock tiles
+        let effective_range = if grid.width > 0 {
+            let (gc, gr) = grid.world_to_grid(Vec2::new(x, y));
+            if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Rock) {
+                cached_range * 1.2
+            } else {
+                cached_range
+            }
+        } else {
+            cached_range
+        };
+
         // ── Building target ──
         if let Some(inst) = entity_map.get_instance(ti) {
             if inst.kind.is_road() {
@@ -403,8 +416,8 @@ pub fn attack_system(
             let dist = (dx * dx + dy * dy).sqrt();
             let inst_pos = inst.position;
 
-            let close_chase_radius = cached_range + 120.0;
-            if dist <= cached_range {
+            let close_chase_radius = effective_range + 120.0;
+            if dist <= effective_range {
                 intents.submit(
                     entity,
                     Vec2::new(x, y),
@@ -549,7 +562,7 @@ pub fn attack_system(
             sample_dist = dist;
         }
 
-        if dist <= cached_range {
+        if dist <= effective_range {
             intents.submit(
                 entity,
                 Vec2::new(x, y),
@@ -1672,5 +1685,212 @@ mod tests {
                 kind
             );
         }
+    }
+    // -- Terrain combat modifiers -------------------------------------------
+
+    /// Forest cover: 25% of projectile hits on Forest-tile targets should miss.
+    /// Runs 200 simultaneous hits and checks the damage count is within 3 sigma of 75%.
+    #[test]
+    fn forest_cover_misses_25_percent() {
+        use crate::world::{Biome, WorldCell, WorldGrid};
+        const N: usize = 200;
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_message::<crate::messages::DamageMsg>();
+        app.add_message::<ProjGpuUpdateMsg>();
+        app.insert_resource(crate::resources::TownIndex::default());
+
+        // Build a tiny 1x1 grid with Forest at (0,0)
+        let mut grid = WorldGrid::default();
+        grid.width = 1;
+        grid.height = 1;
+        grid.cell_size = 64.0;
+        grid.cells = vec![WorldCell {
+            terrain: Biome::Forest,
+            original_terrain: Biome::Forest,
+        }];
+        app.insert_resource(grid);
+
+        // Target NPC lives at (32, 32) -- center of forest cell (0,0)
+        let target_entity = app.world_mut().spawn(()).id();
+        let mut entity_map = crate::resources::EntityMap::default();
+        entity_map.register_npc(1, target_entity, crate::components::Job::Archer, 2, 0);
+        app.insert_resource(entity_map);
+
+        let mut gpu_state = crate::resources::GpuReadState::default();
+        gpu_state.positions = vec![0.0, 0.0, 32.0, 32.0]; // slot 0 unused, slot 1 = target
+        app.insert_resource(gpu_state);
+
+        // Allocate N projectile slots and set them all to hit target slot 1 with damage 10.0
+        let mut proj_alloc = ProjSlotAllocator::default();
+        let mut proj_writes = crate::gpu::ProjBufferWrites::default();
+        let mut hit_slots = Vec::new();
+        for _ in 0..N {
+            let slot = proj_alloc.alloc().expect("slot");
+            proj_writes.active[slot] = 1;
+            proj_writes.damages[slot] = 10.0;
+            proj_writes.shooters[slot] = -1;
+            proj_writes.factions[slot] = -1;
+            hit_slots.push(slot);
+        }
+        app.insert_resource(proj_alloc);
+        app.insert_resource(proj_writes);
+
+        // ProjHitState: each slot reports hit_idx=1 (target slot), processed=0
+        let max_slot = *hit_slots.iter().max().unwrap() + 1;
+        let mut hit_state_vec = vec![[0i32, 0i32]; max_slot];
+        for &s in &hit_slots {
+            hit_state_vec[s] = [1, 0];
+        }
+        app.insert_resource(ProjHitState(hit_state_vec));
+
+        app.world_mut().run_system_once(process_proj_hits).unwrap();
+
+        let damage_count = app
+            .world_mut()
+            .run_system_once(|mut reader: MessageReader<crate::messages::DamageMsg>| {
+                reader.read().count()
+            })
+            .unwrap();
+
+        // Expect ~75% hits (150/200). 3-sigma tolerance: sqrt(200*0.75*0.25)*3 = ~18.4
+        let hits = damage_count as f32;
+        let expected = N as f32 * 0.75;
+        let sigma3 = (N as f32 * 0.75 * 0.25_f32).sqrt() * 3.0;
+        assert!(
+            (hits - expected).abs() < sigma3,
+            "forest cover: expected ~{expected} hits, got {hits} (3-sigma tolerance {sigma3:.1})"
+        );
+        // Verify at least some misses occurred
+        assert!(
+            damage_count < N,
+            "forest cover should cause some misses, got {damage_count}/{N} hits"
+        );
+    }
+
+    fn setup_attack_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_message::<ProjGpuUpdateMsg>();
+        app.add_message::<DamageMsg>();
+        app.add_message::<crate::resources::PlaySfxMsg>();
+        app.insert_resource(crate::resources::PathRequestQueue::default());
+        app.insert_resource(CombatDebug::default());
+        app.insert_resource(crate::resources::GpuReadState::default());
+        app.insert_resource(crate::gpu::EntityGpuState::default());
+        app.insert_resource(crate::resources::EntityMap::default());
+        app.insert_resource(ProjSlotAllocator::default());
+        app.insert_resource(crate::resources::SquadState::default());
+        app.insert_resource(GameTime::default());
+        app.insert_resource(crate::world::WorldGrid::default());
+        app
+    }
+
+    /// Rock high ground: NPC on Rock tile can attack at 1.1x range (within +20% bonus).
+    /// Reverted (Grass tile), same NPC cannot reach the same target.
+    #[test]
+    fn rock_high_ground_extends_attack_range() {
+        use crate::components::{Activity, CachedStats, CombatState, Faction, Health, Job};
+        use crate::world::{Biome, WorldCell, WorldGrid};
+
+        // Attacker at (32,32), target at (252, 32): distance = 220.0
+        // Base range = 200.0: out of range normally, in range with +20% rock bonus (240.0)
+        const BASE_RANGE: f32 = 200.0;
+        const TARGET_X: f32 = 252.0;
+        const ATTACKER_X: f32 = 32.0;
+        const ATTACKER_Y: f32 = 32.0;
+
+        // Build a grid: 5 wide x 1 tall, cell 0 = Rock, rest = Grass
+        let make_grid = |cell0_biome: Biome| {
+            let mut grid = WorldGrid::default();
+            grid.width = 5;
+            grid.height = 1;
+            grid.cell_size = 64.0;
+            grid.cells = std::iter::once(WorldCell {
+                terrain: cell0_biome,
+                original_terrain: cell0_biome,
+            })
+            .chain((1..5).map(|_| WorldCell {
+                terrain: Biome::Grass,
+                original_terrain: Biome::Grass,
+            }))
+            .collect();
+            grid
+        };
+
+        let run_and_count_projs = |biome: Biome| -> usize {
+            let mut app = setup_attack_app();
+            app.insert_resource(make_grid(biome));
+
+            // Spawn target NPC at slot 1
+            let target = app.world_mut().spawn(()).id();
+            {
+                let mut em = app
+                    .world_mut()
+                    .resource_mut::<crate::resources::EntityMap>();
+                em.register_npc(1, target, Job::Archer, 2, 0);
+            }
+
+            // Spawn attacker NPC at slot 0: on cell (0,0)
+            let attacker = app
+                .world_mut()
+                .spawn((
+                    GpuSlot(0),
+                    Job::Archer,
+                    Faction(1),
+                    CachedStats {
+                        damage: 10.0,
+                        range: BASE_RANGE,
+                        cooldown: 1.5,
+                        projectile_speed: 300.0,
+                        projectile_lifetime: 2.0,
+                        max_health: 100.0,
+                        speed: 100.0,
+                        stamina: 1.0,
+                        hp_regen: 0.0,
+                        berserk_bonus: 0.0,
+                    },
+                    Activity::default(),
+                    Health(100.0),
+                    CombatState::default(),
+                    AttackTimer(0.0),
+                ))
+                .id();
+            let _ = attacker;
+
+            // GPU state: attacker at (32,32), target at (TARGET_X, 32)
+            {
+                let mut gpu = app
+                    .world_mut()
+                    .resource_mut::<crate::resources::GpuReadState>();
+                gpu.positions = vec![ATTACKER_X, ATTACKER_Y, TARGET_X, ATTACKER_Y];
+                gpu.combat_targets = vec![1, -1]; // attacker targets slot 1
+            }
+
+            app.world_mut().run_system_once(attack_system).unwrap();
+
+            // Count projectile spawn messages
+            app.world_mut()
+                .run_system_once(|mut reader: MessageReader<ProjGpuUpdateMsg>| {
+                    reader
+                        .read()
+                        .filter(|msg| matches!(msg.0, ProjGpuUpdate::Spawn { .. }))
+                        .count()
+                })
+                .unwrap()
+        };
+
+        let rock_projs = run_and_count_projs(Biome::Rock);
+        let grass_projs = run_and_count_projs(Biome::Grass);
+
+        assert!(
+            rock_projs > 0,
+            "attacker on Rock should fire at target 220 units away (range={BASE_RANGE} * 1.2 = 240)"
+        );
+        assert_eq!(
+            grass_projs, 0,
+            "attacker on Grass should NOT fire at target 220 units away (range={BASE_RANGE})"
+        );
     }
 }
