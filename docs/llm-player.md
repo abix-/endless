@@ -91,20 +91,20 @@ Per-town `rep` field in base state shows how your faction feels about each town'
 ### Claude Code
 
 ```
-python llm-player/launch.py
+endless-cli launch
 ```
 
 Reads `llm-player/prompt.md` as system prompt. Uses BRP HTTP endpoints on localhost:15702. All responses return TOON format. Commands use TOON params:
 
 ```
-python actions.py endless/summary
-python actions.py endless/ai_manager town:1 active:true personality:Aggressive
-python actions.py endless/squad_target squad:13 x:6944 y:11488
+endless-cli summary
+endless-cli ai_manager town:1 active:true personality:Aggressive
+endless-cli squad_target squad:13 x:6944 y:11488
 ```
 
 ### Anthropic API
 
-For unattended play. Requires API key from [console.anthropic.com](https://console.anthropic.com). Use `actions.py` tool definitions with TOON key:value params.
+For unattended play. Requires API key from [console.anthropic.com](https://console.anthropic.com). Use `endless-cli` tool definitions with TOON key:value params.
 
 ### Any other model
 
