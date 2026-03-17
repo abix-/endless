@@ -1703,7 +1703,7 @@ mod tests {
         mut flag: ResMut<SendTerrainDirty>,
     ) {
         if flag.0 {
-            writer.write(TerrainDirtyMsg);
+            writer.write(TerrainDirtyMsg { tile: None });
             flag.0 = false;
         }
     }
