@@ -726,8 +726,10 @@ fn build_building_body_instances(
             gpu_state.healths.get(idx).copied().unwrap_or(0.0)
         };
 
-        let (r, g, b, a) = if faction == crate::constants::FACTION_PLAYER {
-            (1.0, 1.0, 1.0, 1.0)
+        let (r, g, b, a) = if faction <= crate::constants::FACTION_PLAYER {
+            // Neutral (resource nodes) and player buildings both use lod_color.
+            let lc = crate::constants::building_def(inst.kind).lod_color;
+            (lc[0], lc[1], lc[2], lc[3])
         } else {
             // Buildings use a subtle faction tint (not full recolor like NPCs/projectiles).
             let (fr, fg, fb, _fa) = crate::constants::raider_faction_color(faction);
