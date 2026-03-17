@@ -2584,4 +2584,91 @@ mod tests {
         assert_eq!(writes.active_set_index[7], 1);
         assert_eq!(writes.active_set_index[9], usize::MAX);
     }
+
+    // ── build_visual_upload signal tests ─────────────────────────────────
+
+    fn setup_visual_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(EntityGpuState {
+            visual_full_rebuild: false,
+            visual_dirty_indices: Vec::new(),
+            ..Default::default()
+        });
+        app.insert_resource(GpuSlotPool::default());
+        app.insert_resource(NpcVisualUpload::default());
+        app.insert_resource(crate::resources::EntityMap::default());
+        app.add_systems(Update, build_visual_upload);
+        app
+    }
+
+    #[test]
+    fn build_visual_upload_noop_without_dirty_indices() {
+        let mut app = setup_visual_app();
+        // No dirty indices and no full rebuild
+        app.update();
+        let upload = app.world().resource::<NpcVisualUpload>();
+        assert!(
+            upload.visual_uploaded_indices.is_empty(),
+            "no dirty indices means nothing uploaded"
+        );
+        assert!(
+            upload.equip_uploaded_indices.is_empty(),
+            "no dirty indices means no equip uploaded"
+        );
+    }
+
+    #[test]
+    fn build_visual_upload_only_processes_dirty_indices() {
+        let mut app = setup_visual_app();
+        // Mark slot 3 as dirty
+        app.world_mut()
+            .resource_mut::<EntityGpuState>()
+            .visual_dirty_indices
+            .push(3);
+        // Give the slot pool a non-zero count so visual_data is resized
+        {
+            let mut pool = app.world_mut().resource_mut::<GpuSlotPool>();
+            // Alloc slots 0..4 so count() >= 4
+            for _ in 0..4 {
+                pool.alloc_reset();
+            }
+        }
+        app.update();
+        let upload = app.world().resource::<NpcVisualUpload>();
+        assert_eq!(
+            upload.visual_uploaded_indices,
+            vec![3],
+            "only the dirty slot should be in visual_uploaded_indices"
+        );
+        // Slot 0, 1, 2 should NOT be in the upload list
+        assert!(
+            !upload.visual_uploaded_indices.contains(&0),
+            "slot 0 should not be uploaded"
+        );
+    }
+
+    #[test]
+    fn build_visual_upload_noop_on_second_frame_without_new_dirty() {
+        let mut app = setup_visual_app();
+        {
+            let mut pool = app.world_mut().resource_mut::<GpuSlotPool>();
+            for _ in 0..4 {
+                pool.alloc_reset();
+            }
+        }
+        // First frame: dirty slot 3
+        app.world_mut()
+            .resource_mut::<EntityGpuState>()
+            .visual_dirty_indices
+            .push(3);
+        app.update();
+        // Second frame: no new dirty indices
+        app.update();
+        let upload = app.world().resource::<NpcVisualUpload>();
+        assert!(
+            upload.visual_uploaded_indices.is_empty(),
+            "second frame with no new dirty indices should upload nothing"
+        );
+    }
 }

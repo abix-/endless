@@ -1520,4 +1520,155 @@ mod tests {
         );
         assert_eq!(intents[0].1.source, "dc:attack");
     }
+
+    // ── sync_terrain_tilemap signal tests ─────────────────────────────────
+
+    #[derive(Resource, Default)]
+    struct SendTerrainDirty(bool);
+
+    fn maybe_send_terrain_dirty(
+        mut writer: MessageWriter<TerrainDirtyMsg>,
+        mut flag: ResMut<SendTerrainDirty>,
+    ) {
+        if flag.0 {
+            writer.write(TerrainDirtyMsg);
+            flag.0 = false;
+        }
+    }
+
+    fn setup_terrain_sync_app() -> App {
+        use crate::world::{Biome, WorldCell};
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        app.add_message::<TerrainDirtyMsg>();
+        app.insert_resource(SendTerrainDirty(false));
+        // 4x4 grid with distinct biomes
+        let mut grid = WorldGrid::default();
+        grid.width = 4;
+        grid.height = 4;
+        grid.cell_size = 64.0;
+        grid.cells = vec![
+            WorldCell {
+                terrain: Biome::Forest,
+                original_terrain: Biome::Forest,
+            };
+            16
+        ];
+        // Set cell (0,0) to Water (tileset_index = 8)
+        grid.cells[0] = WorldCell {
+            terrain: Biome::Water,
+            original_terrain: Biome::Water,
+        };
+        app.insert_resource(grid);
+        app.add_systems(
+            FixedUpdate,
+            (maybe_send_terrain_dirty, sync_terrain_tilemap).chain(),
+        );
+        app.update();
+        app.update();
+        app
+    }
+
+    #[test]
+    fn sync_terrain_noop_without_message() {
+        let mut app = setup_terrain_sync_app();
+        // Spawn a chunk with tile_data pre-filled with tileset index 99 (sentinel)
+        let sentinel_tile = TileData::from_tileset_index(99);
+        let tile_data = vec![Some(sentinel_tile); 4 * 4];
+        app.world_mut().spawn((
+            TerrainChunk,
+            TilemapChunkTileData(tile_data),
+            TerrainChunkRegion {
+                origin_x: 0,
+                origin_y: 0,
+                chunk_w: 4,
+                chunk_h: 4,
+            },
+        ));
+        // Run WITHOUT sending TerrainDirtyMsg
+        app.update();
+        let mut query = app.world_mut().query::<&TilemapChunkTileData>();
+        let tile_data = query.single(app.world()).unwrap().0.clone();
+        assert_eq!(
+            tile_data[0].as_ref().map(|t| t.tileset_index),
+            Some(99),
+            "tile_data should be unchanged when no TerrainDirtyMsg is sent"
+        );
+    }
+
+    #[test]
+    fn sync_terrain_updates_tiles_with_message() {
+        use crate::world::Biome;
+        let mut app = setup_terrain_sync_app();
+        // Spawn a chunk with tile_data pre-filled with sentinel index 99
+        let sentinel_tile = TileData::from_tileset_index(99);
+        let tile_data = vec![Some(sentinel_tile); 4 * 4];
+        app.world_mut().spawn((
+            TerrainChunk,
+            TilemapChunkTileData(tile_data),
+            TerrainChunkRegion {
+                origin_x: 0,
+                origin_y: 0,
+                chunk_w: 4,
+                chunk_h: 4,
+            },
+        ));
+        // Send TerrainDirtyMsg and run
+        app.insert_resource(SendTerrainDirty(true));
+        app.update();
+        let mut query = app.world_mut().query::<&TilemapChunkTileData>();
+        let tile_data = query.single(app.world()).unwrap().0.clone();
+        // Cell (0,0) = Water => tileset_index should be 8 (not 99 sentinel)
+        let actual = tile_data[0].as_ref().map(|t| t.tileset_index);
+        assert_ne!(
+            actual,
+            Some(99),
+            "tile_data should be updated after TerrainDirtyMsg"
+        );
+        assert_eq!(
+            actual,
+            Some(Biome::Water.tileset_index(0)),
+            "cell (0,0) should have Water tileset index"
+        );
+    }
+
+    #[test]
+    fn sync_terrain_noop_on_subsequent_frame_without_new_message() {
+        let mut app = setup_terrain_sync_app();
+        let sentinel_tile = TileData::from_tileset_index(99);
+        let tile_data = vec![Some(sentinel_tile); 4 * 4];
+        app.world_mut().spawn((
+            TerrainChunk,
+            TilemapChunkTileData(tile_data),
+            TerrainChunkRegion {
+                origin_x: 0,
+                origin_y: 0,
+                chunk_w: 4,
+                chunk_h: 4,
+            },
+        ));
+        // First run WITH message
+        app.insert_resource(SendTerrainDirty(true));
+        app.update();
+        // Manually reset tile_data back to sentinel to detect re-run
+        {
+            let mut query = app.world_mut().query::<&mut TilemapChunkTileData>();
+            let mut tile_data = query.single_mut(app.world_mut()).unwrap();
+            for t in tile_data.0.iter_mut() {
+                *t = Some(TileData::from_tileset_index(99));
+            }
+        }
+        // Second run WITHOUT message -- tile_data should remain sentinel
+        app.update();
+        let mut query = app.world_mut().query::<&TilemapChunkTileData>();
+        let tile_data = query.single(app.world()).unwrap().0.clone();
+        assert_eq!(
+            tile_data[0].as_ref().map(|t| t.tileset_index),
+            Some(99),
+            "sync_terrain_tilemap should be no-op on subsequent frame without TerrainDirtyMsg"
+        );
+    }
 }
