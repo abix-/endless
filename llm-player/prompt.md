@@ -26,26 +26,78 @@ endless-cli — CLI wrapper for any game endpoint. Params are TOON key:value pai
 
 Run with no args to see all towns. Chain multiple calls with &&. Working directory is already llm-player/ — don't prefix commands with cd.
 
-## Available Methods
+## endless-cli API Reference
 
-Read (unrestricted):
-  endless/summary                       — Full game state (towns, npcs, factions, squads)
-  endless/summary town:N               — Single town detail
+All commands use key:value params. Spaces in values are fine (no quoting needed).
 
-Write (your LLM town only):
-  endless/ai_manager town active personality build_enabled upgrade_enabled road_style
-  endless/policy town eat_food archer_aggressive archer_leash farmer_fight_back prioritize_healing farmer_flee_hp(0.0-1.0) archer_flee_hp(0.0-1.0) recovery_hp(0.0-1.0) mining_radius(0-5000)
-    ⚠ All HP thresholds are fractions 0.0–1.0 (0.5 = 50%). Do NOT pass percentages — 80 means 8000%, not 80%.
-  endless/upgrade town upgrade_idx
-  endless/squad_target squad x y
-  endless/build town kind row col
-  endless/destroy town row col          — Remove own building (not Fountain/GoldMine)
-    ⚠ Grid is centered on (0,0) at the fountain, spanning roughly -5 to 4. Rows 0-3 are usually occupied by starter buildings — expand on outer rows (4, -4, -5).
-  endless/chat town to message          — Send chat message to another town
-  endless/time paused time_scale
+### Read (unrestricted)
 
-Personalities: Aggressive, Balanced, Economic
-Building kinds: Farm, FarmerHome, ArcherHome, Tent, GoldMine, MinerHome, CrossbowHome, FighterHome, Road, Wall, Tower, Merchant, Casino
+| Command | Description |
+|---------|-------------|
+| `endless-cli summary` | full game state (towns, npcs, factions, squads) |
+| `endless-cli summary town:N` | single town detail |
+| `endless-cli perf` | FPS, UPS, entity counts, system timings |
+| `endless-cli debug ENTITY_ID` | inspect any entity (NPC, building, squad) |
+
+### Write (your LLM town only)
+
+| Command | Params | Description |
+|---------|--------|-------------|
+| `endless-cli build` | `town:N kind:TYPE row:R col:C` | place a building |
+| `endless-cli destroy` | `town:N row:R col:C` | remove own building (not Fountain/GoldMine) |
+| `endless-cli upgrade` | `town:N upgrade_idx:I` | purchase an upgrade |
+| `endless-cli squad_target` | `squad:S x:X y:Y` | send squad to coordinates |
+| `endless-cli ai_manager` | `town:N active:BOOL personality:TYPE` | configure AI manager |
+| `endless-cli policy` | `town:N [flags...]` | set town behavior policies |
+| `endless-cli chat` | `town:N to:T message:text here` | send chat (spaces ok) |
+| `endless-cli time` | `paused:BOOL time_scale:F` | control game speed |
+
+### Policy flags
+
+All optional -- include only what you want to change:
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `eat_food` | bool | NPCs eat food to heal |
+| `archer_aggressive` | bool | archers engage enemies proactively |
+| `archer_leash` | bool | archers return to post after combat |
+| `farmer_fight_back` | bool | farmers defend when attacked |
+| `prioritize_healing` | bool | injured NPCs rest before working |
+| `farmer_flee_hp` | 0.0-1.0 | farmers flee below this HP fraction |
+| `archer_flee_hp` | 0.0-1.0 | archers flee below this HP fraction |
+| `recovery_hp` | 0.0-1.0 | HP threshold to stop resting |
+| `mining_radius` | 0-5000 | max distance miners will travel |
+
+WARNING: HP values are fractions (0.5 = 50%). Do NOT pass percentages -- 80 means 8000%.
+
+### AI Manager params
+
+| Param | Values | Description |
+|-------|--------|-------------|
+| `active` | true/false | enable/disable AI manager |
+| `personality` | Aggressive, Balanced, Economic | behavior preset |
+| `build_enabled` | true/false | allow AI to place buildings |
+| `upgrade_enabled` | true/false | allow AI to buy upgrades |
+| `road_style` | None, Basic | road building strategy |
+
+WARNING: Economic personality over-builds miners and starves economy. Use Balanced.
+WARNING: road_style other than None permanently blocks construction slots.
+
+### Building kinds
+
+Farm, FarmerHome, ArcherHome, Tent, GoldMine, MinerHome, CrossbowHome, FighterHome, Road, Wall, Tower, Merchant, Casino
+
+### Grid
+
+Centered on (0,0) at the fountain, spanning roughly -5 to 4. Rows 0-3 usually occupied by starter buildings -- expand on outer rows (4, -4, -5).
+
+### Tools
+
+| Command | Description |
+|---------|-------------|
+| `endless-cli test` | wait for BRP, run perf + summary baseline |
+| `endless-cli loop` | poll state every 10s, write to loop.log |
+| `endless-cli launch` | start this Claude Code LLM player session |
 
 
 ## Workflow
