@@ -3,6 +3,7 @@
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
+use crate::messages::CombatLogMsg;
 use crate::messages::DirtyWriters;
 use crate::messages::GpuUpdateMsg;
 use crate::resources::*;
@@ -169,6 +170,16 @@ impl WorldState<'_> {
             gpu_updates,
         )
     }
+}
+
+/// Flat bundle for systems that write combat log entries with game time and profiling context.
+/// Contains: combat_log (message writer), game_time (read-only game clock), timings (profiler).
+/// No nested SystemParam bundles -- all fields are primitive system params.
+#[derive(SystemParam)]
+pub struct GameLog<'w> {
+    pub combat_log: MessageWriter<'w, CombatLogMsg>,
+    pub game_time: Res<'w, GameTime>,
+    pub timings: Res<'w, SystemTimings>,
 }
 
 /// Mutable economy resources shared by gameplay systems.

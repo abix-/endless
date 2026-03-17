@@ -3,9 +3,10 @@
 use bevy::prelude::*;
 
 use crate::components::*;
-use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg, SpawnNpcMsg};
-use crate::messages::{DirtyWriters, MiningDirtyMsg, SquadsDirtyMsg};
-use crate::resources::{CombatEventKind, EntityMap, FactionStats, GameTime, PopulationStats};
+use crate::messages::{CombatLogMsg, DirtyWriters, MiningDirtyMsg, SquadsDirtyMsg};
+use crate::messages::{GpuUpdate, GpuUpdateMsg, SpawnNpcMsg};
+use crate::resources::{CombatEventKind, EntityMap, FactionStats, PopulationStats};
+use crate::systemparams::GameLog;
 use crate::systems::economy::*;
 use crate::systems::stats::{CombatConfig, resolve_combat_stats};
 use crate::world::BuildingKind;
@@ -325,8 +326,7 @@ pub fn spawn_npc_system(
     mut pop_stats: ResMut<PopulationStats>,
     mut faction_stats: ResMut<FactionStats>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
-    game_time: Res<GameTime>,
-    mut combat_log: MessageWriter<CombatLogMsg>,
+    mut game_log: GameLog,
     combat_config: Res<CombatConfig>,
     town_access: crate::systemparams::TownAccess,
     mut dirty_writers: DirtyWriters,
@@ -368,14 +368,14 @@ pub fn spawn_npc_system(
             dirty_writers.squads.write(SquadsDirtyMsg);
         }
 
-        if game_time.total_hours() > 0 {
+        if game_log.game_time.total_hours() > 0 {
             let job_str = crate::job_name(msg.job);
-            combat_log.write(CombatLogMsg {
+            game_log.combat_log.write(CombatLogMsg {
                 kind: CombatEventKind::Spawn,
                 faction: msg.faction,
-                day: game_time.day(),
-                hour: game_time.hour(),
-                minute: game_time.minute(),
+                day: game_log.game_time.day(),
+                hour: game_log.game_time.hour(),
+                minute: game_log.game_time.minute(),
                 message: format!("{} #{} spawned", job_str, msg.slot_idx),
                 location: None,
             });
