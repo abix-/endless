@@ -107,44 +107,51 @@ Centered on (0,0) at the fountain, spanning roughly -5 to 4. Rows 0-3 usually oc
 3. Decide if action is needed -- most cycles, do nothing
 4. Call `endless-cli` when something strategic needs to change
 
-## Output Format
+## Response Format
 
-All responses use TOON format (key:value for flat data, [N] + CSV rows for arrays).
+All responses use TOON format: `key: value` for scalars, `name[count]:` + CSV rows for arrays.
 
-Summary example:
-```
-day: 4
-hour: 7
-paused: false
-time_scale: 2.0
-town_idx: 1
-town_name: Fort Myers
-faction: 1
-food: 27
-gold: 1
-factions[6]:
-  0,30,0,3
-  1,25,1,0
-buildings[12]:
-  Archer Home,-2,1
-  Farm,-1,0
-squads[2]:
-  13,5,,
-  14,7,7840,8928
-upgrades[4]:
-  0,Move Speed,1,10%,50g
-  1,Max HP,0,15%,30f
-combat_log[3]:
-  4,7,30,Archer killed Raider
-  4,7,28,Raider attacked Farm
-inbox[1]:
-  0,hello neighbor,4,7,25
-npcs:
-  Archer: 8 (On Duty:3 Patrolling:5)
-  Farmer: 24 (Working:15 Idle:7 Resting:2)
-```
+### Scalar fields
 
-Key fields: factions=(faction,alive,dead,kills), buildings=(kind,row,col), squads=(idx,members,target_x,target_y), upgrades=(idx,name,level,pct,cost), combat_log=(day,hour,min,msg), inbox=(from_town,message,day,hour,min). Empty squad target = idle. Inbox drained on read — check every cycle.
+| Field | Type | Description |
+|-------|------|-------------|
+| `day` | int | game day |
+| `hour` | int | game hour (0-23) |
+| `paused` | bool | game paused |
+| `time_scale` | float | game speed multiplier |
+| `town_idx` | int | YOUR town index (use for all write commands) |
+| `town_name` | string | your town's name |
+| `faction` | int | your faction ID |
+| `food` | int | your food count |
+| `gold` | int | your gold count |
+
+### Array fields
+
+| Array | Columns | Description |
+|-------|---------|-------------|
+| `factions[N]` | faction, alive, dead, kills | all factions in the game |
+| `buildings[N]` | kind, row, col | your buildings (grid coords) |
+| `squads[N]` | idx, members, target_x, target_y | your squads. empty target = idle |
+| `upgrades[N]` | idx, name, level, pct, cost | available upgrades with current level |
+| `combat_log[N]` | day, hour, min, message | recent combat events (newest first) |
+| `inbox[N]` | from_town, message, day, hour, min | unread messages. drained on read -- check every cycle |
+| `npcs` | job: count (status breakdown) | your NPC population by job and activity |
+
+### Perf fields (from `endless-cli perf`)
+
+| Field | Description |
+|-------|-------------|
+| `fps` | frames per second |
+| `ups` | updates per second |
+| `entities` | total ECS entity count |
+| `systems` | per-system timing breakdown |
+
+### Debug fields (from `endless-cli debug ENTITY`)
+
+Returns all components on an entity. Key fields vary by type:
+- **NPC**: job, activity, hp, energy, faction, home, combat_state, flags
+- **Building**: kind, town, hp, occupants, growth
+- **Squad**: members, target, faction
 
 ## Game Mechanics
 
