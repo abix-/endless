@@ -309,6 +309,21 @@ pub fn settings_panel_ui(
                             ui.add(egui::Slider::new(&mut settings.lod_transition, 0.1..=2.0).text("LOD Transition"))
                                 .on_hover_text("Below this zoom level, sprites render as flat rectangles.");
                             ui.small("Lower values keep detailed sprites visible longer.");
+                            ui.add_space(6.0);
+
+                            ui.label("HP Bar Display");
+                            let hp_mode = &mut settings.hp_bar_mode;
+                            ui.horizontal(|ui| {
+                                use crate::settings::HpBarMode;
+                                if ui.selectable_label(*hp_mode == HpBarMode::Off, "Off").clicked() { *hp_mode = HpBarMode::Off; }
+                                if ui.selectable_label(*hp_mode == HpBarMode::WhenDamaged, "When Damaged").clicked() { *hp_mode = HpBarMode::WhenDamaged; }
+                                if ui.selectable_label(*hp_mode == HpBarMode::Always, "Always").clicked() { *hp_mode = HpBarMode::Always; }
+                            });
+                            match settings.hp_bar_mode {
+                                crate::settings::HpBarMode::Off => { ui.small("HP bars never shown. Cleaner visuals at scale."); }
+                                crate::settings::HpBarMode::WhenDamaged => { ui.small("HP bars shown only on damaged NPCs. Default behavior."); }
+                                crate::settings::HpBarMode::Always => { ui.small("HP bars always visible. Easier to track army health."); }
+                            }
                         }
                         PauseSettingsTab::Controls => {
                             if let Some(action) = *rebinding_action {

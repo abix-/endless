@@ -244,7 +244,8 @@ pub struct CameraUniform {
     pub bldg_layers: f32,
     pub extras_cols: f32,
     pub lod_zoom: f32,
-    pub _pad: u32,
+    /// HP bar display mode: 0=Off, 1=WhenDamaged, 2=Always.
+    pub hp_bar_mode: u32,
 }
 
 /// Bind group for camera uniform.
@@ -662,6 +663,7 @@ fn extract_camera_state(
         zoom,
         viewport: Vec2::new(window.width(), window.height()),
         lod_zoom: user_settings.lod_transition,
+        hp_bar_mode: user_settings.hp_bar_mode.as_u32(),
     });
 }
 
@@ -1959,7 +1961,7 @@ fn prepare_npc_camera_bind_group(
             + crate::constants::autotile_total_extra_layers()) as f32,
         extras_cols: 4.0,
         lod_zoom: camera_state.lod_zoom,
-        _pad: 0,
+        hp_bar_mode: camera_state.hp_bar_mode,
     };
 
     let mut buffer = UniformBuffer::from(uniform);
