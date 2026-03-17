@@ -72,6 +72,7 @@ hashbrown = "0.15"
 ahash = "0.8"
 bevy_ecs = "0.18"
 criterion = { version = "0.5", features = ["html_reports"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [[bench]]
 name = "hashmap_bench"
