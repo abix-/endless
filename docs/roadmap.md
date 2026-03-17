@@ -17,7 +17,7 @@ See [completed.md](completed.md) for the player-facing feature snapshot and [his
 
 ## Stages
 
-Stages 1-16, 18, 19: [x] Complete (see [history.md](history.md))
+Stages 1-16, 18-19, 32: [x] Complete (see [history.md](history.md))
 
 **Current Sprint (priority order):**
 1. Stage 26 resources -- finish woodcutter/quarrier harvest cycle, mixed building costs, iron
@@ -36,15 +36,7 @@ Remaining:
   - Grass/Dirt/Water: no combat modifier
   - Implementation: target position already known from `EntityMap`; convert to grid coords, read `WorldCell.terrain` — no new components needed
 
-**Stage 18: Loot & Equipment**
-
-*Done when: raider dies → loot auto-acquired to killer's carry → NPC keeps fighting → threshold triggers return home → deposit to town inventory → player equips item on NPC → stats increase and sprite changes.*
-
-Design: no loot bags on the ground. Kill → loot goes directly into killer's `CarriedLoot` component → NPC keeps fighting → carry threshold triggers return home → deposit food/gold to storage + equipment to `TownEquipment` → player equips via UI → stat bonus + sprite change.
-
-All 6 chunks complete. See [history.md](history.md) for rollout notes and [combat.md](combat.md), [armory-ui.md](armory-ui.md), and [save-load.md](save-load.md) for current behavior.
-
-Remaining: none -- all chunks complete.
+**Stage 18: Loot & Equipment** — [x] Complete (see [history.md](history.md), [combat.md](combat.md), [armory-ui.md](armory-ui.md))
 
 **Stage 19: Code Health** — [x] Complete (see [history.md](history.md))
 
