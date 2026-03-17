@@ -440,7 +440,121 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
     Ok(json!(toon))
 }
 
-// --- endless/build ----------------------------------------------------------
+// --- helpers ----------------------------------------------------------------
+
+fn format_entity(e: Entity) -> String {
+    format!("{}v{}", e.index(), e.generation().to_bits())
+}
+
+// --- endless/list_buildings --------------------------------------------------
+
+#[derive(Deserialize)]
+struct ListBuildingsParams {
+    town: Option<usize>,
+}
+
+pub fn list_buildings_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
+    let filter_town: Option<usize> = params
+        .and_then(|v| serde_json::from_value::<ListBuildingsParams>(v).ok())
+        .and_then(|p| p.town);
+
+    let entity_map = world.resource::<EntityMap>();
+    let grid = world.resource::<crate::world::WorldGrid>();
+
+    let mut rows = Vec::new();
+    for inst in entity_map.iter_instances() {
+        if let Some(ft) = filter_town {
+            if inst.town_idx as usize != ft {
+                continue;
+            }
+        }
+        let entity = entity_map.entities.get(&inst.slot).copied();
+        let eid = entity.map(format_entity).unwrap_or_default();
+        let (col, row) = grid.world_to_grid(inst.position);
+        let label = crate::constants::building_def(inst.kind).label;
+        let claimed = entity_map.occupant_count(inst.slot);
+        let present = entity_map.present_count(inst.slot);
+        let growth = entity
+            .and_then(|e| world.get::<crate::components::ProductionState>(e))
+            .map(|ps| ps.progress * 100.0)
+            .unwrap_or(0.0);
+
+        rows.push(json!({
+            "entity": eid,
+            "kind": format!("{:?}", inst.kind),
+            "label": label,
+            "col": col,
+            "row": row,
+            "town": inst.town_idx,
+            "growth": format!("{:.0}%", growth),
+            "claimed": claimed,
+            "present": present,
+        }));
+    }
+
+    Ok(json!(rows))
+}
+
+// --- endless/list_npcs -------------------------------------------------------
+
+#[derive(Deserialize)]
+struct ListNpcsParams {
+    town: Option<usize>,
+    job: Option<String>,
+}
+
+pub fn list_npcs_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
+    let filter: ListNpcsParams = params
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or(ListNpcsParams {
+            town: None,
+            job: None,
+        });
+
+    let mut rows = Vec::new();
+
+    // ECS query for NPC components
+    let mut query =
+        world.query::<(Entity, &Job, &TownId, &Activity, &crate::components::NpcStats)>();
+    let results: Vec<_> = query
+        .iter(world)
+        .map(|(e, j, t, a, s)| {
+            (
+                e,
+                *j,
+                t.0,
+                a.name().to_string(),
+                s.name.clone(),
+            )
+        })
+        .collect();
+
+    for (entity, job, town_id, activity, name) in &results {
+        if let Some(ft) = filter.town {
+            if *town_id as usize != ft {
+                continue;
+            }
+        }
+        let job_name = format!("{:?}", job);
+        if let Some(ref fj) = filter.job {
+            if !job_name.eq_ignore_ascii_case(fj) {
+                continue;
+            }
+        }
+
+        rows.push(json!({
+            "entity": format_entity(*entity),
+            "name": name,
+            "job": job_name,
+            "activity": activity,
+            "town": town_id,
+        }));
+    }
+
+    Ok(json!(rows))
+}
+
+// --- endless/create_building -------------------------------------------------
 
 #[derive(Deserialize)]
 struct BuildParams {
@@ -1554,7 +1668,8 @@ fn debug_npc(world: &mut World, target_entity: Entity, slot: usize) -> BrpResult
                     .worksite
                     .map_or(0, |w| w.max_occupants);
                 data["worksite_kind"] = json!(format!("{:?}", inst.kind));
-                data["worksite_occupants"] = json!(entity_map.occupant_count(ws_slot));
+                data["worksite_claimed"] = json!(entity_map.occupant_count(ws_slot));
+                data["worksite_present"] = json!(entity_map.present_count(ws_slot));
                 data["worksite_max_occ"] = json!(max_occ);
                 let growth_pct = entity_map
                     .entities
@@ -1690,7 +1805,7 @@ fn debug_npc(world: &mut World, target_entity: Entity, slot: usize) -> BrpResult
 }
 
 fn debug_building(world: &mut World, _entity: Entity, slot: usize) -> BrpResult {
-    let (inst, bld_entity, occupants) = {
+    let (inst, bld_entity, occupants, present) = {
         let entity_map = world.resource::<EntityMap>();
         let inst = entity_map
             .get_instance(slot)
@@ -1698,7 +1813,8 @@ fn debug_building(world: &mut World, _entity: Entity, slot: usize) -> BrpResult 
             .clone();
         let bld_entity = entity_map.entities.get(&slot).copied();
         let occupants = entity_map.occupant_count(slot);
-        (inst, bld_entity, occupants)
+        let present = entity_map.present_count(slot);
+        (inst, bld_entity, occupants, present)
     };
     let world_data = world.resource::<WorldData>();
     let game_time = world.resource::<GameTime>();
@@ -1745,7 +1861,8 @@ fn debug_building(world: &mut World, _entity: Entity, slot: usize) -> BrpResult 
         "hp": hp,
         "max_hp": def.hp,
         "town_idx": inst.town_idx,
-        "occupants": occupants,
+        "occupants_claimed": occupants,
+        "occupants_present": present,
         "growth": "0%",
         "under_construction": 0.0f32,
         "npc_uid": serde_json::Value::Null,
