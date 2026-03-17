@@ -3211,7 +3211,136 @@ fn generate_terrain_worldmap(grid: &mut WorldGrid) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::entity_map::BuildingInstance;
+    use crate::messages::BuildingGridDirtyMsg;
+    use crate::resources::EntityMap;
     use bevy::ecs::system::RunSystemOnce;
+    use bevy::time::TimeUpdateStrategy;
+
+    // ── rebuild_building_grid_system signal tests ──────────────────────────
+
+    #[derive(bevy::prelude::Resource, Default)]
+    struct SendBuildingGridDirty(bool);
+
+    fn maybe_send_building_grid_dirty(
+        mut writer: MessageWriter<BuildingGridDirtyMsg>,
+        mut flag: bevy::prelude::ResMut<SendBuildingGridDirty>,
+    ) {
+        if flag.0 {
+            writer.write(BuildingGridDirtyMsg);
+            flag.0 = false;
+        }
+    }
+
+    fn setup_rebuild_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(EntityMap::default());
+        app.add_message::<BuildingGridDirtyMsg>();
+        app.insert_resource(SendBuildingGridDirty(false));
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0),
+        ));
+        let mut grid = WorldGrid::default();
+        grid.width = 16;
+        grid.height = 16;
+        grid.cell_size = 64.0;
+        grid.cells = vec![WorldCell::default(); 16 * 16];
+        app.insert_resource(grid);
+        app.add_systems(
+            FixedUpdate,
+            (maybe_send_building_grid_dirty, rebuild_building_grid_system).chain(),
+        );
+        app.update();
+        app.update();
+        app
+    }
+
+    #[test]
+    fn rebuild_building_grid_noop_without_message() {
+        let mut app = setup_rebuild_app();
+        let pos = Vec2::new(32.0, 32.0);
+        app.world_mut()
+            .resource_mut::<EntityMap>()
+            .add_instance(BuildingInstance {
+                kind: BuildingKind::Farm,
+                position: pos,
+                slot: 1,
+                town_idx: 0,
+                faction: 1,
+            });
+        // Run WITHOUT sending a BuildingGridDirtyMsg
+        app.update();
+        let em = app.world().resource::<EntityMap>();
+        let mut found = false;
+        em.for_each_nearby(pos, 200.0, |_, _| found = true);
+        assert!(
+            !found,
+            "spatial should not be initialized without BuildingGridDirtyMsg"
+        );
+    }
+
+    #[test]
+    fn rebuild_building_grid_initializes_spatial_with_message() {
+        let mut app = setup_rebuild_app();
+        let pos = Vec2::new(32.0, 32.0);
+        app.world_mut()
+            .resource_mut::<EntityMap>()
+            .add_instance(BuildingInstance {
+                kind: BuildingKind::Farm,
+                position: pos,
+                slot: 1,
+                town_idx: 0,
+                faction: 1,
+            });
+        // Send the message and run
+        app.insert_resource(SendBuildingGridDirty(true));
+        app.update();
+        let em = app.world().resource::<EntityMap>();
+        let mut found = false;
+        em.for_each_nearby(pos, 200.0, |_, _| found = true);
+        assert!(
+            found,
+            "spatial should be rebuilt after BuildingGridDirtyMsg"
+        );
+    }
+
+    #[test]
+    fn rebuild_building_grid_preserves_spatial_on_subsequent_frame() {
+        // After a message-triggered rebuild, subsequent frames without a message
+        // must NOT clear the spatial grid. Buildings found after the first rebuild
+        // must remain findable on the next frame.
+        let mut app = setup_rebuild_app();
+        let pos_a = Vec2::new(32.0, 32.0);
+        app.world_mut()
+            .resource_mut::<EntityMap>()
+            .add_instance(BuildingInstance {
+                kind: BuildingKind::Farm,
+                position: pos_a,
+                slot: 1,
+                town_idx: 0,
+                faction: 1,
+            });
+        // First run WITH message -> spatial initialized and building A indexed
+        app.insert_resource(SendBuildingGridDirty(true));
+        app.update();
+        // Verify building A is in spatial after the rebuild
+        {
+            let em = app.world().resource::<EntityMap>();
+            let mut found = false;
+            em.for_each_nearby(pos_a, 200.0, |_, _| found = true);
+            assert!(found, "building A should be found after first rebuild");
+        }
+        // Second run WITHOUT message -- spatial must NOT be cleared
+        app.update();
+        let em = app.world().resource::<EntityMap>();
+        let mut still_found = false;
+        em.for_each_nearby(pos_a, 200.0, |_, _| still_found = true);
+        assert!(
+            still_found,
+            "spatial should be preserved on subsequent frame without BuildingGridDirtyMsg"
+        );
+    }
 
     #[test]
     fn road_blocked_on_forest_biome() {
