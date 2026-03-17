@@ -7,7 +7,7 @@ use crate::components::*;
 use crate::resources::*;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SortColumn { Name, Job, Level, Hp, State, Trait }
+enum SortColumn { Name, Job, Level, Hp, State, Trait, Prof }
 
 #[derive(Default)]
 pub struct RosterState {
@@ -29,6 +29,7 @@ struct RosterRow {
     max_hp: f32,
     state: String,
     trait_name: String,
+    top_skill: f32,
 }
 
 pub fn roster_panel_system(
@@ -45,6 +46,7 @@ pub fn roster_panel_system(
     health_q: Query<&Health, Without<Building>>,
     cached_stats_q: Query<&CachedStats>,
     combat_state_q: Query<&CombatState>,
+    skills_q: Query<&NpcSkills>,
 ) -> Result {
     if !ui_state.roster_open {
         return Ok(());
@@ -83,6 +85,16 @@ pub fn roster_panel_system(
                 max_hp: cached_stats_q.get(npc.entity).map(|s| s.max_health).unwrap_or(100.0),
                 state: state_str,
                 trait_name: personality_q.get(npc.entity).map(|p| p.trait_summary()).unwrap_or_default(),
+                top_skill: skills_q
+                    .get(npc.entity)
+                    .map(|s| match npc.job {
+                        Job::Farmer => s.farming,
+                        Job::Archer | Job::Crossbow | Job::Fighter | Job::Raider => {
+                            s.combat.max(s.dodge)
+                        }
+                        _ => 0.0,
+                    })
+                    .unwrap_or(0.0),
             });
         }
 
@@ -96,6 +108,7 @@ pub fn roster_panel_system(
                     SortColumn::Hp => a.hp.partial_cmp(&b.hp).unwrap_or(std::cmp::Ordering::Equal),
                     SortColumn::State => a.state.cmp(&b.state),
                     SortColumn::Trait => a.trait_name.cmp(&b.trait_name),
+                    SortColumn::Prof => a.top_skill.partial_cmp(&b.top_skill).unwrap_or(std::cmp::Ordering::Equal),
                 };
                 if state.sort_descending { ord.reverse() } else { ord }
             });
@@ -152,6 +165,7 @@ pub fn roster_panel_system(
         let hp_arrow = arrow_str(&state, SortColumn::Hp);
         let state_arrow = arrow_str(&state, SortColumn::State);
         let trait_arrow = arrow_str(&state, SortColumn::Trait);
+        let prof_arrow = arrow_str(&state, SortColumn::Prof);
 
         // Header row
         let mut clicked_col: Option<SortColumn> = None;
@@ -162,6 +176,7 @@ pub fn roster_panel_system(
             if ui.button(format!("HP{}", hp_arrow)).clicked() { clicked_col = Some(SortColumn::Hp); }
             if ui.button(format!("State{}", state_arrow)).clicked() { clicked_col = Some(SortColumn::State); }
             if ui.button(format!("Trait{}", trait_arrow)).clicked() { clicked_col = Some(SortColumn::Trait); }
+            if ui.button(format!("Prof{}", prof_arrow)).clicked() { clicked_col = Some(SortColumn::Prof); }
         });
 
         if let Some(col) = clicked_col {
@@ -224,6 +239,13 @@ pub fn roster_panel_system(
 
                     if !row.trait_name.is_empty() {
                         ui.small(&row.trait_name);
+                    }
+
+                    if row.top_skill > 0.0 {
+                        ui.colored_label(
+                            super::skill_prof_color(row.top_skill),
+                            format!("{}", row.top_skill as i32),
+                        );
                     }
 
                     // Select button

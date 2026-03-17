@@ -696,6 +696,7 @@ pub struct BuildingInspectorData<'w, 's> {
     pub combat_state_q: Query<'w, 's, &'static CombatState>,
     pub energy_q: Query<'w, 's, &'static Energy>,
     pub personality_q: Query<'w, 's, &'static Personality>,
+    pub skills_q: Query<'w, 's, &'static NpcSkills>,
     pub home_q: Query<'w, 's, &'static Home>,
     pub work_state_q: Query<'w, 's, &'static NpcWorkState>,
     pub equipment_q: Query<'w, 's, &'static NpcEquipment>,
@@ -772,6 +773,7 @@ pub enum InspectorNpcTab {
     #[default]
     Overview,
     Loadout,
+    Skills,
     Economy,
     Log,
 }
@@ -1695,12 +1697,14 @@ fn inspector_content(
     ui.horizontal_wrapped(|ui| {
         ui.selectable_value(npc_tab, InspectorNpcTab::Overview, "Overview");
         ui.selectable_value(npc_tab, InspectorNpcTab::Loadout, "Loadout");
+        ui.selectable_value(npc_tab, InspectorNpcTab::Skills, "Skills");
         ui.selectable_value(npc_tab, InspectorNpcTab::Economy, "Economy");
         ui.selectable_value(npc_tab, InspectorNpcTab::Log, "Log");
     });
     ui.separator();
     let show_overview = *npc_tab == InspectorNpcTab::Overview;
     let show_loadout = *npc_tab == InspectorNpcTab::Loadout;
+    let show_skills = *npc_tab == InspectorNpcTab::Skills;
     let show_economy = *npc_tab == InspectorNpcTab::Economy;
     let show_log = *npc_tab == InspectorNpcTab::Log;
 
@@ -1817,6 +1821,103 @@ fn inspector_content(
                 "Dmg: {:.0}  Rng: {:.0}  CD: {:.1}s  Spd: {:.0}",
                 stats.damage, stats.range, stats.cooldown, stats.speed
             ));
+        }
+    }
+
+    // Skills tab -- dedicated proficiency display with bars and effect descriptions
+    if show_skills {
+        if let Some(npc) = bld_data.entity_map.get_npc(idx) {
+            let skills = bld_data
+                .skills_q
+                .get(npc.entity)
+                .cloned()
+                .unwrap_or_default();
+            let max = crate::constants::MAX_PROFICIENCY;
+            let bar_w = 180.0f32;
+            let bar_h = 12.0f32;
+
+            // Build all possible entries
+            let all_entries: Vec<(&str, f32, String)> = vec![
+                (
+                    "farming",
+                    skills.farming,
+                    format!(
+                        "+{:.2}/hr tending. {:.2}x growth rate.",
+                        crate::constants::FARMING_SKILL_RATE,
+                        crate::systems::stats::proficiency_mult(skills.farming),
+                    ),
+                ),
+                (
+                    "combat",
+                    skills.combat,
+                    format!(
+                        "+{:.1}/kill. {:.2}x damage, {:.2}x cooldown.",
+                        crate::constants::COMBAT_SKILL_RATE,
+                        crate::systems::stats::proficiency_mult(skills.combat),
+                        1.0 / crate::systems::stats::proficiency_mult(skills.combat),
+                    ),
+                ),
+                ("dodge", skills.dodge, {
+                    let dodge_mult = crate::systems::stats::proficiency_mult(skills.dodge);
+                    let dodge_pct = (1.0 - 1.0 / dodge_mult) * 100.0;
+                    format!(
+                        "+{:.1}/dodge. {:.1}% miss chance.",
+                        crate::constants::DODGE_SKILL_RATE,
+                        dodge_pct,
+                    )
+                }),
+            ];
+
+            // Filter to job-relevant skills only
+            let relevant: &[&str] = match npc_job.unwrap_or(Job::Farmer) {
+                Job::Farmer => &["farming"],
+                Job::Archer | Job::Crossbow | Job::Fighter | Job::Raider => &["combat", "dodge"],
+                _ => &[],
+            };
+            let skill_entries: Vec<_> = all_entries
+                .into_iter()
+                .filter(|(name, _, _)| relevant.contains(name))
+                .collect();
+
+            if skill_entries.is_empty() {
+                ui.label(
+                    egui::RichText::new("No skills for this job yet.")
+                        .color(egui::Color32::from_rgb(120, 120, 120)),
+                );
+            }
+
+            for (name, value, desc) in &skill_entries {
+                let value = *value;
+                let color = super::skill_prof_color(value);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!("{:<8}", name))
+                            .color(egui::Color32::WHITE)
+                            .strong(),
+                    );
+                    // Progress bar
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(bar_w, bar_h), egui::Sense::hover());
+                    let painter = ui.painter();
+                    painter.rect_filled(rect, 2.0, egui::Color32::from_rgb(40, 40, 45));
+                    let fill_w = (value / max).clamp(0.0, 1.0) * bar_w;
+                    if fill_w > 0.5 {
+                        let fill_rect =
+                            egui::Rect::from_min_size(rect.min, egui::vec2(fill_w, bar_h));
+                        painter.rect_filled(fill_rect, 2.0, color);
+                    }
+                    ui.label(
+                        egui::RichText::new(format!("{} / {}", value as i32, max as i32))
+                            .color(color),
+                    );
+                });
+                ui.label(
+                    egui::RichText::new(format!("  {}", desc))
+                        .color(egui::Color32::from_rgb(160, 160, 160))
+                        .small(),
+                );
+                ui.add_space(4.0);
+            }
         }
     }
 
