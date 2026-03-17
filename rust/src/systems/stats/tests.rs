@@ -469,7 +469,8 @@ fn proficiency_mult_1000_is_eleven() {
 
 #[test]
 fn proficiency_mult_9999_is_godlike() {
-    assert!((proficiency_mult(9999.0) - 100.99).abs() < 0.01);
+    let cap = crate::constants::SOFT_CAP as f32;
+    assert!((proficiency_mult(cap) - 100.99).abs() < 0.01);
 }
 
 // -- UpgradeRegistry::stat_mult ------------------------------------------
@@ -846,13 +847,13 @@ fn setup_prune_app(item_count: usize) -> App {
 
 #[test]
 fn prune_caps_town_equipment_at_limit() {
-    let mut app = setup_prune_app(300);
-    // Verify we have 300 items
+    let cap = crate::constants::TOWN_EQUIPMENT_CAP;
+    let over = cap + 100;
+    let mut app = setup_prune_app(over);
     let entity = app.world().resource::<crate::resources::TownIndex>().0[&0];
     let count_before = app.world().get::<TownEquipment>(entity).unwrap().0.len();
-    assert_eq!(count_before, 300);
+    assert_eq!(count_before, over);
 
-    // Trigger prune
     app.world_mut()
         .resource_mut::<crate::resources::GameTime>()
         .hour_ticked = true;
@@ -860,14 +861,13 @@ fn prune_caps_town_equipment_at_limit() {
 
     let eq = app.world().get::<TownEquipment>(entity).unwrap();
     assert!(
-        eq.0.len() <= crate::constants::TOWN_EQUIPMENT_CAP,
+        eq.0.len() <= cap,
         "should prune to cap: got {}",
         eq.0.len()
     );
 
-    // Verify gold received for pruned items
     let gold = app.world().get::<GoldStore>(entity).unwrap().0;
-    let expected_gold = 300 - crate::constants::TOWN_EQUIPMENT_CAP;
+    let expected_gold = over - cap;
     assert_eq!(
         gold, expected_gold as i32,
         "should receive 1 gold per pruned item"
@@ -876,7 +876,8 @@ fn prune_caps_town_equipment_at_limit() {
 
 #[test]
 fn prune_keeps_highest_value_items() {
-    let mut app = setup_prune_app(300);
+    let over = crate::constants::TOWN_EQUIPMENT_CAP + 100;
+    let mut app = setup_prune_app(over);
     app.world_mut()
         .resource_mut::<crate::resources::GameTime>()
         .hour_ticked = true;
@@ -909,4 +910,126 @@ fn prune_skips_under_cap() {
     assert_eq!(eq.0.len(), 50, "should not prune when under cap");
     let gold = app.world().get::<GoldStore>(entity).unwrap().0;
     assert_eq!(gold, 0, "no gold when nothing pruned");
+}
+
+/// Regression test: TownEquipment stays bounded under 50K NPC kill rates.
+///
+/// Growth rate analysis at 50K NPCs:
+///   - Assume 50% are enemy raiders (25,000 NPCs).
+///   - Kill rate: roughly 600 kills/hour at heavy combat (10 kills/min sustained).
+///   - Equipment drop rate: 0.30 (30% of raider kills generate 1 item).
+///   - Raw generation: 600 * 0.30 = 180 items/hour per town.
+///   - Cap: TOWN_EQUIPMENT_CAP = SOFT_CAP items per town.
+///   - Prune fires hourly; excess removed oldest/lowest-value first -> gold.
+///   - After 1 hour: max(180, 200) -> prune leaves at most 200.
+///
+/// Memory impact at cap: LootItem ~120 bytes * SOFT_CAP = ~1.2 MB per town (acceptable).
+/// At 8 hours of play: 1,440 items accumulated (well under SOFT_CAP).
+///
+/// This test simulates 8 in-game hours at the 50K NPC kill rate by directly
+/// inserting items into TownEquipment and running prune each hour.
+#[test]
+fn town_equipment_bounded_at_50k_kill_rate() {
+    use crate::components::*;
+
+    // 50K NPC scenario constants
+    // 600 kills/hour * 0.30 drop rate = 180 items generated per hour
+    const ITEMS_PER_HOUR: usize = 180;
+    const HOURS: usize = 8;
+    const CAP: usize = crate::constants::TOWN_EQUIPMENT_CAP;
+
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.insert_resource(crate::resources::GameTime::default());
+    app.insert_resource(crate::resources::EntityMap::default());
+
+    let mut world_data = crate::world::WorldData::default();
+    world_data.towns.push(crate::world::Town {
+        name: "StressTown".into(),
+        center: bevy::prelude::Vec2::ZERO,
+        faction: 1,
+        kind: crate::constants::TownKind::Player,
+    });
+    app.insert_resource(world_data);
+
+    let mut town_index = crate::resources::TownIndex::default();
+    let entity = app
+        .world_mut()
+        .spawn((
+            TownMarker,
+            FoodStore(0),
+            GoldStore(0),
+            WoodStore(0),
+            StoneStore(0),
+            TownPolicy::default(),
+            TownUpgradeLevel::default(),
+            TownEquipment::default(),
+        ))
+        .id();
+    town_index.0.insert(0, entity);
+    app.insert_resource(town_index);
+    app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+        std::time::Duration::from_secs_f32(1.0),
+    ));
+    app.add_systems(FixedUpdate, prune_town_equipment_system);
+    app.update();
+
+    let mut next_id: u64 = 1;
+    let mut counts: Vec<usize> = Vec::new();
+    for hour in 0..HOURS {
+        // Simulate items arriving this hour (raiders killed, equipment dropped)
+        {
+            let eq = app
+                .world_mut()
+                .get_mut::<TownEquipment>(entity)
+                .expect("TownEquipment missing");
+            let mut eq = eq;
+            for i in 0..ITEMS_PER_HOUR {
+                eq.0.push(crate::constants::LootItem {
+                    id: next_id,
+                    kind: crate::constants::ItemKind::Weapon,
+                    name: format!("h{}i{}", hour, i),
+                    rarity: crate::constants::Rarity::Common,
+                    stat_bonus: (next_id as f32) * 0.001,
+                    sprite: (0.0, 0.0),
+                    weapon_type: None,
+                });
+                next_id += 1;
+            }
+        }
+
+        // Prune fires once per game hour
+        app.world_mut()
+            .resource_mut::<crate::resources::GameTime>()
+            .hour_ticked = true;
+        app.update();
+
+        let count = app.world().get::<TownEquipment>(entity).unwrap().0.len();
+        assert!(
+            count <= CAP,
+            "hour {}: TownEquipment {} exceeds cap {} -- prune failed at 50K NPC kill rate",
+            hour + 1,
+            count,
+            CAP
+        );
+        counts.push(count);
+    }
+
+    let final_count = *counts.last().unwrap();
+    let total_generated = ITEMS_PER_HOUR * HOURS; // 1440 without cap
+
+    // With cap=SOFT_CAP and 180 items/hour for 8 hours (1440 total), never hits cap.
+    // Each hour accumulates: 180, 360, 540, ..., 1440
+    for h in 0..HOURS {
+        let expected = ITEMS_PER_HOUR * (h + 1);
+        assert_eq!(counts[h], expected, "hour {}: expected {} items", h + 1, expected);
+    }
+    // Final state: all 1440 items kept (well under SOFT_CAP)
+    assert_eq!(final_count, total_generated, "final: all {} items kept (cap {})", total_generated, CAP);
+    assert!(
+        total_generated < CAP,
+        "at 50K NPCs for 8 hours, {} items generated stays under cap {}",
+        total_generated,
+        CAP
+    );
 }

@@ -533,7 +533,7 @@ pub fn process_proj_hits(
 
                 // Dodge proficiency: personal miss chance based on target's dodge skill.
                 // Uses same proficiency_mult as combat/farming: dodge_chance = 1 - 1/mult.
-                // At prof 0: 0%, 100: 50%, 1000: 91%, 9999: 99%.
+                // At prof 0: 0%, 100: 50%, 1000: 91%, SOFT_CAP: 99%.
                 if let Some(npc) = entity_map.get_npc(ti) {
                     let levels = town_access.upgrade_levels(npc.town_idx);
                     if crate::systems::stats::dodge_unlocked(&levels) {
