@@ -700,7 +700,7 @@ fn is_combat_upgrade(idx: usize) -> bool {
     UPGRADES.nodes[idx].is_combat_stat
 }
 
-/// Disgaea-style proficiency multiplier. Unclamped, linear.
+/// Unclamped linear proficiency multiplier.
 /// 0 = 1.0x, 100 = 2.0x, 1000 = 11x, 9999 = ~101x.
 pub fn proficiency_mult(value: f32) -> f32 {
     1.0 + value * 0.01

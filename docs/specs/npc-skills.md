@@ -1,6 +1,6 @@
 # NPC Skills & Proficiency
 
-Per-NPC skill progression with Disgaea-style unclamped scaling. Level 9999 = godlike.
+Per-NPC skill progression with unclamped unclamped scaling. Level 9999 = godlike.
 
 ## Goal
 
@@ -21,7 +21,7 @@ Add persistent, per-NPC proficiency that improves with experience and directly i
 - Skill belongs to NPC instance -- newly spawned replacement starts at 0
 - Persisted via save/load with serde(default) backward compat
 
-## Scaling formula (Disgaea-style)
+## Scaling formula (unclamped)
 
 One formula for all skills:
 
@@ -56,7 +56,7 @@ Dodge is the exception: the proficiency_mult formula applies to damage/farming s
 - `FARMING_SKILL_RATE = 0.02` per game hour tending
 - `DODGE_SKILL_RATE = 0.5` per dodge event
 - All capped at `MAX_PROFICIENCY = 9999.0`
-- No diminishing returns on gain rate -- linear accumulation, Disgaea-style
+- No diminishing returns on gain rate -- linear accumulation, unclamped
 
 ## Constants
 

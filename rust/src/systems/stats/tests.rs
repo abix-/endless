@@ -450,7 +450,7 @@ fn resolve_tower_instance_stats_level_scales() {
     assert!(stats_lv10.range > stats_lv0.range);
 }
 
-// -- proficiency_mult (Disgaea-style, unclamped) -------------------------
+// -- proficiency_mult (unclamped linear) ----------------------------------
 
 #[test]
 fn proficiency_mult_zero_is_one() {
