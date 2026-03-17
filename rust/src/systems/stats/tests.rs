@@ -846,13 +846,13 @@ fn setup_prune_app(item_count: usize) -> App {
 
 #[test]
 fn prune_caps_town_equipment_at_limit() {
-    let mut app = setup_prune_app(300);
-    // Verify we have 300 items
+    let cap = crate::constants::TOWN_EQUIPMENT_CAP;
+    let over = cap + 100;
+    let mut app = setup_prune_app(over);
     let entity = app.world().resource::<crate::resources::TownIndex>().0[&0];
     let count_before = app.world().get::<TownEquipment>(entity).unwrap().0.len();
-    assert_eq!(count_before, 300);
+    assert_eq!(count_before, over);
 
-    // Trigger prune
     app.world_mut()
         .resource_mut::<crate::resources::GameTime>()
         .hour_ticked = true;
@@ -860,14 +860,13 @@ fn prune_caps_town_equipment_at_limit() {
 
     let eq = app.world().get::<TownEquipment>(entity).unwrap();
     assert!(
-        eq.0.len() <= crate::constants::TOWN_EQUIPMENT_CAP,
+        eq.0.len() <= cap,
         "should prune to cap: got {}",
         eq.0.len()
     );
 
-    // Verify gold received for pruned items
     let gold = app.world().get::<GoldStore>(entity).unwrap().0;
-    let expected_gold = 300 - crate::constants::TOWN_EQUIPMENT_CAP;
+    let expected_gold = over - cap;
     assert_eq!(
         gold, expected_gold as i32,
         "should receive 1 gold per pruned item"
@@ -876,7 +875,8 @@ fn prune_caps_town_equipment_at_limit() {
 
 #[test]
 fn prune_keeps_highest_value_items() {
-    let mut app = setup_prune_app(300);
+    let over = crate::constants::TOWN_EQUIPMENT_CAP + 100;
+    let mut app = setup_prune_app(over);
     app.world_mut()
         .resource_mut::<crate::resources::GameTime>()
         .hour_ticked = true;
@@ -918,12 +918,12 @@ fn prune_skips_under_cap() {
 ///   - Kill rate: roughly 600 kills/hour at heavy combat (10 kills/min sustained).
 ///   - Equipment drop rate: 0.30 (30% of raider kills generate 1 item).
 ///   - Raw generation: 600 * 0.30 = 180 items/hour per town.
-///   - Cap: TOWN_EQUIPMENT_CAP = 200 items per town.
+///   - Cap: TOWN_EQUIPMENT_CAP = 9999 items per town.
 ///   - Prune fires hourly; excess removed oldest/lowest-value first -> gold.
 ///   - After 1 hour: max(180, 200) -> prune leaves at most 200.
 ///
-/// Memory impact at cap: LootItem ~120 bytes * 200 = ~24 KB per town (negligible).
-/// At 8 hours of play: count stays at cap (200), not 1,440 (180 * 8).
+/// Memory impact at cap: LootItem ~120 bytes * 9999 = ~1.2 MB per town (acceptable).
+/// At 8 hours of play: 1,440 items accumulated (well under 9999 cap).
 ///
 /// This test simulates 8 in-game hours at the 50K NPC kill rate by directly
 /// inserting items into TownEquipment and running prune each hour.
@@ -974,6 +974,7 @@ fn town_equipment_bounded_at_50k_kill_rate() {
     app.update();
 
     let mut next_id: u64 = 1;
+    let mut counts: Vec<usize> = Vec::new();
     for hour in 0..HOURS {
         // Simulate items arriving this hour (raiders killed, equipment dropped)
         {
@@ -1010,23 +1011,24 @@ fn town_equipment_bounded_at_50k_kill_rate() {
             count,
             CAP
         );
+        counts.push(count);
     }
 
-    // Verify final count is bounded, not unbounded (180 items/hour * 8 = 1440 without cap)
-    let final_count = app.world().get::<TownEquipment>(entity).unwrap().0.len();
+    let final_count = *counts.last().unwrap();
+    let total_generated = ITEMS_PER_HOUR * HOURS; // 1440 without cap
+
+    // With cap=9999 and 180 items/hour for 8 hours (1440 total), never hits cap.
+    // Each hour accumulates: 180, 360, 540, ..., 1440
+    for h in 0..HOURS {
+        let expected = ITEMS_PER_HOUR * (h + 1);
+        assert_eq!(counts[h], expected, "hour {}: expected {} items", h + 1, expected);
+    }
+    // Final state: all 1440 items kept (well under 9999 cap)
+    assert_eq!(final_count, total_generated, "final: all {} items kept (cap {})", total_generated, CAP);
     assert!(
-        final_count <= CAP,
-        "final count {} exceeds cap {} after {} hours",
-        final_count,
-        CAP,
-        HOURS
-    );
-    // Verify items accumulated: we had 180*8=1440 total generated, cap is 200
-    let uncapped = ITEMS_PER_HOUR * HOURS;
-    assert!(
-        uncapped > CAP,
-        "test invalid: generated {} items must exceed cap {} to prove bounding",
-        uncapped,
+        total_generated < CAP,
+        "at 50K NPCs for 8 hours, {} items generated stays under cap {}",
+        total_generated,
         CAP
     );
 }

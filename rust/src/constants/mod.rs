@@ -397,7 +397,7 @@ pub const MINE_MIN_SPACING: f32 = 400.0;
 pub const DEFAULT_MINING_RADIUS: f32 = 2000.0;
 
 /// Max items in TownEquipment per town. Excess pruned hourly (lowest value first -> gold).
-pub const TOWN_EQUIPMENT_CAP: usize = 200;
+pub const TOWN_EQUIPMENT_CAP: usize = 9999;
 
 // ============================================================================
 // TOWN REGISTRY — single source of truth for all town types
