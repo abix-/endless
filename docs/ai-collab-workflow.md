@@ -61,12 +61,12 @@ If the workspace directory already exists, reuse it. Do not recreate or remove e
 
 All workspaces share one Cargo target directory (`C:\code\endless\rust\target`) via `~/.cargo/config.toml`. Dependencies compile once; only the `endless` crate rebuilds per workspace (~16s vs ~7min cold).
 
-Because concurrent builds to the same target dir can clobber artifacts, agents must use `python C:/Users/Abix/.claude/skills/issue/cargo-lock.py` instead of bare `cargo` for build/check/clippy:
+Because concurrent builds to the same target dir can clobber artifacts, agents must use `k3s-claude cargo-lock` instead of bare `cargo` for build/check/clippy:
 
 ```
-python C:/Users/Abix/.claude/skills/issue/cargo-lock.py build --release
-python C:/Users/Abix/.claude/skills/issue/cargo-lock.py clippy --release -- -D warnings
-python C:/Users/Abix/.claude/skills/issue/cargo-lock.py check
+k3s-claude cargo-lock build --release
+k3s-claude cargo-lock clippy --release -- -D warnings
+k3s-claude cargo-lock check
 ```
 
 The lock serializes builds -- one agent builds while others wait in line.
@@ -102,6 +102,7 @@ State labels:
 - `ready`
 - `claimed`
 - `needs-review`
+- `needs-human`
 - `waiting`
 
 Owner labels:
@@ -117,7 +118,8 @@ Suggested usage:
 - `ready`: unclaimed and eligible for auto-pick
 - `claimed`: actively being worked by exactly one agent identity, including active review
 - `needs-review`: implementation done, waiting for any different agent to review
-- `waiting`: blocked, never auto-picked
+- `needs-human`: agent work is done, waiting for human action (merge, close, design decision)
+- `waiting`: blocked on an external decision or prerequisite, never auto-picked
 
 Closed issues represent done. Do not add a `done` label.
 
@@ -247,6 +249,34 @@ Default state for a newly actionable slice is `ready`.
 Do not mix open-ended design churn and implementation in the same issue unless the scope is tiny.
 If the design is still moving, refine the spec doc first, then keep or move the implementation issue to `ready` once the work is concrete.
 
+## Feature Spec Requirement
+
+Every `feature` issue must have a spec doc before implementation begins.
+
+### Spec doc rules
+
+1. **Create before claiming**: when an agent creates a new feature issue (from a user request or epic breakdown), it must also write a spec doc in `docs/` and link it from the issue body.
+2. **Spec doc contents**: the spec defines exactly how the feature works -- behavior, edge cases, data model, UI, and interactions with existing systems. It is the single source of truth for "done."
+3. **Acceptance = spec compliance**: closing (or approving) a feature issue means the implementation matches the spec doc 100%. If the spec says X and the code does Y, that is a blocker.
+4. **Spec-first, not code-first**: if the agent discovers during implementation that the spec needs changing, update the spec doc first, then adjust the code to match. Do not silently deviate from the spec.
+5. **Reviewers verify against spec**: reviewers must read the spec doc and confirm the PR matches it. Approval without spec verification is invalid.
+6. **Bug and test issues are exempt**: only `feature` label requires a spec doc. `bug` and `test` issues may use the issue body as the spec.
+7. **Self-contained features**: if the feature is small enough that the issue body fully specifies behavior (no ambiguity, no design decisions left open), the issue body IS the spec. Add "Spec: self-contained in issue body" to the issue. Do not create an empty or redundant doc.
+
+### Spec doc format
+
+Path: `docs/{feature-name}.md`
+
+Contents:
+
+- **Goal**: one paragraph
+- **Behavior**: what happens, step by step
+- **Data model**: new components, constants, registry entries
+- **Edge cases**: what happens when X fails, when Y is empty, etc.
+- **UI**: what the player sees and interacts with
+- **Integration**: how this feature interacts with existing systems
+- **Acceptance criteria**: checklist (mirrors the issue checkboxes)
+
 ## Claim Protocol
 
 Running `/issue` or `$issue` with no issue number means "claim the next eligible issue for this agent."
@@ -304,10 +334,13 @@ Implementation or review handoff:
 ## <AgentName>
 - Changed: short factual summary
 - Tests: commands run and result
+- Acceptance: N/N criteria verified and checked | no checkboxes in issue body
 - Open: blockers, risks, or unresolved questions
 - State: claimed -> needs-review | claimed -> waiting | claimed -> close
 - Next: smallest sensible next step
 ```
+
+The `Acceptance` line is mandatory. Before any handoff, the agent must read the issue body, verify each `- [ ]` checkbox against the code, and check verified boxes on GitHub with `gh issue edit`. Unchecked boxes = unverified work = invalid handoff.
 
 Replace `<AgentName>` with `Codex` or `Claude`.
 Use `needs-review` when handing off for review.
@@ -337,10 +370,12 @@ Use this flow for each slice:
    - new issue: `git fetch origin && git checkout -b issue-{N} origin/dev`
    - continuing work: `git checkout issue-{N} && git pull --rebase origin dev`
 4. Implement the smallest complete step
-5. Run `cargo fmt` before committing
-6. Run the required tests
-7. Update docs if accepted behavior changed
-8. Push the branch and open or update the PR targeting `dev`:
+5. **Write regression tests** -- every code change must have tests that would FAIL if the change were reverted. Bug fixes must reproduce the bug scenario. New features must cover core acceptance criteria. Refactors must verify behavior matches. Updating existing tests to compile with new names does NOT count. This is mandatory for ALL code changes -- no exceptions, no "will add later", no "too simple to test".
+6. Run `cargo fmt` before committing
+7. Run the required tests
+8. Update docs if accepted behavior changed
+9. **Verify ALL acceptance criteria** in the issue body are met before handing off. Check every checkbox against actual code. If any criterion is unmet, either implement it or document it as a blocker -- do not hand off claiming "done" with unmet criteria.
+9. Push the branch and open or update the PR targeting `dev`:
    - `git push -u origin issue-{N}`
    - `git fetch origin && git rev-parse --verify origin/issue-{N}`
    - `gh pr create --base dev --head issue-{N}` (or update existing PR)
@@ -389,13 +424,17 @@ Review should focus on:
 - violations of `docs/k8s.md`
 - authority violations
 - violations of `docs/authority.md`
-- missing tests
+- **regression tests** -- every code change must have tests that fail if reverted. Bug fixes reproduce the bug. Features cover acceptance criteria. Refactors verify behavior. Existing tests updated to compile do NOT count. Missing regression tests = blocker.
 - spec drift
 - performance regressions and violations of `docs/performance.md`
 
 If there are no findings and tests pass:
 
-- merge the PR into `dev` via `gh pr merge --squash --delete-branch`
+- verify ALL acceptance criteria in the issue body are met -- every checkbox, no exceptions
+- if any acceptance criterion is unmet, that is a blocker regardless of whether the code compiles and tests pass
+- an issue with 11/12 criteria met is NOT ready for merge -- 100% or nothing
+- include a pass/fail table in the handoff comment showing each acceptance criterion and its status
+- only after all criteria pass: merge the PR into `dev` via `gh pr merge --squash --delete-branch`
 - leave the handoff comment with `State: claimed -> close`
 - close the issue
 
