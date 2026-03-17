@@ -46,9 +46,9 @@ No clamp on the multiplier. MAX_PROFICIENCY (9999) only caps the proficiency val
 
 - **Combat**: `damage *= proficiency_mult(combat)`, `cooldown /= proficiency_mult(combat)`
 - **Farming**: `growth_rate *= proficiency_mult(farming)` for tended farms
-- **Dodge**: miss chance = `min(dodge_prof * 0.0025, 0.50)` -- hard cap at 50% dodge chance (can't be invincible)
+- **Dodge**: miss chance = `1.0 - 1.0 / proficiency_mult(dodge)`. At 0: 0%, 100: 50%, 1000: 91%, 9999: 99%.
 
-Dodge is the exception: the proficiency_mult formula applies to damage/farming scaling, but dodge chance uses a separate linear formula with a hard cap since >100% dodge would break combat.
+All three skills use the same proficiency_mult function. Dodge converts the multiplier to a probability via `1 - 1/mult`, which naturally approaches but never reaches 100%.
 
 ## Skill gain rates
 
@@ -65,7 +65,6 @@ pub const FARMING_SKILL_RATE: f32 = 0.02;
 pub const COMBAT_SKILL_RATE: f32 = 1.0;
 pub const DODGE_SKILL_RATE: f32 = 0.5;
 pub const MAX_PROFICIENCY: f32 = 9999.0;
-pub const DODGE_PROF_MAX_CHANCE: f32 = 0.50;
 ```
 
 ## System integration
@@ -88,4 +87,4 @@ pub const DODGE_PROF_MAX_CHANCE: f32 = 0.50;
 - proficiency_mult(100) == 2.0
 - proficiency_mult(9999) ~= 100.99
 - No clamp test (values above 9999 would give higher mult, but skill gain caps at 9999)
-- Dodge chance caps at 50% regardless of prof value
+- Dodge chance at prof 100 = 50%, prof 1000 = 91%, prof 9999 = 99% (via 1 - 1/mult)

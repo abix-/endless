@@ -489,6 +489,8 @@ pub fn process_proj_hits(
     entity_map: Res<crate::resources::EntityMap>,
     gpu_state: Res<GpuReadState>,
     grid: Res<WorldGrid>,
+    mut skills_q: Query<&mut NpcSkills>,
+    town_access: crate::systemparams::TownAccess,
 ) {
     use rand::Rng;
     let mut rng = rand::rng();
@@ -526,6 +528,29 @@ pub fn process_proj_hits(
                         proj_updates
                             .write(ProjGpuUpdateMsg(ProjGpuUpdate::Deactivate { idx: slot }));
                         continue;
+                    }
+                }
+
+                // Dodge proficiency: personal miss chance based on target's dodge skill.
+                // Uses same proficiency_mult as combat/farming: dodge_chance = 1 - 1/mult.
+                // At prof 0: 0%, 100: 50%, 1000: 91%, 9999: 99%.
+                if let Some(npc) = entity_map.get_npc(ti) {
+                    let levels = town_access.upgrade_levels(npc.town_idx);
+                    if crate::systems::stats::dodge_unlocked(&levels) {
+                        if let Ok(mut skills) = skills_q.get_mut(npc.entity) {
+                            let mult = crate::systems::stats::proficiency_mult(skills.dodge);
+                            let dodge_chance = 1.0 - 1.0 / mult;
+                            if rng.random_range(0.0..1.0_f32) < dodge_chance {
+                                // Dodged -- grant dodge proficiency
+                                skills.dodge = (skills.dodge + crate::constants::DODGE_SKILL_RATE)
+                                    .min(crate::constants::MAX_PROFICIENCY);
+                                proj_alloc.free(slot);
+                                proj_updates.write(ProjGpuUpdateMsg(ProjGpuUpdate::Deactivate {
+                                    idx: slot,
+                                }));
+                                continue;
+                            }
+                        }
                     }
                 }
 
@@ -1285,6 +1310,7 @@ mod tests {
         app.insert_resource(crate::resources::EntityMap::default());
         app.insert_resource(crate::resources::GpuReadState::default());
         app.insert_resource(crate::world::WorldGrid::default());
+        app.insert_resource(crate::resources::TownIndex::default());
 
         let slot = app
             .world_mut()
