@@ -134,14 +134,12 @@ Use this strict issue-state model:
 
 Required invariants:
 
+- the k3sc operator is the ONLY entity that adds or removes workflow labels and owner labels
+- agents do NOT touch labels -- the operator handles all transitions
 - auto-pick considers open issues labeled `needs-review` first, then `ready`
-- no-argument `ai-collab` must first look for open issues with the current owner label and resume the oldest one instead of claiming a new issue
-- auto-pick must ignore any issue labeled `waiting` or with an owner label
-- each owner label should appear on at most one open issue; if an owner already has multiple issues, resume the oldest and do not claim another
-- `needs-review` must remove `ready` and all owner labels
-- `waiting` must remove all owner labels
-- agents must add their owner label before starting review work
+- each owner label should appear on at most one open issue
 - reviewers never review an issue they most recently worked or implemented
+- an issue has exactly one workflow state: `ready`, owner label, `needs-review`, `needs-human`, or `waiting`
 
 ## Agent Identity
 
@@ -288,29 +286,19 @@ No-argument claim algorithm:
 5. If one exists, resume that issue and do not claim a new one.
 6. If none exists, look for the oldest issue labeled `needs-review` and not labeled `waiting` or with an owner label.
 7. If no `needs-review` issue exists, look for the oldest issue labeled `ready` and not labeled `waiting` or with an owner label.
-8. Attempt to claim the first new candidate by:
-   - removing `ready` or `needs-review`
-   - adding the owner label
-   - adding exactly one owner label for the current agent identity
-   - posting the claim comment format below
-9. Re-read the issue and confirm:
-   - the owner label is present
-   - `ready` and `needs-review` are absent
-   - exactly one owner label is present
-   - the owner label matches the current agent identity
-10. If claim confirmation fails, continue to the next candidate or exit cleanly if none remain.
+8. The k3sc operator handles claiming -- it adds the owner label and removes `ready`/`needs-review` before launching the agent pod. Agents do NOT touch labels.
+9. If running as a Windows agent (not dispatched by operator), claim by running `k3sc claim <repo> <issue>`.
 
-Claims do not expire automatically.
-A claim stays active until that agent finishes the current workflow step and changes labels as part of handoff.
+Claims do not expire automatically. The operator handles orphan cleanup if a pod dies.
 
 ## Explicit Issue Selection
 
 If an issue number is provided:
 
-- if the issue is `ready`, claim it before starting work
-- if the issue is `needs-review`, any agent may claim it by adding their owner label before starting review
+- if the issue is `ready` or `needs-review`, the operator claims it before launching the agent
 - if the issue has another agent's owner label, do not act on it
 - if the issue is `waiting`, do not proceed without first resolving the blocker
+- agents do NOT add or remove labels -- the operator handles all transitions
 
 ## Comment Formats
 
@@ -334,11 +322,12 @@ Implementation or review handoff:
 - Tests: commands run and result
 - Acceptance: N/N criteria verified and checked | no checkboxes in issue body
 - Open: blockers, risks, or unresolved questions
-- State: owner -> needs-review | owner -> waiting | owner -> close
 - Next: smallest sensible next step
 ```
 
-The `Acceptance` line is mandatory. Before any handoff, the agent must read the issue body, verify each `- [ ]` checkbox against the code, and check verified boxes on GitHub with `gh issue edit`. Unchecked boxes = unverified work = invalid handoff.
+The `Acceptance` line is mandatory. Before any handoff, the agent must read the issue body and verify each `- [ ]` checkbox against the code. Unchecked boxes = unverified work = invalid handoff.
+
+**Label transitions are handled by the k3sc operator, not the agent.** Agents do NOT run `gh issue edit` to add/remove labels. The operator detects pod completion and transitions labels automatically.
 
 Replace `<AgentName>` with `Codex` or `Claude`.
 Use `needs-review` when handing off for review.
@@ -378,15 +367,15 @@ Use this flow for each slice:
     - `git fetch origin && git rev-parse --verify origin/issue-{N}`
     - `gh pr create --base dev --head issue-{N}` (or update existing PR)
 11. Leave the handoff comment with the PR link only after the remote branch verification passes
-12. Remove the owner label, then add `needs-review`
+
+The operator handles the label transition when the pod completes. Do NOT add/remove labels.
 
 This same handoff flow applies when a reviewing agent makes the fix instead of bouncing the issue back unchanged.
 
 If work is genuinely blocked:
 
-- leave the handoff comment
-- remove the owner label
-- add `waiting`
+- leave the handoff comment explaining the blocker
+- the operator will handle label cleanup when the pod exits
 
 ## Review Workflow
 
@@ -432,21 +421,19 @@ If there are no findings and tests pass:
 - if any acceptance criterion is unmet, that is a blocker regardless of whether the code compiles and tests pass
 - an issue with 11/12 criteria met is NOT ready for merge -- 100% or nothing
 - include a pass/fail table in the handoff comment showing each acceptance criterion and its status
-- only after all criteria pass: merge the PR into `dev` via `gh pr merge --squash --delete-branch`
-- leave the handoff comment with `State: owner -> close`
-- close the issue
+- only after all criteria pass: leave the handoff comment noting approval
+- the operator handles label transitions and the human merges the PR
 
 Initiative issue exception:
 
 - for initiative or epic tracker issues, "no findings" on the issue body is not enough to close
 - only use `owner -> close` when the initiative acceptance is satisfied and downstream slice work is complete
-- if the initiative body is now correct but the acceptance is still unmet, leave the handoff comment with `State: owner -> waiting`, list the remaining slice issues or unmet acceptance items in `Open`, remove the owner label, and add `waiting`
+- if the initiative body is now correct but the acceptance is still unmet, leave the handoff comment with the remaining items in `Open`
 
 If review finds a blocker:
 
-- leave the handoff comment with `State: owner -> needs-review` for follow-up
-- remove the owner label
-- add `needs-review`
+- leave the handoff comment documenting the blocker
+- the operator handles label transitions when the pod exits
 
 ## Shared Skill
 
