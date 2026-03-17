@@ -1040,13 +1040,15 @@ pub fn decision_system(
                                     MovementPriority::JobRoute,
                                     "arrival:mine_harvest_return",
                                 );
-                                npc_logs.push(
-                                    idx,
-                                    game_time.day(),
-                                    game_time.hour(),
-                                    game_time.minute(),
-                                    format!("Harvested {} gold -> Returning", gold_amount),
-                                );
+                                if npc_logs.should_log(idx) {
+                                    npc_logs.push(
+                                        idx,
+                                        game_time.day(),
+                                        game_time.hour(),
+                                        game_time.minute(),
+                                        format!("Harvested {} gold -> Returning", gold_amount),
+                                    );
+                                }
                             } else if mine_slot.is_some() {
                                 // Mine not ready for this miner (still growing or queued behind others) — tend/wait
                                 extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
@@ -1775,16 +1777,18 @@ pub fn decision_system(
                     "transition",
                 );
                 intents.submit(entity, home, MovementPriority::JobRoute, "loot:threshold");
-                npc_logs.push(
-                    idx,
-                    game_time.day(),
-                    game_time.hour(),
-                    game_time.minute(),
-                    format!(
-                        "Carrying {} equipment, returning home",
-                        carried_loot.equipment.len()
-                    ),
-                );
+                if npc_logs.should_log(idx) {
+                    npc_logs.push(
+                        idx,
+                        game_time.day(),
+                        game_time.hour(),
+                        game_time.minute(),
+                        format!(
+                            "Carrying {} equipment, returning home",
+                            carried_loot.equipment.len()
+                        ),
+                    );
+                }
                 break 'decide;
             }
 
@@ -2061,13 +2065,15 @@ pub fn decision_system(
                             MovementPriority::JobRoute,
                             "worksite:harvest_return",
                         );
-                        npc_logs.push(
-                            idx,
-                            game_time.day(),
-                            game_time.hour(),
-                            game_time.minute(),
-                            format!("Harvested {} {} -> Returning", final_yield, def.label),
-                        );
+                        if npc_logs.should_log(idx) {
+                            npc_logs.push(
+                                idx,
+                                game_time.day(),
+                                game_time.hour(),
+                                game_time.minute(),
+                                format!("Harvested {} {} -> Returning", final_yield, def.label),
+                            );
+                        }
                         harvested = true;
                     }
                 }
@@ -2150,16 +2156,18 @@ pub fn decision_system(
                     bld_hp.0 = (bld_hp.0 + MASON_REPAIR_RATE).min(max_hp);
                     repaired = true;
                     if bld_hp.0 >= max_hp {
-                        npc_logs.push(
-                            idx,
-                            game_time.day(),
-                            game_time.hour(),
-                            game_time.minute(),
-                            format!(
-                                "Repaired {} to full HP",
-                                crate::constants::building_def(inst.kind).label
-                            ),
-                        );
+                        if npc_logs.should_log(idx) {
+                            npc_logs.push(
+                                idx,
+                                game_time.day(),
+                                game_time.hour(),
+                                game_time.minute(),
+                                format!(
+                                    "Repaired {} to full HP",
+                                    crate::constants::building_def(inst.kind).label
+                                ),
+                            );
+                        }
                     }
                     break; // repair one building per tick
                 }
@@ -2431,13 +2439,15 @@ pub fn decision_system(
             score_count += 1;
 
             let action = weighted_random(&scores[..score_count], idx, frame);
-            npc_logs.push(
-                idx,
-                game_time.day(),
-                game_time.hour(),
-                game_time.minute(),
-                format!("{:?} (e:{:.0} h:{:.0})", action, energy, health),
-            );
+            if npc_logs.should_log(idx) {
+                npc_logs.push(
+                    idx,
+                    game_time.day(),
+                    game_time.hour(),
+                    game_time.minute(),
+                    format!("{:?} (e:{:.0} h:{:.0})", action, energy, health),
+                );
+            }
 
             match action {
                 Action::Eat => {
@@ -2446,13 +2456,15 @@ pub fn decision_system(
                             let old_energy = energy;
                             f.0 -= 1;
                             energy = 100.0;
-                            npc_logs.push(
-                                idx,
-                                game_time.day(),
-                                game_time.hour(),
-                                game_time.minute(),
-                                format!("Ate (e:{:.0}->{:.0})", old_energy, energy),
-                            );
+                            if npc_logs.should_log(idx) {
+                                npc_logs.push(
+                                    idx,
+                                    game_time.day(),
+                                    game_time.hour(),
+                                    game_time.minute(),
+                                    format!("Ate (e:{:.0}->{:.0})", old_energy, energy),
+                                );
+                            }
                         }
                     }
                 }
@@ -2645,13 +2657,15 @@ pub fn decision_system(
                                             MovementPriority::Squad,
                                             "idle:squad_target",
                                         );
-                                        npc_logs.push(
-                                            idx,
-                                            game_time.day(),
-                                            game_time.hour(),
-                                            game_time.minute(),
-                                            format!("Squad {} -> target", sid + 1),
-                                        );
+                                        if npc_logs.should_log(idx) {
+                                            npc_logs.push(
+                                                idx,
+                                                game_time.day(),
+                                                game_time.hour(),
+                                                game_time.minute(),
+                                                format!("Squad {} -> target", sid + 1),
+                                            );
+                                        }
                                         break 'decide;
                                     }
                                     if !squad.patrol_enabled {

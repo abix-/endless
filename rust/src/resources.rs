@@ -841,6 +841,24 @@ impl NpcLogCache {
         }
     }
 
+    /// Returns true if a log entry for the given slot would be stored.
+    /// Use this to gate format! calls before push to avoid allocation in the hot path.
+    #[inline]
+    pub fn should_log(&self, idx: usize) -> bool {
+        if idx >= MAX_NPC_COUNT {
+            return false;
+        }
+        match self.mode {
+            crate::settings::NpcLogMode::SelectedOnly => {
+                self.selected >= 0 && idx == self.selected as usize
+            }
+            crate::settings::NpcLogMode::Faction => {
+                idx >= self.slot_factions.len() || self.slot_factions[idx] == self.player_faction
+            }
+            crate::settings::NpcLogMode::All => true,
+        }
+    }
+
     /// Push a log message for an NPC with timestamp.
     /// Filtered by current mode — early-returns for NPCs outside the active scope.
     pub fn push(
@@ -2396,5 +2414,50 @@ mod tests {
 
         assert!(ui.armory_open);
         assert!(!ui.left_panel_open);
+    }
+
+    #[test]
+    fn npc_log_should_log_selected_only_gates_on_selected_slot() {
+        let mut cache = NpcLogCache::default();
+        cache.mode = crate::settings::NpcLogMode::SelectedOnly;
+        cache.selected = 5;
+
+        assert!(cache.should_log(5), "selected slot must return true");
+        assert!(!cache.should_log(3), "non-selected slot must return false");
+        assert!(!cache.should_log(0), "slot 0 must return false when not selected");
+
+        // should_log must agree with push: push must store only for selected slot
+        cache.push(5, 1, 0, 0, "msg-selected");
+        cache.push(3, 1, 0, 0, "msg-other");
+        assert_eq!(cache.logs[5].len(), 1, "selected slot must have a log entry");
+        assert_eq!(cache.logs[3].len(), 0, "non-selected slot must have no log entry");
+    }
+
+    #[test]
+    fn npc_log_should_log_faction_gates_on_player_faction() {
+        let mut cache = NpcLogCache::default();
+        cache.mode = crate::settings::NpcLogMode::Faction;
+        cache.player_faction = 1;
+        cache.set_slot_faction(10, 1);
+        cache.set_slot_faction(20, 2);
+
+        assert!(cache.should_log(10), "same faction slot must return true");
+        assert!(!cache.should_log(20), "enemy faction slot must return false");
+    }
+
+    #[test]
+    fn npc_log_should_log_all_mode_always_true() {
+        let mut cache = NpcLogCache::default();
+        cache.mode = crate::settings::NpcLogMode::All;
+
+        assert!(cache.should_log(0));
+        assert!(cache.should_log(100));
+    }
+
+    #[test]
+    fn npc_log_should_log_rejects_out_of_bounds_idx() {
+        let cache = NpcLogCache::default();
+        assert!(!cache.should_log(MAX_NPC_COUNT));
+        assert!(!cache.should_log(usize::MAX));
     }
 }
