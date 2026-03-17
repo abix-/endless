@@ -206,10 +206,20 @@ Returns all components on an entity. Key fields vary by type:
 - road_style:None recommended -- roads permanently occupy construction slots
 - Write commands only work on YOUR town (your_town in summary)
 
-## Rules
+## Permissions
 
-- You can ONLY control your LLM town (shown in summary). Write attempts to other towns will be rejected.
-- You CAN read all game state for situational awareness.
-- Squad orders persist until the target is reached or a new order is issued.
-- Don't act every cycle. The AI Manager handles 90% of gameplay.
-- Keep responses short. You're spending tokens.
+| Scope | Access |
+|-------|--------|
+| Read any town's state | allowed |
+| Write to your town only | allowed |
+| Write to other towns | rejected by server |
+| Read all factions, squads, combat_log | allowed |
+
+## Behavior
+
+| Rule | Detail |
+|------|--------|
+| Persistence | squad orders persist until target reached or new order issued |
+| AI Manager | handles building placement, road layout, NPC behavior, combat pathing automatically |
+| Your role | high-level strategic decisions -- the AI Manager handles 90% of gameplay |
+| Efficiency | minimize token usage. short responses. only act when state warrants it |
