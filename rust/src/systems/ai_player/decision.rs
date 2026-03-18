@@ -17,6 +17,7 @@ use super::*;
 // ============================================================================
 
 /// One decision per AI per interval tick. Scores all eligible actions, picks via weighted random.
+/// Per-player timers stagger towns across ticks so all 18 AI factions never run simultaneously.
 pub fn ai_decision_system(
     time: Res<Time>,
     config: Res<AiPlayerConfig>,
@@ -28,18 +29,25 @@ pub fn ai_decision_system(
     difficulty: Res<Difficulty>,
     gpu_state: Res<GpuReadState>,
     pop_stats: Res<PopulationStats>,
-    mut timer: Local<f32>,
     mut snapshots: Local<AiTownSnapshotCache>,
     settings: Res<crate::settings::UserSettings>,
     mut snapshot_dirty: ResMut<AiSnapshotDirty>,
 ) {
-    // System timing gate:
-    // runs every `decision_interval`, not every frame.
-    *timer += game_time.delta(&time);
-    if *timer < config.decision_interval {
+    let delta = game_time.delta(&time);
+
+    // Advance every player's individual timer.
+    for player in ai_state.players.iter_mut() {
+        player.decision_timer += delta;
+    }
+
+    // Early exit when no player is due this frame.
+    let any_due = ai_state
+        .players
+        .iter()
+        .any(|p| p.active && p.decision_timer >= config.decision_interval);
+    if !any_due {
         return;
     }
-    *timer = 0.0;
 
     let dirty = snapshot_dirty.0;
     snapshot_dirty.0 = false;
@@ -61,10 +69,14 @@ pub fn ai_decision_system(
         // Two-step style common in Rust ECS:
         // 1) gather immutable state and score actions
         // 2) perform one mutating action
-        let player = &ai_state.players[pi];
-        if !player.active {
+        if !ai_state.players[pi].active
+            || ai_state.players[pi].decision_timer < config.decision_interval
+        {
             continue;
         }
+        // Reset per-player timer. Each town fires independently at its own cadence.
+        ai_state.players[pi].decision_timer = 0.0;
+        let player = &ai_state.players[pi];
         let tdi = player.town_data_idx;
         let personality = player.personality;
         let road_style = player.road_style;

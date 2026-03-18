@@ -1367,6 +1367,7 @@ pub fn apply_save(
                 upgrade_enabled: p.upgrade_enabled,
                 squad_indices: Vec::new(),
                 squad_cmd: std::collections::HashMap::new(),
+                decision_timer: 0.0,
             })
             .collect();
         // Rebuild AI squad indices by scanning SquadState ownership (authoritative).

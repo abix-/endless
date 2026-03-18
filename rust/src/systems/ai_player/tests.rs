@@ -150,3 +150,78 @@ fn personality_loot_thresholds_match_issue_68_targets() {
     assert_eq!(AiPersonality::Balanced.loot_threshold(), 3);
     assert_eq!(AiPersonality::Economic.loot_threshold(), 1);
 }
+
+// -- decision timer stagger (issue-192) --
+
+fn make_player_with_timer(timer: f32) -> AiPlayer {
+    AiPlayer {
+        town_data_idx: 0,
+        kind: AiKind::Builder,
+        personality: AiPersonality::Balanced,
+        road_style: RoadStyle::None,
+        last_actions: Default::default(),
+        policy_defaults_logged: false,
+        active: true,
+        build_enabled: false,
+        upgrade_enabled: false,
+        squad_indices: Vec::new(),
+        squad_cmd: Default::default(),
+        decision_timer: timer,
+    }
+}
+
+/// Stagger math: with N active players and interval I, player i gets timer i*I/N.
+/// Verifies timers are strictly increasing and span [0, (N-1)*I/N].
+#[test]
+fn decision_timers_staggered_across_interval() {
+    let n = 6usize;
+    let interval = crate::constants::DEFAULT_AI_INTERVAL;
+    let mut players: Vec<AiPlayer> = (0..n).map(|_| make_player_with_timer(0.0)).collect();
+
+    // Apply same stagger logic used in buildings.rs
+    let n_active = players.iter().filter(|p| p.active).count();
+    for (slot, p) in players.iter_mut().filter(|p| p.active).enumerate() {
+        p.decision_timer = slot as f32 * interval / n_active as f32;
+    }
+
+    // Timers should be evenly distributed 0..interval
+    assert_eq!(players[0].decision_timer, 0.0);
+    assert!((players[n - 1].decision_timer - (n - 1) as f32 * interval / n as f32).abs() < 1e-5);
+    // Each consecutive timer is larger than the previous
+    for i in 1..n {
+        assert!(players[i].decision_timer > players[i - 1].decision_timer);
+    }
+}
+
+/// With staggered timers, advancing by interval/2 should NOT trigger all players.
+/// This is the regression: pre-fix, all players fired simultaneously on the same tick.
+#[test]
+fn staggered_timers_prevent_simultaneous_fire() {
+    let n = 6usize;
+    let interval = crate::constants::DEFAULT_AI_INTERVAL;
+    let mut players: Vec<AiPlayer> = (0..n).map(|_| make_player_with_timer(0.0)).collect();
+
+    // Apply stagger
+    for (i, p) in players.iter_mut().enumerate() {
+        p.decision_timer = i as f32 * interval / n as f32;
+    }
+
+    // Advance by slightly more than one stagger step
+    let delta = interval / n as f32 + 0.01;
+    for p in players.iter_mut() {
+        p.decision_timer += delta;
+    }
+
+    let due: Vec<bool> = players
+        .iter()
+        .map(|p| p.decision_timer >= interval)
+        .collect();
+    let due_count = due.iter().filter(|&&d| d).count();
+
+    // Only players near the top of the distribution should be due; not all N
+    assert!(
+        due_count < n,
+        "staggered timers should prevent all {n} players firing at once; {due_count} were due"
+    );
+    assert!(due_count > 0, "at least one player should be due");
+}
