@@ -1784,6 +1784,7 @@ mod tests {
         app.insert_resource(crate::resources::SquadState::default());
         app.insert_resource(GameTime::default());
         app.insert_resource(crate::world::WorldGrid::default());
+        app.insert_resource(crate::resources::TownIndex::default());
         app
     }
 
