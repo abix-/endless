@@ -556,7 +556,9 @@ impl BuildingKind {
     }
 }
 
-/// Rebuild building spatial grid. Only runs when BuildingGridDirtyMsg is received.
+/// Drain BuildingGridDirtyMsg. Spatial grid is maintained incrementally by
+/// add_instance/remove_by_slot so no full rebuild is needed here.
+/// init_spatial is called as a guard in case spatial was not yet sized.
 pub fn rebuild_building_grid_system(
     mut entity_map: ResMut<EntityMap>,
     mut grid_dirty: MessageReader<BuildingGridDirtyMsg>,
@@ -567,7 +569,6 @@ pub fn rebuild_building_grid_system(
     }
     let world_size_px = grid.width as f32 * grid.cell_size;
     entity_map.init_spatial(world_size_px);
-    entity_map.rebuild_spatial();
 }
 
 // ============================================================================
@@ -743,12 +744,15 @@ impl WorldGrid {
     }
 
     /// Incrementally sync building overrides (walls/roads). O(walls + roads), not O(map).
+    /// HPA* is rebuilt only for cells whose cost actually changed (not all building cells).
     pub fn sync_building_costs(&mut self, entity_map: &crate::resources::EntityMap) {
+        use std::collections::HashSet;
+        // Snapshot previous override set before clearing
+        let old_cells: HashSet<usize> = self.building_cost_cells.drain(..).collect();
         // Revert previous overrides to terrain base
-        for &idx in &self.building_cost_cells {
+        for &idx in &old_cells {
             self.pathfind_costs[idx] = terrain_base_cost(self.cells[idx].terrain);
         }
-        self.building_cost_cells.clear();
 
         self.apply_building_overlay(entity_map, BuildingKind::Wall, 0);
         // All tower kinds block pathing (impassable like walls) -- driven by registry
@@ -771,15 +775,18 @@ impl WorldGrid {
                 kind.road_pathfind_cost().expect("road kind has cost"),
             );
         }
-        // Rebuild HPA* cache for affected chunks
-        if !self.building_cost_cells.is_empty() && self.width > 0 {
-            if let Some(ref mut cache) = self.hpa_cache {
-                cache.rebuild_chunks(
-                    &self.pathfind_costs,
-                    self.width,
-                    self.height,
-                    &self.building_cost_cells,
-                );
+        // Rebuild HPA* cache only for cells whose cost actually changed this sync.
+        // Symmetric difference: cells that gained or lost an override.
+        if self.width > 0 {
+            let new_cells: HashSet<usize> = self.building_cost_cells.iter().copied().collect();
+            let changed: Vec<usize> = old_cells
+                .symmetric_difference(&new_cells)
+                .copied()
+                .collect();
+            if !changed.is_empty() {
+                if let Some(ref mut cache) = self.hpa_cache {
+                    cache.rebuild_chunks(&self.pathfind_costs, self.width, self.height, &changed);
+                }
             }
         }
     }

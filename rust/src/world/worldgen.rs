@@ -248,6 +248,8 @@ pub fn generate_world(
     grid.height = h;
     grid.cells = vec![WorldCell::default(); w * h];
     grid.init_town_buildable();
+    // Initialize spatial before any buildings are placed so spatial_insert is not a no-op.
+    entity_map.init_spatial(w as f32 * grid.cell_size);
 
     // Shuffle town names
     let mut names = config.town_names.clone();

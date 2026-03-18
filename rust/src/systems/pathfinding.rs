@@ -1257,6 +1257,73 @@ mod tests {
         );
     }
 
+    // -- sync_building_costs incremental regression tests --------------------
+
+    /// Regression: removing a wall restores terrain cost. Verifies that the
+    /// symmetric-difference changed-cells logic correctly handles removal.
+    /// If reverted to full-cell rebuild, the test still passes; if the
+    /// revert logic is broken, wall cell stays impassable after removal.
+    #[test]
+    fn sync_building_costs_wall_removal_restores_terrain_cost() {
+        let mut grid = make_grid(10, 10);
+        let mut entity_map = EntityMap::default();
+        let wall_slot = 400usize;
+        place_wall(&mut entity_map, 3, 3, wall_slot);
+        grid.sync_building_costs(&entity_map);
+        let idx = 3 * grid.width + 3;
+        assert_eq!(
+            grid.pathfind_costs[idx], 0,
+            "wall cell should be impassable after placement"
+        );
+
+        // Remove the wall
+        entity_map.remove_by_slot(wall_slot);
+        grid.sync_building_costs(&entity_map);
+        let terrain_cost = crate::world::terrain_base_cost(crate::world::Biome::Grass);
+        assert_eq!(
+            grid.pathfind_costs[idx], terrain_cost,
+            "wall cell should revert to terrain cost after removal"
+        );
+    }
+
+    /// Regression: two sequential sync calls produce correct cumulative costs.
+    /// A wall placed in sync-1 stays impassable after sync-2 places a road elsewhere.
+    #[test]
+    fn sync_building_costs_second_sync_preserves_first_wall() {
+        let mut grid = make_grid(10, 10);
+        let mut entity_map = EntityMap::default();
+        // Sync 1: place wall at (2,2)
+        place_wall(&mut entity_map, 2, 2, 401);
+        grid.sync_building_costs(&entity_map);
+        let wall_idx = 2 * grid.width + 2;
+        assert_eq!(
+            grid.pathfind_costs[wall_idx], 0,
+            "wall should be impassable"
+        );
+
+        // Sync 2: add road at (5,5), wall should remain impassable
+        entity_map.add_instance(crate::resources::BuildingInstance {
+            kind: crate::world::BuildingKind::Road,
+            position: Vec2::new(5.0 * 64.0 + 32.0, 5.0 * 64.0 + 32.0),
+            slot: 402,
+            town_idx: 0,
+            faction: 0,
+        });
+        grid.sync_building_costs(&entity_map);
+        assert_eq!(
+            grid.pathfind_costs[wall_idx], 0,
+            "wall should remain impassable after second sync"
+        );
+        let road_idx = 5 * grid.width + 5;
+        let road_cost = crate::world::BuildingKind::Road
+            .road_pathfind_cost()
+            .unwrap();
+        assert_eq!(
+            grid.pathfind_costs[road_idx], road_cost,
+            "road cell should have road cost after second sync"
+        );
+    }
+
     #[test]
     fn invalidate_skips_empty_paths() {
         let mut app = setup_invalidate_app();
