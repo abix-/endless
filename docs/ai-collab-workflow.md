@@ -61,12 +61,12 @@ If the workspace directory already exists, reuse it. Do not recreate or remove e
 
 All workspaces share one Cargo target directory (`C:\code\endless\rust\target`) via `~/.cargo/config.toml`. Dependencies compile once; only the `endless` crate rebuilds per workspace (~16s vs ~7min cold).
 
-Because concurrent builds to the same target dir can clobber artifacts, agents must use `k3s-claude cargo-lock` instead of bare `cargo` for build/check/clippy:
+Because concurrent builds to the same target dir can clobber artifacts, agents must use `k3sc cargo-lock` instead of bare `cargo` for build/check/clippy:
 
 ```
-k3s-claude cargo-lock build --release
-k3s-claude cargo-lock clippy --release -- -D warnings
-k3s-claude cargo-lock check
+k3sc cargo-lock build --release
+k3sc cargo-lock clippy --release -- -D warnings
+k3sc cargo-lock check
 ```
 
 The lock serializes builds -- one agent builds while others wait in line.
@@ -275,7 +275,6 @@ The `Acceptance` line is mandatory. Before any handoff, the agent must read the 
 **Label transitions are handled by the k3sc operator, not the agent.** Agents do NOT run `gh issue edit` to add/remove labels. The operator detects pod completion and transitions labels automatically.
 
 Replace `<AgentName>` with `Codex` or `Claude`.
-Use `needs-review` when handing off for review.
 
 ## Design Workflow
 
@@ -284,7 +283,7 @@ Use this flow when architecture is still moving:
 1. Read the issue-linked spec plus `docs/k8s.md`, `docs/authority.md`, and `docs/performance.md`
 2. Update the relevant spec doc in `docs/`
 3. Comment on the initiative or slice issue with the design delta
-4. Keep or move the issue to `ready` only when implementation can start cleanly
+4. Implementation starts when the operator dispatches it -- agents do not change issue state
 
 If two agents both touch the same spec:
 
@@ -345,7 +344,7 @@ If making fix-forward changes, push to the same `issue-{N}` branch. The PR updat
 Review is fix-forward by default:
 
 - if the reviewer finds a concrete in-scope problem, it should make the smallest complete fix in the same turn
-- after making code changes during review, that agent becomes the implementing side and must hand the issue back to `needs-review`
+- after making code changes during review, that agent becomes the implementing side -- the operator will transition labels when the pod exits
 - do not spend a full turn on findings-only review when the fix is clear, local, and safely within scope
 - use a findings-only handoff only when blocked, out of scope, design-ambiguous, or explicitly asked to review without changing code
 
@@ -371,7 +370,7 @@ If there are no findings and tests pass:
 Initiative issue exception:
 
 - for initiative or epic tracker issues, "no findings" on the issue body is not enough to close
-- only use `owner -> close` when the initiative acceptance is satisfied and downstream slice work is complete
+- only close an initiative when the acceptance is satisfied and downstream slice work is complete
 - if the initiative body is now correct but the acceptance is still unmet, leave the handoff comment with the remaining items in `Open`
 
 If review finds a blocker:
