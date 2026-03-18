@@ -1,0 +1,217 @@
+   Compiling endless v0.1.0 (C:\code\endless\rust)
+    Finished `bench` profile [optimized] target(s) in 1m 26s
+     Running benches\system_bench.rs (target\release\deps\system_bench-fa3792f89b91a2f6.exe)
+Gnuplot not found, using plotters backend
+Benchmarking decision_system/1000
+Benchmarking decision_system/1000: Warming up for 3.0000 s
+Benchmarking decision_system/1000: Collecting 20 samples in estimated 5.0091 s (106k iterations)
+Benchmarking decision_system/1000: Analyzing
+decision_system/1000    time:   [45.942 µs 46.515 µs 46.977 µs]
+                        change: [-28.680% -23.862% -18.872%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high mild
+Benchmarking decision_system/50000
+Benchmarking decision_system/50000: Warming up for 3.0000 s
+Benchmarking decision_system/50000: Collecting 20 samples in estimated 5.0169 s (12k iterations)
+Benchmarking decision_system/50000: Analyzing
+decision_system/50000   time:   [416.63 µs 461.64 µs 512.74 µs]
+                        change: [-54.798% -49.548% -43.400%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 2 outliers among 20 measurements (10.00%)
+  2 (10.00%) high severe
+
+Benchmarking damage_system/1000
+Benchmarking damage_system/1000: Warming up for 3.0000 s
+Benchmarking damage_system/1000: Collecting 100 samples in estimated 5.0201 s (1200 iterations)
+Benchmarking damage_system/1000: Analyzing
+damage_system/1000      time:   [62.505 µs 64.042 µs 65.655 µs]
+                        change: [-65.673% -56.141% -45.319%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 1 outliers among 100 measurements (1.00%)
+  1 (1.00%) high mild
+Benchmarking damage_system/50000
+Benchmarking damage_system/50000: Warming up for 3.0000 s
+Benchmarking damage_system/50000: Collecting 100 samples in estimated 6.2418 s (200 iterations)
+Benchmarking damage_system/50000: Analyzing
+damage_system/50000     time:   [520.90 µs 533.20 µs 546.78 µs]
+                        change: [-52.629% -47.062% -41.172%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 4 outliers among 100 measurements (4.00%)
+  3 (3.00%) high mild
+  1 (1.00%) high severe
+
+Benchmarking healing_system/1000
+Benchmarking healing_system/1000: Warming up for 3.0000 s
+Benchmarking healing_system/1000: Collecting 100 samples in estimated 5.0024 s (419k iterations)
+Benchmarking healing_system/1000: Analyzing
+healing_system/1000     time:   [11.918 µs 11.999 µs 12.094 µs]
+                        change: [-40.853% -35.900% -30.891%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 11 outliers among 100 measurements (11.00%)
+  2 (2.00%) low mild
+  4 (4.00%) high mild
+  5 (5.00%) high severe
+Benchmarking healing_system/50000
+Benchmarking healing_system/50000: Warming up for 3.0000 s
+Benchmarking healing_system/50000: Collecting 100 samples in estimated 6.8428 s (15k iterations)
+Benchmarking healing_system/50000: Analyzing
+healing_system/50000    time:   [450.09 µs 455.35 µs 460.87 µs]
+                        change: [-64.103% -61.963% -59.689%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 8 outliers among 100 measurements (8.00%)
+  6 (6.00%) high mild
+  2 (2.00%) high severe
+
+Benchmarking attack_system/1000
+Benchmarking attack_system/1000: Warming up for 3.0000 s
+Benchmarking attack_system/1000: Collecting 20 samples in estimated 5.0021 s (217k iterations)
+Benchmarking attack_system/1000: Analyzing
+attack_system/1000      time:   [23.141 µs 23.302 µs 23.479 µs]
+                        change: [-39.757% -32.916% -26.645%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high mild
+Benchmarking attack_system/50000
+Benchmarking attack_system/50000: Warming up for 3.0000 s
+Benchmarking attack_system/50000: Collecting 20 samples in estimated 5.1123 s (6510 iterations)
+Benchmarking attack_system/50000: Analyzing
+attack_system/50000     time:   [784.56 µs 838.18 µs 917.38 µs]
+                        change: [-51.666% -47.264% -42.494%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 2 outliers among 20 measurements (10.00%)
+  1 (5.00%) high mild
+  1 (5.00%) high severe
+
+Benchmarking resolve_movement/1000
+Benchmarking resolve_movement/1000: Warming up for 3.0000 s
+Benchmarking resolve_movement/1000: Collecting 20 samples in estimated 5.0005 s (239k iterations)
+Benchmarking resolve_movement/1000: Analyzing
+resolve_movement/1000   time:   [19.742 µs 20.100 µs 20.494 µs]
+                        change: [-26.735% -22.276% -17.340%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 2 outliers among 20 measurements (10.00%)
+  2 (10.00%) high mild
+Benchmarking resolve_movement/50000
+Benchmarking resolve_movement/50000: Warming up for 3.0000 s
+Benchmarking resolve_movement/50000: Collecting 20 samples in estimated 5.0235 s (23k iterations)
+Benchmarking resolve_movement/50000: Analyzing
+resolve_movement/50000  time:   [234.00 µs 275.73 µs 327.55 µs]
+                        change: [-35.753% -25.041% -11.626%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 2 outliers among 20 measurements (10.00%)
+  2 (10.00%) high mild
+
+Benchmarking resolve_movement_unbounded/1000
+Benchmarking resolve_movement_unbounded/1000: Warming up for 3.0000 s
+Benchmarking resolve_movement_unbounded/1000: Collecting 20 samples in estimated 5.0014 s (104k iterations)
+Benchmarking resolve_movement_unbounded/1000: Analyzing
+resolve_movement_unbounded/1000
+                        time:   [40.433 µs 42.684 µs 44.939 µs]
+                        change: [-11.062% -1.9865% +8.7331%] (p = 0.71 > 0.05)
+                        No change in performance detected.
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high mild
+Benchmarking resolve_movement_unbounded/50000
+Benchmarking resolve_movement_unbounded/50000: Warming up for 3.0000 s
+Benchmarking resolve_movement_unbounded/50000: Collecting 20 samples in estimated 5.1133 s (5040 iterations)
+Benchmarking resolve_movement_unbounded/50000: Analyzing
+resolve_movement_unbounded/50000
+                        time:   [915.03 µs 982.95 µs 1.0616 ms]
+                        change: [-37.225% -28.162% -18.178%] (p = 0.00 < 0.05)
+                        Performance has improved.
+
+Benchmarking building_tower/1000
+Benchmarking building_tower/1000: Warming up for 3.0000 s
+Benchmarking building_tower/1000: Collecting 20 samples in estimated 5.0064 s (157k iterations)
+Benchmarking building_tower/1000: Analyzing
+building_tower/1000     time:   [32.984 µs 35.196 µs 38.263 µs]
+                        change: [+7.1989% +17.729% +30.156%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Benchmarking building_tower/50000
+Benchmarking building_tower/50000: Warming up for 3.0000 s
+Benchmarking building_tower/50000: Collecting 20 samples in estimated 5.2991 s (3360 iterations)
+Benchmarking building_tower/50000: Analyzing
+building_tower/50000    time:   [1.0352 ms 1.1378 ms 1.3041 ms]
+                        change: [+60.098% +83.485% +111.87%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+
+Benchmarking death_system/1000
+Benchmarking death_system/1000: Warming up for 3.0000 s
+Benchmarking death_system/1000: Collecting 20 samples in estimated 5.0138 s (62k iterations)
+Benchmarking death_system/1000: Analyzing
+death_system/1000       time:   [73.478 µs 78.043 µs 84.813 µs]
+                        change: [+6.8586% +43.344% +91.931%] (p = 0.03 < 0.05)
+                        Performance has regressed.
+Found 2 outliers among 20 measurements (10.00%)
+  1 (5.00%) high mild
+  1 (5.00%) high severe
+Benchmarking death_system/50000
+Benchmarking death_system/50000: Warming up for 3.0000 s
+Benchmarking death_system/50000: Collecting 20 samples in estimated 5.0183 s (50k iterations)
+Benchmarking death_system/50000: Analyzing
+death_system/50000      time:   [80.939 µs 85.752 µs 92.202 µs]
+                        change: [-19.514% -1.1179% +24.014%] (p = 0.93 > 0.05)
+                        No change in performance detected.
+Found 2 outliers among 20 measurements (10.00%)
+  1 (5.00%) high mild
+  1 (5.00%) high severe
+
+Benchmarking spawner_respawn/1000
+Benchmarking spawner_respawn/1000: Warming up for 3.0000 s
+Benchmarking spawner_respawn/1000: Collecting 20 samples in estimated 5.0053 s (53k iterations)
+Benchmarking spawner_respawn/1000: Analyzing
+spawner_respawn/1000    time:   [99.936 µs 108.23 µs 122.26 µs]
+                        change: [-17.314% +55.939% +183.99%] (p = 0.21 > 0.05)
+                        No change in performance detected.
+Found 3 outliers among 20 measurements (15.00%)
+  1 (5.00%) high mild
+  2 (10.00%) high severe
+Benchmarking spawner_respawn/50000
+Benchmarking spawner_respawn/50000: Warming up for 3.0000 s
+Benchmarking spawner_respawn/50000: Collecting 20 samples in estimated 5.5505 s (1260 iterations)
+Benchmarking spawner_respawn/50000: Analyzing
+spawner_respawn/50000   time:   [4.2502 ms 4.6086 ms 5.0569 ms]
+                        change: [+67.682% +147.72% +257.55%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 3 outliers among 20 measurements (15.00%)
+  2 (10.00%) high mild
+  1 (5.00%) high severe
+
+Benchmarking populate_gpu_state/1000
+Benchmarking populate_gpu_state/1000: Warming up for 3.0000 s
+Benchmarking populate_gpu_state/1000: Collecting 100 samples in estimated 5.0496 s (2500 iterations)
+Benchmarking populate_gpu_state/1000: Analyzing
+populate_gpu_state/1000 time:   [76.851 µs 88.755 µs 107.12 µs]
+                        change: [+50.842% +73.317% +103.64%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 12 outliers among 100 measurements (12.00%)
+  6 (6.00%) high mild
+  6 (6.00%) high severe
+Benchmarking populate_gpu_state/50000
+Benchmarking populate_gpu_state/50000: Warming up for 3.0000 s
+Benchmarking populate_gpu_state/50000: Collecting 100 samples in estimated 5.3241 s (300 iterations)
+Benchmarking populate_gpu_state/50000: Analyzing
+populate_gpu_state/50000
+                        time:   [872.40 µs 1.0717 ms 1.3679 ms]
+                        change: [-15.509% +3.5116% +37.463%] (p = 0.84 > 0.05)
+                        No change in performance detected.
+Found 7 outliers among 100 measurements (7.00%)
+  1 (1.00%) high mild
+  6 (6.00%) high severe
+
+Benchmarking growth_system/1000
+Benchmarking growth_system/1000: Warming up for 3.0000 s
+Benchmarking growth_system/1000: Collecting 20 samples in estimated 5.0006 s (183k iterations)
+Benchmarking growth_system/1000: Analyzing
+growth_system/1000      time:   [26.354 µs 28.255 µs 30.292 µs]
+                        change: [+11.791% +16.665% +22.080%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 2 outliers among 20 measurements (10.00%)
+  2 (10.00%) high mild
+Benchmarking growth_system/50000
+Benchmarking growth_system/50000: Warming up for 3.0000 s
+error: bench failed, to rerun pass `--bench system_bench`
+
+Caused by:
+  process didn't exit successfully: `C:\code\endless\rust\target\release\deps\system_bench-fa3792f89b91a2f6.exe --bench` (exit code: 1)

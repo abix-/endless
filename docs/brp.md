@@ -4,7 +4,7 @@ Live game state access via HTTP JSON-RPC. Query any ECS component or resource wh
 
 ## Overview
 
-Bevy 0.18's built-in `bevy_remote` crate runs an HTTP server on **localhost:15702**. All reflected components and resources are queryable via `curl` or any HTTP client. Zero performance impact — BRP runs on a background thread and only does work when queried.
+Bevy 0.18's built-in `bevy_remote` crate runs an HTTP server on **localhost:15702**. All reflected components and resources are queryable via `endless-cli` (in PATH) or any HTTP client. Zero performance impact -- BRP runs on a background thread and only does work when queried.
 
 **Setup** (`lib.rs`):
 ```rust
@@ -31,7 +31,7 @@ The BRP endpoints exist so any AI model can play Endless as an opponent or ally.
 
 **Read-heavy, write-sparse.** Most interactions are reads — `endless/summary` for a game overview, `world.query` for specific entity data, `endless/debug` for deep NPC/building inspection. Write actions (`endless/policy`, `endless/ai_manager`, `endless/squad_target`, `endless/build`, `endless/upgrade`, `endless/chat`) are infrequent strategic decisions, not per-frame commands.
 
-**Model-agnostic.** Any HTTP client works — curl from Claude Code, Python scripts, MCP tools, OpenAI function calling, etc. The JSON-RPC interface doesn't care what model or framework is driving it.
+**Model-agnostic.** Any HTTP client works -- `endless-cli` from Claude Code, Python scripts, MCP tools, OpenAI function calling, etc. The JSON-RPC interface doesn't care what model or framework is driving it.
 
 **Access control.** The main menu has a WC3-style player lobby — each AI slot has a Builder/Raider dropdown and an LLM checkbox. Write endpoints (`build`, `upgrade`, `policy`, `ai_manager`, `squad_target`) are server-side gated to only allow towns marked as LLM-controlled. Read endpoints (`summary`, `world.query`) are unrestricted — full situational awareness. The `RemoteAllowedTowns` resource holds the allowed town indices; if empty, all towns are allowed (legacy/debug mode).
 
@@ -116,46 +116,35 @@ BRP uses full Rust module paths. All types are in the `endless` crate:
 ### Resources
 
 ```bash
-# Game time
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"world.get_resources","params":{"resource":"endless::resources::GameTime"},"id":1}'
-# → {"value":{"total_seconds":136.8,"seconds_per_hour":5.0,"start_hour":6,"time_scale":1.0,"paused":false,...}}
+# Game time (use endless-cli summary for a higher-level view)
+endless-cli summary
 
-# Faction stats (alive/dead/kills per faction)
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"world.get_resources","params":{"resource":"endless::resources::FactionStats"},"id":1}'
-
-# Difficulty
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"world.get_resources","params":{"resource":"endless::resources::Difficulty"},"id":1}'
+# Raw resource queries (when you need specific reflected resources):
+endless-cli world.get_resources resource:endless::resources::GameTime
+endless-cli world.get_resources resource:endless::resources::FactionStats
+endless-cli world.get_resources resource:endless::resources::Difficulty
 ```
 
 ### Entity Queries
 
 ```bash
 # All NPCs: job, faction, position, activity
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"world.query","params":{"data":{"components":["endless::components::Job","endless::components::Faction","endless::components::Position","endless::components::Activity"]}},"id":1}'
+endless-cli world.query '{"data":{"components":["endless::components::Job","endless::components::Faction","endless::components::Position","endless::components::Activity"]}}'
 
 # All buildings: kind, position, town
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"world.query","params":{"data":{"components":["endless::components::Building","endless::components::Position","endless::components::TownId"]}},"id":1}'
+endless-cli world.query '{"data":{"components":["endless::components::Building","endless::components::Position","endless::components::TownId"]}}'
 
 # Military NPCs only (have SquadId)
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"world.query","params":{"data":{"components":["endless::components::Job","endless::components::Faction","endless::components::CombatState"],"has":["endless::components::SquadId"]}},"id":1}'
+endless-cli world.query '{"data":{"components":["endless::components::Job","endless::components::Faction","endless::components::CombatState"],"has":["endless::components::SquadId"]}}'
 
 # NPCs in combat
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"world.query","params":{"data":{"components":["endless::components::Job","endless::components::Faction","endless::components::Health","endless::components::CombatState"]},"filter":{"without":["endless::components::Dead"]}},"id":1}'
+endless-cli world.query '{"data":{"components":["endless::components::Job","endless::components::Faction","endless::components::Health","endless::components::CombatState"],"filter":{"without":["endless::components::Dead"]}}}'
 
-# Deep inspect a single entity (replace ENTITY_ID)
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"world.get_components","params":{"entity":ENTITY_ID,"components":["endless::components::Job","endless::components::Position","endless::components::Health","endless::components::Faction","endless::components::TownId","endless::components::Activity","endless::components::CombatState","endless::components::CachedStats","endless::components::NpcFlags","endless::components::Personality","endless::components::NpcEquipment","endless::components::Energy"]},"id":1}'
+# Deep inspect a single entity (use endless-cli debug instead)
+endless-cli debug 489v9
 
-# List all components on an entity (discover what it has)
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"world.list_components","params":{"entity":ENTITY_ID},"id":1}'
+# List all components on an entity
+endless-cli world.list_components entity:ENTITY_ID
 ```
 
 ### Query Patterns
@@ -202,8 +191,7 @@ Get a high-level game state overview. Auto-filters to the LLM-controlled town (s
 | `town` | usize | no | Filter to a single town index |
 
 ```bash
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"endless/summary","params":{},"id":1}'
+endless-cli summary
 ```
 
 Returns TOON with: day, hour, minute, paused, time_scale, town_idx, town_name, faction, food, gold, factions (tuple rows), buildings (kind,col,row — world grid coords), squads (idx,members,target_x,target_y), upgrades (idx,name,level,pct,cost), combat_log (day,hour,min,msg), inbox (from_town,message,day,hour,min), npcs (compact per-job counts).
@@ -225,8 +213,7 @@ Queue a building placement. Executes next FixedUpdate tick via drain system.
 | `row` | usize | yes | World grid row |
 
 ```bash
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"endless/build","params":{"town":0,"kind":"Farm","col":172,"row":125},"id":1}'
+endless-cli build town:0 kind:Farm col:172 row:125
 ```
 
 ### endless/upgrade
@@ -239,8 +226,7 @@ Queue a town upgrade purchase. Executes next FixedUpdate tick.
 | `upgrade_idx` | usize | yes | Index into UPGRADES array |
 
 ```bash
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"endless/upgrade","params":{"town":0,"upgrade_idx":3},"id":1}'
+endless-cli upgrade town:0 upgrade_idx:3
 ```
 
 ### endless/policy
@@ -267,8 +253,7 @@ Set town behavior policies. Only provided fields are changed.
 | `farmer_off_duty` | string | no | "GoToBed", "StayAtFountain", or "WanderTown" |
 
 ```bash
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"endless/policy","params":{"town":0,"archer_aggressive":true,"farmer_flee_hp":0.3},"id":1}'
+endless-cli policy town:0 archer_aggressive:true farmer_flee_hp:0.3
 ```
 
 ### endless/time
@@ -281,8 +266,7 @@ Control game time — pause/unpause and set time scale.
 | `time_scale` | f32 | no | Speed multiplier (clamped 0–20) |
 
 ```bash
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"endless/time","params":{"time_scale":5.0},"id":1}'
+endless-cli time time_scale:5.0
 ```
 
 ### endless/squad_target
@@ -297,12 +281,10 @@ Set or clear a movement target for a military squad. Omit x/y to clear the targe
 
 ```bash
 # Set target
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"endless/squad_target","params":{"squad":0,"x":500.0,"y":300.0},"id":1}'
+endless-cli squad_target squad:0 x:500.0 y:300.0
 
 # Clear target
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"endless/squad_target","params":{"squad":0},"id":1}'
+endless-cli squad_target squad:0
 ```
 
 ### endless/squad
@@ -318,8 +300,7 @@ Set squad behavior settings. Only provided fields are changed.
 | `loot_threshold` | usize | no | Equipment count to trigger loot return (1-20) |
 
 ```bash
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"endless/squad","params":{"squad":0,"patrol_enabled":true,"hold_fire":false},"id":1}'
+endless-cli squad squad:0 patrol_enabled:true hold_fire:false
 ```
 
 ### endless/squad_recruit
@@ -333,8 +314,7 @@ Recruit NPCs of a military job into a squad.
 | `count` | usize | no | Number to recruit (default 1) |
 
 ```bash
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"endless/squad_recruit","params":{"squad":0,"job":"Archer","count":5},"id":1}'
+endless-cli squad_recruit squad:0 job:Archer count:5
 ```
 
 ### endless/squad_dismiss
@@ -348,8 +328,7 @@ Dismiss NPCs from a squad, optionally filtered by job.
 | `count` | usize | no | Number to dismiss (default 1) |
 
 ```bash
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"endless/squad_dismiss","params":{"squad":0,"job":"Archer","count":3},"id":1}'
+endless-cli squad_dismiss squad:0 job:Archer count:3
 ```
 
 ### endless/ai_manager
@@ -367,8 +346,7 @@ Configure the AI Manager for a town. Only provided fields are changed.
 
 ```bash
 # Enable AI Manager with Aggressive personality
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"endless/ai_manager","params":{"town":1,"active":true,"personality":"Aggressive"},"id":1}'
+endless-cli ai_manager town:1 active:true personality:Aggressive
 ```
 
 ### endless/chat
@@ -382,8 +360,7 @@ Send a chat message to another town. Messages appear in the recipient's `inbox` 
 | `message` | string | yes | Chat message text |
 
 ```bash
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"endless/chat","params":{"town":1,"to":0,"message":"lets team up"},"id":1}'
+endless-cli chat town:1 to:0 message:lets team up
 ```
 
 The player can also send messages to LLM towns via the chat input in the combat log UI.
@@ -393,8 +370,7 @@ The player can also send messages to LLM towns via the chat input in the combat 
 Get performance metrics — FPS, frame time, UPS, NPC/entity counts. Includes per-system timings when profiling is enabled.
 
 ```bash
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"endless/perf","id":1}'
+endless-cli perf
 ```
 
 Returns: `fps`, `frame_ms`, `ups`, `npc_count`, `entity_count`, and optionally `timings` (BTreeMap of system name → ms).
@@ -427,13 +403,11 @@ Deep-inspect entities by Entity bits (u64) or resources by kind+index. Returns f
 **Policy returns:** town_index, town_name, all policy fields.
 
 ```bash
-# By entity (auto-detects NPC vs building) — string or bits
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"endless/debug","params":{"entity":"489v9"},"id":1}'
+# By entity (auto-detects NPC vs building)
+endless-cli debug 489v9
 
 # By kind+index
-curl -s -X POST http://localhost:15702 -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"endless/debug","params":{"kind":"squad","index":0},"id":1}'
+endless-cli debug kind:squad index:0
 ```
 
 ## Notes

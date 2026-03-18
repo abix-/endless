@@ -2169,13 +2169,12 @@ pub fn perf_handler(In(_params): In<Option<Value>>, world: &World) -> BrpResult 
     let timings = world.resource::<crate::resources::SystemTimings>();
     let ups = world.resource::<crate::resources::UpsCounter>();
     let faction_stats = world.resource::<FactionStats>();
+    let time = world.resource::<Time>();
 
-    let frame_ms = timings.get_frame_ms();
-    let fps = if frame_ms > 0.0 {
-        1000.0 / frame_ms
-    } else {
-        0.0
-    };
+    // Use real frame delta (same source as HUD), not the EMA-smoothed SystemTimings
+    let dt = time.delta_secs();
+    let frame_ms = dt * 1000.0;
+    let fps = if dt > 0.0 { 1.0 / dt } else { 0.0 };
     let npc_count: i32 = faction_stats.stats.iter().map(|s| s.alive).sum();
     let entity_count = world.entities().len() as usize;
 
@@ -2191,14 +2190,20 @@ pub fn perf_handler(In(_params): In<Option<Value>>, world: &World) -> BrpResult 
     if timings.enabled {
         let system_timings = timings.get_timings();
         let traced_timings = timings.get_traced_timings();
+        let traced_peaks = timings.get_traced_peaks();
         let mut all: std::collections::BTreeMap<String, f64> = std::collections::BTreeMap::new();
+        let mut peaks: std::collections::BTreeMap<String, f64> = std::collections::BTreeMap::new();
         for (k, v) in system_timings {
             all.insert(k.to_string(), (v as f64 * 100.0).round() / 100.0);
         }
         for (k, v) in traced_timings {
             all.insert(k, (v as f64 * 100.0).round() / 100.0);
         }
+        for (k, v) in traced_peaks {
+            peaks.insert(k, (v as f64 * 100.0).round() / 100.0);
+        }
         response["timings"] = json!(all);
+        response["peaks"] = json!(peaks);
     }
 
     toon_ok(response)
