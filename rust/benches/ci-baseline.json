@@ -92,5 +92,7 @@
   "spawner_respawn/500":              { "mean_ns": 39000 },
   "spawner_respawn/1000":             { "mean_ns": 64000 },
   "spawner_respawn/5000":             { "mean_ns": 267000 },
-  "spawner_respawn/50000":            { "mean_ns": 2063000 }
+  "spawner_respawn/50000":            { "mean_ns": 2063000 },
+  "resolve_work_targets/500":         { "mean_ns": 12287000 },
+  "resolve_work_targets/2000":        { "mean_ns": 29182000 }
 }
