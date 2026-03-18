@@ -21,39 +21,46 @@ pub fn resolve_work_targets(
     mut work_state_q: Query<&mut NpcWorkState>,
     mut activity_q: Query<&mut crate::components::Activity>,
     mut path_queue: ResMut<PathRequestQueue>,
-    production_q: Query<&ProductionState, With<Building>>,
-    farm_mode_q: Query<&FarmModeComp, With<Building>>,
+    production_q: Query<(&GpuSlot, &ProductionState), With<Building>>,
+    farm_mode_q: Query<(&GpuSlot, &FarmModeComp), With<Building>>,
 ) {
     let msgs: Vec<_> = intents.read().collect();
     if msgs.is_empty() {
         return;
     }
 
-    // Pre-collect production state only when there are messages to process.
-    // Only Claim/Retarget need it, but building the map is cheaper than checking each message type.
-    let production_map: std::collections::HashMap<usize, (bool, f32)> = entity_map
-        .iter_instances()
-        .filter_map(|inst| {
-            let entity = entity_map.entities.get(&inst.slot)?;
-            let ps = production_q.get(*entity).ok()?;
-            Some((inst.slot, (ps.ready, ps.progress)))
-        })
-        .collect();
+    // Only build the lookup maps when at least one Claim or Retarget intent exists.
+    // Release and MarkPresent never use production_map or cow_farm_slots.
+    let needs_claim = msgs.iter().any(|WorkIntentMsg(w)| {
+        matches!(w, WorkIntent::Claim { .. } | WorkIntent::Retarget { .. })
+    });
 
-    // Pre-collect cow farm slots so farmers skip them during targeting.
-    let cow_farm_slots: std::collections::HashSet<usize> = entity_map
-        .iter_instances()
-        .filter(|inst| inst.kind == BuildingKind::Farm)
-        .filter_map(|inst| {
-            let entity = entity_map.entities.get(&inst.slot)?;
-            let fm = farm_mode_q.get(*entity).ok()?;
-            if fm.0 == FarmMode::Cows {
-                Some(inst.slot)
-            } else {
-                None
-            }
-        })
-        .collect();
+    // Build production map by iterating only buildings that have ProductionState (~1K)
+    // instead of scanning all 68K instances via iter_instances().
+    let production_map: std::collections::HashMap<usize, (bool, f32)> = if needs_claim {
+        production_q
+            .iter()
+            .map(|(slot, ps)| (slot.0, (ps.ready, ps.progress)))
+            .collect()
+    } else {
+        std::collections::HashMap::new()
+    };
+
+    // Build cow-farm set by iterating only buildings with FarmModeComp (~1K farms).
+    let cow_farm_slots: std::collections::HashSet<usize> = if needs_claim {
+        farm_mode_q
+            .iter()
+            .filter_map(|(slot, fm)| {
+                if fm.0 == FarmMode::Cows {
+                    Some(slot.0)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    } else {
+        std::collections::HashSet::new()
+    };
 
     for WorkIntentMsg(intent) in msgs {
         match intent {
@@ -279,6 +286,111 @@ fn find_mine_target(
             },
         )
         .map(|r| (r.slot, r.position, r.radius_used))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::entity_map::{BuildingInstance, EntityMap};
+    use crate::messages::WorkIntentMsg;
+    use crate::resources::PathRequestQueue;
+    use bevy::time::TimeUpdateStrategy;
+
+    fn setup_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_message::<WorkIntentMsg>();
+        app.insert_resource(EntityMap::default());
+        app.insert_resource(PathRequestQueue::default());
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0 / 60.0),
+        ));
+        app.add_systems(FixedUpdate, resolve_work_targets);
+        // Prime FixedUpdate scheduler
+        app.update();
+        app.update();
+        app
+    }
+
+    fn spawn_farm(app: &mut App, slot: usize, pos: Vec2, cow: bool) -> Entity {
+        let mut inst = BuildingInstance {
+            kind: BuildingKind::Farm,
+            position: pos,
+            town_idx: 0,
+            slot,
+            faction: 0,
+        };
+        inst.position = pos;
+        let entity = app
+            .world_mut()
+            .spawn((
+                GpuSlot(slot),
+                Building {
+                    kind: BuildingKind::Farm,
+                },
+                ProductionState::default(),
+                FarmModeComp(if cow { FarmMode::Cows } else { FarmMode::Crops }),
+            ))
+            .id();
+        let mut em = app.world_mut().resource_mut::<EntityMap>();
+        em.set_entity(slot, entity);
+        em.add_instance(inst);
+        entity
+    }
+
+    fn spawn_farmer(app: &mut App) -> Entity {
+        app.world_mut()
+            .spawn((
+                GpuSlot(100),
+                NpcWorkState::default(),
+                crate::components::Activity::default(),
+            ))
+            .id()
+    }
+
+    /// Regression test: resolve_work_targets must skip cow farms when building
+    /// cow_farm_slots via GpuSlot+FarmModeComp ECS queries.
+    /// Reverts to the old iter_instances() path would not compile with the new query signature.
+    #[test]
+    fn cow_farm_skipped_claim_assigns_crop_farm() {
+        let mut app = setup_app();
+
+        // Slot 0: cow farm (must be skipped)
+        // Slot 1: crop farm at same position (must be claimed)
+        let cow_pos = Vec2::new(50.0, 50.0);
+        let crop_pos = Vec2::new(60.0, 60.0);
+        let from = Vec2::new(55.0, 55.0);
+        app.world_mut()
+            .resource_mut::<EntityMap>()
+            .init_spatial(2048.0);
+        spawn_farm(&mut app, 0, cow_pos, true);
+        spawn_farm(&mut app, 1, crop_pos, false);
+
+        let farmer = spawn_farmer(&mut app);
+        app.world_mut().write_message(WorkIntentMsg(WorkIntent::Claim {
+            entity: farmer,
+            kind: BuildingKind::Farm,
+            town_idx: 0,
+            from,
+        }));
+
+        app.update();
+
+        let ws = app.world().get::<NpcWorkState>(farmer).unwrap();
+        assert!(
+            ws.worksite.is_some(),
+            "farmer should have claimed a worksite"
+        );
+        // The claimed entity should be the crop farm (slot 1), not the cow farm (slot 0)
+        let claimed_entity = ws.worksite.unwrap();
+        let em = app.world().resource::<EntityMap>();
+        let claimed_slot = em.slot_for_entity(claimed_entity);
+        assert_eq!(
+            claimed_slot,
+            Some(1),
+            "farmer must claim crop farm (slot 1), not cow farm (slot 0)"
+        );
+    }
 }
 
 /// Find nearest available resource node (TreeNode or RockNode) for woodcutter/quarrier.
