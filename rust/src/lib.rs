@@ -858,4 +858,74 @@ mod tests_fixed_hz {
             "4x speed should advance game time ~4x faster: ratio={ratio:.2} (advance_1x={advance_1x:.3}, advance_4x={advance_4x:.3})"
         );
     }
+
+    /// At 4x speed, Fixed must run at 1/4 the rate -- verifying tick cascade prevention.
+    /// Without the fix, Bevy would queue 4 Fixed ticks per frame at 4x, overflowing budget.
+    /// With sync_fixed_hz, Fixed runs at 15 Hz: 1 tick per ~4 real frames at 60Hz.
+    /// This test FAILS if sync_fixed_hz is removed or the period is not scaled.
+    #[test]
+    fn fixed_ticks_per_second_scale_with_speed() {
+        use std::sync::{Arc, Mutex};
+
+        // Count total Fixed ticks via a counting system
+        let tick_count_1x = Arc::new(Mutex::new(0u32));
+        let tick_count_4x = Arc::new(Mutex::new(0u32));
+
+        // 1x speed: run 60 real frames, count Fixed ticks
+        {
+            let counter = tick_count_1x.clone();
+            let mut app = App::new();
+            app.add_plugins(MinimalPlugins);
+            app.insert_resource(GameTime::default());
+            app.insert_resource(Time::<Fixed>::from_hz(60.0));
+            app.insert_resource(TimeUpdateStrategy::ManualDuration(
+                std::time::Duration::from_secs_f32(1.0 / 60.0),
+            ));
+            app.add_systems(Update, sync_fixed_hz);
+            app.add_systems(FixedUpdate, move || {
+                *counter.lock().unwrap() += 1;
+            });
+            app.update(); // prime
+            for _ in 0..60 {
+                app.update();
+            }
+        }
+
+        // 4x speed: run 60 real frames, count Fixed ticks
+        {
+            let counter = tick_count_4x.clone();
+            let mut app = App::new();
+            app.add_plugins(MinimalPlugins);
+            let mut gt = GameTime::default();
+            gt.time_scale = 4.0;
+            app.insert_resource(gt);
+            app.insert_resource(Time::<Fixed>::from_hz(60.0));
+            app.insert_resource(TimeUpdateStrategy::ManualDuration(
+                std::time::Duration::from_secs_f32(1.0 / 60.0),
+            ));
+            app.add_systems(Update, sync_fixed_hz);
+            app.add_systems(FixedUpdate, move || {
+                *counter.lock().unwrap() += 1;
+            });
+            app.update(); // prime
+            for _ in 0..60 {
+                app.update();
+            }
+        }
+
+        let ticks_1x = *tick_count_1x.lock().unwrap();
+        let ticks_4x = *tick_count_4x.lock().unwrap();
+
+        // At 1x: ~60 ticks/s * 1s = ~60 ticks
+        // At 4x: ~15 ticks/s * 1s = ~15 ticks (1/4 as many)
+        // Without the fix: 4x would queue 4 ticks/frame = ~240 ticks (4x more than 1x)
+        assert!(
+            ticks_1x >= 50 && ticks_1x <= 70,
+            "1x should tick ~60 times in 60 frames, got {ticks_1x}"
+        );
+        assert!(
+            ticks_4x <= ticks_1x / 2,
+            "4x should tick far fewer times than 1x (cascade prevention): 1x={ticks_1x}, 4x={ticks_4x}"
+        );
+    }
 }
