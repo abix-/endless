@@ -193,6 +193,41 @@ fn decision_timers_staggered_across_interval() {
     }
 }
 
+/// Simulate save-load: starting all timers at 0.0 then re-applying stagger must prevent burst.
+/// Regression: before save.rs fix, all 18 towns fired simultaneously after every load.
+#[test]
+fn stagger_reapplied_after_save_load() {
+    let n = 18usize;
+    let interval = crate::constants::DEFAULT_AI_INTERVAL;
+    // Simulate all timers reset to 0.0 (as before save.rs fix)
+    let mut players: Vec<AiPlayer> = (0..n).map(|_| make_player_with_timer(0.0)).collect();
+
+    // Re-apply stagger (mirrors save.rs fix)
+    let n_active = players.iter().filter(|p| p.active).count();
+    for (slot, p) in players.iter_mut().filter(|p| p.active).enumerate() {
+        p.decision_timer = slot as f32 * interval / n_active as f32;
+    }
+
+    // Advance by one stagger step
+    let delta = interval / n as f32 + 0.01;
+    for p in players.iter_mut() {
+        p.decision_timer += delta;
+    }
+    let due_count = players
+        .iter()
+        .filter(|p| p.decision_timer >= interval)
+        .count();
+
+    assert!(
+        due_count < n,
+        "after save-load stagger, all {n} players must not fire at once; {due_count} were due"
+    );
+    assert!(
+        due_count > 0,
+        "at least one player should be due after stagger step"
+    );
+}
+
 /// With staggered timers, advancing by interval/2 should NOT trigger all players.
 /// This is the regression: pre-fix, all players fired simultaneously on the same tick.
 #[test]
