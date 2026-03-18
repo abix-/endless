@@ -488,7 +488,9 @@ pub fn attack_system(
         // Scan range scales with TargetSwitching upgrade level (+20% weapon range per level).
         let ti = if is_fighting {
             let reg = &*UPGRADES;
-            let cat = crate::constants::npc_def(job).upgrade_category.unwrap_or("");
+            let cat = crate::constants::npc_def(job)
+                .upgrade_category
+                .unwrap_or("");
             let town_levels = aq
                 .town_index
                 .0
@@ -496,10 +498,20 @@ pub fn attack_system(
                 .and_then(|e| aq.town_upgrades_q.get(*e).ok())
                 .map(|u| u.0.as_slice())
                 .unwrap_or(&[]);
-            let tgt_mult = reg.stat_mult(town_levels, cat, crate::constants::UpgradeStatKind::TargetSwitching);
+            let tgt_mult = reg.stat_mult(
+                town_levels,
+                cat,
+                crate::constants::UpgradeStatKind::TargetSwitching,
+            );
             if tgt_mult > 1.0 {
                 let scan_range = cached_range * tgt_mult;
-                pick_npc_target(ti, Vec2::new(x, y), scan_range, faction_id, &target_candidates)
+                pick_npc_target(
+                    ti,
+                    Vec2::new(x, y),
+                    scan_range,
+                    faction_id,
+                    &target_candidates,
+                )
             } else {
                 ti
             }
