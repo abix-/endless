@@ -775,14 +775,12 @@ impl WorldGrid {
                 kind.road_pathfind_cost().expect("road kind has cost"),
             );
         }
-        // Rebuild HPA* cache only for cells whose cost actually changed this sync.
-        // Symmetric difference: cells that gained or lost an override.
+        // Rebuild HPA* cache for all cells that had or now have an override.
+        // Union covers: added cells, removed cells, and cells that changed type
+        // (e.g. road demolished + wall placed at same tile in one sync cycle).
         if self.width > 0 {
             let new_cells: HashSet<usize> = self.building_cost_cells.iter().copied().collect();
-            let changed: Vec<usize> = old_cells
-                .symmetric_difference(&new_cells)
-                .copied()
-                .collect();
+            let changed: Vec<usize> = old_cells.union(&new_cells).copied().collect();
             if !changed.is_empty() {
                 if let Some(ref mut cache) = self.hpa_cache {
                     cache.rebuild_chunks(&self.pathfind_costs, self.width, self.height, &changed);
