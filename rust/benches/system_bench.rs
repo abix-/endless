@@ -12,6 +12,7 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use endless::components::*;
 use endless::constants::*;
+use endless::entity_map::BuildingInstance;
 use endless::gpu::populate_gpu_state;
 use endless::gpu::{EntityGpuState, ProjBufferWrites};
 use endless::messages::*;
@@ -1715,8 +1716,6 @@ fn bench_ai_decision_system(c: &mut Criterion) {
         },
     );
 
-    group.finish();
-}
 
 // ── Building grid rebuild benchmarks (issue-207 spike investigation) ──────────
 
