@@ -248,8 +248,6 @@ pub fn generate_world(
     grid.height = h;
     grid.cells = vec![WorldCell::default(); w * h];
     grid.init_town_buildable();
-    // Initialize spatial before any buildings are placed so spatial_insert is not a no-op.
-    entity_map.init_spatial(w as f32 * grid.cell_size);
 
     // Shuffle town names
     let mut names = config.town_names.clone();
@@ -265,7 +263,7 @@ pub fn generate_world(
     match config.gen_style {
         WorldGenStyle::Continents => generate_terrain_continents(grid),
         WorldGenStyle::Maze => generate_terrain_maze(grid),
-        WorldGenStyle::WorldMap => generate_terrain_worldmap(grid),
+        WorldGenStyle::WorldMap => generate_terrain_worldmap(grid, rand::random::<u64>()),
         WorldGenStyle::Classic => {}
     }
 
@@ -986,12 +984,15 @@ fn generate_terrain_maze(grid: &mut WorldGrid) {
 
 /// World Map terrain generation: multi-octave noise with continent seeds,
 /// latitude-driven biomes, ice caps, and natural chokepoints.
-pub(crate) fn generate_terrain_worldmap(grid: &mut WorldGrid) {
+/// `seed` drives all random choices; pass `rand::random::<u64>()` at runtime,
+/// or a fixed value in tests for determinism.
+pub(crate) fn generate_terrain_worldmap(grid: &mut WorldGrid, seed: u64) {
     use noise::{NoiseFn, Simplex};
+    use rand::SeedableRng;
 
-    let elevation_noise = Simplex::new(rand::random::<u32>());
-    let moisture_noise = Simplex::new(rand::random::<u32>());
-    let detail_noise = Simplex::new(rand::random::<u32>());
+    let elevation_noise = Simplex::new((seed & 0xffff_ffff) as u32);
+    let moisture_noise = Simplex::new(((seed >> 16) & 0xffff_ffff) as u32);
+    let detail_noise = Simplex::new(((seed >> 32) & 0xffff_ffff) as u32);
 
     let world_w = grid.width as f64 * grid.cell_size as f64;
     let world_h = grid.height as f64 * grid.cell_size as f64;
@@ -1003,7 +1004,7 @@ pub(crate) fn generate_terrain_worldmap(grid: &mut WorldGrid) {
 
     // Generate continent seed points for elevation bias
     let mut continent_seeds: Vec<(f64, f64)> = Vec::with_capacity(continent_count);
-    let mut seed_rng = rand::rng();
+    let mut seed_rng = rand::rngs::SmallRng::seed_from_u64(seed);
     use rand::Rng;
     for _ in 0..continent_count {
         let cx = seed_rng.random_range(0.15..0.85) * world_w;
