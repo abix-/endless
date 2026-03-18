@@ -143,46 +143,12 @@ Required invariants:
 
 ## Agent Identity
 
-The shared `ai-collab` workflow requires a stable disk-backed registry at `C:/Users/Abix/.claude/ai-collab/settings.json`.
+Agent identity is derived from the workspace directory path. No registration scripts or settings files.
 
-Expected shape:
+- k3s agents: `/workspaces/endless-claude-a` -> `claude-a` (letters, assigned by operator)
+- Windows agents: `C:\code\endless-claude-1` -> `claude-1` (numbers, assigned by `k3sc launch`)
 
-```json
-{
-  "version": 2,
-  "slots": {
-    "claude": ["claude-1", "claude-2", "claude-3", "claude-4", "claude-5", "claude-6", "claude-7", "claude-8", "claude-9", "claude-10"],
-    "codex": ["codex-1", "codex-2", "codex-3", "codex-4", "codex-5", "codex-6", "codex-7", "codex-8", "codex-9", "codex-10"]
-  },
-  "claims": {
-    "claude-1": {
-      "family": "claude",
-      "pid": 40216,
-      "process_name": "claude",
-      "session_id": "abc123",
-      "workspace": "C:/code/endless",
-      "claimed_at": "2026-03-14T17:00:00.0000000Z"
-    }
-  }
-}
-```
-
-Claim rules:
-
-- each Claude or Codex instance claims one configured slot by PID
-- a claim is valid only while the PID still exists and the process name still matches
-- stale claims are removed before allocation
-- a live process reuses its existing slot if one already exists
-- otherwise it takes the first free configured slot for its family
-
-MVP behavior:
-
-- registration happens only when `/issue` or `$issue` runs
-- Claude registers itself by running `C:/Users/Abix/.claude/ai-collab/Register-AiCollabAgent.ps1 -Family claude`
-- Codex registers itself by running `C:/Users/Abix/.claude/ai-collab/Register-AiCollabAgent.ps1 -Family codex`
-- the returned `agentId` is the owner label to use for the rest of that skill run
-
-If the file is missing, malformed, has no valid slots for the current family, or no live claim can be obtained, the skill must fail fast instead of guessing.
+The k3sc operator assigns agent identities and slots. Agents do not self-register.
 
 ## Initiative Issue
 
@@ -251,7 +217,7 @@ Every `feature` issue must have a spec doc before implementation begins.
 
 ### Spec doc rules
 
-1. **Create before claiming**: when an agent creates a new feature issue (from a user request or epic breakdown), it must also write a spec doc in `docs/` and link it from the issue body.
+1. **Create before working**: when an agent creates a new feature issue (from a user request or epic breakdown), it must also write a spec doc in `docs/` and link it from the issue body.
 2. **Spec doc contents**: the spec defines exactly how the feature works -- behavior, edge cases, data model, UI, and interactions with existing systems. It is the single source of truth for "done."
 3. **Acceptance = spec compliance**: closing (or approving) a feature issue means the implementation matches the spec doc 100%. If the spec says X and the code does Y, that is a blocker.
 4. **Spec-first, not code-first**: if the agent discovers during implementation that the spec needs changing, update the spec doc first, then adjust the code to match. Do not silently deviate from the spec.
@@ -273,48 +239,27 @@ Contents:
 - **Integration**: how this feature interacts with existing systems
 - **Acceptance criteria**: checklist (mirrors the issue checkboxes)
 
-## Claim Protocol
+## Dispatch
 
-Running `/issue` or `$issue` with no issue number means "claim the next eligible issue for this agent."
+The k3sc operator handles ALL issue assignment and label management:
 
-No-argument claim algorithm:
+1. Operator scans GitHub for eligible issues (`ready` and `needs-review`)
+2. Operator assigns an agent slot and adds the owner label
+3. Operator creates a k8s Job that launches the agent pod
+4. Agent works the issue -- writes code, creates PRs, pushes branches
+5. Agent pod exits
+6. Operator detects completion, posts result comment, transitions labels:
+   - Success from `ready` -> `needs-review`
+   - Success from `needs-review` -> `needs-human`
+   - Failure -> back to origin state
 
-1. Read this workflow doc.
-2. Register the current process with `C:/Users/Abix/.claude/ai-collab/Register-AiCollabAgent.ps1` and use the returned `agentId`.
-3. List open issues ordered oldest-first.
-4. Look first for the oldest open issue with the current owner label.
-5. If one exists, resume that issue and do not claim a new one.
-6. If none exists, look for the oldest issue labeled `needs-review` and not labeled `waiting` or with an owner label.
-7. If no `needs-review` issue exists, look for the oldest issue labeled `ready` and not labeled `waiting` or with an owner label.
-8. The k3sc operator handles claiming -- it adds the owner label and removes `ready`/`needs-review` before launching the agent pod. Agents do NOT touch labels.
-9. If running as a Windows agent (not dispatched by operator), claim by running `k3sc claim <repo> <issue>`.
+**Agents do NOT touch labels, claim issues, or register themselves.** The operator does all of this.
 
-Claims do not expire automatically. The operator handles orphan cleanup if a pod dies.
-
-## Explicit Issue Selection
-
-If an issue number is provided:
-
-- if the issue is `ready` or `needs-review`, the operator claims it before launching the agent
-- if the issue has another agent's owner label, do not act on it
-- if the issue is `waiting`, do not proceed without first resolving the blocker
-- agents do NOT add or remove labels -- the operator handles all transitions
+The agent's identity and assigned issue are passed via environment variables (`AGENT_SLOT`, `ISSUE_NUMBER`, `REPO_URL`).
 
 ## Comment Formats
 
-Claim comment:
-
-```md
-## <AgentName>
-- State: <previous-state> -> owner
-- Owner: <agent-id>
-- Intent: implement | review
-- Next: smallest immediate step
-```
-
-Use the actual previous state: `ready` or `needs-review`.
-
-Implementation or review handoff:
+Handoff comment (posted by agent before pod exits):
 
 ```md
 ## <AgentName>
@@ -352,7 +297,7 @@ If two agents both touch the same spec:
 Use this flow for each slice:
 
 1. Read the slice issue, the linked spec doc, and the critical docs: `docs/k8s.md`, `docs/authority.md`, `docs/performance.md`
-2. Claim the issue if it is `ready`
+2. The operator has already claimed the issue and assigned you. Start working.
 3. In your agent workspace, create or checkout the issue branch:
    - new issue: `git fetch origin && git checkout -b issue-{N} origin/dev`
    - continuing work: `git checkout issue-{N} && git pull --rebase origin dev`
@@ -381,11 +326,10 @@ If work is genuinely blocked:
 
 Default review split:
 
-- the implementing agent hands off to `needs-review`
-- any different agent may pick up review (regardless of family)
-- the reviewing agent must claim the issue before starting review
+- the operator transitions the issue to `needs-review` after successful implementation
+- the operator dispatches a different agent for review
 - reviewers never review an issue they most recently implemented
-- only an agent that did not make the latest code-changing step may close the issue
+- agents do NOT claim issues or change labels -- the operator handles assignment
 
 To review, the reviewer checks out the `issue-{N}` branch in their own workspace:
 
@@ -441,20 +385,19 @@ Use the shared workflow skill when you want either agent family to pick up one i
 
 - Claude: `/issue 3`
 - Codex: `$issue 3`
-- No argument: claim the next eligible `needs-review` issue, otherwise the next eligible `ready` issue, using the current process claim from `C:/Users/Abix/.claude/ai-collab/settings.json`
+- No argument: the k3sc operator dispatches the next eligible issue automatically
 
 Expected behavior:
 
 - read this workflow doc, the target issue, the canonical spec, the latest handoff comments, and the critical docs (`docs/k8s.md`, `docs/authority.md`, `docs/performance.md`)
 - respect the state-machine and ownership rules above
-- claim `ready` and `needs-review` issues before starting work
-- work in the agent's own workspace (`C:\code\endless-{agentId}`)
+- work in the agent's own workspace
 - create or checkout `issue-{N}` branch from `dev`
 - perform the smallest complete next step
 - run the required tests
 - push the branch, verify `origin/issue-{N}`, and open or update the PR targeting `dev`
 - leave a GitHub handoff comment with the PR link
-- transition labels immediately as part of the handoff
+- do NOT touch labels -- the operator handles all transitions when the pod exits
 
 ## Progress Tracking
 
@@ -472,7 +415,7 @@ This is enough for a one-person project with up to twenty agents unless coordina
 Adopt a Project board only if one or more of these start happening:
 
 - progress is hard to read from milestones and issue labels
-- multiple agents still step on each other despite the claim protocol
+- multiple agents still step on each other despite the operator's slot assignment
 - blockers vanish inside issue comments
 - `docs/roadmap.md` starts turning into a live tracker again
 - the initiative has too many concurrent slices to follow comfortably
