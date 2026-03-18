@@ -12,12 +12,14 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use endless::components::*;
 use endless::constants::*;
+use endless::entity_map::BuildingInstance;
 use endless::gpu::populate_gpu_state;
 use endless::gpu::{EntityGpuState, ProjBufferWrites};
 use endless::messages::*;
 use endless::resources::*;
 use endless::systems::stats;
 use endless::systems::ai_player::{AiSnapshotDirty, RoadStyle};
+use endless::systems::work_targeting::resolve_work_targets;
 use endless::systems::{
     AiKind, AiPersonality, AiPlayer, AiPlayerConfig, AiPlayerState, advance_waypoints_system,
     ai_decision_system, arrival_system, attack_system, building_tower_system,
@@ -1711,6 +1713,104 @@ fn bench_ai_decision_system(c: &mut Criterion) {
         },
     );
 
+/// Benchmark `resolve_work_targets` with 1K farm buildings and N Claim intents.
+///
+/// Measures the O(~1K ECS buildings) query path that replaced the old
+/// O(68K iter_instances()) scan. Intent counts [500, 2_000] represent
+/// typical and peak farmer claim bursts.
+fn bench_resolve_work_targets(c: &mut Criterion) {
+    const BUILDING_COUNT: usize = 1_000;
+    const INTENT_COUNTS: &[usize] = &[500, 2_000];
+
+    let mut group = c.benchmark_group("resolve_work_targets");
+    group.sample_size(20);
+
+    for &intent_count in INTENT_COUNTS {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(intent_count),
+            &intent_count,
+            |b, &intent_count| {
+                let mut app = build_bench_app();
+
+                // Init spatial index
+                {
+                    let world = app.world_mut();
+                    let mut em = world.resource_mut::<EntityMap>();
+                    em.init_spatial(2048.0);
+                }
+
+                // Spawn BUILDING_COUNT farm buildings with ProductionState + FarmModeComp
+                let mut building_entities: Vec<Entity> = Vec::with_capacity(BUILDING_COUNT);
+                {
+                    let world = app.world_mut();
+                    for i in 0..BUILDING_COUNT {
+                        let pos = Vec2::new((i % 100) as f32 * 20.0, (i / 100) as f32 * 20.0);
+                        let entity = world
+                            .spawn((
+                                GpuSlot(i),
+                                Building {
+                                    kind: endless::world::BuildingKind::Farm,
+                                },
+                                ProductionState::default(),
+                                FarmModeComp(FarmMode::Crops),
+                            ))
+                            .id();
+                        building_entities.push(entity);
+                    }
+                }
+                {
+                    let world = app.world_mut();
+                    let mut em = world.resource_mut::<EntityMap>();
+                    for (i, &entity) in building_entities.iter().enumerate() {
+                        let pos = Vec2::new((i % 100) as f32 * 20.0, (i / 100) as f32 * 20.0);
+                        em.set_entity(i, entity);
+                        em.add_instance(BuildingInstance {
+                            kind: endless::world::BuildingKind::Farm,
+                            position: pos,
+                            town_idx: 0,
+                            slot: i,
+                            faction: 1,
+                        });
+                    }
+                }
+
+                // Spawn NPC entities (one per intent)
+                let mut npc_entities: Vec<Entity> = Vec::with_capacity(intent_count);
+                {
+                    let world = app.world_mut();
+                    let slot_base = BUILDING_COUNT;
+                    for i in 0..intent_count {
+                        let entity = world
+                            .spawn((
+                                GpuSlot(slot_base + i),
+                                NpcWorkState::default(),
+                                Activity::default(),
+                            ))
+                            .id();
+                        npc_entities.push(entity);
+                    }
+                }
+
+                let from = Vec2::new(500.0, 500.0);
+
+                b.iter(|| {
+                    // Inject Claim intents for all NPC entities
+                    {
+                        let world = app.world_mut();
+                        for &entity in &npc_entities {
+                            world.write_message(WorkIntentMsg(WorkIntent::Claim {
+                                entity,
+                                kind: endless::world::BuildingKind::Farm,
+                                town_idx: 0,
+                                from,
+                            }));
+                        }
+                    }
+                    let _ = app.world_mut().run_system_once(resolve_work_targets);
+                });
+            },
+        );
+    }
     group.finish();
 }
 
@@ -1739,5 +1839,6 @@ criterion_group!(
     bench_process_proj_hits,
     bench_prune_town_equipment,
     bench_ai_decision_system,
+    bench_resolve_work_targets,
 );
 criterion_main!(benches);

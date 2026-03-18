@@ -367,12 +367,13 @@ mod tests {
         spawn_farm(&mut app, 1, crop_pos, false);
 
         let farmer = spawn_farmer(&mut app);
-        app.world_mut().write_message(WorkIntentMsg(WorkIntent::Claim {
-            entity: farmer,
-            kind: BuildingKind::Farm,
-            town_idx: 0,
-            from,
-        }));
+        app.world_mut()
+            .write_message(WorkIntentMsg(WorkIntent::Claim {
+                entity: farmer,
+                kind: BuildingKind::Farm,
+                town_idx: 0,
+                from,
+            }));
 
         app.update();
 
