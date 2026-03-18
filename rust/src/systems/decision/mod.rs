@@ -339,11 +339,11 @@ pub fn decision_system(
     let interval_buckets = (npc_config.interval * 60.0) as usize;
     let min_buckets = npc_count / npc_config.max_decisions_per_frame.max(1);
     let think_buckets = interval_buckets.max(min_buckets).max(1);
-    // Scale buckets down at high game speeds so decisions keep pace with movement
-    let speed_scale = game_time.time_scale.max(1.0);
-    let think_buckets = (think_buckets as f32 / speed_scale).max(1.0) as usize;
+    // Combat bucket: fighting NPCs use a tighter cadence for responsive flee/leash reactions.
+    // No speed_scale adjustment -- sync_fixed_hz scales the Fixed timestep period with
+    // time_scale instead, keeping per-tick CPU cost constant across all game speeds.
     const COMBAT_BUCKET: usize = 16; // ~267ms at 60fps
-    let combat_bucket = (COMBAT_BUCKET as f32 / speed_scale).max(1.0) as usize;
+    let combat_bucket = COMBAT_BUCKET;
 
     // Pre-build cow farm set for farmer targeting exclusion (cheap: only farm buildings)
     let cow_farm_slots: std::collections::HashSet<usize> = entity_map

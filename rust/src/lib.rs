@@ -106,6 +106,22 @@ fn smooth_delta(time: Res<Time>, game_time: Res<GameTime>, mut dt: ResMut<DeltaT
     };
 }
 
+/// Scale FixedUpdate period with time_scale to keep per-tick CPU cost constant.
+/// At 4x speed: period = 4/60s (15 Hz real). At 1x: period = 1/60s (60 Hz).
+/// game_time.delta() = period * time_scale, so game-time advance per real-second
+/// remains proportional to time_scale regardless of period.
+/// This prevents the cascade where expensive per-tick work at high speeds causes
+/// frames to overflow the budget, queuing more Fixed ticks, spiraling into 4fps.
+fn sync_fixed_hz(game_time: Res<GameTime>, mut fixed_time: ResMut<Time<Fixed>>) {
+    // Clamp below 1.0 so slow-motion keeps Fixed at 60 Hz (game_time.delta handles it).
+    // Cap at 32 to limit per-tick dt size for timer-based systems.
+    let ts = (game_time.time_scale.max(1.0) as f64).min(32.0);
+    let period = std::time::Duration::from_secs_f64(ts / 60.0);
+    if fixed_time.timestep() != period {
+        fixed_time.set_timestep(period);
+    }
+}
+
 fn frame_timer_start(timings: Res<SystemTimings>, time: Res<Time>) {
     timings.record_frame_delta(time.delta_secs());
     // Drain render-world atomic timings into SystemTimings
@@ -507,6 +523,7 @@ pub fn build_app(app: &mut App) {
         .add_systems(OnEnter(AppState::Playing), systems::audio::start_music)
         .add_systems(OnExit(AppState::Playing), systems::audio::stop_music)
         .add_systems(Update, smooth_delta)
+        .add_systems(Update, sync_fixed_hz)
         .add_systems(
             Update,
             systems::audio::jukebox_system.run_if(in_state(AppState::Playing)),
@@ -716,4 +733,129 @@ pub fn build_app(app: &mut App) {
 
     // UI (main menu, game startup, in-game HUD)
     ui::register_ui(app);
+}
+
+// ============================================================================
+// UNIT TESTS
+// ============================================================================
+
+#[cfg(test)]
+mod tests_fixed_hz {
+    use super::*;
+    use bevy::time::TimeUpdateStrategy;
+
+    fn make_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(GameTime::default());
+        app.insert_resource(Time::<Fixed>::from_hz(60.0));
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0 / 60.0),
+        ));
+        app.add_systems(Update, sync_fixed_hz);
+        app.update(); // prime resources
+        app
+    }
+
+    /// Fixed period must be 1/60s at 1x speed (baseline: no regression on 1x).
+    #[test]
+    fn fixed_period_is_baseline_at_1x() {
+        let app = make_app();
+        // time_scale = 1.0 (default) -- sync_fixed_hz already primed in make_app
+        let period = app.world().resource::<Time<Fixed>>().timestep();
+        let expected = std::time::Duration::from_secs_f64(1.0 / 60.0);
+        assert_eq!(
+            period, expected,
+            "1x speed must keep 60 Hz Fixed period, got {:?}",
+            period
+        );
+    }
+
+    /// Fixed period must scale to 4/60s at 4x speed (prevents per-tick cost cascade).
+    /// This test FAILS if sync_fixed_hz is removed or the period is not scaled.
+    #[test]
+    fn fixed_period_scales_at_4x() {
+        let mut app = make_app();
+        app.world_mut().resource_mut::<GameTime>().time_scale = 4.0;
+        app.update();
+        let period = app.world().resource::<Time<Fixed>>().timestep();
+        let expected = std::time::Duration::from_secs_f64(4.0 / 60.0);
+        assert_eq!(
+            period, expected,
+            "4x speed must use 15 Hz Fixed period to prevent cascade, got {:?}",
+            period
+        );
+    }
+
+    /// Fixed period must scale to 16/60s at 16x speed.
+    /// This test FAILS if sync_fixed_hz is removed.
+    #[test]
+    fn fixed_period_scales_at_16x() {
+        let mut app = make_app();
+        app.world_mut().resource_mut::<GameTime>().time_scale = 16.0;
+        app.update();
+        let period = app.world().resource::<Time<Fixed>>().timestep();
+        let expected = std::time::Duration::from_secs_f64(16.0 / 60.0);
+        assert_eq!(
+            period, expected,
+            "16x speed must use 3.75 Hz Fixed period, got {:?}",
+            period
+        );
+    }
+
+    /// At slow speed (< 1x), Fixed period must stay at 1/60s (clamp prevents faster-than-60Hz).
+    #[test]
+    fn fixed_period_clamps_at_slow_speed() {
+        let mut app = make_app();
+        app.world_mut().resource_mut::<GameTime>().time_scale = 0.5;
+        app.update();
+        let period = app.world().resource::<Time<Fixed>>().timestep();
+        let expected = std::time::Duration::from_secs_f64(1.0 / 60.0);
+        assert_eq!(
+            period, expected,
+            "slow speed must stay at 60 Hz (clamped), got {:?}",
+            period
+        );
+    }
+
+    /// game_time.delta() must advance proportionally to time_scale at all speeds.
+    /// Game time advances ts^2/60 per tick, but ts/60 ticks/s => ts game-s per real-s.
+    #[test]
+    fn game_time_advances_proportionally_to_time_scale() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(GameTime::default());
+        app.insert_resource(Time::<Fixed>::from_hz(60.0));
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0 / 60.0),
+        ));
+        app.add_systems(Update, sync_fixed_hz);
+        app.add_systems(FixedUpdate, crate::game_time_system);
+
+        // Prime
+        app.update();
+        app.update();
+
+        // Run 60 real frames at 1x speed, measure game time advance
+        let before_1x = app.world().resource::<GameTime>().total_seconds;
+        for _ in 0..60 {
+            app.update();
+        }
+        let advance_1x = app.world().resource::<GameTime>().total_seconds - before_1x;
+
+        // Now switch to 4x and run another 60 real frames
+        app.world_mut().resource_mut::<GameTime>().time_scale = 4.0;
+        let before_4x = app.world().resource::<GameTime>().total_seconds;
+        for _ in 0..60 {
+            app.update();
+        }
+        let advance_4x = app.world().resource::<GameTime>().total_seconds - before_4x;
+
+        // At 4x, game time should advance ~4x faster per real frame
+        let ratio = advance_4x / advance_1x;
+        assert!(
+            (ratio - 4.0).abs() < 0.5,
+            "4x speed should advance game time ~4x faster: ratio={ratio:.2} (advance_1x={advance_1x:.3}, advance_4x={advance_4x:.3})"
+        );
+    }
 }
