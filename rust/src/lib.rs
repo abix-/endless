@@ -36,9 +36,10 @@ use bevy::prelude::*;
 use bevy::remote::{RemotePlugin, http::RemoteHttpPlugin};
 
 use messages::{
-    BuildingGridDirtyMsg, CombatLogMsg, DamageMsg, DestroyBuildingMsg, GpuUpdateMsg,
-    HealingZonesDirtyMsg, MiningDirtyMsg, PatrolPerimeterDirtyMsg, PatrolSwapMsg, PatrolsDirtyMsg,
-    ProjGpuUpdateMsg, SelectFactionMsg, SpawnNpcMsg, SquadsDirtyMsg, TerrainDirtyMsg,
+    BuildingGridDirtyMsg, CombatLogMsg, DamageMsg, DestroyBuildingMsg, FarmHarvestedMsg,
+    FarmReadyMsg, GpuUpdateMsg, HealingZonesDirtyMsg, MiningDirtyMsg, PatrolPerimeterDirtyMsg,
+    PatrolSwapMsg, PatrolsDirtyMsg, ProjGpuUpdateMsg, SelectFactionMsg, SpawnNpcMsg,
+    SquadsDirtyMsg, TerrainDirtyMsg,
 };
 use resources::{
     ActiveHealingSlots, AutoUpgrade, BuildMenuContext, BuildingHealState, CombatDebug, CombatLog,
@@ -323,6 +324,8 @@ pub fn build_app(app: &mut App) {
         .add_message::<ProjGpuUpdateMsg>()
         .add_message::<CombatLogMsg>()
         .add_message::<messages::WorkIntentMsg>()
+        .add_message::<FarmReadyMsg>()
+        .add_message::<FarmHarvestedMsg>()
         .add_message::<BuildingGridDirtyMsg>()
         .add_message::<TerrainDirtyMsg>()
         .add_message::<PatrolsDirtyMsg>()

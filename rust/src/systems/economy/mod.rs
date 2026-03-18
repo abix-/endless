@@ -13,7 +13,9 @@ use crate::constants::{
     RAIDER_SETTLE_RADIUS, SPAWNER_RESPAWN_HOURS, STARVING_HP_CAP, STARVING_SPEED_MULT,
     TOWN_GRID_SPACING,
 };
-use crate::messages::{CombatLogMsg, GpuUpdate, GpuUpdateMsg, SpawnNpcMsg};
+use crate::messages::{
+    CombatLogMsg, FarmHarvestedMsg, FarmReadyMsg, GpuUpdate, GpuUpdateMsg, SpawnNpcMsg,
+};
 use crate::resources::*;
 use crate::systemparams::{EconomyState, GameLog, WorldState};
 use crate::systems::ai_player::{AiKind, AiPersonality, AiPlayer, AiPlayerState};
@@ -148,6 +150,7 @@ pub fn growth_system(
     game_time: Res<GameTime>,
     entity_map: Res<EntityMap>,
     mut town_access: crate::systemparams::TownAccess,
+    mut farm_ready: MessageWriter<crate::messages::FarmReadyMsg>,
     mut production_q: Query<
         (
             &GpuSlot,
@@ -220,6 +223,7 @@ pub fn growth_system(
                             if production.progress >= 1.0 {
                                 production.ready = true;
                                 production.progress = 1.0;
+                                farm_ready.write(FarmReadyMsg { slot });
                             }
                         }
                     }
@@ -238,6 +242,7 @@ pub fn growth_system(
                             if production.progress >= 1.0 {
                                 production.ready = true;
                                 production.progress = 1.0;
+                                farm_ready.write(FarmReadyMsg { slot });
                             }
                         }
                     }
@@ -256,6 +261,7 @@ pub fn growth_system(
                     if production.progress >= 1.0 {
                         production.ready = true;
                         production.progress = 1.0;
+                        farm_ready.write(FarmReadyMsg { slot });
                     }
                 }
             }
@@ -267,6 +273,7 @@ pub fn growth_system(
                     if production.progress >= 1.0 {
                         production.ready = true;
                         production.progress = 1.0;
+                        farm_ready.write(FarmReadyMsg { slot });
                     }
                 }
             }
@@ -277,6 +284,7 @@ pub fn growth_system(
                     if production.progress >= 1.0 {
                         production.ready = true;
                         production.progress = 1.0;
+                        farm_ready.write(FarmReadyMsg { slot });
                     }
                 }
             }
@@ -450,45 +458,63 @@ pub fn starvation_system(
 // FARM VISUAL SYSTEM
 // ============================================================================
 
-/// Spawns/despawns FarmReadyMarker entities when farm state transitions.
-/// Growing->Ready: spawn marker. Ready->Growing (harvest): despawn marker.
-/// Uses a slot->marker-entity map for O(1) despawn instead of scanning all markers.
-/// Compacts stale entries for removed farms so slot reuse stays correct.
+/// Spawns/despawns FarmReadyMarker entities when farm production state transitions.
+///
+/// Event-driven: runs every frame but does near-zero work at steady state.
+/// - Added<ProductionState>: initializes markers for newly spawned/loaded farms.
+/// - FarmReadyMsg: spawns a marker when growth_system signals ready.
+/// - FarmHarvestedMsg: despawns a marker when decision_system signals harvest.
+/// - RemovedComponents<ProductionState>: cleans up markers for despawned buildings.
 pub fn farm_visual_system(
     mut commands: Commands,
-    farms_q: Query<(&GpuSlot, &ProductionState), With<Building>>,
+    added_q: Query<(Entity, &GpuSlot, &ProductionState), (With<Building>, Added<ProductionState>)>,
+    mut removed: RemovedComponents<ProductionState>,
+    mut ready_msgs: MessageReader<FarmReadyMsg>,
+    mut harvested_msgs: MessageReader<FarmHarvestedMsg>,
     markers: Query<(), With<FarmReadyMarker>>,
     mut marker_map: Local<HashMap<usize, Entity>>,
-    mut frame_count: Local<u32>,
+    mut entity_to_slot: Local<HashMap<Entity, usize>>,
 ) {
-    // Cadence: only check every 4th frame (crop state changes slowly)
-    *frame_count = frame_count.wrapping_add(1);
-    if !(*frame_count).is_multiple_of(4) {
-        return;
-    }
-
-    let mut previous_markers = std::mem::take(&mut *marker_map);
-    for (gpu_slot, production) in &farms_q {
+    // Initialize markers for newly spawned production buildings (handles post-load restore).
+    for (farm_entity, gpu_slot, production) in &added_q {
         let slot = gpu_slot.0;
-        let live_marker = previous_markers
-            .remove(&slot)
-            .filter(|entity| markers.get(*entity).is_ok());
-
+        entity_to_slot.insert(farm_entity, slot);
         if production.ready {
-            if let Some(marker_entity) = live_marker {
-                marker_map.insert(slot, marker_entity);
-            } else {
-                let marker_entity = commands.spawn(FarmReadyMarker { farm_slot: slot }).id();
-                marker_map.insert(slot, marker_entity);
-            }
-        } else if let Some(marker_entity) = live_marker {
-            commands.entity(marker_entity).despawn();
+            let marker = commands.spawn(FarmReadyMarker { farm_slot: slot }).id();
+            marker_map.insert(slot, marker);
         }
     }
 
-    for marker_entity in previous_markers.into_values() {
-        if markers.get(marker_entity).is_ok() {
-            commands.entity(marker_entity).despawn();
+    // Clean up markers for despawned production buildings.
+    for farm_entity in removed.read() {
+        if let Some(slot) = entity_to_slot.remove(&farm_entity) {
+            if let Some(marker) = marker_map.remove(&slot) {
+                if markers.get(marker).is_ok() {
+                    commands.entity(marker).despawn();
+                }
+            }
+        }
+    }
+
+    // Spawn marker when growth_system signals a farm became ready.
+    for msg in ready_msgs.read() {
+        let slot = msg.slot;
+        let live = marker_map
+            .get(&slot)
+            .is_some_and(|&e| markers.get(e).is_ok());
+        if !live {
+            let marker = commands.spawn(FarmReadyMarker { farm_slot: slot }).id();
+            marker_map.insert(slot, marker);
+        }
+    }
+
+    // Despawn marker when decision_system signals a farm was harvested.
+    for msg in harvested_msgs.read() {
+        let slot = msg.slot;
+        if let Some(marker) = marker_map.remove(&slot) {
+            if markers.get(marker).is_ok() {
+                commands.entity(marker).despawn();
+            }
         }
     }
 }
