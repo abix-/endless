@@ -182,6 +182,28 @@ pub struct NpcVisualBuffers {
 #[derive(Resource, Default)]
 pub struct BuildingBodyInstances(pub Vec<InstanceData>);
 
+/// Dirty flag for BuildingBodyInstances. Set by mark_building_body_dirty, cleared after rebuild.
+/// Avoids O(68K) rebuild every frame when nothing visual has changed for buildings.
+#[derive(Resource)]
+pub struct BuildingBodyDirty {
+    /// Rebuild needed this frame.
+    pub dirty: bool,
+    /// Any building slot had active flash last frame (need one extra rebuild to clear flash=0).
+    pub had_building_flash: bool,
+    /// Building count at last rebuild (detects placements/removals).
+    pub last_building_count: usize,
+}
+
+impl Default for BuildingBodyDirty {
+    fn default() -> Self {
+        Self {
+            dirty: true, // start dirty so first frame always builds
+            had_building_flash: false,
+            last_building_count: usize::MAX, // force rebuild on first frame
+        }
+    }
+}
+
 /// Any system that needs to render building/farm/mine overlays pushes InstanceData here.
 #[derive(Resource, Default)]
 pub struct OverlayInstances(pub Vec<InstanceData>);
@@ -565,6 +587,7 @@ impl Plugin for NpcRenderPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<OverlayInstances>()
             .init_resource::<BuildingBodyInstances>()
+            .init_resource::<BuildingBodyDirty>()
             .init_resource::<SelectionOverlayInstances>()
             .init_resource::<crate::resources::DirectControlSet>()
             .add_systems(Startup, (spawn_npc_batch, spawn_proj_batch))
@@ -572,7 +595,8 @@ impl Plugin for NpcRenderPlugin {
                 PostUpdate,
                 (
                     sync_direct_control_set,
-                    build_building_body_instances,
+                    mark_building_body_dirty.after(crate::gpu::populate_gpu_state),
+                    build_building_body_instances.after(mark_building_body_dirty),
                     build_overlay_instances,
                     build_selection_overlay.after(sync_direct_control_set),
                 ),
@@ -675,14 +699,55 @@ fn extract_camera_state(
 // OVERLAY INSTANCES (main world → render world, zero-clone)
 // =============================================================================
 
+/// Mark BuildingBodyInstances dirty when any building visual state may have changed.
+/// Runs in PostUpdate after populate_gpu_state so flash_only_indices is current.
+fn mark_building_body_dirty(
+    mut dirty: ResMut<BuildingBodyDirty>,
+    construction_changed: Query<(), Changed<crate::components::ConstructionProgress>>,
+    entity_map: Res<crate::resources::EntityMap>,
+    gpu_state: Res<crate::gpu::EntityGpuState>,
+) {
+    // Building placed or removed: count changed.
+    let count = entity_map.building_count();
+    if count != dirty.last_building_count {
+        dirty.last_building_count = count;
+        dirty.dirty = true;
+        dirty.had_building_flash = false;
+        return;
+    }
+    // Any building under construction ticked (ConstructionProgress changed).
+    if !construction_changed.is_empty() {
+        dirty.dirty = true;
+        return;
+    }
+    // Any building slot has active damage flash (check flash_only_indices, not all 68K slots).
+    let mut has_building_flash = false;
+    for &slot in &gpu_state.flash_only_indices {
+        if entity_map.get_instance(slot).is_some() {
+            has_building_flash = true;
+            break;
+        }
+    }
+    // Dirty if flash active now OR was active last frame (one extra rebuild to clear flash=0).
+    if has_building_flash || dirty.had_building_flash {
+        dirty.dirty = true;
+    }
+    dirty.had_building_flash = has_building_flash;
+}
+
 /// Build building body instances from EntityGpuState for instance-buffer rendering.
-/// Buildings are few (<500), so rebuilding each frame is cheap.
+/// Skips rebuild when BuildingBodyDirty is false (nothing changed since last frame).
 fn build_building_body_instances(
     gpu_state: Res<crate::gpu::EntityGpuState>,
     entity_map: Res<crate::resources::EntityMap>,
     mut instances: ResMut<BuildingBodyInstances>,
+    mut dirty: ResMut<BuildingBodyDirty>,
     construction_q: Query<&crate::components::ConstructionProgress>,
 ) {
+    if !dirty.dirty {
+        return;
+    }
+    dirty.dirty = false;
     instances.0.clear();
     for inst in entity_map.iter_instances() {
         let idx = inst.slot;
@@ -1098,6 +1163,94 @@ mod tests {
             sentinel_equip_len * std::mem::size_of::<f32>(),
             equip_bytes,
             "sentinel_equip length must match equip buffer byte size"
+        );
+    }
+
+    /// Regression test for issue #187: build_building_body_instances must skip rebuild when dirty=false.
+    /// If the guard is removed, the system would clear instances every frame regardless of dirty flag.
+    #[test]
+    fn building_body_instances_skips_rebuild_when_not_dirty() {
+        let mut app = App::new();
+
+        // Pre-populate instances with a sentinel value.
+        let mut instances = BuildingBodyInstances::default();
+        instances.0.push(InstanceData {
+            position: [1.0, 2.0],
+            sprite: [3.0, 4.0],
+            color: [1.0, 1.0, 1.0, 1.0],
+            health: 1.0,
+            flash: 0.0,
+            scale: 64.0,
+            atlas_id: 1.0,
+            rotation: 0.0,
+        });
+
+        app.insert_resource(instances)
+            .insert_resource(BuildingBodyDirty {
+                dirty: false,
+                had_building_flash: false,
+                last_building_count: 0,
+            })
+            .insert_resource(crate::resources::EntityMap::default())
+            .insert_resource(crate::gpu::EntityGpuState::default())
+            .add_systems(Update, build_building_body_instances);
+
+        app.update();
+
+        let result = app.world().resource::<BuildingBodyInstances>();
+        assert_eq!(
+            result.0.len(),
+            1,
+            "build_building_body_instances must not clear instances when dirty=false"
+        );
+    }
+
+    /// Regression test for issue #187: mark_building_body_dirty must set dirty=true when building count changes.
+    /// If the count check is removed, newly placed buildings would not trigger a rebuild.
+    #[test]
+    fn building_body_dirty_triggers_on_building_count_change() {
+        use crate::entity_map::BuildingInstance;
+        use crate::world::BuildingKind;
+
+        let mut app = App::new();
+
+        app.insert_resource(BuildingBodyDirty {
+            dirty: false,
+            had_building_flash: false,
+            last_building_count: 0,
+        })
+        .insert_resource(crate::resources::EntityMap::default())
+        .insert_resource(crate::gpu::EntityGpuState::default())
+        .add_systems(Update, mark_building_body_dirty);
+
+        // First update: no buildings -> count stays 0 -> dirty stays false.
+        app.update();
+        assert!(
+            !app.world().resource::<BuildingBodyDirty>().dirty,
+            "dirty should remain false when no buildings exist"
+        );
+
+        // Add a building to EntityMap to simulate a placement.
+        app.world_mut()
+            .resource_mut::<crate::resources::EntityMap>()
+            .add_instance(BuildingInstance {
+                kind: BuildingKind::Farm,
+                position: bevy::math::Vec2::new(64.0, 64.0),
+                town_idx: 1,
+                slot: 100,
+                faction: 1,
+            });
+
+        // Second update: count is now 1, last_building_count was 0 -> dirty=true.
+        app.update();
+        let dirty = app.world().resource::<BuildingBodyDirty>();
+        assert!(
+            dirty.dirty,
+            "mark_building_body_dirty must set dirty=true when building count changes"
+        );
+        assert_eq!(
+            dirty.last_building_count, 1,
+            "last_building_count must be updated to new count"
         );
     }
 }
