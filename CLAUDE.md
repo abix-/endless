@@ -10,9 +10,8 @@ Real-time kingdom builder: pure Bevy 0.18 ECS with GPU compute for 50K NPCs via 
 
 ## Build & Run
 
-- Build: `cd /c/code/endless/rust && cargo build --release 2>&1`
-- Run: `cd /c/code/endless/rust && cargo run --release 2>&1`
-- Check: `cd /c/code/endless/rust && cargo check 2>&1`
+- Run (builds automatically): `k3sc cargo-lock run --release --manifest-path /c/code/endless/rust/Cargo.toml 2>&1`
+- Check: `k3sc cargo-lock check --manifest-path /c/code/endless/rust/Cargo.toml 2>&1`
 
 ## Rules
 
