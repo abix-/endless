@@ -107,6 +107,7 @@ pub fn resolve_work_targets(
             } => {
                 if let Some(slot) = entity_map.entity_to_slot.get(worksite).copied() {
                     entity_map.mark_present(slot);
+                    mark_sleeping_dirty_if_resource(&mut entity_map, slot);
                 }
             }
         }
@@ -123,6 +124,7 @@ fn release_worksite(
     };
     if let Some(ws_entity) = ws.worksite.take() {
         if let Some(slot) = entity_map.slot_for_entity(ws_entity) {
+            mark_sleeping_dirty_if_resource(entity_map, slot);
             entity_map.release_for(slot, Some(entity));
         }
     }
@@ -132,8 +134,19 @@ fn release_worksite(
 fn release_worksite_entity(npc: Entity, worksite: Option<Entity>, entity_map: &mut EntityMap) {
     if let Some(ws_entity) = worksite {
         if let Some(slot) = entity_map.slot_for_entity(ws_entity) {
+            mark_sleeping_dirty_if_resource(entity_map, slot);
             entity_map.release_for(slot, Some(npc));
         }
+    }
+}
+
+#[inline]
+fn mark_sleeping_dirty_if_resource(entity_map: &mut EntityMap, slot: usize) {
+    if entity_map
+        .get_instance(slot)
+        .is_some_and(|inst| matches!(inst.kind, BuildingKind::TreeNode | BuildingKind::RockNode))
+    {
+        entity_map.sleeping_dirty.push(slot);
     }
 }
 

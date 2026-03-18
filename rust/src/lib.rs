@@ -613,7 +613,6 @@ pub fn build_app(app: &mut App) {
                     construction_tick_system.before(growth_system),
                     growth_system,
                     farming_skill_system,
-                    sync_sleeping_system,
                 ),
                 raider_forage_system,
                 spawner_respawn_system,
@@ -671,6 +670,12 @@ pub fn build_app(app: &mut App) {
             FixedUpdate,
             systems::work_targeting::resolve_work_targets
                 .after(decision_system)
+                .in_set(Step::Behavior),
+        )
+        .add_systems(
+            FixedUpdate,
+            sync_sleeping_system
+                .after(systems::work_targeting::resolve_work_targets)
                 .in_set(Step::Behavior),
         )
         // Waypoint advancement — advance NpcPath after gpu_position_readback sets at_destination
