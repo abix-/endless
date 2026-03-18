@@ -29,9 +29,7 @@ jobs:
   bench:
     needs: [skip-check]
     # Skip if PR has 'skip-bench' label or commit message contains [skip-bench]
-    if: >
-      needs.skip-check.outputs.skip != 'true' &&
-      !contains(github.event.pull_request.labels.*.name, 'skip-bench')
+    if: needs.skip-check.outputs.skip != 'true' && !contains(github.event.pull_request.labels.*.name, 'skip-bench')
     runs-on: ubuntu-latest
 
     defaults:
