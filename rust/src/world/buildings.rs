@@ -602,6 +602,9 @@ pub fn setup_world(
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
 ) -> Vec<crate::systems::AiPlayer> {
     entity_map.clear_buildings();
+    // init_spatial before generate_world so buildings are inserted into spatial
+    // incrementally by add_instance instead of requiring a full rebuild after.
+    entity_map.init_spatial(grid.width as f32 * grid.cell_size);
     let area_levels = super::worldgen::generate_world(
         config,
         grid,
@@ -612,7 +615,6 @@ pub fn setup_world(
         commands,
         gpu_updates,
     );
-    entity_map.init_spatial(grid.width as f32 * grid.cell_size);
     grid.init_pathfind_costs();
     grid.sync_building_costs(entity_map);
     grid.sync_town_buildability(&world_data.towns, &area_levels, entity_map);
