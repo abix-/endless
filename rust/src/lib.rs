@@ -106,17 +106,17 @@ fn smooth_delta(time: Res<Time>, game_time: Res<GameTime>, mut dt: ResMut<DeltaT
     };
 }
 
-/// Scale FixedUpdate period with time_scale to keep per-tick CPU cost constant.
-/// At 4x speed: period = 4/60s (15 Hz real). At 1x: period = 1/60s (60 Hz).
-/// game_time.delta() = period * time_scale, so game-time advance per real-second
-/// remains proportional to time_scale regardless of period.
-/// This prevents the cascade where expensive per-tick work at high speeds causes
-/// frames to overflow the budget, queuing more Fixed ticks, spiraling into 4fps.
+/// Scale FixedUpdate period with sqrt(time_scale) to balance cascade prevention with UPS.
+/// At 4x speed: period = sqrt(4)/60 = 2/60s (30 Hz). At 16x: sqrt(16)/60 = 4/60 (15 Hz).
+/// Linear scaling (ts/60) cut UPS too aggressively (8x -> 7.5 UPS, game looks frozen).
+/// Sqrt keeps UPS playable (8x -> 21 Hz) while still preventing the tick cascade.
+/// game_time.delta() = sqrt(ts)/60 * ts per tick; ticks/s = 60/sqrt(ts);
+/// game-s/real-s = (60/sqrt(ts)) * sqrt(ts)/60 * ts = ts. Proportionality preserved.
 fn sync_fixed_hz(game_time: Res<GameTime>, mut fixed_time: ResMut<Time<Fixed>>) {
     // Clamp below 1.0 so slow-motion keeps Fixed at 60 Hz (game_time.delta handles it).
     // Cap at 32 to limit per-tick dt size for timer-based systems.
     let ts = (game_time.time_scale.max(1.0) as f64).min(32.0);
-    let period = std::time::Duration::from_secs_f64(ts / 60.0);
+    let period = std::time::Duration::from_secs_f64(ts.sqrt() / 60.0);
     if fixed_time.timestep() != period {
         fixed_time.set_timestep(period);
     }
@@ -771,7 +771,7 @@ mod tests_fixed_hz {
         );
     }
 
-    /// Fixed period must scale to 4/60s at 4x speed (prevents per-tick cost cascade).
+    /// Fixed period must scale to sqrt(4)/60s at 4x speed (prevents cascade, keeps 30 UPS).
     /// This test FAILS if sync_fixed_hz is removed or the period is not scaled.
     #[test]
     fn fixed_period_scales_at_4x() {
@@ -779,15 +779,15 @@ mod tests_fixed_hz {
         app.world_mut().resource_mut::<GameTime>().time_scale = 4.0;
         app.update();
         let period = app.world().resource::<Time<Fixed>>().timestep();
-        let expected = std::time::Duration::from_secs_f64(4.0 / 60.0);
+        let expected = std::time::Duration::from_secs_f64(2.0 / 60.0); // sqrt(4)/60
         assert_eq!(
             period, expected,
-            "4x speed must use 15 Hz Fixed period to prevent cascade, got {:?}",
+            "4x speed must use 30 Hz Fixed period (sqrt scaling), got {:?}",
             period
         );
     }
 
-    /// Fixed period must scale to 16/60s at 16x speed.
+    /// Fixed period must scale to sqrt(16)/60s at 16x speed (15 Hz, playable).
     /// This test FAILS if sync_fixed_hz is removed.
     #[test]
     fn fixed_period_scales_at_16x() {
@@ -795,10 +795,10 @@ mod tests_fixed_hz {
         app.world_mut().resource_mut::<GameTime>().time_scale = 16.0;
         app.update();
         let period = app.world().resource::<Time<Fixed>>().timestep();
-        let expected = std::time::Duration::from_secs_f64(16.0 / 60.0);
+        let expected = std::time::Duration::from_secs_f64(4.0 / 60.0); // sqrt(16)/60
         assert_eq!(
             period, expected,
-            "16x speed must use 3.75 Hz Fixed period, got {:?}",
+            "16x speed must use 15 Hz Fixed period (sqrt scaling), got {:?}",
             period
         );
     }
@@ -819,7 +819,8 @@ mod tests_fixed_hz {
     }
 
     /// game_time.delta() must advance proportionally to time_scale at all speeds.
-    /// Game time advances ts^2/60 per tick, but ts/60 ticks/s => ts game-s per real-s.
+    /// Sqrt scaling: tick period = sqrt(ts)/60, game_time.delta/tick = ts*sqrt(ts)/60,
+    /// ticks/s = 60/sqrt(ts) => game-s/real-s = ts. Proportionality preserved.
     #[test]
     fn game_time_advances_proportionally_to_time_scale() {
         let mut app = App::new();
@@ -859,9 +860,9 @@ mod tests_fixed_hz {
         );
     }
 
-    /// At 4x speed, Fixed must run at 1/4 the rate -- verifying tick cascade prevention.
+    /// At 4x speed, Fixed must run at ~1/2 the rate of 1x -- verifying tick cascade prevention.
     /// Without the fix, Bevy would queue 4 Fixed ticks per frame at 4x, overflowing budget.
-    /// With sync_fixed_hz, Fixed runs at 15 Hz: 1 tick per ~4 real frames at 60Hz.
+    /// With sqrt scaling, Fixed runs at 30 Hz: 1 tick per ~2 real frames at 60Hz.
     /// This test FAILS if sync_fixed_hz is removed or the period is not scaled.
     #[test]
     fn fixed_ticks_per_second_scale_with_speed() {
@@ -917,15 +918,15 @@ mod tests_fixed_hz {
         let ticks_4x = *tick_count_4x.lock().unwrap();
 
         // At 1x: ~60 ticks/s * 1s = ~60 ticks
-        // At 4x: ~15 ticks/s * 1s = ~15 ticks (1/4 as many)
+        // At 4x (sqrt scaling): ~30 ticks/s * 1s = ~30 ticks (1/2 as many)
         // Without the fix: 4x would queue 4 ticks/frame = ~240 ticks (4x more than 1x)
         assert!(
             ticks_1x >= 50 && ticks_1x <= 70,
             "1x should tick ~60 times in 60 frames, got {ticks_1x}"
         );
         assert!(
-            ticks_4x <= ticks_1x / 2,
-            "4x should tick far fewer times than 1x (cascade prevention): 1x={ticks_1x}, 4x={ticks_4x}"
+            ticks_4x >= 20 && ticks_4x <= 40,
+            "4x (sqrt scaling) should tick ~30 times in 60 frames, got {ticks_4x} (1x={ticks_1x})"
         );
     }
 }
