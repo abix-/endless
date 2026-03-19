@@ -9,28 +9,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  skip-check:
+  bench-skip-check:
     runs-on: ubuntu-latest
     outputs:
-      skip: ${{ steps.msg.outputs.skip }}
+      skip: ${{ steps.check.outputs.skip }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
-      - name: check skip flag in commit message
-        id: msg
+      - id: check
+        # github.event.head_commit is null for pull_request events; read from git directly.
         run: |
-          if git log -1 --format=%B | grep -q '\[skip-bench\]'; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
+          if git log --format=%B -1 HEAD | grep -qF '[skip-bench]'; then
+            echo "skip=true" >> $GITHUB_OUTPUT
           else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
   bench:
-    needs: [skip-check]
-    # Skip if PR has 'skip-bench' label or commit message contains [skip-bench]
-    if: needs.skip-check.outputs.skip != 'true' && !contains(github.event.pull_request.labels.*.name, 'skip-bench')
+    needs: bench-skip-check
+    # Skip if PR has 'skip-bench' label or latest commit message contains [skip-bench].
+    if: >
+      needs.bench-skip-check.outputs.skip != 'true' &&
+      !contains(github.event.pull_request.labels.*.name, 'skip-bench')
     runs-on: ubuntu-latest
 
     defaults:
