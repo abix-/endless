@@ -568,10 +568,10 @@ pub fn rebuild_building_grid_system(
     if grid.width == 0 || grid_dirty.read().count() == 0 {
         return;
     }
+    let needs_full_rebuild = !entity_map.is_spatial_initialized();
     let world_size_px = grid.width as f32 * grid.cell_size;
-    let was_initialized = entity_map.is_spatial_initialized();
     entity_map.init_spatial(world_size_px);
-    if !was_initialized {
+    if needs_full_rebuild {
         entity_map.rebuild_spatial();
     }
 }

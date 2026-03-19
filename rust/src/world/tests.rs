@@ -147,6 +147,56 @@ fn rebuild_building_grid_preserves_spatial_on_subsequent_frame() {
 }
 
 #[test]
+fn building_added_after_init_findable_without_dirty_message() {
+    // After spatial init, add_instance must insert directly into the spatial grid.
+    // No second dirty message should be required for the new building to be found.
+    // This verifies the incremental O(1) path: add_instance -> spatial_insert inline.
+    // If this test fails, the incremental spatial update path is broken and full
+    // O(n) rebuilds would be needed on every building change again.
+    let mut app = setup_rebuild_app();
+
+    // Initialize spatial via the first dirty message
+    let pos_a = Vec2::new(32.0, 32.0);
+    app.world_mut()
+        .resource_mut::<EntityMap>()
+        .add_instance(BuildingInstance {
+            kind: BuildingKind::Farm,
+            position: pos_a,
+            slot: 1,
+            town_idx: 0,
+            faction: 1,
+        });
+    app.insert_resource(SendBuildingGridDirty(true));
+    app.update();
+    assert!(
+        app.world().resource::<EntityMap>().is_spatial_initialized(),
+        "spatial should be initialized after first dirty message"
+    );
+
+    // Add a second building WITHOUT sending a dirty message
+    let pos_b = Vec2::new(256.0, 256.0);
+    app.world_mut()
+        .resource_mut::<EntityMap>()
+        .add_instance(BuildingInstance {
+            kind: BuildingKind::Fountain,
+            position: pos_b,
+            slot: 2,
+            town_idx: 0,
+            faction: 1,
+        });
+    app.update();
+
+    // The new building must be findable -- add_instance calls spatial_insert inline
+    let em = app.world().resource::<EntityMap>();
+    let mut found = false;
+    em.for_each_nearby(pos_b, 200.0, |_, _| found = true);
+    assert!(
+        found,
+        "building added after init must be findable without a dirty message"
+    );
+}
+
+#[test]
 fn road_blocked_on_forest_biome() {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
