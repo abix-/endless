@@ -21,22 +21,27 @@ func main() {
 		fmt.Fprintln(os.Stderr, `usage: endless-cli <command> [key:value...]
 
 BRP commands (prepends endless/ automatically, all use key:value params):
-  summary                                game state
-  perf                                   FPS, UPS, timings
-  debug <entity>                         inspect entity (single positional arg)
-  build town:1 kind:Farm row:-5 col:0    place building
-  destroy town:1 row:-5 col:0            remove building
-  upgrade town:1 upgrade_idx:0           apply upgrade
-  time paused:false time_scale:4.0       control time
-  squad_target squad:13 x:6944 y:11488   move squad
-  policy town:1 eat_food:true            set town policies
-  chat town:1 to:0 message:hi friend       send chat (spaces ok)
-  ai_manager town:1 active:true          configure AI
+  get_summary                                   game state
+  get_perf                                      FPS, UPS, timings
+  get_entity <entity>                           inspect entity (single positional arg)
+  get_squad index:0                             inspect squad
+  list_buildings town:0                         list buildings
+  list_npcs town:0 job:Woodcutter               list NPCs
+  create_building town:1 kind:Farm row:-5 col:0 place building
+  delete_building town:1 row:-5 col:0           remove building
+  apply_upgrade town:1 upgrade_idx:0            apply upgrade
+  set_time paused:false time_scale:4.0          control time
+  set_squad_target squad:13 x:6944 y:11488      move squad
+  set_policy town:1 eat_food:true               set town policies
+  send_chat town:1 to:0 message:hi friend       send chat (spaces ok)
+  set_ai_manager town:1 active:true             configure AI
+  recruit_squad town:1                          recruit squad
+  dismiss_squad squad:0                         dismiss squad
 
 Tools:
-  test                                   baseline BRP test suite
-  loop                                   background state poller (10s)
-  launch                                 start LLM player Claude session`)
+  test                                          baseline BRP test suite
+  loop                                          background state poller (10s)
+  launch                                        start LLM player Claude session`)
 		os.Exit(1)
 	}
 
@@ -51,10 +56,10 @@ Tools:
 		err = runLoop()
 	case "launch":
 		err = runLaunch()
-	case "debug":
-		// single positional param: endless-cli debug <entity>
+	case "get_entity":
+		// single positional param: endless-cli get_entity <entity>
 		if len(args) < 1 {
-			err = fmt.Errorf("usage: endless-cli debug <entity>")
+			err = fmt.Errorf("usage: endless-cli get_entity <entity>")
 		} else {
 			err = callAndPrint("endless/get_entity", map[string]interface{}{"entity": args[0]})
 		}
