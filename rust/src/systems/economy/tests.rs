@@ -1791,3 +1791,91 @@ fn squad_cleanup_retains_alive_members() {
         "alive member should be retained"
     );
 }
+
+// ============================================================================
+// SYNC SLEEPING SYSTEM TESTS
+// ============================================================================
+
+fn setup_sleeping_app() -> App {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.insert_resource(EntityMap::default());
+    app.add_systems(Update, sync_sleeping_system);
+    app
+}
+
+fn spawn_resource_node(app: &mut App, slot: usize, sleeping: bool) -> Entity {
+    use crate::components::ResourceNode;
+    let mut builder = app.world_mut().spawn((
+        GpuSlot(slot),
+        Building {
+            kind: crate::world::BuildingKind::TreeNode,
+        },
+        ResourceNode,
+    ));
+    if sleeping {
+        builder.insert(Sleeping);
+    }
+    builder.id()
+}
+
+#[test]
+fn sync_sleeping_wakes_occupied_resource_node() {
+    let mut app = setup_sleeping_app();
+    let slot = 10usize;
+    let entity = spawn_resource_node(&mut app, slot, true);
+    // Mark slot as occupied
+    app.world_mut()
+        .resource_mut::<EntityMap>()
+        .set_occupancy(slot, 1);
+
+    app.update();
+
+    assert!(
+        app.world().get::<Sleeping>(entity).is_none(),
+        "occupied resource node must not have Sleeping"
+    );
+}
+
+#[test]
+fn sync_sleeping_re_sleeps_vacant_resource_node() {
+    let mut app = setup_sleeping_app();
+    let slot = 11usize;
+    let entity = spawn_resource_node(&mut app, slot, false);
+    // Leave slot unoccupied (default)
+
+    app.update();
+
+    assert!(
+        app.world().get::<Sleeping>(entity).is_some(),
+        "vacant resource node must have Sleeping"
+    );
+}
+
+#[test]
+fn sync_sleeping_ignores_non_resource_node_buildings() {
+    // A building with Sleeping but WITHOUT ResourceNode must not be woken
+    // by sync_sleeping_system even if occupied. This guards the filter correctness.
+    let mut app = setup_sleeping_app();
+    let slot = 12usize;
+    let entity = app
+        .world_mut()
+        .spawn((
+            GpuSlot(slot),
+            Building {
+                kind: crate::world::BuildingKind::Farm,
+            },
+            Sleeping,
+        ))
+        .id();
+    app.world_mut()
+        .resource_mut::<EntityMap>()
+        .set_occupancy(slot, 1);
+
+    app.update();
+
+    assert!(
+        app.world().get::<Sleeping>(entity).is_some(),
+        "non-resource-node buildings must not be affected by sync_sleeping_system"
+    );
+}

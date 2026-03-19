@@ -383,7 +383,7 @@ pub fn place_building(
     ));
     // Kind-specific state components
     if matches!(kind, BuildingKind::TreeNode | BuildingKind::RockNode) && ctx.is_none() {
-        ecmds.insert(crate::components::Sleeping);
+        ecmds.insert((crate::components::Sleeping, crate::components::ResourceNode));
     }
     if def.worksite.is_some() {
         ecmds.insert(ProductionState::default());

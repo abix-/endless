@@ -691,6 +691,12 @@ pub struct Building {
 #[derive(Component)]
 pub struct Sleeping;
 
+/// Marker: building is a harvestable resource node (TreeNode or RockNode).
+/// Used as an archetype-level query filter in sync_sleeping_system to avoid
+/// iterating all buildings when only resource nodes need sleeping sync.
+#[derive(Component)]
+pub struct ResourceNode;
+
 /// Marker: farm is visually Ready (food icon overlay).
 #[derive(Component, Reflect)]
 #[reflect(Component)]

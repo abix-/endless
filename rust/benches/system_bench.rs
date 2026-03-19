@@ -16,15 +16,15 @@ use endless::gpu::populate_gpu_state;
 use endless::gpu::{EntityGpuState, ProjBufferWrites};
 use endless::messages::*;
 use endless::resources::*;
-use endless::systems::stats;
 use endless::systems::ai_player::{AiSnapshotDirty, RoadStyle};
+use endless::systems::stats;
 use endless::systems::{
     AiKind, AiPersonality, AiPlayer, AiPlayerConfig, AiPlayerState, advance_waypoints_system,
     ai_decision_system, arrival_system, attack_system, building_tower_system,
     construction_tick_system, cooldown_system, damage_system, death_system, decision_system,
     energy_system, gpu_position_readback, growth_system, healing_system, npc_regen_system,
     on_duty_tick_system, process_proj_hits, resolve_movement_system, spawn_npc_system,
-    spawner_respawn_system,
+    spawner_respawn_system, sync_sleeping_system,
 };
 use endless::world;
 
@@ -1714,6 +1714,99 @@ fn bench_ai_decision_system(c: &mut Criterion) {
     group.finish();
 }
 
+/// Benchmark sync_sleeping_system: resource node (TreeNode/RockNode) sleep/wake sync.
+/// Measures O(resource_nodes) scaling with ResourceNode archetype filter.
+/// 90% sleeping (unoccupied), 10% awake (occupied) -- typical steady state.
+fn bench_sync_sleeping_system(c: &mut Criterion) {
+    use endless::components::ResourceNode;
+    let mut group = c.benchmark_group("sync_sleeping");
+    group.sample_size(20);
+    const RESOURCE_NODE_COUNTS: &[usize] = &[100, 1_000, 10_000, 50_000];
+    for &rcount in &RESOURCE_NODE_COUNTS {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(rcount),
+            &rcount,
+            |b, &rcount| {
+                let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
+                // Spawn some non-resource buildings to verify they are not iterated
+                {
+                    let world = app.world_mut();
+                    let mut pool = world.resource_mut::<GpuSlotPool>();
+                    let mut other_slots = Vec::new();
+                    for _ in 0..500 {
+                        if let Some(s) = pool.alloc_reset() {
+                            other_slots.push(s);
+                        }
+                    }
+                    drop(pool);
+                    for (i, slot) in other_slots.iter().enumerate() {
+                        let x = 50.0 + (i % 20) as f32 * 32.0;
+                        let y = 50.0 + (i / 20) as f32 * 32.0;
+                        world.spawn((
+                            GpuSlot(*slot),
+                            Position { x, y },
+                            Health(100.0),
+                            Faction(1),
+                            TownId(0),
+                            Building {
+                                kind: world::BuildingKind::Farm,
+                            },
+                            ConstructionProgress(0.0),
+                            Sleeping,
+                        ));
+                    }
+                }
+                // Spawn resource nodes: 90% sleeping, 10% awake/occupied
+                {
+                    let world = app.world_mut();
+                    let mut slots = Vec::with_capacity(rcount);
+                    {
+                        let mut pool = world.resource_mut::<GpuSlotPool>();
+                        for _ in 0..rcount {
+                            if let Some(s) = pool.alloc_reset() {
+                                slots.push(s);
+                            }
+                        }
+                    }
+                    let mut node_entities = Vec::with_capacity(rcount);
+                    for (i, &slot) in slots.iter().enumerate() {
+                        let x = 200.0 + (i % 224) as f32 * 32.0;
+                        let y = 200.0 + (i / 224) as f32 * 32.0;
+                        let occupied = i % 10 == 0;
+                        let mut builder = world.spawn((
+                            GpuSlot(slot),
+                            Position { x, y },
+                            Health(100.0),
+                            Faction(1),
+                            TownId(0),
+                            Building {
+                                kind: world::BuildingKind::TreeNode,
+                            },
+                            ConstructionProgress(0.0),
+                            ResourceNode,
+                        ));
+                        if !occupied {
+                            builder.insert(Sleeping);
+                        }
+                        node_entities.push((slot, occupied));
+                    }
+                    let mut em = world.resource_mut::<EntityMap>();
+                    for &(slot, occupied) in &node_entities {
+                        em.set_occupancy(slot, if occupied { 1 } else { 0 });
+                    }
+                }
+                // Warmup
+                let _ = app.world_mut().run_system_once(sync_sleeping_system);
+                b.iter(|| {
+                    let _ = app.world_mut().run_system_once(sync_sleeping_system);
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_decision_system,
@@ -1739,5 +1832,6 @@ criterion_group!(
     bench_process_proj_hits,
     bench_prune_town_equipment,
     bench_ai_decision_system,
+    bench_sync_sleeping_system,
 );
 criterion_main!(benches);

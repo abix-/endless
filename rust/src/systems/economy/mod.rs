@@ -332,32 +332,22 @@ pub fn farming_skill_system(
 
 /// Sync `Sleeping` marker on density-spawned buildings based on occupancy.
 /// Remove `Sleeping` when an NPC occupies the worksite; re-add when vacant.
+/// Uses `ResourceNode` archetype filter to skip all non-resource buildings,
+/// reducing iteration from O(all_buildings) to O(resource_nodes).
 pub fn sync_sleeping_system(
     mut commands: Commands,
     entity_map: Res<EntityMap>,
-    sleeping_q: Query<(Entity, &GpuSlot, &Building), With<Sleeping>>,
-    awake_q: Query<(Entity, &GpuSlot, &Building), Without<Sleeping>>,
+    sleeping_q: Query<(Entity, &GpuSlot), (With<Sleeping>, With<ResourceNode>)>,
+    awake_q: Query<(Entity, &GpuSlot), (Without<Sleeping>, With<ResourceNode>)>,
 ) {
     // Wake: remove Sleeping when occupied
-    for (entity, gpu_slot, building) in &sleeping_q {
-        if !matches!(
-            building.kind,
-            BuildingKind::TreeNode | BuildingKind::RockNode
-        ) {
-            continue;
-        }
+    for (entity, gpu_slot) in &sleeping_q {
         if entity_map.present_count(gpu_slot.0) > 0 {
             commands.entity(entity).remove::<Sleeping>();
         }
     }
     // Re-sleep: add Sleeping when no occupants
-    for (entity, gpu_slot, building) in &awake_q {
-        if !matches!(
-            building.kind,
-            BuildingKind::TreeNode | BuildingKind::RockNode
-        ) {
-            continue;
-        }
+    for (entity, gpu_slot) in &awake_q {
         if entity_map.present_count(gpu_slot.0) == 0 {
             commands.entity(entity).insert(Sleeping);
         }
