@@ -175,7 +175,10 @@ mod tests {
             let peaks = TRACING_PEAKS.lock().unwrap();
             let (peak_ms, count) = peaks["lifecycle_system"];
             assert_eq!(count, 1);
-            assert!(count < PEAK_WINDOW, "count={count} never reaches PEAK_WINDOW={PEAK_WINDOW}");
+            assert!(
+                count < PEAK_WINDOW,
+                "count={count} never reaches PEAK_WINDOW={PEAK_WINDOW}"
+            );
             assert!(peak_ms > 0.0);
         }
 

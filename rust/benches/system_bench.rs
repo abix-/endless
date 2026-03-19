@@ -2281,6 +2281,42 @@ fn bench_mason_decision_building_scale(c: &mut Criterion) {
     group.finish();
 }
 
+/// Benchmark `clear_peaks` at various peak-count sizes.
+///
+/// `clear_peaks` runs once per game session entry (OnEnter Playing/Running).
+/// It clears `TRACING_PEAKS` and `TRACING_TIMINGS` -- both protected by Mutex.
+/// Cost scales with map size (number of tracked systems), not NPC count.
+/// Expected: <10us at realistic system counts (50-200 tracked systems).
+fn bench_clear_peaks(c: &mut Criterion) {
+    use endless::tracing_layer::{TRACING_PEAKS, TRACING_TIMINGS, clear_peaks};
+    let mut group = c.benchmark_group("clear_peaks");
+    group.sample_size(100);
+    const SYSTEM_COUNTS: &[usize] = &[50, 200, 500];
+    for &count in SYSTEM_COUNTS {
+        group.bench_with_input(BenchmarkId::from_parameter(count), &count, |b, &count| {
+            b.iter(|| {
+                // Repopulate before each clear to keep the map non-empty
+                {
+                    let mut peaks = TRACING_PEAKS.lock().unwrap();
+                    peaks.clear();
+                    for i in 0..count {
+                        peaks.insert(format!("system_{i}"), (i as f32 * 0.1, i as u32));
+                    }
+                }
+                {
+                    let mut timings = TRACING_TIMINGS.lock().unwrap();
+                    timings.clear();
+                    for i in 0..count {
+                        timings.insert(format!("system_{i}"), i as f32 * 0.1);
+                    }
+                }
+                clear_peaks();
+            });
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_decision_system,
@@ -2314,6 +2350,7 @@ criterion_group!(
     bench_resolve_work_targets,
     bench_ai_road_scoring,
     bench_mason_decision_building_scale,
+    bench_clear_peaks,
 );
 criterion_main!(benches);
 
