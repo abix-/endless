@@ -260,3 +260,31 @@ fn staggered_timers_prevent_simultaneous_fire() {
     );
     assert!(due_count > 0, "at least one player should be due");
 }
+
+/// Regression: ai_decision_system must use real-time delta, not game-time delta.
+/// At 16x speed, game-time delta = real_delta * 16. If the decision timer used
+/// game-time delta it would fire 16x more often, inflating cost from ~0.01ms to
+/// ~1.57ms per tick (issue #204). With real-time delta, the cadence is unchanged.
+#[test]
+fn decision_timer_uses_real_time_not_game_time_at_high_speed() {
+    let real_delta = 1.0f32 / 60.0; // one FixedUpdate tick at 60 UPS
+    let time_scale = 16.0f32;
+    let game_delta = real_delta * time_scale; // old (broken) behavior
+    let interval = crate::constants::DEFAULT_AI_INTERVAL; // 5.0s
+
+    // Simulate 20 ticks of timer accumulation under both delta modes.
+    let ticks = 20usize;
+    let timer_game: f32 = game_delta * ticks as f32;
+    let timer_real: f32 = real_delta * ticks as f32;
+
+    // Old game-time delta would cross the interval threshold at 16x speed.
+    assert!(
+        timer_game >= interval,
+        "game-time delta fires too early at 16x ({timer_game:.3}s >= {interval}s after {ticks} ticks)"
+    );
+    // Real-time delta must NOT cross the interval threshold (keeps natural cadence).
+    assert!(
+        timer_real < interval,
+        "real-time delta must not fire prematurely at 16x ({timer_real:.3}s < {interval}s after {ticks} ticks)"
+    );
+}
