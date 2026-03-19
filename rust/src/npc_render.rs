@@ -737,7 +737,7 @@ fn mark_building_body_dirty(
 
 /// Build building body instances from EntityGpuState for instance-buffer rendering.
 /// Skips rebuild when BuildingBodyDirty is false (nothing changed since last frame).
-fn build_building_body_instances(
+pub fn build_building_body_instances(
     gpu_state: Res<crate::gpu::EntityGpuState>,
     entity_map: Res<crate::resources::EntityMap>,
     mut instances: ResMut<BuildingBodyInstances>,
