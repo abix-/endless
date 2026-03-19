@@ -1740,7 +1740,7 @@ fn populate_pathfind_buildings(app: &mut App, count: usize) {
         em.init_spatial(world_size_px);
     }
 
-    // 75% walls, 25% bow towers — representative mix for pathfinding cost benchmarks
+    // 75% walls, 25% bow towers -- representative mix for pathfinding cost benchmarks
     let wall_count = count * 3 / 4;
 
     let world = app.world_mut();
@@ -1792,7 +1792,7 @@ fn populate_pathfind_buildings(app: &mut App, count: usize) {
     }
 }
 
-/// Benchmark `rebuild_building_grid_system` — the spatial grid full rebuild.
+/// Benchmark `rebuild_building_grid_system` -- the spatial grid full rebuild.
 /// Fires on every BuildingGridDirtyMsg (building placed, destroyed, or loaded).
 /// Tests `entity_map.init_spatial() + rebuild_spatial()` cost at realistic building counts.
 fn bench_rebuild_building_grid_system(c: &mut Criterion) {
@@ -1832,7 +1832,7 @@ fn bench_rebuild_building_grid_system(c: &mut Criterion) {
     group.finish();
 }
 
-/// Benchmark `sync_pathfind_costs_system` — HPA* incremental chunk rebuild.
+/// Benchmark `sync_pathfind_costs_system` -- HPA* incremental chunk rebuild.
 /// Fires on every BuildingGridDirtyMsg. Tests `grid.sync_building_costs()` + HPA*
 /// `rebuild_chunks()` cost for wall/tower buildings spread across the grid.
 fn bench_sync_pathfind_costs_system(c: &mut Criterion) {
@@ -1964,6 +1964,91 @@ fn bench_farm_visual_system(c: &mut Criterion) {
                         },
                     );
                     let _ = app.world_mut().run_system_once(farm_visual_system);
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+/// Benchmark `build_building_body_instances` at realistic building counts.
+///
+/// Building slots start at MAX_NPC_COUNT (100K) in the unified slot namespace,
+/// so each gpu_state array access was a scattered read into a 200K-element array.
+/// The fix uses BuildingInstance.position/faction (compact DenseSlotMap) and
+/// a pre-built construction index, reducing scattered reads from 5 to 2 per building.
+fn bench_build_building_body_instances(c: &mut Criterion) {
+    let mut group = c.benchmark_group("build_building_body_instances");
+    group.sample_size(20);
+    // Realistic range: 500 to 5K buildings. Issue observed at ~1111 NPCs + buildings.
+    const BUILDING_COUNTS: &[usize] = &[500, 2_000, 5_000];
+    for &bcount in BUILDING_COUNTS {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(bcount),
+            &bcount,
+            |b, &bcount| {
+                let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
+                app.init_resource::<BuildingBodyInstances>();
+                app.insert_resource(BuildingBodyDirty {
+                    dirty: true,
+                    had_building_flash: false,
+                    last_building_count: 0,
+                });
+
+                // Allocate slots in the building range (after NPC slots)
+                let mut building_slots = Vec::with_capacity(bcount);
+                {
+                    let world = app.world_mut();
+                    let mut pool = world.resource_mut::<GpuSlotPool>();
+                    for _ in 0..bcount {
+                        if let Some(slot) = pool.alloc_reset() {
+                            building_slots.push(slot);
+                        }
+                    }
+                }
+
+                // Set sprite indices so col >= 0.0 (skip-guard passes for all buildings)
+                {
+                    let world = app.world_mut();
+                    let mut gpu = world.resource_mut::<EntityGpuState>();
+                    for &slot in &building_slots {
+                        gpu.sprite_indices[slot * 4] = 3.0; // col
+                        gpu.sprite_indices[slot * 4 + 1] = 0.0; // row
+                        gpu.sprite_indices[slot * 4 + 2] = 1.0; // atlas
+                        gpu.healths[slot] = 1.0;
+                    }
+                }
+
+                // Register buildings in EntityMap with realistic positions
+                {
+                    let world = app.world_mut();
+                    let mut em = world.resource_mut::<EntityMap>();
+                    for (i, &slot) in building_slots.iter().enumerate() {
+                        let x = 400.0 + (i % 100) as f32 * 64.0;
+                        let y = 400.0 + (i / 100) as f32 * 64.0;
+                        em.add_instance(endless::entity_map::BuildingInstance {
+                            kind: world::BuildingKind::BowTower,
+                            position: Vec2::new(x, y),
+                            town_idx: 0,
+                            slot,
+                            faction: crate::FACTION_PLAYER,
+                        });
+                    }
+                }
+
+                // Warmup (sets dirty=false; reset before each iter)
+                let _ = app
+                    .world_mut()
+                    .run_system_once(build_building_body_instances);
+                b.iter(|| {
+                    // Reset dirty so the system doesn't skip on subsequent iterations
+                    app.world_mut()
+                        .resource_mut::<BuildingBodyDirty>()
+                        .dirty = true;
+                    let _ = app
+                        .world_mut()
+                        .run_system_once(build_building_body_instances);
                 });
             },
         );
