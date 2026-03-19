@@ -1259,10 +1259,7 @@ mod tests {
 
     // -- sync_building_costs incremental regression tests --------------------
 
-    /// Regression: removing a wall restores terrain cost. Verifies that the
-    /// union changed-cells logic correctly handles removal (old_cells covers
-    /// removed cells so HPA is rebuilt for them). If the revert logic is
-    /// broken, wall cell stays impassable after removal.
+    /// Regression: removing a wall restores terrain cost.
     #[test]
     fn sync_building_costs_wall_removal_restores_terrain_cost() {
         let mut grid = make_grid(10, 10);
@@ -1271,56 +1268,64 @@ mod tests {
         place_wall(&mut entity_map, 3, 3, wall_slot);
         grid.sync_building_costs(&entity_map);
         let idx = 3 * grid.width + 3;
-        assert_eq!(
-            grid.pathfind_costs[idx], 0,
-            "wall cell should be impassable after placement"
-        );
+        assert_eq!(grid.pathfind_costs[idx], 0, "wall cell should be impassable after placement");
 
-        // Remove the wall
         entity_map.remove_by_slot(wall_slot);
         grid.sync_building_costs(&entity_map);
         let terrain_cost = crate::world::terrain_base_cost(crate::world::Biome::Grass);
-        assert_eq!(
-            grid.pathfind_costs[idx], terrain_cost,
-            "wall cell should revert to terrain cost after removal"
-        );
+        assert_eq!(grid.pathfind_costs[idx], terrain_cost, "wall cell should revert to terrain cost after removal");
     }
 
     /// Regression: two sequential sync calls produce correct cumulative costs.
-    /// A wall placed in sync-1 stays impassable after sync-2 places a road elsewhere.
     #[test]
     fn sync_building_costs_second_sync_preserves_first_wall() {
         let mut grid = make_grid(10, 10);
         let mut entity_map = EntityMap::default();
-        // Sync 1: place wall at (2,2)
         place_wall(&mut entity_map, 2, 2, 401);
         grid.sync_building_costs(&entity_map);
         let wall_idx = 2 * grid.width + 2;
-        assert_eq!(
-            grid.pathfind_costs[wall_idx], 0,
-            "wall should be impassable"
-        );
+        assert_eq!(grid.pathfind_costs[wall_idx], 0, "wall should be impassable");
 
-        // Sync 2: add road at (5,5), wall should remain impassable
         entity_map.add_instance(crate::resources::BuildingInstance {
             kind: crate::world::BuildingKind::Road,
             position: Vec2::new(5.0 * 64.0 + 32.0, 5.0 * 64.0 + 32.0),
-            slot: 402,
-            town_idx: 0,
-            faction: 0,
+            slot: 402, town_idx: 0, faction: 0,
         });
         grid.sync_building_costs(&entity_map);
-        assert_eq!(
-            grid.pathfind_costs[wall_idx], 0,
-            "wall should remain impassable after second sync"
-        );
+        assert_eq!(grid.pathfind_costs[wall_idx], 0, "wall should remain impassable after second sync");
         let road_idx = 5 * grid.width + 5;
-        let road_cost = crate::world::BuildingKind::Road
-            .road_pathfind_cost()
-            .unwrap();
-        assert_eq!(
-            grid.pathfind_costs[road_idx], road_cost,
-            "road cell should have road cost after second sync"
+        let road_cost = crate::world::BuildingKind::Road.road_pathfind_cost().unwrap();
+        assert_eq!(grid.pathfind_costs[road_idx], road_cost, "road cell should have road cost after second sync");
+    }
+
+    /// Regression test for issue #203: only pass changed cells to rebuild_chunks.
+    #[test]
+    fn sync_building_costs_only_rebuilds_changed_chunks() {
+        let mut grid = make_grid(40, 40);
+        let mut entity_map = EntityMap::default();
+
+        place_wall(&mut entity_map, 5, 5, 1);
+        grid.sync_building_costs(&entity_map);
+        let after_first: Vec<usize> = grid.dirty_cost_cells().to_vec();
+        assert_eq!(after_first.len(), 1, "one building cell after first sync");
+        let wall_idx = 5 * grid.width + 5;
+        assert_eq!(after_first[0], wall_idx, "wall cell recorded");
+        let rebuild_after_add = grid.hpa_cache.as_ref().map(|c| c.rebuild_count).unwrap_or(0);
+        assert_eq!(rebuild_after_add, 1, "rebuild_chunks called once on wall add");
+
+        grid.sync_building_costs(&entity_map);
+        let after_second: Vec<usize> = grid.dirty_cost_cells().to_vec();
+        assert_eq!(after_second.len(), 1, "same one cell after no-op sync");
+        assert!(grid.pathfind_costs[wall_idx] == 0, "wall cell must be impassable after no-op sync");
+        let rebuild_after_noop = grid.hpa_cache.as_ref().map(|c| c.rebuild_count).unwrap_or(0);
+        assert_eq!(rebuild_after_noop, 1, "rebuild_chunks must NOT be called on no-op sync (issue #203 regression)");
+
+        let empty_map = EntityMap::default();
+        grid.sync_building_costs(&empty_map);
+        assert!(grid.dirty_cost_cells().is_empty(), "no building cells after wall removed");
+        assert!(grid.pathfind_costs[wall_idx] > 0, "wall cell passable after removal");
+        let rebuild_after_remove = grid.hpa_cache.as_ref().map(|c| c.rebuild_count).unwrap_or(0);
+        assert_eq!(rebuild_after_remove, 2, "rebuild_chunks called once more on wall removal")
         );
     }
 
