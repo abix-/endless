@@ -29,31 +29,38 @@ pub fn resolve_work_targets(
         return;
     }
 
-    // Pre-collect production state only when there are messages to process.
-    // Only Claim/Retarget need it, but building the map is cheaper than checking each message type.
-    let production_map: std::collections::HashMap<usize, (bool, f32)> = entity_map
-        .iter_instances()
-        .filter_map(|inst| {
-            let entity = entity_map.entities.get(&inst.slot)?;
-            let ps = production_q.get(*entity).ok()?;
-            Some((inst.slot, (ps.ready, ps.progress)))
-        })
-        .collect();
+    // Only Claim/Retarget need the production and cow-farm maps; skip the building scan
+    // entirely for Release/MarkPresent-only batches (the common steady-state path).
+    let needs_claim_data = msgs.iter().any(|WorkIntentMsg(intent)| {
+        matches!(
+            intent,
+            WorkIntent::Claim { .. } | WorkIntent::Retarget { .. }
+        )
+    });
 
-    // Pre-collect cow farm slots so farmers skip them during targeting.
-    let cow_farm_slots: std::collections::HashSet<usize> = entity_map
-        .iter_instances()
-        .filter(|inst| inst.kind == BuildingKind::Farm)
-        .filter_map(|inst| {
-            let entity = entity_map.entities.get(&inst.slot)?;
-            let fm = farm_mode_q.get(*entity).ok()?;
-            if fm.0 == FarmMode::Cows {
-                Some(inst.slot)
-            } else {
-                None
+    // Single pass over all building instances to build both maps simultaneously.
+    // Replaces the previous two separate iter_instances() passes.
+    let mut production_map: std::collections::HashMap<usize, (bool, f32)> =
+        std::collections::HashMap::new();
+    let mut cow_farm_slots: std::collections::HashSet<usize> = std::collections::HashSet::new();
+
+    if needs_claim_data {
+        for inst in entity_map.iter_instances() {
+            let Some(&entity) = entity_map.entities.get(&inst.slot) else {
+                continue;
+            };
+            if let Ok(ps) = production_q.get(entity) {
+                production_map.insert(inst.slot, (ps.ready, ps.progress));
             }
-        })
-        .collect();
+            if inst.kind == BuildingKind::Farm {
+                if let Ok(fm) = farm_mode_q.get(entity) {
+                    if fm.0 == FarmMode::Cows {
+                        cow_farm_slots.insert(inst.slot);
+                    }
+                }
+            }
+        }
+    }
 
     for WorkIntentMsg(intent) in msgs {
         match intent {
