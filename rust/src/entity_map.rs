@@ -613,6 +613,11 @@ impl EntityMap {
         self.spatial_cells.resize_with(total, Vec::new);
     }
 
+    /// Returns true if init_spatial has been called and the grid is ready for queries.
+    pub fn is_spatial_initialized(&self) -> bool {
+        self.spatial_width > 0
+    }
+
     pub fn rebuild_spatial(&mut self) {
         for cell in &mut self.spatial_cells {
             cell.clear();

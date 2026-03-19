@@ -557,6 +557,10 @@ impl BuildingKind {
 }
 
 /// Rebuild building spatial grid. Only runs when BuildingGridDirtyMsg is received.
+/// On first run (spatial uninitialized), performs a full rebuild to populate from
+/// any buildings placed before init_spatial was called. On subsequent runs, the
+/// spatial grid is already maintained incrementally by add_instance/remove_instance,
+/// so only init_spatial (idempotent) is called -- O(1) per building change.
 pub fn rebuild_building_grid_system(
     mut entity_map: ResMut<EntityMap>,
     mut grid_dirty: MessageReader<BuildingGridDirtyMsg>,
@@ -565,9 +569,12 @@ pub fn rebuild_building_grid_system(
     if grid.width == 0 || grid_dirty.read().count() == 0 {
         return;
     }
+    let needs_full_rebuild = !entity_map.is_spatial_initialized();
     let world_size_px = grid.width as f32 * grid.cell_size;
     entity_map.init_spatial(world_size_px);
-    entity_map.rebuild_spatial();
+    if needs_full_rebuild {
+        entity_map.rebuild_spatial();
+    }
 }
 
 // ============================================================================
