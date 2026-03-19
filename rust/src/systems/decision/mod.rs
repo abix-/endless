@@ -2207,30 +2207,35 @@ pub fn decision_system(
                     );
                     break 'decide;
                 }
-                // Find nearest damaged building at current position
+                // Find nearest damaged building at current position (spatial query)
                 let current_pos = npc_pos.unwrap_or(home);
-                let repair_radius_sq: f32 = 40.0 * 40.0;
+                let repair_radius: f32 = 40.0;
+                let repair_radius_sq = repair_radius * repair_radius;
                 let mut repaired = false;
-                for inst in entity_map.iter_instances() {
+                entity_map.for_each_nearby(current_pos, repair_radius, |inst, _occ| {
+                    if repaired {
+                        return;
+                    }
                     if inst.town_idx != town_idx_i32 as u32 {
-                        continue;
+                        return;
                     }
                     if inst.position.distance_squared(current_pos) > repair_radius_sq {
-                        continue;
+                        return;
                     }
                     let Some(bld_entity) = entity_map.entities.get(&inst.slot).copied() else {
-                        continue;
+                        return;
                     };
                     let Ok(mut bld_hp) = building_health_q.get_mut(bld_entity) else {
-                        continue;
+                        return;
                     };
                     let max_hp = crate::constants::building_def(inst.kind).hp;
                     if bld_hp.0 >= max_hp {
-                        continue;
+                        return;
                     }
                     bld_hp.0 = (bld_hp.0 + MASON_REPAIR_RATE).min(max_hp);
                     repaired = true;
                     if bld_hp.0 >= max_hp {
+                        let kind = inst.kind;
                         if npc_logs.should_log(idx) {
                             npc_logs.push(
                                 idx,
@@ -2239,13 +2244,12 @@ pub fn decision_system(
                                 game_time.minute(),
                                 format!(
                                     "Repaired {} to full HP",
-                                    crate::constants::building_def(inst.kind).label
+                                    crate::constants::building_def(kind).label
                                 ),
                             );
                         }
                     }
-                    break; // repair one building per tick
-                }
+                });
                 if !repaired {
                     // No damaged building nearby -- go idle
                     transition_activity(
@@ -2842,29 +2846,34 @@ pub fn decision_system(
                             let current_pos = npc_pos.unwrap_or(home);
                             let max_dist_sq = MASON_SEARCH_RADIUS * MASON_SEARCH_RADIUS;
                             let mut best: Option<(f32, Vec2)> = None;
-                            for inst in entity_map.iter_instances() {
-                                if inst.town_idx != town_idx_i32 as u32 {
-                                    continue;
-                                }
-                                let dist_sq = inst.position.distance_squared(current_pos);
-                                if dist_sq > max_dist_sq {
-                                    continue;
-                                }
-                                let Some(bld_entity) = entity_map.entities.get(&inst.slot).copied()
-                                else {
-                                    continue;
-                                };
-                                let Ok(bld_hp) = building_health_q.get(bld_entity) else {
-                                    continue;
-                                };
-                                let max_hp = crate::constants::building_def(inst.kind).hp;
-                                if bld_hp.0 >= max_hp {
-                                    continue;
-                                }
-                                if best.as_ref().is_none_or(|b| dist_sq < b.0) {
-                                    best = Some((dist_sq, inst.position));
-                                }
-                            }
+                            entity_map.for_each_nearby(
+                                current_pos,
+                                MASON_SEARCH_RADIUS,
+                                |inst, _occ| {
+                                    if inst.town_idx != town_idx_i32 as u32 {
+                                        return;
+                                    }
+                                    let dist_sq = inst.position.distance_squared(current_pos);
+                                    if dist_sq > max_dist_sq {
+                                        return;
+                                    }
+                                    let Some(bld_entity) =
+                                        entity_map.entities.get(&inst.slot).copied()
+                                    else {
+                                        return;
+                                    };
+                                    let Ok(bld_hp) = building_health_q.get(bld_entity) else {
+                                        return;
+                                    };
+                                    let max_hp = crate::constants::building_def(inst.kind).hp;
+                                    if bld_hp.0 >= max_hp {
+                                        return;
+                                    }
+                                    if best.as_ref().is_none_or(|b| dist_sq < b.0) {
+                                        best = Some((dist_sq, inst.position));
+                                    }
+                                },
+                            );
                             if let Some((_, target_pos)) = best {
                                 transition_activity(
                                     &mut activity,

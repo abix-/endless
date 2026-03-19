@@ -16,8 +16,8 @@ use endless::gpu::populate_gpu_state;
 use endless::gpu::{EntityGpuState, ProjBufferWrites};
 use endless::messages::*;
 use endless::resources::*;
-use endless::systems::stats;
 use endless::systems::ai_player::{AiSnapshotDirty, RoadStyle};
+use endless::systems::stats;
 use endless::systems::{
     AiKind, AiPersonality, AiPlayer, AiPlayerConfig, AiPlayerState, advance_waypoints_system,
     ai_decision_system, arrival_system, attack_system, building_tower_system,
