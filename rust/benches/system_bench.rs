@@ -2002,6 +2002,7 @@ criterion_group!(
     bench_sync_sleeping_system,
     bench_build_building_body_instances,
     bench_resolve_work_targets,
+    bench_ai_road_scoring,
 );
 criterion_main!(benches);
 
@@ -2416,5 +2417,81 @@ fn bench_sync_sleeping_system(c: &mut Criterion) {
             },
         );
     }
+    group.finish();
+}
+
+fn bench_ai_road_scoring(c: &mut Criterion) {
+    let npc_count = 1_000;
+    let mut group = c.benchmark_group("ai_road_scoring");
+    group.sample_size(20);
+    group.bench_function("grid_style_18_towns", |b| {
+        let mut app = build_bench_app();
+        app.init_resource::<AiSnapshotDirty>();
+        spawn_ai_bench_world(&mut app, npc_count);
+        {
+            let world = app.world_mut();
+            let town_centers: Vec<(Vec2, usize)> = (0..AI_TOWN_COUNT)
+                .map(|i| {
+                    let cx = (i % 6) as f32 * 1200.0 + 600.0;
+                    let cy = (i / 6) as f32 * 1200.0 + 600.0;
+                    (Vec2::new(cx, cy), i)
+                })
+                .collect();
+            {
+                let mut grid = world.resource_mut::<world::WorldGrid>();
+                for &(center, town_idx) in &town_centers {
+                    let (cc, cr) = grid.world_to_grid(center);
+                    for dr in -4i32..=3 {
+                        for dc in -4i32..=3 {
+                            let col = cc as i32 + dc;
+                            let row = cr as i32 + dr;
+                            if col >= 0 && row >= 0 {
+                                grid.add_town_buildable(col as usize, row as usize, town_idx as u16);
+                            }
+                        }
+                    }
+                }
+            }
+            let farm_instances: Vec<(usize, Vec2, u32, i32)> = {
+                let mut pool = world.resource_mut::<GpuSlotPool>();
+                let mut instances = Vec::new();
+                for &(center, town_idx) in &town_centers {
+                    let faction = (town_idx + 1) as i32;
+                    for k in 0..8usize {
+                        let Some(slot) = pool.alloc_reset() else { break };
+                        let dx = (k % 4) as f32 * TOWN_GRID_SPACING - TOWN_GRID_SPACING * 1.5;
+                        let dy = (k / 4) as f32 * TOWN_GRID_SPACING - TOWN_GRID_SPACING * 0.5;
+                        instances.push((slot, Vec2::new(center.x + dx, center.y + dy), town_idx as u32, faction));
+                    }
+                }
+                instances
+            };
+            let mut em = world.resource_mut::<EntityMap>();
+            for (slot, pos, town_idx, faction) in farm_instances {
+                em.add_instance(endless::entity_map::BuildingInstance {
+                    kind: world::BuildingKind::Farm, position: pos, town_idx, slot, faction,
+                });
+            }
+        }
+        {
+            let world = app.world_mut();
+            let mut ai_state = world.resource_mut::<AiPlayerState>();
+            for (i, p) in ai_state.players.iter_mut().enumerate() {
+                p.road_style = RoadStyle::Grid4;
+                p.decision_timer = if i == 0 { DEFAULT_AI_INTERVAL } else { i as f32 * DEFAULT_AI_INTERVAL / AI_TOWN_COUNT as f32 };
+            }
+        }
+        let _ = app.world_mut().run_system_once(ai_decision_system);
+        b.iter(|| {
+            {
+                let world = app.world_mut();
+                let mut ai_state = world.resource_mut::<AiPlayerState>();
+                for (i, p) in ai_state.players.iter_mut().enumerate() {
+                    p.decision_timer = if i == 0 { DEFAULT_AI_INTERVAL } else { i as f32 * DEFAULT_AI_INTERVAL / AI_TOWN_COUNT as f32 };
+                }
+            }
+            let _ = app.world_mut().run_system_once(ai_decision_system);
+        });
+    });
     group.finish();
 }
