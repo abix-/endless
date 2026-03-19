@@ -61,15 +61,18 @@ If the workspace directory already exists, reuse it. Do not recreate or remove e
 
 All workspaces share one Cargo target directory (`C:\code\endless\rust\target`) via `~/.cargo/config.toml`. Dependencies compile once; only the `endless` crate rebuilds per workspace (~16s vs ~7min cold).
 
-Because concurrent builds to the same target dir can clobber artifacts, agents must use `k3sc cargo-lock` instead of bare `cargo` for build/check/clippy:
+Because concurrent builds to the same target dir can clobber artifacts, agents must use `k3sc cargo-lock` instead of bare `cargo` for all cargo commands:
 
 ```
 k3sc cargo-lock build --release
 k3sc cargo-lock clippy --release -- -D warnings
 k3sc cargo-lock check
+k3sc cargo-lock test --release -- <filter>
+k3sc cargo-lock run --release
+k3sc cargo-lock fmt
 ```
 
-The lock serializes builds -- one agent builds while others wait in line.
+The lock serializes builds -- one agent builds while others wait in line. `test` and `run` automatically build first under lock.
 
 ## Branches and PRs
 
@@ -106,9 +109,10 @@ State labels:
 
 Owner labels (the owner label IS the claim -- no separate `claimed` label):
 
-- `claude-1` through `claude-5` (Windows agents)
-- `claude-a` through `claude-z` (k3s agents)
-- `codex-1` through `codex-10`
+- `claude-1` through `claude-20` (Windows Claude agents via `k3sc launch`)
+- `claude-a` through `claude-z` (k3s Claude agents via operator)
+- `codex-1` through `codex-20` (Windows Codex agents via `k3sc launch codex`)
+- `codex-a` through `codex-z` (k3s Codex agents via operator)
 
 Suggested usage:
 
@@ -146,7 +150,8 @@ Required invariants:
 Agent identity is derived from the workspace directory path. No registration scripts or settings files.
 
 - k3s agents: `/workspaces/endless-claude-a` -> `claude-a` (letters, assigned by operator)
-- Windows agents: `C:\code\endless-claude-1` -> `claude-1` (numbers, assigned by `k3sc launch`)
+- Windows Claude agents: `C:\code\claude-1` -> `claude-1` (numbers, assigned by `k3sc launch`)
+- Windows Codex agents: `C:\code\codex-1` -> `codex-1` (numbers, assigned by `k3sc launch codex`)
 
 The k3sc operator assigns agent identities and slots. Agents do not self-register.
 
@@ -251,7 +256,8 @@ The k3sc operator handles ALL issue assignment and label management:
 6. Operator detects completion, posts result comment, transitions labels:
    - Success from `ready` -> `needs-review`
    - Success from `needs-review` -> `needs-human`
-   - Failure -> back to origin state
+   - Failure from `ready` -> `ready` (retry, max 3)
+   - Failure from `needs-review` -> `needs-human` (escalate to human, don't loop)
 
 **Agents do NOT touch labels, claim issues, or register themselves.** The operator does all of this.
 
