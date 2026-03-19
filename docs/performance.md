@@ -177,7 +177,7 @@ All volatile numeric constants in one place. Policy sections above describe *why
 | `ENERGY_WAKE_THRESHOLD` | 90.0 | `constants.rs:1210` |
 | Faction readback throttle | 60 frames | `gpu.rs` |
 | Threat readback throttle | 30 frames | `gpu.rs` |
-| Farm visual cadence | every 4th frame | `behavior.rs` |
+| Farm visual cadence | event-driven (FarmReadyMsg/FarmHarvestedMsg) | `economy/mod.rs` |
 | ProfilerCache refresh | 15 frames, top 10 | `ui/game_hud.rs` |
 | Healing enter-check cadence | 1/4 NPCs per frame | `health.rs` |
 | Gap coalescing waste budget | ~24KB total across all buffers | `gpu.rs` |
