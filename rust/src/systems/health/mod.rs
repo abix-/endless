@@ -167,13 +167,6 @@ pub fn damage_system(
 
     debug.damage_processed = damage_count;
     debug.bevy_entity_count = entity_map.npc_count();
-    debug.health_samples.clear();
-    if damage_count > 0 {
-        for npc in entity_map.iter_npcs().take(10) {
-            let hp = npc_health_q.get(npc.entity).map(|h| h.0).unwrap_or(0.0);
-            debug.health_samples.push((npc.slot, hp));
-        }
-    }
 }
 
 fn hide_npc(

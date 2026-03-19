@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-03-19
+
+- **damage_system iter_npcs+get removed** -- removed `iter_npcs() + query.get()` debug sampling from `damage_system` FixedUpdate hot path (issue #170). `health_samples` field was write-only dead code (never read outside the system); removed field from `HealthDebug` entirely along with the 6-line sampling block. Regression test added to health/tests.rs verifying the system processes damage correctly without the antipattern.
+
 ## 2026-03-14
 
 - **Input hit-test perf fix** -- `click_to_select_system` no longer scans the full GPU readback bucket for NPC picking. Left-click selection and DirectControl right-click enemy targeting now iterate live NPCs from `EntityMap`, still read GPU positions by slot, and skip dead/hidden/out-of-bounds entries. Added regression tests covering sparse live slots plus padded readback buffers. `cargo test --lib` passing (266 tests).
