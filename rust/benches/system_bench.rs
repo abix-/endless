@@ -1793,7 +1793,8 @@ fn bench_sync_sleeping_system(c: &mut Criterion) {
                     }
                     let mut em = world.resource_mut::<EntityMap>();
                     for &(slot, occupied) in &node_entities {
-                        em.set_occupancy(slot, if occupied { 1 } else { 0 });
+                        // sync_sleeping_system checks present_count, not occupancy
+                        em.set_present(slot, if occupied { 1 } else { 0 });
                     }
                 }
                 // Warmup

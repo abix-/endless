@@ -1824,10 +1824,10 @@ fn sync_sleeping_wakes_occupied_resource_node() {
     let mut app = setup_sleeping_app();
     let slot = 10usize;
     let entity = spawn_resource_node(&mut app, slot, true);
-    // Mark slot as occupied
+    // Mark slot as physically present (sync_sleeping_system checks present_count, not occupancy)
     app.world_mut()
         .resource_mut::<EntityMap>()
-        .set_occupancy(slot, 1);
+        .set_present(slot, 1);
 
     app.update();
 
