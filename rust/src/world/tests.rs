@@ -485,6 +485,9 @@ fn worldmap_generates_corridors_and_ice_caps() {
         "should have >10% water, got {:.1}%",
         water as f64 / total * 100.0
     );
+    // 10% threshold is conservative; worldmap targets ~45% land on non-ice cells (~34% total).
+    // Fixed seed makes this deterministic -- the threshold just guards against
+    // degenerate generation (all water/ice) not specific land percentages.
     assert!(
         land as f64 / total >= 0.15,
         "should have >=15% land, got {:.1}%",
