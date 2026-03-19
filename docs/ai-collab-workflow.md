@@ -118,18 +118,11 @@ Use this strict issue-state model:
 
 Required invariants:
 
-- each open issue carries exactly one state label from this list
-- auto-pick for Claude considers open issues labeled `needs-claude` first, then `ready`
-- auto-pick for Codex considers open issues labeled `needs-codex` first, then `ready`
-- no-argument `ai-collab` must first look for open issues already labeled `claimed` with the current owner label and resume the oldest one instead of claiming a new issue
-- auto-pick must ignore any issue labeled `waiting` or `claimed`
-- `claimed` requires exactly one owner label
-- each owner label should appear on at most one open issue; if an owner already has multiple open claimed issues, resume the oldest and do not claim another
-- `needs-claude` must remove `claimed`, `ready`, `needs-codex`, and all owner labels
-- `needs-codex` must remove `claimed`, `ready`, `needs-claude`, and all owner labels
-- `waiting` must remove `claimed` and all owner labels
-- agents must convert `needs-claude` or `needs-codex` to `claimed` before starting review or follow-up work
-- reviewers never review an issue they most recently claimed or implemented
+- the k3sc operator is the ONLY entity that adds or removes workflow labels and owner labels
+- agents do NOT touch labels -- the operator handles all transitions
+- auto-pick considers open issues labeled `needs-review` first, then `ready`
+- each owner label should appear on at most one open issue
+- an issue has exactly one workflow state: `ready`, owner label, `needs-review`, `needs-human`, or `waiting`
 
 ## Agent Identity
 
@@ -352,11 +345,9 @@ If work is genuinely blocked:
 
 Default review split:
 
-- one family makes the latest code-changing step
-- the other family reviews
-- the implementing family moves the issue to the other family's handoff label when asking for review
-- the reviewing family must claim the issue before starting review
-- only the family that did not make the latest code-changing step may close the issue
+- the operator transitions the issue to `needs-review` after successful implementation
+- the operator dispatches a different agent for review
+- agents do NOT claim issues or change labels -- the operator handles assignment
 
 To review, the reviewer checks out the `issue-{N}` branch in their own worktree:
 
