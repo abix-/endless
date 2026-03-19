@@ -1792,7 +1792,7 @@ fn populate_pathfind_buildings(app: &mut App, count: usize) {
     }
 }
 
-/// Benchmark `rebuild_building_grid_system` — the spatial grid full rebuild.
+/// Benchmark `rebuild_building_grid_system` -- the spatial grid full rebuild.
 /// Fires on every BuildingGridDirtyMsg (building placed, destroyed, or loaded).
 /// Tests `entity_map.init_spatial() + rebuild_spatial()` cost at realistic building counts.
 fn bench_rebuild_building_grid_system(c: &mut Criterion) {
