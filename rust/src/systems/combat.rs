@@ -863,10 +863,11 @@ pub fn building_tower_system(
         BuildingKind,
         f32,
     )> = entity_map
-        .iter_kind(BuildingKind::BowTower)
-        .chain(entity_map.iter_kind(BuildingKind::CrossbowTower))
-        .chain(entity_map.iter_kind(BuildingKind::CatapultTower))
-        .chain(entity_map.iter_kind(BuildingKind::GuardTower))
+        .iter_instances()
+        .filter(|i| {
+            let def = crate::constants::building_def(i.kind);
+            def.is_tower && i.kind != BuildingKind::Fountain
+        })
         .filter_map(|inst| {
             let entity = *entity_map.entities.get(&inst.slot)?;
             let tbs = tower_bld_q.get(entity).ok()?;
@@ -1603,5 +1604,73 @@ mod tests {
             result, 5,
             "neutral-faction candidate must never be selected"
         );
+    }
+
+    // -- tower collection: registry-based filter ----------------------------
+
+    /// Regression: tower combat collection uses registry is_tower flag, not a hardcoded kind list.
+    /// Verifies that iter_instances().filter(is_tower) returns exactly the tower-flagged buildings
+    /// registered in BUILDING_REGISTRY (excluding Fountain), and excludes non-tower buildings.
+    #[test]
+    fn tower_collection_uses_registry_is_tower_filter() {
+        use crate::constants::{BUILDING_REGISTRY, building_def};
+        use crate::resources::BuildingInstance;
+
+        let mut em = EntityMap::default();
+
+        // Register one instance per is_tower kind (excluding Fountain).
+        let tower_kinds: Vec<_> = BUILDING_REGISTRY
+            .iter()
+            .filter(|d| d.is_tower && d.kind != BuildingKind::Fountain)
+            .map(|d| d.kind)
+            .collect();
+
+        for (slot, &kind) in tower_kinds.iter().enumerate() {
+            em.add_instance(BuildingInstance {
+                kind,
+                position: Vec2::ZERO,
+                town_idx: 0,
+                slot,
+                faction: 1,
+            });
+        }
+
+        // Also register a non-tower building to verify it is excluded.
+        let non_tower_kind = crate::world::BuildingKind::Farm;
+        assert!(
+            !building_def(non_tower_kind).is_tower,
+            "Farm must not be a tower for this test to be valid"
+        );
+        em.add_instance(BuildingInstance {
+            kind: non_tower_kind,
+            position: Vec2::ZERO,
+            town_idx: 0,
+            slot: tower_kinds.len(),
+            faction: 1,
+        });
+
+        let filtered: Vec<_> = em
+            .iter_instances()
+            .filter(|i| {
+                let def = building_def(i.kind);
+                def.is_tower && i.kind != BuildingKind::Fountain
+            })
+            .collect();
+
+        assert_eq!(
+            filtered.len(),
+            tower_kinds.len(),
+            "registry-based filter must return exactly all is_tower buildings (got {}, expected {})",
+            filtered.len(),
+            tower_kinds.len()
+        );
+
+        for kind in &tower_kinds {
+            assert!(
+                filtered.iter().any(|i| i.kind == *kind),
+                "tower kind {:?} must be included by registry-based filter",
+                kind
+            );
+        }
     }
 }
