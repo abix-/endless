@@ -552,6 +552,7 @@ fn create_ai_players(
                 upgrade_enabled: true,
                 squad_indices: Vec::new(),
                 squad_cmd: std::collections::HashMap::new(),
+                decision_timer: 0.0, // staggered below
             });
         } else {
             // Player town -- inactive by default, controllable from Policies tab
@@ -567,7 +568,17 @@ fn create_ai_players(
                 upgrade_enabled: true,
                 squad_indices: Vec::new(),
                 squad_cmd: std::collections::HashMap::new(),
+                decision_timer: 0.0,
             });
+        }
+    }
+    // Stagger decision timers across active players so they don't all fire simultaneously.
+    // Player i fires at i * interval / n, distributing load evenly across the interval.
+    let n_active = players.iter().filter(|p| p.active).count();
+    if n_active > 0 {
+        for (slot, p) in players.iter_mut().filter(|p| p.active).enumerate() {
+            p.decision_timer =
+                slot as f32 * crate::constants::DEFAULT_AI_INTERVAL / n_active as f32;
         }
     }
     players

@@ -980,6 +980,7 @@ fn create_ai_town(
         upgrade_enabled: true,
         squad_indices: Vec::new(),
         squad_cmd: HashMap::new(),
+        decision_timer: 0.0,
     });
 
     // Spawn ECS town entity

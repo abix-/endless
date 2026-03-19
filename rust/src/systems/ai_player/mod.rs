@@ -839,6 +839,8 @@ pub struct AiPlayer {
     pub squad_indices: Vec<usize>,
     /// Per-squad command state keyed by squad index.
     pub squad_cmd: HashMap<usize, AiSquadCmdState>,
+    /// Per-player decision timer. Staggered at init to spread towns across ticks.
+    pub decision_timer: f32,
 }
 
 const MAX_ACTION_HISTORY: usize = 20;

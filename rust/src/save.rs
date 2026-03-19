@@ -1367,8 +1367,17 @@ pub fn apply_save(
                 upgrade_enabled: p.upgrade_enabled,
                 squad_indices: Vec::new(),
                 squad_cmd: std::collections::HashMap::new(),
+                decision_timer: 0.0,
             })
             .collect();
+        // Restagger decision timers so all AI towns don't fire simultaneously on first tick.
+        let n_active = ai_state.players.iter().filter(|p| p.active).count();
+        if n_active > 0 {
+            for (slot, p) in ai_state.players.iter_mut().filter(|p| p.active).enumerate() {
+                p.decision_timer =
+                    slot as f32 * crate::constants::DEFAULT_AI_INTERVAL / n_active as f32;
+            }
+        }
         // Rebuild AI squad indices by scanning SquadState ownership (authoritative).
         for player in ai_state.players.iter_mut() {
             rebuild_squad_indices(player, &squad_state.squads);
