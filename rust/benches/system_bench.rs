@@ -17,12 +17,14 @@ use endless::gpu::{EntityGpuState, ProjBufferWrites};
 use endless::messages::*;
 use endless::resources::*;
 use endless::systems::stats;
+use endless::systems::ai_player::{AiSnapshotDirty, RoadStyle};
 use endless::systems::{
-    AiPlayerConfig, AiPlayerState, advance_waypoints_system, arrival_system, attack_system,
-    building_tower_system, construction_tick_system, cooldown_system, damage_system, death_system,
-    decision_system, energy_system, gpu_position_readback, growth_system, healing_system,
-    npc_regen_system, on_duty_tick_system, process_proj_hits, resolve_movement_system,
-    spawn_npc_system, spawner_respawn_system,
+    AiKind, AiPersonality, AiPlayer, AiPlayerConfig, AiPlayerState, advance_waypoints_system,
+    ai_decision_system, arrival_system, attack_system, building_tower_system,
+    construction_tick_system, cooldown_system, damage_system, death_system, decision_system,
+    energy_system, gpu_position_readback, growth_system, healing_system, npc_regen_system,
+    on_duty_tick_system, process_proj_hits, resolve_movement_system, spawn_npc_system,
+    spawner_respawn_system,
 };
 use endless::world;
 
@@ -1397,6 +1399,321 @@ fn bench_prune_town_equipment(c: &mut Criterion) {
     group.finish();
 }
 
+// ── AI decision system benchmark (issue-192 stagger validation) ───
+
+const AI_TOWN_COUNT: usize = 18;
+
+/// Build a bench world with 18 AI towns and distributed NPCs.
+fn spawn_ai_bench_world(app: &mut App, npc_count: usize) {
+    let world = app.world_mut();
+
+    {
+        let mut grid = world.resource_mut::<world::WorldGrid>();
+        grid.width = 100;
+        grid.height = 100;
+        grid.cell_size = TOWN_GRID_SPACING;
+        grid.cells = vec![world::WorldCell::default(); 100 * 100];
+        grid.init_town_buildable();
+    }
+    {
+        let mut em = world.resource_mut::<EntityMap>();
+        em.init_spatial(100.0 * TOWN_GRID_SPACING);
+    }
+    {
+        let mut fl = world.resource_mut::<FactionList>();
+        fl.factions.push(FactionData {
+            kind: FactionKind::Neutral,
+            name: "Neutral".into(),
+            towns: vec![],
+        });
+        for i in 0..AI_TOWN_COUNT {
+            fl.factions.push(FactionData {
+                kind: FactionKind::AiBuilder,
+                name: format!("AI_{i}"),
+                towns: vec![i],
+            });
+        }
+    }
+
+    let personalities = [
+        AiPersonality::Aggressive,
+        AiPersonality::Balanced,
+        AiPersonality::Economic,
+    ];
+
+    for i in 0..AI_TOWN_COUNT {
+        let cx = (i % 6) as f32 * 1200.0 + 600.0;
+        let cy = (i / 6) as f32 * 1200.0 + 600.0;
+        let center = Vec2::new(cx, cy);
+        let faction = (i + 1) as i32;
+
+        let entity = world
+            .spawn((
+                TownMarker,
+                FoodStore(100_000),
+                GoldStore(100_000),
+                WoodStore(0),
+                StoneStore(0),
+                TownPolicy::default(),
+                TownUpgradeLevel::default(),
+                TownEquipment::default(),
+                TownAreaLevel(1),
+            ))
+            .id();
+
+        world.resource_mut::<TownIndex>().0.insert(i as i32, entity);
+
+        world
+            .resource_mut::<world::WorldData>()
+            .towns
+            .push(world::Town {
+                name: format!("Town_{i}"),
+                center,
+                faction,
+                kind: TownKind::AiBuilder,
+            });
+
+        let fountain_slot = world.resource_mut::<GpuSlotPool>().alloc_reset().unwrap();
+        world
+            .resource_mut::<EntityMap>()
+            .add_instance(endless::entity_map::BuildingInstance {
+                kind: world::BuildingKind::Fountain,
+                position: center,
+                town_idx: i as u32,
+                slot: fountain_slot,
+                faction,
+            });
+    }
+
+    {
+        let mut ai_state = world.resource_mut::<AiPlayerState>();
+        for i in 0..AI_TOWN_COUNT {
+            ai_state.players.push(AiPlayer {
+                town_data_idx: i,
+                kind: AiKind::Builder,
+                personality: personalities[i % 3],
+                road_style: RoadStyle::None,
+                last_actions: Default::default(),
+                policy_defaults_logged: false,
+                active: true,
+                build_enabled: true,
+                upgrade_enabled: true,
+                squad_indices: Vec::new(),
+                squad_cmd: Default::default(),
+                decision_timer: 0.0,
+            });
+        }
+    }
+
+    let per_town = npc_count / AI_TOWN_COUNT;
+    let mut slots = Vec::with_capacity(npc_count);
+    {
+        let mut pool = world.resource_mut::<GpuSlotPool>();
+        for _ in 0..npc_count {
+            if let Some(slot) = pool.alloc_reset() {
+                slots.push(slot);
+            }
+        }
+    }
+
+    let mut entity_slots: Vec<(Entity, usize, i32)> = Vec::with_capacity(npc_count);
+    for (idx, &slot) in slots.iter().enumerate() {
+        let town_idx = (idx / per_town).min(AI_TOWN_COUNT - 1);
+        let faction = (town_idx + 1) as i32;
+        let cx = (town_idx % 6) as f32 * 1200.0 + 600.0;
+        let cy = (town_idx / 6) as f32 * 1200.0 + 600.0;
+        let local_i = idx % per_town;
+        let x = cx + (local_i % 50) as f32 * 16.0 - 400.0;
+        let y = cy + (local_i / 50) as f32 * 16.0 - 400.0;
+
+        let entity = world
+            .spawn((
+                (
+                    GpuSlot(slot),
+                    Position { x, y },
+                    Health(100.0),
+                    Job::Farmer,
+                    Faction(faction),
+                    TownId(town_idx as i32),
+                    Activity::default(),
+                    CombatState::default(),
+                    Energy(100.0),
+                    Speed(60.0),
+                    Home(Vec2::new(cx, cy)),
+                    NpcFlags::default(),
+                ),
+                (
+                    CachedStats {
+                        damage: 10.0,
+                        range: 40.0,
+                        cooldown: 1.0,
+                        projectile_speed: 0.0,
+                        projectile_lifetime: 0.0,
+                        max_health: 100.0,
+                        speed: 60.0,
+                        stamina: 1.0,
+                        hp_regen: 0.0,
+                        berserk_bonus: 0.0,
+                    },
+                    BaseAttackType::Melee,
+                    AttackTimer(0.0),
+                    NpcWorkState::default(),
+                    PatrolRoute {
+                        posts: vec![],
+                        current: 0,
+                    },
+                    CarriedLoot {
+                        food: 0,
+                        gold: 0,
+                        wood: 0,
+                        stone: 0,
+                        equipment: vec![],
+                    },
+                    Personality::default(),
+                    FleeThreshold { pct: 0.2 },
+                    LeashRange(400.0),
+                    WoundedThreshold { pct: 0.3 },
+                    HasEnergy,
+                    NpcEquipment::default(),
+                    SquadId(0),
+                    NpcPath::default(),
+                ),
+            ))
+            .id();
+        entity_slots.push((entity, slot, town_idx as i32));
+    }
+
+    {
+        let mut em = world.resource_mut::<EntityMap>();
+        for &(entity, slot, town_idx) in &entity_slots {
+            let faction = town_idx + 1;
+            em.register_npc(slot, entity, Job::Farmer, faction, town_idx);
+        }
+    }
+
+    let max_slot = slots.iter().copied().max().unwrap_or(0) + AI_TOWN_COUNT + 1;
+    {
+        let mut gpu_read = world.resource_mut::<GpuReadState>();
+        gpu_read.positions.resize(max_slot * 2, 0.0);
+        gpu_read.combat_targets.resize(max_slot, -1);
+        gpu_read.health.resize(max_slot, 1.0);
+        gpu_read.factions.resize(max_slot, 1);
+        gpu_read.threat_counts.resize(max_slot, 0);
+        gpu_read.npc_count = npc_count;
+    }
+    {
+        let mut gpu_state = world.resource_mut::<EntityGpuState>();
+        for (idx, &slot) in slots.iter().enumerate() {
+            let town_idx = (idx / per_town).min(AI_TOWN_COUNT - 1);
+            let cx = (town_idx % 6) as f32 * 1200.0 + 600.0;
+            let cy = (town_idx / 6) as f32 * 1200.0 + 600.0;
+            let local_i = idx % per_town;
+            let x = cx + (local_i % 50) as f32 * 16.0 - 400.0;
+            let y = cy + (local_i / 50) as f32 * 16.0 - 400.0;
+            gpu_state.positions[slot * 2] = x;
+            gpu_state.positions[slot * 2 + 1] = y;
+            gpu_state.factions[slot] = (town_idx + 1) as i32;
+            gpu_state.healths[slot] = 1.0;
+            gpu_state.max_healths[slot] = 100.0;
+            gpu_state.speeds[slot] = 60.0;
+        }
+    }
+    {
+        let mut pop = world.resource_mut::<PopulationStats>();
+        for i in 0..AI_TOWN_COUNT {
+            pop.0.insert(
+                (Job::Farmer as i32, i as i32),
+                PopStats {
+                    alive: per_town as i32,
+                    working: 0,
+                    dead: 0,
+                },
+            );
+        }
+    }
+}
+
+fn bench_ai_decision_system(c: &mut Criterion) {
+    let npc_count = 50_000;
+    let mut group = c.benchmark_group("ai_decision_system");
+    group.sample_size(20);
+
+    // Staggered: only 1 town fires per tick (post-fix behavior)
+    group.bench_with_input(
+        BenchmarkId::new("staggered", npc_count),
+        &npc_count,
+        |b, &count| {
+            let mut app = build_bench_app();
+            app.init_resource::<AiSnapshotDirty>();
+            spawn_ai_bench_world(&mut app, count);
+
+            {
+                let world = app.world_mut();
+                let mut ai_state = world.resource_mut::<AiPlayerState>();
+                for (i, p) in ai_state.players.iter_mut().enumerate() {
+                    p.decision_timer = if i == 0 {
+                        DEFAULT_AI_INTERVAL
+                    } else {
+                        i as f32 * DEFAULT_AI_INTERVAL / AI_TOWN_COUNT as f32
+                    };
+                }
+            }
+
+            // Prime snapshot cache
+            let _ = app.world_mut().run_system_once(ai_decision_system);
+
+            b.iter(|| {
+                {
+                    let world = app.world_mut();
+                    let mut ai_state = world.resource_mut::<AiPlayerState>();
+                    for (i, p) in ai_state.players.iter_mut().enumerate() {
+                        p.decision_timer = if i == 0 {
+                            DEFAULT_AI_INTERVAL
+                        } else {
+                            i as f32 * DEFAULT_AI_INTERVAL / AI_TOWN_COUNT as f32
+                        };
+                    }
+                }
+                let _ = app.world_mut().run_system_once(ai_decision_system);
+            });
+        },
+    );
+
+    // Burst: all 18 towns fire simultaneously (pre-fix regression)
+    group.bench_with_input(
+        BenchmarkId::new("burst", npc_count),
+        &npc_count,
+        |b, &count| {
+            let mut app = build_bench_app();
+            app.init_resource::<AiSnapshotDirty>();
+            spawn_ai_bench_world(&mut app, count);
+
+            {
+                let world = app.world_mut();
+                let mut ai_state = world.resource_mut::<AiPlayerState>();
+                for p in ai_state.players.iter_mut() {
+                    p.decision_timer = DEFAULT_AI_INTERVAL;
+                }
+            }
+
+            let _ = app.world_mut().run_system_once(ai_decision_system);
+
+            b.iter(|| {
+                {
+                    let world = app.world_mut();
+                    let mut ai_state = world.resource_mut::<AiPlayerState>();
+                    for p in ai_state.players.iter_mut() {
+                        p.decision_timer = DEFAULT_AI_INTERVAL;
+                    }
+                }
+                let _ = app.world_mut().run_system_once(ai_decision_system);
+            });
+        },
+    );
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_decision_system,
@@ -1421,5 +1738,6 @@ criterion_group!(
     bench_spawn_npc_system,
     bench_process_proj_hits,
     bench_prune_town_equipment,
+    bench_ai_decision_system,
 );
 criterion_main!(benches);
