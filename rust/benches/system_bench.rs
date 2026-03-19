@@ -17,8 +17,8 @@ use endless::gpu::populate_gpu_state;
 use endless::gpu::{EntityGpuState, ProjBufferWrites};
 use endless::messages::*;
 use endless::resources::*;
-use endless::systems::stats;
 use endless::systems::ai_player::{AiSnapshotDirty, RoadStyle};
+use endless::systems::stats;
 use endless::systems::work_targeting::resolve_work_targets;
 use endless::systems::{
     AiKind, AiPersonality, AiPlayer, AiPlayerConfig, AiPlayerState, advance_waypoints_system,
@@ -1712,6 +1712,9 @@ fn bench_ai_decision_system(c: &mut Criterion) {
             });
         },
     );
+
+    group.finish();
+}
 
 /// Benchmark `resolve_work_targets` with 1K farm buildings and N Claim intents.
 ///
