@@ -322,3 +322,164 @@ fn find_node_target(
         )
         .map(|r| (r.slot, r.position, r.radius_used))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy_ecs::system::RunSystemOnce;
+
+    use crate::components::{
+        Activity, Building, FarmMode, FarmModeComp, GpuSlot, Health, NpcWorkState, Position,
+        ProductionState,
+    };
+    use crate::entity_map::BuildingInstance;
+    use crate::messages::{WorkIntent, WorkIntentMsg};
+    use crate::resources::{EntityMap, GpuSlotPool, PathRequestQueue};
+    use crate::world::BuildingKind;
+    use bevy::prelude::*;
+
+    fn setup_work_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_message::<WorkIntentMsg>();
+        app.init_resource::<EntityMap>();
+        app.init_resource::<PathRequestQueue>();
+        app.init_resource::<GpuSlotPool>();
+        {
+            let mut em = app.world_mut().resource_mut::<EntityMap>();
+            em.init_spatial(1600.0);
+        }
+        app
+    }
+
+    fn alloc_slot(app: &mut App) -> usize {
+        app.world_mut()
+            .resource_mut::<GpuSlotPool>()
+            .alloc_reset()
+            .expect("slot available")
+    }
+
+    fn register_farm(
+        app: &mut App,
+        slot: usize,
+        x: f32,
+        y: f32,
+        mode: FarmMode,
+        production_ready: bool,
+    ) -> Entity {
+        let entity = app
+            .world_mut()
+            .spawn((
+                GpuSlot(slot),
+                Position { x, y },
+                Health(100.0),
+                crate::components::Faction(1),
+                crate::components::TownId(0),
+                Building {
+                    kind: BuildingKind::Farm,
+                },
+                ProductionState {
+                    ready: production_ready,
+                    progress: 1.0,
+                },
+                FarmModeComp(mode),
+            ))
+            .id();
+        let mut em = app.world_mut().resource_mut::<EntityMap>();
+        em.set_entity(slot, entity);
+        em.add_instance(BuildingInstance {
+            kind: BuildingKind::Farm,
+            position: Vec2::new(x, y),
+            town_idx: 0,
+            slot,
+            faction: 1,
+        });
+        entity
+    }
+
+    /// Verify the merged single-pass correctly populates cow_farm_slots:
+    /// a farmer claiming a Farm should receive the Crops farm, not the Cows farm.
+    /// This test would fail if the cow-farm exclusion were dropped from the merged pass.
+    #[test]
+    fn claim_skips_cow_farm_assigns_crops_farm() {
+        let mut app = setup_work_app();
+
+        let crops_slot = alloc_slot(&mut app);
+        let cows_slot = alloc_slot(&mut app);
+        let npc_slot = alloc_slot(&mut app);
+
+        let crops_farm = register_farm(&mut app, crops_slot, 100.0, 100.0, FarmMode::Crops, true);
+        let _cows_farm = register_farm(&mut app, cows_slot, 110.0, 100.0, FarmMode::Cows, true);
+
+        let npc = app
+            .world_mut()
+            .spawn((
+                GpuSlot(npc_slot),
+                Activity::default(),
+                NpcWorkState::default(),
+            ))
+            .id();
+
+        let _ = app
+            .world_mut()
+            .run_system_once(move |mut writer: MessageWriter<WorkIntentMsg>| {
+                writer.write(WorkIntentMsg(WorkIntent::Claim {
+                    entity: npc,
+                    kind: BuildingKind::Farm,
+                    town_idx: 0,
+                    from: Vec2::new(0.0, 0.0),
+                }));
+            });
+        let _ = app.world_mut().run_system_once(resolve_work_targets);
+
+        let ws = app.world().get::<NpcWorkState>(npc).unwrap();
+        assert!(
+            ws.worksite.is_some(),
+            "farmer should be assigned a worksite"
+        );
+        assert_eq!(
+            ws.worksite.unwrap(),
+            crops_farm,
+            "farmer must claim the Crops farm, not the Cows farm"
+        );
+    }
+
+    /// Verify Release-only batch clears NpcWorkState without panicking.
+    /// This test would fail if Release handling were broken by the lazy gate.
+    #[test]
+    fn release_clears_worksite() {
+        let mut app = setup_work_app();
+
+        let crops_slot = alloc_slot(&mut app);
+        let npc_slot = alloc_slot(&mut app);
+
+        let crops_farm = register_farm(&mut app, crops_slot, 100.0, 100.0, FarmMode::Crops, true);
+
+        let npc = app
+            .world_mut()
+            .spawn((
+                GpuSlot(npc_slot),
+                Activity::default(),
+                NpcWorkState {
+                    worksite: Some(crops_farm),
+                },
+            ))
+            .id();
+
+        let _ = app
+            .world_mut()
+            .run_system_once(move |mut writer: MessageWriter<WorkIntentMsg>| {
+                writer.write(WorkIntentMsg(WorkIntent::Release {
+                    entity: npc,
+                    worksite: Some(crops_farm),
+                }));
+            });
+        let _ = app.world_mut().run_system_once(resolve_work_targets);
+
+        let ws = app.world().get::<NpcWorkState>(npc).unwrap();
+        assert!(
+            ws.worksite.is_none(),
+            "worksite should be cleared after Release"
+        );
+    }
+}
