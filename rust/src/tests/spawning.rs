@@ -69,11 +69,11 @@ pub fn tick(
                 if let Some(slot) = first_slot {
                     test.set_flag("killed", true);
                     test.counters.insert("killed_slot".into(), slot as u32);
-                    #[allow(clippy::unwrap_used)]
                     // slot was just retrieved from iter_npcs; guaranteed present
-                    let npc = entity_map.get_npc(slot).unwrap();
-                    if let Ok(mut h) = health_q.get_mut(npc.entity) {
-                        h.0 = 0.0;
+                    if let Some(npc) = entity_map.get_npc(slot) {
+                        if let Ok(mut h) = health_q.get_mut(npc.entity) {
+                            h.0 = 0.0;
+                        }
                     }
                     test.phase_name = format!("Killed slot {}, waiting for despawn...", slot);
                 }

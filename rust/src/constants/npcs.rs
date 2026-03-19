@@ -865,9 +865,9 @@ pub const ACTIVITY_REGISTRY: &[ActivityDef] = &[
 ];
 
 pub fn activity_def(kind: ActivityKind) -> &'static ActivityDef {
-    #[allow(clippy::unwrap_used)] // registry is complete by construction; missing entry is a bug
+    // registry covers all ActivityKind variants; missing entry is a compile-time oversight
     ACTIVITY_REGISTRY
         .iter()
         .find(|d| d.activity == kind)
-        .unwrap()
+        .expect("ACTIVITY_REGISTRY must contain all ActivityKind variants")
 }

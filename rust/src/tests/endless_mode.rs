@@ -283,10 +283,7 @@ pub fn tick(
                         .insert("migration_town_idx".into(), (current - 1) as u32);
                 }
                 test.pass_phase(elapsed, format!("migration settled ({:.1}s)", elapsed));
-            } else {
-                #[allow(clippy::unwrap_used)]
-                // active is Some in the else branch (is_some() checked above)
-                let mg = migration_state.active.as_ref().unwrap();
+            } else if let Some(mg) = migration_state.active.as_ref() {
                 test.phase_name = format!(
                     "waiting for settle... boat={} members={}",
                     mg.boat_slot.is_some(),
@@ -515,10 +512,7 @@ pub fn tick(
                     elapsed,
                     format!("raider migration settled ({:.1}s)", elapsed),
                 );
-            } else {
-                #[allow(clippy::unwrap_used)]
-                // active is Some in the else branch (is_some() checked above)
-                let mg = migration_state.active.as_ref().unwrap();
+            } else if let Some(mg) = migration_state.active.as_ref() {
                 test.phase_name = format!(
                     "waiting for raider settle... boat={} members={}",
                     mg.boat_slot.is_some(),
