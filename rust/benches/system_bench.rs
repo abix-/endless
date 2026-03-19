@@ -1716,6 +1716,8 @@ fn bench_ai_decision_system(c: &mut Criterion) {
         },
     );
 
+    group.finish();
+}
 
 // ── Building grid rebuild benchmarks (issue-207 spike investigation) ──────────
 
