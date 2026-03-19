@@ -1260,9 +1260,9 @@ mod tests {
     // -- sync_building_costs incremental regression tests --------------------
 
     /// Regression: removing a wall restores terrain cost. Verifies that the
-    /// symmetric-difference changed-cells logic correctly handles removal.
-    /// If reverted to full-cell rebuild, the test still passes; if the
-    /// revert logic is broken, wall cell stays impassable after removal.
+    /// union changed-cells logic correctly handles removal (old_cells covers
+    /// removed cells so HPA is rebuilt for them). If the revert logic is
+    /// broken, wall cell stays impassable after removal.
     #[test]
     fn sync_building_costs_wall_removal_restores_terrain_cost() {
         let mut grid = make_grid(10, 10);
