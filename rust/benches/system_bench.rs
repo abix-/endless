@@ -16,8 +16,8 @@ use endless::gpu::populate_gpu_state;
 use endless::gpu::{EntityGpuState, ProjBufferWrites};
 use endless::messages::*;
 use endless::resources::*;
-use endless::systems::stats;
 use endless::systems::ai_player::{AiSnapshotDirty, RoadStyle};
+use endless::systems::stats;
 use endless::systems::{
     AiKind, AiPersonality, AiPlayer, AiPlayerConfig, AiPlayerState, advance_waypoints_system,
     ai_decision_system, arrival_system, attack_system, building_tower_system,
@@ -1714,6 +1714,166 @@ fn bench_ai_decision_system(c: &mut Criterion) {
     group.finish();
 }
 
+// ── Building grid rebuild benchmarks (issue-207 spike investigation) ──────────
+
+/// Populate EntityMap with a mix of wall and tower buildings at realistic grid positions.
+/// Used for rebuild_building_grid and sync_pathfind_costs benchmarks.
+/// World is 200x200 cells at TOWN_GRID_SPACING = 64px.
+fn populate_pathfind_buildings(app: &mut App, count: usize) {
+    // Resize world to 200x200 for a realistic map size
+    {
+        let world = app.world_mut();
+        let mut grid = world.resource_mut::<world::WorldGrid>();
+        grid.width = 200;
+        grid.height = 200;
+        grid.cell_size = TOWN_GRID_SPACING;
+        grid.cells = vec![world::WorldCell::default(); 200 * 200];
+    }
+    {
+        let world = app.world_mut();
+        let mut em = world.resource_mut::<EntityMap>();
+        let world_size_px = 200.0 * TOWN_GRID_SPACING;
+        em.init_spatial(world_size_px);
+    }
+
+    // 75% walls, 25% bow towers — representative mix for pathfinding cost benchmarks
+    let wall_count = count * 3 / 4;
+
+    let world = app.world_mut();
+    let mut building_slots = Vec::with_capacity(count);
+    {
+        let mut pool = world.resource_mut::<GpuSlotPool>();
+        for _ in 0..count {
+            if let Some(slot) = pool.alloc_reset() {
+                building_slots.push(slot);
+            }
+        }
+    }
+
+    let mut building_entities = Vec::with_capacity(count);
+    for (i, &slot) in building_slots.iter().enumerate() {
+        // Spread buildings across the 200x200 grid
+        let gc = (i % 200) as f32;
+        let gr = (i / 200 % 200) as f32;
+        let x = gc * TOWN_GRID_SPACING + 32.0;
+        let y = gr * TOWN_GRID_SPACING + 32.0;
+        let kind = if i < wall_count {
+            world::BuildingKind::Wall
+        } else {
+            world::BuildingKind::BowTower
+        };
+        let entity = world
+            .spawn((
+                GpuSlot(slot),
+                Position { x, y },
+                Health(100.0),
+                Faction(1),
+                TownId(0),
+                Building { kind },
+            ))
+            .id();
+        building_entities.push((entity, slot, x, y, kind));
+    }
+
+    let mut em = world.resource_mut::<EntityMap>();
+    for &(entity, slot, x, y, kind) in &building_entities {
+        em.set_entity(slot, entity);
+        em.add_instance(BuildingInstance {
+            kind,
+            position: Vec2::new(x, y),
+            town_idx: 0,
+            slot,
+            faction: 1,
+        });
+    }
+}
+
+/// Benchmark `rebuild_building_grid_system` — the spatial grid full rebuild.
+/// Fires on every BuildingGridDirtyMsg (building placed, destroyed, or loaded).
+/// Tests `entity_map.init_spatial() + rebuild_spatial()` cost at realistic building counts.
+fn bench_rebuild_building_grid_system(c: &mut Criterion) {
+    let mut group = c.benchmark_group("rebuild_building_grid");
+    group.sample_size(20);
+    const BUILDING_COUNTS: &[usize] = &[500, 2_000, 5_000];
+    for &bcount in BUILDING_COUNTS {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(bcount),
+            &bcount,
+            |b, &bcount| {
+                let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
+                populate_pathfind_buildings(&mut app, bcount);
+                // Warmup
+                let _ = app.world_mut().run_system_once(
+                    |mut writer: MessageWriter<BuildingGridDirtyMsg>| {
+                        writer.write(BuildingGridDirtyMsg);
+                    },
+                );
+                let _ = app
+                    .world_mut()
+                    .run_system_once(world::rebuild_building_grid_system);
+                b.iter(|| {
+                    let _ = app.world_mut().run_system_once(
+                        |mut writer: MessageWriter<BuildingGridDirtyMsg>| {
+                            writer.write(BuildingGridDirtyMsg);
+                        },
+                    );
+                    let _ = app
+                        .world_mut()
+                        .run_system_once(world::rebuild_building_grid_system);
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+/// Benchmark `sync_pathfind_costs_system` — HPA* incremental chunk rebuild.
+/// Fires on every BuildingGridDirtyMsg. Tests `grid.sync_building_costs()` + HPA*
+/// `rebuild_chunks()` cost for wall/tower buildings spread across the grid.
+fn bench_sync_pathfind_costs_system(c: &mut Criterion) {
+    let mut group = c.benchmark_group("sync_pathfind_costs");
+    group.sample_size(20);
+    const BUILDING_COUNTS: &[usize] = &[500, 2_000, 5_000];
+    for &bcount in BUILDING_COUNTS {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(bcount),
+            &bcount,
+            |b, &bcount| {
+                let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
+                populate_pathfind_buildings(&mut app, bcount);
+                // Initialize terrain costs and HPA* cache
+                {
+                    let world = app.world_mut();
+                    let mut grid = world.resource_mut::<world::WorldGrid>();
+                    grid.init_pathfind_costs();
+                }
+                // Warmup
+                let _ = app.world_mut().run_system_once(
+                    |mut writer: MessageWriter<BuildingGridDirtyMsg>| {
+                        writer.write(BuildingGridDirtyMsg);
+                    },
+                );
+                let _ = app
+                    .world_mut()
+                    .run_system_once(endless::systems::pathfinding::sync_pathfind_costs_system);
+                b.iter(|| {
+                    let _ = app.world_mut().run_system_once(
+                        |mut writer: MessageWriter<BuildingGridDirtyMsg>| {
+                            writer.write(BuildingGridDirtyMsg);
+                        },
+                    );
+                    let _ = app
+                        .world_mut()
+                        .run_system_once(endless::systems::pathfinding::sync_pathfind_costs_system);
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_decision_system,
@@ -1739,5 +1899,7 @@ criterion_group!(
     bench_process_proj_hits,
     bench_prune_town_equipment,
     bench_ai_decision_system,
+    bench_rebuild_building_grid_system,
+    bench_sync_pathfind_costs_system,
 );
 criterion_main!(benches);
