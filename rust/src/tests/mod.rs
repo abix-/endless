@@ -1150,14 +1150,16 @@ fn test_menu_system(
                 run_all.queue = registry.tests.iter().map(|t| t.name.clone()).collect();
                 // Start first test
                 if let Some(first) = run_all.queue.pop_front() {
-                    let entry = registry.tests.iter().find(|t| t.name == first).unwrap();
-                    start_test(
-                        &first,
-                        entry.phase_count,
-                        entry.time_scale,
-                        &mut test_state,
-                        &mut next_state,
-                    );
+                    // queue was just built from registry; entry is guaranteed present
+                    if let Some(entry) = registry.tests.iter().find(|t| t.name == first) {
+                        start_test(
+                            &first,
+                            entry.phase_count,
+                            entry.time_scale,
+                            &mut test_state,
+                            &mut next_state,
+                        );
+                    }
                 }
             }
 
@@ -1303,11 +1305,9 @@ fn test_completion_system(
 
     // Run All mode: auto-advance after delay (skip delay in CLI mode)
     let now = time.elapsed_secs();
-    if delayed.is_none() {
-        *delayed = Some(now);
-    }
+    let start = *delayed.get_or_insert(now);
     let delay = if cli_mode.active { 0.0 } else { 1.5 };
-    if now - delayed.unwrap() < delay {
+    if now - start < delay {
         return;
     }
 
