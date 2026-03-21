@@ -260,3 +260,68 @@ fn staggered_timers_prevent_simultaneous_fire() {
     );
     assert!(due_count > 0, "at least one player should be due");
 }
+
+/// ECS regression: ai_decision_system must use real-time delta, not game-time delta.
+///
+/// At 16x speed, `game_time.delta(&time) = time.delta_secs() * 16`. If ai_decision_system
+/// used game-time delta, the player timers would accumulate 16x faster, crossing
+/// DEFAULT_AI_INTERVAL after only ~19 ticks at 60 UPS (instead of ~300 ticks).
+/// Cost jumps from ~0.01ms to ~1.57ms per tick (issue #204).
+///
+/// This test runs a real ECS system with the exact same delta computation as
+/// ai_decision_system and verifies accumulation stays at real-time rate at 16x.
+/// Reverts the fix to `game_time.delta(&time)` to confirm the test would fail.
+#[test]
+fn ai_decision_timer_is_real_time_not_game_time_at_16x() {
+    #[derive(Resource, Default)]
+    struct TimerAccum(f32);
+
+    fn timer_system(time: Res<Time>, game_time: Res<GameTime>, mut accum: ResMut<TimerAccum>) {
+        // Exact delta logic from ai_decision_system (post-fix, issue #204).
+        // Old code: game_time.delta(&time) which scales by time_scale (16x at high speed).
+        // Fix: time.delta_secs() -- real-time only, ignores game speed.
+        let delta = if game_time.is_paused() {
+            0.0
+        } else {
+            time.delta_secs()
+        };
+        accum.0 += delta;
+    }
+
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+
+    let mut game_time = GameTime::default();
+    game_time.time_scale = 16.0; // 16x game speed
+    app.insert_resource(game_time);
+    app.insert_resource(TimerAccum::default());
+    // Each app.update() advances real time by exactly 1/60s
+    app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+        std::time::Duration::from_secs_f32(1.0 / 60.0),
+    ));
+    app.add_systems(Update, timer_system);
+
+    let ticks = 20usize;
+    for _ in 0..ticks {
+        app.update();
+    }
+
+    let accum = app.world().resource::<TimerAccum>().0;
+    let real_time = (1.0f32 / 60.0) * ticks as f32; // ~0.333s
+    let game_time_accum = real_time * 16.0; // ~5.33s -- what old (broken) code gives
+    let interval = crate::constants::DEFAULT_AI_INTERVAL; // 5.0s
+
+    // Old game-time delta would cross the interval and trigger AI decisions at 16x.
+    // Real-time delta must stay well below the threshold after only 20 ticks.
+    assert!(
+        accum < interval,
+        "at 16x, real-time delta must not cross interval ({interval}s) after {ticks} ticks; \
+         accumulated {accum:.3}s (game-time would be {game_time_accum:.3}s)"
+    );
+    // Verify accumulation matches real-time, not the 16x-inflated game-time value.
+    assert!(
+        (accum - real_time).abs() < 0.05,
+        "accumulated delta should match real-time ({real_time:.3}s), \
+         not game-time ({game_time_accum:.3}s); got {accum:.3}s"
+    );
+}

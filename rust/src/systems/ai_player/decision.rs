@@ -33,7 +33,14 @@ pub fn ai_decision_system(
     settings: Res<crate::settings::UserSettings>,
     mut snapshot_dirty: ResMut<AiSnapshotDirty>,
 ) {
-    let delta = game_time.delta(&time);
+    // Use real-time delta (not game-time-scaled) so AI decision cadence stays
+    // constant regardless of game speed. At 16x, strategic building/upgrade
+    // decisions do not benefit from running 16x more often.
+    let delta = if game_time.is_paused() {
+        0.0
+    } else {
+        time.delta_secs()
+    };
 
     // Advance every player's individual timer.
     for player in ai_state.players.iter_mut() {
