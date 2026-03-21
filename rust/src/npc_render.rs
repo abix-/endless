@@ -737,26 +737,40 @@ fn mark_building_body_dirty(
 
 /// Build building body instances from EntityGpuState for instance-buffer rendering.
 /// Skips rebuild when BuildingBodyDirty is false (nothing changed since last frame).
+///
+/// Perf fix (issue #209): use BuildingInstance.position/faction directly instead of
+/// reading from the large EntityGpuState arrays at scattered high slot indices. Buildings
+/// don't move and faction is CPU-authoritative on EntityMap, so these fields are
+/// identical to gpu_state but require no cache-miss reads into the 200K-element arrays.
+/// Construction lookup is pre-indexed once per frame over the (typically tiny) set of
+/// buildings under construction, replacing per-building entity HashMap + ECS query.get().
 pub fn build_building_body_instances(
     gpu_state: Res<crate::gpu::EntityGpuState>,
     entity_map: Res<crate::resources::EntityMap>,
     mut instances: ResMut<BuildingBodyInstances>,
     mut dirty: ResMut<BuildingBodyDirty>,
-    construction_q: Query<&crate::components::ConstructionProgress>,
+    construction_q: Query<(
+        &crate::components::GpuSlot,
+        &crate::components::ConstructionProgress,
+    )>,
 ) {
     if !dirty.dirty {
         return;
     }
     dirty.dirty = false;
+
+    // Pre-index construction progress by slot. Usually empty or a handful of buildings.
+    let mut under_construction_by_slot: std::collections::HashMap<usize, f32> =
+        std::collections::HashMap::new();
+    for (slot, progress) in construction_q.iter() {
+        if progress.0 > 0.0 {
+            under_construction_by_slot.insert(slot.0, progress.0);
+        }
+    }
+
     instances.0.clear();
     for inst in entity_map.iter_instances() {
         let idx = inst.slot;
-        let i2 = idx * 2;
-        let x = gpu_state.positions.get(i2).copied().unwrap_or(-9999.0);
-        let y = gpu_state.positions.get(i2 + 1).copied().unwrap_or(-9999.0);
-        if x < -9000.0 {
-            continue;
-        } // hidden/dead
 
         let col = gpu_state
             .sprite_indices
@@ -765,7 +779,7 @@ pub fn build_building_body_instances(
             .unwrap_or(-1.0);
         if col < 0.0 {
             continue;
-        } // no sprite assigned
+        } // no sprite assigned yet
 
         let row = gpu_state
             .sprite_indices
@@ -778,17 +792,19 @@ pub fn build_building_body_instances(
             .copied()
             .unwrap_or(1.0);
         let flash = gpu_state.flash_values.get(idx).copied().unwrap_or(0.0);
-        let faction = gpu_state.factions.get(idx).copied().unwrap_or(0);
-        // During construction, pass progress fraction (0→0.999) so shader clips sprite.
+
+        // Use EntityMap position/faction directly: buildings don't move (position is static
+        // after placement), and faction is CPU-authoritative on EntityMap (authority.md).
+        // Avoids two scattered reads into the 200K-element gpu_state arrays per building.
+        let x = inst.position.x;
+        let y = inst.position.y;
+        let faction = inst.faction;
+
+        // During construction, pass progress fraction (0->0.999) so shader clips sprite.
         // Fully-built buildings pass real HP (always >> 1.0), so shader skips the clip.
-        let under_construction = entity_map
-            .entities
-            .get(&idx)
-            .and_then(|&e| construction_q.get(e).ok())
-            .map_or(0.0, |c| c.0);
-        let health = if under_construction > 0.0 {
+        let health = if let Some(&secs_left) = under_construction_by_slot.get(&idx) {
             let total = crate::constants::BUILDING_CONSTRUCT_SECS;
-            ((total - under_construction) / total).clamp(0.0, 0.999)
+            ((total - secs_left) / total).clamp(0.0, 0.999)
         } else {
             gpu_state.healths.get(idx).copied().unwrap_or(0.0)
         };
@@ -1251,6 +1267,123 @@ mod tests {
         assert_eq!(
             dirty.last_building_count, 1,
             "last_building_count must be updated to new count"
+        );
+    }
+
+    /// Regression test for issue #209: build_building_body_instances must use
+    /// BuildingInstance.position/faction (cache-friendly) instead of scattered
+    /// gpu_state array reads. Verifies the system produces one instance per
+    /// registered building with correct position and health fields.
+    ///
+    /// This test FAILS if the system reverts to gpu_state.positions reads without
+    /// also setting gpu_state.positions, since positions would default to -9999.0
+    /// and all buildings would be skipped.
+    #[test]
+    fn build_building_body_instances_uses_instance_position() {
+        use crate::components::{Building, ConstructionProgress};
+        use crate::entity_map::BuildingInstance;
+        use crate::gpu::EntityGpuState;
+        use crate::resources::EntityMap;
+        use crate::world::BuildingKind;
+        use bevy::math::Vec2;
+        use bevy::prelude::*;
+        use bevy_ecs::system::RunSystemOnce;
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<EntityGpuState>();
+        app.init_resource::<EntityMap>();
+        app.init_resource::<BuildingBodyInstances>();
+        app.init_resource::<BuildingBodyDirty>();
+
+        // Spawn two buildings: one fully built, one under construction.
+        // Do NOT set gpu_state.positions (stays at -9999.0 default).
+        // If the system uses gpu_state.positions, both buildings are filtered out.
+        // If the system uses inst.position, both appear in the output.
+        let slot_a = 100_001usize; // typical high building slot
+        let slot_b = 100_002usize;
+
+        {
+            let world = app.world_mut();
+            // Set sprite indices so col >= 0.0 (skip-guard passes)
+            let mut gpu = world.resource_mut::<EntityGpuState>();
+            gpu.sprite_indices[slot_a * 4] = 3.0; // col
+            gpu.sprite_indices[slot_a * 4 + 1] = 0.0; // row
+            gpu.sprite_indices[slot_a * 4 + 2] = 1.0; // atlas
+            gpu.healths[slot_a] = 0.8;
+            gpu.sprite_indices[slot_b * 4] = 5.0;
+            gpu.sprite_indices[slot_b * 4 + 1] = 0.0;
+            gpu.sprite_indices[slot_b * 4 + 2] = 1.0;
+            gpu.healths[slot_b] = 0.5;
+            // Set dirty=true so the system runs the rebuild
+            world.resource_mut::<BuildingBodyDirty>().dirty = true;
+        }
+
+        let entity_b = app
+            .world_mut()
+            .spawn((
+                crate::components::GpuSlot(slot_b),
+                Building {
+                    kind: BuildingKind::Farm,
+                },
+                ConstructionProgress(10.0), // 10 seconds left
+            ))
+            .id();
+        let _ = entity_b;
+
+        {
+            let world = app.world_mut();
+            let mut em = world.resource_mut::<EntityMap>();
+            em.add_instance(BuildingInstance {
+                kind: BuildingKind::BowTower,
+                position: Vec2::new(123.0, 456.0),
+                town_idx: 0,
+                slot: slot_a,
+                faction: crate::constants::FACTION_PLAYER,
+            });
+            em.add_instance(BuildingInstance {
+                kind: BuildingKind::Farm,
+                position: Vec2::new(789.0, 321.0),
+                town_idx: 0,
+                slot: slot_b,
+                faction: crate::constants::FACTION_PLAYER,
+            });
+        }
+
+        let _ = app
+            .world_mut()
+            .run_system_once(build_building_body_instances);
+
+        let out = &app.world().resource::<BuildingBodyInstances>().0;
+        assert_eq!(out.len(), 2, "both buildings must appear in instance list");
+
+        // Find instance for slot_a by position
+        let a = out
+            .iter()
+            .find(|i| (i.position[0] - 123.0).abs() < 0.01)
+            .expect("slot_a instance must be present at position (123, 456)");
+        assert!(
+            (a.position[1] - 456.0).abs() < 0.01,
+            "slot_a y position must match inst.position"
+        );
+        assert!(
+            (a.health - 0.8).abs() < 0.01,
+            "fully-built building must use gpu_state health"
+        );
+
+        // Find instance for slot_b (under construction)
+        let b = out
+            .iter()
+            .find(|i| (i.position[0] - 789.0).abs() < 0.01)
+            .expect("slot_b instance must be present at position (789, 321)");
+        // Construction progress: 10s left out of BUILDING_CONSTRUCT_SECS
+        let total = crate::constants::BUILDING_CONSTRUCT_SECS;
+        let expected_frac = ((total - 10.0) / total).clamp(0.0, 0.999);
+        assert!(
+            (b.health - expected_frac).abs() < 0.01,
+            "under-construction building health must encode progress fraction, got {} expected {}",
+            b.health,
+            expected_frac
         );
     }
 }

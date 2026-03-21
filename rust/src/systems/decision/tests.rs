@@ -1037,6 +1037,11 @@ fn setup_mason_app(buildings: Vec<(BuildingKind, Vec2, f32)>) -> (App, Entity) {
     let policy = PolicySet::default();
     let mut app = setup_decision_app(policy);
 
+    // Initialize spatial grid so for_each_nearby works in tests
+    app.world_mut()
+        .resource_mut::<EntityMap>()
+        .init_spatial(16384.0);
+
     // Register buildings in EntityMap and spawn ECS entities with Health + Building
     let mut slot = 1000; // high slot to avoid collision with NPC slots
     for (kind, pos, hp) in &buildings {
@@ -1161,5 +1166,53 @@ fn mason_repair_increments_health_caps_at_max() {
     assert!(
         (hp2 - max_hp).abs() < f32::EPSILON,
         "should cap at max HP when rate exceeds deficit"
+    );
+}
+
+#[test]
+fn mason_repairs_nearby_damaged_building_in_active_state() {
+    // Regression test for FINDING-3: the Repair/Active scan uses for_each_nearby
+    // (spatial query) instead of iter_instances (O(all_buildings)).
+    // If for_each_nearby is reverted without init_spatial, no buildings are found
+    // and hp_after == hp_before, failing this assertion.
+    use crate::constants::MASON_REPAIR_RATE;
+
+    let farm_max_hp = crate::constants::building_def(BuildingKind::Farm).hp;
+    let initial_hp = farm_max_hp - 10.0;
+    // Mason NPC is at slot 0, GpuReadState positions = [64, 64] (setup_decision_app default)
+    let bld_pos = Vec2::new(64.0, 64.0); // within 40px repair radius of mason
+
+    let (mut app, mason) = setup_mason_app(vec![(BuildingKind::Farm, bld_pos, initial_hp)]);
+
+    // Put mason in Repair/Active -- triggers the spatial repair-at-site loop
+    {
+        let mut activity = app.world_mut().get_mut::<Activity>(mason).unwrap();
+        activity.kind = ActivityKind::Repair;
+        activity.phase = ActivityPhase::Active;
+    }
+
+    let bld_entity = {
+        let em = app.world().resource::<EntityMap>();
+        *em.entities
+            .get(&1000)
+            .expect("building slot 1000 must exist")
+    };
+
+    let hp_before = app.world().get::<Health>(bld_entity).unwrap().0;
+    app.world_mut().run_system_once(decision_system).unwrap();
+    let hp_after = app.world().get::<Health>(bld_entity).unwrap().0;
+
+    assert!(
+        hp_after > hp_before,
+        "mason in Repair/Active must repair the nearby building via spatial query: before={hp_before}, after={hp_after}"
+    );
+    assert!(
+        hp_after <= farm_max_hp,
+        "repaired hp must not exceed max: hp_after={hp_after}, max={farm_max_hp}"
+    );
+    let expected = (initial_hp + MASON_REPAIR_RATE).min(farm_max_hp);
+    assert!(
+        (hp_after - expected).abs() < f32::EPSILON,
+        "hp should increase by exactly MASON_REPAIR_RATE: expected={expected}, got={hp_after}"
     );
 }
