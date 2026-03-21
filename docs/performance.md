@@ -458,15 +458,15 @@ Compact record of performance fixes applied. Each entry preserves the root cause
 
 **Criterion results** (Windows, i7-9700K, rebuild_building_grid):
 
-| Buildings | full_rebuild (before) | incremental (after) | Speedup |
-|-----------|----------------------|-----------------------|---------|
-| 100 | 5.7us | 1.1us | 5.2x |
-| 500 | 49.3us | 2.2us | 22.4x |
-| 1000 | 115.8us | 2.0us | 57.9x |
-| 5000 | 357.5us | 1.1us | 325x |
-| 50000 | 5568us | 1.1us | 5062x |
+| Buildings | full_rebuild (before) | incremental_add_one (after) | Speedup |
+|-----------|----------------------|----------------------------|---------|
+| 100 | 5.8us | 178ns | 33x |
+| 500 | 55.8us | 515ns | 108x |
+| 1000 | 96.1us | 413ns | 233x |
+| 5000 | 554.5us | 679ns | 817x |
+| 50000 | 12.8ms | 380ns | 33,695x |
 
-Incremental cost is O(1) (~1.1us) regardless of building count. Full rebuild scales O(n): 5.6ms at 50K buildings.
+Incremental `add_instance` (spatial_insert inline) is O(1) at ~180-680ns regardless of building count. Full `rebuild_spatial` scales O(n): 12.8ms at 50K buildings.
 
 **Pattern**: Event-driven incremental maintenance -- when the authoritative index is already updated inline on add/remove, dirty-message handlers should only reconcile first-time initialization or true bulk rebuild cases, not blindly rescan the entire collection every tick.
 

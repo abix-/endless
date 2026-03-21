@@ -672,8 +672,9 @@ fn bench_rebuild_building_grid_system(c: &mut Criterion) {
     const BUILDING_COUNTS: &[usize] = &[100, 500, 1_000, 5_000, 50_000];
 
     for &count in BUILDING_COUNTS {
+        // OLD path: full O(n) rebuild_spatial on every dirty message
         group.bench_with_input(
-            BenchmarkId::new("full_rebuild_baseline", count),
+            BenchmarkId::new("full_rebuild", count),
             &count,
             |b, &count| {
                 let mut app = build_bench_app();
@@ -686,37 +687,51 @@ fn bench_rebuild_building_grid_system(c: &mut Criterion) {
 
                 b.iter(|| {
                     let mut em = app.world_mut().resource_mut::<EntityMap>();
-                    em.init_spatial(world_size_px);
                     em.rebuild_spatial();
                 });
             },
         );
 
+        // NEW path: incremental add_instance with spatial_insert inline.
+        // Measures the actual cost of adding one building to an existing
+        // spatial grid of N buildings. add_instance handles replace-in-place
+        // (removes old entry at same slot, inserts new), so repeated calls
+        // with the same slot measure the real incremental add+remove cycle.
         group.bench_with_input(
-            BenchmarkId::new("incremental_dirty_after_init", count),
+            BenchmarkId::new("incremental_add_one", count),
             &count,
             |b, &count| {
                 let mut app = build_bench_app();
-                let _world_size_px = populate_building_instances(&mut app, count);
-
-                let _ = app.world_mut().run_system_once(
-                    |mut writer: MessageWriter<BuildingGridDirtyMsg>| {
-                        writer.write(BuildingGridDirtyMsg);
-                    },
-                );
-                let _ = app
+                let world_size_px = populate_building_instances(&mut app, count);
+                {
+                    let mut em = app.world_mut().resource_mut::<EntityMap>();
+                    em.init_spatial(world_size_px);
+                    em.rebuild_spatial();
+                }
+                // Allocate a slot for the extra building
+                let extra_slot = app
                     .world_mut()
-                    .run_system_once(world::rebuild_building_grid_system);
+                    .resource_mut::<GpuSlotPool>()
+                    .alloc_reset()
+                    .expect("slot pool exhausted");
+                let side = (count as f32).sqrt().ceil() as usize;
+                let extra_pos = Vec2::new(
+                    32.0 + (side + 1) as f32 * 64.0,
+                    32.0 + (side + 1) as f32 * 64.0,
+                );
 
                 b.iter(|| {
-                    let _ = app.world_mut().run_system_once(
-                        |mut writer: MessageWriter<BuildingGridDirtyMsg>| {
-                            writer.write(BuildingGridDirtyMsg);
-                        },
-                    );
-                    let _ = app
-                        .world_mut()
-                        .run_system_once(world::rebuild_building_grid_system);
+                    let mut em = app.world_mut().resource_mut::<EntityMap>();
+                    // add_instance replaces if slot exists: spatial_remove old
+                    // + spatial_insert new + index updates. This is the real
+                    // incremental cost per building change.
+                    em.add_instance(BuildingInstance {
+                        kind: world::BuildingKind::Farm,
+                        position: extra_pos,
+                        town_idx: 0,
+                        slot: extra_slot,
+                        faction: 1,
+                    });
                 });
             },
         );
