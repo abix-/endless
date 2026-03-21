@@ -1793,3 +1793,123 @@ fn squad_cleanup_retains_alive_members() {
         "alive member should be retained"
     );
 }
+
+// ============================================================================
+// sync_sleeping_system regression tests (event-driven, issue #188)
+// ============================================================================
+
+fn setup_sleeping_app() -> App {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.insert_resource(EntityMap::default());
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(
+        std::time::Duration::from_secs_f32(1.0),
+    ));
+    app.add_systems(FixedUpdate, sync_sleeping_system);
+    app.update();
+    app.update();
+    app
+}
+
+/// Regression: sync_sleeping_system must REMOVE Sleeping when dirty slot has present_count > 0.
+/// Verifies the event-driven path wakes a resource node when a worker arrives.
+#[test]
+fn sleeping_system_wakes_on_dirty_with_present() {
+    let mut app = setup_sleeping_app();
+
+    // Spawn a sleeping TreeNode.
+    let inst = test_building_instance(0, BuildingKind::TreeNode, 0.0);
+    let entity = app
+        .world_mut()
+        .spawn((
+            GpuSlot(0),
+            Building {
+                kind: BuildingKind::TreeNode,
+            },
+            Sleeping,
+        ))
+        .id();
+    {
+        let mut em = app.world_mut().resource_mut::<EntityMap>();
+        em.set_entity(0, entity);
+        em.add_instance(inst);
+        em.set_present(0, 1); // worker arrived
+        em.sleeping_dirty.push(0); // slot marked dirty by resolve_work_targets
+    }
+
+    app.update();
+
+    assert!(
+        app.world().get::<Sleeping>(entity).is_none(),
+        "Sleeping should be removed when present_count > 0"
+    );
+}
+
+/// Regression: sync_sleeping_system must ADD Sleeping when dirty slot has present_count == 0.
+/// Verifies the event-driven path sleeps a resource node when the last worker leaves.
+#[test]
+fn sleeping_system_sleeps_on_dirty_with_no_present() {
+    let mut app = setup_sleeping_app();
+
+    // Spawn an awake RockNode (no Sleeping component).
+    let inst = test_building_instance(0, BuildingKind::RockNode, 0.0);
+    let entity = app
+        .world_mut()
+        .spawn((
+            GpuSlot(0),
+            Building {
+                kind: BuildingKind::RockNode,
+            },
+            // no Sleeping
+        ))
+        .id();
+    {
+        let mut em = app.world_mut().resource_mut::<EntityMap>();
+        em.set_entity(0, entity);
+        em.add_instance(inst);
+        em.set_present(0, 0); // no workers
+        em.sleeping_dirty.push(0); // slot marked dirty by resolve_work_targets
+    }
+
+    app.update();
+
+    assert!(
+        app.world().get::<Sleeping>(entity).is_some(),
+        "Sleeping should be added when present_count == 0"
+    );
+}
+
+/// Regression: sync_sleeping_system must NOT change state when slot is NOT in sleeping_dirty.
+/// Verifies the old O(65K) polling path is gone -- no dirty entry = no change.
+#[test]
+fn sleeping_system_ignores_undirty_slots() {
+    let mut app = setup_sleeping_app();
+
+    // Spawn a sleeping TreeNode with present_count > 0 but NOT in sleeping_dirty.
+    let inst = test_building_instance(0, BuildingKind::TreeNode, 0.0);
+    let entity = app
+        .world_mut()
+        .spawn((
+            GpuSlot(0),
+            Building {
+                kind: BuildingKind::TreeNode,
+            },
+            Sleeping,
+        ))
+        .id();
+    {
+        let mut em = app.world_mut().resource_mut::<EntityMap>();
+        em.set_entity(0, entity);
+        em.add_instance(inst);
+        em.set_present(0, 1); // worker present, but slot NOT dirtied
+        // sleeping_dirty is empty
+    }
+
+    app.update();
+
+    // Sleeping should NOT be removed because the slot was never dirtied.
+    assert!(
+        app.world().get::<Sleeping>(entity).is_some(),
+        "Sleeping must not be removed without a dirty entry -- event-driven only"
+    );
+}

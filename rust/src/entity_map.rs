@@ -156,6 +156,9 @@ pub struct EntityMap {
     /// Worksite physical presence counts — slot->i16, incremented on worker arrival.
     /// Used by growth_system/sleeping_sync to gate tended production rates.
     pub(crate) present: DenseSlotMap<i16>,
+    /// Resource node slots (TreeNode/RockNode) whose Sleeping state needs reconciliation.
+    /// Populated by resolve_work_targets on occupancy change; drained by sync_sleeping_system.
+    pub sleeping_dirty: Vec<usize>,
 
     // NPC-specific data (index-only — gameplay state on ECS components)
     npcs: HashMap<usize, NpcEntry>,

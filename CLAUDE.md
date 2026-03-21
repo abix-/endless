@@ -10,8 +10,13 @@ Real-time kingdom builder: pure Bevy 0.18 ECS with GPU compute for 50K NPCs via 
 
 ## Build & Run
 
-- Run (builds automatically): `k3sc cargo-lock run --release --manifest-path /c/code/endless/rust/Cargo.toml 2>&1`
-- Check: `k3sc cargo-lock check --manifest-path /c/code/endless/rust/Cargo.toml 2>&1`
+`k3sc cargo-lock` auto-detects `Cargo.toml` from the working directory. Never use `cd`, never use `--manifest-path`, never use raw `cargo`.
+
+- Run: `k3sc cargo-lock run --release 2>&1`
+- Check: `k3sc cargo-lock check 2>&1`
+- Clippy: `k3sc cargo-lock clippy --release -- -D warnings 2>&1`
+- Test: `k3sc cargo-lock test 2>&1`
+- Bench check: `k3sc cargo-lock check --bench system_bench 2>&1`
 
 ## Rules
 
@@ -30,4 +35,5 @@ LSP tool is available for Rust. Use it for type-aware queries instead of grep wh
 ## Lessons Learned
 
 - **PowerShell error suppression**: Don't use `2>$null` - it causes parse errors. Use `-ErrorAction SilentlyContinue` instead.
-- **Bash paths on Windows**: Use `/c/code/endless` not `C:\code\endless` in bash commands. Windows backslash paths fail in the bash shell.
+- **Bash paths on Windows**: Use `/c/code/claude-4` not `C:\code\claude-4` in bash commands. Windows backslash paths fail in the bash shell.
+- **Working directory**: This is `C:\code\claude-4` -- the claude-4 agent's own repo copy. Never cd to or reference `C:\code\endless` (that's the main copy for other agents/human).

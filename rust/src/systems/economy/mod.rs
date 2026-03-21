@@ -339,34 +339,27 @@ pub fn farming_skill_system(
 // ============================================================================
 
 /// Sync `Sleeping` marker on density-spawned buildings based on occupancy.
-/// Remove `Sleeping` when an NPC occupies the worksite; re-add when vacant.
+/// Event-driven: only processes slots recorded in `entity_map.sleeping_dirty`
+/// by `resolve_work_targets` when a TreeNode/RockNode occupancy changes.
+/// O(dirty_count) per tick instead of O(65K) full scan.
 pub fn sync_sleeping_system(
     mut commands: Commands,
-    entity_map: Res<EntityMap>,
-    sleeping_q: Query<(Entity, &GpuSlot, &Building), With<Sleeping>>,
-    awake_q: Query<(Entity, &GpuSlot, &Building), Without<Sleeping>>,
+    mut entity_map: ResMut<EntityMap>,
+    sleeping_q: Query<Option<&Sleeping>>,
 ) {
-    // Wake: remove Sleeping when occupied
-    for (entity, gpu_slot, building) in &sleeping_q {
-        if !matches!(
-            building.kind,
-            BuildingKind::TreeNode | BuildingKind::RockNode
-        ) {
+    let dirty = std::mem::take(&mut entity_map.sleeping_dirty);
+    for slot in dirty {
+        let Some(&entity) = entity_map.entities.get(&slot) else {
             continue;
-        }
-        if entity_map.present_count(gpu_slot.0) > 0 {
+        };
+        let present = entity_map.present_count(slot);
+        let Ok(maybe_sleeping) = sleeping_q.get(entity) else {
+            continue;
+        };
+        let is_sleeping = maybe_sleeping.is_some();
+        if present > 0 && is_sleeping {
             commands.entity(entity).remove::<Sleeping>();
-        }
-    }
-    // Re-sleep: add Sleeping when no occupants
-    for (entity, gpu_slot, building) in &awake_q {
-        if !matches!(
-            building.kind,
-            BuildingKind::TreeNode | BuildingKind::RockNode
-        ) {
-            continue;
-        }
-        if entity_map.present_count(gpu_slot.0) == 0 {
+        } else if present == 0 && !is_sleeping {
             commands.entity(entity).insert(Sleeping);
         }
     }

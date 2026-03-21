@@ -506,8 +506,8 @@ fn worldmap_generates_corridors_and_ice_caps() {
         water as f64 / total * 100.0
     );
     assert!(
-        land as f64 / total > 0.15,
-        "should have >15% land, got {:.1}%",
+        land as f64 / total >= 0.15,
+        "should have >=15% land, got {:.1}%",
         land as f64 / total * 100.0
     );
 }

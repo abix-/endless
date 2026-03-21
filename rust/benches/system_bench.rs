@@ -24,7 +24,7 @@ use endless::systems::{
     construction_tick_system, cooldown_system, damage_system, death_system, decision_system,
     energy_system, farm_visual_system, gpu_position_readback, growth_system, healing_system,
     npc_regen_system, on_duty_tick_system, process_proj_hits, resolve_movement_system,
-    spawn_npc_system, spawner_respawn_system,
+    spawn_npc_system, spawner_respawn_system, sync_sleeping_system,
 };
 use endless::world;
 
@@ -1995,5 +1995,123 @@ criterion_group!(
     bench_rebuild_building_grid_system,
     bench_sync_pathfind_costs_system,
     bench_farm_visual_system,
+    bench_sync_sleeping_system,
 );
 criterion_main!(benches);
+
+// ── sync_sleeping_system benchmark (issue-188, event-driven) ──────
+
+/// Populate `count` TreeNode/RockNode buildings with Sleeping marker.
+fn populate_resource_nodes(app: &mut App, count: usize) -> Vec<usize> {
+    let world = app.world_mut();
+    let mut slots = Vec::with_capacity(count);
+    {
+        let mut pool = world.resource_mut::<GpuSlotPool>();
+        for _ in 0..count {
+            if let Some(slot) = pool.alloc_reset() {
+                slots.push(slot);
+            }
+        }
+    }
+    let mut building_entities = Vec::with_capacity(count);
+    for (i, &slot) in slots.iter().enumerate() {
+        let x = 100.0 + (i % 224) as f32 * 32.0;
+        let y = 100.0 + (i / 224) as f32 * 32.0;
+        let kind = if i % 2 == 0 {
+            world::BuildingKind::TreeNode
+        } else {
+            world::BuildingKind::RockNode
+        };
+        let entity = world
+            .spawn((
+                GpuSlot(slot),
+                Position { x, y },
+                Health(100.0),
+                Faction(1),
+                TownId(0),
+                Building { kind },
+                Sleeping,
+            ))
+            .id();
+        building_entities.push((entity, slot, x, y, kind));
+    }
+    let mut em = world.resource_mut::<EntityMap>();
+    for &(entity, slot, x, y, kind) in &building_entities {
+        em.set_entity(slot, entity);
+        em.add_instance(BuildingInstance {
+            kind,
+            position: Vec2::new(x, y),
+            town_idx: 0,
+            slot,
+            faction: 1,
+        });
+    }
+    slots
+}
+
+fn bench_sync_sleeping_system(c: &mut Criterion) {
+    let mut group = c.benchmark_group("sync_sleeping_system");
+    group.sample_size(20);
+    const NODE_COUNTS: &[usize] = &[1_000, 65_000];
+
+    for &node_count in NODE_COUNTS {
+        group.bench_with_input(
+            BenchmarkId::new("idle", node_count),
+            &node_count,
+            |b, &node_count| {
+                let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
+                populate_npcs(&mut app, 100);
+                let _slots = populate_resource_nodes(&mut app, node_count);
+                let _ = app.world_mut().run_system_once(sync_sleeping_system);
+                b.iter(|| {
+                    let _ = app.world_mut().run_system_once(sync_sleeping_system);
+                });
+            },
+        );
+    }
+
+    const DIRTY_COUNTS: &[usize] = &[5, 100, 1_000];
+    for &dirty_count in DIRTY_COUNTS {
+        group.bench_with_input(
+            BenchmarkId::new("dirty", dirty_count),
+            &dirty_count,
+            |b, &dirty_count| {
+                let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
+                populate_npcs(&mut app, 100);
+                let slots = populate_resource_nodes(&mut app, 65_000);
+                let _ = app.world_mut().run_system_once(sync_sleeping_system);
+                b.iter(|| {
+                    {
+                        let world = app.world_mut();
+                        let mut em = world.resource_mut::<EntityMap>();
+                        for &slot in slots.iter().take(dirty_count) {
+                            em.sleeping_dirty.push(slot);
+                            em.set_present(slot, 1);
+                        }
+                    }
+                    let _ = app.world_mut().run_system_once(sync_sleeping_system);
+                    app.world_mut().flush();
+                    let _ = app.world_mut().run_system_once(
+                        move |mut commands: Commands,
+                              q: Query<(Entity, &GpuSlot), (With<Building>, Without<Sleeping>)>,
+                              mut em: ResMut<EntityMap>| {
+                            let mut restored = 0usize;
+                            for (entity, gpu_slot) in q.iter() {
+                                if restored >= dirty_count {
+                                    break;
+                                }
+                                commands.entity(entity).insert(Sleeping);
+                                em.set_present(gpu_slot.0, 0);
+                                restored += 1;
+                            }
+                        },
+                    );
+                    app.world_mut().flush();
+                });
+            },
+        );
+    }
+    group.finish();
+}
