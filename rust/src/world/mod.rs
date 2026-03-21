@@ -556,9 +556,10 @@ impl BuildingKind {
     }
 }
 
-/// Drain BuildingGridDirtyMsg. Spatial grid is maintained incrementally by
-/// add_instance/remove_by_slot so no full rebuild is needed here.
-/// init_spatial is called as a guard in case spatial was not yet sized.
+/// Rebuild building spatial grid. Only runs when BuildingGridDirtyMsg is received.
+/// On first init (spatial_width == 0) performs a full rebuild from all instances.
+/// On subsequent calls, skips the full rebuild: add_instance/remove_instance already
+/// maintain the spatial grid incrementally on every building change.
 pub fn rebuild_building_grid_system(
     mut entity_map: ResMut<EntityMap>,
     mut grid_dirty: MessageReader<BuildingGridDirtyMsg>,
@@ -568,7 +569,11 @@ pub fn rebuild_building_grid_system(
         return;
     }
     let world_size_px = grid.width as f32 * grid.cell_size;
+    let was_initialized = entity_map.is_spatial_initialized();
     entity_map.init_spatial(world_size_px);
+    if !was_initialized {
+        entity_map.rebuild_spatial();
+    }
 }
 
 // ============================================================================
@@ -744,15 +749,20 @@ impl WorldGrid {
     }
 
     /// Incrementally sync building overrides (walls/roads). O(walls + roads), not O(map).
-    /// HPA* is rebuilt only for cells whose cost actually changed (not all building cells).
+    /// HPA* rebuild is scoped to only cells whose cost actually changed (not all building cells).
     pub fn sync_building_costs(&mut self, entity_map: &crate::resources::EntityMap) {
-        use std::collections::HashSet;
-        // Snapshot previous override set before clearing
-        let old_cells: HashSet<usize> = self.building_cost_cells.drain(..).collect();
+        // Snapshot old costs at overridden cells so we can diff after rebuild
+        let old_costs: Vec<(usize, u16)> = self
+            .building_cost_cells
+            .iter()
+            .map(|&idx| (idx, self.pathfind_costs[idx]))
+            .collect();
+
         // Revert previous overrides to terrain base
-        for &idx in &old_cells {
+        for &(idx, _) in &old_costs {
             self.pathfind_costs[idx] = terrain_base_cost(self.cells[idx].terrain);
         }
+        self.building_cost_cells.clear();
 
         self.apply_building_overlay(entity_map, BuildingKind::Wall, 0);
         // All tower kinds block pathing (impassable like walls) -- driven by registry
@@ -775,15 +785,40 @@ impl WorldGrid {
                 kind.road_pathfind_cost().expect("road kind has cost"),
             );
         }
-        // Rebuild HPA* cache for all cells that had or now have an override.
-        // Union covers: added cells, removed cells, and cells that changed type
-        // (e.g. road demolished + wall placed at same tile in one sync cycle).
+        // Rebuild HPA* cache only for cells whose cost actually changed (not all building cells).
+        // This avoids redundant chunk rebuilds when BuildingGridDirtyMsg fires but the
+        // affected building doesn't alter pathfind costs (e.g. same buildings, no change).
         if self.width > 0 {
-            let new_cells: HashSet<usize> = self.building_cost_cells.iter().copied().collect();
-            let changed: Vec<usize> = old_cells.union(&new_cells).copied().collect();
+            // Collect cells that changed: new overrides with different cost, or removed overrides
+            let new_set: hashbrown::HashSet<usize> =
+                self.building_cost_cells.iter().copied().collect();
+            let mut changed: Vec<usize> = Vec::new();
+            // Cells that were overridden before but now reverted (building destroyed)
+            for &(idx, old_cost) in &old_costs {
+                if !new_set.contains(&idx) {
+                    // Reverted to terrain base -- only dirty if cost actually differs
+                    if old_cost != self.pathfind_costs[idx] {
+                        changed.push(idx);
+                    }
+                }
+            }
+            // Cells newly overridden or with changed cost
+            let old_map: hashbrown::HashMap<usize, u16> = old_costs.into_iter().collect();
+            for &idx in &self.building_cost_cells {
+                let new_cost = self.pathfind_costs[idx];
+                match old_map.get(&idx) {
+                    Some(&prev) if prev == new_cost => {} // unchanged
+                    _ => changed.push(idx),               // new or different cost
+                }
+            }
             if !changed.is_empty() {
                 if let Some(ref mut cache) = self.hpa_cache {
-                    cache.rebuild_chunks(&self.pathfind_costs, self.width, self.height, &changed);
+                    cache.rebuild_chunks(
+                        &self.pathfind_costs,
+                        self.width,
+                        self.height,
+                        &changed,
+                    );
                 }
             }
         }

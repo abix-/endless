@@ -15,16 +15,20 @@ use endless::constants::*;
 use endless::gpu::populate_gpu_state;
 use endless::gpu::{EntityGpuState, ProjBufferWrites};
 use endless::messages::*;
+use endless::npc_render::{
+    BuildingBodyDirty, BuildingBodyInstances, build_building_body_instances,
+};
 use endless::resources::*;
 use endless::systems::ai_player::{AiSnapshotDirty, RoadStyle};
 use endless::systems::stats;
+use endless::systems::work_targeting::resolve_work_targets;
 use endless::systems::{
     AiKind, AiPersonality, AiPlayer, AiPlayerConfig, AiPlayerState, advance_waypoints_system,
     ai_decision_system, arrival_system, attack_system, building_tower_system,
     construction_tick_system, cooldown_system, damage_system, death_system, decision_system,
-    energy_system, gpu_position_readback, growth_system, healing_system, npc_regen_system,
-    on_duty_tick_system, process_proj_hits, resolve_movement_system, spawn_npc_system,
-    spawner_respawn_system,
+    energy_system, farm_visual_system, gpu_position_readback, growth_system, healing_system,
+    npc_regen_system, on_duty_tick_system, process_proj_hits, resolve_movement_system,
+    spawn_npc_system, spawner_respawn_system, sync_sleeping_system,
 };
 use endless::world;
 
@@ -1714,53 +1718,113 @@ fn bench_ai_decision_system(c: &mut Criterion) {
     group.finish();
 }
 
-// ── rebuild_building_grid + sync_pathfind_costs benchmarks (issue-191) ───
+// ── Building grid rebuild benchmarks (issue-207 spike investigation) ──────────
 
-/// Populate an EntityMap with `count` wall buildings on a grid.
-/// Returns the world size in pixels for init_spatial.
-fn populate_buildings(em: &mut EntityMap, grid: &mut world::WorldGrid, count: usize) {
-    let side = (count as f32).sqrt().ceil() as usize + 1;
-    let grid_side = side + 2; // extra margin
-    grid.width = grid_side;
-    grid.height = grid_side;
-    grid.cell_size = TOWN_GRID_SPACING;
-    grid.cells = vec![world::WorldCell::default(); grid_side * grid_side];
-    grid.init_pathfind_costs();
-    grid.init_town_buildable();
+/// Populate EntityMap with a mix of wall and tower buildings at realistic grid positions.
+/// Used for rebuild_building_grid and sync_pathfind_costs benchmarks.
+/// World is 200x200 cells at TOWN_GRID_SPACING = 64px.
+fn populate_pathfind_buildings(app: &mut App, count: usize) {
+    // Resize world to 200x200 for a realistic map size
+    {
+        let world = app.world_mut();
+        let mut grid = world.resource_mut::<world::WorldGrid>();
+        grid.width = 200;
+        grid.height = 200;
+        grid.cell_size = TOWN_GRID_SPACING;
+        grid.cells = vec![world::WorldCell::default(); 200 * 200];
+    }
+    {
+        let world = app.world_mut();
+        let mut em = world.resource_mut::<EntityMap>();
+        let world_size_px = 200.0 * TOWN_GRID_SPACING;
+        em.init_spatial(world_size_px);
+    }
 
-    let world_size_px = grid_side as f32 * TOWN_GRID_SPACING;
-    em.init_spatial(world_size_px);
+    // 75% walls, 25% bow towers — representative mix for pathfinding cost benchmarks
+    let wall_count = count * 3 / 4;
 
-    for i in 0..count {
-        let col = i % side;
-        let row = i / side;
-        let x = col as f32 * TOWN_GRID_SPACING + TOWN_GRID_SPACING * 0.5;
-        let y = row as f32 * TOWN_GRID_SPACING + TOWN_GRID_SPACING * 0.5;
+    let world = app.world_mut();
+    let mut building_slots = Vec::with_capacity(count);
+    {
+        let mut pool = world.resource_mut::<GpuSlotPool>();
+        for _ in 0..count {
+            if let Some(slot) = pool.alloc_reset() {
+                building_slots.push(slot);
+            }
+        }
+    }
+
+    let mut building_entities = Vec::with_capacity(count);
+    for (i, &slot) in building_slots.iter().enumerate() {
+        // Spread buildings across the 200x200 grid
+        let gc = (i % 200) as f32;
+        let gr = (i / 200 % 200) as f32;
+        let x = gc * TOWN_GRID_SPACING + 32.0;
+        let y = gr * TOWN_GRID_SPACING + 32.0;
+        let kind = if i < wall_count {
+            world::BuildingKind::Wall
+        } else {
+            world::BuildingKind::BowTower
+        };
+        let entity = world
+            .spawn((
+                GpuSlot(slot),
+                Position { x, y },
+                Health(100.0),
+                Faction(1),
+                TownId(0),
+                Building { kind },
+            ))
+            .id();
+        building_entities.push((entity, slot, x, y, kind));
+    }
+
+    let mut em = world.resource_mut::<EntityMap>();
+    for &(entity, slot, x, y, kind) in &building_entities {
+        em.set_entity(slot, entity);
         em.add_instance(BuildingInstance {
-            kind: world::BuildingKind::Wall,
+            kind,
             position: Vec2::new(x, y),
-            slot: i + 100_000, // offset to avoid NPC slot collision
             town_idx: 0,
+            slot,
             faction: 1,
         });
     }
 }
 
-fn bench_rebuild_building_grid(c: &mut Criterion) {
+/// Benchmark `rebuild_building_grid_system` — the spatial grid full rebuild.
+/// Fires on every BuildingGridDirtyMsg (building placed, destroyed, or loaded).
+/// Tests `entity_map.init_spatial() + rebuild_spatial()` cost at realistic building counts.
+fn bench_rebuild_building_grid_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("rebuild_building_grid");
-    group.sample_size(50);
-    const BUILDING_COUNTS: &[usize] = &[1_000, 50_000];
-    for &count in BUILDING_COUNTS {
+    group.sample_size(20);
+    const BUILDING_COUNTS: &[usize] = &[500, 2_000, 5_000];
+    for &bcount in BUILDING_COUNTS {
         group.bench_with_input(
-            BenchmarkId::from_parameter(count),
-            &count,
-            |b, &count| {
-                let mut em = EntityMap::default();
-                let mut grid = world::WorldGrid::default();
-                populate_buildings(&mut em, &mut grid, count);
-                let world_size_px = grid.width as f32 * grid.cell_size;
+            BenchmarkId::from_parameter(bcount),
+            &bcount,
+            |b, &bcount| {
+                let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
+                populate_pathfind_buildings(&mut app, bcount);
+                // Warmup
+                let _ = app.world_mut().run_system_once(
+                    |mut writer: MessageWriter<BuildingGridDirtyMsg>| {
+                        writer.write(BuildingGridDirtyMsg);
+                    },
+                );
+                let _ = app
+                    .world_mut()
+                    .run_system_once(world::rebuild_building_grid_system);
                 b.iter(|| {
-                    em.init_spatial(world_size_px);
+                    let _ = app.world_mut().run_system_once(
+                        |mut writer: MessageWriter<BuildingGridDirtyMsg>| {
+                            writer.write(BuildingGridDirtyMsg);
+                        },
+                    );
+                    let _ = app
+                        .world_mut()
+                        .run_system_once(world::rebuild_building_grid_system);
                 });
             },
         );
@@ -1768,22 +1832,138 @@ fn bench_rebuild_building_grid(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_sync_pathfind_costs(c: &mut Criterion) {
+/// Benchmark `sync_pathfind_costs_system` — HPA* incremental chunk rebuild.
+/// Fires on every BuildingGridDirtyMsg. Tests `grid.sync_building_costs()` + HPA*
+/// `rebuild_chunks()` cost for wall/tower buildings spread across the grid.
+fn bench_sync_pathfind_costs_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("sync_pathfind_costs");
     group.sample_size(20);
-    const BUILDING_COUNTS: &[usize] = &[1_000, 50_000];
-    for &count in BUILDING_COUNTS {
+    const BUILDING_COUNTS: &[usize] = &[500, 2_000, 5_000];
+    for &bcount in BUILDING_COUNTS {
         group.bench_with_input(
-            BenchmarkId::from_parameter(count),
-            &count,
-            |b, &count| {
-                let mut em = EntityMap::default();
-                let mut grid = world::WorldGrid::default();
-                populate_buildings(&mut em, &mut grid, count);
-                // Prime the grid so subsequent syncs measure incremental cost
-                grid.sync_building_costs(&em);
+            BenchmarkId::from_parameter(bcount),
+            &bcount,
+            |b, &bcount| {
+                let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
+                populate_pathfind_buildings(&mut app, bcount);
+                // Initialize terrain costs and HPA* cache
+                {
+                    let world = app.world_mut();
+                    let mut grid = world.resource_mut::<world::WorldGrid>();
+                    grid.init_pathfind_costs();
+                }
+                // Warmup
+                let _ = app.world_mut().run_system_once(
+                    |mut writer: MessageWriter<BuildingGridDirtyMsg>| {
+                        writer.write(BuildingGridDirtyMsg);
+                    },
+                );
+                let _ = app
+                    .world_mut()
+                    .run_system_once(endless::systems::pathfinding::sync_pathfind_costs_system);
                 b.iter(|| {
-                    grid.sync_building_costs(&em);
+                    let _ = app.world_mut().run_system_once(
+                        |mut writer: MessageWriter<BuildingGridDirtyMsg>| {
+                            writer.write(BuildingGridDirtyMsg);
+                        },
+                    );
+                    let _ = app
+                        .world_mut()
+                        .run_system_once(endless::systems::pathfinding::sync_pathfind_costs_system);
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+/// Benchmark farm_visual_system: event-driven marker spawn/despawn.
+/// Tests steady-state (no events), post-load (Added), and harvest (FarmHarvestedMsg).
+fn bench_farm_visual_system(c: &mut Criterion) {
+    let mut group = c.benchmark_group("farm_visual_system");
+    group.sample_size(20);
+    const BUILDING_COUNTS: &[usize] = &[1_000, 5_000];
+    for &bcount in BUILDING_COUNTS {
+        // Steady state: no events, all queries empty
+        group.bench_with_input(
+            BenchmarkId::new("steady_state", bcount),
+            &bcount,
+            |b, &bcount| {
+                let mut app = build_bench_app();
+                app.add_message::<FarmReadyMsg>();
+                app.add_message::<FarmHarvestedMsg>();
+                spawn_bench_town(&mut app);
+                populate_npcs(&mut app, 100);
+                populate_growable_buildings(&mut app, bcount);
+                // Warmup: first run processes Added<ProductionState>
+                let _ = app.world_mut().run_system_once(farm_visual_system);
+                b.iter(|| {
+                    let _ = app.world_mut().run_system_once(farm_visual_system);
+                });
+            },
+        );
+
+        // Burst ready: growth_system fires FarmReadyMsg for 25% of buildings
+        group.bench_with_input(
+            BenchmarkId::new("burst_ready", bcount),
+            &bcount,
+            |b, &bcount| {
+                let mut app = build_bench_app();
+                app.add_message::<FarmReadyMsg>();
+                app.add_message::<FarmHarvestedMsg>();
+                spawn_bench_town(&mut app);
+                populate_npcs(&mut app, 100);
+                populate_growable_buildings(&mut app, bcount);
+                let _ = app.world_mut().run_system_once(farm_visual_system);
+                let msg_count = bcount / 4;
+                b.iter(|| {
+                    let _ = app.world_mut().run_system_once(
+                        move |mut writer: MessageWriter<FarmReadyMsg>,
+                              q: Query<&GpuSlot, With<Building>>| {
+                            for slot in q.iter().take(msg_count) {
+                                writer.write(FarmReadyMsg { slot: slot.0 });
+                            }
+                        },
+                    );
+                    let _ = app.world_mut().run_system_once(farm_visual_system);
+                });
+            },
+        );
+
+        // Burst harvest: FarmHarvestedMsg for 25% of buildings
+        group.bench_with_input(
+            BenchmarkId::new("burst_harvest", bcount),
+            &bcount,
+            |b, &bcount| {
+                let mut app = build_bench_app();
+                app.add_message::<FarmReadyMsg>();
+                app.add_message::<FarmHarvestedMsg>();
+                spawn_bench_town(&mut app);
+                populate_npcs(&mut app, 100);
+                populate_growable_buildings(&mut app, bcount);
+                let _ = app.world_mut().run_system_once(farm_visual_system);
+                let msg_count = bcount / 4;
+                b.iter(|| {
+                    // First make them ready, then harvest
+                    let _ = app.world_mut().run_system_once(
+                        move |mut writer: MessageWriter<FarmReadyMsg>,
+                              q: Query<&GpuSlot, With<Building>>| {
+                            for slot in q.iter().take(msg_count) {
+                                writer.write(FarmReadyMsg { slot: slot.0 });
+                            }
+                        },
+                    );
+                    let _ = app.world_mut().run_system_once(farm_visual_system);
+                    let _ = app.world_mut().run_system_once(
+                        move |mut writer: MessageWriter<FarmHarvestedMsg>,
+                              q: Query<&GpuSlot, With<Building>>| {
+                            for slot in q.iter().take(msg_count) {
+                                writer.write(FarmHarvestedMsg { slot: slot.0 });
+                            }
+                        },
+                    );
+                    let _ = app.world_mut().run_system_once(farm_visual_system);
                 });
             },
         );
@@ -1816,7 +1996,425 @@ criterion_group!(
     bench_process_proj_hits,
     bench_prune_town_equipment,
     bench_ai_decision_system,
-    bench_rebuild_building_grid,
-    bench_sync_pathfind_costs,
+    bench_rebuild_building_grid_system,
+    bench_sync_pathfind_costs_system,
+    bench_farm_visual_system,
+    bench_sync_sleeping_system,
+    bench_build_building_body_instances,
+    bench_resolve_work_targets,
 );
 criterion_main!(benches);
+
+/// Populate farm/mine buildings for work targeting benchmarks.
+fn populate_work_buildings(app: &mut App, farm_count: usize, mine_count: usize) {
+    let total = farm_count + mine_count;
+    let world = app.world_mut();
+    let mut building_slots = Vec::with_capacity(total);
+    {
+        let mut pool = world.resource_mut::<GpuSlotPool>();
+        for _ in 0..total {
+            if let Some(slot) = pool.alloc_reset() {
+                building_slots.push(slot);
+            }
+        }
+    }
+    let mut building_entities = Vec::with_capacity(total);
+    for (i, &slot) in building_slots.iter().enumerate() {
+        let x = 200.0 + (i % 100) as f32 * 32.0;
+        let y = 200.0 + (i / 100) as f32 * 32.0;
+        let is_farm = i < farm_count;
+        let kind = if is_farm {
+            world::BuildingKind::Farm
+        } else {
+            world::BuildingKind::GoldMine
+        };
+        let mut cmd = world.spawn((
+            GpuSlot(slot),
+            Position { x, y },
+            Health(100.0),
+            Faction(1),
+            TownId(0),
+            Building { kind },
+            ProductionState {
+                ready: i % 2 == 0,
+                progress: if i % 2 == 0 { 1.0 } else { 0.5 },
+            },
+        ));
+        if is_farm {
+            cmd.insert(FarmModeComp(FarmMode::Crops));
+        }
+        let entity = cmd.id();
+        building_entities.push((entity, slot, x, y, kind));
+    }
+    let mut em = world.resource_mut::<EntityMap>();
+    for &(entity, slot, x, y, kind) in &building_entities {
+        em.set_entity(slot, entity);
+        em.add_instance(endless::entity_map::BuildingInstance {
+            kind,
+            position: Vec2::new(x, y),
+            town_idx: 0,
+            slot,
+            faction: 1,
+        });
+    }
+}
+
+fn bench_resolve_work_targets(c: &mut Criterion) {
+    let mut group = c.benchmark_group("resolve_work_targets");
+    group.sample_size(20);
+
+    const BUILDING_COUNTS: &[usize] = &[500, 2_000, 1_000];
+    const CLAIM_COUNTS: &[usize] = &[50, 200, 200];
+    const RESOURCE_NODE_COUNTS: &[usize] = &[0, 0, 65_000];
+
+    for (idx, (&building_count, &claim_count)) in
+        BUILDING_COUNTS.iter().zip(CLAIM_COUNTS.iter()).enumerate()
+    {
+        let resource_nodes = RESOURCE_NODE_COUNTS[idx];
+        let label = if resource_nodes > 0 {
+            format!("{}_bld_{}k_nodes", building_count, resource_nodes / 1000)
+        } else {
+            format!("{}", building_count)
+        };
+
+        group.bench_with_input(
+            BenchmarkId::new("burst_claim", &label),
+            &building_count,
+            |b, &bcount| {
+                let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
+                populate_npcs(&mut app, claim_count);
+                populate_work_buildings(&mut app, bcount / 2, bcount / 2);
+                if resource_nodes > 0 {
+                    let world = app.world_mut();
+                    let mut node_slots = Vec::with_capacity(resource_nodes);
+                    {
+                        let mut pool = world.resource_mut::<GpuSlotPool>();
+                        for _ in 0..resource_nodes {
+                            if let Some(slot) = pool.alloc_reset() {
+                                node_slots.push(slot);
+                            }
+                        }
+                    }
+                    let mut em = world.resource_mut::<EntityMap>();
+                    for (i, &slot) in node_slots.iter().enumerate() {
+                        let x = 50.0 + (i % 400) as f32 * 40.0;
+                        let y = 50.0 + (i / 400) as f32 * 40.0;
+                        let kind = if i % 2 == 0 {
+                            world::BuildingKind::TreeNode
+                        } else {
+                            world::BuildingKind::RockNode
+                        };
+                        em.add_instance(endless::entity_map::BuildingInstance {
+                            kind,
+                            position: Vec2::new(x, y),
+                            town_idx: 0,
+                            slot,
+                            faction: 0,
+                        });
+                    }
+                }
+                app.world_mut().flush();
+
+                let npc_entities: Vec<Entity> = app
+                    .world_mut()
+                    .run_system_once(
+                        |q: Query<Entity, (Without<Building>, With<NpcWorkState>)>| {
+                            q.iter().collect::<Vec<_>>()
+                        },
+                    )
+                    .unwrap_or_default();
+
+                let _ = app.world_mut().run_system_once(resolve_work_targets);
+
+                b.iter(|| {
+                    let entities = npc_entities.clone();
+                    let _ = app.world_mut().run_system_once(
+                        move |mut writer: MessageWriter<WorkIntentMsg>| {
+                            for &entity in &entities {
+                                writer.write(WorkIntentMsg(WorkIntent::Claim {
+                                    entity,
+                                    kind: world::BuildingKind::Farm,
+                                    town_idx: 0,
+                                    from: Vec2::new(800.0, 800.0),
+                                }));
+                            }
+                        },
+                    );
+                    let _ = app.world_mut().run_system_once(resolve_work_targets);
+                    let _ = app
+                        .world_mut()
+                        .run_system_once(|mut em: ResMut<EntityMap>| {
+                            for slot in em.iter_instances().map(|i| i.slot).collect::<Vec<_>>() {
+                                em.set_occupancy(slot, 0);
+                            }
+                        });
+                });
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("release_only", &label),
+            &building_count,
+            |b, &bcount| {
+                let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
+                populate_npcs(&mut app, claim_count);
+                populate_work_buildings(&mut app, bcount / 2, bcount / 2);
+                if resource_nodes > 0 {
+                    let world = app.world_mut();
+                    let mut node_slots = Vec::with_capacity(resource_nodes);
+                    {
+                        let mut pool = world.resource_mut::<GpuSlotPool>();
+                        for _ in 0..resource_nodes {
+                            if let Some(slot) = pool.alloc_reset() {
+                                node_slots.push(slot);
+                            }
+                        }
+                    }
+                    let mut em = world.resource_mut::<EntityMap>();
+                    for (i, &slot) in node_slots.iter().enumerate() {
+                        let x = 50.0 + (i % 400) as f32 * 40.0;
+                        let y = 50.0 + (i / 400) as f32 * 40.0;
+                        let kind = if i % 2 == 0 {
+                            world::BuildingKind::TreeNode
+                        } else {
+                            world::BuildingKind::RockNode
+                        };
+                        em.add_instance(endless::entity_map::BuildingInstance {
+                            kind,
+                            position: Vec2::new(x, y),
+                            town_idx: 0,
+                            slot,
+                            faction: 0,
+                        });
+                    }
+                }
+                app.world_mut().flush();
+
+                let npc_entities: Vec<Entity> = app
+                    .world_mut()
+                    .run_system_once(
+                        |q: Query<Entity, (Without<Building>, With<NpcWorkState>)>| {
+                            q.iter().collect::<Vec<_>>()
+                        },
+                    )
+                    .unwrap_or_default();
+
+                let _ = app.world_mut().run_system_once(resolve_work_targets);
+
+                b.iter(|| {
+                    let entities = npc_entities.clone();
+                    let _ = app.world_mut().run_system_once(
+                        move |mut writer: MessageWriter<WorkIntentMsg>| {
+                            for &entity in &entities {
+                                writer.write(WorkIntentMsg(WorkIntent::Release {
+                                    entity,
+                                    worksite: None,
+                                }));
+                            }
+                        },
+                    );
+                    let _ = app.world_mut().run_system_once(resolve_work_targets);
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+fn bench_build_building_body_instances(c: &mut Criterion) {
+    let mut group = c.benchmark_group("build_building_body_instances");
+    group.sample_size(20);
+    const INSTANCE_COUNT: usize = 68_000;
+
+    let setup_app = || {
+        let mut app = build_bench_app();
+        app.insert_resource(BuildingBodyInstances::default());
+        app.insert_resource(BuildingBodyDirty::default());
+
+        let world = app.world_mut();
+        let mut slots = Vec::with_capacity(INSTANCE_COUNT);
+        {
+            let mut pool = world.resource_mut::<GpuSlotPool>();
+            for _ in 0..INSTANCE_COUNT {
+                if let Some(slot) = pool.alloc_reset() {
+                    slots.push(slot);
+                }
+            }
+        }
+        {
+            let mut em = world.resource_mut::<EntityMap>();
+            for (i, &slot) in slots.iter().enumerate() {
+                let x = 400.0 + (i % 260) as f32 * 32.0;
+                let y = 400.0 + (i / 260) as f32 * 32.0;
+                em.add_instance(BuildingInstance {
+                    kind: world::BuildingKind::TreeNode,
+                    position: Vec2::new(x, y),
+                    town_idx: 0,
+                    slot,
+                    faction: 0,
+                });
+            }
+        }
+        {
+            let mut gpu = world.resource_mut::<EntityGpuState>();
+            for &slot in &slots {
+                gpu.positions[slot * 2] = 400.0 + (slot % 260) as f32 * 32.0;
+                gpu.positions[slot * 2 + 1] = 400.0 + (slot / 260) as f32 * 32.0;
+                gpu.sprite_indices[slot * 4] = 1.0;
+                gpu.sprite_indices[slot * 4 + 1] = 0.0;
+                gpu.sprite_indices[slot * 4 + 2] = 1.0;
+                gpu.healths[slot] = 1.0;
+            }
+        }
+        app
+    };
+
+    group.bench_with_input(
+        BenchmarkId::new("dirty", INSTANCE_COUNT),
+        &INSTANCE_COUNT,
+        |b, _| {
+            let mut app = setup_app();
+            b.iter(|| {
+                app.world_mut().resource_mut::<BuildingBodyDirty>().dirty = true;
+                let _ = app
+                    .world_mut()
+                    .run_system_once(build_building_body_instances);
+            });
+        },
+    );
+
+    group.bench_with_input(
+        BenchmarkId::new("clean", INSTANCE_COUNT),
+        &INSTANCE_COUNT,
+        |b, _| {
+            let mut app = setup_app();
+            app.world_mut().resource_mut::<BuildingBodyDirty>().dirty = false;
+            b.iter(|| {
+                let _ = app
+                    .world_mut()
+                    .run_system_once(build_building_body_instances);
+            });
+        },
+    );
+
+    group.finish();
+}
+
+// ── sync_sleeping_system benchmark (issue-188, event-driven) ──────
+
+/// Populate `count` TreeNode/RockNode buildings with Sleeping marker.
+fn populate_resource_nodes(app: &mut App, count: usize) -> Vec<usize> {
+    let world = app.world_mut();
+    let mut slots = Vec::with_capacity(count);
+    {
+        let mut pool = world.resource_mut::<GpuSlotPool>();
+        for _ in 0..count {
+            if let Some(slot) = pool.alloc_reset() {
+                slots.push(slot);
+            }
+        }
+    }
+    let mut building_entities = Vec::with_capacity(count);
+    for (i, &slot) in slots.iter().enumerate() {
+        let x = 100.0 + (i % 224) as f32 * 32.0;
+        let y = 100.0 + (i / 224) as f32 * 32.0;
+        let kind = if i % 2 == 0 {
+            world::BuildingKind::TreeNode
+        } else {
+            world::BuildingKind::RockNode
+        };
+        let entity = world
+            .spawn((
+                GpuSlot(slot),
+                Position { x, y },
+                Health(100.0),
+                Faction(1),
+                TownId(0),
+                Building { kind },
+                Sleeping,
+            ))
+            .id();
+        building_entities.push((entity, slot, x, y, kind));
+    }
+    let mut em = world.resource_mut::<EntityMap>();
+    for &(entity, slot, x, y, kind) in &building_entities {
+        em.set_entity(slot, entity);
+        em.add_instance(BuildingInstance {
+            kind,
+            position: Vec2::new(x, y),
+            town_idx: 0,
+            slot,
+            faction: 1,
+        });
+    }
+    slots
+}
+
+fn bench_sync_sleeping_system(c: &mut Criterion) {
+    let mut group = c.benchmark_group("sync_sleeping_system");
+    group.sample_size(20);
+    const NODE_COUNTS: &[usize] = &[1_000, 65_000];
+
+    for &node_count in NODE_COUNTS {
+        group.bench_with_input(
+            BenchmarkId::new("idle", node_count),
+            &node_count,
+            |b, &node_count| {
+                let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
+                populate_npcs(&mut app, 100);
+                let _slots = populate_resource_nodes(&mut app, node_count);
+                let _ = app.world_mut().run_system_once(sync_sleeping_system);
+                b.iter(|| {
+                    let _ = app.world_mut().run_system_once(sync_sleeping_system);
+                });
+            },
+        );
+    }
+
+    const DIRTY_COUNTS: &[usize] = &[5, 100, 1_000];
+    for &dirty_count in DIRTY_COUNTS {
+        group.bench_with_input(
+            BenchmarkId::new("dirty", dirty_count),
+            &dirty_count,
+            |b, &dirty_count| {
+                let mut app = build_bench_app();
+                spawn_bench_town(&mut app);
+                populate_npcs(&mut app, 100);
+                let slots = populate_resource_nodes(&mut app, 65_000);
+                let _ = app.world_mut().run_system_once(sync_sleeping_system);
+                b.iter(|| {
+                    {
+                        let world = app.world_mut();
+                        let mut em = world.resource_mut::<EntityMap>();
+                        for &slot in slots.iter().take(dirty_count) {
+                            em.sleeping_dirty.push(slot);
+                            em.set_present(slot, 1);
+                        }
+                    }
+                    let _ = app.world_mut().run_system_once(sync_sleeping_system);
+                    app.world_mut().flush();
+                    let _ = app.world_mut().run_system_once(
+                        move |mut commands: Commands,
+                              q: Query<(Entity, &GpuSlot), (With<Building>, Without<Sleeping>)>,
+                              mut em: ResMut<EntityMap>| {
+                            let mut restored = 0usize;
+                            for (entity, gpu_slot) in q.iter() {
+                                if restored >= dirty_count {
+                                    break;
+                                }
+                                commands.entity(entity).insert(Sleeping);
+                                em.set_present(gpu_slot.0, 0);
+                                restored += 1;
+                            }
+                        },
+                    );
+                    app.world_mut().flush();
+                });
+            },
+        );
+    }
+    group.finish();
+}

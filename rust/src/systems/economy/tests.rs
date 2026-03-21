@@ -5,6 +5,7 @@ use crate::components::{
 };
 use crate::messages::GpuUpdateMsg;
 use crate::resources::GameTime;
+use bevy::ecs::system::RunSystemOnce;
 use bevy::time::TimeUpdateStrategy;
 
 fn test_cached_stats() -> CachedStats {
@@ -642,6 +643,7 @@ fn setup_growth_app() -> App {
     app.insert_resource(TimeUpdateStrategy::ManualDuration(
         std::time::Duration::from_secs_f32(1.0),
     ));
+    app.add_message::<crate::messages::FarmReadyMsg>();
     app.add_systems(FixedUpdate, growth_system);
     app.update();
     app.update();
@@ -1251,6 +1253,8 @@ fn setup_farm_visual_app() -> App {
     app.insert_resource(TimeUpdateStrategy::ManualDuration(
         std::time::Duration::from_secs_f32(1.0),
     ));
+    app.add_message::<crate::messages::FarmReadyMsg>();
+    app.add_message::<crate::messages::FarmHarvestedMsg>();
     app.add_systems(FixedUpdate, farm_visual_system);
     app.update();
     app.update();
@@ -1296,10 +1300,8 @@ fn find_farm_marker(app: &mut App, slot: usize) -> Option<Entity> {
 fn farm_visual_spawns_marker_when_ready() {
     let mut app = setup_farm_visual_app();
     add_farm_visual(&mut app, 5000, true);
-    // Run 4 updates to hit the frame_count % 4 == 0 cadence
-    for _ in 0..4 {
-        app.update();
-    }
+    // One update: Added<ProductionState> fires and marker is spawned immediately
+    app.update();
     let count = count_farm_markers(&mut app);
     assert!(
         count > 0,
@@ -1311,9 +1313,7 @@ fn farm_visual_spawns_marker_when_ready() {
 fn farm_visual_no_marker_when_not_ready() {
     let mut app = setup_farm_visual_app();
     add_farm_visual(&mut app, 5000, false);
-    for _ in 0..4 {
-        app.update();
-    }
+    app.update();
     let count = count_farm_markers(&mut app);
     assert_eq!(count, 0, "should not spawn marker when growth_ready=false");
 }
@@ -1321,27 +1321,25 @@ fn farm_visual_no_marker_when_not_ready() {
 #[test]
 fn farm_visual_despawns_marker_when_no_longer_ready() {
     let mut app = setup_farm_visual_app();
-    let entity = add_farm_visual(&mut app, 5000, true);
-    // Spawn the marker
-    for _ in 0..4 {
-        app.update();
-    }
+    add_farm_visual(&mut app, 5000, true);
+    app.update(); // Added<ProductionState> -> marker spawned
     assert!(
         count_farm_markers(&mut app) > 0,
         "precondition: marker exists"
     );
-    // Set growth_ready to false via ECS
+
+    // Signal harvest via message (mirrors what decision_system emits)
     app.world_mut()
-        .get_mut::<ProductionState>(entity)
-        .unwrap()
-        .ready = false;
-    for _ in 0..4 {
-        app.update();
-    }
-    let count = count_farm_markers(&mut app);
+        .run_system_once(|mut w: MessageWriter<crate::messages::FarmHarvestedMsg>| {
+            w.write(crate::messages::FarmHarvestedMsg { slot: 5000 });
+        })
+        .unwrap();
+    app.update(); // farm_visual_system processes FarmHarvestedMsg -> marker despawned
+
     assert_eq!(
-        count, 0,
-        "marker should be despawned when growth_ready becomes false"
+        count_farm_markers(&mut app),
+        0,
+        "marker should be despawned after harvest message"
     );
 }
 
@@ -1350,32 +1348,28 @@ fn farm_visual_despawns_marker_when_farm_removed_and_allows_slot_reuse() {
     let mut app = setup_farm_visual_app();
     let entity = add_farm_visual(&mut app, 5000, true);
 
-    for _ in 0..4 {
-        app.update();
-    }
+    app.update(); // Added<ProductionState> -> marker spawned
     assert_eq!(
         count_farm_markers(&mut app),
         1,
         "precondition: ready farm should have one marker"
     );
 
+    // Despawn the farm entity; RemovedComponents<ProductionState> cleans up the marker
     app.world_mut().entity_mut(entity).despawn();
     app.world_mut()
         .resource_mut::<EntityMap>()
         .remove_by_slot(5000);
-    for _ in 0..4 {
-        app.update();
-    }
+    app.update(); // RemovedComponents fires -> marker despawned
     assert_eq!(
         count_farm_markers(&mut app),
         0,
         "removing a ready farm should also remove its marker"
     );
 
+    // Re-add farm at same slot (simulating save/load restore or rebuild)
     add_farm_visual(&mut app, 5000, true);
-    for _ in 0..4 {
-        app.update();
-    }
+    app.update(); // Added<ProductionState> -> new marker spawned
     assert_eq!(
         count_farm_markers(&mut app),
         1,
@@ -1384,26 +1378,34 @@ fn farm_visual_despawns_marker_when_farm_removed_and_allows_slot_reuse() {
 }
 
 #[test]
-fn farm_visual_respawns_marker_if_mapping_points_to_stale_entity() {
+fn farm_visual_respawns_marker_after_reload() {
+    // Simulate a save/load cycle: markers are cleared, farms are re-spawned.
+    // Verifies that Added<ProductionState> restores markers for ready farms.
     let mut app = setup_farm_visual_app();
-    add_farm_visual(&mut app, 5000, true);
-    for _ in 0..4 {
-        app.update();
-    }
-    let marker_entity = find_farm_marker(&mut app, 5000).expect("precondition: marker exists");
-    assert!(
-        app.world_mut().despawn(marker_entity),
-        "precondition: marker should despawn externally"
-    );
-
-    for _ in 0..4 {
-        app.update();
-    }
-
+    let entity = add_farm_visual(&mut app, 5000, true);
+    app.update(); // marker spawned
     assert_eq!(
         count_farm_markers(&mut app),
         1,
-        "ready farm should respawn marker after stale mapping is pruned"
+        "precondition: marker exists"
+    );
+
+    // Simulate reload: despawn farm entity + its marker (as save/load systems do)
+    let marker_entity = find_farm_marker(&mut app, 5000).expect("marker should exist");
+    app.world_mut().entity_mut(marker_entity).despawn();
+    app.world_mut().entity_mut(entity).despawn();
+    app.world_mut()
+        .resource_mut::<EntityMap>()
+        .remove_by_slot(5000);
+    app.update(); // process removals
+
+    // Re-spawn farm at same slot (simulating save restore)
+    add_farm_visual(&mut app, 5000, true);
+    app.update(); // Added<ProductionState> -> marker respawned
+    assert_eq!(
+        count_farm_markers(&mut app),
+        1,
+        "marker should respawn for ready farm after reload"
     );
 }
 
@@ -1789,5 +1791,125 @@ fn squad_cleanup_retains_alive_members() {
         ss.squads[0].members.len(),
         1,
         "alive member should be retained"
+    );
+}
+
+// ============================================================================
+// sync_sleeping_system regression tests (event-driven, issue #188)
+// ============================================================================
+
+fn setup_sleeping_app() -> App {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.insert_resource(EntityMap::default());
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(
+        std::time::Duration::from_secs_f32(1.0),
+    ));
+    app.add_systems(FixedUpdate, sync_sleeping_system);
+    app.update();
+    app.update();
+    app
+}
+
+/// Regression: sync_sleeping_system must REMOVE Sleeping when dirty slot has present_count > 0.
+/// Verifies the event-driven path wakes a resource node when a worker arrives.
+#[test]
+fn sleeping_system_wakes_on_dirty_with_present() {
+    let mut app = setup_sleeping_app();
+
+    // Spawn a sleeping TreeNode.
+    let inst = test_building_instance(0, BuildingKind::TreeNode, 0.0);
+    let entity = app
+        .world_mut()
+        .spawn((
+            GpuSlot(0),
+            Building {
+                kind: BuildingKind::TreeNode,
+            },
+            Sleeping,
+        ))
+        .id();
+    {
+        let mut em = app.world_mut().resource_mut::<EntityMap>();
+        em.set_entity(0, entity);
+        em.add_instance(inst);
+        em.set_present(0, 1); // worker arrived
+        em.sleeping_dirty.push(0); // slot marked dirty by resolve_work_targets
+    }
+
+    app.update();
+
+    assert!(
+        app.world().get::<Sleeping>(entity).is_none(),
+        "Sleeping should be removed when present_count > 0"
+    );
+}
+
+/// Regression: sync_sleeping_system must ADD Sleeping when dirty slot has present_count == 0.
+/// Verifies the event-driven path sleeps a resource node when the last worker leaves.
+#[test]
+fn sleeping_system_sleeps_on_dirty_with_no_present() {
+    let mut app = setup_sleeping_app();
+
+    // Spawn an awake RockNode (no Sleeping component).
+    let inst = test_building_instance(0, BuildingKind::RockNode, 0.0);
+    let entity = app
+        .world_mut()
+        .spawn((
+            GpuSlot(0),
+            Building {
+                kind: BuildingKind::RockNode,
+            },
+            // no Sleeping
+        ))
+        .id();
+    {
+        let mut em = app.world_mut().resource_mut::<EntityMap>();
+        em.set_entity(0, entity);
+        em.add_instance(inst);
+        em.set_present(0, 0); // no workers
+        em.sleeping_dirty.push(0); // slot marked dirty by resolve_work_targets
+    }
+
+    app.update();
+
+    assert!(
+        app.world().get::<Sleeping>(entity).is_some(),
+        "Sleeping should be added when present_count == 0"
+    );
+}
+
+/// Regression: sync_sleeping_system must NOT change state when slot is NOT in sleeping_dirty.
+/// Verifies the old O(65K) polling path is gone -- no dirty entry = no change.
+#[test]
+fn sleeping_system_ignores_undirty_slots() {
+    let mut app = setup_sleeping_app();
+
+    // Spawn a sleeping TreeNode with present_count > 0 but NOT in sleeping_dirty.
+    let inst = test_building_instance(0, BuildingKind::TreeNode, 0.0);
+    let entity = app
+        .world_mut()
+        .spawn((
+            GpuSlot(0),
+            Building {
+                kind: BuildingKind::TreeNode,
+            },
+            Sleeping,
+        ))
+        .id();
+    {
+        let mut em = app.world_mut().resource_mut::<EntityMap>();
+        em.set_entity(0, entity);
+        em.add_instance(inst);
+        em.set_present(0, 1); // worker present, but slot NOT dirtied
+        // sleeping_dirty is empty
+    }
+
+    app.update();
+
+    // Sleeping should NOT be removed because the slot was never dirtied.
+    assert!(
+        app.world().get::<Sleeping>(entity).is_some(),
+        "Sleeping must not be removed without a dirty entry -- event-driven only"
     );
 }

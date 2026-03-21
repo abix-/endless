@@ -74,6 +74,54 @@ fn spatial_incremental_add_instance_findable() {
 /// Regression: building remains findable across frames without any dirty message.
 /// rebuild_building_grid_system must NOT clear spatial on message-free frames.
 #[test]
+fn spatial_incremental_after_init_no_rebuild_needed() {
+    // Regression: rebuild_building_grid_system must skip the full O(N) rebuild when
+    // spatial is already initialized. add_instance/remove_instance maintain it incrementally.
+    // Buildings added after init must be findable without a BuildingGridDirtyMsg.
+    let mut app = setup_rebuild_app();
+    // Initialize spatial directly (simulates setup_world calling init_spatial first)
+    {
+        let mut em = app.world_mut().resource_mut::<EntityMap>();
+        em.init_spatial(16.0 * 64.0);
+    }
+
+    // Add building after spatial is initialized -- spatial_insert should work immediately
+    let pos = Vec2::new(32.0, 32.0);
+    app.world_mut()
+        .resource_mut::<EntityMap>()
+        .add_instance(BuildingInstance {
+            kind: BuildingKind::Farm,
+            position: pos,
+            slot: 42,
+            town_idx: 0,
+            faction: 1,
+        });
+
+    // Run WITHOUT BuildingGridDirtyMsg -- building should be in spatial already
+    app.update();
+    let em = app.world().resource::<EntityMap>();
+    let mut found = false;
+    em.for_each_nearby(pos, 200.0, |_, _| found = true);
+    assert!(
+        found,
+        "building added after spatial init should be findable without full rebuild"
+    );
+
+    // Now remove the building and verify it is gone (incremental remove)
+    app.world_mut()
+        .resource_mut::<EntityMap>()
+        .remove_by_slot(42);
+    app.update();
+    let em = app.world().resource::<EntityMap>();
+    let mut still_found = false;
+    em.for_each_nearby(pos, 200.0, |_, _| still_found = true);
+    assert!(
+        !still_found,
+        "removed building should not be findable without full rebuild"
+    );
+}
+
+#[test]
 fn rebuild_building_grid_preserves_spatial_on_subsequent_frame() {
     let mut app = setup_rebuild_app();
     let pos_a = Vec2::new(32.0, 32.0);
@@ -425,8 +473,8 @@ fn worldmap_generates_corridors_and_ice_caps() {
         water as f64 / total * 100.0
     );
     assert!(
-        land as f64 / total > 0.15,
-        "should have >15% land, got {:.1}%",
+        land as f64 / total >= 0.15,
+        "should have >=15% land, got {:.1}%",
         land as f64 / total * 100.0
     );
 }

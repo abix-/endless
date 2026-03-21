@@ -5,6 +5,7 @@
     clippy::type_complexity,    // Bevy Query types are inherently complex
     clippy::collapsible_if,     // Nested ifs are often clearer in game logic
 )]
+#![deny(clippy::unwrap_used)]
 
 // ============================================================================
 // MODULES
@@ -35,9 +36,10 @@ use bevy::prelude::*;
 use bevy::remote::{RemotePlugin, http::RemoteHttpPlugin};
 
 use messages::{
-    BuildingGridDirtyMsg, CombatLogMsg, DamageMsg, DestroyBuildingMsg, GpuUpdateMsg,
-    HealingZonesDirtyMsg, MiningDirtyMsg, PatrolPerimeterDirtyMsg, PatrolSwapMsg, PatrolsDirtyMsg,
-    ProjGpuUpdateMsg, SelectFactionMsg, SpawnNpcMsg, SquadsDirtyMsg, TerrainDirtyMsg,
+    BuildingGridDirtyMsg, CombatLogMsg, DamageMsg, DestroyBuildingMsg, FarmHarvestedMsg,
+    FarmReadyMsg, GpuUpdateMsg, HealingZonesDirtyMsg, MiningDirtyMsg, PatrolPerimeterDirtyMsg,
+    PatrolSwapMsg, PatrolsDirtyMsg, ProjGpuUpdateMsg, SelectFactionMsg, SpawnNpcMsg,
+    SquadsDirtyMsg, TerrainDirtyMsg,
 };
 use resources::{
     ActiveHealingSlots, AutoUpgrade, BuildMenuContext, BuildingHealState, CombatDebug, CombatLog,
@@ -322,6 +324,8 @@ pub fn build_app(app: &mut App) {
         .add_message::<ProjGpuUpdateMsg>()
         .add_message::<CombatLogMsg>()
         .add_message::<messages::WorkIntentMsg>()
+        .add_message::<FarmReadyMsg>()
+        .add_message::<FarmHarvestedMsg>()
         .add_message::<BuildingGridDirtyMsg>()
         .add_message::<TerrainDirtyMsg>()
         .add_message::<PatrolsDirtyMsg>()
@@ -399,6 +403,7 @@ pub fn build_app(app: &mut App) {
         .init_resource::<MiningPolicy>()
         .init_resource::<save::SaveLoadRequest>()
         .init_resource::<save::SaveToast>()
+        .init_resource::<save::AutosaveTask>()
         .init_resource::<GameAudio>()
         .init_resource::<NextLootItemId>()
         .init_resource::<MerchantInventory>()
@@ -609,7 +614,6 @@ pub fn build_app(app: &mut App) {
                     construction_tick_system.before(growth_system),
                     growth_system,
                     farming_skill_system,
-                    sync_sleeping_system,
                 ),
                 raider_forage_system,
                 spawner_respawn_system,
@@ -669,6 +673,12 @@ pub fn build_app(app: &mut App) {
                 .after(decision_system)
                 .in_set(Step::Behavior),
         )
+        .add_systems(
+            FixedUpdate,
+            sync_sleeping_system
+                .after(systems::work_targeting::resolve_work_targets)
+                .in_set(Step::Behavior),
+        )
         // Waypoint advancement — advance NpcPath after gpu_position_readback sets at_destination
         .add_systems(
             FixedUpdate,
@@ -721,6 +731,12 @@ pub fn build_app(app: &mut App) {
             Update,
             save::autosave_system
                 .after(save::save_game_system)
+                .run_if(in_state(AppState::Playing)),
+        )
+        .add_systems(
+            Update,
+            save::autosave_poll_system
+                .after(save::autosave_system)
                 .run_if(in_state(AppState::Playing)),
         )
         .add_systems(

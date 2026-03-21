@@ -156,6 +156,9 @@ pub struct EntityMap {
     /// Worksite physical presence counts — slot->i16, incremented on worker arrival.
     /// Used by growth_system/sleeping_sync to gate tended production rates.
     pub(crate) present: DenseSlotMap<i16>,
+    /// Resource node slots (TreeNode/RockNode) whose Sleeping state needs reconciliation.
+    /// Populated by resolve_work_targets on occupancy change; drained by sync_sleeping_system.
+    pub sleeping_dirty: Vec<usize>,
 
     // NPC-specific data (index-only — gameplay state on ECS components)
     npcs: HashMap<usize, NpcEntry>,
@@ -611,6 +614,12 @@ impl EntityMap {
         self.spatial_width = (world_size_px / self.spatial_cell_size).ceil() as usize + 1;
         let total = self.spatial_width * self.spatial_width;
         self.spatial_cells.resize_with(total, Vec::new);
+    }
+
+    /// Returns true if the spatial grid has been initialized (spatial_width > 0).
+    /// Used by rebuild_building_grid_system to skip full rebuild when already initialized.
+    pub fn is_spatial_initialized(&self) -> bool {
+        self.spatial_width > 0
     }
 
     pub fn rebuild_spatial(&mut self) {

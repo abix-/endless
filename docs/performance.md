@@ -128,8 +128,8 @@ A* requests queued by `resolve_movement_system` (from MovementIntents) and `inva
 ### Event-Driven Systems
 
 - `build_visual_upload`: persistent `NpcVisualUpload`, dirty-signaled via `MarkVisualDirty`. ~4-8ms → ~0.01ms steady state.
-- `rebuild_building_grid_system`: runs only on `BuildingGridDirtyMsg`. Calls `init_spatial()` to reinit the spatial grid (~0ms). Spatial data is maintained incrementally by `add_instance`/`remove_by_slot` via `spatial_insert`/`spatial_remove` -- no full rebuild needed.
-- `sync_pathfind_costs_system`: runs on `BuildingGridDirtyMsg`. `sync_building_costs()` reverts old overrides, reapplies building overlays, then rebuilds HPA chunks for only the union of old + new changed cells (not a full HPA rebuild).
+- `rebuild_building_grid_system`: runs only on `BuildingGridDirtyMsg`. After first init, skips the O(N) `rebuild_spatial()` -- spatial grid is maintained incrementally by `add_instance`/`remove_instance` on every building change. First init (or reload) does a full rebuild. Fixed in #207: was O(all_buildings) on every building change, caused 19ms spikes. Now O(1) (~1.5us regardless of building count).
+- `sync_pathfind_costs_system`: runs on `BuildingGridDirtyMsg`. Rebuilds pathfind cost grid and HPA* cache. Fixed in #203: diffs before/after costs so HPA* `rebuild_chunks` only runs for cells whose cost actually changed (not all building cells). No-change case (redundant dirty signal) skips HPA* entirely.
 - `invalidate_paths_on_building_change`: runs on `BuildingGridDirtyMsg`, re-queues paths crossing changed cells.
 - Terrain tilemap sync: `TerrainDirtyMsg`-driven, not `WorldGrid::is_changed()`.
 
@@ -177,7 +177,7 @@ All volatile numeric constants in one place. Policy sections above describe *why
 | `ENERGY_WAKE_THRESHOLD` | 90.0 | `constants.rs:1210` |
 | Faction readback throttle | 60 frames | `gpu.rs` |
 | Threat readback throttle | 30 frames | `gpu.rs` |
-| Farm visual cadence | every 4th frame | `behavior.rs` |
+| Farm visual cadence | event-driven (FarmReadyMsg/FarmHarvestedMsg) | `economy/mod.rs` |
 | ProfilerCache refresh | 15 frames, top 10 | `ui/game_hud.rs` |
 | Healing enter-check cadence | 1/4 NPCs per frame | `health.rs` |
 | Gap coalescing waste budget | ~24KB total across all buffers | `gpu.rs` |
@@ -412,6 +412,15 @@ Combined 50K (13 systems, excluding unbounded variant): 4.1ms (25.6% of 16ms bud
 
 500 deaths/frame (heavy combat) = 803µs (5% of budget).
 
+### Event-driven (BuildingGridDirtyMsg, vary building count)
+
+| System | 500 | 2K | 5K | Scaling |
+|--------|-----|----|----|---------|
+| rebuild_building_grid | 1.5us | 1.6us | 1.6us | O(1) after init |
+| sync_pathfind_costs | 16us | 102us | 190us | O(buildings) overlay + O(changed) HPA* |
+
+rebuild_building_grid is O(1) because spatial grid is maintained incrementally; the system just checks `is_spatial_initialized()`. sync_pathfind_costs scales with total buildings (overlay pass) but HPA* rebuild is scoped to actually-changed cells.
+
 ### Budget Summary (50K NPCs + realistic 2K buildings, heavy combat frame)
 
 | Component | Cost | % of 16ms |
@@ -465,6 +474,22 @@ Compact record of performance fixes applied. Each entry preserves the root cause
 **Fix**: Added `entity_to_slot: HashMap<Entity, usize>` reverse index to EntityMap, maintained via `set_entity()`/`remove_entity_mapping()` helpers. `slot_for_entity` becomes `entity_to_slot.get(&entity).copied()` — O(1).
 
 **Pattern**: Bijection index — when a forward map (slot→entity) is frequently queried in reverse (entity→slot), add a parallel reverse HashMap. Documented in Canonical Key Model: "Secondary indexes are allowed for performance (`Entity -> slot`)". damage_system 5K: 1860µs → 228µs.
+
+### rebuild_building_grid O(N) → O(1) — eliminated 19ms spike (#207)
+
+**Root cause**: `rebuild_building_grid_system` called `entity_map.rebuild_spatial()` (O(all_buildings) full spatial grid rebuild) on every `BuildingGridDirtyMsg`. At high game speed with AI placing buildings, towers killing raiders, etc., this fired frequently. Observed 19.05ms peak spike in live gameplay at 1111 NPCs.
+
+**Fix**: `add_instance`/`remove_instance` already maintain the spatial grid incrementally on every building change. After first init, skip `rebuild_spatial()` entirely -- only call `init_spatial()` (no-op at same size). First init or reload still does a full rebuild.
+
+**Pattern**: Incremental maintenance -- if insert/remove operations already update the data structure, don't also do a full rebuild on every change notification. rebuild_building_grid at 5K buildings: O(N) full rebuild → 1.5us constant.
+
+### sync_pathfind_costs HPA* rebuild scoped to changed cells (#203)
+
+**Root cause**: `sync_building_costs` passed ALL `building_cost_cells` to HPA* `rebuild_chunks` on every `BuildingGridDirtyMsg`. Even if only one building changed, it rebuilt HPA* chunks for ALL buildings. At 16x speed with frequent AI placement, this cost 3.05ms per tick (vs 0.02ms at 1x).
+
+**Fix**: Snapshot `(idx, cost)` pairs before rebuild. After re-applying overlays, diff old vs new to find cells whose cost actually changed. Only pass changed cells to `rebuild_chunks`. Detects both set membership changes (added/removed buildings) AND cost value changes (wall replaced by road at same cell -- `symmetric_difference` would miss this).
+
+**Pattern**: Before/after diff -- when an expensive downstream operation (HPA* rebuild) takes a set of dirty items, diff the actual values to avoid feeding unchanged items. No-change case (redundant dirty signal) skips HPA* entirely. sync_pathfind_costs at 200 buildings no-change: ~2.5us.
 
 ## Benchmarks (2026-03-15 -- 306decc)
 
