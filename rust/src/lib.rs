@@ -151,6 +151,13 @@ fn startup_system() {
     info!("Endless ECS initialized - systems registered");
 }
 
+/// Clear stale per-system peak and EMA timing data when entering a game session.
+/// Prevents OnExit/lifecycle peaks (e.g. game_cleanup_system) from persisting
+/// into the in-game profiler view where they appear as false recurring spikes.
+fn reset_profiler_peaks() {
+    crate::tracing_layer::clear_peaks();
+}
+
 /// Skip main menu when --autostart is passed. Loads saved settings and starts a new game.
 fn autostart_system(
     auto: Res<resources::AutoStart>,
@@ -527,6 +534,9 @@ pub fn build_app(app: &mut App) {
         // Music lifecycle
         .add_systems(OnEnter(AppState::Playing), systems::audio::start_music)
         .add_systems(OnExit(AppState::Playing), systems::audio::stop_music)
+        // Clear stale lifecycle peaks (e.g. game_cleanup_system) on game session start
+        .add_systems(OnEnter(AppState::Playing), reset_profiler_peaks)
+        .add_systems(OnEnter(AppState::Running), reset_profiler_peaks)
         .add_systems(Update, smooth_delta)
         .add_systems(Update, sync_fixed_hz)
         .add_systems(

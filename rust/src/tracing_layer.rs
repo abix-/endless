@@ -33,6 +33,20 @@ pub static TRACING_PEAKS: LazyLock<Mutex<HashMap<String, (f32, u32)>>> =
 /// Number of frames before peak resets. ~2 seconds at 60fps.
 const PEAK_WINDOW: u32 = 120;
 
+/// Clear all peak and EMA timing data.
+///
+/// Call on game session start (OnEnter Playing/Running) so stale lifecycle
+/// peaks from OnExit systems (e.g. game_cleanup_system) do not pollute the
+/// in-game profiler view.
+pub fn clear_peaks() {
+    if let Ok(mut peaks) = TRACING_PEAKS.lock() {
+        peaks.clear();
+    }
+    if let Ok(mut timings) = TRACING_TIMINGS.lock() {
+        timings.clear();
+    }
+}
+
 /// Stored in span extensions at creation time to hold the system name.
 struct SpanName(String);
 
@@ -109,5 +123,68 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> tracing_subscriber::Layer<S> for Sy
                 entry.1 = 0;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clear_peaks_removes_stale_lifecycle_peaks() {
+        // Simulate a stale peak from a lifecycle system (e.g. game_cleanup_system)
+        // that runs once on OnExit and never accumulates enough executions to self-reset.
+        {
+            let mut peaks = TRACING_PEAKS.lock().unwrap();
+            peaks.insert("game_cleanup_system".to_string(), (13.17, 1));
+            peaks.insert("some_per_frame_system".to_string(), (0.5, 50));
+        }
+        {
+            let mut timings = TRACING_TIMINGS.lock().unwrap();
+            timings.insert("game_cleanup_system".to_string(), 13.17);
+        }
+
+        clear_peaks();
+
+        let peaks = TRACING_PEAKS.lock().unwrap();
+        assert!(
+            peaks.is_empty(),
+            "clear_peaks must remove all peak entries so stale lifecycle peaks do not persist"
+        );
+        drop(peaks);
+
+        let timings = TRACING_TIMINGS.lock().unwrap();
+        assert!(
+            timings.is_empty(),
+            "clear_peaks must remove all EMA timing entries"
+        );
+    }
+
+    #[test]
+    fn peak_window_never_resets_for_infrequent_systems() {
+        // Verify the root cause: a system that runs once never reaches PEAK_WINDOW=120
+        // and its peak never self-resets. After clear_peaks(), new peaks start fresh.
+        {
+            let mut peaks = TRACING_PEAKS.lock().unwrap();
+            // Lifecycle system ran once: execution_count=1, far below PEAK_WINDOW
+            peaks.insert("lifecycle_system".to_string(), (10.0, 1));
+        }
+
+        // Before clear: peak is still present (would never self-expire at count=1)
+        {
+            let peaks = TRACING_PEAKS.lock().unwrap();
+            let (peak_ms, count) = peaks["lifecycle_system"];
+            assert_eq!(count, 1);
+            assert!(
+                count < PEAK_WINDOW,
+                "count={count} never reaches PEAK_WINDOW={PEAK_WINDOW}"
+            );
+            assert!(peak_ms > 0.0);
+        }
+
+        // After clear: peak is gone
+        clear_peaks();
+        let peaks = TRACING_PEAKS.lock().unwrap();
+        assert!(!peaks.contains_key("lifecycle_system"));
     }
 }
