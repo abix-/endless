@@ -2447,7 +2447,11 @@ fn bench_ai_road_scoring(c: &mut Criterion) {
                             let col = cc as i32 + dc;
                             let row = cr as i32 + dr;
                             if col >= 0 && row >= 0 {
-                                grid.add_town_buildable(col as usize, row as usize, town_idx as u16);
+                                grid.add_town_buildable(
+                                    col as usize,
+                                    row as usize,
+                                    town_idx as u16,
+                                );
                             }
                         }
                     }
@@ -2459,10 +2463,17 @@ fn bench_ai_road_scoring(c: &mut Criterion) {
                 for &(center, town_idx) in &town_centers {
                     let faction = (town_idx + 1) as i32;
                     for k in 0..8usize {
-                        let Some(slot) = pool.alloc_reset() else { break };
+                        let Some(slot) = pool.alloc_reset() else {
+                            break;
+                        };
                         let dx = (k % 4) as f32 * TOWN_GRID_SPACING - TOWN_GRID_SPACING * 1.5;
                         let dy = (k / 4) as f32 * TOWN_GRID_SPACING - TOWN_GRID_SPACING * 0.5;
-                        instances.push((slot, Vec2::new(center.x + dx, center.y + dy), town_idx as u32, faction));
+                        instances.push((
+                            slot,
+                            Vec2::new(center.x + dx, center.y + dy),
+                            town_idx as u32,
+                            faction,
+                        ));
                     }
                 }
                 instances
@@ -2470,7 +2481,11 @@ fn bench_ai_road_scoring(c: &mut Criterion) {
             let mut em = world.resource_mut::<EntityMap>();
             for (slot, pos, town_idx, faction) in farm_instances {
                 em.add_instance(endless::entity_map::BuildingInstance {
-                    kind: world::BuildingKind::Farm, position: pos, town_idx, slot, faction,
+                    kind: world::BuildingKind::Farm,
+                    position: pos,
+                    town_idx,
+                    slot,
+                    faction,
                 });
             }
         }
@@ -2479,7 +2494,11 @@ fn bench_ai_road_scoring(c: &mut Criterion) {
             let mut ai_state = world.resource_mut::<AiPlayerState>();
             for (i, p) in ai_state.players.iter_mut().enumerate() {
                 p.road_style = RoadStyle::Grid4;
-                p.decision_timer = if i == 0 { DEFAULT_AI_INTERVAL } else { i as f32 * DEFAULT_AI_INTERVAL / AI_TOWN_COUNT as f32 };
+                p.decision_timer = if i == 0 {
+                    DEFAULT_AI_INTERVAL
+                } else {
+                    i as f32 * DEFAULT_AI_INTERVAL / AI_TOWN_COUNT as f32
+                };
             }
         }
         let _ = app.world_mut().run_system_once(ai_decision_system);
@@ -2488,7 +2507,11 @@ fn bench_ai_road_scoring(c: &mut Criterion) {
                 let world = app.world_mut();
                 let mut ai_state = world.resource_mut::<AiPlayerState>();
                 for (i, p) in ai_state.players.iter_mut().enumerate() {
-                    p.decision_timer = if i == 0 { DEFAULT_AI_INTERVAL } else { i as f32 * DEFAULT_AI_INTERVAL / AI_TOWN_COUNT as f32 };
+                    p.decision_timer = if i == 0 {
+                        DEFAULT_AI_INTERVAL
+                    } else {
+                        i as f32 * DEFAULT_AI_INTERVAL / AI_TOWN_COUNT as f32
+                    };
                 }
             }
             let _ = app.world_mut().run_system_once(ai_decision_system);

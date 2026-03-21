@@ -336,7 +336,6 @@ mod tests {
     use crate::messages::{WorkIntent, WorkIntentMsg};
     use crate::resources::{EntityMap, GpuSlotPool, PathRequestQueue};
     use crate::world::BuildingKind;
-    use bevy::prelude::*;
 
     fn setup_work_app() -> App {
         let mut app = App::new();
