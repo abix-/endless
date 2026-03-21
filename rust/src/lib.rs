@@ -5,6 +5,7 @@
     clippy::type_complexity,    // Bevy Query types are inherently complex
     clippy::collapsible_if,     // Nested ifs are often clearer in game logic
 )]
+#![deny(clippy::unwrap_used)]
 
 // ============================================================================
 // MODULES
