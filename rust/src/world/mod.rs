@@ -815,12 +815,7 @@ impl WorldGrid {
             }
             if !changed.is_empty() {
                 if let Some(ref mut cache) = self.hpa_cache {
-                    cache.rebuild_chunks(
-                        &self.pathfind_costs,
-                        self.width,
-                        self.height,
-                        &changed,
-                    );
+                    cache.rebuild_chunks(&self.pathfind_costs, self.width, self.height, &changed);
                 }
             }
         }

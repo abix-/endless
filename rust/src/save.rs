@@ -2400,12 +2400,12 @@ pub fn autosave_system(
             });
         let _ = tx.send(result);
     });
-    *task.receiver.lock().unwrap() = Some(rx);
+    *task.receiver.lock().expect("autosave mutex poisoned") = Some(rx);
 }
 
 /// Poll the background autosave thread and update the toast on completion.
 pub fn autosave_poll_system(task: Res<AutosaveTask>, mut toast: ResMut<SaveToast>) {
-    let mut guard = task.receiver.lock().unwrap();
+    let mut guard = task.receiver.lock().expect("autosave mutex poisoned");
     let done = if let Some(rx) = &*guard {
         match rx.try_recv() {
             Ok(Ok((slot, npc_count))) => {
