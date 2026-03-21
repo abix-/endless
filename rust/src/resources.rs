@@ -371,7 +371,6 @@ pub struct HealthDebug {
     pub deaths_this_frame: usize,
     pub despawned_this_frame: usize,
     pub bevy_entity_count: usize,
-    pub health_samples: Vec<(usize, f32)>,
     // Healing debug
     pub healing_npcs_checked: usize,
     pub healing_positions_len: usize,

@@ -367,6 +367,40 @@ fn damage_building_reduces_health() {
     );
 }
 
+/// Regression test for issue #170: damage_system must not use iter_npcs+query.get.
+/// The health_samples field was removed from HealthDebug (it was write-only dead code).
+/// Spawns 15 NPCs (more than the old .take(10) sampling limit) and verifies damage
+/// is applied correctly, proving the system works with many NPCs after the fix.
+#[test]
+fn damage_system_no_iter_npcs_sampling() {
+    let mut app = setup_damage_app();
+    // Spawn 15 NPCs (more than the old .take(10) sampling limit)
+    for i in 0..15 {
+        spawn_damageable_npc(&mut app, i, i as u64 + 1, 100.0);
+    }
+    let target_entity = {
+        let em = app.world().resource::<EntityMap>();
+        em.get_npc(0).unwrap().entity
+    };
+    app.world_mut()
+        .resource_mut::<PendingDamage>()
+        .0
+        .push(DamageMsg {
+            target: target_entity,
+            amount: 10.0,
+            attacker: -1,
+            attacker_faction: 0,
+        });
+    app.update();
+    // Check HP: damage_processed is overwritten to 0 by later FixedUpdate sub-ticks
+    // within the same app.update(), so HP is the correct signal.
+    let hp = app.world().get::<Health>(target_entity).unwrap().0;
+    assert!(
+        (hp - 90.0).abs() < 0.01,
+        "damage should reduce HP from 100 to 90 with 15 NPCs in world: {hp}"
+    );
+}
+
 // -- update_healing_zone_cache -------------------------------------------
 
 #[derive(Resource, Default)]
