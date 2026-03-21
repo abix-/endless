@@ -540,8 +540,9 @@ fn worldmap_biomes_follow_latitude() {
     // Fixed seed for determinism.
     generate_terrain_worldmap(&mut grid, 0x1234_5678_9abc_def0);
 
-    // Sample equatorial band (rows 90-110) and near-polar band (rows 25-35)
-    let mut equatorial_grass = 0usize;
+    // Sample equatorial band (rows 90-110) -- should have warm biomes only
+    let mut equatorial_warm = 0usize;
+    let mut equatorial_tundra = 0usize;
     let mut equatorial_total = 0usize;
     let mut polar_rock = 0usize;
     let mut polar_total = 0usize;
@@ -551,8 +552,12 @@ fn worldmap_biomes_follow_latitude() {
             let cell = &grid.cells[row * grid.width + col];
             if cell.terrain != Biome::Water {
                 equatorial_total += 1;
-                if cell.terrain == Biome::Grass {
-                    equatorial_grass += 1;
+                match cell.terrain {
+                    Biome::Grass | Biome::Forest | Biome::Jungle | Biome::Desert => {
+                        equatorial_warm += 1;
+                    }
+                    Biome::Tundra => equatorial_tundra += 1,
+                    _ => {}
                 }
             }
         }
@@ -570,11 +575,19 @@ fn worldmap_biomes_follow_latitude() {
         }
     }
 
-    // Equatorial band should have some grass (not all rock/forest)
+    // Equatorial band should have warm biomes (Grass, Forest, Jungle, Desert), not arctic
     if equatorial_total > 0 {
         assert!(
-            equatorial_grass > 0,
-            "equatorial band should have some grass cells"
+            equatorial_warm > 0,
+            "equatorial band should have warm biomes (Grass/Forest/Jungle/Desert), got {}/{} warm, {} tundra",
+            equatorial_warm,
+            equatorial_total,
+            equatorial_tundra,
+        );
+        assert_eq!(
+            equatorial_tundra, 0,
+            "equatorial band should have no tundra cells, got {}",
+            equatorial_tundra,
         );
     }
 
@@ -723,7 +736,161 @@ fn wall_sealing_fountain_is_rejected() {
     );
 }
 
-/// Regression test: placing a wall that leaves a gap is accepted.
+// ============================================================================
+// CONTINENTAL WORLD GEN REGRESSION TESTS (Issue 240)
+// ============================================================================
+
+/// Regression: worldmap with fixed seed produces >= 6 distinct biome types.
+/// This proves the biome table covers the required variety (Grass, Forest, Water, Rock/Tundra, Desert, Jungle).
+#[test]
+fn worldmap_has_six_plus_biome_types() {
+    let mut grid = WorldGrid::default();
+    grid.width = 200;
+    grid.height = 200;
+    grid.cell_size = 64.0;
+    grid.cells = vec![WorldCell::default(); 200 * 200];
+
+    generate_terrain_worldmap(&mut grid, 0xdead_beef_cafe_1234);
+
+    let mut seen = std::collections::HashSet::new();
+    for cell in &grid.cells {
+        seen.insert(std::mem::discriminant(&cell.terrain));
+    }
+    assert!(
+        seen.len() >= 6,
+        "expected >= 6 distinct biome types, got {}",
+        seen.len()
+    );
+}
+
+/// Regression: worldmap uses 3-10 continents from the same seed deterministically.
+/// Two calls with the same seed must produce identical grids (determinism).
+#[test]
+fn worldmap_is_deterministic_for_same_seed() {
+    let make_grid = || {
+        let mut g = WorldGrid::default();
+        g.width = 100;
+        g.height = 100;
+        g.cell_size = 64.0;
+        g.cells = vec![WorldCell::default(); 100 * 100];
+        generate_terrain_worldmap(&mut g, 0x1111_2222_3333_4444);
+        g
+    };
+
+    let g1 = make_grid();
+    let g2 = make_grid();
+
+    let diffs = g1
+        .cells
+        .iter()
+        .zip(g2.cells.iter())
+        .filter(|(a, b)| a.terrain != b.terrain)
+        .count();
+    assert_eq!(
+        diffs, 0,
+        "same seed should produce identical terrain, got {} diffs",
+        diffs
+    );
+}
+
+/// Regression: worldmap rivers -- some cells near continent seeds are Water (rivers carved).
+/// Uses a large grid so rivers have room to form and reach the coast.
+#[test]
+fn worldmap_rivers_carve_water_inland() {
+    let mut grid = WorldGrid::default();
+    grid.width = 200;
+    grid.height = 200;
+    grid.cell_size = 64.0;
+    grid.cells = vec![WorldCell::default(); 200 * 200];
+
+    generate_terrain_worldmap(&mut grid, 0xabcd_ef01_2345_6789);
+
+    // Count water cells excluding ice cap rows
+    let ice_rows = (200.0 * 0.12) as usize;
+    let mid_water = grid
+        .cells
+        .iter()
+        .enumerate()
+        .filter(|(idx, c)| {
+            let row = idx / grid.width;
+            row >= ice_rows && row < grid.height - ice_rows && c.terrain == Biome::Water
+        })
+        .count();
+
+    // With rivers + ocean, mid-grid Water should be > 5% of non-ice cells
+    let mid_cells = (grid.height - 2 * ice_rows) * grid.width;
+    let water_pct = mid_water as f64 / mid_cells as f64;
+    assert!(
+        water_pct > 0.05,
+        "expected > 5% water in mid-grid (rivers + ocean), got {:.1}%",
+        water_pct * 100.0
+    );
+}
+
+/// Regression: worldmap volcanoes -- some Rock clusters exist at non-ice-cap land.
+/// Volcanoes stamp Rock at high-elevation coastal cells. With a large enough grid,
+/// at least some Rock should appear in temperate land zones (not just ice caps).
+#[test]
+fn worldmap_volcanoes_place_rock_in_temperate_zone() {
+    let mut grid = WorldGrid::default();
+    grid.width = 200;
+    grid.height = 200;
+    grid.cell_size = 64.0;
+    grid.cells = vec![WorldCell::default(); 200 * 200];
+
+    generate_terrain_worldmap(&mut grid, 0xfeed_face_dead_beef);
+
+    let ice_rows = (200.0 * 0.12) as usize;
+    // Count Rock cells in temperate mid-zone (rows 30-170)
+    let temperate_rock = grid
+        .cells
+        .iter()
+        .enumerate()
+        .filter(|(idx, c)| {
+            let row = idx / grid.width;
+            row >= ice_rows + 5 && row < grid.height - ice_rows - 5 && c.terrain == Biome::Rock
+        })
+        .count();
+
+    assert!(
+        temperate_rock > 0,
+        "expected some Rock cells in temperate zone (volcanoes), got 0"
+    );
+}
+
+/// Regression: new biome variants (Desert, Tundra, Jungle) have correct passability.
+/// Desert and Jungle are passable; Rock and Water are impassable.
+#[test]
+fn new_biome_passability_contract() {
+    assert!(!Biome::Desert.is_impassable(), "Desert should be passable");
+    assert!(!Biome::Tundra.is_impassable(), "Tundra should be passable");
+    assert!(!Biome::Jungle.is_impassable(), "Jungle should be passable");
+    assert!(Biome::Water.is_impassable(), "Water should be impassable");
+    assert!(Biome::Rock.is_impassable(), "Rock should be impassable");
+}
+
+/// Regression: new biomes have correct pathfinding costs.
+#[test]
+fn new_biome_pathfind_costs() {
+    use crate::world::terrain_base_cost;
+    assert_eq!(
+        terrain_base_cost(Biome::Desert),
+        100,
+        "Desert cost should be 100 (flat)"
+    );
+    assert_eq!(
+        terrain_base_cost(Biome::Tundra),
+        143,
+        "Tundra cost should be 143 (slow)"
+    );
+    assert_eq!(
+        terrain_base_cost(Biome::Jungle),
+        143,
+        "Jungle cost should be 143 (slow)"
+    );
+}
+
+/// Regression: placing a wall that leaves a gap is accepted.
 /// Scenario: 2 walls around fountain, 3rd wall placed -- still has one open neighbor.
 #[test]
 fn wall_leaving_gap_is_accepted() {
