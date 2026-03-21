@@ -6,7 +6,7 @@ Every NPC has a job, a home, and a personality. Set policies, build walls, lay r
 
 Your AI rivals do the same — each with a distinct strategy
 
-<!-- TODO: Add screenshot/GIF here -->
+![Endless gameplay - mid-game town with NPCs, walls, forests, and water](docs/screenshot.png)
 
 [Roadmap](docs/roadmap.md) | [Architecture](docs/README.md)
 

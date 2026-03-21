@@ -456,7 +456,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
     BuildingDef {
         kind: BuildingKind::StoneRoad,
         display: DisplayCategory::Economy,
-        tile: TileSpec::External("sprites/dirt_roads_131_32.png"), // TODO: stone road sprite
+        tile: TileSpec::External("sprites/stone_roads_131x32.png"),
         hp: 60.0,
         cost: 3,
         label: "Stone Road",
@@ -480,7 +480,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
     BuildingDef {
         kind: BuildingKind::MetalRoad,
         display: DisplayCategory::Economy,
-        tile: TileSpec::External("sprites/dirt_roads_131_32.png"), // TODO: metal road sprite
+        tile: TileSpec::External("sprites/metal_roads_131x32.png"),
         hp: 100.0,
         cost: 8,
         label: "Metal Road",
