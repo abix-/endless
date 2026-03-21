@@ -21,46 +21,46 @@ pub fn resolve_work_targets(
     mut work_state_q: Query<&mut NpcWorkState>,
     mut activity_q: Query<&mut crate::components::Activity>,
     mut path_queue: ResMut<PathRequestQueue>,
-    production_q: Query<&ProductionState, With<Building>>,
-    farm_mode_q: Query<&FarmModeComp, With<Building>>,
+    production_q: Query<(&GpuSlot, &ProductionState), With<Building>>,
+    farm_mode_q: Query<(&GpuSlot, &FarmModeComp), With<Building>>,
 ) {
     let msgs: Vec<_> = intents.read().collect();
     if msgs.is_empty() {
         return;
     }
 
-    // Only Claim/Retarget need the production and cow-farm maps; skip the building scan
-    // entirely for Release/MarkPresent-only batches (the common steady-state path).
-    let needs_claim_data = msgs.iter().any(|WorkIntentMsg(intent)| {
-        matches!(
-            intent,
-            WorkIntent::Claim { .. } | WorkIntent::Retarget { .. }
-        )
+    // Only build the lookup maps when at least one Claim or Retarget intent exists.
+    // Release and MarkPresent never use production_map or cow_farm_slots.
+    let needs_claim = msgs.iter().any(|WorkIntentMsg(w)| {
+        matches!(w, WorkIntent::Claim { .. } | WorkIntent::Retarget { .. })
     });
 
-    // Single pass over all building instances to build both maps simultaneously.
-    // Replaces the previous two separate iter_instances() passes.
-    let mut production_map: std::collections::HashMap<usize, (bool, f32)> =
-        std::collections::HashMap::new();
-    let mut cow_farm_slots: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    // Build production map by iterating only buildings that have ProductionState (~1K)
+    // instead of scanning all 68K instances via iter_instances().
+    let production_map: std::collections::HashMap<usize, (bool, f32)> = if needs_claim {
+        production_q
+            .iter()
+            .map(|(slot, ps)| (slot.0, (ps.ready, ps.progress)))
+            .collect()
+    } else {
+        std::collections::HashMap::new()
+    };
 
-    if needs_claim_data {
-        for inst in entity_map.iter_instances() {
-            let Some(&entity) = entity_map.entities.get(&inst.slot) else {
-                continue;
-            };
-            if let Ok(ps) = production_q.get(entity) {
-                production_map.insert(inst.slot, (ps.ready, ps.progress));
-            }
-            if inst.kind == BuildingKind::Farm {
-                if let Ok(fm) = farm_mode_q.get(entity) {
-                    if fm.0 == FarmMode::Cows {
-                        cow_farm_slots.insert(inst.slot);
-                    }
+    // Build cow-farm set by iterating only buildings with FarmModeComp (~1K farms).
+    let cow_farm_slots: std::collections::HashSet<usize> = if needs_claim {
+        farm_mode_q
+            .iter()
+            .filter_map(|(slot, fm)| {
+                if fm.0 == FarmMode::Cows {
+                    Some(slot.0)
+                } else {
+                    None
                 }
-            }
-        }
-    }
+            })
+            .collect()
+    } else {
+        std::collections::HashSet::new()
+    };
 
     for WorkIntentMsg(intent) in msgs {
         match intent {
@@ -336,7 +336,6 @@ mod tests {
     use crate::messages::{WorkIntent, WorkIntentMsg};
     use crate::resources::{EntityMap, GpuSlotPool, PathRequestQueue};
     use crate::world::BuildingKind;
-    use bevy::prelude::*;
 
     fn setup_work_app() -> App {
         let mut app = App::new();

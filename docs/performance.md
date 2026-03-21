@@ -493,6 +493,19 @@ Compact record of performance fixes applied. Each entry preserves the root cause
 
 **Pattern**: Incremental maintenance -- if insert/remove operations already update the data structure, don't also do a full rebuild on every change notification. rebuild_building_grid at 5K buildings: O(N) full rebuild → 1.5us constant.
 
+### resolve_work_targets O(68K iter_instances) -> O(~1K ECS query) (#186)
+
+**Root cause**: `resolve_work_targets` built `production_map` and `cow_farm_slots` by calling `iter_instances()` (68K building + resource node instances) with a per-instance `query.get(entity)` probe for each building. Ran unconditionally on every non-empty message batch. In-game peak: 4ms via `endless-cli get_perf`.
+
+**Fix**: Replace `iter_instances()` scan with two ECS component queries:
+- `Query<(&GpuSlot, &ProductionState), With<Building>>` -- only ~1K buildings with ProductionState
+- `Query<(&GpuSlot, &FarmModeComp), With<Building>>` -- only farms with FarmModeComp
+- Lazy gate: skip both queries entirely for Release/MarkPresent-only batches (common steady-state path)
+
+**Pattern**: Migration Template #1 (Query-First Scan). When a hot path scans all instances to find ones with a specific component, replace the `iter_instances()` + `query.get()` pattern with a direct ECS query filtered by that component. O(68K) -> O(~1K).
+
+**Benchmark**: `cargo bench --bench system_bench -- resolve_work_targets`. Bench covers burst_claim/500, burst_claim/2000, and burst_claim/1000_bld_65k_nodes (1K buildings + 65K TreeNode/RockNode instances to prove the query is O(~1K) at game scale, not O(all instances)).
+
 ### sync_pathfind_costs HPA* rebuild scoped to changed cells (#203)
 
 **Root cause**: `sync_building_costs` passed ALL `building_cost_cells` to HPA* `rebuild_chunks` on every `BuildingGridDirtyMsg`. Even if only one building changed, it rebuilt HPA* chunks for ALL buildings. At 16x speed with frequent AI placement, this cost 3.05ms per tick (vs 0.02ms at 1x).

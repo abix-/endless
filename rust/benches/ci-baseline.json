@@ -94,5 +94,8 @@
   "spawner_respawn/5000":             { "mean_ns": 267000 },
   "spawner_respawn/50000":            { "mean_ns": 2063000 },
   "sync_pathfind_costs/50":           { "mean_ns": 1000 },
-  "sync_pathfind_costs/200":          { "mean_ns": 3000 }
+  "sync_pathfind_costs/200":          { "mean_ns": 3000 },
+  "resolve_work_targets/burst_claim/500":                { "mean_ns": 12287000 },
+  "resolve_work_targets/burst_claim/2000":               { "mean_ns": 29182000 },
+  "resolve_work_targets/burst_claim/1000_bld_65k_nodes": { "mean_ns": 15000000 }
 }

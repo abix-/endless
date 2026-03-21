@@ -12,6 +12,7 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use endless::components::*;
 use endless::constants::*;
+use endless::entity_map::BuildingInstance;
 use endless::gpu::populate_gpu_state;
 use endless::gpu::{EntityGpuState, ProjBufferWrites};
 use endless::messages::*;
@@ -2298,9 +2299,9 @@ fn bench_resolve_work_targets(c: &mut Criterion) {
     let mut group = c.benchmark_group("resolve_work_targets");
     group.sample_size(20);
 
-    const BUILDING_COUNTS: &[usize] = &[500, 2_000, 1_000];
-    const CLAIM_COUNTS: &[usize] = &[50, 200, 200];
-    const RESOURCE_NODE_COUNTS: &[usize] = &[0, 0, 65_000];
+    const BUILDING_COUNTS: &[usize] = &[500, 2_000, 1_000, 50_000, 50_000];
+    const CLAIM_COUNTS: &[usize] = &[50, 200, 200, 500, 500];
+    const RESOURCE_NODE_COUNTS: &[usize] = &[0, 0, 65_000, 0, 50_000];
 
     for (idx, (&building_count, &claim_count)) in
         BUILDING_COUNTS.iter().zip(CLAIM_COUNTS.iter()).enumerate()
