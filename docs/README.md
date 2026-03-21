@@ -154,7 +154,11 @@ rust/
     systemparams.rs       # TownAccess and other shared SystemParam bundles
     save.rs               # Save/load (quicksave, autosave, named saves, version migration) -> [save-load.md]
     settings.rs           # UserSettings persistence (serde JSON, version migration, key bindings)
-    world.rs              # WorldGrid, procedural gen, place/destroy_building, auto-tile, BuildingKind
+    world/                # WorldGrid, procedural gen, place/destroy_building, auto-tile, BuildingKind
+      mod.rs              # WorldGrid, core types, place/destroy_building, BuildingKind
+      worldgen.rs         # Procedural world generation
+      buildings.rs        # Building placement helpers, resolve_spawner_npc
+      autotile.rs         # Wall auto-tile logic
     ui/
       mod.rs              # UI registration, startup/cleanup, pause menu, settings panel, game over -> [ui.md]
       main_menu.rs        # World/difficulty config, AI lobby, play/load/settings/exit
@@ -170,24 +174,24 @@ rust/
       tutorial.rs         # 24-step guided tutorial with condition-driven advance
     systems/
       spawn.rs            # materialize_npc() single spawn path → [spawn.md]
-      stats.rs            # UpgradeRegistry, resolve_combat_stats, auto-upgrade/equip systems
+      stats/              # UpgradeRegistry, resolve_combat_stats, auto-upgrade/equip systems
       drain.rs            # Queue drain (CombatLogMsg → CombatLog)
       movement.rs         # GPU position readback, HPA* path routing, MovementIntent resolution
+      pathfinding.rs      # HPA* cache build, chunk rebuild, A* pathfinder
       combat.rs           # Attack cooldown, GPU targeting, projectile fire, tower system → [combat.md]
-      health.rs           # Damage, death (XP/loot/cleanup), healing, HP regen → [combat.md]
+      health/             # Damage, death (XP/loot/cleanup), healing, HP regen → [combat.md]
       behavior.rs         # SystemParam bundles, arrival_system coordinator → [behavior.md]
       decision/
         mod.rs            # decision_system, utility AI, flee/leash, transition helpers → [behavior.md]
-        tests.rs          # 36 decision system tests (lifecycle, squad, phase validation)
+        tests.rs          # decision system tests (lifecycle, squad, phase, mason validation)
       patrol.rs           # on_duty_tick_system, rebuild_patrol_routes_system → [behavior.md]
       work_targeting.rs   # Centralized worksite claim/release/retarget resolver
       economy/            # Farm/mine growth, construction, spawner respawn, migration → [economy.md]
-      ai_player.rs        # AI personalities, building scoring, squad commander → [ai-player.md]
+      ai_player/          # AI personalities, building scoring, squad commander → [ai-player.md]
       audio.rs            # Music jukebox (22 tracks) + spatial SFX -> [audio.md]
       remote.rs           # Custom BRP endpoints (summary, build, upgrade, etc.) → [brp.md]
       llm_player.rs       # Built-in claude --print LLM player → [llm-player.md]
       energy.rs           # Energy drain/recovery
-      sync.rs             # GPU state sync
     tests/
       mod.rs              # Test framework (TestState, menu, HUD, CLI runner)
       (25 test files)     # See test table above for full list

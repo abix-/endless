@@ -2,9 +2,13 @@
 
 ## Overview
 
-Pure Bevy application with a **Factorio-style fixed 60 UPS game loop**. All game logic runs on Bevy's `FixedUpdate` schedule at exactly 60 ticks/second (16.67ms/tick). `Time.delta_secs()` in FixedUpdate always returns `1/60`. Rendering and UI run on `Update` (per render frame). The main and render worlds synchronize once per frame at the extract barrier.
+Pure Bevy application with a **Factorio-style fixed game loop**. All game logic runs on Bevy's `FixedUpdate` schedule. Rendering and UI run on `Update` (per render frame). The main and render worlds synchronize once per frame at the extract barrier.
 
-`GameTime::delta()` multiplies the fixed dt by `time_scale` — the simulation is deterministic regardless of frame rate. `UpsCounter` resource tracks actual ticks/second for the HUD (incremented in FixedUpdate, sampled per frame in the top bar).
+**At 1x speed**: Fixed runs at 60 Hz (16.67ms/tick). `Time.delta_secs()` returns `1/60`.
+
+**At speeds > 1x**: `sync_fixed_hz` (Update schedule) scales the Fixed period to `sqrt(time_scale)/60`. At 4x: 30 Hz, at 8x: ~21 Hz, at 16x: 15 Hz. This prevents cascade (too many ticks per frame) while keeping UPS in a playable range. `Time.delta_secs()` returns the current Fixed timestep (`sqrt(time_scale)/60`). See [performance.md](performance.md#time-scale-scheduling-sync_fixed_hz) for the full table and rationale.
+
+`GameTime::delta()` multiplies the fixed dt by `time_scale` — game-time proportionality is preserved at all speeds. `UpsCounter` resource tracks actual ticks/second for the HUD (incremented in FixedUpdate, sampled per frame in the top bar).
 
 ## Execution Order
 

@@ -203,7 +203,7 @@ All volatile numeric constants in one place. Policy sections above describe *why
 | Threat readback throttle | 30 frames | `gpu.rs` |
 | Farm visual cadence | event-driven (FarmReadyMsg/FarmHarvestedMsg) | `economy/mod.rs` |
 | ProfilerCache refresh | 15 frames, top 10 | `ui/game_hud.rs` |
-| Healing enter-check cadence | 1/4 NPCs per frame | `health.rs` |
+| Healing enter-check cadence | 1/4 NPCs per frame | `systems/health/mod.rs` |
 | Gap coalescing waste budget | ~24KB total across all buffers | `gpu.rs` |
 | Visual upload fallback | 40% window → bulk offset write | `gpu.rs` |
 | `max_pathfinds_per_frame` | 50 | `resources.rs` (PathfindConfig) |

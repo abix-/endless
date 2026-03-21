@@ -16,9 +16,9 @@ Current implementation only: the target-state redesign spec lives in [npc-activi
 **Unified Decision System**: All NPC decisions are handled by `decision_system` using a priority cascade. NPC state is modeled by two orthogonal components (concurrent state machines pattern):
 
 - `Activity` struct: what the NPC is *doing*. Contains `kind: ActivityKind` + `phase: ActivityPhase` + `target: ActivityTarget` + `ticks_waiting: u32` + `recover_until: f32` (Heal HP threshold). All 10 activities use explicit phase/target. No `target_pos` -- destination identity lives in `ActivityTarget` variants or `NpcWorkState.worksite`.
-- `ActivityKind` enum (10 fieldless variants): `Idle, Work, Patrol, SquadAttack, Rest, Heal, Wander, Raid, ReturnLoot, Mine`. Derives `Copy + Eq + Hash`. Registry key — metadata lives in `ACTIVITY_REGISTRY` (constants.rs).
+- `ActivityKind` enum (11 fieldless variants): `Idle, Work, Patrol, SquadAttack, Rest, Heal, Wander, Raid, ReturnLoot, Mine, Repair`. Derives `Copy + Eq + Hash`. Registry key — metadata lives in `ACTIVITY_REGISTRY` (constants.rs).
 - `ActivityDef` struct (constants.rs): per-kind metadata — `label`, `distraction`, `sleep_visual`, `is_restful`, `is_working`. Accessed via `kind.def()` or `activity_def(kind)`.
-- `Distraction` enum: per-activity combat policy — `None` (Rest/Heal/ReturnLoot: never fight), `ByDamage` (Work/Mine: fight back only when hit), `ByEnemy` (Patrol/SquadAttack/Idle/Wander/Raid: engage nearby enemies). Queried via `activity.kind.distraction()` (delegates to registry).
+- `Distraction` enum: per-activity combat policy — `None` (Rest/Heal/ReturnLoot: never fight), `ByDamage` (Work/Mine/Repair: fight back only when hit), `ByEnemy` (Patrol/SquadAttack/Idle/Wander/Raid: engage nearby enemies). Queried via `activity.kind.distraction()` (delegates to registry).
 - `CombatState` enum: whether the NPC is *fighting* (None, Fighting, Fleeing)
 - `NpcFlags::at_destination`: replaces the old transit/at-dest split — a single boolean distinguishes "walking to work" from "working at worksite"
 
@@ -47,7 +47,7 @@ Priority order (first match wins), with two-cadence top-of-loop bucket gating (s
 **Priority 4-7 — idle/work decisions** (every bucket tick):
 4a. Heal+Active + HP >= threshold → Wake to `Idle+Ready`; Heal+Transit → skip (waiting for arrival)
 4b. Rest+Active + energy >= 90% → Wake to `Idle+Ready`; Rest+Transit → skip (waiting for arrival)
-5. Work/Mine + tired? → Stop work
+5. Work/Mine/Repair + tired? → Stop work
 6. Patrol + time_to_advance? → next waypoint
 7. Idle → Score Eat/Rest/Work/Wander (wounded → fountain, tired → home)
 
@@ -153,7 +153,7 @@ Two concurrent state machines: `Activity.kind` (what NPC is doing) and `CombatSt
     Distraction (per-ActivityKind combat policy):
     ┌─────────────┬──────────────────────────────────┐
     │ None        │ Rest, Heal, ReturnLoot            │
-    │ ByDamage    │ Work, Mine                        │
+    │ ByDamage    │ Work, Mine, Repair                │
     │ ByEnemy     │ Patrol, SquadAttack, Idle,        │
     │             │ Wander, Raid                       │
     └─────────────┴──────────────────────────────────┘
@@ -186,8 +186,9 @@ Two concurrent state machines: `Activity.kind` (what NPC is doing) and `CombatSt
 - `Raid` — **phase-aware**: `Transit+RaidPoint(Vec2)` = walking to enemy farm. Legacy activity (new games use SquadAttack for raiders).
 - `ReturnLoot` — **phase-aware**: `Transit+Dropoff` = carrying loot home. Delivery handled by `arrival_system`.
 - `Mine` — **phase-aware**: `Transit+Worksite` = walking to mine, `Holding+Worksite` = tending/queued. Mine identity from `NpcWorkState.worksite`.
+- `Repair` — **phase-aware**: `Transit+Worksite` = walking to damaged building, `Active+Worksite` = repairing. Mason NPC only. Uses `for_each_nearby` spatial search to find and repair the nearest damaged same-faction building within a 40px radius.
 
-**Distraction enum** (per-activity combat policy): `None` (Rest/Heal/ReturnLoot), `ByDamage` (Work/Mine), `ByEnemy` (all others). Queried via `activity.kind.distraction()`. Used by `attack_system` to skip non-combatants.
+**Distraction enum** (per-activity combat policy): `None` (Rest/Heal/ReturnLoot), `ByDamage` (Work/Mine/Repair), `ByEnemy` (all others). Queried via `activity.kind.distraction()`. Used by `attack_system` to skip non-combatants.
 
 **Activity methods**: `Activity::new(kind)` constructor, `visual_key()` for GPU sprite selection (sleep icon when `phase == Active` + `sleep_visual`), `name()` for display label.
 
@@ -202,6 +203,8 @@ Two concurrent state machines: `Activity.kind` (what NPC is doing) and `CombatSt
 `Heal` — HP recovery at fountain. `recover_until` threshold stored in Activity payload. Phase-aware: `Transit+Fountain` = walking to fountain, `Active+Fountain` = healing. Early arrival: NPCs within 100px of town center transition directly to `Active` even if `at_destination` not yet set.
 
 `Mine` — mine position stored in `target_pos` payload. `at_destination` = actively extracting gold (claims occupancy, progress-based 4-hour work cycle with gold progress bar overhead). Pending Slice 3 phase migration.
+
+`Repair` — Mason activity. `Transit+Worksite` = walking to damaged building, `Active+Worksite` = repairing. On arrival: uses `entity_map.for_each_nearby(pos, 40px)` to find the nearest same-faction damaged building, restores it to full HP, logs repair. When no damaged buildings found nearby, transitions to `Idle`. `Distraction::ByDamage` — mason fights back only when hit.
 
 ### NPC ECS Components
 
