@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-03-21
+
+- **fix: regression test for issue #170** -- `damage_system_no_iter_npcs_sampling` now checks HP reduction instead of `damage_processed`. FixedUpdate runs 64 sub-ticks per `app.update()` with `ManualDuration(1.0s)`, causing `damage_processed` to be overwritten to 0 by later ticks. HP is set once on the first tick and unchanged thereafter.
+
 ## 2026-03-19
 
 - **damage_system iter_npcs+get removed** -- removed `iter_npcs() + query.get()` debug sampling from `damage_system` FixedUpdate hot path (issue #170). `health_samples` field was write-only dead code (never read outside the system); removed field from `HealthDebug` entirely along with the 6-line sampling block. Regression test added to health/tests.rs verifying the system processes damage correctly without the antipattern.

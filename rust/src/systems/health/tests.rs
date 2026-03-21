@@ -369,9 +369,8 @@ fn damage_building_reduces_health() {
 
 /// Regression test for issue #170: damage_system must not use iter_npcs+query.get.
 /// The health_samples field was removed from HealthDebug (it was write-only dead code).
-/// This test verifies the system runs correctly with many NPCs and a damage event,
-/// confirming the iter_npcs+get pattern is absent (reverting would require re-adding
-/// health_samples to HealthDebug, making this test fail to compile).
+/// Spawns 15 NPCs (more than the old .take(10) sampling limit) and verifies damage
+/// is applied correctly, proving the system works with many NPCs after the fix.
 #[test]
 fn damage_system_no_iter_npcs_sampling() {
     let mut app = setup_damage_app();
@@ -393,10 +392,12 @@ fn damage_system_no_iter_npcs_sampling() {
             attacker_faction: 0,
         });
     app.update();
-    let debug = app.world().resource::<HealthDebug>();
-    assert_eq!(
-        debug.damage_processed, 1,
-        "damage_system should process 1 event without iter_npcs+get sampling"
+    // Check HP: damage_processed is overwritten to 0 by later FixedUpdate sub-ticks
+    // within the same app.update(), so HP is the correct signal.
+    let hp = app.world().get::<Health>(target_entity).unwrap().0;
+    assert!(
+        (hp - 90.0).abs() < 0.01,
+        "damage should reduce HP from 100 to 90 with 15 NPCs in world: {hp}"
     );
 }
 
