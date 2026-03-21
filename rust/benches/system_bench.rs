@@ -1971,6 +1971,239 @@ fn bench_farm_visual_system(c: &mut Criterion) {
     group.finish();
 }
 
+// ── Mason decision building-scale benchmark (issue-169 spatial query validation) ──────────────
+
+/// Building counts to exercise mason O(buildings_in_radius) vs prior O(all_buildings).
+const MASON_BUILDING_COUNTS: &[usize] = &[1_000, 10_000, 50_000];
+
+/// World size large enough that only ~12% of buildings fall within the mason's
+/// 6400px search radius, proving O(buildings_in_radius) at each scale.
+const MASON_WORLD_SIZE: f32 = 32768.0;
+const MASON_POS: Vec2 = Vec2::new(16384.0, 16384.0);
+
+/// Set up bench app with 1 Mason NPC and `building_count` buildings spread across a 32768px world.
+/// The mason is at the world center; buildings are spread evenly across the full map.
+/// Only ~12% of buildings fall within MASON_SEARCH_RADIUS (6400px).
+fn populate_mason_scale_bench(app: &mut App, building_count: usize) {
+    // World grid (512 x 512 cells at 64px spacing = 32768px world)
+    {
+        let mut grid = app.world_mut().resource_mut::<world::WorldGrid>();
+        grid.width = 512;
+        grid.height = 512;
+        grid.cell_size = TOWN_GRID_SPACING;
+        grid.cells = vec![world::WorldCell::default(); 512 * 512];
+    }
+    {
+        let mut wd = app.world_mut().resource_mut::<world::WorldData>();
+        wd.towns.push(world::Town {
+            name: "BenchTown".into(),
+            center: MASON_POS,
+            faction: 1,
+            kind: TownKind::Player,
+        });
+    }
+    {
+        let mut fl = app.world_mut().resource_mut::<FactionList>();
+        fl.factions.push(FactionData {
+            kind: FactionKind::Neutral,
+            name: "Neutral".into(),
+            towns: vec![],
+        });
+        fl.factions.push(FactionData {
+            kind: FactionKind::Player,
+            name: "Player".into(),
+            towns: vec![0],
+        });
+    }
+
+    // Init spatial grid over the full world
+    app.world_mut()
+        .resource_mut::<EntityMap>()
+        .init_spatial(MASON_WORLD_SIZE);
+
+    // Force all NPCs to process every tick (disable adaptive bucketing)
+    {
+        let mut cfg = app.world_mut().resource_mut::<NpcDecisionConfig>();
+        cfg.interval = 0.0;
+        cfg.max_decisions_per_frame = 1_000_000;
+    }
+
+    // Allocate GPU slot for the mason
+    const MASON_SLOT: usize = 0;
+    let _ = app.world_mut().resource_mut::<GpuSlotPool>().alloc_reset(); // consumes slot 0
+
+    // Spawn the mason NPC at world center
+    let mason_entity = app
+        .world_mut()
+        .spawn((
+            (
+                GpuSlot(MASON_SLOT),
+                Position {
+                    x: MASON_POS.x,
+                    y: MASON_POS.y,
+                },
+                Health(80.0),
+                Job::Mason,
+                Faction(1),
+                TownId(0),
+                Activity {
+                    kind: ActivityKind::Idle,
+                    phase: ActivityPhase::Ready,
+                    target: ActivityTarget::None,
+                    ..Default::default()
+                },
+                CombatState::default(),
+                Energy(100.0),
+                Speed(60.0),
+                Home(MASON_POS),
+                NpcFlags {
+                    at_destination: true,
+                    ..Default::default()
+                },
+            ),
+            (
+                CachedStats {
+                    damage: 10.0,
+                    range: 40.0,
+                    cooldown: 1.0,
+                    projectile_speed: 0.0,
+                    projectile_lifetime: 0.0,
+                    max_health: 100.0,
+                    speed: 60.0,
+                    stamina: 1.0,
+                    hp_regen: 0.0,
+                    berserk_bonus: 0.0,
+                },
+                BaseAttackType::Melee,
+                AttackTimer(0.0),
+                NpcWorkState::default(),
+                PatrolRoute {
+                    posts: vec![],
+                    current: 0,
+                },
+                CarriedLoot {
+                    food: 0,
+                    gold: 0,
+                    wood: 0,
+                    stone: 0,
+                    equipment: vec![],
+                },
+                Personality::default(),
+                FleeThreshold { pct: 0.2 },
+                LeashRange(400.0),
+                WoundedThreshold { pct: 0.3 },
+                HasEnergy,
+                NpcEquipment::default(),
+                SquadId(0),
+                NpcPath::default(),
+            ),
+        ))
+        .id();
+
+    // Register mason in EntityMap and populate GPU readback state
+    {
+        let mut em = app.world_mut().resource_mut::<EntityMap>();
+        em.register_npc(MASON_SLOT, mason_entity, Job::Mason, 1, 0);
+    }
+    {
+        let mut gpu_read = app.world_mut().resource_mut::<GpuReadState>();
+        gpu_read.positions.resize(2, 0.0);
+        gpu_read.combat_targets.resize(1, -1);
+        gpu_read.health.resize(1, 1.0);
+        gpu_read.factions.resize(1, 1);
+        gpu_read.threat_counts.resize(1, 0);
+        gpu_read.npc_count = 1;
+        gpu_read.positions[MASON_SLOT * 2] = MASON_POS.x;
+        gpu_read.positions[MASON_SLOT * 2 + 1] = MASON_POS.y;
+    }
+    {
+        let mut gpu_state = app.world_mut().resource_mut::<EntityGpuState>();
+        gpu_state.positions.resize(2, 0.0);
+        gpu_state.factions.resize(1, 1);
+        gpu_state.healths.resize(1, 1.0);
+        gpu_state.max_healths.resize(1, 100.0);
+        gpu_state.speeds.resize(1, 60.0);
+        gpu_state.positions[MASON_SLOT * 2] = MASON_POS.x;
+        gpu_state.positions[MASON_SLOT * 2 + 1] = MASON_POS.y;
+    }
+
+    // Spawn buildings spread evenly across the full world map.
+    // Buildings within MASON_SEARCH_RADIUS of the mason are damaged so the
+    // spatial scan has work to do; the rest are at full HP (spatial cells outside
+    // the radius are never visited under the new for_each_nearby path).
+    let cols = (building_count as f32).sqrt().ceil() as usize;
+    let rows = (building_count + cols - 1) / cols;
+    let cell_w = MASON_WORLD_SIZE / cols as f32;
+    let cell_h = MASON_WORLD_SIZE / rows as f32;
+
+    let base_slot = 1_000usize;
+    let mut building_entities: Vec<(Entity, usize, f32, f32)> = Vec::with_capacity(building_count);
+
+    for i in 0..building_count {
+        let col = i % cols;
+        let row = i / cols;
+        let x = (col as f32 + 0.5) * cell_w;
+        let y = (row as f32 + 0.5) * cell_h;
+        let slot = base_slot + i;
+
+        // Damage buildings that are within search radius so the mason finds repair targets
+        let dist_sq = (x - MASON_POS.x).powi(2) + (y - MASON_POS.y).powi(2);
+        let hp = if dist_sq < MASON_SEARCH_RADIUS * MASON_SEARCH_RADIUS {
+            50.0
+        } else {
+            100.0
+        };
+        let entity = app
+            .world_mut()
+            .spawn((
+                Building {
+                    kind: world::BuildingKind::Farm,
+                },
+                Health(hp),
+                GpuSlot(slot),
+            ))
+            .id();
+        building_entities.push((entity, slot, x, y));
+    }
+
+    {
+        let mut em = app.world_mut().resource_mut::<EntityMap>();
+        for (entity, slot, x, y) in &building_entities {
+            em.set_entity(*slot, *entity);
+            em.add_instance(endless::entity_map::BuildingInstance {
+                kind: world::BuildingKind::Farm,
+                position: Vec2::new(*x, *y),
+                town_idx: 0,
+                slot: *slot,
+                faction: 1,
+            });
+        }
+    }
+}
+
+/// Benchmark mason decision at 1K / 10K / 50K buildings.
+/// Measures O(buildings_in_radius) spatial query cost vs the prior O(all_buildings) scan.
+/// At 50K buildings spread across a 32768px world, ~12% fall within the 6400px search
+/// radius, giving a ~8x improvement over the old iter_instances scan.
+fn bench_mason_decision_building_scale(c: &mut Criterion) {
+    let mut group = c.benchmark_group("mason_decision_building_scale");
+    group.sample_size(20);
+
+    for &count in MASON_BUILDING_COUNTS {
+        group.bench_with_input(BenchmarkId::from_parameter(count), &count, |b, &count| {
+            let mut app = build_bench_app();
+            spawn_bench_town(&mut app);
+            populate_mason_scale_bench(&mut app, count);
+            // Warmup: let the decision system run once to stabilize state
+            let _ = app.world_mut().run_system_once(decision_system);
+            b.iter(|| {
+                let _ = app.world_mut().run_system_once(decision_system);
+            });
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_decision_system,
@@ -2003,6 +2236,7 @@ criterion_group!(
     bench_build_building_body_instances,
     bench_resolve_work_targets,
     bench_ai_road_scoring,
+    bench_mason_decision_building_scale,
 );
 criterion_main!(benches);
 
@@ -2446,7 +2680,11 @@ fn bench_ai_road_scoring(c: &mut Criterion) {
                             let col = cc as i32 + dc;
                             let row = cr as i32 + dr;
                             if col >= 0 && row >= 0 {
-                                grid.add_town_buildable(col as usize, row as usize, town_idx as u16);
+                                grid.add_town_buildable(
+                                    col as usize,
+                                    row as usize,
+                                    town_idx as u16,
+                                );
                             }
                         }
                     }
@@ -2458,10 +2696,17 @@ fn bench_ai_road_scoring(c: &mut Criterion) {
                 for &(center, town_idx) in &town_centers {
                     let faction = (town_idx + 1) as i32;
                     for k in 0..8usize {
-                        let Some(slot) = pool.alloc_reset() else { break };
+                        let Some(slot) = pool.alloc_reset() else {
+                            break;
+                        };
                         let dx = (k % 4) as f32 * TOWN_GRID_SPACING - TOWN_GRID_SPACING * 1.5;
                         let dy = (k / 4) as f32 * TOWN_GRID_SPACING - TOWN_GRID_SPACING * 0.5;
-                        instances.push((slot, Vec2::new(center.x + dx, center.y + dy), town_idx as u32, faction));
+                        instances.push((
+                            slot,
+                            Vec2::new(center.x + dx, center.y + dy),
+                            town_idx as u32,
+                            faction,
+                        ));
                     }
                 }
                 instances
@@ -2469,7 +2714,11 @@ fn bench_ai_road_scoring(c: &mut Criterion) {
             let mut em = world.resource_mut::<EntityMap>();
             for (slot, pos, town_idx, faction) in farm_instances {
                 em.add_instance(endless::entity_map::BuildingInstance {
-                    kind: world::BuildingKind::Farm, position: pos, town_idx, slot, faction,
+                    kind: world::BuildingKind::Farm,
+                    position: pos,
+                    town_idx,
+                    slot,
+                    faction,
                 });
             }
         }
@@ -2478,7 +2727,11 @@ fn bench_ai_road_scoring(c: &mut Criterion) {
             let mut ai_state = world.resource_mut::<AiPlayerState>();
             for (i, p) in ai_state.players.iter_mut().enumerate() {
                 p.road_style = RoadStyle::Grid4;
-                p.decision_timer = if i == 0 { DEFAULT_AI_INTERVAL } else { i as f32 * DEFAULT_AI_INTERVAL / AI_TOWN_COUNT as f32 };
+                p.decision_timer = if i == 0 {
+                    DEFAULT_AI_INTERVAL
+                } else {
+                    i as f32 * DEFAULT_AI_INTERVAL / AI_TOWN_COUNT as f32
+                };
             }
         }
         let _ = app.world_mut().run_system_once(ai_decision_system);
@@ -2487,7 +2740,11 @@ fn bench_ai_road_scoring(c: &mut Criterion) {
                 let world = app.world_mut();
                 let mut ai_state = world.resource_mut::<AiPlayerState>();
                 for (i, p) in ai_state.players.iter_mut().enumerate() {
-                    p.decision_timer = if i == 0 { DEFAULT_AI_INTERVAL } else { i as f32 * DEFAULT_AI_INTERVAL / AI_TOWN_COUNT as f32 };
+                    p.decision_timer = if i == 0 {
+                        DEFAULT_AI_INTERVAL
+                    } else {
+                        i as f32 * DEFAULT_AI_INTERVAL / AI_TOWN_COUNT as f32
+                    };
                 }
             }
             let _ = app.world_mut().run_system_once(ai_decision_system);
