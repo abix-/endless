@@ -460,12 +460,13 @@ Compact record of performance fixes applied. Each entry preserves the root cause
 
 | Buildings | full_rebuild (before) | incremental (after) | Speedup |
 |-----------|----------------------|-----------------------|---------|
-| 100 | 13.8us | 1.3us | 10.6x |
-| 500 | 29.3us | 1.2us | 24.4x |
-| 1000 | 56.2us | 1.7us | 33.1x |
-| 5000 | 390.1us | 2.1us | 185.8x |
+| 100 | 5.7us | 1.1us | 5.2x |
+| 500 | 49.3us | 2.2us | 22.4x |
+| 1000 | 115.8us | 2.0us | 57.9x |
+| 5000 | 357.5us | 1.1us | 325x |
+| 50000 | 5568us | 1.1us | 5062x |
 
-Incremental cost is O(1) (~1-2us) regardless of building count. Full rebuild scales O(n).
+Incremental cost is O(1) (~1.1us) regardless of building count. Full rebuild scales O(n): 5.6ms at 50K buildings.
 
 **Pattern**: Event-driven incremental maintenance -- when the authoritative index is already updated inline on add/remove, dirty-message handlers should only reconcile first-time initialization or true bulk rebuild cases, not blindly rescan the entire collection every tick.
 

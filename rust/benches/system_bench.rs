@@ -669,7 +669,7 @@ fn bench_building_tower_system(c: &mut Criterion) {
 fn bench_rebuild_building_grid_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("rebuild_building_grid");
     group.sample_size(10);
-    const BUILDING_COUNTS: &[usize] = &[100, 500, 1_000, 5_000];
+    const BUILDING_COUNTS: &[usize] = &[100, 500, 1_000, 5_000, 50_000];
 
     for &count in BUILDING_COUNTS {
         group.bench_with_input(
