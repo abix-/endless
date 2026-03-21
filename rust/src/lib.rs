@@ -403,6 +403,7 @@ pub fn build_app(app: &mut App) {
         .init_resource::<MiningPolicy>()
         .init_resource::<save::SaveLoadRequest>()
         .init_resource::<save::SaveToast>()
+        .init_resource::<save::AutosaveTask>()
         .init_resource::<GameAudio>()
         .init_resource::<NextLootItemId>()
         .init_resource::<MerchantInventory>()
@@ -730,6 +731,12 @@ pub fn build_app(app: &mut App) {
             Update,
             save::autosave_system
                 .after(save::save_game_system)
+                .run_if(in_state(AppState::Playing)),
+        )
+        .add_systems(
+            Update,
+            save::autosave_poll_system
+                .after(save::autosave_system)
                 .run_if(in_state(AppState::Playing)),
         )
         .add_systems(
