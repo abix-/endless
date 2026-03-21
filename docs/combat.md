@@ -228,9 +228,9 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 - sample_target_idx, sample_dist, sample_timer
 - in_range_count, timer_ready_count
 
-`HealthDebug` (Bevy Resource) updated by damage/death/healing systems:
+`HealthDebug` (Bevy Resource) updated by damage/death/healing systems (`systems/health/mod.rs`):
 - damage_processed, deaths_this_frame, despawned_this_frame, bevy_entity_count
-- healing_npcs_checked, healing_in_zone_count, healing_healed_count
+- healing_npcs_checked, healing_positions_len, healing_towns_count, healing_in_zone_count, healing_healed_count, healing_active_count, healing_enter_checks, healing_exits
 
 ## Known Issues / Limitations
 

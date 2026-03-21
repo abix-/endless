@@ -21,7 +21,7 @@ game_time_system (every frame)
     │   └─ Each raider town gains RAIDER_FORAGE_RATE food
     │
     ├─ spawner_respawn_system (hourly)
-    │   └─ Detects dead NPCs linked to FarmerHome/ArcherHome/FighterHome/Tent/MinerHome, counts down 12h timer, spawns replacement
+    │   └─ Detects dead NPCs linked to FarmerHome/ArcherHome/FighterHome/Tent/MinerHome/MasonHome, counts down 12h timer, spawns replacement
     │
     ├─ starvation_system (hourly)
     │   └─ NPCs with zero energy → Starving marker
@@ -89,7 +89,7 @@ game_time_system (every frame)
 - Timer decrements 1.0 per game hour; on expiry: allocates slot via `SlotAllocator`, emits `SpawnNpcMsg`, logs to `CombatLog`
 - All spawner buildings (world gen and player-built) start with `SpawnerState { npc_slot: None, respawn_timer: 0.0 }` — the system spawns the first NPC on the next hourly tick. No separate initial spawn function.
 - Tombstoned entries (position.x < -9000) are skipped (building was destroyed)
-- Spawn mapping resolved by `world::resolve_spawner_npc()` (single source of truth, takes `&BuildingInstance`): FarmerHome → Farmer (nearest farm via `find_nearest_free` with kind-filtered spatial search as hint, no claim at spawn — farmer self-claims via behavior system), ArcherHome → Archer (nearest waypoint via `find_location_within_radius`), FighterHome → Fighter (nearest waypoint via `find_location_within_radius`), Tent → Raider (home = tent position), MinerHome → Miner (assigned mine from `MinerHomeConfig.assigned_mine` if set, otherwise nearest gold mine via `find_nearest_free`). All types look up faction from `world_data.towns[town_idx].faction`. Note: spawner_respawn_system does **not** pre-claim work slots — farmers self-claim via `find_farmer_farm_target()` in decision_system.
+- Spawn mapping resolved by `world::resolve_spawner_npc()` (single source of truth, takes `&BuildingInstance`): FarmerHome → Farmer (nearest farm via `find_nearest_free` with kind-filtered spatial search as hint, no claim at spawn — farmer self-claims via behavior system), ArcherHome → Archer (nearest waypoint via `find_location_within_radius`), FighterHome → Fighter (nearest waypoint via `find_location_within_radius`), Tent → Raider (home = tent position), MinerHome → Miner (assigned mine from `MinerHomeConfig.assigned_mine` if set, otherwise nearest gold mine via `find_nearest_free`), MasonHome → Mason (home = mason home position, no initial worksite — mason self-selects damaged buildings via decision_system). All types look up faction from `world_data.towns[town_idx].faction`. Note: spawner_respawn_system does **not** pre-claim work slots — farmers self-claim via `find_farmer_farm_target()` in decision_system.
 
 ### starvation_system
 - Query-first: `(&GpuSlot, &Energy, &CachedStats, &mut NpcFlags, &mut Health)` with `Without<Building>, Without<Dead>` — no `EntityMap` dependency

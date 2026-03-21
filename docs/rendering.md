@@ -5,7 +5,7 @@
 **Terrain** uses Bevy's built-in `TilemapChunk` (single layer, `AlphaMode2d::Opaque`, z=-1). **Everything else** — buildings, NPCs, equipment, farms, building HP bars, projectiles — uses a custom GPU pipeline via Bevy's RenderCommand pattern in the Transparent2d phase. Explicit sort keys guarantee deterministic layer ordering (`CompareFunction::Always`, no depth testing between passes). Two render paths share one pipeline with a `StorageDrawMode` specialization key:
 
 - **Storage buffer path** (NPCs + selection brackets): `vertex_npc` shader entry point reads positions/health directly from compute shader's `NpcGpuBuffers` storage buffers (bind group 2). Visual/equipment data uploaded from CPU as flat storage buffers (`NpcVisualBuffers`). Three specialized variants via `#ifdef` shader defs: `MODE_NPC_BODY` (layer 0, non-building only), `MODE_NPC_OVERLAY` (layers 1-7, non-building only), `MODE_SELECTION_BRACKET` (procedural corner brackets from per-instance style data).
-- **Instance buffer path** (buildings, building overlays, projectiles): `vertex` shader entry point reads from classic per-instance `InstanceData` vertex attributes (slot 1). Building bodies use `BuildingBodyInstances` built each frame from `EntityGpuState` via `EntityMap.iter_instances()`.
+- **Instance buffer path** (buildings, building overlays, projectiles): `vertex` shader entry point reads from classic per-instance `InstanceData` vertex attributes (slot 1). Building bodies use `BuildingBodyInstances` built by `build_building_body_instances` (PostUpdate) only when `BuildingBodyDirty` is set — skips the O(68K) rebuild when nothing has changed (placement, removal, HP change, or damage flash).
 
 Four textures bound simultaneously (group 0, bindings 0-7) — `atlas_id` selects which to sample (0=character, 1=world, 2=heal/3=sleep/4=arrow/8=boat via extras atlas, 7=building). Bar-only modes: 5=building HP bar (green/yellow/red), 6=mining progress bar (gold). Procedural mode: 9=selection brackets (no texture sampling, corner brackets from quad_uv). Atlas ID constants defined in `constants.rs` (`ATLAS_CHAR` through `ATLAS_BOAT`).
 
@@ -380,7 +380,7 @@ type DrawNpcOverlayCommands = (..., DrawStoragePass<false>);   // + MODE_NPC_OVE
 ```rust
 type DrawBuildingBodyCommands = (..., DrawBuildingBody);
 ```
-`DrawBuildingBody::render()` reads `BuildingBodyRenderBuffers` — a `RawBufferVec<InstanceData>` built each frame from `EntityGpuState` (positions, factions, health, sprite indices, flash) by `build_building_body_instances` (PostUpdate). Building slots are obtained by iterating `EntityMap.iter_instances()` and indexing into the unified `EntityGpuState` arrays.
+`DrawBuildingBody::render()` reads `BuildingBodyRenderBuffers` — a `RawBufferVec<InstanceData>` built by `build_building_body_instances` (PostUpdate) only when `BuildingBodyDirty` is set (skips O(68K) rebuild when nothing changed). Reads position and faction from `BuildingInstance` (compact `DenseSlotMap`, cache-friendly) rather than the scattered 200K-element `EntityGpuState` arrays. Only sprite indices and flash values are read from `EntityGpuState`. Pre-builds `under_construction_by_slot` via `Query<(&GpuSlot, &ConstructionProgress)>` (O(under_construction), not O(all_buildings)).
 
 The shader derives `slot` and `layer` from `instance_index`. Compile-time `#ifdef` gating discards unwanted slots per pass (buildings vs non-buildings). Hidden NPCs (`pos.x < -9000`) and empty equipment slots (`col < 0`) are culled by moving clip_position off-screen.
 
