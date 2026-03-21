@@ -1004,17 +1004,17 @@ mod tests {
     }
 
     #[test]
-    fn terrain_costs_strongly_bias_against_rock_and_water() {
+    fn terrain_costs_water_impassable_rock_high_cost() {
         use crate::world::terrain_base_cost;
         assert_eq!(terrain_base_cost(Biome::Grass), 100);
         assert_eq!(terrain_base_cost(Biome::Dirt), 100);
         assert_eq!(terrain_base_cost(Biome::Forest), 143);
         assert_eq!(terrain_base_cost(Biome::Rock), 2500);
-        assert_eq!(terrain_base_cost(Biome::Water), 5000);
+        assert_eq!(terrain_base_cost(Biome::Water), 0); // impassable
     }
 
     #[test]
-    fn astar_prefers_grass_detour_over_water_or_rock() {
+    fn astar_routes_around_impassable_water_and_costly_rock() {
         let mut grid = make_grid(5, 2);
         grid.cells[2].terrain = Biome::Water;
         grid.cells[3].terrain = Biome::Rock;

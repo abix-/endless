@@ -1125,16 +1125,17 @@ impl WorldGrid {
 }
 
 /// Terrain base cost for CPU pathfinding.
-/// Higher cost = less desirable route. 0 = truly impassable (walls only).
-/// Water/Rock stay passable so NPCs can escape bad positions, but their route
-/// cost is intentionally inflated well above movement-speed differences so A*
-/// strongly avoids them.
+/// Higher cost = less desirable route. 0 = impassable (walls and water).
+/// Water is fully impassable -- A* never generates paths through it.
+/// Exception: if an NPC's current position is a water tile, A* can still
+/// move FROM that tile (start cost is not checked), allowing escape to land.
+/// Rock is passable but expensive (2500) -- still a valid waypoint.
 pub(crate) fn terrain_base_cost(biome: Biome) -> u16 {
     match biome {
         Biome::Grass | Biome::Dirt | Biome::Desert => 100,
         Biome::Forest | Biome::Jungle | Biome::Tundra => 143,
         Biome::Rock => 2500,
-        Biome::Water => 5000,
+        Biome::Water => 0,
     }
 }
 
