@@ -196,6 +196,15 @@ pub(super) fn count_road_candidates(
     .flat_map(|&kind| entity_map.iter_kind_for_town(kind, ti))
     .map(|b| grid.world_to_grid(b.position))
     .collect();
+    // Precompute expanded adjacency set: each econ slot expanded by radius 2.
+    // Converts O(grid_cells * econ_buildings) adjacency check to O(1) per cell.
+    let econ_adj: HashSet<(i32, i32)> = econ_slots
+        .iter()
+        .flat_map(|&(ec, er)| {
+            (-2i32..=2)
+                .flat_map(move |dc| (-2i32..=2).map(move |dr| (ec as i32 + dc, er as i32 + dr)))
+        })
+        .collect();
     let (min_c, max_c, min_r, max_r) = world::build_bounds(area_level, center, grid);
     // Cardinal: extend axes to 2x build radius for attack corridors
     let (ext_min_c, ext_max_c, ext_min_r, ext_max_r) = if road_style == RoadStyle::Cardinal {
@@ -223,9 +232,7 @@ pub(super) fn count_road_candidates(
                 continue;
             }
             let in_bounds = col >= min_c && col <= max_c && row >= min_r && row <= max_r;
-            let adj = econ_slots.iter().any(|&(ec, er)| {
-                (ec as i32 - col as i32).abs() <= 2 && (er as i32 - row as i32).abs() <= 2
-            });
+            let adj = econ_adj.contains(&(col as i32, row as i32));
             if adj || !in_bounds {
                 count += 1;
             }
@@ -268,6 +275,18 @@ pub(super) fn try_build_road_grid(
     .map(|b| grid.world_to_grid(b.position))
     .collect();
 
+    // Precompute adjacency counts: each econ slot votes for its radius-2 neighbors.
+    // Converts O(grid_cells * econ_buildings) to O(econ_buildings * 25 + grid_cells).
+    let mut econ_adj_counts: HashMap<(i32, i32), i32> = HashMap::new();
+    for &(ec, er) in &econ_slots {
+        for dc in -2i32..=2 {
+            for dr in -2i32..=2 {
+                *econ_adj_counts
+                    .entry((ec as i32 + dc, er as i32 + dr))
+                    .or_default() += 1;
+            }
+        }
+    }
     let mut candidates: HashMap<(usize, usize), i32> = HashMap::new();
     let (min_c, max_c, min_r, max_r) =
         world::build_bounds(ctx.area_level, ctx.center, &res.world.grid);
@@ -294,12 +313,10 @@ pub(super) fn try_build_road_grid(
                 continue;
             }
             let in_bounds = col >= min_c && col <= max_c && row >= min_r && row <= max_r;
-            let adj = econ_slots
-                .iter()
-                .filter(|&&(ec, er)| {
-                    (ec as i32 - col as i32).abs() <= 2 && (er as i32 - row as i32).abs() <= 2
-                })
-                .count() as i32;
+            let adj = econ_adj_counts
+                .get(&(col as i32, row as i32))
+                .copied()
+                .unwrap_or(0);
             if adj > 0 {
                 candidates.insert((col, row), adj);
             } else if !in_bounds {
@@ -543,4 +560,178 @@ pub(super) fn log_ai(
         message: format!("{} [{}] {}", town, personality, what),
         location: None,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::prelude::Vec2;
+
+    fn make_grid(size: usize) -> world::WorldGrid {
+        let mut grid = world::WorldGrid::default();
+        grid.width = size;
+        grid.height = size;
+        grid.cell_size = crate::constants::TOWN_GRID_SPACING;
+        grid.cells = vec![world::WorldCell::default(); size * size];
+        grid.init_town_buildable();
+        grid
+    }
+
+    /// count_road_candidates returns 0 when there are no econ buildings.
+    /// Verifies early-return path is not broken by the adjacency precompute.
+    #[test]
+    fn count_road_candidates_zero_with_no_econ_buildings() {
+        let em = EntityMap::default();
+        let grid = make_grid(20);
+        let center = Vec2::new(640.0, 640.0);
+        let count = count_road_candidates(&em, 1, center, &grid, 0, RoadStyle::Grid4);
+        assert_eq!(count, 0);
+    }
+
+    /// count_road_candidates finds road slots adjacent to econ buildings.
+    /// This test would FAIL if the HashSet precompute returned wrong results
+    /// compared to the original iter().any() brute-force check.
+    #[test]
+    fn count_road_candidates_finds_slots_near_farm() {
+        let mut em = EntityMap::default();
+        em.init_spatial(2000.0);
+        let mut grid = make_grid(20);
+        let center = Vec2::new(640.0, 640.0); // cell (10, 10)
+        let ti = 0u32;
+
+        // Mark build-area cells as buildable for town 0
+        for dr in -4i32..=3i32 {
+            for dc in -4i32..=3i32 {
+                let col = 10i32 + dc;
+                let row = 10i32 + dr;
+                if col >= 0 && row >= 0 {
+                    grid.add_town_buildable(col as usize, row as usize, 0u16);
+                }
+            }
+        }
+
+        // Add a farm at cell (8, 10): world pos = (8*64, 10*64) = (512, 640)
+        let mut pool = crate::resources::GpuSlotPool::default();
+        let slot = pool.alloc_reset().unwrap();
+        em.add_instance(crate::entity_map::BuildingInstance {
+            kind: world::BuildingKind::Farm,
+            position: Vec2::new(512.0, 640.0),
+            town_idx: ti,
+            slot,
+            faction: 1,
+        });
+
+        let count = count_road_candidates(&em, 1, center, &grid, ti, RoadStyle::Grid4);
+        assert!(count > 0, "expected road candidates near farm; got {count}");
+    }
+
+    /// count_road_candidates result matches a brute-force reference impl.
+    /// If the HashSet precompute changes which cells count, this catches it.
+    #[test]
+    fn count_road_candidates_matches_brute_force() {
+        let mut em = EntityMap::default();
+        em.init_spatial(2000.0);
+        let mut grid = make_grid(20);
+        let center = Vec2::new(640.0, 640.0);
+        let ti = 0u32;
+
+        for dr in -4i32..=3i32 {
+            for dc in -4i32..=3i32 {
+                let col = 10i32 + dc;
+                let row = 10i32 + dr;
+                if col >= 0 && row >= 0 {
+                    grid.add_town_buildable(col as usize, row as usize, 0u16);
+                }
+            }
+        }
+
+        let mut pool = crate::resources::GpuSlotPool::default();
+        for k in 0..5usize {
+            let slot = pool.alloc_reset().unwrap();
+            let x = (8 + k) as f32 * crate::constants::TOWN_GRID_SPACING;
+            let y = 10.0 * crate::constants::TOWN_GRID_SPACING;
+            em.add_instance(crate::entity_map::BuildingInstance {
+                kind: world::BuildingKind::Farm,
+                position: Vec2::new(x, y),
+                town_idx: ti,
+                slot,
+                faction: 1,
+            });
+        }
+
+        let count_new = count_road_candidates(&em, 1, center, &grid, ti, RoadStyle::Grid4);
+        // Brute-force reference: same logic without the precompute optimization
+        let count_ref =
+            count_road_candidates_brute_force(&em, 1, center, &grid, ti, RoadStyle::Grid4);
+        assert_eq!(
+            count_new, count_ref,
+            "optimized count {count_new} != brute-force {count_ref}"
+        );
+    }
+
+    /// Reference implementation of count_road_candidates using the original
+    /// O(cells * econ_buildings) adjacency check. Used to validate the O(1) precompute.
+    fn count_road_candidates_brute_force(
+        entity_map: &EntityMap,
+        area_level: i32,
+        center: Vec2,
+        grid: &world::WorldGrid,
+        ti: u32,
+        road_style: RoadStyle,
+    ) -> usize {
+        let (cc, cr) = grid.world_to_grid(center);
+        let econ_slots: Vec<(usize, usize)> = entity_map
+            .iter_kind_for_town(BuildingKind::Farm, ti)
+            .chain(entity_map.iter_kind_for_town(BuildingKind::FarmerHome, ti))
+            .chain(entity_map.iter_kind_for_town(BuildingKind::MinerHome, ti))
+            .map(|b| grid.world_to_grid(b.position))
+            .collect();
+        if econ_slots.is_empty() {
+            return 0;
+        }
+        let road_slots: HashSet<(usize, usize)> = [
+            BuildingKind::Road,
+            BuildingKind::StoneRoad,
+            BuildingKind::MetalRoad,
+        ]
+        .iter()
+        .flat_map(|&kind| entity_map.iter_kind_for_town(kind, ti))
+        .map(|b| grid.world_to_grid(b.position))
+        .collect();
+        let (min_c, max_c, min_r, max_r) = world::build_bounds(area_level, center, grid);
+        let (ext_min_c, ext_max_c, ext_min_r, ext_max_r) = if road_style == RoadStyle::Cardinal {
+            let half_c = cc - min_c;
+            let half_r = cr - min_r;
+            (
+                cc.saturating_sub(half_c * 2),
+                max_c + half_c,
+                cr.saturating_sub(half_r * 2),
+                max_r + half_r,
+            )
+        } else {
+            (min_c, max_c, min_r, max_r)
+        };
+        let mut count = 0usize;
+        for row in ext_min_r..=ext_max_r {
+            for col in ext_min_c..=ext_max_c {
+                if !road_style.is_road_slot(col, row, cc, cr) {
+                    continue;
+                }
+                if road_slots.contains(&(col, row)) {
+                    continue;
+                }
+                if entity_map.has_building_at(col as i32, row as i32) {
+                    continue;
+                }
+                let in_bounds = col >= min_c && col <= max_c && row >= min_r && row <= max_r;
+                let adj = econ_slots.iter().any(|&(ec, er)| {
+                    (ec as i32 - col as i32).abs() <= 2 && (er as i32 - row as i32).abs() <= 2
+                });
+                if adj || !in_bounds {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
 }
