@@ -1893,46 +1893,6 @@ fn populate_pathfind_buildings(app: &mut App, count: usize) {
     }
 }
 
-/// Benchmark `rebuild_building_grid_system` -- the spatial grid full rebuild.
-/// Fires on every BuildingGridDirtyMsg (building placed, destroyed, or loaded).
-/// Tests `entity_map.init_spatial() + rebuild_spatial()` cost at realistic building counts.
-fn bench_rebuild_building_grid_system(c: &mut Criterion) {
-    let mut group = c.benchmark_group("rebuild_building_grid");
-    group.sample_size(20);
-    const BUILDING_COUNTS: &[usize] = &[500, 2_000, 5_000];
-    for &bcount in BUILDING_COUNTS {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(bcount),
-            &bcount,
-            |b, &bcount| {
-                let mut app = build_bench_app();
-                spawn_bench_town(&mut app);
-                populate_pathfind_buildings(&mut app, bcount);
-                // Warmup
-                let _ = app.world_mut().run_system_once(
-                    |mut writer: MessageWriter<BuildingGridDirtyMsg>| {
-                        writer.write(BuildingGridDirtyMsg);
-                    },
-                );
-                let _ = app
-                    .world_mut()
-                    .run_system_once(world::rebuild_building_grid_system);
-                b.iter(|| {
-                    let _ = app.world_mut().run_system_once(
-                        |mut writer: MessageWriter<BuildingGridDirtyMsg>| {
-                            writer.write(BuildingGridDirtyMsg);
-                        },
-                    );
-                    let _ = app
-                        .world_mut()
-                        .run_system_once(world::rebuild_building_grid_system);
-                });
-            },
-        );
-    }
-    group.finish();
-}
-
 /// Benchmark `sync_pathfind_costs_system` — HPA* incremental chunk rebuild.
 /// Fires on every BuildingGridDirtyMsg. Tests `grid.sync_building_costs()` + HPA*
 /// `rebuild_chunks()` cost for wall/tower buildings spread across the grid.
@@ -2331,7 +2291,6 @@ criterion_group!(
     bench_process_proj_hits,
     bench_prune_town_equipment,
     bench_ai_decision_system,
-    bench_rebuild_building_grid_system,
     bench_sync_pathfind_costs_system,
     bench_farm_visual_system,
     bench_sync_sleeping_system,
