@@ -17,39 +17,22 @@ See [completed.md](completed.md) for the player-facing feature snapshot and [his
 
 ## Stages
 
-Stages 1-16, 18-19, 23, 32: [x] Complete (see [history.md](history.md))
+Stages 1-20, 23, 32: [x] Complete (see [history.md](history.md))
 
 **Current Sprint (priority order):**
 1. Stage 26 resources -- finish woodcutter/quarrier harvest cycle, mixed building costs, iron
 
-**Stage 17: Combat Depth**
+**Stage 17: Combat Depth** — [x] Complete (see [history.md](history.md), [behavior.md](behavior.md))
 
-*Done when: two archers with different traits fight the same raider noticeably differently - one flees early, the other berserks at low HP.*
-
-Traits, personalities, squad behaviors, and target oscillation fix complete. See [history.md](history.md) and [behavior.md](behavior.md).
-
-Remaining:
-- [ ] Target switching (prefer non-fleeing enemies, prioritize low-HP targets)
-- [ ] Terrain combat modifiers — biome at target's position affects incoming damage:
-  - Forest cover: 25% miss chance on projectile hits (roll in `process_proj_hits` or `damage_system` using target position → `WorldGrid` cell → `Biome::Forest`)
-  - Rock high ground: +20% attack range for NPCs standing on Rock tiles (apply as runtime multiplier in GPU targeting `combat_range` check, or adjust `CachedStats.range` dynamically)
-  - Grass/Dirt/Water: no combat modifier
-  - Implementation: target position already known from `EntityMap`; convert to grid coords, read `WorldCell.terrain` — no new components needed
+Traits, personalities, squad behaviors, target oscillation fix, target switching (prefer non-fleeing, prioritize low-HP), and terrain combat modifiers (forest cover 25% miss, rock high ground +20% range) all complete.
 
 **Stage 18: Loot & Equipment** — [x] Complete (see [history.md](history.md), [combat.md](combat.md), [armory-ui.md](armory-ui.md))
 
 **Stage 19: Code Health** — [x] Complete (see [history.md](history.md))
 
-**Stage 20: Pathfinding**
+**Stage 20: Pathfinding** — [x] Complete (see [history.md](history.md))
 
-*Done when: NPCs navigate around obstacles using A\* or flow fields instead of pure boids steering. Raiders path around walls to find openings. Placing a building that would fully block access is rejected.*
-
-A* pathfinding, terrain costs, NPC integration, and incremental rebuild complete. See [history.md](history.md).
-
-Remaining:
-- [ ] Path validation: reject building placements that fully block access to critical locations
-
-Prerequisite for Stage 21 (wall gates) and Stage 25 (tower defense maze).
+A* pathfinding, terrain costs, NPC integration, incremental rebuild, and path validation (reject placements that fully block critical access) all complete.
 
 **Stage 21: Walls & Defenses**
 
