@@ -448,6 +448,16 @@ Compact record of performance fixes applied. Each entry preserves the root cause
 
 **Pattern**: Candidate-Driven — use pre-built type-specific indexes instead of scanning all entities and filtering. 2K spawners: 88ms → 75µs.
 
+### rebuild_building_grid_system redundant full rebuilds — incremental dirty path restored
+
+**Root cause**: `rebuild_building_grid_system` used to call `EntityMap::rebuild_spatial()` on every `BuildingGridDirtyMsg`, even after the spatial grid had already been initialized. That turned each add/remove building event into an O(n_buildings) rebuild even though `EntityMap::add_instance()` and `remove_instance()` already maintain the spatial indexes incrementally via `spatial_insert` / `spatial_remove`.
+
+**Fix**: Add `EntityMap::is_spatial_initialized()` and gate the full rebuild behind first-time initialization only. The system still performs one full rebuild after startup so buildings placed before `init_spatial()` become queryable, but all subsequent dirty messages now take the incremental path and skip the O(n) rebuild.
+
+**Guardrails**: `world::tests::building_added_after_init_findable_without_dirty_message` verifies that a post-init `add_instance()` becomes queryable without requiring another full rebuild. `system_bench` now includes `rebuild_building_grid` benchmarks for `full_rebuild_baseline` vs `incremental_dirty_after_init` so the before/after cost can be recorded in a CI or desktop environment with the repo's Linux deps installed.
+
+**Pattern**: Event-driven incremental maintenance — when the authoritative index is already updated inline on add/remove, dirty-message handlers should only reconcile first-time initialization or true bulk rebuild cases, not blindly rescan the entire collection every tick.
+
 ### HPA* hierarchical pathfinding — 341× faster
 
 **Root cause**: Raw A* searched ~5000 grid cells per request. At 50K NPCs with 10% pathing: 5000 requests × 51µs = 257ms unbounded.

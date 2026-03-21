@@ -302,6 +302,48 @@ fn populate_npcs(app: &mut App, count: usize) {
     }
 }
 
+/// Populate `count` building instances in a regular grid without initializing spatial state.
+/// This matches the pre-first-dirty-message setup that rebuild_building_grid_system reconciles.
+fn populate_building_instances(app: &mut App, count: usize) -> f32 {
+    let world = app.world_mut();
+    let side = (count as f32).sqrt().ceil() as usize;
+    let grid_width = side.max(16) * 4;
+    let world_size_px = grid_width as f32 * 64.0;
+
+    {
+        let mut grid = world.resource_mut::<world::WorldGrid>();
+        grid.width = grid_width;
+        grid.height = grid_width;
+        grid.cell_size = 64.0;
+        grid.cells = vec![world::WorldCell::default(); grid_width * grid_width];
+    }
+
+    let mut building_slots = Vec::with_capacity(count);
+    {
+        let mut pool = world.resource_mut::<GpuSlotPool>();
+        for _ in 0..count {
+            if let Some(slot) = pool.alloc_reset() {
+                building_slots.push(slot);
+            }
+        }
+    }
+
+    let mut em = world.resource_mut::<EntityMap>();
+    for (i, slot) in building_slots.into_iter().enumerate() {
+        let x = 32.0 + (i % side) as f32 * 64.0;
+        let y = 32.0 + (i / side) as f32 * 64.0;
+        em.add_instance(BuildingInstance {
+            kind: world::BuildingKind::Farm,
+            position: Vec2::new(x, y),
+            town_idx: 0,
+            slot,
+            faction: 1,
+        });
+    }
+
+    world_size_px
+}
+
 // ── Benchmarks ─────────────────────────────────────────────────────
 
 fn bench_decision_system(c: &mut Criterion) {
@@ -621,6 +663,65 @@ fn bench_building_tower_system(c: &mut Criterion) {
             },
         );
     }
+    group.finish();
+}
+
+fn bench_rebuild_building_grid_system(c: &mut Criterion) {
+    let mut group = c.benchmark_group("rebuild_building_grid");
+    group.sample_size(10);
+    const BUILDING_COUNTS: &[usize] = &[100, 500, 1_000, 5_000];
+
+    for &count in BUILDING_COUNTS {
+        group.bench_with_input(
+            BenchmarkId::new("full_rebuild_baseline", count),
+            &count,
+            |b, &count| {
+                let mut app = build_bench_app();
+                let world_size_px = populate_building_instances(&mut app, count);
+                {
+                    let mut em = app.world_mut().resource_mut::<EntityMap>();
+                    em.init_spatial(world_size_px);
+                    em.rebuild_spatial();
+                }
+
+                b.iter(|| {
+                    let mut em = app.world_mut().resource_mut::<EntityMap>();
+                    em.init_spatial(world_size_px);
+                    em.rebuild_spatial();
+                });
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("incremental_dirty_after_init", count),
+            &count,
+            |b, &count| {
+                let mut app = build_bench_app();
+                let _world_size_px = populate_building_instances(&mut app, count);
+
+                let _ = app.world_mut().run_system_once(
+                    |mut writer: MessageWriter<BuildingGridDirtyMsg>| {
+                        writer.write(BuildingGridDirtyMsg);
+                    },
+                );
+                let _ = app
+                    .world_mut()
+                    .run_system_once(world::rebuild_building_grid_system);
+
+                b.iter(|| {
+                    let _ = app.world_mut().run_system_once(
+                        |mut writer: MessageWriter<BuildingGridDirtyMsg>| {
+                            writer.write(BuildingGridDirtyMsg);
+                        },
+                    );
+                    let _ = app
+                        .world_mut()
+                        .run_system_once(world::rebuild_building_grid_system);
+                });
+            },
+        );
+    }
+
     group.finish();
 }
 
@@ -2213,6 +2314,7 @@ criterion_group!(
     bench_resolve_movement_system,
     bench_resolve_movement_unbounded,
     bench_building_tower_system,
+    bench_rebuild_building_grid_system,
     bench_death_system,
     bench_spawner_respawn_system,
     bench_populate_gpu_state,
