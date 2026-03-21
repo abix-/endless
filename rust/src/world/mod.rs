@@ -750,6 +750,8 @@ impl WorldGrid {
 
     /// Incrementally sync building overrides (walls/roads). O(walls + roads), not O(map).
     /// HPA* rebuild is scoped to only cells whose cost actually changed (not all building cells).
+    /// Detects both set membership changes (added/removed buildings) AND cost value changes
+    /// (e.g. wall replaced by road at same cell).
     pub fn sync_building_costs(&mut self, entity_map: &crate::resources::EntityMap) {
         // Snapshot old costs at overridden cells so we can diff after rebuild
         let old_costs: Vec<(usize, u16)> = self
@@ -786,8 +788,8 @@ impl WorldGrid {
             );
         }
         // Rebuild HPA* cache only for cells whose cost actually changed (not all building cells).
-        // This avoids redundant chunk rebuilds when BuildingGridDirtyMsg fires but the
-        // affected building doesn't alter pathfind costs (e.g. same buildings, no change).
+        // symmetric_difference misses cost-value changes at the same cell (e.g. wall
+        // replaced by road -- cell stays in set but cost changes 0 -> 67).
         if self.width > 0 {
             // Collect cells that changed: new overrides with different cost, or removed overrides
             let new_set: hashbrown::HashSet<usize> =
