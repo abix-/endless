@@ -1004,28 +1004,82 @@ mod tests {
     }
 
     #[test]
-    fn terrain_costs_strongly_bias_against_rock_and_water() {
+    fn terrain_costs_water_impassable_rock_high_cost() {
         use crate::world::terrain_base_cost;
         assert_eq!(terrain_base_cost(Biome::Grass), 100);
         assert_eq!(terrain_base_cost(Biome::Dirt), 100);
         assert_eq!(terrain_base_cost(Biome::Forest), 143);
         assert_eq!(terrain_base_cost(Biome::Rock), 2500);
-        assert_eq!(terrain_base_cost(Biome::Water), 5000);
+        assert_eq!(terrain_base_cost(Biome::Water), 0); // impassable
     }
 
     #[test]
-    fn astar_prefers_grass_detour_over_water_or_rock() {
+    fn astar_routes_around_impassable_water_and_costly_rock() {
         let mut grid = make_grid(5, 2);
         grid.cells[2].terrain = Biome::Water;
         grid.cells[3].terrain = Biome::Rock;
         grid.init_pathfind_costs();
 
         let path = pathfind_on_grid(&grid, IVec2::new(0, 0), IVec2::new(4, 0), 5000)
-            .expect("should find path around costly terrain");
+            .expect("should find path around water and rock");
 
         assert!(
             path.iter().all(|p| !(p.y == 0 && (p.x == 2 || p.x == 3))),
-            "path should detour around costly water/rock cells: {path:?}"
+            "path should detour around water/rock cells: {path:?}"
+        );
+    }
+
+    #[test]
+    fn water_is_impassable_as_waypoint() {
+        // Path between two land points with a full column of water in between
+        // must route around -- water tiles must never appear in the generated path.
+        let mut grid = make_grid(5, 3);
+        // Block column 2 with water
+        for row in 0..3 {
+            grid.cells[row * 5 + 2].terrain = Biome::Water;
+        }
+        grid.init_pathfind_costs();
+
+        // No path possible -- water blocks all routes (no row exists that avoids col 2)
+        let path = pathfind_on_grid(&grid, IVec2::new(0, 1), IVec2::new(4, 1), 5000);
+        assert!(
+            path.is_none(),
+            "should find no path through solid water column"
+        );
+
+        // With only partial water blocking, path routes around via open cells
+        let mut grid2 = make_grid(5, 3);
+        grid2.cells[1 * 5 + 2].terrain = Biome::Water; // water at (2,1) only
+        grid2.init_pathfind_costs();
+        let path2 = pathfind_on_grid(&grid2, IVec2::new(0, 1), IVec2::new(4, 1), 5000)
+            .expect("should find path around partial water");
+        assert!(
+            path2.iter().all(|p| !(p.x == 2 && p.y == 1)),
+            "path must not cross water tile at (2,1): {path2:?}"
+        );
+    }
+
+    #[test]
+    fn npc_on_water_can_escape_to_land() {
+        // NPC starting on a water tile can still path to adjacent land.
+        // Start cost is not checked by A* -- only neighbor and goal costs are.
+        let mut grid = make_grid(3, 1);
+        grid.cells[0].terrain = Biome::Water; // NPC starts here
+        grid.init_pathfind_costs();
+
+        // Goal is (2,0) -- dry land, reachable via (1,0) which is also dry
+        let path = pathfind_on_grid(&grid, IVec2::new(0, 0), IVec2::new(2, 0), 500)
+            .expect("NPC on water should escape to land");
+        assert_eq!(
+            path.first(),
+            Some(&IVec2::new(0, 0)),
+            "path starts at water tile"
+        );
+        assert_eq!(path.last(), Some(&IVec2::new(2, 0)), "path ends at land");
+        // Water tile must not appear as an intermediate waypoint
+        assert!(
+            path.iter().skip(1).all(|p| *p != IVec2::new(0, 0)),
+            "water tile should not be revisited: {path:?}"
         );
     }
 
