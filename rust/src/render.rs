@@ -1052,7 +1052,9 @@ fn spawn_world_tilemap(
         assert_eq!(
             img.height(),
             crate::world::ATLAS_CELL
-                * (btiles.len() + crate::constants::autotile_total_extra_layers()) as u32,
+                * (btiles.len()
+                    + crate::constants::autotile_total_extra_layers()
+                    + crate::constants::pick_total_extra_layers()) as u32,
             "building atlas height mismatch"
         );
     }

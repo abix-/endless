@@ -275,7 +275,9 @@ pub fn place_building(
     dirty_writers: Option<&mut DirtyWriters>,
 ) -> Result<usize, &'static str> {
     use crate::components::*;
-    use crate::constants::{building_def, tileset_index};
+    use crate::constants::{
+        building_def, pick_variant_atlas_layer, pick_variant_for_pos, tileset_index,
+    };
 
     let def = building_def(kind);
 
@@ -415,13 +417,20 @@ pub fn place_building(
     entity_map.set_entity(slot, entity);
 
     // GPU state
+    // For Pick tile kinds, select a deterministic variant from the world position.
+    let tile_layer = if matches!(def.tile, crate::constants::TileSpec::Pick(_)) {
+        let variant = pick_variant_for_pos(kind, snapped.x, snapped.y);
+        pick_variant_atlas_layer(kind, variant).unwrap_or(tileset_index(kind) as usize) as u16
+    } else {
+        tileset_index(kind)
+    };
     push_building_gpu_updates(
         slot,
         kind,
         snapped,
         faction,
         hp,
-        tileset_index(kind),
+        tile_layer,
         def.is_tower,
         gpu_updates,
     );

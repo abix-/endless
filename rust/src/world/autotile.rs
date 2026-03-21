@@ -224,6 +224,27 @@ fn build_tile_strip(
     for (layer, spec) in tiles.iter().enumerate() {
         let l = layer as u32;
         match *spec {
+            crate::constants::TileSpec::Pick(variants) => {
+                // Bake the first variant as the base layer; extras are appended later.
+                let (col, row) = variants.first().copied().unwrap_or((0, 0));
+                let src_x = col * cell_size;
+                let src_y = row * cell_size;
+                for ty in 0..sprite {
+                    for tx in 0..sprite {
+                        let si = ((src_y + ty) * atlas_width + (src_x + tx)) as usize * 4;
+                        for oy in 0..scale {
+                            for ox in 0..scale {
+                                let di = (l * out_size * out_size
+                                    + (ty * scale + oy) * out_size
+                                    + (tx * scale + ox))
+                                    as usize
+                                    * 4;
+                                data[di..di + 4].copy_from_slice(&atlas_data[si..si + 4]);
+                            }
+                        }
+                    }
+                }
+            }
             crate::constants::TileSpec::Single(col, row) => {
                 // Nearest-neighbor 4x upscale: each 16px src pixel -> 4x4 dst pixels
                 let src_x = col * cell_size;
@@ -439,6 +460,38 @@ pub fn build_building_atlas(
         data.extend_from_slice(&t_270);
 
         extra_count += crate::constants::AUTOTILE_EXTRA_PER_KIND as u32;
+    }
+
+    // Append Pick extra variant layers (variants 1..N-1 for each Pick kind).
+    let atlas_data = atlas.data.as_ref().expect("atlas image has no data");
+    let atlas_width = atlas.width();
+    let cell_size = CELL as u32;
+    let sprite = SPRITE_SIZE as u32;
+    let scale = out_size / sprite;
+    for def in crate::constants::BUILDING_REGISTRY {
+        let crate::constants::TileSpec::Pick(variants) = def.tile else {
+            continue;
+        };
+        // Skip the first variant (already baked as base layer).
+        for &(col, row) in variants.iter().skip(1) {
+            let src_x = col * cell_size;
+            let src_y = row * cell_size;
+            let mut layer_data = vec![0u8; layer_bytes];
+            for ty in 0..sprite {
+                for tx in 0..sprite {
+                    let si = ((src_y + ty) * atlas_width + (src_x + tx)) as usize * 4;
+                    for oy in 0..scale {
+                        for ox in 0..scale {
+                            let di =
+                                ((ty * scale + oy) * out_size + (tx * scale + ox)) as usize * 4;
+                            layer_data[di..di + 4].copy_from_slice(&atlas_data[si..si + 4]);
+                        }
+                    }
+                }
+            }
+            data.extend_from_slice(&layer_data);
+            extra_count += 1;
+        }
     }
 
     let total_layers = base_layers + extra_count;
