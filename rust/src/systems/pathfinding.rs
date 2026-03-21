@@ -196,6 +196,8 @@ pub struct HpaCache {
     nodes: Vec<HpaNode>,
     pos_to_node: HashMap<IVec2, usize>,
     chunk_nodes: HashMap<(usize, usize), Vec<usize>>,
+    #[cfg(test)]
+    pub rebuild_count: usize,
 }
 
 impl HpaCache {
@@ -205,6 +207,8 @@ impl HpaCache {
             nodes: Vec::new(),
             pos_to_node: HashMap::new(),
             chunk_nodes: HashMap::new(),
+            #[cfg(test)]
+            rebuild_count: 0,
         };
 
         let cols = width.div_ceil(HPA_CHUNK_SIZE);
@@ -501,6 +505,10 @@ impl HpaCache {
             .collect();
         if dirty.is_empty() {
             return;
+        }
+        #[cfg(test)]
+        {
+            self.rebuild_count += 1;
         }
         // Expand to neighbor chunks — border entrances are shared between adjacent chunks
         let cols = width.div_ceil(HPA_CHUNK_SIZE);
@@ -1325,8 +1333,7 @@ mod tests {
         assert!(grid.dirty_cost_cells().is_empty(), "no building cells after wall removed");
         assert!(grid.pathfind_costs[wall_idx] > 0, "wall cell passable after removal");
         let rebuild_after_remove = grid.hpa_cache.as_ref().map(|c| c.rebuild_count).unwrap_or(0);
-        assert_eq!(rebuild_after_remove, 2, "rebuild_chunks called once more on wall removal")
-        );
+        assert_eq!(rebuild_after_remove, 2, "rebuild_chunks called once more on wall removal");
     }
 
     #[test]
