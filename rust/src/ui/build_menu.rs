@@ -141,7 +141,33 @@ fn init_sprite_cache(
                         ext_h.clone()
                     }
                 } else {
-                    ext_h.clone()
+                    // Non-autotile external sprite: copy pixel data into a fresh owned image
+                    // with explicit Rgba8UnormSrgb format so egui renders alpha correctly.
+                    // Using the raw asset handle (Weak) can cause black backgrounds when the
+                    // texture format is not explicitly set for egui's rendering pipeline.
+                    if let Some(ext_img) = images.get(ext_h) {
+                        if let Some(raw) = ext_img.data.as_ref() {
+                            let img = Image::new(
+                                bevy::render::render_resource::Extent3d {
+                                    width: ext_img.width(),
+                                    height: ext_img.height(),
+                                    depth_or_array_layers: 1,
+                                },
+                                bevy::render::render_resource::TextureDimension::D2,
+                                raw.to_vec(),
+                                bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+                                bevy::asset::RenderAssetUsages::RENDER_WORLD
+                                    | bevy::asset::RenderAssetUsages::MAIN_WORLD,
+                            );
+                            let h = images.add(img);
+                            cache._handles.push(h.clone());
+                            h
+                        } else {
+                            ext_h.clone()
+                        }
+                    } else {
+                        ext_h.clone()
+                    }
                 }
             }
             TileSpec::Quad(quad) => {
@@ -503,4 +529,42 @@ pub(crate) fn build_menu_system(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    /// Regression test: casino_64x64.png must have a transparent background.
+    /// Fails if the PNG is reverted to an opaque black background.
+    /// Also verifies the PNG is RGBA (color_type=6) so alpha can be represented.
+    #[test]
+    fn casino_sprite_background_is_transparent() {
+        let bytes = include_bytes!("../../assets/sprites/casino_64x64.png");
+        let img = image::load_from_memory(bytes).expect("casino_64x64.png must be a valid PNG");
+        let rgba = img.to_rgba8();
+
+        let (w, h) = rgba.dimensions();
+        assert_eq!(w, 64, "casino sprite must be 64px wide");
+        assert_eq!(h, 64, "casino sprite must be 64px tall");
+
+        // All four corners must be transparent (alpha = 0).
+        // These are background pixels; if the opaque black background is restored they go opaque.
+        for (cx, cy) in [(0u32, 0u32), (63, 0), (0, 63), (63, 63)] {
+            let px = rgba.get_pixel(cx, cy);
+            assert_eq!(
+                px[3], 0,
+                "corner pixel ({cx},{cy}) must be transparent (alpha=0), got alpha={}",
+                px[3]
+            );
+        }
+
+        // Top-center row must be transparent (background above the building art).
+        for x in 20..44 {
+            let px = rgba.get_pixel(x, 0);
+            assert_eq!(
+                px[3], 0,
+                "top-edge pixel ({x},0) must be transparent, got alpha={}",
+                px[3]
+            );
+        }
+    }
 }
