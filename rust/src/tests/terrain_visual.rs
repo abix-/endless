@@ -265,6 +265,7 @@ pub fn tick(
         let tile_idx = grid.cells[idx].terrain.tileset_index(idx);
         let label = match world::TERRAIN_TILES[tile_idx as usize] {
             world::TileSpec::Single(c, r) => format!("({},{})", c, r),
+            world::TileSpec::Pick(v) => format!("pick@({},{})", v[0].0, v[0].1),
             world::TileSpec::Quad(q) => format!("2x2@({},{})", q[0].0, q[0].1),
             world::TileSpec::External(p) => format!("ext:{}", p),
         };
@@ -291,6 +292,7 @@ pub fn tick(
             let btiles = world::building_tiles();
             let label = match btiles[tile_idx as usize] {
                 crate::constants::TileSpec::Single(c, r) => format!("({},{})", c, r),
+                crate::constants::TileSpec::Pick(v) => format!("pick@({},{})", v[0].0, v[0].1),
                 crate::constants::TileSpec::Quad(q) => format!("2x2@({},{})", q[0].0, q[0].1),
                 crate::constants::TileSpec::External(p) => format!("ext:{}", p),
             };

@@ -183,6 +183,16 @@ fn init_sprite_cache(
                 cache._handles.push(h.clone());
                 h
             }
+            TileSpec::Pick(variants) => {
+                // Show the first variant in the build menu (non-buildable in practice,
+                // but handle the match arm for completeness).
+                let (col, row) = variants.first().copied().unwrap_or((0, 0));
+                let img =
+                    extract_quad_tile(&atlas, [(col, row), (col, row), (col, row), (col, row)]);
+                let h = images.add(img);
+                cache._handles.push(h.clone());
+                h
+            }
         };
 
         let tex_id = contexts.add_image(EguiTextureHandle::Weak(handle.id()));

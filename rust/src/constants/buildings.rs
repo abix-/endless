@@ -12,6 +12,9 @@ use crate::world::BuildingKind;
 #[derive(Clone, Copy, Debug)]
 pub enum TileSpec {
     Single(u32, u32),
+    /// Multiple sprite variants at (col, row). First entry is the base atlas layer.
+    /// Extra variants are appended to the atlas after autotile extras.
+    Pick(&'static [(u32, u32)]),
     Quad([(u32, u32); 4]),  // [TL, TR, BL, BR]
     External(&'static str), // asset path, e.g. "sprites/house.png"
 }
@@ -702,7 +705,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
     BuildingDef {
         kind: BuildingKind::TreeNode,
         display: DisplayCategory::Hidden,
-        tile: TileSpec::Single(13, 9),
+        tile: TileSpec::Pick(&[(13, 9), (14, 9), (15, 9), (16, 9), (17, 9)]),
         hp: 1.0,
         cost: 0,
         label: "Tree Node",
@@ -911,4 +914,199 @@ pub fn autotile_col(kind: BuildingKind, variant: u16) -> f32 {
     let order = autotile_order(kind).unwrap_or(0);
     let extra_base = BUILDING_REGISTRY.len() + order * AUTOTILE_EXTRA_PER_KIND;
     (extra_base as u16 + variant - 1) as f32
+}
+
+// ── Pick tile variant helpers ──────────────────────────────────────────────
+
+/// Total extra atlas layers from Pick tile specs (all variants beyond the first).
+pub fn pick_total_extra_layers() -> usize {
+    BUILDING_REGISTRY
+        .iter()
+        .map(|d| match d.tile {
+            TileSpec::Pick(v) if v.len() > 1 => v.len() - 1,
+            _ => 0,
+        })
+        .sum()
+}
+
+/// Atlas layer index for the k-th variant (0-based) of a Pick tile kind.
+/// Variant 0 maps to the base tileset index. Variants 1+ are in the pick extras
+/// region, which follows the autotile extras region.
+/// Returns None if kind is not Pick or k >= variant count.
+pub fn pick_variant_atlas_layer(kind: BuildingKind, k: usize) -> Option<usize> {
+    let def = BUILDING_REGISTRY.iter().find(|d| d.kind == kind)?;
+    let TileSpec::Pick(variants) = def.tile else {
+        return None;
+    };
+    if k >= variants.len() {
+        return None;
+    }
+    if k == 0 {
+        return Some(tileset_index(kind) as usize);
+    }
+    // Pick extras start after base layers + autotile extras.
+    let pick_extras_base = BUILDING_REGISTRY.len() + autotile_total_extra_layers();
+    // Count how many pick extra slots come before this kind.
+    let mut offset = 0usize;
+    for d in BUILDING_REGISTRY {
+        if d.kind == kind {
+            break;
+        }
+        if let TileSpec::Pick(v) = d.tile {
+            if v.len() > 1 {
+                offset += v.len() - 1;
+            }
+        }
+    }
+    Some(pick_extras_base + offset + k - 1)
+}
+
+/// Deterministic per-position variant index for a Pick tile kind (0-based).
+/// Uses integer grid coordinates derived from world position.
+pub fn pick_variant_for_pos(kind: BuildingKind, wx: f32, wy: f32) -> usize {
+    let def = match BUILDING_REGISTRY.iter().find(|d| d.kind == kind) {
+        Some(d) => d,
+        None => return 0,
+    };
+    let count = match def.tile {
+        TileSpec::Pick(v) => v.len(),
+        _ => return 0,
+    };
+    if count <= 1 {
+        return 0;
+    }
+    // Grid-coordinate hash: stable across f32 representation changes.
+    let cell = crate::world::CELL as i32;
+    let gx = (wx / cell as f32).round() as i32;
+    let gy = (wy / cell as f32).round() as i32;
+    let h = (gx.wrapping_mul(374761393i32) ^ gy.wrapping_mul(668265263i32)) as u32;
+    h as usize % count
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::world::BuildingKind;
+
+    #[test]
+    fn tree_node_uses_pick_tile() {
+        let def = building_def(BuildingKind::TreeNode);
+        assert!(
+            matches!(def.tile, TileSpec::Pick(_)),
+            "TreeNode must use TileSpec::Pick for multi-variant sprites"
+        );
+    }
+
+    #[test]
+    fn tree_node_has_at_least_four_variants() {
+        let def = building_def(BuildingKind::TreeNode);
+        let TileSpec::Pick(variants) = def.tile else {
+            panic!("TreeNode tile is not Pick");
+        };
+        assert!(
+            variants.len() >= 4,
+            "TreeNode must have at least 4 sprite variants, got {}",
+            variants.len()
+        );
+    }
+
+    #[test]
+    fn pick_variant_for_pos_is_deterministic() {
+        // Same position always yields the same variant.
+        let v1 = pick_variant_for_pos(BuildingKind::TreeNode, 256.0, 512.0);
+        let v2 = pick_variant_for_pos(BuildingKind::TreeNode, 256.0, 512.0);
+        assert_eq!(v1, v2, "variant selection must be deterministic");
+    }
+
+    #[test]
+    fn pick_variant_for_pos_in_bounds() {
+        let def = building_def(BuildingKind::TreeNode);
+        let TileSpec::Pick(variants) = def.tile else {
+            panic!("TreeNode tile is not Pick");
+        };
+        let count = variants.len();
+        // Test a range of positions -- all must produce a valid variant index.
+        for gx in -5i32..=5 {
+            for gy in -5i32..=5 {
+                let wx = gx as f32 * crate::world::CELL as f32;
+                let wy = gy as f32 * crate::world::CELL as f32;
+                let v = pick_variant_for_pos(BuildingKind::TreeNode, wx, wy);
+                assert!(
+                    v < count,
+                    "variant {} out of bounds for pos ({},{})",
+                    v,
+                    wx,
+                    wy
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn pick_variant_for_pos_produces_multiple_distinct_variants() {
+        // Across a grid of positions, we should see more than one distinct variant.
+        let mut seen = std::collections::HashSet::new();
+        for gx in 0..10i32 {
+            for gy in 0..10i32 {
+                let wx = gx as f32 * crate::world::CELL as f32;
+                let wy = gy as f32 * crate::world::CELL as f32;
+                seen.insert(pick_variant_for_pos(BuildingKind::TreeNode, wx, wy));
+            }
+        }
+        assert!(
+            seen.len() >= 4,
+            "expected at least 4 distinct variants across 100 positions, got {}",
+            seen.len()
+        );
+    }
+
+    #[test]
+    fn pick_variant_atlas_layer_variant0_is_base() {
+        let base = tileset_index(BuildingKind::TreeNode) as usize;
+        let layer0 = pick_variant_atlas_layer(BuildingKind::TreeNode, 0);
+        assert_eq!(
+            layer0,
+            Some(base),
+            "variant 0 must map to base tileset_index"
+        );
+    }
+
+    #[test]
+    fn pick_variant_atlas_layer_extras_are_contiguous_after_autotile() {
+        let def = building_def(BuildingKind::TreeNode);
+        let TileSpec::Pick(variants) = def.tile else {
+            panic!("TreeNode tile is not Pick");
+        };
+        let count = variants.len();
+        let extras_base = BUILDING_REGISTRY.len() + autotile_total_extra_layers();
+        // Variant 1 is the first pick extra.
+        let layer1 = pick_variant_atlas_layer(BuildingKind::TreeNode, 1);
+        assert_eq!(
+            layer1,
+            Some(extras_base),
+            "variant 1 must be first pick extra layer"
+        );
+        // All variants must have distinct atlas layers.
+        let layers: Vec<_> = (0..count)
+            .filter_map(|k| pick_variant_atlas_layer(BuildingKind::TreeNode, k))
+            .collect();
+        let unique: std::collections::HashSet<_> = layers.iter().collect();
+        assert_eq!(
+            layers.len(),
+            unique.len(),
+            "all variant atlas layers must be distinct"
+        );
+    }
+
+    #[test]
+    fn pick_variant_atlas_layer_oob_returns_none() {
+        let def = building_def(BuildingKind::TreeNode);
+        let TileSpec::Pick(variants) = def.tile else {
+            panic!("TreeNode tile is not Pick");
+        };
+        assert!(
+            pick_variant_atlas_layer(BuildingKind::TreeNode, variants.len()).is_none(),
+            "out-of-bounds variant index must return None"
+        );
+    }
 }
