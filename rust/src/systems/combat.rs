@@ -477,12 +477,9 @@ pub fn attack_system(
             }
             continue;
         }
-        // Use ECS faction as source-of-truth for NPC targets.
-        // GPU faction readback is throttled and can be temporarily stale (-1),
-        // which would incorrectly suppress valid combat in tests/gameplay.
-        let target_faction = target_npc
-            .map(|n| n.faction)
-            .unwrap_or_else(|| gpu_state.factions.get(ti).copied().unwrap_or(-1));
+        // EntityMap.faction is CPU-authoritative and always current.
+        // Never fall back to gpu_state.factions (throttled readback, every 60 frames).
+        let target_faction = target_npc.map(|n| n.faction).unwrap_or(-1);
         if target_faction == crate::constants::FACTION_NEUTRAL || target_faction == faction_id {
             if is_fighting {
                 if let Ok(mut cs) = aq.combat_state_q.get_mut(entity) {
@@ -1892,6 +1889,78 @@ mod tests {
         assert_eq!(
             grass_projs, 0,
             "attacker on Grass should NOT fire at target 220 units away (range={BASE_RANGE})"
+        );
+    }
+
+    /// Regression for issue #249: attack_system must use EntityMap (ECS-authoritative) faction,
+    /// never gpu_state.factions (throttled readback, stale up to 60 frames).
+    /// Stale GPU faction data showing same-faction would suppress combat if used as authority.
+    #[test]
+    fn attack_system_uses_ecs_faction_not_gpu_readback() {
+        use crate::components::{Activity, CachedStats, CombatState, Faction, Health, Job};
+
+        let mut app = setup_attack_app();
+        app.insert_resource(crate::world::WorldGrid::default());
+
+        // Target at slot 1, faction 2 (enemy) -- registered in EntityMap (ECS authority)
+        let target = app.world_mut().spawn(()).id();
+        {
+            let mut em = app
+                .world_mut()
+                .resource_mut::<crate::resources::EntityMap>();
+            em.register_npc(1, target, Job::Archer, 2, 0);
+        }
+
+        // Attacker at slot 0, faction 1 (player)
+        app.world_mut().spawn((
+            GpuSlot(0),
+            Job::Archer,
+            Faction(1),
+            CachedStats {
+                damage: 10.0,
+                range: 300.0,
+                cooldown: 1.5,
+                projectile_speed: 300.0,
+                projectile_lifetime: 2.0,
+                max_health: 100.0,
+                speed: 100.0,
+                stamina: 1.0,
+                hp_regen: 0.0,
+                berserk_bonus: 0.0,
+            },
+            Activity::default(),
+            Health(100.0),
+            CombatState::default(),
+            AttackTimer(0.0),
+        ));
+
+        {
+            let mut gpu = app
+                .world_mut()
+                .resource_mut::<crate::resources::GpuReadState>();
+            gpu.positions = vec![0.0, 0.0, 10.0, 0.0]; // attacker and target nearby
+            gpu.combat_targets = vec![1, -1]; // attacker targets slot 1
+            // Deliberately stale gpu factions: both show as faction 1 (would suppress combat
+            // if used as authority instead of EntityMap).
+            gpu.factions = vec![1, 1];
+        }
+
+        app.world_mut().run_system_once(attack_system).unwrap();
+
+        let projs = app
+            .world_mut()
+            .run_system_once(|mut reader: MessageReader<ProjGpuUpdateMsg>| {
+                reader
+                    .read()
+                    .filter(|msg| matches!(msg.0, ProjGpuUpdate::Spawn { .. }))
+                    .count()
+            })
+            .unwrap();
+
+        assert!(
+            projs > 0,
+            "attack_system must use ECS faction from EntityMap, not stale gpu_state.factions; \
+             got 0 projectiles (combat suppressed by stale same-faction GPU data)"
         );
     }
 }
