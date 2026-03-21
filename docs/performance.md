@@ -128,7 +128,8 @@ A* requests queued by `resolve_movement_system` (from MovementIntents) and `inva
 ### Event-Driven Systems
 
 - `build_visual_upload`: persistent `NpcVisualUpload`, dirty-signaled via `MarkVisualDirty`. ~4-8ms → ~0.01ms steady state.
-- `rebuild_building_grid_system`: runs only on `BuildingGridDirtyMsg`.
+- `rebuild_building_grid_system`: runs only on `BuildingGridDirtyMsg`. Calls `init_spatial()` to reinit the spatial grid (~0ms). Spatial data is maintained incrementally by `add_instance`/`remove_by_slot` via `spatial_insert`/`spatial_remove` -- no full rebuild needed.
+- `sync_pathfind_costs_system`: runs on `BuildingGridDirtyMsg`. `sync_building_costs()` reverts old overrides, reapplies building overlays, then rebuilds HPA chunks for only the union of old + new changed cells (not a full HPA rebuild).
 - `invalidate_paths_on_building_change`: runs on `BuildingGridDirtyMsg`, re-queues paths crossing changed cells.
 - Terrain tilemap sync: `TerrainDirtyMsg`-driven, not `WorldGrid::is_changed()`.
 

@@ -1714,6 +1714,83 @@ fn bench_ai_decision_system(c: &mut Criterion) {
     group.finish();
 }
 
+// ── rebuild_building_grid + sync_pathfind_costs benchmarks (issue-191) ───
+
+/// Populate an EntityMap with `count` wall buildings on a grid.
+/// Returns the world size in pixels for init_spatial.
+fn populate_buildings(em: &mut EntityMap, grid: &mut world::WorldGrid, count: usize) {
+    let side = (count as f32).sqrt().ceil() as usize + 1;
+    let grid_side = side + 2; // extra margin
+    grid.width = grid_side;
+    grid.height = grid_side;
+    grid.cell_size = TOWN_GRID_SPACING;
+    grid.cells = vec![world::WorldCell::default(); grid_side * grid_side];
+    grid.init_pathfind_costs();
+    grid.init_town_buildable();
+
+    let world_size_px = grid_side as f32 * TOWN_GRID_SPACING;
+    em.init_spatial(world_size_px);
+
+    for i in 0..count {
+        let col = i % side;
+        let row = i / side;
+        let x = col as f32 * TOWN_GRID_SPACING + TOWN_GRID_SPACING * 0.5;
+        let y = row as f32 * TOWN_GRID_SPACING + TOWN_GRID_SPACING * 0.5;
+        em.add_instance(BuildingInstance {
+            kind: world::BuildingKind::Wall,
+            position: Vec2::new(x, y),
+            slot: i + 100_000, // offset to avoid NPC slot collision
+            town_idx: 0,
+            faction: 1,
+        });
+    }
+}
+
+fn bench_rebuild_building_grid(c: &mut Criterion) {
+    let mut group = c.benchmark_group("rebuild_building_grid");
+    group.sample_size(50);
+    const BUILDING_COUNTS: &[usize] = &[1_000, 50_000];
+    for &count in BUILDING_COUNTS {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(count),
+            &count,
+            |b, &count| {
+                let mut em = EntityMap::default();
+                let mut grid = world::WorldGrid::default();
+                populate_buildings(&mut em, &mut grid, count);
+                let world_size_px = grid.width as f32 * grid.cell_size;
+                b.iter(|| {
+                    em.init_spatial(world_size_px);
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+fn bench_sync_pathfind_costs(c: &mut Criterion) {
+    let mut group = c.benchmark_group("sync_pathfind_costs");
+    group.sample_size(20);
+    const BUILDING_COUNTS: &[usize] = &[1_000, 50_000];
+    for &count in BUILDING_COUNTS {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(count),
+            &count,
+            |b, &count| {
+                let mut em = EntityMap::default();
+                let mut grid = world::WorldGrid::default();
+                populate_buildings(&mut em, &mut grid, count);
+                // Prime the grid so subsequent syncs measure incremental cost
+                grid.sync_building_costs(&em);
+                b.iter(|| {
+                    grid.sync_building_costs(&em);
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_decision_system,
@@ -1739,5 +1816,7 @@ criterion_group!(
     bench_process_proj_hits,
     bench_prune_town_equipment,
     bench_ai_decision_system,
+    bench_rebuild_building_grid,
+    bench_sync_pathfind_costs,
 );
 criterion_main!(benches);
