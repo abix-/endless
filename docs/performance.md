@@ -475,6 +475,16 @@ Compact record of performance fixes applied. Each entry preserves the root cause
 
 **Pattern**: Bijection index — when a forward map (slot→entity) is frequently queried in reverse (entity→slot), add a parallel reverse HashMap. Documented in Canonical Key Model: "Secondary indexes are allowed for performance (`Entity -> slot`)". damage_system 5K: 1860µs → 228µs.
 
+### build_building_body_instances cache-miss fix — reduced scattered 200K-array reads (#209)
+
+**Root cause**: `build_building_body_instances` read `gpu_state.positions[idx*2]` and `gpu_state.factions[idx]` per building. Building slots start at MAX_NPC_COUNT (~100K), so these were scattered reads into 200K-element flat arrays — poor cache locality. Also, per-building ECS `query.get()` for construction progress instead of a single pre-indexed HashMap. Observed peak: 4.55ms at ~1111 NPCs.
+
+**Fix**: (1) Read `inst.position` and `inst.faction` from `BuildingInstance` in the compact `DenseSlotMap` (cache-friendly sequential layout) instead of scattered array reads. Buildings are static after placement (position) and faction is CPU-authoritative on EntityMap (authority.md), so the values are always correct. (2) Pre-build `under_construction_by_slot: HashMap<usize, f32>` once per frame via `Query<(&GpuSlot, &ConstructionProgress)>` — O(under_construction) not O(all_buildings). Dirty guard (issue #187) skips the rebuild entirely when nothing changed.
+
+**Pattern**: Compact authority read -- when data is available on a compact ECS/EntityMap structure AND is CPU-authoritative (won't be overwritten by GPU compute), read from there instead of the large parallel GPU arrays. Reduces scattered reads from 5 to 2 per building (sprite_indices + flash).
+
+**Before/after**: Needs Windows cargo bench and live endless-cli get_perf measurement (k3s cannot run game or criterion benchmarks). See bench_build_building_body_instances (dirty: 68K buildings) in system_bench.rs.
+
 ### rebuild_building_grid O(N) → O(1) — eliminated 19ms spike (#207)
 
 **Root cause**: `rebuild_building_grid_system` called `entity_map.rebuild_spatial()` (O(all_buildings) full spatial grid rebuild) on every `BuildingGridDirtyMsg`. At high game speed with AI placing buildings, towers killing raiders, etc., this fired frequently. Observed 19.05ms peak spike in live gameplay at 1111 NPCs.
