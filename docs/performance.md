@@ -454,9 +454,20 @@ Compact record of performance fixes applied. Each entry preserves the root cause
 
 **Fix**: Add `EntityMap::is_spatial_initialized()` and gate the full rebuild behind first-time initialization only. The system still performs one full rebuild after startup so buildings placed before `init_spatial()` become queryable, but all subsequent dirty messages now take the incremental path and skip the O(n) rebuild.
 
-**Guardrails**: `world::tests::building_added_after_init_findable_without_dirty_message` verifies that a post-init `add_instance()` becomes queryable without requiring another full rebuild. `system_bench` now includes `rebuild_building_grid` benchmarks for `full_rebuild_baseline` vs `incremental_dirty_after_init` so the before/after cost can be recorded in a CI or desktop environment with the repo's Linux deps installed.
+**Guardrails**: `world::tests::building_added_after_init_findable_without_dirty_message` verifies that a post-init `add_instance()` becomes queryable without requiring another full rebuild.
 
-**Pattern**: Event-driven incremental maintenance — when the authoritative index is already updated inline on add/remove, dirty-message handlers should only reconcile first-time initialization or true bulk rebuild cases, not blindly rescan the entire collection every tick.
+**Criterion results** (Windows, i7-9700K, rebuild_building_grid):
+
+| Buildings | full_rebuild (before) | incremental (after) | Speedup |
+|-----------|----------------------|-----------------------|---------|
+| 100 | 13.8us | 1.3us | 10.6x |
+| 500 | 29.3us | 1.2us | 24.4x |
+| 1000 | 56.2us | 1.7us | 33.1x |
+| 5000 | 390.1us | 2.1us | 185.8x |
+
+Incremental cost is O(1) (~1-2us) regardless of building count. Full rebuild scales O(n).
+
+**Pattern**: Event-driven incremental maintenance -- when the authoritative index is already updated inline on add/remove, dirty-message handlers should only reconcile first-time initialization or true bulk rebuild cases, not blindly rescan the entire collection every tick.
 
 ### HPA* hierarchical pathfinding — 341× faster
 
