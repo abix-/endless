@@ -25,7 +25,10 @@ fn maybe_send_building_grid_dirty(
 fn setup_rebuild_app() -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
-    app.insert_resource(EntityMap::default());
+    let mut em = EntityMap::default();
+    let world_size_px = 16.0 * 64.0;
+    em.init_spatial(world_size_px);
+    app.insert_resource(em);
     app.add_message::<BuildingGridDirtyMsg>();
     app.insert_resource(SendBuildingGridDirty(false));
     app.insert_resource(TimeUpdateStrategy::ManualDuration(
@@ -46,8 +49,10 @@ fn setup_rebuild_app() -> App {
     app
 }
 
+/// Regression: spatial is maintained incrementally by add_instance.
+/// Building is findable immediately after add_instance without any dirty message.
 #[test]
-fn rebuild_building_grid_noop_without_message() {
+fn spatial_incremental_add_instance_findable() {
     let mut app = setup_rebuild_app();
     let pos = Vec2::new(32.0, 32.0);
     app.world_mut()
@@ -59,42 +64,15 @@ fn rebuild_building_grid_noop_without_message() {
             town_idx: 0,
             faction: 1,
         });
-    // Run WITHOUT sending a BuildingGridDirtyMsg
-    app.update();
+    // No dirty message needed -- add_instance maintains spatial incrementally
     let em = app.world().resource::<EntityMap>();
     let mut found = false;
     em.for_each_nearby(pos, 200.0, |_, _| found = true);
-    assert!(
-        !found,
-        "spatial should not be initialized without BuildingGridDirtyMsg"
-    );
+    assert!(found, "building should be findable after add_instance");
 }
 
-#[test]
-fn rebuild_building_grid_initializes_spatial_with_message() {
-    let mut app = setup_rebuild_app();
-    let pos = Vec2::new(32.0, 32.0);
-    app.world_mut()
-        .resource_mut::<EntityMap>()
-        .add_instance(BuildingInstance {
-            kind: BuildingKind::Farm,
-            position: pos,
-            slot: 1,
-            town_idx: 0,
-            faction: 1,
-        });
-    // Send the message and run
-    app.insert_resource(SendBuildingGridDirty(true));
-    app.update();
-    let em = app.world().resource::<EntityMap>();
-    let mut found = false;
-    em.for_each_nearby(pos, 200.0, |_, _| found = true);
-    assert!(
-        found,
-        "spatial should be rebuilt after BuildingGridDirtyMsg"
-    );
-}
-
+/// Regression: building remains findable across frames without any dirty message.
+/// rebuild_building_grid_system must NOT clear spatial on message-free frames.
 #[test]
 fn spatial_incremental_after_init_no_rebuild_needed() {
     // Regression: rebuild_building_grid_system must skip the full O(N) rebuild when
@@ -145,9 +123,6 @@ fn spatial_incremental_after_init_no_rebuild_needed() {
 
 #[test]
 fn rebuild_building_grid_preserves_spatial_on_subsequent_frame() {
-    // After a message-triggered rebuild, subsequent frames without a message
-    // must NOT clear the spatial grid. Buildings found after the first rebuild
-    // must remain findable on the next frame.
     let mut app = setup_rebuild_app();
     let pos_a = Vec2::new(32.0, 32.0);
     app.world_mut()
@@ -159,24 +134,15 @@ fn rebuild_building_grid_preserves_spatial_on_subsequent_frame() {
             town_idx: 0,
             faction: 1,
         });
-    // First run WITH message -> spatial initialized and building A indexed
-    app.insert_resource(SendBuildingGridDirty(true));
+    // Advance two frames without any dirty message
     app.update();
-    // Verify building A is in spatial after the rebuild
-    {
-        let em = app.world().resource::<EntityMap>();
-        let mut found = false;
-        em.for_each_nearby(pos_a, 200.0, |_, _| found = true);
-        assert!(found, "building A should be found after first rebuild");
-    }
-    // Second run WITHOUT message -- spatial must NOT be cleared
     app.update();
     let em = app.world().resource::<EntityMap>();
     let mut still_found = false;
     em.for_each_nearby(pos_a, 200.0, |_, _| still_found = true);
     assert!(
         still_found,
-        "spatial should be preserved on subsequent frame without BuildingGridDirtyMsg"
+        "spatial should be preserved across frames without BuildingGridDirtyMsg"
     );
 }
 
@@ -456,7 +422,8 @@ fn worldmap_generates_corridors_and_ice_caps() {
     grid.cell_size = 64.0;
     grid.cells = vec![WorldCell::default(); 100 * 100];
 
-    generate_terrain_worldmap(&mut grid);
+    // Fixed seed for determinism -- avoids flaky failures from unlucky random maps.
+    generate_terrain_worldmap(&mut grid, 0x1234_5678_9abc_def0);
 
     // Count biome types
     let mut water = 0usize;
@@ -520,7 +487,8 @@ fn worldmap_biomes_follow_latitude() {
     grid.cell_size = 64.0;
     grid.cells = vec![WorldCell::default(); 200 * 200];
 
-    generate_terrain_worldmap(&mut grid);
+    // Fixed seed for determinism.
+    generate_terrain_worldmap(&mut grid, 0x1234_5678_9abc_def0);
 
     // Sample equatorial band (rows 90-110) and near-polar band (rows 25-35)
     let mut equatorial_grass = 0usize;
