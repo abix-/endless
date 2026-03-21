@@ -94,8 +94,8 @@ Custom pipeline replaces Bevy's per-entity sprite renderer:
 
 At 10K+ NPCs, running `decision_system` for every NPC every frame is too expensive. Solution: bucket gating.
 
-- **Fighting NPCs**: `COMBAT_BUCKET` — fast enough for flee/leash reactions (see Current Tunings for value). Scaled down by `time_scale` at high game speeds so combat decisions keep pace with movement.
-- **Non-fighting NPCs**: `think_buckets = max(interval × 60, npc_count / max_decisions_per_frame)` — adaptive bucketing with frame budget cap (see Current Tunings for `max_decisions_per_frame`). Also scaled down by `time_scale` at high game speeds.
+- **Fighting NPCs**: `COMBAT_BUCKET` — fast enough for flee/leash reactions (see Current Tunings for value). No `time_scale` adjustment -- FixedUpdate runs at constant 60 Hz; `game_time.delta()` handles game-speed scaling per tick.
+- **Non-fighting NPCs**: `think_buckets = max(interval × 60, npc_count / max_decisions_per_frame)` — adaptive bucketing with frame budget cap (see Current Tunings for `max_decisions_per_frame`). No `time_scale` adjustment -- same reason.
 - At 10K NPCs with 120 buckets: ~83 NPCs processed per frame instead of 10K.
 - Position hoisted once per NPC into `npc_pos` after bucket gate — eliminates scattered position reads.
 - Conditional writeback: captures original values, compares at end — only calls `get_mut()` for changed fields. Optimal for `decision_system` where most NPCs exit early via `break 'decide` — avoids unnecessary borrow-mut for unchanged entities.
@@ -184,21 +184,21 @@ All volatile numeric constants in one place. Policy sections above describe *why
 
 | Tuning | Value | Location |
 |--------|-------|----------|
-| `COMBAT_BUCKET` | 16 frames (~267ms @ 60 UPS) | `behavior.rs:369` |
-| `max_decisions_per_frame` | 300 | `resources.rs:110` |
-| `CHECK_INTERVAL` (threat recheck) | 30 frames | `behavior.rs:353` |
-| `HEAL_DRIFT_RADIUS` | 100.0 | `behavior.rs:355` |
-| `ARCHER_PATROL_WAIT` | 60 ticks | `constants.rs:1207` |
-| `ENERGY_TIRED_THRESHOLD` | 30.0 | `constants.rs:1213` |
-| `ENERGY_WAKE_THRESHOLD` | 90.0 | `constants.rs:1210` |
+| `COMBAT_BUCKET` | 16 frames (~267ms @ 60 UPS) | `systems/decision/mod.rs:347` |
+| `max_decisions_per_frame` | 300 | `resources.rs:188` |
+| `CHECK_INTERVAL` (threat recheck) | 30 frames | `systems/decision/mod.rs:336` |
+| `HEAL_DRIFT_RADIUS` | 100.0 | `systems/decision/mod.rs:338` |
+| `ARCHER_PATROL_WAIT` | 60 ticks | `constants/mod.rs:102` |
+| `ENERGY_TIRED_THRESHOLD` | 30.0 | `constants/mod.rs:108` |
+| `ENERGY_WAKE_THRESHOLD` | 90.0 | `constants/mod.rs:105` |
 | Faction readback throttle | 60 frames | `gpu.rs` |
 | Threat readback throttle | 30 frames | `gpu.rs` |
-| Farm visual cadence | event-driven (FarmReadyMsg/FarmHarvestedMsg) | `economy/mod.rs` |
-| ProfilerCache refresh | 15 frames, top 10 | `ui/game_hud.rs` |
+| Farm visual cadence | event-driven (FarmReadyMsg/FarmHarvestedMsg) | `systems/economy/mod.rs` |
+| ProfilerCache refresh | 15 frames, top 10 | `ui/left_panel/mod.rs` |
 | Healing enter-check cadence | 1/4 NPCs per frame | `systems/health/mod.rs` |
 | Gap coalescing waste budget | ~24KB total across all buffers | `gpu.rs` |
 | Visual upload fallback | 40% window → bulk offset write | `gpu.rs` |
-| `max_pathfinds_per_frame` | 50 | `resources.rs` (PathfindConfig) |
+| `max_pathfinds_per_frame` | 200 | `settings.rs:797` / `resources.rs:772` (PathfindConfig) |
 | `pathfind_short_distance_tiles` | 12 | `resources.rs` (PathfindConfig) |
 | `pathfind_max_nodes` | 5000 | `resources.rs` (PathfindConfig) |
 | `pathfind_stuck_repath_frames` | 30 | `resources.rs` (PathfindConfig) |
@@ -369,7 +369,7 @@ Legitimate violations of the rules above, tracked with exit criteria.
 
 ## Current Benchmark Results
 
-Run via `cargo bench --bench system_bench` (Criterion). Use `/benchmark` to execute and append results. Last full run: 2026-03-11b.
+Run via `cargo bench --bench system_bench` (Criterion). Use `/benchmark` to execute and append results. Last full run: 2026-03-15 -- 306decc. See bottom section for latest numbers.
 
 ### NPC-scaled (vary entity count, 50K NPCs baseline)
 
@@ -561,6 +561,38 @@ Incremental `add_instance` (spatial_insert inline) is O(1) at ~180-680ns regardl
 **Pattern**: Rate-limit in real-time -- AI decision timers should advance at wall-clock rate, not game-time rate. Strategic decisions (where to build, whom to attack) do not need to scale with simulation speed.
 
 **Before/after**: 447 NPCs at 16x (issue baseline): 1.57ms/tick. After fix (BRP verified, ~313 NPCs): 0.02ms/tick at 1x, 0.33ms/frame at 16x (= 0.021ms/tick x 16 ticks). Per-tick cost is now constant regardless of game speed.
+
+### sync_sleeping_system O(65K) -> O(dirty) event-driven (#195)
+
+**Root cause**: `sync_sleeping_system` iterated all 65K NPC+building instances every tick to sync sleeping state. Ran unconditionally even when nothing changed.
+
+**Fix**: Converted to message-driven: runs only when a dirty message is received. No-change frames skip entirely. Consistent with the event-driven pattern used for farm_visual, building_grid, and pathfind_costs.
+
+**Pattern**: Event-driven -- poll → message-driven. When state changes are sparse, replace unconditional O(n) scan with a message-triggered system that fires only when needed.
+
+### mason work targeting iter_instances -> for_each_nearby spatial query (#169)
+
+**Root cause**: `decision_system` mason logic used `entity_map.iter_instances()` to find nearest damaged building -- O(all_instances) = O(~68K) per mason NPC per decision tick. With many mason NPCs at bucket cadence, cumulative cost was significant.
+
+**Fix**: Replace `iter_instances()` scan with `entity_map.for_each_nearby(current_pos, repair_radius, ...)` -- only visits buildings within the spatial grid cell(s) overlapping the search radius. O(nearby) instead of O(all_instances).
+
+**Pattern**: Migration Template #3 (Mixed Path) + spatial query -- when a hot decision loop scans all instances to find spatially nearby ones, replace with the pre-built spatial index. Benchmark added in system_bench.rs for mason 50K-building scale validation.
+
+### road candidate scoring O(n*m) -> O(n) adjacency check (#218)
+
+**Root cause**: Road candidate scoring in `ai_player` built adjacency lists via nested loops -- O(candidates * neighbors) = O(n*m) per AI build evaluation. At large town sizes with many road candidates, this dominated AI build step cost.
+
+**Fix**: Replaced nested adjacency loop with a single pre-indexed pass. O(n) total.
+
+**Pattern**: Pre-index -- when an inner loop re-scans the same collection for each outer item, build a lookup structure once and reuse it.
+
+### damage_system debug sampling removed (#170)
+
+**Root cause**: `damage_system` contained an `iter_npcs()` + `query.get()` debug sampling loop that ran unconditionally. The loop had no debug gate and was not visible in the hot-path audit. At 50K NPCs, this added unmeasured overhead to every damage tick.
+
+**Fix**: Removed the unconditional debug sampling loop entirely. No replacement needed -- the data was only used for debug validation, not gameplay.
+
+**Pattern**: Debug overhead removal -- unconditional per-frame `iter_npcs()` + `query.get()` loops in hot paths must be gated behind a debug flag or removed. See Debug Overhead rules.
 
 ## Benchmarks (2026-03-15 -- 306decc)
 
