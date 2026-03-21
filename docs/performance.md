@@ -112,6 +112,30 @@ Replaced full 50K NPC iteration with O(active_healing + sampled_candidates):
 - `spawner_respawn_system`: timer-based per spawner (no per-frame iteration).
 - `raider_forage_system`: hourly timer accumulation per raider town.
 
+### Time-Scale Scheduling (sync_fixed_hz)
+
+At high game speeds, FixedUpdate ticks pile up per frame (N ticks * per-tick cost overflows frame budget).
+Root cause: each FixedUpdate tick takes 3.4-7.1ms at 1x with ~1800 NPCs; at 4x, 4 ticks = 14-28ms.
+
+Fix: `sync_fixed_hz` (Update schedule) scales `Time<Fixed>.period = sqrt(time_scale) / 60`:
+
+| Speed | Fixed Hz | Ticks/real-s | Game-s/real-s | Cascade risk |
+|-------|----------|-------------|---------------|--------------|
+| 1x | 60 Hz | 60 | 1.0 | none |
+| 2x | 42 Hz | 42 | 2.0 | none |
+| 4x | 30 Hz | 30 | 4.0 | prevented |
+| 8x | 21 Hz | 21 | 8.0 | prevented |
+| 16x | 15 Hz | 15 | 16.0 | prevented |
+
+Game-time proportionality holds: `ticks/s * period * ts = (60/sqrt(ts)) * (sqrt(ts)/60) * ts = ts`.
+
+Sqrt scaling balances two competing goals:
+- Linear scaling (period = ts/60) prevented cascade but UPS dropped to 7.5 Hz at 8x -- NPCs barely moved.
+- No scaling (60 Hz fixed) cascaded to 4 FPS at 8x.
+- Sqrt scaling keeps UPS in a playable range at all speeds while preventing cascade.
+
+Decision system buckets and combat buckets are divided by `time_scale` so AI cadence scales with game speed.
+
 ### HPA* Hierarchical Pathfinding
 
 Custom HPA* (Hierarchical Pathfinding A*) replaces raw A* for cross-chunk paths. Grid divided into 16×16 chunks (~256 chunks on 250×250 grid). Entrance nodes placed at chunk boundary crossings. Intra-chunk paths precomputed via A* between all entrance pairs within each chunk. Queries search the abstract graph (~500-1000 entrance nodes) instead of the full 62,500-cell grid, then stitch cached intra-chunk segments into full paths.
