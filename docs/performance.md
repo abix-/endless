@@ -114,27 +114,19 @@ Replaced full 50K NPC iteration with O(active_healing + sampled_candidates):
 
 ### Time-Scale Scheduling (sync_fixed_hz)
 
-At high game speeds, FixedUpdate ticks pile up per frame (N ticks * per-tick cost overflows frame budget).
-Root cause: each FixedUpdate tick takes 3.4-7.1ms at 1x with ~1800 NPCs; at 4x, 4 ticks = 14-28ms.
+FixedUpdate runs at constant 60 Hz regardless of `time_scale`. `sync_fixed_hz` (Update schedule) enforces `Time<Fixed>.period = 1/60` at all speeds.
 
-Fix: `sync_fixed_hz` (Update schedule) scales `Time<Fixed>.period = sqrt(time_scale) / 60`:
+| Speed | Fixed Hz | Ticks/real-s | Game-s/real-s |
+|-------|----------|-------------|---------------|
+| 1x | 60 Hz | 60 | 1.0 |
+| 2x | 60 Hz | 60 | 2.0 |
+| 4x | 60 Hz | 60 | 4.0 |
+| 8x | 60 Hz | 60 | 8.0 |
+| 16x | 60 Hz | 60 | 16.0 |
 
-| Speed | Fixed Hz | Ticks/real-s | Game-s/real-s | Cascade risk |
-|-------|----------|-------------|---------------|--------------|
-| 1x | 60 Hz | 60 | 1.0 | none |
-| 2x | 42 Hz | 42 | 2.0 | none |
-| 4x | 30 Hz | 30 | 4.0 | prevented |
-| 8x | 21 Hz | 21 | 8.0 | prevented |
-| 16x | 15 Hz | 15 | 16.0 | prevented |
+Game-time scaling is handled by `game_time.delta()` which returns `time.delta_secs() * time_scale`. At 4x, each tick advances game time by 4/60 game-seconds instead of 1/60. Net rate: `60 ticks/s * time_scale/60 = time_scale` game-s/real-s.
 
-Game-time proportionality holds: `ticks/s * period * ts = (60/sqrt(ts)) * (sqrt(ts)/60) * ts = ts`.
-
-Sqrt scaling balances two competing goals:
-- Linear scaling (period = ts/60) prevented cascade but UPS dropped to 7.5 Hz at 8x -- NPCs barely moved.
-- No scaling (60 Hz fixed) cascaded to 4 FPS at 8x.
-- Sqrt scaling keeps UPS in a playable range at all speeds while preventing cascade.
-
-Decision system buckets and combat buckets are divided by `time_scale` so AI cadence scales with game speed.
+No cascade risk: at 60 Hz period (16.67ms), Bevy runs ~1 fixed tick per frame at 60+ FPS. Per-tick CPU cost is constant because systems iterate the same entities regardless of delta size.
 
 ### HPA* Hierarchical Pathfinding
 

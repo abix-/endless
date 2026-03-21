@@ -342,8 +342,8 @@ pub fn decision_system(
     let min_buckets = npc_count / npc_config.max_decisions_per_frame.max(1);
     let think_buckets = interval_buckets.max(min_buckets).max(1);
     // Combat bucket: fighting NPCs use a tighter cadence for responsive flee/leash reactions.
-    // No speed_scale adjustment -- sync_fixed_hz scales the Fixed timestep period with
-    // time_scale instead, keeping per-tick CPU cost constant across all game speeds.
+    // No speed_scale adjustment -- FixedUpdate runs at constant 60 Hz regardless of
+    // time_scale. game_time.delta() handles speed scaling per tick.
     const COMBAT_BUCKET: usize = 16; // ~267ms at 60fps
     let combat_bucket = COMBAT_BUCKET;
 
