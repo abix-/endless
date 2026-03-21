@@ -22,9 +22,9 @@ use endless::systems::{
     AiKind, AiPersonality, AiPlayer, AiPlayerConfig, AiPlayerState, advance_waypoints_system,
     ai_decision_system, arrival_system, attack_system, building_tower_system,
     construction_tick_system, cooldown_system, damage_system, death_system, decision_system,
-    energy_system, gpu_position_readback, growth_system, healing_system, npc_regen_system,
-    on_duty_tick_system, process_proj_hits, resolve_movement_system, spawn_npc_system,
-    spawner_respawn_system,
+    energy_system, farm_visual_system, gpu_position_readback, growth_system, healing_system,
+    npc_regen_system, on_duty_tick_system, process_proj_hits, resolve_movement_system,
+    spawn_npc_system, spawner_respawn_system,
 };
 use endless::world;
 
@@ -1874,6 +1874,99 @@ fn bench_sync_pathfind_costs_system(c: &mut Criterion) {
     group.finish();
 }
 
+/// Benchmark farm_visual_system: event-driven marker spawn/despawn.
+/// Tests steady-state (no events), post-load (Added), and harvest (FarmHarvestedMsg).
+fn bench_farm_visual_system(c: &mut Criterion) {
+    let mut group = c.benchmark_group("farm_visual_system");
+    group.sample_size(20);
+    const BUILDING_COUNTS: &[usize] = &[1_000, 5_000];
+    for &bcount in BUILDING_COUNTS {
+        // Steady state: no events, all queries empty
+        group.bench_with_input(
+            BenchmarkId::new("steady_state", bcount),
+            &bcount,
+            |b, &bcount| {
+                let mut app = build_bench_app();
+                app.add_message::<FarmReadyMsg>();
+                app.add_message::<FarmHarvestedMsg>();
+                spawn_bench_town(&mut app);
+                populate_npcs(&mut app, 100);
+                populate_growable_buildings(&mut app, bcount);
+                // Warmup: first run processes Added<ProductionState>
+                let _ = app.world_mut().run_system_once(farm_visual_system);
+                b.iter(|| {
+                    let _ = app.world_mut().run_system_once(farm_visual_system);
+                });
+            },
+        );
+
+        // Burst ready: growth_system fires FarmReadyMsg for 25% of buildings
+        group.bench_with_input(
+            BenchmarkId::new("burst_ready", bcount),
+            &bcount,
+            |b, &bcount| {
+                let mut app = build_bench_app();
+                app.add_message::<FarmReadyMsg>();
+                app.add_message::<FarmHarvestedMsg>();
+                spawn_bench_town(&mut app);
+                populate_npcs(&mut app, 100);
+                populate_growable_buildings(&mut app, bcount);
+                let _ = app.world_mut().run_system_once(farm_visual_system);
+                let msg_count = bcount / 4;
+                b.iter(|| {
+                    let _ = app.world_mut().run_system_once(
+                        move |mut writer: MessageWriter<FarmReadyMsg>,
+                              q: Query<&GpuSlot, With<Building>>| {
+                            for slot in q.iter().take(msg_count) {
+                                writer.write(FarmReadyMsg { slot: slot.0 });
+                            }
+                        },
+                    );
+                    let _ = app.world_mut().run_system_once(farm_visual_system);
+                });
+            },
+        );
+
+        // Burst harvest: FarmHarvestedMsg for 25% of buildings
+        group.bench_with_input(
+            BenchmarkId::new("burst_harvest", bcount),
+            &bcount,
+            |b, &bcount| {
+                let mut app = build_bench_app();
+                app.add_message::<FarmReadyMsg>();
+                app.add_message::<FarmHarvestedMsg>();
+                spawn_bench_town(&mut app);
+                populate_npcs(&mut app, 100);
+                populate_growable_buildings(&mut app, bcount);
+                let _ = app.world_mut().run_system_once(farm_visual_system);
+                let msg_count = bcount / 4;
+                b.iter(|| {
+                    // First make them ready, then harvest
+                    let _ = app.world_mut().run_system_once(
+                        move |mut writer: MessageWriter<FarmReadyMsg>,
+                              q: Query<&GpuSlot, With<Building>>| {
+                            for slot in q.iter().take(msg_count) {
+                                writer.write(FarmReadyMsg { slot: slot.0 });
+                            }
+                        },
+                    );
+                    let _ = app.world_mut().run_system_once(farm_visual_system);
+                    let _ = app.world_mut().run_system_once(
+                        move |mut writer: MessageWriter<FarmHarvestedMsg>,
+                              q: Query<&GpuSlot, With<Building>>| {
+                            for slot in q.iter().take(msg_count) {
+                                writer.write(FarmHarvestedMsg { slot: slot.0 });
+                            }
+                        },
+                    );
+                    let _ = app.world_mut().run_system_once(farm_visual_system);
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_decision_system,
@@ -1901,5 +1994,6 @@ criterion_group!(
     bench_ai_decision_system,
     bench_rebuild_building_grid_system,
     bench_sync_pathfind_costs_system,
+    bench_farm_visual_system,
 );
 criterion_main!(benches);
