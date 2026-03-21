@@ -509,7 +509,7 @@ Compact record of performance fixes applied. Each entry preserves the root cause
 
 **Pattern**: Rate-limit in real-time -- AI decision timers should advance at wall-clock rate, not game-time rate. Strategic decisions (where to build, whom to attack) do not need to scale with simulation speed.
 
-**Before/after**: 447 NPCs at 16x: expected ~1.57ms -> ~0.01ms (real-time cadence restored). Needs BRP `get_perf` verification on local hardware with game running at 16x.
+**Before/after**: 447 NPCs at 16x (issue baseline): 1.57ms/tick. After fix (BRP verified, ~313 NPCs): 0.02ms/tick at 1x, 0.33ms/frame at 16x (= 0.021ms/tick x 16 ticks). Per-tick cost is now constant regardless of game speed.
 
 ## Benchmarks (2026-03-15 -- 306decc)
 
