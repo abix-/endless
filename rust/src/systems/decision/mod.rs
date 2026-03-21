@@ -65,6 +65,7 @@ pub struct DecisionExtras<'w> {
     pub gpu_updates: MessageWriter<'w, GpuUpdateMsg>,
     pub work_intents: MessageWriter<'w, WorkIntentMsg>,
     pub damage: MessageWriter<'w, DamageMsg>,
+    pub farm_visual: MessageWriter<'w, crate::messages::FarmHarvestedMsg>,
     pub squad_state: Res<'w, SquadState>,
     pub selected_npc: Res<'w, SelectedNpc>,
     pub settings: Res<'w, UserSettings>,
@@ -327,6 +328,7 @@ pub fn decision_system(
 
     let npc_logs = &mut extras.npc_logs;
     let combat_log = &mut extras.combat_log;
+    let farm_visual = &mut extras.farm_visual;
     let squad_state = &extras.squad_state;
     let frame = DECISION_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let positions = &gpu_state.positions;
@@ -732,6 +734,9 @@ pub fn decision_system(
                                         });
                                     if let Some((food, log_msg)) = harvest {
                                         // Harvest — release worksite, carry home
+                                        farm_visual.write(crate::messages::FarmHarvestedMsg {
+                                            slot: farm_slot,
+                                        });
                                         let uid = worksite
                                             .and_then(|s| entity_map.entities.get(&s).copied());
                                         extras.work_intents.write(WorkIntentMsg(
@@ -908,8 +913,8 @@ pub fn decision_system(
                             });
 
                             if let Some(fp) = ready_farm_pos {
-                                let farm_e = entity_map
-                                    .slot_at_position(fp)
+                                let raided_slot = entity_map.slot_at_position(fp);
+                                let farm_e = raided_slot
                                     .and_then(|slot| entity_map.entities.get(&slot).copied());
                                 let food = farm_e
                                     .and_then(|e| production_q.get_mut(e).ok())
@@ -936,6 +941,12 @@ pub fn decision_system(
                                         f
                                     })
                                     .unwrap_or(0);
+                                if food > 0 {
+                                    if let Some(slot) = raided_slot {
+                                        farm_visual
+                                            .write(crate::messages::FarmHarvestedMsg { slot });
+                                    }
+                                }
 
                                 carried_loot.food += food.max(1);
                                 transition_activity(
@@ -1065,6 +1076,10 @@ pub fn decision_system(
                                     })
                                     .unwrap_or(0);
                                 if base_gold > 0 {
+                                    if let Some(slot) = mine_slot {
+                                        farm_visual
+                                            .write(crate::messages::FarmHarvestedMsg { slot });
+                                    }
                                     combat_log.write(CombatLogMsg {
                                         kind: CombatEventKind::Harvest,
                                         faction: faction_i32,
@@ -2088,6 +2103,7 @@ pub fn decision_system(
                             .map_or(FarmMode::Crops, |m| m.0);
                         let base_yield = ps.take_yield(kind, mode);
                         if base_yield > 0 {
+                            farm_visual.write(crate::messages::FarmHarvestedMsg { slot });
                             combat_log.write(CombatLogMsg {
                                 kind: CombatEventKind::Harvest,
                                 faction: faction_i32,

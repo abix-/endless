@@ -63,6 +63,24 @@ pub struct CombatLogMsg {
 }
 
 // ============================================================================
+// FARM VISUAL MESSAGES
+// ============================================================================
+
+/// A production building (farm, mine, tree node) transitioned from not-ready to ready.
+/// Emitted by growth_system. Consumed by farm_visual_system to spawn FarmReadyMarker.
+#[derive(Message, Clone)]
+pub struct FarmReadyMsg {
+    pub slot: usize,
+}
+
+/// A production building was harvested (take_yield returned > 0), transitioning ready -> not ready.
+/// Emitted by decision_system. Consumed by farm_visual_system to despawn FarmReadyMarker.
+#[derive(Message, Clone)]
+pub struct FarmHarvestedMsg {
+    pub slot: usize,
+}
+
+// ============================================================================
 // DIRTY-FLAG MESSAGES (replace DirtyFlags resource)
 // ============================================================================
 

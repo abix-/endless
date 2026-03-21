@@ -21,6 +21,7 @@ fn setup_decision_app(policy: PolicySet) -> App {
     app.add_message::<crate::messages::DamageMsg>();
     app.add_message::<GpuUpdateMsg>();
     app.add_message::<WorkIntentMsg>();
+    app.add_message::<crate::messages::FarmHarvestedMsg>();
     app.insert_resource(WorldData {
         towns: vec![Town {
             name: "TestTown".into(),
