@@ -448,6 +448,28 @@ Compact record of performance fixes applied. Each entry preserves the root cause
 
 **Pattern**: Candidate-Driven — use pre-built type-specific indexes instead of scanning all entities and filtering. 2K spawners: 88ms → 75µs.
 
+### rebuild_building_grid_system redundant full rebuilds — incremental dirty path restored
+
+**Root cause**: `rebuild_building_grid_system` used to call `EntityMap::rebuild_spatial()` on every `BuildingGridDirtyMsg`, even after the spatial grid had already been initialized. That turned each add/remove building event into an O(n_buildings) rebuild even though `EntityMap::add_instance()` and `remove_instance()` already maintain the spatial indexes incrementally via `spatial_insert` / `spatial_remove`.
+
+**Fix**: Add `EntityMap::is_spatial_initialized()` and gate the full rebuild behind first-time initialization only. The system still performs one full rebuild after startup so buildings placed before `init_spatial()` become queryable, but all subsequent dirty messages now take the incremental path and skip the O(n) rebuild.
+
+**Guardrails**: `world::tests::building_added_after_init_findable_without_dirty_message` verifies that a post-init `add_instance()` becomes queryable without requiring another full rebuild.
+
+**Criterion results** (Windows, i7-9700K, rebuild_building_grid):
+
+| Buildings | full_rebuild (before) | incremental_add_one (after) | Speedup |
+|-----------|----------------------|----------------------------|---------|
+| 100 | 5.8us | 178ns | 33x |
+| 500 | 55.8us | 515ns | 108x |
+| 1000 | 96.1us | 413ns | 233x |
+| 5000 | 554.5us | 679ns | 817x |
+| 50000 | 12.8ms | 380ns | 33,695x |
+
+Incremental `add_instance` (spatial_insert inline) is O(1) at ~180-680ns regardless of building count. Full `rebuild_spatial` scales O(n): 12.8ms at 50K buildings.
+
+**Pattern**: Event-driven incremental maintenance -- when the authoritative index is already updated inline on add/remove, dirty-message handlers should only reconcile first-time initialization or true bulk rebuild cases, not blindly rescan the entire collection every tick.
+
 ### HPA* hierarchical pathfinding — 341× faster
 
 **Root cause**: Raw A* searched ~5000 grid cells per request. At 50K NPCs with 10% pathing: 5000 requests × 51µs = 257ms unbounded.
