@@ -42,6 +42,10 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "rust -> target"
@@ -53,6 +57,9 @@ jobs:
             g++ pkg-config \
             libx11-dev libasound2-dev libudev-dev \
             libwayland-dev libxkbcommon-dev
+
+      - name: Install k3sc
+        run: go install github.com/abix-/k3sc@latest
 
       - name: Run benchmarks
         # Reduced sample size for CI speed: ~3x faster than default (100 samples).
@@ -70,43 +77,7 @@ jobs:
       - name: Check regressions
         # BENCH_THRESHOLD: override regression threshold (default 20%).
         # BENCH_WARN_ONLY: set to 1 to warn instead of fail (for noisy runners).
-        run: |
-          python3 - <<'EOF'
-          import json, os, pathlib, sys
-          threshold = float(os.environ.get("BENCH_THRESHOLD", "20")) / 100.0
-          warn_only = os.environ.get("BENCH_WARN_ONLY", "") == "1"
-          baseline_path = pathlib.Path("benches/ci-baseline.json")
-          if not baseline_path.exists():
-              print("No ci-baseline.json found, skipping regression check")
-              sys.exit(0)
-          baseline = json.loads(baseline_path.read_text())
-          regressions = []
-          for key, entry in baseline.items():
-              parts = key.split("/", 1)
-              est_path = pathlib.Path("target/criterion") / parts[0] / parts[1] / "new/estimates.json" if len(parts) == 2 else None
-              if est_path is None or not est_path.exists():
-                  print(f"  SKIP {key}: no criterion output at {est_path}")
-                  continue
-              est = json.loads(est_path.read_text())
-              current_ns = est["mean"]["point_estimate"]
-              baseline_ns = entry["mean_ns"]
-              ratio = current_ns / baseline_ns if baseline_ns > 0 else 1.0
-              change_pct = (ratio - 1.0) * 100.0
-              status = "OK" if ratio <= 1.0 + threshold else "REGRESS"
-              print(f"  {status:7s} {key}: baseline={baseline_ns/1e6:.3f}ms current={current_ns/1e6:.3f}ms ({change_pct:+.1f}%)")
-              if ratio > 1.0 + threshold:
-                  regressions.append((key, baseline_ns, current_ns, change_pct))
-          if regressions:
-              print(f"\n{len(regressions)} regression(s) detected (threshold {threshold*100:.0f}%):")
-              for key, b, c, pct in regressions:
-                  print(f"  {key}: {b/1e6:.3f}ms -> {c/1e6:.3f}ms ({pct:+.1f}%)")
-              if warn_only:
-                  print("BENCH_WARN_ONLY=1: warnings only, not failing")
-              else:
-                  sys.exit(1)
-          else:
-              print("All benchmarks within threshold.")
-          EOF
+        run: k3sc bench-check
         env:
           BENCH_THRESHOLD: ${{ vars.BENCH_THRESHOLD || '20' }}
           BENCH_WARN_ONLY: ${{ vars.BENCH_WARN_ONLY || '' }}
