@@ -2043,9 +2043,7 @@ fn bench_build_building_body_instances(c: &mut Criterion) {
                     .run_system_once(build_building_body_instances);
                 b.iter(|| {
                     // Reset dirty so the system doesn't skip on subsequent iterations
-                    app.world_mut()
-                        .resource_mut::<BuildingBodyDirty>()
-                        .dirty = true;
+                    app.world_mut().resource_mut::<BuildingBodyDirty>().dirty = true;
                     let _ = app
                         .world_mut()
                         .run_system_once(build_building_body_instances);
