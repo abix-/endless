@@ -41,19 +41,11 @@ If a change conflicts with any of them, stop and reconcile the design before wri
 
 Each agent works in its own isolated directory to avoid file-level conflicts with other agents.
 
-- Agent workspace: `C:\code\endless-{agentId}` (e.g., `C:\code\endless-claude-1`)
-- Created as a `git worktree` of the main repo at `C:\code\endless`
+- Agent workspace: `C:\code\claude-{n}` (e.g., `C:\code\claude-1` through `C:\code\claude-10`)
+- Each agent gets its own full repo clone -- not a worktree
 - Each agent has full control of its own workspace -- no coordination needed for uncommitted files
 - The main repo at `C:\code\endless` is for human use only; agents never work there directly
-
-Workspace setup (run once per agent, handled by `/issue` on first use):
-
-```
-cd C:\code\endless
-git worktree add ../endless-{agentId} dev
-```
-
-If the worktree already exists, reuse it. Do not recreate or remove existing worktrees.
+- You are already in your directory when Claude launches -- just work here
 
 ## Branches and PRs
 
@@ -406,7 +398,7 @@ Expected behavior:
 - read this workflow doc, the target issue, the canonical spec, the latest handoff comments, and the critical docs (`docs/k8s.md`, `docs/authority.md`, `docs/performance.md`)
 - respect the state-machine and ownership rules above
 - claim `ready` and family-targeted handoff issues before starting work
-- work in the agent's own worktree (`C:\code\endless-{agentId}`)
+- work in the agent's own repo clone (`C:\code\claude-{n}`)
 - create or checkout `issue-{N}` branch from `dev`
 - perform the smallest complete next step
 - run the required tests
