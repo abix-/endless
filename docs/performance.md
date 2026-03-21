@@ -477,9 +477,9 @@ Compact record of performance fixes applied. Each entry preserves the root cause
 
 ### build_building_body_instances cache-miss fix — reduced scattered 200K-array reads (#209)
 
-**Root cause**: `build_building_body_instances` read `gpu_state.positions[idx*2]` and `gpu_state.factions[idx]` per building. Building slots start at MAX_NPC_COUNT (~100K), so these were scattered reads into 200K-element flat arrays — poor cache locality. Also, per-building ECS `query.get()` for construction progress instead of a single pre-indexed HashMap. Observed peak: 4.55ms at ~1111 NPCs.
+**Root cause**: `build_building_body_instances` read `gpu_state.positions[idx*2]` and `gpu_state.factions[idx]` per building. Building slots start at MAX_NPC_COUNT (~100K), so these were scattered reads into 200K-element flat arrays -- poor cache locality. Also, per-building ECS `query.get()` for construction progress instead of a single pre-indexed HashMap. Observed peak: 4.55ms at ~1111 NPCs.
 
-**Fix**: (1) Read `inst.position` and `inst.faction` from `BuildingInstance` in the compact `DenseSlotMap` (cache-friendly sequential layout) instead of scattered array reads. Buildings are static after placement (position) and faction is CPU-authoritative on EntityMap (authority.md), so the values are always correct. (2) Pre-build `under_construction_by_slot: HashMap<usize, f32>` once per frame via `Query<(&GpuSlot, &ConstructionProgress)>` — O(under_construction) not O(all_buildings). Dirty guard (issue #187) skips the rebuild entirely when nothing changed.
+**Fix**: (1) Read `inst.position` and `inst.faction` from `BuildingInstance` in the compact `DenseSlotMap` (cache-friendly sequential layout) instead of scattered array reads. Buildings are static after placement (position) and faction is CPU-authoritative on EntityMap (authority.md), so the values are always correct. (2) Pre-build `under_construction_by_slot: HashMap<usize, f32>` once per frame via `Query<(&GpuSlot, &ConstructionProgress)>` -- O(under_construction) not O(all_buildings). Dirty guard (issue #187) skips the rebuild entirely when nothing changed.
 
 **Pattern**: Compact authority read -- when data is available on a compact ECS/EntityMap structure AND is CPU-authoritative (won't be overwritten by GPU compute), read from there instead of the large parallel GPU arrays. Reduces scattered reads from 5 to 2 per building (sprite_indices + flash).
 
@@ -500,6 +500,16 @@ Compact record of performance fixes applied. Each entry preserves the root cause
 **Fix**: Snapshot `(idx, cost)` pairs before rebuild. After re-applying overlays, diff old vs new to find cells whose cost actually changed. Only pass changed cells to `rebuild_chunks`. Detects both set membership changes (added/removed buildings) AND cost value changes (wall replaced by road at same cell -- `symmetric_difference` would miss this).
 
 **Pattern**: Before/after diff -- when an expensive downstream operation (HPA* rebuild) takes a set of dirty items, diff the actual values to avoid feeding unchanged items. No-change case (redundant dirty signal) skips HPA* entirely. sync_pathfind_costs at 200 buildings no-change: ~2.5us.
+
+### ai_decision_system rate-limited to real-time cadence (#204)
+
+**Root cause**: `ai_decision_system` advanced decision timers using `game_time.delta(&time)` (game-time-scaled delta). At 16x speed, each tick delta was 16x larger, so AI timers fired 16x more often per real-time second. Observed: 0.01ms at 1x -> 1.57ms at 16x (157x increase) for 447 NPCs.
+
+**Fix**: Use `time.delta_secs()` (real-time delta) instead of `game_time.delta(&time)`. Added pause guard: skip timer advance when `game_time.paused()`. AI strategic decisions run at real-time cadence regardless of game speed -- decision quality does not improve from 16x more evaluations.
+
+**Pattern**: Rate-limit in real-time -- AI decision timers should advance at wall-clock rate, not game-time rate. Strategic decisions (where to build, whom to attack) do not need to scale with simulation speed.
+
+**Before/after**: 447 NPCs at 16x: expected ~1.57ms -> ~0.01ms (real-time cadence restored). Needs BRP `get_perf` verification on local hardware with game running at 16x.
 
 ## Benchmarks (2026-03-15 -- 306decc)
 
