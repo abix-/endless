@@ -15,6 +15,9 @@ use endless::constants::*;
 use endless::gpu::populate_gpu_state;
 use endless::gpu::{EntityGpuState, ProjBufferWrites};
 use endless::messages::*;
+use endless::npc_render::{
+    BuildingBodyDirty, BuildingBodyInstances, build_building_body_instances,
+};
 use endless::resources::*;
 use endless::systems::ai_player::{AiSnapshotDirty, RoadStyle};
 use endless::systems::stats;
@@ -1996,8 +1999,88 @@ criterion_group!(
     bench_sync_pathfind_costs_system,
     bench_farm_visual_system,
     bench_sync_sleeping_system,
+    bench_build_building_body_instances,
 );
 criterion_main!(benches);
+
+fn bench_build_building_body_instances(c: &mut Criterion) {
+    let mut group = c.benchmark_group("build_building_body_instances");
+    group.sample_size(20);
+    const INSTANCE_COUNT: usize = 68_000;
+
+    let setup_app = || {
+        let mut app = build_bench_app();
+        app.insert_resource(BuildingBodyInstances::default());
+        app.insert_resource(BuildingBodyDirty::default());
+
+        let world = app.world_mut();
+        let mut slots = Vec::with_capacity(INSTANCE_COUNT);
+        {
+            let mut pool = world.resource_mut::<GpuSlotPool>();
+            for _ in 0..INSTANCE_COUNT {
+                if let Some(slot) = pool.alloc_reset() {
+                    slots.push(slot);
+                }
+            }
+        }
+        {
+            let mut em = world.resource_mut::<EntityMap>();
+            for (i, &slot) in slots.iter().enumerate() {
+                let x = 400.0 + (i % 260) as f32 * 32.0;
+                let y = 400.0 + (i / 260) as f32 * 32.0;
+                em.add_instance(BuildingInstance {
+                    kind: world::BuildingKind::TreeNode,
+                    position: Vec2::new(x, y),
+                    town_idx: 0,
+                    slot,
+                    faction: 0,
+                });
+            }
+        }
+        {
+            let mut gpu = world.resource_mut::<EntityGpuState>();
+            for &slot in &slots {
+                gpu.positions[slot * 2] = 400.0 + (slot % 260) as f32 * 32.0;
+                gpu.positions[slot * 2 + 1] = 400.0 + (slot / 260) as f32 * 32.0;
+                gpu.sprite_indices[slot * 4] = 1.0;
+                gpu.sprite_indices[slot * 4 + 1] = 0.0;
+                gpu.sprite_indices[slot * 4 + 2] = 1.0;
+                gpu.healths[slot] = 1.0;
+            }
+        }
+        app
+    };
+
+    group.bench_with_input(
+        BenchmarkId::new("dirty", INSTANCE_COUNT),
+        &INSTANCE_COUNT,
+        |b, _| {
+            let mut app = setup_app();
+            b.iter(|| {
+                app.world_mut().resource_mut::<BuildingBodyDirty>().dirty = true;
+                let _ = app
+                    .world_mut()
+                    .run_system_once(build_building_body_instances);
+            });
+        },
+    );
+
+    group.bench_with_input(
+        BenchmarkId::new("clean", INSTANCE_COUNT),
+        &INSTANCE_COUNT,
+        |b, _| {
+            let mut app = setup_app();
+            app.world_mut().resource_mut::<BuildingBodyDirty>().dirty = false;
+            b.iter(|| {
+                let _ = app
+                    .world_mut()
+                    .run_system_once(build_building_body_instances);
+            });
+        },
+    );
+
+    group.finish();
+}
 
 // ── sync_sleeping_system benchmark (issue-188, event-driven) ──────
 
