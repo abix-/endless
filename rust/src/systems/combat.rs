@@ -682,10 +682,10 @@ pub fn process_proj_hits(
                     let (gc, gr) = grid.world_to_grid(Vec2::new(tx, ty));
                     if grid
                         .cell(gc, gr)
-                        .is_some_and(|c| c.terrain == Biome::Forest)
+                        .is_some_and(|c| matches!(c.terrain, Biome::Forest | Biome::Jungle))
                         && rng.random_range(0.0..1.0_f32) < 0.25
                     {
-                        // Miss -- projectile absorbed by forest cover
+                        // Miss -- projectile absorbed by forest/jungle cover
                         proj_alloc.free(slot);
                         proj_updates
                             .write(ProjGpuUpdateMsg(ProjGpuUpdate::Deactivate { idx: slot }));

@@ -589,20 +589,34 @@ pub enum Biome {
     Water,
     Rock,
     Dirt,
+    /// Hot, arid terrain -- low moisture, mid-to-high temperature.
+    Desert,
+    /// Cold, barren terrain -- near-polar zones.
+    Tundra,
+    /// Dense tropical forest -- high moisture, high temperature.
+    Jungle,
 }
 
 impl Biome {
     /// Map biome + cell index to tileset array index for TilemapChunk.
     /// Trees and rocks are full entities now -- Forest/Rock biomes render as ground only.
-    /// Grass=0, Forest=1 (dark grass), Water=8, Rock=10 (dirt), Dirt=10.
+    /// Grass=0, Forest/Jungle=1 (dark grass), Water=8, Rock/Tundra=9, Dirt/Desert=10.
     pub fn tileset_index(self, _cell_index: usize) -> u16 {
         match self {
             Biome::Grass => 0,
             Biome::Forest => 1,
+            Biome::Jungle => 1,
             Biome::Water => 8,
-            Biome::Rock => 10,
+            Biome::Rock => 9,
+            Biome::Tundra => 9,
             Biome::Dirt => 10,
+            Biome::Desert => 10,
         }
+    }
+
+    /// True if this biome blocks NPC movement (impassable).
+    pub fn is_impassable(self) -> bool {
+        matches!(self, Biome::Water | Biome::Rock)
     }
 }
 
@@ -982,10 +996,7 @@ impl WorldGrid {
             return;
         }
         // Skip impassable cells (water, rock)
-        if matches!(
-            self.cells[row * self.width + col].terrain,
-            Biome::Water | Biome::Rock
-        ) {
+        if self.cells[row * self.width + col].terrain.is_impassable() {
             return;
         }
         let idx = row * self.width + col;
@@ -1120,8 +1131,8 @@ impl WorldGrid {
 /// strongly avoids them.
 pub(crate) fn terrain_base_cost(biome: Biome) -> u16 {
     match biome {
-        Biome::Grass | Biome::Dirt => 100,
-        Biome::Forest => 143,
+        Biome::Grass | Biome::Dirt | Biome::Desert => 100,
+        Biome::Forest | Biome::Jungle | Biome::Tundra => 143,
         Biome::Rock => 2500,
         Biome::Water => 5000,
     }

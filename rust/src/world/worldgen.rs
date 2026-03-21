@@ -172,7 +172,7 @@ pub(crate) fn spawn_resource_nodes(
         for col in 0..grid.width {
             let idx = row * grid.width + col;
             let kind = match grid.cells[idx].terrain {
-                Biome::Forest => BuildingKind::TreeNode,
+                Biome::Forest | Biome::Jungle => BuildingKind::TreeNode,
                 Biome::Rock => BuildingKind::RockNode,
                 _ => continue,
             };
@@ -286,10 +286,7 @@ pub fn generate_world(
             let pos = Vec2::new(x, y);
             if needs_pre_terrain {
                 let (gc, gr) = grid.world_to_grid(pos);
-                if grid
-                    .cell(gc, gr)
-                    .is_some_and(|c| matches!(c.terrain, Biome::Water | Biome::Rock))
-                {
+                if grid.cell(gc, gr).is_some_and(|c| c.terrain.is_impassable()) {
                     continue;
                 }
             }
@@ -374,10 +371,7 @@ pub fn generate_world(
         // Not on impassable terrain
         if needs_pre_terrain {
             let (gc, gr) = grid.world_to_grid(pos);
-            if grid
-                .cell(gc, gr)
-                .is_some_and(|c| matches!(c.terrain, Biome::Water | Biome::Rock))
-            {
+            if grid.cell(gc, gr).is_some_and(|c| c.terrain.is_impassable()) {
                 continue;
             }
         }
@@ -985,11 +979,12 @@ fn generate_terrain_maze(grid: &mut WorldGrid) {
 }
 
 /// World Map terrain generation: multi-octave noise with continent seeds,
-/// latitude-driven biomes, ice caps, and natural chokepoints.
+/// latitude-driven biomes (6+ types), ice caps, chokepoints, rivers, and volcanoes.
 /// `seed` drives all random choices; pass `rand::random::<u64>()` at runtime,
 /// or a fixed value in tests for determinism.
 pub(crate) fn generate_terrain_worldmap(grid: &mut WorldGrid, seed: u64) {
     use noise::{NoiseFn, Simplex};
+    use rand::Rng;
     use rand::SeedableRng;
 
     let elevation_noise = Simplex::new((seed & 0xffff_ffff) as u32);
@@ -998,40 +993,58 @@ pub(crate) fn generate_terrain_worldmap(grid: &mut WorldGrid, seed: u64) {
 
     let world_w = grid.width as f64 * grid.cell_size as f64;
     let world_h = grid.height as f64 * grid.cell_size as f64;
+    let gw = grid.width;
+    let gh = grid.height;
 
-    // Tunable parameters (fixed defaults for v1)
     let land_pct: f64 = 0.45; // 45% land
     let ice_cap_pct: f64 = 0.12; // 12% of map height at each pole
-    let continent_count: usize = 3;
 
-    // Generate continent seed points for elevation bias
-    let mut continent_seeds: Vec<(f64, f64)> = Vec::with_capacity(continent_count);
+    // Randomize continent count 3-10 from seed
     let mut seed_rng = rand::rngs::SmallRng::seed_from_u64(seed);
-    use rand::Rng;
-    for _ in 0..continent_count {
-        let cx = seed_rng.random_range(0.15..0.85) * world_w;
-        let cy = seed_rng.random_range(0.2..0.8) * world_h;
-        continent_seeds.push((cx, cy));
+    let continent_count: usize = seed_rng.random_range(3..=10);
+
+    // Place continent seed points, keeping them spread apart (>25% world width)
+    let min_sep_sq = (0.25_f64).powi(2); // normalized coords
+    let mut continent_seeds: Vec<(f64, f64)> = Vec::with_capacity(continent_count);
+    let mut attempts = 0usize;
+    while continent_seeds.len() < continent_count && attempts < 2000 {
+        attempts += 1;
+        let cx_n = seed_rng.random_range(0.1..0.9_f64);
+        let cy_n = seed_rng.random_range(0.2..0.8_f64);
+        let ok = continent_seeds.iter().all(|&(ox, oy)| {
+            let dx = cx_n - ox / world_w;
+            let dy = cy_n - oy / world_h;
+            dx * dx + dy * dy >= min_sep_sq
+        });
+        if ok {
+            continent_seeds.push((cx_n * world_w, cy_n * world_h));
+        }
+    }
+    // Fallback: fill remaining slots without separation constraint
+    while continent_seeds.len() < continent_count {
+        let cx_n = seed_rng.random_range(0.1..0.9_f64);
+        let cy_n = seed_rng.random_range(0.2..0.8_f64);
+        continent_seeds.push((cx_n * world_w, cy_n * world_h));
     }
 
-    // Water threshold: lower = more land. Calibrate so ~land_pct of cells are land.
-    // With continent bias, threshold around 0.38-0.42 gives ~45% land.
     let water_threshold: f64 = 0.5 - land_pct * 0.4;
 
-    for row in 0..grid.height {
-        for col in 0..grid.width {
+    // Pass 1: compute elevation map and assign initial biomes
+    let mut elevations = vec![0.0_f64; gw * gh];
+
+    for row in 0..gh {
+        for col in 0..gw {
             let world_pos = grid.grid_to_world(col, row);
             let wx = world_pos.x as f64;
             let wy = world_pos.y as f64;
-
-            // Latitude: 0.0 at top (north pole), 1.0 at bottom (south pole)
             let lat = wy / world_h;
 
-            // Ice caps at poles
+            // Ice caps at poles: impassable
             if lat < ice_cap_pct || lat > (1.0 - ice_cap_pct) {
-                let cell = &mut grid.cells[row * grid.width + col];
-                cell.terrain = Biome::Rock; // impassable ice
+                let cell = &mut grid.cells[row * gw + col];
+                cell.terrain = Biome::Rock;
                 cell.original_terrain = Biome::Rock;
+                elevations[row * gw + col] = 1.0; // treat as high land for river purposes
                 continue;
             }
 
@@ -1042,68 +1055,320 @@ pub(crate) fn generate_terrain_worldmap(grid: &mut WorldGrid, seed: u64) {
                 + 0.125 * elevation_noise.get([wx * 0.002, wy * 0.002]))
                 / 1.875;
 
-            // Continent seed bias: boost elevation near seed points
+            // Continent seed bias: Gaussian boost near seeds
             let mut continent_boost: f64 = 0.0;
             for &(cx, cy) in &continent_seeds {
                 let dx = (wx - cx) / world_w;
                 let dy = (wy - cy) / world_h;
                 let dist_sq = dx * dx + dy * dy;
-                // Gaussian-ish falloff: strong boost near seeds, fading with distance
-                let radius = 0.15; // ~15% of world size
+                let radius = 0.14;
                 continent_boost += (-dist_sq / (2.0 * radius * radius)).exp();
             }
-            // Normalize: max possible boost is continent_count (all seeds at same point)
             continent_boost = (continent_boost / continent_count as f64).min(1.0);
 
-            // Combine noise + continent bias
-            let e_norm = (e_raw + 1.0) * 0.5; // [0, 1]
-            let elevation = (e_norm * 0.6 + continent_boost * 0.4).clamp(0.0, 1.0);
+            let e_norm = (e_raw + 1.0) * 0.5;
+            let elev = (e_norm * 0.6 + continent_boost * 0.4).clamp(0.0, 1.0);
 
-            // Edge falloff: push map edges toward ocean
+            // Edge falloff: push map borders toward ocean
             let nx = (wx / world_w - 0.5) * 2.0;
             let ny = (wy / world_h - 0.5) * 2.0;
             let edge_dist = 1.0 - (1.0 - nx * nx) * (1.0 - ny * ny);
-            let elevation = (elevation * (1.0 - edge_dist * 0.7)).max(0.0);
+            let elev = (elev * (1.0 - edge_dist * 0.7)).max(0.0);
 
-            // Chokepoint detail: high-frequency noise creates thin land bridges / straits
+            // Chokepoint detail: high-frequency noise carves straits / builds land bridges
             let choke = detail_noise.get([wx * 0.003, wy * 0.003]);
-            // Near the land/water boundary, detail noise can carve straits or extend bridges
-            let elevation = elevation
-                + choke * 0.04 * (1.0 - (elevation - water_threshold).abs().min(0.15) / 0.15);
+            let elev =
+                elev + choke * 0.04 * (1.0 - (elev - water_threshold).abs().min(0.15) / 0.15);
 
-            // Moisture for biome selection within land
+            elevations[row * gw + col] = elev;
+
+            // Moisture for biome variety
             let m = (moisture_noise.get([wx * 0.0012, wy * 0.0012]) + 1.0) * 0.5;
 
-            // Biome assignment
-            let biome = if elevation < water_threshold {
-                Biome::Water
-            } else {
-                // Latitude-driven temperature: 0=polar, 0.5=equator, 1=polar
-                let temp_lat = 1.0 - (lat - 0.5).abs() * 2.0; // 0 at poles, 1 at equator
+            // Latitude-driven temperature: 0 at poles, 1 at equator
+            let temp = 1.0 - (lat - 0.5).abs() * 2.0;
 
-                if temp_lat < 0.2 {
-                    // Near-polar: tundra (rock/barren)
-                    if m > 0.6 { Biome::Forest } else { Biome::Rock }
-                } else if temp_lat < 0.5 {
-                    // Temperate
-                    if m > 0.55 {
-                        Biome::Forest
-                    } else {
-                        Biome::Grass
-                    }
+            // Biome from elevation x temperature x moisture (6+ types)
+            let biome = if elev < water_threshold {
+                Biome::Water
+            } else if temp < 0.15 {
+                // Near-polar: tundra (passable barren)
+                Biome::Tundra
+            } else if temp < 0.3 {
+                // Sub-polar / boreal
+                if m > 0.5 {
+                    Biome::Forest // taiga
                 } else {
-                    // Equatorial / warm
-                    if m > 0.65 {
-                        Biome::Forest
-                    } else {
-                        Biome::Grass
-                    }
+                    Biome::Tundra
+                }
+            } else if temp < 0.6 {
+                // Temperate
+                if m > 0.6 {
+                    Biome::Forest
+                } else if m > 0.3 {
+                    Biome::Grass
+                } else {
+                    Biome::Desert
+                }
+            } else {
+                // Tropical / equatorial
+                if m > 0.55 {
+                    Biome::Jungle
+                } else if m > 0.25 {
+                    Biome::Grass
+                } else {
+                    Biome::Desert
                 }
             };
 
-            let cell = &mut grid.cells[row * grid.width + col];
+            let cell = &mut grid.cells[row * gw + col];
             cell.terrain = biome;
             cell.original_terrain = biome;
+        }
+    }
+
+    // Pass 2: carve rivers -- one per continent seed, flowing downhill to coast
+    carve_rivers(grid, &elevations, &continent_seeds, water_threshold, seed);
+
+    // Pass 3: place volcanoes -- Rock clusters at high-elevation coast-adjacent cells
+    place_volcanoes(grid, &elevations, water_threshold, seed);
+}
+
+/// Carve rivers from high-elevation land toward the coast.
+/// For each continent seed, find the highest non-water cell within its influence radius,
+/// then do a steepest-descent walk to the ocean, marking cells as Water.
+/// Only marks cells that are currently land (not already Water/Rock).
+fn carve_rivers(
+    grid: &mut WorldGrid,
+    elevations: &[f64],
+    continent_seeds: &[(f64, f64)],
+    water_threshold: f64,
+    seed: u64,
+) {
+    use rand::{Rng, SeedableRng};
+    let mut rng = rand::rngs::SmallRng::seed_from_u64(seed.wrapping_add(0xdead_beef));
+
+    let gw = grid.width;
+    let gh = grid.height;
+
+    // For each continent, find a high-elevation source point near the seed
+    for (ci, &(sx, sy)) in continent_seeds.iter().enumerate() {
+        // Search radius in grid cells: ~20% of grid width
+        let search_radius = (gw.min(gh) as f64 * 0.20) as i32;
+        let sc = (sx / grid.cell_size as f64) as i32;
+        let sr = (sy / grid.cell_size as f64) as i32;
+
+        // Find highest land cell within search radius
+        let mut best_elev = water_threshold + 0.05; // must be clearly above water
+        let mut best_col = -1i32;
+        let mut best_row = -1i32;
+
+        for dr in -search_radius..=search_radius {
+            for dc in -search_radius..=search_radius {
+                let col = sc + dc;
+                let row = sr + dr;
+                if col < 0 || row < 0 || col >= gw as i32 || row >= gh as i32 {
+                    continue;
+                }
+                let idx = row as usize * gw + col as usize;
+                let e = elevations[idx];
+                if e > best_elev && !grid.cells[idx].terrain.is_impassable() {
+                    best_elev = e;
+                    best_col = col;
+                    best_row = row;
+                }
+            }
+        }
+
+        if best_col < 0 {
+            continue; // no valid source on this continent
+        }
+
+        // Steepest-descent walk to ocean -- max steps to prevent infinite loops
+        let max_steps = gw + gh;
+        let mut cur_col = best_col as usize;
+        let mut cur_row = best_row as usize;
+
+        for (river_len, _) in (0..max_steps).enumerate() {
+            let idx = cur_row * gw + cur_col;
+
+            // Reached water: done
+            if grid.cells[idx].terrain == Biome::Water {
+                break;
+            }
+
+            // Mark current cell as river (Water)
+            if river_len > 2 && grid.cells[idx].terrain != Biome::Rock {
+                // Keep first 2 cells dry so source isn't immediately ocean
+                grid.cells[idx].terrain = Biome::Water;
+                grid.cells[idx].original_terrain = Biome::Water;
+            }
+
+            // Find the lowest neighbor (steepest descent)
+            let mut best_neighbor_elev = elevations[idx];
+            let mut best_nc = cur_col as i32;
+            let mut best_nr = cur_row as i32;
+
+            // Check 4-directional neighbors (no diagonals for cleaner rivers)
+            let dirs: [(i32, i32); 4] = [(0, -1), (0, 1), (-1, 0), (1, 0)];
+            for (dc, dr) in dirs {
+                let nc = cur_col as i32 + dc;
+                let nr = cur_row as i32 + dr;
+                if nc < 0 || nr < 0 || nc >= gw as i32 || nr >= gh as i32 {
+                    continue;
+                }
+                let ne = elevations[nr as usize * gw + nc as usize];
+                if ne < best_neighbor_elev {
+                    best_neighbor_elev = ne;
+                    best_nc = nc;
+                    best_nr = nr;
+                }
+            }
+
+            if best_nc == cur_col as i32 && best_nr == cur_row as i32 {
+                // Stuck in a depression: add a small random nudge to escape
+                let dirs_shuffle: [(i32, i32); 4] = {
+                    let mut d = [(0i32, -1i32), (0, 1), (-1, 0), (1, 0)];
+                    // Simple Fisher-Yates with rng
+                    for i in (1..4).rev() {
+                        let j = rng.random_range(0..=i);
+                        d.swap(i, j);
+                    }
+                    d
+                };
+                let mut moved = false;
+                for (dc, dr) in dirs_shuffle {
+                    let nc = cur_col as i32 + dc;
+                    let nr = cur_row as i32 + dr;
+                    if nc >= 0 && nr >= 0 && nc < gw as i32 && nr < gh as i32 {
+                        let nidx = nr as usize * gw + nc as usize;
+                        if grid.cells[nidx].terrain != Biome::Rock {
+                            cur_col = nc as usize;
+                            cur_row = nr as usize;
+                            moved = true;
+                            break;
+                        }
+                    }
+                }
+                if !moved {
+                    break; // totally stuck, abandon river
+                }
+            } else {
+                cur_col = best_nc as usize;
+                cur_row = best_nr as usize;
+            }
+        }
+
+        let _ = ci; // suppress unused warning
+    }
+}
+
+/// Place volcano Rock clusters at high-elevation land cells near continent edges.
+/// "Near coast" = land cells adjacent to ocean within ~3 cells of the water boundary.
+/// Volcanic zones get a ring of fertile Rock around their center.
+fn place_volcanoes(grid: &mut WorldGrid, elevations: &[f64], water_threshold: f64, seed: u64) {
+    use rand::{Rng, SeedableRng};
+    let mut rng = rand::rngs::SmallRng::seed_from_u64(seed.wrapping_add(0xcafe_babe));
+
+    let gw = grid.width;
+    let gh = grid.height;
+
+    // Collect candidate cells: high elevation + near coast (within 4 cells of Water)
+    let near_coast_dist = 5i32;
+    let mut candidates: Vec<(usize, usize, f64)> = Vec::new();
+
+    for row in 2..(gh - 2) {
+        for col in 2..(gw - 2) {
+            let idx = row * gw + col;
+            let elev = elevations[idx];
+            if elev < water_threshold + 0.12 {
+                continue; // only high-elevation land
+            }
+            if grid.cells[idx].terrain.is_impassable() {
+                continue;
+            }
+
+            // Check if any cell within near_coast_dist is Water
+            let mut near_water = false;
+            'outer: for dr in -near_coast_dist..=near_coast_dist {
+                for dc in -near_coast_dist..=near_coast_dist {
+                    let nc = col as i32 + dc;
+                    let nr = row as i32 + dr;
+                    if nc < 0 || nr < 0 || nc >= gw as i32 || nr >= gh as i32 {
+                        continue;
+                    }
+                    if grid.cells[nr as usize * gw + nc as usize].terrain == Biome::Water {
+                        near_water = true;
+                        break 'outer;
+                    }
+                }
+            }
+            if near_water {
+                candidates.push((col, row, elev));
+            }
+        }
+    }
+
+    if candidates.is_empty() {
+        return;
+    }
+
+    // Sort by elevation descending -- volcanoes prefer the highest coastal peaks
+    candidates.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Place volcanoes with minimum spacing (15 grid cells apart)
+    let min_volcano_spacing = 15i32;
+    let max_volcanoes = (gw * gh / 5000).clamp(2, 8);
+    let mut placed: Vec<(i32, i32)> = Vec::new();
+
+    for &(vc, vr, _) in &candidates {
+        if placed.len() >= max_volcanoes {
+            break;
+        }
+        let too_close = placed.iter().any(|&(pc, pr)| {
+            let dc = vc as i32 - pc;
+            let dr = vr as i32 - pr;
+            dc * dc + dr * dr < min_volcano_spacing * min_volcano_spacing
+        });
+        if too_close {
+            continue;
+        }
+
+        // Skip if randomly rejected (only ~60% of candidates become volcanoes)
+        if rng.random_range(0..10) < 4 {
+            continue;
+        }
+
+        placed.push((vc as i32, vr as i32));
+
+        // Stamp a small Rock cluster (volcano cone): radius 1 core, radius 3 ring
+        let cone_radius = 1i32;
+        let ring_radius = 3i32;
+
+        for dr in -ring_radius..=ring_radius {
+            for dc in -ring_radius..=ring_radius {
+                let nc = vc as i32 + dc;
+                let nr = vr as i32 + dr;
+                if nc < 0 || nr < 0 || nc >= gw as i32 || nr >= gh as i32 {
+                    continue;
+                }
+                let dist_sq = dc * dc + dr * dr;
+                let cell = &mut grid.cells[nr as usize * gw + nc as usize];
+                if cell.terrain == Biome::Water {
+                    continue; // never overwrite ocean
+                }
+                if dist_sq <= cone_radius * cone_radius {
+                    // Rock cone at center
+                    cell.terrain = Biome::Rock;
+                    cell.original_terrain = Biome::Rock;
+                } else {
+                    // Fertile ring: Grass (rich volcanic soil)
+                    if cell.terrain != Biome::Rock {
+                        cell.terrain = Biome::Grass;
+                        cell.original_terrain = Biome::Grass;
+                    }
+                }
+            }
         }
     }
 }

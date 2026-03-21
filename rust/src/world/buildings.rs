@@ -288,7 +288,7 @@ pub fn place_building(
         if entity_map.has_building_at(gc as i32, gr as i32) {
             return Err("cell already has a building");
         }
-        if matches!(cell.terrain, Biome::Water | Biome::Rock) {
+        if cell.terrain.is_impassable() {
             return Err("cannot build on water or rock");
         }
         if kind.is_road() && cell.terrain == Biome::Forest {

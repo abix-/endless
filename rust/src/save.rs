@@ -773,6 +773,9 @@ fn biome_to_u8(b: world::Biome) -> u8 {
         world::Biome::Water => 2,
         world::Biome::Rock => 3,
         world::Biome::Dirt => 4,
+        world::Biome::Desert => 5,
+        world::Biome::Tundra => 6,
+        world::Biome::Jungle => 7,
     }
 }
 
@@ -782,6 +785,9 @@ fn u8_to_biome(v: u8) -> world::Biome {
         2 => world::Biome::Water,
         3 => world::Biome::Rock,
         4 => world::Biome::Dirt,
+        5 => world::Biome::Desert,
+        6 => world::Biome::Tundra,
+        7 => world::Biome::Jungle,
         _ => world::Biome::Grass,
     }
 }

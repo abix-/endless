@@ -1396,9 +1396,12 @@ fn populate_tile_flags(
                 flags[idx] = match cell.terrain {
                     crate::world::Biome::Grass => crate::constants::TILE_GRASS,
                     crate::world::Biome::Forest => crate::constants::TILE_FOREST,
+                    crate::world::Biome::Jungle => crate::constants::TILE_FOREST,
                     crate::world::Biome::Water => crate::constants::TILE_WATER,
                     crate::world::Biome::Rock => crate::constants::TILE_ROCK,
                     crate::world::Biome::Dirt => crate::constants::TILE_DIRT,
+                    crate::world::Biome::Desert => crate::constants::TILE_GRASS,
+                    crate::world::Biome::Tundra => crate::constants::TILE_GRASS,
                 };
             }
         }
