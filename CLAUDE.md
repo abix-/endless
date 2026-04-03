@@ -20,7 +20,7 @@ Real-time kingdom builder: pure Bevy 0.18 ECS with GPU compute for 50K NPCs via 
 
 ## Rules
 
-- **NEVER use the Agent tool or Task tool.** Do all work manually with direct tool calls (Read, Edit, Grep, Glob, Bash). No subagents, no Explore agents, no Plan agents — nothing. If you think an agent would help, ask first — the answer will be no.
+- **NEVER use the Agent tool or Task tool.** Do all work manually with direct tool calls (Read, Edit, Grep, Glob, PowerShell). No subagents, no Explore agents, no Plan agents. If you think an agent would help, ask first. The answer will be no.
 
 ## Rust LSP (rust-analyzer)
 
@@ -35,5 +35,5 @@ LSP tool is available for Rust. Use it for type-aware queries instead of grep wh
 ## Lessons Learned
 
 - **PowerShell error suppression**: Don't use `2>$null` - it causes parse errors. Use `-ErrorAction SilentlyContinue` instead.
-- **Bash paths on Windows**: Use `/c/code/claude-4` not `C:\code\claude-4` in bash commands. Windows backslash paths fail in the bash shell.
-- **Working directory**: This is `C:\code\claude-4` -- the claude-4 agent's own repo copy. Never cd to or reference `C:\code\endless` (that's the main copy for other agents/human).
+- **Shell**: ALWAYS use PowerShell for shell commands. NEVER use the Bash tool. Use native Windows paths (`C:\code\claude-4`).
+- **Working directory**: This is `C:\code\claude-4`, the claude-4 agent's own repo copy. Never cd to or reference `C:\code\endless` because that's the main copy for other agents and the human.
