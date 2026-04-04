@@ -1,5 +1,7 @@
 # Endless
 
+**Status: alpha -- actively developed, playable but incomplete**
+
 Build a town under siege. Farm, fortify, raise an army, conquer
 
 Every NPC has a job, a home, and a personality. Set policies, build walls, lay roads, organize squads
