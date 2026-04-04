@@ -20,7 +20,8 @@ See [completed.md](completed.md) for the player-facing feature snapshot and [his
 Stages 1-20, 23, 32: [x] Complete (see [history.md](history.md))
 
 **Current Sprint (priority order):**
-1. Stage 26 resources -- finish woodcutter/quarrier harvest cycle, mixed building costs, iron
+1. Stop double-computing arrivals -- GPU `npc_compute.wgsl` already writes `arrivals[i]` (binding 5); read it back alongside positions instead of recomputing distance on CPU in `gpu_position_readback`. Pure work subtraction. See [assembly.md](assembly.md) research findings.
+2. Stage 26 resources -- finish woodcutter/quarrier harvest cycle, mixed building costs, iron
 
 **Stage 17: Combat Depth** — [x] Complete (see [history.md](history.md), [behavior.md](behavior.md))
 

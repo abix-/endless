@@ -620,12 +620,48 @@ Each submodule exports:
 
 **Conclusion:** SIMD two-pass is wrong for ECS-iteration-bound systems. The SIMD module and benchmarks are retained as infrastructure. Better targets are pure-data operations on contiguous arrays (accumulate_path_cost, SoA candidate scans) where ECS overhead is not a factor.
 
-## Beyond SIMD: bigger wins for 50k+ scale
+## Research Findings (2026-04-04)
 
-For truly transformative performance at 50k+, these architectural changes would outperform CPU SIMD:
+External research confirms the experiment results: CPU SIMD is a dead end for ECS-iteration-bound systems. Smarter engineers solved these problems differently.
 
-- **GPU flow fields:** Replace CPU A* with GPU-computed flow field. Single compute dispatch generates a direction vector per grid cell. NPCs sample the field instead of individual pathfinding. Eliminates the per-NPC A* bottleneck entirely.
-- **GPU decision offload:** Move simple decision logic (energy check, arrival detection, activity transition) to compute shaders. Reduces CPU-GPU sync overhead.
-- **Batch ECS operations:** Bevy's `ParallelCommands` or custom archetype storage for NPC state. The ECS iteration cost often exceeds the arithmetic cost at 50k scale.
+### GPU already computes arrivals -- CPU double-computes
 
-SIMD is a good incremental win. GPU architecture changes are the path to 100k+.
+`npc_compute.wgsl` binding 5 (`arrivals`) tracks per-entity settled state on GPU. The `gpu_position_readback` system then re-computes arrival via CPU distance check. Priority 1 tried to SIMD-optimize a computation that already happens on GPU. The fix is reading the GPU arrivals buffer back instead of recomputing. See roadmap.md for tracking.
+
+### `accumulate_path_cost` is dead code
+
+Defined at `pathfinding.rs:123` but never called. Priority 2 has no real workload to optimize. Wire it in first before considering SIMD.
+
+### Priority 3 (A* neighbors) is likely autovectorized
+
+LLVM will vectorize 4 bounds checks on its own. Verify with `cargo asm` before writing manual intrinsics. A bucket queue for the A* priority queue would help more than SIMD on neighbor expansion.
+
+### Priority 4 break-even is narrow
+
+AoS-to-SoA conversion costs ~200us/frame. The scan itself is ~20-30us scalar at 50k candidates. Need 7+ NPCs scanning per frame to break even. Only viable in large battles with many retreating enemies.
+
+### `_mm256_cmpgt_epi16` is signed (Priority 2 bug)
+
+The proposed AVX2 `accumulate_row` uses `_mm256_cmpgt_epi16` which is signed comparison. u16 cost values above 32767 would be treated as negative, skipping valid cells. If costs can exceed 32767, need XOR bias with 0x8000 before comparing.
+
+### Key external references
+
+- [NativeFlowField](https://github.com/kingstone426/NativeFlowField) -- GPU compute flow fields, multi-pass distance propagation, async readback (Unity DOTS, algorithm is engine-agnostic)
+- [nullprogram GPU pathfinding](https://nullprogram.com/blog/2014/06/22/) -- breadth-first flood on GPU, O(grid) shared across all agents
+- [Dreaming381 "Your ECS Probably Still Sucks"](https://gist.github.com/Dreaming381/89d65f81b9b430ffead443a2d430defc) -- if bottleneck is ECS iteration, SIMD on arithmetic is wasted; restructure storage or move off CPU
+- [Bevy batched ECS query discussion](https://github.com/bevyengine/bevy/issues/1990) -- AoSoA layout wins benchmarks but Bevy doesn't expose it yet
+- [bevy_hanabi indirect dispatch](https://deepwiki.com/djeedai/bevy_hanabi) -- zero CPU-GPU sync via GPU-computed dispatch counts
+
+## Revised priorities for 50k+ scale
+
+SIMD is deprioritized. These architectural changes are the path to 100k+, ordered by impact:
+
+1. **Stop double-computing arrivals.** Read GPU `arrivals` buffer back alongside positions. Delete the CPU distance check entirely. Pure subtraction of work. See roadmap.md.
+
+2. **GPU flow fields.** Replace per-NPC CPU A* with GPU-computed flow field. Single compute dispatch floods the grid from each destination. NPCs sample a direction vector instead of following waypoints. Shared across all NPCs heading to the same target. Existing spatial grid WGSL infrastructure can be extended.
+
+3. **GPU decision offload.** Move simple state transitions (energy threshold, arrival->idle) to compute shaders as GPU-side flags. CPU reads back as-needed rather than per-frame.
+
+4. **Reduced readback architecture.** Follow bevy_hanabi's pattern: GPU computes its own dispatch counts via indirect dispatch, draws via indirect draw. Zero CPU-GPU sync points except initial allocation.
+
+SIMD module (`simd.rs`) is retained as infrastructure. Viable future targets are pure-data operations on contiguous arrays where ECS overhead is not a factor.
