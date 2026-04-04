@@ -630,3 +630,43 @@ Frame-capped at 2000 deaths/frame (DeathQueue). Mass deaths spread over multiple
 
 Combined 50K NPC-scaled (14 systems): 5.2ms (32.3% of 16ms budget)
 Combined 50K all measured (realistic 2K buildings): 6.3ms (39.4% of 16ms budget)
+
+## SIMD Experiment: gpu_position_readback (2026-04-04)
+
+First SIMD optimization attempt in Endless. AVX2 batch arrival check via `core::arch::x86_64`.
+
+### Standalone SIMD microbench (batch_arrival_check)
+
+| Count | Scalar | AVX2 (dispatch) | Speedup |
+|-------|--------|-----------------|---------|
+| 1k | 1.04us | 0.61us | 1.7x |
+| 10k | 10.2us | 6.0us | 1.7x |
+| 50k | 50.9us | 32.4us | 1.6x |
+| 100k | 105.5us | 64.3us | 1.6x |
+
+AVX2 processes 4 entities per iteration (8 f32s per 256-bit register). ~1.6x speedup on the raw distance computation, consistent across scales.
+
+### Full system benchmark (gpu_position_readback)
+
+| Config | Baseline (scalar) | Two-pass SIMD | Delta |
+|--------|------------------|---------------|-------|
+| 50k NPCs, tiny grid | 159us | 301us | +89% REGRESSION |
+| 50k NPCs + 50k buildings, 1000x1000 | 160us | 315us | +97% REGRESSION |
+
+### Why it regressed
+
+The two-pass approach (SIMD batch on flat arrays, then ECS apply) failed because:
+
+1. **Slot namespace is 200k** (MAX_ENTITIES = 100k NPCs + 100k buildings). The positions buffer is pre-allocated to full size. SIMD batch must process all 200k slots to cover non-contiguous NPC GpuSlot values (NPCs get slots AFTER buildings from the LIFO pool). Processing 200k slots costs ~128us alone.
+
+2. **Arithmetic was never the bottleneck.** The original 160us is dominated by ECS iteration overhead (archetype matching, component access, cache misses from scattered Position/NpcFlags writes). The distance check (subtract, multiply, add, compare) is ~10-20us of that 160us. Saving half of 15us but adding 128us of batch overhead is a net loss.
+
+3. **Per-frame Vec allocation.** `vec![0u8; 200_000]` adds allocation + memset overhead every frame.
+
+### Decision
+
+Reverted to original single-pass. The SIMD module (`simd.rs`) is retained with benchmarks and tests as infrastructure for future SIMD work on better candidates (accumulate_path_cost, combat target scan).
+
+### Lesson
+
+For ECS-iteration-bound systems, SIMD on the arithmetic doesn't help. The bottleneck is memory access patterns, not computation. Better targets for SIMD are pure-data systems that operate on contiguous arrays without ECS overhead (e.g., pathfinding cost grid operations, SoA candidate scans).

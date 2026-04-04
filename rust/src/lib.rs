@@ -21,6 +21,7 @@ pub mod render;
 pub mod resources;
 pub mod save;
 pub mod settings;
+pub mod simd;
 pub mod systemparams;
 pub mod systems;
 pub mod tests;

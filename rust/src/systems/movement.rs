@@ -20,9 +20,15 @@ use crate::systems::pathfinding::{
 };
 use crate::world::WorldGrid;
 
-/// Read positions from GPU readback buffer → ECS Position + arrival detection.
+/// Read positions from GPU readback buffer -> ECS Position + arrival detection.
 /// GPU is movement authority; ECS Position is read-model synced here.
 /// Query-first: iterates ECS archetypes, not HashMap.
+///
+/// NOTE: Two-pass SIMD was benchmarked and regressed (+80%) because the bottleneck
+/// is ECS iteration and scattered memory writes, not the distance arithmetic.
+/// The SIMD batch_arrival_check processes 200k slots (full buffer) but only 50k are
+/// live NPCs. The batch overhead exceeded the arithmetic savings. See docs/assembly.md
+/// and bench results in docs/performance.md for details.
 pub fn gpu_position_readback(
     gpu_state: Res<GpuReadState>,
     buffer_writes: Res<EntityGpuState>,
@@ -58,7 +64,7 @@ pub fn gpu_position_readback(
                 let dx = gpu_x - goal_x;
                 let dy = gpu_y - goal_y;
                 let dist_sq = dx * dx + dy * dy;
-                // Relaxed threshold for intermediate waypoints — prevents pile-up
+                // Relaxed threshold for intermediate waypoints -- prevents pile-up
                 // when boid separation pushes NPCs away from shared A* waypoints
                 let is_intermediate = path.current + 1 < path.waypoints.len();
                 let thresh_sq = if is_intermediate {

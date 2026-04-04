@@ -2317,6 +2317,143 @@ fn bench_clear_peaks(c: &mut Criterion) {
     group.finish();
 }
 
+// ── Realistic-scale GPU readback benchmark (SIMD baseline) ───────
+
+/// Populate realistic scale: 50k NPCs + 50k buildings + 1000x1000 grid.
+/// Exercises cache pressure from shared slot namespace and varied arrival states.
+fn populate_realistic_scale(app: &mut App) {
+    // 50k buildings first (they allocate GPU slots from the shared pool)
+    populate_building_instances(app, 50_000);
+
+    // 50k NPCs (also allocates slots; populate_npcs sets up grid + town)
+    populate_npcs(app, 50_000);
+
+    // Override grid to 1000x1000 for realistic map scale
+    {
+        let world = app.world_mut();
+        let mut grid = world.resource_mut::<world::WorldGrid>();
+        grid.width = 1000;
+        grid.height = 1000;
+        grid.cell_size = 32.0;
+        grid.cells = vec![world::WorldCell::default(); 1_000_000];
+    }
+
+    // Spread NPCs across full world and set varied targets:
+    // 70% near (will arrive), 20% far (won't arrive), 10% hidden
+    {
+        let world = app.world_mut();
+        let mut gpu_read = world.resource_mut::<GpuReadState>();
+        for i in 0..50_000usize {
+            let x = (i % 500) as f32 * 64.0;
+            let y = (i / 500) as f32 * 64.0;
+            if i * 2 + 1 < gpu_read.positions.len() {
+                if i % 10 == 0 {
+                    // 10% hidden
+                    gpu_read.positions[i * 2] = -9999.0;
+                    gpu_read.positions[i * 2 + 1] = -9999.0;
+                } else {
+                    gpu_read.positions[i * 2] = x;
+                    gpu_read.positions[i * 2 + 1] = y;
+                }
+            }
+        }
+    }
+    {
+        let world = app.world_mut();
+        let mut gpu_state = world.resource_mut::<EntityGpuState>();
+        for i in 0..50_000usize {
+            let x = (i % 500) as f32 * 64.0;
+            let y = (i / 500) as f32 * 64.0;
+            if i * 2 + 1 < gpu_state.targets.len() {
+                if i % 10 == 0 {
+                    // hidden NPCs -- target doesn't matter
+                    gpu_state.targets[i * 2] = 0.0;
+                    gpu_state.targets[i * 2 + 1] = 0.0;
+                } else if i % 5 == 0 {
+                    // 20% far target (won't trigger arrival)
+                    gpu_state.targets[i * 2] = x + 500.0;
+                    gpu_state.targets[i * 2 + 1] = y + 500.0;
+                } else {
+                    // 70% near target (dist ~5.8px, within 20px threshold)
+                    gpu_state.targets[i * 2] = x + 5.0;
+                    gpu_state.targets[i * 2 + 1] = y + 3.0;
+                }
+            }
+        }
+    }
+}
+
+fn bench_simd_arrival_check(c: &mut Criterion) {
+    let mut group = c.benchmark_group("simd_arrival_check");
+    for &count in &[1_000usize, 10_000, 50_000, 100_000] {
+        // Varied data: 10% hidden, 20% far, 70% near (matches production mix)
+        let positions: Vec<f32> = (0..count * 2)
+            .map(|i| {
+                let entity = i / 2;
+                if entity % 10 == 0 {
+                    -9999.0
+                } else {
+                    (entity % 500) as f32 * 64.0 + (i % 2) as f32 * 100.0
+                }
+            })
+            .collect();
+        let targets: Vec<f32> = (0..count * 2)
+            .map(|i| {
+                let entity = i / 2;
+                if entity % 10 == 0 {
+                    0.0
+                } else if entity % 5 == 0 {
+                    (entity % 500) as f32 * 64.0 + 500.0
+                } else {
+                    (entity % 500) as f32 * 64.0 + (i % 2) as f32 * 100.0 + 5.0
+                }
+            })
+            .collect();
+        let threshold_sq = 400.0f32;
+
+        group.bench_with_input(
+            BenchmarkId::new("dispatch", count),
+            &count,
+            |b, &count| {
+                b.iter(|| {
+                    endless::simd::batch_arrival_check(&positions, &targets, threshold_sq, count)
+                });
+            },
+        );
+        group.bench_with_input(
+            BenchmarkId::new("scalar", count),
+            &count,
+            |b, &count| {
+                b.iter(|| {
+                    endless::simd::batch_arrival_check_scalar(
+                        &positions,
+                        &targets,
+                        threshold_sq,
+                        count,
+                    )
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+fn bench_gpu_readback_realistic(c: &mut Criterion) {
+    let mut group = c.benchmark_group("gpu_readback_realistic");
+    group.sample_size(50);
+    group.bench_function("50k_npcs_50k_buildings", |b| {
+        let mut app = build_bench_app();
+        spawn_bench_town(&mut app);
+        populate_realistic_scale(&mut app);
+        // warm up
+        let _ = app.world_mut().run_system_once(gpu_position_readback);
+        b.iter(|| {
+            let _ = app.world_mut().run_system_once(gpu_position_readback);
+        });
+    });
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_decision_system,
@@ -2351,6 +2488,8 @@ criterion_group!(
     bench_ai_road_scoring,
     bench_mason_decision_building_scale,
     bench_clear_peaks,
+    bench_gpu_readback_realistic,
+    bench_simd_arrival_check,
 );
 criterion_main!(benches);
 
