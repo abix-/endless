@@ -28,6 +28,7 @@ Two worked examples in this document:
 - [CLI-driven alternative path (retoc)](#cli-driven-alternative-path-retoc)
 - [Worked example 1: All-in-One Player Tweaks](#worked-example-1-all-in-one-player-tweaks)
 - [Worked example 2: Bigger Backpack (broken)](#worked-example-2-bigger-backpack-broken)
+- [Mod interaction analysis: AIO + Bigger Backpack](#mod-interaction-analysis-aio--bigger-backpack)
 - [Caveats](#caveats)
 
 ## Mod locations on this machine
@@ -412,16 +413,55 @@ Vanilla path of the overridden asset (from `retoc list --path`):
 ../../../Augusta/Content/Blueprints/Player/BP_SurvivalPlayerCharacter.uasset
 ```
 
-**Conclusion:** the entire All-in-One Player Tweaks v13.1.6 mod is a
-single overridden Blueprint, `BP_SurvivalPlayerCharacter`, which is
-the player character class. All gameplay tweaks (movement, stamina,
-hunger/thirst, damage, etc.) are encoded as property defaults on the
-CDO of this Blueprint, plus any patched EventGraph/Function bytecode
-inside the `.uexp` payload.
+### What it actually does
 
-To enumerate exact property values, the next step is to decode the
-`.uexp` -- either via FModel GUI on `mod_legacy.pak`, or via
-UAssetGUI for byte-level property tables.
+A string-dump of the `.uasset`+`.uexp` reveals the mod is **not** a
+stat tweaker -- it is a **cheat / unlock mod** that runs gameplay-tag
+commands at spawn time. The Blueprint contains command literals like:
+
+```
+AddBuggyUpgradePoints 44
+AddPartyUpgradePoints 30
+AddPersonalUpgradePoints 47
+UnlockAllPerks
+UnlockAllRecipes Default
+UnlockAllTechTrees
+UnlockSCAB
+UnlockBuggyUpgrade BuggyHealing
+UnlockBuggyUpgrade BuggyHealthPoolOnRevive
+UnlockBuggyUpgrade BuggyInventorySize
+UnlockBuggyUpgrade BuggyMaxHealth
+UnlockBuggyUpgrade BuggyMaxStamina
+UnlockItemStackUpgrade StackSize.Ammo
+UnlockItemStackUpgrade StackSize.Food
+UnlockItemStackUpgrade StackSize.Resource
+UnlockPlayerUpgrade Health
+UnlockPlayerUpgrade healing
+UnlockPlayerUpgrade perks
+UnlockPlayerUpgrade stamina
+UnlockPlayerUpgrade thirst
+```
+
+These look like console-style cheat commands fed through the
+`UseGameplayCheatCommand`-style API. Plus toast strings:
+`"Recipes unlocked."`, `"Tech trees unlocked."` -- the mod surfaces
+on-screen confirmations.
+
+**Important terminology note:** in Grounded 2, **"Buggy" = mountable
+creature** (Ladybug, Orb Weaver, etc. -- the ride-able insects with
+their own saddlebag inventories), NOT the player's backpack.
+Confirmed by vanilla asset paths like `CA_MountBuggy`,
+`AS_LadyBug_Buggy_ShootIdle`, `Table_Items_Ammo_LadybugBuggy`,
+`MI_BLD_BuggyBuff_A`. So `UnlockBuggyUpgrade BuggyInventorySize`
+unlocks **the mount creature's saddlebag** upgrade, not the player's
+backpack.
+
+**Conclusion:** AIO Player Tweaks unlocks the entire tech tree,
+recipes, perks, and gives upgrade points across player + party + buggy
+upgrade trees. It does NOT directly modify the player's backpack
+capacity. The closest backpack-related thing it does is grant stack
+size upgrades (`StackSize.Ammo|Food|Resource`), which let single
+slots hold more items.
 
 ## Worked example 2: Bigger Backpack (broken)
 
@@ -483,57 +523,118 @@ hash matches, so the override works. The stripped-down path is
 cosmetic -- likely a side-effect of how the modder packaged the
 files. Not the cause of the breakage.
 
+### What it actually changes
+
+A string-dump of all three modded widgets shows that out of every
+grid-dimension property name UE supports (NumColumns, NumRows,
+MaxRows, MaxColumns, RowCount, ColumnCount, GridSize, SlotCount,
+CellSize, etc.), exactly **one** appears: `MaxRows`.
+
+Plus references to relevant inventory-side concepts:
+
+```
+/Game/UI/UI_InventoryGrid                  <- generic grid widget class
+/Game/UI/Container/UI_Container_BackpackSide
+/Game/UI/Container/UI_Container_ContainerSide
+PlayerInventoryGrid                        <- the bound grid instance
+MountInventoryComponent                    <- mount creature inventory
+GetContainerInventory
+GetInventoryFromBackpackCategory
+ContainerSpaceForItem
+InventorySpaceForItem
+ClearInventoryGrid
+bRefreshOnOwnerInventoryChange
+```
+
+So the mod's strategy is:
+
+1. Override the three container widgets (`UI_Container_BackpackSide`,
+   `UI_Container_ContainerSide`, `UI_ContainerInterface`) so they
+   embed an `UI_InventoryGrid` instance with a higher `MaxRows`
+   value than vanilla.
+2. Hope that the embedded grid's `MaxRows` actually drives the
+   number of slots rendered (and that the inventory data side
+   allows that many items to be stored).
+
 ### Hypothesis -- where the bug actually is
 
-Since the override resolves but the mod doesn't take effect, the bug
-must be **inside the widget content itself**, not in container
-plumbing. Three plausible failure modes:
+Since the override resolves correctly but the mod has no effect, the
+bug is **inside the widget logic**, not in container plumbing. Most
+likely:
 
-1. **Stale parent class.** The mod was packaged Jan 28 against a
-   prior build's `UContainerWidget` C++ parent. If the parent class
-   added/removed virtual functions or properties, the modded
-   widget's serialised property block no longer matches the new
-   parent and either fails to deserialise (silent), or deserialises
-   into a partial/zeroed state.
-2. **Stale child-widget references.** UMG widgets reference child
-   sub-widgets by FName + path. If the modder hand-edited the child
-   layout to add slots, but the underlying inventory grid is now
-   driven by a different child container class, the modded layout
-   loads but the slot count comes from a code-side query that
-   ignores the widget hierarchy.
-3. **Capacity is data-driven, not widget-driven.** Most likely
-   explanation: backpack size is stored in a DataAsset/struct on
-   the player or item-component side, not in the widget. The
-   widget renders whatever count the data side gives it. A
-   "widget-only" mod can paint extra slots in the layout, but the
-   game's inventory component caps usable slots at the data-side
-   value, so the extras render empty or the patched layout gets
-   re-laid-out at runtime back to vanilla dimensions.
-
-The third hypothesis fits the "mod stops working entirely" symptom
-better than the first two -- a partial layout failure usually
-shows visual artefacts, while "no effect at all" suggests the data
-side is overriding what the widget tries to display.
+- **Capacity is data-driven, not widget-driven.** The current
+  Grounded 2 build apparently sources the rendered slot count from
+  the player's `MountInventoryComponent` / inventory-data side,
+  not from the widget's `MaxRows`. The widget property the modder
+  bumped is now cosmetic at best -- when the grid binds, it uses
+  the data-side value and ignores the layout hint.
+- This fits the symptom "mod loads but does nothing in the
+  current build" better than a serialisation failure (which would
+  cause crashes or visible UI corruption).
 
 ### Next step to confirm
 
-Decode `UI_Container_BackpackSide.uexp` and compare grid-dimension
-properties (`NumSlotsX`, `NumSlotsY`, `MaxItems`, or whatever the
-widget calls them) against vanilla. If they DO differ, the mod's
-intent is widget-side and the broken behaviour is data-side
-clamping. If they DO NOT differ, the mod must be modifying an
-EventGraph hook that has changed signature in the new build.
+Decode `UI_Container_BackpackSide.uexp` and read the actual
+`MaxRows` value the mod sets. If it is, e.g., `12` while vanilla
+sets `6`, the mod's intent is confirmed -- and the failure is purely
+on the game's read-path no longer honouring it. Use FModel on
+`bb_legacy.pak` (parser set to UE 5.4) and right-click each widget
+-> Export Properties (.json), then compare against vanilla widget
+JSON dumps.
 
-Verification commands (next session):
+## Mod interaction analysis: AIO + Bigger Backpack
 
-```bash
-# Use FModel on bb_legacy.pak with parser set to UE 5.4.
-# Right-click each widget -> Export Properties (.json).
-# Compare against vanilla widget JSON dumps.
-#
-# Or use UAssetGUI CLI:
-#   UAssetGUI.exe tojson UI_Container_BackpackSide.uasset out.json --version VER_UE5_4
-```
+The original question was whether All-in-One Player Tweaks and Bigger
+Backpack interact (cooperate, conflict, or depend on each other).
+
+**Answer: they don't interact.** They modify entirely different
+inventory systems via independent code paths. A summary:
+
+| Mod                  | Touches                              | Mechanism                              | Player backpack? |
+|----------------------|--------------------------------------|----------------------------------------|------------------|
+| AIO Player Tweaks    | `BP_SurvivalPlayerCharacter` (CDO)   | Runs gameplay-tag cheat commands       | No (indirect: stack-size upgrades let slots hold more) |
+| Bigger Backpack      | 3 UMG container widgets              | Sets `MaxRows` higher on embedded grid | Yes (visual layout) |
+
+Asset overlap: **none.** AIO touches one Blueprint
+(`/Augusta/Content/Blueprints/Player/BP_SurvivalPlayerCharacter`).
+BB touches three widgets in `/Augusta/Content/UI/Container/`. No
+shared file, no shared chunk ID, no shared property name in any
+shared parent class.
+
+System overlap:
+
+- AIO unlocks `UnlockBuggyUpgrade BuggyInventorySize` -- this is
+  the **mount creature's saddlebag** upgrade (Buggy = ride-able
+  insect mount in Grounded 2), not the player backpack.
+- AIO unlocks `UnlockItemStackUpgrade StackSize.{Ammo,Food,Resource}`
+  -- these increase how many items fit per slot, indirectly
+  expanding effective backpack capacity, but do not change the
+  number of slots rendered.
+- BB tries to expand the **rendered slot count** on the player's
+  backpack widget. This is independent of any cheat unlocks.
+
+Conflict potential: **none.** Different files, different runtime
+systems. They can be installed together without issue. AIO at load
+priority 12, BB at 54 -- both load, neither shadows the other's
+asset because they don't overlap.
+
+Why one works and the other doesn't:
+
+- AIO works because it pushes commands through the gameplay-tag
+  system, which is API-stable across game versions (the game treats
+  these as console-equivalent calls).
+- BB doesn't work because it relies on a property (`MaxRows` on a
+  child widget binding) that the current game build apparently no
+  longer reads from the widget side -- inventory dimensions are
+  now sourced data-side (likely the inventory component on the
+  player character / mount).
+
+Practical implication: **AIO Player Tweaks is the path to a
+bigger effective backpack** in the current build, via stack-size
+upgrades letting each slot hold many more items. Bigger Backpack
+needs to be repackaged against a more recent game build (or a new
+mod authored that targets the data-side `Augusta` inventory
+component) for the visual slot count to grow.
 
 ## Caveats
 
