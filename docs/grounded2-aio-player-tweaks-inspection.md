@@ -1003,15 +1003,24 @@ Q4 (hard caps) is non-static and parked until in-game test.
 ## SDK research findings (definitive technical path)
 
 This section captures findings from analysing the Dumper-7 SDK
-generated against Grounded 2 v0.4.0.1 -- effectively a complete
-class-and-property dump of the entire game's UE reflection data,
-including every Blueprint and C++ class signature.
+generated against Grounded 2 v0.4.0.2 (matches our installed game
+exactly) -- effectively a complete class-and-property dump of the
+entire game's UE reflection data, including every Blueprint and
+C++ class signature.
+
+Cross-checked against the older `sdk-0.4.0.1` release: the
+inventory class (`UInventoryComponent`), the property
+(`DefaultMaxSize` at offset `0x01E0`), and the player's three
+inventory components on `ASurvivalCharacter`
+(`0x13B8`/`0x13C0`/`0x13C8`) are bit-identical between 0.4.0.1
+and 0.4.0.2. Patch was content/balance, not engine-level
+restructuring.
 
 ### How we got the SDK (no game modification required)
 
 ```bash
 mkdir -p /c/Tools/work/sdk
-gh release download sdk-0.4.0.1 \
+gh release download sdk \
   --repo x0reaxeax/Grounded2Minimal \
   --pattern '*.zip' \
   --dir /c/Tools/work/sdk
