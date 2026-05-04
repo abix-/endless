@@ -4,6 +4,18 @@ How to fully decompile and understand Grounded 2 (Unreal Engine 5) mods
 so that you can list every change a mod makes, identify the exact assets
 it touches, and diagnose why a previously-working mod is now broken.
 
+> **This is generic UE5 modding.** Grounded 2 ships standard UE 5.4
+> cooked content with no encryption, no custom container format, and
+> no special anti-mod measures. Every technique, tool, and workflow
+> in this document works against any other UE 5.x game (Hogwarts
+> Legacy, Stalker 2, Lies of P, Black Myth Wukong, Abiotic Factor,
+> Crash Team Rumble, etc.). The only game-specific knowledge needed
+> is which asset paths and property names control the behaviour you
+> want to change. Once you have that, the cooking / packing pipeline
+> is the same. So a "Standard UE5 modding guide" applies directly --
+> see [External resources](#external-resources--modding-ecosystem-references)
+> for the canonical ones.
+
 Two worked examples in this document:
 
 1. **All-in-One Player Tweaks v13.1.6** -- a working mod that overrides
@@ -29,6 +41,7 @@ Two worked examples in this document:
 - [Worked example 1: All-in-One Player Tweaks](#worked-example-1-all-in-one-player-tweaks)
 - [Worked example 2: Bigger Backpack (broken)](#worked-example-2-bigger-backpack-broken)
 - [Mod interaction analysis: AIO + Bigger Backpack](#mod-interaction-analysis-aio--bigger-backpack)
+- [Building our own backpack mod -- requirements](#building-our-own-backpack-mod----requirements)
 - [Caveats](#caveats)
 
 ## Mod locations on this machine
@@ -584,59 +597,407 @@ JSON dumps.
 
 ## Mod interaction analysis: AIO + Bigger Backpack
 
-The original question was whether All-in-One Player Tweaks and Bigger
-Backpack interact (cooperate, conflict, or depend on each other).
+**Initial conclusion (revised):** an earlier draft of this document
+claimed these mods do not interact. **That was wrong.** Web research
+against the mod authors' own documentation on Nexus confirms they
+**must be paired**:
 
-**Answer: they don't interact.** They modify entirely different
-inventory systems via independent code paths. A summary:
+> "The actual change to backpack size is on the Player Tweaks side,
+> and you need any version with 60 slots backpack (in Optional
+> Files). The Bigger Backpack mod only changes the UI widget for
+> containers to let you seamlessly manage all 60 slots when
+> interacting with containers."
+> -- summary of the Bigger Backpack Nexus comments thread.
 
-| Mod                  | Touches                              | Mechanism                              | Player backpack? |
-|----------------------|--------------------------------------|----------------------------------------|------------------|
-| AIO Player Tweaks    | `BP_SurvivalPlayerCharacter` (CDO)   | Runs gameplay-tag cheat commands       | No (indirect: stack-size upgrades let slots hold more) |
-| Bigger Backpack      | 3 UMG container widgets              | Sets `MaxRows` higher on embedded grid | Yes (visual layout) |
+So the correct division of labour is:
 
-Asset overlap: **none.** AIO touches one Blueprint
-(`/Augusta/Content/Blueprints/Player/BP_SurvivalPlayerCharacter`).
-BB touches three widgets in `/Augusta/Content/UI/Container/`. No
-shared file, no shared chunk ID, no shared property name in any
-shared parent class.
+| Mod                  | Touches                              | Mechanism                                 | Role |
+|----------------------|--------------------------------------|-------------------------------------------|------|
+| Player Tweaks (60-slot variant) | `BP_SurvivalPlayerCharacter`  | Sets data-side capacity on the inventory component to 60 | Enables 60-slot storage |
+| Bigger Backpack      | 3 UMG container widgets              | Sets widget layout (`MaxRows`) so all 60 slots are visible | Renders the extra slots |
 
-System overlap:
+Why the v13.1.6 AIO variant we have on disk does NOT include the
+60-slot bump:
 
-- AIO unlocks `UnlockBuggyUpgrade BuggyInventorySize` -- this is
-  the **mount creature's saddlebag** upgrade (Buggy = ride-able
-  insect mount in Grounded 2), not the player backpack.
-- AIO unlocks `UnlockItemStackUpgrade StackSize.{Ammo,Food,Resource}`
-  -- these increase how many items fit per slot, indirectly
-  expanding effective backpack capacity, but do not change the
-  number of slots rendered.
-- BB tries to expand the **rendered slot count** on the player's
-  backpack widget. This is independent of any cheat unlocks.
+- The AIO build's string dump shows only cheat-tag commands (recipe
+  unlocks, perk unlocks, point grants, mount/buggy inventory size
+  unlock). It contains no literal `60` or `MaxInventorySize` ASCII
+  marker that we could grep for. Numeric property defaults in
+  `.uexp` are stored as raw bytes, not strings, so a grep miss is
+  inconclusive -- but combined with the Nexus author's note that
+  the 60-slot version is in **Optional Files** (a separate
+  download), the inference is that the standard AIO this user
+  downloaded is the cheats-only variant without the slot bump.
 
-Conflict potential: **none.** Different files, different runtime
-systems. They can be installed together without issue. AIO at load
-priority 12, BB at 54 -- both load, neither shadows the other's
-asset because they don't overlap.
+Why Bigger Backpack appears "broken" for this user:
 
-Why one works and the other doesn't:
+- The user has AIO Player Tweaks v13.1.6 installed (the
+  cheats-only variant) but **not** the 60-slot Player Tweaks
+  variant. Therefore the data-side capacity is still vanilla 40,
+  and Bigger Backpack's UI expansion has only 40 actual slots to
+  bind to -- the visible result is "no extra slots", which the
+  user reports as "doesn't work".
 
-- AIO works because it pushes commands through the gameplay-tag
-  system, which is API-stable across game versions (the game treats
-  these as console-equivalent calls).
-- BB doesn't work because it relies on a property (`MaxRows` on a
-  child widget binding) that the current game build apparently no
-  longer reads from the widget side -- inventory dimensions are
-  now sourced data-side (likely the inventory component on the
-  player character / mount).
+Conflict surface (now relevant): both AIO and the 60-slot Player
+Tweaks variant override the same asset
+(`BP_SurvivalPlayerCharacter`). Per Nexus comments,
+"AIO_Player_Tweaks conflicts with Bigger Backpack when used
+together with Convenience Tweaks, AIO Player Tweaks Plus 60
+slots backpack..." This means **only one Player Tweaks variant
+can be installed at a time**. The user must choose between:
 
-Practical implication: **AIO Player Tweaks is the path to a
-bigger effective backpack** in the current build, via stack-size
-upgrades letting each slot hold many more items. Bigger Backpack
-needs to be repackaged against a more recent game build (or a new
-mod authored that targets the data-side `Augusta` inventory
-component) for the visual slot count to grow.
+- AIO (current install) -- cheats and unlocks but no slot bump
+- AIO + 60-slot variant (a combined "Plus 60 slots" optional
+  file from the Player Tweaks page on Nexus) -- both cheats AND
+  slot bump
+- 60-slot-only variant -- slot bump only, no cheats
 
-## Caveats
+## Recommended path forward (low effort)
+
+**Easiest fix for "I want a bigger backpack":**
+
+1. Go to the Player Tweaks Nexus page
+   (https://www.nexusmods.com/grounded2/mods/13).
+2. Open the **Optional Files** tab.
+3. Download the variant that contains "60 slots" (likely titled
+   "AIO Player Tweaks Plus 60 slots backpack" or "Player Tweaks 60
+   slots only").
+4. Replace the current `AIOPlayerTweaks_00012_P.{pak,ucas,utoc}`
+   in Vortex with this variant.
+5. Keep the existing Bigger Backpack install
+   (`ContainerWidgetTweaks_00054_P`) as-is -- it will start
+   functioning the moment the data-side capacity is in place.
+
+This is a **"download the right file"** fix, not a build-our-own-mod
+job. No DIY engineering required.
+
+## DIY backpack mod (if no acceptable variant exists)
+
+If the Optional Files on Nexus don't have a usable 60-slot
+variant for the current Grounded 2 build (`++Augusta+release-0.4.0.2-CL-2673661`),
+or the user wants a different slot count, here is how we'd
+build one ourselves.
+
+### What the 60-slot Player Tweaks variant must do
+
+Based on the Nexus author note, the variant overrides
+`BP_SurvivalPlayerCharacter` and increases a numeric property
+that controls the player's backpack capacity. The property is
+NOT a string we can grep for (numeric properties live in the
+`.uexp` as raw bytes), so identifying it precisely requires a
+proper UAsset deserialiser.
+
+### Tooling needed for DIY mod authoring
+
+| Tool | Role | Install |
+|------|------|---------|
+| **UAssetGUI** | Edit cooked .uasset properties; export to/from JSON | github.com/atenfyr/UAssetGUI |
+| **FModel** (already installed) | Identify property names + values via Save Properties (.json) | C:\Tools\FModel\ |
+| **Mappings file** | Required for UE 5.3+ to decode property names | Generated via Dumper-7 against the running game, OR community-published .usmap |
+| **retoc** (already installed) | Repack legacy assets back to Zen IoStore for the final mod pak | C:\Tools\retoc\ |
+| **repak** (already installed) | Build the legacy `.pak` shell | C:\Tools\repak\ |
+
+The mappings file is the missing piece. UE 5.3+ stripped property
+names from cooked assets to save space; without an external
+mappings file, FModel/UAssetGUI can decode structure but property
+names show as `Property_<hash>`. Either:
+
+- Generate one with **Dumper-7** against the live game process
+  (https://github.com/Encryqed/Dumper-7), which dumps SDK + mappings.
+- Find a community-published `.usmap` for Grounded 2 (the modding
+  Discord likely has one).
+
+### Build workflow
+
+```bash
+# 1. Extract vanilla BP_SurvivalPlayerCharacter from the base pak.
+#    Find chunk ID:
+/c/Tools/retoc/retoc.exe list --path \
+  /c/Games/Steam/steamapps/common/Grounded2/Augusta/Content/Paks/Augusta-WinGRTS.utoc \
+  | grep -i "BP_SurvivalPlayerCharacter\.uasset"
+# Extract via FModel (Browse to the path, right-click Save Package)
+# OR via retoc unpack (whole-pak operation -- slow).
+
+# 2. Open in UAssetGUI with Mappings file loaded, parser at UE 5.4.
+#    Find the inventory component's capacity default. Likely candidates:
+#    - InventorySize, MaxInventorySize, MaxItems, NumSlots, Capacity
+#    - On a child component named PlayerInventoryComponent or similar
+#    - May be a struct field, e.g., InventoryConfig.MaxSize
+
+# 3. Edit the value to 60 (or whatever target).
+
+# 4. Save the modified .uasset. Save .uexp alongside it.
+
+# 5. Build a legacy pak with the modified files.
+/c/Tools/repak/repak.exe pack ./our_mod_files ./our_mod_legacy.pak
+
+# 6. Convert the legacy pak to Zen IoStore for the actual mod.
+/c/Tools/retoc/retoc.exe to-zen ./our_mod_legacy.pak our_mod.utoc \
+                                 --version UE5_4
+
+# 7. Name the output with a load-priority suffix higher than other
+#    Player Tweaks variants but distinct, e.g.
+#    BackpackOnly_00099_P.{pak,ucas,utoc}.
+
+# 8. Drop into Vortex / Paks dir, launch game, verify in-game.
+```
+
+### Risks / unknowns for DIY path
+
+- **Property name discovery without mappings is hard.** If we
+  can't get a `.usmap`, we cannot reliably identify which
+  numeric default to edit. UAssetGUI on a no-mappings install
+  shows raw byte offsets but not human-readable property names.
+- **Save compatibility.** A save made with capacity-60 may not
+  load cleanly if the mod is later uninstalled (the extra items
+  may be lost or corrupted). Player should empty extra slots
+  before uninstall.
+- **Multiplayer.** Server-authoritative inventory caps may
+  reject client-side capacity bumps. The mod's effect could be
+  silently overridden in multiplayer sessions where the host
+  doesn't have the same mod.
+
+### When DIY makes sense
+
+- The Optional Files variant exists but conflicts with another
+  mod the user wants to keep.
+- The user wants a non-standard slot count (e.g. 50, 80, 100).
+- The 60-slot variant breaks against a future Grounded 2 patch
+  and has not been updated, but the property location is known.
+
+For the immediate "I want a bigger backpack" need, **the
+recommended path forward** above (download the 60-slot variant)
+is the right answer. DIY is the fallback.
+
+## External resources / modding ecosystem references
+
+No official Obsidian / Grounded 2 modding SDK or documentation
+exists. The community ecosystem covers the gap. As of May 2026:
+
+### Authoritative mod pages on Nexus
+
+- **Player Tweaks** (`mods/13`) -- the primary "AIO + capacity"
+  mod family. Optional Files contain the 60-slot data-side bump.
+  https://www.nexusmods.com/grounded2/mods/13
+- **Bigger Backpack** (`mods/37`) -- UI-side widget mod. Pairs
+  with Player Tweaks. https://www.nexusmods.com/grounded2/mods/37
+- **Better Storages** (`mods/25`) -- world chest/storage capacity.
+  Different system from player backpack.
+  https://www.nexusmods.com/grounded2/mods/25
+- **MoreInventory_Buggy** (`mods/102`) -- mount saddlebag size.
+  Different system from player backpack.
+  https://www.nexusmods.com/grounded2/mods/102
+- **Bigger Stacks** (`mods/8`) -- per-item stack size up to x999.
+  https://www.nexusmods.com/grounded2/mods/8
+- **Grounded 2 Command List** (`mods/19`) -- comprehensive console
+  command reference. Useful for finding gameplay tags.
+  https://www.nexusmods.com/grounded2/mods/19
+
+### General UE5 modding tooling
+
+- **UAssetGUI** (atenfyr/UAssetGUI) -- the canonical cooked-uasset
+  editor. https://github.com/atenfyr/UAssetGUI
+- **Unofficial Modding Guide** -- UAssetGUI walkthrough, applicable
+  to any UE 5.x cooked-asset target.
+  https://unofficial-modding-guide.com/posts/uassetmodding/
+  Plus an introduction at https://unofficial-modding-guide.com/posts/thebasics/
+- **UE Modding Tools databank** (Buckminsterfullerene02/UE-Modding-Tools)
+  -- comprehensive list of reverse-engineering and modding tools
+  spanning multiple UE games.
+  https://github.com/Buckminsterfullerene02/UE-Modding-Tools
+- **Buckminster's UE Modding dev-guide** -- a comprehensive
+  introduction including pak handling and patching.
+  https://buckminsterfullerene02.github.io/dev-guide/Basis/DealingWithPaks.html
+  https://buckminsterfullerene02.github.io/dev-guide/Basis/PakPatching.html
+- **Dmgvol/UE_Modding** -- UE4/5 modding guides repo, includes
+  IoStore packing instructions. Applies to any UE5 game.
+  https://github.com/Dmgvol/UE_Modding
+  https://github.com/Dmgvol/UE_Modding/blob/main/BasicModding/IoStorePacking.md
+- **Dumper-7** (Encryqed/Dumper-7) -- generates SDK + mappings file
+  by attaching to a running UE game. Required for property-name
+  resolution on stripped-cooked assets in UE 5.3+.
+  https://github.com/Encryqed/Dumper-7
+- **UnrealReZen** (rm-NoobInCoding/UnrealReZen) -- alternative
+  Zen packer if `retoc to-zen` does not work for the target game.
+  https://github.com/rm-NoobInCoding/UnrealReZen
+- **mod.io UGC Best Practices** (Unreal-specific) -- Epic's
+  ecosystem partner; useful for understanding what cooked-asset
+  patching is officially expected to look like.
+  https://docs.mod.io/unreal/ugc-best-practices
+
+### Grounded-2-specific reverse engineering
+
+- **Grounded2Minimal** (x0reaxeax/Grounded2Minimal) -- DLL-based
+  cheat/mod/debug tool. Likely contains class names, struct
+  layouts, and offset tables relevant to the inventory component.
+  Source available in repo.
+  https://github.com/x0reaxeax/Grounded2Minimal
+- **Grounded Wiki** (Storage & Utilities entry) -- canonical for
+  in-game crate/chest capacity values, but does NOT cover player
+  backpack mechanics in depth.
+  https://grounded.wiki.gg/wiki/Storage_%26_Utilities_(Grounded_2)
+
+### Information NOT available
+
+- No official Obsidian modding SDK or API documentation.
+- No `.usmap` mappings file shipped with the game; must be
+  generated via Dumper-7 or sourced from the modding community.
+- No public C++ headers or Unreal Engine project file from
+  Obsidian for Grounded 2.
+- The Grounded Wiki does not cover player backpack mechanics in
+  modder-relevant detail; player-side numbers are scattered
+  across forum threads and mod descriptions.
+
+## Building our own backpack mod -- requirements
+
+Bigger Backpack (the only existing backpack mod for Grounded 2) is
+broken in the current build and uses a strategy (`MaxRows` on a UMG
+widget) that the game no longer respects. Rather than try to fix
+their approach, we author a fresh mod against the current build
+using only the structural information we have on disk.
+
+### Functional requirements
+
+1. **More usable inventory slots** for the player's backpack.
+   "Usable" means items can be placed into them, persist across
+   save/load, and survive combat/ragdoll/death-respawn.
+2. **Visual rendering matches storage.** If we increase storage to
+   N slots, all N must render in the inventory UI -- no invisible
+   slots, no truncated rows.
+3. **Stable across game patches** as long as the underlying
+   inventory component class signature does not change. (We accept
+   that a major engine/inventory rewrite would break the mod;
+   minor patches should not.)
+4. **Coexists with All-in-One Player Tweaks** at load priority 12.
+   Our mod must use a different load priority and must not
+   override the same asset (`BP_SurvivalPlayerCharacter`).
+5. **Reversible**: uninstalling the mod must not corrupt saves.
+   This is the standard property of UE asset overrides -- but
+   becomes a risk if we increase storage and the player fills the
+   extra slots before uninstalling.
+6. **Single-pak deployment**: one `.pak` + `.ucas` + `.utoc` set,
+   no installer, drop into Vortex like any other mod.
+
+### Non-goals
+
+- Not increasing mount/buggy saddlebag capacity (the AIO mod's
+  `UnlockBuggyUpgrade BuggyInventorySize` already covers that).
+- Not increasing stack sizes (AIO's
+  `UnlockItemStackUpgrade StackSize.{Ammo,Food,Resource}` already
+  covers that).
+- Not adding new equipment slots, hotbar slots, or quickbar slots.
+- Not modifying chest/crate container capacity.
+
+### Constraints (verified)
+
+- Game ships UE 5.4+ format, unencrypted, single base pak. Standard
+  IoStore. No tooling barriers.
+- Asset overrides are by chunk-ID hash of the package name; modding
+  resolves at the file level without further effort.
+- Two relevant property bindings observed in the existing widgets:
+  `MountInventoryComponent` (the inventory component class the
+  player widget binds to -- shared between mounts and the player)
+  and `MaxRows` (a widget-side hint that the current build appears
+  to ignore).
+- The string `MountInventoryComponent` appearing inside the
+  player's container widgets is the major clue: the player's
+  backpack and the mount's saddlebag use **the same inventory
+  component class** (`UMountInventoryComponent` or similar).
+  Therefore, the property that controls capacity likely lives on
+  that component or on a per-instance default that the player
+  Blueprint sets.
+
+### Open research questions (must answer before authoring)
+
+These answers are obtainable from the vanilla pak we already have
+on disk -- no further tooling needed beyond `retoc list --path`,
+`retoc to-legacy` for targeted assets, and `repak unpack` plus the
+string-dump script `C:\Tools\work\dump_strings.py`.
+
+1. **Where is the player's backpack capacity set?**
+   - Is it a property default on `BP_SurvivalPlayerCharacter`'s
+     inventory subcomponent?
+   - Is it on the `UMountInventoryComponent` C++ class default
+     (which we cannot mod) or on a Blueprint subclass like
+     `BP_PlayerInventoryComponent` (which we can)?
+   - Is it driven by a DataTable / DataAsset (e.g.
+     `DT_PlayerInventoryConfig`)?
+   - Is it driven by a player-upgrade gameplay tag the way mount
+     capacity is driven by `BuggyInventorySize`?
+
+2. **What is the property called?** Candidates suggested by the
+   widget bindings: `MaxRows`, `NumRows`, `MaxItems`, `Capacity`,
+   `SlotCount`, `MaxInventorySize`. Need to find the actual name.
+
+3. **Is the upgrade-tag system involved?**
+   - Is there a `PlayerBackpackSize` or `BackpackCapacity` tag
+     analogous to `BuggyInventorySize`?
+   - If yes, does AIO Player Tweaks already unlock it? (Looking at
+     AIO's tag list -- `UnlockPlayerUpgrade Health|healing|perks|stamina|thirst`
+     -- there is no backpack/inventory entry, so AIO does NOT
+     unlock player backpack capacity even if a tag exists.)
+   - If a tag exists and unlocks levels, what level value does
+     vanilla cap at? Can we add a tag-unlock that grants a
+     higher-than-vanilla level?
+
+4. **Are there hard caps elsewhere?** Even if we find the property,
+   the game might cap requested capacity at a hardcoded ceiling
+   in C++. We can't verify that statically -- only by testing.
+
+### Approach options (to be picked after research)
+
+| Option | Strategy                                                        | Pros                                | Cons                                       |
+|--------|-----------------------------------------------------------------|-------------------------------------|--------------------------------------------|
+| A      | Override the player's inventory component default property     | Direct, version-stable              | Only works if the property is Blueprint-side, not C++ |
+| B      | Override a DataTable/DataAsset that defines per-character caps | Survives Blueprint structure changes | Only works if such a data asset exists    |
+| C      | Add a gameplay-tag unlock that pushes player upgrade level     | Same mechanism AIO uses (proven)    | Only works if a player-side capacity tag exists |
+| D      | Override `BP_SurvivalPlayerCharacter` (replaces AIO)           | Maximum control                     | Conflicts with AIO at the same asset path  |
+| E      | Hybrid: data-side capacity bump + widget MaxRows raise         | Belt-and-braces                     | More files to maintain, potential conflict surface |
+
+We will not pick an option until research questions 1-3 are
+answered. Tentative ranking based on what we already know: C > A
+> B > D > E. C is most consistent with the proven mechanism
+(gameplay-tag commands) and avoids overriding any vanilla file at
+all -- maximum forward compatibility.
+
+### Acceptance criteria
+
+The mod is considered "working" when, with the mod installed and
+the game launched against
+`++Augusta+release-0.4.0.2-CL-2673661`:
+
+- The player's backpack UI renders strictly more slots than vanilla.
+- Items can be placed into the new slots and survive a full
+  save -> quit -> reload cycle.
+- AIO Player Tweaks remains functional (cheats still applied,
+  toasts still shown).
+- No load-time errors in the game's log.
+- Uninstalling the mod (with empty extra slots) does not corrupt
+  the save.
+
+### Research execution plan
+
+Each step uses tools already installed at `C:\Tools\`:
+
+```bash
+# Q1, Q2: find inventory capacity properties in vanilla.
+/c/Tools/retoc/retoc.exe list --path \
+  /c/Games/Steam/steamapps/common/Grounded2/Augusta/Content/Paks/Augusta-WinGRTS.utoc \
+  > /c/Tools/work/vanilla_paths.txt
+
+grep -iE 'inventory|backpack|capacity' /c/Tools/work/vanilla_paths.txt | head -40
+grep -iE '/Game/.*Player.*Inventory|InventoryComponent' /c/Tools/work/vanilla_paths.txt
+grep -iE 'DT_.*Inventory|DA_.*Inventory|/Upgrade' /c/Tools/work/vanilla_paths.txt
+
+# Q3: find upgrade tag definitions.
+grep -iE 'PlayerUpgrade|UpgradeTag|GameplayTag.*Inventory' /c/Tools/work/vanilla_paths.txt
+
+# Then targeted extraction of the most promising assets via
+# `retoc get <chunk_id>` (single-chunk extraction) and
+# string-dump for property names.
+```
+
+Q4 (hard caps) is non-static and parked until in-game test.
 
 - Grounded 2 ships UE 5.4+ (TOC version `ReplaceIoChunkHashWithIoHash`,
   container header `SoftPackageReferencesOffset`). Set FModel's parser
