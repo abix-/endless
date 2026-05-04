@@ -1,18 +1,45 @@
-# Grounded 2 -- All-in-One Player Tweaks Mod Inspection
+# Grounded 2 -- Mod Inspection (Worked Examples)
 
-How to fully decompile and understand a Grounded 2 (Unreal Engine 5) mod
-so that you can list every change it makes, with vanilla-vs-modded values
-for each.
+How to fully decompile and understand Grounded 2 (Unreal Engine 5) mods
+so that you can list every change a mod makes, identify the exact assets
+it touches, and diagnose why a previously-working mod is now broken.
 
-Worked example: `All-in-One Player Tweaks v13.1.6` distributed via Vortex,
-installed at:
+Two worked examples in this document:
+
+1. **All-in-One Player Tweaks v13.1.6** -- a working mod that overrides
+   one Blueprint (`BP_SurvivalPlayerCharacter`).
+2. **Bigger Backpack v37.1.2** (`ContainerWidgetTweaks_00054_P`) --
+   a mod that no longer works in the current Grounded 2 build.
+   Used here to show how to root-cause a broken mod.
+
+## Table of contents
+
+- [TL;DR](#tldr)
+- [File format primer](#file-format-primer)
+- [Phase 1 -- Tooling](#phase-1----tooling)
+- [Phase 2 -- Inventory (what files does it touch?)](#phase-2----inventory-what-files-does-it-touch)
+- [Phase 3 -- Bulk extract](#phase-3----bulk-extract)
+- [Phase 4 -- Vanilla baseline](#phase-4----vanilla-baseline)
+- [Phase 5 -- Diff](#phase-5----diff)
+- [Phase 6 -- Interpret each asset type](#phase-6----interpret-each-asset-type)
+- [Phase 7 -- Sanity checks](#phase-7----sanity-checks)
+- [Phase 8 (optional) -- Behavioural verification](#phase-8-optional----behavioural-verification)
+- [Quick reference -- minimum-effort path](#quick-reference----minimum-effort-path)
+- [CLI-driven alternative path (retoc)](#cli-driven-alternative-path-retoc)
+- [Worked example 1: All-in-One Player Tweaks](#worked-example-1-all-in-one-player-tweaks)
+- [Worked example 2: Bigger Backpack (broken)](#worked-example-2-bigger-backpack-broken)
+- [Caveats](#caveats)
+
+## Mod locations on this machine
 
 ```
-C:\Users\Abix\AppData\Roaming\Vortex\grounded2\mods\All-in-One Player Tweaks-13-1-6-1776519922\
-  Augusta\Content\Paks\
-    AIOPlayerTweaks_00012_P.pak
-    AIOPlayerTweaks_00012_P.ucas
-    AIOPlayerTweaks_00012_P.utoc
+C:\Users\Abix\AppData\Roaming\Vortex\grounded2\mods\
+  All-in-One Player Tweaks-13-1-6-1776519922\
+    Augusta\Content\Paks\
+      AIOPlayerTweaks_00012_P.{pak,ucas,utoc}
+  Bigger Backpack-37-1-2-1769621822\
+    Augusta\Content\Paks\
+      ContainerWidgetTweaks_00054_P.{pak,ucas,utoc}
 ```
 
 ## TL;DR
@@ -32,7 +59,7 @@ UAsset binaries containing data tables, curves, and Blueprint default
 property blocks. Tools surface those as JSON; differences are the mod's
 entire feature set.
 
-## Verified findings (2026-05-04 session)
+## Game-level findings (2026-05-04 session)
 
 Probed with `retoc info` against the actual files on disk:
 
@@ -42,11 +69,8 @@ Probed with `retoc info` against the actual files on disk:
   UE engine version is inferred from container format flags below).
 - **Base game paks (Augusta\Content\Paks\):** one base pak
   `Augusta-WinGRTS.{pak,ucas,utoc}` plus `global.{ucas,utoc}`. No
-  patch paks shipped. Single monolithic loadout.
-- **Mod pak inventory:** `chunks: 2, packages: 1` -- the entire
-  All-in-One Player Tweaks mod overrides exactly **one game asset**.
-  The two chunks are 1 ExportBundleData (the cooked asset) and 1
-  ContainerHeader (manifest).
+  patch paks shipped. Single monolithic loadout. The base pak is
+  **32 GB** containing **61,449 packages** / 100,196 chunks.
 - **No AES encryption.** Both the global and mod containers report
   `container_flags: 0x0` / `Indexed` -- the Encrypted flag is absent.
   No AES key needed; retoc/FModel can read everything directly.
@@ -56,8 +80,9 @@ Probed with `retoc info` against the actual files on disk:
 - **Mod mount point:** `../../../` (standard UE relative-from-Paks
   mount; resolves into the game's `/Game/...` virtual path).
 
-Implication: the workflow simplifies dramatically. There is one asset
-to identify, one diff to compute, and no encryption barrier.
+Implication: clean baseline. No encryption barrier; standard IoStore
+format; single base pak makes targeted lookups fast via
+`retoc list --path | grep`.
 
 ## File format primer
 
@@ -357,7 +382,7 @@ Instead, list the vanilla index and pull only the chunks you need:
 #     to navigate to the path and Save Package.)
 ```
 
-## Worked example results (2026-05-04)
+## Worked example 1: All-in-One Player Tweaks
 
 After running the CLI workflow against
 `AIOPlayerTweaks_00012_P.{pak,ucas,utoc}`:
@@ -397,6 +422,118 @@ inside the `.uexp` payload.
 To enumerate exact property values, the next step is to decode the
 `.uexp` -- either via FModel GUI on `mod_legacy.pak`, or via
 UAssetGUI for byte-level property tables.
+
+## Worked example 2: Bigger Backpack (broken)
+
+Goal: identify why "Bigger Backpack" v37.1.2 is no longer working in
+the current Grounded 2 build (game version
+`++Augusta+release-0.4.0.2-CL-2673661`).
+
+### Recon
+
+The Vortex display name is "Bigger Backpack" but the internal pak is
+`ContainerWidgetTweaks_00054_P` -- a **UI** widget tweak, not an
+inventory data-model tweak. That is the first major clue.
+
+```
+$ retoc info ContainerWidgetTweaks_00054_P.utoc
+  container_flags: EIoContainerFlags(Indexed)
+  version: ReplaceIoChunkHashWithIoHash
+  mount_point: ../../../
+  chunks: 4
+  packages: 3
+  container_header_version: Some(SoftPackageReferencesOffset)
+
+$ retoc list --path ContainerWidgetTweaks_00054_P.utoc
+  9776fd889ac44a7c00000001 ExportBundleData ../../../UI_Container_BackpackSide.uasset
+  87682ba793f6f4e100000001 ExportBundleData ../../../UI_Container_ContainerSide.uasset
+  3c31abdd0e09f75d00000001 ExportBundleData ../../../UI_ContainerInterface.uasset
+  9c6034ae72115fce00000006 ContainerHeader  -
+```
+
+Three overridden UMG widgets:
+
+| Widget                          | Schema (.uasset) | Payload (.uexp) |
+|---------------------------------|------------------|-----------------|
+| `UI_Container_BackpackSide`     | 15.8 KB          | 13.6 KB         |
+| `UI_Container_ContainerSide`    | 26.7 KB          | 33.8 KB         |
+| `UI_ContainerInterface`         | 79.7 KB          | 145.4 KB        |
+
+### Vanilla cross-reference (chunk-ID match)
+
+Looking up the same chunk IDs in vanilla `Augusta-WinGRTS.utoc`:
+
+```
+$ retoc list --path Augusta-WinGRTS.utoc | grep -iE 'UI_Container_(BackpackSide|ContainerSide)|UI_ContainerInterface'
+  9776fd889ac44a7c00000001 ../../../Augusta/Content/UI/Container/UI_Container_BackpackSide.uasset
+  87682ba793f6f4e100000001 ../../../Augusta/Content/UI/Container/UI_Container_ContainerSide.uasset
+  3c31abdd0e09f75d00000001 ../../../Augusta/Content/UI/Container/UI_ContainerInterface.uasset
+```
+
+**Chunk IDs match exactly.** All three widgets still exist at the
+expected vanilla paths with identical chunk IDs. So the override
+**resolves correctly** -- the asset itself is being loaded at runtime.
+
+### Path discrepancy in mod TOC (cosmetic, not the bug)
+
+The mod's TOC shows paths as `../../../UI_Container_BackpackSide.uasset`
+(missing the `Augusta/Content/UI/Container/` directory tree), but
+IoStore lookup is by chunk ID hash, not directory path. The chunk-ID
+hash matches, so the override works. The stripped-down path is
+cosmetic -- likely a side-effect of how the modder packaged the
+files. Not the cause of the breakage.
+
+### Hypothesis -- where the bug actually is
+
+Since the override resolves but the mod doesn't take effect, the bug
+must be **inside the widget content itself**, not in container
+plumbing. Three plausible failure modes:
+
+1. **Stale parent class.** The mod was packaged Jan 28 against a
+   prior build's `UContainerWidget` C++ parent. If the parent class
+   added/removed virtual functions or properties, the modded
+   widget's serialised property block no longer matches the new
+   parent and either fails to deserialise (silent), or deserialises
+   into a partial/zeroed state.
+2. **Stale child-widget references.** UMG widgets reference child
+   sub-widgets by FName + path. If the modder hand-edited the child
+   layout to add slots, but the underlying inventory grid is now
+   driven by a different child container class, the modded layout
+   loads but the slot count comes from a code-side query that
+   ignores the widget hierarchy.
+3. **Capacity is data-driven, not widget-driven.** Most likely
+   explanation: backpack size is stored in a DataAsset/struct on
+   the player or item-component side, not in the widget. The
+   widget renders whatever count the data side gives it. A
+   "widget-only" mod can paint extra slots in the layout, but the
+   game's inventory component caps usable slots at the data-side
+   value, so the extras render empty or the patched layout gets
+   re-laid-out at runtime back to vanilla dimensions.
+
+The third hypothesis fits the "mod stops working entirely" symptom
+better than the first two -- a partial layout failure usually
+shows visual artefacts, while "no effect at all" suggests the data
+side is overriding what the widget tries to display.
+
+### Next step to confirm
+
+Decode `UI_Container_BackpackSide.uexp` and compare grid-dimension
+properties (`NumSlotsX`, `NumSlotsY`, `MaxItems`, or whatever the
+widget calls them) against vanilla. If they DO differ, the mod's
+intent is widget-side and the broken behaviour is data-side
+clamping. If they DO NOT differ, the mod must be modifying an
+EventGraph hook that has changed signature in the new build.
+
+Verification commands (next session):
+
+```bash
+# Use FModel on bb_legacy.pak with parser set to UE 5.4.
+# Right-click each widget -> Export Properties (.json).
+# Compare against vanilla widget JSON dumps.
+#
+# Or use UAssetGUI CLI:
+#   UAssetGUI.exe tojson UI_Container_BackpackSide.uasset out.json --version VER_UE5_4
+```
 
 ## Caveats
 
