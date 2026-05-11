@@ -4,7 +4,7 @@ Live game state access via HTTP JSON-RPC. Query any ECS component or resource wh
 
 ## Overview
 
-Bevy 0.18's built-in `bevy_remote` crate runs an HTTP server on **localhost:15702**. All reflected components and resources are queryable via `endless-cli` (in PATH) or any HTTP client. Zero performance impact -- BRP runs on a background thread and only does work when queried.
+Bevy 0.18's built-in `bevy_remote` crate runs an HTTP server on **localhost:15702**. All reflected components and resources are queryable via `endless-cli` (in PATH) or any HTTP client. Zero performance impact. BRP runs on a background thread and only does work when queried.
 
 **Setup** (`lib.rs`):
 ```rust
@@ -23,17 +23,17 @@ app.add_plugins(RemotePlugin::default())
 
 ## AI Model Integration
 
-The BRP endpoints exist so any AI model can play Endless as an opponent or ally. The model acts exactly like a human player — reading game state to understand the situation, then taking actions through the same controls available in the UI.
+The BRP endpoints exist so any AI model can play Endless as an opponent or ally. The model acts exactly like a human player. Reading game state to understand the situation, then taking actions through the same controls available in the UI.
 
-**Token efficiency matters.** AI tokens cost money. The model doesn't need to act every tick or even every few seconds. Call `endless/summary` periodically to assess the situation, then make strategic decisions in batches. A cheap model (Haiku-class) is more than sufficient — the game isn't complex enough to need a frontier model, but even the cheapest LLM makes better strategic decisions than 10K lines of hardcoded if/else.
+**Token efficiency matters.** AI tokens cost money. The model doesn't need to act every tick or even every few seconds. Call `endless/summary` periodically to assess the situation, then make strategic decisions in batches. A cheap model (Haiku-class) is more than sufficient. The game isn't complex enough to need a frontier model, but even the cheapest LLM makes better strategic decisions than 10K lines of hardcoded if/else.
 
-**Delegation, not micromanagement.** The model controls high-level strategy: personality, policies, squad targets, upgrade priorities. The in-game AI Manager handles the grunt work — building placement, road layout, combat pathing. This is the same split a human player uses: you set the AI Manager's personality and toggles in the Policies tab, then intervene only when you want to override or react to events.
+**Delegation, not micromanagement.** The model controls high-level strategy: personality, policies, squad targets, upgrade priorities. The in-game AI Manager handles the grunt work. Building placement, road layout, combat pathing. This is the same split a human player uses: you set the AI Manager's personality and toggles in the Policies tab, then intervene only when you want to override or react to events.
 
-**Read-heavy, write-sparse.** Most interactions are reads — `endless/summary` for a game overview, `world.query` for specific entity data, `endless/debug` for deep NPC/building inspection. Write actions (`endless/policy`, `endless/ai_manager`, `endless/squad_target`, `endless/build`, `endless/upgrade`, `endless/chat`) are infrequent strategic decisions, not per-frame commands.
+**Read-heavy, write-sparse.** Most interactions are reads. `endless/summary` for a game overview, `world.query` for specific entity data, `endless/debug` for deep NPC/building inspection. Write actions (`endless/policy`, `endless/ai_manager`, `endless/squad_target`, `endless/build`, `endless/upgrade`, `endless/chat`) are infrequent strategic decisions, not per-frame commands.
 
 **Model-agnostic.** Any HTTP client works -- `endless-cli` from Claude Code, Python scripts, MCP tools, OpenAI function calling, etc. The JSON-RPC interface doesn't care what model or framework is driving it.
 
-**Access control.** The main menu has a WC3-style player lobby — each AI slot has a Builder/Raider dropdown and an LLM checkbox. Write endpoints (`build`, `upgrade`, `policy`, `ai_manager`, `squad_target`) are server-side gated to only allow towns marked as LLM-controlled. Read endpoints (`summary`, `world.query`) are unrestricted — full situational awareness. The `RemoteAllowedTowns` resource holds the allowed town indices; if empty, all towns are allowed (legacy/debug mode).
+**Access control.** The main menu has a WC3-style player lobby. Each AI slot has a Builder/Raider dropdown and an LLM checkbox. Write endpoints (`build`, `upgrade`, `policy`, `ai_manager`, `squad_target`) are server-side gated to only allow towns marked as LLM-controlled. Read endpoints (`summary`, `world.query`) are unrestricted. Full situational awareness. The `RemoteAllowedTowns` resource holds the allowed town indices; if empty, all towns are allowed (legacy/debug mode).
 
 ## Methods
 
@@ -149,22 +149,22 @@ endless-cli world.list_components entity:ENTITY_ID
 
 ### Query Patterns
 
-**`data.components`** — required components, values returned:
+**`data.components`**. Required components, values returned:
 ```json
 {"data":{"components":["endless::components::Job","endless::components::Position"]}}
 ```
 
-**`data.has`** — required components, values NOT returned (filter only):
+**`data.has`**. Required components, values NOT returned (filter only):
 ```json
 {"data":{"components":["endless::components::Job"],"has":["endless::components::SquadId"]}}
 ```
 
-**`data.option`** — optional components, null when absent:
+**`data.option`**. Optional components, null when absent:
 ```json
 {"data":{"components":["endless::components::Job"],"option":["endless::components::SquadId"]}}
 ```
 
-**`filter.without`** — exclude entities with these components:
+**`filter.without`**. Exclude entities with these components:
 ```json
 {"data":{"components":["endless::components::Job"]},"filter":{"without":["endless::components::Dead"]}}
 ```
@@ -176,7 +176,7 @@ endless-cli world.list_components entity:ENTITY_ID
 - Simple enums serialize as strings: `"Farmer"`, `"Idle"`, `"Melee"`
 - Data enums serialize as objects: `{"Raiding":{"target":{"x":1.0,"y":2.0}}}`, `{"Fighting":{"origin":{"x":5.0,"y":10.0}}}`
 - Tuple structs serialize as their inner value: `Health` → `70.5`, `Faction` → `3`
-- Entity IDs are Bevy-internal u64 (index + generation) — not GpuSlot
+- Entity IDs are Bevy-internal u64 (index + generation). Not GpuSlot
 
 ## Custom Action Endpoints
 
@@ -194,12 +194,12 @@ Get a high-level game state overview. Auto-filters to the LLM-controlled town (s
 endless-cli summary
 ```
 
-Returns TOON with: day, hour, minute, paused, time_scale, town_idx, town_name, faction, food, gold, factions (tuple rows), buildings (kind,col,row — world grid coords), squads (idx,members,target_x,target_y), upgrades (idx,name,level,pct,cost), combat_log (day,hour,min,msg), inbox (from_town,message,day,hour,min), npcs (compact per-job counts).
+Returns TOON with: day, hour, minute, paused, time_scale, town_idx, town_name, faction, food, gold, factions (tuple rows), buildings (kind,col,row. World grid coords), squads (idx,members,target_x,target_y), upgrades (idx,name,level,pct,cost), combat_log (day,hour,min,msg), inbox (from_town,message,day,hour,min), npcs (compact per-job counts).
 
-- `inbox`: read-only — messages persist in `ChatInbox` across reads (flag-based `sent_to_llm` dedup for LLM delivery)
+- `inbox`: read-only. Messages persist in `ChatInbox` across reads (flag-based `sent_to_llm` dedup for LLM delivery)
 - `combat_log`: last 20 events from `RemoteCombatLogRing` resource, filtered to town's faction
 - `upgrades`: per-town levels from `TownUpgradeLevel` ECS components (via `TownAccess`), costs from `UPGRADES` registry
-- `npcs`: compact format — `Archer: 8 (Patrolling:5 OnDuty:3)` collapsed from verbose per-activity keys
+- `npcs`: compact format. `Archer: 8 (Patrolling:5 OnDuty:3)` collapsed from verbose per-activity keys
 
 ### endless/build
 
@@ -258,7 +258,7 @@ endless-cli policy town:0 archer_aggressive:true farmer_flee_hp:0.3
 
 ### endless/time
 
-Control game time — pause/unpause and set time scale.
+Control game time. Pause/unpause and set time scale.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -367,7 +367,7 @@ The player can also send messages to LLM towns via the chat input in the combat 
 
 ### endless/perf
 
-Get performance metrics — FPS, frame time, UPS, NPC/entity counts. Includes per-system timings when profiling is enabled.
+Get performance metrics. FPS, frame time, UPS, NPC/entity counts. Includes per-system timings when profiling is enabled.
 
 ```bash
 endless-cli perf
@@ -383,7 +383,7 @@ Deep-inspect entities by Entity bits (u64) or resources by kind+index. Returns f
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `entity` | string | yes | `"489v9"` — Bevy entity display format (`<index>v<generation>`) |
+| `entity` | string | yes | `"489v9"`. Bevy entity display format (`<index>v<generation>`) |
 
 **Kind+index mode** (resource-based lookups):
 
@@ -412,8 +412,8 @@ endless-cli debug kind:squad index:0
 
 ## Notes
 
-- Large queries (50K NPCs) return megabytes of JSON — use `has`/`filter` to narrow results
-- BRP runs on a background thread — zero game performance impact unless actively queried
+- Large queries (50K NPCs) return megabytes of JSON. Use `has`/`filter` to narrow results
+- BRP runs on a background thread. Zero game performance impact unless actively queried
 - `world.insert_components` and `world.mutate_resources` can live-modify game state (powerful for debugging)
 - Custom endpoints (`endless/*`) use queue resources for writes needing SystemParams (build, upgrade) and direct `resource_mut` for simple mutations (policy, time, squad_target, ai_manager)
 - `endless/perf` returns FPS/UPS/NPC counts (no params needed), optionally includes per-system timings when profiling is enabled
