@@ -1,4 +1,4 @@
-//! UI module — main menu, game startup, in-game HUD, and gameplay panels.
+//! UI module. Main menu, game startup, in-game HUD, and gameplay panels.
 
 pub mod armory;
 pub mod blackjack;
@@ -74,10 +74,10 @@ pub fn settings_panel_ui(
     settings: &mut UserSettings,
     tab: &mut PauseSettingsTab,
     rebinding_action: &mut Option<ControlAction>,
-    // Save/Load tab state — None hides those tabs
+    // Save/Load tab state. None hides those tabs
     manual_save_name: Option<&mut String>,
     manual_load_name: Option<&mut String>,
-    // LLM player inspector — (command, payload, response), None if no LLM player active
+    // LLM player inspector. (command, payload, response), None if no LLM player active
     llm_preview: Option<(&str, &str, &str)>,
 ) -> SettingsResponse {
     let mut resp = SettingsResponse {
@@ -658,7 +658,7 @@ pub fn register_ui(app: &mut App) {
         (game_load_system, game_startup_system, tutorial_init_system).chain(),
     );
 
-    // Egui panels — ordered so top bar claims height first, then side panels, then bottom.
+    // Egui panels. Ordered so top bar claims height first, then side panels, then bottom.
     // Top bar → left panel → bottom panel (inspector+log) + overlay → windows → pause overlay.
     app.add_systems(
         EguiPrimaryContextPass,
@@ -853,7 +853,7 @@ struct StartupExtra<'w> {
 }
 
 /// Load a saved game when entering Playing state (if load_on_enter is set).
-/// Runs before game_startup_system — if it loads, startup skips world gen.
+/// Runs before game_startup_system. If it loads, startup skips world gen.
 fn game_load_system(
     mut commands: Commands,
     mut save_request: ResMut<crate::save::SaveLoadRequest>,
@@ -1212,7 +1212,7 @@ fn game_escape_system(
     }
 }
 
-/// Pause menu overlay — Resume, Settings, Exit to Main Menu.
+/// Pause menu overlay. Resume, Settings, Exit to Main Menu.
 /// Bundled locals for pause_menu_system (avoids exceeding Bevy's 16-param limit).
 #[derive(Default)]
 struct PauseMenuLocals {
@@ -2643,7 +2643,7 @@ fn process_destroy_system(
 }
 
 // ============================================================================
-// GAME CLEANUP — single shared cleanup for both Playing and Running (test) states
+// GAME CLEANUP. Single shared cleanup for both Playing and Running (test) states
 // ============================================================================
 
 // SystemParam bundles to keep cleanup under 16-param limit
