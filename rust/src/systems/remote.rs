@@ -272,7 +272,7 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
         .and_then(|v| serde_json::from_value::<SummaryParams>(v).ok())
         .and_then(|p| p.town);
 
-    // NPC counts via ECS query (must happen first — needs &mut World)
+    // NPC counts via ECS query (must happen first. Needs &mut World)
     let mut npc_counts: BTreeMap<String, usize> = BTreeMap::new();
     let mut query = world.query::<(&Job, &TownId, &Activity)>();
     for (job, town_id, activity) in query.iter(world) {
@@ -287,7 +287,7 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
         *npc_counts.entry(act_key).or_default() += 1;
     }
 
-    // Read chat inbox without draining — messages must persist for HUD display
+    // Read chat inbox without draining. Messages must persist for HUD display
     let mut inbox_by_town: std::collections::HashMap<usize, Vec<(usize, String, i32, i32, i32)>> =
         std::collections::HashMap::new();
     {
@@ -401,7 +401,7 @@ pub fn summary_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpR
         })
         .collect();
 
-    // Combat log — filter to events relevant to this town's faction
+    // Combat log. Filter to events relevant to this town's faction
     let combat_log: Vec<(i32, i32, i32, String)> = log_ring
         .events
         .iter()
@@ -1424,7 +1424,7 @@ pub fn debug_handler(In(params): In<Option<Value>>, world: &mut World) -> BrpRes
 }
 
 fn debug_npc(world: &mut World, target_entity: Entity, slot: usize) -> BrpResult {
-    // ECS query — split into nested tuples to stay under Bevy's 15-element QueryData limit
+    // ECS query. Split into nested tuples to stay under Bevy's 15-element QueryData limit
     let mut query = world.query::<(
         Entity,
         &GpuSlot,
@@ -1473,7 +1473,7 @@ fn debug_npc(world: &mut World, target_entity: Entity, slot: usize) -> BrpResult
             continue;
         }
 
-        // Equipment slots — uniform array for TOON CSV table
+        // Equipment slots. Uniform array for TOON CSV table
         let mut equip: Vec<Value> = Vec::new();
         let slots: &[(&str, &Option<crate::constants::LootItem>)] = &[
             ("weapon", &equipment.weapon),
@@ -1944,7 +1944,7 @@ fn debug_squad(world: &mut World, idx: usize) -> BrpResult {
         })
         .collect();
 
-    // ECS query for member stats — uniform fields for TOON CSV table
+    // ECS query for member stats. Uniform fields for TOON CSV table
     let mut members_json = Vec::new();
     for (uid, slot, name) in &member_slots {
         let (mut job, mut dead, mut activity, mut energy, mut hp, mut max_hp) = (
@@ -2307,7 +2307,7 @@ pub fn drain_remote_queues(
         });
     }
 
-    // Drain LLM log queue — write to both combat log and ring buffer
+    // Drain LLM log queue. Write to both combat log and ring buffer
     for msg in llm_log_q.0.drain(..) {
         log_ring.push(msg.clone());
         combat_log.write(msg);
