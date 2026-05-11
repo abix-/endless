@@ -401,7 +401,7 @@ fn damage_system_no_iter_npcs_sampling() {
     );
 }
 
-// -- update_healing_zone_cache -------------------------------------------
+//. Update_healing_zone_cache -------------------------------------------
 
 #[derive(Resource, Default)]
 struct SendHealingDirty(bool);
