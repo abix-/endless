@@ -214,7 +214,7 @@ pub fn tick(
                 );
             }
         }
-        // Phase 4: 4 farmers idle/wandering — no free farm slots.
+        // Phase 4: 4 farmers idle/wandering. No free farm slots.
         4 => {
             test.phase_name = format!(
                 "idle_like={}/{} active_workers={} farmers={}",
