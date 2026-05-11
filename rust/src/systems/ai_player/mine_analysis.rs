@@ -1,4 +1,4 @@
-//! Mine analysis -- single-pass over gold_mines per AI tick.
+//! Mine analysis. Single-pass over gold_mines per AI tick.
 
 use bevy::prelude::*;
 
