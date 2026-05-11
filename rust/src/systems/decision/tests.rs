@@ -39,7 +39,7 @@ fn setup_decision_app(policy: PolicySet) -> App {
         ..Default::default()
     });
     app.insert_resource(GameTime {
-        total_seconds: 16.0 * 5.0, // 22:55 -- night, so DayOnly jobs are off-duty
+        total_seconds: 16.0 * 5.0, // 22:55. Night, so DayOnly jobs are off-duty
         ..Default::default()
     });
     app.insert_resource(TimeUpdateStrategy::ManualDuration(
@@ -152,7 +152,7 @@ fn no_squad_uses_default_loot_threshold() {
     );
 }
 // ========================================================================
-// transition helper tests -- verify kind + phase + target invariants
+// transition helper tests. Verify kind + phase + target invariants
 // ========================================================================
 
 #[test]
@@ -332,7 +332,7 @@ fn squad_target_not_confused_with_patrol() {
 }
 
 // ========================================================================
-// Slice 3 lifecycle tests -- Work, Mine, ReturnLoot, Wander, Raid
+// Slice 3 lifecycle tests. Work, Mine, ReturnLoot, Wander, Raid
 // ========================================================================
 
 #[test]
@@ -805,7 +805,7 @@ fn valid_phase_combinations_match_spec() {
     let idle = Activity::new(ActivityKind::Idle);
     assert_eq!(idle.phase, ActivityPhase::Ready);
 
-    // Verify the table covers all 11 activity kinds (Chop/Quarry removed -- use Work)
+    // Verify the table covers all 11 activity kinds (Chop/Quarry removed. Use Work)
     assert_eq!(
         valid.len(),
         11,
@@ -933,7 +933,7 @@ fn transition_produces_valid_combinations() {
 
 #[test]
 fn home_invalid_detected() {
-    // Home(-1,-1) is the orphan sentinel -- must not pass validity check
+    // Home(-1,-1) is the orphan sentinel. Must not pass validity check
     let orphan = Home(Vec2::new(-1.0, -1.0));
     assert!(!orphan.is_valid(), "Home(-1,-1) must be invalid");
 
@@ -1184,7 +1184,7 @@ fn mason_repairs_nearby_damaged_building_in_active_state() {
 
     let (mut app, mason) = setup_mason_app(vec![(BuildingKind::Farm, bld_pos, initial_hp)]);
 
-    // Put mason in Repair/Active -- triggers the spatial repair-at-site loop
+    // Put mason in Repair/Active. Triggers the spatial repair-at-site loop
     {
         let mut activity = app.world_mut().get_mut::<Activity>(mason).unwrap();
         activity.kind = ActivityKind::Repair;
