@@ -169,7 +169,7 @@ pub fn arrival_system(
         if let Ok((_, slot, _, _, mut act, _, mut ws)) = npc_q.get_mut(entity) {
             *act = Activity::default();
             // Clear stale work_target so idle farmers don't carry a phantom target.
-            // worksite is NOT cleared here -- decision_system owns occupancy
+            // worksite is NOT cleared here. Decision_system owns occupancy
             // release via entity_map and handles it before setting Returning.
             ws.worksite = None;
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::MarkVisualDirty { idx: slot.0 }));
