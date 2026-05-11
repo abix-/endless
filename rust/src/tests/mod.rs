@@ -65,13 +65,13 @@ pub struct TestSetupParams<'w, 's> {
     pub dirty_writers: crate::messages::DirtyWriters<'w>,
 }
 
-/// Shared test setup params bundle — stays under 16-param limit.
+/// Shared test setup params bundle. Stays under 16-param limit.
 #[derive(SystemParam)]
 pub struct BuildingInitParams<'w> {
     pub entity_map: ResMut<'w, EntityMap>,
 }
 
-/// Shared AI/endless scenario setup — replaces 5 per-test copy-paste bundles.
+/// Shared AI/endless scenario setup. Replaces 5 per-test copy-paste bundles.
 #[derive(SystemParam)]
 pub struct TestScenarioSetup<'w> {
     pub raider_state: ResMut<'w, RaiderState>,
@@ -427,7 +427,7 @@ pub fn register_tests(app: &mut App) {
     // CLI mode: redirect MainMenu → TestMenu
     app.add_systems(OnEnter(AppState::MainMenu), cli_test_redirect);
 
-    // Cleanup when leaving Running — uses same cleanup as game (OnExit Playing)
+    // Cleanup when leaving Running. Uses same cleanup as game (OnExit Playing)
     app.add_systems(OnExit(AppState::Running), crate::ui::game_cleanup_system);
 
     // Test completion detection (returns to menu or starts next test)
@@ -1222,7 +1222,7 @@ fn test_hud_system(
                 elapsed
             ));
 
-            // Phase checklist — show all phases, check off as they complete
+            // Phase checklist. Show all phases, check off as they complete
             ui.add_space(4.0);
             for p in 1..=test_state.total_phases {
                 let result = test_state.results.iter().find(|r| r.phase == p);
@@ -1298,7 +1298,7 @@ fn test_completion_system(
         return;
     }
 
-    // Single test: stay running — user clicks Back in HUD to return
+    // Single test: stay running. User clicks Back in HUD to return
     if !run_all.active {
         return;
     }
