@@ -1,4 +1,4 @@
-//! Left panel — tabbed container for Roster, Upgrades, Policies, and Patrols.
+//! Left panel. Tabbed container for Roster, Upgrades, Policies, and Patrols.
 
 mod inventory_ui;
 mod roster_ui;
@@ -442,12 +442,12 @@ pub fn left_panel_system(
             }
         });
 
-    // Queue patrol swap — applied in rebuild_patrol_routes_system which reads PatrolSwapMsg
+    // Queue patrol swap. Applied in rebuild_patrol_routes_system which reads PatrolSwapMsg
     if let Some((a, b)) = patrol_swap {
         dirty_writers
             .patrols
             .write(crate::messages::PatrolsDirtyMsg);
-        // PatrolSwapMsg is a separate message type — written directly via the system param below
+        // PatrolSwapMsg is a separate message type. Written directly via the system param below
         dirty_writers
             .patrol_swap
             .write(crate::messages::PatrolSwapMsg {
@@ -554,7 +554,7 @@ fn policies_content(
         ui.separator();
     }
 
-    // -- AI Manager --
+    //. AI Manager.
     ui.label(egui::RichText::new("AI Manager").strong());
 
     if let Some(player) = ai_state
@@ -602,7 +602,7 @@ fn policies_content(
         }
     }
 
-    // -- General --
+    //. General.
     ui.add_space(8.0);
     ui.label(egui::RichText::new("General").strong());
     ui.checkbox(&mut policy.eat_food, "Eat Food")
@@ -616,7 +616,7 @@ fn policies_content(
     });
     policy.recovery_hp = recovery_pct / 100.0;
 
-    // -- Archers --
+    //. Archers.
     ui.add_space(8.0);
     ui.label(egui::RichText::new("Archers").strong());
     ui.checkbox(&mut policy.archer_aggressive, "Aggressive")
@@ -658,7 +658,7 @@ fn policies_content(
         _ => OffDutyBehavior::GoToBed,
     };
 
-    // -- Farmers --
+    //. Farmers.
     ui.add_space(8.0);
     ui.label(egui::RichText::new("Farmers").strong());
     ui.checkbox(&mut policy.farmer_fight_back, "Fight Back")
@@ -698,7 +698,7 @@ fn policies_content(
         _ => OffDutyBehavior::GoToBed,
     };
 
-    // -- Mining --
+    //. Mining.
     ui.add_space(8.0);
     ui.label(egui::RichText::new("Mining").strong());
 
@@ -779,7 +779,7 @@ fn policies_content(
         }
     }
 
-    // -- Resource Reserves --
+    //. Resource Reserves.
     ui.add_space(8.0);
     ui.label(egui::RichText::new("Resource Reserves").strong());
     ui.small("AI/auto-upgrade won't spend below these amounts");
@@ -893,7 +893,7 @@ fn squads_content(
 ) {
     let selected = squad.squad_state.selected;
 
-    // Squad list (player-owned only — AI squads are hidden from UI)
+    // Squad list (player-owned only. AI squads are hidden from UI)
     for i in 0..squad.squad_state.squads.len() {
         if !squad.squad_state.squads[i].is_player() {
             continue;
@@ -998,7 +998,7 @@ fn squads_content(
 
     ui.add_space(4.0);
 
-    // Per-job recruit controls — one row per military NPC type from registry
+    // Per-job recruit controls. One row per military NPC type from registry
     for def in crate::constants::NPC_REGISTRY.iter() {
         if !def.is_military {
             continue;
@@ -1809,7 +1809,7 @@ fn factions_content(
             .unwrap_or_else(|| "-".into())
     };
 
-    // -- Desires --
+    //. Desires.
     tracked_section(ui, "Desires", true, "Desires", |ui| {
         egui::Grid::new(format!("intel_desires_grid_{}", snap.faction))
             .num_columns(2)
@@ -1877,7 +1877,7 @@ fn factions_content(
     let npc = |k: BuildingKind| snap.npcs.get(&k).copied().unwrap_or(0);
     let bld = |k: BuildingKind| snap.buildings.get(&k).copied().unwrap_or(0);
 
-    // -- Economy --
+    //. Economy.
     tracked_section(ui, "Economy", true, "Economy", |ui| {
         let econ_spawners: Vec<_> = BUILDING_REGISTRY
             .iter()
@@ -1921,7 +1921,7 @@ fn factions_content(
         ));
     });
 
-    // -- Policies --
+    //. Policies.
     tracked_section(ui, "Policies", false, "Policies", |ui| {
         if let Some(ref policy) = factions.town_access.policy(snap.town_data_idx as i32) {
             let schedule_label = |s: WorkSchedule| SCHEDULE_OPTIONS[s as usize];
@@ -1999,7 +1999,7 @@ fn factions_content(
         }
     });
 
-    // -- Military --
+    //. Military.
     tracked_section(ui, "Military", true, "Military", |ui| {
         let mil_spawners: Vec<_> = BUILDING_REGISTRY
             .iter()
@@ -2033,7 +2033,7 @@ fn factions_content(
         }
     });
 
-    // -- Economy Stats (collapsed by default) --
+    //. Economy Stats (collapsed by default).
     let archer_def = npc_def(Job::Archer);
     let fighter_def = npc_def(Job::Fighter);
     let crossbow_def = npc_def(Job::Crossbow);
@@ -2131,7 +2131,7 @@ fn factions_content(
         });
     });
 
-    // -- Military Stats (collapsed by default) --
+    //. Military Stats (collapsed by default).
     let archer_hp_mult = UPGRADES.stat_mult(lv, "Archer", UpgradeStatKind::Hp);
     let archer_dmg_mult = UPGRADES.stat_mult(lv, "Archer", UpgradeStatKind::Attack);
     let archer_range_mult = UPGRADES.stat_mult(lv, "Archer", UpgradeStatKind::Range);
@@ -2300,7 +2300,7 @@ fn factions_content(
         });
     });
 
-    // -- Squad Commander --
+    //. Squad Commander.
     tracked_section(ui, "Squad Commander", true, "Squad Commander", |ui| {
         if snap.squads.is_empty() {
             ui.label("No squads with members.");
@@ -2400,7 +2400,7 @@ fn factions_content(
         }
     });
 
-    // -- Recent Actions --
+    //. Recent Actions.
     if !snap.last_actions.is_empty() {
         tracked_section(ui, "Recent Actions", true, "Recent Actions", |ui| {
             for (action, day, hour) in &snap.last_actions {
@@ -2541,7 +2541,7 @@ fn profiler_content(
     );
     ui.separator();
 
-    // Debug actions (not cached — cheap interactive widgets)
+    // Debug actions (not cached. Cheap interactive widgets)
     tracked_section(
         ui,
         "Debug Actions",
@@ -2828,7 +2828,7 @@ fn status_content(
         .show(ui, |ui| {
             let player_town: i32 = 0;
 
-            // -- Population --
+            //. Population.
             tracked_section(
                 ui,
                 "status_pop",
@@ -2876,7 +2876,7 @@ fn status_content(
                 },
             );
 
-            // -- Economy --
+            //. Economy.
             tracked_section(
                 ui,
                 "status_econ",
@@ -2912,7 +2912,7 @@ fn status_content(
                 }
             }
 
-            // -- Military --
+            //. Military.
             tracked_section(
                 ui,
                 "status_mil",
@@ -2939,7 +2939,7 @@ fn status_content(
                 },
             );
 
-            // -- Buildings --
+            //. Buildings.
             tracked_section(
                 ui,
                 "status_bld",
