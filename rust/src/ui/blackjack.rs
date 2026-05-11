@@ -1,4 +1,4 @@
-//! Blackjack minigame — full-window popup opened from Casino building.
+//! Blackjack minigame. Full-window popup opened from Casino building.
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
@@ -159,7 +159,7 @@ impl BlackjackState {
 }
 
 // ============================================================================
-// SYSTEM — standalone egui window
+// SYSTEM. Standalone egui window
 // ============================================================================
 
 pub fn blackjack_window_system(
@@ -835,7 +835,7 @@ fn resolve_hands(
         og.0 -= total_net;
     }
 
-    // Player is faction 0 — update how opponent feels about player
+    // Player is faction 0. Update how opponent feels about player
     if let Some(row) = reputation.values.get_mut(state.opponent_faction as usize) {
         if let Some(rep) = row.get_mut(0) {
             let cap = crate::constants::SOFT_CAP as f32;
