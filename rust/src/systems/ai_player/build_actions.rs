@@ -1,4 +1,4 @@
-//! AI building action helpers -- slot selection wrappers, road building, action executor, and logging.
+//! AI building action helpers. Slot selection wrappers, road building, action executor, and logging.
 //! Extracted from decision.rs to keep that file under 1000 lines.
 
 use std::collections::{HashMap, HashSet};
