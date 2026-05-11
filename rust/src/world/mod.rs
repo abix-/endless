@@ -101,16 +101,16 @@ pub struct PlacedBuilding {
     pub position: Vec2,
     #[serde(default)]
     pub town_idx: u32,
-    /// Patrol order -- used by Waypoint only (default 0).
+    /// Patrol order. Used by Waypoint only (default 0).
     #[serde(default)]
     pub patrol_order: u32,
-    /// Assigned mine position -- used by MinerHome only.
+    /// Assigned mine position. Used by MinerHome only.
     #[serde(default, with = "opt_vec2_as_array")]
     pub assigned_mine: Option<Vec2>,
-    /// Whether mine was manually assigned -- used by MinerHome only.
+    /// Whether mine was manually assigned. Used by MinerHome only.
     #[serde(default)]
     pub manual_mine: bool,
-    /// Wall tier level (1-3) -- used by Wall only. 0 = not a wall (default).
+    /// Wall tier level (1-3). Used by Wall only. 0 = not a wall (default).
     #[serde(default)]
     pub wall_level: u8,
     #[serde(default)]
@@ -162,7 +162,7 @@ impl PlacedBuilding {
 // WORLD RESOURCES
 // ============================================================================
 
-/// Contains all world layout data. Towns only -- building instances live in EntityMap.
+/// Contains all world layout data. Towns only. Building instances live in EntityMap.
 #[derive(Resource, Default)]
 pub struct WorldData {
     pub towns: Vec<Town>,
@@ -238,7 +238,7 @@ pub fn empty_slots(
     out
 }
 
-/// Find interior roads for a town -- roads whose build-area contribution is fully redundant.
+/// Find interior roads for a town. Roads whose build-area contribution is fully redundant.
 /// A road is "interior" if every cell within its radius is already covered by the base grid
 /// or by another road's radius. Safe to destroy without losing buildable area.
 pub fn find_interior_roads(
@@ -589,17 +589,17 @@ pub enum Biome {
     Water,
     Rock,
     Dirt,
-    /// Hot, arid terrain -- low moisture, mid-to-high temperature.
+    /// Hot, arid terrain. Low moisture, mid-to-high temperature.
     Desert,
-    /// Cold, barren terrain -- near-polar zones.
+    /// Cold, barren terrain. Near-polar zones.
     Tundra,
-    /// Dense tropical forest -- high moisture, high temperature.
+    /// Dense tropical forest. High moisture, high temperature.
     Jungle,
 }
 
 impl Biome {
     /// Map biome + cell index to tileset array index for TilemapChunk.
-    /// Trees and rocks are full entities now -- Forest/Rock biomes render as ground only.
+    /// Trees and rocks are full entities now. Forest/Rock biomes render as ground only.
     /// Grass=0, Forest/Jungle=1 (dark grass), Water=8, Rock/Tundra=9, Dirt/Desert=10.
     pub fn tileset_index(self, _cell_index: usize) -> u16 {
         match self {
@@ -743,7 +743,7 @@ impl WorldGrid {
         )
     }
 
-    // -- Pathfinding cost grid ------------------------------------------------
+    //. Pathfinding cost grid ------------------------------------------------
 
     /// Build terrain base costs. Called once on world init/load.
     pub fn init_pathfind_costs(&mut self) {
@@ -781,15 +781,15 @@ impl WorldGrid {
         self.building_cost_cells.clear();
 
         self.apply_building_overlay(entity_map, BuildingKind::Wall, 0);
-        // All tower kinds block pathing (impassable like walls) -- driven by registry
+        // All tower kinds block pathing (impassable like walls). Driven by registry
         for def in crate::constants::BUILDING_REGISTRY.iter() {
             if def.is_tower {
                 self.apply_building_overlay(entity_map, def.kind, 0);
             }
         }
-        // Gates are passable (same cost as dirt road) -- faction gating is behavioral
+        // Gates are passable (same cost as dirt road). Faction gating is behavioral
         self.apply_building_overlay(entity_map, BuildingKind::Gate, 67);
-        // Apply road overlays -- higher tiers override lower (iter order: dirt, stone, metal)
+        // Apply road overlays. Higher tiers override lower (iter order: dirt, stone, metal)
         for kind in [
             BuildingKind::Road,
             BuildingKind::StoneRoad,
@@ -803,7 +803,7 @@ impl WorldGrid {
         }
         // Rebuild HPA* cache only for cells whose cost actually changed (not all building cells).
         // symmetric_difference misses cost-value changes at the same cell (e.g. wall
-        // replaced by road -- cell stays in set but cost changes 0 -> 67).
+        // replaced by road. Cell stays in set but cost changes 0 -> 67).
         if self.width > 0 {
             // Collect cells that changed: new overrides with different cost, or removed overrides
             let new_set: hashbrown::HashSet<usize> =
@@ -812,7 +812,7 @@ impl WorldGrid {
             // Cells that were overridden before but now reverted (building destroyed)
             for &(idx, old_cost) in &old_costs {
                 if !new_set.contains(&idx) {
-                    // Reverted to terrain base -- only dirty if cost actually differs
+                    // Reverted to terrain base. Only dirty if cost actually differs
                     if old_cost != self.pathfind_costs[idx] {
                         changed.push(idx);
                     }
@@ -925,7 +925,7 @@ impl WorldGrid {
                     let (sc, sr) = self.world_to_grid(inst.position);
                     let bld_cell = IVec2::new(sc as i32, sr as i32);
                     if bld_cell == center {
-                        // Building IS the town center -- verify it still has a passable neighbor
+                        // Building IS the town center. Verify it still has a passable neighbor
                         let sealed =
                             [IVec2::X, IVec2::NEG_X, IVec2::Y, IVec2::NEG_Y]
                                 .iter()
@@ -969,7 +969,7 @@ impl WorldGrid {
         reason
     }
 
-    // -- Town buildability grid -----------------------------------------------
+    //. Town buildability grid -----------------------------------------------
 
     /// True if `town_idx` can build at grid (col, row).
     pub fn can_town_build(&self, col: usize, row: usize, town_idx: u16) -> bool {
@@ -1007,7 +1007,7 @@ impl WorldGrid {
         if owner == u16::MAX {
             self.town_owner[idx] = town_idx;
         } else {
-            // Cell already owned by another town -- add to overlap
+            // Cell already owned by another town. Add to overlap
             let entry = self.town_overlap.entry(idx).or_insert_with(|| vec![owner]);
             if !entry.contains(&town_idx) {
                 entry.push(town_idx);
@@ -1126,10 +1126,10 @@ impl WorldGrid {
 
 /// Terrain base cost for CPU pathfinding.
 /// Higher cost = less desirable route. 0 = impassable (walls and water).
-/// Water is fully impassable -- A* never generates paths through it.
+/// Water is fully impassable. A* never generates paths through it.
 /// Exception: if an NPC's current position is a water tile, A* can still
 /// move FROM that tile (start cost is not checked), allowing escape to land.
-/// Rock is passable but expensive (2500) -- still a valid waypoint.
+/// Rock is passable but expensive (2500). Still a valid waypoint.
 pub(crate) fn terrain_base_cost(biome: Biome) -> u16 {
     match biome {
         Biome::Grass | Biome::Dirt | Biome::Desert => 100,
