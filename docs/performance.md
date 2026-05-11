@@ -51,7 +51,7 @@ Treat `slot` as the canonical foreign key between ECS and `EntityMap`.
 3. Required bridge: `slot <-> Entity` mapping stays synchronized.
 4. Uniqueness rule: NPCs and buildings share one slot namespace; a slot value cannot be owned by both at the same time.
 5. Secondary indexes are allowed for performance (`Entity -> slot`, grid cell, kind+town, spatial buckets), but all must resolve to the same canonical `slot`.
-6. Invariants enforced via `debug_assert` in `resources.rs`: UID bijection (`uid_to_slot` / `slot_to_uid` stay synchronized on every register/unregister), slot uniqueness (cannot register two entities to same slot), town index validity (`town_idx != u32::MAX`). Debug builds only — zero cost in release. Invariant failure = slot lifecycle bug.
+6. Invariants enforced via `debug_assert` in `resources.rs`: UID bijection (`uid_to_slot` / `slot_to_uid` stay synchronized on every register/unregister), slot uniqueness (cannot register two entities to same slot), town index validity (`town_idx != u32::MAX`). Debug builds only. Zero cost in release. Invariant failure = slot lifecycle bug.
 
 ## Scope
 
@@ -66,8 +66,8 @@ Apply the hybrid rule to any runtime path that is expected to scale with populat
 ### Readback Minimization
 
 GPU→CPU readback stalls the pipeline. Rules:
-- Render pipeline reads GPU buffers directly (positions/health via bind group 2) — no readback needed for rendering.
-- CPU readback is async via Bevy's `ReadbackComplete` observers — never blocks.
+- Render pipeline reads GPU buffers directly (positions/health via bind group 2). No readback needed for rendering.
+- CPU readback is async via Bevy's `ReadbackComplete` observers. Never blocks.
 - Throttle expensive readbacks: `factions` and `threat_counts` at cadences listed in Current Tunings.
 - Size readback buffers to actual entity count, not MAX.
 - See [authority.md](authority.md) for which readback fields are authoritative.
@@ -94,11 +94,11 @@ Custom pipeline replaces Bevy's per-entity sprite renderer:
 
 At 10K+ NPCs, running `decision_system` for every NPC every frame is too expensive. Solution: bucket gating.
 
-- **Fighting NPCs**: `COMBAT_BUCKET` — fast enough for flee/leash reactions (see Current Tunings for value). No `time_scale` adjustment -- FixedUpdate runs at constant 60 Hz; `game_time.delta()` handles game-speed scaling per tick.
-- **Non-fighting NPCs**: `think_buckets = max(interval × 60, npc_count / max_decisions_per_frame)` — adaptive bucketing with frame budget cap (see Current Tunings for `max_decisions_per_frame`). No `time_scale` adjustment -- same reason.
+- **Fighting NPCs**: `COMBAT_BUCKET`. Fast enough for flee/leash reactions (see Current Tunings for value). No `time_scale` adjustment. FixedUpdate runs at constant 60 Hz; `game_time.delta()` handles game-speed scaling per tick.
+- **Non-fighting NPCs**: `think_buckets = max(interval × 60, npc_count / max_decisions_per_frame)`. Adaptive bucketing with frame budget cap (see Current Tunings for `max_decisions_per_frame`). No `time_scale` adjustment. Same reason.
 - At 10K NPCs with 120 buckets: ~83 NPCs processed per frame instead of 10K.
-- Position hoisted once per NPC into `npc_pos` after bucket gate — eliminates scattered position reads.
-- Conditional writeback: captures original values, compares at end — only calls `get_mut()` for changed fields. Optimal for `decision_system` where most NPCs exit early via `break 'decide` — avoids unnecessary borrow-mut for unchanged entities.
+- Position hoisted once per NPC into `npc_pos` after bucket gate. Eliminates scattered position reads.
+- Conditional writeback: captures original values, compares at end. Only calls `get_mut()` for changed fields. Optimal for `decision_system` where most NPCs exit early via `break 'decide`. Avoids unnecessary borrow-mut for unchanged entities.
 
 ### Candidate-Driven Healing
 
@@ -133,18 +133,18 @@ No cascade risk: at 60 Hz period (16.67ms), Bevy runs ~1 fixed tick per frame at
 Custom HPA* (Hierarchical Pathfinding A*) replaces raw A* for cross-chunk paths. Grid divided into 16×16 chunks (~256 chunks on 250×250 grid). Entrance nodes placed at chunk boundary crossings. Intra-chunk paths precomputed via A* between all entrance pairs within each chunk. Queries search the abstract graph (~500-1000 entrance nodes) instead of the full 62,500-cell grid, then stitch cached intra-chunk segments into full paths.
 
 - **Build**: `HpaCache::build()` called in `init_pathfind_costs()`. Scans horizontal/vertical borders for entrance nodes, runs intra-chunk A* between all pairs, connects cross-border edges.
-- **Query**: `pathfind_hpa()` — same-chunk paths use chunk-bounded A* directly (small search space). Cross-chunk paths insert temporary start/goal nodes, A* on abstract graph, stitch cached paths.
+- **Query**: `pathfind_hpa()`. Same-chunk paths use chunk-bounded A* directly (small search space). Cross-chunk paths insert temporary start/goal nodes, A* on abstract graph, stitch cached paths.
 - **Update**: `HpaCache::rebuild_chunks()` called in `sync_building_costs()` when buildings change. Incremental: removes nodes in dirty chunks + neighbors, re-scans borders and recomputes intra-chunk edges for affected chunks only. Shared `build_chunks()` method used by both `build()` and `rebuild_chunks()`.
 - **Heuristic**: Abstract graph A* uses `manhattan_distance × HPA_MIN_COST` (67 = road cost) for tight, admissible heuristic.
 
 ### Budgeted Pathfinding
 
-A* requests queued by `resolve_movement_system` (from MovementIntents) and `invalidate_paths_on_building_change`. `resolve_movement_system` processes up to `max_per_frame` requests per FixedUpdate tick via `PathRequestQueue.drain_budget()`, sorted by (priority, slot) for determinism. Short-distance moves (< 12 tiles with clear LOS) bypass A* entirely — direct boids steering. Time budget guard (`max_time_budget_ms`) re-queues overflow. With HPA*, the budget cap is nearly unnecessary — 5000 unbounded requests cost <1ms — but retained as safety margin.
+A* requests queued by `resolve_movement_system` (from MovementIntents) and `invalidate_paths_on_building_change`. `resolve_movement_system` processes up to `max_per_frame` requests per FixedUpdate tick via `PathRequestQueue.drain_budget()`, sorted by (priority, slot) for determinism. Short-distance moves (< 12 tiles with clear LOS) bypass A* entirely. Direct boids steering. Time budget guard (`max_time_budget_ms`) re-queues overflow. With HPA*, the budget cap is nearly unnecessary. 5000 unbounded requests cost <1ms. But retained as safety margin.
 
 ### Event-Driven Systems
 
 - `build_visual_upload`: persistent `NpcVisualUpload`, dirty-signaled via `MarkVisualDirty`. ~4-8ms → ~0.01ms steady state.
-- `rebuild_building_grid_system`: runs only on `BuildingGridDirtyMsg`. After first init, skips the O(N) `rebuild_spatial()` -- spatial grid is maintained incrementally by `add_instance`/`remove_instance` on every building change. First init (or reload) does a full rebuild. Fixed in #207: was O(all_buildings) on every building change, caused 19ms spikes. Now O(1) (~1.5us regardless of building count).
+- `rebuild_building_grid_system`: runs only on `BuildingGridDirtyMsg`. After first init, skips the O(N) `rebuild_spatial()`. Spatial grid is maintained incrementally by `add_instance`/`remove_instance` on every building change. First init (or reload) does a full rebuild. Fixed in #207: was O(all_buildings) on every building change, caused 19ms spikes. Now O(1) (~1.5us regardless of building count).
 - `sync_pathfind_costs_system`: runs on `BuildingGridDirtyMsg`. Rebuilds pathfind cost grid and HPA* cache. Fixed in #203: diffs before/after costs so HPA* `rebuild_chunks` only runs for cells whose cost actually changed (not all building cells). No-change case (redundant dirty signal) skips HPA* entirely.
 - `invalidate_paths_on_building_change`: runs on `BuildingGridDirtyMsg`, re-queues paths crossing changed cells.
 - Terrain tilemap sync: `TerrainDirtyMsg`-driven, not `WorldGrid::is_changed()`.
@@ -153,7 +153,7 @@ A* requests queued by `resolve_movement_system` (from MovementIntents) and `inva
 
 Debug metrics can cost more than the actual simulation. Disable or throttle them.
 
-**Example trap** — O(n²) validation to verify NPC separation:
+**Example trap**. O(n²) validation to verify NPC separation:
 ```rust
 fn get_min_separation(positions: &[f32], count: usize) -> f32 {
     let mut min_dist = f32::MAX;
@@ -168,7 +168,7 @@ fn get_min_separation(positions: &[f32], count: usize) -> f32 {
 }
 ```
 
-With 5,000 NPCs, that's 12.5 million distance checks per frame. Your 60 UPS simulation drops to 15 — but the simulation itself is fine, only the *measurement* is slow.
+With 5,000 NPCs, that's 12.5 million distance checks per frame. Your 60 UPS simulation drops to 15. But the simulation itself is fine, only the *measurement* is slow.
 
 **Rules:**
 1. Make expensive metrics opt-in (debug flags).
@@ -314,8 +314,8 @@ for npc in entity_map.iter_npcs() {
   - Replace with: `HashSet` for membership or sorted vector + binary search when stable ordering is needed.
 
 - Per-item Vec::retain in loops (O(n²)):
-  - Pattern: `for item in items { vec.retain(|x| x != item); }` — linear scan per removal.
-  - Replace with: `DenseSlotMap<T>` / `DenseSlotSet` (entity_map.rs) — dense parallel Vecs + reverse HashMap, O(1) insert/remove/get, cache-friendly iteration via `slot_slice()`/`values()`. `DenseSlotSet` is thin wrapper (`DenseSlotMap<()>`). Applied to building indexes + building instances. See 2026-03-08h benchmark for 6.5× speedup on death_system.
+  - Pattern: `for item in items { vec.retain(|x| x != item); }`. Linear scan per removal.
+  - Replace with: `DenseSlotMap<T>` / `DenseSlotSet` (entity_map.rs). Dense parallel Vecs + reverse HashMap, O(1) insert/remove/get, cache-friendly iteration via `slot_slice()`/`values()`. `DenseSlotSet` is thin wrapper (`DenseSlotMap<()>`). Applied to building indexes + building instances. See 2026-03-08h benchmark for 6.5× speedup on death_system.
 
 - Redundant traversals:
   - Pattern: multiple passes over the same query/collection for related outputs.
@@ -364,12 +364,12 @@ Legitimate violations of the rules above, tracked with exit criteria.
 | Exception | Rule violated | Reason | Cost | Exit criteria |
 |-----------|-------------|--------|------|---------------|
 | `save.rs` uses `iter_npcs()` | Hot Path #6 | Save is cold path (F5 only) | N/A | None needed |
-| `npc_render.rs` `build_visual_upload` uses `iter_npcs()` | Hot Path #6 | Needs NpcInstance fields not in ECS; event-driven dirty-only | Acceptable | None — correct pattern |
+| `npc_render.rs` `build_visual_upload` uses `iter_npcs()` | Hot Path #6 | Needs NpcInstance fields not in ECS; event-driven dirty-only | Acceptable | None. Correct pattern |
 | `roster_panel.rs` / `left_panel.rs` use `iter_npcs()` | Hot Path #6 | UI roster display needs full NPC list | 30-frame cadence cache | Add pagination or virtual scroll |
 
 ## Current Benchmark Results
 
-Run via `cargo bench --bench system_bench` (Criterion). Use `/benchmark` to execute and append results. Last full run: 2026-03-15 -- 306decc. See bottom section for latest numbers.
+Run via `cargo bench --bench system_bench` (Criterion). Use `/benchmark` to execute and append results. Last full run: 2026-03-15. 306decc. See bottom section for latest numbers.
 
 ### NPC-scaled (vary entity count, 50K NPCs baseline)
 
@@ -456,15 +456,15 @@ Note: building systems at realistic counts (2K) are negligible. 50K-per-type str
 
 Compact record of performance fixes applied. Each entry preserves the root cause analysis and pattern used.
 
-### spawner_respawn O(n²) → O(n) — 1,176× faster
+### spawner_respawn O(n²) → O(n). 1,176× faster
 
 **Root cause**: `find_nearest_free()` (world.rs) used generic `for_each_nearby` spatial search iterating ALL building types per cell. N spawners × N buildings = O(n²). 2K spawners = 88ms.
 
-**Fix**: (1) `spawner_slots` index in entity_map.rs — O(spawners) collection instead of O(all_buildings). (2) Kind-filtered spatial search via `for_each_nearby_kind_town` — pre-built indexes containing only matching building kinds. Empty buckets = instant no-op.
+**Fix**: (1) `spawner_slots` index in entity_map.rs. O(spawners) collection instead of O(all_buildings). (2) Kind-filtered spatial search via `for_each_nearby_kind_town`. Pre-built indexes containing only matching building kinds. Empty buckets = instant no-op.
 
-**Pattern**: Candidate-Driven — use pre-built type-specific indexes instead of scanning all entities and filtering. 2K spawners: 88ms → 75µs.
+**Pattern**: Candidate-Driven. Use pre-built type-specific indexes instead of scanning all entities and filtering. 2K spawners: 88ms → 75µs.
 
-### rebuild_building_grid_system redundant full rebuilds — incremental dirty path restored
+### rebuild_building_grid_system redundant full rebuilds. Incremental dirty path restored
 
 **Root cause**: `rebuild_building_grid_system` used to call `EntityMap::rebuild_spatial()` on every `BuildingGridDirtyMsg`, even after the spatial grid had already been initialized. That turned each add/remove building event into an O(n_buildings) rebuild even though `EntityMap::add_instance()` and `remove_instance()` already maintain the spatial indexes incrementally via `spatial_insert` / `spatial_remove`.
 
@@ -484,60 +484,60 @@ Compact record of performance fixes applied. Each entry preserves the root cause
 
 Incremental `add_instance` (spatial_insert inline) is O(1) at ~180-680ns regardless of building count. Full `rebuild_spatial` scales O(n): 12.8ms at 50K buildings.
 
-**Pattern**: Event-driven incremental maintenance -- when the authoritative index is already updated inline on add/remove, dirty-message handlers should only reconcile first-time initialization or true bulk rebuild cases, not blindly rescan the entire collection every tick.
+**Pattern**: Event-driven incremental maintenance. When the authoritative index is already updated inline on add/remove, dirty-message handlers should only reconcile first-time initialization or true bulk rebuild cases, not blindly rescan the entire collection every tick.
 
-### HPA* hierarchical pathfinding — 341× faster
+### HPA* hierarchical pathfinding. 341× faster
 
 **Root cause**: Raw A* searched ~5000 grid cells per request. At 50K NPCs with 10% pathing: 5000 requests × 51µs = 257ms unbounded.
 
-**Fix**: Custom HPA* — 16×16 chunks, entrance nodes at boundaries, precomputed intra-chunk paths. Abstract graph A* searches ~100-500 nodes instead of ~5000. Also increased LOS bypass 5→12 tiles and eliminated 125KB/frame cost grid clone.
+**Fix**: Custom HPA*. 16×16 chunks, entrance nodes at boundaries, precomputed intra-chunk paths. Abstract graph A* searches ~100-500 nodes instead of ~5000. Also increased LOS bypass 5→12 tiles and eliminated 125KB/frame cost grid clone.
 
 **Result**: Unbounded 50K: 257ms → 753µs. Budgeted 50K: 2.27ms → 214µs. Budget cap now nearly unnecessary. Cache build is one-time (~50-100ms at world init), chunk rebuilds on building change <1ms.
 
-### death_system O(n²) → O(1) via DenseSlotSet — 7× faster
+### death_system O(n²) → O(1) via DenseSlotSet. 7× faster
 
-**Root cause**: `EntityMap.unregister_npc` called `npc_by_town[town].retain(|&s| s != slot)` per death — O(town_size) linear scan per removal. N deaths × town_size = O(n²). Also, `NpcsByTownCache` duplicated the same data, paying the O(n) retain twice.
+**Root cause**: `EntityMap.unregister_npc` called `npc_by_town[town].retain(|&s| s != slot)` per death. O(town_size) linear scan per removal. N deaths × town_size = O(n²). Also, `NpcsByTownCache` duplicated the same data, paying the O(n) retain twice.
 
 **Fix** (three parts):
-1. **Delete NpcsByTownCache** — redundant with `EntityMap.npc_by_town`. Removed from 8 files.
-2. **DenseSlotMap\<T\>** (entity_map.rs) — generic dense parallel `Vec<usize>` (slots) + `Vec<T>` (data) + reverse `HashMap<usize, usize>` (slot → position). O(1) insert/remove/get, cache-friendly iteration via `slot_slice()`/`values()`. `DenseSlotSet` is thin wrapper (`DenseSlotMap<()>`). Same pattern as [EnTT sparse sets](https://gist.github.com/dakom/82551fff5d2b843cbe1601bbaff2acbf) and [`IndexSet::swap_remove`](https://docs.rs/indexmap/latest/indexmap/set/struct.IndexSet.html). Applied to `npc_by_town`, `by_kind`, `by_kind_town`, `spawner_slots`, and `instances` (building data).
-3. **Defer equipment extraction** — moved equipment queries inside `if last_hit_by >= 0` block. Starvation deaths skip 2 Vec allocations.
+1. **Delete NpcsByTownCache**. Redundant with `EntityMap.npc_by_town`. Removed from 8 files.
+2. **DenseSlotMap\<T\>** (entity_map.rs). Generic dense parallel `Vec<usize>` (slots) + `Vec<T>` (data) + reverse `HashMap<usize, usize>` (slot → position). O(1) insert/remove/get, cache-friendly iteration via `slot_slice()`/`values()`. `DenseSlotSet` is thin wrapper (`DenseSlotMap<()>`). Same pattern as [EnTT sparse sets](https://gist.github.com/dakom/82551fff5d2b843cbe1601bbaff2acbf) and [`IndexSet::swap_remove`](https://docs.rs/indexmap/latest/indexmap/set/struct.IndexSet.html). Applied to `npc_by_town`, `by_kind`, `by_kind_town`, `spawner_slots`, and `instances` (building data).
+3. **Defer equipment extraction**. Moved equipment queries inside `if last_hit_by >= 0` block. Starvation deaths skip 2 Vec allocations.
 
 **Pattern**: For any collection needing O(1) keyed access and cache-friendly iteration, use `DenseSlotMap<T>` (with data) or `DenseSlotSet` (slot-only). 500 deaths/frame: 7.8ms → 951µs.
 
-### slot_for_entity O(n) → O(1) via reverse index — 8× faster at 5K
+### slot_for_entity O(n) → O(1) via reverse index. 8× faster at 5K
 
-**Root cause**: `EntityMap::slot_for_entity(Entity)` did `self.entities.iter().find(...)` — O(n) linear scan of HashMap by value. Called per `DamageMsg`, per worksite release, per squad member lookup. N messages × N entities = O(n²) in damage_system.
+**Root cause**: `EntityMap::slot_for_entity(Entity)` did `self.entities.iter().find(...)`. O(n) linear scan of HashMap by value. Called per `DamageMsg`, per worksite release, per squad member lookup. N messages × N entities = O(n²) in damage_system.
 
-**Fix**: Added `entity_to_slot: HashMap<Entity, usize>` reverse index to EntityMap, maintained via `set_entity()`/`remove_entity_mapping()` helpers. `slot_for_entity` becomes `entity_to_slot.get(&entity).copied()` — O(1).
+**Fix**: Added `entity_to_slot: HashMap<Entity, usize>` reverse index to EntityMap, maintained via `set_entity()`/`remove_entity_mapping()` helpers. `slot_for_entity` becomes `entity_to_slot.get(&entity).copied()`. O(1).
 
-**Pattern**: Bijection index — when a forward map (slot→entity) is frequently queried in reverse (entity→slot), add a parallel reverse HashMap. Documented in Canonical Key Model: "Secondary indexes are allowed for performance (`Entity -> slot`)". damage_system 5K: 1860µs → 228µs.
+**Pattern**: Bijection index. When a forward map (slot→entity) is frequently queried in reverse (entity→slot), add a parallel reverse HashMap. Documented in Canonical Key Model: "Secondary indexes are allowed for performance (`Entity -> slot`)". damage_system 5K: 1860µs → 228µs.
 
-### build_building_body_instances cache-miss fix — reduced scattered 200K-array reads (#209)
+### build_building_body_instances cache-miss fix. Reduced scattered 200K-array reads (#209)
 
-**Root cause**: `build_building_body_instances` read `gpu_state.positions[idx*2]` and `gpu_state.factions[idx]` per building. Building slots start at MAX_NPC_COUNT (~100K), so these were scattered reads into 200K-element flat arrays -- poor cache locality. Also, per-building ECS `query.get()` for construction progress instead of a single pre-indexed HashMap. Observed peak: 4.55ms at ~1111 NPCs.
+**Root cause**: `build_building_body_instances` read `gpu_state.positions[idx*2]` and `gpu_state.factions[idx]` per building. Building slots start at MAX_NPC_COUNT (~100K), so these were scattered reads into 200K-element flat arrays. Poor cache locality. Also, per-building ECS `query.get()` for construction progress instead of a single pre-indexed HashMap. Observed peak: 4.55ms at ~1111 NPCs.
 
-**Fix**: (1) Read `inst.position` and `inst.faction` from `BuildingInstance` in the compact `DenseSlotMap` (cache-friendly sequential layout) instead of scattered array reads. Buildings are static after placement (position) and faction is CPU-authoritative on EntityMap (authority.md), so the values are always correct. (2) Pre-build `under_construction_by_slot: HashMap<usize, f32>` once per frame via `Query<(&GpuSlot, &ConstructionProgress)>` -- O(under_construction) not O(all_buildings). Dirty guard (issue #187) skips the rebuild entirely when nothing changed.
+**Fix**: (1) Read `inst.position` and `inst.faction` from `BuildingInstance` in the compact `DenseSlotMap` (cache-friendly sequential layout) instead of scattered array reads. Buildings are static after placement (position) and faction is CPU-authoritative on EntityMap (authority.md), so the values are always correct. (2) Pre-build `under_construction_by_slot: HashMap<usize, f32>` once per frame via `Query<(&GpuSlot, &ConstructionProgress)>`. O(under_construction) not O(all_buildings). Dirty guard (issue #187) skips the rebuild entirely when nothing changed.
 
-**Pattern**: Compact authority read -- when data is available on a compact ECS/EntityMap structure AND is CPU-authoritative (won't be overwritten by GPU compute), read from there instead of the large parallel GPU arrays. Reduces scattered reads from 5 to 2 per building (sprite_indices + flash).
+**Pattern**: Compact authority read. When data is available on a compact ECS/EntityMap structure AND is CPU-authoritative (won't be overwritten by GPU compute), read from there instead of the large parallel GPU arrays. Reduces scattered reads from 5 to 2 per building (sprite_indices + flash).
 
 **Before/after**: Needs Windows cargo bench and live endless-cli get_perf measurement (k3s cannot run game or criterion benchmarks). See bench_build_building_body_instances (dirty: 68K buildings) in system_bench.rs.
 
-### rebuild_building_grid O(N) → O(1) — eliminated 19ms spike (#207)
+### rebuild_building_grid O(N) → O(1). Eliminated 19ms spike (#207)
 
 **Root cause**: `rebuild_building_grid_system` called `entity_map.rebuild_spatial()` (O(all_buildings) full spatial grid rebuild) on every `BuildingGridDirtyMsg`. At high game speed with AI placing buildings, towers killing raiders, etc., this fired frequently. Observed 19.05ms peak spike in live gameplay at 1111 NPCs.
 
-**Fix**: `add_instance`/`remove_instance` already maintain the spatial grid incrementally on every building change. After first init, skip `rebuild_spatial()` entirely -- only call `init_spatial()` (no-op at same size). First init or reload still does a full rebuild.
+**Fix**: `add_instance`/`remove_instance` already maintain the spatial grid incrementally on every building change. After first init, skip `rebuild_spatial()` entirely. Only call `init_spatial()` (no-op at same size). First init or reload still does a full rebuild.
 
-**Pattern**: Incremental maintenance -- if insert/remove operations already update the data structure, don't also do a full rebuild on every change notification. rebuild_building_grid at 5K buildings: O(N) full rebuild → 1.5us constant.
+**Pattern**: Incremental maintenance. If insert/remove operations already update the data structure, don't also do a full rebuild on every change notification. rebuild_building_grid at 5K buildings: O(N) full rebuild → 1.5us constant.
 
 ### resolve_work_targets O(68K iter_instances) -> O(~1K ECS query) (#186)
 
 **Root cause**: `resolve_work_targets` built `production_map` and `cow_farm_slots` by calling `iter_instances()` (68K building + resource node instances) with a per-instance `query.get(entity)` probe for each building. Ran unconditionally on every non-empty message batch. In-game peak: 4ms via `endless-cli get_perf`.
 
 **Fix**: Replace `iter_instances()` scan with two ECS component queries:
-- `Query<(&GpuSlot, &ProductionState), With<Building>>` -- only ~1K buildings with ProductionState
-- `Query<(&GpuSlot, &FarmModeComp), With<Building>>` -- only farms with FarmModeComp
+- `Query<(&GpuSlot, &ProductionState), With<Building>>`. Only ~1K buildings with ProductionState
+- `Query<(&GpuSlot, &FarmModeComp), With<Building>>`. Only farms with FarmModeComp
 - Lazy gate: skip both queries entirely for Release/MarkPresent-only batches (common steady-state path)
 
 **Pattern**: Migration Template #1 (Query-First Scan). When a hot path scans all instances to find ones with a specific component, replace the `iter_instances()` + `query.get()` pattern with a direct ECS query filtered by that component. O(68K) -> O(~1K).
@@ -550,15 +550,15 @@ Incremental `add_instance` (spatial_insert inline) is O(1) at ~180-680ns regardl
 
 **Fix**: Snapshot `(idx, cost)` pairs before rebuild. After re-applying overlays, diff old vs new to find cells whose cost actually changed. Only pass changed cells to `rebuild_chunks`. Detects both set membership changes (added/removed buildings) AND cost value changes (wall replaced by road at same cell -- `symmetric_difference` would miss this).
 
-**Pattern**: Before/after diff -- when an expensive downstream operation (HPA* rebuild) takes a set of dirty items, diff the actual values to avoid feeding unchanged items. No-change case (redundant dirty signal) skips HPA* entirely. sync_pathfind_costs at 200 buildings no-change: ~2.5us.
+**Pattern**: Before/after diff. When an expensive downstream operation (HPA* rebuild) takes a set of dirty items, diff the actual values to avoid feeding unchanged items. No-change case (redundant dirty signal) skips HPA* entirely. sync_pathfind_costs at 200 buildings no-change: ~2.5us.
 
 ### ai_decision_system rate-limited to real-time cadence (#204)
 
 **Root cause**: `ai_decision_system` advanced decision timers using `game_time.delta(&time)` (game-time-scaled delta). At 16x speed, each tick delta was 16x larger, so AI timers fired 16x more often per real-time second. Observed: 0.01ms at 1x -> 1.57ms at 16x (157x increase) for 447 NPCs.
 
-**Fix**: Use `time.delta_secs()` (real-time delta) instead of `game_time.delta(&time)`. Added pause guard: skip timer advance when `game_time.paused()`. AI strategic decisions run at real-time cadence regardless of game speed -- decision quality does not improve from 16x more evaluations.
+**Fix**: Use `time.delta_secs()` (real-time delta) instead of `game_time.delta(&time)`. Added pause guard: skip timer advance when `game_time.paused()`. AI strategic decisions run at real-time cadence regardless of game speed. Decision quality does not improve from 16x more evaluations.
 
-**Pattern**: Rate-limit in real-time -- AI decision timers should advance at wall-clock rate, not game-time rate. Strategic decisions (where to build, whom to attack) do not need to scale with simulation speed.
+**Pattern**: Rate-limit in real-time. AI decision timers should advance at wall-clock rate, not game-time rate. Strategic decisions (where to build, whom to attack) do not need to scale with simulation speed.
 
 **Before/after**: 447 NPCs at 16x (issue baseline): 1.57ms/tick. After fix (BRP verified, ~313 NPCs): 0.02ms/tick at 1x, 0.33ms/frame at 16x (= 0.021ms/tick x 16 ticks). Per-tick cost is now constant regardless of game speed.
 
@@ -568,33 +568,33 @@ Incremental `add_instance` (spatial_insert inline) is O(1) at ~180-680ns regardl
 
 **Fix**: Converted to message-driven: runs only when a dirty message is received. No-change frames skip entirely. Consistent with the event-driven pattern used for farm_visual, building_grid, and pathfind_costs.
 
-**Pattern**: Event-driven -- poll → message-driven. When state changes are sparse, replace unconditional O(n) scan with a message-triggered system that fires only when needed.
+**Pattern**: Event-driven. Poll → message-driven. When state changes are sparse, replace unconditional O(n) scan with a message-triggered system that fires only when needed.
 
 ### mason work targeting iter_instances -> for_each_nearby spatial query (#169)
 
-**Root cause**: `decision_system` mason logic used `entity_map.iter_instances()` to find nearest damaged building -- O(all_instances) = O(~68K) per mason NPC per decision tick. With many mason NPCs at bucket cadence, cumulative cost was significant.
+**Root cause**: `decision_system` mason logic used `entity_map.iter_instances()` to find nearest damaged building. O(all_instances) = O(~68K) per mason NPC per decision tick. With many mason NPCs at bucket cadence, cumulative cost was significant.
 
-**Fix**: Replace `iter_instances()` scan with `entity_map.for_each_nearby(current_pos, repair_radius, ...)` -- only visits buildings within the spatial grid cell(s) overlapping the search radius. O(nearby) instead of O(all_instances).
+**Fix**: Replace `iter_instances()` scan with `entity_map.for_each_nearby(current_pos, repair_radius, ...)`. Only visits buildings within the spatial grid cell(s) overlapping the search radius. O(nearby) instead of O(all_instances).
 
-**Pattern**: Migration Template #3 (Mixed Path) + spatial query -- when a hot decision loop scans all instances to find spatially nearby ones, replace with the pre-built spatial index. Benchmark added in system_bench.rs for mason 50K-building scale validation.
+**Pattern**: Migration Template #3 (Mixed Path) + spatial query. When a hot decision loop scans all instances to find spatially nearby ones, replace with the pre-built spatial index. Benchmark added in system_bench.rs for mason 50K-building scale validation.
 
 ### road candidate scoring O(n*m) -> O(n) adjacency check (#218)
 
-**Root cause**: Road candidate scoring in `ai_player` built adjacency lists via nested loops -- O(candidates * neighbors) = O(n*m) per AI build evaluation. At large town sizes with many road candidates, this dominated AI build step cost.
+**Root cause**: Road candidate scoring in `ai_player` built adjacency lists via nested loops. O(candidates * neighbors) = O(n*m) per AI build evaluation. At large town sizes with many road candidates, this dominated AI build step cost.
 
 **Fix**: Replaced nested adjacency loop with a single pre-indexed pass. O(n) total.
 
-**Pattern**: Pre-index -- when an inner loop re-scans the same collection for each outer item, build a lookup structure once and reuse it.
+**Pattern**: Pre-index. When an inner loop re-scans the same collection for each outer item, build a lookup structure once and reuse it.
 
 ### damage_system debug sampling removed (#170)
 
 **Root cause**: `damage_system` contained an `iter_npcs()` + `query.get()` debug sampling loop that ran unconditionally. The loop had no debug gate and was not visible in the hot-path audit. At 50K NPCs, this added unmeasured overhead to every damage tick.
 
-**Fix**: Removed the unconditional debug sampling loop entirely. No replacement needed -- the data was only used for debug validation, not gameplay.
+**Fix**: Removed the unconditional debug sampling loop entirely. No replacement needed. The data was only used for debug validation, not gameplay.
 
-**Pattern**: Debug overhead removal -- unconditional per-frame `iter_npcs()` + `query.get()` loops in hot paths must be gated behind a debug flag or removed. See Debug Overhead rules.
+**Pattern**: Debug overhead removal. Unconditional per-frame `iter_npcs()` + `query.get()` loops in hot paths must be gated behind a debug flag or removed. See Debug Overhead rules.
 
-## Benchmarks (2026-03-15 -- 306decc)
+## Benchmarks (2026-03-15. 306decc)
 
 | System | 1K | 5K | 10K | 25K | 50K |
 |--------|----|----|-----|-----|-----|
