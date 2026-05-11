@@ -64,7 +64,7 @@ pub fn gpu_position_readback(
                 let dx = gpu_x - goal_x;
                 let dy = gpu_y - goal_y;
                 let dist_sq = dx * dx + dy * dy;
-                // Relaxed threshold for intermediate waypoints -- prevents pile-up
+                // Relaxed threshold for intermediate waypoints. Prevents pile-up
                 // when boid separation pushes NPCs away from shared A* waypoints
                 let is_intermediate = path.current + 1 < path.waypoints.len();
                 let thresh_sq = if is_intermediate {
@@ -125,7 +125,7 @@ pub fn advance_waypoints_system(
             // Clear at_destination so GPU resumes movement toward new waypoint
             flags.at_destination = false;
         }
-        // else: at final waypoint — leave at_destination=true for decision system to handle
+        // else: at final waypoint. Leave at_destination=true for decision system to handle
     }
 }
 
@@ -164,7 +164,7 @@ pub fn resolve_movement_system(
 
         let i = idx * 2;
 
-        // "Stop in place" — intent target ≈ current position: skip cooldown, write directly
+        // "Stop in place". Intent target ≈ current position: skip cooldown, write directly
         if i + 1 < positions.len() {
             let dx = positions[i] - intent.target.x;
             let dy = positions[i + 1] - intent.target.y;
@@ -219,7 +219,7 @@ pub fn resolve_movement_system(
             }
         }
 
-        // No grid or no position data — direct SetTarget fallback
+        // No grid or no position data. Direct SetTarget fallback
         if !has_grid || i + 1 >= positions.len() {
             if let Ok(mut npc_path) = path_q.get_mut(entity) {
                 npc_path.waypoints.clear();
@@ -298,7 +298,7 @@ pub fn resolve_movement_system(
         let dist = (req.goal - req.start).abs();
         let manhattan = dist.x + dist.y;
 
-        // Short-distance LOS bypass — direct SetTarget
+        // Short-distance LOS bypass. Direct SetTarget
         if manhattan <= config.short_distance_tiles && line_of_sight(&grid, req.start, req.goal) {
             los_bypass += 1;
             if let Ok(mut path) = path_q.get_mut(req.entity) {
@@ -442,7 +442,7 @@ mod tests {
     fn resolve_movement_skips_same_target() {
         let mut app = setup_movement_app();
         let entity = app.world_mut().spawn(GpuSlot(0)).id();
-        // Current target IS (100, 200) — submit the same
+        // Current target IS (100, 200). Submit the same
         app.world_mut().resource_mut::<EntityGpuState>().targets = vec![100.0, 200.0];
         app.world_mut().resource_mut::<PathRequestQueue>().submit(
             entity,
