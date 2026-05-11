@@ -1,7 +1,7 @@
 use super::*;
 use bevy::time::TimeUpdateStrategy;
 
-// -- ai_dirty_drain_system --
+//. Ai_dirty_drain_system.
 
 fn setup_ai_dirty_app() -> App {
     let mut app = App::new();
@@ -60,7 +60,7 @@ fn ai_dirty_drain_stays_false_without_msgs() {
     );
 }
 
-// -- perimeter_dirty_drain_system --
+//. Perimeter_dirty_drain_system.
 
 fn setup_perimeter_dirty_app() -> App {
     let mut app = App::new();
@@ -151,7 +151,7 @@ fn personality_loot_thresholds_match_issue_68_targets() {
     assert_eq!(AiPersonality::Economic.loot_threshold(), 1);
 }
 
-// -- decision timer stagger (issue-192) --
+//. Decision timer stagger (issue-192).
 
 fn make_player_with_timer(timer: f32) -> AiPlayer {
     AiPlayer {
@@ -279,7 +279,7 @@ fn ai_decision_timer_is_real_time_not_game_time_at_16x() {
     fn timer_system(time: Res<Time>, game_time: Res<GameTime>, mut accum: ResMut<TimerAccum>) {
         // Exact delta logic from ai_decision_system (post-fix, issue #204).
         // Old code: game_time.delta(&time) which scales by time_scale (16x at high speed).
-        // Fix: time.delta_secs() -- real-time only, ignores game speed.
+        // Fix: time.delta_secs(). Real-time only, ignores game speed.
         let delta = if game_time.is_paused() {
             0.0
         } else {
@@ -308,7 +308,7 @@ fn ai_decision_timer_is_real_time_not_game_time_at_16x() {
 
     let accum = app.world().resource::<TimerAccum>().0;
     let real_time = (1.0f32 / 60.0) * ticks as f32; // ~0.333s
-    let game_time_accum = real_time * 16.0; // ~5.33s -- what old (broken) code gives
+    let game_time_accum = real_time * 16.0; // ~5.33s. What old (broken) code gives
     let interval = crate::constants::DEFAULT_AI_INTERVAL; // 5.0s
 
     // Old game-time delta would cross the interval and trigger AI decisions at 16x.
