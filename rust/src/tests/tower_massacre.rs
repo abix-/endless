@@ -184,7 +184,7 @@ pub fn tick(
             );
         }
     } else if test.phase == 2 {
-        // Combat phase -- track deaths
+        // Combat phase. Track deaths
         test.phase_name = format!(
             "Combat: {} alive, {} dead, {} queued, {:.1}s",
             alive_raiders, dead_raiders, queue_pending, elapsed
