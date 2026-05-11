@@ -1,4 +1,4 @@
-//! Built-in LLM player — spawns `claude --print` each cycle to get strategic decisions.
+//! Built-in LLM player. Spawns `claude --print` each cycle to get strategic decisions.
 //! Reads ECS resources directly, no HTTP/BRP round-trip.
 
 use bevy::ecs::system::SystemParam;
@@ -12,7 +12,7 @@ use crate::world::WorldData;
 
 const DEFAULT_CYCLE_SECS: f32 = 20.0;
 
-/// LLM communication state — displayed as a status icon in the HUD.
+/// LLM communication state. Displayed as a status icon in the HUD.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LlmStatus {
     /// Timer counting down, no active request.
@@ -32,15 +32,15 @@ pub struct LlmPlayerState {
     prompt: String,
     pub town_idx: usize,
     pub status: LlmStatus,
-    /// One-shot topics requested by `query` — included in next cycle only, then cleared.
+    /// One-shot topics requested by `query`. Included in next cycle only, then cleared.
     pending_queries: Vec<String>,
-    /// Persistent topic subscriptions — included in every cycle's state payload.
+    /// Persistent topic subscriptions. Included in every cycle's state payload.
     subscriptions: Vec<String>,
-    /// Last CLI command that was (or will be) executed — for settings panel display.
+    /// Last CLI command that was (or will be) executed. For settings panel display.
     pub last_command: String,
-    /// Last TOON state payload sent as stdin — for settings panel display.
+    /// Last TOON state payload sent as stdin. For settings panel display.
     pub last_payload: String,
-    /// Last raw response from claude — for settings panel display.
+    /// Last raw response from claude. For settings panel display.
     pub last_response: String,
 }
 
@@ -214,7 +214,7 @@ fn build_state_json(
     mines.sort_by_key(|(d, _)| *d);
     root["gold_mines"] = json!(mines.into_iter().map(|(_, v)| v).collect::<Vec<Value>>());
 
-    // Own-town extras at top level (not per-town — keeps towns tabular)
+    // Own-town extras at top level (not per-town. Keeps towns tabular)
     let your_squads: Vec<Value> = write
         .squad_state
         .squads
@@ -360,7 +360,7 @@ fn build_state_json(
     root
 }
 
-/// Parse CSV-line response — one action per line: `method, key:value, key:value, ...`
+/// Parse CSV-line response. One action per line: `method, key:value, key:value, ...`
 fn parse_actions(response: &str) -> Vec<LlmAction> {
     let text = response.trim();
     if text.is_empty() || text.eq_ignore_ascii_case("none") {
@@ -407,7 +407,7 @@ struct LlmAction {
     params: HashMap<String, String>,
 }
 
-/// Main system — timer-driven, spawns claude --print in background, polls results.
+/// Main system. Timer-driven, spawns claude --print in background, polls results.
 pub fn llm_player_system(
     mut state: ResMut<LlmPlayerState>,
     time: Res<Time>,
@@ -423,7 +423,7 @@ pub fn llm_player_system(
         .timer
         .set_duration(std::time::Duration::from_secs_f32(settings.llm_interval));
 
-    // Freeze everything when paused — don't poll, execute, or tick timer
+    // Freeze everything when paused. Don't poll, execute, or tick timer
     if read.game_time.is_paused() {
         return;
     }
@@ -569,7 +569,7 @@ pub fn llm_player_system(
     });
 }
 
-/// Extract topic names from params — `topics:npcs,upgrades` → `["npcs", "upgrades"]`
+/// Extract topic names from params. `topics:npcs,upgrades` → `["npcs", "upgrades"]`
 fn extract_topics(params: &HashMap<String, String>) -> Vec<String> {
     params
         .get("topics")
@@ -924,7 +924,7 @@ fn execute_actions(
                 );
             }
             other => {
-                // Non-action lines are LLM commentary/reasoning — collect for display
+                // Non-action lines are LLM commentary/reasoning. Collect for display
                 let line = action
                     .params
                     .values()
