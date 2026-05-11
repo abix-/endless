@@ -49,7 +49,7 @@ pub fn setup(mut params: TestSetupParams, config: Res<PathfindMazeConfig>) {
         params.entity_map.init_spatial(world_size_px);
     }
 
-    // -- Build serpentine wall maze (cols 0-24, rows 0-24) --
+    //. Build serpentine wall maze (cols 0-24, rows 0-24).
     let wall_rows: &[(i32, i32, i32)] = &[
         (4, 0, 22),  // row 4: col 0..21
         (8, 3, 25),  // row 8: col 3..24
@@ -244,7 +244,7 @@ pub fn tick(
     }
 }
 
-/// Maze config panel — slider for NPC count + restart button.
+/// Maze config panel. Slider for NPC count + restart button.
 pub(super) fn ui(
     mut contexts: EguiContexts,
     mut config: ResMut<PathfindMazeConfig>,
