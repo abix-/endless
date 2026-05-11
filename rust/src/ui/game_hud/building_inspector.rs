@@ -503,7 +503,7 @@ pub(crate) fn building_inspector_content(
                     ));
                 }
 
-                // Upgrade button — opens popup window
+                // Upgrade button. Opens popup window
                 if ui
                     .button(egui::RichText::new("Upgrades").strong())
                     .clicked()
@@ -560,7 +560,7 @@ pub(crate) fn building_inspector_content(
                     }
                 }
 
-                // Sell section — items from town equipment
+                // Sell section. Items from town equipment
                 ui.separator();
                 ui.label("Sell from inventory:");
                 let mut sell_id: Option<u64> = None;
