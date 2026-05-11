@@ -1,6 +1,6 @@
-//! AI player system -- autonomous opponents that build and upgrade like the player.
+//! AI player system. Autonomous opponents that build and upgrade like the player.
 //! Each AI has a personality (Aggressive/Balanced/Economic) that influences weighted
-//! random decisions -- same pattern as NPC behavior scoring.
+//! random decisions. Same pattern as NPC behavior scoring.
 //!
 //! Slot selection: economy buildings (farms, houses, barracks) prefer inner slots
 //! (closest to center). Waypoints form a single outer ring on the perimeter of the
@@ -199,7 +199,7 @@ pub enum AiPersonality {
     Economic,
 }
 
-/// Road layout style -- randomly assigned per AI town, independent of personality.
+/// Road layout style. Randomly assigned per AI town, independent of personality.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RoadStyle {
     None,
@@ -351,7 +351,7 @@ impl AiPersonality {
     }
 
     /// Food desire thresholds for toggling eat_food policy.
-    /// Returns (disable_above, reenable_below) -- higher food_desire = more food stress.
+    /// Returns (disable_above, reenable_below). Higher food_desire = more food stress.
     fn eat_food_desire_thresholds(self) -> (f32, f32) {
         match self {
             Self::Aggressive => (0.4, 0.2),
@@ -808,7 +808,7 @@ pub fn cheapest_gold_upgrade_cost(weights: &[f32], levels: &[u8], gold: i32) -> 
     if cheapest == i32::MAX { 0 } else { cheapest }
 }
 
-/// Per-squad AI command state -- independent cooldown and target memory.
+/// Per-squad AI command state. Independent cooldown and target memory.
 #[derive(Clone, Default)]
 pub struct AiSquadCmdState {
     /// Target building UID (stable identity, survives slot reuse).
