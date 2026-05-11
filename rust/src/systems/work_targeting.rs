@@ -1,4 +1,4 @@
-//! Centralized work targeting — single owner of worksite occupancy mutations.
+//! Centralized work targeting. Single owner of worksite occupancy mutations.
 //!
 //! All systems declare intent via `WorkIntentMsg`; this system resolves them:
 //! - Claim: spatial search → try_claim_worksite → update NpcWorkState + submit movement
@@ -194,7 +194,7 @@ fn claim_worksite(
     };
 
     let Some((target_slot, ..)) = result else {
-        // No worksite available — revert Activity to Idle
+        // No worksite available. Revert Activity to Idle
         if let Ok(mut act) = activity_q.get_mut(entity) {
             *act = crate::components::Activity::default();
         }
@@ -209,7 +209,7 @@ fn claim_worksite(
         max_occupants,
         Some(entity),
     ) else {
-        // Claim failed — revert Activity to Idle
+        // Claim failed. Revert Activity to Idle
         if let Ok(mut act) = activity_q.get_mut(entity) {
             *act = crate::components::Activity::default();
         }
@@ -250,7 +250,7 @@ pub(crate) fn find_farm_target(
             WorksiteFallback::TownOnly,
             6400.0,
             |inst, occ| {
-                // Skip cow farms -- they don't need farmer tending
+                // Skip cow farms. They don't need farmer tending
                 if cow_farm_slots.contains(&inst.slot) {
                     return None;
                 }
