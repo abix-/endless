@@ -2,7 +2,7 @@
 
 CPU-side SIMD optimization candidates for Endless at 50k NPC / 50k building / 1000x1000 map scale.
 
-SIMD infrastructure exists in `rust/src/simd.rs` (AVX2 + scalar fallback + runtime dispatch). First experiment (gpu_position_readback) regressed -- see "Experiment Results" section and `docs/performance.md`.
+SIMD infrastructure exists in `rust/src/simd.rs` (AVX2 + scalar fallback + runtime dispatch). First experiment (gpu_position_readback) regressed. See "Experiment Results" section and `docs/performance.md`.
 
 ## What is already on GPU (not candidates)
 
@@ -16,7 +16,7 @@ The WGSL compute shaders (`npc_compute.wgsl`, `projectile_compute.wgsl`) already
 
 These run massively parallel on GPU. No CPU SIMD work can compete here.
 
-## Priority 1: GPU Position Readback -- TESTED, REVERTED
+## Priority 1: GPU Position Readback. TESTED, REVERTED
 
 **File:** `rust/src/systems/movement.rs:26-75` (`gpu_position_readback`)
 **Frequency:** Every frame, every NPC (50k iterations)
@@ -54,7 +54,7 @@ for (es, mut pos, mut flags, path, _activity) in npc_q.iter_mut() {
 
 ### Why it is a good target
 
-- `positions` and `targets` are flat `Vec<f32>` -- contiguous memory, no gathers needed
+- `positions` and `targets` are flat `Vec<f32>`. Contiguous memory, no gathers needed
 - Inner loop is pure arithmetic: subtract, multiply, add, compare
 - No branches in the hot math (the `is_intermediate` branch is per-NPC metadata, not data-dependent)
 - 50k iterations per frame = enough work to amortize SIMD setup
@@ -224,7 +224,7 @@ for (es, mut pos, mut flags, path, _activity) in npc_q.iter_mut() {
 
 ### Intermediate waypoint handling
 
-The current code uses two thresholds: `threshold_sq` (final waypoint) and `intermediate_sq` (relaxed, for mid-path waypoints). The SIMD batch uses the tighter threshold. Entities that pass the tight check are definitely arrived. Entities that fail might still pass the relaxed check -- but we only need to scalar-check the small subset that are on intermediate waypoints and failed the tight check. This keeps the SIMD path simple.
+The current code uses two thresholds: `threshold_sq` (final waypoint) and `intermediate_sq` (relaxed, for mid-path waypoints). The SIMD batch uses the tighter threshold. Entities that pass the tight check are definitely arrived. Entities that fail might still pass the relaxed check. But we only need to scalar-check the small subset that are on intermediate waypoints and failed the tight check. This keeps the SIMD path simple.
 
 ## Priority 2: Path Cost Accumulation
 
@@ -550,7 +550,7 @@ Single multiply-add per NPC. The ECS iteration overhead (archetype matching, com
 
 ### Line of sight (`pathfinding.rs:787-813`)
 
-Bresenham ray march. Each step depends on the error accumulator from the previous step -- inherently serial. Only used for short-distance LOS bypass (manhattan <= `short_distance_tiles`). Not a bottleneck.
+Bresenham ray march. Each step depends on the error accumulator from the previous step. Inherently serial. Only used for short-distance LOS bypass (manhattan <= `short_distance_tiles`). Not a bottleneck.
 
 ### Spatial queries (`entity_map.rs:740-838`)
 
@@ -624,7 +624,7 @@ Each submodule exports:
 
 External research confirms the experiment results: CPU SIMD is a dead end for ECS-iteration-bound systems. Smarter engineers solved these problems differently.
 
-### GPU already computes arrivals -- CPU double-computes
+### GPU already computes arrivals. CPU double-computes
 
 `npc_compute.wgsl` binding 5 (`arrivals`) tracks per-entity settled state on GPU. The `gpu_position_readback` system then re-computes arrival via CPU distance check. Priority 1 tried to SIMD-optimize a computation that already happens on GPU. The fix is reading the GPU arrivals buffer back instead of recomputing. See roadmap.md for tracking.
 
@@ -646,11 +646,11 @@ The proposed AVX2 `accumulate_row` uses `_mm256_cmpgt_epi16` which is signed com
 
 ### Key external references
 
-- [NativeFlowField](https://github.com/kingstone426/NativeFlowField) -- GPU compute flow fields, multi-pass distance propagation, async readback (Unity DOTS, algorithm is engine-agnostic)
-- [nullprogram GPU pathfinding](https://nullprogram.com/blog/2014/06/22/) -- breadth-first flood on GPU, O(grid) shared across all agents
-- [Dreaming381 "Your ECS Probably Still Sucks"](https://gist.github.com/Dreaming381/89d65f81b9b430ffead443a2d430defc) -- if bottleneck is ECS iteration, SIMD on arithmetic is wasted; restructure storage or move off CPU
-- [Bevy batched ECS query discussion](https://github.com/bevyengine/bevy/issues/1990) -- AoSoA layout wins benchmarks but Bevy doesn't expose it yet
-- [bevy_hanabi indirect dispatch](https://deepwiki.com/djeedai/bevy_hanabi) -- zero CPU-GPU sync via GPU-computed dispatch counts
+- [NativeFlowField](https://github.com/kingstone426/NativeFlowField). GPU compute flow fields, multi-pass distance propagation, async readback (Unity DOTS, algorithm is engine-agnostic)
+- [nullprogram GPU pathfinding](https://nullprogram.com/blog/2014/06/22/). Breadth-first flood on GPU, O(grid) shared across all agents
+- [Dreaming381 "Your ECS Probably Still Sucks"](https://gist.github.com/Dreaming381/89d65f81b9b430ffead443a2d430defc). If bottleneck is ECS iteration, SIMD on arithmetic is wasted; restructure storage or move off CPU
+- [Bevy batched ECS query discussion](https://github.com/bevyengine/bevy/issues/1990). AoSoA layout wins benchmarks but Bevy doesn't expose it yet
+- [bevy_hanabi indirect dispatch](https://deepwiki.com/djeedai/bevy_hanabi). Zero CPU-GPU sync via GPU-computed dispatch counts
 
 ## Revised priorities for 50k+ scale
 
