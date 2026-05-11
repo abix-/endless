@@ -107,7 +107,7 @@ pub fn target_overlay_system(
         painter.line_segment([prev, goal_screen], stroke);
         goal_screen
     } else {
-        // No A* path — single line to GPU target (direct movement)
+        // No A* path. Single line to GPU target (direct movement)
         let tgt_screen = to_screen(tgt_x, tgt_y);
         painter.line_segment([npc_screen, tgt_screen], stroke);
         tgt_screen
