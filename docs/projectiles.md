@@ -23,7 +23,7 @@ attack_system fires projectile
 NpcComputeNode → ProjectileComputeNode → CameraDriverLabel → Transparent2d
 ```
 
-Projectile compute runs after NPC compute because it reads the NPC spatial grid (built by NPC compute modes 0+1) and NPC positions/factions/healths. NPC compute reads the projectile spatial grid (built by projectile compute in the previous frame) for projectile dodge — 1-frame latency is acceptable.
+Projectile compute runs after NPC compute because it reads the NPC spatial grid (built by NPC compute modes 0+1) and NPC positions/factions/healths. NPC compute reads the projectile spatial grid (built by projectile compute in the previous frame) for projectile dodge. 1-frame latency is acceptable.
 
 ## Fire Path
 
@@ -41,7 +41,7 @@ Spawn data includes: position, velocity, damage, faction, shooter index, lifetim
 
 ## GPU Dispatch
 
-`projectile_compute.wgsl` — 64 threads per workgroup. 3 dispatches per frame with different `mode` uniform values, mirroring the NPC compute pattern.
+`projectile_compute.wgsl`. 64 threads per workgroup. 3 dispatches per frame with different `mode` uniform values, mirroring the NPC compute pattern.
 
 ### Mode 0: Clear Projectile Grid
 One thread per grid cell. Atomically clears `proj_grid_counts[cell]` to 0. Dispatches `ceil(grid_cells / 64)` workgroups.
@@ -54,10 +54,10 @@ For each active projectile:
 1. **Lifetime**: `lifetime -= delta`. If <= 0, deactivate, hide at (-9999, -9999), and write `proj_hits[i] = (-2, 0)` (expired sentinel for CPU slot recycling).
 2. **Movement**: `pos += velocity * delta`
 3. **Collision**: Skip if already hit. Compute grid cell, scan 3x3 neighborhood of entity spatial grid (contains both NPCs and buildings):
-   - Skip shooter entity (`entity_idx == proj_shooters[i]`) — prevents self-collision with source
+   - Skip shooter entity (`entity_idx == proj_shooters[i]`). Prevents self-collision with source
    - Skip same faction or neutral faction -1 (no friendly fire)
    - Skip dead entities (`health <= 0`)
-   - Skip untargetable entities (`entity_flags & 4u` — roads)
+   - Skip untargetable entities (`entity_flags & 4u`. Roads)
    - Oriented rectangle collision (long along velocity, thin perpendicular)
    - If hit: write `hit = ivec2(entity_idx, 0)`, deactivate, hide. `entity_idx < npc_count` = NPC hit, `entity_idx >= npc_count` = building hit.
 
@@ -94,7 +94,7 @@ Entity buffer layout: `[0..npc_count]` = NPCs, `[npc_count..entity_count]` = bui
 | 6 | proj_active | i32 | 4B | RW | 1=active, 0=inactive |
 | 7 | proj_hits | vec2\<i32\> | 8B | RW | (npc_idx, processed). Init -1. |
 
-### Shared Entity Buffers (read-only — contains NPCs + buildings)
+### Shared Entity Buffers (read-only. Contains NPCs + buildings)
 
 | Binding | Name | Source |
 |---------|------|--------|
@@ -142,7 +142,7 @@ ProjGpuUpdateMsg → ProjBufferWrites → GPU ──▶ ACTIVE
 
 `ProjSlotAllocator` (Bevy Resource) manages slot indices with an internal free list, same pattern as NPC `SlotAllocator`. `proj_count` is the high-water mark from `ProjSlotAllocator.next`.
 
-`ProjBufferWrites.active_set` tracks currently active projectile indices — maintained incrementally by `apply()` (push on Spawn, swap_remove on Deactivate). `extract_proj_data` iterates only `active_set` instead of scanning `0..proj_count`, avoiding O(high_water_mark) per frame.
+`ProjBufferWrites.active_set` tracks currently active projectile indices. Maintained incrementally by `apply()` (push on Spawn, swap_remove on Deactivate). `extract_proj_data` iterates only `active_set` instead of scanning `0..proj_count`, avoiding O(high_water_mark) per frame.
 
 ## Constants
 
