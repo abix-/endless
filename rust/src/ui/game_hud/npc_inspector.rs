@@ -1,4 +1,4 @@
-//! NPC inspector panel -- DC group summary and NPC detail view.
+//! NPC inspector panel. DC group summary and NPC detail view.
 
 use super::building_inspector::{building_inspector_content, mine_assignment_ui};
 use super::inspector::{
@@ -15,7 +15,7 @@ use crate::world::{BuildingKind, WorldData};
 use bevy::prelude::*;
 use bevy_egui::egui;
 
-/// DirectControl group summary — shown when DC units exist but no single NPC selected.
+/// DirectControl group summary. Shown when DC units exist but no single NPC selected.
 fn dc_group_inspector(
     ui: &mut egui::Ui,
     entity_map: &crate::resources::EntityMap,
@@ -329,7 +329,7 @@ pub(crate) fn inspector_content(
         }
     }
 
-    // Skills tab -- dedicated proficiency display with bars and effect descriptions
+    // Skills tab. Dedicated proficiency display with bars and effect descriptions
     if show_skills {
         if let Some(npc) = bld_data.entity_map.get_npc(idx) {
             let skills = bld_data
