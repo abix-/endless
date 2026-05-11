@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 #[derive(Resource, Default)]
 pub struct AutoStart(pub bool);
 
-/// CLI flag: --test [name|all] -- run integration tests and exit.
+/// CLI flag: --test [name|all]. Run integration tests and exit.
 #[derive(Resource, Default)]
 pub struct CliTestMode {
     pub active: bool,
@@ -88,7 +88,7 @@ impl SystemTimings {
     /// Record a timing value directly (same EMA as scope guard).
     /// Use for accumulated sub-section timings recorded after a loop.
     pub fn record(&self, name: &'static str, ms: f32) {
-        // Fast path: entry already exists -- update atomically without any lock.
+        // Fast path: entry already exists. Update atomically without any lock.
         if let Ok(guard) = self.data.read() {
             if let Some(entry) = guard.get(name) {
                 let old = f32::from_bits(entry.load(Ordering::Relaxed));
@@ -99,7 +99,7 @@ impl SystemTimings {
                 return;
             }
         }
-        // Slow path: new key -- take write lock and insert.
+        // Slow path: new key. Take write lock and insert.
         if let Ok(mut guard) = self.data.write() {
             let entry = guard
                 .entry(name)
@@ -343,7 +343,7 @@ pub struct DirectControlSet(pub HashSet<Entity>);
 #[derive(Resource, Default)]
 pub struct ReturningSet(pub HashSet<Entity>);
 
-/// Camera follow mode — when true, camera tracks the selected NPC.
+/// Camera follow mode. When true, camera tracks the selected NPC.
 #[derive(Resource, Default)]
 pub struct FollowSelected(pub bool);
 
@@ -624,12 +624,12 @@ pub struct MovementIntent {
     pub source: &'static str,
 }
 
-/// Source of a pathfinding request — used for merge priority when deduplicating.
+/// Source of a pathfinding request. Used for merge priority when deduplicating.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum PathSource {
-    /// From resolve_movement_system — has a fresh goal.
+    /// From resolve_movement_system. Has a fresh goal.
     Movement,
-    /// From invalidate_paths_on_building_change — goal may be stale.
+    /// From invalidate_paths_on_building_change. Goal may be stale.
     Invalidation,
 }
 
@@ -696,7 +696,7 @@ impl PathRequestQueue {
     }
 
     /// Insert or merge a grid-space path request. Per-entity dedupe within priority bucket.
-    /// Movement source has fresher goal — prefer it over Invalidation.
+    /// Movement source has fresher goal. Prefer it over Invalidation.
     pub fn enqueue(&mut self, req: PathRequest) {
         use std::collections::hash_map::Entry;
         let bucket_idx = (req.priority as usize).min(2);
@@ -756,7 +756,7 @@ impl PathRequestQueue {
 pub struct PathfindConfig {
     /// Max A* calls per FixedUpdate tick.
     pub max_per_frame: usize,
-    /// Manhattan distance threshold (in tiles) — below this, use direct LOS instead of A*.
+    /// Manhattan distance threshold (in tiles). Below this, use direct LOS instead of A*.
     pub short_distance_tiles: i32,
     /// Max nodes A* visits before early termination (prevents worst-case spikes).
     pub max_nodes: usize,
@@ -918,7 +918,7 @@ impl NpcLogCache {
     }
 
     /// Push a log message for an NPC with timestamp.
-    /// Filtered by current mode — early-returns for NPCs outside the active scope.
+    /// Filtered by current mode. Early-returns for NPCs outside the active scope.
     pub fn push(
         &mut self,
         idx: usize,
@@ -1452,7 +1452,7 @@ pub struct UiState {
     pub left_panel_open: bool,
     pub left_panel_tab: LeftPanelTab,
     pub combat_log_visible: bool,
-    /// MinerHome building data index — next click assigns a gold mine.
+    /// MinerHome building data index. Next click assigns a gold mine.
     pub assigning_mine: Option<usize>,
     /// Currently selected faction in the Factions tab (for world overlays).
     pub factions_overlay_faction: Option<i32>,
@@ -1460,13 +1460,13 @@ pub struct UiState {
     pub inspector_prefer_npc: bool,
     /// Monotonic click counter for inspector tab auto-focus application.
     pub inspector_click_seq: u64,
-    /// True when the player's fountain has been destroyed — shows lose screen.
+    /// True when the player's fountain has been destroyed. Shows lose screen.
     pub game_over: bool,
-    /// Tower upgrade popup — Some(slot) when open for a specific tower.
+    /// Tower upgrade popup. Some(slot) when open for a specific tower.
     pub tower_upgrade_slot: Option<usize>,
     /// Casino blackjack popup open.
     pub casino_open: bool,
-    /// Inventory slot filter — bitfield of enabled equipment ItemKind variants (all on by default).
+    /// Inventory slot filter. Bitfield of enabled equipment ItemKind variants (all on by default).
     pub inv_slot_filter: u16,
     /// Inventory view mode: 0=Unequipped, 1=Equipped, 2=All.
     pub inv_view_mode: u8,
@@ -1546,7 +1546,7 @@ pub struct BuildMenuContext {
     pub town_data_idx: Option<usize>,
     /// Active building selection for click-to-place mode.
     pub selected_build: Option<crate::world::BuildingKind>,
-    /// Destroy mode — click to remove buildings.
+    /// Destroy mode. Click to remove buildings.
     pub destroy_mode: bool,
     /// Last hovered snapped world position (for indicators/tooltips).
     pub hover_world_pos: Vec2,
@@ -1633,7 +1633,7 @@ pub struct CombatLogEntry {
     pub kind: CombatEventKind,
     pub faction: i32,
     pub message: String,
-    /// Optional world position — rendered as a clickable camera-pan button in the log.
+    /// Optional world position. Rendered as a clickable camera-pan button in the log.
     pub location: Option<bevy::math::Vec2>,
 }
 
@@ -1794,7 +1794,7 @@ pub struct PolicySet {
     pub farmer_flee_hp: f32, // 0.0-1.0 percentage
     #[serde(alias = "guard_flee_hp")]
     pub archer_flee_hp: f32,
-    pub recovery_hp: f32, // 0.0-1.0 — go rest/heal when below this
+    pub recovery_hp: f32, // 0.0-1.0. Go rest/heal when below this
     pub farmer_schedule: WorkSchedule,
     #[serde(alias = "guard_schedule")]
     pub archer_schedule: WorkSchedule,
@@ -1870,7 +1870,7 @@ pub struct DifficultyPreset {
     pub raider_forage_hours: f32,
 }
 
-/// Game difficulty — scales building costs. Selected on main menu, immutable during play.
+/// Game difficulty. Scales building costs. Selected on main menu, immutable during play.
 #[derive(
     Clone,
     Copy,
@@ -1980,7 +1980,7 @@ impl Difficulty {
 // SQUADS
 // ============================================================================
 
-/// Who controls a squad — player or an AI town.
+/// Who controls a squad. Player or an AI town.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub enum SquadOwner {
     #[default]
@@ -2341,7 +2341,7 @@ impl Default for ActiveHealingSlots {
 // AUDIO
 // ============================================================================
 
-/// Runtime audio state — volume levels and loaded track handles.
+/// Runtime audio state. Volume levels and loaded track handles.
 #[derive(Resource)]
 pub struct GameAudio {
     pub music_volume: f32,
@@ -2349,13 +2349,13 @@ pub struct GameAudio {
     pub tracks: Vec<Handle<AudioSource>>,
     pub last_track: Option<usize>,
     pub loop_current: bool,
-    /// UI-requested track — set by jukebox dropdown, consumed by jukebox_system.
+    /// UI-requested track. Set by jukebox dropdown, consumed by jukebox_system.
     pub play_next: Option<usize>,
     /// Playback speed multiplier (0.25-2.0, default 1.0).
     pub music_speed: f32,
-    /// SFX variant handles keyed by kind — multiple variants per kind for random selection.
+    /// SFX variant handles keyed by kind. Multiple variants per kind for random selection.
     pub sfx_handles: std::collections::HashMap<SfxKind, Vec<Handle<AudioSource>>>,
-    /// Whether arrow shoot SFX plays (disabled by default — the sound is rough).
+    /// Whether arrow shoot SFX plays (disabled by default. The sound is rough).
     pub sfx_shoot_enabled: bool,
 }
 
@@ -2429,7 +2429,7 @@ impl ChatInbox {
     }
 }
 
-// Test12 relocated to src/tests/vertical_slice.rs — uses shared TestState resource.
+// Test12 relocated to src/tests/vertical_slice.rs. Uses shared TestState resource.
 
 #[cfg(test)]
 mod tests {
