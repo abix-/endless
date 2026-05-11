@@ -1,7 +1,7 @@
 //! Procedural world generation: terrain, town placement, building layout.
 //!
 //! - WorldGenConfig / WorldGenStyle: generation parameters.
-//! - generate_world: main entry point -- places towns, terrain, resources.
+//! - generate_world: main entry point. Places towns, terrain, resources.
 //! - spawn_town_entities: spawns ECS town entities after world gen.
 //! - place_buildings: layout buildings for one town during world gen.
 //! - stamp_dirt / clear_town_roads_and_dirt: terrain helpers.
@@ -141,7 +141,7 @@ impl Default for WorldGenConfig {
 }
 
 impl WorldGenConfig {
-    /// Town count by kind -- bridges the 3 count fields for registry-driven loops.
+    /// Town count by kind. Bridges the 3 count fields for registry-driven loops.
     pub fn count_for(&self, kind: TownKind) -> usize {
         match kind {
             TownKind::Player => self.num_towns,
@@ -167,7 +167,7 @@ pub(crate) fn spawn_resource_nodes(
     let mut rock_count = 0usize;
 
     // Density 1.0: every Forest cell gets a TreeNode, every Rock cell gets a RockNode.
-    // No spacing check needed -- one entity per grid cell, no overlap possible.
+    // No spacing check needed. One entity per grid cell, no overlap possible.
     for row in 0..grid.height {
         for col in 0..grid.width {
             let idx = row * grid.width + col;
@@ -217,7 +217,7 @@ pub(crate) fn spawn_resource_nodes(
 // ============================================================================
 
 /// Generate the world: populate grid, place towns + buildings, fill terrain.
-/// Pure function -- takes config and writes to grid + world data.
+/// Pure function. Takes config and writes to grid + world data.
 pub fn generate_world(
     config: &WorldGenConfig,
     grid: &mut WorldGrid,
@@ -273,7 +273,7 @@ pub fn generate_world(
     let mut all_positions: Vec<Vec2> = Vec::new();
     // Pre-terrain styles need more attempts since many positions land on impassable cells
     let max_attempts = if needs_pre_terrain { 5000 } else { 2000 };
-    // Step 2: Place towns -- single loop driven by TOWN_REGISTRY
+    // Step 2: Place towns. Single loop driven by TOWN_REGISTRY
     for town_def in TOWN_REGISTRY {
         let count = config.count_for(town_def.kind);
         let mut positions: Vec<Vec2> = Vec::new();
@@ -519,7 +519,7 @@ pub fn place_buildings(
         snapped_pos
     };
 
-    // Center building at (0, 0) -- Fountain
+    // Center building at (0, 0). Fountain
     let center_kind = BuildingKind::Fountain;
     place(0, 0, center_kind, town_idx, &mut occupied);
     let _ = place_building(
@@ -908,7 +908,7 @@ fn generate_terrain_maze(grid: &mut WorldGrid) {
 
     // Carve passage between adjacent maze cells (fills the wall gap)
     let carve_passage = |grid: &mut WorldGrid, ax: usize, ay: usize, bx: usize, by: usize| {
-        // Mid-point between the two 3x3 blocks -- fill the 3-cell-wide corridor in the wall
+        // Mid-point between the two 3x3 blocks. Fill the 3-cell-wide corridor in the wall
         let mid_col = (ax * cell_size + bx * cell_size) / 2;
         let mid_row = (ay * cell_size + by * cell_size) / 2;
         for dr in 0..3 {
@@ -1127,10 +1127,10 @@ pub(crate) fn generate_terrain_worldmap(grid: &mut WorldGrid, seed: u64) {
         }
     }
 
-    // Pass 2: carve rivers -- one per continent seed, flowing downhill to coast
+    // Pass 2: carve rivers. One per continent seed, flowing downhill to coast
     carve_rivers(grid, &elevations, &continent_seeds, water_threshold, seed);
 
-    // Pass 3: place volcanoes -- Rock clusters at high-elevation coast-adjacent cells
+    // Pass 3: place volcanoes. Rock clusters at high-elevation coast-adjacent cells
     place_volcanoes(grid, &elevations, water_threshold, seed);
 }
 
@@ -1184,7 +1184,7 @@ fn carve_rivers(
             continue; // no valid source on this continent
         }
 
-        // Steepest-descent walk to ocean -- max steps to prevent infinite loops
+        // Steepest-descent walk to ocean. Max steps to prevent infinite loops
         let max_steps = gw + gh;
         let mut cur_col = best_col as usize;
         let mut cur_row = best_row as usize;
@@ -1313,7 +1313,7 @@ fn place_volcanoes(grid: &mut WorldGrid, elevations: &[f64], water_threshold: f6
         return;
     }
 
-    // Sort by elevation descending -- volcanoes prefer the highest coastal peaks
+    // Sort by elevation descending. Volcanoes prefer the highest coastal peaks
     candidates.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
 
     // Place volcanoes with minimum spacing (15 grid cells apart)
