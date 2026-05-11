@@ -1,17 +1,17 @@
-# Spec: Direct GPU Upload — Eliminate ALL ExtractResource Clones for NPC Data
+# Spec: Direct GPU Upload. Eliminate ALL ExtractResource Clones for NPC Data
 
 ## Problem
 
 `NpcBufferWrites` (gpu.rs:119) is `#[derive(Clone, ExtractResource)]`. Bevy clones the entire struct from main→render world every frame. At 50K `MAX_NPCS` (pre-allocated regardless of alive count), this clones **~6.4MB/frame** via 15 heap alloc+memcpy operations. `ExtractResourcePlugin::<NpcBufferWrites>::default()` is registered at gpu.rs:679.
 
-Visual data (9 of 15 Vecs, ~5MB) is only consumed by `prepare_npc_buffers` (npc_render.rs:459) which repacks it into two GPU storage buffers (`NpcVisualBuffers.visual` and `.equip`). The repack is a redundant O(N) loop — data is unpacked from per-field arrays into packed arrays, then uploaded via `write_buffer`. This clone+repack can be eliminated by packing data in the main world and writing directly to GPU buffers during Extract.
+Visual data (9 of 15 Vecs, ~5MB) is only consumed by `prepare_npc_buffers` (npc_render.rs:459) which repacks it into two GPU storage buffers (`NpcVisualBuffers.visual` and `.equip`). The repack is a redundant O(N) loop. Data is unpacked from per-field arrays into packed arrays, then uploaded via `write_buffer`. This clone+repack can be eliminated by packing data in the main world and writing directly to GPU buffers during Extract.
 
 ## Architecture Decision
 
 **Why direct GPU write in Extract (not Mutex, not double-buffer)?**
 
 - `queue.write_buffer()` is wgpu's native CPU→GPU channel. Copies to staging memory immediately; GPU sees data at next `submit()`.
-- `RenderQueue` is `pub struct RenderQueue(pub Arc<WgpuWrapper<Queue>>)` — `Send+Sync`, safely usable across threads.
+- `RenderQueue` is `pub struct RenderQueue(pub Arc<WgpuWrapper<Queue>>)`. `Send+Sync`, safely usable across threads.
 - Extract systems have access to both `Extract<Res<T>>` (immutable main world read, zero clone) AND render world resources (`RenderQueue`, `NpcVisualBuffers`).
 - No Mutex needed. No allocation. No frame delay.
 - Pattern proven in [Bevy issue #12856](https://github.com/bevyengine/bevy/issues/12856).
@@ -62,7 +62,7 @@ Render (PrepareResources):
     → also handles NpcMiscBuffers (farms, building HP bars)
 ```
 
-## New Data Flow (zero clone — all direct GPU writes in Extract)
+## New Data Flow (zero clone. All direct GPU writes in Extract)
 
 ```
 PostUpdate (chained):
@@ -90,7 +90,7 @@ Render:
 ```
 
 Note: NpcComputeWrites stays as a main world Resource (game_hud and movement.rs
-read .targets from it). It just no longer needs Clone or ExtractResource — never cloned.
+read .targets from it). It just no longer needs Clone or ExtractResource. Never cloned.
 
 ## New Resources
 
@@ -134,7 +134,7 @@ Read by: `extract_npc_visual` via `Extract<Res<NpcVisualUpload>>` (immutable, ze
 
 ### `NpcComputeWrites` (gpu.rs, renamed from NpcBufferWrites)
 
-Slimmed to compute-only fields. No longer Clone or ExtractResource — read via `Extract<Res<T>>` in Extract phase (zero clone).
+Slimmed to compute-only fields. No longer Clone or ExtractResource. Read via `Extract<Res<T>>` in Extract phase (zero clone).
 
 ```rust
 #[derive(Resource)]
@@ -170,10 +170,10 @@ Add `NpcSpriteState` and `NpcVisualUpload` structs as shown above. Add `Default`
 
 1. Rename the struct (gpu.rs:119-157)
 2. Remove these fields: `sprite_indices`, `colors`, `flash_values`, `armor_sprites`, `helmet_sprites`, `weapon_sprites`, `item_sprites`, `status_sprites`, `healing_sprites`
-3. Update `Default` impl (gpu.rs:159-187) — remove the 9 visual field initializations
+3. Update `Default` impl (gpu.rs:159-187). Remove the 9 visual field initializations
 4. Update `apply()` method (gpu.rs:190-271):
-   - Remove the `SetSpriteFrame` arm (lines 255-262) — this will move to NpcSpriteState
-   - Remove the `SetDamageFlash` arm (lines 264-268) — this will move to NpcSpriteState
+   - Remove the `SetSpriteFrame` arm (lines 255-262). This will move to NpcSpriteState
+   - Remove the `SetDamageFlash` arm (lines 264-268). This will move to NpcSpriteState
    - Keep all compute arms (SetPosition, SetTarget, SetSpeed, SetFaction, SetHealth, HideNpc, ApplyDamage)
 
 ### Step 3: Split `populate_buffer_writes` → `populate_compute_writes` (gpu.rs:357-387)
@@ -195,9 +195,9 @@ Body changes:
    - `SetSpriteFrame { idx, col, row, atlas }` → write to `sprites.sprite_indices[idx*4..]`
    - `SetDamageFlash { idx, intensity }` → write to `sprites.flash_values[idx]`
    - Set `compute.dirty = true` for compute messages only
-3. Flash decay loop (lines 373-386): operate on `sprites.flash_values` instead of `buffer_writes.flash_values`. This no longer sets `compute.dirty` — flash is visual-only.
+3. Flash decay loop (lines 373-386): operate on `sprites.flash_values` instead of `buffer_writes.flash_values`. This no longer sets `compute.dirty`. Flash is visual-only.
 
-Note: `populate_compute_writes` still takes `ResMut<NpcComputeWrites>` every frame (dirty reset + clear). This marks the resource as "changed" every frame via Bevy's change detection. That's fine — there's no `ExtractResourcePlugin` to skip; `Extract<Res<T>>` is a zero-clone immutable read regardless.
+Note: `populate_compute_writes` still takes `ResMut<NpcComputeWrites>` every frame (dirty reset + clear). This marks the resource as "changed" every frame via Bevy's change detection. That's fine. There's no `ExtractResourcePlugin` to skip; `Extract<Res<T>>` is a zero-clone immutable read regardless.
 
 ### Step 4: Create `build_npc_visual_upload` (gpu.rs, replaces sync_visual_sprites)
 
@@ -349,7 +349,7 @@ Keep:
 - NpcVisualBuffers creation on first frame (lines 583-625)
 - Bind group recreation each frame (lines 569-586)
 - NpcMiscBuffers (farms, building HP bars) (lines 478-533)
-- The `npc_count` read from `gpu_data` (line 475 — now just used for buffer sizing)
+- The `npc_count` read from `gpu_data` (line 475. Now just used for buffer sizing)
 
 **First-frame sentinel init**: When creating NpcVisualBuffers (first frame), replace the data-driven `write_buffer` (lines 599-602) with sentinel writes:
 ```rust
@@ -361,11 +361,11 @@ render_queue.write_buffer(&equip_buffer, 0, bytemuck::cast_slice(&sentinel_equip
 ```
 This ensures undefined GPU memory is overwritten with hidden sentinels. The vertex shader checks `vis.sprite_col < 0.0` → HIDDEN and `eq.col < 0.0` → HIDDEN, so nothing renders until `extract_npc_visual` writes real data on frame 2.
 
-Also delete the `EQUIP_LAYER_FIELDS` const array (npc_render.rs:449-456) — no longer used.
+Also delete the `EQUIP_LAYER_FIELDS` const array (npc_render.rs:449-456). No longer used.
 
 ### Step 7: Create `extract_npc_compute` (npc_render.rs, ExtractSchedule)
 
-Replaces `write_npc_buffers` (gpu.rs:1080) — same per-dirty-index logic but runs in Extract instead of Render.
+Replaces `write_npc_buffers` (gpu.rs:1080). Same per-dirty-index logic but runs in Extract instead of Render.
 
 ```rust
 fn extract_npc_compute(
@@ -415,8 +415,8 @@ Add `use crate::gpu::{NpcComputeWrites, NpcGpuBuffers};` to npc_render.rs import
 
 ### Step 8: Delete `write_npc_buffers` and `ExtractResourcePlugin` (gpu.rs)
 
-1. **Delete `write_npc_buffers`** (gpu.rs:1080) entirely — logic moved to `extract_npc_compute` above.
-2. **Delete `ExtractResourcePlugin::<NpcBufferWrites>::default()`** (gpu.rs:679) — no ExtractResource needed for NPC data.
+1. **Delete `write_npc_buffers`** (gpu.rs:1080) entirely. Logic moved to `extract_npc_compute` above.
+2. **Delete `ExtractResourcePlugin::<NpcBufferWrites>::default()`** (gpu.rs:679). No ExtractResource needed for NPC data.
 3. **Remove the render-world system registration** for `write_npc_buffers` in `GpuComputePlugin::build`.
 4. `NpcComputeWrites` uses `#[derive(Resource)]` only (no `Clone`/`ExtractResource` derive).
 
@@ -461,7 +461,7 @@ Delete:
 
 ### Step 12: Update tests
 
-Tests should read `NpcVisualUpload.equip_data` — the GPU-ready packed data that's the last CPU-visible
+Tests should read `NpcVisualUpload.equip_data`. The GPU-ready packed data that's the last CPU-visible
 step before `write_buffer`. This validates the full packing pipeline (ECS → build_npc_visual_upload → GPU).
 
 Equip layer index mapping (24 floats per NPC, 4 per layer):
@@ -538,9 +538,9 @@ NpcVisualBuffers.equip: Buffer
 
 ## Verification
 
-1. `cargo check` — compiles clean
-2. `cargo build --release` — no warnings
-3. Run game, spawn 20K NPCs — verify:
+1. `cargo check`. Compiles clean
+2. `cargo build --release`. No warnings
+3. Run game, spawn 20K NPCs. Verify:
    - NPC body sprites render (correct sprite frame per job)
    - NPC colors correct (job colors for villagers, faction colors for raiders)
    - Equipment overlays visible (weapon/helmet/armor on equipped NPCs)
@@ -548,5 +548,5 @@ NpcVisualBuffers.equip: Buffer
    - Sleep icon appears on resting NPCs, disappears on wake
    - Healing halo appears on NPCs in healing zone, disappears when healed
    - Carried food item visible on returning raiders
-4. F5 save / F9 load — visuals restore correctly
-5. Run test suite: `cargo test` — heal-visual and sleep-visual tests pass
+4. F5 save / F9 load. Visuals restore correctly
+5. Run test suite: `cargo test`. Heal-visual and sleep-visual tests pass
