@@ -1,12 +1,12 @@
 # Endless
 
-**Status: alpha -- actively developed, playable but incomplete**
+**Status: alpha. Actively developed, playable but incomplete**
 
 Build a town under siege. Farm, fortify, raise an army, conquer
 
 Every NPC has a job, a home, and a personality. Set policies, build walls, lay roads, organize squads
 
-Your AI rivals do the same — each with a distinct strategy
+Your AI rivals do the same. Each with a distinct strategy
 
 ![Endless gameplay - mid-game town with NPCs, walls, forests, and water](docs/screenshot.png)
 
@@ -14,9 +14,9 @@ Your AI rivals do the same — each with a distinct strategy
 
 ## Download
 
-- **Windows:** [endless-windows-v0.1.5.zip](https://github.com/abix-/endless/releases/download/v0.1.5/endless-windows-v0.1.5.zip) — extract, run `endless.exe`
-- **macOS:** [endless-macos-v0.1.5.zip](https://github.com/abix-/endless/releases/download/v0.1.5/endless-macos-v0.1.5.zip) — extract, run `endless`
-- **Linux:** [endless-linux-v0.1.5.zip](https://github.com/abix-/endless/releases/download/v0.1.5/endless-linux-v0.1.5.zip) — extract, run `endless`
+- **Windows:** [endless-windows-v0.1.5.zip](https://github.com/abix-/endless/releases/download/v0.1.5/endless-windows-v0.1.5.zip). Extract, run `endless.exe`
+- **macOS:** [endless-macos-v0.1.5.zip](https://github.com/abix-/endless/releases/download/v0.1.5/endless-macos-v0.1.5.zip). Extract, run `endless`
+- **Linux:** [endless-linux-v0.1.5.zip](https://github.com/abix-/endless/releases/download/v0.1.5/endless-linux-v0.1.5.zip). Extract, run `endless`
 
 ## Controls
 
