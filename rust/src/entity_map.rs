@@ -1,4 +1,4 @@
-//! EntityMap — unified entity registry for NPCs and buildings.
+//! EntityMap. Unified entity registry for NPCs and buildings.
 
 use bevy::prelude::*;
 use hashbrown::HashMap;
@@ -109,7 +109,7 @@ impl DenseSlotSet {
 
 /// Lightweight building index entry in EntityMap. All gameplay state lives on ECS components.
 /// Provides slot↔Entity mapping and identity fields for fast iteration/spatial queries.
-/// Pure identity + spatial — no gameplay state. Occupancy tracked separately in EntityMap.occupancy.
+/// Pure identity + spatial. No gameplay state. Occupancy tracked separately in EntityMap.occupancy.
 #[derive(Clone)]
 pub struct BuildingInstance {
     pub kind: crate::world::BuildingKind,
@@ -119,7 +119,7 @@ pub struct BuildingInstance {
     pub faction: i32,
 }
 
-/// Per-NPC runtime state. All NPC data lives here — no ECS components except GpuSlot.
+/// Per-NPC runtime state. All NPC data lives here. No ECS components except GpuSlot.
 /// Parallel to BuildingInstance: both live in EntityMap, shared slot namespace.
 #[derive(Clone)]
 /// Lightweight NPC index entry in EntityMap. All gameplay state lives on ECS components.
@@ -134,12 +134,12 @@ pub struct NpcEntry {
     pub dead: bool,
 }
 
-/// Unified entity registry — ALL entities (NPCs + buildings) slot→entity mapping,
+/// Unified entity registry. ALL entities (NPCs + buildings) slot→entity mapping,
 /// plus building-specific instance data, spatial grid, and indexes.
 /// Populated on NPC spawn and building placement, used by damage/combat/rendering for entity lookup.
 #[derive(Resource, Default)]
 pub struct EntityMap {
-    /// ALL entities (NPCs + buildings) — unified slot→entity
+    /// ALL entities (NPCs + buildings). Unified slot→entity
     pub entities: HashMap<usize, Entity>,
     /// Reverse index: entity→slot (bijection with `entities`)
     pub(crate) entity_to_slot: HashMap<Entity, usize>,
@@ -150,17 +150,17 @@ pub struct EntityMap {
     by_kind_town: HashMap<(crate::world::BuildingKind, u32), DenseSlotMap<BuildingInstance>>,
     by_grid_cell: HashMap<(i32, i32), usize>,
     spawner_slots: DenseSlotSet,
-    /// Worksite claim counts — slot->i16, incremented at claim time.
+    /// Worksite claim counts. Slot->i16, incremented at claim time.
     /// Used for capacity checks (prevents double-claims on max_occupants slots).
     pub(crate) occupancy: DenseSlotMap<i16>,
-    /// Worksite physical presence counts — slot->i16, incremented on worker arrival.
+    /// Worksite physical presence counts. Slot->i16, incremented on worker arrival.
     /// Used by growth_system/sleeping_sync to gate tended production rates.
     pub(crate) present: DenseSlotMap<i16>,
     /// Resource node slots (TreeNode/RockNode) whose Sleeping state needs reconciliation.
     /// Populated by resolve_work_targets on occupancy change; drained by sync_sleeping_system.
     pub sleeping_dirty: Vec<usize>,
 
-    // NPC-specific data (index-only — gameplay state on ECS components)
+    // NPC-specific data (index-only. Gameplay state on ECS components)
     npcs: HashMap<usize, NpcEntry>,
     npc_by_town: HashMap<i32, DenseSlotSet>,
     // Per-worksite FIFO claim order: slot -> claimer entity queue.
@@ -934,7 +934,7 @@ impl EntityMap {
     // ── Worksite query API ────────────────────────────────────────────
 
     /// Find nearest worksite using cell-ring expansion with kind-filtered spatial index.
-    /// `score` returns `Option<S>` — `None` rejects, `Some(s)` accepts.
+    /// `score` returns `Option<S>`. `None` rejects, `Some(s)` accepts.
     /// **Lower S wins** (min-order). Use tuples like `(priority: u8, dist2_bits: u32)`.
     /// Faction filtering (if needed) is applied by the caller inside the score closure.
     pub fn find_nearest_worksite<S: Ord>(
