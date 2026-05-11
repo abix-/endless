@@ -163,7 +163,7 @@ pub(crate) fn roster_content(
         }
     });
 
-    // Miner target control — set how many villagers should be miners
+    // Miner target control. Set how many villagers should be miners
     ui.label(format!("{} NPCs", state.cached_rows.len()));
 
     let selected_idx = roster.selected.0;
