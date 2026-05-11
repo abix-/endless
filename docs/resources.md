@@ -2,7 +2,7 @@
 
 ## Overview
 
-All game state lives in Bevy Resources — singleton structs accessible by any system via `Res<T>` (read) or `ResMut<T>` (write). There is no external API surface. Systems communicate through [messages](messages.md) and shared resources.
+All game state lives in Bevy Resources. Singleton structs accessible by any system via `Res<T>` (read) or `ResMut<T>` (write). There is no external API surface. Systems communicate through [messages](messages.md) and shared resources.
 
 Defined in: `rust/src/resources.rs`, `rust/src/world.rs`
 
@@ -10,16 +10,16 @@ Defined in: `rust/src/resources.rs`, `rust/src/world.rs`
 
 | Resource | Type | Writers | Readers |
 |----------|------|---------|---------|
-| EntityMap | `entities: HashMap<usize, Entity>` + `entity_to_slot: HashMap<Entity, usize>` (reverse index, bijection) + `npcs: HashMap<usize, NpcEntry>` (6-field index: slot, entity, job, faction, town_idx, dead) + `npc_by_town: DenseSlotSet` secondary index + building instance data/indexes (`by_kind`, `by_kind_town`, `spawner_slots` — all `DenseSlotSet` for O(1) removal)/spatial grid | spawn_npc_system (register_npc), death_system (unregister_npc), place_building | damage_system, attack_system, tower_system, economy, UI (unified slot → entity lookup for all entities; NPC gameplay state read via ECS queries on NpcEntry.entity) |
+| EntityMap | `entities: HashMap<usize, Entity>` + `entity_to_slot: HashMap<Entity, usize>` (reverse index, bijection) + `npcs: HashMap<usize, NpcEntry>` (6-field index: slot, entity, job, faction, town_idx, dead) + `npc_by_town: DenseSlotSet` secondary index + building instance data/indexes (`by_kind`, `by_kind_town`, `spawner_slots`. All `DenseSlotSet` for O(1) removal)/spatial grid | spawn_npc_system (register_npc), death_system (unregister_npc), place_building | damage_system, attack_system, tower_system, economy, UI (unified slot → entity lookup for all entities; NPC gameplay state read via ECS queries on NpcEntry.entity) |
 | GpuSlotPool | `SlotPool` + `pending_resets` + `pending_frees` (max=MAX_ENTITIES=200K) | spawn_npc_system (alloc_reset), place_building_instance (alloc_reset), death_system (free) | GPU compute dispatch, populate_gpu_state (drains resets+frees), UI, tests |
 
-`GpuSlotPool` wraps a `SlotPool` inner type with LIFO free list, plus lifecycle queues: `pending_resets` (GPU state wipe on alloc) and `pending_frees` (GPU hide on free). `alloc_reset()` allocates + queues reset, `free()` deallocates + queues hide. Both queues are drained by `populate_gpu_state` each frame before processing `GpuUpdateMsg` events. Query methods: `count()` returns high-water mark, `alive()` returns `next - free.len()`, `free_list()` / `next()` for debug display, `set_next()` / `free_list_mut()` for save/load. NPCs and buildings share one allocator — each entity's slot IS its GPU buffer index (no offset arithmetic). See [spawn.md](spawn.md).
+`GpuSlotPool` wraps a `SlotPool` inner type with LIFO free list, plus lifecycle queues: `pending_resets` (GPU state wipe on alloc) and `pending_frees` (GPU hide on free). `alloc_reset()` allocates + queues reset, `free()` deallocates + queues hide. Both queues are drained by `populate_gpu_state` each frame before processing `GpuUpdateMsg` events. Query methods: `count()` returns high-water mark, `alive()` returns `next - free.len()`, `free_list()` / `next()` for debug display, `set_next()` / `free_list_mut()` for save/load. NPCs and buildings share one allocator. Each entity's slot IS its GPU buffer index (no offset arithmetic). See [spawn.md](spawn.md).
 
 ### Identity Layers
 
 **Two identity layers**: `Entity` = Bevy ECS handle (unique index+generation within a session, never reused while alive), `GpuSlot(usize)` = dense GPU buffer address (recycled via LIFO free-list).
 
-All gameplay cross-references use `Entity` directly: `AiSquadCmdState.building_uid: Option<Entity>`, `SpawnerState.npc_slot: Option<usize>` (GPU slot, not Entity — spawner can't pre-allocate Entity before async spawn), `NpcWorkState.worksite: Option<Entity>`, `Squad.members: Vec<Entity>`, `DamageMsg.target: Entity`. Helper methods: `slot_for_entity(entity) -> Option<usize>` (O(1) via `entity_to_slot` reverse index), `instance_by_entity(entity) -> Option<&BuildingInstance>`. Mutation helpers `set_entity(slot, entity)` / `remove_entity_mapping(slot)` maintain the bijection.
+All gameplay cross-references use `Entity` directly: `AiSquadCmdState.building_uid: Option<Entity>`, `SpawnerState.npc_slot: Option<usize>` (GPU slot, not Entity. Spawner can't pre-allocate Entity before async spawn), `NpcWorkState.worksite: Option<Entity>`, `Squad.members: Vec<Entity>`, `DamageMsg.target: Entity`. Helper methods: `slot_for_entity(entity) -> Option<usize>` (O(1) via `entity_to_slot` reverse index), `instance_by_entity(entity) -> Option<&BuildingInstance>`. Mutation helpers `set_entity(slot, entity)` / `remove_entity_mapping(slot)` maintain the bijection.
 
 ## NPC UI Caches
 
@@ -37,11 +37,11 @@ NPC state is derived at query time from ECS components (Activity, CombatState, P
 
 | Resource | Data | Writers | Readers |
 |----------|------|---------|---------|
-| PopulationStats | `HashMap<(job, town), PopStats>` — alive, working, dead | spawn/death/state systems | UI |
+| PopulationStats | `HashMap<(job, town), PopStats>`. Alive, working, dead | spawn/death/state systems | UI |
 | KillStats | archer_kills, villager_kills | death_system | UI |
-| FactionStats | `Vec<FactionStat>` — alive, dead, kills per faction | spawn/death systems | UI |
+| FactionStats | `Vec<FactionStat>`. Alive, dead, kills per faction | spawn/death systems | UI |
 
-`FactionStats` — one entry per faction (indexed by faction ID: 0=Neutral, 1=Player, 2+=AI). Methods: `inc_alive()`, `dec_alive()`, `inc_dead()`, `inc_kills()`. Player stats are at index `FACTION_PLAYER` (1), not index 0.
+`FactionStats`. One entry per faction (indexed by faction ID: 0=Neutral, 1=Player, 2+=AI). Methods: `inc_alive()`, `dec_alive()`, `inc_dead()`, `inc_kills()`. Player stats are at index `FACTION_PLAYER` (1), not index 0.
 
 ## World Layout
 
@@ -50,28 +50,28 @@ Static world data, immutable after initialization.
 | Resource | Data | Purpose |
 |----------|------|---------|
 | WorldData | towns: `Vec<Town>` | Town center positions, factions, names |
-| EntityMap (occupancy) | `EntityMap.occupancy: DenseSlotMap<i16>` — slot-indexed worker count | Building assignment via EntityMap methods: claim(slot)/release(slot)/is_occupied(slot)/occupant_count(slot)/set_occupancy(slot, count) |
+| EntityMap (occupancy) | `EntityMap.occupancy: DenseSlotMap<i16>`. Slot-indexed worker count | Building assignment via EntityMap methods: claim(slot)/release(slot)/is_occupied(slot)/occupant_count(slot)/set_occupancy(slot, count) |
 | MineStates | `Vec<f32>` gold + `Vec<f32>` max_gold + `Vec<Vec2>` positions | Per-mine gold tracking |
-| EntityMap (building data) | `BuildingInstance` storage + 256px spatial grid + `DenseSlotMap<BuildingInstance>` cache indexes (by_kind, by_kind_town — direct `values()` iteration, zero HashMap indirection) + `DenseSlotSet` (spawner_slots) + by_grid_cell (all inside EntityMap) | Sole source of truth for building spatial index (no WorldData.buildings, no WorldCell.building); stores slim `BuildingInstance` (kind, position, town_idx, slot, faction — 5 identity fields); occupancy tracked separately in `EntityMap.occupancy`; all gameplay state (production, spawner, tower, construction, waypoint order, wall level, miner config, occupancy) lives outside the index struct; methods: `add_instance`/`remove_instance`/`remove_by_slot`/`get_instance[_mut]`/`find_by_position`/`iter_kind`/`iter_kind_for_town`/`count_for_town`/`building_counts`/`gold_mine_index`/`for_each_nearby` (spatial)/`for_each_nearby_kind_town`/`for_each_nearby_kind`/`for_each_ring_kind_town`/`for_each_ring_kind`/`find_nearest_worksite`/`try_claim_worksite`/`iter_instances`/`has_building_at` (grid-coord presence check)/`get_at_grid` (grid-coord instance lookup)/`claim`/`release`/`occupant_count`/`is_occupied`/`slot_at_position`; entity lookup via `entities.get(&slot)` (unified); `slot` is the sole runtime identity |
+| EntityMap (building data) | `BuildingInstance` storage + 256px spatial grid + `DenseSlotMap<BuildingInstance>` cache indexes (by_kind, by_kind_town. Direct `values()` iteration, zero HashMap indirection) + `DenseSlotSet` (spawner_slots) + by_grid_cell (all inside EntityMap) | Sole source of truth for building spatial index (no WorldData.buildings, no WorldCell.building); stores slim `BuildingInstance` (kind, position, town_idx, slot, faction. 5 identity fields); occupancy tracked separately in `EntityMap.occupancy`; all gameplay state (production, spawner, tower, construction, waypoint order, wall level, miner config, occupancy) lives outside the index struct; methods: `add_instance`/`remove_instance`/`remove_by_slot`/`get_instance[_mut]`/`find_by_position`/`iter_kind`/`iter_kind_for_town`/`count_for_town`/`building_counts`/`gold_mine_index`/`for_each_nearby` (spatial)/`for_each_nearby_kind_town`/`for_each_nearby_kind`/`for_each_ring_kind_town`/`for_each_ring_kind`/`find_nearest_worksite`/`try_claim_worksite`/`iter_instances`/`has_building_at` (grid-coord presence check)/`get_at_grid` (grid-coord instance lookup)/`claim`/`release`/`occupant_count`/`is_occupied`/`slot_at_position`; entity lookup via `entities.get(&slot)` (unified); `slot` is the sole runtime identity |
 | Dirty signaling | Concern-specific Bevy messages | `BuildingGridDirtyMsg`, `PatrolsDirtyMsg`, `PatrolPerimeterDirtyMsg`, `HealingZonesDirtyMsg`, `SquadsDirtyMsg`, `MiningDirtyMsg`, `PatrolSwapMsg`; `DirtyWriters<'w>` bundles writers and `emit_all()` covers startup/reset. See [messages.md](messages.md#dirty-signal-messages). |
 | BuildingHealState | `needs_healing: bool` | Persistent flag (not a message): set by `building_damage_system` on hits, cleared by `healing_system` when no damaged buildings remain |
 | ActiveHealingSlots | `slots: Vec<usize>`, `mark: Vec<u8>` (sized to MAX_ENTITIES) | Tracks NPC slots currently in healing zones. Sustain-check iterates only these. `mark[slot]` = O(1) membership. Reset on load/cleanup. |
-| TownGrids | `Vec<TownGrid>` — one per town (villager + raider) | Per-town building slot unlock tracking |
+| TownGrids | `Vec<TownGrid>`. One per town (villager + raider) | Per-town building slot unlock tracking |
 | GameAudio | `music_volume: f32`, `sfx_volume: f32`, `sfx_shoot_enabled: bool`, `music_speed: f32`, `tracks: Vec<Handle<AudioSource>>`, `last_track: Option<usize>`, `loop_current: bool`, `play_next: Option<usize>` | Runtime audio state; tracks loaded at Startup, jukebox picks random no-repeat track; `loop_current` repeats same track on finish; `play_next` set by UI for explicit track selection; volume + speed synced from UserSettings; `sfx_shoot_enabled` gates ArrowShoot SFX (default off) |
 
 ### WorldData Structs
 
 | Struct | Fields |
 |--------|--------|
-| Town | name, center (Vec2), faction (i32: 0=Neutral, 1=Player, 2+=AI), kind (TownKind) — 4 identity fields, no gameplay state |
+| Town | name, center (Vec2), faction (i32: 0=Neutral, 1=Player, 2+=AI), kind (TownKind). 4 identity fields, no gameplay state |
 
-`WorldData` contains only towns. All building instance data lives in `EntityMap` (building fields) — there is no `buildings` BTreeMap. `PlacedBuilding` remains in `save.rs` for backward-compatible deserialization of legacy save files.
+`WorldData` contains only towns. All building instance data lives in `EntityMap` (building fields). There is no `buildings` BTreeMap. `PlacedBuilding` remains in `save.rs` for backward-compatible deserialization of legacy save files.
 
-Spatial queries (`find_nearest_location`, `find_location_within_radius`, `find_nearest_free`, `find_within_radius`, `find_nearest_enemy_building`) use `EntityMap.for_each_nearby()` for O(1) cell lookups. Kind-filtered spatial queries use `EntityMap.for_each_nearby_kind_town()` / `for_each_nearby_kind()` backed by per-cell `(kind, town, cell)` and `(kind, cell)` buckets with O(1) swap-remove via back-index (`SpatialBucketRef`). Cell-ring expansion (`for_each_ring_kind_town()` / `for_each_ring_kind()`) visits only new cells between inner and outer radii. `find_nearest_worksite()` wraps cell-ring expansion with min-order tuple scoring and `WorksiteFallback` policy (TownOnly / AnyTown). `try_claim_worksite()` is the authoritative claim function — validates kind, town (optional), and occupancy before incrementing occupants. Building counts use `EntityMap.count_for_town()` / `building_counts()`.
+Spatial queries (`find_nearest_location`, `find_location_within_radius`, `find_nearest_free`, `find_within_radius`, `find_nearest_enemy_building`) use `EntityMap.for_each_nearby()` for O(1) cell lookups. Kind-filtered spatial queries use `EntityMap.for_each_nearby_kind_town()` / `for_each_nearby_kind()` backed by per-cell `(kind, town, cell)` and `(kind, cell)` buckets with O(1) swap-remove via back-index (`SpatialBucketRef`). Cell-ring expansion (`for_each_ring_kind_town()` / `for_each_ring_kind()`) visits only new cells between inner and outer radii. `find_nearest_worksite()` wraps cell-ring expansion with min-order tuple scoring and `WorksiteFallback` policy (TownOnly / AnyTown). `try_claim_worksite()` is the authoritative claim function. Validates kind, town (optional), and occupancy before incrementing occupants. Building counts use `EntityMap.count_for_town()` / `building_counts()`.
 
 ### World Grid
 
-250x250 cell grid covering the entire 8000x8000 world (32px per cell). Each cell has a terrain biome only — building data lives in `EntityMap`.
+250x250 cell grid covering the entire 8000x8000 world (32px per cell). Each cell has a terrain biome only. Building data lives in `EntityMap`.
 
 | Resource | Data | Purpose |
 |----------|------|---------|
@@ -84,23 +84,23 @@ Spatial queries (`find_nearest_location`, `find_location_within_radius`, `find_n
 
 **WorldGenConfig** defaults: 8000x8000 world, 400px margin, 2 towns, 1200px min distance, 32px grid spacing, 3500px raider distance, npc_counts populated from NPC_REGISTRY default_count (Farmer:2, Archer:4, Raider:1, rest:0), 2 gold mines per town.
 
-**`generate_world()`**: Takes config and populates WorldGrid, WorldData, TownGrids, and MineStates. Places towns randomly with min distance constraint, finds raider town positions furthest from all towns (16 directions), assigns terrain via simplex noise with Dirt override near settlements. Town placement is registry-driven via `TOWN_REGISTRY`: a single loop iterates `TownKind` variants (Player, AiBuilder, AiRaider), placing `config.count_for(kind)` towns of each type. Each `TownDef` specifies faction_kind, sprite_type, and whether to place_buildings. `place_buildings(kind, ...)` takes `TownKind` and consults `BUILDING_REGISTRY` for the building list. Both town types get a TownGrid with expandable building slots. Gold mines placed in wilderness between settlements (min 300px from any town, min 400px between mines, `gold_mines_per_town × total_towns` count). Building positions are generated via `spiral_slots()` — a spiral outward from center that skips occupied cells. Guard posts are placed after spawner buildings so they're always on the perimeter.
+**`generate_world()`**: Takes config and populates WorldGrid, WorldData, TownGrids, and MineStates. Places towns randomly with min distance constraint, finds raider town positions furthest from all towns (16 directions), assigns terrain via simplex noise with Dirt override near settlements. Town placement is registry-driven via `TOWN_REGISTRY`: a single loop iterates `TownKind` variants (Player, AiBuilder, AiRaider), placing `config.count_for(kind)` towns of each type. Each `TownDef` specifies faction_kind, sprite_type, and whether to place_buildings. `place_buildings(kind, ...)` takes `TownKind` and consults `BUILDING_REGISTRY` for the building list. Both town types get a TownGrid with expandable building slots. Gold mines placed in wilderness between settlements (min 300px from any town, min 400px between mines, `gold_mines_per_town × total_towns` count). Building positions are generated via `spiral_slots()`. A spiral outward from center that skips occupied cells. Guard posts are placed after spawner buildings so they're always on the perimeter.
 
 ### Town Building Grid
 
 Per-town building area tracking. Each town's buildable radius is controlled by `TownAreaLevel` ECS component (accessed via `TownAccess.area_level(town_idx)`). Initial base grid is 6x6, expandable via `expand_town_build_area()` which increments the area level (max 50x50 extent).
 
-All coordinates use the **world grid** — `(col, row)` as `(usize, usize)` where each cell = 32px. `WorldGrid::world_to_grid(pos)` converts pixel position to grid coords, `WorldGrid::grid_to_world(col, row)` converts back. No town-relative coordinate system exists.
+All coordinates use the **world grid**. `(col, row)` as `(usize, usize)` where each cell = 32px. `WorldGrid::world_to_grid(pos)` converts pixel position to grid coords, `WorldGrid::grid_to_world(col, row)` converts back. No town-relative coordinate system exists.
 
 | Struct | Fields |
 |--------|--------|
-| TownAreaLevel | ECS component `i32` per town entity — via `TownAccess.area_level()` / `set_area_level()` |
+| TownAreaLevel | ECS component `i32` per town entity. Via `TownAccess.area_level()` / `set_area_level()` |
 | BuildMenuContext | town_data_idx: `Option<usize>`, selected_build: `Option<BuildingKind>`, destroy_mode: bool, drag_start_slot/drag_current_slot: `Option<(usize, usize)>` (world grid), ghost_sprites: `HashMap<BuildingKind, Handle<Image>>` |
-| DestroyRequest | `Option<(usize, usize)>` — (col, row) world grid, set by inspector, processed by `process_destroy_system` |
+| DestroyRequest | `Option<(usize, usize)>`. (col, row) world grid, set by inspector, processed by `process_destroy_system` |
 
 Coordinate helpers: `build_bounds(area_level, center, grid) -> (min_col, max_col, min_row, max_row)` returns world grid bounds, `empty_slots(town_idx, center, grid, building_map)` returns `Vec<(usize, usize)>` of buildable world grid positions.
 
-Building placement: `place_building()` is the single entry point for all runtime building placement (player UI and AI, town-grid and wilderness). Takes `world_pos`, validates cell (exists, empty, not water), rejects foreign territory, deducts food, places on WorldGrid, creates `BuildingInstance` in `EntityMap`, auto-assigns waypoint `patrol_order`, pushes FarmStates for farms, registers spawner, spawns building entity (with `Building` marker + `Health` + `NpcIndex` + `Faction` + `TownId`), allocates building GPU slot, and marks DirtyFlags. `destroy_building()` shared helper consolidates all destroy side effects: spawner tombstone + combat log + wall auto-tile neighbor update — used by click-destroy, inspector-destroy, and waypoint pruning; callers send lethal DamageMsg for entity death. `is_alive(pos)` checks tombstone status (single source of truth for `pos.x > -9000.0`). `empty_slots(tg, center, grid, building_map)` scans a town grid for buildable cells using `EntityMap::has_building_at()` for occupancy checks. Fountains and gold mines cannot be destroyed.
+Building placement: `place_building()` is the single entry point for all runtime building placement (player UI and AI, town-grid and wilderness). Takes `world_pos`, validates cell (exists, empty, not water), rejects foreign territory, deducts food, places on WorldGrid, creates `BuildingInstance` in `EntityMap`, auto-assigns waypoint `patrol_order`, pushes FarmStates for farms, registers spawner, spawns building entity (with `Building` marker + `Health` + `NpcIndex` + `Faction` + `TownId`), allocates building GPU slot, and marks DirtyFlags. `destroy_building()` shared helper consolidates all destroy side effects: spawner tombstone + combat log + wall auto-tile neighbor update. Used by click-destroy, inspector-destroy, and waypoint pruning; callers send lethal DamageMsg for entity death. `is_alive(pos)` checks tombstone status (single source of truth for `pos.x > -9000.0`). `empty_slots(tg, center, grid, building_map)` scans a town grid for buildable cells using `EntityMap::has_building_at()` for occupancy checks. Fountains and gold mines cannot be destroyed.
 
 Building costs: `building_cost(kind)` in `constants.rs`. Flat costs (no difficulty scaling): Farm=2, FarmerHome=2, MinerHome=4, ArcherHome=4, CrossbowHome=8, Waypoint=1, Tent=3. All properties defined in `BUILDING_REGISTRY`.
 
@@ -108,7 +108,7 @@ Building costs: `building_cost(kind)` in `constants.rs`. Flat costs (no difficul
 
 | Resource | Data | Writers | Readers |
 |----------|------|---------|---------|
-| FactionList | `factions: Vec<FactionData>` — one per faction | generate_world, create_ai_town | UI (factions panel), save/load |
+| FactionList | `factions: Vec<FactionData>`. One per faction | generate_world, create_ai_town | UI (factions panel), save/load |
 
 `FactionData` fields: `kind: FactionKind`, `name: String`, `towns: Vec<usize>` (town indices owned).
 
@@ -128,7 +128,7 @@ Town economic state (food, gold, policies, upgrades, equipment) lives on ECS tow
 
 | Resource | Data | Writers | Readers |
 |----------|------|---------|---------|
-| TownIndex | `HashMap<i32, Entity>` — town_idx → Entity | world gen, save/load | TownAccess (all systems) |
+| TownIndex | `HashMap<i32, Entity>`. Town_idx → Entity | world gen, save/load | TownAccess (all systems) |
 | MiningPolicy | `discovered_mines: Vec<Vec<usize>>`, `mine_enabled: HashMap<usize, bool>` (keyed by GPU slot) | mining_policy_system | UI (policies tab, mine inspector) |
 
 ### TownAccess SystemParam
@@ -143,7 +143,7 @@ Town economic state (food, gold, policies, upgrades, equipment) lives on ECS tow
 | `upgrade_levels(idx)` / `upgrade_level(idx, i)` | `Vec<u8>` / `u8` | No |
 | `upgrades_mut(idx)` | `Option<Mut<TownUpgradeLevel>>` | Yes |
 | `equipment(idx)` / `equipment_mut(idx)` | `Option<Vec<LootItem>>` / `Option<Mut<TownEquipment>>` | No / Yes |
-| `area_level(idx)` / `set_area_level(idx, val)` | `i32` / — | No / Yes |
+| `area_level(idx)` / `set_area_level(idx, val)` | `i32` /. | No / Yes |
 | `town_index_mut()` | `&mut TownIndex` | Yes |
 
 Town entities are spawned in world gen and save/load with: `TownMarker`, `TownAreaLevel(al)`, `FoodStore(0)`, `GoldStore(0)`, `TownPolicy(default)`, `TownUpgradeLevel::default()`, `TownEquipment::default()`.
@@ -164,7 +164,7 @@ Town entities are spawned in world gen and save/load with: `TownMarker`, `TownAr
 
 Derived methods: `day()`, `hour()`, `minute()`, `is_daytime()` (6am–8pm), `total_hours()`.
 
-`hour_ticked` is true for one frame when the game hour changes — used by economy/respawn systems.
+`hour_ticked` is true for one frame when the game hour changes. Used by economy/respawn systems.
 
 ## Game Config
 
@@ -182,24 +182,24 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 | GpuReadState | positions, combat_targets, health, factions, threat_counts, entity_count | Populated via GPU readback observers (mixed cadence; see below) |
 | EntityGpuState | positions, factions, healths, entity_flags, sprite_indices, flash_values, targets, speeds, arrivals + per-buffer dirty flags + per-index dirty tracking (position_dirty_indices, arrival_dirty_indices, target_dirty_indices, hidden_indices) + target_buffer_size | Unified CPU-side GPU state for all entities (NPCs + buildings); populated by GpuUpdate variants; `Hide` clears sprite_indices + flash_values and pushes to hidden_indices; read by rendering + healing system |
 | NpcSpriteTexture | handle (char atlas), world_handle (world atlas), extras_handle (extras atlas), building_handle (building atlas) | Shared with instanced renderer for texture bind group |
-| ProjSlotAllocator | next, free list, max (50,000) | Active — allocates projectile slots |
+| ProjSlotAllocator | next, free list, max (50,000) | Active. Allocates projectile slots |
 
-`GpuReadState` is populated by `ReadbackComplete` observers. Positions/combat targets/health are always-on; `factions` is throttled to every 60 frames and `threat_counts` to every 30 frames. Used by combat systems (including `building_tower_system` for CPU-side tower targeting), behavior/AI threat logic, position sync, and test assertions. `entity_count` set by `GpuSlotPool.count()` (not from readback — buffer is MAX-sized).
+`GpuReadState` is populated by `ReadbackComplete` observers. Positions/combat targets/health are always-on; `factions` is throttled to every 60 frames and `threat_counts` to every 30 frames. Used by combat systems (including `building_tower_system` for CPU-side tower targeting), behavior/AI threat logic, position sync, and test assertions. `entity_count` set by `GpuSlotPool.count()` (not from readback. Buffer is MAX-sized).
 
-`EntityGpuState` holds unified visual and movement data for all entities (NPCs + buildings) on the CPU side. Building slots have default movement fields (targets=[0,0], speeds=0, arrivals=0) — the shader skips movement via `ENTITY_FLAG_BUILDING`. Building rendering reads from this state via `EntityMap.iter_instances()` to build `BuildingBodyInstances`. Building healing reads positions from this state.
+`EntityGpuState` holds unified visual and movement data for all entities (NPCs + buildings) on the CPU side. Building slots have default movement fields (targets=[0,0], speeds=0, arrivals=0). The shader skips movement via `ENTITY_FLAG_BUILDING`. Building rendering reads from this state via `EntityMap.iter_instances()` to build `BuildingBodyInstances`. Building healing reads positions from this state.
 
 ## Stats & Upgrades
 
 | Resource | Data | Defined In | Purpose |
 |----------|------|------------|---------|
-| CombatConfig | `HashMap<Job, JobStats>` + `HashMap<BaseAttackType, AttackTypeStats>` + heal_rate + heal_radius | `systems/stats.rs` | All NPC base stats — resolved via `resolve_combat_stats()` |
+| CombatConfig | `HashMap<Job, JobStats>` + `HashMap<BaseAttackType, AttackTypeStats>` + heal_rate + heal_radius | `systems/stats.rs` | All NPC base stats. Resolved via `resolve_combat_stats()` |
 | TownUpgradeLevel | ECS component `Vec<u8>` per town entity (dynamic width = `upgrade_count()`) | town entities | Per-town upgrade levels, accessed via `TownAccess.upgrade_levels()` |
 | UpgradeMsg | Message `{ town_idx, upgrade_idx }` | `systems/stats.rs` | Upgrade purchase request from UI/auto/AI, consumed by `process_upgrades_system` |
 | AutoUpgrade | `Vec<Vec<bool>>` per town (dynamic width = `upgrade_count()`) | `resources.rs` | Per-upgrade auto-buy flags; `auto_upgrade_system` emits `UpgradeMsg` each game hour for affordable enabled upgrades |
 
 `CombatConfig::default()` initializes from hardcoded values (archer/raider damage=15, fighter damage=22.5, speeds=100, max_health=100, melee range=50/proj_speed=200, ranged range=100/proj_speed=100, heal_rate=5, heal_radius=150). Per-job `attack_override` in `NPC_REGISTRY` can override attack type defaults. `resolve_combat_stats()` combines job base × upgrade mult × trait mult × level mult → `CachedStats` component.
 
-`UPGRADES` is the single source of truth for upgrade metadata — a global `LazyLock<UpgradeRegistry>` built from `NPC_REGISTRY` + `TOWN_UPGRADES` at startup. `UpgradeRegistry` contains dynamic `nodes`, UI `branches`, and an `(category, stat_kind) -> index` map. `UpgradeNode` includes: `label`, `short`, `tooltip`, `category`, `stat_kind`, `pct`, `cost`, `display`, `prereqs: Vec<(usize, u8)>`, and flags (`is_combat_stat`, `invalidates_healing`, `triggers_expansion`, `custom_cost`).
+`UPGRADES` is the single source of truth for upgrade metadata. A global `LazyLock<UpgradeRegistry>` built from `NPC_REGISTRY` + `TOWN_UPGRADES` at startup. `UpgradeRegistry` contains dynamic `nodes`, UI `branches`, and an `(category, stat_kind) -> index` map. `UpgradeNode` includes: `label`, `short`, `tooltip`, `category`, `stat_kind`, `pct`, `cost`, `display`, `prereqs: Vec<(usize, u8)>`, and flags (`is_combat_stat`, `invalidates_healing`, `triggers_expansion`, `custom_cost`).
 
 `TownUpgradeLevel` (ECS component on town entities) stores dynamic per-town level vectors sized to `upgrade_count()`, and save/load uses decode helpers that pad older saves when new upgrades are added. Shared helpers gate all purchase paths: `upgrade_unlocked(levels, idx)` (prereqs), `upgrade_available(levels, idx, food, gold)` (prereqs + affordability), `deduct_upgrade_cost(...)`, `missing_prereqs(...)`, and `format_upgrade_cost(...)`. `UpgradeMsg` decouples writers from processing: UI, auto-upgrade, and AI emit messages; `process_upgrades_system` validates, deducts, increments, and re-resolves affected stats.
 
@@ -225,7 +225,7 @@ UI tree layout is driven by `UPGRADES.branches` (generated during registry build
 | 13 | HealingRate | Town | +20% | Multiplicative |
 | 14 | FountainRadius | Town | +24px flat | Flat: `base_radius + level * 24.0` |
 | 15 | TownArea | Town | +1 radius | Discrete: custom slot-based cost via `expansion_cost()` |
-**Upgrade applicability by job** — not all upgrades flow through `resolve_combat_stats()`:
+**Upgrade applicability by job**. Not all upgrades flow through `resolve_combat_stats()`:
 
 | Upgrade | Applies to | Notes |
 |---------|-----------|-------|
@@ -243,7 +243,7 @@ UI tree layout is driven by `UPGRADES.branches` (generated during registry build
 
 | Resource | Data | Writers | Readers |
 |----------|------|---------|---------|
-| TownPolicy | ECS component `PolicySet` per town entity | left_panel (UI) | decision_system, behavior systems — accessed via `TownAccess.policy()` |
+| TownPolicy | ECS component `PolicySet` per town entity | left_panel (UI) | decision_system, behavior systems. Accessed via `TownAccess.policy()` |
 
 `PolicySet` fields: `eat_food` (bool), `archer_aggressive` (bool), `archer_leash` (bool), `farmer_fight_back` (bool), `prioritize_healing` (bool), `farmer_flee_hp` (f32, 0.0-1.0), `archer_flee_hp` (f32), `recovery_hp` (f32), `farmer_schedule` (WorkSchedule enum), `archer_schedule` (WorkSchedule enum), `farmer_off_duty` (OffDutyBehavior enum), `archer_off_duty` (OffDutyBehavior enum), `mining_radius` (f32), `reserve_food` (i32, default 0), `reserve_gold` (i32, default 0).
 
@@ -260,7 +260,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | Resource | Data | Purpose |
 |----------|------|---------|
 | SelectedNpc | `i32` (-1 = none) | Currently selected NPC for inspector panel |
-| SelectedBuilding | `{ col, row, kind, slot, active }` (default inactive) | Currently selected building — kind + GPU slot for direct EntityMap lookup |
+| SelectedBuilding | `{ col, row, kind, slot, active }` (default inactive) | Currently selected building. Kind + GPU slot for direct EntityMap lookup |
 | FollowSelected | `bool` (default false) | When true, camera tracks selected NPC position each frame |
 
 ## Test Framework
@@ -272,7 +272,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | TestRegistry | `Vec<TestEntry>` (name, description, phase_count, time_scale) | All registered tests |
 | RunAllState | active, queue, results | Sequential test execution state |
 
-`TestState` is reset between tests via shared `game_cleanup_system` (OnExit Running — same cleanup as OnExit Playing). `test_is("name")` run condition gates per-test systems.
+`TestState` is reset between tests via shared `game_cleanup_system` (OnExit Running. Same cleanup as OnExit Playing). `test_is("name")` run condition gates per-test systems.
 
 ## UI State
 
@@ -284,11 +284,11 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | DestroyRequest | `Option<(usize, usize)>` (grid_col, grid_row) | bottom_panel_system (inspector destroy button) | process_destroy_system |
 | UpgradeMsg | Message `{ town_idx, upgrade_idx }` | left_panel upgrades (UI), auto_upgrade_system, ai_player | process_upgrades_system |
 | TowerState | `town: TowerKindState` where `TowerKindState = { timers: Vec<f32>, attack_enabled: Vec<bool> }` | building_tower_system (cooldown + fire) | building_tower_system |
-| UserSettings | world_size, towns, farmers, archers, raiders, ai_towns, raider_towns, ai_interval, npc_interval, scroll_speed, ui_scale (f32, default 1.2), difficulty (Difficulty, default Normal), log_kills/spawns/raids/harvests/levelups/npc_activity/ai, debug_ids/all_npcs, policy (PolicySet), upgrade_expanded (Vec\<String\> — expanded branch labels) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close), upgrade_content (save on expand/collapse) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system, apply_ui_scale. **Loaded from disk at app startup** via `insert_resource(load_settings())` in `build_app()` — persists across app restarts without waiting for UI init. |
+| UserSettings | world_size, towns, farmers, archers, raiders, ai_towns, raider_towns, ai_interval, npc_interval, scroll_speed, ui_scale (f32, default 1.2), difficulty (Difficulty, default Normal), log_kills/spawns/raids/harvests/levelups/npc_activity/ai, debug_ids/all_npcs, policy (PolicySet), upgrade_expanded (Vec\<String\>. Expanded branch labels) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close), upgrade_content (save on expand/collapse) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system, apply_ui_scale. **Loaded from disk at app startup** via `insert_resource(load_settings())` in `build_app()`. Persists across app restarts without waiting for UI init. |
 
 `UiState` tracks which panels are open. All default to false. `LeftPanelTab` enum: Roster (default), Upgrades, Policies, Patrols, Squads, Factions, Help. `toggle_left_tab()` method: if panel shows that tab → close, otherwise open to that tab. Faction pre-select now uses `SelectFactionMsg`: produced by fountain double-click and inspector faction links, consumed in `left_panel_system`/`factions_content` via `MessageReader<SelectFactionMsg>`.
 
-`CombatLog` has two ring buffers: `entries` (max 200) for normal events and `priority_entries` (max 200) for Raid/Ai events — this prevents high-frequency combat events from pushing out important strategic entries. 7 event kinds: Kill, Spawn, Raid, Harvest, LevelUp, Ai, BuildingDamage. Each entry has day/hour/minute timestamps, a `faction: i32` (-1=global, 0=player, 1+=AI), a message string, and an optional `location: Option<Vec2>` (world position for camera-pan button). `push()` evicts oldest when at capacity; `push_at()` routes to the correct buffer by kind. `iter_all()` chains both buffers for display. Raid entries for wave-started events include the target position as location. AI entries (purple in HUD) log build/unlock/upgrade actions; Raid entries (orange) log migration arrivals, town settlements, and wave start/end. Combat log UI has "All"/"Mine" faction filter dropdown — "Mine" shows player (0) and global (-1) events only. Entries with a location show a clickable ">>" button that pans the camera to the target position.
+`CombatLog` has two ring buffers: `entries` (max 200) for normal events and `priority_entries` (max 200) for Raid/Ai events. This prevents high-frequency combat events from pushing out important strategic entries. 7 event kinds: Kill, Spawn, Raid, Harvest, LevelUp, Ai, BuildingDamage. Each entry has day/hour/minute timestamps, a `faction: i32` (-1=global, 0=player, 1+=AI), a message string, and an optional `location: Option<Vec2>` (world position for camera-pan button). `push()` evicts oldest when at capacity; `push_at()` routes to the correct buffer by kind. `iter_all()` chains both buffers for display. Raid entries for wave-started events include the target position as location. AI entries (purple in HUD) log build/unlock/upgrade actions; Raid entries (orange) log migration arrivals, town settlements, and wave start/end. Combat log UI has "All"/"Mine" faction filter dropdown. "Mine" shows player (0) and global (-1) events only. Entries with a location show a clickable ">>" button that pans the camera to the target position.
 
 `PolicySet` is serializable (`serde::Serialize + Deserialize`) and persisted as part of `UserSettings`. Loaded into `TownPolicy` ECS components on game startup, saved when leaving the Policies tab in the left panel.
 
@@ -300,7 +300,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 
 `SquadOwner` enum: `Player` (default) or `Town(usize)` (town_data_idx). Determines which town's military units get recruited into the squad.
 
-`Squad` fields: `members: Vec<Entity>` (Bevy entities — stable identity within session), `target: Option<Vec2>` (world position or None), `target_size: usize` (desired member count, 0 = manual mode — no auto-recruit/dismiss), `patrol_enabled: bool`, `rest_when_tired: bool`, `owner: SquadOwner`, `wave_active: bool`, `wave_start_count: usize`, `wave_min_start: usize`, `wave_retreat_below_pct: usize`, `hold_fire: bool` (when true, members only attack ManualTarget — no auto-engage).
+`Squad` fields: `members: Vec<Entity>` (Bevy entities. Stable identity within session), `target: Option<Vec2>` (world position or None), `target_size: usize` (desired member count, 0 = manual mode. No auto-recruit/dismiss), `patrol_enabled: bool`, `rest_when_tired: bool`, `owner: SquadOwner`, `wave_active: bool`, `wave_start_count: usize`, `wave_min_start: usize`, `wave_retreat_below_pct: usize`, `hold_fire: bool` (when true, members only attack ManualTarget. No auto-engage).
 
 `SquadId(i32)` ECS component inserted on military units when recruited into a squad. Removed on dismiss via `commands.entity().remove::<SquadId>()`. Units with `SquadId` walk to squad target instead of patrolling (see [behavior.md](behavior.md#squads)).
 
@@ -310,7 +310,7 @@ Military status is derived from `Job::is_military()` (archers, crossbows, fighte
 
 `drag_start` / `box_selecting`: box-select drag state. `drag_start` is set on left-click press (world-space position), `box_selecting` becomes true when the drag exceeds 5px threshold. On mouse release while `box_selecting`, all player military NPCs inside the AABB are assigned to the currently selected squad. Cleared by ESC or mouse release.
 
-`ManualTarget` ECS component — per-NPC target for DirectControl units. Enum variants: `Npc(usize)` (attack NPC slot), `Building(Vec2)` (attack building position), `Position(Vec2)` (ground move). Inserted by right-click commands on DirectControl NPCs. `Npc` variant overrides GPU auto-targeting in `attack_system`, removed when target dies. `Building`/`Position` variants fall through to GPU auto-targeting in combat. Crosshair overlay in `squad_overlay_system` renders for `Npc`/`Building` variants on DirectControl NPCs.
+`ManualTarget` ECS component. Per-NPC target for DirectControl units. Enum variants: `Npc(usize)` (attack NPC slot), `Building(Vec2)` (attack building position), `Position(Vec2)` (ground move). Inserted by right-click commands on DirectControl NPCs. `Npc` variant overrides GPU auto-targeting in `attack_system`, removed when target dies. `Building`/`Position` variants fall through to GPU auto-targeting in combat. Crosshair overlay in `squad_overlay_system` renders for `Npc`/`Building` variants on DirectControl NPCs.
 
 `npc_matches_owner(owner, npc_town_id, player_town)`: helper for owner-safe recruitment in `squad_cleanup_system`. Player squads recruit from player-town military NPCs (via `Job::is_military()`); `Town(tdi)` squads recruit from units with matching `TownId`.
 
@@ -321,10 +321,10 @@ UI filtering: left panel and squad overlay only show `is_player()` squads. Hotke
 | Resource | Data | Writers | Readers |
 |----------|------|---------|---------|
 | AiPlayerConfig | `decision_interval: f32` (real seconds between AI ticks, default 5.0) | main_menu (from settings) | ai_decision_system |
-| AiPlayerState | `players: Vec<AiPlayer>` — one per non-player settlement | game_startup (populate), game_cleanup (reset) | ai_decision_system |
+| AiPlayerState | `players: Vec<AiPlayer>`. One per non-player settlement | game_startup (populate), game_cleanup (reset) | ai_decision_system |
 | NpcDecisionConfig | `interval: f32` (seconds between Tier 3 decisions, default 2.0) | main_menu (from settings) | decision_system |
 
-`AiPlayer` fields: `town_data_idx` (WorldData.towns index), `grid_idx` (TownGrids index), `kind` (Builder or Raider), `personality` (Aggressive, Balanced, or Economic — randomly assigned at game start), `active` (bool — `ai_decision_system` skips inactive players; used by migration system to defer AI until town settles), `squad_indices: Vec<usize>` (indices into SquadState.squads), `squad_cmd: HashMap<usize, AiSquadCmdState>` (per-squad command state with independent cooldown + target identity via `building_uid: Option<Entity>`). `AiKind` determined by `Town.sprite_type`: 0 (fountain) = Builder, 1 (tent) = Raider.
+`AiPlayer` fields: `town_data_idx` (WorldData.towns index), `grid_idx` (TownGrids index), `kind` (Builder or Raider), `personality` (Aggressive, Balanced, or Economic. Randomly assigned at game start), `active` (bool. `ai_decision_system` skips inactive players; used by migration system to defer AI until town settles), `squad_indices: Vec<usize>` (indices into SquadState.squads), `squad_cmd: HashMap<usize, AiSquadCmdState>` (per-squad command state with independent cooldown + target identity via `building_uid: Option<Entity>`). `AiKind` determined by `Town.sprite_type`: 0 (fountain) = Builder, 1 (tent) = Raider.
 
 Personality drives build order, upgrade priority, food reserve, town policies, and **squad behavior**:
 - **Aggressive**: military first (archer homes → waypoints → economy), zero food reserve, combat upgrades prioritized, miner homes = 1/3 of farmer homes. 3 squads: reserve (25% defense), 2 attack squads (55/45 split of remainder). Retargets every 15s, attacks nearest enemy anything.
@@ -341,7 +341,7 @@ Both unlock slots when full (sets terrain to Dirt) and buy upgrades with surplus
 |----------|------|---------|---------|
 | MigrationState | `active: Option<MigrationGroup>`, `check_timer: f32` | migration_spawn_system, migration_settle_system | migration_attach_system, migration_settle_system, save/load |
 
-`MigrationGroup` fields: `town_data_idx: Option<usize>` (set at settle — index into WorldData.towns), `member_slots: Vec<usize>` (NPC slot indices of migrating raiders), `boat_slot: Option<usize>` (NPC GPU slot for boat entity), `boat_pos: Vec2` (current boat position), `settle_target: Vec2` (destination chosen by `pick_settle_site`), `faction: i32`, `is_raider: bool`, `upgrade_levels: Vec<u8>`, `starting_food/starting_gold: i32`.
+`MigrationGroup` fields: `town_data_idx: Option<usize>` (set at settle. Index into WorldData.towns), `member_slots: Vec<usize>` (NPC slot indices of migrating raiders), `boat_slot: Option<usize>` (NPC GPU slot for boat entity), `boat_pos: Vec2` (current boat position), `settle_target: Vec2` (destination chosen by `pick_settle_site`), `faction: i32`, `is_raider: bool`, `upgrade_levels: Vec<u8>`, `starting_food/starting_gold: i32`.
 
 `NpcFlags.migrating: bool` flag on NPCs that are part of an active migration group. Set via ECS query in `endless_system` (attach phase), cleared on settlement. Persisted in save via `MigrationSave.member_slots` and re-set on load.
 
@@ -353,7 +353,7 @@ Both unlock slots when full (sets terrain to Dirt) and buy upgrades with surplus
 
 `MovementPriority` enum: `Wander(0) < JobRoute(1) < Squad(2) < Combat(3) < Survival(4) < ManualTarget(5) < DirectControl(6)`. Multiple `submit()` calls per NPC per frame keep the highest priority. `resolve_movement_system` drains intents, filters (dedup, cooldown, unchanged target), converts to grid-space PathRequests via `enqueue()`, then processes the queue with LOS bypass or A* routing. Sole emitter of `GpuUpdate::SetTarget` and sole recorder of `NpcTargetThrashDebug`. Budget-limited: `max_per_frame` count + `max_time_budget_ms` time guard, overflow re-queued.
 
-**Stop-in-place short-circuit:** If an intent's target is within 2 units of the NPC's current position, `resolve_movement_system` bypasses `path_cooldown` and writes `SetTarget` directly — no A* needed to "stand still." This ensures `idle:stop` intents (fired once on Idle transition) always take effect, preventing stale GPU targets from a previous activity.
+**Stop-in-place short-circuit:** If an intent's target is within 2 units of the NPC's current position, `resolve_movement_system` bypasses `path_cooldown` and writes `SetTarget` directly. No A* needed to "stand still." This ensures `idle:stop` intents (fired once on Idle transition) always take effect, preventing stale GPU targets from a previous activity.
 
 Systems that write intents call `path_queue.submit(entity, target, priority, source)`. One-time init targets (spawn, boat migration) still write `SetTarget` directly.
 
@@ -373,11 +373,11 @@ Systems that write intents call `path_queue.submit(entity, target, priority, sou
 | DeltaTime | `f32` | Frame delta in seconds |
 | BuildingHpRender | `{ positions: Vec<Vec2>, health_pcts: Vec<f32> }` | Damaged building positions + HP fractions; gated behind `BuildingHealState.needs_healing` (skips full query when no buildings are damaged); extracted to render world for GPU instanced HP bars (atlas_id=5.0 bar-only mode) |
 
-## Building HP — Entity Health as Source of Truth
+## Building HP. Entity Health as Source of Truth
 
-Buildings are ECS entities with `Building` marker component + `Health` component (same as NPCs). There is no separate HP store — entity `Health` is the single source of truth. Lookup chain: `entity_map.entities.get(&slot)` → entity → `Health`. NPCs and buildings share one `EntityMap` resource — `entities` holds all slot→entity mappings, building instance data (instances, spatial grid, indexes) lives in the same resource. NPCs and buildings share a unified slot allocator (`GpuSlotPool`, max=MAX_ENTITIES=200K) and a unified CPU-side GPU state (`EntityGpuState`) — each entity's slot IS its GPU buffer index. Save/load serializes building HP as `HashMap<String, Vec<f32>>` (identical JSON format as the old `BuildingHpState`). `sync_building_hp_render` queries building entities to extract damaged building positions + HP fractions for GPU HP bar rendering (reads positions from `EntityGpuState`). Gated behind `BuildingHealState.needs_healing` — early-returns when no buildings are damaged, avoiding a full ECS query on 99%+ of frames.
+Buildings are ECS entities with `Building` marker component + `Health` component (same as NPCs). There is no separate HP store. Entity `Health` is the single source of truth. Lookup chain: `entity_map.entities.get(&slot)` → entity → `Health`. NPCs and buildings share one `EntityMap` resource. `entities` holds all slot→entity mappings, building instance data (instances, spatial grid, indexes) lives in the same resource. NPCs and buildings share a unified slot allocator (`GpuSlotPool`, max=MAX_ENTITIES=200K) and a unified CPU-side GPU state (`EntityGpuState`). Each entity's slot IS its GPU buffer index. Save/load serializes building HP as `HashMap<String, Vec<f32>>` (identical JSON format as the old `BuildingHpState`). `sync_building_hp_render` queries building entities to extract damaged building positions + HP fractions for GPU HP bar rendering (reads positions from `EntityGpuState`). Gated behind `BuildingHealState.needs_healing`. Early-returns when no buildings are damaged, avoiding a full ECS query on 99%+ of frames.
 
 ## Known Issues
 
-- **Health dual ownership**: CPU-authoritative (ECS `Health` component). GPU mirror is advisory — combat systems validate liveness via ECS, not GPU readback. Bounded 1-frame divergence.
+- **Health dual ownership**: CPU-authoritative (ECS `Health` component). GPU mirror is advisory. Combat systems validate liveness via ECS, not GPU readback. Bounded 1-frame divergence.
 - **No external API**: All state is internal Bevy Resources. No query interface for external tools or UI frameworks.
