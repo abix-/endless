@@ -257,9 +257,9 @@ pub struct BuildingOverrides {
 
 /// Unified building placement. Every code path that creates a building calls this.
 ///
-/// With `ctx: Some(BuildContext)` -- runtime validated placement:
+/// With `ctx: Some(BuildContext)`. Runtime validated placement:
 ///   validates cell, deducts cost, starts construction, wall auto-tile, dirty signals.
-/// With `ctx: None` -- free placement (world-gen, save/load, migration, tests):
+/// With `ctx: None`. Free placement (world-gen, save/load, migration, tests):
 ///   just creates the building at full HP (or hp_override).
 pub fn place_building(
     slot_alloc: &mut GpuSlotPool,
@@ -353,7 +353,7 @@ pub fn place_building(
         return Err("no GPU slots available");
     };
 
-    // Create BuildingInstance (identity only -- occupancy tracked separately in EntityMap)
+    // Create BuildingInstance (identity only. Occupancy tracked separately in EntityMap)
     entity_map.add_instance(BuildingInstance {
         kind,
         position: snapped,
@@ -473,7 +473,7 @@ pub fn place_building(
 
 /// Consolidated building destruction: grid clear + growth tombstone + HP zero + combat log.
 /// Grid cleanup for building removal: clears grid cell, updates wall auto-tile, logs combat event.
-/// Does NOT mark the entity as Dead -- callers send DamageMsg for that (single Dead writer: death_system).
+/// Does NOT mark the entity as Dead. Callers send DamageMsg for that (single Dead writer: death_system).
 pub(crate) fn destroy_building(
     grid: &mut WorldGrid,
     world_data: &WorldData,
@@ -496,7 +496,7 @@ pub(crate) fn destroy_building(
         update_autotile_around(grid, entity_map, gc, gr, kind, gpu_updates);
     }
 
-    // Combat log -- derive faction from building's town_idx
+    // Combat log. Derive faction from building's town_idx
     let bld_town = bld_town_idx as usize;
     let faction = world_data
         .towns
@@ -564,7 +564,7 @@ fn create_ai_players(
                 decision_timer: 0.0, // staggered below
             });
         } else {
-            // Player town -- inactive by default, controllable from Policies tab
+            // Player town. Inactive by default, controllable from Policies tab
             players.push(AiPlayer {
                 town_data_idx: tdi,
                 kind: AiKind::Builder,
