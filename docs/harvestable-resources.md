@@ -26,7 +26,7 @@ decision_system (ActivityKind::Work) -- controller: NPC claims worksite, takes y
 behavior_system (ReturnLoot)         -- controller: NPC deposits carried_loot to town store
 ```
 
-### WorksiteDef (registry -- Def layer)
+### WorksiteDef (registry. Def layer)
 
 ```rust
 pub struct WorksiteDef {
@@ -39,7 +39,7 @@ pub struct WorksiteDef {
 }
 ```
 
-### ProductionState (ECS -- Instance layer)
+### ProductionState (ECS. Instance layer)
 
 All worksites get `ProductionState` on spawn (already implemented). Farms grow over time, mines are repeatedly mined, and resource nodes (trees/rocks) require worker time to chop/quarry before yielding (one-shot).
 
@@ -51,7 +51,7 @@ Handles ALL worksite types via a single `match building.kind` block:
 - `TreeNode`: worker chops over time (`TREE_CHOP_RATE`, ~2hr), one-shot destroy after yield
 - `RockNode`: worker quarries over time (`ROCK_QUARRY_RATE`, ~3hr), one-shot destroy after yield
 
-### decision_system -- Work activity (Controller)
+### decision_system. Work activity (Controller)
 
 One `ActivityKind::Work` handles all resource jobs. The flow:
 
@@ -66,7 +66,7 @@ No separate `ActivityKind::Chop` or `ActivityKind::Quarry`. All workers use `Act
 
 ### Carried loot visuals
 
-When an NPC carries resources home (ReturnLoot phase), the carried item shows as a sprite overlay above the NPC's head. This is the same system for ALL resource types -- layer 4 in `build_npc_visual`:
+When an NPC carries resources home (ReturnLoot phase), the carried item shows as a sprite overlay above the NPC's head. This is the same system for ALL resource types. Layer 4 in `build_npc_visual`:
 
 | Resource | Sprite constant | Priority |
 |----------|----------------|----------|
@@ -75,7 +75,7 @@ When an NPC carries resources home (ReturnLoot phase), the carried item shows as
 | Wood | `WOOD_SPRITE` | 3 |
 | Stone | `STONE_SPRITE` | 4 (lowest) |
 
-The check cascades: gold > food > wood > stone. Only one item shows at a time. All four resource types must be checked -- no resource type should be silently invisible.
+The check cascades: gold > food > wood > stone. Only one item shows at a time. All four resource types must be checked. No resource type should be silently invisible.
 
 ### carried_loot writeback
 
@@ -106,7 +106,7 @@ Each resource node is a regular building:
 
 ## Terrain
 
-Resource nodes render on top of Grass terrain, regardless of the source biome. When a node is placed on a Forest or Rock cell, the underlying terrain should display as Grass so the node sprite is visible against a clean background. The node entity itself represents the tree/rock -- the biome tile underneath should not also show a tree/rock.
+Resource nodes render on top of Grass terrain, regardless of the source biome. When a node is placed on a Forest or Rock cell, the underlying terrain should display as Grass so the node sprite is visible against a clean background. The node entity itself represents the tree/rock. The biome tile underneath should not also show a tree/rock.
 
 ## Worldgen
 
@@ -131,7 +131,7 @@ When zoomed out, resource nodes render as colored LOD boxes instead of sprites. 
 | `Farm` | Yellow (food) |
 | `GoldMine` | Gold (gold) |
 
-This uses the existing LOD distance threshold -- no new system needed, just a color lookup from the building kind or `WorksiteDef.yield_item`.
+This uses the existing LOD distance threshold. No new system needed, just a color lookup from the building kind or `WorksiteDef.yield_item`.
 
 ## Pathfinding
 
@@ -139,7 +139,7 @@ Resource nodes do NOT block pathfinding. Forest biome cost (143) and Rock biome 
 
 ## Save/load
 
-Nodes are regular buildings -- saved and loaded through existing building serialization. No migration needed for old saves.
+Nodes are regular buildings. Saved and loaded through existing building serialization. No migration needed for old saves.
 
 ## Out of scope
 
