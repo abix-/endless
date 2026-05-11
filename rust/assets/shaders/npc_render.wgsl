@@ -1,7 +1,7 @@
 // Universal Instanced Render Shader
 // Two vertex paths:
-//   vertex     — instance buffer (farms, building HP bars, projectiles)
-//   vertex_npc — storage buffer (NPCs + equipment, reads compute shader output directly)
+//   vertex    . Instance buffer (farms, building HP bars, projectiles)
+//   vertex_npc. Storage buffer (NPCs + equipment, reads compute shader output directly)
 
 // PowerShell-style mental model:
 // - Vertex stage transforms each input row into clip-space coordinates.
@@ -56,11 +56,11 @@ struct VertexOutput {
 @group(0) @binding(2) var world_texture: texture_2d<f32>;
 @group(0) @binding(3) var world_sampler: sampler;
 
-// Building atlas (bind group 0, bindings 4-5) — vertical strip, 64x64 per tile
+// Building atlas (bind group 0, bindings 4-5). Vertical strip, 64x64 per tile
 @group(0) @binding(4) var building_texture: texture_2d<f32>;
 @group(0) @binding(5) var building_sampler: sampler;
 
-// Extras atlas (bind group 0, bindings 6-7) — horizontal grid of 64x64 cells
+// Extras atlas (bind group 0, bindings 6-7). Horizontal grid of 64x64 cells
 // Sprites: col 0=heal, 1=sleep, 2=arrow, 3=boat (mapped from atlas_id in calc_uv)
 @group(0) @binding(6) var extras_texture: texture_2d<f32>;
 @group(0) @binding(7) var extras_sampler: sampler;
@@ -106,7 +106,7 @@ const WORLD_SPRITE: f32 = 16.0;
 const WORLD_TEX_W: f32 = 968.0;
 const WORLD_TEX_H: f32 = 526.0;
 
-// Degenerate triangle — moves vertex off-screen to discard
+// Degenerate triangle. Moves vertex off-screen to discard
 const HIDDEN: vec4<f32> = vec4<f32>(0.0, 0.0, -2.0, 1.0);
 
 
@@ -330,7 +330,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(in.color.rgb, 1.0);
     }
 
-    // Building sprite (atlas_id 7) — must come before bar branches to avoid discard
+    // Building sprite (atlas_id 7). Must come before bar branches to avoid discard
     if is_building_atlas(in.atlas_id) {
         // Construction reveal: clip top portion when health < 1.0 (progress fraction)
         if in.health < 1.0 {
@@ -347,7 +347,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
     }
 
-    // Boat sprite (atlas_id 8) — extras atlas, check before mining/HP bar branches
+    // Boat sprite (atlas_id 8). Extras atlas, check before mining/HP bar branches
     if in.atlas_id >= 7.5 {
         // Boat textured path.
         let tex_color = textureSample(extras_texture, extras_sampler, in.uv);
