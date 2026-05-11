@@ -170,7 +170,7 @@ func parseToonParams(args []string) (map[string]interface{}, error) {
 	for _, arg := range args {
 		idx := strings.Index(arg, ":")
 		if idx < 0 {
-			// no colon -- append to previous key's value (supports spaces in values)
+			// no colon. Append to previous key's value (supports spaces in values)
 			if lastKey != "" {
 				params[lastKey] = fmt.Sprintf("%v %s", params[lastKey], arg)
 			} else {
