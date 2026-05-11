@@ -1,4 +1,4 @@
-//! AI squad commander -- wave-based attack cycle for both Builder and Raider AIs.
+//! AI squad commander. Wave-based attack cycle for both Builder and Raider AIs.
 
 use std::collections::{HashMap, HashSet};
 
@@ -95,7 +95,7 @@ impl AiPersonality {
     }
 
     /// Broad fallback set when preferred kinds yield no target.
-    /// Fountain last priority -- destroy the base after clearing defenses.
+    /// Fountain last priority. Destroy the base after clearing defenses.
     fn fallback_attack_kinds() -> &'static [BuildingKind] {
         &[
             BuildingKind::Farm,
@@ -121,7 +121,7 @@ impl AiPersonality {
         }
     }
 
-    /// Loss threshold percent -- end wave when alive drops below this % of wave_start_count.
+    /// Loss threshold percent. End wave when alive drops below this % of wave_start_count.
     fn wave_retreat_pct(self, kind: AiKind) -> usize {
         match kind {
             AiKind::Raider => 30,
@@ -228,7 +228,7 @@ pub fn rebuild_squad_indices(player: &mut AiPlayer, squads: &[Squad]) {
     }
 }
 
-/// AI squad commander -- wave-based attack cycle for both Builder and Raider AIs.
+/// AI squad commander. Wave-based attack cycle for both Builder and Raider AIs.
 /// Sets shared squad knobs: target, target_size, patrol_enabled, rest_when_tired.
 /// Wave model: gather -> threshold -> dispatch -> detect end -> reset.
 pub fn ai_squad_commander_system(
@@ -440,7 +440,7 @@ pub fn ai_squad_commander_system(
                 let heavy_losses = member_count < loss_threshold.max(1);
 
                 if !target_alive || heavy_losses {
-                    // End wave -- clear target, reset to gathering
+                    // End wave. Clear target, reset to gathering
                     let reason = if !target_alive {
                         "target cleared"
                     } else {
