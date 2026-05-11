@@ -126,7 +126,7 @@ impl WorldState<'_> {
         // Deduct cost
         *food -= upgrade_cost;
 
-        // Place new road (no validation context — we already validated)
+        // Place new road (no validation context. We already validated)
         let faction = self
             .world_data
             .towns
@@ -143,7 +143,7 @@ impl WorldState<'_> {
             town_data_idx as u32,
             faction,
             &Default::default(),
-            None, // no BuildContext — skip validation (already done)
+            None, // no BuildContext. Skip validation (already done)
             Some(&mut self.dirty_writers),
         )
         .map(|_| ())
@@ -174,7 +174,7 @@ impl WorldState<'_> {
 
 /// Flat bundle for systems that write combat log entries with game time and profiling context.
 /// Contains: combat_log (message writer), game_time (read-only game clock), timings (profiler).
-/// No nested SystemParam bundles -- all fields are primitive system params.
+/// No nested SystemParam bundles. All fields are primitive system params.
 #[derive(SystemParam)]
 pub struct GameLog<'w> {
     pub combat_log: MessageWriter<'w, CombatLogMsg>,
