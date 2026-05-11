@@ -240,7 +240,7 @@ pub struct ProjRenderBuffers {
     pub instance_count: u32,
 }
 
-/// The specialized render pipeline — supports both instance and storage buffer modes.
+/// The specialized render pipeline. Supports both instance and storage buffer modes.
 #[derive(Resource)]
 pub struct NpcPipeline {
     pub shader: Handle<Shader>,
@@ -1109,7 +1109,7 @@ mod tests {
     #[test]
     fn selection_overlay_retains_dc_entities_beyond_render_cap() {
         let mut app = setup_selection_overlay_app();
-        // Spawn 210 DC entities -- exceeds the 200 render cap
+        // Spawn 210 DC entities. Exceeds the 200 render cap
         for i in 0..210 {
             app.world_mut().spawn((
                 GpuSlot(i),
@@ -1723,9 +1723,9 @@ fn extract_npc_data(
     // --- Sub-timing: compute buffers ---
     let t0 = std::time::Instant::now();
     if let Some(gpu_bufs) = gpu_buffers {
-        // Read live count from authoritative GpuSlotPool — not stale RenderFrameConfig copy
+        // Read live count from authoritative GpuSlotPool. Not stale RenderFrameConfig copy
         let n = slots.count();
-        // Positions: strict coalescing — GPU writes positions[i] every frame, stale CPU values teleport NPCs
+        // Positions: strict coalescing. GPU writes positions[i] every frame, stale CPU values teleport NPCs
         write_coalesced_exact_f32(
             &render_queue,
             &gpu_bufs.positions,
@@ -1733,7 +1733,7 @@ fn extract_npc_data(
             &gpu_state.position_dirty_indices,
             2,
         );
-        // Arrivals: gap-safe — CPU array is always 0, GPU re-computes settled=1 same frame
+        // Arrivals: gap-safe. CPU array is always 0, GPU re-computes settled=1 same frame
         write_coalesced_i32(
             &render_queue,
             &gpu_bufs.arrivals,
@@ -1833,7 +1833,7 @@ fn extract_npc_data(
                 8,
                 GAP_VISUAL,
             );
-            // Equip uses separate indices — excludes flash-only slots (equipment didn't change)
+            // Equip uses separate indices. Excludes flash-only slots (equipment didn't change)
             if !visual_upload.equip_uploaded_indices.is_empty() {
                 write_coalesced_f32(
                     &render_queue,
@@ -2267,7 +2267,7 @@ fn prepare_npc_texture_bind_group(
     commands.insert_resource(NpcTextureBindGroup { bind_group });
 }
 
-/// Prepare camera uniform bind group — uploads CameraState to GPU each frame.
+/// Prepare camera uniform bind group. Uploads CameraState to GPU each frame.
 fn prepare_npc_camera_bind_group(
     mut commands: Commands,
     render_device: Res<RenderDevice>,
@@ -2489,7 +2489,7 @@ fn queue_npcs(
 // PIPELINE SPECIALIZATION
 // =============================================================================
 
-/// Quad vertex buffer layout (slot 0) — shared by both paths.
+/// Quad vertex buffer layout (slot 0). Shared by both paths.
 fn quad_vertex_layout() -> VertexBufferLayout {
     VertexBufferLayout {
         array_stride: std::mem::size_of::<QuadVertex>() as u64,
@@ -2509,7 +2509,7 @@ fn quad_vertex_layout() -> VertexBufferLayout {
     }
 }
 
-/// Instance data vertex buffer layout (slot 1) — used by instance path only.
+/// Instance data vertex buffer layout (slot 1). Used by instance path only.
 fn instance_vertex_layout() -> VertexBufferLayout {
     VertexBufferLayout {
         array_stride: std::mem::size_of::<InstanceData>() as u64,
