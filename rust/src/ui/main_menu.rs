@@ -1,4 +1,4 @@
-//! Main menu — world config sliders + Play / Debug Tests buttons.
+//! Main menu. World config sliders + Play / Debug Tests buttons.
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
@@ -479,13 +479,13 @@ pub fn main_menu_system(
 
             ui.add_space(8.0);
 
-            // Save Slots button — opens slot picker window
+            // Save Slots button. Opens slot picker window
             if ui.button(egui::RichText::new("Save Slots").size(18.0)).clicked() {
                 state.show_slot_picker = !state.show_slot_picker;
                 state.slot_infos_loaded = false; // refresh on open
             }
 
-            // Legacy Load Game button — opens file picker for named/autosaves
+            // Legacy Load Game button. Opens file picker for named/autosaves
             let saves = crate::save::list_saves();
             if saves.is_empty() {
                 ui.add_enabled_ui(false, |ui| {
@@ -511,7 +511,7 @@ pub fn main_menu_system(
         });
     });
 
-    // Settings window — shared with pause menu (minus Save/Load)
+    // Settings window. Shared with pause menu (minus Save/Load)
     if state.show_settings {
         let prev_fullscreen = user_settings.fullscreen;
         let prev_vsync = user_settings.vsync;
@@ -676,7 +676,7 @@ pub fn main_menu_system(
         }
     }
 
-    // Load Game window — shown when show_load_menu is true
+    // Load Game window. Shown when show_load_menu is true
     if state.show_load_menu {
         let saves = crate::save::list_saves();
         let mut open = true;
