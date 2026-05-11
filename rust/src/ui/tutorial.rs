@@ -1,4 +1,4 @@
-//! Guided tutorial — condition-driven hints that auto-advance as the player plays.
+//! Guided tutorial. Condition-driven hints that auto-advance as the player plays.
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
