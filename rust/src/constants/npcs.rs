@@ -24,7 +24,7 @@ pub enum WeaponType {
     Catapult,
 }
 
-/// Unified item type — resources (stackable) and equipment (unique instances).
+/// Unified item type. Resources (stackable) and equipment (unique instances).
 /// Serves as the K8s `kind` discriminator for the item registry.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Reflect, serde::Serialize, serde::Deserialize,
@@ -98,7 +98,7 @@ const RING_NAMES: &[&str] = &["Ring", "Band", "Signet", "Loop", "Circle"];
 // ITEM REGISTRY (CRD → etcd)
 // ============================================================================
 
-/// Item template — one entry per ItemKind variant.
+/// Item template. One entry per ItemKind variant.
 #[derive(Clone, Debug)]
 pub struct ItemDef {
     pub kind: ItemKind,
@@ -341,7 +341,7 @@ pub fn roll_loot_item(id: u64, seed: u32) -> LootItem {
     }
 }
 
-/// Complete NPC type definition — one entry per Job variant.
+/// Complete NPC type definition. One entry per Job variant.
 #[derive(Clone, Copy, Debug)]
 pub struct NpcDef {
     pub job: Job,
@@ -378,7 +378,7 @@ pub struct NpcDef {
     pub upgrade_category: Option<&'static str>,
     /// Which stats this NPC type can upgrade. Defines the upgrade branch content.
     pub upgrade_stats: &'static [UpgradeStatDef],
-    /// Possible loot drops when killed — one is picked deterministically per death.
+    /// Possible loot drops when killed. One is picked deterministically per death.
     pub loot_drop: &'static [LootDrop],
     /// Chance (0.0–1.0) this NPC type drops equipment when killed.
     pub equipment_drop_rate: f32,
