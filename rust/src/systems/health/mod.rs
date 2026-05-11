@@ -26,7 +26,7 @@ use crate::systems::economy::*;
 use crate::systems::stats::{CombatConfig, UPGRADES, level_from_xp, resolve_combat_stats};
 use crate::world::{BuildingKind, WorldData, WorldGrid};
 
-/// Bundled resources for death_system — merged from CleanupResources + WorldState + BuildingDeathExtra.
+/// Bundled resources for death_system. Merged from CleanupResources + WorldState + BuildingDeathExtra.
 #[derive(SystemParam)]
 pub struct DeathResources<'w, 's> {
     pub death_queue: ResMut<'w, DeathQueue>,
@@ -238,7 +238,7 @@ pub fn death_system(
     let dead_npc_slots: Vec<usize> = res.death_queue.pending.drain(..cap).collect();
     let mass_death = dead_npc_slots.len() > 50;
 
-    // Phase 1b: Mark newly dead buildings (deferred — processed next frame)
+    // Phase 1b: Mark newly dead buildings (deferred. Processed next frame)
     for (entity, health) in building_mark_query.iter() {
         if health.0 <= 0.0 {
             if let Ok(mut ec) = commands.get_entity(entity) {
@@ -252,7 +252,7 @@ pub fn death_system(
     // Phase 2a: Process dead buildings (from previous frame, via ECS Dead query)
     let mut despawn_count = 0;
     let has_dead_buildings = !building_dead_query.is_empty();
-    // Reuse Phase 1a's dead_npc_slots — death_system processes all dead NPCs every frame,
+    // Reuse Phase 1a's dead_npc_slots. Death_system processes all dead NPCs every frame,
     // so no dead NPCs persist across frames. Eliminates a second O(n) iter_npcs() scan.
 
     if has_dead_buildings || !dead_npc_slots.is_empty() {
@@ -542,7 +542,7 @@ pub fn death_system(
         }
     }
 
-    // Phase 2b: Process dead NPCs (immediate — same frame as marking)
+    // Phase 2b: Process dead NPCs (immediate. Same frame as marking)
     for &slot in &dead_npc_slots {
         // Extract dead NPC data (immutable borrow ends before killer mutation)
         let (entity, faction, town_idx, job, activity, worksite_uid, last_hit_by) = {
@@ -570,7 +570,7 @@ pub fn death_system(
         if selected.0 == slot as i32 {
             selected.0 = -1;
         }
-        // Death SFX -- skip during mass death events to avoid 25K message writes
+        // Death SFX. Skip during mass death events to avoid 25K message writes
         if !mass_death {
             let base = slot * 2;
             if base + 1 < res.gpu_state.positions.len() {
@@ -892,7 +892,7 @@ pub fn death_system(
                 .filter(|i| crate::constants::building_def(i.kind).is_tower)
                 .map(|i| (i.faction, i.town_idx as usize))
             {
-                // Tower/fountain killer — XP, kills, loot deposit
+                // Tower/fountain killer. XP, kills, loot deposit
                 let (tower_faction, tower_town) = tower_faction;
                 res.faction_stats.inc_kills(tower_faction);
                 res.reputation.on_kill(tower_faction, faction);
@@ -1186,7 +1186,7 @@ pub fn healing_system(
     let mut healed_count = 0usize;
     let mut exit_count = 0usize;
 
-    // Use cache.by_faction directly — already Vec<Vec<HealingZone>> indexed by faction
+    // Use cache.by_faction directly. Already Vec<Vec<HealingZone>> indexed by faction
 
     // ========================================================================
     // 1. Sustain-check: process active healing set every frame
@@ -1357,7 +1357,7 @@ pub fn healing_system(
     }
 
     // ========================================================================
-    // 3. Building healing (unchanged — already gated behind needs_healing)
+    // 3. Building healing (unchanged. Already gated behind needs_healing)
     // ========================================================================
     if heal_state.needs_healing {
         let bld_positions = &entity_gpu_state.positions;
