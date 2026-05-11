@@ -134,7 +134,7 @@ pub fn tick(
                 test.pass_phase(elapsed, format!("proj_free={}", free));
                 test.complete(elapsed);
             } else if elapsed > 30.0 {
-                // Projectiles might still be in flight — pass if damage was confirmed
+                // Projectiles might still be in flight. Pass if damage was confirmed
                 if health_debug.damage_processed > 0 {
                     test.pass_phase(elapsed, format!("damage confirmed, proj_free={}", free));
                     test.complete(elapsed);
