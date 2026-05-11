@@ -6,7 +6,7 @@ use crate::components::*;
 use crate::constants::npc_def;
 use crate::resources::*;
 
-// Armory visual theme -- dark steel with olive accents
+// Armory visual theme. Dark steel with olive accents
 const STEEL_BG: egui::Color32 = egui::Color32::from_rgb(35, 38, 42);
 const STEEL_BORDER: egui::Color32 = egui::Color32::from_rgb(90, 95, 100);
 const OLIVE_ACCENT: egui::Color32 = egui::Color32::from_rgb(120, 140, 80);
