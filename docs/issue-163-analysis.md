@@ -5,11 +5,11 @@
 `npc_render.rs` creates two GPU storage buffers (`npc_visual_data`, `npc_equip_data`) that are
 undersized relative to the actual slot pool. Two independent bugs contribute:
 
-**Bug A -- wrong entity cap:** Buffers are sized to `MAX_NPC_COUNT` (100K) but the unified
+**Bug A. Wrong entity cap:** Buffers are sized to `MAX_NPC_COUNT` (100K) but the unified
 `GpuSlotPool` namespace covers NPCs + buildings up to `MAX_ENTITIES` (200K). When the slot
 high-water mark exceeds 100K the full-upload path writes a vector larger than the buffer.
 
-**Bug B -- wrong layer count:** The equip buffer is created with `6 * size_of::<[f32; 4]>()`
+**Bug B. Wrong layer count:** The equip buffer is created with `6 * size_of::<[f32; 4]>()`
 (24 floats = 96 bytes) per slot but `write_npc_visual` writes 7 layers × 4 floats = 28 floats
 (112 bytes) per slot. The buffer is 85.7% of required size, overflowing above slot 85,713
 even without Bug A.
@@ -79,8 +79,8 @@ Slot Namespace section) requires GpuSlotPool.count() as the sizing authority.
 
 ## Files changed
 
-- `rust/src/npc_render.rs` -- buffer creation sizes and sentinel vector sizes
-- `rust/src/gpu.rs` -- fix comment "6 layers" -> "7 layers" in NpcVisualUpload
+- `rust/src/npc_render.rs`. Buffer creation sizes and sentinel vector sizes
+- `rust/src/gpu.rs`. Fix comment "6 layers" -> "7 layers" in NpcVisualUpload
 
 ## Memory budget summary
 
