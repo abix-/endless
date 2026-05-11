@@ -20,18 +20,18 @@ See [completed.md](completed.md) for the player-facing feature snapshot and [his
 Stages 1-20, 23, 32: [x] Complete (see [history.md](history.md))
 
 **Current Sprint (priority order):**
-1. Stop double-computing arrivals -- GPU `npc_compute.wgsl` already writes `arrivals[i]` (binding 5); read it back alongside positions instead of recomputing distance on CPU in `gpu_position_readback`. Pure work subtraction. See [assembly.md](assembly.md) research findings.
-2. Stage 26 resources -- finish woodcutter/quarrier harvest cycle, mixed building costs, iron
+1. Stop double-computing arrivals. GPU `npc_compute.wgsl` already writes `arrivals[i]` (binding 5); read it back alongside positions instead of recomputing distance on CPU in `gpu_position_readback`. Pure work subtraction. See [assembly.md](assembly.md) research findings.
+2. Stage 26 resources. Finish woodcutter/quarrier harvest cycle, mixed building costs, iron
 
-**Stage 17: Combat Depth** — [x] Complete (see [history.md](history.md), [behavior.md](behavior.md))
+**Stage 17: Combat Depth**. [x] Complete (see [history.md](history.md), [behavior.md](behavior.md))
 
 Traits, personalities, squad behaviors, target oscillation fix, target switching (prefer non-fleeing, prioritize low-HP), and terrain combat modifiers (forest cover 25% miss, rock high ground +20% range) all complete.
 
-**Stage 18: Loot & Equipment** — [x] Complete (see [history.md](history.md), [combat.md](combat.md), [armory-ui.md](armory-ui.md))
+**Stage 18: Loot & Equipment**. [x] Complete (see [history.md](history.md), [combat.md](combat.md), [armory-ui.md](armory-ui.md))
 
-**Stage 19: Code Health** — [x] Complete (see [history.md](history.md))
+**Stage 19: Code Health**. [x] Complete (see [history.md](history.md))
 
-**Stage 20: Pathfinding** — [x] Complete (see [history.md](history.md))
+**Stage 20: Pathfinding**. [x] Complete (see [history.md](history.md))
 
 A* pathfinding, terrain costs, NPC integration, incremental rebuild, and path validation (reject placements that fully block critical access) all complete.
 
@@ -54,7 +54,7 @@ Remaining:
 - [ ] FoodEfficiency upgrade wired into `decision_system` eat logic
 - [ ] Economy pressure: upgrades cost more food, NPCs consume more as population grows
 
-**Stage 23: NPC Skills & Proficiency** — [x] Complete (see [history.md](history.md), [specs/npc-skills.md](specs/npc-skills.md))
+**Stage 23: NPC Skills & Proficiency**. [x] Complete (see [history.md](history.md), [specs/npc-skills.md](specs/npc-skills.md))
 
 **Stage 24: Save Slots**
 
@@ -67,23 +67,23 @@ Core save/load shipped (see [save-load.md](save-load.md)).
 
 *Done when: player builds towers in a maze layout to shape enemy pathing, towers have elemental types with rock-paper-scissors counters, income accrues with interest, and towers upgrade/evolve into advanced forms.*
 
-Chunk 1 — Maze & Pathing (depends on Stage 20 Pathfinding):
+Chunk 1. Maze & Pathing (depends on Stage 20 Pathfinding):
 - [ ] Open-field tower placement on a grid (towers block pathing, enemies path around them)
-- [ ] Maze validation — path from spawn to goal must always exist (reject placements that fully block)
+- [ ] Maze validation. Path from spawn to goal must always exist (reject placements that fully block)
 - [ ] Visual path preview (show calculated enemy route through current maze)
 
-Chunk 2 — Tower Upgrades & Evolution:
+Chunk 2. Tower Upgrades & Evolution:
 - [ ] Multi-tier upgrade path (Lv1 -> Lv2 -> Lv3, increasing stats + visual change)
 - [ ] At max tier, evolve into specialized variants (e.g. Fire Lv3 -> Inferno AoE or Sniper Flame)
 - [ ] Evolved towers get unique abilities (slow, DoT, chain lightning, lifesteal)
 
-Chunk 3 — Elements & Waves:
+Chunk 3. Elements & Waves:
 - [ ] `Element` enum: Fire, Ice, Nature, Lightning, Arcane, Dark (6 elements)
 - [ ] Element weakness matrix (Fire->Nature->Lightning->Ice->Fire, Arcane<->Dark)
 - [ ] Creep waves carry an element - weak-element towers deal 2x, strong-element towers deal 0.5x
 - [ ] Tower/creep element shown via tint or icon overlay
 
-Chunk 4 — Economy & Sending:
+Chunk 4. Economy & Sending:
 - [ ] Per-wave gold income (base + bonus for no leaks)
 - [ ] Interest on banked gold each wave (5% per round, capped)
 - [ ] Leak penalty - lives lost per creep that reaches the goal
@@ -136,9 +136,9 @@ Initial game setup: 1 player town, 1 AI builder town, 1 AI raider town on a smal
 
 **Stage 30: Endless Expansion**
 
-*Done when: player conquers both starter AI towns, picks an expansion direction, map grows with new AI towns, and the cycle repeats — the game ends only when hardware can't keep up.*
+*Done when: player conquers both starter AI towns, picks an expansion direction, map grows with new AI towns, and the cycle repeats. The game ends only when hardware can't keep up.*
 
-The game starts small (3 towns) and grows outward each time the player conquers all hostile towns in the current map. Each expansion adds a new map chunk with fresh AI towns at increasing difficulty. There is no victory screen — the simulation runs until CPU/GPU hits its limit. Every player's "ending" is unique to their hardware.
+The game starts small (3 towns) and grows outward each time the player conquers all hostile towns in the current map. Each expansion adds a new map chunk with fresh AI towns at increasing difficulty. There is no victory screen. The simulation runs until CPU/GPU hits its limit. Every player's "ending" is unique to their hardware.
 
 - [ ] Expansion trigger: detect when all hostile towns on current map are conquered
 - [ ] Direction picker UI: player chooses which direction to expand (N/S/E/W or quadrant)
@@ -151,7 +151,7 @@ The game starts small (3 towns) and grows outward each time the player conquers 
 
 *Done when: player sends a party of NPCs into a cavern entrance, they descend into a procedurally generated underground layer, fight cave creatures, and return with rare loot.*
 
-Cavern entrances spawn on the surface map (naturally on Rock biome, or revealed by expansion). Each entrance leads to a procedural underground layer — a separate grid with tunnels, chambers, and creature dens. NPCs explore autonomously: navigate tunnels, fight creatures, collect loot, and return home when injured or loaded up. Deeper caverns = tougher creatures + rarer loot.
+Cavern entrances spawn on the surface map (naturally on Rock biome, or revealed by expansion). Each entrance leads to a procedural underground layer. A separate grid with tunnels, chambers, and creature dens. NPCs explore autonomously: navigate tunnels, fight creatures, collect loot, and return home when injured or loaded up. Deeper caverns = tougher creatures + rarer loot.
 
 - [ ] Cavern entrance building/object: placed on Rock tiles or spawned during map generation
 - [ ] Underground layer generation: procedural tunnel/chamber layout (noise-based or cellular automata)
@@ -162,7 +162,7 @@ Cavern entrances spawn on the surface map (naturally on Rock biome, or revealed 
 - [ ] Fog of war: underground areas revealed as NPCs explore, persists between visits
 - [ ] Creature respawn: caverns repopulate over time, making them replayable
 
-**Stage 32: CRD Architecture (Code Quality)** -- [x] Complete (see [history.md](history.md) and [k8s.md](k8s.md))
+**Stage 32: CRD Architecture (Code Quality)**. [x] Complete (see [history.md](history.md) and [k8s.md](k8s.md))
 
 All 5 entity types follow Def->Instance->Controller. CRD compliance table in [k8s.md](k8s.md).
 
