@@ -14,12 +14,12 @@ This contract prevents that class of bug.
 | **GPU-Authoritative** (written by compute shader, read back ~1 frame later) ||||
 | Positions | GPU | GPU → CPU | Compute shader moves NPCs; Bevy async Readback → GpuReadState. Always-on. |
 | Spatial grid | GPU | Internal | Built each frame (clear → insert → query). Not read back. |
-| Combat targets | GPU | GPU → CPU | Nearest enemy index via grid neighbor search; readback to GpuReadState. Always-on. Candidate only — must re-validate in ECS. |
+| Combat targets | GPU | GPU → CPU | Nearest enemy index via grid neighbor search; readback to GpuReadState. Always-on. Candidate only. Must re-validate in ECS. |
 | Threat counts | GPU | GPU → CPU | Derived metric. Throttled readback (every 30 frames). Heuristic input only; never identity/ownership truth. |
 | **CPU-Authoritative** (written by ECS systems, uploaded to GPU next frame) ||||
 | Health | CPU (`Health` component) | CPU → GPU | damage_system/healing_system write; uploaded for GPU targeting threshold. GPU mirror is advisory. |
 | Targets/Goals | CPU | CPU → GPU | Systems submit to MovementIntents; resolve_movement_system emits SetTarget; GPU interpolates movement. |
-| Factions | CPU (`Faction`, `EntityMap`) | CPU → GPU | Set at spawn, never changes (0=Villager, 1+=Raider towns). Throttled readback (every 60 frames) — debug/advisory only. |
+| Factions | CPU (`Faction`, `EntityMap`) | CPU → GPU | Set at spawn, never changes (0=Villager, 1+=Raider towns). Throttled readback (every 60 frames). Debug/advisory only. |
 | Speeds | CPU | CPU → GPU | Set at spawn, modified by starvation_system. |
 | Arrivals | CPU | Internal | `HasTarget` + `gpu_position_readback` distance check → `AtDestination`. |
 | Slot identity | CPU (`GpuSlotPool`, `EntityMap`) | N/A | Authoritative for routing and ownership checks. |
@@ -28,7 +28,7 @@ This contract prevents that class of bug.
 | Live building count | `EntityMap.building_count()` | None | Gameplay logic, UI, test assertions. |
 | **CPU-Only** (never sent to GPU compute) ||||
 | GpuSlot | CPU | Internal | Links Bevy entity to GPU slot index (unified namespace for NPCs + buildings). |
-| Job | CPU | Internal | Archer, Farmer, Raider, Fighter, Miner — determines behavior. |
+| Job | CPU | Internal | Archer, Farmer, Raider, Fighter, Miner. Determines behavior. |
 | Energy | CPU | Internal | Drives tired/rest decisions (drain/recover rates). |
 | State markers | CPU | Internal | Dead, InCombat, ActivityKind (Patrol/Rest/Raid/etc.), NpcFlags.at_destination |
 | Config components | CPU | Internal | FleeThreshold, LeashRange, WoundedThreshold, Stealer. |
@@ -50,8 +50,8 @@ This contract prevents that class of bug.
 3. Treat `combat_targets` as "candidate index only"; re-validate in ECS before applying gameplay effects.
 4. If GPU and ECS disagree on identity or ownership, ECS wins.
 5. Readback is asynchronous; stale values are expected, not exceptional.
-6. Main-world systems that size buffers or iterate entity slots must read `GpuSlotPool.count()` directly. `RenderFrameConfig.npc.count` is a render-world convenience copy updated in FixedUpdate — it lags behind allocations in OnEnter/Update.
-7. For live NPC/building counts, use `EntityMap` methods (`npc_count()`, `building_count()`, `iter_npcs()`, `iter_instances()`). Never use `GpuSlotPool.alive()` for NPC-only or building-only counts — it's the combined total of both.
+6. Main-world systems that size buffers or iterate entity slots must read `GpuSlotPool.count()` directly. `RenderFrameConfig.npc.count` is a render-world convenience copy updated in FixedUpdate. It lags behind allocations in OnEnter/Update.
+7. For live NPC/building counts, use `EntityMap` methods (`npc_count()`, `building_count()`, `iter_npcs()`, `iter_instances()`). Never use `GpuSlotPool.alive()` for NPC-only or building-only counts. It's the combined total of both.
 8. No system may read from GPU readback AND write back to the same GPU field in the same frame. That creates a feedback loop where 1-frame delay compounds into oscillation.
 
 ## Practical Pattern
@@ -78,7 +78,7 @@ NPCs and buildings share one `GpuSlotPool` namespace.
 
 ## Buffer Sizing
 
-All GPU storage and readback buffers that index by slot MUST use `MAX_ENTITIES`, not `MAX_NPC_COUNT`. The unified `GpuSlotPool` interleaves NPCs and buildings in a single namespace -- any slot from 0..MAX_ENTITIES could be either type.
+All GPU storage and readback buffers that index by slot MUST use `MAX_ENTITIES`, not `MAX_NPC_COUNT`. The unified `GpuSlotPool` interleaves NPCs and buildings in a single namespace. Any slot from 0..MAX_ENTITIES could be either type.
 
 - `MAX_ENTITIES` = `MAX_NPC_COUNT + MAX_BUILDINGS` = buffer sizing for GPU slot-indexed data
 - `MAX_NPC_COUNT` = NPC-specific ECS queries only, never for GPU buffer sizing
