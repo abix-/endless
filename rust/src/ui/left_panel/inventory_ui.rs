@@ -326,7 +326,7 @@ pub(crate) fn inventory_content(
                     .filter(|e| e.item.kind == slot)
                     .count();
             }
-            // Deduplicate for All mode — equipped already counted separately
+            // Deduplicate for All mode. Equipped already counted separately
             if view == 2 {
                 count = items.iter().filter(|it| it.kind == slot).count()
                     + equipped_entries
