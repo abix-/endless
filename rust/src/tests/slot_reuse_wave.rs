@@ -15,7 +15,7 @@ use crate::world::{self, BuildingKind, WorldGenStyle};
 
 use super::{BuildingInitParams, TestScenarioSetup, TestState};
 
-/// Persistent state across phases — tracks the target slot for verification.
+/// Persistent state across phases. Tracks the target slot for verification.
 #[derive(Resource, Default)]
 pub struct SlotReuseTestState {
     /// UID of the player farm that the AI wave targets.
@@ -192,7 +192,7 @@ pub fn tick(
                 for &si in &player.squad_indices {
                     if let Some(squad) = squad_state.squads.get(si) {
                         if squad.wave_active {
-                            // Found active wave — record target UID + slot
+                            // Found active wave. Record target UID + slot
                             if let Some(cmd) = player.squad_cmd.get(&si) {
                                 if let Some(entity) = cmd.building_uid {
                                     let slot = entity_map.slot_for_entity(entity);
@@ -250,7 +250,7 @@ pub fn tick(
             if !local.target_destroyed {
                 test.phase_name = format!("Destroying building at slot {}...", slot);
 
-                // Set HP to 0 — death_system will process next frame
+                // Set HP to 0. Death_system will process next frame
                 if let Some(&entity) = entity_map.entities.get(&slot) {
                     if let Ok(mut hp) = health_q.get_mut(entity) {
                         hp.0 = 0.0;
@@ -286,7 +286,7 @@ pub fn tick(
             if !local.slot_reused {
                 test.phase_name = "Placing new building to trigger slot reuse...".into();
 
-                // Place a new building — the freed slot should be reused (LIFO)
+                // Place a new building. The freed slot should be reused (LIFO)
                 let ai_ti = ai_state
                     .players
                     .first()
@@ -317,7 +317,7 @@ pub fn tick(
                             ns, new_pos.x, new_pos.y,
                         ));
                     } else {
-                        // Slot wasn't reused — someone else allocated first. Still useful data.
+                        // Slot wasn't reused. Someone else allocated first. Still useful data.
                         test.pass_phase(elapsed, format!(
                             "slot NOT reused (got {} instead of {}). ABA won't trigger this run.",
                             ns, slot,
@@ -329,7 +329,7 @@ pub fn tick(
             }
         }
 
-        // Phase 4: Wait for squad commander heartbeat — check if wave ended
+        // Phase 4: Wait for squad commander heartbeat. Check if wave ended
         4 => {
             let Some(si) = local.attack_squad_idx else {
                 test.fail_phase(elapsed, "no attack squad index recorded");
@@ -352,7 +352,7 @@ pub fn tick(
                     // FIX CONFIRMED: wave ended correctly after target destroyed (UID-based identity)
                     test.pass_phase(elapsed, "fix confirmed: wave ends after target destroyed");
                 } else {
-                    // Bug still present — UID lookup should have resolved this
+                    // Bug still present. UID lookup should have resolved this
                     let target_str = squad
                         .target
                         .map(|p| format!("({:.0}, {:.0})", p.x, p.y))
