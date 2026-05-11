@@ -1,4 +1,4 @@
-//! Sandbox Test — human player testing scene.
+//! Sandbox Test. Human player testing scene.
 //! 1 player town + 1 AI builder town, 100K food + 100K gold, no raiders.
 //! Auto-completes after setup so the scene runs indefinitely.
 
