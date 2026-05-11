@@ -25,8 +25,8 @@ Created once in render world. Two flat per-slot storage buffers, full-buffer upl
 | `equip` | `[f32; 4]` per slot × 6 layers: `[col, row, atlas, _pad]` = `[f32; 24]` per slot | 2.88MB | Full `write_buffer` per frame |
 
 Already on GPU from compute shader (`NpcGpuBuffers`):
-- `positions` — `array<vec2<f32>>` (compute shader output)
-- `healths` — `array<f32>` (compute shader output)
+- `positions`. `array<vec2<f32>>` (compute shader output)
+- `healths`. `array<f32>` (compute shader output)
 
 ```rust
 #[derive(Resource)]
@@ -39,10 +39,10 @@ pub struct NpcVisualBuffers {
 
 Created with `BufferUsages::STORAGE | BufferUsages::COPY_DST`, sized to `MAX_NPC_COUNT` (constants.rs).
 
-### 1b. Vertex shader — instance offset encoding (npc_render.wgsl)
+### 1b. Vertex shader. Instance offset encoding (npc_render.wgsl)
 
 **Old:** Vertex inputs at slot 1 = packed `InstanceData` (52 bytes per visible NPC per layer).
-**New:** `vertex_npc` entry point reads from storage buffers. Layer encoded via instance offset — no push constants (avoids `Features::PUSH_CONSTANTS` hardware requirement).
+**New:** `vertex_npc` entry point reads from storage buffers. Layer encoded via instance offset. No push constants (avoids `Features::PUSH_CONSTANTS` hardware requirement).
 
 **How it works:** 7 draw calls, each with `npc_count` instances. Shader derives:
 ```wgsl
@@ -96,7 +96,7 @@ Color/scale logic per equipment atlas type (in shader):
 
 ### 1d. Farm sprites + building HP bars
 
-Not NPCs — no compute buffer slots. Small CPU-built `NpcMiscBuffers` with `RawBufferVec<InstanceData>` (~100-200 entries). Separate `DrawMisc` command **before** NPC draws (sort_key 0.4 vs 0.5). Uses existing `vertex` entry point with instance vertex layout.
+Not NPCs. No compute buffer slots. Small CPU-built `NpcMiscBuffers` with `RawBufferVec<InstanceData>` (~100-200 entries). Separate `DrawMisc` command **before** NPC draws (sort_key 0.4 vs 0.5). Uses existing `vertex` entry point with instance vertex layout.
 
 ### 1e. CPU-side `prepare_npc_buffers`
 
@@ -140,7 +140,7 @@ let npc_data_bind_group_layout = BindGroupLayoutDescriptor::new(
 );
 ```
 
-### 1g. DRY — shared helpers
+### 1g. DRY. Shared helpers
 
 **WGSL:** `calc_uv()`, `world_to_clip()`, `HIDDEN` constant shared by both `vertex` and `vertex_npc`.
 **Rust:** `quad_vertex_layout()` and `instance_vertex_layout()` extracted as helpers, called by `specialize()`.
@@ -151,7 +151,7 @@ let npc_data_bind_group_layout = BindGroupLayoutDescriptor::new(
 
 ## Part 2: Throttle Readback
 
-### 2a. Factions — read back every 60 frames (~1s)
+### 2a. Factions. Read back every 60 frames (~1s)
 
 Factions only change on spawn/death. No gameplay system needs frame-accurate faction data.
 
@@ -164,7 +164,7 @@ if frame_count % 60 == 0 {
 
 Add `frame_count: u32` field to `NpcComputeNode`, increment each `run()`.
 
-### 2b. Threat counts — read back every 30 frames
+### 2b. Threat counts. Read back every 30 frames
 
 `threat_counts` consumed in `ai_decision_system` at `CHECK_INTERVAL = 30`. Match readback to consumption.
 
@@ -195,8 +195,8 @@ In `resources.rs`, change `GpuReadState` fields from `Vec<f32>` to pre-allocated
 ## Verification
 
 ### Part 1 ✅
-1. `cargo check` — compiles clean
-2. `cargo run --release` — visual correctness verified:
+1. `cargo check`. Compiles clean
+2. `cargo run --release`. Visual correctness verified:
    - NPCs render at correct positions and move smoothly
    - Health bars display correctly
    - Damage flash works
