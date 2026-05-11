@@ -10,26 +10,26 @@ These docs are the **source of truth** for system architecture. When building ne
 2. **During coding**: Follow the patterns documented here (job-as-template spawn, chained combat, GPU buffer layout). If you need to deviate, update the doc first.
 3. **After coding**: Update the doc if the architecture changed. Add new known issues discovered during implementation.
 4. **Code comments** stay educational (explain what code does for someone learning Rust/WGSL). Architecture diagrams, data flow, buffer layouts, and system interaction docs live here, not in code.
-5. **README.md** is the game intro (description, gameplay, controls). **docs/roadmap.md** has stages (priority order) and capabilities (feature inventory) — read its maintenance guide before editing.
+5. **README.md** is the game intro (description, gameplay, controls). **docs/roadmap.md** has stages (priority order) and capabilities (feature inventory). Read its maintenance guide before editing.
 6. **Write docs in present tense**: explain what the system currently does. Put historical change logs ("was/used to/fixed") in **history.md** or **CHANGELOG.md**, not architecture docs. **completed.md** is the player-facing feature snapshot.
 
 ## Test Framework
 
-UI-selectable integration tests run inside the full Bevy app via a bevy_egui menu. From `AppState::MainMenu`, click "Debug Tests" to enter `AppState::TestMenu` which shows the test list; clicking a test transitions to `AppState::Running` where game systems execute normally. "Back to Menu" returns to MainMenu. Tests use **phased assertions** — each phase checks one pipeline layer and fails fast with diagnostic values.
+UI-selectable integration tests run inside the full Bevy app via a bevy_egui menu. From `AppState::MainMenu`, click "Debug Tests" to enter `AppState::TestMenu` which shows the test list; clicking a test transitions to `AppState::Running` where game systems execute normally. "Back to Menu" returns to MainMenu. Tests use **phased assertions**. Each phase checks one pipeline layer and fails fast with diagnostic values.
 
 **Architecture** (`rust/src/tests/`):
 - `TestState` resource: shared phase tracking, counters, flags, results
 - `TestRegistry`: registered test entries (name, description, phase_count, time_scale)
-- `TestSetupParams`: SystemParam bundle for test setup (slot alloc, spawn, world data, town_access, factions, game time, test state, commands, gpu_updates, dirty_writers) — `add_town` auto-inits pathfind costs, `add_building`/`add_waypoint` fire `BuildingGridDirtyMsg` via dirty_writers (same pipeline as main game)
+- `TestSetupParams`: SystemParam bundle for test setup (slot alloc, spawn, world data, town_access, factions, game time, test state, commands, gpu_updates, dirty_writers). `add_town` auto-inits pathfind costs, `add_building`/`add_waypoint` fire `BuildingGridDirtyMsg` via dirty_writers (same pipeline as main game)
 - `test_is("name")` run condition gates per-test setup/tick systems
 - Each test exports `setup` (OnEnter Running) + `tick` (FixedUpdate after Behavior)
 - Helpers: `tick_elapsed()`, `require_entity()` reduce boilerplate
-- Cleanup on OnExit(Running): shared `game_cleanup_system` (same as OnExit Playing) — despawn all entities, reset all resources
+- Cleanup on OnExit(Running): shared `game_cleanup_system` (same as OnExit Playing). Despawn all entities, reset all resources
 - Run All: sequential execution via `RunAllState` queue (auto-advances after 1.5s, instant in CLI mode)
-- Single tests stay running after pass/fail — user clicks Back in HUD to return
+- Single tests stay running after pass/fail. User clicks Back in HUD to return
 - CLI mode: `--test all` or `--test <name>` runs tests headless-style and exits with pass/fail summary (exit code 0/1)
 
-**HUD**: Phase checklist overlay during test execution — gray `○` pending, yellow `▶` active, green `✓` passed, red `✗` failed. Back/Cancel button at bottom.
+**HUD**: Phase checklist overlay during test execution. Gray `○` pending, yellow `▶` active, green `✓` passed, red `✗` failed. Back/Cancel button at bottom.
 
 **Tests** (`src/tests/`):
 
@@ -61,7 +61,7 @@ UI-selectable integration tests run inside the full Bevy app via a bevy_egui men
 | `coalesce-movement` | 2 | GPU-authoritative position safety: SetPosition on foreign slot doesn't teleport other NPCs |
 | `coalesce-arrival` | 2 | GPU-authoritative arrival safety: arrived NPC stays stable after unrelated SetTarget |
 | `pathfind-maze` | 5 | NPCs navigate serpentine wall maze via A* pathfinding (configurable count 1-5000, slider UI) |
-| `sandbox` | 1 | Human player sandbox: 1 player + 1 AI town, 100K food+gold, no raiders — auto-completes for free play |
+| `sandbox` | 1 | Human player sandbox: 1 player + 1 AI town, 100K food+gold, no raiders. Auto-completes for free play |
 
 ## System Map
 
