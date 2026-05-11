@@ -8,19 +8,19 @@ Buildings share the same GPU pipeline as NPCs (same `SlotAllocator`, same GPU up
 
 **Building = NPC with speed=0 on building atlas.** `BUILDING_REGISTRY` is the source of truth for building type definitions (like `NPC_REGISTRY` for NPCs). Building instances live as ECS entities. Reuse the NPC lifecycle (`materialize_npc`, `NpcEntityMap`, `death_system`, `death_cleanup_system`). Add a `Building` marker component to distinguish from walking NPCs where needed.
 
-`BUILDING_REGISTRY` keeps its static definition fields (`kind`, `hp`, `cost`, `tile`, `is_tower`, `tower_stats`, `spawner`, `label`, `placement`, etc.) but sheds all the WorldData fn pointers (`len`, `pos_town`, `tombstone`, `find_index`, `hps`, `hps_mut`, `place`, `save_vec`, `load_vec`) -- those exist only because buildings were data, not entities.
+`BUILDING_REGISTRY` keeps its static definition fields (`kind`, `hp`, `cost`, `tile`, `is_tower`, `tower_stats`, `spawner`, `label`, `placement`, etc.) but sheds all the WorldData fn pointers (`len`, `pos_town`, `tombstone`, `find_index`, `hps`, `hps_mut`, `place`, `save_vec`, `load_vec`). Those exist only because buildings were data, not entities.
 
 ## What Gets Deleted Eventually
 
 - Building identity and queries live in ECS resources/components (`BuildingEntityMap` + entity components)
 - Building HP is entity `Health`
 - Building identity map is `BuildingEntityMap` (separate from `NpcEntityMap`)
-- `BuildingSpatialGrid` -- rebuilt from entity queries or WorldGrid
+- `BuildingSpatialGrid`. Rebuilt from entity queries or WorldGrid
 - `BUILDING_REGISTRY` static definition fields only (no dynamic world-access fn pointers)
 - `PlacedBuilding` struct
 - All `is_alive()` / tombstone guards
-- `building_damage_system` -- merged into NPC damage pipeline
-- `sync_building_hp_render` -- merged into NPC health rendering
+- `building_damage_system`. Merged into NPC damage pipeline
+- `sync_building_hp_render`. Merged into NPC health rendering
 
 ---
 
@@ -44,7 +44,7 @@ Buildings reuse: `NpcIndex`, `Position`, `Health`, `Faction`, `TownId`, `Speed(0
 ### Step 1: Spawn building entities alongside WorldData
 
 **`allocate_building_slot()` (`world.rs:518`)** currently does GPU init but no entity spawn. It already reads from `BUILDING_REGISTRY` to get `hp`, `tileset_index`, `is_tower`. Extend it to also spawn an ECS entity using the same registry data:
-- `NpcIndex(slot)` -- same GPU slot, now in `NpcEntityMap`
+- `NpcIndex(slot)`. Same GPU slot, now in `NpcEntityMap`
 - `Position`, `Health(def.hp)`, `Faction`, `TownId`, `Speed(0.0)`
 - `Building { kind: def.kind }` marker
 - Registered in `NpcEntityMap`
@@ -52,10 +52,10 @@ Buildings reuse: `NpcIndex`, `Position`, `Health`, `Faction`, `TownId`, `Speed(0
 Problem: `allocate_building_slot` uses `GPU_UPDATE_QUEUE` directly (not `MessageWriter<GpuUpdateMsg>`), and doesn't have `Commands`. It's called from `allocate_all_building_slots()` which is called at init/load time.
 
 **Solution**: Split into two steps:
-1. Keep `allocate_building_slot()` for GPU init (unchanged) -- it reads `BUILDING_REGISTRY` for sprite/HP/tower
+1. Keep `allocate_building_slot()` for GPU init (unchanged). It reads `BUILDING_REGISTRY` for sprite/HP/tower
 2. Add `spawn_building_entities()` that runs after init/load: iterates `BUILDING_REGISTRY`, uses each def's `pos_town` to find alive buildings, spawns entities with `Building { kind: def.kind }` + shared NPC components, registers in `NpcEntityMap`
 
-For runtime placement (`place_building()`, `world.rs:270`): `BUILDING_REGISTRY` lookup by kind gives `hp`, `is_tower`, sprite -- use these to spawn entity after existing WorldData write.
+For runtime placement (`place_building()`, `world.rs:270`): `BUILDING_REGISTRY` lookup by kind gives `hp`, `is_tower`, sprite. Use these to spawn entity after existing WorldData write.
 
 ### Step 2: Building death -> despawn (not tombstone)
 
@@ -112,19 +112,19 @@ if let Some(&entity) = npc_map.0.get(&(npc_idx as usize)) {
 
 ### What stays unchanged (Phase 1)
 
-- `WorldData.buildings` -- still written to (dual-write)
-- `BuildingHpState` -- still maintained (Phase 2 removes it)
-- `BuildingSpatialGrid` -- still rebuilt from WorldData (Phase 3 removes it)
+- `WorldData.buildings`. Still written to (dual-write)
+- `BuildingHpState`. Still maintained (Phase 2 removes it)
+- `BuildingSpatialGrid`. Still rebuilt from WorldData (Phase 3 removes it)
 - `BuildingEntityMap` owns building identity and slot/entity mappings
-- All AI/economy/behavior systems -- they read WorldData, unchanged
-- Save format -- unchanged
+- All AI/economy/behavior systems. They read WorldData, unchanged
+- Save format. Unchanged
 
 ---
 
 ## Phase 2: HP -> Health component
 
 - `building_damage_system` writes to `Health` component instead of `BuildingHpState`
-- `healing_system` already queries `Health` -- buildings with `Health` auto-heal
+- `healing_system` already queries `Health`. Buildings with `Health` auto-heal
 - `sync_building_hp_render` queries entities
 - Delete `BuildingHpState`
 
@@ -134,20 +134,20 @@ The design keeps buildings and NPCs as distinct entity types. They share ECS lif
 
 `BuildingEntityMap` is the single resource for building identity: `(kind, idx) ↔ slot ↔ Entity`. Buildings are not in `NpcEntityMap`. This keeps building identity local while still sharing ECS components (`Health`, `Faction`, `TownId`, `NpcIndex`) and the death pipeline (`death_system` → `death_cleanup_system`).
 
-Remaining WorldData infrastructure (`buildings: BTreeMap`, `PlacedBuilding`, `BuildingSpatialGrid`, tombstone pattern) stays as-is — it works and removing it would be high risk for low benefit.
+Remaining WorldData infrastructure (`buildings: BTreeMap`, `PlacedBuilding`, `BuildingSpatialGrid`, tombstone pattern) stays as-is. It works and removing it would be high risk for low benefit.
 
 ---
 
 ## Verification (Phase 1)
 
-1. `cargo check` -- compiles
-2. `cargo test` -- existing tests pass
+1. `cargo check`. Compiles
+2. `cargo test`. Existing tests pass
 3. Manual: place buildings -> verify they render. Destroy buildings -> verify despawn (no tombstone ghosts). Save -> load -> buildings still there. Combat -> buildings take damage -> destroyed -> entity gone. New game -> clean state.
 
 ## Key existing code to reuse
 
-- `materialize_npc()` (`spawn.rs:101`) -- building spawn shares GPU init pattern
-- `death_system` / `death_cleanup_system` (`health.rs:66,85`) -- building death reuses this
-- `SlotAllocator` (`resources.rs:412`) -- already shared
-- `NpcEntityMap` (`resources.rs:102`) -- buildings register here too
-- `GPU_UPDATE_QUEUE` / `GpuUpdate` -- same messages for both
+- `materialize_npc()` (`spawn.rs:101`). Building spawn shares GPU init pattern
+- `death_system` / `death_cleanup_system` (`health.rs:66,85`). Building death reuses this
+- `SlotAllocator` (`resources.rs:412`). Already shared
+- `NpcEntityMap` (`resources.rs:102`). Buildings register here too
+- `GPU_UPDATE_QUEUE` / `GpuUpdate`. Same messages for both
