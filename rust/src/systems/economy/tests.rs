@@ -424,7 +424,7 @@ fn player_town_lookup_by_faction() {
     use crate::constants::FACTION_PLAYER;
     use crate::world::{Town, WorldData};
 
-    // Player town is at index 1 (not 0) -- would silently break with hardcoded 0
+    // Player town is at index 1 (not 0). Would silently break with hardcoded 0
     let world_data = WorldData {
         towns: vec![
             Town {
@@ -467,7 +467,7 @@ fn player_town_lookup_by_faction() {
         "lookup with FACTION_PLAYER town idx should find the farmer"
     );
 
-    // Hardcoded 0 would return 0 (wrong) -- confirm the regression
+    // Hardcoded 0 would return 0 (wrong). Confirm the regression
     let wrong_count = stats
         .0
         .get(&(Job::Farmer as i32, 0))
@@ -1244,7 +1244,7 @@ fn merchant_paused_no_tick() {
     );
 }
 
-// -- farm_visual_system --------------------------------------------------
+//. Farm_visual_system --------------------------------------------------
 
 fn setup_farm_visual_app() -> App {
     let mut app = App::new();
@@ -1409,7 +1409,7 @@ fn farm_visual_respawns_marker_after_reload() {
     );
 }
 
-// -- spawner_respawn_system ----------------------------------------------
+//. Spawner_respawn_system ----------------------------------------------
 
 #[derive(Resource, Default)]
 struct CollectedSpawns(Vec<usize>); // slot indices from SpawnNpcMsg
@@ -1546,7 +1546,7 @@ fn spawner_assigns_uid_after_spawn() {
     );
 }
 
-/// Regression test: GameLog bundle -- spawner still writes combat log entries after migration.
+/// Regression test: GameLog bundle. Spawner still writes combat log entries after migration.
 /// This test would FAIL if spawner_respawn_system stopped calling game_log.combat_log.write().
 #[test]
 fn spawner_respawn_writes_combat_log_entry() {
@@ -1573,7 +1573,7 @@ fn spawner_respawn_writes_combat_log_entry() {
     );
 }
 
-// -- mining_policy_system ------------------------------------------------
+//. Mining_policy_system ------------------------------------------------
 
 #[derive(Resource, Default)]
 struct SendMiningDirty(bool);
@@ -1679,7 +1679,7 @@ fn mining_ignores_mine_outside_radius() {
     );
 }
 
-// -- squad_cleanup_system ------------------------------------------------
+//. Squad_cleanup_system ------------------------------------------------
 
 #[derive(Resource, Default)]
 struct SendSquadsDirty(bool);
@@ -1880,7 +1880,7 @@ fn sleeping_system_sleeps_on_dirty_with_no_present() {
 }
 
 /// Regression: sync_sleeping_system must NOT change state when slot is NOT in sleeping_dirty.
-/// Verifies the old O(65K) polling path is gone -- no dirty entry = no change.
+/// Verifies the old O(65K) polling path is gone. No dirty entry = no change.
 #[test]
 fn sleeping_system_ignores_undirty_slots() {
     let mut app = setup_sleeping_app();
