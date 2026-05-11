@@ -31,14 +31,14 @@ pub const ENTITY_FLAG_BUILDING: u32 = 2;
 /// Bit 2: entity cannot be selected as a combat target (roads).
 pub const ENTITY_FLAG_UNTARGETABLE: u32 = 4;
 
-/// Neutral faction — friendly to everyone. Used for world-owned buildings (gold mines).
+/// Neutral faction. Friendly to everyone. Used for world-owned buildings (gold mines).
 pub const FACTION_NEUTRAL: i32 = 0;
 /// Player faction index (first non-neutral faction).
 pub const FACTION_PLAYER: i32 = 1;
 /// Sentinel town_idx for buildings not owned by any town (gold mines, etc.)
 pub const TOWN_NONE: u32 = u32::MAX;
 
-// Spatial grid lives on GPU only — see gpu.rs (256×256 cells × 128px = 32,768px coverage).
+// Spatial grid lives on GPU only. See gpu.rs (256×256 cells × 128px = 32,768px coverage).
 
 /// Distance from target at which an NPC is considered "arrived".
 pub const ARRIVAL_THRESHOLD: f32 = 20.0;
@@ -58,7 +58,7 @@ pub const FLOATS_PER_INSTANCE: usize = 16;
 /// Size of push constants passed to the compute shader.
 pub const PUSH_CONSTANTS_SIZE: usize = 48;
 
-// Equipment sprite frames (column, row) — placeholder coordinates
+// Equipment sprite frames (column, row). Placeholder coordinates
 pub const EQUIP_SWORD: (f32, f32) = (45.0, 6.0);
 pub const EQUIP_HELMET: (f32, f32) = (28.0, 0.0);
 pub const FOOD_SPRITE: (f32, f32) = (24.0, 9.0);
@@ -66,7 +66,7 @@ pub const GOLD_SPRITE: (f32, f32) = (41.0, 11.0);
 pub const WOOD_SPRITE: (f32, f32) = (13.0, 9.0);
 pub const STONE_SPRITE: (f32, f32) = (7.0, 15.0);
 
-// Visual indicator sprites (column, row) — placeholder coordinates, verify against atlas
+// Visual indicator sprites (column, row). Placeholder coordinates, verify against atlas
 pub const SLEEP_SPRITE: (f32, f32) = (24.0, 7.0);
 pub const HEAL_SPRITE: (f32, f32) = (23.0, 0.0);
 
@@ -215,7 +215,7 @@ pub const MAX_RAIDER_TOWNS: usize = 20;
 /// Distance from a town at which migrating settlers settle (~5s walk at 100px/s).
 pub const RAIDER_SETTLE_RADIUS: f32 = 500.0;
 
-/// Boat movement speed (px/s) — faster than NPC walk (100px/s).
+/// Boat movement speed (px/s). Faster than NPC walk (100px/s).
 pub const BOAT_SPEED: f32 = 300.0;
 
 /// Minimum raiders in a migrating group.
@@ -354,8 +354,8 @@ pub const TILE_WATER: u32 = 4; // bit 2
 pub const TILE_ROCK: u32 = 8; // bit 3
 pub const TILE_DIRT: u32 = 16; // bit 4
 /// Building bits (5+): OR'd on top of terrain.
-pub const TILE_ROAD: u32 = 32; // bit 5 — 1.5x NPC speed
-pub const TILE_WALL: u32 = 64; // bit 6 — blocks enemy faction NPCs
+pub const TILE_ROAD: u32 = 32; // bit 5. 1.5x NPC speed
+pub const TILE_WALL: u32 = 64; // bit 6. Blocks enemy faction NPCs
 pub const WALL_FACTION_SHIFT: u32 = 8; // bits 8-11 encode wall owner faction
 pub const WALL_FACTION_MASK: u32 = 0xF; // 4 bits = 16 factions
 
@@ -404,10 +404,10 @@ pub const DEFAULT_MINING_RADIUS: f32 = 2000.0;
 pub const TOWN_EQUIPMENT_CAP: usize = SOFT_CAP;
 
 // ============================================================================
-// TOWN REGISTRY — single source of truth for all town types
+// TOWN REGISTRY. Single source of truth for all town types
 // ============================================================================
 
-/// What kind of faction this is — determines AI behavior and UI treatment.
+/// What kind of faction this is. Determines AI behavior and UI treatment.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Reflect,
 )]
@@ -438,7 +438,7 @@ impl TownKind {
     }
 }
 
-/// Complete town type definition — one entry per TownKind variant.
+/// Complete town type definition. One entry per TownKind variant.
 #[derive(Clone, Copy, Debug)]
 pub struct TownDef {
     pub kind: TownKind,
@@ -489,7 +489,7 @@ mod tests {
     use crate::components::Job;
     use crate::world::BuildingKind;
 
-    // -- roll_loot_item ------------------------------------------------------
+    //. Roll_loot_item ------------------------------------------------------
 
     #[test]
     fn roll_loot_item_deterministic() {
@@ -526,7 +526,7 @@ mod tests {
         }
     }
 
-    // -- Rarity --------------------------------------------------------------
+    //. Rarity --------------------------------------------------------------
 
     #[test]
     fn rarity_stat_ranges_ordered() {
@@ -567,7 +567,7 @@ mod tests {
         }
     }
 
-    // -- mine_productivity_mult ----------------------------------------------
+    //. Mine_productivity_mult ----------------------------------------------
 
     #[test]
     fn mine_productivity_zero_workers() {
@@ -593,7 +593,7 @@ mod tests {
         assert!(gain_4 < gain_3, "4th worker should add less than 3rd");
     }
 
-    // -- npc_def (registry coverage) -----------------------------------------
+    //. Npc_def (registry coverage) -----------------------------------------
 
     #[test]
     fn all_jobs_have_npc_def() {
@@ -617,7 +617,7 @@ mod tests {
         }
     }
 
-    // -- building_def (registry coverage) ------------------------------------
+    //. Building_def (registry coverage) ------------------------------------
 
     #[test]
     fn all_building_kinds_have_def() {
@@ -655,7 +655,7 @@ mod tests {
         }
     }
 
-    // -- raider_faction_color ------------------------------------------------
+    //. Raider_faction_color ------------------------------------------------
 
     #[test]
     fn raider_faction_color_wraps() {
@@ -671,7 +671,7 @@ mod tests {
         raider_faction_color(100);
     }
 
-    // -- autotile helpers ----------------------------------------------------
+    //. Autotile helpers ----------------------------------------------------
 
     #[test]
     fn autotile_kind_count_positive() {
