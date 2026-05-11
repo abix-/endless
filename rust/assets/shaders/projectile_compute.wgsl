@@ -3,7 +3,7 @@
 // =============================================================================
 // Ported from projectile_compute.glsl.
 // Uses NPC spatial grid (read-only) for O(1) collision queries.
-// Single dispatch per frame — runs AFTER NPC compute builds the grid.
+// Single dispatch per frame. Runs AFTER NPC compute builds the grid.
 
 // PowerShell-style mental model:
 // - `global_id.x` is the current index (`$i`) in a parallel loop.
@@ -39,26 +39,26 @@ struct ProjParams {
 @group(0) @binding(6) var<storage, read_write> proj_active: array<i32>;
 @group(0) @binding(7) var<storage, read_write> proj_hits: array<vec2<i32>>;
 
-// Entity buffers (read only — shared from NPC compute pipeline, contains NPCs + buildings)
+// Entity buffers (read only. Shared from NPC compute pipeline, contains NPCs + buildings)
 @group(0) @binding(8)  var<storage, read> entity_positions: array<vec2<f32>>;
 @group(0) @binding(9)  var<storage, read> entity_factions: array<i32>;
 @group(0) @binding(10) var<storage, read> entity_healths: array<f32>;
 
-// Spatial grid (read only — built by NPC compute modes 0+1)
+// Spatial grid (read only. Built by NPC compute modes 0+1)
 @group(0) @binding(11) var<storage, read> grid_counts: array<i32>;
 @group(0) @binding(12) var<storage, read> grid_data: array<i32>;
 
 // Uniform params
 @group(0) @binding(13) var<uniform> params: ProjParams;
 
-// Projectile spatial grid (read_write — built by modes 0+1, read by NPC compute)
+// Projectile spatial grid (read_write. Built by modes 0+1, read by NPC compute)
 @group(0) @binding(14) var<storage, read_write> proj_grid_counts: array<atomic<i32>>;
 @group(0) @binding(15) var<storage, read_write> proj_grid_data: array<i32>;
 
-// Per-entity hitbox half-sizes (read only — Minkowski sum with projectile hitbox)
+// Per-entity hitbox half-sizes (read only. Minkowski sum with projectile hitbox)
 @group(0) @binding(16) var<storage, read> entity_half_sizes: array<vec2<f32>>;
 
-// Per-entity flags (read only — bit 2 = UNTARGETABLE, skip collision)
+// Per-entity flags (read only. Bit 2 = UNTARGETABLE, skip collision)
 @group(0) @binding(17) var<storage, read> entity_flags: array<u32>;
 
 // Per-projectile homing targets. -1 = no homing.
@@ -106,7 +106,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     proj_lifetimes[i] = lifetime;
 
     if (lifetime <= 0.0) {
-        // Expired — deactivate, hide, and signal CPU for slot recycling
+        // Expired. Deactivate, hide, and signal CPU for slot recycling
         proj_active[i] = 0;
         proj_positions[i] = vec2<f32>(-9999.0, -9999.0);
         proj_hits[i] = vec2<i32>(-2, 0);  // Sentinel consumed by CPU cleanup.
@@ -218,7 +218,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 }
 
                 if (hit) {
-                    // HIT — record target index (NPC or building), deactivate, hide
+                    // HIT. Record target index (NPC or building), deactivate, hide
                     proj_hits[i] = vec2<i32>(entity_idx, 0);  // 0 = not processed yet
                     proj_active[i] = 0;
                     proj_positions[i] = vec2<f32>(-9999.0, -9999.0);
