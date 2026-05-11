@@ -1,4 +1,4 @@
-//! AI decision system -- scores and executes building + upgrade actions per AI tick.
+//! AI decision system. Scores and executes building + upgrade actions per AI tick.
 
 use bevy::prelude::*;
 
@@ -90,7 +90,7 @@ pub fn ai_decision_system(
         let build_enabled = player.build_enabled;
         let upgrade_enabled = player.upgrade_enabled;
         let kind = player.kind;
-        let _ = player; // end immutable borrow -- mutable access needed later
+        let _ = player; // end immutable borrow. Mutable access needed later
         if let std::collections::hash_map::Entry::Vacant(e) = snapshots.towns.entry(tdi) {
             if let Some(snap) = build_town_snapshot(
                 &res.world.world_data,
@@ -512,7 +512,7 @@ pub fn ai_decision_system(
                     build_succeeded = true;
                     break;
                 }
-                // Action failed -- log and remove this variant from candidates
+                // Action failed. Log and remove this variant from candidates
                 if debug {
                     let msg = format!(
                         "[dbg] {} FAILED ({})",
@@ -615,7 +615,7 @@ pub fn ai_decision_system(
                     }
                     if UPGRADES.nodes[idx].triggers_expansion {
                         // Delay expansion while town still has empty slots and can afford buildings.
-                        // Previous check only looked at home targets -- missed farms, waypoints, roads.
+                        // Previous check only looked at home targets. Missed farms, waypoints, roads.
                         if matches!(kind, AiKind::Builder) && ctx.has_slots {
                             let cheapest = building_cost(BuildingKind::Farm)
                                 .min(building_cost(BuildingKind::FarmerHome))
