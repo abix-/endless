@@ -43,8 +43,8 @@ Each agent works in its own independent clone to avoid file-level conflicts with
 
 - Agent workspace: `C:\code\endless-{agentId}` (e.g., `C:\code\endless-claude-1`)
 - Created as a full `git clone` of the GitHub repo
-- Each agent has full control of its own workspace -- no coordination needed for uncommitted files
-- Any agent can checkout any branch -- no conflicts between agents
+- Each agent has full control of its own workspace. No coordination needed for uncommitted files
+- Any agent can checkout any branch. No conflicts between agents
 - The main repo at `C:\code\endless` is for human use only; agents never work there directly
 
 Workspace setup (run once per agent, handled by `/issue` on first use):
@@ -72,7 +72,7 @@ k3sc cargo-lock run --release
 k3sc cargo-lock fmt
 ```
 
-The lock serializes builds -- one agent builds while others wait in line. `test` and `run` automatically build first under lock.
+The lock serializes builds. One agent builds while others wait in line. `test` and `run` automatically build first under lock.
 
 ## Branches and PRs
 
@@ -88,7 +88,7 @@ Use these rules consistently:
 - issue comments remain the handoff channel; include the PR link in the handoff comment
 - the reviewing agent fetches and checks out the same remote `issue-{N}` branch in their own workspace to review
 - merge the PR after reviewer signoff and required tests pass
-- do not use `git stash`, `git checkout dev`, or `git clean` to move aside work -- each agent owns their workspace
+- do not use `git stash`, `git checkout dev`, or `git clean` to move aside work. Each agent owns their workspace
 
 ## Labels
 
@@ -107,7 +107,7 @@ State labels:
 - `needs-human`
 - `waiting`
 
-Owner labels (the owner label IS the claim -- no separate `claimed` label):
+Owner labels (the owner label IS the claim. No separate `claimed` label):
 
 - `claude-1` through `claude-20` (Windows Claude agents via `k3sc launch`)
 - `claude-a` through `claude-z` (k3s Claude agents via operator)
@@ -139,7 +139,7 @@ Use this strict issue-state model:
 Required invariants:
 
 - the k3sc operator is the ONLY entity that adds or removes workflow labels and owner labels
-- agents do NOT touch labels -- the operator handles all transitions
+- agents do NOT touch labels. The operator handles all transitions
 - auto-pick considers open issues labeled `needs-review` first, then `ready`
 - each owner label should appear on at most one open issue
 - reviewers never review an issue they most recently worked or implemented
@@ -223,7 +223,7 @@ Every `feature` issue must have a spec doc before implementation begins.
 ### Spec doc rules
 
 1. **Create before working**: when an agent creates a new feature issue (from a user request or epic breakdown), it must also write a spec doc in `docs/` and link it from the issue body.
-2. **Spec doc contents**: the spec defines exactly how the feature works -- behavior, edge cases, data model, UI, and interactions with existing systems. It is the single source of truth for "done."
+2. **Spec doc contents**: the spec defines exactly how the feature works. Behavior, edge cases, data model, UI, and interactions with existing systems. It is the single source of truth for "done."
 3. **Acceptance = spec compliance**: closing (or approving) a feature issue means the implementation matches the spec doc 100%. If the spec says X and the code does Y, that is a blocker.
 4. **Spec-first, not code-first**: if the agent discovers during implementation that the spec needs changing, update the spec doc first, then adjust the code to match. Do not silently deviate from the spec.
 5. **Reviewers verify against spec**: reviewers must read the spec doc and confirm the PR matches it. Approval without spec verification is invalid.
@@ -251,7 +251,7 @@ The k3sc operator handles ALL issue assignment and label management:
 1. Operator scans GitHub for eligible issues (`ready` and `needs-review`)
 2. Operator assigns an agent slot and adds the owner label
 3. Operator creates a k8s Job that launches the agent pod
-4. Agent works the issue -- writes code, creates PRs, pushes branches
+4. Agent works the issue. Writes code, creates PRs, pushes branches
 5. Agent pod exits
 6. Operator detects completion, posts result comment, transitions labels:
    - Success from `ready` -> `needs-review`
@@ -289,7 +289,7 @@ Use this flow when architecture is still moving:
 1. Read the issue-linked spec plus `docs/k8s.md`, `docs/authority.md`, and `docs/performance.md`
 2. Update the relevant spec doc in `docs/`
 3. Comment on the initiative or slice issue with the design delta
-4. Implementation starts when the operator dispatches it -- agents do not change issue state
+4. Implementation starts when the operator dispatches it. Agents do not change issue state
 
 If two agents both touch the same spec:
 
@@ -307,11 +307,11 @@ Use this flow for each slice:
    - new issue: `git fetch origin && git checkout -b issue-{N} origin/dev`
    - continuing work: `git checkout issue-{N} && git pull --rebase origin dev`
 4. Implement the smallest complete step
-5. **Write regression tests** -- every code change must have tests that would FAIL if the change were reverted. Bug fixes must reproduce the bug scenario. New features must cover core acceptance criteria. Refactors must verify behavior matches. Updating existing tests to compile with new names does NOT count. This is mandatory for ALL code changes -- no exceptions, no "will add later", no "too simple to test".
+5. **Write regression tests**. Every code change must have tests that would FAIL if the change were reverted. Bug fixes must reproduce the bug scenario. New features must cover core acceptance criteria. Refactors must verify behavior matches. Updating existing tests to compile with new names does NOT count. This is mandatory for ALL code changes. No exceptions, no "will add later", no "too simple to test".
 6. Run `cargo fmt` before committing
 7. Run the required tests
 8. Update docs if accepted behavior changed
-9. **Verify ALL acceptance criteria** in the issue body are met before handing off. Check every checkbox against actual code. If any criterion is unmet, either implement it or document it as a blocker -- do not hand off claiming "done" with unmet criteria.
+9. **Verify ALL acceptance criteria** in the issue body are met before handing off. Check every checkbox against actual code. If any criterion is unmet, either implement it or document it as a blocker. Do not hand off claiming "done" with unmet criteria.
 10. Push the branch and open or update the PR targeting `dev`:
     - `git push -u origin issue-{N}`
     - `git fetch origin && git rev-parse --verify origin/issue-{N}`
@@ -334,7 +334,7 @@ Default review split:
 - the operator transitions the issue to `needs-review` after successful implementation
 - the operator dispatches a different agent for review
 - reviewers never review an issue they most recently implemented
-- agents do NOT claim issues or change labels -- the operator handles assignment
+- agents do NOT claim issues or change labels. The operator handles assignment
 
 To review, the reviewer checks out the `issue-{N}` branch in their own workspace:
 
@@ -350,7 +350,7 @@ If making fix-forward changes, push to the same `issue-{N}` branch. The PR updat
 Review is fix-forward by default:
 
 - if the reviewer finds a concrete in-scope problem, it should make the smallest complete fix in the same turn
-- after making code changes during review, that agent becomes the implementing side -- the operator will transition labels when the pod exits
+- after making code changes during review, that agent becomes the implementing side. The operator will transition labels when the pod exits
 - do not spend a full turn on findings-only review when the fix is clear, local, and safely within scope
 - use a findings-only handoff only when blocked, out of scope, design-ambiguous, or explicitly asked to review without changing code
 
@@ -360,15 +360,15 @@ Review should focus on:
 - violations of `docs/k8s.md`
 - authority violations
 - violations of `docs/authority.md`
-- **regression tests** -- every code change must have tests that fail if reverted. Bug fixes reproduce the bug. Features cover acceptance criteria. Refactors verify behavior. Existing tests updated to compile do NOT count. Missing regression tests = blocker.
+- **regression tests**. Every code change must have tests that fail if reverted. Bug fixes reproduce the bug. Features cover acceptance criteria. Refactors verify behavior. Existing tests updated to compile do NOT count. Missing regression tests = blocker.
 - spec drift
 - performance regressions and violations of `docs/performance.md`
 
 If there are no findings and tests pass:
 
-- verify ALL acceptance criteria in the issue body are met -- every checkbox, no exceptions
+- verify ALL acceptance criteria in the issue body are met. Every checkbox, no exceptions
 - if any acceptance criterion is unmet, that is a blocker regardless of whether the code compiles and tests pass
-- an issue with 11/12 criteria met is NOT ready for merge -- 100% or nothing
+- an issue with 11/12 criteria met is NOT ready for merge. 100% or nothing
 - include a pass/fail table in the handoff comment showing each acceptance criterion and its status
 - only after all criteria pass: leave the handoff comment noting approval
 - the operator handles label transitions and the human merges the PR
@@ -402,7 +402,7 @@ Expected behavior:
 - run the required tests
 - push the branch, verify `origin/issue-{N}`, and open or update the PR targeting `dev`
 - leave a GitHub handoff comment with the PR link
-- do NOT touch labels -- the operator handles all transitions when the pod exits
+- do NOT touch labels. The operator handles all transitions when the pod exits
 
 ## Progress Tracking
 
