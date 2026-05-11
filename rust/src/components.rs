@@ -101,7 +101,7 @@ impl Default for Speed {
     }
 }
 
-// NPC type markers (Archer, Farmer, Miner, Crossbow) removed — job identity lives in Job component.
+// NPC type markers (Archer, Farmer, Miner, Crossbow) removed. Job identity lives in Job component.
 // is_military/is_patrol_unit derived from Job::is_military()/Job::is_patrol_unit() at query time.
 
 /// TownId identifies which town an NPC belongs to.
@@ -126,7 +126,7 @@ impl Default for Energy {
 }
 
 /// Where the NPC goes to rest (bed position).
-/// Home(-1, -1) means no home assigned — behavior systems should skip.
+/// Home(-1, -1) means no home assigned. Behavior systems should skip.
 #[derive(Component, Clone, Copy, Reflect)]
 #[reflect(Component)]
 pub struct Home(pub Vec2);
@@ -145,7 +145,7 @@ pub struct PatrolRoute {
     pub current: usize,
 }
 
-/// Combined work state for NPCs. Always present — avoids archetype churn from insert/remove.
+/// Combined work state for NPCs. Always present. Avoids archetype churn from insert/remove.
 /// Single `worksite` field: claimed worksite (occupancy incremented). Cleared on release/death.
 #[derive(Component, Default, Clone, Copy, Reflect)]
 #[reflect(Component)]
@@ -153,7 +153,7 @@ pub struct NpcWorkState {
     pub worksite: Option<Entity>,
 }
 
-/// Unified carry component for ALL NPCs. Always present — replaces the old fragmented
+/// Unified carry component for ALL NPCs. Always present. Replaces the old fragmented
 /// Activity::Returning{loot} payload + CarriedGold component.
 /// Loot lives here; Activity::Returning just means "going home."
 #[derive(Component, Default, Clone, Reflect)]
@@ -198,10 +198,10 @@ impl CarriedLoot {
 }
 
 // ============================================================================
-// NPC STATE — Command (Factorio-inspired) × CombatState
+// NPC STATE. Command (Factorio-inspired) × CombatState
 // ============================================================================
 
-/// Combat distraction policy — determines when an NPC interrupts its command to fight.
+/// Combat distraction policy. Determines when an NPC interrupts its command to fight.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Reflect)]
 pub enum Distraction {
     /// Ignore enemies entirely (rest, heal, return loot).
@@ -213,9 +213,9 @@ pub enum Distraction {
     ByEnemy,
 }
 
-/// NPC activity — the single source of truth for what the NPC is doing.
+/// NPC activity. The single source of truth for what the NPC is doing.
 /// Movement destination is derived from the activity. No separate transit state.
-/// Fieldless registry key — per-instance data lives on `Activity` struct fields.
+/// Fieldless registry key. Per-instance data lives on `Activity` struct fields.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Reflect)]
 pub enum ActivityKind {
     #[default]
@@ -328,7 +328,7 @@ impl Activity {
     }
 }
 
-/// Whether the NPC is in combat. Orthogonal to Activity — a Raiding NPC can be Fighting.
+/// Whether the NPC is in combat. Orthogonal to Activity. A Raiding NPC can be Fighting.
 /// Activity is preserved through combat so the NPC resumes what it was doing when combat ends.
 #[derive(Component, Default, Clone, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
@@ -379,7 +379,7 @@ pub struct NpcFlags {
     pub at_destination: bool,
 }
 
-/// A* pathfinding waypoints. Optional — only present on NPCs with active paths.
+/// A* pathfinding waypoints. Optional. Only present on NPCs with active paths.
 /// CPU-authoritative: A* produces waypoints, CPU advances on arrival, GPU steers
 /// to current waypoint via existing goals[] upload.
 #[derive(Component, Default, Clone, Reflect)]
@@ -391,7 +391,7 @@ pub struct NpcPath {
     pub current: usize,
     /// Original world-space destination (for invalidation check).
     pub goal_world: Vec2,
-    /// Cooldown (seconds) after A* failure — prevents retry thrash.
+    /// Cooldown (seconds) after A* failure. Prevents retry thrash.
     pub path_cooldown: f32,
     /// Precomputed set of HPA chunk coords this path passes through.
     pub path_chunks: Vec<(usize, usize)>,
@@ -400,7 +400,7 @@ pub struct NpcPath {
     pub path_blocked: bool,
 }
 
-/// Squad assignment for military NPCs. Optional component — only present when recruited.
+/// Squad assignment for military NPCs. Optional component. Only present when recruited.
 #[derive(Component, Clone, Copy, Reflect)]
 #[reflect(Component)]
 pub struct SquadId(pub i32);
@@ -482,8 +482,8 @@ pub struct AttackTimer(pub f32);
 // ============================================================================
 
 /// Per-NPC progression stats. Mirrors TowerBuildingState for buildings.
-/// Level derived via level_from_xp(xp) — not stored.
-/// Replaces NpcMetaCache sidecar — all other fields live on existing components
+/// Level derived via level_from_xp(xp). Not stored.
+/// Replaces NpcMetaCache sidecar. All other fields live on existing components
 /// (Job, TownId, Personality::trait_summary()).
 #[derive(Component, Clone, Default, Reflect)]
 #[reflect(Component)]
@@ -530,7 +530,7 @@ impl EquipLayer {
     pub const COUNT: usize = 6;
 }
 
-/// Unified equipment component — always present on NPCs with equip_slots.
+/// Unified equipment component. Always present on NPCs with equip_slots.
 /// Replaces EquippedWeapon, EquippedArmor, EquippedHelmet.
 #[derive(Component, Clone, Default, Reflect, serde::Serialize, serde::Deserialize)]
 #[reflect(Component)]
@@ -1169,7 +1169,7 @@ mod tests {
         }
     }
 
-    // -- Neutral personality (no traits) -------------------------------------
+    //. Neutral personality (no traits) -------------------------------------
 
     #[test]
     fn neutral_stat_mods_all_one() {
@@ -1196,7 +1196,7 @@ mod tests {
         assert_eq!(mods.flee_threshold_add, 0.0);
     }
 
-    // -- Courage axis --------------------------------------------------------
+    //. Courage axis --------------------------------------------------------
 
     #[test]
     fn brave_never_flees() {
@@ -1221,7 +1221,7 @@ mod tests {
         assert_eq!(mods.hp, 1.0);
     }
 
-    // -- Ferocity axis -------------------------------------------------------
+    //. Ferocity axis -------------------------------------------------------
 
     #[test]
     fn berserker_positive_berserk_bonus() {
@@ -1250,7 +1250,7 @@ mod tests {
         assert!(mods.flee < 1.0);
     }
 
-    // -- Power axis ----------------------------------------------------------
+    //. Power axis ----------------------------------------------------------
 
     #[test]
     fn strong_increases_damage() {
@@ -1264,7 +1264,7 @@ mod tests {
         assert!(mods.damage < 1.0, "weak should decrease damage");
     }
 
-    // -- Vitality axis -------------------------------------------------------
+    //. Vitality axis -------------------------------------------------------
 
     #[test]
     fn hardy_increases_hp() {
@@ -1272,7 +1272,7 @@ mod tests {
         assert!(mods.hp > 1.0, "hardy should increase HP");
     }
 
-    // -- Agility axis --------------------------------------------------------
+    //. Agility axis --------------------------------------------------------
 
     #[test]
     fn swift_increases_speed() {
@@ -1280,7 +1280,7 @@ mod tests {
         assert!(mods.speed > 1.0);
     }
 
-    // -- Diligence axis ------------------------------------------------------
+    //. Diligence axis ------------------------------------------------------
 
     #[test]
     fn efficient_increases_work_yield() {
@@ -1294,7 +1294,7 @@ mod tests {
         assert!(mods.work > 1.0);
     }
 
-    // -- trait_summary -------------------------------------------------------
+    //. Trait_summary -------------------------------------------------------
 
     #[test]
     fn trait_summary_empty_for_neutral() {
