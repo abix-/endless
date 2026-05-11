@@ -1,7 +1,7 @@
 //! Loot Cycle Test (9 phases)
-//! Phases 1-6: happy path -- spawn archer+raider, raider dies, archer carries loot, returns home,
+//! Phases 1-6: happy path. Spawn archer+raider, raider dies, archer carries loot, returns home,
 //! deposits to TownInventory, equip item, stats increase.
-//! Phases 7-9: stress -- mass spawn 50 archers + 500 raiders, run 5 game-hours of combat,
+//! Phases 7-9: stress. Mass spawn 50 archers + 500 raiders, run 5 game-hours of combat,
 //! verify TownEquipment stays bounded by TOWN_EQUIPMENT_CAP after pruning.
 
 use bevy::prelude::*;
@@ -65,7 +65,7 @@ pub fn setup(
     }
     next_loot_id.next = 1;
 
-    // Spawn 1 strong archer (faction 1) — will kill the raider
+    // Spawn 1 strong archer (faction 1). Will kill the raider
     let archer_slot = params.slot_alloc.alloc_reset().expect("slot alloc");
     params.spawn_events.write(crate::messages::SpawnNpcMsg {
         slot_idx: archer_slot,
@@ -82,7 +82,7 @@ pub fn setup(
         entity_override: None,
     });
 
-    // Spawn 5 weak raiders close by — high chance at least one drops equipment
+    // Spawn 5 weak raiders close by. High chance at least one drops equipment
     // (equipment_drop_rate: 0.30 per raider, 5 raiders = ~83% chance of >=1 drop)
     for i in 0..5 {
         let slot = params.slot_alloc.alloc_reset().expect("slot alloc");
@@ -153,7 +153,7 @@ pub fn tick(
     let inv_count = town_items.len();
 
     match test.phase {
-        // Phase 1: Combat starts — at least one raider dies
+        // Phase 1: Combat starts. At least one raider dies
         1 => {
             test.phase_name = format!("alive_raiders={}/5", alive_raiders);
             if alive_raiders < 5 {
@@ -182,7 +182,7 @@ pub fn tick(
                 // Skip to phase 5 (deposit already happened)
                 test.set_flag("skip_to_deposit", true);
             } else if elapsed > 60.0 {
-                // No equipment dropped at all — bad luck with RNG, but still a valid state
+                // No equipment dropped at all. Bad luck with RNG, but still a valid state
                 // Force-add an item to the inventory to continue the test
                 test.pass_phase(elapsed, "no equipment dropped (RNG), will force item");
                 test.set_flag("force_item", true);
@@ -215,7 +215,7 @@ pub fn tick(
         4 => {
             test.phase_name = format!("inv_count={} carried={}", inv_count, archer_equip_count);
             if test.get_flag("force_item") && inv_count == 0 {
-                // RNG gave no drops — force an item into inventory to test equip flow
+                // RNG gave no drops. Force an item into inventory to test equip flow
                 // We do this by just checking that the equip mechanism works
                 test.pass_phase(elapsed, "forced — no natural drops, skipping deposit check");
             } else if inv_count > 0 {
@@ -224,7 +224,7 @@ pub fn tick(
                     format!("deposited {} items to TownInventory", inv_count),
                 );
             } else if archer_equip_count == 0 && elapsed > 5.0 {
-                // Guard dropped carry somewhere — might have happened between frames
+                // Guard dropped carry somewhere. Might have happened between frames
                 test.pass_phase(elapsed, "carry empty, deposit likely happened");
             } else if elapsed > 120.0 {
                 test.fail_phase(elapsed, format!("inv=0 carried={}", archer_equip_count));
@@ -260,7 +260,7 @@ pub fn tick(
                             );
                         }
                     } else {
-                        // No items — force_item path, mark as done
+                        // No items. Force_item path, mark as done
                         test.pass_phase(elapsed, "no items to equip (RNG path), skipping");
                         return;
                     }
@@ -333,7 +333,7 @@ pub fn tick(
                 test.fail_phase(elapsed, "no CachedStats on archer");
             }
         }
-        // Phase 7: Mass spawn -- 50 archers + 500 raiders for stress test
+        // Phase 7: Mass spawn. 50 archers + 500 raiders for stress test
         7 => {
             if !test.get_flag("stress_spawned") {
                 test.set_flag("stress_spawned", true);
@@ -391,7 +391,7 @@ pub fn tick(
                 test.fail_phase(elapsed, format!("only {} alive after 30s", total_alive));
             }
         }
-        // Phase 8: Sustained combat -- monitor TownEquipment accumulation over 5 game-hours
+        // Phase 8: Sustained combat. Monitor TownEquipment accumulation over 5 game-hours
         8 => {
             let eq_count = town_access.equipment(0).map(|e| e.len()).unwrap_or(0);
             let peak = test.count("peak_equipment") as usize;
