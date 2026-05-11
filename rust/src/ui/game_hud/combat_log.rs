@@ -24,7 +24,7 @@ pub struct LogFilterState {
     pub faction_filter: i32,
     pub initialized: bool,
     pub chat_input: String,
-    // Cached merged log entries — skip rebuild when sources unchanged
+    // Cached merged log entries. Skip rebuild when sources unchanged
     cached_selected_npc: i32,
     cached_filters: (
         bool,
@@ -309,7 +309,7 @@ pub fn combat_log_system(
                 }
             }
 
-            // Chat input — send messages to LLM towns
+            // Chat input. Send messages to LLM towns
             if has_llm_towns {
                 ui.separator();
                 ui.horizontal(|ui| {
@@ -328,7 +328,7 @@ pub fn combat_log_system(
             }
         });
 
-    // Process chat send — write to ChatInbox only (displayed from there, not combat log)
+    // Process chat send. Write to ChatInbox only (displayed from there, not combat log)
     if let Some(text) = chat_send {
         let day = data.game_time.day();
         let hour = data.game_time.hour();
