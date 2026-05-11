@@ -24,7 +24,7 @@ fn is_passable(grid: &WorldGrid, col: i32, row: i32) -> bool {
 }
 
 /// Movement cost for a grid cell from precomputed cost grid. Returns None if impassable.
-/// Single array index — no HashMap lookups.
+/// Single array index. No HashMap lookups.
 fn neighbor_cost(grid: &WorldGrid, pos: IVec2) -> Option<u32> {
     debug_assert!(
         !grid.pathfind_costs.is_empty(),
@@ -52,7 +52,7 @@ fn heuristic(a: IVec2, b: IVec2) -> u32 {
 }
 
 /// Run A* on the WorldGrid. Returns path as grid coordinates (including start and goal).
-/// Enforces `max_nodes` limit via counter in successors closure — returns None if exceeded.
+/// Enforces `max_nodes` limit via counter in successors closure. Returns None if exceeded.
 pub fn pathfind_on_grid(
     grid: &WorldGrid,
     start: IVec2,
@@ -84,7 +84,7 @@ pub fn pathfind_on_grid(
 }
 
 /// Like `pathfind_on_grid` but reads costs from a provided slice.
-/// Used for path cost accumulation — each successive A* call sees costs inflated
+/// Used for path cost accumulation. Each successive A* call sees costs inflated
 /// along previously-found paths, naturally spreading routes apart.
 pub fn pathfind_with_costs(
     costs: &[u16],
@@ -155,7 +155,7 @@ pub fn accumulate_path_cost(
 use hashbrown::HashMap;
 
 pub const HPA_CHUNK_SIZE: usize = 16;
-/// Minimum terrain cost (road=67) — used for admissible heuristic on abstract graph.
+/// Minimum terrain cost (road=67). Used for admissible heuristic on abstract graph.
 const HPA_MIN_COST: u32 = 67;
 
 /// Build the deduplicated set of HPA chunks touched by the remaining path.
@@ -233,7 +233,7 @@ impl HpaCache {
         let cols = width.div_ceil(HPA_CHUNK_SIZE);
         let rows = height.div_ceil(HPA_CHUNK_SIZE);
 
-        // Horizontal borders — scan if either side is in `chunks`
+        // Horizontal borders. Scan if either side is in `chunks`
         for cr in 0..rows.saturating_sub(1) {
             let border_row = (cr + 1) * HPA_CHUNK_SIZE;
             if border_row >= height {
@@ -250,7 +250,7 @@ impl HpaCache {
                 );
             }
         }
-        // Vertical borders — scan if either side is in `chunks`
+        // Vertical borders. Scan if either side is in `chunks`
         for cc in 0..cols.saturating_sub(1) {
             let border_col = (cc + 1) * HPA_CHUNK_SIZE;
             if border_col >= width {
@@ -510,7 +510,7 @@ impl HpaCache {
         {
             self.rebuild_count += 1;
         }
-        // Expand to neighbor chunks — border entrances are shared between adjacent chunks
+        // Expand to neighbor chunks. Border entrances are shared between adjacent chunks
         let cols = width.div_ceil(HPA_CHUNK_SIZE);
         let rows = height.div_ceil(HPA_CHUNK_SIZE);
         let affected: hashbrown::HashSet<(usize, usize)> = dirty
@@ -624,7 +624,7 @@ pub fn pathfind_hpa(grid: &WorldGrid, start: IVec2, goal: IVec2) -> Option<Vec<I
     let start_entrances = chunk_entrance_nodes(start_chunk);
     let goal_entrances = chunk_entrance_nodes(goal_chunk);
     if start_entrances.is_empty() || goal_entrances.is_empty() {
-        return None; // chunk has no entrances — isolated
+        return None; // chunk has no entrances. Isolated
     }
 
     // Compute temporary edges from start to its chunk's entrance nodes
@@ -708,7 +708,7 @@ pub fn pathfind_hpa(grid: &WorldGrid, start: IVec2, goal: IVec2) -> Option<Vec<I
             } else if node_id == v_goal {
                 // goal has no outgoing edges
             } else if node_id < n {
-                // Real node — emit cached edges
+                // Real node. Emit cached edges
                 for edge in &cache.nodes[node_id].edges {
                     successors.push((edge.target, edge.cost));
                 }
@@ -783,7 +783,7 @@ fn chunk_bounds(chunk: (usize, usize), width: usize, height: usize) -> (i32, i32
 // LINE OF SIGHT (SHORT-DISTANCE BYPASS)
 // ============================================================================
 
-/// Bresenham line walk — check if all cells between two grid positions are passable.
+/// Bresenham line walk. Check if all cells between two grid positions are passable.
 pub fn line_of_sight(grid: &WorldGrid, from: IVec2, to: IVec2) -> bool {
     let dx = (to.x - from.x).abs();
     let dy = (to.y - from.y).abs();
@@ -948,7 +948,7 @@ mod tests {
     fn astar_routes_around_impassable() {
         let mut grid = make_grid(10, 10);
         let mut entity_map = EntityMap::default();
-        // Wall from (2,0) to (2,4) — forces detour
+        // Wall from (2,0) to (2,4). Forces detour
         for row in 0..5 {
             place_wall(&mut entity_map, 2, row, 500 + row as usize);
         }
@@ -1032,7 +1032,7 @@ mod tests {
     #[test]
     fn water_is_impassable_as_waypoint() {
         // Path between two land points with a full column of water in between
-        // must route around -- water tiles must never appear in the generated path.
+        // must route around. Water tiles must never appear in the generated path.
         let mut grid = make_grid(5, 3);
         // Block column 2 with water
         for row in 0..3 {
@@ -1040,7 +1040,7 @@ mod tests {
         }
         grid.init_pathfind_costs();
 
-        // No path possible -- water blocks all routes (no row exists that avoids col 2)
+        // No path possible. Water blocks all routes (no row exists that avoids col 2)
         let path = pathfind_on_grid(&grid, IVec2::new(0, 1), IVec2::new(4, 1), 5000);
         assert!(
             path.is_none(),
@@ -1062,12 +1062,12 @@ mod tests {
     #[test]
     fn npc_on_water_can_escape_to_land() {
         // NPC starting on a water tile can still path to adjacent land.
-        // Start cost is not checked by A* -- only neighbor and goal costs are.
+        // Start cost is not checked by A*. Only neighbor and goal costs are.
         let mut grid = make_grid(3, 1);
         grid.cells[0].terrain = Biome::Water; // NPC starts here
         grid.init_pathfind_costs();
 
-        // Goal is (2,0) -- dry land, reachable via (1,0) which is also dry
+        // Goal is (2,0). Dry land, reachable via (1,0) which is also dry
         let path = pathfind_on_grid(&grid, IVec2::new(0, 0), IVec2::new(2, 0), 500)
             .expect("NPC on water should escape to land");
         assert_eq!(
@@ -1092,13 +1092,13 @@ mod tests {
         assert!(h <= 7 * 67);
     }
 
-    // -- maze pathfinding (walls) ---------------------------------------------
+    //. Maze pathfinding (walls) ---------------------------------------------
 
     #[test]
     fn astar_routes_around_single_wall() {
         let mut grid = make_grid(10, 10);
         let mut entity_map = EntityMap::default();
-        // Wall at (3,0)..=(3,4) — blocks straight horizontal path
+        // Wall at (3,0)..=(3,4). Blocks straight horizontal path
         for row in 0..5 {
             place_wall(&mut entity_map, 3, row, 100 + row as usize);
         }
@@ -1194,7 +1194,7 @@ mod tests {
         );
     }
 
-    // -- invalidate_paths_on_building_change ---------------------------------
+    //. Invalidate_paths_on_building_change ---------------------------------
 
     use bevy::time::TimeUpdateStrategy;
 
@@ -1292,7 +1292,7 @@ mod tests {
             .world_mut()
             .resource_mut::<crate::resources::GpuReadState>();
         gpu.positions = vec![100.0, 100.0];
-        // Dirty cell at (8,8) — but NPC path goes to (2,2), different chunk on larger grids
+        // Dirty cell at (8,8). But NPC path goes to (2,2), different chunk on larger grids
         // On a 10×10 grid with chunk_size=16, everything is chunk (0,0), so use a 40×40 grid
         let grid = make_grid(40, 40);
         app.insert_resource(grid);
@@ -1319,7 +1319,7 @@ mod tests {
         );
     }
 
-    // -- sync_building_costs incremental regression tests --------------------
+    //. Sync_building_costs incremental regression tests --------------------
 
     /// Regression: removing a wall restores terrain cost.
     #[test]
