@@ -49,7 +49,7 @@ fn deserialize_reputation<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Vec<f32
                 serde_json::from_value(serde_json::Value::Array(arr))
                     .map_err(serde::de::Error::custom)
             } else {
-                // Old 1D format — place in row 0
+                // Old 1D format. Place in row 0
                 let old: Vec<f32> = serde_json::from_value(serde_json::Value::Array(arr))
                     .map_err(serde::de::Error::custom)?;
                 let n = old.len();
@@ -194,7 +194,7 @@ pub struct SaveData {
     #[serde(deserialize_with = "deserialize_grid_buildings")]
     pub buildings: Vec<Option<(world::BuildingKind, u32)>>, // parallel to terrain
 
-    // Town grids — legacy field for old save migration. area_level now lives in Town.
+    // Town grids. Legacy field for old save migration. area_level now lives in Town.
     #[serde(default)]
     pub town_grids: Vec<TownGridSave>,
 
@@ -289,7 +289,7 @@ pub struct SaveData {
     #[serde(default, deserialize_with = "deserialize_reputation")]
     pub reputation: Vec<Vec<f32>>,
 
-    // Building vecs + towns — registry-driven via #[serde(flatten)]
+    // Building vecs + towns. Registry-driven via #[serde(flatten)]
     // Captures: towns, farms, beds, waypoints, farmer_homes, archer_homes,
     // crossbow_homes, fighter_homes, tents, miner_homes, gold_mines
     #[serde(flatten)]
@@ -363,7 +363,7 @@ pub struct FactionStatSave {
 pub struct AiPlayerSave {
     pub town_data_idx: usize,
     #[serde(default)]
-    pub grid_idx: usize, // legacy — no longer used
+    pub grid_idx: usize, // legacy. No longer used
     pub kind: u8,        // 0=Raider, 1=Builder
     pub personality: u8, // 0=Aggressive, 1=Balanced, 2=Economic
     #[serde(default = "default_road_style")]
@@ -495,7 +495,7 @@ pub enum ActivitySave {
     Raiding {
         target: [f32; 2],
     },
-    /// Old saves had `loot: Vec<(ItemKind, i32)>` — kept as ignored field for backward compat.
+    /// Old saves had `loot: Vec<(ItemKind, i32)>`. Kept as ignored field for backward compat.
     Returning {
         #[serde(default)]
         loot: Vec<(ItemKind, i32)>,
@@ -862,7 +862,7 @@ pub fn collect_save_data(
         }
     }
 
-    // Building vecs — serialized from EntityMap instances
+    // Building vecs. Serialized from EntityMap instances
     let mut building_data: std::collections::HashMap<String, serde_json::Value> =
         std::collections::HashMap::new();
     building_data.insert(
@@ -900,7 +900,7 @@ pub fn collect_save_data(
         );
     }
 
-    // Town grids — area_level from ECS TownAreaLevel component
+    // Town grids. Area_level from ECS TownAreaLevel component
     let town_grids_save: Vec<TownGridSave> = world_data
         .towns
         .iter()
@@ -1075,7 +1075,7 @@ pub fn collect_save_data(
         migration: migration_state
             .active
             .as_ref()
-            .filter(|g| g.boat_slot.is_none()) // don't save boat phase — transient
+            .filter(|g| g.boat_slot.is_none()) // don't save boat phase. Transient
             .map(|g| MigrationSave {
                 town_data_idx: g.town_data_idx,
                 grid_idx: g.town_data_idx.unwrap_or(0), // legacy field
@@ -1281,7 +1281,7 @@ pub fn apply_save(
         .collect();
     auto_upgrade.ensure_towns(num_towns.max(16));
 
-    // Squads — load all saved squads (player + AI).
+    // Squads. Load all saved squads (player + AI).
     // First MAX_SQUADS are player-reserved; extras are AI squads.
     squad_state.squads.clear();
     for ss in save.squads.iter() {
@@ -1391,7 +1391,7 @@ pub fn apply_save(
         }
     }
 
-    // Migration state (boat phase is not saved — only walk/settle phase)
+    // Migration state (boat phase is not saved. Only walk/settle phase)
     if let Some(ms) = &save.migration {
         migration_state.active = Some(MigrationGroup {
             boat_slot: None,
@@ -1462,7 +1462,7 @@ pub struct LoadGameMsg;
 /// Trigger resource for save/load operations.
 #[derive(Resource, Default)]
 pub struct SaveLoadRequest {
-    /// Set by main menu "Load Game" — tells game_startup_system to load instead of world gen.
+    /// Set by main menu "Load Game". Tells game_startup_system to load instead of world gen.
     pub load_on_enter: bool,
     /// When set, save to this path instead of the active slot.
     pub save_path: Option<std::path::PathBuf>,
@@ -1513,7 +1513,7 @@ pub fn read_slot_info(slot: u8) -> SlotInfo {
     let Ok(json) = std::fs::read_to_string(&path) else {
         return empty;
     };
-    // Deserialize full SaveData -- file is typically <5MB, fast enough for menu
+    // Deserialize full SaveData. File is typically <5MB, fast enough for menu
     let Ok(data) = serde_json::from_str::<SaveData>(&json) else {
         return empty;
     };
@@ -1611,7 +1611,7 @@ impl Default for AutosaveTask {
 }
 
 // ============================================================================
-// NPC QUERY — uses nested tuples to stay under Bevy's 16-element limit
+// NPC QUERY. Uses nested tuples to stay under Bevy's 16-element limit
 // ============================================================================
 
 /// Collect NPC save data from EntityMap NpcInstances + ECS queries.
@@ -1792,7 +1792,7 @@ pub struct LoadNpcTracking<'w> {
 }
 
 // ============================================================================
-// BUILDING HP — entity-based save/load bridge
+// BUILDING HP. Entity-based save/load bridge
 // ============================================================================
 
 /// Build building HP hashmap from entity queries for save format.
@@ -2074,7 +2074,7 @@ pub fn load_building_instances_from_save(
 
 /// Rebuild growth states from save data → ECS components.
 pub fn restore_growth_from_save(save: &SaveData, entity_map: &EntityMap, commands: &mut Commands) {
-    // Farms — sort by slot to match save order
+    // Farms. Sort by slot to match save order
     let mut farm_slots: Vec<usize> = entity_map
         .iter_kind(world::BuildingKind::Farm)
         .map(|i| i.slot)
@@ -2105,7 +2105,7 @@ pub fn restore_growth_from_save(save: &SaveData, entity_map: &EntityMap, command
         }
     }
 
-    // Mines — sort by slot to match save order
+    // Mines. Sort by slot to match save order
     let mut mine_slots: Vec<usize> = entity_map
         .iter_kind(world::BuildingKind::GoldMine)
         .map(|i| i.slot)
@@ -2275,7 +2275,7 @@ pub fn save_game_system(
     }
 }
 
-/// Autosave system — triggers on hour_ticked, serializes and writes on a background thread.
+/// Autosave system. Triggers on hour_ticked, serializes and writes on a background thread.
 /// Data collection happens on the main thread (ECS access required); serialization and disk
 /// write are offloaded so the main thread contributes < 5ms instead of 200ms+.
 pub fn autosave_system(
@@ -2540,7 +2540,7 @@ pub fn restore_world_from_save(
 
     // Restore faction list (backward compat: old saves have empty vec, rebuild from towns)
     if save.faction_list.is_empty() {
-        // Old save — reconstruct factions from town data
+        // Old save. Reconstruct factions from town data
         use crate::resources::{FactionData, FactionKind};
         fs.faction_list.factions.clear();
         fs.faction_list.factions.push(FactionData {
@@ -2624,7 +2624,7 @@ pub fn restore_world_from_save(
         }
     }
 
-    // Migration markers are restored via NpcInstance.migrating in spawn — no ECS marker needed.
+    // Migration markers are restored via NpcInstance.migrating in spawn. No ECS marker needed.
 }
 
 /// Execute load when requested. Despawns all NPCs and rebuilds from save.
@@ -2942,7 +2942,7 @@ mod tests {
 
     #[test]
     fn wood_stone_backward_compat_defaults_to_empty() {
-        // Partial JSON without wood/stone -- serde(default) should fill empty vecs
+        // Partial JSON without wood/stone. Serde(default) should fill empty vecs
         #[derive(serde::Deserialize)]
         struct ResourceFields {
             #[serde(default)]
