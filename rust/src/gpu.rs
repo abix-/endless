@@ -49,7 +49,7 @@ use crate::world::WorldData;
 
 /// Replace wgpu's default panic-on-error with a warning logger.
 /// Surface validation errors (Invalid surface, not configured for presentation)
-/// become non-fatal — Bevy reconfigures the surface next frame automatically.
+/// become non-fatal. Bevy reconfigures the surface next frame automatically.
 fn set_wgpu_error_handler(render_device: Res<RenderDevice>) {
     render_device
         .wgpu_device()
@@ -78,7 +78,7 @@ fn set_wgpu_error_handler(render_device: Res<RenderDevice>) {
 const SHADER_ASSET_PATH: &str = "shaders/npc_compute.wgsl";
 const PROJ_SHADER_ASSET_PATH: &str = "shaders/projectile_compute.wgsl";
 const WORKGROUP_SIZE: u32 = 64;
-/// 256×256 cells × 128px = 32,768px — covers max 1000×1000 world (32,000px).
+/// 256×256 cells × 128px = 32,768px. Covers max 1000×1000 world (32,000px).
 const GRID_WIDTH: u32 = 256;
 const GRID_HEIGHT: u32 = 256;
 const MAX_PER_CELL: u32 = 48;
@@ -149,7 +149,7 @@ pub struct RenderFrameConfig {
 /// All persistent per-entity GPU data: compute fields + visual state + dirty tracking.
 /// Unified buffer: NPCs and buildings share the same arrays at their slot index.
 /// Read via `Extract<Res<EntityGpuState>>` in Extract phase (zero clone, immutable reference).
-/// NOT Clone/ExtractResource — never cloned to render world.
+/// NOT Clone/ExtractResource. Never cloned to render world.
 #[derive(Resource)]
 pub struct EntityGpuState {
     // --- Compute fields (written by game systems via GpuUpdateMsg) ---
@@ -195,14 +195,14 @@ pub struct EntityGpuState {
     pub health_dirty_indices: Vec<usize>,
     pub flags_dirty_indices: Vec<usize>,
     pub half_size_dirty_indices: Vec<usize>,
-    /// Slots hidden this frame — used by build_visual_upload to clear stale visual/equip data.
+    /// Slots hidden this frame. Used by build_visual_upload to clear stale visual/equip data.
     pub hidden_indices: Vec<usize>,
     /// Last-known target buffer size for full-upload fallback detection.
     pub target_buffer_size: usize,
     // --- Visual dirty tracking (event-driven visual upload) ---
     /// Slots whose visual/equip data changed this frame (sprite, activity, equipment changes)
     pub visual_dirty_indices: Vec<usize>,
-    /// Slots dirty from flash decay only — need visual_data[flash] update but NOT equip
+    /// Slots dirty from flash decay only. Need visual_data[flash] update but NOT equip
     pub flash_only_indices: Vec<usize>,
     /// Force full visual rebuild (startup, load, reset)
     pub visual_full_rebuild: bool,
@@ -212,17 +212,17 @@ pub struct EntityGpuState {
 /// Read via `Extract<Res<NpcVisualUpload>>` in Extract phase (zero clone).
 #[derive(Resource, Default)]
 pub struct NpcVisualUpload {
-    /// [sprite_col, sprite_row, atlas, flash, r, g, b, a] per NPC — matches NpcVisual in npc_render.wgsl
+    /// [sprite_col, sprite_row, atlas, flash, r, g, b, a] per NPC. Matches NpcVisual in npc_render.wgsl
     pub visual_data: Vec<f32>,
-    /// [col, row, atlas, pad] × 7 layers per NPC — matches EquipSlot in npc_render.wgsl
+    /// [col, row, atlas, pad] × 7 layers per NPC. Matches EquipSlot in npc_render.wgsl
     pub equip_data: Vec<f32>,
     /// Number of entities packed
     pub entity_count: usize,
     /// Slots whose visual data was written this frame (for per-index GPU upload)
     pub visual_uploaded_indices: Vec<usize>,
-    /// Slots whose equip data was written this frame (subset — excludes flash-only changes)
+    /// Slots whose equip data was written this frame (subset. Excludes flash-only changes)
     pub equip_uploaded_indices: Vec<usize>,
-    /// True when full visual rebuild happened (startup/load) — extract should do bulk upload
+    /// True when full visual rebuild happened (startup/load). Extract should do bulk upload
     pub visual_full_upload: bool,
 }
 
@@ -347,7 +347,7 @@ impl EntityGpuState {
                 self.hidden_indices.push(*idx);
                 self.visual_dirty_indices.push(*idx);
             }
-            // Visual-only messages — no compute dirty flag
+            // Visual-only messages. No compute dirty flag
             GpuUpdate::SetSpriteFrame {
                 idx,
                 col,
@@ -393,7 +393,7 @@ impl EntityGpuState {
     }
 }
 
-// BuildingGpuState removed — buildings use EntityGpuState at their unified slot index.
+// BuildingGpuState removed. Buildings use EntityGpuState at their unified slot index.
 
 /// Write NPC visual + equip data for a single slot into upload buffers.
 #[inline]
@@ -475,7 +475,7 @@ fn write_npc_visual(
     upload.equip_data[eq + 14] = 0.0;
     upload.equip_data[eq + 15] = 0.0;
 
-    // Layer 4: Item (carried loot — priority: gold > food > wood > stone)
+    // Layer 4: Item (carried loot. Priority: gold > food > wood > stone)
     let npc_activity = activity_q.get(entity).ok();
     let (ic, ir, ia) = if let Ok(cl) = carried_loot_q.get(entity) {
         if cl.gold > 0 {
@@ -572,7 +572,7 @@ pub fn build_visual_upload(
     npc_q: Query<(Entity, &GpuSlot, &Job, &Faction), (Without<Building>, Without<Dead>)>,
     building_q: Query<&GpuSlot, (With<Building>, Without<Dead>)>,
 ) {
-    // Read live count from authoritative source — not the stale RenderFrameConfig copy
+    // Read live count from authoritative source. Not the stale RenderFrameConfig copy
     let entity_count = slots.count();
     upload.entity_count = entity_count;
 
@@ -708,7 +708,7 @@ pub fn populate_gpu_state(
     npc_state.half_size_dirty_indices.clear();
     npc_state.hidden_indices.clear();
 
-    // Hide freed slots (deallocation cleanup — position=-9999, health=0, speed=0, flags=0)
+    // Hide freed slots (deallocation cleanup. Position=-9999, health=0, speed=0, flags=0)
     for slot in slots.take_pending_frees() {
         let pi = slot * 2;
         if pi + 1 < npc_state.positions.len() {
@@ -873,7 +873,7 @@ pub struct ProjBufferWrites {
     /// Per-slot dirty tracking: Spawn writes all fields, Deactivate writes active+hits
     pub spawn_dirty_indices: Vec<usize>,
     pub deactivate_dirty_indices: Vec<usize>,
-    /// Currently active projectile indices — iterate this instead of 0..proj_count.
+    /// Currently active projectile indices. Iterate this instead of 0..proj_count.
     pub active_set: Vec<usize>,
     /// Reverse index: slot -> position in active_set (usize::MAX = not active).
     active_set_index: Vec<usize>,
@@ -1000,7 +1000,7 @@ fn readback_bucket(count: usize, max_count: usize) -> usize {
 }
 
 /// Main-world-only state for dynamic readback entity management.
-/// NOT extracted to render world — buckets and entity tracking stay on the CPU side.
+/// NOT extracted to render world. Buckets and entity tracking stay on the CPU side.
 #[derive(Resource, Default)]
 pub struct ReadbackState {
     pub npc_bucket: usize,
@@ -1138,7 +1138,7 @@ fn sync_readback_ranges(
                 cmds.despawn();
             }
         }
-        // Throttled entities also have stale bucket sizes — clear them too
+        // Throttled entities also have stale bucket sizes. Clear them too
         for (entity, _) in rb_state.throttled_entities.drain(..) {
             if let Ok(mut cmds) = commands.get_entity(entity) {
                 cmds.despawn();
@@ -1218,7 +1218,7 @@ fn sync_readback_ranges(
     }
 
     // Throttled readbacks: despawn after 2 frames (GPU copies frame N, CPU reads frame N+1).
-    // Without despawn, Readback entities read every frame — defeating throttling.
+    // Without despawn, Readback entities read every frame. Defeating throttling.
     rb_state.throttled_entities.retain_mut(|(entity, age)| {
         *age += 1;
         if *age >= 3 {
@@ -1406,7 +1406,7 @@ fn populate_tile_flags(
             }
         }
     }
-    // Building pass — iterate instances instead of all grid cells
+    // Building pass. Iterate instances instead of all grid cells
     for inst in entity_map.iter_instances() {
         let (gc, gr) = grid.world_to_grid(inst.position);
         let idx = gr * grid.width + gc;
@@ -1524,7 +1524,7 @@ fn init_npc_compute_pipeline(
     let grid_cells = (GRID_WIDTH * GRID_HEIGHT) as usize;
     let grid_data_size = grid_cells * MAX_PER_CELL as usize;
 
-    // Create GPU buffers — entity-sized for unified NPC + building collision
+    // Create GPU buffers. Entity-sized for unified NPC + building collision
     let max_ents = MAX_ENTITIES;
     let buffers = EntityGpuBuffers {
         positions: render_device.create_buffer_with_data(&BufferInitDescriptor {
@@ -1877,7 +1877,7 @@ fn prepare_npc_bind_groups(
     }
 }
 
-// write_npc_buffers DELETED — logic moved to extract_npc_data (npc_render.rs, ExtractSchedule)
+// write_npc_buffers DELETED. Logic moved to extract_npc_data (npc_render.rs, ExtractSchedule)
 
 // =============================================================================
 // RENDER GRAPH NODE
@@ -2166,7 +2166,7 @@ fn init_proj_compute_pipeline(
 
     commands.insert_resource(buffers);
 
-    // 19 bindings — must match projectile_compute.wgsl binding order exactly:
+    // 19 bindings. Must match projectile_compute.wgsl binding order exactly:
     // 0-7: proj rw, 8-10: NPC ro, 11-12: NPC grid ro, 13: uniform,
     // 14-15: proj grid rw, 16: half_sizes ro, 17: entity_flags ro, 18: homing_targets rw
     let bind_group_layout = BindGroupLayoutDescriptor::new(
@@ -2197,7 +2197,7 @@ fn init_proj_compute_pipeline(
                 storage_buffer::<Vec<i32>>(false), // 15: proj_grid_data
                 // 16: entity hitbox half-sizes (read only)
                 storage_buffer_read_only::<Vec<[f32; 2]>>(false), // 16: entity_half_sizes
-                // 17: entity flags (read only -- UNTARGETABLE skip)
+                // 17: entity flags (read only. UNTARGETABLE skip)
                 storage_buffer_read_only::<Vec<u32>>(false), // 17: entity_flags
                 // 18: homing targets (read_write)
                 storage_buffer::<Vec<i32>>(false), // 18: homing_targets
