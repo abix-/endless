@@ -1,7 +1,7 @@
 //! SIMD-accelerated batch operations.
 //!
 //! Each function has AVX2 + scalar variants with runtime dispatch.
-//! First SIMD module in Endless -- establishes the pattern for future work.
+//! First SIMD module in Endless. Establishes the pattern for future work.
 
 // ============================================================================
 // ARRIVAL CHECK
@@ -89,7 +89,7 @@ unsafe fn batch_arrival_check_avx2(
     for chunk in 0..full_chunks {
         let base = chunk * 8;
         if base + 7 >= positions.len() || base + 7 >= targets.len() {
-            // Buffer too short for full SIMD load -- fall through to scalar tail
+            // Buffer too short for full SIMD load. Fall through to scalar tail
             scalar_start = chunk * 4;
             break;
         }
