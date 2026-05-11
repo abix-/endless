@@ -5,7 +5,7 @@ use crate::components::{
 use crate::constants::BOW_TOWER_STATS;
 use bevy::time::TimeUpdateStrategy;
 
-// -- level_from_xp -------------------------------------------------------
+//. Level_from_xp -------------------------------------------------------
 
 #[test]
 fn level_from_xp_zero() {
@@ -39,7 +39,7 @@ fn level_from_xp_between_levels() {
     assert_eq!(level_from_xp(300), 1); // sqrt(3) = 1.73 → floor = 1
 }
 
-// -- upgrade_cost --------------------------------------------------------
+//. Upgrade_cost --------------------------------------------------------
 
 #[test]
 fn upgrade_cost_level_0() {
@@ -70,7 +70,7 @@ fn upgrade_cost_caps_at_20() {
     assert_eq!(upgrade_cost(255), upgrade_cost(20));
 }
 
-// -- expansion_cost ------------------------------------------------------
+//. Expansion_cost ------------------------------------------------------
 
 #[test]
 fn expansion_cost_level_0() {
@@ -89,7 +89,7 @@ fn expansion_cost_scales_linearly() {
     assert_eq!(f, g);
 }
 
-// -- decode_upgrade_levels -----------------------------------------------
+//. Decode_upgrade_levels -----------------------------------------------
 
 #[test]
 fn decode_upgrade_levels_pads_short_input() {
@@ -108,7 +108,7 @@ fn decode_upgrade_levels_empty() {
     assert!(result.iter().all(|&v| v == 0));
 }
 
-// -- upgrade_unlocked / upgrade_available --------------------------------
+//. Upgrade_unlocked / upgrade_available --------------------------------
 
 #[test]
 fn upgrade_unlocked_no_prereqs() {
@@ -172,7 +172,7 @@ fn upgrade_available_needs_resources() {
     assert!(upgrade_available(&levels, idx, 100_000, 100_000));
 }
 
-// -- deduct_upgrade_cost -------------------------------------------------
+//. Deduct_upgrade_cost -------------------------------------------------
 
 #[test]
 fn deduct_upgrade_cost_decrements() {
@@ -194,7 +194,7 @@ fn deduct_upgrade_cost_decrements() {
     );
 }
 
-// -- format_upgrade_cost -------------------------------------------------
+//. Format_upgrade_cost -------------------------------------------------
 
 #[test]
 fn format_upgrade_cost_contains_resource_label() {
@@ -206,7 +206,7 @@ fn format_upgrade_cost_contains_resource_label() {
     );
 }
 
-// -- missing_prereqs -----------------------------------------------------
+//. Missing_prereqs -----------------------------------------------------
 
 #[test]
 fn missing_prereqs_none_when_satisfied() {
@@ -232,7 +232,7 @@ fn missing_prereqs_returns_string_when_unsatisfied() {
     }
 }
 
-// -- resolve_combat_stats ------------------------------------------------
+//. Resolve_combat_stats ------------------------------------------------
 
 fn default_config() -> CombatConfig {
     CombatConfig::default()
@@ -430,7 +430,7 @@ fn resolve_combat_stats_timid_negative_berserk() {
     );
 }
 
-// -- resolve_tower_instance_stats ----------------------------------------
+//. Resolve_tower_instance_stats ----------------------------------------
 
 #[test]
 fn resolve_tower_instance_stats_level_0_defaults() {
@@ -450,7 +450,7 @@ fn resolve_tower_instance_stats_level_scales() {
     assert!(stats_lv10.range > stats_lv0.range);
 }
 
-// -- proficiency_mult (unclamped linear) ----------------------------------
+//. Proficiency_mult (unclamped linear) ----------------------------------
 
 #[test]
 fn proficiency_mult_zero_is_one() {
@@ -473,7 +473,7 @@ fn proficiency_mult_9999_is_godlike() {
     assert!((proficiency_mult(cap) - 100.99).abs() < 0.01);
 }
 
-// -- UpgradeRegistry::stat_mult ------------------------------------------
+//. UpgradeRegistry::stat_mult ------------------------------------------
 
 #[test]
 fn stat_mult_zero_levels_returns_1() {
@@ -485,7 +485,7 @@ fn stat_mult_zero_levels_returns_1() {
     );
 }
 
-// -- auto_upgrade_system -------------------------------------------------
+//. Auto_upgrade_system -------------------------------------------------
 
 #[derive(Resource, Default)]
 struct CollectedUpgrades(Vec<(usize, usize)>); // (town_idx, upgrade_idx)
@@ -629,7 +629,7 @@ fn auto_upgrade_skips_unaffordable() {
         auto.ensure_towns(1);
         auto.flags[0][0] = true;
     }
-    // Zero resources — can't afford anything
+    // Zero resources. Can't afford anything
     app.world_mut()
         .resource_mut::<crate::resources::GameTime>()
         .hour_ticked = true;
@@ -641,7 +641,7 @@ fn auto_upgrade_skips_unaffordable() {
     );
 }
 
-// -- auto_tower_upgrade_system -------------------------------------------
+//. Auto_tower_upgrade_system -------------------------------------------
 
 fn setup_auto_tower_app() -> App {
     use crate::components::*;
@@ -783,7 +783,7 @@ fn auto_tower_upgrade_skips_disabled_flags() {
     );
 }
 
-// -- prune_town_equipment_system -------------------------------------------
+//. Prune_town_equipment_system -------------------------------------------
 
 fn setup_prune_app(item_count: usize) -> App {
     use crate::components::*;
