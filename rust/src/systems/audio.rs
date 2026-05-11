@@ -1,4 +1,4 @@
-//! Audio systems — music jukebox and SFX playback.
+//! Audio systems. Music jukebox and SFX playback.
 
 use crate::resources::{GameAudio, MusicTrack, PlaySfxMsg, SfxKind};
 use bevy::audio::Volume;
@@ -155,7 +155,7 @@ pub fn load_sfx(mut audio: ResMut<GameAudio>, server: Res<AssetServer>) {
     );
 }
 
-/// Play SFX on message receipt — random variant, max 1 per SfxKind per frame, camera-culled.
+/// Play SFX on message receipt. Random variant, max 1 per SfxKind per frame, camera-culled.
 pub fn play_sfx_system(
     mut commands: Commands,
     mut events: MessageReader<PlaySfxMsg>,
@@ -186,7 +186,7 @@ pub fn play_sfx_system(
         if matches!(event.kind, SfxKind::ArrowShoot) && !audio.sfx_shoot_enabled {
             continue;
         }
-        // Spatial cull FIRST — don't let off-screen events consume dedup slots
+        // Spatial cull FIRST. Don't let off-screen events consume dedup slots
         if event.position.is_some() {
             if let Some((cam_pos, half_w, half_h, scale)) = cam_info {
                 if scale > 2.0 {
@@ -202,7 +202,7 @@ pub fn play_sfx_system(
                 }
             }
         }
-        // Dedup AFTER cull — only on-screen events count
+        // Dedup AFTER cull. Only on-screen events count
         if !played.insert(std::mem::discriminant(&event.kind)) {
             continue;
         }
