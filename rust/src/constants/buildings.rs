@@ -1,4 +1,4 @@
-//! Building registry — single source of truth for all building definitions.
+//! Building registry. Single source of truth for all building definitions.
 
 use super::npcs::WeaponType;
 use super::npcs::{ItemKind, LootDrop};
@@ -55,7 +55,7 @@ pub enum SpawnBehavior {
     AtHome,
 }
 
-/// NPC spawner definition — what kind of NPC a building produces.
+/// NPC spawner definition. What kind of NPC a building produces.
 #[derive(Clone, Copy, Debug)]
 pub struct SpawnerDef {
     pub job: i32, // Job::from_i32 index (0=Farmer, 1=Archer, 2=Raider, 4=Miner, 5=Crossbow, 7=Woodcutter, 8=Quarrier)
@@ -83,7 +83,7 @@ pub struct WorksiteDef {
     pub one_shot: bool,
 }
 
-/// Complete building definition — one entry per BuildingKind.
+/// Complete building definition. One entry per BuildingKind.
 /// Index in BUILDING_REGISTRY = tileset index for GPU rendering.
 #[derive(Clone, Copy, Debug)]
 pub struct BuildingDef {
@@ -431,7 +431,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         tower_weapon_type: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
-    // 12: Road (dirt) — expands buildable area by 3 tiles
+    // 12: Road (dirt). Expands buildable area by 3 tiles
     BuildingDef {
         kind: BuildingKind::Road,
         display: DisplayCategory::Economy,
@@ -455,7 +455,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         tower_weapon_type: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
-    // 13: StoneRoad — expands buildable area by 5 tiles
+    // 13: StoneRoad. Expands buildable area by 5 tiles
     BuildingDef {
         kind: BuildingKind::StoneRoad,
         display: DisplayCategory::Economy,
@@ -479,7 +479,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         tower_weapon_type: None,
         lod_color: [1.0, 1.0, 1.0, 1.0],
     },
-    // 14: MetalRoad — expands buildable area by 7 tiles
+    // 14: MetalRoad. Expands buildable area by 7 tiles
     BuildingDef {
         kind: BuildingKind::MetalRoad,
         display: DisplayCategory::Economy,
@@ -1025,7 +1025,7 @@ mod tests {
             panic!("TreeNode tile is not Pick");
         };
         let count = variants.len();
-        // Test a range of positions -- all must produce a valid variant index.
+        // Test a range of positions. All must produce a valid variant index.
         for gx in -5i32..=5 {
             for gy in -5i32..=5 {
                 let wx = gx as f32 * crate::world::CELL as f32;
