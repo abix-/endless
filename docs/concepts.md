@@ -134,7 +134,7 @@ Used in: `npc_compute.wgsl` via `NpcComputeNode` in Bevy render graph
 
 ## GPU Instanced Rendering
 
-Draw thousands of sprites in one draw call. Each NPC is a textured quad with per-instance data. 1 draw call for all NPCs instead of 16K separate draw calls — GPU renders all instances in parallel via `VertexStepMode::Instance`.
+Draw thousands of sprites in one draw call. Each NPC is a textured quad with per-instance data. 1 draw call for all NPCs instead of 16K separate draw calls. GPU renders all instances in parallel via `VertexStepMode::Instance`.
 
 Used in: `npc_render.rs` (RenderCommand + Transparent2d), `npc_render.wgsl`. See [performance.md](performance.md) for the full instanced rendering architecture.
 
@@ -171,7 +171,7 @@ Used in: All game logic (spawn, combat, behavior, economy systems)
 
 ## GPU Readback Avoidance
 
-Reading data back from GPU to CPU is expensive — the GPU→CPU transfer stalls the pipeline. The render pipeline reads GPU buffers directly (no readback needed for rendering). CPU readback is async via Bevy's `ReadbackComplete` observers with throttling for non-critical fields.
+Reading data back from GPU to CPU is expensive. The GPU→CPU transfer stalls the pipeline. The render pipeline reads GPU buffers directly (no readback needed for rendering). CPU readback is async via Bevy's `ReadbackComplete` observers with throttling for non-critical fields.
 
 Used in: `GpuReadState` via Bevy async Readback. See [authority.md](authority.md) for readback cadences and [performance.md](performance.md) for readback minimization rules.
 
@@ -212,7 +212,7 @@ Not yet ported to `npc_compute.wgsl`.
 
 When two moving NPCs approach each other, dodge sideways instead of stopping.
 
-Named after TCP congestion avoidance — when packets collide, back off and try a different path.
+Named after TCP congestion avoidance. When packets collide, back off and try a different path.
 
 **The problem:** Two NPCs walking toward each other with symmetric separation forces will push directly against each other, creating a standoff or oscillation.
 
@@ -246,7 +246,7 @@ Not yet ported to `npc_compute.wgsl`.
 
 Bevy ECS represents states as marker components, not enums.
 
-**Collapsed enum approach** (Endless uses this — Factorio command model):
+**Collapsed enum approach** (Endless uses this. Factorio command model):
 ```rust
 #[derive(Component)]
 struct Activity {
@@ -269,11 +269,11 @@ enum ActivityKind {
 ```
 
 **Why collapsed enum + at_destination flag?**
-- Single `Activity` component — no archetype churn from add/remove
+- Single `Activity` component. No archetype churn from add/remove
 - `NpcFlags::at_destination` boolean replaces 9 separate transit variants
 - Payload data lives in variant fields, not extra struct fields
 - `Distraction` enum per-variant controls combat policy (None/ByDamage/ByEnemy)
-- Query `&Activity` once, match on `kind` — no multi-component state queries
+- Query `&Activity` once, match on `kind`. No multi-component state queries
 
 Used in: All NPC behavior (Patrol, Work, Rest, Heal, Raid, ReturnLoot, Mine, Wander, SquadAttack)
 
@@ -323,9 +323,9 @@ Frame N+1: Main World computes next frame  ← runs in parallel with render
            Render World processes frame N+1
 ```
 
-**Extract:** Small resources are cloned from main world to render world via `ExtractResourcePlugin`. Large data (`NpcGpuState`, `NpcVisualUpload`, `ProjBufferWrites`, `ProjPositionState`) uses `Extract<Res<T>>` for zero-clone immutable reads with direct `queue.write_buffer()` GPU upload during Extract. `GpuReadState` is not extracted at all — main-world only. This is the sync point — both worlds pause briefly, then resume in parallel.
+**Extract:** Small resources are cloned from main world to render world via `ExtractResourcePlugin`. Large data (`NpcGpuState`, `NpcVisualUpload`, `ProjBufferWrites`, `ProjPositionState`) uses `Extract<Res<T>>` for zero-clone immutable reads with direct `queue.write_buffer()` GPU upload during Extract. `GpuReadState` is not extracted at all. Main-world only. This is the sync point. Both worlds pause briefly, then resume in parallel.
 
-**Consequence:** One-frame render latency. The GPU renders positions from the previous main world frame. At 140fps this is ~7ms of latency — invisible.
+**Consequence:** One-frame render latency. The GPU renders positions from the previous main world frame. At 140fps this is ~7ms of latency. Invisible.
 
 Used in: `GpuComputePlugin` (NpcGpuData + NpcComputeParams via ExtractResourcePlugin), `NpcRenderPlugin` (extract_npc_data + extract_proj_data via Extract<Res<T>>, NpcBatch/ProjBatch marker entities)
 
@@ -337,12 +337,12 @@ NPCs spawn with 0-2 spectrum traits (7 axes, 14 names). Each axis has signed mag
 
 | Axis | + Pole | - Pole | Stat Effect | Behavior Effect |
 |------|--------|--------|-------------|-----------------|
-| Courage | Brave | Coward | — | +: never flees / -: flee threshold +20% |
+| Courage | Brave | Coward |. | +: never flees / -: flee threshold +20% |
 | Diligence | Efficient | Lazy | ±25% yield, ∓25% cooldown | +: work↑ / -: work↓ wander↑ |
 | Vitality | Hardy | Frail | ±25% HP | +: rest↓ eat↓ / -: rest↑ eat↑ |
 | Power | Strong | Weak | ±25% damage | +: fight↑ / -: fight↓ |
 | Agility | Swift | Slow | ±25% speed | +: wander↑ / -: wander↓ |
-| Precision | Sharpshot | Myopic | ±25% range | — |
+| Precision | Sharpshot | Myopic | ±25% range |. |
 | Ferocity | Berserker | Timid | ±50% damage <50% HP | +: fight↑ flee↓ / -: fight↓ flee↑ |
 
 ---
