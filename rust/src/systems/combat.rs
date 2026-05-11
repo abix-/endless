@@ -116,7 +116,7 @@ pub(crate) fn pick_npc_target(
     let gpu_entry = candidates.iter().find(|c| c.slot == gpu_candidate);
     let gpu_score = gpu_entry.map(score_of).unwrap_or((0, f32::MAX));
 
-    // Fast path: GPU candidate is non-retreating -- use it immediately.
+    // Fast path: GPU candidate is non-retreating. Use it immediately.
     if gpu_score.0 == 0 {
         return gpu_candidate;
     }
@@ -682,7 +682,7 @@ pub fn process_proj_hits(
                         .is_some_and(|c| matches!(c.terrain, Biome::Forest | Biome::Jungle))
                         && rng.random_range(0.0..1.0_f32) < 0.25
                     {
-                        // Miss -- projectile absorbed by forest/jungle cover
+                        // Miss. Projectile absorbed by forest/jungle cover
                         proj_alloc.free(slot);
                         proj_updates
                             .write(ProjGpuUpdateMsg(ProjGpuUpdate::Deactivate { idx: slot }));
@@ -700,7 +700,7 @@ pub fn process_proj_hits(
                             let mult = crate::systems::stats::proficiency_mult(skills.dodge);
                             let dodge_chance = 1.0 - 1.0 / mult;
                             if rng.random_range(0.0..1.0_f32) < dodge_chance {
-                                // Dodged -- grant dodge proficiency
+                                // Dodged. Grant dodge proficiency
                                 skills.dodge = (skills.dodge + crate::constants::DODGE_SKILL_RATE)
                                     .min(crate::constants::MAX_PROFICIENCY);
                                 proj_alloc.free(slot);
@@ -740,7 +740,7 @@ pub fn process_proj_hits(
 }
 
 /// Building tower auto-attack: reads GPU combat_targets readback for tower building slots.
-/// GPU spatial grid targeting finds nearest enemy — same path as NPC targeting.
+/// GPU spatial grid targeting finds nearest enemy. Same path as NPC targeting.
 pub fn building_tower_system(
     time: Res<Time>,
     game_time: Res<GameTime>,
@@ -977,7 +977,7 @@ pub fn building_tower_system(
 }
 
 /// Populate BuildingHpRender from building entity Health (only damaged buildings).
-/// Gated behind `BuildingHealState.needs_healing` — skips full query when no buildings are damaged.
+/// Gated behind `BuildingHealState.needs_healing`. Skips full query when no buildings are damaged.
 pub fn sync_building_hp_render(
     query: Query<(&Building, &GpuSlot, &Health), Without<Dead>>,
     gpu_state: Res<crate::gpu::EntityGpuState>,
@@ -1133,7 +1133,7 @@ mod tests {
         );
     }
 
-    // -- sync_building_hp_render ---------------------------------------------
+    //. Sync_building_hp_render ---------------------------------------------
 
     fn setup_hp_render_app() -> App {
         let mut app = App::new();
@@ -1510,7 +1510,7 @@ mod tests {
         );
     }
 
-    // -- pick_npc_target: target switching -----------------------------------
+    //. Pick_npc_target: target switching -----------------------------------
 
     fn make_candidate(
         slot: usize,
@@ -1593,7 +1593,7 @@ mod tests {
         // GPU candidate is retreating (slot 5). The only "better" candidate is same faction.
         let candidates = vec![
             make_candidate(5, 0.0, 50.0, true, 80.0, ENEMY_FACTION), // retreating (GPU)
-            make_candidate(8, 0.0, 60.0, false, 10.0, ATTACKER_FACTION), // same faction -- skip
+            make_candidate(8, 0.0, 60.0, false, 10.0, ATTACKER_FACTION), // same faction. Skip
         ];
         let result = pick_npc_target(5, Vec2::ZERO, RANGE, ATTACKER_FACTION, &candidates);
         assert_eq!(
@@ -1607,7 +1607,7 @@ mod tests {
     fn target_skips_neutral_faction() {
         let candidates = vec![
             make_candidate(5, 0.0, 50.0, true, 80.0, ENEMY_FACTION), // retreating (GPU)
-            make_candidate(6, 0.0, 60.0, false, 10.0, crate::constants::FACTION_NEUTRAL), // neutral -- skip
+            make_candidate(6, 0.0, 60.0, false, 10.0, crate::constants::FACTION_NEUTRAL), // neutral. Skip
         ];
         let result = pick_npc_target(5, Vec2::ZERO, RANGE, ATTACKER_FACTION, &candidates);
         assert_eq!(
@@ -1616,7 +1616,7 @@ mod tests {
         );
     }
 
-    // -- tower collection: registry-based filter ----------------------------
+    //. Tower collection: registry-based filter ----------------------------
 
     /// Regression: tower combat collection uses registry is_tower flag, not a hardcoded kind list.
     /// Verifies that iter_instances().filter(is_tower) returns exactly the tower-flagged buildings
@@ -1683,7 +1683,7 @@ mod tests {
             );
         }
     }
-    // -- Terrain combat modifiers -------------------------------------------
+    //. Terrain combat modifiers -------------------------------------------
 
     /// Forest cover: 25% of projectile hits on Forest-tile targets should miss.
     /// Runs 200 simultaneous hits and checks the damage count is within 3 sigma of 75%.
@@ -1709,7 +1709,7 @@ mod tests {
         }];
         app.insert_resource(grid);
 
-        // Target NPC lives at (32, 32) -- center of forest cell (0,0)
+        // Target NPC lives at (32, 32). Center of forest cell (0,0)
         let target_entity = app.world_mut().spawn(()).id();
         let mut entity_map = crate::resources::EntityMap::default();
         entity_map.register_npc(1, target_entity, crate::components::Job::Archer, 2, 0);
@@ -1902,7 +1902,7 @@ mod tests {
         let mut app = setup_attack_app();
         app.insert_resource(crate::world::WorldGrid::default());
 
-        // Target at slot 1, faction 2 (enemy) -- registered in EntityMap (ECS authority)
+        // Target at slot 1, faction 2 (enemy). Registered in EntityMap (ECS authority)
         let target = app.world_mut().spawn(()).id();
         {
             let mut em = app
