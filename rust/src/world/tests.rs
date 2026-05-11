@@ -7,7 +7,7 @@ use crate::world::worldgen::spawn_resource_nodes;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::time::TimeUpdateStrategy;
 
-// -- rebuild_building_grid_system signal tests ----------------------------
+//. Rebuild_building_grid_system signal tests ----------------------------
 
 #[derive(bevy::prelude::Resource, Default)]
 struct SendBuildingGridDirty(bool);
@@ -64,7 +64,7 @@ fn spatial_incremental_add_instance_findable() {
             town_idx: 0,
             faction: 1,
         });
-    // No dirty message needed -- add_instance maintains spatial incrementally
+    // No dirty message needed. Add_instance maintains spatial incrementally
     let em = app.world().resource::<EntityMap>();
     let mut found = false;
     em.for_each_nearby(pos, 200.0, |_, _| found = true);
@@ -85,7 +85,7 @@ fn spatial_incremental_after_init_no_rebuild_needed() {
         em.init_spatial(16.0 * 64.0);
     }
 
-    // Add building after spatial is initialized -- spatial_insert should work immediately
+    // Add building after spatial is initialized. Spatial_insert should work immediately
     let pos = Vec2::new(32.0, 32.0);
     app.world_mut()
         .resource_mut::<EntityMap>()
@@ -97,7 +97,7 @@ fn spatial_incremental_after_init_no_rebuild_needed() {
             faction: 1,
         });
 
-    // Run WITHOUT BuildingGridDirtyMsg -- building should be in spatial already
+    // Run WITHOUT BuildingGridDirtyMsg. Building should be in spatial already
     app.update();
     let em = app.world().resource::<EntityMap>();
     let mut found = false;
@@ -186,7 +186,7 @@ fn building_added_after_init_findable_without_dirty_message() {
         });
     app.update();
 
-    // The new building must be findable -- add_instance calls spatial_insert inline
+    // The new building must be findable. Add_instance calls spatial_insert inline
     let em = app.world().resource::<EntityMap>();
     let mut found = false;
     em.for_each_nearby(pos_b, 200.0, |_, _| found = true);
@@ -472,7 +472,7 @@ fn worldmap_generates_corridors_and_ice_caps() {
     grid.cell_size = 64.0;
     grid.cells = vec![WorldCell::default(); 100 * 100];
 
-    // Fixed seed for determinism -- avoids flaky failures from unlucky random maps.
+    // Fixed seed for determinism. Avoids flaky failures from unlucky random maps.
     generate_terrain_worldmap(&mut grid, 0x1234_5678_9abc_def0);
 
     // Count biome types
@@ -540,7 +540,7 @@ fn worldmap_biomes_follow_latitude() {
     // Fixed seed for determinism.
     generate_terrain_worldmap(&mut grid, 0x1234_5678_9abc_def0);
 
-    // Sample equatorial band (rows 90-110) -- should have warm biomes only
+    // Sample equatorial band (rows 90-110). Should have warm biomes only
     let mut equatorial_warm = 0usize;
     let mut equatorial_tundra = 0usize;
     let mut equatorial_total = 0usize;
@@ -655,7 +655,7 @@ fn worldgen_style_roundtrip() {
     }
 }
 
-// -- path validation tests ------------------------------------------------
+//. Path validation tests ------------------------------------------------
 
 /// Build a passable 10x10 grid and a WorldData with one town centered at (5,5).
 fn path_test_grid() -> (WorldGrid, WorldData) {
@@ -708,7 +708,7 @@ fn add_bld(
 }
 
 /// Regression test: placing a wall that fully surrounds the fountain is rejected.
-/// Scenario: 3 walls already around fountain, 4th wall seals it -- must be rejected.
+/// Scenario: 3 walls already around fountain, 4th wall seals it. Must be rejected.
 #[test]
 fn wall_sealing_fountain_is_rejected() {
     let (mut grid, world_data) = path_test_grid();
@@ -719,9 +719,9 @@ fn wall_sealing_fountain_is_rejected() {
 
     // Mark 3 neighbors of (5,5) as walls (impassable in cost grid)
     let w = grid.width;
-    grid.pathfind_costs[5 * w + 4] = 0; // (4,5) -- left
-    grid.pathfind_costs[5 * w + 6] = 0; // (6,5) -- right
-    grid.pathfind_costs[4 * w + 5] = 0; // (5,4) -- below
+    grid.pathfind_costs[5 * w + 4] = 0; // (4,5). Left
+    grid.pathfind_costs[5 * w + 6] = 0; // (6,5). Right
+    grid.pathfind_costs[4 * w + 5] = 0; // (5,4). Below
 
     // Placing the 4th wall at (5,6) (above) would seal the fountain
     let result = grid.would_block_critical_access(&entity_map, 5, 6, 0, &world_data);
@@ -793,7 +793,7 @@ fn worldmap_is_deterministic_for_same_seed() {
     );
 }
 
-/// Regression: worldmap rivers -- some cells near continent seeds are Water (rivers carved).
+/// Regression: worldmap rivers. Some cells near continent seeds are Water (rivers carved).
 /// Uses a large grid so rivers have room to form and reach the coast.
 #[test]
 fn worldmap_rivers_carve_water_inland() {
@@ -827,7 +827,7 @@ fn worldmap_rivers_carve_water_inland() {
     );
 }
 
-/// Regression: worldmap volcanoes -- some Rock clusters exist at non-ice-cap land.
+/// Regression: worldmap volcanoes. Some Rock clusters exist at non-ice-cap land.
 /// Volcanoes stamp Rock at high-elevation coastal cells. With a large enough grid,
 /// at least some Rock should appear in temperate land zones (not just ice caps).
 #[test]
@@ -891,7 +891,7 @@ fn new_biome_pathfind_costs() {
 }
 
 /// Regression: placing a wall that leaves a gap is accepted.
-/// Scenario: 2 walls around fountain, 3rd wall placed -- still has one open neighbor.
+/// Scenario: 2 walls around fountain, 3rd wall placed. Still has one open neighbor.
 #[test]
 fn wall_leaving_gap_is_accepted() {
     let (mut grid, world_data) = path_test_grid();
@@ -900,12 +900,12 @@ fn wall_leaving_gap_is_accepted() {
     // Place fountain at town center (5,5)
     add_bld(&mut entity_map, &grid, BuildingKind::Fountain, 5, 5, 0);
 
-    // Only 2 neighbors blocked -- one still open
+    // Only 2 neighbors blocked. One still open
     let w = grid.width;
     grid.pathfind_costs[5 * w + 4] = 0; // (4,5) blocked
     grid.pathfind_costs[4 * w + 5] = 0; // (5,4) blocked
 
-    // Placing a wall at (6,5) -- leaves (5,6) still open
+    // Placing a wall at (6,5). Leaves (5,6) still open
     let result = grid.would_block_critical_access(&entity_map, 6, 5, 0, &world_data);
     assert!(
         result.is_none(),
