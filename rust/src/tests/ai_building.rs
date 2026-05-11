@@ -1,4 +1,4 @@
-//! AI Building Test — observe AI town building in isolation.
+//! AI Building Test. Observe AI town building in isolation.
 //! Setup: 1 AI town, 100K food+gold, 1s decision interval.
 //! Phase 1: egui personality picker (Economic default).
 //! Phase 2: auto-passes, scene runs indefinitely for observation.
@@ -82,7 +82,7 @@ pub(super) fn setup(
     );
 }
 
-/// Egui UI — runs in EguiPrimaryContextPass so buttons actually receive clicks.
+/// Egui UI. Runs in EguiPrimaryContextPass so buttons actually receive clicks.
 /// Only shows personality picker (phase 1). Use Factions tab (I key) for AI stats.
 pub fn ui(mut contexts: EguiContexts, mut test: ResMut<TestState>) -> Result {
     if test.phase != 1 {
@@ -110,7 +110,7 @@ pub fn ui(mut contexts: EguiContexts, mut test: ResMut<TestState>) -> Result {
     Ok(())
 }
 
-/// Tick — non-UI logic: phase transitions and AI personality assignment.
+/// Tick. Non-UI logic: phase transitions and AI personality assignment.
 pub fn tick(mut ai_state: ResMut<AiPlayerState>, time: Res<Time>, mut test: ResMut<TestState>) {
     let Some(elapsed) = test.tick_elapsed(&time) else {
         return;
