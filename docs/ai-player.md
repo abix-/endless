@@ -1,6 +1,6 @@
 # AI Player System
 
-Autonomous opponents that build, upgrade, and fight like the player. Each AI settlement gets a personality that drives all decisions through weighted random scoring — same pattern as NPC behavior. The player's own town can also be managed by this system via the AI Manager toggle in the Policies tab.
+Autonomous opponents that build, upgrade, and fight like the player. Each AI settlement gets a personality that drives all decisions through weighted random scoring. Same pattern as NPC behavior. The player's own town can also be managed by this system via the AI Manager toggle in the Policies tab.
 
 **Source**: `rust/src/systems/ai_player/mod.rs`, `rust/src/systems/ai_player/decision.rs`, `rust/src/systems/ai_player/squad_commander.rs`, `rust/src/systems/economy/mod.rs`
 
@@ -27,7 +27,7 @@ Assigned randomly at creation. Drives every decision the AI makes. All personali
 | **Slot placement: homes** | `farmer_home_border_score` (must border farms) | `balanced_house_side_score` (beside axis rays, not on them) | same as Aggressive |
 | **Road weight** | 2.0 | 3.0 | 8.0 |
 | **Road batch size** | 4 | 3 | 6 |
-| **Road pattern** | *(see RoadStyle below — randomly assigned per town, independent of personality)* |||
+| **Road pattern** | *(see RoadStyle below. Randomly assigned per town, independent of personality)* |||
 
 ### Mining
 
@@ -78,7 +78,7 @@ Dynamic weight vector built from `UPGRADES` registry (category + stat_kind looku
 
 ## Road Style
 
-`RoadStyle` enum — randomly assigned per AI town at creation, independent of personality. Stored on `AiPlayer` and persisted in save files.
+`RoadStyle` enum. Randomly assigned per AI town at creation, independent of personality. Stored on `AiPlayer` and persisted in save files.
 
 | Style | Pattern | Description |
 |-------|---------|-------------|
@@ -87,9 +87,9 @@ Dynamic weight vector built from `UPGRADES` registry (category + stat_kind looku
 | `Grid4` | `rem_euclid(4) == 0` | 4×4 regular grid |
 | `Grid5` | `rem_euclid(5) == 0` | 5×5 regular grid (sparser) |
 
-`RoadStyle::random(rng)` picks uniformly from all 4 variants. Road scoring early-outs entirely when `road_style == None`. Cardinal corridors extend beyond town bounds (2× build radius) — cells outside bounds skip the economy-adjacency requirement.
+`RoadStyle::random(rng)` picks uniformly from all 4 variants. Road scoring early-outs entirely when `road_style == None`. Cardinal corridors extend beyond town bounds (2× build radius). Cells outside bounds skip the economy-adjacency requirement.
 
-Road style affects waypoint ring placement — `waypoint_ring_slots` skips road-pattern slots (except corners) to prevent overlap.
+Road style affects waypoint ring placement. `waypoint_ring_slots` skips road-pattern slots (except corners) to prevent overlap.
 
 ## Decision Loop
 
@@ -125,8 +125,8 @@ When the picked building action fails to execute (e.g., no valid road candidates
 
 Before the food reserve gate, the AI checks if `mine_shafts < min_miner_homes` (personality-driven: Aggressive=1, Balanced=2, Economic=3). Two gates work together:
 
-1. **Build gate**: If mines exist and `food >= 4` (miner home cost), build a miner home immediately — bypassing both the food reserve gate and weighted random scoring.
-2. **Hoard gate**: If mines exist but `food < 4`, skip the entire tick — no other buildings are built, allowing food to accumulate until the build gate can fire.
+1. **Build gate**: If mines exist and `food >= 4` (miner home cost), build a miner home immediately. Bypassing both the food reserve gate and weighted random scoring.
+2. **Hoard gate**: If mines exist but `food < 4`, skip the entire tick. No other buildings are built, allowing food to accumulate until the build gate can fire.
 
 This guarantees early mining infrastructure regardless of food pressure or competing building scores. The hoard gate reserves food for miner-home bootstrap, then normal scored building resumes after `min_miner_homes` are reached.
 
@@ -136,13 +136,13 @@ This guarantees early mining infrastructure regardless of food pressure or compe
 reserve = food_reserve_per_spawner × spawner_count + policy.reserve_food
 ```
 
-Every spawner building (farmer home, archer home, crossbow home, fighter home, miner home) counts. The AI won't spend food if at or below reserve (except for the deterministic miner bootstrap above). For the player's town, `PolicySet.reserve_food` is added on top of the personality reserve. Gold spending also respects `PolicySet.reserve_gold` — added to `expansion_gold_reserve` as a baseline floor. This prevents self-starvation but also slows building as the town grows.
+Every spawner building (farmer home, archer home, crossbow home, fighter home, miner home) counts. The AI won't spend food if at or below reserve (except for the deterministic miner bootstrap above). For the player's town, `PolicySet.reserve_food` is added on top of the personality reserve. Gold spending also respects `PolicySet.reserve_gold`. Added to `expansion_gold_reserve` as a baseline floor. This prevents self-starvation but also slows building as the town grows.
 
 ### Desire Signals
 
 Four desire signals computed once per tick, used as multiplicative gates on building scores:
 
-**Food desire** — drives farm and farmer home construction:
+**Food desire**. Drives farm and farmer home construction:
 ```
 food_desire = clamp(1.0 - (food - reserve) / reserve, 0.0, 1.0)
 ```
@@ -150,21 +150,21 @@ food_desire = clamp(1.0 - (food - reserve) / reserve, 0.0, 1.0)
 - `1.0` → food is at reserve floor (maximum urgency)
 - Aggressive (reserve=0) uses absolute fallback: food < 5 → 0.8, food < 10 → 0.4, else 0.0
 
-**Military desire** — drives barracks, crossbow homes, and waypoint construction:
+**Military desire**. Drives barracks, crossbow homes, and waypoint construction:
 ```
 barracks_gap = (target - barracks) / target
 waypoint_gap = min((barracks - waypoints) / barracks, 0.5)   // capped to prevent snowball
 military_desire = clamp(barracks_gap × 0.75 + waypoint_gap × 0.25, 0.0, 1.0)
 ```
 
-**Gold desire** — drives mining and gold-costing upgrades:
+**Gold desire**. Drives mining and gold-costing upgrades:
 ```
 cheapest_gold = cost of cheapest affordable gold upgrade
 gold_desire = clamp((1 - gold / cheapest_gold) × gold_desire_mult, 0..1)
 ```
 Falls back to `base_mining_desire()` if no gold upgrades exist.
 
-**Population ratio correction** — symmetric rebalancing when military/civilian ratio drifts from target (requires 10+ total NPCs):
+**Population ratio correction**. Symmetric rebalancing when military/civilian ratio drifts from target (requires 10+ total NPCs):
 ```
 if actual_military_ratio < target:
     ratio_health = actual / target                 // 0..1
@@ -176,7 +176,7 @@ if actual_military_ratio > target:
     food_desire += excess × 0.5                    // boost food → build civilians
 ```
 
-**Economy desire** — floors other desires while town has empty slots:
+**Economy desire**. Floors other desires while town has empty slots:
 ```
 economy_desire = 1.0 - slot_fullness
 food_desire = max(food_desire, economy_desire)
@@ -187,7 +187,7 @@ Prevents building scores from collapsing to zero while the town still has room t
 
 ## Building Scoring
 
-Each eligible action gets a score = `base_weight × need_multiplier`. All scores go into a weighted random draw. Desire signals act as multiplicative gates — when desire is 0, the corresponding building category scores 0.
+Each eligible action gets a score = `base_weight × need_multiplier`. All scores go into a weighted random draw. Desire signals act as multiplicative gates. When desire is 0, the corresponding building category scores 0.
 
 ### Need Multipliers
 
@@ -208,9 +208,9 @@ Each eligible action gets a score = `base_weight × need_multiplier`. All scores
 
 **Miner homes:** Only scored when miner deficit > 0: `gold_desire × deficit`. Uses house base weight `hw`. Gets 5× bootstrap boost when current miner homes < personality's `min_miner_homes` to guarantee early mining. Miner target has a floor of `mines_in_radius` (at least 1 miner per in-radius mine).
 
-**Roads:** `road_weight × road_need` where `road_need = min(road_candidates, economy_buildings - roads/2)`. Pre-checks actual candidate availability via `count_road_candidates()` — if no road-pattern slots are available near economy buildings, roads aren't scored at all. Scored when `road_style != None` and `road_weight > 0` and food ≥ 4× road cost. Places roads in the town's `RoadStyle` grid pattern (see Road Style section) near economy buildings (farms, farmer homes, miner homes) within Chebyshev distance ≤ 2, scored by adjacency count. Batch places multiple roads per action (batch size per personality). **Cardinal attack corridors**: when `road_style == Cardinal`, cardinal axis roads extend to 2× the build radius as offensive attack routes — cells outside town bounds skip the economy-adjacency requirement, scored at priority 1 (built after inner utility roads).
+**Roads:** `road_weight × road_need` where `road_need = min(road_candidates, economy_buildings - roads/2)`. Pre-checks actual candidate availability via `count_road_candidates()`. If no road-pattern slots are available near economy buildings, roads aren't scored at all. Scored when `road_style != None` and `road_weight > 0` and food ≥ 4× road cost. Places roads in the town's `RoadStyle` grid pattern (see Road Style section) near economy buildings (farms, farmer homes, miner homes) within Chebyshev distance ≤ 2, scored by adjacency count. Batch places multiple roads per action (batch size per personality). **Cardinal attack corridors**: when `road_style == Cardinal`, cardinal axis roads extend to 2× the build radius as offensive attack routes. Cells outside town bounds skip the economy-adjacency requirement, scored at priority 1 (built after inner utility roads).
 
-**Waypoints:** `military_desire × gap` where gap = waypoint_target − waypoints. Waypoint target = `max(total_military_homes, perimeter_ring_size)` — ensures enough waypoints to fill the personality's outer ring even when military homes haven't caught up. Scored when waypoints < target. Waypoints are placed on the perimeter ring (see Slot Placement).
+**Waypoints:** `military_desire × gap` where gap = waypoint_target − waypoints. Waypoint target = `max(total_military_homes, perimeter_ring_size)`. Ensures enough waypoints to fill the personality's outer ring even when military homes haven't caught up. Scored when waypoints < target. Waypoints are placed on the perimeter ring (see Slot Placement).
 
 ### Raider AI
 
@@ -231,7 +231,7 @@ Buildings use scored slot selection with fallback to center-nearest. Scorer func
 
 **Road and waypoint-aware placement:** All non-road building placement (both `find_inner_slot` and snapshot empty slots) filters out slots that match the town's road style pattern (`RoadStyle::is_road_slot`) or waypoint ring (`waypoint_ring_slots`). This prevents buildings from being placed on future road or waypoint positions.
 
-**Fallback:** If no snapshot or scorer produces a candidate, `find_inner_slot` picks the empty non-road slot closest to town center. All buildings use the unified `place_building` (world-position-based) — callers convert world grid `(col, row)` to pixel position via `grid.grid_to_world(col, row)` before calling.
+**Fallback:** If no snapshot or scorer produces a candidate, `find_inner_slot` picks the empty non-road slot closest to town center. All buildings use the unified `place_building` (world-position-based). Callers convert world grid `(col, row)` to pixel position via `grid.grid_to_world(col, row)` before calling.
 
 ## Mining & Expansion
 
@@ -250,14 +250,14 @@ Buildings use scored slot selection with fallback to center-nearest. Scorer func
 
 The TownArea upgrade has special rules beyond normal upgrade scoring:
 - Phase 2 blocks all non-expansion upgrades while town has empty slots (`has_slots && !is_expansion → skip`)
-- Expansion itself is delayed while `has_slots` and AI can afford any building (cheapest of farm/farmer home/archer home/miner home) — ensures Phase 1 fills slots before expanding
+- Expansion itself is delayed while `has_slots` and AI can afford any building (cheapest of farm/farmer home/archer home/miner home). Ensures Phase 1 fills slots before expanding
 - Urgency ramps with slot fullness: 70%→100% = 2×→6× weight
 - Hard 10× boost when no empty slots remain
 - **Gold hoarding**: when `!has_slots`, computes the gold cost of the cheapest available expansion upgrade and reserves that amount. Non-expansion upgrades that cost gold are skipped unless `gold_after - upgrade_gold_cost ≥ expansion_gold_reserve`. Food-only upgrades are unaffected. Prevents the AI from draining gold on stat upgrades while waiting for expansion.
 
 ## Squad Commander
 
-`ai_squad_commander_system` runs on a 2-second heartbeat timer (`AI_SQUAD_HEARTBEAT`). Skips entirely when the timer hasn't elapsed — near-zero cost most frames. Military unit counts per town use a focused ECS query `(&Job, &TownId)` with `Without<Building>, Without<Dead>` instead of `EntityMap` NPC scan. Both Builder and Raider AIs use squads. Squad counts and splits are personality-driven (see Personalities section). All military unit types (archers, crossbows, fighters, raiders) participate.
+`ai_squad_commander_system` runs on a 2-second heartbeat timer (`AI_SQUAD_HEARTBEAT`). Skips entirely when the timer hasn't elapsed. Near-zero cost most frames. Military unit counts per town use a focused ECS query `(&Job, &TownId)` with `Without<Building>, Without<Dead>` instead of `EntityMap` NPC scan. Both Builder and Raider AIs use squads. Squad counts and splits are personality-driven (see Personalities section). All military unit types (archers, crossbows, fighters, raiders) participate.
 
 ### Squad Roles (Builder AIs)
 
@@ -267,7 +267,7 @@ The TownArea upgrade has special rules beyond normal upgrade scoring:
 
 ### Raider Squads
 
-Raider towns get 1 squad containing all raiders. No reserve/attack split — the single squad always attacks. Targets nearest enemy farm via `pick_raider_farm_target()`. Replaces the old `RaidQueue` group-formation system.
+Raider towns get 1 squad containing all raiders. No reserve/attack split. The single squad always attacks. Targets nearest enemy farm via `pick_raider_farm_target()`. Replaces the old `RaidQueue` group-formation system.
 
 Builder squads set `loot_threshold` from personality (Aggressive=5, Balanced=3, Economic=1). Raider squads use `loot_threshold = 3`. AI squads intentionally keep `hold_fire = false` so reserve squads auto-engage defenders and attack waves fight once dispatched. All squads have `rest_when_tired = true` (except raider squads: `rest_when_tired = false`).
 
@@ -275,8 +275,8 @@ Builder squads set `loot_threshold` from personality (Aggressive=5, Balanced=3, 
 
 Attack squads use a gather→dispatch→retreat model instead of continuous retargeting:
 
-1. **Gathering**: Squad accumulates members via `squad_cleanup_system` recruitment. No target set — units idle or patrol near base.
-2. **Threshold**: When `members.len() >= wave_min_start` AND cooldown expired, pick a target. Target stored as `AiSquadCmdState.building_uid: Option<Entity>` (Bevy entity identity — survives slot reuse).
+1. **Gathering**: Squad accumulates members via `squad_cleanup_system` recruitment. No target set. Units idle or patrol near base.
+2. **Threshold**: When `members.len() >= wave_min_start` AND cooldown expired, pick a target. Target stored as `AiSquadCmdState.building_uid: Option<Entity>` (Bevy entity identity. Survives slot reuse).
 3. **Dispatch**: Set squad target, `wave_active = true`, record `wave_start_count = members.len()`. All squad members redirect to target via squad sync in `decision_system`.
 4. **End conditions**: Wave ends when target is destroyed (Entity resolves to None via `instance_by_entity`) OR alive members drop below `wave_retreat_below_pct` % of `wave_start_count` (heavy losses).
 5. **Reset**: Clear target, `wave_active = false`, apply retarget cooldown with jitter. Squad returns to gathering.
@@ -294,8 +294,8 @@ Search radius: 5000px from town center. Cooldown includes ±2s jitter. Initial c
 
 `sync_patrol_perimeter_system` (flag-gated via `PerimeterSyncDirty` resource, set by `perimeter_dirty_drain_system`):
 1. Compute personality's ideal outer ring via `waypoint_ring_slots(tg, road_style)` (perimeter walk with corners + min spacing, skips road-pattern slots)
-2. Check ring completeness — only prune inner/old waypoints after the new outer ring is fully established. An ideal slot counts as "covered" if it has a waypoint OR any other building (prevents a blocked slot from permanently disabling pruning).
-3. Prune waypoints not in the ideal ring (resolves exact building slot by town-grid coords, sends lethal `DamageMsg`) — when town area expands, the ring shifts outward and inner waypoints are destroyed after the new ring fills in
+2. Check ring completeness. Only prune inner/old waypoints after the new outer ring is fully established. An ideal slot counts as "covered" if it has a waypoint OR any other building (prevents a blocked slot from permanently disabling pruning).
+3. Prune waypoints not in the ideal ring (resolves exact building slot by town-grid coords, sends lethal `DamageMsg`). When town area expands, the ring shifts outward and inner waypoints are destroyed after the new ring fills in
 4. Recalculate clockwise patrol order (angle-based sort around town center)
 
 ## Migration (Dynamic Raider Towns)
@@ -333,19 +333,19 @@ Group size capped at 20 raiders. Random personality assigned at spawn.
 
 ## Player AI Manager
 
-The player's town (faction FACTION_PLAYER=1) gets an `AiPlayer` registered at world gen with `active: false`, `AiKind::Builder`, `AiPersonality::Balanced`, `RoadStyle::Grid4`. The existing `ai_decision_system` loop checks `player.active` — toggling it on via the Policies tab enables the full AI builder for the player's town.
+The player's town (faction FACTION_PLAYER=1) gets an `AiPlayer` registered at world gen with `active: false`, `AiKind::Builder`, `AiPersonality::Balanced`, `RoadStyle::Grid4`. The existing `ai_decision_system` loop checks `player.active`. Toggling it on via the Policies tab enables the full AI builder for the player's town.
 
 ### Controls (Policies Tab → AI Manager)
 
 | Control | Effect |
 |---------|--------|
-| **Enable AI Manager** | Toggles `player.active` — when on, the AI decision loop runs for the player's town |
+| **Enable AI Manager** | Toggles `player.active`. When on, the AI decision loop runs for the player's town |
 | **Auto-Build** | Gates Phase 1 (building placement). When off, only upgrades are purchased |
 | **Auto-Upgrade** | Gates Phase 2 (upgrade purchasing). When off, only buildings are placed |
-| **Strategy** | Personality picker (Aggressive/Balanced/Economic) — drives all building/upgrade/squad decisions |
+| **Strategy** | Personality picker (Aggressive/Balanced/Economic). Drives all building/upgrade/squad decisions |
 | **Roads** | Road style picker (None/Cardinal/Grid 4/Grid 5) |
-| **Reserve Food** | `PolicySet.reserve_food` — AI/auto-upgrade won't spend food below this floor (0–10000, default 0) |
-| **Reserve Gold** | `PolicySet.reserve_gold` — AI/auto-upgrade won't spend gold below this floor (0–10000, default 0) |
+| **Reserve Food** | `PolicySet.reserve_food`. AI/auto-upgrade won't spend food below this floor (0–10000, default 0) |
+| **Reserve Gold** | `PolicySet.reserve_gold`. AI/auto-upgrade won't spend gold below this floor (0–10000, default 0) |
 
 ### Implementation
 
@@ -355,4 +355,4 @@ The player's town (faction FACTION_PLAYER=1) gets an `AiPlayer` registered at wo
 - Both fields are persisted in `AiPlayerSave` with `#[serde(default = "default_true")]` for backward compat
 - `FactionsParams.ai_state` is `ResMut<AiPlayerState>` (upgraded from `Res`) to allow mutation from the Policies tab
 - **Settings persistence**: AI Manager state (active, build_enabled, upgrade_enabled, personality, road_style) saved to `UserSettings` on panel close and restored on game startup. Fields: `ai_manager_active`, `ai_manager_build`, `ai_manager_upgrade`, `ai_manager_personality` (u8: 0=Aggressive, 1=Balanced, 2=Economic), `ai_manager_road_style` (u8: 0=None, 1=Cardinal, 2=Grid4, 3=Grid5)
-- **BRP endpoint**: `endless/ai_manager` in `systems/remote.rs` — configures AI Manager for any town via HTTP JSON-RPC (see [brp.md](brp.md))
+- **BRP endpoint**: `endless/ai_manager` in `systems/remote.rs`. Configures AI Manager for any town via HTTP JSON-RPC (see [brp.md](brp.md))
