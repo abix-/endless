@@ -72,7 +72,7 @@ pub struct NpcSprite {
 #[derive(Component)]
 pub struct MainCamera;
 
-/// Camera state for the render world — extracted from Bevy camera each frame.
+/// Camera state for the render world. Extracted from Bevy camera each frame.
 /// Not used in the main world; input systems write to Transform + Projection directly.
 #[derive(Resource, Clone)]
 pub struct CameraState {
@@ -693,7 +693,7 @@ fn click_to_select_system(
     );
     let world_pos = position + mouse_offset / zoom;
 
-    // Mine assignment — snap to nearest gold mine within radius
+    // Mine assignment. Snap to nearest gold mine within radius
     if let Some(mh_slot) = click.ui_state.assigning_mine {
         let snap_radius = 60.0;
         let best = click
@@ -927,7 +927,7 @@ fn box_select_system(
                                     .is_some_and(|s| !selected_set.contains(&s))
                             });
                         }
-                        // Set as the squad's members (replace, not append) — convert slots to UIDs
+                        // Set as the squad's members (replace, not append). Convert slots to UIDs
                         squad_state.squads[si].members = selected_slots
                             .iter()
                             .filter_map(|&slot| entity_map.entities.get(&slot).copied())
@@ -1005,7 +1005,7 @@ fn spawn_world_tilemap(
     };
     let extra_refs: Vec<&Image> = extra_imgs.iter().collect();
 
-    // Terrain layer — split into CHUNK_SIZE x CHUNK_SIZE chunks for frustum culling
+    // Terrain layer. Split into CHUNK_SIZE x CHUNK_SIZE chunks for frustum culling
     let terrain_tileset = build_tileset(&atlas, &TERRAIN_TILES, &[], &mut images);
     let tile_disp = UVec2::new(grid.cell_size as u32, grid.cell_size as u32);
     let mut chunk_count = 0u32;
@@ -1222,7 +1222,7 @@ mod tests {
             TerrainChunk,
         ));
 
-        // Write a tile-specific dirty message for tile (5, 5) -- inside chunk 0.
+        // Write a tile-specific dirty message for tile (5, 5). Inside chunk 0.
         app.world_mut()
             .run_system_once(|mut w: MessageWriter<TerrainDirtyMsg>| {
                 w.write(TerrainDirtyMsg { tile: Some((5, 5)) });
@@ -1835,7 +1835,7 @@ mod tests {
                 *t = Some(TileData::from_tileset_index(99));
             }
         }
-        // Second run WITHOUT message -- tile_data should remain sentinel
+        // Second run WITHOUT message. Tile_data should remain sentinel
         app.update();
         let mut query = app.world_mut().query::<&TilemapChunkTileData>();
         let tile_data = query.single(app.world()).unwrap().0.clone();
