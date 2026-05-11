@@ -49,7 +49,7 @@ pub fn setup(mut params: TestSetupParams) {
         params.add_waypoint(gx, gy, 0, order as u32);
     }
 
-    // Spawner buildings — the spawner_respawn_system will auto-create NPCs
+    // Spawner buildings. The spawner_respawn_system will auto-create NPCs
     // 5 farmer homes → 5 farmers
     for i in 0..5 {
         params.add_building(
