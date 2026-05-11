@@ -370,7 +370,7 @@ pub fn bottom_panel_system(
     Ok(())
 }
 
-/// Tower upgrade popup — big buttons, explanations, per-stat auto-buy.
+/// Tower upgrade popup. Big buttons, explanations, per-stat auto-buy.
 fn tower_upgrade_window(
     ctx: &egui::Context,
     bld: &mut BuildingInspectorData,
