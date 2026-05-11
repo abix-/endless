@@ -1068,7 +1068,7 @@ fn pick_settle_site(
 /// Phase 1: Spawn boat at map edge (no town, no NPCs)
 /// Phase 2: Sail toward settle site, disembark NPCs on shore
 /// Phase 3: NPCs walk toward settle target, attach Migrating
-/// Phase 4: Settle near target — create AI town, place buildings, activate AI
+/// Phase 4: Settle near target. Create AI town, place buildings, activate AI
 pub fn endless_system(
     mut endless: ResMut<EndlessMode>,
     mut migration_state: ResMut<MigrationState>,
@@ -1101,7 +1101,7 @@ pub fn endless_system(
     let world_w = world_state.grid.width as f32 * world_state.grid.cell_size;
     let world_h = world_state.grid.height as f32 * world_state.grid.cell_size;
 
-    // === BOAT SAIL — move boat toward settle target, disembark when on shore ===
+    // === BOAT SAIL. Move boat toward settle target, disembark when on shore ===
     if let Some(mg) = &mut migration_state.active {
         if let Some(boat_slot) = mg.boat_slot {
             let dir = (mg.settle_target - mg.boat_pos).normalize_or_zero();
@@ -1122,7 +1122,7 @@ pub fn endless_system(
                 .unwrap_or(true);
 
             if !on_water {
-                // === DISEMBARK — spawn NPCs at boat position ===
+                // === DISEMBARK. Spawn NPCs at boat position ===
                 let next_faction = world_state
                     .world_data
                     .towns
@@ -1207,7 +1207,7 @@ pub fn endless_system(
         }
     }
 
-    // === SETTLE — when NPCs are near a town, create AI town + buildings ===
+    // === SETTLE. When NPCs are near a town, create AI town + buildings ===
     if let Some(mg) = &migration_state.active {
         if mg.town_data_idx.is_some() {
             return;
@@ -1235,12 +1235,12 @@ pub fn endless_system(
             }
         }
         if count == 0 {
-            // found == 0 means NPCs haven't spawned yet (SpawnNpcMsg not processed) — wait
+            // found == 0 means NPCs haven't spawned yet (SpawnNpcMsg not processed). Wait
             if found == 0 && !mg.member_slots.is_empty() {
                 return;
             }
             if found > 0 {
-                // All spawned members are dead — migration wiped out, queue replacement
+                // All spawned members are dead. Migration wiped out, queue replacement
                 let is_raider = mg.is_raider;
                 let kind_str = if is_raider {
                     "raider band"
@@ -1386,7 +1386,7 @@ pub fn endless_system(
         return;
     }
 
-    // === SPAWN BOAT — pick edge, allocate boat GPU slot ===
+    // === SPAWN BOAT. Pick edge, allocate boat GPU slot ===
     if endless.pending_spawns.is_empty() {
         return;
     }
