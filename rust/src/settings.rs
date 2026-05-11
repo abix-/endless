@@ -1,4 +1,4 @@
-//! User settings persistence — save/load config to JSON file.
+//! User settings persistence. Save/load config to JSON file.
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -572,7 +572,7 @@ pub struct UserSettings {
     pub towns: usize,
     #[serde(default = "default_farms")]
     pub farms: usize,
-    // Legacy per-type fields — kept for backward compat loading, migrated to npc_counts
+    // Legacy per-type fields. Kept for backward compat loading, migrated to npc_counts
     #[serde(default)]
     pub farmers: usize,
     #[serde(default, alias = "guards")]
@@ -673,7 +673,7 @@ pub struct UserSettings {
     // World gen style (0=Classic, 1=Continents, 2=Maze, 3=WorldMap)
     #[serde(default)]
     pub gen_style: u8,
-    // AI players (legacy — used for backward compat, derived from ai_slots)
+    // AI players (legacy. Used for backward compat, derived from ai_slots)
     #[serde(default = "default_five")]
     pub ai_towns: usize,
     #[serde(default = "default_five")]
@@ -1091,7 +1091,7 @@ mod tests {
 
     #[test]
     fn hp_bar_mode_when_damaged_shader_value_matches_current_behavior() {
-        // WhenDamaged maps to 1 in the shader -- the existing always-on value.
+        // WhenDamaged maps to 1 in the shader. The existing always-on value.
         // If this changes, the shader constant must change too.
         assert_eq!(HpBarMode::WhenDamaged.as_u32(), 1u32);
         assert_eq!(HpBarMode::Off.as_u32(), 0u32);
