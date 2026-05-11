@@ -17,11 +17,11 @@ Last updated: 2026-03-15.
 | Capability | Player UI | BRP API | LLM Player | Built-in AI |
 |---|---|---|---|---|
 | Place building | click map | `endless/build` | `build` | `try_build_*` |
-| Destroy building | click building | `endless/destroy` | `destroy` | -- |
+| Destroy building | click building | `endless/destroy` | `destroy` |. |
 | Purchase upgrade | upgrade panel | `endless/upgrade` | `upgrade` | `AiAction::Upgrade` |
-| Wall upgrade | click wall | -- | -- | -- |
-| Build roads | manual place | `endless/build` road | -- | `AiAction::BuildRoads` |
-| Build waypoints | manual place | `endless/build` waypoint | -- | `AiAction::BuildWaypoint` |
+| Wall upgrade | click wall |. |. |. |
+| Build roads | manual place | `endless/build` road |. | `AiAction::BuildRoads` |
+| Build waypoints | manual place | `endless/build` waypoint |. | `AiAction::BuildWaypoint` |
 
 ## Policy
 
@@ -38,10 +38,10 @@ Last updated: 2026-03-15.
 | mining_radius | slider | `endless/policy` | `policy` | `ExpandMiningRadius` |
 | reserve_food | slider | `endless/policy` | `policy` | reads internally |
 | reserve_gold | slider | `endless/policy` | `policy` | reads internally |
-| archer_schedule | dropdown | `endless/policy` | `policy` | -- |
-| archer_off_duty | dropdown | `endless/policy` | `policy` | -- |
-| farmer_schedule | dropdown | `endless/policy` | `policy` | -- |
-| farmer_off_duty | dropdown | `endless/policy` | `policy` | -- |
+| archer_schedule | dropdown | `endless/policy` | `policy` |. |
+| archer_off_duty | dropdown | `endless/policy` | `policy` |. |
+| farmer_schedule | dropdown | `endless/policy` | `policy` |. |
+| farmer_off_duty | dropdown | `endless/policy` | `policy` |. |
 | loot_threshold (per-squad) | slider (squad tab) | `endless/squad` | `squad` | personality default |
 
 ## Squad
@@ -54,19 +54,19 @@ Last updated: 2026-03-15.
 | rest_when_tired | checkbox | `endless/squad` | `squad` | sets internally |
 | hold_fire | checkbox | `endless/squad` | `squad` | intentionally off |
 | loot_threshold | slider | `endless/squad` | `squad` | personality default |
-| Recruit to squad | per-job buttons | `endless/squad_recruit` | -- | auto-assigns |
-| Dismiss from squad | button | `endless/squad_dismiss` | -- | -- |
-| Direct control (box-select) | mouse select | -- | -- | -- |
+| Recruit to squad | per-job buttons | `endless/squad_recruit` |. | auto-assigns |
+| Dismiss from squad | button | `endless/squad_dismiss` |. |. |
+| Direct control (box-select) | mouse select |. |. |. |
 
 ## Meta / AI Manager
 
 | Capability | Player UI | BRP API | LLM Player | Built-in AI |
 |---|---|---|---|---|
-| Pause / speed | buttons | `endless/time` | -- | -- |
-| AI manager toggle | checkbox | `endless/ai_manager` | -- | N/A |
-| AI personality | dropdown | `endless/ai_manager` | -- | N/A |
-| AI road style | dropdown | `endless/ai_manager` | -- | N/A |
-| Chat between towns | -- | `endless/chat` | `chat` | -- |
+| Pause / speed | buttons | `endless/time` |. |. |
+| AI manager toggle | checkbox | `endless/ai_manager` |. | N/A |
+| AI personality | dropdown | `endless/ai_manager` |. | N/A |
+| AI road style | dropdown | `endless/ai_manager` |. | N/A |
+| Chat between towns |. | `endless/chat` | `chat` |. |
 
 ## Gaps
 
@@ -74,19 +74,19 @@ Capabilities the player has that AI surfaces are missing.
 
 ### BRP / LLM Player
 
-1. ~~**Schedule controls**~~ -- closed: `endless/policy` + LLM `policy` action
-2. ~~**Reserve food/gold**~~ -- closed: `endless/policy` + LLM `policy` action
-3. ~~**Squad settings**~~ -- closed: `endless/squad` + LLM `squad` action
-4. ~~**Squad recruit/dismiss**~~ -- closed: `endless/squad_recruit` + `endless/squad_dismiss` (BRP only)
-5. ~~**Clear squad target**~~ -- closed: omit x/y in `endless/squad_target` or LLM `squad_target`
-6. **Wall upgrades** -- no endpoint to upgrade walls
-7. **Mine enable/disable** -- no endpoint to toggle individual mines
+1. ~~**Schedule controls**~~. Closed: `endless/policy` + LLM `policy` action
+2. ~~**Reserve food/gold**~~. Closed: `endless/policy` + LLM `policy` action
+3. ~~**Squad settings**~~. Closed: `endless/squad` + LLM `squad` action
+4. ~~**Squad recruit/dismiss**~~. Closed: `endless/squad_recruit` + `endless/squad_dismiss` (BRP only)
+5. ~~**Clear squad target**~~. Closed: omit x/y in `endless/squad_target` or LLM `squad_target`
+6. **Wall upgrades**. No endpoint to upgrade walls
+7. **Mine enable/disable**. No endpoint to toggle individual mines
 
 ### Built-in AI
 
-1. **Destroy buildings** -- cannot demolish own buildings
-2. **Schedule/off-duty tuning** -- does not change archer/farmer schedules or off-duty behavior
-3. **Wall upgrades** -- does not upgrade walls
+1. **Destroy buildings**. Cannot demolish own buildings
+2. **Schedule/off-duty tuning**. Does not change archer/farmer schedules or off-duty behavior
+3. **Wall upgrades**. Does not upgrade walls
 
 ### Remaining Gaps
 
