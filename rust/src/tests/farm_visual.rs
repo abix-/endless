@@ -98,7 +98,7 @@ pub fn tick(
                         format!("FarmReadyMarker spawned (count={})", marker_count),
                     );
                 } else {
-                    // Ready but no marker — this is the expected RED failure
+                    // Ready but no marker. This is the expected RED failure
                     test.fail_phase(elapsed, "Farm Ready but no FarmReadyMarker entity");
                 }
             } else if elapsed > 30.0 {
