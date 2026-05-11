@@ -17,7 +17,7 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
         faction: 2,
         kind: crate::constants::TownKind::AiRaider,
     });
-    // 3 farms near villager town — all Ready so raiders can steal
+    // 3 farms near villager town. All Ready so raiders can steal
     for i in 0..3 {
         let fx = 320.0 + (i as f32 * 64.0);
         params.add_building(crate::world::BuildingKind::Farm, fx, 320.0, 0);
