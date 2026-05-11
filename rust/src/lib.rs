@@ -73,7 +73,7 @@ pub enum AppState {
 // HELPERS
 // ============================================================================
 
-// derive_npc_state removed — NPC state lives in NpcInstance, not ECS
+// derive_npc_state removed. NPC state lives in NpcInstance, not ECS
 
 /// Get job name from job ID. Delegates to NPC registry.
 pub fn job_name(job: i32) -> &'static str {
@@ -136,7 +136,7 @@ fn frame_timer_start(timings: Res<SystemTimings>, time: Res<Time>) {
         if let Ok(mut map) = crate::tracing_layer::TRACING_TIMINGS.lock() {
             for (name, ms) in map.iter_mut() {
                 timings.record_traced(name, *ms);
-                // Decay stale entries — active systems overwrite via on_exit each frame
+                // Decay stale entries. Active systems overwrite via on_exit each frame
                 *ms *= 0.9;
             }
         }
@@ -543,7 +543,7 @@ pub fn build_app(app: &mut App) {
             Update,
             systems::audio::play_sfx_system.run_if(game_active.clone()),
         )
-        // System sets — game systems run at fixed 60 UPS
+        // System sets. Game systems run at fixed 60 UPS
         .configure_sets(
             FixedUpdate,
             (Step::Drain, Step::Spawn, Step::Combat, Step::Behavior)
@@ -685,7 +685,7 @@ pub fn build_app(app: &mut App) {
                 .after(systems::work_targeting::resolve_work_targets)
                 .in_set(Step::Behavior),
         )
-        // Waypoint advancement — advance NpcPath after gpu_position_readback sets at_destination
+        // Waypoint advancement. Advance NpcPath after gpu_position_readback sets at_destination
         .add_systems(
             FixedUpdate,
             advance_waypoints_system
@@ -704,7 +704,7 @@ pub fn build_app(app: &mut App) {
             )
                 .in_set(Step::Behavior),
         )
-        // Movement intent resolution — single owner of SetTarget, runs after all intent producers
+        // Movement intent resolution. Single owner of SetTarget, runs after all intent producers
         .add_systems(
             FixedUpdate,
             resolve_movement_system
@@ -716,7 +716,7 @@ pub fn build_app(app: &mut App) {
             FixedUpdate,
             (sync_debug_settings, debug_tick_system).run_if(game_active.clone()),
         )
-        // Save/Load — F5/F9 input + save + load + toast
+        // Save/Load. F5/F9 input + save + load + toast
         .add_systems(
             Update,
             save::save_load_input_system.run_if(in_state(AppState::Playing)),
@@ -783,7 +783,7 @@ mod tests_fixed_hz {
     #[test]
     fn fixed_period_is_baseline_at_1x() {
         let app = make_app();
-        // time_scale = 1.0 (default) -- sync_fixed_hz already primed in make_app
+        // time_scale = 1.0 (default). Sync_fixed_hz already primed in make_app
         let period = app.world().resource::<Time<Fixed>>().timestep();
         let expected = std::time::Duration::from_secs_f64(1.0 / 60.0);
         assert_eq!(
