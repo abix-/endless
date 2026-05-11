@@ -162,7 +162,7 @@ pub(super) fn tick(
     }
 }
 
-/// Stress test config panel — shows below the main test HUD.
+/// Stress test config panel. Shows below the main test HUD.
 pub(super) fn ui(
     mut contexts: EguiContexts,
     mut stress_config: ResMut<StressArcherConfig>,
