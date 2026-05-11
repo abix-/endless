@@ -49,7 +49,7 @@ struct Params {
 @group(0) @binding(9) var<storage, read_write> combat_targets: array<i32>;
 @group(0) @binding(10) var<uniform> params: Params;
 
-// Projectile spatial grid + data (read only — built by projectile compute modes 0+1)
+// Projectile spatial grid + data (read only. Built by projectile compute modes 0+1)
 @group(0) @binding(11) var<storage, read> proj_grid_counts: array<i32>;
 @group(0) @binding(12) var<storage, read> proj_grid_data: array<i32>;
 @group(0) @binding(13) var<storage, read> proj_positions: array<vec2<f32>>;
@@ -65,7 +65,7 @@ struct Params {
 // Tile flags: 1 u32 per world grid cell, bitfield for tile modifiers
 @group(0) @binding(18) var<storage, read> tile_flags: array<u32>;
 const TILE_ROAD: u32 = 32u;  // bit 5
-const TILE_WALL: u32 = 64u;  // bit 6 — blocks enemy faction NPCs
+const TILE_WALL: u32 = 64u;  // bit 6. Blocks enemy faction NPCs
 const WALL_FACTION_SHIFT: u32 = 8u;  // bits 8-11 encode wall owner faction
 const WALL_FACTION_MASK: u32 = 0xFu;
 
@@ -90,7 +90,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     // =========================================================================
-    // MODE 1: Build spatial grid (insert all entities — NPCs + buildings)
+    // MODE 1: Build spatial grid (insert all entities. NPCs + buildings)
     // =========================================================================
     // Mode 1: map each live entity to a cell, then atomically append index.
     if (params.mode == 1u) {
@@ -417,7 +417,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         let grad_len = length(grad);
         if (grad_len > 0.01) {
             let road_dir = grad / grad_len;
-            // Lateral component only — steer toward road without changing forward speed
+            // Lateral component only. Steer toward road without changing forward speed
             let lateral = road_dir - my_dir * dot(road_dir, my_dir);
             let lat_len = length(lateral);
             if (lat_len > 0.01) {
@@ -479,7 +479,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             if ((wflags & TILE_WALL) != 0u) {
                 let wall_faction = i32((wflags >> WALL_FACTION_SHIFT) & WALL_FACTION_MASK);
                 if (my_faction != wall_faction) {
-                    pos = pre_wall_pos; // blocked — revert to pre-movement position
+                    pos = pre_wall_pos; // blocked. Revert to pre-movement position
                 }
             }
         }
