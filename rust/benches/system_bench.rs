@@ -536,7 +536,7 @@ fn bench_resolve_movement_unbounded(c: &mut Criterion) {
                 // Lift budget caps to measure true unbounded cost
                 let mut config = world.resource_mut::<PathfindConfig>();
                 config.max_per_frame = 100_000;
-                config.max_time_budget_ms = 60_000.0; // 60 seconds — effectively unlimited
+                config.max_time_budget_ms = 60_000.0; // 60 seconds. Effectively unlimited
             }
             let _ = app.world_mut().run_system_once(
                 |mut commands: Commands, q: Query<Entity, Without<Building>>| {
@@ -745,7 +745,7 @@ fn bench_death_system(c: &mut Criterion) {
     let mut group = c.benchmark_group("death_system");
     group.sample_size(20);
     // Scale by deaths-per-frame at fixed 50K total NPCs.
-    // Measures full death→despawn→respawn cycle — the real cost the game pays.
+    // Measures full death→despawn→respawn cycle. The real cost the game pays.
     // Scale by deaths-per-frame at fixed 50K total NPCs. Benchmark the work that
     // death_system performs after damage_system has already marked the victims Dead.
     const DEATH_COUNTS: &[usize] = &[1_000, 50_000];
@@ -1857,7 +1857,7 @@ fn populate_pathfind_buildings(app: &mut App, count: usize) {
         em.init_spatial(world_size_px);
     }
 
-    // 75% walls, 25% bow towers — representative mix for pathfinding cost benchmarks
+    // 75% walls, 25% bow towers. Representative mix for pathfinding cost benchmarks
     let wall_count = count * 3 / 4;
 
     let world = app.world_mut();
@@ -1909,7 +1909,7 @@ fn populate_pathfind_buildings(app: &mut App, count: usize) {
     }
 }
 
-/// Benchmark `sync_pathfind_costs_system` — HPA* incremental chunk rebuild.
+/// Benchmark `sync_pathfind_costs_system`. HPA* incremental chunk rebuild.
 /// Fires on every BuildingGridDirtyMsg. Tests `grid.sync_building_costs()` + HPA*
 /// `rebuild_chunks()` cost for wall/tower buildings spread across the grid.
 fn bench_sync_pathfind_costs_system(c: &mut Criterion) {
@@ -2284,7 +2284,7 @@ fn bench_mason_decision_building_scale(c: &mut Criterion) {
 /// Benchmark `clear_peaks` at various peak-count sizes.
 ///
 /// `clear_peaks` runs once per game session entry (OnEnter Playing/Running).
-/// It clears `TRACING_PEAKS` and `TRACING_TIMINGS` -- both protected by Mutex.
+/// It clears `TRACING_PEAKS` and `TRACING_TIMINGS`. Both protected by Mutex.
 /// Cost scales with map size (number of tracked systems), not NPC count.
 /// Expected: <10us at realistic system counts (50-200 tracked systems).
 fn bench_clear_peaks(c: &mut Criterion) {
@@ -2366,7 +2366,7 @@ fn populate_realistic_scale(app: &mut App) {
             let y = (i / 500) as f32 * 64.0;
             if i * 2 + 1 < gpu_state.targets.len() {
                 if i % 10 == 0 {
-                    // hidden NPCs -- target doesn't matter
+                    // hidden NPCs. Target doesn't matter
                     gpu_state.targets[i * 2] = 0.0;
                     gpu_state.targets[i * 2 + 1] = 0.0;
                 } else if i % 5 == 0 {
