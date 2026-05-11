@@ -1,4 +1,4 @@
-//! Roster panel — NPC list with sorting and filtering (mirrors roster_panel.gd).
+//! Roster panel. NPC list with sorting and filtering (mirrors roster_panel.gd).
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
@@ -150,7 +150,7 @@ pub fn roster_panel_system(
         ui.label(format!("{} NPCs", state.cached_rows.len()));
         ui.separator();
 
-        // Sort headers — pre-compute arrow strings to avoid borrow conflict
+        // Sort headers. Pre-compute arrow strings to avoid borrow conflict
         fn arrow_str(state: &RosterState, col: SortColumn) -> &'static str {
             if state.sort_column == Some(col) {
                 if state.sort_descending { " v" } else { " ^" }
