@@ -85,7 +85,7 @@ pub fn setup(
         home_y: 384.0,
         work_x: -1.0,
         work_y: -1.0,
-        starting_post: -1, // no patrol — just stands there
+        starting_post: -1, // no patrol. Just stands there
         entity_override: None,
     });
     let slot1 = slot_alloc.alloc_reset().expect("slot alloc");
