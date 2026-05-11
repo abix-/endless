@@ -997,7 +997,7 @@ pub fn process_upgrades_system(
 // EQUIP / UNEQUIP SYSTEM
 // ============================================================================
 
-/// Processes equip/unequip messages — moves items between TownInventory and NpcEquipment.
+/// Processes equip/unequip messages. Moves items between TownInventory and NpcEquipment.
 pub fn process_equip_system(
     mut equip_msgs: MessageReader<EquipItemMsg>,
     mut unequip_msgs: MessageReader<UnequipItemMsg>,
@@ -1032,7 +1032,7 @@ pub fn process_equip_system(
         let Ok((mut eq, gpu_slot, job, town_id, atk_type, pers)) =
             equipment_q.get_mut(msg.npc_entity)
         else {
-            // NPC gone — put item back
+            // NPC gone. Put item back
             if let Some(mut teq) = town_access.equipment_mut(msg.town_idx as i32) {
                 teq.0.push(item);
             }
@@ -1343,7 +1343,7 @@ pub fn auto_equip_system(
                 use crate::constants::ItemKind;
                 let current_bonus = match slot {
                     ItemKind::Ring => {
-                        // For rings, check both slots — use the lower one
+                        // For rings, check both slots. Use the lower one
                         let b1 = equip.ring1.as_ref().map(|i| i.stat_bonus).unwrap_or(0.0);
                         let b2 = equip.ring2.as_ref().map(|i| i.stat_bonus).unwrap_or(0.0);
                         b1.min(b2)
