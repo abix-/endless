@@ -2,7 +2,7 @@
 
 Stage 15. Implementation spec for splitting the world tilemap into frustum-culled chunks.
 
-The world tilemap is spawned as one giant `TilemapChunk` entity per layer (terrain + buildings). At 250×250 that's 62,500 tiles per layer, all processed every frame for draw command generation even when most are off-screen. At 1000×1000 it's 1M tiles. Bevy can only skip entities whose bounding box is fully off-screen — one entity = no culling.
+The world tilemap is spawned as one giant `TilemapChunk` entity per layer (terrain + buildings). At 250×250 that's 62,500 tiles per layer, all processed every frame for draw command generation even when most are off-screen. At 1000×1000 it's 1M tiles. Bevy can only skip entities whose bounding box is fully off-screen. One entity = no culling.
 
 **Fix:** split into 32×32 tile chunks (Factorio-style). 250×250 → 8×8 = 64 chunks/layer. 1000×1000 → 32×32 = 1,024 chunks/layer. At typical zoom, only ~4-6 chunks are visible, so draw command generation drops from O(all tiles) to O(visible tiles).
 
@@ -13,7 +13,7 @@ Constants:
 const CHUNK_SIZE: usize = 32;
 ```
 
-Components — add grid origin to `BuildingChunk` (for sync):
+Components. Add grid origin to `BuildingChunk` (for sync):
 ```rust
 #[derive(Component)]
 pub struct BuildingChunk {
@@ -24,7 +24,7 @@ pub struct BuildingChunk {
 }
 ```
 
-`spawn_world_tilemap` — replace single chunk spawn with nested loop:
+`spawn_world_tilemap`. Replace single chunk spawn with nested loop:
 ```
 for chunk_y in (0..grid.height).step_by(CHUNK_SIZE)
   for chunk_x in (0..grid.width).step_by(CHUNK_SIZE)
@@ -39,7 +39,7 @@ for chunk_y in (0..grid.height).step_by(CHUNK_SIZE)
     // Building chunks get BuildingChunk { origin_x, origin_y, chunk_w, chunk_h }
 ```
 
-`sync_building_tilemap` — each chunk re-reads only its sub-region:
+`sync_building_tilemap`. Each chunk re-reads only its sub-region:
 ```rust
 fn sync_building_tilemap(
     grid: Res<WorldGrid>,
@@ -59,15 +59,15 @@ fn sync_building_tilemap(
 }
 ```
 
-Cleanup (`ui/mod.rs:500`): already queries `Entity, With<TilemapChunk>` and despawns all — works unchanged with multiple chunks.
+Cleanup (`ui/mod.rs:500`): already queries `Entity, With<TilemapChunk>` and despawns all. Works unchanged with multiple chunks.
 
 `spawn_chunk` helper: can be inlined; the loop body already covers the full behavior.
 
-**Tileset handles:** `build_tileset()` returns a `Handle<Image>`. Clone it for each chunk — Bevy ref-counts texture assets, so all chunks share the same GPU texture.
+**Tileset handles:** `build_tileset()` returns a `Handle<Image>`. Clone it for each chunk. Bevy ref-counts texture assets, so all chunks share the same GPU texture.
 
 **Verification:**
-1. Build and run, pan camera — no gaps or offset errors at chunk boundaries
-2. Place a building — appears correctly (sync still works)
-3. Zoom out fully — all chunks visible, slight FPS drop expected vs close zoom
+1. Build and run, pan camera. No gaps or offset errors at chunk boundaries
+2. Place a building. Appears correctly (sync still works)
+3. Zoom out fully. All chunks visible, slight FPS drop expected vs close zoom
 4. Tracy: `command_buffer_generation_tasks` should drop from ~10ms to ~1ms at default zoom
-5. New game / restart — chunks despawn and respawn correctly
+5. New game / restart. Chunks despawn and respawn correctly
