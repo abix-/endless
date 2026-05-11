@@ -17,7 +17,7 @@ pub fn setup(mut params: TestSetupParams, mut raider_state: ResMut<RaiderState>)
         faction: 2,
         kind: crate::constants::TownKind::AiRaider,
     });
-    // 1 farm near town — starts Growing at 95%
+    // 1 farm near town. Starts Growing at 95%
     params.add_building(crate::world::BuildingKind::Farm, 384.0, 320.0, 0);
     // Set production progress to 95% via ECS
     if let Some(inst) = params.entity_map.find_by_position(Vec2::new(384.0, 320.0)) {
@@ -125,7 +125,7 @@ pub fn tick(
             if raider_food > 10 {
                 test.pass_phase(elapsed, format!("raider_food={} (foraged)", raider_food));
             } else if elapsed > 30.0 {
-                // Raider town may have spent food on respawn — just pass if raider town exists with food
+                // Raider town may have spent food on respawn. Just pass if raider town exists with food
                 if raider_food >= 0 {
                     test.pass_phase(
                         elapsed,
