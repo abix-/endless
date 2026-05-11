@@ -143,7 +143,7 @@ pub fn tick(
                 };
                 let e = npc.entity;
 
-                // Use NpcEquipment::default() as base — NpcDef fallbacks
+                // Use NpcEquipment::default() as base. NpcDef fallbacks
                 // provide the real game-accurate baseline (e.g. archer shows sword).
                 let make_item = |kind, name: &str, sprite| crate::constants::LootItem {
                     id: 0,
@@ -157,7 +157,7 @@ pub fn tick(
 
                 match col {
                     COL_BODY => {
-                        // Default spawn look — NpcDef weapon/helm fallbacks apply
+                        // Default spawn look. NpcDef weapon/helm fallbacks apply
                     }
                     COL_WEAPON => {
                         commands.entity(e).insert(NpcEquipment {
