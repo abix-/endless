@@ -139,7 +139,7 @@ pub fn building_tiles() -> Vec<crate::constants::TileSpec> {
 
 /// Composite tiles into a vertical strip buffer (ATLAS_CELL x ATLAS_CELL*layers).
 /// Core logic shared by tilemap tileset and building atlas.
-/// `bases` provides an optional base tile per layer -- layers with a base are pre-filled
+/// `bases` provides an optional base tile per layer. Layers with a base are pre-filled
 /// and subsequent sprites are alpha-composited on top (transparent pixels keep the base).
 /// Pass an empty slice for no bases (building atlas).
 fn build_tile_strip(
@@ -151,7 +151,7 @@ fn build_tile_strip(
     let sprite = SPRITE_SIZE as u32; // 16 (source texel size)
     let out_size = ATLAS_CELL; // 64
     let scale = out_size / sprite; // 4x upscale from 16px source
-    let half = out_size / 2; // 32 — each quadrant in a Quad tile
+    let half = out_size / 2; // 32. Each quadrant in a Quad tile
     let cell_size = CELL as u32; // 17 (16px + 1px margin in source sheet)
     let atlas_width = atlas.width();
     let layers = tiles.len() as u32;
@@ -288,7 +288,7 @@ fn build_tile_strip(
                 let ext_h = ext.height();
 
                 if ext_w == out_size && ext_h == out_size {
-                    // Native ATLAS_CELL size — direct blit
+                    // Native ATLAS_CELL size. Direct blit
                     let layer_bytes = (out_size * out_size * 4) as usize;
                     if ext_data.len() >= layer_bytes {
                         data[layer_offset..layer_offset + layer_bytes]
@@ -511,7 +511,7 @@ pub fn build_building_atlas(
 }
 
 /// Extras atlas: composites individual 16x16 sprites into a horizontal grid (ATLAS_CELL cells, upscaled).
-/// Used for heal, sleep, arrow, boat -- any single-sprite overlay. Order matches atlas_id mapping in shader.
+/// Used for heal, sleep, arrow, boat. Any single-sprite overlay. Order matches atlas_id mapping in shader.
 pub fn build_extras_atlas(sprites: &[Image], images: &mut Assets<Image>) -> Handle<Image> {
     let cell = ATLAS_CELL;
     let count = sprites.len() as u32;
