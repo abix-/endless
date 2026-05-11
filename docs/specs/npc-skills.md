@@ -4,13 +4,13 @@ Per-NPC skill progression with unclamped unclamped scaling. Level 9999 = godlike
 
 ## Goal
 
-Add persistent, per-NPC proficiency that improves with experience and directly impacts how well NPCs perform their work (farm, fight, dodge, etc.). High proficiency should feel massively rewarding -- a level 9999 NPC is a god compared to a fresh spawn.
+Add persistent, per-NPC proficiency that improves with experience and directly impacts how well NPCs perform their work (farm, fight, dodge, etc.). High proficiency should feel massively rewarding. A level 9999 NPC is a god compared to a fresh spawn.
 
 ## Design constraints
 
 - Job determines what an NPC can do. Skills determine how well they do it.
 - Proficiency is additive/scalar, stacks with existing job stats/upgrades/traits.
-- No artificial caps on the multiplier -- let the numbers grow. Only the proficiency VALUE caps at MAX_PROFICIENCY (9999).
+- No artificial caps on the multiplier. Let the numbers grow. Only the proficiency VALUE caps at MAX_PROFICIENCY (9999).
 - Keep deterministic enough for tests and profiling; avoid expensive per-frame randomness.
 
 ## Data model
@@ -18,7 +18,7 @@ Add persistent, per-NPC proficiency that improves with experience and directly i
 - `NpcSkills` component: `farming: f32`, `combat: f32`, `dodge: f32`
 - Range: 0.0 to MAX_PROFICIENCY (9999.0)
 - Stored as f32, displayed as integer in UI
-- Skill belongs to NPC instance -- newly spawned replacement starts at 0
+- Skill belongs to NPC instance. Newly spawned replacement starts at 0
 - Persisted via save/load with serde(default) backward compat
 
 ## Scaling formula (unclamped)
@@ -56,7 +56,7 @@ All three skills use the same proficiency_mult function. Dodge converts the mult
 - `FARMING_SKILL_RATE = 0.02` per game hour tending
 - `DODGE_SKILL_RATE = 0.5` per dodge event
 - All capped at `MAX_PROFICIENCY = 9999.0`
-- No diminishing returns on gain rate -- linear accumulation, unclamped
+- No diminishing returns on gain rate. Linear accumulation, unclamped
 
 ## Constants
 
