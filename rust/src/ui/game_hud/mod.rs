@@ -1,4 +1,4 @@
-//! In-game HUD — top resource bar, bottom panel (inspector + combat log), target overlay.
+//! In-game HUD. Top resource bar, bottom panel (inspector + combat log), target overlay.
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -15,7 +15,7 @@ use crate::world::{BuildingKind, WorldData};
 
 /// Collect alive direct-control NPC slots from the selected player squad.
 /// Only includes NPCs with `NpcFlags.direct_control == true` (set by box-select).
-/// O(squad_size) instead of O(all_npcs) — avoids scanning entire EntityMap.
+/// O(squad_size) instead of O(all_npcs). Avoids scanning entire EntityMap.
 fn dc_slots(
     squad_state: &SquadState,
     entity_map: &EntityMap,
@@ -477,7 +477,7 @@ pub fn top_bar_system(
                             .strong(),
                     );
 
-                    // LLM status indicator — painted circle with color coding
+                    // LLM status indicator. Painted circle with color coding
                     if let Some(ref llm) = llm_state {
                         use crate::systems::llm_player::LlmStatus;
                         let (color, tip) = match llm.status {
@@ -508,7 +508,7 @@ pub fn top_bar_system(
 
                     ui.separator();
 
-                    // Player stats (right-aligned) — look up player town by faction
+                    // Player stats (right-aligned). Look up player town by faction
                     let player_town_idx = world_data
                         .towns
                         .iter()
@@ -742,7 +742,7 @@ pub fn jukebox_ui_system(
     Ok(())
 }
 
-/// Toast notification for save/load feedback — centered top area, fades out.
+/// Toast notification for save/load feedback. Centered top area, fades out.
 pub fn save_toast_system(mut contexts: EguiContexts, toast: Res<crate::save::SaveToast>) -> Result {
     if toast.timer <= 0.0 {
         return Ok(());
