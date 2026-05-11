@@ -52,7 +52,7 @@ pub fn setup(
         GRID_COLS * GRID_ROWS
     ];
 
-    // Row 3: terrain showcase — each column gets a distinct biome.
+    // Row 3: terrain showcase. Each column gets a distinct biome.
     // Variant selection is hash-based, so labels are computed from the
     // actual tileset index during rendering instead of assuming a fixed order.
     for col in 0..GRID_COLS {
