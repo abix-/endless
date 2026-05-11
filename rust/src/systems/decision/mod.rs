@@ -290,8 +290,8 @@ static DECISION_FRAME: std::sync::atomic::AtomicUsize = std::sync::atomic::Atomi
 ///
 /// Priority order (first match wins):
 /// 0. AtDestination -> Handle arrival transition
-/// 1-3. Combat (flee/leash/skip) — runs before transit skip so fighting NPCs can flee
-/// -- Skip transit NPCs --
+/// 1-3. Combat (flee/leash/skip). Runs before transit skip so fighting NPCs can flee
+///. Skip transit NPCs.
 /// 4a. HealingAtFountain? -> Wake when HP recovered
 /// 4b. Resting? -> Wake when energy >= 90%
 /// 5. Working + tired? -> Stop work
@@ -336,13 +336,13 @@ pub fn decision_system(
     const CHECK_INTERVAL: usize = 30;
     const FARM_ARRIVAL_RADIUS: f32 = 20.0;
     const HEAL_DRIFT_RADIUS: f32 = 100.0; // Re-target fountain if pushed beyond this
-    // Adaptive bucket count — scales with population to cap per-frame decisions
+    // Adaptive bucket count. Scales with population to cap per-frame decisions
     let npc_count = entity_map.npc_count();
     let interval_buckets = (npc_config.interval * 60.0) as usize;
     let min_buckets = npc_count / npc_config.max_decisions_per_frame.max(1);
     let think_buckets = interval_buckets.max(min_buckets).max(1);
     // Combat bucket: fighting NPCs use a tighter cadence for responsive flee/leash reactions.
-    // No speed_scale adjustment -- FixedUpdate runs at constant 60 Hz regardless of
+    // No speed_scale adjustment. FixedUpdate runs at constant 60 Hz regardless of
     // time_scale. game_time.delta() handles speed scaling per tick.
     const COMBAT_BUCKET: usize = 16; // ~267ms at 60fps
     let combat_bucket = COMBAT_BUCKET;
@@ -384,7 +384,7 @@ pub fn decision_system(
             }
         }
 
-        // Full component reads — only for NPCs that passed the bucket gate
+        // Full component reads. Only for NPCs that passed the bucket gate
         let job = *job;
         let town_idx_i32 = town_id.0;
         let faction_i32 = faction.0;
@@ -474,7 +474,7 @@ pub fn decision_system(
 
         'decide: {
             // ====================================================================
-            // DirectControl: absolute skip — no autonomous behavior whatsoever.
+            // DirectControl: absolute skip. No autonomous behavior whatsoever.
             // ====================================================================
             if direct_control {
                 // Fair mining queue: direct-control miners lose their spot if moved out of range.
@@ -681,7 +681,7 @@ pub fn decision_system(
                                 let occupied_by_other = if owns { occ > 1 } else { occ >= 1 };
 
                                 if occupied_by_other {
-                                    // Farm occupied — retarget via resolver
+                                    // Farm occupied. Retarget via resolver
                                     let uid =
                                         worksite.and_then(|s| entity_map.entities.get(&s).copied());
                                     extras
@@ -733,7 +733,7 @@ pub fn decision_system(
                                             }
                                         });
                                     if let Some((food, log_msg)) = harvest {
-                                        // Harvest — release worksite, carry home
+                                        // Harvest. Release worksite, carry home
                                         farm_visual.write(crate::messages::FarmHarvestedMsg {
                                             slot: farm_slot,
                                         });
@@ -780,7 +780,7 @@ pub fn decision_system(
                                             "Harvested → Returning",
                                         );
                                     } else {
-                                        // Farm not ready — claim via resolver if not already owned, start working
+                                        // Farm not ready. Claim via resolver if not already owned, start working
                                         if !owns {
                                             let uid = worksite
                                                 .and_then(|s| entity_map.entities.get(&s).copied());
@@ -838,7 +838,7 @@ pub fn decision_system(
                                     }
                                 }
                             } else {
-                                // No farm nearby — release and idle
+                                // No farm nearby. Release and idle
                                 let uid =
                                     worksite.and_then(|s| entity_map.entities.get(&s).copied());
                                 extras
@@ -1043,7 +1043,7 @@ pub fn decision_system(
                         }
                     }
                     ActivityKind::Mine => {
-                        // Arrived at gold mine -- resolve position from worksite claim
+                        // Arrived at gold mine. Resolve position from worksite claim
                         let mine_pos = worksite
                             .and_then(|slot| entity_map.get_instance(slot))
                             .map(|inst| inst.position)
@@ -1062,7 +1062,7 @@ pub fn decision_system(
                             .is_some_and(|ps| ps.ready);
                         if mine_entity.is_some() {
                             if mine_ready && can_harvest_turn {
-                                // Mine ready — harvest immediately
+                                // Mine ready. Harvest immediately
                                 let town_levels = economy.towns.upgrade_levels(town_idx_i32);
                                 let yield_mult = UPGRADES.stat_mult(
                                     &town_levels,
@@ -1131,7 +1131,7 @@ pub fn decision_system(
                                     );
                                 }
                             } else if mine_slot.is_some() {
-                                // Mine not ready for this miner (still growing or queued behind others) — tend/wait
+                                // Mine not ready for this miner (still growing or queued behind others). Tend/wait
                                 extras.work_intents.write(WorkIntentMsg(WorkIntent::Claim {
                                     entity,
                                     kind: BuildingKind::GoldMine,
@@ -1188,7 +1188,7 @@ pub fn decision_system(
                         }
                     }
                     ActivityKind::Repair => {
-                        // Mason arrived at damaged building -- start repairing
+                        // Mason arrived at damaged building. Start repairing
                         transition_phase(
                             &mut activity,
                             ActivityPhase::Active,
@@ -1219,7 +1219,7 @@ pub fn decision_system(
                         );
                     }
                     ActivityKind::ReturnLoot => {
-                        // May have arrived at wrong place (e.g. after DC removal) — redirect home
+                        // May have arrived at wrong place (e.g. after DC removal). Redirect home
                         if home_valid {
                             submit_intent(
                                 &mut intents,
@@ -1479,7 +1479,7 @@ pub fn decision_system(
             // ====================================================================
             if let Some(sid) = squad_id {
                 // Manual micro override: player-assigned attack target takes priority.
-                // Don't redirect the NPC — combat system handles ManualTarget directly.
+                // Don't redirect the NPC. Combat system handles ManualTarget directly.
                 if manual_target.is_some() {
                     // Still allow squad target to set movement destination (already done
                     // when the right-click command was issued), but don't override it here.
@@ -1549,7 +1549,7 @@ pub fn decision_system(
                                 break 'decide;
                             }
                         }
-                        // Squad target — always submit intent (single path, deterministic)
+                        // Squad target. Always submit intent (single path, deterministic)
                         // Movement system deduplicates unchanged targets; priority system
                         // resolves conflicts (Survival=4 > Squad=2 > JobRoute=1).
                         //
@@ -1581,7 +1581,7 @@ pub fn decision_system(
                                     );
                                 }
                             } else {
-                                // No wall found — try normal target anyway
+                                // No wall found. Try normal target anyway
                                 submit_intent(
                                     &mut intents,
                                     entity,
@@ -1650,7 +1650,7 @@ pub fn decision_system(
                     let occ = entity_map.occupant_count(wp);
                     let occupied_by_other = (occ > 1) || (occ >= 1 && worksite != Some(wp));
                     if occupied_by_other {
-                        // Retarget via resolver — release old + claim new
+                        // Retarget via resolver. Release old + claim new
                         let current_pos = npc_pos.unwrap_or_default();
                         let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
                         extras
@@ -1667,7 +1667,7 @@ pub fn decision_system(
                         }));
                         worksite = None;
                         worksite_deferred = true;
-                        // Activity stays GoingToWork — resolver will submit path or set Idle
+                        // Activity stays GoingToWork. Resolver will submit path or set Idle
                         npc_logs.push(
                             idx,
                             game_time.day(),
@@ -1762,7 +1762,7 @@ pub fn decision_system(
                 break 'decide;
             }
 
-            // (Tier 3 bucket gate removed — gating now happens at top of loop)
+            // (Tier 3 bucket gate removed. Gating now happens at top of loop)
 
             // ====================================================================
             // Priority 4a: HealingAtFountain? -> Wake when HP recovered
@@ -1842,7 +1842,7 @@ pub fn decision_system(
             }
 
             // ====================================================================
-            // Priority 4c: Loot threshold — too much equipment, return home
+            // Priority 4c: Loot threshold. Too much equipment, return home
             // ====================================================================
             let loot_threshold = loot_threshold_for_npc(squad_state, squad_id);
             if !npc_def(job).equip_slots.is_empty()
@@ -1895,7 +1895,7 @@ pub fn decision_system(
                 // Look up worksite config from building registry
                 let inst_snapshot = entity_map.get_instance(slot).map(|i| (i.kind, i.town_idx));
                 let Some((kind, inst_town)) = inst_snapshot else {
-                    // Worksite destroyed — release and reassign
+                    // Worksite destroyed. Release and reassign
                     let uid = worksite.and_then(|s| entity_map.entities.get(&s).copied());
                     extras
                         .work_intents
@@ -2202,7 +2202,7 @@ pub fn decision_system(
             }
 
             // ====================================================================
-            // Priority 5b: Mason Repair active -- heal nearest damaged building
+            // Priority 5b: Mason Repair active. Heal nearest damaged building
             // ====================================================================
             if activity.kind == ActivityKind::Repair && activity.phase == ActivityPhase::Active {
                 // Tired -> stop repairing
@@ -2267,7 +2267,7 @@ pub fn decision_system(
                     }
                 });
                 if !repaired {
-                    // No damaged building nearby -- go idle
+                    // No damaged building nearby. Go idle
                     transition_activity(
                         &mut activity,
                         ActivityKind::Idle,
@@ -2310,7 +2310,7 @@ pub fn decision_system(
                         game_time.minute(),
                         "Tired -> Left post",
                     );
-                    // Fall through to idle scoring -- Rest will win
+                    // Fall through to idle scoring. Rest will win
                 } else {
                     let squad = squad_id.and_then(|sid| squad_state.squads.get(sid as usize));
                     let has_squad_target = squad.is_some_and(|s| s.target.is_some());
@@ -2378,7 +2378,7 @@ pub fn decision_system(
             let mut score_count: usize = 0;
 
             // Prioritize healing: wounded NPCs go to fountain before doing anything else
-            // Skip if starving — HP capped at 50% until energy recovers
+            // Skip if starving. HP capped at 50% until energy recovers
             if let Some(p) = &policy {
                 if p.prioritize_healing && energy > 0.0 && health / max_hp < p.recovery_hp {
                     if let Some(town) = world_data.towns.get(town_idx) {
@@ -2592,7 +2592,7 @@ pub fn decision_system(
                         Job::Farmer => {
                             let current_pos = npc_pos.unwrap_or(home);
                             // Probe for available farm (read-only); defer claim to resolver
-                            // Probe only — production state doesn't affect availability check
+                            // Probe only. Production state doesn't affect availability check
                             let empty_map = std::collections::HashMap::new();
                             if find_farmer_farm_target(
                                 current_pos,
@@ -2624,7 +2624,7 @@ pub fn decision_system(
                                     "Farm claim -> resolver",
                                 );
                             } else {
-                                // No available farm — clear stale target and wander
+                                // No available farm. Clear stale target and wander
                                 worksite = None;
                                 let base = if home_valid {
                                     home
@@ -2767,7 +2767,7 @@ pub fn decision_system(
                                         break 'decide;
                                     }
                                 }
-                                // No target set — fall through to normal patrol
+                                // No target set. Fall through to normal patrol
                             }
                             if let Ok(route) = npc_data.patrol_route_q.get(entity) {
                                 if !route.posts.is_empty() {
@@ -2803,9 +2803,9 @@ pub fn decision_system(
                             // Squad-driven: squad target override handled above in squad sync.
                             // If idle with no squad target, wander near home (gathering phase).
                             if squad_id.is_some() {
-                                // Squad assigned — target is managed by ai_squad_commander
+                                // Squad assigned. Target is managed by ai_squad_commander
                             } else {
-                                // No squad — wander near town
+                                // No squad. Wander near town
                                 let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 100.0;
                                 let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 100.0;
                                 transition_activity(
@@ -2979,7 +2979,7 @@ pub fn decision_system(
         // Conditional writeback: skip unchanged NPCs (most exit early via break 'decide)
         let new_visual_key = (activity.visual_key(), carried_loot.visual_key());
         if activity != orig_activity {
-            // Clear stale GPU target when going Idle -- prevents oscillation with nearby NPCs
+            // Clear stale GPU target when going Idle. Prevents oscillation with nearby NPCs
             if activity.kind == ActivityKind::Idle && activity.kind != orig_activity.kind {
                 if let Some(pos) = npc_pos {
                     intents.submit(entity, pos, MovementPriority::Wander, "idle:stop");
