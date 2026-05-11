@@ -4,9 +4,9 @@ How to run an AI model as a player in Endless.
 
 ## Wire Format
 
-**State (game → LLM)**: TOON (Token-Oriented Object Notation) via `serde_toon2` — compact line-oriented format, 30-60% fewer tokens than JSON.
+**State (game → LLM)**: TOON (Token-Oriented Object Notation) via `serde_toon2`. Compact line-oriented format, 30-60% fewer tokens than JSON.
 
-**Actions (LLM → game)**: CSV lines — one action per line: `method, key:value, key:value, ...`
+**Actions (LLM → game)**: CSV lines. One action per line: `method, key:value, key:value, ...`
 ```
 build, kind:Farm, row:1, col:0
 policy, eat_food:true, prioritize_healing:true
@@ -15,11 +15,11 @@ squad_target, squad:0, x:5000, y:8000
 chat, to:2, message:good luck neighbor
 ```
 
-Parsed by `parse_actions()` — splits on `, ` then `split_once(':')` for named key:value params. Special handling for `message:` (captures everything after, preserving commas).
+Parsed by `parse_actions()`. Splits on `, ` then `split_once(':')` for named key:value params. Special handling for `message:` (captures everything after, preserving commas).
 
 ## Built-in Player (recommended)
 
-The game has a built-in LLM player that spawns `claude --print` directly — no HTTP server, no Python scripts.
+The game has a built-in LLM player that spawns `claude --print` directly. No HTTP server, no Python scripts.
 
 ### Setup
 
@@ -36,8 +36,8 @@ The built-in player reads ECS resources directly and sends game state as TOON to
 - `LlmReadState` SystemParam: read-only ECS access (WorldData, GameTime, FactionStats, PopulationStats, Reputation)
 - `LlmWriteState` SystemParam: write access (SquadState, ChatInbox)
 - `TownAccess` SystemParam: food/gold/upgrades/policies per town (replaces old Vec resources)
-- `build_state_json()`: builds `serde_json::Value` from ECS, serialized to TOON via `serde_toon2::to_string()` — flat per-town fields (compact building strings, squad counts, distance, reputation) for tabular TOON format + top-level own-town extras (your_squads, open_slots, inbox). Inbox uses flag-based delivery: only unsent messages (`!sent_to_llm`) are included, then marked `sent_to_llm = true`.
-- `parse_actions()`: parses CSV lines — splits on `, ` then `split_once(':')` for named key:value params
+- `build_state_json()`: builds `serde_json::Value` from ECS, serialized to TOON via `serde_toon2::to_string()`. Flat per-town fields (compact building strings, squad counts, distance, reputation) for tabular TOON format + top-level own-town extras (your_squads, open_slots, inbox). Inbox uses flag-based delivery: only unsent messages (`!sent_to_llm`) are included, then marked `sent_to_llm = true`.
+- `parse_actions()`: parses CSV lines. Splits on `, ` then `split_once(':')` for named key:value params
 - `execute_actions()`: routes parsed actions to ECS mutations (build, destroy, upgrade, policy, squad_target, chat, query, subscribe, unsubscribe). Combat log entries use `push_at` with world positions for camera-pan buttons. Chat action writes to `ChatInbox` only (not combat log) and marks the original player message as `has_reply = true`.
 
 Process spawn uses `.env_remove("CLAUDECODE")` to avoid nested-session detection, `Stdio::piped()` for stdin, and `CREATE_NO_WINDOW` on Windows to prevent console focus stealing.
@@ -54,10 +54,10 @@ Process spawn uses `.env_remove("CLAUDECODE")` to avoid nested-session detection
 ### Settings Panel
 
 The LLM Player tab in the pause menu settings provides:
-- **Cycle interval slider** (5-120s, step 5) — synced live to timer duration
-- **Last Command** — the `claude --print` CLI invocation (collapsible, copy button)
-- **Last Payload** — full TOON state sent as stdin (collapsible, copy button)
-- **Last Response** — raw LLM output (collapsible, copy button)
+- **Cycle interval slider** (5-120s, step 5). Synced live to timer duration
+- **Last Command**. The `claude --print` CLI invocation (collapsible, copy button)
+- **Last Payload**. Full TOON state sent as stdin (collapsible, copy button)
+- **Last Response**. Raw LLM output (collapsible, copy button)
 
 ### HUD Status Indicator
 
