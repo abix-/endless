@@ -115,7 +115,7 @@ pub struct SquadsDirtyMsg;
 #[derive(Message, Clone)]
 pub struct MiningDirtyMsg;
 
-/// Work targeting intent — fire-and-forget from any system.
+/// Work targeting intent. Fire-and-forget from any system.
 /// Single consumer: `resolve_work_targets` (owns all occupancy mutations).
 #[derive(Message, Clone)]
 pub struct WorkIntentMsg(pub WorkIntent);
@@ -232,7 +232,7 @@ pub enum GpuUpdate {
     SetFaction { idx: usize, faction: i32 },
     /// Set max health for normalization (send before SetHealth)
     SetMaxHealth { idx: usize, max_health: f32 },
-    /// Set health directly (spawn/reset) — stored normalized by max_health
+    /// Set health directly (spawn/reset). Stored normalized by max_health
     SetHealth { idx: usize, health: f32 },
     /// Set position directly (spawn/teleport)
     SetPosition { idx: usize, x: f32, y: f32 },
@@ -324,7 +324,7 @@ pub const RT_NAMES: [&str; RT_COUNT] = [
     "r:ext_visual",
 ];
 
-// Extract dirty index counts — written by extract_npc_data, read by profiler tab.
+// Extract dirty index counts. Written by extract_npc_data, read by profiler tab.
 pub const DC_COUNT: usize = 10;
 pub const DC_NAMES: [&str; DC_COUNT] = [
     "pos", "arr", "tgt", "spd", "fac", "hp", "flg", "hs", "vis", "eq",
