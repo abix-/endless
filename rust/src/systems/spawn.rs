@@ -73,7 +73,7 @@ fn generate_personality(slot: usize) -> Personality {
 }
 
 // ============================================================================
-// SHARED SPAWN HELPER — single source of truth for NPC materialization
+// SHARED SPAWN HELPER. Single source of truth for NPC materialization
 // ============================================================================
 
 /// Optional overrides for save-loaded NPCs. Fresh spawns pass all None.
@@ -192,7 +192,7 @@ pub fn materialize_npc(
     let activity = overrides.activity.unwrap_or_default();
     let combat_state = overrides.combat_state.clone().unwrap_or_default();
 
-    // Patrol route — caller may pre-compute posts via build_patrol_route_ecs
+    // Patrol route. Caller may pre-compute posts via build_patrol_route_ecs
     let patrol_route = if def.is_patrol_unit && starting_post >= 0 {
         let patrol_posts = build_patrol_route_fallback(entity_map, town_idx as u32);
         if !patrol_posts.is_empty() {
@@ -226,7 +226,7 @@ pub fn materialize_npc(
         activity
     };
 
-    // Equipment -- apply default weapon from NpcDef on fresh spawns only (not save restore)
+    // Equipment. Apply default weapon from NpcDef on fresh spawns only (not save restore)
     let mut npc_equipment = overrides.equipment.clone();
     let is_fresh_spawn = overrides.activity.is_none();
     if is_fresh_spawn && npc_equipment.weapon.is_none() {
@@ -383,7 +383,7 @@ pub fn spawn_npc_system(
     }
 }
 
-/// Build sorted patrol route without ECS query access — uses slot order as fallback.
+/// Build sorted patrol route without ECS query access. Uses slot order as fallback.
 /// Used during save load and spawn_npc_system where WaypointOrder query isn't available.
 pub(crate) fn build_patrol_route_fallback(entity_map: &EntityMap, town_idx: u32) -> Vec<Vec2> {
     let mut posts: Vec<(usize, Vec2)> = entity_map
@@ -551,7 +551,7 @@ mod tests {
             if p.trait2.is_some() {
                 assert!(p.trait1.is_some(), "trait2 without trait1 at slot {slot}");
             }
-            // No trait3 field exists — struct enforces max 2 by design
+            // No trait3 field exists. Struct enforces max 2 by design
         }
     }
 
