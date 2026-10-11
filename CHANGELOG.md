@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-11
+
+- **icons: endless and endless-cli have their own icons**: endless.exe carries a purple castle and endless-cli.exe a purple terminal (made by onelog's tools/make-icons). `rust/build.rs` links `rust/icons/endless.res`; go build links `llm-player/rsrc_windows_amd64.syso`. Proof: both built, and Windows' `ExtractAssociatedIcon` read each icon from its exe.
+
 ## 2026-03-21
 
 - **fix: regression test for issue #170** -- `damage_system_no_iter_npcs_sampling` now checks HP reduction instead of `damage_processed`. FixedUpdate runs 64 sub-ticks per `app.update()` with `ManualDuration(1.0s)`, causing `damage_processed` to be overwritten to 0 by later ticks. HP is set once on the first tick and unchanged thereafter.

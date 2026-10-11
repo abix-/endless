@@ -38,5 +38,13 @@ fn main() {
     println!("cargo:rustc-env=BUILD_TIMESTAMP={}", timestamp);
     println!("cargo:rustc-env=BUILD_COMMIT={}", commit);
 
+    // The program's icon (icons/endless.res, made by onelog's
+    // tools/make-icons), linked into its exe. MSVC only: a .res is a
+    // Windows resource.
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        let dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+        println!("cargo:rustc-link-arg-bin=endless={dir}/icons/endless.res");
+    }
+
     // No rerun-if-changed = rerun on any package file change (always fresh timestamp)
 }
